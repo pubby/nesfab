@@ -1,0 +1,10 @@
+byte x
+
+fn foo()
+    byte x
+    0
+    if x + 3
+        if x + 9
+            0
+        else
+            0

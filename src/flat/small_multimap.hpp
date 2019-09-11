@@ -1,7 +1,7 @@
 #ifndef LIB_FLAT_SMALL_MULTIMAP_HPP
 #define LIB_FLAT_SMALL_MULTIMAP_HPP
 
-#include "flat_map.hpp"
+#include "flat_multimap.hpp"
 #include <boost/container/small_vector.hpp>
 
 namespace fc

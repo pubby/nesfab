@@ -11,6 +11,7 @@
 #include "flat/flat_set.hpp"
 
 #include "file.hpp"
+#include "handle.hpp"
 #include "parser_types.hpp"
 #include "ram.hpp"
 #include "symbol_table.hpp"
@@ -21,6 +22,8 @@ namespace bc = boost::container;
 class fn_t;
 class global_t;
 
+using stmt_handle_t = handle_t<unsigned, struct stmt_handle_tag_t>;
+
 #define STMT_ENUM \
     X(STMT_END_BLOCK)\
     X(STMT_EXPR)\
@@ -30,7 +33,9 @@ class global_t;
     X(STMT_DO)\
     X(STMT_RETURN)\
     X(STMT_BREAK)\
-    X(STMT_CONTINUE)
+    X(STMT_CONTINUE)\
+    X(STMT_LABEL)\
+    X(STMT_GOTO)
 
 // Negative values represent var inits, where 
 enum stmt_name_t : int
@@ -99,7 +104,12 @@ struct stmt_t
 {
     stmt_name_t name;
     pstring_t pstring;
-    token_t* expr;
+    union
+    {
+        token_t* expr;
+        stmt_handle_t jump_h;
+        unsigned count;
+    };
 };
 
 class fn_t
@@ -109,14 +119,23 @@ public:
     : local_vars(params_begin, params_end) 
     {}
 
-    void push_stmt(stmt_t stmt)
+    stmt_t const& operator[](stmt_handle_t h) const { return stmts[h.value]; }
+    stmt_t& operator[](stmt_handle_t h) { return stmts[h.value]; }
+
+    stmt_handle_t next_stmt() const { return { stmts.size() }; }
+
+    stmt_handle_t push_stmt(stmt_t stmt) 
     { 
+        stmt_handle_t handle = next_stmt();
         stmts.push_back(stmt); 
+        return handle;
     }
 
-    void push_var_init(unsigned name, token_t* expr)
+    stmt_handle_t push_var_init(unsigned name, token_t* expr)
     { 
+        stmt_handle_t handle = next_stmt();
         stmts.push_back({ static_cast<stmt_name_t>(~name), {}, expr }); 
+        return handle;
     }
 
     unsigned num_params;

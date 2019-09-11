@@ -465,6 +465,8 @@ void parser_t<P>::parse_statement()
     case TOK_return:   return parse_return();
     case TOK_break:    return parse_break();
     case TOK_continue: return parse_continue();
+    case TOK_goto:     return parse_goto();
+    case TOK_label:    return parse_label();
     default: 
         if(is_type_prefix(token.type))
             return parse_var_init_statement();
@@ -655,7 +657,22 @@ void parser_t<P>::parse_continue()
     policy().continue_statement(pstring);
 }
 
-#include "pass1.hpp"
+template<typename P>
+void parser_t<P>::parse_goto()
+{
+    parse_token(TOK_goto);
+    policy().goto_statement(parse_ident());
+    parse_line_ending();
+}
 
+template<typename P>
+void parser_t<P>::parse_label()
+{
+    parse_token(TOK_label);
+    policy().label_statement(parse_ident());
+    parse_line_ending();
+}
+
+#include "pass1.hpp"
 template class parser_t<pass1_t>;
 

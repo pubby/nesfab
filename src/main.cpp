@@ -1,3 +1,6 @@
+// This project is licensed under the Boost Software License.
+// See license.txt for details.
+
 #include <iostream>
 
 #include "file.hpp"

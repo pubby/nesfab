@@ -8,6 +8,9 @@
 #include <variant>
 #include <vector>
 
+#include "flat/small_map.hpp"
+#include "flat/small_multimap.hpp"
+
 #include "compiler_error.hpp"
 #include "globals.hpp"
 #include "nothing.hpp"
@@ -30,6 +33,9 @@ public:
     void begin_fn(pstring_t fn_name, var_decl_t const* params_begin, 
                   var_decl_t const* params_end, type_t return_type)
     {
+        assert(labels.empty());
+        assert(unlinked_gotos.empty());
+
         // Create the fn global
         active_global = &globals().new_fn(
             fn_name, params_begin, params_end, return_type);
@@ -52,8 +58,15 @@ public:
     {
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
+        labels.clear();
         assert(symbol_table.empty());
         fn().push_stmt({ STMT_END_BLOCK });
+
+        if(!unlinked_gotos.empty())
+        {
+            auto it = unlinked_gotos.begin();
+            compiler_error(it->first, "Label not in scope.");
+        }
     }
 
     // Global variables
@@ -203,6 +216,47 @@ public:
         fn().push_stmt({ STMT_CONTINUE, pstring });
     }
 
+    [[gnu::always_inline]]
+    void label_statement(pstring_t pstring)
+    {
+        stmt_handle_t label_h = fn().push_stmt({ STMT_LABEL, pstring });
+        auto pair = labels.emplace(pstring, label_h);
+
+        if(!pair.second)
+        {
+            compiler_error(pstring, fmt(
+                "Label with identical name previously defined at %.",
+                format_source_pos(pair.first->first)));
+        }
+
+        // Link up the unlinked gotos that jump to this label.
+        auto lower = unlinked_gotos.lower_bound(pstring);
+        auto upper = unlinked_gotos.upper_bound(pstring);
+        for(auto it = lower; it != upper; ++it)
+            fn()[it->second].jump_h = label_h;
+        fn()[label_h].count = std::distance(lower, upper);
+        unlinked_gotos.erase(lower, upper);
+    }
+
+    [[gnu::always_inline]]
+    void goto_statement(pstring_t pstring)
+    {
+        stmt_handle_t goto_h = fn().push_stmt({ STMT_GOTO, pstring });
+
+        auto it = labels.find(pstring);
+        if(it == labels.end())
+        {
+            // Label wasn't defined yet.
+            // We'll fill in the jump_h once it is.
+            unlinked_gotos.emplace(pstring, goto_h);
+        }
+        else
+        {
+            fn()[goto_h].jump_h = it->second;
+            fn()[it->second].count += 1;
+        }
+    }
+
 private:
     global_manager_t& globals() { return *global_manager_ptr; }
     fn_t& fn() { return *active_global->fn; }
@@ -210,6 +264,9 @@ private:
     global_manager_t* global_manager_ptr;
     global_t* active_global;
     symbol_table_t symbol_table;
+    fc::small_map<pstring_t, stmt_handle_t, 4, pstring_less_t> labels;
+    fc::small_multimap<pstring_t, stmt_handle_t, 4, pstring_less_t> 
+        unlinked_gotos;
 };
 
 

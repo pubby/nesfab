@@ -86,6 +86,8 @@ private:
     void parse_return();
     void parse_break();
     void parse_continue();
+    void parse_goto();
+    void parse_label();
 
     [[gnu::noreturn]] void compiler_error(std::string const& what) const
         { ::compiler_error(token.pstring, what); }

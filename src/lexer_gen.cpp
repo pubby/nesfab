@@ -575,6 +575,8 @@ int main()
             keyword("then"),
             keyword("return"),
             keyword("fn"),
+            keyword("goto"),
+            keyword("label"),
 
             // Symbols
             keyword(1, "lbrace", "{"),

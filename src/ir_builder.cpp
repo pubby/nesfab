@@ -3,13 +3,24 @@
 #include "alloca.hpp"
 #include "compiler_error.hpp"
 
+region_data_t::region_data_t(ir_builder_t& ir_builder, bool sealed, 
+                             pstring_t label_name)
+: sealed(sealed) 
+, label_name(label_name)
+{
+    std::size_t size = ir_builder.fn().local_vars.size();
+    local_vars = ir_builder.handle_pool.alloc(size);
+    if(!sealed)
+        unsealed_phis = ir_builder.handle_pool.alloc(size);
+}
+
 void region_data_t::seal(class ir_builder_t& ir_builder)
 {
     assert(!sealed);
     sealed = true;
     for(unsigned i = 0; i < ir_builder.fn().local_vars.size(); ++i)
         if(local_vars[i])
-            ir_builder.fill_phi_args(local_vars[i], i);
+            ir_builder.fill_phi_args(unsealed_phis[i], i);
 }
 
 ir_builder_t::ir_builder_t(global_manager_t& global_manager, global_t& global)
@@ -19,7 +30,7 @@ ir_builder_t::ir_builder_t(global_manager_t& global_manager, global_t& global)
     assert(global.gclass = GLOBAL_FN);
     stmt = global.fn->stmts.data();
 
-    new_active_region_v(true, ssa_handle_t{0});
+    new_active_region(true, nullptr, nullptr);
 }
 
 void ir_builder_t::compile()
@@ -58,7 +69,7 @@ void ir_builder_t::compile()
 
 void ir_builder_t::compile_block()
 {
-loop:
+    while(true) 
     switch(stmt->name)
     {
     default:
@@ -75,7 +86,7 @@ loop:
         }
         else
             assert(false);
-        goto loop;
+        break;
 
     case STMT_END_BLOCK:
         ++stmt;
@@ -84,7 +95,7 @@ loop:
     case STMT_EXPR:
         compile_expression(stmt->expr);
         ++stmt;
-        goto loop;
+        break;
 
     case STMT_IF:
         {
@@ -109,7 +120,7 @@ loop:
 
             // Merge both branches together into a new region.
             new_active_region_v(true, branch.true_h, branch.false_h);
-            goto loop;
+            break;
         }
 
     case STMT_WHILE:
@@ -149,7 +160,7 @@ loop:
 
             continue_stack.pop();
             break_stack.pop();
-            goto loop;
+            break;
         }
 
     case STMT_DO:
@@ -196,7 +207,7 @@ loop:
 
             continue_stack.pop();
             break_stack.pop();
-            goto loop;
+            break;
         }
 
     case STMT_RETURN:
@@ -227,7 +238,7 @@ loop:
             }
 
             ++stmt;
-            goto loop;
+            break;
         }
 
     case STMT_BREAK:
@@ -235,7 +246,7 @@ loop:
             compiler_error(stmt->pstring, "break statement outside of loop.");
         break_stack.top().push_back(compile_jump());
         ++stmt;
-        goto loop;
+        break;
 
     case STMT_CONTINUE:
         if(continue_stack.empty())
@@ -243,8 +254,73 @@ loop:
                            "continue statement outside of loop.");
         continue_stack.top().push_back(compile_jump());
         ++stmt;
-        goto loop;
+        break;
+
+    case STMT_LABEL:
+        {
+            label_t* label = stmt->label;
+            pstring_t label_name = stmt->pstring;
+            ++stmt;
+            assert(label);
+
+            std::printf("LABEL! %i %i\n", label->goto_count, label->inputs.size() + 1);
+
+            // If there's no goto to this label, just ignore it.
+            if(label->goto_count == 0)
+                break;
+
+            if(label->goto_count == label->inputs.size())
+            {
+                label->inputs.push_back(insert_fence());
+
+                // All the gotos to this label have been compiled,
+                // that means this region can be sealed immediately!
+                label->ssa_h = new_active_region(true, 
+                    &*label->inputs.begin(), &*label->inputs.end(),
+                    label_name);
+            }
+            else
+            {
+                // Otherwise, seal the node at a later time.
+                label->inputs.push_back(insert_fence());
+                label->ssa_h = new_active_region(false, nullptr, nullptr);
+            }
+
+            break;
+        }
+
+    case STMT_GOTO:
+        {
+            label_t* label = stmt->label;
+            pstring_t label_name = stmt->pstring;
+            ++stmt;
+            assert(label);
+            assert(label->goto_count > 0);
+
+            // Add the jump to the label.
+            label->inputs.push_back(compile_jump());
+
+            std::printf("GOTO! %i %i\n", label->goto_count, label->inputs.size());
+
+            // +1 because creating the label adds an input.
+            // Note that this will only be true if the label already exists!
+            if(label->goto_count+1 == label->inputs.size())
+            {
+                std::puts("OK!\n");
+                assert(label->ssa_h);
+                assert(ir[label->ssa_h].input_size == 0);
+
+                // Add the inputs to the ssa region node.
+                ir[label->ssa_h].set_input(ir, 
+                    &*label->inputs.begin(), &*label->inputs.end());
+
+                // Seal the node.
+                ir[label->ssa_h].region_data->seal(*this);
+            }
+            break;
+        }
     }
+    assert(false);
 }
 
 // Inserts a fence that covers all memory values in 'bitset',
@@ -387,6 +463,7 @@ ssa_handle_t ir_builder_t::local_lookup(ssa_handle_t region_h,
 
     // Input must be a region node.
     assert(region.op == SSA_cfg_region);
+    assert(region.region_data);
 
     // Careful about reference invalidation! 
     region_data_t& region_data = *region.region_data;
@@ -396,24 +473,43 @@ ssa_handle_t ir_builder_t::local_lookup(ssa_handle_t region_h,
         return handle;
     else if(region_data.sealed)
     {
-        // If the region doesn't contain a definition for lsym_ref,
+        // If the region doesn't contain a definition for local_var_i,
         // recursively look up its definition in predecessor nodes.
         // If there are multiple predecessors, a phi node will be created.
 
-        switch(region.input_size)
+        try
         {
-        case 0:
-            throw std::runtime_error("Failed local lookup; missing def.");
-        case 1:
-            return local_lookup(ir.region_h(*region.input(ir)), local_var_i);
-        default:
-            ssa_handle_t phi_h = ir.insert(
-                { .op = SSA_phi, .control_h = region_h });
-            // 'region' reference is now invalidated.
-            // but 'region_data' is still valid!
-            region_data.local_vars[local_var_i] = phi_h;
-            fill_phi_args(phi_h, local_var_i);
-            return phi_h;
+            switch(region.input_size)
+            {
+            case 0:
+                throw local_lookup_error_t();
+            case 1:
+                return local_lookup(ir.region_h(*region.input(ir)), 
+                                    local_var_i);
+            default:
+                ssa_handle_t phi_h = ir.insert(
+                    { .op = SSA_phi, .control_h = region_h });
+                // 'region' reference is now invalidated.
+                // but 'region_data' is still valid!
+                region_data.local_vars[local_var_i] = phi_h;
+                fill_phi_args(phi_h, local_var_i);
+                return phi_h;
+            }
+        }
+        catch(local_lookup_error_t)
+        {
+            if(region_data.label_name.size)
+            {
+                pstring_t var_name = fn().local_vars[local_var_i].name;
+                throw compiler_error_t(
+                    fmt_error(region_data.label_name, fmt(
+                        "Jump to label crosses initialization "
+                        "of variable %.", var_name.view()))
+                    + fmt_error(var_name, fmt(
+                        "Variable is defined here.")));
+            }
+            else
+                throw;
         }
     }
     else 
@@ -428,6 +524,7 @@ ssa_handle_t ir_builder_t::local_lookup(ssa_handle_t region_h,
         // 'region' reference is now invalidated, 
         // but 'region_data' is still valid!
         region_data.local_vars[local_var_i] = phi_h;
+        region_data.unsealed_phis[local_var_i] = phi_h;
         return phi_h;
     }
 }

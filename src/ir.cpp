@@ -20,13 +20,6 @@ void ir_t::clear()
 {
     ssa.clear();
     input_vec.clear();
-    setup();
-}
-
-void ir_t::setup()
-{
-    assert(ssa.empty());
-    insert({ SSA_cfg_region });
 }
 
 std::ostream& ir_t::gv(std::ostream& o)

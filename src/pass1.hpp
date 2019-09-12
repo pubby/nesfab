@@ -33,7 +33,7 @@ public:
     void begin_fn(pstring_t fn_name, var_decl_t const* params_begin, 
                   var_decl_t const* params_end, type_t return_type)
     {
-        assert(labels.empty());
+        assert(label_map.empty());
         assert(unlinked_gotos.empty());
 
         // Create the fn global
@@ -58,7 +58,7 @@ public:
     {
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
-        labels.clear();
+        label_map.clear();
         assert(symbol_table.empty());
         fn().push_stmt({ STMT_END_BLOCK });
 
@@ -91,9 +91,10 @@ public:
            symbol_table.new_def(handle, var_decl.name.view()))
         {
             // Already have a variable defined in this scope.
-            compiler_error(var_decl.name, fmt(
-                "Identifier already in use. Previous definition at %.",
-                format_source_pos(fn().local_vars[*existing].name)));
+            throw compiler_error_t(
+                fmt_error(var_decl.name, "Identifier already in use.")
+                + fmt_error(fn().local_vars[*existing].name, 
+                            "Previous declaration here."));
         }
         fn().local_vars.push_back(var_decl);
         fn().push_var_init(handle, expr ? convert_expr(*expr) : nullptr);
@@ -219,22 +220,26 @@ public:
     [[gnu::always_inline]]
     void label_statement(pstring_t pstring)
     {
-        stmt_handle_t label_h = fn().push_stmt({ STMT_LABEL, pstring });
-        auto pair = labels.emplace(pstring, label_h);
+        // Create a new label
+        label_t* label = fn().label_pool.alloc();
+        label->stmt_h = fn().push_stmt(
+            { STMT_LABEL, pstring, { .label = label} });
 
+        // Add it to the label map
+        auto pair = label_map.emplace(pstring, label);
         if(!pair.second)
         {
-            compiler_error(pstring, fmt(
-                "Label with identical name previously defined at %.",
-                format_source_pos(pair.first->first)));
+            throw compiler_error_t(
+                fmt_error(pstring, "Label name already in use.")
+                + fmt_error(pair.first->first, "Previous definition here."));
         }
 
         // Link up the unlinked gotos that jump to this label.
         auto lower = unlinked_gotos.lower_bound(pstring);
         auto upper = unlinked_gotos.upper_bound(pstring);
-        for(auto it = lower; it != upper; ++it)
-            fn()[it->second].jump_h = label_h;
-        fn()[label_h].count = std::distance(lower, upper);
+        for(auto it = lower; it < upper; ++it)
+            fn()[it->second].label = label;
+        label->goto_count = std::distance(lower, upper);
         unlinked_gotos.erase(lower, upper);
     }
 
@@ -243,8 +248,8 @@ public:
     {
         stmt_handle_t goto_h = fn().push_stmt({ STMT_GOTO, pstring });
 
-        auto it = labels.find(pstring);
-        if(it == labels.end())
+        auto it = label_map.find(pstring);
+        if(it == label_map.end())
         {
             // Label wasn't defined yet.
             // We'll fill in the jump_h once it is.
@@ -252,8 +257,8 @@ public:
         }
         else
         {
-            fn()[goto_h].jump_h = it->second;
-            fn()[it->second].count += 1;
+            fn()[goto_h].label = it->second;
+            it->second->goto_count += 1;
         }
     }
 
@@ -264,7 +269,7 @@ private:
     global_manager_t* global_manager_ptr;
     global_t* active_global;
     symbol_table_t symbol_table;
-    fc::small_map<pstring_t, stmt_handle_t, 4, pstring_less_t> labels;
+    fc::small_map<pstring_t, label_t*, 4, pstring_less_t> label_map;
     fc::small_multimap<pstring_t, stmt_handle_t, 4, pstring_less_t> 
         unlinked_gotos;
 };

@@ -219,6 +219,9 @@ template<typename P>
 void parser_t<P>::parse_expr(expr_temp_t& expr_temp, 
                              int starting_indent, int open_parens)
 {
+    // Expression parsing is based on the shunting yard algorithm,
+    // with small modifications to support more varied expressions.
+
     using shunting_yard_t = bc::small_vector<token_type_t, 16>;
     shunting_yard_t shunting_yard;
     
@@ -492,7 +495,7 @@ void parser_t<P>::parse_flow_statement()
 template<typename P>
 void parser_t<P>::parse_block_statement(int const parent_indent)
 {
-    parse_block(parent_indent, [&]{ parse_statement(); });
+    maybe_parse_block(parent_indent, [&]{ parse_statement(); });
 }
 
 template<typename P>

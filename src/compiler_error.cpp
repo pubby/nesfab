@@ -61,18 +61,17 @@ namespace
 
 } // end anon namespace
 
-std::string format_source_pos(pstring_t pstring)
+std::string fmt_source_pos(pstring_t pstring)
 {
     line_col_t line_col = get_line_col(pstring);
     return fmt("%:%:%", files[pstring.file_i].filename(), 
                line_col.line, line_col.col);
 }
 
-std::string format_error_message(pstring_t pstring, 
-                                 std::string const& what)
+std::string fmt_error(pstring_t pstring, std::string const& what)
 {
     std::string str(fmt("%: error: %\n", 
-                        format_source_pos(pstring), what));
+                        fmt_source_pos(pstring), what));
 
     char const* line_begin = get_line_begin(pstring);
     char const* line_end = get_line_end(pstring);
@@ -102,5 +101,5 @@ std::string format_error_message(pstring_t pstring,
 
 void compiler_error(pstring_t pstring, std::string const& what)
 {
-    throw compiler_error_t(format_error_message(pstring, what));
+    throw compiler_error_t(fmt_error(pstring, what));
 }

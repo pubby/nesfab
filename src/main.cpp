@@ -9,7 +9,6 @@
 
 int main()
 {
-    assert(false);
     /*
     ssa_t ssa;
     ssa.const_ref(1);
@@ -25,7 +24,7 @@ int main()
     {
         unsigned file_i = open_file("file.robust");
 
-        for(unsigned i = 0; i < 1000; ++i)
+        for(unsigned i = 0; i < 1; ++i)
         {
             global_manager_t globals;
             pass1_t pass1(globals);

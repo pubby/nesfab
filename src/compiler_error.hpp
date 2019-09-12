@@ -17,9 +17,10 @@ public:
     : std::runtime_error(what) {}
 };
 
-std::string format_source_pos(pstring_t pstring);
+std::string fmt_source_pos(pstring_t pstring);
 
-std::string format_error_message(pstring_t pstring, std::string const& what);
+std::string fmt_error(pstring_t pstring, std::string const& what);
+std::string fmt_note(pstring_t pstring, std::string const& what);
 
 [[gnu::noreturn]] 
 void compiler_error(pstring_t pstring, std::string const& what);

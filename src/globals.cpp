@@ -61,7 +61,7 @@ void global_manager_t::verify_undefined(global_t& global)
     {
         compiler_error(global.name, fmt(
             "Global identifier already in use. Previous definition at %.",
-            format_source_pos(global.name)));
+            fmt_source_pos(global.name)));
     }
 }
 
@@ -127,22 +127,18 @@ void global_manager_t::finish()
                 ir_builder_t ir_builder(*this, *global);
                 ir_builder.compile();
 
-                /*
                 {
                     std::ofstream o(fmt("graphs/%.gv", global->name.view()));
                     if(o.is_open())
                         ir_builder.ir.gv(o);
                 }
-                */
 
                 {
                     scheduler_t scheduler(ir_builder.ir);
-                    /*
                     std::ofstream o(fmt("graphs/%_cfg.gv", 
                                         global->name.view()));
                     if(o.is_open())
                         scheduler.gv(o);
-                        */
                 }
                 break;
             }

@@ -1,16 +1,24 @@
 #ifndef IR_BUILDER_HPP
 #define IR_BUILDER_HPP
 
+#include <exception>
+
 #include "ir.hpp"
 #include "globals.hpp"
 #include "pstring.hpp"
 #include "ram.hpp"
 #include "reusable_stack.hpp"
 
-#include <boost/container/deque.hpp>
 #include <boost/pool/object_pool.hpp>
 
 namespace bc = boost::container;
+
+class local_lookup_error_t : public std::exception
+{
+public:
+    virtual const char* what() const noexcept
+        { return "Failed local lookup."; }
+};
 
 enum value_category_t
 {
@@ -32,14 +40,18 @@ struct rpn_value_t
 class region_data_t
 {
 public:
-    region_data_t(ssa_handle_t* local_vars, bool sealed) 
-    : local_vars(local_vars)
-    , sealed(sealed) 
-    {}
+    region_data_t(class ir_builder_t& ir_builder, bool sealed, 
+                  pstring_t label_name = {});
 
     // Keeps track of which ssa node a local var refers to.
     // A handle of {0} means the local var isn't in the region.
     ssa_handle_t* local_vars;
+
+    ssa_handle_t* unsealed_phis;
+    unsigned unsealed_phis_size = 0;
+
+    // Only used for labels.
+    pstring_t label_name;
 
     // A CFG node is sealed when all its predecessors are set.
     bool sealed;
@@ -102,6 +114,7 @@ public:
     ssa_handle_t compile_jump();
 
     void fill_phi_args(ssa_handle_t phi_h, unsigned local_var_i);
+
     ssa_handle_t local_lookup(ssa_handle_t region_h, unsigned local_var_i);
 
     rpn_value_t compile_expression(token_t const* expr);
@@ -118,7 +131,8 @@ public:
 
     ssa_handle_t new_active_region(bool seal, 
                                    ssa_handle_t const* begin,
-                                   ssa_handle_t const* end)
+                                   ssa_handle_t const* end,
+                                   pstring_t label_name = {})
     {
         assert(begin <= end);
 
@@ -126,8 +140,7 @@ public:
         {
             .op = SSA_cfg_region,
             .control_h = ir.next_handle(),
-            .region_data = &region_data_pool.emplace(
-                handle_pool.alloc(fn().local_vars.size()), seal),
+            .region_data = &region_data_pool.emplace(*this, seal, label_name)
         };
 
         node.set_input(ir, begin, end);
@@ -174,7 +187,6 @@ public:
     array_pool_t<ssa_handle_t> handle_pool; // TODO: comment
     array_pool_t<region_data_t> region_data_pool;
     ssa_handle_t active_region_h = {};
-
 };
 
 #endif

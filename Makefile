@@ -26,9 +26,8 @@ INCS:=-I$(SRCDIR)
 
 override CXXFLAGS+= \
   -std=c++2a \
-  -O3 \
+  -O0 \
   -g \
-  -DNDEBUG \
   -export-dynamic \
   -Wall \
   -Wextra \

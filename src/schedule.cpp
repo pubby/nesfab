@@ -1,4 +1,5 @@
 #include "schedule.hpp"
+#include <iostream>
 
 static constexpr unsigned UNVISITED = -1u;
 
@@ -13,7 +14,7 @@ void scheduler_t::build()
     build_cfg();
     build_order();
     build_dominators();
-    build_loops();
+    std::cout << "LOOP RESULT: " << build_loops() <<'\n';
 }
 
 // Creates the cfg graph, setting 'succs' and 'preds'.
@@ -252,15 +253,15 @@ std::ostream& scheduler_t::gv(std::ostream& o)
         o << node.postorder_i << ";\n";
     });
 
-    for(cfg_node_t* node : postorder)
+    for(cfg_node_t* node : preorder)
     {
         for(cfg_node_t* succ : node->succs)
             if(succ)
-                o << node->postorder_i << " -> " << succ->postorder_i << '\n';
+                o << node->preorder_i << " -> " << succ->preorder_i << '\n';
 
         if(node->idom)
         {
-            o << node->postorder_i << " -> " << node->idom->postorder_i;
+            o << node->preorder_i << " -> " << node->idom->preorder_i;
             o << " [color=\"red\", constraint=false];\n";
         }
     }

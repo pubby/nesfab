@@ -40,7 +40,7 @@ struct array_pool_t
         return reinterpret_cast<T*>(storage);
     }
 
-    T* alloc(std::size_t size)
+    T* alloc(std::size_t size = 1)
     {
         if(size == 0)
             return nullptr;

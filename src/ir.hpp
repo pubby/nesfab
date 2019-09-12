@@ -90,11 +90,8 @@ public:
     std::vector<ssa_node_t> ssa;
     std::vector<ssa_handle_t> input_vec;
     ssa_handle_t return_h;
-
-    ir_t() { setup(); }
     
     void clear();
-    void setup();
 
     unsigned alloc_input(unsigned size)
     {
@@ -110,8 +107,6 @@ public:
     ssa_handle_t insert(ssa_node_t node)
     {
         ssa_handle_t ret = next_handle();
-        assert(node.control_h.value != 0);
-        assert(node.control_h.value == ret || node.op != SSA_cfg_region);
         ssa.push_back(node);
         return ret;
     }

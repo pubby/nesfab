@@ -12,6 +12,7 @@
 
 #include "file.hpp"
 #include "handle.hpp"
+#include "ir.hpp"
 #include "parser_types.hpp"
 #include "ram.hpp"
 #include "symbol_table.hpp"
@@ -100,6 +101,14 @@ struct global_t
     toposort_mark_t mark;
 };
 
+struct label_t
+{
+    ssa_handle_t ssa_h;
+    stmt_handle_t stmt_h;
+    unsigned goto_count;
+    std::vector<ssa_handle_t> inputs;
+};
+
 struct stmt_t
 {
     stmt_name_t name;
@@ -107,8 +116,7 @@ struct stmt_t
     union
     {
         token_t* expr;
-        stmt_handle_t jump_h;
-        unsigned count;
+        label_t* label;
     };
 };
 
@@ -141,6 +149,7 @@ public:
     unsigned num_params;
     std::vector<var_decl_t> local_vars; // First elems are params.
     std::vector<stmt_t> stmts;
+    array_pool_t<label_t> label_pool;
 };
 
 class global_manager_t

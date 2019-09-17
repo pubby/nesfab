@@ -25,6 +25,6 @@ token_t* pass1_t::convert_expr(expr_temp_t& expr)
 
     // Store the expression in 'expr_pool' and return a pointer to it.
     expr.push_back({});
-    return expr_pool.alloc(expr.begin(), expr.end());
+    return expr_pool.insert(expr.begin(), expr.end());
 }
 

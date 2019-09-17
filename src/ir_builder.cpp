@@ -5,8 +5,8 @@
 
 region_data_t::region_data_t(ir_builder_t& ir_builder, bool sealed, 
                              pstring_t label_name)
-: sealed(sealed) 
-, label_name(label_name)
+: label_name(label_name)
+, sealed(sealed) 
 {
     std::size_t size = ir_builder.fn().local_vars.size();
     local_vars = ir_builder.handle_pool.alloc(size);
@@ -496,7 +496,7 @@ ssa_handle_t ir_builder_t::local_lookup(ssa_handle_t region_h,
                 return phi_h;
             }
         }
-        catch(local_lookup_error_t)
+        catch(local_lookup_error_t&)
         {
             if(region_data.label_name.size)
             {
@@ -796,16 +796,16 @@ void ir_builder_t::compile_arith(ssa_op_t op)
     rpn_value_t& lhs = rpn_peek(1);
     rpn_value_t& rhs = rpn_peek(0);
 
-    if(!is_integer(lhs.type.name) || !is_integer(rhs.type.name))
+    if(!is_arithmetic(lhs.type.name) || !is_arithmetic(rhs.type.name))
     {
         // TODO: improve error string
         pstring_t pstring = concat(lhs.pstring, rhs.pstring);
-        compiler_error(pstring, "Expecting integral types.");
+        compiler_error(pstring, "Expecting arithmetic types.");
     }
 
     // Promote result type to the largest argument type.
-    type_t new_type = { std::max(lhs.type.name, rhs.type.name) };
-    assert(is_integer(new_type.name));
+    type_t new_type = { promote_arithmetic(lhs.type.name, rhs.type.name) };
+    assert(is_arithmetic(new_type.name));
 
     compile_binary_operator(op, new_type);
 }

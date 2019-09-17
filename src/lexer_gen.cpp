@@ -553,6 +553,7 @@ rptr comchar() { return pred([](unsigned char c) { return c != '\n' && c != 'r' 
 rptr eof() { return pred([](unsigned char c) { return c == '\0'; }); }
 rptr whitespace() { return pred([](unsigned char c) { return c == ' ' || c == '\t'; }); }
 rptr type() { return many1(cat(upper(), many1(pred(is_lower_or_digit)))); }
+rptr digit() { return pred(isdigit); }
 
 int main()
 {
@@ -645,8 +646,10 @@ int main()
             accept("bool", "bool type", word("bool")),
             accept("byte", "byte type", word("byte")),
             accept("short", "short type", word("short")),
+            accept("int", "int type", word("int")),
+            accept("fixed", "fixed type", cat(word("fixed"), digit(), digit())),
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
-            accept("decimal", "number", many1(pred(isdigit))),
+            accept("decimal", "number", many1(digit())),
 
             accept("number", "number", eof()),
             accept("global_ident", "global identifier", eof())

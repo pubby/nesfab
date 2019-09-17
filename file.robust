@@ -1,6 +1,7 @@
 byte x
 
 fn foo()
+    fixed00 bar
     if 1
         goto bar
     while 1

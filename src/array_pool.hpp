@@ -17,29 +17,6 @@ struct array_pool_t
     array_pool_t& operator=(array_pool_t const&) = delete;
     array_pool_t& operator=(array_pool_t&&) = default;
 
-    template<typename It>
-    T* alloc(It begin, It end)
-    {
-        std::size_t size = std::distance(begin, end);
-        if(size == 0)
-            return nullptr;
-
-        used_size += size;
-
-        if(use_oversized(size))
-            return oversized.emplace_back(begin, end).data();
-
-        reserve(size);
-        storage_t* storage = used->data + used->size;
-        for(It it = begin; it != end; ++it)
-        {
-            new(used->data + used->size) T(*it);
-            ++used->size; // Do it this way for exception safety.
-        }
-
-        return reinterpret_cast<T*>(storage);
-    }
-
     T* alloc(std::size_t size = 1)
     {
         if(size == 0)
@@ -70,6 +47,38 @@ struct array_pool_t
         new(storage) T(std::forward<Args>(args)...);
         ++used->size;
         return *reinterpret_cast<T*>(storage);
+    }
+
+    T& insert(T const& t) { return emplace(t); }
+    T& insert(T&& t) { return emplace(std::move(t)); }
+
+    template<typename It>
+    T* insert(It begin, It end)
+    {
+        std::size_t size = std::distance(begin, end);
+        if(size == 0)
+            return nullptr;
+
+        used_size += size;
+
+        if(use_oversized(size))
+            return oversized.emplace_back(begin, end).data();
+
+        reserve(size);
+        storage_t* storage = used->data + used->size;
+        for(It it = begin; it != end; ++it)
+        {
+            new(used->data + used->size) T(*it);
+            ++used->size; // Do it this way for exception safety.
+        }
+
+        return reinterpret_cast<T*>(storage);
+    }
+
+    template<typename... Args>
+    T* insert_v(Args&&... args)
+    {
+        // TODO
     }
 
     void clear()

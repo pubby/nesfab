@@ -15,7 +15,8 @@ static constexpr int operator_precedence(token_type_t type)
 static constexpr bool is_type_prefix(token_type_t type)
 {
     return (type == TOK_void || type == TOK_bool || type == TOK_byte
-            || type == TOK_short || type == TOK_pointer);
+            || type == TOK_short || type == TOK_int || type == TOK_fixed
+            || type == TOK_pointer);
 }
 
 template<typename P>
@@ -346,9 +347,26 @@ type_t parser_t<P>::parse_type(bool allow_void)
 
     switch(token.type)
     {
-    case TOK_bool:   parse_token(); type.name = TYPE_BOOL; break;
-    case TOK_byte:   parse_token(); type.name = TYPE_BYTE; break;
-    case TOK_short:  parse_token(); type.name = TYPE_SHORT; break;
+    case TOK_bool:  parse_token(); type.name = TYPE_BOOL; break;
+    case TOK_byte:  parse_token(); type.name = TYPE_BYTE; break;
+    case TOK_short: parse_token(); type.name = TYPE_SHORT; break;
+    case TOK_int:   parse_token(); type.name = TYPE_INT; break;
+    case TOK_fixed: 
+        {
+            unsigned w = token_source[5] - '0';
+            unsigned f = token_source[6] - '0';
+
+            if(w > 3 || f == 0 || f > 3)
+            {
+                compiler_error(
+                    "Fixed-point type has invalid size. Valid types are "
+                    "between fixed01 and fixed33.");
+            }
+
+            type.name = TYPE_arithmetic(w, f);
+            parse_token(); 
+            break;
+        }
     case TOK_fn:
         {
             // fn types aren't legal syntax outside of fn pointers.

@@ -44,6 +44,8 @@ public:
     // Union find var
     cfg_node_t* uf_ancestor;
 
+    cfg_node_t* iloop_header; // Immediate loop header
+
     void reset_uf() { uf_ancestor = this; } 
     cfg_node_t* find()
     {
@@ -86,6 +88,8 @@ private:
     cfg_node_t* cfg_root;
     std::vector<cfg_node_t*> preorder;
     std::vector<cfg_node_t*> postorder;
+
+    std::vector<usage_t> reentry_edges;
 };
 
 inline edge_type_t usage_t::edge_type() const

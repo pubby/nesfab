@@ -1,5 +1,7 @@
 #include "types.hpp"
 
+#include <algorithm>
+
 #include "hash.hpp"
 
 using namespace std::literals;
@@ -48,6 +50,12 @@ unsigned type_t::get_tail_i(type_t const* begin, type_t const* end)
     return result.first->tail_i;
 }
 
+void type_t::clear_all()
+{
+    tail_map.clear();
+    tails.clear();
+}
+
 type_t type_t::array(type_t elem_type, unsigned size)
 {
     return { TYPE_ARRAY, size, get_tail_i(&elem_type, &elem_type + 1) };
@@ -63,50 +71,40 @@ type_t type_t::fn(type_t* begin, type_t* end)
     return { TYPE_FN, end - begin, get_tail_i(begin, end) };
 }
 
-char const* type_name_string(type_name_t type_name)
-{
-    switch(type_name)
-    {
-    default:
-        return "???";
-    case TYPE_VOID:
-        return "void";
-    case TYPE_BOOL:
-        return "bool";
-    case TYPE_BYTE:
-        return "byte";
-    case TYPE_SHORT:
-        return "short";
-    case TYPE_FN:
-        return "function";
-    }
-}
-
 std::string type_string(type_t type) 
 { 
     std::string str;
 
     switch(type.name)
     {
-    default: return "bad type";
-    case TYPE_VOID:  return "void";
-    case TYPE_BOOL:  return "bool";
-    case TYPE_BYTE:  return "byte";
-    case TYPE_SHORT: return "short";
+    default: 
+        if(is_fixed(type.name))
+        {
+            std::string str("fixed"s);
+            str.push_back(whole_bytes(type.name) + '0');
+            str.push_back(frac_bytes(type.name) + '0');
+            return str;
+        }
+        throw std::runtime_error("bad type");
+    case TYPE_VOID:  return "void"s;
+    case TYPE_BOOL:  return "bool"s;
+    case TYPE_BYTE:  return "byte"s;
+    case TYPE_SHORT: return "short"s;
+    case TYPE_INT:   return "int"s;
     case TYPE_TABLE: // TODO
     case TYPE_ARRAY: // TODO
-        throw std::runtime_error("TODO");
+        throw std::runtime_error("TODO - bad type"s);
     case TYPE_PTR:
         return "%" + type_string(type[0]);
     case TYPE_FN:
         assert(type.size > 0);
-        std::string str("fn(");
+        std::string str("fn("s);
         for(int i = 0; i < type.size; ++i)
         {
             if(i == type.size - 1)
-                str += ") ";
+                str += ") "s;
             else if(i != 0)
-                str += ", ";
+                str += ", "s;
             str += type_string(type[i]);
         }
         return str;
@@ -133,8 +131,8 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
     if(from.name == TYPE_PTR || to.name == TYPE_PTR)
         return CAST_FAIL;
 
-    // Integral types can be converted amongst each other.
-    if(is_integer(from.name) && is_integer(to.name))
+    // Arithmetic types can be converted amongst each other.
+    if(is_arithmetic(from.name) && is_arithmetic(to.name))
         return CAST_OP;
 
     return CAST_FAIL;

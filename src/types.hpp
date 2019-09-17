@@ -1,12 +1,10 @@
 #ifndef TYPES_HPP
 #define TYPES_HPP
 
-#include <algorithm>
 #include <climits>
 #include <cstdint>
 #include <ostream>
 #include <string_view>
-#include <variant>
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
@@ -14,55 +12,86 @@
 #include "robin/collection.hpp"
 #include "robin/set.hpp"
 
-#include "handle.hpp"
-
 namespace bc = boost::container;
 
-// Most types are very simple: just a name and a pointer value.
-// However, fn types are tuples which complicates things.
-// To implement fn types, a separate storage object is used: 'fn_type_map_t'.
-// This object tracks the parameters and return values of fn types.
-// An index into this map is then stored in 'type_t' as a negative 'type_name'.
-
-enum type_name_t : short
+enum type_name_t : std::uint8_t // Keep unsigned.
 {
+    // Have void be the zeroth/default value.
     TYPE_VOID = 0,
 
+    // Arithmetic types, which include fixed point numbers and bools.
+    // The enum is laid out with a bit representation corresponding to
+    // the number of bytes each type uses. The bit format is: FFWW,
+    // where FF is two bits storing the size of the fractional part in bytes,
+    // and WW is two bits storing the size of the whole part in bytes.
+    // Bool are slightly special and come last.
+    TYPE_BYTE  = 1,
+    TYPE_FIRST_ARITH = TYPE_BYTE,
+    TYPE_SHORT = 2,
+    TYPE_INT   = 3,
+    TYPE_FIRST_FIXED = 4,
+    TYPE_LAST_FIXED  = 0b1111,
+    TYPE_BOOL = 0b10001, // 0th bit must be a 1.
+    TYPE_LAST_ARITH = TYPE_BOOL,
+
+    // A composite type is one that holds smaller types.
+    // These types use the 'tail_i' field in 'type_t'.
+    // e.g. fn types or pointer types.
     TYPE_FIRST_COMPOSITE,
     TYPE_TABLE = TYPE_FIRST_COMPOSITE,
     TYPE_ARRAY,
     TYPE_PTR,
     TYPE_FN,
-
-    TYPE_LAST_COMPOSITE = TYPE_FN,
-
-    // Integral types.
-    // Keep in order of smallest to largest.
-    TYPE_FIRST_INTEGER,
-    TYPE_BOOL = TYPE_FIRST_INTEGER,
-    TYPE_BYTE,
-    TYPE_SHORT,
 };
 
-// A composite type is one that holds smaller types.
-// These types use the 'tail_i' field in 'type_t'.
-// e.g. fn types or pointer types.
 constexpr bool is_composite(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_COMPOSITE; }
+
+constexpr bool is_arithmetic(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }
+
+constexpr bool is_fixed(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_FIXED && type_name <= TYPE_LAST_FIXED; }
+
+constexpr unsigned whole_bytes(type_name_t type_name)
 {
-    return (type_name >= TYPE_FIRST_COMPOSITE 
-            && type_name <= TYPE_LAST_COMPOSITE);
+    assert(is_arithmetic(type_name));
+    return type_name & 0b11;
 }
 
-constexpr bool is_integer(type_name_t type_name)
+constexpr unsigned frac_bytes(type_name_t type_name)
 {
-    return type_name >= TYPE_FIRST_INTEGER;
+    assert(is_arithmetic(type_name));
+    return (type_name >> 2) & 0b11;
+}
+
+constexpr type_name_t TYPE_arithmetic(unsigned w, unsigned f)
+{
+    assert(w <= 3);
+    assert(f <= 3);
+    return type_name_t((f << 2) | w);
+}
+
+constexpr type_name_t promote_arithmetic(type_name_t a, type_name_t b)
+{
+    assert(is_arithmetic(a));
+    assert(is_arithmetic(b));
+
+    if(a == TYPE_BOOL)
+        return b;
+    if(b == TYPE_BOOL)
+        return a;
+
+    return TYPE_arithmetic(std::max(whole_bytes(a), whole_bytes(b)), 
+                           std::max(frac_bytes(a), frac_bytes(b)));
 }
 
 struct type_t
 {
     type_name_t name;
-    unsigned short size;
-    unsigned tail_i;
+    // Overloaded; Holds tail size for fns and array size for arrays.
+    std::uint16_t size;
+    std::uint32_t tail_i;
 
     type_t operator[](unsigned i) const { return tails[tail_i + i]; }
     type_t const* tail() const { return &tails[tail_i]; }
@@ -86,12 +115,12 @@ struct type_t
 
     std::size_t sizeof_() const
     {
+        if(is_arithmetic(name))
+            return whole_bytes(name) + frac_bytes(name);
+
         switch(name)
         {
         default: assert(false); return 0;
-        case TYPE_BOOL:  return 1;
-        case TYPE_BYTE:  return 1;
-        case TYPE_SHORT: return 2;
         case TYPE_PTR:   return 2;
         case TYPE_ARRAY: return size * tail()[0].sizeof_();
         }
@@ -102,11 +131,13 @@ struct type_t
     static type_t ptr(type_t pointed_to_type);
     static type_t fn(type_t* begin, type_t* end);
 
+    static void clear_all();
+
 private:
     struct map_elem_t
     {
-        unsigned short size;
-        unsigned tail_i;
+        std::uint16_t size;
+        std::uint32_t tail_i;
     };
 
     static rh::robin_auto_table<map_elem_t> tail_map;
@@ -115,7 +146,6 @@ private:
 };
 
 
-char const* type_name_string(type_name_t type_name);
 std::string type_string(type_t type);
 
 std::ostream& operator<<(std::ostream& ostr, type_t const&);

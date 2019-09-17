@@ -95,7 +95,7 @@ void scheduler_t::build_order()
 
 unsigned scheduler_t::visit_order(cfg_node_t& node)
 {
-    node.num_descendents = 1;
+    node.num_descendents = 0;
     node.preorder_i = preorder.size();
     preorder.push_back(&node);
     for(int i = 0; i < 2; ++i)
@@ -174,6 +174,13 @@ bool scheduler_t::build_loops()
         node->highpt = nullptr;
     }
 
+    // Here's set P:
+    using set_t = fc::small_set<cfg_node_t*, 16>;
+    set_t p;
+    set_t::container_type q;
+    set_t headers;
+
+
     // Do a reverse preorder traversal to find nodes with back edges.
     for(auto it = preorder.rbegin(); it != preorder.rend(); ++it)
     {
@@ -185,16 +192,20 @@ bool scheduler_t::build_loops()
         // as all nodes that path to L while avoiding H.
         // (This set R. Endre Tarjan calls the reachunder set)
         //
-        // If an element of set P is not a descendent of H in the depth-first
-        // tree, the graph is irreducible.
+        // -- BUT that's not enough to handle irreducible graphs. --
+        //
+        // To handle irreducible graphs, we instead say P is all nodes that
+        // path to L, of which the nodes path through descendents of H 
+        // (but not H itself) in the depth-first tree.
 
         // Here's the tentative header H:
         cfg_node_t* h = *it;
         assert(h);
 
         // Here's set P:
-        using set_t = fc::small_set<cfg_node_t*, 32>;
-        set_t p;
+        p.clear();
+
+        set_t entry_points;
 
         // Check to see if H is actually a header:
         for(usage_t usage : h->preds)
@@ -205,29 +216,31 @@ bool scheduler_t::build_loops()
         if(p.empty())
             continue;
 
-        set_t q(p);
-
-        // Now construct p(x) by exploring backward from vertices in Q
-        while(!q.empty())
+        // 'q' will be the working set of nodes as we path backwards
+        // to construct 'p'.
+        for(q = p.container; !q.empty();)
         {
-            cfg_node_t* x = q.container.back();
-            q.container.pop_back();
+            cfg_node_t* x = q.back();
+            q.pop_back();
 
             for(usage_t usage : x->preds)
             if(usage.edge_type() != BACK_EDGE)
             {
                 cfg_node_t* y = usage.node->find();
 
-                if(h->preorder_i > y->preorder_i
-                   || h->preorder_i + h->num_descendents <= y->preorder_i)
+                // Test if 'y' is an entry point to the loop
+                // (i.e. 'y' is not a descendent of 'h' in the DFST)
+                if(y->preorder_i < h->preorder_i
+                   || h->preorder_i + h->num_descendents + 1 <= y->preorder_i)
                 {
-                    return false; // Not reducible
+                    entry_points.insert(y);
+                    continue;
                 }
 
                 if(p.count(y) && y != h)
                 {
                     p.insert(y);
-                    q.insert(y);
+                    q.push_back(y);
                 }
 
                 if(y->highpt == nullptr)
@@ -243,6 +256,73 @@ bool scheduler_t::build_loops()
 
     return true;
 }
+
+/*
+// Paper: A New Algorithm for Identifying Loops in Decompilation
+// By Tao Wei, Jian Mao, Wei Zou, Yu Chen 
+void shedule_t::visit_loops(cfg_node_t* node)
+{
+    node->preorder_i = preorder.size();
+    preorder.push_back(node);
+
+    for(int i = 0; i < 2; ++i)
+    if(cfg_node_t* succ = node.succs[i])
+    {
+        if(succ->preorder_i == UNVISITED)
+            tag_loop_header(succ, visit_loops(succ));
+        else if(succ->postorder_i == UNVISITED) // Is back edge?
+            tag_loop_header(node, succ);
+        else if(cfg_node_t* header = succ->iloop_header)
+        {
+            if(header->postorder_i == UNVISITED) // Is back edge?
+                tag_loop_header(node, header);
+            else
+            {
+                // We've found a re-entry point.
+                goto mark_reentry;
+                while(header = header->iloop_header)
+                {
+                    if(header->postorder_i == UNVISITED) // Is back edge?
+                    {
+                        tag_loop_header(node, header);
+                        break;
+                    }
+                mark_reentry:
+                    reentry_edges.push_back({ node, i });
+                }
+            }
+        }
+    }
+
+    node->postorder_i = postorder.size();
+    postorder.push_back(node);
+
+    return node->iloop_header;
+}
+
+void scheduler_t::tag_loop_header(cfg_node_t* node, cfg_node_t* header)
+{
+    if(node == header || !header)
+        return;
+
+    while(cfg_node_t* iheader = node->iloop_header)
+    {
+        if(iheader == header)
+            return;
+
+        if(iheader->preorder_i < header->preorder_i)
+        {
+            node->iloop_header = header;
+            node = header;
+            header = iheader;
+        }
+        else
+            node = iheader;
+    }
+
+    node->iloop_header = header;
+}
+*/
 
 std::ostream& scheduler_t::gv(std::ostream& o)
 {

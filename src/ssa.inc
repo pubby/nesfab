@@ -1,6 +1,6 @@
 SSA_DEF(nop, = 0)
 
-SSA_DEF(cfg_region)
+SSA_DEF(block)
 SSA_DEF(fence)
 
 SSA_DEF(if)

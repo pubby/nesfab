@@ -78,7 +78,26 @@ struct array_pool_t
     template<typename... Args>
     T* insert_v(Args&&... args)
     {
-        // TODO
+        std::size_t size = sizeof...(Args);
+        if(size == 0)
+            return nullptr;
+
+        used_size += size;
+
+        if(use_oversized(size))
+        {
+            std::vector<T> vec;
+            (vec.emplace_back(std::forward<Args>(args)), ...);
+            return oversized.emplace_back(std::move(vec)).data();
+        }
+
+        reserve(size);
+        storage_t* storage = used->data + used->size;
+
+        ((new(used->data + used->size) T(std::forward<Args>(args)), 
+          ++used->size), ...);
+
+        return reinterpret_cast<T*>(storage);
     }
 
     void clear()

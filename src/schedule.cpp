@@ -1,5 +1,6 @@
 #include "schedule.hpp"
-#include <iostream>
+
+#include "flat/small_set.hpp"
 
 static constexpr unsigned UNVISITED = -1u;
 
@@ -14,56 +15,50 @@ void scheduler_t::build()
     build_cfg();
     build_order();
     build_dominators();
-    std::cout << "LOOP RESULT: " << build_loops() <<'\n';
+    build_loops();
 }
 
 // Creates the cfg graph, setting 'succs' and 'preds'.
 void scheduler_t::build_cfg()
 {
-    for(ssa_node_t& ssa_node : ir().ssa)
-        ssa_node.cfg_node = nullptr;
+    ir().ssa_pool.foreach([](ssa_node_t& node){ node.cfg_node = nullptr; });
     cfg_pool.clear();
     cfg_root = nullptr;
-    build_cfg(ir().return_h);
+    build_cfg(*ir().exit);
 }
 
-cfg_node_t* scheduler_t::build_cfg(ssa_handle_t ssa_node_h)
+cfg_node_t* scheduler_t::build_cfg(ssa_node_t& ssa_node)
 {
-    // Find the region this node belongs to.
-    ssa_handle_t region_h = ir().region_h(ssa_node_h);
-    ssa_node_t& region = ir()[region_h];
-    assert(region.op == SSA_cfg_region);
+    // Find the block this node belongs to.
+    ssa_node_t* block = ssa_node.block(); assert(block);
 
     // Has the region already been turned into a CFG node?
-    if(region.cfg_node)
-        return region.cfg_node; 
+    if(block->cfg_node)
+        return block->cfg_node; 
 
     // It hasn't. Create it.
-    cfg_node_t& node = cfg_pool.emplace(region_h);
-    region.cfg_node = &node;
+    cfg_node_t& cfg_node = cfg_pool.emplace(*block);
+    block->cfg_node = &cfg_node;
 
-    if(region.input_size == 0)
+    if(block->input_size == 0)
     {
         assert(!cfg_root);
-        return cfg_root = &node;
+        return cfg_root = &cfg_node;
     }
 
-    // Recurse through the region's inputs.
-    for(unsigned i = 0; i < region.input_size; ++i)
+    // Recurse through the block's inputs.
+    for(unsigned i = 0; i < block->input_size; ++i)
     {
-        ssa_handle_t input_h = region.input(ir())[i];
-        ssa_node_t& input = ir()[input_h];
+        cfg_node_t* pred = build_cfg(*block->input[i]);
 
-        cfg_node_t* pred = build_cfg(input_h);
-
-        bool index = (input.op == SSA_true_branch);
+        bool const index = (block->input[i]->op == SSA_true_branch);
 
         assert(!pred->succs[index]);
-        pred->succs[index] = &node;
-        node.preds.push_back({ pred, index });
+        pred->succs[index] = &cfg_node;
+        cfg_node.preds.push_back({ pred, index });
     }
 
-    return &node;
+    return &cfg_node;
 }
 
 // Fills 'postorder' and 'preorder' and sets 'postorder_i' and 'preorder_i'.

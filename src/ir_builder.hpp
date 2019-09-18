@@ -9,8 +9,6 @@
 #include "ram.hpp"
 #include "reusable_stack.hpp"
 
-#include <boost/pool/object_pool.hpp>
-
 namespace bc = boost::container;
 
 class local_lookup_error_t : public std::exception
@@ -29,34 +27,28 @@ enum value_category_t
 
 struct rpn_value_t
 {
-    ssa_handle_t handle;
+    ssa_value_t ssa_value;
     value_category_t category;
     type_t type;
     pstring_t pstring;
     unsigned local_var_i;
 };
 
-// Data associated with each region node, to be used when making IRs.
-class region_data_t
+// Data associated with each block node, to be used when making IRs.
+struct block_data_t
 {
-public:
-    region_data_t(class ir_builder_t& ir_builder, bool sealed, 
-                  pstring_t label_name = {});
-
     // Keeps track of which ssa node a local var refers to.
-    // A handle of {0} means the local var isn't in the region.
-    ssa_handle_t* local_vars;
+    // A handle of {0} means the local var isn't in the block.
+    ssa_value_t* local_vars = nullptr;
 
-    ssa_handle_t* unsealed_phis;
-    unsigned unsealed_phis_size = 0;
+    // Phi nodes in the block which have yet to be sealed.
+    ssa_value_t* unsealed_phis = nullptr;
 
     // Only used for labels.
-    pstring_t label_name;
+    pstring_t label_name = {};
 
     // A CFG node is sealed when all its predecessors are set.
-    bool sealed;
-
-    void seal(class ir_builder_t& ir_builder);
+    constexpr bool sealed() const { return unsealed_phis == nullptr; }
 };
 
 class ir_builder_t
@@ -99,24 +91,29 @@ public:
 
     struct branch_t
     {
-        ssa_handle_t if_h;
-        ssa_handle_t true_h;
-        ssa_handle_t false_h;
+        ssa_node_t* if_node;
+        ssa_node_t* true_node;
+        ssa_node_t* false_node;
     };
 
     void compile();
     void compile_block();
-    ssa_handle_t insert_partial_fence(ssa_node_t node, 
-                                      ds_bitset_t const& bitset);
-    ssa_handle_t insert_fence();
-    void new_pasture(ds_bitset_t const& bitset, ssa_handle_t handle);
-    branch_t compile_branch(ssa_handle_t condition);
-    ssa_handle_t compile_jump();
+    ssa_node_t* insert_partial_fence(ssa_node_t node, 
+                                     ds_bitset_t const& bitset);
+    ssa_node_t* insert_fence();
+    void new_pasture(ds_bitset_t const& bitset, ssa_node_t* handle);
+    branch_t compile_branch(ssa_value_t condition);
+    ssa_node_t* compile_jump();
+    ssa_value_t default_construct(type_t type);
 
-    void fill_phi_args(ssa_handle_t phi_h, unsigned local_var_i);
+    // Block and local variable functions
+    block_data_t* new_block_data(bool seal, pstring_t label_name = {});
+    ssa_node_t* new_active_block(bool seal, pstring_t label_name = {});
+    void seal_block(block_data_t& block_data);
+    void fill_phi_args(ssa_node_t& phi, unsigned local_var_i);
+    ssa_value_t local_lookup(ssa_node_t* block, unsigned local_var_i);
 
-    ssa_handle_t local_lookup(ssa_handle_t region_h, unsigned local_var_i);
-
+    // IR generation functions
     rpn_value_t compile_expression(token_t const* expr);
     void compile_assign();
     void compile_assign_arith(ssa_op_t op);
@@ -129,44 +126,12 @@ public:
         rpn_value_t* begin, rpn_value_t* end, 
         type_t const* type_begin);
 
-    ssa_handle_t new_active_region(bool seal, 
-                                   ssa_handle_t const* begin,
-                                   ssa_handle_t const* end,
-                                   pstring_t label_name = {})
-    {
-        assert(begin <= end);
-
-        ssa_node_t node =
-        {
-            .op = SSA_cfg_region,
-            .control_h = ir.next_handle(),
-            .region_data = &region_data_pool.emplace(*this, seal, label_name)
-        };
-
-        node.set_input(ir, begin, end);
-
-        active_region_h = ir.insert(node);
-
-        // Create a new pasture.
-        assert(pastures.empty());
-        new_pasture(ds_bitset_t::make_all_true(), active_region_h);
-
-        return active_region_h;
-    }
-
-    template<typename... Ts>
-    ssa_handle_t new_active_region_v(bool seal, Ts... ts)
-    {
-        ssa_handle_t array[] = { ts... };
-        return new_active_region(seal, array, array + sizeof...(Ts));
-    }
-
     // Pairs which handle last modified 'bitset'.
     // (A pasture is surrounded by fences, har har har)
     struct pasture_t
     {
         ds_bitset_t bitset;
-        ssa_handle_t handle;
+        ssa_node_t* node;
     };
 
 public:
@@ -175,18 +140,18 @@ public:
     global_t* global_ptr;
     stmt_t* stmt;
     std::vector<rpn_value_t> rpn_stack;
-    reusable_stack<std::vector<ssa_handle_t>> break_stack;
-    reusable_stack<std::vector<ssa_handle_t>> continue_stack;
-    std::vector<ssa_handle_t> return_values;
-    std::vector<ssa_handle_t> return_jumps;
+    reusable_stack<std::vector<ssa_node_t*>> break_stack;
+    reusable_stack<std::vector<ssa_node_t*>> continue_stack;
+    std::vector<ssa_value_t> return_values;
+    std::vector<ssa_node_t*> return_jumps;
 
     // Every 'bitset' in this is disjoint with each other.
     std::vector<pasture_t*> pastures;
-    boost::object_pool<pasture_t> pasture_pool;
+    array_pool_t<pasture_t> pasture_pool;
 
-    array_pool_t<ssa_handle_t> handle_pool; // TODO: comment
-    array_pool_t<region_data_t> region_data_pool;
-    ssa_handle_t active_region_h = {};
+    array_pool_t<ssa_value_t> input_pool;
+    array_pool_t<block_data_t> block_pool;
+    ssa_node_t* active_block = nullptr;
 };
 
 #endif

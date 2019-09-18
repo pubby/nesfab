@@ -4,7 +4,9 @@
 
 #include "flat/small_set.hpp"
 
-std::string_view op_name(ssa_op_t op)
+static constexpr unsigned UNVISITED = -1u;
+
+std::string_view to_string(ssa_op_t op)
 {
     using namespace std::literals;
     switch(op)
@@ -16,40 +18,133 @@ std::string_view op_name(ssa_op_t op)
     }
 }
 
+std::ostream& operator<<(std::ostream& o, ssa_op_t node_type)
+{
+    o << to_string(node_type);
+    return o;
+}
+
+ssa_node_t* ssa_node_t::block()
+{
+    if(control->op == SSA_block)
+        return this;
+    return control->block();
+}
+
+void ssa_node_t::alloc_input(ir_t& ir, std::size_t size)
+{
+    input = ir.value_pool.alloc(input_size = size);
+}
+
+void ssa_node_t::set_input(
+    ir_t& ir, ssa_value_t const* begin, ssa_value_t const* end)
+{
+    input_size = end - begin;
+    input = ir.value_pool.insert(begin, end);
+}
+
+void ssa_node_t::set_input(
+    ir_t& ir, ssa_node_t* const* begin, ssa_node_t* const* end)
+{
+    input = ir.value_pool.alloc(input_size = end - begin);
+    std::copy(begin, end, input);
+}
+
 void ir_t::clear()
 {
-    ssa.clear();
-    input_vec.clear();
+    ssa_pool.clear();
+    order.clear();
+    root = nullptr;
+    exit = nullptr;
+}
+void ir_t::finish_construction()
+{
+    build_order();
+    build_users();
+}
+
+void ir_t::build_order()
+{
+    assert(exit);
+    order.clear();
+    ssa_pool.foreach([](ssa_node_t& node) { node.order_i = UNVISITED; });
+    visit_order(*exit);
+}
+
+void ir_t::visit_order(ssa_node_t& node)
+{
+    if(node.order_i != UNVISITED)
+        return;
+    node.order_i = order.size();
+    order.push_back(&node);
+    for(unsigned i = 0; i < node.input_size; ++i)
+        if(node.input[i].is_ptr())
+            visit_order(*node.input[i]);
+}
+
+void ir_t::build_users()
+{
+    for(ssa_node_t* node : order)
+    {
+        node->users_size = 0;
+        node->users_capacity = 0;
+    }
+
+    for(ssa_node_t* node : order)
+    {
+        for(unsigned i = 0; i < node->input_size; ++i)
+            if(node->input[i].is_ptr())
+                node->input[i]->users_capacity += 1;
+    }
+
+    for(ssa_node_t* node : order)
+        node->users = usage_pool.alloc(node->users_capacity);
+
+    for(ssa_node_t* node : order)
+    {
+        for(unsigned i = 0; i < node->input_size; ++i)
+        {
+            if(node->input[i].is_ptr())
+            {
+                ssa_node_t& pred = *node->input[i];
+                pred.users[pred.users_size++] = { node, i };
+            }
+        }
+    }
 }
 
 std::ostream& ir_t::gv(std::ostream& o)
 {
     o << "digraph {\n";
     o << "forcelabels=true;\n";
-    for(unsigned i = 0; i < ssa.size(); ++i)
-        o << i << "[label=\"" << op_name(ssa[i].op) << "\"];\n";
 
-    for(unsigned i = 0; i < ssa.size(); ++i)
+    ssa_pool.foreach([&](ssa_node_t& node) 
     {
-        if(ssa[i].op != SSA_cfg_region || ssa[i].control_h.value != i)
+        o << node.id() << "[label=\"" << to_string(node.op) << "\"];\n"; 
+    });
+
+    ssa_pool.foreach([&](ssa_node_t& node) 
+    {
+        if(node.op != SSA_block)
         {
-            o << i << " -> " << ssa[i].control_h.value;
+            o << node.id() << " -> " << node.control->id();
             o << " [color=\"red\"];\n";
         }
 
-        for(unsigned j = 0; j < ssa[i].input_size; ++j)
+        for(unsigned i = 0; i < node.input_size; ++i)
         {
-            ssa_handle_t input = ssa[i].input(*this)[j];
-            if(ssa_is_const(input))
-                o << i << " -> c" << ssa_extract_const(input) << '\n';
+            if(node.input[i].is_const())
+                o << node.id() << " -> c" << node.input[i].whole() << '\n';
             else
-                o << i << " -> " << input.value << '\n';
+                o << node.id() << " -> " << node.input[i]->id() << '\n';
         }
-    }
+    });
+
     o << "}\n";
     return o;
 }
 
+// TODO:
 /*
 std::string ir_t::handle_name(ssa_handle_t handle) const
 {

@@ -3,68 +3,47 @@
 #include "alloca.hpp"
 #include "compiler_error.hpp"
 
-region_data_t::region_data_t(ir_builder_t& ir_builder, bool sealed, 
-                             pstring_t label_name)
-: label_name(label_name)
-, sealed(sealed) 
-{
-    std::size_t size = ir_builder.fn().local_vars.size();
-    local_vars = ir_builder.handle_pool.alloc(size);
-    if(!sealed)
-        unsealed_phis = ir_builder.handle_pool.alloc(size);
-}
-
-void region_data_t::seal(class ir_builder_t& ir_builder)
-{
-    assert(!sealed);
-    sealed = true;
-    for(unsigned i = 0; i < ir_builder.fn().local_vars.size(); ++i)
-        if(local_vars[i])
-            ir_builder.fill_phi_args(unsealed_phis[i], i);
-}
-
 ir_builder_t::ir_builder_t(global_manager_t& global_manager, global_t& global)
 : global_manager_ptr(&global_manager)
 , global_ptr(&global)
 {
     assert(global.gclass = GLOBAL_FN);
     stmt = global.fn->stmts.data();
-
-    new_active_region(true, nullptr, nullptr);
+    new_active_block(true); // TODO?
 }
 
 void ir_builder_t::compile()
 {
+    // Create all of the SSA graph, minus the exit node:
     compile_block();
 
-    // Always end with one final return (probably a dummy).
+    // Now create the exit block.
+    // All return statements create a jump, which will jump to the exit node.
     type_t return_type = global().type.return_type();
     if(return_type.name != TYPE_VOID)
-        return_values.push_back(ssa_make_const(0));
+        return_values.push_back(default_construct(return_type));
     return_jumps.push_back(insert_fence());
 
-    new_active_region(true, &*return_jumps.begin(), &*return_jumps.end());
+    new_active_block(true)->set_input(ir, &*return_jumps.begin(), 
+                                          &*return_jumps.end());
 
-    ssa_node_t ret =
-    {
+    // The actual exit point is a SSA_return node.
+    ir.exit = &ir.ssa_pool.insert({
         .op = SSA_return,
-        .control_h = active_region_h,
-    };
+        .control = active_block });
 
     if(return_type.name != TYPE_VOID)
     {
-        ssa_node_t phi =
-        {
+        ssa_node_t* phi = &ir.ssa_pool.insert({
             .op = SSA_phi,
-            .control_h = active_region_h,
-            .type = return_type,
-        };
-        phi.set_input(ir, &*return_values.begin(), &*return_values.end());
-        ssa_handle_t phi_h = ir.insert(phi);
-        ret.set_input_v(ir, phi_h);
+            .control = active_block,
+            .type = return_type });
+        phi->set_input(ir, &*return_values.begin(), &*return_values.end());
+        ir.exit->set_input_v(ir, phi);
     }
 
-    ir.return_h = ir.insert(ret);
+    // Finish the IR
+    ir.finish_construction();
 }
 
 void ir_builder_t::compile_block()
@@ -75,17 +54,19 @@ void ir_builder_t::compile_block()
     default:
         if(is_var_init(stmt->name))
         {
-            ssa_handle_t handle = ssa_make_const(0);
-            if(stmt->expr)
-                handle = compile_expression(stmt->expr).handle;
+            unsigned const local_var_i = get_local_var_i(stmt->name);
 
-            unsigned local_var_i = get_local_var_i(stmt->name);
-            region_data_t& region_data = *ir[active_region_h].region_data;
-            region_data.local_vars[local_var_i] = handle;
+            ssa_value_t value;
+            if(stmt->expr)
+                value = compile_expression(stmt->expr).ssa_value;
+            else
+                value = default_construct(fn().local_vars[local_var_i].type);
+
+            active_block->block_data->local_vars[local_var_i] = value;
             ++stmt;
         }
         else
-            assert(false);
+            throw std::runtime_error("Unimplemented stmt.");
         break;
 
     case STMT_END_BLOCK:
@@ -101,61 +82,62 @@ void ir_builder_t::compile_block()
         {
             // Create the if node and branches.
             rpn_value_t cond = compile_expression(stmt->expr);
-            branch_t branch = compile_branch(cond.handle);
+            branch_t branch = compile_branch(cond.ssa_value);
 
-            // Create new region for the 'true' branch.
-            new_active_region_v(true, branch.true_h);
+            // Create new block for the 'true' branch.
+            new_active_block(true)->set_input_v(ir, branch.true_node);
             ++stmt;
             compile_block();
-            branch.true_h = insert_fence(); // End of the 'true' block.
+            branch.true_node = insert_fence(); // End of 'true' block.
 
             if(stmt->name == STMT_ELSE)
             {
-                // Create new region for the 'false' branch.
-                new_active_region_v(true, branch.false_h);
+                // Create new block for the 'false' branch.
+                new_active_block(true)->set_input_v(ir, branch.false_node);
                 ++stmt;
                 compile_block();
-                branch.false_h = insert_fence(); // End of the 'false' block.
+                branch.false_node = insert_fence(); // End of 'false' block.
             }
 
-            // Merge both branches together into a new region.
-            new_active_region_v(true, branch.true_h, branch.false_h);
+            // Merge both branches together into a new block.
+            new_active_block(true)->set_input_v(ir, branch.true_node,
+                                                    branch.false_node);
             break;
         }
 
     case STMT_WHILE:
         {
-            // The loop condition will go in its own region.
-            ssa_handle_t entry_fence_h = insert_fence();
-            ssa_handle_t condition_region_h = new_active_region_v(false);
+            // The loop condition will go in its own block.
+            ssa_node_t* entry_fence = insert_fence();
+            ssa_node_t* condition_block = new_active_block(false);
 
             // Create the if node and branches.
             rpn_value_t cond = compile_expression(stmt->expr);
-            branch_t branch = compile_branch(cond.handle);
+            branch_t branch = compile_branch(cond.ssa_value);
 
-            // Create new region for the 'true' branch.
-            new_active_region_v(true, branch.true_h);
+            // Create new block for the 'true' branch.
+            new_active_block(true)->set_input_v(ir, branch.true_node);
             ++stmt;
             continue_stack.push();
             break_stack.push();
             compile_block();
 
-            // All continue statements jump to the condition region,
+            // All continue statements jump to the condition block,
             // along with the entry fence and the end of the true branch fence.
             {
-                auto& input = continue_stack.top();
-                input.push_back(insert_fence()); // End of the 'true' block.
-                input.push_back(entry_fence_h);
-                ir[condition_region_h].set_input(
-                    ir, &*input.begin(), &*input.end());
-                ir[condition_region_h].region_data->seal(*this);
+                auto& vec = continue_stack.top();
+                vec.push_back(insert_fence()); // End of the 'true' block.
+                vec.push_back(entry_fence);
+                condition_block->set_input(ir, &*vec.begin(), &*vec.end());
+                seal_block(*condition_block->block_data);
             }
 
-            // Create the exit region.
+            // Create the exit block.
             {
-                auto& input = break_stack.top();
-                input.push_back(branch.false_h);
-                new_active_region(true, &*input.begin(), &*input.end());
+                auto& vec = break_stack.top();
+                vec.push_back(branch.false_node);
+                new_active_block(true)->set_input(ir, &*vec.begin(), 
+                                                      &*vec.end());
             }
 
             continue_stack.pop();
@@ -166,43 +148,45 @@ void ir_builder_t::compile_block()
     case STMT_DO:
         {
             // Compile the loop body
-            ssa_handle_t body_region_h = 
-                new_active_region_v(false, insert_fence(), ssa_handle_t{});
+            ssa_node_t* body_block = new_active_block(false);
+            body_block->set_input_v(ir, insert_fence(), nullptr);
             ++stmt;
             continue_stack.push();
             break_stack.push();
             compile_block();
 
-            // The loop condition can go in its own region, which is
-            // necessary to implement continue.
+            // The loop condition can go in its own block, which is
+            // necessary to implement 'continue'.
             {
-                auto& input = continue_stack.top();
-                // Only do this if needed; otherwise use the previous region.
-                if(!input.empty())
+                auto& vec = continue_stack.top();
+                // Only do this if needed; otherwise use the previous block.
+                if(!vec.empty())
                 {
-                    input.push_back(insert_fence());
-                    new_active_region(true, &*input.begin(), &*input.end());
+                    vec.push_back(insert_fence());
+                    new_active_block(true)->set_input(ir, &*vec.begin(),
+                                                          &*vec.end());
                 }
             }
 
             // Create the if node and branches.
             rpn_value_t cond = compile_expression(stmt->expr);
-            branch_t branch = compile_branch(cond.handle);
+            branch_t branch = compile_branch(cond.ssa_value);
 
-            // Can finally set the entry region node's input and seal it.
+            // Can finally set the entry block node's input and seal it.
             {
-                ssa_node_t& body_region = ir[body_region_h];
-                assert(body_region.input_size == 2);
-                assert(body_region.input(ir)[1].value == 0);
-                body_region.input(ir)[1] = branch.true_h;
-                body_region.region_data->seal(*this);
+                assert(body_block->input_size == 2);
+                assert(body_block->input[1].ptr() == nullptr);
+
+                body_block->input[1] = branch.true_node;
+                seal_block(*body_block->block_data);
             }
 
-            // Create the exit region.
+            // Create the exit block.
             {
-                auto& input = break_stack.top();
-                input.push_back(branch.false_h);
-                new_active_region(true, &*input.begin(), &*input.end());
+                auto& vec = break_stack.top();
+                vec.push_back(branch.false_node);
+                new_active_block(true)->set_input(ir, &*vec.begin(), 
+                                                      &*vec.end());
             }
 
             continue_stack.pop();
@@ -226,7 +210,7 @@ void ir_builder_t::compile_block()
                         value.type, return_type));
                 }
 
-                return_values.push_back(value.handle);
+                return_values.push_back(value.ssa_value);
                 return_jumps.push_back(compile_jump());
             }
             else if(return_type.name == TYPE_VOID)
@@ -258,12 +242,9 @@ void ir_builder_t::compile_block()
 
     case STMT_LABEL:
         {
-            label_t* label = stmt->label;
+            label_t* label = stmt->label; assert(label);
             pstring_t label_name = stmt->pstring;
             ++stmt;
-            assert(label);
-
-            std::printf("LABEL! %i %i\n", label->goto_count, label->inputs.size() + 1);
 
             // If there's no goto to this label, just ignore it.
             if(label->goto_count == 0)
@@ -274,16 +255,16 @@ void ir_builder_t::compile_block()
                 label->inputs.push_back(insert_fence());
 
                 // All the gotos to this label have been compiled,
-                // that means this region can be sealed immediately!
-                label->ssa_h = new_active_region(true, 
-                    &*label->inputs.begin(), &*label->inputs.end(),
-                    label_name);
+                // that means this block can be sealed immediately!
+                label->node = new_active_block(true, label_name);
+                label->node->set_input(ir, &*label->inputs.begin(),
+                                           &*label->inputs.end());
             }
             else
             {
                 // Otherwise, seal the node at a later time.
                 label->inputs.push_back(insert_fence());
-                label->ssa_h = new_active_region(false, nullptr, nullptr);
+                label->node = new_active_block(false, label_name);
             }
 
             break;
@@ -291,31 +272,26 @@ void ir_builder_t::compile_block()
 
     case STMT_GOTO:
         {
-            label_t* label = stmt->label;
-            pstring_t label_name = stmt->pstring;
+            label_t* label = stmt->label; assert(label);
             ++stmt;
-            assert(label);
             assert(label->goto_count > 0);
 
             // Add the jump to the label.
             label->inputs.push_back(compile_jump());
 
-            std::printf("GOTO! %i %i\n", label->goto_count, label->inputs.size());
-
-            // +1 because creating the label adds an input.
-            // Note that this will only be true if the label already exists!
+            // +1 because creating the label adds an input (the predecessor).
+            // (This condition will only be taken if the label node exists)
             if(label->goto_count+1 == label->inputs.size())
             {
-                std::puts("OK!\n");
-                assert(label->ssa_h);
-                assert(ir[label->ssa_h].input_size == 0);
+                assert(label->node);
+                assert(label->node->input_size == 0);
 
-                // Add the inputs to the ssa region node.
-                ir[label->ssa_h].set_input(ir, 
-                    &*label->inputs.begin(), &*label->inputs.end());
+                // Add the inputs to the ssa block node.
+                label->node->set_input(ir, &*label->inputs.begin(),
+                                           &*label->inputs.end());
 
-                // Seal the node.
-                ir[label->ssa_h].region_data->seal(*this);
+                // Seal the block.
+                seal_block(*label->node->block_data);
             }
             break;
         }
@@ -325,13 +301,13 @@ void ir_builder_t::compile_block()
 
 // Inserts a fence that covers all memory values in 'bitset',
 // then creates 'node' as its dependent.
-ssa_handle_t ir_builder_t::insert_partial_fence(ssa_node_t node, 
-                                                ds_bitset_t const& bitset)
+ssa_node_t* ir_builder_t::insert_partial_fence(ssa_node_t node, 
+                                               ds_bitset_t const& bitset)
 {
-    assert(!node.control_h);
+    assert(!node.control);
 
-    ssa_handle_t* input_begin = ALLOCA_T(ssa_handle_t, pastures.size());
-    ssa_handle_t* input_end = input_begin;
+    ssa_node_t** input_begin = ALLOCA_T(ssa_node_t*, pastures.size());
+    ssa_node_t** input_end = input_begin;
 
     for(auto it = pastures.begin(); it != pastures.end();)
     {
@@ -346,12 +322,11 @@ ssa_handle_t ir_builder_t::insert_partial_fence(ssa_node_t node,
         }
 
         if(is_fence_input)
-            *(input_end++) = (*it)->handle;
+            *(input_end++) = (*it)->node;
 
         // Remove the pasture if its bitset is all zeroes.
         if(keep_pasture == 0)
         {
-            pasture_pool.free(*it);
             *it = pastures.back();
             pastures.pop_back();
         }
@@ -359,157 +334,190 @@ ssa_handle_t ir_builder_t::insert_partial_fence(ssa_node_t node,
             ++it;
     }
 
+    // Clear out memory if possible.
+    if(pastures.empty())
+        pasture_pool.clear();
+
     // If there's no intersection, that means the bitset was all zeroes,
-    // and thus we don't need a fence; just return the active region.
+    // and thus we don't need a fence; just return the active block.
     if(input_begin == input_end)
     {
-        node.control_h = active_region_h;
-        return ir.insert(node);
+        node.control = active_block;
+        return &ir.ssa_pool.insert(node);
     }
     else
     {
         // Create the fence node.
-        ssa_node_t fence = { .op = SSA_fence, .control_h = active_region_h };
-        fence.set_input(ir, input_begin, input_end);
+        node.control = &ir.ssa_pool.insert({
+            .op = SSA_fence,
+            .control = active_block });
+        node.control->set_input(ir, input_begin, input_end);
 
         // Create the dependent node.
-        node.control_h = ir.insert(fence);
-        ssa_handle_t handle = ir.insert(node);
+        ssa_node_t* ret = &ir.ssa_pool.insert(node);
 
         // Add the bits back.
-        new_pasture(bitset, handle);
+        new_pasture(bitset, ret);
 
-        return handle;
+        return ret;
     }
 }
 
 // Creates a fence with ALL pastures as input.
 // Also clears 'pastures', so you'll have to insert into it again.
-ssa_handle_t ir_builder_t::insert_fence()
+ssa_node_t* ir_builder_t::insert_fence()
 {
-    ssa_handle_t ret = active_region_h;
-
-    if(pastures.size() > 1)
+    if(pastures.size() <= 1)
     {
-        ssa_node_t node = { .op = SSA_fence, .control_h = active_region_h };
-
-        unsigned input_i = node.alloc_input(ir, pastures.size());
-        for(unsigned i = 0; i < pastures.size(); ++i)
-            ir.input_vec[input_i + i] = pastures[i]->handle;
-
-        ret = ir.insert(node);
+        pastures.clear();
+        return active_block;
     }
 
-    for(pasture_t* pasture : pastures)
-        pasture_pool.free(pasture);
+    ssa_node_t* ret = &ir.ssa_pool.insert({
+        .op = SSA_fence,
+        .control = active_block });
+    ret->alloc_input(ir, pastures.size());
+    for(unsigned i = 0; i < pastures.size(); ++i)
+        ret->input[i] = pastures[i]->node;
+
     pastures.clear();
+    pasture_pool.clear();
 
     return ret;
 }
 
-void ir_builder_t::new_pasture(ds_bitset_t const& bitset, ssa_handle_t handle)
+void ir_builder_t::new_pasture(ds_bitset_t const& bitset, ssa_node_t* node)
 {
-    pasture_t* pasture = pasture_pool.malloc();
-    pasture->bitset = bitset;
-    pasture->handle = handle;
-    pastures.push_back(pasture);
+    pastures.push_back(&pasture_pool.insert({ bitset, node }));
 }
 
-auto ir_builder_t::compile_branch(ssa_handle_t condition_h) -> branch_t
+auto ir_builder_t::compile_branch(ssa_value_t condition) -> branch_t
 {
-    branch_t result;
+    branch_t branch;
 
-    ssa_node_t node = 
-    {
+    branch.if_node = &ir.ssa_pool.insert({
         .op = SSA_if,
-        .control_h = insert_fence()
-    };
-    node.set_input_v(ir, condition_h);
-    result.if_h = ir.insert(node);
+        .control = insert_fence() });
+    branch.if_node->set_input_v(ir, condition);
 
-    result.true_h = ir.insert(
-        { .op = SSA_true_branch, .control_h = result.if_h });
+    branch.true_node = &ir.ssa_pool.insert({
+        .op = SSA_true_branch,
+        .control = branch.if_node });
 
-    result.false_h = ir.insert(
-        { .op = SSA_false_branch, .control_h = result.if_h });
+    branch.false_node = &ir.ssa_pool.insert({
+        .op = SSA_false_branch,
+        .control = branch.if_node });
 
-    return result;
+    return branch;
 }
 
 // Jumps are like 'break', 'continue', 'goto', etc.
-ssa_handle_t ir_builder_t::compile_jump()
+ssa_node_t* ir_builder_t::compile_jump()
 {
     // The syntax allows code to exist following a jump statement.
     // Said code is unreachable, but gets compiled anyway.
     // Implement using a conditional that always takes the false branch.
     // (This will be optimized out later)
 
-    branch_t branch = compile_branch(ssa_make_const(0));
+    branch_t branch = compile_branch(0u);
 
-    // Create new region for the dead code 'true' branch.
-    new_active_region_v(true, branch.true_h);
+    // Create new block for the dead code 'true' branch.
+    new_active_block(true)->set_input_v(ir, branch.true_node);
 
     // Return the node to jump to.
-    return branch.false_h;
+    return branch.false_node;
+}
+
+ssa_value_t ir_builder_t::default_construct(type_t type)
+{
+    if(is_arithmetic(type.name))
+        return 0u;
+    throw std::runtime_error("Unimplemented default construct.");
+}
+
+
+block_data_t* ir_builder_t::new_block_data(bool seal, pstring_t label_name)
+{
+    block_data_t& block_data = block_pool.emplace();
+    std::size_t const num_local_vars = fn().local_vars.size();
+
+    block_data.local_vars = input_pool.alloc(num_local_vars);
+    if(seal == false)
+        block_data.unsealed_phis = input_pool.alloc(num_local_vars);
+    
+    return &block_data;
+}
+
+ssa_node_t* ir_builder_t::new_active_block(bool seal, pstring_t label_name)
+{
+    active_block = &ir.ssa_pool.insert({
+        .op = SSA_block,
+        .block_data = new_block_data(seal, label_name) });
+    active_block->control = active_block;
+
+    // Create a new pasture.
+    assert(pastures.empty());
+    new_pasture(ds_bitset_t::make_all_true(), active_block);
+
+    return active_block;
+}
+
+void ir_builder_t::seal_block(block_data_t& block_data)
+{
+    assert(block_data.sealed() == false);
+    std::size_t const num_local_vars = fn().local_vars.size();
+    for(unsigned i = 0; i < num_local_vars; ++i)
+        if(block_data.local_vars[i])
+            fill_phi_args(*block_data.unsealed_phis[i], i);
+    block_data.unsealed_phis = nullptr;
 }
 
 // Relevant paper:
 //   Simple and Efficient Construction of Static Single Assignment Form
-ssa_handle_t ir_builder_t::local_lookup(ssa_handle_t region_h, 
-                                        unsigned local_var_i)
+ssa_value_t ir_builder_t::local_lookup(ssa_node_t* block, unsigned local_var_i)
 {
-    // Careful about reference invalidation! 
-    ssa_node_t& region = ir[region_h];
+    assert(block);
+    assert(block->op == SSA_block);
+    assert(block->block_data);
 
-    // Input must be a region node.
-    assert(region.op == SSA_cfg_region);
-    assert(region.region_data);
-
-    // Careful about reference invalidation! 
-    region_data_t& region_data = *region.region_data;
-
-    ssa_handle_t handle = region_data.local_vars[local_var_i];
-    if(handle)
-        return handle;
-    else if(region_data.sealed)
+    ssa_value_t lookup = block->block_data->local_vars[local_var_i];
+    if(lookup)
+        return lookup;
+    else if(block->block_data->sealed())
     {
-        // If the region doesn't contain a definition for local_var_i,
+        // If the block doesn't contain a definition for local_var_i,
         // recursively look up its definition in predecessor nodes.
         // If there are multiple predecessors, a phi node will be created.
-
         try
         {
-            switch(region.input_size)
+            switch(block->input_size)
             {
             case 0:
                 throw local_lookup_error_t();
             case 1:
-                return local_lookup(ir.region_h(*region.input(ir)), 
-                                    local_var_i);
+                return local_lookup(block->input[0]->block(), local_var_i);
             default:
-                ssa_handle_t phi_h = ir.insert(
-                    { .op = SSA_phi, .control_h = region_h });
-                // 'region' reference is now invalidated.
-                // but 'region_data' is still valid!
-                region_data.local_vars[local_var_i] = phi_h;
-                fill_phi_args(phi_h, local_var_i);
-                return phi_h;
+                ssa_node_t* phi = &ir.ssa_pool.insert({
+                    .op = SSA_phi,
+                    .control = block });
+                block->block_data->local_vars[local_var_i] = phi;
+                fill_phi_args(*phi, local_var_i);
+                return phi;
             }
         }
         catch(local_lookup_error_t&)
         {
-            if(region_data.label_name.size)
+            if(block->block_data->label_name.size)
             {
                 pstring_t var_name = fn().local_vars[local_var_i].name;
                 throw compiler_error_t(
-                    fmt_error(region_data.label_name, fmt(
+                    fmt_error(block->block_data->label_name, fmt(
                         "Jump to label crosses initialization "
                         "of variable %.", var_name.view()))
                     + fmt_error(var_name, fmt(
                         "Variable is defined here.")));
             }
-            else
-                throw;
+            throw;
         }
     }
     else 
@@ -518,41 +526,26 @@ ssa_handle_t ir_builder_t::local_lookup(ssa_handle_t region_h,
         // and thus it's impossible to determine the local var's definition.
         // To work around this, an incomplete phi node can be created, which
         // will then be filled when the node is sealed.
-
-        ssa_handle_t phi_h = ir.insert(
-            { .op = SSA_phi, .control_h = region_h });
-        // 'region' reference is now invalidated, 
-        // but 'region_data' is still valid!
-        region_data.local_vars[local_var_i] = phi_h;
-        region_data.unsealed_phis[local_var_i] = phi_h;
-        return phi_h;
+        ssa_node_t* phi = &ir.ssa_pool.insert({
+            .op = SSA_phi,
+            .control = block });
+        block->block_data->local_vars[local_var_i] = phi;
+        block->block_data->unsealed_phis[local_var_i] = phi;
+        return phi;
     }
 }
 
-void ir_builder_t::fill_phi_args(ssa_handle_t phi_h, unsigned local_var_i)
+void ir_builder_t::fill_phi_args(ssa_node_t& phi, unsigned local_var_i)
 {
     // Input must be an empty phi node.
-    assert(ir[phi_h].op == SSA_phi);
-    assert(ir[phi_h].input_size == 0);
-
-    // Allocate a spot for the input to go.
-    unsigned input_size;
-    unsigned input_i;
-    ssa_handle_t region_h;
-    {
-        // This reference can be invalidated; keep inside {} block.
-        ssa_node_t& phi = ir[phi_h];
-        region_h = phi.control_h;
-        assert(ir[region_h].op == SSA_cfg_region);
-        assert(region_h == ir.region_h(phi_h));
-        input_size = phi.input_size = ir[region_h].input_size;
-        input_i = phi.input_i = ir.alloc_input(input_size);
-    }
+    assert(phi.op == SSA_phi);
+    assert(phi.input_size == 0);
 
     // Fill the input array using local lookups.
-    for(unsigned i = 0; i < input_size; ++i)
-        ir.input_vec[input_i + i] = local_lookup(
-            ir.region_h(ir[region_h].input(ir)[i]), local_var_i);
+    ssa_node_t* block = phi.control; assert(block);
+    phi.alloc_input(ir, block->input_size);
+    for(unsigned i = 0; i < block->input_size; ++i)
+        phi.input[i] = local_lookup(block->input[i]->block(), local_var_i);
 }
 
 rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
@@ -564,17 +557,15 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
         switch(token->type)
         {
         default:
-            assert(false);
-            break;
+            throw std::runtime_error("Invalid token in expression.");
 
         case TOK_ident:
             rpn_push({ 
-                .handle = local_lookup(active_region_h, token->value), 
+                .ssa_value = local_lookup(active_block, token->value), 
                 .category = LVAL_LOCAL, 
                 .type = fn().local_vars[token->value].type, 
                 .pstring = token->pstring,
-                .local_var_i = token->value,
-            });
+                .local_var_i = token->value });
             break;
 
         case TOK_global_ident:
@@ -583,14 +574,14 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
                 switch(global.gclass)
                 {
                 default:
-                    assert(false);
+                    throw std::runtime_error(
+                        "Unimplemented global in expression.");
                 case GLOBAL_FN:
                     rpn_push({ 
-                        .handle = ssa_make_const(token->value),
+                        .ssa_value = token->value,
                         .category = RVAL, 
                         .type = global.type, 
-                        .pstring = token->pstring 
-                    });
+                        .pstring = token->pstring });
                     break;
                 }
                 break;
@@ -601,12 +592,11 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
             break;
 
         case TOK_number:
-            rpn_push({ 
-                .handle = ssa_make_const(token->value), 
+            rpn_push({
+                .ssa_value = token->value, 
                 .category = RVAL, 
-                .type = ssa_const_type, 
-                .pstring = token->pstring 
-            });
+                .type = { TYPE_INT }, 
+                .pstring = token->pstring });
             break;
 
         case TOK_apply:
@@ -666,29 +656,26 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
 
                 // For now, only const fns are allowed.
                 // In the future, fn pointers may be supported.
-                assert(ssa_is_const(fn_val.handle));
-                global_t& fn_global = 
-                    globals()[ssa_extract_const(fn_val.handle)];
+                assert(fn_val.ssa_value.is_const());
+                global_t& fn_global = globals()[fn_val.ssa_value.whole()];
 
                 // Type checks are done. Now convert the call to SSA.
-                ssa_node_t fn_node =
-                {
+                ssa_node_t fn_node = {
                     .op = SSA_fn_call,
-                    .type = return_type,
-                };
-
-                unsigned input_i = fn_node.alloc_input(ir, num_args + 1);
-                ir.input_vec[input_i] = fn_val.handle;
+                    .type = return_type };
+                fn_node.alloc_input(ir, num_args + 1);
+                fn_node.input[0] = fn_val.ssa_value;
                 for(unsigned i = 0; i != num_args; ++i)
-                    ir.input_vec[input_i + i + 1] = args[i].handle;
-
-                ssa_handle_t handle = 
-                    //insert_partial_fence(fn_node, fn_global.modifies);
-                    insert_partial_fence(fn_node, fn_global.modifies);
+                    fn_node.input[i + 1] = args[i].ssa_value;
 
                 // Update the eval stack.
                 rpn_pop(num_args + 1);
-                rpn_push({ handle, RVAL, return_type, token->pstring });
+                rpn_push({ 
+                    .ssa_value = insert_partial_fence(
+                        fn_node, fn_global.modifies), 
+                    .category = RVAL, 
+                    .type = return_type, 
+                    .pstring = token->pstring });
 
                 break;
             }
@@ -754,9 +741,9 @@ void ir_builder_t::compile_assign()
     }
 
     // Remap the identifier to point to the new value.
-    region_data_t& region_data = *ir[active_region_h].region_data;
-    region_data.local_vars[assignee.local_var_i] = assignment.handle;
-    assignee.handle = assignment.handle;
+    active_block->block_data->local_vars[assignee.local_var_i] = 
+        assignment.ssa_value;
+    assignee.ssa_value = assignment.ssa_value;
 
     // Leave the assignee on the stack, but extend its pstring.
     rpn_pop();
@@ -775,16 +762,14 @@ void ir_builder_t::compile_binary_operator(ssa_op_t op, type_t result_type)
 {
     assert(rpn_stack.size() >= 2);
 
-    ssa_node_t new_node = 
-    { 
+    ssa_node_t new_node = { 
         .op = op, 
-        .control_h = active_region_h, 
-        .type = result_type
-    };
+        .control = active_block, 
+        .type = result_type };
 
-    new_node.set_input_v(ir, rpn_peek(1).handle, rpn_peek(0).handle);
+    new_node.set_input_v(ir, rpn_peek(1).ssa_value, rpn_peek(0).ssa_value);
 
-    rpn_peek(1).handle = ir.insert(new_node);
+    rpn_peek(1).ssa_value = &ir.ssa_pool.insert(new_node);
     rpn_peek(1).type = result_type;
     rpn_peek(1).category = RVAL;
     rpn_peek(1).pstring = concat(rpn_peek(1).pstring, rpn_peek(0).pstring);
@@ -812,16 +797,12 @@ void ir_builder_t::compile_arith(ssa_op_t op)
 
 void ir_builder_t::append_cast_op(rpn_value_t& rpn_value, type_t to_type)
 {
-    ssa_node_t new_node = 
-    { 
+    ssa_node_t new_node = { 
         .op = SSA_cast, 
-        .control_h = active_region_h,
-        .type = to_type
-    };
-
-    new_node.set_input_v(ir, rpn_value.handle);
-
-    rpn_value.handle = ir.insert(new_node);
+        .control = active_block,
+        .type = to_type };
+    new_node.set_input_v(ir, rpn_value.ssa_value);
+    rpn_value.ssa_value = &ir.ssa_pool.insert(new_node);
 }
 
 bool ir_builder_t::cast(rpn_value_t& rpn_value, type_t to_type)

@@ -24,23 +24,23 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     // the number of bytes each type uses. The bit format is: FFWW,
     // where FF is two bits storing the size of the fractional part in bytes,
     // and WW is two bits storing the size of the whole part in bytes.
-    // Bool are slightly special and come last.
+    // Bools and pointers are slightly special and come last.
     TYPE_BYTE  = 1,
     TYPE_FIRST_ARITH = TYPE_BYTE,
     TYPE_SHORT = 2,
     TYPE_INT   = 3,
     TYPE_FIRST_FIXED = 4,
     TYPE_LAST_FIXED  = 0b1111,
-    TYPE_BOOL = 0b10001, // 0th bit must be a 1.
-    TYPE_LAST_ARITH = TYPE_BOOL,
+    TYPE_BOOL = 0b10001, // Bottom 2 bits must equal 1.
+    TYPE_PTR,            // Bottom 2 bits must equal 2.
+    TYPE_FIRST_COMPOSITE = TYPE_PTR,
+    TYPE_LAST_ARITH = TYPE_PTR,
 
     // A composite type is one that holds smaller types.
     // These types use the 'tail_i' field in 'type_t'.
     // e.g. fn types or pointer types.
-    TYPE_FIRST_COMPOSITE,
-    TYPE_TABLE = TYPE_FIRST_COMPOSITE,
+    TYPE_TABLE,
     TYPE_ARRAY,
-    TYPE_PTR,
     TYPE_FN,
 };
 

@@ -606,7 +606,7 @@ void parser_t<P>::parse_for()
         parse_token(TOK_semicolon);
         if(indent != for_indent)
             compiler_error("Multi-line for loop statements must "
-                        "use same indentation.");
+                           "use same indentation.");
     };
 
     parse_token(TOK_for);

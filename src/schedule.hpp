@@ -27,9 +27,9 @@ struct usage_t
 class cfg_node_t
 {
 public:
-    explicit cfg_node_t(ssa_handle_t region_h) : region_h(region_h) {}
+    explicit cfg_node_t(ssa_node_t& block) : block(&block) {}
 
-    ssa_handle_t region_h;
+    ssa_node_t* block;
     cfg_node_t* idom;
     unsigned preorder_i;
     unsigned postorder_i;
@@ -80,7 +80,7 @@ public:
 private:
     ir_t& ir() { return *ir_ptr; }
 
-    cfg_node_t* build_cfg(ssa_handle_t ssa_node_h);
+    cfg_node_t* build_cfg(ssa_node_t& ssa_node);
     unsigned visit_order(cfg_node_t& node);
 
     ir_t* ir_ptr;

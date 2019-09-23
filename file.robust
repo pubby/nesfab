@@ -1,7 +1,6 @@
 byte x
 
 fn foo()
-    if 1
-        byte x
-        x = x + x
-        x + x
+    byte x = 2
+    if x && 3 || 4
+        1 + 1

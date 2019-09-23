@@ -1,10 +1,9 @@
-SSA_DEF(nop, = 0)
+SSA_DEF(pruned, = 0)
 
-SSA_DEF(block)
 SSA_DEF(fence)
 
 SSA_DEF(if)
-SSA_DEF(false_branch)
+SSA_DEF(false_branch) // Must come right before 'true_branch'.
 SSA_DEF(true_branch)
 
 SSA_DEF(return)

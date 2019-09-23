@@ -223,9 +223,9 @@ void parser_t<P>::parse_expr(expr_temp_t& expr_temp,
     // Expression parsing is based on the shunting yard algorithm,
     // with small modifications to support more varied expressions.
 
-    using shunting_yard_t = bc::small_vector<token_type_t, 16>;
+    using shunting_yard_t = bc::small_vector<token_t, 16>;
     shunting_yard_t shunting_yard;
-    
+
     // The algorithm toggles between two states: applicable and inapplicable.
     // An applicable string is one that can be on the left side of an operator.
     // An inapplicable string is one that can't (e.g. "foo +").
@@ -238,10 +238,10 @@ inapplicable:
         goto applicable_advance;
 
     case TOK_lparen:
+        shunting_yard.push_back(token);
         parse_token();
         if(token.type == TOK_rparen)
             compiler_error("() is not a valid expr.");
-        shunting_yard.push_back(TOK_lparen);
         ++open_parens;
         goto inapplicable; // already advanced token
 
@@ -282,13 +282,13 @@ applicable:
         {
             if(shunting_yard.empty())
                 goto finish_expr;
-            else if(shunting_yard.back() == TOK_lparen)
+            else if(shunting_yard.back().type == TOK_lparen)
             {
                 shunting_yard.pop_back();
                 --open_parens;
                 goto applicable_advance;
             }
-            expr_temp.push_back({ shunting_yard.back() });
+            expr_temp.push_back(shunting_yard.back());
             shunting_yard.pop_back();
         }
     
@@ -308,14 +308,27 @@ applicable:
         {
             auto const token_precedence = operator_precedence(token.type);
             while(shunting_yard.size()
-                  && operator_left_assoc(shunting_yard.back())
-                  && (operator_precedence(shunting_yard.back()) 
+                  && operator_left_assoc(shunting_yard.back().type)
+                  && (operator_precedence(shunting_yard.back().type) 
                       <= token_precedence))
             {
-                expr_temp.push_back({ shunting_yard.back() });
+                expr_temp.push_back(shunting_yard.back());
                 shunting_yard.pop_back();
             }
-            shunting_yard.push_back(token.type);
+
+            if(token.type == TOK_logical_and)
+            {
+                expr_temp.push_back(token);
+                token.type = TOK_end_logical_and;
+            }
+
+            if(token.type == TOK_logical_or)
+            {
+                expr_temp.push_back(token);
+                token.type = TOK_end_logical_or;
+            }
+
+            shunting_yard.push_back(token);
             parse_token();
             goto inapplicable;
         }
@@ -325,9 +338,9 @@ applicable:
 finish_expr:
     while(shunting_yard.size())
     {
-        if(shunting_yard.back() == TOK_lparen)
+        if(shunting_yard.back().type == TOK_lparen)
             compiler_error("Incomplete expression. Expecting ).");
-        expr_temp.push_back({ shunting_yard.back() });
+        expr_temp.push_back(shunting_yard.back());
         shunting_yard.pop_back();
     }
     assert(!expr_temp.empty());

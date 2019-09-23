@@ -103,10 +103,10 @@ struct global_t
 
 struct label_t
 {
-    ssa_node_t* node;
+    cfg_node_t* node;
     stmt_handle_t stmt_h;
     unsigned goto_count;
-    std::vector<ssa_node_t*> inputs;
+    std::vector<cfg_node_t*> inputs;
 };
 
 struct stmt_t

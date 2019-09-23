@@ -598,8 +598,8 @@ int main()
             //keyword(5, "period", "."),
             accept(7, "apply", "apply", eof()), // dummy
 
-            keyword(10, "asterisk", "*"),
-            keyword(10, "fslash", "/"),
+            //keyword(10, "asterisk", "*"),
+            //keyword(10, "fslash", "/"),
 
             keyword(11, "plus", "+"),
             keyword(11, "minus", "-"),
@@ -607,17 +607,18 @@ int main()
             keyword(12, "lshift", "<<"),
             keyword(12, "rshift", ">>"),
 
-            keyword(13, "lt", "<"),
-            keyword(13, "lte", "<="),
-            keyword(13, "gt", ">"),
-            keyword(13, "gte", ">="),
+            keyword(13, "bitwise_and", "&"),
+            keyword(14, "bitwise_xor", "^"),
+            keyword(15, "bitwise_or", "|"),
 
-            keyword(14, "equal", "=="),
-            keyword(14, "not_equal", "!="),
+            keyword(16, "lt", "<"),
+            keyword(16, "lte", "<="),
+            keyword(16, "gt", ">"),
+            keyword(16, "gte", ">="),
 
-            keyword(15, "bitwise_and", "&"),
-            keyword(16, "bitwise_xor", "^"),
-            keyword(17, "bitwise_or", "|"),
+            keyword(17, "equal", "=="),
+            keyword(17, "not_equal", "!="),
+
             keyword(18, "logical_and", "&&"),
             keyword(19, "logical_or", "||"),
 
@@ -652,7 +653,9 @@ int main()
             accept("decimal", "number", many1(digit())),
 
             accept("number", "number", eof()),
-            accept("global_ident", "global identifier", eof())
+            accept("global_ident", "global identifier", eof()),
+            accept("end_logical_and", "end_logical_and", eof()),
+            accept("end_logical_or", "end_logical_or", eof())
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

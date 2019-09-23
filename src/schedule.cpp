@@ -30,7 +30,9 @@ void scheduler_t::build_cfg()
 cfg_node_t* scheduler_t::build_cfg(ssa_node_t& ssa_node)
 {
     // Find the block this node belongs to.
-    ssa_node_t* block = ssa_node.block(); assert(block);
+    ssa_node_t* block = ssa_node.block(); 
+    assert(block);
+    assert(block->op == SSA_block);
 
     // Has the region already been turned into a CFG node?
     if(block->cfg_node)
@@ -40,18 +42,20 @@ cfg_node_t* scheduler_t::build_cfg(ssa_node_t& ssa_node)
     cfg_node_t& cfg_node = cfg_pool.emplace(*block);
     block->cfg_node = &cfg_node;
 
-    if(block->input_size == 0)
+    if(block->inputs.size() == 0)
     {
         assert(!cfg_root);
         return cfg_root = &cfg_node;
     }
 
     // Recurse through the block's inputs.
-    for(unsigned i = 0; i < block->input_size; ++i)
+    for(ssa_value_t input : block->inputs)
     {
-        cfg_node_t* pred = build_cfg(*block->input[i]);
+        assert(input.is_ptr());
+        
+        cfg_node_t* pred = build_cfg(*input);
 
-        bool const index = (block->input[i]->op == SSA_true_branch);
+        bool const index = (input->op == SSA_true_branch);
 
         assert(!pred->succs[index]);
         pred->succs[index] = &cfg_node;
@@ -203,7 +207,7 @@ bool scheduler_t::build_loops()
         set_t entry_points;
 
         // Check to see if H is actually a header:
-        for(usage_t usage : h->preds)
+        for(cfg_usage_t usage : h->preds)
         if(usage.edge_type() == BACK_EDGE)
             p.insert(usage.node->find()); // Yep, it paths to P.
 
@@ -218,7 +222,7 @@ bool scheduler_t::build_loops()
             cfg_node_t* x = q.back();
             q.pop_back();
 
-            for(usage_t usage : x->preds)
+            for(cfg_usage_t usage : x->preds)
             if(usage.edge_type() != BACK_EDGE)
             {
                 cfg_node_t* y = usage.node->find();

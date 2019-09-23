@@ -7,7 +7,6 @@
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
-#include "schedule.hpp"
 
 std::string to_string(stmt_name_t stmt_name)
 {
@@ -127,12 +126,15 @@ void global_manager_t::finish()
                 ir_builder_t ir_builder(*this, *global);
                 ir_builder.compile();
 
+                //o_sccp(ir_builder.ir);
+
                 {
                     std::ofstream o(fmt("graphs/%.gv", global->name.view()));
                     if(o.is_open())
                         ir_builder.ir.gv(o);
                 }
 
+                /*
                 {
                     scheduler_t scheduler(ir_builder.ir);
                     std::ofstream o(fmt("graphs/%_cfg.gv", 
@@ -140,6 +142,7 @@ void global_manager_t::finish()
                     if(o.is_open())
                         scheduler.gv(o);
                 }
+                */
                 break;
             }
 

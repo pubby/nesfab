@@ -54,7 +54,8 @@ file.cpp \
 globals.cpp \
 pass1.cpp \
 ir_builder.cpp \
-schedule.cpp
+fixed.cpp \
+worklist.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

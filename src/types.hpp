@@ -7,12 +7,8 @@
 #include <string_view>
 #include <vector>
 
-#include <boost/container/small_vector.hpp>
-
 #include "robin/collection.hpp"
 #include "robin/set.hpp"
-
-namespace bc = boost::container;
 
 enum type_name_t : std::uint8_t // Keep unsigned.
 {

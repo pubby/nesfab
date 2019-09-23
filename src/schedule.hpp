@@ -1,4 +1,5 @@
-#ifndef SCHEDULE_HPP
+//#ifndef SCHEDULE_HPP
+#if 0
 #define SCHEDULE_HPP
 
 #include <boost/container/small_vector.hpp>
@@ -6,6 +7,7 @@
 #include "array_pool.hpp"
 #include "handle.hpp"
 #include "ir.hpp"
+#include "usage.hpp"
 
 namespace bc = ::boost::container;
 
@@ -16,11 +18,8 @@ enum edge_type_t : short
     FORWARD_EDGE,
 };
 
-struct usage_t
+struct cfg_usage_t : public usage_t<class cfg_node_t>
 {
-    cfg_node_t* node;
-    unsigned index;
-
     inline edge_type_t edge_type() const;
 };
 
@@ -36,7 +35,7 @@ public:
     unsigned num_descendents;
     std::array<cfg_node_t*, 2> succs = {};
     std::array<edge_type_t, 2> succ_edge_types;
-    bc::small_vector<usage_t, 2> preds;
+    bc::small_vector<cfg_usage_t, 2> preds;
 
     // Used in loop detection
     cfg_node_t* highpt;
@@ -89,10 +88,10 @@ private:
     std::vector<cfg_node_t*> preorder;
     std::vector<cfg_node_t*> postorder;
 
-    std::vector<usage_t> reentry_edges;
+    std::vector<cfg_usage_t> reentry_edges;
 };
 
-inline edge_type_t usage_t::edge_type() const
+inline edge_type_t cfg_usage_t::edge_type() const
 { 
     assert(node);
     return node->succ_edge_types[index]; 

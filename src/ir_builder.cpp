@@ -9,46 +9,75 @@ ir_builder_t::ir_builder_t(global_manager_t& global_manager, global_t& global)
 {
     assert(global.gclass = GLOBAL_FN);
     stmt = global.fn->stmts.data();
-    new_active_block(true); // TODO?
+}
+
+rpn_value_t& ir_builder_t::rpn_peek(int i) 
+{ 
+    assert(i < (int)rpn_stack.size());
+    return rpn_stack.rbegin()[i]; 
+}
+
+void ir_builder_t::rpn_pop() 
+{
+    assert(!rpn_stack.empty());
+    rpn_stack.pop_back();
+}
+
+void ir_builder_t::rpn_pop(unsigned i) 
+{ 
+    assert(i <= rpn_stack.size());
+    rpn_stack.resize(rpn_stack.size() - i); 
+}
+
+void ir_builder_t::rpn_push(rpn_value_t rpn_value) 
+{ 
+    rpn_stack.push_back(std::move(rpn_value)); 
+}
+
+void ir_builder_t::rpn_tuck(rpn_value_t rpn_value, unsigned place) 
+{ 
+    assert(place <= rpn_stack.size());
+    rpn_stack.insert(rpn_stack.end() - place, std::move(rpn_value));
 }
 
 void ir_builder_t::compile()
 {
+    ir.root = &insert_cfg(true);
+
     // Create all of the SSA graph, minus the exit node:
-    compile_block();
+    cfg_node_t& end = compile_block(*ir.root);
+    exits_with_jump(end);
 
     // Now create the exit block.
     // All return statements create a jump, which will jump to the exit node.
     type_t return_type = global().type.return_type();
     if(return_type.name != TYPE_VOID)
-        return_values.push_back(default_construct(return_type));
-    return_jumps.push_back(insert_fence());
+        return_values.push_back(
+            &end.emplace_ssa(ir, SSA_uninitialized, return_type));
 
-    new_active_block(true)->set_input(ir, &*return_jumps.begin(), 
-                                          &*return_jumps.end());
+    ir.exit = &insert_cfg(true);
+    end.link_insert_out(0, *ir.exit);
 
-    // The actual exit point is a SSA_return node.
-    ir.exit = &ir.ssa_pool.insert({
-        .op = SSA_return,
-        .control = active_block });
+    for(cfg_node_t* node : return_jumps)
+        node->link_insert_out(0, *ir.exit);
+
+    ir.exit->exit = &ir.exit->emplace_ssa(ir, SSA_return);
 
     if(return_type.name != TYPE_VOID)
     {
-        ssa_node_t* phi = &ir.ssa_pool.insert({
-            .op = SSA_phi,
-            .control = active_block,
-            .type = return_type });
-        phi->set_input(ir, &*return_values.begin(), &*return_values.end());
-        ir.exit->set_input_v(ir, phi);
+        ssa_node_t* phi = &ir.exit->emplace_ssa(ir, SSA_phi, return_type);
+        phi->in.assign(return_values.begin(), return_values.end());
+        ir.exit->exit->in.push_back(phi);
     }
 
     // Finish the IR
     ir.finish_construction();
 }
 
-void ir_builder_t::compile_block()
+cfg_node_t& ir_builder_t::compile_block(cfg_node_t& node_)
 {
-    while(true) 
+    cfg_node_t* cfg_node = &node_;
+    while(true)
     switch(stmt->name)
     {
     default:
@@ -58,11 +87,15 @@ void ir_builder_t::compile_block()
 
             ssa_value_t value;
             if(stmt->expr)
-                value = compile_expression(stmt->expr).ssa_value;
+            {
+                cfg_node = &compile_expr(*cfg_node, stmt->expr);
+                value = rpn_stack[0].ssa_value;
+            }
             else
-                value = default_construct(fn().local_vars[local_var_i].type);
+                value = &cfg_node->emplace_ssa(
+                    ir, SSA_uninitialized, fn().local_vars[local_var_i].type);
 
-            active_block->block_data->local_vars[local_var_i] = value;
+            cfg_node->block_data->local_vars[local_var_i] = value;
             ++stmt;
         }
         else
@@ -71,74 +104,78 @@ void ir_builder_t::compile_block()
 
     case STMT_END_BLOCK:
         ++stmt;
-        return;
+        return *cfg_node;
 
     case STMT_EXPR:
-        compile_expression(stmt->expr);
+        cfg_node = &compile_expr(*cfg_node, stmt->expr);
         ++stmt;
         break;
 
     case STMT_IF:
         {
-            // Create the if node and branches.
-            rpn_value_t cond = compile_expression(stmt->expr);
-            branch_t branch = compile_branch(cond.ssa_value);
-
-            // Create new block for the 'true' branch.
-            new_active_block(true)->set_input_v(ir, branch.true_node);
+            // Branch the active node.
+            cfg_node_t* branch_node = &compile_expr(*cfg_node, stmt->expr);
             ++stmt;
-            compile_block();
-            branch.true_node = insert_fence(); // End of 'true' block.
+            throwing_cast(*branch_node, rpn_stack[0], {TYPE_BOOL});
+            exits_with_branch(*branch_node, rpn_stack[0].ssa_value);
+
+            // Create new cfg_node for the 'true' branch.
+            cfg_node_t& begin_true = insert_cfg(true);
+            branch_node->link_insert_out(1, begin_true);
+            cfg_node_t& end_true = compile_block(begin_true);
+            exits_with_jump(end_true);
 
             if(stmt->name == STMT_ELSE)
             {
                 // Create new block for the 'false' branch.
-                new_active_block(true)->set_input_v(ir, branch.false_node);
                 ++stmt;
-                compile_block();
-                branch.false_node = insert_fence(); // End of 'false' block.
+                cfg_node_t& begin_false = insert_cfg(true);
+                branch_node->link_insert_out(0, begin_false);
+                // repurpose 'branch_node' to hold end of the 'false' branch.
+                // Simplifies the assignment that follows.
+                branch_node = &compile_block(begin_false);
+                exits_with_jump(*branch_node);
             }
 
-            // Merge both branches together into a new block.
-            new_active_block(true)->set_input_v(ir, branch.true_node,
-                                                    branch.false_node);
+            // Merge the two nodes.
+            cfg_node = &insert_cfg(true);
+            end_true.link_insert_out(0, *cfg_node);
+            branch_node->link_insert_out(0, *cfg_node);
             break;
         }
 
     case STMT_WHILE:
         {
             // The loop condition will go in its own block.
-            ssa_node_t* entry_fence = insert_fence();
-            ssa_node_t* condition_block = new_active_block(false);
+            exits_with_jump(*cfg_node);
+            cfg_node_t& begin_branch = insert_cfg(false);
+            cfg_node->link_insert_out(0, begin_branch);
 
-            // Create the if node and branches.
-            rpn_value_t cond = compile_expression(stmt->expr);
-            branch_t branch = compile_branch(cond.ssa_value);
-
-            // Create new block for the 'true' branch.
-            new_active_block(true)->set_input_v(ir, branch.true_node);
+            cfg_node_t& end_branch = compile_expr(begin_branch, stmt->expr);
             ++stmt;
+            throwing_cast(end_branch, rpn_stack[0], {TYPE_BOOL});
+            exits_with_branch(end_branch, rpn_stack[0].ssa_value);
+
             continue_stack.push();
             break_stack.push();
-            compile_block();
 
-            // All continue statements jump to the condition block,
-            // along with the entry fence and the end of the true branch fence.
-            {
-                auto& vec = continue_stack.top();
-                vec.push_back(insert_fence()); // End of the 'true' block.
-                vec.push_back(entry_fence);
-                condition_block->set_input(ir, &*vec.begin(), &*vec.end());
-                seal_block(*condition_block->block_data);
-            }
+            // Compile the body.
+            cfg_node_t& begin_body = insert_cfg(true);
+            end_branch.link_insert_out(1, begin_body);
+            cfg_node_t& end_body = compile_block(begin_body);
+            exits_with_jump(end_body);
+            end_body.link_insert_out(0, begin_branch);
 
-            // Create the exit block.
-            {
-                auto& vec = break_stack.top();
-                vec.push_back(branch.false_node);
-                new_active_block(true)->set_input(ir, &*vec.begin(), 
-                                                      &*vec.end());
-            }
+            // All continue statements jump to branch_node.
+            for(cfg_node_t* node : continue_stack.top())
+                node->link_insert_out(0, begin_branch);
+            seal_block(*begin_branch.block_data);
+
+            // Create the exit node.
+            cfg_node = &insert_cfg(true);
+            end_branch.link_insert_out(0, *cfg_node);
+            for(cfg_node_t* node : break_stack.top())
+                node->link_insert_out(0, *cfg_node);
 
             continue_stack.pop();
             break_stack.pop();
@@ -147,47 +184,41 @@ void ir_builder_t::compile_block()
 
     case STMT_DO:
         {
-            // Compile the loop body
-            ssa_node_t* body_block = new_active_block(false);
-            body_block->set_input_v(ir, insert_fence(), nullptr);
             ++stmt;
             continue_stack.push();
             break_stack.push();
-            compile_block();
+
+            // Compile the loop body
+            exits_with_jump(*cfg_node);
+            cfg_node_t& begin_body = insert_cfg(false);
+            cfg_node->link_insert_out(0, begin_body);
+            cfg_node_t& end_body = compile_block(begin_body);
+
+            assert(stmt->name == STMT_WHILE);
 
             // The loop condition can go in its own block, which is
             // necessary to implement 'continue'.
-            {
-                auto& vec = continue_stack.top();
-                // Only do this if needed; otherwise use the previous block.
-                if(!vec.empty())
-                {
-                    vec.push_back(insert_fence());
-                    new_active_block(true)->set_input(ir, &*vec.begin(),
-                                                          &*vec.end());
-                }
-            }
+            exits_with_jump(end_body);
+            cfg_node_t& begin_branch = insert_cfg(true);
+            end_body.link_insert_out(0, begin_branch);
 
-            // Create the if node and branches.
-            rpn_value_t cond = compile_expression(stmt->expr);
-            branch_t branch = compile_branch(cond.ssa_value);
+            cfg_node_t& end_branch = compile_expr(begin_branch, stmt->expr);
+            ++stmt;
+            throwing_cast(end_branch, rpn_stack[0], {TYPE_BOOL});
+            exits_with_branch(end_branch, rpn_stack[0].ssa_value);
 
-            // Can finally set the entry block node's input and seal it.
-            {
-                assert(body_block->input_size == 2);
-                assert(body_block->input[1].ptr() == nullptr);
+            end_branch.link_insert_out(1, begin_body);
+            seal_block(*begin_body.block_data);
 
-                body_block->input[1] = branch.true_node;
-                seal_block(*body_block->block_data);
-            }
+            // All continue statements jump to the branch node.
+            for(cfg_node_t* node : continue_stack.top())
+                node->link_insert_out(0, begin_branch);
 
-            // Create the exit block.
-            {
-                auto& vec = break_stack.top();
-                vec.push_back(branch.false_node);
-                new_active_block(true)->set_input(ir, &*vec.begin(), 
-                                                      &*vec.end());
-            }
+            // Create the exit cfg_node.
+            cfg_node = &insert_cfg(true);
+            end_branch.link_insert_out(0, *cfg_node);
+            for(cfg_node_t* node : break_stack.top())
+                node->link_insert_out(0, *cfg_node);
 
             continue_stack.pop();
             break_stack.pop();
@@ -197,30 +228,17 @@ void ir_builder_t::compile_block()
     case STMT_RETURN:
         {
             type_t return_type = global().type.return_type();
-
             if(stmt->expr)
             {
-                rpn_value_t value = compile_expression(stmt->expr);
-
-                // Cast value to the return type.
-                if(!cast(value, return_type))
-                {
-                    compiler_error(expr_pstring(stmt->expr), fmt(
-                        "Unable to convert type % to type % in return.", 
-                        value.type, return_type));
-                }
-
-                return_values.push_back(value.ssa_value);
-                return_jumps.push_back(compile_jump());
+                cfg_node = &compile_expr(*cfg_node, stmt->expr);
+                throwing_cast(*cfg_node, rpn_stack[0], return_type);
+                return_values.push_back(rpn_stack[0].ssa_value);
             }
-            else if(return_type.name == TYPE_VOID)
-                return_jumps.push_back(compile_jump());
             else
-            {
                 compiler_error(stmt->pstring, fmt(
                     "Expecting return expression of type %.", return_type));
-            }
-
+            return_jumps.push_back(cfg_node);
+            cfg_node = &compile_goto(*cfg_node);
             ++stmt;
             break;
         }
@@ -228,7 +246,8 @@ void ir_builder_t::compile_block()
     case STMT_BREAK:
         if(break_stack.empty())
             compiler_error(stmt->pstring, "break statement outside of loop.");
-        break_stack.top().push_back(compile_jump());
+        break_stack.top().push_back(cfg_node);
+        cfg_node = &compile_goto(*cfg_node);
         ++stmt;
         break;
 
@@ -236,7 +255,8 @@ void ir_builder_t::compile_block()
         if(continue_stack.empty())
             compiler_error(stmt->pstring, 
                            "continue statement outside of loop.");
-        continue_stack.top().push_back(compile_jump());
+        continue_stack.top().push_back(cfg_node);
+        cfg_node = &compile_goto(*cfg_node);
         ++stmt;
         break;
 
@@ -250,22 +270,19 @@ void ir_builder_t::compile_block()
             if(label->goto_count == 0)
                 break;
 
-            if(label->goto_count == label->inputs.size())
-            {
-                label->inputs.push_back(insert_fence());
+            exits_with_jump(*cfg_node);
+            label->inputs.push_back(cfg_node);
 
+            if(label->goto_count + 1 == label->inputs.size())
+            {
                 // All the gotos to this label have been compiled,
                 // that means this block can be sealed immediately!
-                label->node = new_active_block(true, label_name);
-                label->node->set_input(ir, &*label->inputs.begin(),
-                                           &*label->inputs.end());
+                label->node = cfg_node = &insert_cfg(true, label_name);
+                for(cfg_node_t* node : label->inputs)
+                    node->link_insert_out(0, *label->node);
             }
-            else
-            {
-                // Otherwise, seal the node at a later time.
-                label->inputs.push_back(insert_fence());
-                label->node = new_active_block(false, label_name);
-            }
+            else // Otherwise, seal the node at a later time.
+                label->node = cfg_node = &insert_cfg(false, label_name);
 
             break;
         }
@@ -277,19 +294,15 @@ void ir_builder_t::compile_block()
             assert(label->goto_count > 0);
 
             // Add the jump to the label.
-            label->inputs.push_back(compile_jump());
+            label->inputs.push_back(cfg_node);
+            cfg_node = &compile_goto(*cfg_node);
 
-            // +1 because creating the label adds an input (the predecessor).
-            // (This condition will only be taken if the label node exists)
-            if(label->goto_count+1 == label->inputs.size())
+            // If this is the last goto, finish and seal the node.
+            if(label->goto_count + 1 == label->inputs.size())
             {
                 assert(label->node);
-                assert(label->node->input_size == 0);
-
-                // Add the inputs to the ssa block node.
-                label->node->set_input(ir, &*label->inputs.begin(),
-                                           &*label->inputs.end());
-
+                for(cfg_node_t* node : label->inputs)
+                    node->link_insert_out(0, *label->node);
                 // Seal the block.
                 seal_block(*label->node->block_data);
             }
@@ -301,14 +314,18 @@ void ir_builder_t::compile_block()
 
 // Inserts a fence that covers all memory values in 'bitset',
 // then creates 'node' as its dependent.
-ssa_node_t* ir_builder_t::insert_partial_fence(ssa_node_t node, 
-                                               ds_bitset_t const& bitset)
+ssa_node_t& ir_builder_t::insert_fenced(
+    cfg_node_t& cfg_node, ssa_op_t op, type_t type, ds_bitset_t const& bitset)
 {
-    assert(!node.control);
+    std::uint64_t non_zero = 0;
+    for(unsigned i = 0; i < bitset.array.size(); ++i)
+        non_zero |= bitset.array[i];
 
-    ssa_node_t** input_begin = ALLOCA_T(ssa_node_t*, pastures.size());
-    ssa_node_t** input_end = input_begin;
+    // Function is pure! We don't need a fence.
+    if(!non_zero)
+        return cfg_node.emplace_ssa(ir, op, type, 0u);
 
+    std::vector<ssa_value_t> in;
     for(auto it = pastures.begin(); it != pastures.end();)
     {
         std::uint64_t is_fence_input = 0;
@@ -322,7 +339,7 @@ ssa_node_t* ir_builder_t::insert_partial_fence(ssa_node_t node,
         }
 
         if(is_fence_input)
-            *(input_end++) = (*it)->node;
+            in.push_back((*it)->node);
 
         // Remove the pasture if its bitset is all zeroes.
         if(keep_pasture == 0)
@@ -338,52 +355,30 @@ ssa_node_t* ir_builder_t::insert_partial_fence(ssa_node_t node,
     if(pastures.empty())
         pasture_pool.clear();
 
-    // If there's no intersection, that means the bitset was all zeroes,
-    // and thus we don't need a fence; just return the active block.
-    if(input_begin == input_end)
-    {
-        node.control = active_block;
-        return &ir.ssa_pool.insert(node);
-    }
-    else
-    {
-        // Create the fence node.
-        node.control = &ir.ssa_pool.insert({
-            .op = SSA_fence,
-            .control = active_block });
-        node.control->set_input(ir, input_begin, input_end);
+    // Create the fence node.
+    ssa_node_t* fence = &cfg_node.emplace_ssa(ir, SSA_fence);
+    fence->in = std::move(in);
 
-        // Create the dependent node.
-        ssa_node_t* ret = &ir.ssa_pool.insert(node);
+    // Create the dependent node.
+    ssa_node_t& ret = cfg_node.emplace_ssa(ir, op, type, fence);
 
-        // Add the bits back.
-        new_pasture(bitset, ret);
+    // Add the bits back.
+    new_pasture(bitset, &ret);
 
-        return ret;
-    }
+    return ret;
 }
 
 // Creates a fence with ALL pastures as input.
 // Also clears 'pastures', so you'll have to insert into it again.
-ssa_node_t* ir_builder_t::insert_fence()
+ssa_node_t& ir_builder_t::insert_fence(cfg_node_t& cfg_node)
 {
-    if(pastures.size() <= 1)
-    {
-        pastures.clear();
-        return active_block;
-    }
-
-    ssa_node_t* ret = &ir.ssa_pool.insert({
-        .op = SSA_fence,
-        .control = active_block });
-    ret->alloc_input(ir, pastures.size());
+    ssa_node_t& node = cfg_node.emplace_ssa(ir, SSA_fence);
+    node.in.resize(pastures.size());
     for(unsigned i = 0; i < pastures.size(); ++i)
-        ret->input[i] = pastures[i]->node;
-
+        node.in[i] = pastures[i]->node;
     pastures.clear();
     pasture_pool.clear();
-
-    return ret;
+    return node;
 }
 
 void ir_builder_t::new_pasture(ds_bitset_t const& bitset, ssa_node_t* node)
@@ -391,75 +386,47 @@ void ir_builder_t::new_pasture(ds_bitset_t const& bitset, ssa_node_t* node)
     pastures.push_back(&pasture_pool.insert({ bitset, node }));
 }
 
-auto ir_builder_t::compile_branch(ssa_value_t condition) -> branch_t
+void ir_builder_t::exits_with_jump(cfg_node_t& node)
 {
-    branch_t branch;
+    assert(node.exit == nullptr);
+    node.exit = &insert_fence(node);
+}
 
-    branch.if_node = &ir.ssa_pool.insert({
-        .op = SSA_if,
-        .control = insert_fence() });
-    branch.if_node->set_input_v(ir, condition);
-
-    branch.true_node = &ir.ssa_pool.insert({
-        .op = SSA_true_branch,
-        .control = branch.if_node });
-
-    branch.false_node = &ir.ssa_pool.insert({
-        .op = SSA_false_branch,
-        .control = branch.if_node });
-
-    return branch;
+void ir_builder_t::exits_with_branch(cfg_node_t& node, ssa_value_t condition)
+{
+    assert(node.exit == nullptr);
+    node.exit = &node.emplace_ssa(ir, SSA_if, &insert_fence(node), condition);
 }
 
 // Jumps are like 'break', 'continue', 'goto', etc.
-ssa_node_t* ir_builder_t::compile_jump()
+cfg_node_t& ir_builder_t::compile_goto(cfg_node_t& branch_node)
 {
     // The syntax allows code to exist following a jump statement.
     // Said code is unreachable, but gets compiled anyway.
     // Implement using a conditional that always takes the false branch.
     // (This will be optimized out later)
 
-    branch_t branch = compile_branch(0u);
-
-    // Create new block for the dead code 'true' branch.
-    new_active_block(true)->set_input_v(ir, branch.true_node);
-
-    // Return the node to jump to.
-    return branch.false_node;
+    exits_with_branch(branch_node, 0u);
+    cfg_node_t& dead_branch = insert_cfg(true);
+    branch_node.link_insert_out(1, dead_branch);
+    return dead_branch;
 }
-
-ssa_value_t ir_builder_t::default_construct(type_t type)
-{
-    if(is_arithmetic(type.name))
-        return 0u;
-    throw std::runtime_error("Unimplemented default construct.");
-}
-
 
 block_data_t* ir_builder_t::new_block_data(bool seal, pstring_t label_name)
 {
     block_data_t& block_data = block_pool.emplace();
     std::size_t const num_local_vars = fn().local_vars.size();
-
     block_data.local_vars = input_pool.alloc(num_local_vars);
     if(seal == false)
         block_data.unsealed_phis = input_pool.alloc(num_local_vars);
-    
     return &block_data;
 }
 
-ssa_node_t* ir_builder_t::new_active_block(bool seal, pstring_t label_name)
+cfg_node_t& ir_builder_t::insert_cfg(bool seal, pstring_t label_name)
 {
-    active_block = &ir.ssa_pool.insert({
-        .op = SSA_block,
-        .block_data = new_block_data(seal, label_name) });
-    active_block->control = active_block;
-
-    // Create a new pasture.
-    assert(pastures.empty());
-    new_pasture(ds_bitset_t::make_all_true(), active_block);
-
-    return active_block;
+    cfg_node_t& new_node = ir.cfg_pool.emplace();
+    new_node.block_data = new_block_data(seal, label_name);
+    return new_node;
 }
 
 void ir_builder_t::seal_block(block_data_t& block_data)
@@ -467,51 +434,48 @@ void ir_builder_t::seal_block(block_data_t& block_data)
     assert(block_data.sealed() == false);
     std::size_t const num_local_vars = fn().local_vars.size();
     for(unsigned i = 0; i < num_local_vars; ++i)
-        if(block_data.local_vars[i])
+        if(block_data.unsealed_phis[i])
             fill_phi_args(*block_data.unsealed_phis[i], i);
     block_data.unsealed_phis = nullptr;
 }
 
 // Relevant paper:
 //   Simple and Efficient Construction of Static Single Assignment Form
-ssa_value_t ir_builder_t::local_lookup(ssa_node_t* block, unsigned local_var_i)
+ssa_value_t ir_builder_t::local_lookup(cfg_node_t& node, unsigned local_var_i)
 {
-    assert(block);
-    assert(block->op == SSA_block);
-    assert(block->block_data);
+    assert(node.block_data);
+    assert(node.block_data->local_vars);
 
-    ssa_value_t lookup = block->block_data->local_vars[local_var_i];
+    ssa_value_t lookup = node.block_data->local_vars[local_var_i];
     if(lookup)
         return lookup;
-    else if(block->block_data->sealed())
+    else if(node.block_data->sealed())
     {
         // If the block doesn't contain a definition for local_var_i,
         // recursively look up its definition in predecessor nodes.
         // If there are multiple predecessors, a phi node will be created.
         try
         {
-            switch(block->input_size)
+            switch(node.in.size())
             {
             case 0:
                 throw local_lookup_error_t();
             case 1:
-                return local_lookup(block->input[0]->block(), local_var_i);
+                return local_lookup(*node.in[0].node, local_var_i);
             default:
-                ssa_node_t* phi = &ir.ssa_pool.insert({
-                    .op = SSA_phi,
-                    .control = block });
-                block->block_data->local_vars[local_var_i] = phi;
-                fill_phi_args(*phi, local_var_i);
-                return phi;
+                ssa_node_t& phi = node.emplace_ssa(ir, SSA_phi);
+                node.block_data->local_vars[local_var_i] = &phi;
+                fill_phi_args(phi, local_var_i);
+                return &phi;
             }
         }
         catch(local_lookup_error_t&)
         {
-            if(block->block_data->label_name.size)
+            if(node.block_data->label_name.size)
             {
                 pstring_t var_name = fn().local_vars[local_var_i].name;
                 throw compiler_error_t(
-                    fmt_error(block->block_data->label_name, fmt(
+                    fmt_error(node.block_data->label_name, fmt(
                         "Jump to label crosses initialization "
                         "of variable %.", var_name.view()))
                     + fmt_error(var_name, fmt(
@@ -526,12 +490,11 @@ ssa_value_t ir_builder_t::local_lookup(ssa_node_t* block, unsigned local_var_i)
         // and thus it's impossible to determine the local var's definition.
         // To work around this, an incomplete phi node can be created, which
         // will then be filled when the node is sealed.
-        ssa_node_t* phi = &ir.ssa_pool.insert({
-            .op = SSA_phi,
-            .control = block });
-        block->block_data->local_vars[local_var_i] = phi;
-        block->block_data->unsealed_phis[local_var_i] = phi;
-        return phi;
+        assert(node.block_data->unsealed_phis);
+        ssa_node_t& phi = node.emplace_ssa(ir, SSA_phi);
+        node.block_data->local_vars[local_var_i] = &phi;
+        node.block_data->unsealed_phis[local_var_i] = &phi;
+        return &phi;
     }
 }
 
@@ -539,18 +502,19 @@ void ir_builder_t::fill_phi_args(ssa_node_t& phi, unsigned local_var_i)
 {
     // Input must be an empty phi node.
     assert(phi.op == SSA_phi);
-    assert(phi.input_size == 0);
+    assert(phi.in.empty());
 
     // Fill the input array using local lookups.
-    ssa_node_t* block = phi.control; assert(block);
-    phi.alloc_input(ir, block->input_size);
-    for(unsigned i = 0; i < block->input_size; ++i)
-        phi.input[i] = local_lookup(block->input[i]->block(), local_var_i);
+    assert(phi.cfg_node);
+    for(cfg_input_t input : phi.cfg_node->in)
+        phi.in.push_back(local_lookup(*input.node, local_var_i));
 }
 
-rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
+cfg_node_t& ir_builder_t::compile_expr(cfg_node_t& node_, token_t const* expr)
 {
+    cfg_node_t* cfg_node = &node_;
     rpn_stack.clear();
+    logical_stack.clear();
 
     for(token_t const* token = expr; token->type; ++token)
     {
@@ -561,7 +525,7 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
 
         case TOK_ident:
             rpn_push({ 
-                .ssa_value = local_lookup(active_block, token->value), 
+                .ssa_value = local_lookup(*cfg_node, token->value), 
                 .category = LVAL_LOCAL, 
                 .type = fn().local_vars[token->value].type, 
                 .pstring = token->pstring,
@@ -588,7 +552,7 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
             }
 
         case TOK_assign:
-            compile_assign();
+            compile_assign(*cfg_node);
             break;
 
         case TOK_number:
@@ -631,8 +595,8 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
                 // Now for the arguments.
                 // Cast all arguments to match the fn signature.
                 rpn_value_t* const args = &rpn_peek(num_args - 1);
-                if(std::uint64_t fail_bits = 
-                   cast_args(fn_val.pstring, args, &*rpn_stack.end(), params))
+                if(std::uint64_t fail_bits = cast_args(
+                *cfg_node, fn_val.pstring, args, &*rpn_stack.end(), params))
                 {
                     auto arg = 0;
                     do
@@ -660,19 +624,16 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
                 global_t& fn_global = globals()[fn_val.ssa_value.whole()];
 
                 // Type checks are done. Now convert the call to SSA.
-                ssa_node_t fn_node = {
-                    .op = SSA_fn_call,
-                    .type = return_type };
-                fn_node.alloc_input(ir, num_args + 1);
-                fn_node.input[0] = fn_val.ssa_value;
+                ssa_node_t& fn_node = insert_fenced(
+                    *cfg_node, SSA_fn_call, return_type, fn_global.modifies);
+                fn_node.in.push_back(fn_val.ssa_value);
                 for(unsigned i = 0; i != num_args; ++i)
-                    fn_node.input[i + 1] = args[i].ssa_value;
+                    fn_node.in.push_back(args[i].ssa_value);
 
                 // Update the eval stack.
                 rpn_pop(num_args + 1);
                 rpn_push({ 
-                    .ssa_value = insert_partial_fence(
-                        fn_node, fn_global.modifies), 
+                    .ssa_value = &fn_node,
                     .category = RVAL, 
                     .type = return_type, 
                     .pstring = token->pstring });
@@ -680,45 +641,95 @@ rpn_value_t ir_builder_t::compile_expression(token_t const* expr)
                 break;
             }
 
+        case TOK_logical_and:
+            cfg_node = &compile_logical_begin(*cfg_node, false);
+            break;
+        case TOK_logical_or:
+            cfg_node = &compile_logical_begin(*cfg_node, true);
+            break;
+        case TOK_end_logical_and:
+            cfg_node = &compile_logical_end(*cfg_node, false);
+            break;
+        case TOK_end_logical_or:
+            cfg_node = &compile_logical_end(*cfg_node, true);
+            break;
         case TOK_plus:
-            compile_arith(SSA_add);  
+            compile_arith(*cfg_node, SSA_add);  
             break;
         case TOK_minus: 
-            compile_arith(SSA_sub);
+            compile_arith(*cfg_node, SSA_sub);
             break;
         case TOK_bitwise_and: 
-            compile_arith(SSA_and);
+            compile_arith(*cfg_node, SSA_and);
             break;
         case TOK_bitwise_or:  
-            compile_arith(SSA_or);
+            compile_arith(*cfg_node, SSA_or);
             break;
         case TOK_bitwise_xor:
-            compile_arith(SSA_xor);
+            compile_arith(*cfg_node, SSA_xor);
             break;
 
         case TOK_plus_assign:
-            compile_assign_arith(SSA_add);
+            compile_assign_arith(*cfg_node, SSA_add);
             break;
         case TOK_minus_assign:
-            compile_assign_arith(SSA_sub);
+            compile_assign_arith(*cfg_node, SSA_sub);
             break;
         case TOK_bitwise_and_assign:
-            compile_assign_arith(SSA_and);
+            compile_assign_arith(*cfg_node, SSA_and);
             break;
         case TOK_bitwise_or_assign:
-            compile_assign_arith(SSA_or);
+            compile_assign_arith(*cfg_node, SSA_or);
             break;
         case TOK_bitwise_xor_assign:
-            compile_assign_arith(SSA_xor);
+            compile_assign_arith(*cfg_node, SSA_xor);
             break;
         }
     }
 
     assert(rpn_stack.size() == 1);
-    return rpn_stack[0];
+    assert(logical_stack.empty());
+    return *cfg_node;
 }
 
-void ir_builder_t::compile_assign()
+cfg_node_t& ir_builder_t::compile_logical_begin(cfg_node_t& cfg_node, 
+                                                bool short_cut_i)
+{
+    rpn_value_t& top = rpn_peek(0);
+    throwing_cast(cfg_node, top, { TYPE_BOOL });
+    cfg_node_t& branch_node = cfg_node;
+    exits_with_branch(branch_node, top.ssa_value);
+    logical_stack.push_back({ &branch_node, top.pstring });
+    rpn_pop();
+
+    cfg_node_t& long_cut = insert_cfg(true);
+    branch_node.link_insert_out(!short_cut_i, long_cut);
+    return long_cut;
+}
+
+cfg_node_t& ir_builder_t::compile_logical_end(cfg_node_t& cfg_node, 
+                                              bool short_cut_i)
+{
+    rpn_value_t& top = rpn_peek(0);
+    throwing_cast(cfg_node, top, {TYPE_BOOL});
+
+    logical_data_t logical = logical_stack.back();
+    logical_stack.pop_back();
+
+    cfg_node_t& merge_node = insert_cfg(true);
+    exits_with_jump(cfg_node);
+    cfg_node.link_insert_out(0, merge_node);
+    logical.branch_node->link_insert_out(short_cut_i, merge_node);
+
+    top.ssa_value = &merge_node.emplace_ssa(
+        ir, SSA_phi, type_t{TYPE_BOOL}, short_cut_i, top.ssa_value);
+    top.pstring = concat(logical.lhs_pstring, top.pstring);
+    top.category = RVAL;
+    assert(top.type == type_t{TYPE_BOOL});
+    return merge_node;
+}
+
+void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
 {
     rpn_value_t& assignee = rpn_peek(1);
     rpn_value_t& assignment = rpn_peek(0);
@@ -733,15 +744,10 @@ void ir_builder_t::compile_assign()
             "Expecting lvalue on left side of assignment.");
     }
 
-    if(!cast(assignment, assignee.type))
-    {
-        compiler_error(assignee.pstring, fmt(
-            "Unable to convert type % to type % in assignment.", 
-            assignment.type, assignee.type));
-    }
+    throwing_cast(cfg_node, assignment, assignee.type);
 
     // Remap the identifier to point to the new value.
-    active_block->block_data->local_vars[assignee.local_var_i] = 
+    cfg_node.block_data->local_vars[assignee.local_var_i] = 
         assignment.ssa_value;
     assignee.ssa_value = assignment.ssa_value;
 
@@ -749,34 +755,28 @@ void ir_builder_t::compile_assign()
     rpn_pop();
 }
 
-void ir_builder_t::compile_assign_arith(ssa_op_t op)
+void ir_builder_t::compile_assign_arith(cfg_node_t& cfg_node, ssa_op_t op)
 {
     rpn_tuck(rpn_peek(1), 1);
-    compile_arith(op);
-    compile_assign();
+    compile_arith(cfg_node, op);
+    compile_assign(cfg_node);
 }
 
 // Applies an operator to the top two values on the eval stack,
 // turning them into a single value.
-void ir_builder_t::compile_binary_operator(ssa_op_t op, type_t result_type)
+void ir_builder_t::compile_binary_operator(cfg_node_t& cfg_node, 
+                                           ssa_op_t op, type_t result_type)
 {
     assert(rpn_stack.size() >= 2);
-
-    ssa_node_t new_node = { 
-        .op = op, 
-        .control = active_block, 
-        .type = result_type };
-
-    new_node.set_input_v(ir, rpn_peek(1).ssa_value, rpn_peek(0).ssa_value);
-
-    rpn_peek(1).ssa_value = &ir.ssa_pool.insert(new_node);
+    rpn_peek(1).ssa_value = &cfg_node.emplace_ssa(
+        ir, op, result_type, rpn_peek(1).ssa_value, rpn_peek(0).ssa_value);
     rpn_peek(1).type = result_type;
     rpn_peek(1).category = RVAL;
     rpn_peek(1).pstring = concat(rpn_peek(1).pstring, rpn_peek(0).pstring);
     rpn_pop();
 }
 
-void ir_builder_t::compile_arith(ssa_op_t op)
+void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op)
 {
     rpn_value_t& lhs = rpn_peek(1);
     rpn_value_t& rhs = rpn_peek(0);
@@ -792,20 +792,21 @@ void ir_builder_t::compile_arith(ssa_op_t op)
     type_t new_type = { promote_arithmetic(lhs.type.name, rhs.type.name) };
     assert(is_arithmetic(new_type.name));
 
-    compile_binary_operator(op, new_type);
+    compile_binary_operator(cfg_node, op, new_type);
 }
 
-void ir_builder_t::append_cast_op(rpn_value_t& rpn_value, type_t to_type)
+// This is used to implement the other cast functions.
+void ir_builder_t::force_cast(cfg_node_t& cfg_node, 
+                              rpn_value_t& rpn_value, type_t to_type)
 {
-    ssa_node_t new_node = { 
-        .op = SSA_cast, 
-        .control = active_block,
-        .type = to_type };
-    new_node.set_input_v(ir, rpn_value.ssa_value);
-    rpn_value.ssa_value = &ir.ssa_pool.insert(new_node);
+    rpn_value.ssa_value = &cfg_node.emplace_ssa(
+        ir, SSA_cast, to_type, rpn_value.ssa_value);
+    rpn_value.type = to_type;
+    rpn_value.category = RVAL;
 }
 
-bool ir_builder_t::cast(rpn_value_t& rpn_value, type_t to_type)
+bool ir_builder_t::cast(cfg_node_t& cfg_node,
+                        rpn_value_t& rpn_value, type_t to_type)
 {
     switch(can_cast(rpn_value.type, to_type))
     {
@@ -813,16 +814,27 @@ bool ir_builder_t::cast(rpn_value_t& rpn_value, type_t to_type)
     case CAST_FAIL: return false;
     case CAST_NOP:  return true;
     case CAST_OP:
-        append_cast_op(rpn_value, to_type);
+        force_cast(cfg_node, rpn_value, to_type);
         return true;
     }
 }
 
+void ir_builder_t::throwing_cast(cfg_node_t& cfg_node,
+                                 rpn_value_t& rpn_value, type_t to_type)
+{
+    if(!cast(cfg_node, rpn_value, to_type))
+    {
+        compiler_error(rpn_value.pstring, fmt(
+            "Unable to convert type % to type %.", 
+            rpn_value.type, to_type));
+    }
+}
 // Converts multiple values at once, but only if all casts are valid.
 // On success, 0 is returned and 'val_begin' to 'val_end' may be modified
 // to their casted type.
 // On failure, a bitset is returned where a 1 bit signifies each failed cast.
 std::uint64_t ir_builder_t::cast_args(
+    cfg_node_t& cfg_node,
     pstring_t pstring, 
     rpn_value_t* begin, rpn_value_t* end, 
     type_t const* type_begin)
@@ -843,7 +855,7 @@ std::uint64_t ir_builder_t::cast_args(
 
     for(std::size_t i = 0; i != size; ++i)
         if(results[i] == CAST_OP)
-            append_cast_op(begin[i], type_begin[i]);
+            force_cast(cfg_node, begin[i], type_begin[i]);
 
     return 0; // 0 means no errors!
 }

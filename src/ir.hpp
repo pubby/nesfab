@@ -8,26 +8,15 @@
 
 #include <boost/container/small_vector.hpp>
 
+#include "flat/small_map.hpp"
+
 #include "array_pool.hpp"
 #include "fixed.hpp"
 #include "link.hpp"
+#include "ssa_op.hpp"
 #include "types.hpp"
 
 namespace bc = ::boost::container;
-
-enum ssa_op_t : short
-{
-#define SSA_DEF(x, ...) SSA_##x __VA_ARGS__,
-#include "ssa.inc"
-#undef SSA_DEF
-};
-
-std::string_view to_string(ssa_op_t node_type);
-std::ostream& operator<<(std::ostream& o, ssa_op_t node_type);
-
-// TODO: remove this?
-constexpr ssa_op_t SSA_branch(bool b) 
-    { return b ? SSA_true_branch : SSA_false_branch; }
 
 struct ssa_value_t
 {
@@ -47,6 +36,12 @@ struct ssa_value_t
     // Implict fixed construction.
     ssa_value_t(fixed_t fixed)
     : value((fixed.value << 16) | 1) { assert(is_const()); }
+
+    ssa_value_t(ssa_value_t const&) = default;
+    ssa_value_t(ssa_value_t&& ) = default;
+
+    ssa_value_t& operator=(ssa_value_t const&) = default;
+    ssa_value_t& operator=(ssa_value_t&& ) = default;
 
     constexpr bool is_ptr() const { return (value & 1) == 0; }
     constexpr bool is_const() const { return (value & 1) == 1; }
@@ -74,14 +69,22 @@ struct ir_t;
 struct cfg_node_t;
 struct ssa_node_t;
 
-struct cfg_input_t : public link_t<struct cfg_node_t>
+struct cfg_forward_edge_t : public link_t<struct cfg_node_t>
 {
     cfg_node_t*& out() const;
 };
 
-struct ssa_output_t : public link_t<struct ssa_node_t>
+struct ssa_reverse_edge_t : public link_t<struct ssa_node_t>
 {
     ssa_value_t& in() const;
+};
+
+// TODO: remove?
+enum edge_type_t : short
+{
+    BACK_EDGE,
+    CROSS_EDGE,
+    FORWARD_EDGE,
 };
 
 struct alignas(2) ssa_node_t
@@ -102,14 +105,25 @@ struct alignas(2) ssa_node_t
     cfg_node_t* cfg_node;
     ssa_op_t op;
     type_t type;
-    std::vector<ssa_value_t> in;
-    std::vector<ssa_output_t> out;
-    unsigned worklist_flags = 0;
+    bc::small_vector<ssa_value_t, 2> in;
+    bc::small_vector<ssa_reverse_edge_t, 2> out;
+
+    // TODO:
+    bool in_worklist;
+    unsigned visited;
+    union
+    {
+        struct constraints_t* constraints;
+        //unsigned worklist_flags = 0;
+    };
+
+    unsigned flags() const { return ssa_flags(op); }
 
     bool has_side_effects() const;
 
-    void link_remove_out(ssa_output_t output);
+    void remove_out(ssa_reverse_edge_t output);
     void link_change_input(unsigned i, ssa_value_t new_value);
+    void link_append_input(ssa_value_t value);
     void link_clear_in();
 
     std::string gv_id() const 
@@ -118,21 +132,44 @@ struct alignas(2) ssa_node_t
 
 struct cfg_node_t
 {
-    bc::small_vector<cfg_input_t, 2> in;
-    std::array<cfg_node_t*, 2> out = {};
+    bc::small_vector<cfg_forward_edge_t, 2> in;
+    bc::small_vector<cfg_node_t*, 2> out = {};
     ssa_node_t* exit = nullptr;
-
     std::vector<ssa_node_t*> ssa_nodes;
+
+    std::array<edge_type_t, 2> out_edge_types;
+    unsigned preorder_i;
+    unsigned postorder_i;
+
+    cfg_node_t* idom;
+    cfg_node_t* iloop_header;
+    std::vector<cfg_node_t*> loop_entrances;
+
+    using reachable_int_t = std::uint64_t;
 
     union
     {
+        struct
+        {
+            bool in_worklist;
+            bool executed;
+            std::array<bool, 2> out_executable;
+        };
+        reachable_int_t reachable;
         class block_data_t* block_data;
     };
 
     template<typename... Args>
     ssa_node_t& emplace_ssa(ir_t&, Args&&... args);
+    template<typename... Args>
+    ssa_node_t& linked_emplace_ssa(ir_t&, Args&&... args);
 
+    void remove_in(cfg_forward_edge_t input);
+    void link_remove_in(cfg_forward_edge_t input);
+    void link_remove_out(unsigned out_i);
     void link_insert_out(unsigned i, cfg_node_t& node);
+
+    bool dominates(cfg_node_t const& node) const;
 
     std::string gv_id() const 
         { return "cfg" + std::to_string((std::uintptr_t)(this)); }
@@ -151,15 +188,23 @@ struct ir_t
     void finish_construction();
     void build_users();
     void build_order();
+    void build_dominators();
+    void build_loops();
 
-    std::ostream& gv(std::ostream& o);
+    std::ostream& gv_ssa(std::ostream& o);
+    std::ostream& gv_cfg(std::ostream& o);
 
 private:
-    unsigned visit_order(cfg_node_t& node);
+    void visit_order(cfg_node_t& node);
+    cfg_node_t* visit_loops(cfg_node_t& node);
+    void tag_loop_header(cfg_node_t* node, cfg_node_t* header);
 };
 
-inline cfg_node_t*& cfg_input_t::out() const { return node->out[index]; }
-inline ssa_value_t& ssa_output_t::in() const { return node->in[index]; }
+cfg_node_t* best_idom(cfg_node_t const& node, cfg_node_t* root = nullptr);
+
+inline cfg_node_t*& cfg_forward_edge_t::out() const 
+    { return node->out[index]; }
+inline ssa_value_t& ssa_reverse_edge_t::in() const { return node->in[index]; }
 
 template<typename... Args>
 ssa_node_t& cfg_node_t::emplace_ssa(ir_t& ir, Args&&... args)

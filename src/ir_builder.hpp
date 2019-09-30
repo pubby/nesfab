@@ -9,9 +9,8 @@
 #include "ram.hpp"
 #include "reusable_stack.hpp"
 
-class local_lookup_error_t : public std::exception
+struct local_lookup_error_t : public std::exception
 {
-public:
     virtual const char* what() const noexcept
         { return "Failed local lookup."; }
 };
@@ -44,6 +43,9 @@ struct block_data_t
 
     // Only used for labels.
     pstring_t label_name = {};
+
+    // TODO: comment
+    //rh::robin_map<ssa_handle_t, ssa_node_t*> trace_map;
 
     // A CFG node is sealed when all its predecessors are set.
     constexpr bool sealed() const { return unsealed_phis == nullptr; }
@@ -80,6 +82,7 @@ public:
     void seal_block(block_data_t& block_data);
     void fill_phi_args(ssa_node_t& phi, unsigned local_var_i);
     ssa_value_t local_lookup(cfg_node_t& node, unsigned local_var_i);
+    ssa_value_t local_lookup(cfg_node_t& node, ssa_node_t* ssa_node);
 
     // IR generation functions
     cfg_node_t& compile_expr(cfg_node_t&, token_t const* expr);
@@ -89,6 +92,7 @@ public:
     void compile_assign_arith(cfg_node_t&, ssa_op_t op);
     void compile_binary_operator(cfg_node_t&, ssa_op_t op, type_t result_type);
     void compile_arith(cfg_node_t& cfg_node, ssa_op_t op);
+    void compile_compare(cfg_node_t& cfg_node, ssa_op_t op);
     void force_cast(cfg_node_t&, rpn_value_t& rpn_value, type_t to_type);
     bool cast(cfg_node_t&, rpn_value_t& rpn_value, type_t to_type);
     void throwing_cast(cfg_node_t&, rpn_value_t& rpn_value, type_t to_type);
@@ -97,6 +101,7 @@ public:
         pstring_t pstring, 
         rpn_value_t* begin, rpn_value_t* end, 
         type_t const* type_begin);
+    void trace(cfg_node_t& cfg_node, ssa_node_t& ssa_node);
 
     // Pairs which handle last modified 'bitset'.
     // (A pasture is surrounded by fences, har har har)

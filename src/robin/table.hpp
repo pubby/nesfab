@@ -11,7 +11,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <limits>
 #include <memory>
 #include <ratio>
 #include <type_traits>
@@ -92,42 +91,46 @@ public:
     using hash_type = UIntType;
     using value_storage = std::array<unsigned char, sizeof(value_type)>;
 
-    robin_table() : hashes_end_(nullptr), mask_(0) {}
+    robin_table() 
+    : values()
+    , hashes(&this->mask_)
+    , hashes_end_(&this->mask_)
+    , mask_(0)
+    {}
+
     robin_table(hash_type size, hash_type mask)
-    : hashes(table_calloc<hash_type>(size+1))
-    , values(table_alloc<value_storage, alignof(value_type)>(size))
-    , hashes_end_(hashes.get() + size)
+    : values(table_alloc<value_storage, alignof(value_type)>(size))
+    , hashes(table_calloc<hash_type>(size+1))
+    , hashes_end_(hashes + size)
     , mask_(mask)
     {
         // One extra element was allocated.
-        // It will be set to non-zero so that 
-        // fast iteration becomes possible.
-        *hashes_end_ = std::numeric_limits<UIntType>::max();
+        // It will be set to zero so that 
+        // fast find becomes possible.
+        *hashes_end_ = 0;
     }
     
     robin_table(robin_table const&) = delete;
-    robin_table(robin_table&&) = default;
+
+    robin_table(robin_table&& o) { move_impl(o); }
 
     ~robin_table()
     {
-        if(!std::is_trivially_destructible<value_type>::value && hashes)
-            for(hash_type* ptr = hashes.get(); ptr != hashes_end_; ++ptr)
-                if(*ptr)
-                    get_value(ptr)->~value_type();
+        clear_impl<false>();
+        free_memory();
     }
 
     robin_table& operator=(robin_table const&) = delete;
-    robin_table& operator=(robin_table&&) = default;
 
-    void clear()
+    robin_table& operator=(robin_table&& o)
     {
-        for(hash_type* ptr = hashes.get(); ptr != hashes_end_; ++ptr)
-        {
-            if(*ptr)
-                get_value(ptr)->~value_type();
-            *ptr = 0;
-        }
+        clear_impl<false>();
+        free_memory();
+        move_impl(o);
+        return *this;
     }
+
+    void clear() { clear_impl<true>(); }
 
     // !!DANGEROUS!!
     // This function is a faster version of emplace 
@@ -145,7 +148,7 @@ public:
     inline apair<value_type*, bool> 
     emplace(hash_type hash, Eq const& equals, Construct const& construct)
     {
-        hash_type* hash_ptr = hashes.get() + (hash & mask_);
+        hash_type* hash_ptr = hashes + (hash & mask_);
         hash &= ~mask_;
         for(hash_type i = 1;; ++i, ++hash_ptr)
         {
@@ -200,7 +203,7 @@ public:
     apair<hash_type const*, value_type const*> 
     find(hash_type hash, Eq const& equals) const
     {
-        hash_type* hash_ptr = hashes.get() + (hash & mask_);
+        hash_type* hash_ptr = hashes + (hash & mask_);
         hash &= ~mask_;
         for(hash_type i = 1;; ++i, ++hash_ptr)
         {
@@ -241,20 +244,20 @@ public:
     // Enlarges table with rehashing.
     void rehash(hash_type new_size, hash_type new_mask)
     {
-        hash_type const old_size = hashes_end_ - hashes.get();
+        hash_type const old_size = allocated_size();
         if(old_size >= new_size)
             return;
 
         robin_table new_table(new_size, new_mask);
         for(hash_type i = 0; i != old_size; ++i)
         {
-            if(hashes.get()[i] == 0)
+            if(hashes[i] == 0)
                 continue;
-            hash_type hash = i - ((hashes.get()[i] & mask_) - 1);
-            hash |= (hashes.get()[i] & ~mask_);
+            hash_type hash = i - ((hashes[i] & mask_) - 1);
+            hash |= (hashes[i] & ~mask_);
             new_table.emplace_unique(hash, 
                 [&]() -> value_type&& { return std::move(value_data()[i]); });
-            hashes.get()[i] = 0;
+            hashes[i] = 0;
         }
         *this = std::move(new_table);
     }
@@ -273,17 +276,18 @@ public:
            && alignof(value_type) <= sizeof(std::max_align_t))
         {
             // realloc hashes
-            hash_type* const old_hashes = hashes.release();
-            hashes.reset(reinterpret_cast<hash_type*>(
-                std::realloc(old_hashes, (new_size+1) * sizeof(hash_type))));
+            hash_type* const old_hashes = hashes == &mask_ ? nullptr : hashes;
+
+            hashes = reinterpret_cast<hash_type*>(
+                std::realloc(old_hashes, (new_size+1) * sizeof(hash_type)));
             if(UNLIKELY(!hashes))
             {
-                hashes.reset(old_hashes);
+                hashes = old_hashes;
                 throw std::bad_alloc();
             }
-            hashes_end_ = hashes.get() + new_size;
-            *hashes_end_ = std::numeric_limits<UIntType>::max();
-            std::fill(hashes.get() + old_size, hashes.get() + new_size, 0);
+            hashes_end_ = hashes + new_size;
+            *hashes_end_ = 0;
+            std::fill(hashes + old_size, hashes + new_size, 0);
 
             // realloc values
             value_storage* const old_values = values.release();
@@ -342,8 +346,8 @@ public:
         realloc(new_size);
     }
 
-    hash_type const* hash_data() const { return hashes.get(); }
-    hash_type* hash_data() { return hashes.get(); }
+    hash_type const* hash_data() const { return hashes; }
+    hash_type* hash_data() { return hashes; }
 
     hash_type const* hashes_end() const { return hashes_end_; }
     hash_type* hashes_end() { return hashes_end_; }
@@ -356,9 +360,26 @@ public:
     void swap(robin_table& o) noexcept
     {
         using std::swap;
-        hashes.swap(o.hashes);
+
+        auto hashes_old = hashes;
+        auto hashes_end_old = hashes_end_;
+        if(o.hashes == &o.mask_)
+            hashes = hashes_end_ = &mask_;
+        else
+        {
+            hashes = o.hashes;
+            hashes_end_ = o.hashes_end_;
+        }
+
+        if(hashes_old == &mask_)
+            o.hashes = o.hashes_end_ = &o.mask_;
+        else
+        {
+            o.hashes = hashes_old;
+            o.hashes_end_ = hashes_end_old;
+        }
+
         values.swap(o.values);
-        swap(hashes_end_, o.hashes_end_);
         swap(mask_, o.mask_);
     }
 
@@ -370,17 +391,54 @@ public:
         { return hash_data() + (ptr - (value_type*)values.get()); }
 
     value_type const* get_value(hash_type const* ptr) const
-        { return value_data() + (ptr - hashes.get()); }
+        { return value_data() + (ptr - hashes); }
     value_type* get_value(hash_type* ptr) 
-        { return value_data() + (ptr - hashes.get()); }
+        { return value_data() + (ptr - hashes); }
 
     std::size_t allocated_size() const
-        { return hashes_end_ - hashes.get(); }
+        { return hashes_end_ - hashes; }
 
     std::size_t overhang() const
         { return allocated_size() > mask_ ? allocated_size() - (mask_+1) : 0; }
 
 protected:
+    void free_memory()
+    {
+        if(hashes && hashes != &mask_)
+        {
+            std::free(hashes);
+            hashes = hashes_end_ = &mask_;
+        }
+    }
+
+    template<bool ClearHash>
+    void clear_impl()
+    {
+        for(hash_type* ptr = hashes; ptr != hashes_end_; ++ptr)
+        {
+            if(*ptr)
+                get_value(ptr)->~value_type();
+            if(ClearHash)
+                *ptr = 0;
+        }
+    }
+
+    void move_impl(robin_table& o)
+    {
+        if(o.mask_)
+        {
+            hashes = o.hashes;
+            hashes_end_ = o.hashes_end_;
+        }
+        else
+            hashes = hashes_end_ = &mask_;
+        values = std::move(o.values);
+        mask_ = o.mask_;
+
+        o.hashes = o.hashes_end_ = &o.mask_;
+        o.mask_ = 0;
+    }
+
     static constexpr hash_type starting_size = 64;
     static constexpr hash_type starting_overhang = 32;
 
@@ -392,8 +450,8 @@ protected:
 
     robin_table const* const_this() const { return this; }
 
-    std::unique_ptr<hash_type, c_delete> hashes;
-    std::unique_ptr<value_storage, c_delete> values;
+    std::unique_ptr<value_storage> values;
+    hash_type* hashes;
     hash_type* hashes_end_;
     hash_type mask_;
 };

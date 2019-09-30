@@ -56,10 +56,10 @@ void ir_builder_t::compile()
             &end.emplace_ssa(ir, SSA_uninitialized, return_type));
 
     ir.exit = &insert_cfg(true);
-    end.link_insert_out(0, *ir.exit);
 
     for(cfg_node_t* node : return_jumps)
         node->link_insert_out(0, *ir.exit);
+    end.link_insert_out(0, *ir.exit);
 
     ir.exit->exit = &ir.exit->emplace_ssa(ir, SSA_return);
 
@@ -325,7 +325,7 @@ ssa_node_t& ir_builder_t::insert_fenced(
     if(!non_zero)
         return cfg_node.emplace_ssa(ir, op, type, 0u);
 
-    std::vector<ssa_value_t> in;
+    decltype(ssa_node_t::in) in;
     for(auto it = pastures.begin(); it != pastures.end();)
     {
         std::uint64_t is_fence_input = 0;
@@ -390,12 +390,14 @@ void ir_builder_t::exits_with_jump(cfg_node_t& node)
 {
     assert(node.exit == nullptr);
     node.exit = &insert_fence(node);
+    node.out.resize(1);
 }
 
 void ir_builder_t::exits_with_branch(cfg_node_t& node, ssa_value_t condition)
 {
     assert(node.exit == nullptr);
     node.exit = &node.emplace_ssa(ir, SSA_if, &insert_fence(node), condition);
+    node.out.resize(2);
 }
 
 // Jumps are like 'break', 'continue', 'goto', etc.
@@ -463,7 +465,8 @@ ssa_value_t ir_builder_t::local_lookup(cfg_node_t& node, unsigned local_var_i)
             case 1:
                 return local_lookup(*node.in[0].node, local_var_i);
             default:
-                ssa_node_t& phi = node.emplace_ssa(ir, SSA_phi);
+                ssa_node_t& phi = node.emplace_ssa(
+                    ir, SSA_phi, fn().local_vars[local_var_i].type);
                 node.block_data->local_vars[local_var_i] = &phi;
                 fill_phi_args(phi, local_var_i);
                 return &phi;
@@ -491,7 +494,8 @@ ssa_value_t ir_builder_t::local_lookup(cfg_node_t& node, unsigned local_var_i)
         // To work around this, an incomplete phi node can be created, which
         // will then be filled when the node is sealed.
         assert(node.block_data->unsealed_phis);
-        ssa_node_t& phi = node.emplace_ssa(ir, SSA_phi);
+        ssa_node_t& phi = node.emplace_ssa(
+            ir, SSA_phi, fn().local_vars[local_var_i].type);
         node.block_data->local_vars[local_var_i] = &phi;
         node.block_data->unsealed_phis[local_var_i] = &phi;
         return &phi;
@@ -506,7 +510,7 @@ void ir_builder_t::fill_phi_args(ssa_node_t& phi, unsigned local_var_i)
 
     // Fill the input array using local lookups.
     assert(phi.cfg_node);
-    for(cfg_input_t input : phi.cfg_node->in)
+    for(cfg_forward_edge_t input : phi.cfg_node->in)
         phi.in.push_back(local_lookup(*input.node, local_var_i));
 }
 
@@ -653,6 +657,26 @@ cfg_node_t& ir_builder_t::compile_expr(cfg_node_t& node_, token_t const* expr)
         case TOK_end_logical_or:
             cfg_node = &compile_logical_end(*cfg_node, true);
             break;
+
+        case TOK_eq:
+            compile_compare(*cfg_node, SSA_eq);
+            break;
+        case TOK_not_eq:
+            compile_compare(*cfg_node, SSA_not_eq);
+            break;
+        case TOK_gt:
+            std::swap(rpn_peek(0), rpn_peek(1));
+            // fall-through
+        case TOK_lt:
+            compile_compare(*cfg_node, SSA_lt);
+            break;
+        case TOK_gte:
+            std::swap(rpn_peek(0), rpn_peek(1));
+            // fall-through
+        case TOK_lte:
+            compile_compare(*cfg_node, SSA_lte);
+            break;
+
         case TOK_plus:
             compile_arith(*cfg_node, SSA_add);  
             break;
@@ -795,6 +819,21 @@ void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op)
     compile_binary_operator(cfg_node, op, new_type);
 }
 
+void ir_builder_t::compile_compare(cfg_node_t& cfg_node, ssa_op_t op)
+{
+    rpn_value_t& lhs = rpn_peek(1);
+    rpn_value_t& rhs = rpn_peek(0);
+
+    if(!is_arithmetic(lhs.type.name) || !is_arithmetic(rhs.type.name))
+    {
+        // TODO: improve error string
+        pstring_t pstring = concat(lhs.pstring, rhs.pstring);
+        compiler_error(pstring, "Expecting arithmetic types.");
+    }
+
+    compile_binary_operator(cfg_node, op, { TYPE_BOOL });
+}
+
 // This is used to implement the other cast functions.
 void ir_builder_t::force_cast(cfg_node_t& cfg_node, 
                               rpn_value_t& rpn_value, type_t to_type)
@@ -860,3 +899,21 @@ std::uint64_t ir_builder_t::cast_args(
     return 0; // 0 means no errors!
 }
 
+/*
+void ir_builder_t::trace(cfg_forward_edge_t edge, ssa_node_t& ssa_node)
+{
+    auto result = ssa_node.traces.insert(edge, nullptr);
+    if(!result.second)
+        return;
+
+    ssa_node_t& trace_node = cfg_node.emplace_ssa(ir, SSA_trace, ssa_node);
+    result.first->second = &trace_node;
+
+    // Recurisively call 'trace' on all inputs.
+    if(ssa_node.flags() & SSAF_TRACEABLE)
+        for(ssa_value_t input : ssa_node.in)
+            if(input.is_ptr())
+                trace(cfg_node, *input);
+
+}
+*/

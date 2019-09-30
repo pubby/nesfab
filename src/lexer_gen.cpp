@@ -358,11 +358,16 @@ void print_dfa(dfa_t const& dfa)
 
 void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
 {
+    std::FILE* hpp = std::fopen("lex_tables.hpp", "w");
+    std::FILE* cpp = std::fopen("lex_tables.cpp", "w");
+
     std::unordered_map<dfa_set_t const*, unsigned> nodes;
     std::vector<dfa_set_t const*> node_vector;
-    std::printf("using token_type_t = unsigned;\n");
-    std::printf("constexpr token_type_t TOK_ERROR = %u;\n", (unsigned)nodes.size());
-    nodes.emplace(nullptr, nodes.size());
+    std::fprintf(hpp, "#include <cstdint>\n");
+    std::fprintf(hpp, "#include <string_view>\n");
+    std::fprintf(hpp, "using token_type_t = std::uint32_t;\n");
+    std::fprintf(hpp, "constexpr token_type_t TOK_ERROR = 0;\n");
+    nodes.emplace(nullptr, nodes.size()); // Reserve for TOK_ERROR.
     node_vector.push_back(nullptr);
     
     fc::vector_map<unsigned, std::pair<dfa_set_t const*, nfa_node_t const*>> names;
@@ -380,44 +385,43 @@ void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
 
     for(auto const& p : names)
     {
-        std::printf("constexpr token_type_t TOK_%s = %u;\n", 
-                    p.second.second->name, (unsigned)node_vector.size());
+        std::fprintf(hpp, "constexpr token_type_t TOK_%s = %u;\n", 
+                     p.second.second->name, (unsigned)node_vector.size());
         nodes.emplace(p.second.first, nodes.size());
         node_vector.push_back(p.second.first);
     }
-    std::printf("constexpr token_type_t TOK_END = %u;\n", (unsigned)node_vector.size());
+    std::fprintf(hpp, "constexpr token_type_t TOK_END = %u;\n", (unsigned)node_vector.size());
 
-    std::printf("#include <string_view>\n");
-    std::printf("inline std::string_view token_name(token_type_t type)\n{\n");
-    std::printf("    using namespace std::literals;\n");
-    std::printf("    switch(type)\n    {\n");
-    std::printf("    default: return \"?BAD?\"sv;\n");
+    std::fprintf(hpp, "inline std::string_view token_name(token_type_t type)\n{\n");
+    std::fprintf(hpp, "    using namespace std::literals;\n");
+    std::fprintf(hpp, "    switch(type)\n    {\n");
+    std::fprintf(hpp, "    default: return \"?BAD?\"sv;\n");
     for(auto const& p : names)
-        std::printf("    case TOK_%s: return \"%s\"sv;\n", 
+        std::fprintf(hpp, "    case TOK_%s: return \"%s\"sv;\n", 
                     p.second.second->name, p.second.second->name);
-    std::printf("    }\n}\n");
+    std::fprintf(hpp, "    }\n}\n");
 
-    std::printf("inline std::string_view token_string(token_type_t type)\n{\n");
-    std::printf("    using namespace std::literals;\n");
-    std::printf("    switch(type)\n    {\n");
-    std::printf("    default: return \"?BAD?\"sv;\n");
+    std::fprintf(hpp, "inline std::string_view token_string(token_type_t type)\n{\n");
+    std::fprintf(hpp, "    using namespace std::literals;\n");
+    std::fprintf(hpp, "    switch(type)\n    {\n");
+    std::fprintf(hpp, "    default: return \"?BAD?\"sv;\n");
     for(auto const& p : names)
-        std::printf("    case TOK_%s: return \"%s\"sv;\n", 
+        std::fprintf(hpp, "    case TOK_%s: return \"%s\"sv;\n", 
                     p.second.second->name, p.second.second->string);
-    std::printf("    }\n}\n");
+    std::fprintf(hpp, "    }\n}\n");
 
-    std::printf("constexpr int token_precedence_table[] =\n{\n");
+    std::fprintf(hpp, "constexpr int token_precedence_table[] =\n{\n");
     for(auto const& p : names)
-        std::printf("    %i,\n", p.second.second->precedence);
-    std::printf("};\n");
+        std::fprintf(hpp, "    %i,\n", p.second.second->precedence);
+    std::fprintf(hpp, "};\n");
 
-    std::printf("#define TOK_KEY_CASES \\\n");
+    std::fprintf(hpp, "#define TOK_KEY_CASES \\\n");
     for(auto const& p : names)
         if(p.second.second->precedence)
-            std::printf("    case TOK_%s:\\\n", p.second.second->name);
-    std::printf("\n");
+            std::fprintf(hpp, "    case TOK_%s:\\\n", p.second.second->name);
+    std::fprintf(hpp, "\n");
 
-    std::printf("constexpr token_type_t TOK_LAST_STATE = %u;\n", 
+    std::fprintf(hpp, "constexpr token_type_t TOK_LAST_STATE = %u;\n", 
                 (unsigned)nodes.size() - 1);
 
     for(dfa_set_t const& s : mini)
@@ -429,7 +433,7 @@ void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
     {
         if(np == dfa.first)
         {
-            std::printf("constexpr token_type_t TOK_START = %u;\n", nodes[&s]);
+            std::fprintf(hpp, "constexpr token_type_t TOK_START = %u;\n", nodes[&s]);
             goto exit_loop;
         }
     }
@@ -493,10 +497,11 @@ exit_loop:
         }
     }
 
-    std::printf("constexpr unsigned ec_table[] = {");
+    std::fprintf(cpp, "#include \"lex_tables.hpp\"\n");
+    std::fprintf(cpp, "extern unsigned const lexer_ec_table[256] = {");
     for(unsigned i = 0 ; i != 256; ++i)
-        std::printf("%s%i,", i % 16 == 0 ? "\n    " : " ", ec_table[i]);
-    std::printf("\n};\n");
+        std::fprintf(cpp, "%s%i,", i % 16 == 0 ? "\n    " : " ", ec_table[i]);
+    std::fprintf(cpp, "\n};\n");
 
     std::vector<unsigned> ttable(char_ec.size() * node_vector.size(), 0);
     for(unsigned i = 0; i < char_ec.size(); ++i)
@@ -528,10 +533,16 @@ exit_loop:
         }
     }
 
-    std::printf("constexpr token_type_t transition_table[] = {");
+    std::fprintf(cpp, "extern token_type_t const lexer_transition_table[%u] = {\n", ttable.size());
     for(unsigned i = 0; i < ttable.size(); ++i)
-        std::printf("%s%i,", i % 16 == 0 ? "\n    " : " ", ttable[i]);
-    std::printf("\n};\n");
+        std::fprintf(cpp, "%s%i,", i % 16 == 0 ? "\n    " : " ", ttable[i]);
+    std::fprintf(cpp, "\n};\n");
+
+    std::fprintf(hpp, "extern unsigned const lexer_ec_table[256];\n");
+    std::fprintf(hpp, "extern token_type_t const lexer_transition_table[%u];\n", ttable.size());
+
+    std::fclose(hpp);
+    std::fclose(cpp);
 }
 
 bool is_idchar(unsigned char c) 
@@ -616,8 +627,8 @@ int main()
             keyword(16, "gt", ">"),
             keyword(16, "gte", ">="),
 
-            keyword(17, "equal", "=="),
-            keyword(17, "not_equal", "!="),
+            keyword(17, "eq", "=="),
+            keyword(17, "not_eq", "!="),
 
             keyword(18, "logical_and", "&&"),
             keyword(19, "logical_or", "||"),

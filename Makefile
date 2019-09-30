@@ -55,14 +55,24 @@ globals.cpp \
 pass1.cpp \
 ir_builder.cpp \
 fixed.cpp \
-worklist.cpp
+o_abstract_interpret.cpp \
+constraints.cpp \
+ssa_op.cpp \
+lex_tables.cpp \
+add_constraints_table.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
 
 TESTS_SRCS:= \
 tests.cpp \
-robin_tests.cpp
+robin_tests.cpp \
+fixed.cpp \
+fixed_tests.cpp \
+constraints.cpp \
+constraints_tests.cpp \
+ssa_op.cpp \
+add_constraints_table.cpp
 
 TESTS_OBJS := $(foreach o,$(TESTS_SRCS),$(OBJDIR)/$(o:.cpp=.o))
 TESTS_DEPS := $(foreach o,$(TESTS_SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -81,9 +91,21 @@ $(OBJDIR)/%.d: $(SRCDIR)/%.cpp
 # Lexer
 
 $(SRCDIR)/lex_tables.hpp: lexer_gen
-	./lexer_gen > $@
+	./lexer_gen
+	mv lex_tables.hpp $(SRCDIR)/
+
+$(SRCDIR)/lex_tables.cpp: $(SRCDIR)/lex_tables.hpp
+	mv lex_tables.cpp $(SRCDIR)/
 
 lexer_gen: $(SRCDIR)/lexer_gen.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+# Other Tables
+
+$(SRCDIR)/add_constraints_table.cpp: add_constraints_table_gen
+	./add_constraints_table_gen > $@
+
+add_constraints_table_gen: $(SRCDIR)/add_constraints_table_gen.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 # Instructions
@@ -93,6 +115,7 @@ $(SRCDIR)/asm_tables.hpp: asm_gen $(SRCDIR)/asm.txt
 
 asm_gen: $(SRCDIR)/asm_gen.cpp $(SRCDIR)/addr_mode.inc
 	$(CXX) $(CXXFLAGS) -o $@ $<
+
 
 -include $(DEPS)
 -include $(TESTS_DEPS)

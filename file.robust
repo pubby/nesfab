@@ -1,6 +1,6 @@
-byte x
+fn foo() byte
+    byte x = 0
+    while x < 55
+        x = x + 2
+    return x
 
-fn foo()
-    byte x = 2
-    if x && 3 || 4
-        1 + 1

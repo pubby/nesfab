@@ -7,6 +7,7 @@
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
+#include "o_abstract_interpret.hpp"
 
 std::string to_string(stmt_name_t stmt_name)
 {
@@ -126,12 +127,21 @@ void global_manager_t::finish()
                 ir_builder_t ir_builder(*this, *global);
                 ir_builder.compile();
 
-                //o_sccp(ir_builder.ir);
+                //insert_traces(ir_builder.ir);
+                o_abstract_interpret(ir_builder.ir);
 
                 {
-                    std::ofstream o(fmt("graphs/%.gv", global->name.view()));
+                    std::ofstream o(fmt("graphs/%_cfg.gv", 
+                                        global->name.view()));
                     if(o.is_open())
-                        ir_builder.ir.gv(o);
+                        ir_builder.ir.gv_cfg(o);
+                }
+
+                {
+                    std::ofstream o(fmt("graphs/%_ssa.gv", 
+                                        global->name.view()));
+                    if(o.is_open())
+                        ir_builder.ir.gv_ssa(o);
                 }
 
                 /*

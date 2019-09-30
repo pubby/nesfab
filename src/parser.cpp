@@ -108,7 +108,7 @@ restart:
     while(lexed > TOK_LAST_STATE)
     {
         unsigned char const c = *next_char;
-        lexed = transition_table[lexed + ec_table[c]];
+        lexed = lexer_transition_table[lexed + lexer_ec_table[c]];
         ++next_char;
     }
     --next_char;

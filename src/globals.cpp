@@ -128,7 +128,7 @@ void global_manager_t::finish()
                 ir_builder.compile();
 
                 //insert_traces(ir_builder.ir);
-                o_abstract_interpret(ir_builder.ir);
+                //o_abstract_interpret(ir_builder.ir);
 
                 {
                     std::ofstream o(fmt("graphs/%_cfg.gv", 

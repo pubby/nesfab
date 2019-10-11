@@ -533,13 +533,13 @@ exit_loop:
         }
     }
 
-    std::fprintf(cpp, "extern token_type_t const lexer_transition_table[%u] = {\n", ttable.size());
+    std::fprintf(cpp, "extern token_type_t const lexer_transition_table[%u] = {\n", (unsigned)ttable.size());
     for(unsigned i = 0; i < ttable.size(); ++i)
         std::fprintf(cpp, "%s%i,", i % 16 == 0 ? "\n    " : " ", ttable[i]);
     std::fprintf(cpp, "\n};\n");
 
     std::fprintf(hpp, "extern unsigned const lexer_ec_table[256];\n");
-    std::fprintf(hpp, "extern token_type_t const lexer_transition_table[%u];\n", ttable.size());
+    std::fprintf(hpp, "extern token_type_t const lexer_transition_table[%u];\n", (unsigned)ttable.size());
 
     std::fclose(hpp);
     std::fclose(cpp);

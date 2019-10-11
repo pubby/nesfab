@@ -4,7 +4,7 @@
 template<typename T>
 struct link_t
 {
-    T* node;
+    T node;
     unsigned index;
 
     constexpr bool operator==(link_t o) const

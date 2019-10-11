@@ -30,6 +30,13 @@ namespace builtin
 [[gnu::always_inline]] inline unsigned long long ctz(unsigned long long i) 
     { return __builtin_ctzll(i); }
 
+[[gnu::always_inline]] inline auto popcount(unsigned i) 
+    { return __builtin_popcount(i); }
+[[gnu::always_inline]] inline auto popcount(unsigned long i) 
+    { return __builtin_popcountl(i); }
+[[gnu::always_inline]] inline auto popcount(unsigned long long i) 
+    { return __builtin_popcountll(i); }
+
 template<typename T> [[gnu::always_inline]]
 inline bool add_overflow(T l, T r, T& o)
     { return __builtin_add_overflow(l, r, &o); }

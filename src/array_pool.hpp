@@ -9,8 +9,9 @@
 // A simple allocator that only supports allocation, not free.
 
 template<typename T, std::size_t ChunkSize = 64>
-struct array_pool_t
+class array_pool_t
 {
+public:
     array_pool_t() = default;
     array_pool_t(array_pool_t const&) = delete;
     array_pool_t(array_pool_t&&) = default;

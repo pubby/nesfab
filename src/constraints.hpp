@@ -3,6 +3,11 @@
 
 // Structs that track approximate sets of values, to be used in const
 // propagation to determine constants.
+// (AKA this is an abstract domain.)
+
+// The representation is the intersection of an interval domain
+// and a "known bits" domain. The "known bits" domain represents sets of
+// numbers that share some common bit pattern.
 
 #include <ostream>
 

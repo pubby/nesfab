@@ -8,109 +8,200 @@
 
 static constexpr unsigned UNVISITED = -1u;
 
-bool ssa_node_t::has_side_effects() const
-{
-    // TODO! TODO! TODO!
-    return op == SSA_return;
-    //assert(inputs.size() > 0);
-    //assert(inputs[0].is_ptr());
-    //return inputs[0].op != SSA_fence;
-}
-
-void ssa_node_t::remove_out(ssa_reverse_edge_t output)
-{
-    auto it = std::find(out.begin(), out.end(), output);
-    assert(it != out.end());
-    std::swap(*it, out.back());
-    out.pop_back();
-}
-
-// Changes the input array while keeping 'users' pointers valid.
-void ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
-{
-    assert(i < in.size());
-
-    // Remove user entry.
-    if(in[i].is_ptr())
-        in[i]->remove_out({ this, i });
-
-    // Add the new user entry.
-    if(new_value.is_ptr())
-        new_value->out.push_back({ this, i });
-
-    // Actually change the input.
-    in[i] = new_value;
-}
+////////////////////////////////////////
+// ssa_node_t                         //
+////////////////////////////////////////
 
 void ssa_node_t::link_append_input(ssa_value_t value)
 {
+    ssa_forward_edge_t edge = { value };
     if(value.is_ptr())
-        value->out.push_back({ this, in.size() });
-    in.push_back(value);
-}
-
-void ssa_node_t::link_clear_in()
-{
-    for(unsigned i = 0; i < in.size(); ++i)
-        if(in[i].is_ptr())
-            in[i]->remove_out({ this, i });
-    in.clear();
-}
-
-void cfg_node_t::remove_in(cfg_forward_edge_t input)
-{
-    assert(in.size() > 0);
-    auto it = std::find(in.begin(), in.end(), input);
-    assert(it != in.end());
-    std::size_t index = it - in.begin();
-    std::swap(*it, in.back());
-    in.pop_back();
-    for(ssa_node_t* ssa_node : ssa_nodes)
     {
-        assert(ssa_node->cfg_node == this);
-        if(ssa_node->op == SSA_phi)
-        {
-            assert(ssa_node->in.size() > 0);
-            std::swap(ssa_node->in[index], ssa_node->in.back());
-            ssa_node->in.pop_back();
-            assert(ssa_node->in.size() == in.size());
-        }
+        edge.index = value->output_vec.size();
+        value->output_vec.push_back({ this, input_vec.size() });
+    }
+    input_vec.push_back(edge);
+}
+
+void ssa_node_t::remove_inputs_output(unsigned i)
+{
+    assert(i < input_vec.size());
+    if(input_vec[i].node.is_ptr())
+    {
+        assert(input_vec[i].node.ptr());
+        ssa_node_t& from_node = *input_vec[i].node;
+        unsigned const from_i = input_vec[i].index;
+
+        // Remove the output edge that leads to our input on 'i'.
+        from_node.output_vec.back().input().index = from_i;
+        std::swap(from_node.output_vec[from_i], from_node.output_vec.back());
+        from_node.output_vec.pop_back();
     }
 }
 
-void cfg_node_t::link_remove_in(cfg_forward_edge_t input)
+void ssa_node_t::link_remove_input(unsigned i)
 {
-    // Remove the 'in'.
-    remove_in(input);
+    assert(i < input_vec.size());
 
-    // Remove the 'out'.
-    assert(input.index < input.node->out.size());
-    unsigned const swap_i = input.node->out.size() - 1;
-    if(swap_i != input.index)
+    // First deal with the node we're receiving input along 'i' from.
+    remove_inputs_output(i);
+
+    // Remove the input edge on 'i'.
+    if(ssa_reverse_edge_t* o = input_vec.back().output())
+        o->index = i;
+    std::swap(input_vec[i], input_vec.back());
+    input_vec.pop_back();
+}
+
+void ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
+{
+    assert(i < input_vec.size());
+
+    // First deal with the node we're receiving input along 'i' from.
+    remove_inputs_output(i);
+
+    // Now change our input.
+    ssa_forward_edge_t edge = { new_value };
+    if(new_value.is_ptr())
     {
-        cfg_node_t*& swap_node = input.node->out[swap_i];
-        auto it = std::find(swap_node->in.begin(), swap_node->in.end(),
-                            cfg_forward_edge_t{ input.node, swap_i });
-        assert(it != swap_node->in.end());
-        it->index = input.index;
-        std::swap(input.out(), swap_node);
+        assert(new_value.ptr());
+        ssa_node_t& from_node = *new_value;
+        edge.index = from_node.output_vec.size();
+
+        // Add the new output entry.
+        from_node.output_vec.push_back({ this, i });
     }
-    input.node->out.pop_back();
+    input_vec[i] = edge;
 }
 
-void cfg_node_t::link_remove_out(unsigned out_i)
+void ssa_node_t::link_clear_input()
 {
-    assert(out_i < out.size());
-    assert(out[out_i]);
-    out[out_i]->link_remove_in({ this, out_i });
+    for(std::size_t i = 0; i < input_vec.size(); ++i)
+        remove_inputs_output(i);
+    input_vec.clear();
 }
 
+////////////////////////////////////////
+// cfg_node_t                         //
+////////////////////////////////////////
+
+void cfg_node_t::create()
+{
+    assert(ssa_list.empty());
+    assert(input_vec.empty());
+    assert(output_vec.empty());
+    exit = nullptr;
+}
+
+void cfg_node_t::destroy(ir_t& ir)
+{
+    input_vec = input_vec_t();
+    output_vec = output_vec_t();
+
+    // Delete all owned SSA nodes.
+    ssa_foreach([&ir](ssa_node_t& ssa_node)
+    {
+        ssa_node.destroy();
+        ir.ssa_pool.free(ssa_node);
+    });
+    ssa_list.clear();
+}
+
+void cfg_node_t::remove_ssa(ir_t& ir, ssa_node_t& ssa_node)
+{
+    assert(&ssa_node.cfg_node() == this);
+    if(exit == &ssa_node)
+        exit = nullptr;
+    ssa_list.erase(ssa_node);
+    ssa_node.destroy();
+    ir.ssa_pool.free(ssa_node);
+}
+
+void cfg_node_t::build_resize_output(unsigned i)
+{
+    assert(output_vec.empty());
+    output_vec.resize(i);
+}
+
+void cfg_node_t::build_set_output(unsigned i, cfg_node_t& new_node)
+{
+    assert(i < output_vec.size());
+    assert(output_vec[i].node == nullptr);
+
+    new_node.input_vec.push_back({ this, i });
+    output_vec[i] = { &new_node, new_node.input_vec.size() };
+}
+
+void cfg_node_t::link_append_output(cfg_node_t& node)
+{
+    cfg_reverse_edge_t edge = { &node, node.input_vec.size() };
+    node.input_vec.push_back({ this, output_vec.size() });
+    output_vec.push_back(edge);
+}
+
+void cfg_node_t::remove_outputs_input(unsigned i)
+{
+    assert(i < output_vec.size());
+    assert(output_vec[i].node);
+
+    cfg_node_t* to_node = output_vec[i].node;
+    unsigned const to_i = output_vec[i].index;
+
+    // Remove the output edge that leads to our input on 'i'.
+    to_node->input_vec.back().output().index = to_i;
+
+    // Update all phi nodes
+    to_node->ssa_foreach([to_i](ssa_node_t& ssa_node)
+    {
+        if(ssa_node.op() == SSA_phi)
+            ssa_node.link_remove_input(to_i);
+    });
+
+    std::swap(to_node->input_vec[to_i], to_node->input_vec.back());
+    to_node->input_vec.pop_back();
+}
+
+void cfg_node_t::link_remove_output(unsigned i)
+{
+    assert(i < output_vec.size());
+
+    // First deal with the node we're passing outputs along 'i' from.
+    remove_outputs_input(i);
+
+    // Remove the output edge on 'i'.
+    assert(output_vec.back().node);
+    output_vec.back().input().index = i;
+    std::swap(output_vec[i], output_vec.back());
+    output_vec.pop_back();
+}
+
+void cfg_node_t::link_change_output(unsigned i, cfg_node_t& new_node)
+{
+    assert(i < output_vec.size());
+
+    // First deal with the node we're passing outputs along 'i' from.
+    remove_outputs_input(i);
+
+    // Now change our output.
+    new_node.input_vec.push_back({ this, i });
+    output_vec[i] = { &new_node, new_node.input_vec.size() };
+}
+
+void cfg_node_t::link_clear_output()
+{
+    for(std::size_t i = 0; i < output_vec.size(); ++i)
+        remove_outputs_input(i);
+    output_vec.clear();
+}
+
+/* TODO: remove?
 void cfg_node_t::link_insert_out(unsigned i, cfg_node_t& node)
 {
     assert(out.size() > i);
     out[i] = &node;
     node.in.push_back({ this, i });
 }
+*/
 
 bool cfg_node_t::dominates(cfg_node_t const& node) const
 {
@@ -122,8 +213,30 @@ bool cfg_node_t::dominates(cfg_node_t const& node) const
     return dominates(*node.idom);
 }
 
+////////////////////////////////////////
+// ir_t                               //
+////////////////////////////////////////
+
+cfg_node_t& ir_t::emplace_cfg()
+{
+    cfg_node_t& node = cfg_pool.alloc();
+    node.create();
+    cfg_list.insert(node);
+    return node;
+}
+
+void ir_t::remove_cfg(cfg_node_t& cfg_node)
+{
+    cfg_list.erase(cfg_node);
+    if(exit == &cfg_node)
+        exit = nullptr;
+    cfg_node.destroy(*this);
+    cfg_pool.free(cfg_node);
+}
+
 void ir_t::clear()
 {
+    cfg_foreach([this](cfg_node_t& cfg_node) { cfg_node.destroy(*this); });
     cfg_pool.clear();
     ssa_pool.clear();
     root = nullptr;
@@ -131,28 +244,23 @@ void ir_t::clear()
     preorder.clear();
     postorder.clear();
 }
+
 void ir_t::finish_construction()
 {
 #ifndef NDEBUG
-    cfg_pool.foreach([](cfg_node_t& node)
+    cfg_foreach([](cfg_node_t& cfg_node)
     { 
-        assert(node.exit); 
-        for(ssa_node_t* ssa_node : node.ssa_nodes)
-        {
-            assert(ssa_node);
-            assert(ssa_node->cfg_node == &node);
-        }
-    });
-    ssa_pool.foreach([](ssa_node_t& node)
-    { 
-        assert(node.cfg_node);
-        if(node.op == SSA_phi)
-            assert(node.in.size() == node.cfg_node->in.size());
+        assert(cfg_node.exit); 
+        cfg_node.ssa_foreach([&](ssa_node_t& ssa_node)
+        { 
+            assert(&ssa_node.cfg_node() == &cfg_node);
+            if(ssa_node.op() == SSA_phi)
+                assert(ssa_node.input_size() == cfg_node.input_size());
+        });
     });
 #endif
 
     build_order();
-    build_users();
     build_dominators();
     build_loops(); // TODO: combine with order.
 }
@@ -164,7 +272,7 @@ void ir_t::build_order()
     // 'preorder_i' will temporarily be used to track nodes that are visited,
     // and 'postorder_i' will temporarily be used to track nodes that
     // are currently in the recursion stack.
-    cfg_pool.foreach([](cfg_node_t& node) 
+    cfg_foreach([](cfg_node_t& node) 
     { 
         node.preorder_i = UNVISITED; 
         node.postorder_i = UNVISITED; 
@@ -186,35 +294,33 @@ void ir_t::visit_order(cfg_node_t& node)
 {
     node.preorder_i = preorder.size();
     preorder.push_back(&node);
-    for(unsigned i = 0; i < node.out.size(); ++i)
+    for(unsigned i = 0; i < node.output_size(); ++i)
     {
-        cfg_node_t* succ = node.out[i];
-        if(succ->preorder_i == UNVISITED)
-        {
-            node.out_edge_types[i] = FORWARD_EDGE;
-            visit_order(*succ);
-        }
-        else if(succ->postorder_i == UNVISITED)
-            node.out_edge_types[i] = BACK_EDGE;
-        else
-            node.out_edge_types[i] = CROSS_EDGE;
+        cfg_node_t& succ = node.output(i);
+        if(succ.preorder_i == UNVISITED)
+            visit_order(succ);
     }
     node.postorder_i = postorder.size();
     postorder.push_back(&node);
 }
 
-void ir_t::build_users()
+static cfg_node_t* best_idom(cfg_node_t const& node, cfg_node_t* root)
 {
-    ssa_pool.foreach([](ssa_node_t& node) { node.out.clear(); });
-    ssa_pool.foreach([](ssa_node_t& node)
+    if(node.input_size() == 0)
+        return nullptr;
+    cfg_node_t* new_idom = &node.input(0);
+    for(std::size_t j = 1; j < node.input_size(); ++j)
     {
-        for(unsigned i = 0; i < node.in.size(); ++i)
+        cfg_node_t* pred = &node.input(j);
+        while(pred != new_idom)
         {
-            ssa_value_t input = node.in[i];
-            if(input.is_ptr())
-                input->out.push_back({ &node, i });
+            if(pred->postorder_i < new_idom->postorder_i)
+                pred = pred->idom ? pred->idom : root;
+            else 
+                new_idom = new_idom->idom ? new_idom->idom : root;
         }
-    });
+    }
+    return new_idom;
 }
 
 // Finds the immediate dominator of every cfg node.
@@ -223,7 +329,7 @@ void ir_t::build_users()
 // By Keith D. Cooper, Timothy J. Harvey, and Ken Kennedy
 void ir_t::build_dominators()
 {
-    cfg_pool.foreach([](cfg_node_t& node){ node.idom = nullptr; });
+    cfg_foreach([](cfg_node_t& node){ node.idom = nullptr; });
 
     for(bool changed = true; changed;)
     {
@@ -243,28 +349,9 @@ void ir_t::build_dominators()
     }
 }
 
-cfg_node_t* best_idom(cfg_node_t const& node, cfg_node_t* root)
-{
-    if(node.in.empty())
-        return nullptr;
-    cfg_node_t* new_idom = node.in[0].node; assert(new_idom);
-    for(std::size_t j = 1; j < node.in.size(); ++j)
-    {
-        cfg_node_t* pred = node.in[j].node; assert(pred);
-        while(pred != new_idom)
-        {
-            if(pred->postorder_i < new_idom->postorder_i)
-                pred = pred->idom ? pred->idom : root;
-            else 
-                new_idom = new_idom->idom ? new_idom->idom : root;
-        }
-    }
-    return new_idom;
-}
-
 void ir_t::build_loops()
 {
-    cfg_pool.foreach([](cfg_node_t& node) 
+    cfg_foreach([](cfg_node_t& node) 
     { 
         node.iloop_header = nullptr;
         node.preorder_i = UNVISITED; 
@@ -287,16 +374,17 @@ cfg_node_t* ir_t::visit_loops(cfg_node_t& node)
     node.preorder_i = preorder.size();
     preorder.push_back(&node);
 
-    for(cfg_node_t* succ : node.out)
+    for(unsigned i = 0; i < node.output_size(); ++i)
     {
-        if(succ->preorder_i == UNVISITED)
-            tag_loop_header(&node, visit_loops(*succ));
-        else if(succ->postorder_i == UNVISITED) // Is back edge?
+        cfg_node_t& succ = node.output(i);
+        if(succ.preorder_i == UNVISITED)
+            tag_loop_header(&node, visit_loops(succ));
+        else if(succ.postorder_i == UNVISITED) // Is back edge?
         {
             //loop_headers.push_back(succ); TODO
-            tag_loop_header(&node, succ);
+            tag_loop_header(&node, &succ);
         }
-        else if(cfg_node_t* header = succ->iloop_header)
+        else if(cfg_node_t* header = succ.iloop_header)
         {
             if(header->postorder_i == UNVISITED) // Is back edge?
                 tag_loop_header(&node, header);
@@ -353,59 +441,59 @@ std::ostream& ir_t::gv_ssa(std::ostream& o)
     o << "digraph {\n";
     o << "forcelabels=true;\n";
 
-    cfg_pool.foreach([&](cfg_node_t& cfg_node) 
+    cfg_foreach([&](cfg_node_t& cfg_node) 
     {
         o << "subgraph cluster_" << cfg_node.gv_id() << " {\n";
         o << "  style=filled;\n";
         o << "  color=lightgrey;\n";
         o << "  node [style=filled color=white];\n";
-        for(ssa_node_t* ssa_node : cfg_node.ssa_nodes)
+        cfg_node.ssa_foreach([&](ssa_node_t& ssa_node)
         {
-            o << "  " << ssa_node->gv_id() << ";\n";
+            o << "  " << ssa_node.gv_id() << ";\n";
 
-            for(unsigned i = 0; i < ssa_node->in.size(); ++i)
+            for(unsigned i = 0; i < ssa_node.input_size(); ++i)
             {
-                ssa_value_t input = ssa_node->in[i];
+                ssa_value_t input = ssa_node.input(i);
                 if(input.is_const())
-                    o << "  const_" << ssa_node->gv_id() << '_' << i << ";\n";
+                    o << "  const_" << ssa_node.gv_id() << '_' << i << ";\n";
             }
-        }
+        });
         o << "  " << cfg_node.gv_id() << ";\n"; 
         o << "}\n";
     });
 
-    cfg_pool.foreach([&](cfg_node_t& cfg_node) 
+    cfg_foreach([&](cfg_node_t& cfg_node) 
     {
         o << cfg_node.gv_id() << " [label=\"(ENTRY)\"];\n"; 
     });
 
-    ssa_pool.foreach([&](ssa_node_t& ssa_node) 
+    ssa_foreach([&](ssa_node_t& ssa_node) 
     {
-        o << ssa_node.gv_id() << " [label=\"" << to_string(ssa_node.op);
-        o << " " << ssa_node.type;
-        if(&ssa_node == ssa_node.cfg_node->exit)
+        o << ssa_node.gv_id() << " [label=\"" << to_string(ssa_node.op());
+        o << " " << ssa_node.type();
+        if(&ssa_node == ssa_node.cfg_node().exit)
             o << " (EXIT)";
         o << "\"];\n"; 
     });
 
-    cfg_pool.foreach([&](cfg_node_t& cfg_node) 
+    cfg_foreach([&](cfg_node_t& cfg_node) 
     {
-        for(unsigned i = 0; i < cfg_node.out.size(); ++i)
+        for(unsigned i = 0; i < cfg_node.output_size(); ++i)
         {
-            cfg_node_t* succ = cfg_node.out[i];
-            o << cfg_node.exit->gv_id() << " -> " << succ->gv_id();
+            cfg_node_t& succ = cfg_node.output(i);
+            o << cfg_node.exit->gv_id() << " -> " << succ.gv_id();
             o << "[penwidth=2 color=red";
-            if(cfg_node.exit->op == SSA_if)
+            if(cfg_node.exit->op() == SSA_if)
                 o << " label=\"" << (i ? "TRUE" : "FALSE") << "\"";
             o << "];\n";
         }
     });
 
-    ssa_pool.foreach([&](ssa_node_t& ssa_node) 
+    ssa_foreach([&](ssa_node_t& ssa_node) 
     {
-        for(unsigned i = 0; i < ssa_node.in.size(); ++i)
+        for(unsigned i = 0; i < ssa_node.input_size(); ++i)
         {
-            ssa_value_t input = ssa_node.in[i];
+            ssa_value_t input = ssa_node.input(i);
             if(input.is_const())
             {
                 o << "const_" << ssa_node.gv_id() << '_' << i;
@@ -428,7 +516,7 @@ std::ostream& ir_t::gv_cfg(std::ostream& o)
     o << "digraph {\n";
     o << "forcelabels=true;\n";
 
-    cfg_pool.foreach([&](cfg_node_t& cfg_node) 
+    cfg_foreach([&](cfg_node_t& cfg_node) 
     {
         o << cfg_node.gv_id();
         o << " [label=\"" << cfg_node.preorder_i;
@@ -441,16 +529,21 @@ std::ostream& ir_t::gv_cfg(std::ostream& o)
         o << "\"];\n"; 
     });
 
-    cfg_pool.foreach([&](cfg_node_t& cfg_node) 
+    cfg_foreach([&](cfg_node_t& cfg_node) 
     {
-        for(cfg_node_t* succ : cfg_node.out)
-            o << cfg_node.gv_id() << " -> " << succ->gv_id() << ";\n";
+        for(unsigned i = 0; i < cfg_node.output_size(); ++i)
+        {
+            cfg_node_t& succ = cfg_node.output(i);
+            o << cfg_node.gv_id() << " -> " << succ.gv_id() << ";\n";
+        }
 
+        /* TODO
         for(cfg_node_t* entrance : cfg_node.loop_entrances)
         {
             o << entrance->gv_id() << " -> " << cfg_node.gv_id();
             o << " [color=\"blue\", constraint=false];\n";
         }
+        */
 
         if(cfg_node.idom)
         {

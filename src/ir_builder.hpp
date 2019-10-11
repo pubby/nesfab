@@ -44,9 +44,6 @@ struct block_data_t
     // Only used for labels.
     pstring_t label_name = {};
 
-    // TODO: comment
-    //rh::robin_map<ssa_handle_t, ssa_node_t*> trace_map;
-
     // A CFG node is sealed when all its predecessors are set.
     constexpr bool sealed() const { return unsealed_phis == nullptr; }
 };
@@ -101,7 +98,6 @@ public:
         pstring_t pstring, 
         rpn_value_t* begin, rpn_value_t* end, 
         type_t const* type_begin);
-    void trace(cfg_node_t& cfg_node, ssa_node_t& ssa_node);
 
     // Pairs which handle last modified 'bitset'.
     // (A pasture is surrounded by fences, har har har)

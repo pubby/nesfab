@@ -44,6 +44,11 @@ void ir_builder_t::compile()
 {
     ir.root = &insert_cfg(true);
 
+    // Insert nodes for the arguments.
+    for(unsigned i = 0; i < fn().num_params; ++i)
+        ir.root->block_data->local_vars[i] = &ir.root->emplace_ssa(
+            ir, SSA_argument, fn().local_vars[i].type, i);
+
     // Create all of the SSA graph, minus the exit node:
     cfg_node_t& end = compile_block(*ir.root);
     exits_with_jump(end);
@@ -750,7 +755,7 @@ cfg_node_t& ir_builder_t::compile_logical_end(cfg_node_t& cfg_node,
     logical.branch_node->build_set_output(short_cut_i, merge_node);
 
     top.ssa_value = &merge_node.emplace_ssa(
-        ir, SSA_phi, type_t{TYPE_BOOL}, short_cut_i, top.ssa_value);
+        ir, SSA_phi, type_t{TYPE_BOOL}, top.ssa_value, short_cut_i);
     top.pstring = concat(logical.lhs_pstring, top.pstring);
     top.category = RVAL;
     assert(top.type == type_t{TYPE_BOOL});

@@ -153,19 +153,22 @@ struct constraints_t
     }
     constexpr bool is_const() const 
         { return bounds.is_const() || bits.is_const(); }
-    constexpr fixed_int_t get_const() const 
+    fixed_int_t get_const() const
     { 
-        assert(is_const()); 
-        return bounds.is_const() ? bounds.get_const() : bits.get_const(); 
+        assert(is_const());
+        return bounds.is_const() ? bounds.get_const() : bits.get_const();
     }
     constexpr bool bit_eq(constraints_t o) const
         { return bounds.bit_eq(o.bounds) && bits.bit_eq(o.bits); }
     bool normal_eq(constraints_t o) const
-        { return normalize(*this).bit_eq(normalize(o)); }
+        { return ::normalize(*this).bit_eq(::normalize(o)); }
     constexpr bool operator()(fixed_int_t fixed) const
         { return bounds(fixed) && bits(fixed); }
     bool is_normalized() const // Relatively expensive; don't use often.
-        { return bit_eq(normalize(*this)); }
+        { return bit_eq(::normalize(*this)); }
+
+    // Self-Modification
+    void normalize() { *this = ::normalize(*this); }
 };
 
 #endif

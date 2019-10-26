@@ -124,7 +124,8 @@ class fn_t
 {
 public:
     fn_t(var_decl_t const* params_begin, var_decl_t const* params_end)
-    : local_vars(params_begin, params_end) 
+    : num_params(params_end - params_begin)
+    , local_vars(params_begin, params_end) 
     {}
 
     stmt_t const& operator[](stmt_handle_t h) const { return stmts[h.value]; }

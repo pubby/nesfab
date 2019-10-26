@@ -3,11 +3,43 @@
 
 #include <memory>
 
+template<typename T>
+class intrusive_iterator_t
+{
+public:
+    T* ptr;
+
+    using value_type = T;
+    using reference = T&;
+    using pointer = T*;
+    using difference_type = std::size_t;
+    using iterator_category = std::forward_iterator_tag;
+
+    intrusive_iterator_t() : ptr(nullptr) {}
+    intrusive_iterator_t(T* ptr) : ptr(ptr) {}
+
+    T& operator*() const { return *ptr; }
+    T* operator->() const { return ptr; }
+
+    intrusive_iterator_t& operator++() { ptr = ptr->next; return *this; }
+    intrusive_iterator_t operator++(int) 
+        { intrusive_iterator_t ret = *this; operator++(); return ret; }
+
+    explicit operator bool() const { return ptr; }
+
+    bool operator==(intrusive_iterator_t o) const { return ptr == o.ptr; }
+    bool operator!=(intrusive_iterator_t o) const { return ptr != o.ptr; }
+    bool operator<(intrusive_iterator_t o) const { return ptr < o.ptr; }
+};
+
 // A very basic implementation of intrusive list containers.
 template<typename T>
 class intrusive_list_t
 {
+    T* head_ptr = nullptr;
 public:
+    using iterator = intrusive_iterator_t<T>;
+
     intrusive_list_t() = default;
     intrusive_list_t(intrusive_list_t const&) = delete;
     intrusive_list_t(intrusive_list_t&&) = default;
@@ -16,40 +48,158 @@ public:
 
     void insert(T& node)
     {
-        if(head)
-            head->prev = &node;
-        node.next = head;
+        if(head_ptr)
+            head_ptr->prev = &node;
+        node.next = head_ptr;
         node.prev = nullptr;
-        head = &node;
+        head_ptr = &node;
     }
 
-    void erase(T& node)
+    T* erase(T& node)
     {
+        T* ret = node.next;
+
         if(node.prev)
             node.prev->next = node.next;
         else
         {
-            assert(&node == head);
-            head = node.next;
+            assert(&node == head_ptr);
+            head_ptr = node.next;
         }
 
         if(node.next)
             node.next->prev = node.prev;
+
+        return ret;
     }
 
-    bool empty() const { return !head; }
-    void clear() { head = nullptr; }
+    bool empty() const { return head_ptr == nullptr; }
+    void clear() { head_ptr = nullptr; }
+    T* head() const { return head_ptr; }
 
     template<typename Fn>
     void foreach(Fn const& fn)
     {
-        for(T* node = head; node; node = node->next)
+        for(T* node = head_ptr; node; node = node->next)
             fn(*node);
     }
 
-private:
-    T* head = nullptr;
+    iterator begin() const { return head(); }
+    iterator end() const { return iterator(); }
 };
+
+// A very basic implementation of intrusive list containers.
+// TODO: remove?
+/*
+template<typename T>
+class bi_intrusive_list_t
+{
+    T* first_ptr = nullptr;
+    T* last_ptr = nullptr;
+public:
+    intrusive_list_t() = default;
+    intrusive_list_t(intrusive_list_t const&) = delete;
+    intrusive_list_t(intrusive_list_t&&) = default;
+    intrusive_list_t& operator=(intrusive_list_t const&) = delete;
+    intrusive_list_t& operator=(intrusive_list_t&&) = default;
+
+    void push_front(T& node)
+    {
+        if(first_ptr)
+            first_ptr->prev = &node;
+        else
+        {
+            assert(!last_ptr);
+            last_ptr = &node;
+        }
+        node.next = first_ptr;
+        node.prev = nullptr;
+        first_ptr = &node;
+        if(!last_ptr)
+            last_ptr = &node;
+    }
+
+    void push_back(T& node)
+    {
+        if(last_ptr)
+            last_ptr->next = &node;
+        else
+        {
+            assert(!first_ptr);
+            first_ptr = &node;
+        }
+        node.next = nullptr;
+        node.prev = last_ptr;
+        last_ptr = &node;
+    }
+
+    T* erase(T& node)
+    {
+        T* ret = node.next;
+
+        if(node.prev)
+            node.prev->next = node.next;
+        else
+        {
+            assert(&node == first_ptr);
+            first_ptr = node.next;
+        }
+
+        if(node.next)
+            node.next->prev = node.prev;
+        else
+        {
+            assert(&node == last_ptr);
+            last_ptr = node.prev;
+        }
+
+        return ret;
+    }
+
+    bool empty() const { return !first_ptr; }
+    void clear() { first_ptr = last_ptr = nullptr; }
+    T* first() const { return first_ptr; }
+    T* last() const { return last_ptr; }
+
+    template<typename Fn>
+    void foreach(Fn const& fn)
+    {
+        for(T* node = first_ptr; node; node = node->next)
+            fn(*node);
+    }
+
+    class iterator
+    {
+    public:
+        T* ptr;
+
+        using value_type = T;
+        using reference = T&;
+        using pointer = T*;
+        using difference_type = std::size_t;
+        using iterator_category = std::forward_iterator_tag;
+
+        iterator() : ptr(nullptr) {}
+        iterator(T* ptr) : ptr(ptr) {}
+
+        T& operator*() const { return *ptr; }
+        T* operator->() const { return ptr; }
+
+        iterator& operator++() { ptr = ptr->next; return *this; }
+        iterator operator++(int) 
+            { iterator ret = *this; operator++(); return ret; }
+
+        explicit operator bool() const { return ptr; }
+
+        bool operator==(iterator o) const { return ptr == o.ptr; }
+        bool operator!=(iterator o) const { return ptr != o.ptr; }
+        bool operator<(iterator o) const { return ptr < o.ptr; }
+    };
+
+    iterator begin() const { return first(); }
+    iterator end() const { return iterator(); }
+};
+*/
 
 // Inherit from this to make a type intrusive.
 template<typename T>
@@ -57,6 +207,7 @@ class intrusive_t
 {
     template<typename, std::size_t>
     friend class intrusive_pool_t;
+    friend class intrusive_iterator_t<T>;
     friend class intrusive_list_t<T>;
 protected:
     T* next;
@@ -101,13 +252,36 @@ public:
         --allocated_size;
     }
 
-    void clear() 
+    // Returns the allocated object to the pool, but its storage won't
+    // be reused until 'reclaim' is called. This can be used to keep
+    // pointers valid.
+    void prune(T& t)
+    {
+        t.next = prune_head;
+        prune_head = &t;
+        --allocated_size;
+    }
+
+    void reclaim()
+    {
+        if(T* ptr = prune_head)
+        {
+            while(ptr->next)
+                ptr = ptr->next;
+            ptr->next = free_head;
+            free_head = prune_head;
+            prune_head = nullptr;
+        }
+    }
+
+    void clear_and_reclaim() 
     { 
         std::unique_ptr<buffer_t>* end = &free_buffers_head;
         while(*end)
             end = &(*end)->next;
         *end = std::move(buffer_head);
         allocated_size = 0;
+        reclaim();
     }
 
     std::size_t size() const { return allocated_size; }
@@ -130,6 +304,7 @@ private:
     std::unique_ptr<buffer_t> buffer_head;
     std::unique_ptr<buffer_t> free_buffers_head;
     T* free_head = nullptr;
+    T* prune_head = nullptr;
     std::size_t allocated_size = 0;
 };
 

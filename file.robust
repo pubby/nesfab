@@ -1,6 +1,7 @@
-fn foo() byte
-    byte x = 0
-    while x < 55
-        x = x + 2
-    return x
+fn foo(byte a, byte b) byte
+    byte x
+    byte y
+    if x < 3 && y < 3
+        return 1
+    return 2
 

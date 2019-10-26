@@ -102,12 +102,12 @@ class alignas(2) ssa_node_t : public intrusive_t<ssa_node_t>
 
 public:
     // TODO:
+
     bool in_worklist;
-    unsigned visited;
     union
     {
-        struct constraints_t* constraints;
-        //unsigned worklist_flags = 0;
+        struct ai_ssa_data_t* ai_data;
+        struct phi_data_t* phi_data;
     };
 
     ssa_node_t() = default;
@@ -115,24 +115,38 @@ public:
     ssa_node_t& operator=(ssa_node_t const&) = delete;
 
     cfg_node_t& cfg_node() const { return *cfg_node_; }
+    inline cfg_node_t& input_cfg(std::size_t i) const;
     ssa_op_t op() const { return op_; }
     type_t type() const { return type_; }
+    bool pruned() const { return op_ == SSA_pruned; }
+
+    void set_op(ssa_op_t op_) { this->op_ = op_; }
+    void set_type(type_t type_) { this->type_ = type_; }
 
     ssa_value_t input(std::size_t i) const { return input_vec[i].node; }
+    ssa_forward_edge_t input_edge(std::size_t i) const 
+        { return input_vec[i]; }
     std::size_t input_size() const { return input_vec.size(); }
 
     ssa_node_t& output(std::size_t i) const { return *output_vec[i].node; }
+    ssa_reverse_edge_t output_edge(std::size_t i) const 
+        { return output_vec[i]; }
     std::size_t output_size() const { return output_vec.size(); }
 
     void link_append_input(ssa_value_t value);
     void link_remove_input(unsigned i);
-    void link_change_input(unsigned i, ssa_value_t new_value);
-    void link_clear_input();
+    bool link_change_input(unsigned i, ssa_value_t new_value);
+    void link_clear_inputs();
+
+    // Every node that takes this node as input now takes this value instead.
+    // Clears 'output_vec'.
+    void replace_with_const(fixed_t const_val);
+    void replace_with(ssa_value_t value);
 
     template<typename It>
     void link_assign_input(It begin, It end)
     {
-        link_clear_input();
+        link_clear_inputs();
         for(It it = begin; it != end; ++it)
             link_append_input(*it);
     }
@@ -143,22 +157,21 @@ private:
     template<typename... Args>
     void create(cfg_node_t& cfg_node, ssa_op_t op, type_t type, Args&&... args)
     {
-        assert(input_vec.empty());
-        assert(output_vec.empty());
         cfg_node_ = &cfg_node;
         op_ = op;
         type_ = type;
+        input_vec.clear();
+        output_vec.clear();
         (link_append_input(std::forward<Args>(args)), ...);
     }
     
-    void destroy()
-    {
-        input_vec = input_vec_t();
-        output_vec = output_vec_t();
-    }
+    void unsafe_prune();
 
     void remove_inputs_output(unsigned i);
 };
+
+using ssa_iterator_t = intrusive_list_t<ssa_node_t>::iterator;
+using cfg_iterator_t = intrusive_list_t<cfg_node_t>::iterator;
 
 class cfg_node_t : public intrusive_t<cfg_node_t>
 {
@@ -174,6 +187,7 @@ class cfg_node_t : public intrusive_t<cfg_node_t>
 
     input_vec_t input_vec;
     output_vec_t output_vec;
+    bool alive;
 
 public:
     ssa_node_t* exit; // TODO: private?
@@ -181,31 +195,32 @@ public:
     unsigned postorder_i;
 
     cfg_node_t* idom;
-    cfg_node_t* iloop_header;
+    cfg_node_t* iloop_header; // TODO: move
     //std::vector<cfg_node_t*> loop_entrances; // TODO
 
-    using reachable_int_t = std::uint64_t;
+    bool in_worklist;
     union
     {
-        struct
-        {
-            bool in_worklist;
-            bool executed;
-            std::array<bool, 2> out_executable;
-        };
-        reachable_int_t reachable;
+        struct ai_cfg_data_t* ai_data;
         class block_data_t* block_data;
     };
 
+    bool pruned() const { return !alive; }
+
     cfg_node_t& input(std::size_t i) const { return *input_vec[i].node; }
+    cfg_forward_edge_t input_edge(std::size_t i) const 
+        { return input_vec[i]; }
     std::size_t input_size() const { return input_vec.size(); }
 
     cfg_node_t& output(std::size_t i) const { return *output_vec[i].node; }
+    cfg_reverse_edge_t output_edge(std::size_t i) const 
+        { return output_vec[i]; }
     std::size_t output_size() const { return output_vec.size(); }
 
     template<typename... Args>
     ssa_node_t& emplace_ssa(ir_t& ir, ssa_op_t op, type_t type, Args&&...);
-    void remove_ssa(ir_t& ir, ssa_node_t& ssa_node);
+    ssa_node_t* unsafe_prune_ssa(ir_t& ir, ssa_node_t& ssa_node);
+    void unsafe_prune_ssa(ir_t& ir);
 
     // These exist for ir_builder_t, specifically as a fast-ish and
     // convenient way to set output_vec.
@@ -214,15 +229,17 @@ public:
     // Changes a NULL in output_vec to 'new_node'.
     void build_set_output(unsigned i, cfg_node_t& new_node);
 
-    void link_append_output(cfg_node_t& node);
     void link_remove_output(unsigned i);
-    void link_change_output(unsigned i, cfg_node_t& new_node);
-    void link_clear_output();
+    template<typename PhiFn>
+    void link_change_output(unsigned i, cfg_node_t& new_node, PhiFn phi_fn);
+    void link_clear_outputs();
 
     bool dominates(cfg_node_t const& node) const;
 
     std::string gv_id() const 
         { return "cfg" + std::to_string((std::uintptr_t)(this)); }
+
+    ssa_iterator_t ssa_begin() const { return ssa_list.head(); }
 
     template<typename Fn>
     void ssa_foreach(Fn const& fn) { ssa_list.foreach(fn); }
@@ -231,7 +248,7 @@ private:
     void remove_outputs_input(unsigned i);
 
     void create();
-    void destroy(ir_t& ir);
+    void unsafe_prune(ir_t& ir);
 };
 
 class ir_t
@@ -258,7 +275,11 @@ public:
     std::ostream& gv_cfg(std::ostream& o);
 
     cfg_node_t& emplace_cfg();
-    void remove_cfg(cfg_node_t& cfg_node);
+    cfg_node_t& split_edge(cfg_reverse_edge_t edge);
+    cfg_node_t* merge_edge(cfg_node_t& node);
+    cfg_node_t* unsafe_prune_cfg(cfg_node_t& cfg_node);
+
+    cfg_iterator_t cfg_begin() const { return cfg_list.head(); }
 
     template<typename Fn>
     void cfg_foreach(Fn const& fn) { cfg_list.foreach(fn); }
@@ -272,11 +293,16 @@ public:
         }); 
     }
 
+    void reclaim_pools();
+
+    bool valid(); // Used for debugging asserts.
+
 private:
     void visit_order(cfg_node_t& node);
     cfg_node_t* visit_loops(cfg_node_t& node);
     void tag_loop_header(cfg_node_t* node, cfg_node_t* header);
 };
+
 
 inline cfg_reverse_edge_t& cfg_forward_edge_t::output() const
 {
@@ -304,6 +330,21 @@ inline ssa_forward_edge_t& ssa_reverse_edge_t::input() const
     return node->input_vec[index];
 }
 
+////////////////////////////////////////
+// ssa_node_t                         //
+////////////////////////////////////////
+
+inline cfg_node_t& ssa_node_t::input_cfg(std::size_t i) const
+{
+    if(op() == SSA_phi)
+        return cfg_node().input(i);
+    return cfg_node();
+}
+
+////////////////////////////////////////
+// cfg_node_t                         //
+////////////////////////////////////////
+
 template<typename... Args>
 ssa_node_t& cfg_node_t::emplace_ssa(ir_t& ir, ssa_op_t op, type_t type, 
                                     Args&&... args)
@@ -312,6 +353,32 @@ ssa_node_t& cfg_node_t::emplace_ssa(ir_t& ir, ssa_op_t op, type_t type,
     node.create(*this, op, type, std::forward<Args>(args)...);
     ssa_list.insert(node);
     return node;
+}
+
+template<typename PhiFn>
+void cfg_node_t::link_change_output(unsigned i, cfg_node_t& new_node, 
+                                    PhiFn phi_fn)
+{
+    assert(i < output_vec.size());
+    if(&new_node == &output(i))
+        return;
+
+    // Append to all phi nodes first.
+    // TODO: this could be sped up using phi iteration
+    for(ssa_iterator_t it = new_node.ssa_begin(); it; ++it)
+    {
+        if(it->op() != SSA_phi)
+            continue;
+        it->link_append_input(phi_fn(*it));
+    }
+
+    // First deal with the node we're receiving output along 'i' from.
+    remove_outputs_input(i);
+
+    // Now change our input.
+    output_vec[i] = { &new_node, new_node.input_vec.size() };
+    new_node.input_vec.push_back({ this, i });
+
 }
 
 #endif

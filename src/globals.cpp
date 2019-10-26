@@ -7,7 +7,7 @@
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
-#include "o_abstract_interpret.hpp"
+#include "o.hpp"
 
 std::string to_string(stmt_name_t stmt_name)
 {
@@ -127,7 +127,17 @@ void global_manager_t::finish()
                 ir_builder_t ir_builder(*this, *global);
                 ir_builder.compile();
 
-                //insert_traces(ir_builder.ir);
+                //assert(ir_builder.ir.valid());
+                //o_remove_trivial_phis(ir_builder.ir);
+                //assert(ir_builder.ir.valid());
+                for(unsigned i = 0; i < 1; ++i)
+                {
+                    o_remove_redundant_phis(ir_builder.ir);
+                    o_remove_trivial_phis(ir_builder.ir);
+                    o_abstract_interpret(ir_builder.ir);
+                }
+
+                std::puts("DONE");
                 //o_abstract_interpret(ir_builder.ir);
 
                 {
@@ -135,6 +145,7 @@ void global_manager_t::finish()
                                         global->name.view()));
                     if(o.is_open())
                         ir_builder.ir.gv_cfg(o);
+                    std::puts("done cfg");
                 }
 
                 {
@@ -142,6 +153,7 @@ void global_manager_t::finish()
                                         global->name.view()));
                     if(o.is_open())
                         ir_builder.ir.gv_ssa(o);
+                    std::puts("done ssa");
                 }
 
                 /*

@@ -8,6 +8,7 @@ SSA_DEF(return, 1, 0)
 
 SSA_DEF(phi,   -1, 0)
 
+SSA_DEF(argument, 1, 0)
 SSA_DEF(uninitialized, 0, 0) // for new vars
 
 SSA_DEF(fn_call, -1, 0)

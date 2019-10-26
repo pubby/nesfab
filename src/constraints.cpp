@@ -252,6 +252,12 @@ ABSTRACT(SSA_phi)
     return ret;
 };
 
+ABSTRACT(SSA_argument)
+{
+    assert(argn == 1);
+    return constraints_t::bottom(mask);
+};
+
 ABSTRACT(SSA_uninitialized)
 {
     assert(argn == 0);
@@ -457,6 +463,13 @@ ABSTRACT(SSA_lte)
     return constraints_t::any_bool();
 };
 
+NARROW(SSA_phi)
+{
+    std::puts("ok");
+    for(unsigned i = 0; i < argn; ++i)
+        c[i] = intersect(c[i], result);
+};
+
 NARROW(SSA_uninitialized)
 {
     assert(argn == 0);
@@ -599,18 +612,38 @@ NARROW(SSA_xor)
     c[1].bits.known1 |= result.bits.known1 & c[0].bits.known0;
 };
 
-NARROW(SSA_eq)
+static void narrow_eq(fixed_int_t mask, constraints_t result, 
+                      constraints_t* c, unsigned argn, bool eq)
 {
     assert(argn == 2);
-    if(result.is_const() && result.get_const() == fixed_t::whole(1).value)
+    if(!result.is_const())
+        return;
+
+    if(result.get_const() == fixed_t::whole(!eq).value)
+    {
+        for(unsigned i = 0; i < 2; ++i)
+        if(c[i].is_const())
+        {
+            unsigned const o = 1 - i;
+            fixed_int_t const const_ = c[i].get_const();
+            if(c[o].bounds.min == const_)
+                ++c[o].bounds.min;
+            if(c[o].bounds.max == const_)
+                --c[o].bounds.max;
+        }
+    }
+    else if(result.get_const() == fixed_t::whole(eq).value)
         c[0] = c[1] = intersect(c[0], c[1]);
+}
+
+NARROW(SSA_eq)
+{
+    narrow_eq(mask, result, c, argn, true);
 };
 
 NARROW(SSA_not_eq)
 {
-    assert(argn == 2);
-    if(result.is_const() && result.get_const() == fixed_t::whole(0).value)
-        c[0] = c[1] = intersect(c[0], c[1]);
+    narrow_eq(mask, result, c, argn, false);
 };
 
 NARROW(SSA_lt)

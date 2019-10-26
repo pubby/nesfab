@@ -55,12 +55,12 @@ globals.cpp \
 pass1.cpp \
 ir_builder.cpp \
 fixed.cpp \
+o_abstract_interpret.cpp \
+o_phi.cpp \
 constraints.cpp \
 ssa_op.cpp \
 lex_tables.cpp \
 add_constraints_table.cpp
-
-# o_abstract_interpret.cpp \
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -99,7 +99,7 @@ $(SRCDIR)/lex_tables.cpp: $(SRCDIR)/lex_tables.hpp
 	mv lex_tables.cpp $(SRCDIR)/
 
 lexer_gen: $(SRCDIR)/lexer_gen.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -O2 -o $@ $^
 
 # Other Tables
 

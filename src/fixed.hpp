@@ -26,6 +26,7 @@ struct fixed_t
     constexpr bool operator!() const { return !value; }
 
     static constexpr fixed_t whole(int_type i) { return { i << shift }; }
+    constexpr int_type whole() const { return value >> shift; }
 };
 
 constexpr fixed_t operator""_f(unsigned long long int i) { return { i }; }

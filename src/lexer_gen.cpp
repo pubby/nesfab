@@ -410,7 +410,8 @@ void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
                     p.second.second->name, p.second.second->string);
     std::fprintf(hpp, "    }\n}\n");
 
-    std::fprintf(hpp, "constexpr int token_precedence_table[] =\n{\n");
+    std::fprintf(hpp, "constexpr unsigned char token_precedence_table[] =\n{\n");
+        std::fprintf(hpp, "    0,\n"); // TOK_ERROR
     for(auto const& p : names)
         std::fprintf(hpp, "    %i,\n", p.second.second->precedence);
     std::fprintf(hpp, "};\n");
@@ -631,7 +632,9 @@ int main()
             keyword(17, "not_eq", "!="),
 
             keyword(18, "logical_and", "&&"),
+            accept(18, "end_logical_and", "end_logical_and", eof()),
             keyword(19, "logical_or", "||"),
+            accept(19, "end_logical_or", "end_logical_or", eof()),
 
             keyword("bitwise_not", "~"),
             keyword("logical_not", "!"),
@@ -664,9 +667,7 @@ int main()
             accept("decimal", "number", many1(digit())),
 
             accept("number", "number", eof()),
-            accept("global_ident", "global identifier", eof()),
-            accept("end_logical_and", "end_logical_and", eof()),
-            accept("end_logical_or", "end_logical_or", eof())
+            accept("global_ident", "global identifier", eof())
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

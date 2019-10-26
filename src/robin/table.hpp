@@ -93,8 +93,8 @@ public:
 
     robin_table() 
     : values()
-    , hashes(&this->mask_)
-    , hashes_end_(&this->mask_)
+    , hashes(&null_hash)
+    , hashes_end_(&null_hash)
     , mask_(0)
     {}
 
@@ -276,8 +276,8 @@ public:
            && alignof(value_type) <= sizeof(std::max_align_t))
         {
             // realloc hashes
-            hash_type* const old_hashes = hashes == &mask_ ? nullptr : hashes;
-
+            hash_type* const old_hashes = hashes == &null_hash ? nullptr 
+                                                               : hashes;
             hashes = reinterpret_cast<hash_type*>(
                 std::realloc(old_hashes, (new_size+1) * sizeof(hash_type)));
             if(UNLIKELY(!hashes))
@@ -360,26 +360,9 @@ public:
     void swap(robin_table& o) noexcept
     {
         using std::swap;
-
-        auto hashes_old = hashes;
-        auto hashes_end_old = hashes_end_;
-        if(o.hashes == &o.mask_)
-            hashes = hashes_end_ = &mask_;
-        else
-        {
-            hashes = o.hashes;
-            hashes_end_ = o.hashes_end_;
-        }
-
-        if(hashes_old == &mask_)
-            o.hashes = o.hashes_end_ = &o.mask_;
-        else
-        {
-            o.hashes = hashes_old;
-            o.hashes_end_ = hashes_end_old;
-        }
-
         values.swap(o.values);
+        swap(hashes, o.hashes);
+        swap(hashes_end_, o.hashes_end_);
         swap(mask_, o.mask_);
     }
 
@@ -404,10 +387,10 @@ public:
 protected:
     void free_memory()
     {
-        if(hashes && hashes != &mask_)
+        if(hashes && hashes != &null_hash)
         {
             std::free(hashes);
-            hashes = hashes_end_ = &mask_;
+            hashes = hashes_end_ = &null_hash;
         }
     }
 
@@ -425,17 +408,12 @@ protected:
 
     void move_impl(robin_table& o)
     {
-        if(o.mask_)
-        {
-            hashes = o.hashes;
-            hashes_end_ = o.hashes_end_;
-        }
-        else
-            hashes = hashes_end_ = &mask_;
         values = std::move(o.values);
+        hashes = o.hashes;
+        hashes_end_ = o.hashes_end_;
         mask_ = o.mask_;
 
-        o.hashes = o.hashes_end_ = &o.mask_;
+        o.hashes = o.hashes_end_ = &null_hash;
         o.mask_ = 0;
     }
 
@@ -450,11 +428,17 @@ protected:
 
     robin_table const* const_this() const { return this; }
 
+    static hash_type null_hash;
+
     std::unique_ptr<value_storage> values;
     hash_type* hashes;
     hash_type* hashes_end_;
     hash_type mask_;
 };
+
+template<typename T, typename UIntType>
+UIntType robin_table<T, UIntType>::null_hash = 0;
+
 
 // Small wrapper around robin_table which tracks the number of elements 
 // inserted and automatically enlarges the table as new elements are inserted.

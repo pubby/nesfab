@@ -127,6 +127,7 @@ void cfg_node_t::create()
     output_vec.clear();
     exit = nullptr;
     alive = true;
+    flags = 0;
 }
 
 void cfg_node_t::unsafe_prune(ir_t& ir)

@@ -13,6 +13,7 @@
 #include "array_pool.hpp"
 #include "fixed.hpp"
 #include "intrusive.hpp"
+#include "o_phi.hpp"
 #include "link.hpp"
 #include "ssa_op.hpp"
 #include "types.hpp"
@@ -107,8 +108,17 @@ public:
     union
     {
         struct ai_ssa_data_t* ai_data;
-        struct phi_data_t* phi_data;
+        struct phi_data_t phi_data;
     };
+
+    std::uint64_t flags;
+    /*
+    union 
+    {
+        struct ai_ssa_data_t ai_data;
+        struct phi_data_t phi_data;
+    };
+    */
 
     ssa_node_t() = default;
     ssa_node_t(ssa_node_t const&) = delete;
@@ -119,8 +129,9 @@ public:
     ssa_op_t op() const { return op_; }
     type_t type() const { return type_; }
     bool pruned() const { return op_ == SSA_pruned; }
+    bool has_side_effects();
 
-    void set_op(ssa_op_t op_) { this->op_ = op_; }
+    //void set_op(ssa_op_t op_) { this->op_ = op_; } // TODO: remove?
     void set_type(type_t type_) { this->type_ = type_; }
 
     ssa_value_t input(std::size_t i) const { return input_vec[i].node; }
@@ -160,6 +171,7 @@ private:
         cfg_node_ = &cfg_node;
         op_ = op;
         type_ = type;
+        flags = 0;
         input_vec.clear();
         output_vec.clear();
         (link_append_input(std::forward<Args>(args)), ...);
@@ -183,14 +195,14 @@ class cfg_node_t : public intrusive_t<cfg_node_t>
     using input_vec_t = bc::small_vector<cfg_forward_edge_t, 2>;
     using output_vec_t = bc::small_vector<cfg_reverse_edge_t, 2>;
 
-    intrusive_list_t<ssa_node_t> ssa_list;
+    partitioned_intrusive_list_t<ssa_node_t> ssa_list;
 
     input_vec_t input_vec;
     output_vec_t output_vec;
     bool alive;
 
 public:
-    ssa_node_t* exit; // TODO: private?
+    ssa_node_t* exit; // TODO: private? rename to 'condition'?
     unsigned preorder_i;
     unsigned postorder_i;
 
@@ -231,6 +243,8 @@ public:
 
     void link_remove_output(unsigned i);
     template<typename PhiFn>
+    void link_append_output(cfg_node_t& new_node, PhiFn phi_fn);
+    template<typename PhiFn>
     void link_change_output(unsigned i, cfg_node_t& new_node, PhiFn phi_fn);
     void link_clear_outputs();
 
@@ -239,7 +253,8 @@ public:
     std::string gv_id() const 
         { return "cfg" + std::to_string((std::uintptr_t)(this)); }
 
-    ssa_iterator_t ssa_begin() const { return ssa_list.head(); }
+    ssa_iterator_t ssa_begin() const { return ssa_list.begin(); }
+    ssa_iterator_t phi_begin() const { return ssa_list.partition_begin(); }
 
     template<typename Fn>
     void ssa_foreach(Fn const& fn) { ssa_list.foreach(fn); }
@@ -279,7 +294,7 @@ public:
     cfg_node_t* merge_edge(cfg_node_t& node);
     cfg_node_t* unsafe_prune_cfg(cfg_node_t& cfg_node);
 
-    cfg_iterator_t cfg_begin() const { return cfg_list.head(); }
+    cfg_iterator_t cfg_begin() const { return cfg_list.begin(); }
 
     template<typename Fn>
     void cfg_foreach(Fn const& fn) { cfg_list.foreach(fn); }
@@ -336,9 +351,12 @@ inline ssa_forward_edge_t& ssa_reverse_edge_t::input() const
 
 inline cfg_node_t& ssa_node_t::input_cfg(std::size_t i) const
 {
-    if(op() == SSA_phi)
-        return cfg_node().input(i);
-    return cfg_node();
+    switch(op())
+    {
+    case SSA_phi: return cfg_node().input(i);
+    case SSA_trace: return cfg_node().input(0);
+    default: return cfg_node();
+    }
 }
 
 ////////////////////////////////////////
@@ -351,9 +369,26 @@ ssa_node_t& cfg_node_t::emplace_ssa(ir_t& ir, ssa_op_t op, type_t type,
 { 
     ssa_node_t& node = ir.ssa_pool.alloc();
     node.create(*this, op, type, std::forward<Args>(args)...);
-    ssa_list.insert(node);
+    if(op == SSA_phi)
+        ssa_list.partition_insert(node);
+    else
+        ssa_list.insert(node);
     return node;
 }
+
+template<typename PhiFn>
+void cfg_node_t::link_append_output(cfg_node_t& new_node, PhiFn phi_fn)
+{
+    // Append to all phi nodes first.
+    // TODO: this could be sped up using phi iteration
+    for(ssa_iterator_t it = new_node.ssa_begin(); it; ++it)
+        if(it->op() == SSA_phi)
+            it->link_append_input(phi_fn(*it));
+
+    output_vec.push_back({ &new_node, new_node.input_vec.size() });
+    new_node.input_vec.push_back({ this, output_vec.size() - 1 });
+}
+
 
 template<typename PhiFn>
 void cfg_node_t::link_change_output(unsigned i, cfg_node_t& new_node, 
@@ -363,17 +398,14 @@ void cfg_node_t::link_change_output(unsigned i, cfg_node_t& new_node,
     if(&new_node == &output(i))
         return;
 
-    // Append to all phi nodes first.
-    // TODO: this could be sped up using phi iteration
-    for(ssa_iterator_t it = new_node.ssa_begin(); it; ++it)
-    {
-        if(it->op() != SSA_phi)
-            continue;
-        it->link_append_input(phi_fn(*it));
-    }
-
     // First deal with the node we're receiving output along 'i' from.
     remove_outputs_input(i);
+
+    // Append to all phi nodes.
+    // TODO: this could be sped up using phi iteration
+    for(ssa_iterator_t it = new_node.ssa_begin(); it; ++it)
+        if(it->op() == SSA_phi)
+            it->link_append_input(phi_fn(*it));
 
     // Now change our input.
     output_vec[i] = { &new_node, new_node.input_vec.size() };

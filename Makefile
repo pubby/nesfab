@@ -55,6 +55,7 @@ globals.cpp \
 pass1.cpp \
 ir_builder.cpp \
 fixed.cpp \
+o.cpp \
 o_abstract_interpret.cpp \
 o_phi.cpp \
 constraints.cpp \

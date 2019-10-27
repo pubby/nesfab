@@ -1,7 +1,11 @@
 fn foo(byte a, byte b) byte
     byte x
     byte y
-    if x < 3 && y < 3
+
+    if 1
+        y = y + 1
+
+    if x < 3 && x < 3
         return 1
     return 2
 

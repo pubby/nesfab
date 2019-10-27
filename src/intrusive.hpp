@@ -36,7 +36,8 @@ public:
 template<typename T>
 class intrusive_list_t
 {
-    T* head_ptr = nullptr;
+protected:
+    T* _head_ptr = nullptr;
 public:
     using iterator = intrusive_iterator_t<T>;
 
@@ -48,11 +49,11 @@ public:
 
     void insert(T& node)
     {
-        if(head_ptr)
-            head_ptr->prev = &node;
-        node.next = head_ptr;
+        if(_head_ptr)
+            _head_ptr->prev = &node;
+        node.next = _head_ptr;
         node.prev = nullptr;
-        head_ptr = &node;
+        _head_ptr = &node;
     }
 
     T* erase(T& node)
@@ -63,8 +64,8 @@ public:
             node.prev->next = node.next;
         else
         {
-            assert(&node == head_ptr);
-            head_ptr = node.next;
+            assert(&node == _head_ptr);
+            _head_ptr = node.next;
         }
 
         if(node.next)
@@ -73,19 +74,74 @@ public:
         return ret;
     }
 
-    bool empty() const { return head_ptr == nullptr; }
-    void clear() { head_ptr = nullptr; }
-    T* head() const { return head_ptr; }
+    bool empty() const { return _head_ptr == nullptr; }
+    void clear() { _head_ptr = nullptr; }
+    T* head() const { return _head_ptr; }
 
     template<typename Fn>
     void foreach(Fn const& fn)
     {
-        for(T* node = head_ptr; node; node = node->next)
+        for(T* node = _head_ptr; node; node = node->next)
             fn(*node);
     }
 
     iterator begin() const { return head(); }
     iterator end() const { return iterator(); }
+};
+
+// Like a regular intrusive list, but allows tracking a subset of the list
+// and iterating over this subset.
+// For example, it's used to keep all phi nodes together so that phi nodes
+// can be iterated efficiently.
+template<typename T>
+class partitioned_intrusive_list_t : public intrusive_list_t<T>
+{
+    T* end_ptr = nullptr; // Tracks the end of the non-partitioned range.
+    T* partition_ptr = nullptr; // Tracks the start of the partitioned range.
+public:
+    using iterator = intrusive_iterator_t<T>;
+
+    partitioned_intrusive_list_t() = default;
+    partitioned_intrusive_list_t(partitioned_intrusive_list_t const&) = delete;
+    partitioned_intrusive_list_t(partitioned_intrusive_list_t&&) = default;
+    partitioned_intrusive_list_t& 
+        operator=(partitioned_intrusive_list_t const&) = delete;
+    partitioned_intrusive_list_t& 
+        operator=(partitioned_intrusive_list_t&&) = default;
+
+    void insert(T& node)
+    {
+        if(!end_ptr)
+            end_ptr = &node;
+        intrusive_list_t<T>::insert(node);
+    }
+    
+    void partition_insert(T& node)
+    {
+        if(!this->_head_ptr)
+            this->_head_ptr = &node;
+        if(end_ptr)
+            end_ptr->next = &node;
+        if(partition_ptr)
+            partition_ptr->prev = &node;
+        node.prev = end_ptr;
+        node.next = partition_ptr;
+        partition_ptr = &node;
+    }
+
+    T* erase(T& node)
+    {
+        if(&node == end_ptr)
+            end_ptr = node.prev;
+        if(&node == partition_ptr)
+            partition_ptr = node.next;
+        return intrusive_list_t<T>::erase(node);
+    }
+
+    void clear() { intrusive_list_t<T>::clear(); partition_ptr = nullptr; }
+    T* partition() const { return partition_ptr; }
+
+    iterator partition_begin() const { return partition(); }
 };
 
 // A very basic implementation of intrusive list containers.
@@ -209,6 +265,7 @@ class intrusive_t
     friend class intrusive_pool_t;
     friend class intrusive_iterator_t<T>;
     friend class intrusive_list_t<T>;
+    friend class partitioned_intrusive_list_t<T>;
 protected:
     T* next;
     T* prev;

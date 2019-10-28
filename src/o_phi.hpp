@@ -7,7 +7,7 @@ class ir_t;
 class ssa_node_t;
 class ssa_value_t;
 
-struct phi_data_t
+struct phi_ssa_t
 {
     unsigned index;
     unsigned low_link;

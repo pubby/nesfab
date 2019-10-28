@@ -225,10 +225,10 @@ void o_remove_redundant_phis(ir_t& ir)
     ssa_workvec.clear();
 
     for(cfg_iterator_t cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(ssa_iterator_t ssa_it = cfg_it->phi_begin(); ssa_it; ++ssa_it)
+    for(ssa_iterator_t phi_it = cfg_it->phi_begin(); phi_it; ++phi_it)
     {
-        assert(ssa_it->op() == SSA_phi);
-        ssa_workvec.push_back(ssa_it.ptr);
+        assert(phi_it->op() == SSA_phi);
+        ssa_workvec.push_back(phi_it.ptr);
     }
 
     unsigned subgraph_i = 0;

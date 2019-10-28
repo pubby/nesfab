@@ -3,11 +3,12 @@
 
 #include <vector>
 
+#include "o_abstract_interpret.hpp"
 #include "o_phi.hpp"
 
 // Generic flags
 // These start at 32. More specialized flags start at 0.
-constexpr std::uint64_t FLAG_IN_WORKLIST = 1 << 32;
+constexpr std::uint64_t FLAG_IN_WORKLIST = 1ull << 32;
 
 class ir_t;
 class cfg_node_t;
@@ -57,8 +58,5 @@ template<> std::vector<cfg_node_t*> cfg_worklist::stack;
 // These two vectors can also be used by optimization passes, if need be.
 extern std::vector<ssa_node_t*> cfg_workvec;
 extern std::vector<ssa_node_t*> ssa_workvec;
-
-// o_abstract_interpret.cpp:
-void o_abstract_interpret(ir_t& ir);
 
 #endif

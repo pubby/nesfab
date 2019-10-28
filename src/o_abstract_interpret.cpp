@@ -1,6 +1,5 @@
 #include "alloca.hpp"
 #include "bitset.hpp"
-#include "constraints.hpp"
 #include "fixed.hpp"
 #include "ir.hpp"
 #include "o_phi.hpp"
@@ -13,17 +12,12 @@
 #include <bitset> // TODO
 
 namespace {
+
 // These are used as indices into 'executable' and 'out_executable' arrays.
 enum executable_index_t
 {
     EXEC_PROPAGATE = 0,
     EXEC_JUMP_THREAD = 1,
-};
-
-struct trace_params_t
-{
-    cfg_node_t* cfg_trace_node;
-    ssa_node_t* parent_trace;
 };
 
 } // End anonymous namespace
@@ -41,55 +35,8 @@ constexpr std::uint64_t CFG_FLAG_SKIPPABLE  = 1 << 4;
 // and the other for jump threading.
 constexpr std::uint64_t CFG_FLAG_EXECUTABLE = 1 << 5; // 2 bits
 
-struct ai_cfg_data_t
-{
-    std::uint64_t* out_executable;
-
-
-    
-    // Used in branch threading to track the path.
-    unsigned input_taken;
-
-    // These track if the abstract interpreter has executed the given 
-    // node ('executable') or edge ('out_executable').
-    // These are in arrays for different passes - one for regular propagation
-    // and the other for jump threading.
-    std::array<bool, 2> executable;
-    std::array<std::uint64_t*, 2> out_executable; // Bitsets
-
-    // Used to rebuild the SSA after inserting trace nodes.
-    fc::vector_map<ssa_node_t*, ssa_node_t*> rebuild_map;
-
-};
-
-struct ai_ssa_data_t
-{
-    bool in_worklist;
-    bool in_rebuild;
-    bool jump_thread_touched;
-
-    // How many times this node has been visited by the abstract interpreter.
-    // This is used to determine when to widen.
-    unsigned visited_count;
-
-    // The imprecise set of all values this node can have during runtime.
-    constraints_t* active_constraints;
-    // 'active_constraints' points to one of these values.
-    std::array<constraints_t, 2> constraints_data;
-
-    // When a trivial phi node is found, it can be traced.
-    // This vector facilitates that by storing the state needed to extend
-    // the trace.
-    std::vector<trace_params_t> phi_trace_extend;
-
-    // If this node is a key to 'ai_cfg_data_t::rebuild_map', this pointer
-    // holds the mapped value.
-    // i.e. it holds the original value.
-    ssa_node_t* rebuild_mapping;
-
-    void set_active_constraints(executable_index_t index)
-        { active_constraints = &constraints_data[index]; }
-};
+// If any of the value's inputs were modified by the jump threading pass.
+constexpr std::uint64_t SSA_JUMP_THREAD_TOUCHED = 1 << 0;
 
 namespace // Anonymous namespace
 {
@@ -156,30 +103,10 @@ private:
     void run_jump_thread(cfg_node_t& start_node, unsigned start_branch_i);
     void thread_jumps();
 
-    // Phi removal
-    void replace_trivial_phis();
-
-    /* TODO: remove
-    struct jump_t
-    {
-        cfg_node_t* from;
-        cfg_node_t* to;
-        unsigned branch_taken;
-        std::vector<unsigned> inputs_taken;
-    };
-    */
-
     ir_t* ir_ptr;
 
-    array_pool_t<ai_cfg_data_t> cfg_data_pool;
-    array_pool_t<ai_ssa_data_t> ssa_data_pool;
-    array_pool_t<std::uint64_t> bitset_pool;
-    array_pool_t<constraints_t> constraints_pool;
-
-    std::vector<ssa_node_t*> ssa_worklist;
-    std::vector<cfg_node_t*> cfg_worklist;
+    array_pool_t<std::uint64_t, 8> bitset_pool;
     std::vector<cfg_node_t*> threaded_jumps;
-    std::vector<ssa_node_t*> needs_rebuild;
 
     bool updated;
 };
@@ -246,45 +173,31 @@ ai_t::ai_t(ir_t& ir_) : ir_ptr(&ir_)
 
 void ai_t::alloc_transient_data(cfg_node_t& cfg_node)
 {
-    cfg_node.ai_data = &cfg_data_pool.emplace();
+    cfg_node.ai_data.create();
     for(std::uint64_t*& bitset : cfg_node.ai_data->out_executable)
-        bitset = bitset_pool.alloc(out_executable_size(cfg_node));
-}
+    {
+        if(cfg_node.output_size() < 2)
+            cfg_node.ai_data->out_executable = &cfg_node.flags;
+        else
+            cfg_node.ai_data->out_executable = 
+                bitset_pool.alloc(out_executable_size(cfg_node));
+    }
 
-void ai_t::alloc_transient_data(ssa_node_t& ssa_node)
-{
-    ssa_node.ai_data = &ssa_data_pool.emplace();
 }
 
 void ai_t::queue_edge(cfg_node_t& node, unsigned out_i)
 {
-    assert(node.ai_data);
     if(bitset_test(node.ai_data->out_executable[EXEC_PROPAGATE], out_i))
         return;
     bitset_set(node.ai_data->out_executable[EXEC_PROPAGATE], out_i);
-    if(node.output(out_i).ai_data->in_worklist)
-        return;
-    node.output(out_i).ai_data->in_worklist = true;
-    cfg_worklist.push_back(&node.output(out_i));
-}
-
-void ai_t::queue_node(cfg_node_t& node)
-{
-    if(node.ai_data->in_worklist)
-        return;
-    node.in_worklist = true;
-    cfg_worklist.push_back(&node);
+    cfg_worklist::push(node.output(out_i));
 }
 
 void ai_t::queue_node(executable_index_t exec_i, ssa_node_t& node)
 {
-    assert(node.ai_data);
-    if(node.ai_data->in_worklist)
-        return;
     if(!node.cfg_node().ai_data->executable[exec_i])
         return;
-    node.ai_data->in_worklist = true;
-    ssa_worklist.push_back(&node);
+    ssa_worklist::push(node);
 }
 
 // TODO: remove?
@@ -1139,72 +1052,6 @@ void ai_t::thread_jumps()
             &local_lookup(edge.node->input_cfg(edge.index), *pair.second));
     }
     */
-}
-
-////////////////////////////////////////
-// JUMP THREADING                     //
-////////////////////////////////////////
-
-void ai_t::replace_trivial_phis()
-{
-    ir().ssa_foreach([&](ssa_node_t& ssa_node)
-    {
-        if(ssa_node.op() == SSA_phi)
-        {
-            ssa_node.ai_data->in_worklist = true;
-            ssa_worklist.push_back(&ssa_node);
-        }
-        // Don't even bother setting 'in_worklist' for non-phi nodes.
-    });
-
-    while(ssa_worklist.size())
-    {
-        ssa_node_t& phi = *ssa_worklist.back();
-        phi.ai_data->in_worklist = false;
-        ssa_worklist.pop_back();
-
-        if(ssa_value_t value = get_trivial_phi_value(phi))
-        {
-            // Add all dependent phi nodes to the worklist.
-            for(unsigned i = 0; i < phi.output_size(); ++i)
-            {
-                ssa_node_t& output = phi.output(i);
-                if(output.op() == SSA_phi 
-                   && &output != &phi 
-                   && output.ai_data->in_worklist == false)
-                {
-                    ssa_worklist.push_back(&output);
-                    output.ai_data->in_worklist = true;
-                }
-            }
-
-            // Replace the trivial phi with a dummy cast.
-            phi.link_clear_inputs();
-            phi.link_append_input(value);
-            //phi.set_op(SSA_cast);
-            throw 0; // TODO!
-            assert(false);
-
-            // Extend traces tied to this phi.
-            if(value.is_ptr())
-            {
-                for(trace_params_t& params : phi.ai_data->phi_trace_extend)
-                {
-                    if(params.cfg_trace_node->pruned())
-                        continue;
-                    if(params.parent_trace->pruned())
-                        continue;
-                    insert_trace(*params.cfg_trace_node, *value,
-                                 params.parent_trace, 0);
-                }
-                phi.ai_data->phi_trace_extend.clear();
-            }
-        }
-    }
-
-    // Inserting a trace node schedules it for a SSA rebuild.
-    // Do that rebuild here.
-    rebuild_ssa();
 }
 
 } // End anonymous namespace

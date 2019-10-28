@@ -13,7 +13,8 @@
 #include "array_pool.hpp"
 #include "fixed.hpp"
 #include "intrusive.hpp"
-#include "o_phi.hpp"
+#include "o.hpp"
+#include "pod_variant.hpp"
 #include "link.hpp"
 #include "ssa_op.hpp"
 #include "types.hpp"
@@ -102,23 +103,12 @@ class alignas(2) ssa_node_t : public intrusive_t<ssa_node_t>
     output_vec_t output_vec;
 
 public:
-    // TODO:
-
-    bool in_worklist;
-    union
-    {
-        struct ai_ssa_data_t* ai_data;
-        struct phi_data_t phi_data;
-    };
-
     std::uint64_t flags;
-    /*
     union 
     {
-        struct ai_ssa_data_t ai_data;
-        struct phi_data_t phi_data;
+        ai_ssa_t ai_data;
+        phi_ssa_t phi_data;
     };
-    */
 
     ssa_node_t() = default;
     ssa_node_t(ssa_node_t const&) = delete;
@@ -210,10 +200,11 @@ public:
     cfg_node_t* iloop_header; // TODO: move
     //std::vector<cfg_node_t*> loop_entrances; // TODO
 
-    bool in_worklist;
+    std::uint64_t flags;
     union
     {
-        struct ai_cfg_data_t* ai_data;
+        //pod_optional_t<ai_cfg_t> ai_data;
+        ai_cfg_t ai_data;
         class block_data_t* block_data;
     };
 

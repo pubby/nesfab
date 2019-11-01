@@ -106,7 +106,7 @@ struct label_t
     cfg_node_t* node;
     stmt_handle_t stmt_h;
     unsigned goto_count;
-    std::vector<cfg_node_t*> inputs;
+    bc::small_vector<cfg_node_t*, 2> inputs;
 };
 
 struct stmt_t

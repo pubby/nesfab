@@ -1,0 +1,153 @@
+#ifndef POOL_HPP
+#define POOL_HPP
+
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+// This pool can hold any type, but only 1 type at a time (you must call
+// 'clear' before changing the type).
+// It's used for allocating transient node data - the type of data attached 
+// to nodes that's unique to each pass.
+template<typename Tag = void>
+class static_any_pool_t
+{
+private:
+    static std::unique_ptr<char*, c_delete> storage;
+    static std::size_t bytes_capacity;
+    static std::size_t allocated_size;
+public:
+    template<typename T> [[gnu::always_inline]]
+    static T* data() { return reinterpret_cast<T*>(storage.get()); }
+
+    template<typename T> [[gnu::always_inline]]
+    static T& get(std::size_t i) { return data<T>()[i]; } 
+
+    template<typename T>
+    static void resize(std::size_t new_size)
+    {
+        if(new_size <= size)
+            return;
+
+        if(new_size * sizeof(T) > bytes_capacity)
+        {
+            std::size_t const new_capacity = new_size * sizeof(T) * 2;
+            std::unique_ptr<char*, c_delete> new_storage(
+                std::aligned_alloc(64, new_capacity));
+            if(!new_storage)
+                throw std::bad_alloc();
+            for(std::size_t i = 0; i < allocated_size; ++i)
+                new (reinterpret_cast<T*>(new_storage.get()) + i)(
+                    std::move(data<T>()[i]));
+            if(!std::is_trivially_destructible<T>::value)
+                for(std::size_t i = 0; i < allocated_size; ++i)
+                    get<T>(i).~T();
+            storage = std::move(new_storage);
+            bytes_capacity = new_capacity;
+        }
+
+        if(!std::is_trivially_constructible<T>::value)
+            for(std::size_t i = allocated_size; i < new_size; ++i)
+                new (data<T>() + allocated_size)();
+
+        allocated_size = new_size;
+    }
+
+    template<typename T>
+    static void clear()
+    {
+        if(!std::is_trivially_destructible<T>::value)
+            for(std::size_t i = 0; i < allocated_size; ++i)
+                data<T>()[i].~T();
+        allocated_size = 0;
+    }
+
+    static std::size_t array_size() { return allocated_size; }
+
+    template<typename T>
+    struct scope_guard_t { ~scope_guard_t() { clear<T>(); } };
+};
+
+template<typename T, typename Tag = T>
+class static_intrusive_pool_t
+{
+private:
+    static std::vector<T> storage;
+    static handle_t free_head;
+    static std::size_t used_size;
+public:
+    struct handle_t
+    {
+        using value_type = T;
+        using int_type = std::uint32_t;
+
+        int_type index;
+
+        bool operator==(handle_t o) const { return index == o.index; }
+        bool operator!=(handle_t o) const { return index != o.index; }
+        bool operator< (handle_t o) const { return index <  o.index; }
+        bool operator<=(handle_t o) const { return index <= o.index; }
+        bool operator> (handle_t o) const { return index >  o.index; }
+        bool operator>=(handle_t o) const { return index >= o.index; }
+
+        bool operator!() const { return !index; }
+        explicit operator bool() const { return index; }
+        T& operator*() const { return storage[index]; }
+        T* operator->() const { return storage.data() + index; }
+
+        handle_t& operator++() { index = storage[index].next; }
+        handle_t operator++(int) { auto x = *this; operator++(); return x; }
+        handle_t& operator--() { index = storage[index].prev; }
+        handle_t operator--(int) { auto x = *this; operator--(); return x; }
+
+        template<typename T>
+        T& data() const { return static_any_pool_t<Tag>::get<T>(); }
+    };
+
+    static handle_t alloc() 
+    {
+        handle_t ret;
+        if(free_head)
+        {
+            ret = free_head;
+            free_head = free_head->next;
+        }
+        else
+        {
+            ret = { storage.size() };
+            storage.push_back();
+        }
+        ++used_size;
+        return ret;
+    }
+
+    static void free(handle_t h)
+    {
+        h.next = free_head;
+        free_head = h;
+        --used_size;
+    }
+
+    static void clear()
+    {
+        storage.clear();
+        free_head = {};
+        used_size = 0;
+    }
+
+    static std::size_t size() { return used_size; }
+    static std::size_t array_size() { return storage.size(); }
+    static T* data() { return storage.data(); }
+};
+
+template<typename Handle>
+class intrusive_t
+{
+    template<typename T>
+    friend class static_intrusive_pool_t;
+protected:
+    Handle next;
+    Handle prev;
+};
+
+#endif

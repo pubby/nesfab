@@ -55,8 +55,6 @@ globals.cpp \
 pass1.cpp \
 ir_builder.cpp \
 fixed.cpp \
-o.cpp \
-o_phi.cpp \
 constraints.cpp \
 ssa_op.cpp \
 lex_tables.cpp \

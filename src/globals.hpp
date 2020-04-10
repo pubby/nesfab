@@ -2,8 +2,7 @@
 #define GLOBALS_HPP
 
 #include <ostream>
-
-#include <boost/container/deque.hpp>
+#include <deque>
 
 #include "robin/collection.hpp"
 #include "robin/set.hpp"
@@ -103,10 +102,10 @@ struct global_t
 
 struct label_t
 {
-    cfg_node_t* node;
+    cfg_ht node;
     stmt_handle_t stmt_h;
     unsigned goto_count;
-    bc::small_vector<cfg_node_t*, 2> inputs;
+    bc::small_vector<cfg_ht, 2> inputs;
 };
 
 struct stmt_t
@@ -150,7 +149,6 @@ public:
     unsigned num_params;
     std::vector<var_decl_t> local_vars; // First elems are params.
     std::vector<stmt_t> stmts;
-    array_pool_t<label_t> label_pool;
 };
 
 class global_manager_t
@@ -175,6 +173,8 @@ public:
     global_t& new_const(pstring_t name, type_t type);
     global_t& new_var(pstring_t name, type_t type);
 
+    label_t* new_label() { return label_pool.alloc(); }
+
     std::vector<global_t*> toposort_deps();
 
     void finish();
@@ -187,8 +187,9 @@ private:
     void verify_undefined(global_t& global);
 
     rh::robin_auto_table<unsigned> global_map;
-    bc::deque<global_t> globals;
-    bc::deque<fn_t> fns;
+    std::deque<global_t> globals;
+    std::deque<fn_t> fns;
+    array_pool_t<label_t> label_pool;
     ds_manager_t ds_manager;
 };
 

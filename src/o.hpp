@@ -3,60 +3,55 @@
 
 #include <vector>
 
+#include "ir_decl.hpp"
 #include "o_abstract_interpret.hpp"
 #include "o_phi.hpp"
 
 // Generic flags
-// These start at 32. More specialized flags start at 0.
-constexpr std::uint64_t FLAG_IN_WORKLIST = 1ull << 32;
-
-class ir_t;
-class cfg_node_t;
-class ssa_node_t;
+// These start at 16. More specialized flags start at 0.
+constexpr std::uint32_t FLAG_IN_WORKLIST = 1ull << 16;
 
 // Worklists used by several optimization passes.
-template<typename T>
+template<typename H>
 class static_worklist_t
 {
 private:
-    static std::vector<T*> stack;
+    inline static std::vector<H> stack = {};
 public:
-    static void push(T& node)
+    static void push(H handle)
     {
+        auto& node = *handle;
         if(node.flags & FLAG_IN_WORKLIST)
             return;
         node.flags |= FLAG_IN_WORKLIST;
-        stack.push_back(&node);
+        stack.push_back(handle);
     }
 
-    static T& top() { return *stack.back(); }
+    static H top() { return stack.back(); }
 
-    static T& pop()
+    static H pop()
     {
-        T& ret = top();
-        ret.flags &= ~FLAG_IN_WORKLIST;
+        H ret = top();
+        ret->flags &= ~FLAG_IN_WORKLIST;
         stack.pop_back();
         return ret;
     }
 
     static void clear()
     {
-        for(T* node : stack)
-            node->flags &= ~FLAG_IN_WORKLIST;
+        for(H handle : stack)
+            handle->flags &= ~FLAG_IN_WORKLIST;
         stack.clear();
     }
     
     static bool empty() { return stack.empty(); }
 };
 
-using cfg_worklist = static_worklist_t<cfg_node_t>;
-using ssa_worklist = static_worklist_t<ssa_node_t>;
-
-template<> std::vector<ssa_node_t*> ssa_worklist::stack;
-template<> std::vector<cfg_node_t*> cfg_worklist::stack;
+using cfg_worklist = static_worklist_t<cfg_ht>;
+using ssa_worklist = static_worklist_t<ssa_ht>;
 
 // These two vectors can also be used by optimization passes, if need be.
-extern std::vector<ssa_node_t*> cfg_workvec;
-extern std::vector<ssa_node_t*> ssa_workvec;
+extern std::vector<cfg_ht> cfg_workvec;
+extern std::vector<ssa_ht> ssa_workvec;
 
 #endif

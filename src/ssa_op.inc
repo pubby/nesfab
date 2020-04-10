@@ -16,6 +16,9 @@ SSA_DEF(fn_call, -1, 0)
 // SSA_DEF(read, 0)
 // SSA_DEF(write, 0)
 
+SSA_DEF(entry_copy, -1, 0)
+SSA_DEF(exit_copy, -1, 0)
+
 SSA_DEF(trace, -1, 0)
 SSA_DEF(cast,   1, SSAF_TRACE_INPUTS)
 

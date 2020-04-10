@@ -5,7 +5,6 @@
 #include "flat/small_set.hpp"
 
 #include "alloca.hpp"
-#include "array_pool.hpp"
 #include "ir.hpp"
 #include "o.hpp"
 
@@ -21,7 +20,7 @@ ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
     {
         ssa_value_t input = node.input(i);
 
-        if(input.is_ptr() && input.ptr() == &node)
+        if(input.is_handle() && input.handle() == node.handle())
             continue;
 
         if(unique)
@@ -35,44 +34,56 @@ ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
     return unique;
 }
 
-void o_remove_trivial_phis(ir_t& ir)
+bool o_remove_trivial_phis(ir_t& ir)
 {
     ssa_worklist::clear();
 
     // Queue all phi nodes into the worklist.
-    for(cfg_iterator_t cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(ssa_iterator_t phi_it = cfg_it->phi_begin(); phi_it; ++phi_it)
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht phi_it = cfg_node.phi_begin(); phi_it; ++phi_it)
     {
         assert(phi_it->op() == SSA_phi);
-        ssa_worklist::push(*phi_it);
+        ssa_worklist::push(phi_it);
     }
+    
+    bool changed = false;
 
     // Check each phi node to see if it's trivial.
     while(!ssa_worklist::empty())
     {
-        ssa_node_t& phi = ssa_worklist::pop();
+        ssa_ht phi_h = ssa_worklist::pop();
+        ssa_node_t& phi = *phi_h;
         if(ssa_value_t value = get_trivial_phi_value(phi))
         {
             // It's trivial! Add all dependent phi nodes to the worklist.
             for(unsigned i = 0; i < phi.output_size(); ++i)
             {
-                ssa_node_t& output = phi.output(i);
-                if(output.op() == SSA_phi && &output != &phi) 
-                    ssa_worklist::push(output);
+                ssa_ht output_h = phi.output(i);
+                if(output_h->op() == SSA_phi && output_h != phi_h) 
+                    ssa_worklist::push(output_h);
             }
 
             // Delete the trivial phi.
             phi.link_clear_inputs();
             phi.replace_with(value);
-            phi.cfg_node().unsafe_prune_ssa(ir, phi);
+            phi.unsafe_prune();
+
+            changed = true;
         }
     }
 
-    ir.reclaim_pools();
+    return changed;
 }
 
 namespace
 {
+
+struct phi_data_t
+{
+    unsigned index;
+    unsigned low_link;
+    unsigned subgraph_i;
+};
 
 class tarjan_t
 {
@@ -80,70 +91,73 @@ private:
     static constexpr unsigned UNDEFINED_INDEX = ~0;
     unsigned index = 0;
     unsigned subgraph_i;
-    void visit(ssa_node_t& phi);
+    void visit(ssa_ht phi_h);
 public:
-    using scc_t = fc::small_set<ssa_node_t*, 2>;
-    std::vector<scc_t> sccs;
+    using scc_t = fc::small_set<ssa_ht, 2>;
+    inline static std::vector<scc_t> sccs = {};
     std::size_t max_scc_size = 0;
     tarjan_t(ir_t& ir, unsigned subgraph_i,
-             ssa_node_t** phis, std::size_t phi_size);
+             ssa_ht* phis, std::size_t phis_size);
 };
 
 tarjan_t::tarjan_t(ir_t& ir, unsigned subgraph_i,
-                   ssa_node_t** phis, std::size_t phi_size)
+                   ssa_ht* phis, std::size_t phis_size)
 : subgraph_i(subgraph_i)
 {
     ssa_worklist::clear();
+    sccs.clear();
 
-    for(std::size_t i = 0; i < phi_size; ++i)
-        phis[i]->phi_data = { UNDEFINED_INDEX, 0, subgraph_i };
+    for(std::size_t i = 0; i < phis_size; ++i)
+        phis[i].data<phi_data_t>() = { UNDEFINED_INDEX, 0, subgraph_i };
 
-    for(std::size_t i = 0; i < phi_size; ++i)
-        if(phis[i]->phi_data.index == UNDEFINED_INDEX)
-            visit(*phis[i]);
+    for(std::size_t i = 0; i < phis_size; ++i)
+        if(phis[i].data<phi_data_t>().index == UNDEFINED_INDEX)
+            visit(phis[i]);
 }
 
-void tarjan_t::visit(ssa_node_t& phi)
+void tarjan_t::visit(ssa_ht phi_h)
 {
+    ssa_node_t& phi = *phi_h;
+    phi_data_t& phi_data = phi_h.data<phi_data_t>();
     assert(phi.op() == SSA_phi);
 
-    phi.phi_data.index = index;
-    phi.phi_data.low_link = index;
+    phi_data.index = index;
+    phi_data.low_link = index;
+
     ++index;
 
-    ssa_worklist::push(phi);
+    ssa_worklist::push(phi_h);
 
-    for(unsigned i = 0; i < phi.output_size(); ++i)
+    unsigned const output_size = phi.output_size();
+    for(unsigned i = 0; i < output_size; ++i)
     {
-        ssa_node_t& output = phi.output(i);
+        ssa_ht output_h = phi.output(i);
+        ssa_node_t& output = *output_h;
+        phi_data_t& output_data = output_h.data<phi_data_t>();
 
-        if(output.op() != SSA_phi || output.phi_data.subgraph_i != subgraph_i)
+        if(output.op() != SSA_phi || output_data.subgraph_i != subgraph_i)
             continue;
 
-        if(output.phi_data.index == UNDEFINED_INDEX)
-        {
-            visit(output);
-            goto find_min;
-        }
-        else if(output.flags & FLAG_IN_WORKLIST)
-        {
-        find_min:
-            if(phi.phi_data.low_link > output.phi_data.low_link)
-                phi.phi_data.low_link = output.phi_data.low_link;
-        }
+        if(output_data.index == UNDEFINED_INDEX)
+            visit(output_h);
+        else if(!(output.flags & FLAG_IN_WORKLIST))
+            continue;
+
+        if(phi_data.low_link > output_data.low_link)
+            phi_data.low_link = output_data.low_link;
     }
 
-    if(phi.phi_data.low_link == phi.phi_data.index)
+    if(phi_data.low_link == phi_data.index)
     {
         scc_t scc;
-        ssa_node_t* node;
+        ssa_ht h;
         do
         {
-            node = &ssa_worklist::pop();
+            h = ssa_worklist::pop();
             // Add 'node' to the SCC:
-            scc.container.push_back(node); // Unsorted insertion.
+            scc.container.push_back(h); // Unsorted insertion.
         }
-        while(node != &phi);
+        while(h != phi_h);
 
         if(scc.size() > max_scc_size)
             max_scc_size = scc.size();
@@ -155,12 +169,12 @@ void tarjan_t::visit(ssa_node_t& phi)
 
 // Paper: Simple and Efficient Construction of Static Single Assignment Form
 // https://pp.info.uni-karlsruhe.de/uploads/publikationen/braun13cc.pdf
-void o_remove_redundant_phis(ir_t& ir, unsigned& subgraph_i,
-                             ssa_node_t** phis, std::size_t phis_size)
+bool o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
+                             ssa_ht* phis, std::size_t phis_size)
 {
     tarjan_t tarjan(ir, subgraph_i, phis, phis_size);
 
-    ssa_node_t** inner_begin = ALLOCA_T(ssa_node_t*, tarjan.max_scc_size);
+    ssa_ht* inner_begin = ALLOCA_T(ssa_ht, tarjan.max_scc_size);
 
     for(auto it = tarjan.sccs.rbegin(); it < tarjan.sccs.rend(); ++it)
     {
@@ -171,19 +185,21 @@ void o_remove_redundant_phis(ir_t& ir, unsigned& subgraph_i,
         if(scc.size() == 1)
             continue;
 
-        ssa_node_t** inner_end = inner_begin;
+        ssa_ht* inner_end = inner_begin;
 
         ssa_value_t outer = nullptr;
         std::size_t outer_count = 0;
 
-        for(ssa_node_t* phi : scc)
+        for(ssa_ht phi_h : scc)
         {
+            ssa_node_t& phi = *phi_h;
             bool is_inner = true;
 
-            for(unsigned i = 0; i < phi->input_size(); ++i)
+            unsigned const input_size = phi.input_size();
+            for(unsigned i = 0; i < input_size; ++i)
             {
-                ssa_value_t input = phi->input(i);
-                if(input.is_const() || scc.find(input.ptr()) == scc.end())
+                ssa_value_t input = phi.input(i);
+                if(input.is_const() || scc.find(input.handle()) == scc.end())
                 {
                     if(outer != input)
                         ++outer_count;
@@ -194,25 +210,28 @@ void o_remove_redundant_phis(ir_t& ir, unsigned& subgraph_i,
 
             if(is_inner)
             {
-                *inner_end = phi;
+                *inner_end = phi_h;
                 ++inner_end;
-                assert(inner_end - inner_begin <= tarjan.max_scc_size);
+                assert(inner_end - inner_begin 
+                       <= (std::ptrdiff_t)tarjan.max_scc_size);
             }
         }
 
         if(outer_count == 1)
         {
-            for(ssa_node_t* phi : scc)
+            for(ssa_ht phi_h : scc)
             {
-                phi->link_clear_inputs();
-                phi->replace_with(outer);
-                phi->cfg_node().unsafe_prune_ssa(ir, *phi);
+                ssa_node_t& phi = *phi_h;
+                phi.link_clear_inputs();
+                phi.replace_with(outer);
+                phi.unsafe_prune();
+                changed = true;
             }
         }
         else if(outer_count > 1)
         {
             ++subgraph_i;
-            o_remove_redundant_phis(ir, subgraph_i, 
+            o_remove_redundant_phis(ir, changed, subgraph_i, 
                                     inner_begin, inner_end - inner_begin);
         }
     }
@@ -220,25 +239,29 @@ void o_remove_redundant_phis(ir_t& ir, unsigned& subgraph_i,
 
 } // end anonymous namespace
 
-void o_remove_redundant_phis(ir_t& ir)
+bool o_remove_redundant_phis(ir_t& ir)
 {
+    ssa_data_pool::scope_guard_t<phi_data_t> sg(ssa_pool::array_size());
     ssa_workvec.clear();
 
-    for(cfg_iterator_t cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(ssa_iterator_t phi_it = cfg_it->phi_begin(); phi_it; ++phi_it)
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht phi_it = cfg_node.phi_begin(); phi_it; ++phi_it)
     {
         assert(phi_it->op() == SSA_phi);
-        ssa_workvec.push_back(phi_it.ptr);
+        ssa_workvec.push_back(phi_it);
     }
 
+    bool changed = false;
     unsigned subgraph_i = 0;
-    o_remove_redundant_phis(ir, subgraph_i,
+    o_remove_redundant_phis(ir, changed, subgraph_i, 
                             ssa_workvec.data(), ssa_workvec.size());
-    ir.reclaim_pools();
+    return changed;
 }
 
-void o_optimize_phis(ir_t& ir)
+bool o_phis(ir_t& ir)
 {
-    o_remove_trivial_phis(ir);
-    o_remove_redundant_phis(ir);
+    bool changed = false;
+    changed |= o_remove_trivial_phis(ir);
+    changed |= o_remove_redundant_phis(ir);
+    return changed;
 }

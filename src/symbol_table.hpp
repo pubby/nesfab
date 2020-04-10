@@ -7,6 +7,10 @@
 #include <string_view>
 #include <vector>
 
+#include <boost/container/small_vector.hpp>
+
+namespace bc = boost::container;
+
 // Implements local-variable symbol tables as an association list.
 class symbol_table_t
 {
@@ -38,10 +42,10 @@ private:
         unsigned handle;
     };
 
-    std::vector<storage_t> assoc_list;
+    bc::small_vector<storage_t, 32> assoc_list;
 
     // Holds indexes into assoc_list for each stack frame.
-    std::vector<unsigned> scope_stack;
+    bc::small_vector<unsigned, 16> scope_stack;
     
     // Assoc lists are pretty damn slow to check if elements are NOT in them.
     // To speed things up, count which hashes are contained in the assoc list

@@ -24,12 +24,20 @@ struct pstring_t
 
 // Combines two pstrings into one. 
 // Requires that 'lo' comes before 'hi', and lo.end() comes before hi.end().
-constexpr pstring_t concat(pstring_t lo, pstring_t hi)
+constexpr pstring_t fast_concat(pstring_t lo, pstring_t hi)
 {
     assert(lo.file_i == hi.file_i);
     assert(lo.offset <= hi.offset);
     assert(lo.end() <= hi.end());
     return { lo.offset, hi.end() - lo.offset, lo.file_i };
+}
+
+constexpr pstring_t concat(pstring_t lo, pstring_t hi)
+{
+    assert(lo.file_i == hi.file_i);
+    auto min_offset = std::min(lo.offset, hi.offset);
+    auto max_end = std::max(lo.end(), hi.end());
+    return { min_offset, max_end - min_offset, lo.file_i };
 }
 
 // Useful for associative containers like std::map.

@@ -14,6 +14,16 @@ struct ds_region_t
     std::uint16_t short size;
 };
 
+constexpr bool is_zp(std::uint16_t addr)
+{
+    return addr < 256;
+}
+
+constexpr bool is_zp(ds_region_t region)
+{ 
+    return region.offset < 256 && (region.offset + region.size) <= 256; 
+}
+
 constexpr std::size_t ds_size = 1024;
 using ds_bitset_t = aggregate_bitset_t<std::uint64_t, (ds_size + 63)/ 64>;
 

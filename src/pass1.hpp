@@ -20,6 +20,13 @@
 
 class pass1_t
 {
+private:
+    global_manager_t* global_manager_ptr;
+    global_t* active_global;
+    symbol_table_t symbol_table;
+    fc::small_map<pstring_t, label_t*, 4, pstring_less_t> label_map;
+    fc::small_multimap<pstring_t, stmt_handle_t, 4, pstring_less_t> 
+        unlinked_gotos;
 public:
     explicit pass1_t(global_manager_t& globals)
     : global_manager_ptr(&globals)
@@ -221,7 +228,7 @@ public:
     void label_statement(pstring_t pstring)
     {
         // Create a new label
-        label_t* label = fn().label_pool.alloc();
+        label_t* label = globals().new_label();
         label->stmt_h = fn().push_stmt(
             { STMT_LABEL, pstring, { .label = label} });
 
@@ -265,13 +272,6 @@ public:
 private:
     global_manager_t& globals() { return *global_manager_ptr; }
     fn_t& fn() { return *active_global->fn; }
-
-    global_manager_t* global_manager_ptr;
-    global_t* active_global;
-    symbol_table_t symbol_table;
-    fc::small_map<pstring_t, label_t*, 4, pstring_less_t> label_map;
-    fc::small_multimap<pstring_t, stmt_handle_t, 4, pstring_less_t> 
-        unlinked_gotos;
 };
 
 

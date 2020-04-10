@@ -8,6 +8,7 @@
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
 #include "o.hpp"
+#include "graphviz.hpp"
 
 std::string to_string(stmt_name_t stmt_name)
 {
@@ -124,9 +125,40 @@ void global_manager_t::finish()
         case GLOBAL_FN:
             {
                 // Compile the FN.
-                ir_builder_t ir_builder(*this, *global);
-                ir_builder.compile();
+                ir_t ir = build_ir(*this, *global);
 
+                assert(ir.valid());
+
+                bool changed;
+                unsigned i = 0;
+                do
+                {
+                    ++i;
+                    changed = false;
+                    changed |= o_phis(ir);
+                    changed |= o_abstract_interpret(ir);
+                }
+                while(false);
+                //while(changed);
+
+                std::cout << "I = " << i << '\n';
+
+                {
+                    std::ofstream o(fmt("graphs/%_cfg.gv", 
+                                        global->name.view()));
+                    if(o.is_open())
+                        graphviz_cfg(o, ir);
+                }
+
+                {
+                    std::ofstream o(fmt("graphs/%_ssa.gv", 
+                                        global->name.view()));
+                    if(o.is_open())
+                        graphviz_ssa(o, ir);
+                }
+
+
+                /* TODO
                 //assert(ir_builder.ir.valid());
                 //o_remove_trivial_phis(ir_builder.ir);
                 //assert(ir_builder.ir.valid());

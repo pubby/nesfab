@@ -131,7 +131,6 @@ std::size_t bitset_popcount(std::size_t size, UInt* bitset)
 // A shitty bitset class that exists because std::bitset abstracts too much.
 // 'aggregate_bitset_t' is an aggregate class and can use
 // any unsigned integer type.
-
 template<typename UInt, std::size_t N>
 struct aggregate_bitset_t
 {

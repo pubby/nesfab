@@ -7,6 +7,7 @@
 
 // SSA flags:
 constexpr unsigned SSAF_TRACE_INPUTS = 1 << 0;
+constexpr unsigned SSAF_EFFECTFUL    = 1 << 1;
 
 enum ssa_op_t : short
 {

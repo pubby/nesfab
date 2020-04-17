@@ -18,9 +18,18 @@ struct bounds_t;
 struct known_bits_t;
 struct constraints_t;
 
+enum carry_range_t : char
+{
+    CR_BOTTOM,
+    CR_UNSET,
+    CR_SET,
+    CR_TOP,
+};
+
 std::string to_string(bounds_t const& b);
 std::string to_string(constraints_t const& c);
 std::string to_string(known_bits_t const& b);
+std::string to_string(carry_range_t carry);
 
 std::ostream& operator<<(std::ostream& o, bounds_t const& b);
 std::ostream& operator<<(std::ostream& o, known_bits_t const& b);
@@ -127,39 +136,80 @@ struct known_bits_t
         { return known0 | known1; }
 };
 
+constexpr bool carry_const(carry_range_t cr)
+{
+    return cr == CR_UNSET || cr == CR_SET;
+}
+
 struct constraints_t
 {
     bounds_t bounds;
     known_bits_t bits;
+    carry_range_t carry;
 
     // Construction
     constexpr static constraints_t top() 
-        { return { bounds_t::top(), known_bits_t::top() }; }
+    { 
+        return { bounds_t::top(), known_bits_t::top(), CR_TOP }; 
+    }
+
     constexpr static constraints_t bottom(fixed_int_t mask) 
-        { return { bounds_t::bottom(mask), known_bits_t::bottom(mask) }; }
-    constexpr static constraints_t const_(fixed_int_t fixed) 
-        { return { bounds_t::const_(fixed), known_bits_t::const_(fixed) }; }
-    constexpr static constraints_t whole(fixed_int_t fixed) 
-        { return { bounds_t::whole(fixed), known_bits_t::whole(fixed) }; }
-    static constexpr constraints_t any_bool()
-        { return { bounds_t::any_bool(), known_bits_t::any_bool() }; }
+    { 
+        return 
+        { 
+            bounds_t::bottom(mask), 
+            known_bits_t::bottom(mask), 
+            CR_BOTTOM 
+        };
+    }
+
+    constexpr static constraints_t const_(fixed_int_t fixed, carry_range_t cr) 
+    { 
+        return { bounds_t::const_(fixed), known_bits_t::const_(fixed), cr };
+    }
+
+    constexpr static constraints_t whole(fixed_int_t fixed, carry_range_t cr) 
+    { 
+        return { bounds_t::whole(fixed), known_bits_t::whole(fixed), cr };
+    }
+
+    static constexpr constraints_t any_bool(carry_range_t cr)
+    { 
+        return { bounds_t::any_bool(), known_bits_t::any_bool(), cr };
+    }
 
     // Predicate
     constexpr bool is_top() const 
     { 
-        return (bounds.is_top() || bits.is_top()
+        return (carry == CR_TOP 
+                || bounds.is_top() || bits.is_top()
                 || bits.known1 > bounds.max 
                 || ~bits.known0 < bounds.min);
     }
-    constexpr bool is_const() const 
+
+    constexpr bool is_val_const() const 
         { return bounds.is_const() || bits.is_const(); }
-    fixed_int_t get_const() const
+
+    fixed_int_t get_val_const() const
     { 
-        assert(is_const());
+        assert(is_val_const());
         return bounds.is_const() ? bounds.get_const() : bits.get_const();
     }
+
+    constexpr bool is_carry_const() const
+        { return carry_const(carry); }
+    constexpr bool get_carry_const() const
+    { 
+        assert(is_carry_const());
+        return carry == CARRY_SET;
+    }
+
     constexpr bool bit_eq(constraints_t o) const
-        { return bounds.bit_eq(o.bounds) && bits.bit_eq(o.bits); }
+    { 
+        return (carry == o.carry
+                && bounds.bit_eq(o.bounds) 
+                && bits.bit_eq(o.bits));
+    }
     bool normal_eq(constraints_t o) const
         { return ::normalize(*this).bit_eq(::normalize(o)); }
     constexpr bool operator()(fixed_int_t fixed) const

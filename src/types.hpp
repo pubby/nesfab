@@ -38,10 +38,16 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_TABLE,
     TYPE_ARRAY,
     TYPE_FN,
+    TYPE_LAST_COMPOSITE = TYPE_FN,
+
+    TYPE_8C, // An 8-bit integer with a 1-bit carry, used for
+             // hardware instructions right before code generation.
+
 };
 
 constexpr bool is_composite(type_name_t type_name)
-    { return type_name >= TYPE_FIRST_COMPOSITE; }
+    { return (type_name >= TYPE_FIRST_COMPOSITE 
+              && type_name <= TYPE_LAST_COMPOSITE); }
 
 constexpr bool is_arithmetic(type_name_t type_name)
     { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }

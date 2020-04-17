@@ -5,12 +5,7 @@
 
 #include <boost/preprocessor/stringize.hpp>
 
-enum addr_mode_t
-{
-#define ADDR_MODE(name) MODE_##name,
-#include "addr_mode.inc"
-#undef ADDR_MODE
-};
+#include "asm_decl.hpp"
 
 struct instr_t
 {
@@ -25,17 +20,6 @@ struct op_t
     std::string name;
     std::vector<instr_t> instrs;
 };
-
-char const* addr_mode_name(addr_mode_t addr_mode)
-{
-    switch(addr_mode)
-    {
-#define ADDR_MODE(name) case MODE_##name: return BOOST_PP_STRINGIZE(name);
-#include "addr_mode.inc"
-#undef ADDR_MODE
-    }
-    return nullptr;
-}
 
 void trim_spaces(std::string& str)
 {
@@ -153,7 +137,7 @@ int main(int argc, char** argv)
 
     std::cout << "\nconstexpr addr_mode_t asm_addr_mode_table[256] =\n{\n";
     for(addr_mode_t addr_mode : addr_mode_table)
-        std::cout << "    " << addr_mode << ",\n";
+        std::cout << "    " << addr_mode_name(addr_mode) << ",\n";
     std::cout << "};\n";
 
     std::cout << "\nconstexpr std::uint8_t asm_size_table[256] =\n{\n";

@@ -8,9 +8,10 @@
 // https://thedailywtf.com/articles/What_Is_Truth_0x3f_
 enum wtf_bool_t
 {
-    WTF_0 = 0,
-    WTF_1,
-    WTF_UNKNOWN,
+    WTF_UNKNOWN = 0b00,
+    WTF_0 = 0b01,
+    WTF_1 = 0b10,
+    WTF_TOP = 0b11,
 };
 
 std::uint64_t wtf_min(wtf_bool_t b) { return (b == WTF_1); }
@@ -18,6 +19,9 @@ std::uint64_t wtf_max(wtf_bool_t b) { return (b != WTF_0); }
 
 wtf_bool_t wtf_add(wtf_bool_t l, wtf_bool_t r, wtf_bool_t& c)
 {
+    if(c == WTF_TOP)
+        return WTF_TOP;
+
     std::uint64_t min = wtf_min(l) + wtf_min(r) + wtf_min(c);
     std::uint64_t max = wtf_max(l) + wtf_max(r) + wtf_max(c);
     if(max < 2)
@@ -33,6 +37,8 @@ wtf_bool_t wtf_add(wtf_bool_t l, wtf_bool_t r, wtf_bool_t& c)
 
 wtf_bool_t wtf(bool known0, bool known1)
 {
+    if(known0 && known1)
+        return WTF_TOP;
     if(known0)
         return WTF_0;
     if(known1)

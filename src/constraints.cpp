@@ -2,19 +2,21 @@
 
 #include <algorithm>
 #include <string>
-#include <iostream> // TODO
+#include <ostream> // TODO
 
 #include "builtin.hpp"
 #include "format.hpp"
 
 extern std::uint8_t const add_constraints_table[1024];
 
+// For debugging mostly
 std::string to_string(bounds_t const& b)
 {
     return fmt("[%, %]", to_double(fixed_t{ b.min }), 
                          to_double(fixed_t{ b.max }));
 }
 
+// For debugging mostly
 std::string to_string(known_bits_t const& b)
 {
     fixed_int_t const known = b.known();
@@ -40,30 +42,48 @@ std::string to_string(known_bits_t const& b)
     return str;
 }
 
+// For debugging mostly
+std::string to_string(carry_range_t carry)
+{
+    switch(carry)
+    {
+    case CR_BOTTOM: return "CARRY BOTTOM";
+    case CR_UNSET:  return "CARRY UNSET";
+    case CR_SET:    return "CARRY SET";
+    case CR_TOP:    return "CARRY TOP";
+    }
+}
+
+// For debugging mostly
 std::string to_string(constraints_t const& c) 
 {
-    return fmt("{ %, % }%", to_string(c.bits), to_string(c.bounds), 
+    return fmt("{ %, %, % }%", 
+               to_string(c.bits), 
+               to_string(c.bounds), 
+               to_string(c.carry), 
                c.is_const() ? " (CONST)" : "");
 }
 
+// For debugging mostly
 std::ostream& operator<<(std::ostream& o, bounds_t const& b)
 {
     o << to_string(b);
     return o;
 }
 
+// For debugging mostly
 std::ostream& operator<<(std::ostream& o, known_bits_t const& b)
 {
     o << to_string(b);
     return o;
 }
 
+// For debugging mostly
 std::ostream& operator<<(std::ostream& o, constraints_t const& c)
 {
     o << to_string(c);
     return o;
 }
-
 
 bounds_t apply_mask(fixed_int_t mask, bounds_t b)
 {
@@ -93,7 +113,7 @@ known_bits_t apply_mask(fixed_int_t mask, known_bits_t b)
 
 constraints_t apply_mask(fixed_int_t mask, constraints_t c)
 {
-    return { apply_mask(mask, c.bounds), apply_mask(mask, c.bits) };
+    return { apply_mask(mask, c.bounds), apply_mask(mask, c.bits), c.carry };
 }
 
 bounds_t from_bits(known_bits_t bits)
@@ -132,9 +152,19 @@ known_bits_t intersect(known_bits_t a, known_bits_t b)
     return { a.known0 | b.known0, a.known1 | b.known1 };
 }
 
+carry_range_t intersect(carry_range_t a, carry_range_t b)
+{
+    return a | b;
+}
+
 constraints_t intersect(constraints_t a, constraints_t b)
 {
-    return { intersect(a.bounds, b.bounds), intersect(a.bits, b.bits) };
+    return 
+    { 
+        intersect(a.bounds, b.bounds),
+        intersect(a.bits, b.bits),
+        intersect(a.carry, b.carry),
+    };
 }
 
 bounds_t union_(bounds_t a, bounds_t b)
@@ -155,9 +185,19 @@ known_bits_t union_(known_bits_t a, known_bits_t b)
     return { a.known0 & b.known0, a.known1 & b.known1 };
 }
 
+carry_range_t union_(carry_range_t a, carry_range_t b)
+{
+    return a & b;
+}
+
 constraints_t union_(constraints_t a, constraints_t b)
 {
-    return { union_(a.bounds, b.bounds), union_(a.bits, b.bits) };
+    return 
+    { 
+        union_(a.bounds, b.bounds),
+        union_(a.bits, b.bits),
+        union_(a.carry, b.carry),
+    };
 }
 
 bool is_subset(bounds_t small, bounds_t big)
@@ -177,6 +217,11 @@ bool is_subset(known_bits_t small, known_bits_t big)
         return true;
     return (intersect(big, small).bit_eq(small)
             && union_(small, big).bit_eq(big));
+}
+
+bool is_subset(carry_range_t small, carry_range_t big)
+{
+    return small == big || big == CR_BOTTOM;
 }
 
 bool is_subset(constraints_t small, constraints_t big)
@@ -270,16 +315,17 @@ ABSTRACT(SSA_cast)
     return apply_mask(mask, c[0]);
 };
 
-ABSTRACT(SSA_add)
+static constraints_t _add_impl(fixed_int_t mask, constraints_t const* c, 
+                               unsigned argn)
 {
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
+    assert(argn == 2 || argn == 3);
+    if(cr[0].is_top() || c[1].is_top())
         return constraints_t::top();
 
     // If we know bits in c[0] and c[1], we can determine which bits are
     // known in the output.
     //
-    // SLOW BUT ACCURATE TECHNIQUE (used, but slow)
+    // SLOW BUT ACCURATE TECHNIQUE (used)
     // - Treat constraints as ternary. Trits can be 0, 1, or ? (unknown value).
     // - Add using the standard arithmetic algorithm, starting at the
     //   rightmost bit and working left, carrying as you go.
@@ -312,7 +358,8 @@ ABSTRACT(SSA_add)
     rhs_bits.known1 >>= start_i;
 
     fixed_int_t i = start_i;
-    fixed_int_t j = 0ull;
+    // 'j' holds the carry.
+    fixed_int_t j = (fixed_int_t)(argn == 3 ? c[2].carry : CR_UNSET);
     for(; i < end_i; i += 2ull)
     {
         j |= (lhs_bits.known0 & 0b11) << 2ull;
@@ -330,6 +377,7 @@ ABSTRACT(SSA_add)
         rhs_bits.known0 >>= 2ull;
         rhs_bits.known1 >>= 2ull;
     }
+    ret.carry = (carry_range_t)j;
     if(i < sizeof_bits<fixed_int_t>)
         ret.bits.known0 |= ~((1ull << i) - 1ull);
 
@@ -358,7 +406,21 @@ ABSTRACT(SSA_add)
     assert(!ret.bounds.is_top());
     assert(!ret.bits.is_top());
     return normalize(ret);
+}
+
+ABSTRACT(SSA_add)
+{
+    assert(argn == 2);
+    return _add_impl(mask, c, argn);
 };
+
+ABSTRACT(SSA_add_8c)
+{
+    assert(argn == 3);
+    if(argn == 3 && cr[2].is_top())
+        return constraints_t::top();
+    return _add_impl(mask, c, argn);
+}
 
 ABSTRACT(SSA_and)
 {

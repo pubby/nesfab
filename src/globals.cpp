@@ -9,6 +9,7 @@
 #include "ir_builder.hpp"
 #include "o.hpp"
 #include "graphviz.hpp"
+#include "code_gen.hpp" // TODO?
 
 std::string to_string(stmt_name_t stmt_name)
 {
@@ -138,8 +139,11 @@ void global_manager_t::finish()
                     changed |= o_phis(ir);
                     changed |= o_abstract_interpret(ir);
                 }
-                while(false);
-                //while(changed);
+                //while(false);
+                while(changed);
+
+                std::printf("makin convent\n");
+                //make_conventional(ir);
 
                 std::cout << "I = " << i << '\n';
 

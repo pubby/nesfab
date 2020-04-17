@@ -171,7 +171,6 @@ ai_t::ai_t(ir_t& ir_) : ir_ptr(&ir_)
     std::puts("PRUNE");
     prune_unreachable_code();
     assert(ir().valid());
-    return;
 
     std::puts("MARK SKIP");
     mark_skippable();

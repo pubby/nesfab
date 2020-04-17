@@ -15,6 +15,7 @@
 #include "parser_types.hpp"
 #include "ram.hpp"
 #include "symbol_table.hpp"
+#include "toposort.hpp"
 #include "types.hpp"
 
 namespace bc = boost::container;
@@ -74,13 +75,6 @@ enum global_class_t
 };
 
 std::string to_string(global_class_t gclass);
-
-enum toposort_mark_t
-{
-    MARK_NONE,
-    MARK_TEMPORARY,
-    MARK_PERMANENT,
-};
 
 struct global_t
 {

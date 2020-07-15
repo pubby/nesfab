@@ -93,7 +93,7 @@ std::string type_string(type_t type)
     case TYPE_INT:   return "int"s;
     case TYPE_TABLE: // TODO
     case TYPE_ARRAY: // TODO
-        throw std::runtime_error("TODO - bad type"s);
+        throw std::runtime_error("TODO - unimplemented type"s);
     case TYPE_PTR:
         return "%" + type_string(type[0]);
     case TYPE_FN:
@@ -123,15 +123,15 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
     if(from == to)
         return CAST_NOP;
 
-    // Pointers can be casted to bool.
-    if(from.name == TYPE_PTR && to == type_t{ TYPE_BOOL })
-        return CAST_OP;
+    // Othewise arithmetic types can be converted to bool using "!= 0".
+    if(is_arithmetic(from.name) && to.name == TYPE_BOOL)
+        return CAST_BOOLIFY;
 
-    // Otherwise you can't cast pointers.
+    // Otherwise you can't cast different pointers.
     if(from.name == TYPE_PTR || to.name == TYPE_PTR)
         return CAST_FAIL;
 
-    // Arithmetic types can be converted amongst each other.
+    // Otherwise arithmetic types can be converted amongst each other.
     if(is_arithmetic(from.name) && is_arithmetic(to.name))
         return CAST_OP;
 

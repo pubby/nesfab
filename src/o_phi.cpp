@@ -140,7 +140,7 @@ void tarjan_t::visit(ssa_ht phi_h)
 
         if(output_data.index == UNDEFINED_INDEX)
             visit(output_h);
-        else if(!(output.flags & FLAG_IN_WORKLIST))
+        else if(!(output.test_flags(FLAG_IN_WORKLIST)))
             continue;
 
         if(phi_data.low_link > output_data.low_link)
@@ -169,7 +169,7 @@ void tarjan_t::visit(ssa_ht phi_h)
 
 // Paper: Simple and Efficient Construction of Static Single Assignment Form
 // https://pp.info.uni-karlsruhe.de/uploads/publikationen/braun13cc.pdf
-bool o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
+void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
                              ssa_ht* phis, std::size_t phis_size)
 {
     tarjan_t tarjan(ir, subgraph_i, phis, phis_size);

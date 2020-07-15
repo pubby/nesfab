@@ -8,6 +8,8 @@
 // ds = data segment, i.e. all read/writable global variables.
 // (Note that BSS doesn't exist. Just use DS for BSS vars.)
 
+using addr16_t = std::uint16_t;
+
 struct ds_region_t
 {
     std::uint16_t short offset;

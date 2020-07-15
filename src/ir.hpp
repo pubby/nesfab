@@ -7,6 +7,18 @@
 #include "ssa_op.hpp"
 
 ////////////////////////////////////////
+// FLAGS
+////////////////////////////////////////
+
+// Flags that are useful among different passes.
+// These apply to both CFG and SSA nodes (though not all make sense for both)
+
+constexpr std::uint16_t FLAG_IN_WORKLIST = 1ull << 0;
+constexpr std::uint16_t FLAG_PROCESSED   = 1ull << 1;
+constexpr std::uint16_t FLAG_CARRY_KNOWN = 1ull << 2;
+constexpr std::uint16_t FLAG_CARRY_SET   = 1ull << 3;
+
+////////////////////////////////////////
 // edge types                         //
 ////////////////////////////////////////
 
@@ -16,19 +28,20 @@ protected:
     std::uint64_t value;
     static constexpr std::uint64_t flag = 1ull << 63ull;
 public:
-    ssa_fwd_edge_t() = default;
-    ssa_fwd_edge_t(std::nullptr_t) : value(0) {}
-    ssa_fwd_edge_t(unsigned v) { set(fixed_t::whole(v)); }
-    ssa_fwd_edge_t(fixed_t fixed) { set(fixed); }
-    ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
+    constexpr ssa_fwd_edge_t() = default;
+    constexpr ssa_fwd_edge_t(std::nullptr_t) : value(0) {}
+    constexpr ssa_fwd_edge_t(unsigned v) { set(v); }
+    constexpr ssa_fwd_edge_t(fixed_t fixed) { set(fixed); }
+    constexpr ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
 
-    ssa_fwd_edge_t(ssa_fwd_edge_t const&) = default;
-    ssa_fwd_edge_t(ssa_fwd_edge_t&&) = default;
-    ssa_fwd_edge_t& operator=(ssa_fwd_edge_t const&) = default;
-    ssa_fwd_edge_t& operator=(ssa_fwd_edge_t&&) = default;
+    constexpr ssa_fwd_edge_t(ssa_fwd_edge_t const&) = default;
+    constexpr ssa_fwd_edge_t(ssa_fwd_edge_t&&) = default;
+    constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t const&) = default;
+    constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t&&) = default;
 
-    bool is_handle() const { return !(value & flag); }
     bool is_const() const { return value & flag; }
+    bool is_handle() const { return !(value & flag); }
+    bool holds_ref() const { return value && is_handle(); }
 
     fixed_t fixed() const { return { value & ~flag}; }
     std::uint32_t whole() const { return fixed().whole(); }
@@ -36,7 +49,8 @@ public:
     ssa_ht handle() const { return { (std::uint32_t)value }; }
     std::uint32_t index() const { return value >> 32ull; };
 
-    void set(fixed_t fixed) { value = fixed.value | flag; }
+    constexpr void set(fixed_t fixed) { value = fixed.value | flag; }
+    constexpr void set(unsigned u) { set(fixed_t::whole(u)); }
 
     void set(ssa_ht ht, std::uint32_t index) 
     {
@@ -124,20 +138,22 @@ struct cfg_bck_edge_t
 class ssa_value_t : public ssa_fwd_edge_t
 {
 public:
-    ssa_value_t() = default;
-    ssa_value_t(std::nullptr_t n) : ssa_fwd_edge_t(n) {}
-    ssa_value_t(unsigned v) : ssa_fwd_edge_t(v) {}
-    ssa_value_t(fixed_t fixed) : ssa_fwd_edge_t(fixed) {}
-    ssa_value_t(ssa_ht ht) : ssa_fwd_edge_t(ht, 0) {}
-    ssa_value_t(ssa_fwd_edge_t const& edge) : ssa_fwd_edge_t(edge) {}
+    constexpr ssa_value_t() = default;
+    constexpr ssa_value_t(std::nullptr_t n) : ssa_fwd_edge_t(n) {}
+    constexpr ssa_value_t(unsigned v) : ssa_fwd_edge_t(v) {}
+    constexpr ssa_value_t(fixed_t fixed) : ssa_fwd_edge_t(fixed) {}
+    constexpr ssa_value_t(ssa_ht ht) : ssa_fwd_edge_t(ht, 0) {}
+    constexpr ssa_value_t(ssa_fwd_edge_t const& edge) : ssa_fwd_edge_t(edge) {}
 
-    explicit operator bool() { return this->value; }
-    bool operator!() { return !this->value; }
+    explicit operator bool() const { return this->value; }
+    bool operator!() const { return !this->value; }
 
     ssa_node_t& operator*() const 
         { assert(handle()); return handle().operator*(); }
     ssa_node_t* operator->() const 
         { assert(handle()); return handle().operator->(); }
+
+    type_t type() const;
 };
 
 ////////////////////////////////////////
@@ -238,8 +254,9 @@ private:
     type_t m_type = {};
     cfg_ht m_cfg_h = {};
     ssa_op_t m_op = SSA_pruned;
+    std::uint16_t m_flags = 0;
 public:
-    std::uint32_t flags = 0;
+    std::uint32_t temp = 0; // Usable by any pass for any purpose.
 private:
     ssa_buffer_t m_io;
 public:
@@ -247,6 +264,10 @@ public:
     ssa_node_t(ssa_node_t&&) = default;
 
     ssa_ht handle() const { return { this - ssa_pool::data() }; }
+
+    void set_flags(std::uint16_t f) { m_flags |= f; }
+    void clear_flags(std::uint16_t f) { m_flags &= ~f; }
+    void test_flags(std::uint16_t f) { return (m_flags & f) == f; }
 
     cfg_ht cfg_node() const { return m_cfg_h; }
     cfg_ht input_cfg(std::size_t i) const;
@@ -277,16 +298,18 @@ public:
     }
 
     void link_append_input(ssa_value_t input);
+    void link_append_input(ssa_value_t* begin, ssa_value_t* end);
     void link_remove_input(unsigned i);
     bool link_change_input(unsigned i, ssa_value_t new_value);
     void link_clear_inputs();
+    void link_shrink_inputs(unsigned new_size);
     
     // Every node that takes this node as input now takes this value instead.
     // 'output_size() == 0' after calling.
     void replace_with_const(fixed_t const_val);
     void replace_with(ssa_value_t value);    
 
-    ssa_ht unsafe_prune();
+    ssa_ht unsafe_prune(); // Returns the next handle
 
 private:
     ssa_node_t(ssa_node_t const&) = default;
@@ -316,9 +339,10 @@ private:
     ssa_ht m_ssa_begin = {};
     ssa_ht m_last_non_phi = {};
     ssa_ht m_phi_begin = {};
+    std::uint16_t m_flags = 0;
 public:
+    std::uint32_t temp = 0; // Usable by any pass for any purpose.
     ssa_ht exit = {};
-    std::uint32_t flags = 0;
 private:
     cfg_buffer_t m_io;
 public:
@@ -326,6 +350,10 @@ public:
     cfg_node_t(cfg_node_t&&) = default;
 
     cfg_ht handle() const { return { this - cfg_pool::data() }; }
+
+    void set_flags(std::uint16_t f) { m_flags |= f; }
+    void clear_flags(std::uint16_t f) { m_flags &= ~f; }
+    void test_flags(std::uint16_t f) { return (m_flags & f) == f; }
 
     cfg_ht input(unsigned i) const { return m_io.input(i).handle; }
     cfg_fwd_edge_t input_edge(unsigned i) const { return m_io.input(i); }
@@ -450,6 +478,12 @@ inline cfg_fwd_edge_t& cfg_bck_edge_t::input() const
 {
     assert(index < handle->input_size());
     return handle->m_io.input(index);
+}
+
+inline type_t ssa_value_t::type() const
+{ 
+    assert(operator bool());
+    return is_const() ? type_t{TYPE_LARGEST_FIXED} : handle()->type();
 }
 
 ////////////////////////////////////////

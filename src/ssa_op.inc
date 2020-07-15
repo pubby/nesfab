@@ -12,19 +12,21 @@ SSA_DEF(argument, 1, 0)
 SSA_DEF(uninitialized, 0, 0) // for new vars
 
 SSA_DEF(fn_call, -1, SSAF_EFFECTFUL)
-SSA_DEF(pure_call, -1, 0) // TODO
+// SSA_DEF(pure_call, -1, 0) // TODO
+SSA_DEF(get_return, 2, 0) // Used by callers to implement multi-byte returns.
 
 // SSA_DEF(read, 0)
 // SSA_DEF(write, 0)
 
-SSA_DEF(entry_copy, -1, 0) // TODO
-SSA_DEF(exit_copy, -1, 0) // TODO
+SSA_DEF(entry_copy, -1, SSAF_COPY) // TODO
+SSA_DEF(exit_copy, -1, SSAF_COPY) // TODO
+SSA_DEF(copy, -1, SSAF_COPY) // TODO
 
 SSA_DEF(trace, -1, 0)
 SSA_DEF(cast,   1, SSAF_TRACE_INPUTS)
 
-SSA_DEF(add,    2, SSAF_TRACE_INPUTS)
-SSA_DEF(sub,    2, SSAF_TRACE_INPUTS)
+SSA_DEF(add,    3, SSAF_TRACE_INPUTS)
+SSA_DEF(sub,    3, SSAF_TRACE_INPUTS)
 
 SSA_DEF(and,    2, SSAF_TRACE_INPUTS)
 SSA_DEF(or,     2, SSAF_TRACE_INPUTS)
@@ -35,8 +37,8 @@ SSA_DEF(not_eq, 2, SSAF_TRACE_INPUTS)
 SSA_DEF(lt,     2, SSAF_TRACE_INPUTS)
 SSA_DEF(lte,    2, SSAF_TRACE_INPUTS)
 
-// 8-bit with carry versions:
-SSA_DEF(add_8c, 3, 0)
-SSA_DEF(sub_8c, 3, 0)
+// With carry versions: TODO
+// SSA_DEF(rolc, 2, SSAF_TRAC_INPUTS)
+// SSA_DEF(rorc, 2, SSAF_TRAC_INPUTS)
 
 #undef SSA_DEF

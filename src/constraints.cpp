@@ -43,25 +43,13 @@ std::string to_string(known_bits_t const& b)
 }
 
 // For debugging mostly
-std::string to_string(carry_range_t carry)
-{
-    switch(carry)
-    {
-    case CR_BOTTOM: return "CARRY BOTTOM";
-    case CR_UNSET:  return "CARRY UNSET";
-    case CR_SET:    return "CARRY SET";
-    case CR_TOP:    return "CARRY TOP";
-    }
-}
-
-// For debugging mostly
 std::string to_string(constraints_t const& c) 
 {
     return fmt("{ %, %, % }%", 
                to_string(c.bits), 
                to_string(c.bounds), 
                to_string(c.carry), 
-               c.is_const() ? " (CONST)" : "");
+               c.is_val_const() ? " (CONST)" : "");
 }
 
 // For debugging mostly
@@ -152,9 +140,9 @@ known_bits_t intersect(known_bits_t a, known_bits_t b)
     return { a.known0 | b.known0, a.known1 | b.known1 };
 }
 
-carry_range_t intersect(carry_range_t a, carry_range_t b)
+carry_t intersect(carry_t a, carry_t b)
 {
-    return a | b;
+    return (carry_t)(a | b);
 }
 
 constraints_t intersect(constraints_t a, constraints_t b)
@@ -185,9 +173,9 @@ known_bits_t union_(known_bits_t a, known_bits_t b)
     return { a.known0 & b.known0, a.known1 & b.known1 };
 }
 
-carry_range_t union_(carry_range_t a, carry_range_t b)
+carry_t union_(carry_t a, carry_t b)
 {
-    return a & b;
+    return (carry_t)(a & b);
 }
 
 constraints_t union_(constraints_t a, constraints_t b)
@@ -219,9 +207,9 @@ bool is_subset(known_bits_t small, known_bits_t big)
             && union_(small, big).bit_eq(big));
 }
 
-bool is_subset(carry_range_t small, carry_range_t big)
+bool is_subset(carry_t small, carry_t big)
 {
-    return small == big || big == CR_BOTTOM;
+    return small == big || big == CARRY_BOTTOM;
 }
 
 bool is_subset(constraints_t small, constraints_t big)
@@ -315,11 +303,10 @@ ABSTRACT(SSA_cast)
     return apply_mask(mask, c[0]);
 };
 
-static constraints_t _add_impl(fixed_int_t mask, constraints_t const* c, 
-                               unsigned argn)
+ABSTRACT(SSA_add)
 {
-    assert(argn == 2 || argn == 3);
-    if(cr[0].is_top() || c[1].is_top())
+    assert(argn == 3);
+    if(c[0].is_top() || c[1].is_top() || c[2].is_top())
         return constraints_t::top();
 
     // If we know bits in c[0] and c[1], we can determine which bits are
@@ -343,10 +330,11 @@ static constraints_t _add_impl(fixed_int_t mask, constraints_t const* c,
 
     constraints_t ret = {};
 
-    fixed_int_t const neg_mask = ~(c[0].bits.known0 & c[1].bits.known0);
+    fixed_int_t const neg_mask = ~(c[0].bits.known0 & c[1].bits.known0 & mask);
     std::uint64_t const start_i = neg_mask ? builtin::ctz(neg_mask) : 0;
-    std::uint64_t const end_i = 1 + (neg_mask ? builtin::rclz(neg_mask) 
-                                              : sizeof_bits<fixed_int_t>);
+    std::uint64_t const end_i = ((1 + (neg_mask ? builtin::rclz(neg_mask) 
+                                                : sizeof_bits<fixed_int_t>))
+                                 & ~1ull);
     ret.bits.known0 = (1ull << start_i) - 1ull;
 
     known_bits_t lhs_bits = c[0].bits;
@@ -359,9 +347,11 @@ static constraints_t _add_impl(fixed_int_t mask, constraints_t const* c,
 
     fixed_int_t i = start_i;
     // 'j' holds the carry.
-    fixed_int_t j = (fixed_int_t)(argn == 3 ? c[2].carry : CR_UNSET);
+    fixed_int_t j = c[2].carry;
     for(; i < end_i; i += 2ull)
     {
+        std::printf("* * * i = %i\n", (int)i);
+        std::printf("* * * carry = %i\n", j);
         j |= (lhs_bits.known0 & 0b11) << 2ull;
         j |= (lhs_bits.known1 & 0b11) << 4ull;
         j |= (rhs_bits.known0 & 0b11) << 6ull;
@@ -377,7 +367,7 @@ static constraints_t _add_impl(fixed_int_t mask, constraints_t const* c,
         rhs_bits.known0 >>= 2ull;
         rhs_bits.known1 >>= 2ull;
     }
-    ret.carry = (carry_range_t)j;
+    ret.carry = (carry_t)j;
     if(i < sizeof_bits<fixed_int_t>)
         ret.bits.known0 |= ~((1ull << i) - 1ull);
 
@@ -406,21 +396,7 @@ static constraints_t _add_impl(fixed_int_t mask, constraints_t const* c,
     assert(!ret.bounds.is_top());
     assert(!ret.bits.is_top());
     return normalize(ret);
-}
-
-ABSTRACT(SSA_add)
-{
-    assert(argn == 2);
-    return _add_impl(mask, c, argn);
 };
-
-ABSTRACT(SSA_add_8c)
-{
-    assert(argn == 3);
-    if(argn == 3 && cr[2].is_top())
-        return constraints_t::top();
-    return _add_impl(mask, c, argn);
-}
 
 ABSTRACT(SSA_and)
 {
@@ -431,6 +407,7 @@ ABSTRACT(SSA_and)
     ret.bits.known0 = c[0].bits.known0 | c[1].bits.known0 | ~mask;
     ret.bits.known1 = (c[0].bits.known1 & c[1].bits.known1) & mask;
     ret.bounds = from_bits(ret.bits);
+    ret.carry = CARRY_BOTTOM;
     assert(ret.bounds.max <= mask);
     assert(!ret.is_top() && ret.is_normalized());
     return ret;
@@ -445,6 +422,7 @@ ABSTRACT(SSA_or)
     ret.bits.known0 = (c[0].bits.known0 & c[1].bits.known0) | ~mask;
     ret.bits.known1 = (c[0].bits.known1 | c[1].bits.known1) & mask;
     ret.bounds = from_bits(ret.bits);
+    ret.carry = CARRY_BOTTOM;
     assert(ret.bounds.max <= mask);
     assert(!ret.is_top() && ret.is_normalized());
     return ret;
@@ -460,6 +438,7 @@ ABSTRACT(SSA_xor)
     constraints_t ret;
     ret.bits = { (~x & known) | ~mask, x & known };
     ret.bounds = from_bits( ret.bits);
+    ret.carry = CARRY_BOTTOM;
     assert(ret.bounds.max <= mask);
     assert(!ret.is_top() && ret.is_normalized());
     return ret;
@@ -471,16 +450,16 @@ ABSTRACT(SSA_eq)
     if(c[0].is_top() || c[1].is_top())
         return constraints_t::top();
     if(c[0].bits.known0 & c[1].bits.known1)
-        return constraints_t::whole(0);
+        return constraints_t::whole(0, CARRY_BOTTOM);
     if(c[0].bits.known1 & c[1].bits.known0)
-        return constraints_t::whole(0);
+        return constraints_t::whole(0, CARRY_BOTTOM);
     if(c[0].bounds.min > c[1].bounds.max 
        || c[0].bounds.max < c[1].bounds.min)
-        return constraints_t::whole(0);
-    if(c[0].is_const() && c[1].is_const() 
-       && c[0].get_const() == c[1].get_const())
-        return constraints_t::whole(1);
-    return constraints_t::any_bool();
+        return constraints_t::whole(0, CARRY_BOTTOM);
+    if(c[0].is_val_const() && c[1].is_val_const() 
+       && c[0].get_val_const() == c[1].get_val_const())
+        return constraints_t::whole(1, CARRY_BOTTOM);
+    return constraints_t::any_bool(CARRY_BOTTOM);
 };
 
 ABSTRACT(SSA_not_eq)
@@ -489,16 +468,16 @@ ABSTRACT(SSA_not_eq)
     if(c[0].is_top() || c[1].is_top())
         return constraints_t::top();
     if(c[0].bits.known0 & c[1].bits.known1)
-        return constraints_t::whole(1);
+        return constraints_t::whole(1, CARRY_BOTTOM);
     if(c[0].bits.known1 & c[1].bits.known0)
-        return constraints_t::whole(1);
+        return constraints_t::whole(1, CARRY_BOTTOM);
     if(c[0].bounds.min > c[1].bounds.max 
        || c[0].bounds.max < c[1].bounds.min)
-        return constraints_t::whole(1);
-    if(c[0].is_const() && c[1].is_const() 
-       && c[0].get_const() == c[1].get_const())
-        return constraints_t::whole(0);
-    return constraints_t::any_bool();
+        return constraints_t::whole(1, CARRY_BOTTOM);
+    if(c[0].is_val_const() && c[1].is_val_const() 
+       && c[0].get_val_const() == c[1].get_val_const())
+        return constraints_t::whole(0, CARRY_BOTTOM);
+    return constraints_t::any_bool(CARRY_BOTTOM);
 };
 
 ABSTRACT(SSA_lt)
@@ -507,10 +486,10 @@ ABSTRACT(SSA_lt)
     if(c[0].is_top() || c[1].is_top())
         return constraints_t::top();
     if(c[0].bounds.max < c[1].bounds.min)
-        return constraints_t::whole(1);
+        return constraints_t::whole(1, CARRY_BOTTOM);
     if(c[1].bounds.max <= c[0].bounds.min)
-        return constraints_t::whole(0);
-    return constraints_t::any_bool();
+        return constraints_t::whole(0, CARRY_BOTTOM);
+    return constraints_t::any_bool(CARRY_BOTTOM);
 };
 
 ABSTRACT(SSA_lte)
@@ -519,15 +498,14 @@ ABSTRACT(SSA_lte)
     if(c[0].is_top() || c[1].is_top())
         return constraints_t::top();
     if(c[0].bounds.max <= c[1].bounds.min)
-        return constraints_t::whole(1);
+        return constraints_t::whole(1, CARRY_BOTTOM);
     if(c[1].bounds.max < c[0].bounds.min)
-        return constraints_t::whole(0);
-    return constraints_t::any_bool();
+        return constraints_t::whole(0, CARRY_BOTTOM);
+    return constraints_t::any_bool(CARRY_BOTTOM);
 };
 
 NARROW(SSA_phi)
 {
-    std::puts("ok");
     for(unsigned i = 0; i < argn; ++i)
         c[i] = intersect(c[i], result);
 };
@@ -546,16 +524,43 @@ NARROW(SSA_cast)
 
 NARROW(SSA_add)
 {
-    assert(argn == 2);
+    assert(argn == 3);
     if(result.is_top())
         return;
 
     // We use an approximation approach.
     // We can solve bit equations of the form KNOWN ^ KNOWN ^ UNKNOWN = KNOWN
-    // (Three arguments because of the carry).
+    // (Three arguments because of carries).
+    
+    // First do the carry. If we know the lowest bit of c[0], c[1], and result
+    // we can infer the required carry.
+    if(result.bits.known() & c[0].bits.known() & c[1].bits.known() & 0b1)
+    {
+        if((result.bits.known1 ^ c[0].bits.known1 ^ c[1].bits.known1) & 0b1)
+            c[2].carry = CARRY_SET;
+        else
+            c[2].carry = CARRY_CLEAR;
+    }
 
-    fixed_int_t carry0 = ((c[0].bits.known0 & c[1].bits.known0) << 1ull)|1ull;
+    // Now for the value.
+    // Determine some of the carried bits:
+    fixed_int_t carry0 = (c[0].bits.known0 & c[1].bits.known0) << 1ull;
     fixed_int_t carry1 = (c[0].bits.known1 & c[1].bits.known1) << 1ull;
+
+    // If the SSA op has a carry input, use it in the lowest bit:
+    switch(c[2].carry)
+    {
+    case CARRY_BOTTOM: 
+        break;
+    case CARRY_CLEAR:
+        carry0 |= 1ull;
+        break;
+    case CARRY_SET:
+        carry1 |= 1ull;
+        break;
+    case CARRY_TOP:
+        return;
+    }
 
     fixed_int_t const solvable = result.bits.known() & (carry0 | carry1);
     fixed_int_t const lsolvable = c[1].bits.known() & solvable;
@@ -678,23 +683,23 @@ static void narrow_eq(fixed_int_t mask, constraints_t result,
                       constraints_t* c, unsigned argn, bool eq)
 {
     assert(argn == 2);
-    if(!result.is_const())
+    if(!result.is_val_const())
         return;
 
-    if(result.get_const() == fixed_t::whole(!eq).value)
+    if(result.get_val_const() == fixed_t::whole(!eq).value)
     {
         for(unsigned i = 0; i < 2; ++i)
-        if(c[i].is_const())
+        if(c[i].is_val_const())
         {
             unsigned const o = 1 - i;
-            fixed_int_t const const_ = c[i].get_const();
+            fixed_int_t const const_ = c[i].get_val_const();
             if(c[o].bounds.min == const_)
                 ++c[o].bounds.min;
             if(c[o].bounds.max == const_)
                 --c[o].bounds.max;
         }
     }
-    else if(result.get_const() == fixed_t::whole(eq).value)
+    else if(result.get_val_const() == fixed_t::whole(eq).value)
         c[0] = c[1] = intersect(c[0], c[1]);
 }
 
@@ -711,15 +716,15 @@ NARROW(SSA_not_eq)
 NARROW(SSA_lt)
 {
     assert(argn == 2);
-    if(!result.is_const())
+    if(!result.is_val_const())
         return;
 
-    if(result.get_const() == fixed_t::whole(0).value)
+    if(result.get_val_const() == fixed_t::whole(0).value)
     {
         c[0].bounds.min = std::max(c[0].bounds.min, c[1].bounds.min);
         c[1].bounds.max = std::min(c[1].bounds.max, c[0].bounds.max);
     }
-    else if(result.get_const() == fixed_t::whole(1).value)
+    else if(result.get_val_const() == fixed_t::whole(1).value)
     {
         c[0].bounds.max = std::min(c[0].bounds.max, c[1].bounds.max - 1);
         c[1].bounds.min = std::max(c[1].bounds.min, c[0].bounds.min + 1);
@@ -729,15 +734,15 @@ NARROW(SSA_lt)
 NARROW(SSA_lte)
 {
     assert(argn == 2);
-    if(!result.is_const())
+    if(!result.is_val_const())
         return;
 
-    if(result.get_const() == fixed_t::whole(0).value)
+    if(result.get_val_const() == fixed_t::whole(0).value)
     {
         c[0].bounds.min = std::max(c[0].bounds.min, c[1].bounds.min + 1);
         c[1].bounds.max = std::min(c[1].bounds.max, c[0].bounds.max - 1);
     }
-    else if(result.get_const() == fixed_t::whole(1).value)
+    else if(result.get_val_const() == fixed_t::whole(1).value)
     {
         c[0].bounds.max = std::min(c[0].bounds.max, c[1].bounds.max);
         c[1].bounds.min = std::max(c[1].bounds.min, c[0].bounds.min);

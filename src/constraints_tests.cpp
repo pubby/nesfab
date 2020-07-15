@@ -63,8 +63,9 @@ TEST_CASE("const_", "[constraints]")
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < 1000; ++i)
     {
-        constraints_t constraint = constraints_t::const_(std::rand());
-        REQUIRE(constraint.is_const());
+        constraints_t constraint = constraints_t::const_(std::rand(),
+                                                         CARRY_BOTTOM);
+        REQUIRE(constraint.is_val_const());
         REQUIRE(!constraint.is_top());
 
         REQUIRE(from_bits(constraint.bits).bit_eq(constraint.bounds));
@@ -78,7 +79,7 @@ TEST_CASE("top", "[constraints]")
     REQUIRE(known_bits_t::top().is_top());
     REQUIRE(constraints_t::top().is_top());
     REQUIRE(!known_bits_t::top().is_const());
-    REQUIRE(!constraints_t::top().is_const());
+    REQUIRE(!constraints_t::top().is_val_const());
 }
 
 TEST_CASE("from_bits", "[constraints]")

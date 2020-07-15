@@ -7,6 +7,7 @@
 #include <vector>
 
 // A simple allocator that only supports allocation, not free.
+// Memory is still cleared on pool destruction or the calling of 'clear()'.
 
 template<typename T, std::size_t ChunkSize = 64>
 class array_pool_t

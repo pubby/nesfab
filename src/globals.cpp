@@ -4,12 +4,12 @@
 #include <fstream>
 
 #include "alloca.hpp"
+#include "code_gen.hpp" // TODO?
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
 #include "o.hpp"
 #include "graphviz.hpp"
-#include "code_gen.hpp" // TODO?
 
 std::string to_string(stmt_name_t stmt_name)
 {
@@ -37,6 +37,23 @@ std::string to_string(global_class_t gclass)
 #define X(x) case x: return #x;
     GLOBAL_CLASS_ENUM
 #undef X
+    }
+}
+
+global_t* global_manager_t::global(ssa_node_t& ssa_node)
+{
+    switch(ssa_node.op())
+    {
+    case SSA_fn_call:
+        {
+            assert(ssa_node.input_size() >= 2);
+            assert(ssa_node.input(1).is_const());
+            global_t& global = operator[](ssa_node.input(1).whole());
+            assert(global.gclass == GLOBAL_FN);
+            return &global;
+        }
+    default:
+        return nullptr;
     }
 }
 
@@ -141,11 +158,11 @@ void global_manager_t::finish()
                 }
                 //while(false);
                 while(changed);
+                std::cout << "I = " << i << '\n';
 
                 std::printf("makin convent\n");
+                //byteify(ir, *this, *global);
                 //make_conventional(ir);
-
-                std::cout << "I = " << i << '\n';
 
                 {
                     std::ofstream o(fmt("graphs/%_cfg.gv", 

@@ -4,12 +4,8 @@
 #include <vector>
 
 #include "ir_decl.hpp"
-#include "o_abstract_interpret.hpp"
+#include "o_ai.hpp"
 #include "o_phi.hpp"
-
-// Generic flags
-// These start at 16. More specialized flags start at 0.
-constexpr std::uint32_t FLAG_IN_WORKLIST = 1ull << 16;
 
 // Worklists used by several optimization passes.
 template<typename H>
@@ -21,9 +17,9 @@ public:
     static void push(H handle)
     {
         auto& node = *handle;
-        if(node.flags & FLAG_IN_WORKLIST)
+        if(node.test_flags(FLAG_IN_WORKLIST))
             return;
-        node.flags |= FLAG_IN_WORKLIST;
+        node.set_flags(FLAG_IN_WORKLIST);
         stack.push_back(handle);
     }
 
@@ -32,7 +28,7 @@ public:
     static H pop()
     {
         H ret = top();
-        ret->flags &= ~FLAG_IN_WORKLIST;
+        ret->clear_flags(FLAG_IN_WORKLIST);
         stack.pop_back();
         return ret;
     }
@@ -40,7 +36,7 @@ public:
     static void clear()
     {
         for(H handle : stack)
-            handle->flags &= ~FLAG_IN_WORKLIST;
+            handle->clear_flags(FLAG_IN_WORKLIST);
         stack.clear();
     }
     

@@ -122,11 +122,13 @@ public:
     cfg_ht compile_logical_begin(cfg_ht cfg_node, bool short_cut_i);
     cfg_ht compile_logical_end(cfg_ht cfg_node, bool short_cut_i);
     void compile_assign(cfg_node_t& cfg_node);
-    void compile_assign_arith(cfg_node_t&, ssa_op_t op);
-    void compile_binary_operator(cfg_node_t&, ssa_op_t op, type_t result_type);
-    void compile_arith(cfg_node_t& cfg_node, ssa_op_t op);
+    void compile_assign_arith(cfg_node_t&, ssa_op_t op, bool carry = false);
+    void compile_binary_operator(cfg_node_t&, ssa_op_t op, type_t result_type, 
+                                 bool carry = false);
+    void compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry = false);
     void compile_compare(cfg_node_t& cfg_node, ssa_op_t op);
     void force_cast(cfg_node_t&, rpn_value_t& rpn_value, type_t to_type);
+    void force_boolify(cfg_node_t& cfg_node, rpn_value_t& rpn_value);
     bool cast(cfg_node_t&, rpn_value_t& rpn_value, type_t to_type);
     void throwing_cast(cfg_node_t&, rpn_value_t& rpn_value, type_t to_type);
     std::uint64_t cast_args(
@@ -175,7 +177,7 @@ ir_builder_t::ir_builder_t(global_manager_t& global_manager, global_t& global)
 : global_manager_ptr(&global_manager)
 , global_ptr(&global)
 {
-    assert(global.gclass = GLOBAL_FN);
+    assert(global.gclass == GLOBAL_FN);
     stmt = global.fn->stmts.data();
 }
 
@@ -212,13 +214,10 @@ void ir_builder_t::compile()
         ssa_ht phi = ir.exit->emplace_ssa(SSA_phi, return_type);
         phi->assign_input(&*return_values.begin(), &*return_values.end());
         ssa_node_t& return_node = *ir.exit->exit;
-        return_node.alloc_input(1);
-        return_node.build_set_input(0, phi);
+        return_node.alloc_input(2);
+        return_node.build_set_input(0, 0u);
+        return_node.build_set_input(1, phi);
     }
-
-    // Finish the IR
-    // TODO!
-    //ir.finish_construction();
 }
 
 cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
@@ -507,12 +506,13 @@ ssa_ht ir_builder_t::insert_fenced(cfg_ht cfg_node, ssa_op_t op, type_t type,
         pasture_pool.clear();
 
     // Create the fence node.
-    ssa_ht fence = cfg_node->emplace_ssa(SSA_fence, {});
+    ssa_ht fence = cfg_node->emplace_ssa(SSA_fence, type_t{});
     fence->assign_input(input_begin, input_end);
 
     // Create the dependent node.
     ssa_ht ret_h = cfg_node->emplace_ssa(op, type);
     ssa_node_t& ret = *ret_h;
+    assert(input_size > 0);
     ret.alloc_input(input_size);
     ret.build_set_input(0, fence);
 
@@ -786,9 +786,11 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 // Type checks are done. Now convert the call to SSA.
                 ssa_ht fn_node_h = 
                     insert_fenced(cfg_node, SSA_fn_call, 
-                                  return_type, fn_global.modifies,
+                                  return_type, fn_global.fn->modifies,
                                   num_args + 2);
                 ssa_node_t& fn_node = *fn_node_h;
+                // The [0] argument is the fence.
+                // The [1] argument holds the function (index).
                 fn_node.build_set_input(1, fn_val.ssa_value);
                 for(unsigned i = 0; i != num_args; ++i)
                     fn_node.build_set_input(i + 2, args[i].ssa_value);
@@ -838,10 +840,10 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
             break;
 
         case TOK_plus:
-            compile_arith(*cfg_node, SSA_add);  
+            compile_arith(*cfg_node, SSA_add, true);  
             break;
         case TOK_minus: 
-            compile_arith(*cfg_node, SSA_sub);
+            compile_arith(*cfg_node, SSA_sub, true);
             break;
         case TOK_bitwise_and: 
             compile_arith(*cfg_node, SSA_and);
@@ -854,10 +856,10 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
             break;
 
         case TOK_plus_assign:
-            compile_assign_arith(*cfg_node, SSA_add);
+            compile_assign_arith(*cfg_node, SSA_add, true);
             break;
         case TOK_minus_assign:
-            compile_assign_arith(*cfg_node, SSA_sub);
+            compile_assign_arith(*cfg_node, SSA_sub, true);
             break;
         case TOK_bitwise_and_assign:
             compile_assign_arith(*cfg_node, SSA_and);
@@ -938,24 +940,31 @@ void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
     rpn_stack.pop();
 }
 
-void ir_builder_t::compile_assign_arith(cfg_node_t& cfg_node, ssa_op_t op)
+void ir_builder_t::compile_assign_arith(cfg_node_t& cfg_node, ssa_op_t op, 
+                                        bool carry)
 {
     rpn_stack.tuck(rpn_stack.peek(1), 1);
-    compile_arith(cfg_node, op);
+    compile_arith(cfg_node, op, carry);
     compile_assign(cfg_node);
 }
 
 // Applies an operator to the top two values on the eval stack,
 // turning them into a single value.
 void ir_builder_t::compile_binary_operator(cfg_node_t& cfg_node, 
-                                           ssa_op_t op, type_t result_type)
+                                           ssa_op_t op, type_t result_type,
+                                           bool carry)
 {
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
 
     // Result will remain in 'lhs'.
-    lhs.ssa_value = cfg_node.emplace_ssa(op, result_type, 
-                                         lhs.ssa_value, rhs.ssa_value);
+    if(carry)
+        lhs.ssa_value = cfg_node.emplace_ssa(op, result_type, 
+                                             lhs.ssa_value, rhs.ssa_value, 0);
+    else
+        lhs.ssa_value = cfg_node.emplace_ssa(op, result_type, 
+                                             lhs.ssa_value, rhs.ssa_value);
+
     lhs.type = result_type;
     lhs.category = RVAL;
     lhs.pstring = concat(lhs.pstring, rhs.pstring);
@@ -964,7 +973,7 @@ void ir_builder_t::compile_binary_operator(cfg_node_t& cfg_node,
     rpn_stack.pop();
 }
 
-void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op)
+void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry)
 {
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
@@ -980,7 +989,7 @@ void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op)
     type_t new_type = { promote_arithmetic(lhs.type.name, rhs.type.name) };
     assert(is_arithmetic(new_type.name));
 
-    compile_binary_operator(cfg_node, op, new_type);
+    compile_binary_operator(cfg_node, op, new_type, carry);
 }
 
 void ir_builder_t::compile_compare(cfg_node_t& cfg_node, ssa_op_t op)
@@ -1008,6 +1017,16 @@ void ir_builder_t::force_cast(cfg_node_t& cfg_node,
     rpn_value.category = RVAL;
 }
 
+// This is used to implement the other cast functions.
+void ir_builder_t::force_boolify(cfg_node_t& cfg_node, rpn_value_t& rpn_value)
+{
+    rpn_value.ssa_value = cfg_node.emplace_ssa(
+        SSA_not_eq, {TYPE_BOOL}, rpn_value.ssa_value, 0u);
+    rpn_value.type = {TYPE_BOOL};
+    rpn_value.category = RVAL;
+}
+
+
 bool ir_builder_t::cast(cfg_node_t& cfg_node,
                         rpn_value_t& rpn_value, type_t to_type)
 {
@@ -1018,6 +1037,9 @@ bool ir_builder_t::cast(cfg_node_t& cfg_node,
     case CAST_NOP:  return true;
     case CAST_OP:
         force_cast(cfg_node, rpn_value, to_type);
+        return true;
+    case CAST_BOOLIFY:
+        force_boolify(cfg_node, rpn_value);
         return true;
     }
 }
@@ -1057,8 +1079,12 @@ std::uint64_t ir_builder_t::cast_args(
         return failure;
 
     for(std::size_t i = 0; i != size; ++i)
+    {
         if(results[i] == CAST_OP)
             force_cast(cfg_node, begin[i], type_begin[i]);
+        else if(results[i] == CAST_BOOLIFY)
+            force_boolify(cfg_node, begin[i]);
+    }
 
     return 0; // 0 means no errors!
 }

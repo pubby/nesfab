@@ -102,6 +102,7 @@ int main(int argc, char** argv)
     while(std::cin)
         ops.push_back(read_op());
 
+    /*
     std::array<addr_mode_t, 256> addr_mode_table = {};
     std::array<std::uint8_t, 256> size_table = {};
     std::array<std::uint8_t, 256> cycle_table = {};
@@ -117,7 +118,31 @@ int main(int argc, char** argv)
             name_table[instr.code] = &op - ops.data();
         }
     }
+    */
 
+    std::cout << "instr_def_t instr_defs[] =\n{\n";
+    for(op_t const& op : ops)
+    {
+        std::cout << "\n    // " << op.name << "\n";
+        for(instr_t const& instr : op.instrs)
+        {
+            std::cout << "    {\n";
+            std::cout << "        .opname = " << op.name << ",\n";
+            std::cout << "        .addr_mode = " 
+                      << addr_mode_name(instr.addr_mode) << ",\n";
+            std::cout << "        .opcode = " << (int)instr.code << ",\n";
+            std::cout << "        .size = " << (int)instr.size << ",\n";
+            std::cout << "        .cycles = " << (int)instr.size << ",\n";
+            std::cout << "        .implicit_regs = " << 0 << ",\n";
+            std::cout << "        .arg_regs = " << 0 << ",\n";
+            std::cout << "        .out_regs = " << 0 << ",\n";
+            std::cout << "        .flags = " << 0 << ",\n";
+            std::cout << "    },\n";
+        }
+    }
+    std::cout << "\n};\n";
+
+    /*
     std::cout << "enum asm_op_name_t : std::uint8_t \n{\n";
     for(op_t const& op : ops)
         std::cout << "    " << op.name << ",\n";
@@ -149,4 +174,5 @@ int main(int argc, char** argv)
     for(int i : cycle_table)
         std::cout << "    " << i << ",\n";
     std::cout << "};\n";
+    */
 }

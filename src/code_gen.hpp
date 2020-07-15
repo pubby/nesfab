@@ -7,6 +7,9 @@
 #include "asm_tables.hpp"
 #include "ir_decl.hpp"
 
+class global_manager_t;
+struct global_t;
+
 struct instr_t
 {
     asm_op_name_t op_name;
@@ -14,6 +17,7 @@ struct instr_t
     std::uint16_t addr;
 };
 
+void byteify(ir_t& ir, global_manager_t& globals, global_t& global);
 void make_conventional(ir_t& ir);
 
 #endif

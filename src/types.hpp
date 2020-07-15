@@ -20,17 +20,18 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     // the number of bytes each type uses. The bit format is: FFWW,
     // where FF is two bits storing the size of the fractional part in bytes,
     // and WW is two bits storing the size of the whole part in bytes.
-    // Bools and pointers are slightly special and come last.
+    // Pointers are slightly special and come last.
     TYPE_BYTE  = 1,
     TYPE_FIRST_ARITH = TYPE_BYTE,
     TYPE_SHORT = 2,
     TYPE_INT   = 3,
     TYPE_FIRST_FIXED = 4,
+    TYPE_LARGEST_FIXED = 0b1111,
     TYPE_LAST_FIXED  = 0b1111,
-    TYPE_BOOL = 0b10001, // Bottom 2 bits must equal 1.
-    TYPE_PTR,            // Bottom 2 bits must equal 2.
+    TYPE_PTR  = 0b10010, // Bottom 2 bits must equal 2.
     TYPE_FIRST_COMPOSITE = TYPE_PTR,
     TYPE_LAST_ARITH = TYPE_PTR,
+
 
     // A composite type is one that holds smaller types.
     // These types use the 'tail_i' field in 'type_t'.
@@ -40,9 +41,8 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_FN,
     TYPE_LAST_COMPOSITE = TYPE_FN,
 
-    TYPE_8C, // An 8-bit integer with a 1-bit carry, used for
-             // hardware instructions right before code generation.
-
+    // Bools aren't considered arithmetic or composite.
+    TYPE_BOOL,
 };
 
 constexpr bool is_composite(type_name_t type_name)
@@ -67,6 +67,11 @@ constexpr unsigned frac_bytes(type_name_t type_name)
     return (type_name >> 2) & 0b11;
 }
 
+constexpr unsigned total_bytes(type_name_t type_name)
+{
+    return whole_bytes(type_name) + frac_bytes(type_name);
+}
+
 constexpr type_name_t TYPE_arithmetic(unsigned w, unsigned f)
 {
     assert(w <= 3);
@@ -79,17 +84,16 @@ constexpr type_name_t promote_arithmetic(type_name_t a, type_name_t b)
     assert(is_arithmetic(a));
     assert(is_arithmetic(b));
 
-    if(a == TYPE_BOOL)
-        return b;
-    if(b == TYPE_BOOL)
-        return a;
-
     return TYPE_arithmetic(std::max(whole_bytes(a), whole_bytes(b)), 
                            std::max(frac_bytes(a), frac_bytes(b)));
 }
 
 struct type_t
 {
+    static constexpr unsigned max_frac_bytes = 3;
+    static constexpr unsigned max_whole_bytes = 3;
+    static constexpr unsigned max_total_bytes = 6;
+
     type_name_t name;
     // Overloaded; Holds tail size for fns and array size for arrays.
     std::uint16_t size;
@@ -147,6 +151,15 @@ private:
     static unsigned get_tail_i(type_t const* begin, type_t const* end);
 };
 
+constexpr unsigned begin_byte(type_name_t type_name)
+{
+    return type_t::max_frac_bytes - frac_bytes(type_name);
+}
+
+constexpr unsigned end_byte(type_name_t type_name)
+{
+    return type_t::max_frac_bytes + whole_bytes(type_name);
+}
 
 std::string type_string(type_t type);
 
@@ -157,6 +170,7 @@ enum cast_result_t : char
     CAST_FAIL,
     CAST_NOP,
     CAST_OP,
+    CAST_BOOLIFY,
 };
 
 cast_result_t can_cast(type_t const& from, type_t const& to);

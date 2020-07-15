@@ -239,13 +239,32 @@ unsigned ssa_node_t::append_output(ssa_bck_edge_t edge)
 void ssa_node_t::link_append_input(ssa_value_t value)
 {
     unsigned const i = input_size();
+    m_io.resize_input(i + 1);
     if(value.is_handle())
     {
         ssa_node_t& node = *value;
         value.set_index(node.append_output({ handle(), i }));
     }
-    m_io.resize_input(i + 1);
     m_io.input(i) = value;
+}
+
+void ssa_node_t::link_append_input(ssa_value_t* begin, ssa_value_t* end)
+{
+    unsigned const dist = end - begin;
+    unsigned i = input_size();
+
+    m_io.resize_input(i + dist);
+
+    for(ssa_value_t* it = begin; it < end; ++it)
+    {
+        if(it->is_handle())
+        {
+            ssa_node_t& node = **it;
+            it->set_index(node.append_output({ handle(), i }));
+        }
+        m_io.input(i) = *it;
+        ++i;
+    }
 }
 
 void ssa_node_t::remove_inputs_output(unsigned i)
@@ -325,10 +344,16 @@ bool ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
 
 void ssa_node_t::link_clear_inputs()
 {
+    link_shrink_inputs(0);
+}
+
+void ssa_node_t::link_shrink_inputs(unsigned new_size)
+{
     std::size_t const size = input_size();
-    for(std::size_t i = 0; i < size; ++i)
+    assert(new_size <= size);
+    for(std::size_t i = new_size; i < size; ++i)
         remove_inputs_output(i);
-    m_io.clear_input();
+    m_io.shrink_input(new_size);
 }
 
 void ssa_node_t::replace_with_const(fixed_t const_val)
@@ -669,6 +694,7 @@ bool ir_t::valid() const
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 
         cfg_node_t& cfg_node = *cfg_it;
+        valid &= (bool)cfg_node.exit;
 
         for(unsigned i = 0; i < cfg_node.input_size(); ++i)
         {

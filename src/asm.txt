@@ -686,30 +686,30 @@ $AA
 
 TAY
 Implied	
-$AA
+$A8
 1
 2
 
 TSX
 Implied	
-$AA
+$BA
 1
 2
 
 TXA
 Implied	
-$AA
+$8A
 1
 2
 
 TXS
 Implied	
-$AA
+$9A
 1
 2
 
 TYA
 Implied	
-$AA
+$98
 1
 2

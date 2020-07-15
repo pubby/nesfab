@@ -35,27 +35,12 @@ template<typename T>
 using fixed_lut_t = std::array<T, TYPE_LAST_ARITH - TYPE_FIRST_ARITH + 1>;
 extern fixed_lut_t<fixed_t::int_type> arithmetic_bitmask_table;
 
-template<typename T>
-using fixed_lut_t = std::array<T, TYPE_LAST_ARITH - TYPE_FIRST_ARITH + 1>;
-extern fixed_lut_t<unsigned> arithmetic_bitpos_table;
-
 [[gnu::pure]]
 inline fixed_t::int_type arithmetic_bitmask(type_name_t type_name)
 {
     assert(is_arithmetic(type_name));
     return arithmetic_bitmask_table[type_name - TYPE_FIRST_ARITH];
 }
-
-[[gnu::pure]]
-inline unsigned arithmetic_bitpos(type_name_t type_name)
-{
-    assert(is_arithmetic(type_name));
-    return arithmetic_bitmask_table[type_name - TYPE_FIRST_ARITH];
-}
-
-// TODO
-constexpr fixed_t CARRY_BIT_POS = sizeof_bits<fixed_t::int_type> - 1ull;
-constexpr fixed_t::int_type CARRY_BIT = 1ull << CARRY_BIT_POS;
 
 inline fixed_t fixed_add(type_name_t type_name, fixed_t lhs, fixed_t rhs)
     { return { (lhs.value + rhs.value) & arithmetic_bitmask(type_name) }; }

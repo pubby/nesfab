@@ -89,8 +89,6 @@ struct global_t
 
     fc::vector_set<global_t*> deps;
 
-    ds_region_t ds_region;
-    ds_bitset_t modifies;
     toposort_mark_t mark;
 };
 
@@ -143,6 +141,12 @@ public:
     unsigned num_params;
     std::vector<var_decl_t> local_vars; // First elems are params.
     std::vector<stmt_t> stmts;
+
+    std::vector<type_t> arg_bytes_types;
+    std::vector<addr16_t> arg_bytes;
+    std::vector<addr16_t> return_bytes;
+
+    ds_bitset_t modifies;
 };
 
 class global_manager_t
@@ -158,6 +162,11 @@ public:
     // Creates a global if it doesn't exist.
     unsigned get_index(pstring_t name);
     global_t& get(pstring_t name) { return globals[get_index(name)]; }
+
+    // Looks up the global referenced in a node
+    global_t const* global(ssa_node_t& ssa_node) const;
+    global_t* global(ssa_node_t& ssa_node) 
+        { return const_cast<global_t*>(const_this()->global(ssa_node)); }
 
     global_t& new_fn(
         pstring_t name, 
@@ -177,6 +186,8 @@ public:
     std::ostream& gv_deps(std::ostream& o);
 
 private:
+    global_manager_t const* const_this() const { return this; }
+
     static void toposort_visit(std::vector<global_t*>&, global_t&);
     void verify_undefined(global_t& global);
 

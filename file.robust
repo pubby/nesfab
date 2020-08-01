@@ -1,11 +1,21 @@
-fn foo(byte a, byte b) byte
-    byte x
-    byte y
+vars
+    byte f
+    byte g
 
-    if 1
-        y = y + 1
+fn qux()
+    f = 10
 
-    if x < 3 && x < 3
-        return 1
-    return 2
+fn bar()
+    g = g + f
+
+fn foo(byte x) bool
+    x = x + g
+    bar()
+    x += g
+    qux()
+    bar()
+    x = x + g
+    short y = x + 5
+    short z = x & 9
+    return z + z
 

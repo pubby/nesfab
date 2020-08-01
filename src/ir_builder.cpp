@@ -1,6 +1,7 @@
 #include "ir_builder.hpp"
 
 #include "alloca.hpp"
+#include "bitset.hpp"
 #include "compiler_error.hpp"
 #include "globals.hpp"
 #include "pstring.hpp"
@@ -25,7 +26,7 @@ struct rpn_value_t
     value_category_t category;
     type_t type;
     pstring_t pstring;
-    unsigned local_var_i;
+    unsigned var_i;
 };
 
 class rpn_stack_t
@@ -76,11 +77,11 @@ public:
 };
 
 // Data associated with each block node, to be used when making IRs.
-struct block_data_t
+struct block_d
 {
-    // Keeps track of which ssa node a local var refers to.
+    // Keeps track of which ssa node a var refers to.
     // A handle of {0} means the local var isn't in the block.
-    ssa_value_t* local_vars = nullptr;
+    ssa_value_t* fn_vars = nullptr;
 
     // Phi nodes in the block which have yet to be sealed.
     ssa_value_t* unsealed_phis = nullptr;
@@ -96,26 +97,26 @@ class ir_builder_t
 {
 public:
     ir_builder_t(global_manager_t& global_manager, global_t& global);
-
+private:
     global_manager_t& globals() { return *global_manager_ptr; }
     global_t& global() { return *global_ptr; }
     fn_t& fn() { return *global_ptr->fn; }
 
     void compile();
     cfg_ht compile_block(cfg_ht cfg_h);
-    ssa_ht insert_fenced(cfg_ht cfg_node, ssa_op_t op, type_t type, 
-                         ds_bitset_t const& bitset, unsigned input_size);
-    ssa_ht insert_fence(cfg_node_t& cfg_node);
-    void new_pasture(ds_bitset_t const& bitset, ssa_ht handle);
+
+    ssa_ht insert_fn_call(cfg_ht cfg_node, global_t& fn_global, 
+                          rpn_value_t const* args);
     void exits_with_jump(cfg_node_t& node);
     void exits_with_branch(cfg_node_t& node, ssa_value_t condition);
     cfg_ht compile_goto(cfg_ht branch_node);
 
     // Block and local variable functions
     cfg_ht insert_cfg(bool seal, pstring_t label_name = {});
-    void seal_block(block_data_t& block_data);
-    void fill_phi_args(ssa_node_t& phi, unsigned local_var_i);
-    ssa_value_t local_lookup(cfg_ht node, unsigned local_var_i);
+    void seal_block(block_d& block_data);
+    void fill_phi_args(ssa_node_t& phi, unsigned var_i);
+    ssa_value_t local_lookup(cfg_ht node, unsigned var_i);
+    type_t var_i_type(unsigned var_i);
 
     // IR generation functions
     cfg_ht compile_expr(cfg_ht cfg_node, token_t const* expr);
@@ -137,14 +138,6 @@ public:
         rpn_value_t* begin, rpn_value_t* end, 
         type_t const* type_begin);
 
-    // Pairs which handle last modified 'bitset'.
-    // (A pasture is surrounded by fences, har har har)
-    struct pasture_t
-    {
-        ds_bitset_t bitset;
-        ssa_ht node;
-    };
-
     struct logical_data_t
     {
         cfg_ht branch_node;
@@ -153,24 +146,28 @@ public:
 
 public:
     ir_t ir;
+private:
     global_manager_t* global_manager_ptr;
     global_t* global_ptr;
     stmt_t const* stmt;
     rpn_stack_t rpn_stack;
     std::vector<logical_data_t> logical_stack;
 
+    // TODO: change type?
     reusable_stack<std::vector<cfg_ht>> break_stack;
     reusable_stack<std::vector<cfg_ht>> continue_stack;
 
     std::vector<ssa_value_t> return_values;
     std::vector<cfg_ht> return_jumps;
 
-    // Every 'bitset' in this is disjoint with each other.
-    std::vector<pasture_t*> pastures;
-    array_pool_t<pasture_t> pasture_pool;
-
+    // TODO: make thread_local?
+    array_pool_t<bitset_uint_t> bitset_pool;
     array_pool_t<ssa_value_t> input_pool;
-    array_pool_t<block_data_t> block_pool;
+    array_pool_t<block_d> block_pool;
+
+    unsigned num_fn_vars;
+    std::vector<bitset_uint_t> fn_vars_bitset;
+    std::vector<global_t*> iglobals;
 };
 
 ir_builder_t::ir_builder_t(global_manager_t& global_manager, global_t& global)
@@ -179,16 +176,141 @@ ir_builder_t::ir_builder_t(global_manager_t& global_manager, global_t& global)
 {
     assert(global.gclass == GLOBAL_FN);
     stmt = global.fn->stmts.data();
+
+    // Setup  TODO
+
+    unsigned const set_size = globals().gvar_bitset_size<bitset_uint_t>();
+    fn_vars_bitset.resize(set_size);
+
+    num_fn_vars = fn().local_vars.size();
+
+    bitset_pool.clear();
+
+    // 'iglobals_set' will hold all globals mentioned by name inside this fn.
+    bitset_uint_t* iglobals_set = bitset_pool.alloc(set_size);
+    assert(bitset_all_clear(set_size, iglobals_set));
+
+    // Start out with a single equivalence class, containing all the
+    // globals possibly used in this fn.
+    // Then, this equivalence class will be broken up into multiple 
+    // disjoint subsets.
+
+    bitset_uint_t* initial_bitset = bitset_pool.alloc(set_size);
+    assert(bitset_all_clear(set_size, initial_bitset));
+
+    for(global_t* idep : global.ideps)
+    {
+        if(idep->gclass == GLOBAL_FN)
+            bitset_or(set_size, initial_bitset, idep->fn->reads);
+        else if(idep->gclass == GLOBAL_VAR)
+        {
+            // Setup 'iglobals_set' and 'iglobals' while we're here.
+
+            bitset_set(iglobals_set, idep->var->id);
+
+            idep->var->fn_var_i = num_fn_vars;
+            ++num_fn_vars;
+            iglobals.push_back(idep);
+        }
+    }
+
+    bitset_or(set_size, fn_vars_bitset.data(), iglobals_set);
+    bitset_or(set_size, fn_vars_bitset.data(), initial_bitset);
+
+    // TODO: static_vector
+
+    std::vector<bitset_uint_t*> eq_classes = { initial_bitset };
+    std::vector<bitset_uint_t*> new_eq_classes;
+
+    assert(eq_classes.size() >= 1);
+
+    // Now break equivalent classes apart:
+    
+    for(global_t const* idep : global.ideps)
+    {
+        if(idep->gclass != GLOBAL_FN)
+            continue;
+
+        bitset_uint_t any_in  = 0;
+        bitset_uint_t any_comp = 0;
+        bitset_uint_t* comp_set = bitset_pool.alloc(set_size);
+
+        for(bitset_uint_t* in_set : eq_classes)
+        {
+            // Split the eq class set into two sets:
+            // - One which has everything in 'bitset' ('in')
+            // - The complement of that ^ ('comp')
+
+            for(unsigned i = 0; i < set_size; ++i)
+            {
+                comp_set[i] = in_set[i];
+                comp_set[i] &= ~idep->fn->reads[i] & ~iglobals_set[i];
+                any_comp |= comp_set[i];
+
+                in_set[i] &= idep->fn->reads[i] & ~iglobals_set[i];
+                any_in |= in_set[i];
+            }
+
+            // TODO
+            //assert(any_in || any_comp);
+
+            if(any_in)
+                new_eq_classes.push_back(in_set);
+            if(any_comp)
+            {
+                new_eq_classes.push_back(comp_set);
+                comp_set = any_in ? bitset_pool.alloc(set_size) : in_set;
+            }
+        }
+
+        eq_classes.swap(new_eq_classes);
+        new_eq_classes.clear();
+    }
+
+    // TODO
+    //assert(eq_classes.size() >= 1);
+
+    // OK! The equivalence classes are built.
+    // Now associate each variable with its eq class.
+    for(unsigned i = 0; i < eq_classes.size(); ++i)
+    {
+        bitset_for_each_bit(set_size, eq_classes[i], 
+        [this](unsigned bit)
+        {
+            var_t& var = globals().var_from_id(bit);
+            var.fn_var_i = num_fn_vars;
+            ++num_fn_vars;
+        });
+    }
+
+    // Now compile it!
+    bitset_pool.clear();
+    compile();
 }
 
 void ir_builder_t::compile()
 {
     ir.root = insert_cfg(true);
 
-    // Insert nodes for the arguments.
-    for(unsigned i = 0; i < fn().num_params; ++i)
-        ir.root.data<block_data_t>().local_vars[i] = ir.root->emplace_ssa(
-            SSA_argument, fn().local_vars[i].type, i);
+    // Insert initial nodes:
+    {
+        // Insert nodes for the arguments
+        for(unsigned i = 0; i < fn().num_params; ++i)
+            ir.root.data<block_d>().fn_vars[i] = ir.root->emplace_ssa(
+                SSA_argument, fn().local_vars[i].type, i);
+
+        // Insert nodes for global vars
+        unsigned var_i = fn().local_vars.size();
+        for(unsigned i = 0; i < iglobals.size(); ++i)
+            ir.root.data<block_d>().fn_vars[var_i++] = ir.root->emplace_ssa(
+                SSA_read_global, iglobals[i]->type, 
+                0u, ssa_value_t(iglobals[i]));
+
+        // Insert nodes for eq classes
+        while(var_i < num_fn_vars)
+            ir.root.data<block_d>().fn_vars[var_i++] = ir.root->emplace_ssa(
+                SSA_read_global, type_t{}, 0u, 0u);
+    }
 
     // Create all of the SSA graph, minus the exit node:
     cfg_ht end = compile_block(ir.root);
@@ -207,16 +329,44 @@ void ir_builder_t::compile()
         node->build_set_output(0, ir.exit);
     end->build_set_output(0, ir.exit);
 
-    ir.exit->exit = ir.exit->emplace_ssa(SSA_return, {});
+    // Write all globals before returning.
+    unsigned const num_globals = num_fn_vars - fn().local_vars.size();
+    ssa_ht* exit_writes = ALLOCA_T(ssa_ht, num_globals);
+    {
+        unsigned fn_var_i = fn().local_vars.size();
+
+        unsigned i = 0;
+        for(i = 0; i < iglobals.size(); ++i)
+        {
+            exit_writes[i] = ir.exit->emplace_ssa(
+                SSA_write_global, iglobals[i]->type,
+                local_lookup(ir.exit, fn_var_i), ssa_value_t(iglobals[i]));
+            ++fn_var_i;
+        }
+
+        while(fn_var_i < num_fn_vars)
+        {
+            exit_writes[i] = ir.exit->emplace_ssa(
+                SSA_write_global, type_t{},
+                local_lookup(ir.exit, fn_var_i), ssa_value_t(nullptr));
+            ++i;
+            ++fn_var_i;
+        }
+    }
+
+    ssa_ht exit_fence = ir.exit->emplace_ssa(SSA_fence, type_t{});
+    assert(exit_fence);
+    exit_fence->assign_input(exit_writes, exit_writes + num_globals);
+
+    ir.exit->exit = ir.exit->emplace_ssa(SSA_return, {}, exit_fence);
 
     if(return_type.name != TYPE_VOID)
     {
         ssa_ht phi = ir.exit->emplace_ssa(SSA_phi, return_type);
         phi->assign_input(&*return_values.begin(), &*return_values.end());
         ssa_node_t& return_node = *ir.exit->exit;
-        return_node.alloc_input(2);
-        return_node.build_set_input(0, 0u);
-        return_node.build_set_input(1, phi);
+        return_node.link_append_input(0u);
+        return_node.link_append_input(phi);
     }
 }
 
@@ -228,19 +378,23 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
     default:
         if(is_var_init(stmt->name))
         {
-            unsigned const local_var_i = get_local_var_i(stmt->name);
+            unsigned const var_i = get_local_var_i(stmt->name);
 
             ssa_value_t value;
             if(stmt->expr)
             {
                 cfg_node = compile_expr(cfg_node, stmt->expr);
+                throwing_cast(*cfg_node, rpn_stack.peek(0), 
+                              fn().local_vars[var_i].type);
                 value = rpn_stack.only1().ssa_value;
             }
             else
+            {
                 value = cfg_node->emplace_ssa(
-                    SSA_uninitialized, fn().local_vars[local_var_i].type);
+                    SSA_uninitialized, fn().local_vars[var_i].type);
+            }
 
-            cfg_node.data<block_data_t>().local_vars[local_var_i] = value;
+            cfg_node.data<block_d>().fn_vars[var_i] = value;
             ++stmt;
         }
         else
@@ -314,7 +468,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             // All continue statements jump to branch_node.
             for(cfg_ht node : continue_stack.top())
                 node->build_set_output(0, begin_branch);
-            seal_block(begin_branch.data<block_data_t>());
+            seal_block(begin_branch.data<block_d>());
 
             // Create the exit node.
             cfg_node = insert_cfg(true);
@@ -353,7 +507,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             exits_with_branch(*end_branch, rpn_stack.only1().ssa_value);
 
             end_branch->build_set_output(1, begin_body);
-            seal_block(begin_body.data<block_data_t>());
+            seal_block(begin_body.data<block_d>());
 
             // All continue statements jump to the branch node.
             for(cfg_ht node : continue_stack.top())
@@ -449,7 +603,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
                 for(cfg_ht node : label->inputs)
                     node->build_set_output(0, label->node);
                 // Seal the block.
-                seal_block(label->node.data<block_data_t>());
+                seal_block(label->node.data<block_d>());
             }
             break;
         }
@@ -457,101 +611,123 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
     assert(false);
 }
 
-// Inserts a fence that covers all memory values in 'bitset',
-// then creates 'node' as its dependent.
-ssa_ht ir_builder_t::insert_fenced(cfg_ht cfg_node, ssa_op_t op, type_t type, 
-                                   ds_bitset_t const& bitset, 
-                                   unsigned input_size)
+ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, 
+                                    global_t& fn_global,
+                                    rpn_value_t const* args)
 {
-    std::uint64_t non_zero = 0;
-    for(unsigned i = 0; i < bitset.array.size(); ++i)
-        non_zero |= bitset.array[i];
+    unsigned const set_size = globals().gvar_bitset_size<bitset_uint_t>();
 
-    // Function is pure! We don't need a fence.
-    if(!non_zero)
-        return cfg_node->emplace_ssa(op, type, 0u);
+    bc::small_vector<ssa_value_t, 16> global_inputs;
+    
+    unsigned const seen_bitset_size = bitset_size<bitset_uint_t>(num_fn_vars);
+    auto* seen = ALLOCA_T(bitset_uint_t, seen_bitset_size);
+    bitset_clear_all(seen_bitset_size, seen);
 
-    ssa_ht* input_begin = ALLOCA_T(ssa_ht, pastures.size());
-    ssa_ht* input_end = input_begin;
-    for(auto it = pastures.begin(); it != pastures.end();)
+    assert(fn_global.fn->reads);
+    bitset_for_each_bit(set_size, fn_global.fn->reads,
+    [this, cfg_node, seen, &global_inputs](unsigned bit)
     {
-        std::uint64_t is_fence_input = 0;
-        std::uint64_t keep_pasture = 0;
-        for(unsigned i = 0; i < bitset.array.size(); ++i)
-        {
-            // Subtract the bits from the array.
-            std::uint64_t a = bitset.array[i] & (*it)->bitset.array[i];
-            is_fence_input |= a;
-            keep_pasture |= (*it)->bitset.array[i] ^= a;
-        }
+        assert(bitset_test(fn_vars_bitset.data(), bit));
 
-        if(is_fence_input)
-        {
-            *input_end = (*it)->node;
-            ++input_end;
-        }
+        var_t& var = globals().var_from_id(bit);
+        unsigned const var_i = var.fn_var_i;
+        assert(var_i >= fn().local_vars.size());
 
-        // Remove the pasture if its bitset is all zeroes.
-        if(keep_pasture == 0)
+        if(bitset_test(seen, var_i))
+            return;
+        bitset_set(seen, var_i);
+
+        ssa_value_t last_def = local_lookup(cfg_node, var_i);
+
+        ssa_ht write = cfg_node->emplace_ssa(
+            SSA_write_global, var_i_type(var_i), last_def, 
+            ssa_value_t(&var.global));
+
+        global_inputs.push_back(write);
+    });
+
+    /*
+    assert(fn_global.fn->writes);
+    for(unsigned i = 0, span = 0; i < set_size; ++i)
+    {
+        bitset_for_each_bit(fn_global.fn->writes[i] & fn_vars_bitset[i],
+        [this, cfg_node, seen, &global_inputs](unsigned bit)
         {
-            *it = pastures.back();
-            pastures.pop_back();
-        }
-        else
-            ++it;
+            var_t& var = globals().var_from_id(bit);
+            unsigned const var_i = var.fn_var_i;
+            assert(var_i >= fn().local_vars.size());
+
+            if(bitset_test(seen, var_i))
+                return;
+            bitset_set(seen, var_i);
+
+            global_inputs.push_back(local_lookup(cfg_node, var_i));
+        }, span);
+
+        span += sizeof_bits<bitset_uint_t>;
     }
+    */
 
-    // Clear out memory if possible.
-    if(pastures.empty())
-        pasture_pool.clear();
-
-    // Create the fence node.
-    ssa_ht fence = cfg_node->emplace_ssa(SSA_fence, type_t{});
-    fence->assign_input(input_begin, input_end);
+    ssa_ht pre_fence = cfg_node->emplace_ssa(SSA_fence, type_t{});
+    pre_fence->assign_input(&*global_inputs.begin(), &*global_inputs.end());
 
     // Create the dependent node.
-    ssa_ht ret_h = cfg_node->emplace_ssa(op, type);
-    ssa_node_t& ret = *ret_h;
-    assert(input_size > 0);
-    ret.alloc_input(input_size);
-    ret.build_set_input(0, fence);
+    ssa_ht ret = cfg_node->emplace_ssa(SSA_fn_call, 
+                                       fn_global.type.return_type());
+    unsigned const num_args = fn_global.type.num_params();
+    ret->alloc_input(num_args + 2);
+    // The [0] argument is the fence.
+    ret->build_set_input(0, pre_fence);
+    // The [1] argument holds the fn_t ptr.
+    ret->build_set_input(1, ssa_value_t(&fn_global));
+    // The rest are the args:
+    for(unsigned i = 0; i != num_args; ++i)
+        ret->build_set_input(i + 2, args[i].ssa_value);
 
-    // Add the bits back.
-    new_pasture(bitset, ret_h);
+    // After the fn is called, read all the globals it has written to:
 
-    return ret_h;
-}
+    bitset_clear_all(seen_bitset_size, seen);
 
-// Creates a fence with ALL pastures as input.
-// Also clears 'pastures', so you'll have to insert into it again.
-ssa_ht ir_builder_t::insert_fence(cfg_node_t& cfg_node)
-{
-    ssa_ht node_h = cfg_node.emplace_ssa(SSA_fence, {});
-    ssa_node_t& node = *node_h;
-    node.alloc_input(pastures.size());
-    for(unsigned i = 0; i < pastures.size(); ++i)
-        node.build_set_input(i, pastures[i]->node);
-    pastures.clear();
-    pasture_pool.clear();
-    return node_h;
-}
+    assert(fn_global.fn->writes);
+    for(unsigned i = 0, span = 0; i < set_size; ++i)
+    {
+        bitset_for_each_bit(fn_global.fn->writes[i] & fn_vars_bitset[i],
+        [this, cfg_node, seen, ret](unsigned bit)
+        {
+            var_t& var = globals().var_from_id(bit);
+            unsigned const var_i = var.fn_var_i;
+            assert(var_i >= fn().local_vars.size());
 
-void ir_builder_t::new_pasture(ds_bitset_t const& bitset, ssa_ht node)
-{
-    pastures.push_back(&pasture_pool.insert({ bitset, node }));
+            if(bitset_test(seen, var_i))
+                return;
+            bitset_set(seen, var_i);
+
+            ssa_ht write = cfg_node->emplace_ssa(
+                SSA_read_global, var_i_type(var_i), ret,
+                ssa_value_t(&var.global));
+            assert(write->input_size() == 2);
+
+            block_d& block_data = cfg_node.data<block_d>();
+            block_data.fn_vars[var_i] = write;
+        }, span);
+
+        span += sizeof_bits<bitset_uint_t>;
+    }
+
+    return ret;
 }
 
 void ir_builder_t::exits_with_jump(cfg_node_t& node)
 {
     assert(!node.exit);
-    node.exit = insert_fence(node);
+    node.exit = {};
     node.alloc_output(1);
 }
 
 void ir_builder_t::exits_with_branch(cfg_node_t& node, ssa_value_t condition)
 {
     assert(!node.exit);
-    node.exit = node.emplace_ssa(SSA_if, {}, insert_fence(node), condition);
+    node.exit = node.emplace_ssa(SSA_if, {}, condition);
     node.alloc_output(2);
     assert(node.output_size() == 2);
 }
@@ -573,22 +749,30 @@ cfg_ht ir_builder_t::compile_goto(cfg_ht branch_node)
 cfg_ht ir_builder_t::insert_cfg(bool seal, pstring_t label_name)
 {
     cfg_ht new_node_h = ir.emplace_cfg();
-    cfg_data_pool::resize<block_data_t>(new_node_h.index + 1);
-    block_data_t& block_data = new_node_h.data<block_data_t>();
-    std::size_t const num_local_vars = fn().local_vars.size();
-    block_data.local_vars = input_pool.alloc(num_local_vars);
+    cfg_data_pool::resize<block_d>(new_node_h.index + 1);
+    block_d& block_data = new_node_h.data<block_d>();
+    block_data.fn_vars = input_pool.alloc(num_fn_vars);
     if(seal == false)
-        block_data.unsealed_phis = input_pool.alloc(num_local_vars);
+        block_data.unsealed_phis = input_pool.alloc(num_fn_vars);
     else
         block_data.unsealed_phis = nullptr;
     return new_node_h;
 }
 
-void ir_builder_t::seal_block(block_data_t& block_data)
+type_t ir_builder_t::var_i_type(unsigned var_i)
+{
+    if(var_i < fn().local_vars.size())
+        return fn().local_vars[var_i].type;
+    var_i -= fn().local_vars.size();
+    if(var_i < iglobals.size())
+        return iglobals[var_i]->type;
+    return type_t{};
+}
+
+void ir_builder_t::seal_block(block_d& block_data)
 {
     assert(block_data.sealed() == false);
-    std::size_t const num_local_vars = fn().local_vars.size();
-    for(unsigned i = 0; i < num_local_vars; ++i)
+    for(unsigned i = 0; i < num_fn_vars; ++i)
         if(block_data.unsealed_phis[i])
             fill_phi_args(*block_data.unsealed_phis[i], i);
     block_data.unsealed_phis = nullptr;
@@ -596,17 +780,17 @@ void ir_builder_t::seal_block(block_data_t& block_data)
 
 // Relevant paper:
 //   Simple and Efficient Construction of Static Single Assignment Form
-ssa_value_t ir_builder_t::local_lookup(cfg_ht cfg_h, unsigned local_var_i)
+ssa_value_t ir_builder_t::local_lookup(cfg_ht cfg_h, unsigned var_i)
 {
     cfg_node_t& node = *cfg_h;
-    block_data_t& block_data = cfg_h.data<block_data_t>();
-    assert(block_data.local_vars);
+    block_d& block_data = cfg_h.data<block_d>();
+    assert(block_data.fn_vars);
 
-    if(ssa_value_t lookup = block_data.local_vars[local_var_i])
+    if(ssa_value_t lookup = block_data.fn_vars[var_i])
         return lookup;
     else if(block_data.sealed())
     {
-        // If the block doesn't contain a definition for local_var_i,
+        // If the block doesn't contain a definition for 'var_i',
         // recursively look up its definition in predecessor nodes.
         // If there are multiple predecessors, a phi node will be created.
         try
@@ -616,20 +800,20 @@ ssa_value_t ir_builder_t::local_lookup(cfg_ht cfg_h, unsigned local_var_i)
             case 0:
                 throw local_lookup_error_t();
             case 1:
-                return local_lookup(node.input(0), local_var_i);
+                return local_lookup(node.input(0), var_i);
             default:
                 ssa_ht phi = node.emplace_ssa(
-                    SSA_phi, fn().local_vars[local_var_i].type);
-                block_data.local_vars[local_var_i] = phi;
-                fill_phi_args(*phi, local_var_i);
+                    SSA_phi, var_i_type(var_i));
+                block_data.fn_vars[var_i] = phi;
+                fill_phi_args(*phi, var_i);
                 return phi;
             }
         }
         catch(local_lookup_error_t&)
         {
-            if(block_data.label_name.size)
+            if(block_data.label_name.size && var_i < fn().local_vars.size())
             {
-                pstring_t var_name = fn().local_vars[local_var_i].name;
+                pstring_t var_name = fn().local_vars[var_i].name;
                 throw compiler_error_t(
                     fmt_error(block_data.label_name, fmt(
                         "Jump to label crosses initialization "
@@ -643,19 +827,19 @@ ssa_value_t ir_builder_t::local_lookup(cfg_ht cfg_h, unsigned local_var_i)
     else 
     {
         // If the node is unsealed, the predecessors are not fully known,
-        // and thus it's impossible to determine the local var's definition.
+        // and thus it's impossible to determine the var's definition.
         // To work around this, an incomplete phi node can be created, which
         // will then be filled when the node is sealed.
         assert(block_data.unsealed_phis);
         ssa_ht phi = node.emplace_ssa(
-            SSA_phi, fn().local_vars[local_var_i].type);
-        block_data.local_vars[local_var_i] = phi;
-        block_data.unsealed_phis[local_var_i] = phi;
+            SSA_phi, var_i_type(var_i));
+        block_data.fn_vars[var_i] = phi;
+        block_data.unsealed_phis[var_i] = phi;
         return phi;
     }
 }
 
-void ir_builder_t::fill_phi_args(ssa_node_t& phi, unsigned local_var_i)
+void ir_builder_t::fill_phi_args(ssa_node_t& phi, unsigned var_i)
 {
     // Input must be an empty phi node.
     assert(phi.op() == SSA_phi);
@@ -667,8 +851,7 @@ void ir_builder_t::fill_phi_args(ssa_node_t& phi, unsigned local_var_i)
 
     unsigned const input_size = cfg_node.input_size();
     for(unsigned i = 0; i < input_size; ++i)
-        phi.build_set_input(i, local_lookup(phi.cfg_node()->input(i), 
-                                            local_var_i));
+        phi.build_set_input(i, local_lookup(phi.cfg_node()->input(i), var_i));
 }
 
 cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
@@ -689,22 +872,34 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 .category = LVAL_LOCAL, 
                 .type = fn().local_vars[token->value].type, 
                 .pstring = token->pstring,
-                .local_var_i = token->value });
+                .var_i = token->value });
             break;
 
         case TOK_global_ident:
             {
-                global_t& global = globals()[token->value];
-                switch(global.gclass)
+                global_t* global = token->ptr<global_t>();
+                switch(global->gclass)
                 {
                 default:
                     throw std::runtime_error(
                         "Unimplemented global in expression.");
+                case GLOBAL_VAR:
+                    {
+                        unsigned const var_i = global->var->fn_var_i;
+                        rpn_stack.push({ 
+                            .ssa_value = local_lookup(cfg_node, var_i), 
+                            .category = LVAL_GLOBAL, 
+                            .type = global->type, 
+                            .pstring = token->pstring,
+                            .var_i = var_i });
+                    }
+                    break;
+
                 case GLOBAL_FN:
                     rpn_stack.push({ 
-                        .ssa_value = token->value,
+                        .ssa_value = ssa_value_t(global),
                         .category = RVAL, 
-                        .type = global.type, 
+                        .type = global->type, 
                         .pstring = token->pstring });
                     break;
                 }
@@ -740,7 +935,6 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 }
 
                 std::size_t const num_params = fn_val.type.num_params();
-                type_t const return_type = fn_val.type.return_type();
                 type_t const* const params = fn_val.type.tail();
 
                 if(num_args != num_params)
@@ -755,52 +949,37 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 // Now for the arguments.
                 // Cast all arguments to match the fn signature.
                 rpn_value_t* const args = &rpn_stack.peek(num_args - 1);
-                if(std::uint64_t fail_bits = cast_args(
-                *cfg_node, fn_val.pstring, args, rpn_stack.past_top(), params))
+
+                for(std::uint64_t arg = 0, fail_bits = cast_args(*cfg_node, 
+                    fn_val.pstring, args, rpn_stack.past_top(), params)
+                   ; fail_bits; ++arg)
                 {
-                    auto arg = 0;
-                    do
+                    if(fail_bits & 1)
                     {
-                        if(fail_bits & 1)
-                        {
-                            compiler_error(
-                                args[arg].pstring, fmt(
-                                "Unable to convert type % "
-                                "to type % in function application.\n"
-                                "Expected signature: % ",
-                                args[arg].type,
-                                params[arg],
-                                fn_val.type));
-                        }
-                        ++arg;
-                        fail_bits >>= 1;
+                        compiler_error(
+                            args[arg].pstring, fmt(
+                            "Unable to convert type % "
+                            "to type % in function application.\n"
+                            "Expected signature: % ",
+                            args[arg].type, params[arg], fn_val.type));
                     }
-                    while(fail_bits);
+                    fail_bits >>= 1;
                 }
 
                 // For now, only const fns are allowed.
                 // In the future, fn pointers may be supported.
                 assert(fn_val.ssa_value.is_const());
-                global_t& fn_global = globals()[fn_val.ssa_value.whole()];
+                global_t& fn_global = *fn_val.ssa_value.ptr<global_t>();
 
                 // Type checks are done. Now convert the call to SSA.
-                ssa_ht fn_node_h = 
-                    insert_fenced(cfg_node, SSA_fn_call, 
-                                  return_type, fn_global.fn->modifies,
-                                  num_args + 2);
-                ssa_node_t& fn_node = *fn_node_h;
-                // The [0] argument is the fence.
-                // The [1] argument holds the function (index).
-                fn_node.build_set_input(1, fn_val.ssa_value);
-                for(unsigned i = 0; i != num_args; ++i)
-                    fn_node.build_set_input(i + 2, args[i].ssa_value);
+                ssa_ht fn_node = insert_fn_call(cfg_node, fn_global, args);
 
                 // Update the eval stack.
                 rpn_stack.pop(num_args + 1);
                 rpn_stack.push({ 
-                    .ssa_value = fn_node_h,
+                    .ssa_value = fn_node,
                     .category = RVAL, 
-                    .type = return_type, 
+                    .type = fn_val.type.return_type(), 
                     .pstring = token->pstring });
 
                 break;
@@ -921,22 +1100,19 @@ void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
 
     assignee.pstring = concat(assignee.pstring, assignee.pstring);
 
-    // TODO: global assigns
-
-    if(assignee.category != LVAL_LOCAL)
-    {
+    if(assignee.category == RVAL)
         compiler_error(assignee.pstring, 
             "Expecting lvalue on left side of assignment.");
-    }
 
     throwing_cast(cfg_node, assignment, assignee.type);
 
-    // Remap the identifier to point to the new value.
-    block_data_t& block_data = cfg_node.handle().data<block_data_t>();
-    block_data.local_vars[assignee.local_var_i] = assignment.ssa_value;
-    assignee.ssa_value = assignment.ssa_value;
+    // Remap the identifier to point to the new value:
+    block_d& block_data = cfg_node.handle().data<block_d>();
+    block_data.fn_vars[assignee.var_i] = assignment.ssa_value;
 
-    // Leave the assignee on the stack, but extend its pstring.
+    // Leave the assignee on the stack, slightly modified.
+    assignee.ssa_value = assignment.ssa_value;
+    assignee.category = RVAL;
     rpn_stack.pop();
 }
 
@@ -1093,8 +1269,7 @@ std::uint64_t ir_builder_t::cast_args(
 
 ir_t build_ir(global_manager_t& global_manager, global_t& global)
 {
-    cfg_data_pool::scope_guard_t<block_data_t> cfg_data_guard;
+    cfg_data_pool::scope_guard_t<block_d> cfg_data_guard;
     ir_builder_t ir_builder(global_manager, global);
-    ir_builder.compile();
-    return ir_builder.ir;
+    return std::move(ir_builder.ir);
 }

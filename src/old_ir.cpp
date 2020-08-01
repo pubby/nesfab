@@ -378,51 +378,6 @@ void ir_t::visit_order(cfg_node_t& node)
     postorder.push_back(&node);
 }
 
-static cfg_node_t* best_idom(cfg_node_t const& node, cfg_node_t* root)
-{
-    if(node.input_size() == 0)
-        return nullptr;
-    cfg_node_t* new_idom = &node.input(0);
-    for(std::size_t j = 1; j < node.input_size(); ++j)
-    {
-        cfg_node_t* pred = &node.input(j);
-        while(pred != new_idom)
-        {
-            if(pred->postorder_i < new_idom->postorder_i)
-                pred = pred->idom ? pred->idom : root;
-            else 
-                new_idom = new_idom->idom ? new_idom->idom : root;
-        }
-    }
-    return new_idom;
-}
-
-// Finds the immediate dominator of every cfg node.
-// 
-// Paper: A Simple, Fast Dominance Algorithm
-// By Keith D. Cooper, Timothy J. Harvey, and Ken Kennedy
-void ir_t::build_dominators()
-{
-    cfg_foreach([](cfg_node_t& node){ node.idom = nullptr; });
-
-    for(bool changed = true; changed;)
-    {
-        changed = false;
-
-        // Reverse postorder, but skip start node.
-        for(auto it = postorder.rbegin()+1; it < postorder.rend(); ++it)
-        {
-            cfg_node_t& node = **it; assert(&node != root);
-            cfg_node_t* new_idom = best_idom(node, root);
-            if(new_idom != node.idom)
-            {
-                node.idom = new_idom;
-                changed = true;
-            }
-        }
-    }
-}
-
 void ir_t::build_loops()
 {
     cfg_foreach([](cfg_node_t& node) 

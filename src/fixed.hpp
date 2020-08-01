@@ -7,6 +7,7 @@
 #include "types.hpp"
 
 using fixed_int_t = std::uint64_t;
+static_assert(sizeof(fixed_int_t) >= sizeof(std::uintptr_t));
 
 struct fixed_t
 {

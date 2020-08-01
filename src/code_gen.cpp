@@ -9,412 +9,6 @@
 #include "globals.hpp"
 #include "ir.hpp"
 #include "o.hpp"
-#include "toposort.hpp"
-
-namespace bc = ::boost::container;
-
-namespace // anonymous
-{
-    // bm = bytemap
-    using bm_t = std::array<ssa_value_t, type_t::max_total_bytes>;
-    static_assert(type_t::max_total_bytes == 6); // To match 'zero_bm' below.
-    constexpr bm_t zero_bm = { 0u, 0u, 0u, 0u, 0u, 0u };
-
-    struct ssa_byteify_data_t
-    {
-        bm_t bm;
-    };
-
-    bm_t get_bm(ssa_value_t value)
-    {
-        assert(value);
-
-        if(value.is_const())
-        {
-            bm_t bm;
-            fixed_int_t f = value.fixed().value;
-            for(unsigned i = 0; i < bm.size(); ++i)
-            {
-                bm[i] = f & 0xFF;
-                f >>= 8;
-            }
-            return bm;
-        }
-        else
-        {
-            assert(is_arithmetic(value->type().name));
-            return value.handle().data<ssa_byteify_data_t>().bm;
-        }
-    }
-}
-
-// Used in 'byteify' to remove casts.
-static void _split_cast(ssa_ht ssa_h)
-{
-    ssa_node_t& ssa_node = *ssa_h;
-
-    // Check if the input has outputs:
-    ssa_value_t input = ssa_node.input(0);
-    if(input.holds_ref() && input->op() == SSA_cast && !input->flags)
-        _split_cast(input.handle());
-
-    type_t const type = ssa_node.type();
-    auto& data = ssa_h.data<ssa_byteify_data_t>();
-    data.bm = zero_bm;
-    bm_t input_bm = get_bm(input);
-    unsigned const end = end_byte(type.name);
-    for(unsigned i = begin_byte(type.name); i < end; ++i)
-        data.bm[i] = input_bm[i];
-
-    ssa_node.flags = 1;
-}
-
-// Converts all operations with non-BYTE types to only use BYTE.
-void byteify(ir_t& ir, global_manager_t& globals, global_t& global)
-{
-    assert(global.type.name == TYPE_FN);
-
-    ssa_data_pool::scope_guard_t<ssa_byteify_data_t> sg(
-        ssa_pool::array_size());
-
-    ssa_workvec.clear();
-    static std::vector<ssa_ht> prune_nodes;
-    prune_nodes.clear();
-
-    // Split nodes that have multi-byte results into N nodes, where N
-    // is the number of bytes its result takees.
-
-    // Create the nodes here, leaving the original node to keep track:
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        cfg_node_t& cfg_node = *cfg_it;
-        for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
-        {
-            ssa_node_t& ssa_node = *ssa_it;
-            ssa_node.flags = 0; // Zero the flags for the _split_cast step.
-            type_t const type = ssa_node.type();
-
-            if(type.name == TYPE_BYTE)
-            {
-                auto& ssa_data = ssa_it.data<ssa_byteify_data_t>(); 
-                ssa_data.bm = zero_bm;
-                ssa_data.bm[type_t::max_frac_bytes] = ssa_it;
-                continue;
-            }
-
-            if(!is_arithmetic(type.name))
-                continue;
-
-            if(ssa_node.op() == SSA_cast)
-            {
-                // Casts will just forward their input(s) to their output(s),
-                // and will be removed entirely.
-                // The forwarding will happen after all other nodes that
-                // need splitting have been split.
-                prune_nodes.push_back(ssa_it);
-                continue;
-            }
-
-            // TODO:
-            ssa_op_t split_op;
-            switch(ssa_node.op())
-            {
-            default:
-                split_op = ssa_node.op();
-                break;
-            case SSA_fn_call:
-                split_op = SSA_get_return;
-                break;
-            }
-
-            bm_t bm = zero_bm;
-            unsigned const end = end_byte(type.name);
-            for(unsigned i = begin_byte(type.name); i < end; ++i)
-                bm[i] = cfg_node.emplace_ssa(split_op, type_t{TYPE_BYTE});
-            // !!IMPORTANT: 'ssa_node' is invalidated after this!!
-
-            // TODO:
-            ssa_data_pool::resize<ssa_byteify_data_t>(ssa_pool::array_size());
-
-            auto& ssa_data = ssa_it.data<ssa_byteify_data_t>();
-            ssa_data.bm = std::move(bm);
-
-            // workvec will hold nodes that have been split:
-            ssa_workvec.push_back(ssa_it);
-        }
-    }
-
-    // Split cast operations now.
-    // 'prune_nodes' should hold all the casts at the moment and nothing else.
-    for(ssa_ht ssa_h : prune_nodes)
-    {
-        assert(ssa_h->op() == SSA_cast);
-        _split_cast(ssa_h);
-    }
-
-    // Rewrite the inputs of certain nodes to use multi-byte
-    bc::small_vector<ssa_value_t, 24> new_input;
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        cfg_node_t& cfg_node = *cfg_it;
-        for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
-        {
-            ssa_node_t& ssa_node = *ssa_it;
-
-            switch(ssa_node.op())
-            {
-            case SSA_fn_call:
-                {
-                    // Functions have a specific calling convention defined
-                    // by their function type.
-                    // Because SSA constants lack types, it's necessary
-                    // to look up the function's global definition first:
-
-                    global_t& global = globals.global(ssa_node);
-                    assert(global.gclass == GLOBAL_FN);
-                    unsigned const argn = global.type.num_params();
-
-                    assert(argn == ssa_node.input_size()+2);
-
-                    new_input.clear();
-                    for(unsigned i = 0; i < argn; ++i)
-                    {
-                        bm_t bm = get_bm(ssa_node.input(i+2));
-                        type_name_t t = global.type[i].name;
-                        assert(is_arithmetic(t));
-                        unsigned const end = end_byte(t);
-                        for(unsigned j = begin_byte(t); j < end; ++j)
-                            new_input.push_back(bm[j]);
-                    }
-
-                    // Keep the first two arguments
-                    // (the fence and the fn index),
-                    // but replace the fn parameters.
-                    ssa_node.link_shrink_inputs(2);
-                    ssa_node.link_append_input(&*new_input.begin(),
-                                               &*new_input.end());
-
-                }
-                break;
-
-            case SSA_fence:
-                {
-                    // Fences just expand to hold every new multi-byte value,
-                    // in lieu of their originals.
-
-                    new_input.clear();
-                    unsigned const input_size = ssa_node.input_size();
-                    for(unsigned i = 0; i < input_size; ++i)
-                    {
-                        ssa_value_t input = ssa_node.input(i);
-                        
-                        // Const nodes do nothing as fence params and can
-                        // be ignored.
-                        if(input.is_const())
-                            continue;
-
-                        type_name_t t = input->type().name;
-                        bm_t bm = get_bm(input);
-                        unsigned const end = end_byte(t);
-                        for(unsigned j = begin_byte(t); j < end; ++j)
-                        {
-                            // Again, const can be ignored.
-                            if(!bm[j].is_const())
-                                new_input.push_back(bm[j]);
-                        }
-                    }
-
-                    ssa_node.link_clear_inputs();
-                    ssa_node.link_append_input(&*new_input.begin(),
-                                               &*new_input.end());
-                }
-                break;
-
-            case SSA_eq:
-            case SSA_not_eq:
-            case SSA_lt:
-            case SSA_lte:
-                {
-                    // Comparisons convert to N parallel comparisons,
-                    // where N is the size in bytes of the largest argument.
-
-                    // The format is interleaved (ababab instead of aaabbb)
-                    // to make it easier to remove arguments in optimization.
-
-                    new_input.clear();
-                    assert(ssa_node.input_size() == 2);
-
-                    std::array<bm_t, 2> bms;
-                    unsigned begin = ~0;
-                    unsigned end = 0;
-                    for(unsigned i = 0; i < 2; ++i)
-                    {
-                        ssa_value_t input = ssa_node.input(i);
-                        type_name_t t = input.type().name;
-                        bms[i] = get_bm(input);
-                        begin = std::min(begin, begin_byte(t));
-                        end = std::max(end, end_byte(t));
-                        std::printf("types %s\n", type_string(input.type()).c_str());
-                    }
-
-                    std::printf("span %i\n", end - begin);
-
-                    for(unsigned j = begin; j < end; ++j)
-                        for(unsigned i = 0; i < 2; ++i)
-                            new_input.push_back(bms[i][j]);
-
-                    ssa_node.link_clear_inputs();
-                    ssa_node.link_append_input(&*new_input.begin(),
-                                               &*new_input.end());
-
-                    // Should always have an even number of args.
-                    assert(ssa_node.input_size() % 2 == 0);
-                }
-                break;
-
-            default:
-                break;
-            }
-
-        }
-    }
-
-    // Calculate argument offsets to be used later.
-    unsigned* arg_offsets = ALLOCA_T(unsigned, global.type.num_params());
-    for(unsigned i = 0, offset = 0; i < global.type.num_params(); ++i)
-    {
-        arg_offsets[i] = offset;
-        offset += total_bytes(global.type[i].name);
-    }
-
-    // Finish up the split outputs created earlier:
-    std::vector<bm_t> bms;
-    for(ssa_ht ssa_h : ssa_workvec)
-    {
-        ssa_node_t& ssa_node = *ssa_h;
-        auto& ssa_data = ssa_h.data<ssa_byteify_data_t>(); 
-        type_name_t const t = ssa_node.type().name;
-        assert(is_arithmetic(t));
-
-        switch(ssa_node.op())
-        {
-        // These replace the original node with N parallel ops,
-        // each with the same amount of arguments as the original.
-        case SSA_phi:
-        case SSA_cast:
-        case SSA_and:
-        case SSA_or:
-        case SSA_xor:
-            {
-                unsigned const input_size = ssa_node.input_size();
-
-                bms.resize(input_size);
-                for(unsigned i = 0; i < input_size; ++i)
-                    bms[i] = get_bm(ssa_node.input(i));
-
-                unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
-                {
-                    ssa_value_t split_h = ssa_data.bm[i];
-                    assert(split_h.holds_ref());
-                    ssa_node_t& split_node = *split_h;
-
-                    split_node.alloc_input(input_size);
-                    for(unsigned j = 0; j < input_size; ++j)
-                        split_node.build_set_input(j, bms[j][i]);
-                }
-                prune_nodes.push_back(ssa_h);
-            }
-            break;
-
-        // These ops are similar to the above, but need a carry:
-        case SSA_add:
-        case SSA_sub:
-            {
-                bm_t const lhs_bm = get_bm(ssa_node.input(0));
-                bm_t const rhs_bm = get_bm(ssa_node.input(1));
-
-                ssa_value_t carry = ssa_node.input(2);
-                unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
-                {
-                    ssa_value_t split_h = ssa_data.bm[i];
-                    assert(split_h.holds_ref());
-                    ssa_node_t& split_node = *split_h;
-
-                    split_node.alloc_input(3);
-                    split_node.build_set_input(0, lhs_bm[i]);
-                    split_node.build_set_input(1, rhs_bm[i]);
-                    split_node.build_set_input(2, carry);
-
-                    carry = split_h;
-                }
-                prune_nodes.push_back(ssa_h);
-            }
-            break;
-
-        // Keeps the original node.
-        // All the split nodes created will reference it, using their [1]
-        // argument as an index representing which byte they hold.
-        case SSA_fn_call:
-            {
-                unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
-                {
-                    ssa_value_t split_h = ssa_data.bm[i];
-                    assert(split_h.holds_ref());
-                    ssa_node_t& split_node = *split_h;
-                    assert(split_node.op() == SSA_get_return);
-
-                    split_node.alloc_input(2);
-                    split_node.build_set_input(0, ssa_h);
-                    split_node.build_set_input(1, i);
-                }
-            }
-            break;
-
-        case SSA_argument:
-            {
-                assert(ssa_node.input_size() == 1);
-                ssa_value_t input = ssa_node.input(0);
-                assert(input.is_const());
-                unsigned const orig_argn = input.whole();
-                unsigned offset = arg_offsets[orig_argn];
-
-                unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
-                {
-                    ssa_value_t split_h = ssa_data.bm[i];
-                    assert(split_h.holds_ref());
-                    ssa_node_t& split_node = *split_h;
-
-                    split_node.alloc_input(1);
-                    split_node.build_set_input(0, offset);
-                    ++offset;
-                }
-
-                prune_nodes.push_back(ssa_h);
-            }
-            break;
-
-        default:
-            // Shouldn't ever happen if this was coded correctly...
-            throw std::runtime_error(fmt("Unhandled op SSA_% in byteify.", 
-                                         ssa_node.op()));
-        }
-    }
-
-    return;
-
-    // Prune nodes that are now unnecessary:
-    for(ssa_ht ssa_h : prune_nodes)
-    {
-        ssa_node_t& ssa_node = *ssa_h;
-        ssa_node.link_clear_inputs();
-        ssa_node.unsafe_prune();
-    }
-}
-
 
 // THE PLAN:
 // - insert copies
@@ -428,32 +22,6 @@ void byteify(ir_t& ir, global_manager_t& globals, global_t& global)
 
 namespace
 {
-    using schedule_t = std::vector<ssa_ht>;
-
-    struct ssa_out_data_t
-    {
-        ssa_value_t set_head = nullptr; // Basically a union-find pointer.
-        ssa_ht next = nullptr; // A linked-list to the next node
-        unsigned schedule_i = 0;
-
-        // Used to sequentialize parallel copies:
-        ssa_ht loc == nullptr;
-        ssa_ht pred == nullptr;
-    };
-
-    struct cfg_out_data_t
-    {
-        schedule_t schedule;
-
-        // Bitsets
-        unsigned* live_in;
-        unsigned* live_out; // Also used to hold the 'KILL' set temporarily.
-
-        // Holds parallel copies introduced to handle phi nodes.
-        std::vector<ssa_ht> entry_copies;
-        std::vector<ssa_ht> exit_copies;
-    };
-
     // Nodes will be partitioned into congruence classes for coalescing
     // purposes, dubbed "cset" for brevity.
     // These are implemented as union-find on top of a singly-linked list.
@@ -535,8 +103,6 @@ namespace
     }
 
     // TODO
-    constexpr std::uint32_t FLAG_PROCESSED = 1 << 0;
-
     enum block_type_t
     {
         BLOCK_PHIS,
@@ -545,6 +111,7 @@ namespace
         BLOCK_EXIT_COPIES,
     };
 
+    // TODO
     static block_type_t block_type(ssa_op_t op)
     {
         switch(op)
@@ -727,11 +294,11 @@ namespace
 static void _toposort_visit(schedule_t& schedule, ssa_ht node_h)
 {
     ssa_node_t& node = *node_h;
-    if(node.flags == MARK_PERMANENT)
+    if(node.get_mark() == MARK_PERMANENT)
         return;
-    else if(node.flags == MARK_TEMPORARY)
+    else if(node.get_mark() == MARK_TEMPORARY)
         throw std::runtime_error("Circular SSA dependency.");
-    node.flags = MARK_TEMPORARY;
+    node.set_mark(MARK_TEMPORARY);
 
     for(unsigned i = 0; i < node.input_size(); ++i)
     {
@@ -740,52 +307,105 @@ static void _toposort_visit(schedule_t& schedule, ssa_ht node_h)
             _toposort_visit(schedule, input.handle());
     }
 
-    node.flags = MARK_PERMANENT;
-    node_h.data<ssa_out_data_t>().schedule_i = schedule.size();
-    schedule.push_back(node_h);
+    node.set_mark(MARK_PERMANENT);
+
+    auto& node_data = node_h.data<ssa_out_data_t>();
+
+    switch(ssa_node.op())
+    {
+    case SSA_entry_copy: node_data.schedule_i = -2; break;
+    case SSA_phi:        node_data.schedule_i = -1; break;
+    case SSA_exit_copy:  node_data.schedule_i = INT_MAX; break;
+    default:
+        node_data.schedule_i = schedule.size();
+        schedule.push_back(node_h);
+        break;
+    }
 }
 
-
-static schedule_t _schedule_cfg_node(cfg_ht cfg_h)
+std::uint64_t reg_carry_input(ssa_ht h)
 {
-    schedule_t schedule;
-    cfg_node_t& cfg_node = *cfg_h;
-    assert(cfg_node.exit);
+    switch(h->op())
+    {
+    case SSA_add:
+    case SSA_sub:
+        return 1 << 2;
+    default:
+        return 0;
+}
 
-    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+std::uint64_t reg_a_input(ssa_ht h)
+{
+    switch(h->op())
     {
-        ssa_node_t& ssa_node = *ssa_it;
-        assert(ssa_node.op() != SSA_phi);
-        ssa_node.flags = MARK_NONE;
-    }
-    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+    case SSA_add:
+    case SSA_and:
+    case SSA_or:
+    case SSA_xor:
+    case SSA_eq:
+    case SSA_not_eq:
+        return 0b11;
+    case SSA_sub:
+    case SSA_lt:
+    case SSA_lte:
+        return 0b1;
+    default:
+        return 0;
+}
+
+// TODO
+struct 
+{
+    int dependent_C;
+    int dependent_A;
+    int dependent_X;
+    int dependent_Y;
+};
+
+cfg_ht reg_carry;
+cfg_ht reg_a;
+cfg_ht reg_x;
+cfg_ht reg_y;
+
+
+// TODO
+struct 
+{
+    unsigned short bitset_i;
+    unsigned short inputs_remaining;
+    std::uint64_t* depends_on;
+    std::uint64_t* dependency_of;
+};
+
+// TODO
+std::uint64_t* scheduled_bitset;
+std::uint64_t* clobbers_carry_bitset;
+
+
+void ()
+{
+    changed = false;
+    for(ssa_ht h : preorder)
     {
-        ssa_node_t& ssa_node = *ssa_it;
-        if(ssa_it != cfg_node.exit && ssa_node.flags == MARK_NONE)
+        // 'depends_on' is equal to the 'depends_on' OR of each predecessor.
+
+        unsigned const input_size = node.input_size();
+        for(unsigned i = 0; i < input_size; ++i)
         {
-            unsigned const output_size = ssa_node.output_size();
-            for(unsigned i = 0; i < output_size; ++i)
+            // TODO
+            if(TODO)
+                continue;
+
+            // TODO
+            for(std::size_t i = 0; i < size; ++i)
             {
-                ssa_value_t output_v = ssa_node.output(i);
-                if(!output_v.holds_ref())
-                    continue;
-                ssa_node_t& output = *output_v;
-                // Delay nodes as late as possible in the schedule:
-                if(output.flags == MARK_NONE
-                   && output.cfg_node() == ssa_node.cfg_node())
-                    goto skip;
+                auto x = lhs[i] | rhs[i];
+                if(x != lhs[i])
+                    changed = true;
+                lhs[i] = x;
             }
-            _toposort_visit(schedule, ssa_it);
-        skip:;
         }
     }
-
-    // The exit always comes last
-    assert(cfg_node.exit);
-    assert(cfg_node.exit->flags == MARK_NONE);
-    _toposort_visit(schedule, cfg_node.exit);
-
-    return schedule;
 }
 
 void make_conventional(ir_t& ir)
@@ -855,7 +475,6 @@ void make_conventional(ir_t& ir)
                 _cset_append(last, input_copy_h);
                 last = input_copy_h;
 
-                // Add 
                 pred_h.data<cfg_out_data_t>()
                     .exit_copies.push_back(input_copy_h);
             }
@@ -942,17 +561,6 @@ void make_conventional(ir_t& ir)
                 }
             }
         }
-    }
-
-    // Now schedule the nodes.
-    // This is before coalescing, because it's convenient to have a total
-    // order of nodes when coalescing to determine interferences.
-
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        cfg_node_t& cfg_node = *cfg_it;
-        auto& data = cfg_it.data<cfg_cgen_data_t>();
-        data.schedule = _schedule_cfg_node(cfg_node);
     }
 
     // Now calculate liveness sets.
@@ -1072,7 +680,18 @@ void make_conventional(ir_t& ir)
         }
     }
 
-    // OK! The liveness sets are now built.
+    // Now schedule the nodes.
+    // This is before coalescing, because it's convenient to have a total
+    // order of nodes when coalescing to determine interferences.
+
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    {
+        cfg_node_t& cfg_node = *cfg_it;
+        auto& data = cfg_it.data<cfg_cgen_data_t>();
+        data.schedule = _schedule_cfg_node(cfg_node);
+    }
+
+    // OK! The liveness sets and schedule are built.
     // Now to perform coalescing.
 
     // - Pick a candidate copy.
@@ -1142,8 +761,19 @@ void make_conventional(ir_t& ir)
         _schedule_parallel_copies(cfg_data.entry_copies, new_schedule);
 
         // TODO Copy old schedule here:
+        new_schedule.insert(new_schedule.end(),
+                            cfg_data.schedule.begin(), cfg_data.schedule.end);
 
         _schedule_parallel_copies(cfg_data.exit_copies,  new_schedule);
+
+        std::size_t const size = new_schedule.size();
+        for(unsigned i = 0; i < size; ++i)
+        {
+            ssa_ht ssa_it = new_schedule[i];
+            ssa_it.data<ssa_out_data_t>().schedule_i = i;
+        }
+
+        cfg_data.schedule = std::move(new_schedule);
     }
 
 

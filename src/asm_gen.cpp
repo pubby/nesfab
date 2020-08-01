@@ -120,6 +120,17 @@ int main(int argc, char** argv)
     }
     */
 
+    std::cout << "{\n";
+    for(op_t const& op : ops)
+        std::cout << "    " << op.name << ",\n";
+    std::cout << "}\n";
+
+    std::cout << "{\n";
+    for(op_t const& op : ops)
+        for(instr_t const& instr : op.instrs)
+            std::cout << "    " << op.name << "_" << addr_mode_name(instr.addr_mode) << ",\n";
+    std::cout << "}\n";
+
     std::cout << "instr_def_t instr_defs[] =\n{\n";
     for(op_t const& op : ops)
     {
@@ -133,10 +144,8 @@ int main(int argc, char** argv)
             std::cout << "        .opcode = " << (int)instr.code << ",\n";
             std::cout << "        .size = " << (int)instr.size << ",\n";
             std::cout << "        .cycles = " << (int)instr.size << ",\n";
-            std::cout << "        .implicit_regs = " << 0 << ",\n";
-            std::cout << "        .arg_regs = " << 0 << ",\n";
-            std::cout << "        .out_regs = " << 0 << ",\n";
-            std::cout << "        .flags = " << 0 << ",\n";
+            std::cout << "        .input_regs = " << 0 << ",\n";
+            std::cout << "        .output_regs = " << 0 << ",\n";
             std::cout << "    },\n";
         }
     }

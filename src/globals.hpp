@@ -9,13 +9,14 @@
 
 #include "flat/flat_set.hpp"
 
+#include "array_pool.hpp"
+#include "bitset.hpp"
 #include "file.hpp"
 #include "handle.hpp"
 #include "ir.hpp"
 #include "parser_types.hpp"
 #include "ram.hpp"
 #include "symbol_table.hpp"
-#include "toposort.hpp"
 #include "types.hpp"
 
 namespace bc = boost::container;
@@ -38,7 +39,9 @@ using stmt_handle_t = handle_t<unsigned, struct stmt_handle_tag_t>;
     X(STMT_LABEL)\
     X(STMT_GOTO)
 
-// Negative values represent var inits, where 
+// Negative values represent var inits, where the negated value 
+// holds the bitwise negated index of the fn variable.
+// (See 'get_local_var_i')
 enum stmt_name_t : int
 {
     STMT_MIN_VAR_DECL = INT_MIN,
@@ -81,15 +84,18 @@ struct global_t
     pstring_t name;
     global_class_t gclass;
     type_t type;
+
     union
     {
         class fn_t* fn;
-        token_t* expr;
+        class var_t* var;
     };
 
-    fc::vector_set<global_t*> deps;
+    // 'ideps' means "immediate dependencies".
+    // AKA any global name that appaers in the definition of this global.
+    fc::vector_set<global_t*> ideps;
 
-    toposort_mark_t mark;
+    mark_t mark; // For toposorting.
 };
 
 struct label_t
@@ -109,6 +115,26 @@ struct stmt_t
         token_t* expr;
         label_t* label;
     };
+};
+
+class var_t
+{
+public:
+    var_t(global_t& global, unsigned id, token_t* expr)
+    : global(global)
+    , id(id)
+    , expr(expr)
+    {}
+
+    global_t& global;
+    unsigned const id = 0;
+
+    // Used inside the IR builder:
+    unsigned fn_var_i;
+
+    //int eq_class_i = 0;
+    token_t const* const expr = nullptr;
+    // ram_region_t region = {}; TODO
 };
 
 class fn_t
@@ -138,15 +164,24 @@ public:
         return handle;
     }
 
-    unsigned num_params;
-    std::vector<var_decl_t> local_vars; // First elems are params.
+    // TODO
+    //type_t fn_var_type(unsigned var_i) const { return fn_vars[var_i].type; }
+
+    unsigned num_params = 0;
+
+    // First elems are params
+    std::vector<var_decl_t> local_vars;
+
     std::vector<stmt_t> stmts;
 
-    std::vector<type_t> arg_bytes_types;
-    std::vector<addr16_t> arg_bytes;
-    std::vector<addr16_t> return_bytes;
+    // TODO
+    //std::vector<type_t> arg_bytes_types;
+    //std::vector<addr16_t> arg_bytes;
+    //std::vector<addr16_t> return_bytes;
 
-    ds_bitset_t modifies;
+    // Bitsets which track which 'var_t's this function uses.
+    bitset_uint_t* reads = nullptr;  // All global vars read in fn (deep)
+    bitset_uint_t* writes = nullptr; // All global vars written in fn (deep)
 };
 
 class global_manager_t
@@ -156,14 +191,11 @@ public:
     global_manager_t(global_manager_t const&) = delete;
     global_manager_t& operator=(global_manager_t const&) = delete;
 
-    global_t const& operator[](unsigned i) const { return globals[i]; }
-    global_t& operator[](unsigned i) { return globals[i]; }
-
     // Creates a global if it doesn't exist.
-    unsigned get_index(pstring_t name);
-    global_t& get(pstring_t name) { return globals[get_index(name)]; }
+    global_t& lookup_name(pstring_t name) { return globals[get_index(name)]; }
 
     // Looks up the global referenced in a node
+    // TODO: remove this from class and make free function
     global_t const* global(ssa_node_t& ssa_node) const;
     global_t* global(ssa_node_t& ssa_node) 
         { return const_cast<global_t*>(const_this()->global(ssa_node)); }
@@ -178,9 +210,16 @@ public:
 
     label_t* new_label() { return label_pool.alloc(); }
 
-    std::vector<global_t*> toposort_deps();
-
     void finish();
+
+    template<typename T>
+    unsigned gvar_bitset_size() const 
+        { return bitset_size<T>(m_vars.size()); }
+
+    var_t const& var_from_id(unsigned id) const
+        { assert(id < m_vars.size()); return m_vars[id]; }
+    var_t& var_from_id(unsigned id)
+        { assert(id < m_vars.size()); return m_vars[id]; }
 
     void debug_print();
     std::ostream& gv_deps(std::ostream& o);
@@ -188,14 +227,24 @@ public:
 private:
     global_manager_t const* const_this() const { return this; }
 
+    // Used to implement 'get'.
+    unsigned get_index(pstring_t name);
+
+    void calc_reads_writes(global_t& global, ir_t const& ir);
+
+    std::vector<global_t*> toposort_deps();
+
     static void toposort_visit(std::vector<global_t*>&, global_t&);
     void verify_undefined(global_t& global);
 
+    // TODO: rename to use 'm_' naming.
     rh::robin_auto_table<unsigned> global_map;
     std::deque<global_t> globals;
     std::deque<fn_t> fns;
+    std::deque<var_t> m_vars;
     array_pool_t<label_t> label_pool;
-    ds_manager_t ds_manager;
+
+    array_pool_t<bitset_uint_t> bitset_pool;
 };
 
 /* TODO

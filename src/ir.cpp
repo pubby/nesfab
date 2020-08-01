@@ -201,7 +201,7 @@ void ssa_node_t::create(cfg_ht cfg_h, ssa_op_t op, type_t type)
     m_cfg_h = cfg_h;
     m_op = op;
     m_type = type;
-    flags = 0;
+    m_flags = 0;
 }
 
 void ssa_node_t::destroy()
@@ -281,7 +281,7 @@ void ssa_node_t::remove_inputs_output(unsigned i)
 
         // Remove the output edge that leads to our input on 'i'.
         from_node.m_io.last_output().input().set_index(from_i);
-        std::swap(from_node.m_io.output(from_i), from_node.m_io.last_output());
+       std::swap(from_node.m_io.output(from_i), from_node.m_io.last_output());
         from_node.m_io.shrink_output(from_node.output_size() - 1);
         
 #ifndef NDEBUG
@@ -403,7 +403,7 @@ void cfg_node_t::create()
 {
     assert(m_io.empty());
     exit = {};
-    flags = 0;
+    m_flags = 0;
 }
 
 void cfg_node_t::destroy()
@@ -465,6 +465,9 @@ ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
         m_ssa_begin = h;
     }
 
+    // Up the size
+    ++m_ssa_size;
+
     return h;
 }
 
@@ -510,6 +513,7 @@ ssa_ht cfg_node_t::unsafe_prune_ssa(ssa_ht ssa_h)
     // Free it
     ssa_node.destroy();
     ssa_pool::free(ssa_h);
+    --m_ssa_size;
 
     return ret;
 }
@@ -617,6 +621,9 @@ cfg_ht ir_t::emplace_cfg()
     node.prev = {};
     m_cfg_begin = h;
 
+    // Bump the size
+    ++m_size;
+
     return h;
 }
 
@@ -651,6 +658,7 @@ cfg_ht ir_t::unsafe_prune_cfg(cfg_ht cfg_h)
     // Free it
     cfg_node.destroy();
     cfg_pool::free(cfg_h);
+    --m_size;
 
     return ret;
 }
@@ -694,7 +702,6 @@ bool ir_t::valid() const
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 
         cfg_node_t& cfg_node = *cfg_it;
-        valid &= (bool)cfg_node.exit;
 
         for(unsigned i = 0; i < cfg_node.input_size(); ++i)
         {
@@ -737,3 +744,23 @@ bool ir_t::valid() const
     return valid;
 #endif
 }
+
+////////////////////////////////////////
+// Utility functions                  //
+////////////////////////////////////////
+
+int carry_input(ssa_node_t const& node)
+{
+    SSA_VERSION(1);
+
+    switch(node.op())
+    {
+    case SSA_add:
+    case SSA_sub:
+        assert(node.input_size() == 3);
+        return 2;
+    default:
+        return -1;
+    }
+}
+

@@ -27,6 +27,7 @@ INCS:=-I$(SRCDIR)
 override CXXFLAGS+= \
   -std=c++2a \
   -O0 \
+  -pthread \
   -g \
   -export-dynamic \
   -Wall \
@@ -48,17 +49,25 @@ parser.cpp \
 parser_types.cpp \
 symbol_table.cpp \
 ir.cpp \
+ir_builder.cpp \
 types.cpp \
 compiler_error.cpp \
 file.cpp \
 globals.cpp \
 pass1.cpp \
-ir_builder.cpp \
 fixed.cpp \
 constraints.cpp \
 ssa_op.cpp \
 lex_tables.cpp \
-add_constraints_table.cpp
+add_constraints_table.cpp \
+graphviz.cpp \
+carry.cpp \
+o.cpp \
+o_phi.cpp \
+o_ai.cpp \
+asm.cpp \
+cg_schedule.cpp \
+worklist.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -70,6 +79,7 @@ fixed.cpp \
 fixed_tests.cpp \
 constraints.cpp \
 constraints_tests.cpp \
+carry.cpp \
 ssa_op.cpp \
 add_constraints_table.cpp
 
@@ -97,7 +107,7 @@ $(SRCDIR)/lex_tables.cpp: $(SRCDIR)/lex_tables.hpp
 	mv lex_tables.cpp $(SRCDIR)/
 
 lexer_gen: $(SRCDIR)/lexer_gen.cpp
-	$(CXX) $(CXXFLAGS) -O2 -o $@ $^
+	$(CXX) -std=c++17 -O2 -o $@ $^
 
 # Other Tables
 
@@ -109,11 +119,13 @@ add_constraints_table_gen: $(SRCDIR)/add_constraints_table_gen.cpp
 
 # Instructions
 
-$(SRCDIR)/asm_tables.hpp: asm_gen $(SRCDIR)/asm.txt
-	cat $(SRCDIR)/asm.txt | ./asm_gen > $@
+# TODO
 
-asm_gen: $(SRCDIR)/asm_gen.cpp $(SRCDIR)/addr_mode.inc
-	$(CXX) $(CXXFLAGS) -o $@ $<
+#$(SRCDIR)/asm_tables.hpp: asm_gen $(SRCDIR)/asm.txt
+	#cat $(SRCDIR)/asm.txt | ./asm_gen > $@
+
+#asm_gen: $(SRCDIR)/asm_gen.cpp $(SRCDIR)/addr_mode.inc $(SRCDIR)/asm_decl.hpp
+	#$(CXX) $(CXXFLAGS) -o $@ $<
 
 
 -include $(DEPS)

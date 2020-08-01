@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "globals.hpp"
 #include "ir.hpp"
 
 static std::string gv_id(ssa_ht h) { return "ssa_" + std::to_string(h.index); }
@@ -39,11 +40,21 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
+        if(ssa_it->op() == SSA_fence)
+        {
+            o << gv_id(ssa_it) << " [label=\"\" color=black shape=insulator];\n";
+            continue;
+        }
         o << gv_id(ssa_it) << " [label=\"" << to_string(ssa_it->op());
         o << " " << ssa_it->type();
         if(ssa_it == ssa_it->cfg_node()->exit)
             o << " (EXIT)";
-        o << "\"];\n"; 
+        o << "\"";
+
+        if(ssa_it->op() == SSA_fn_call)
+            o << " shape=invhouse";
+
+        o << "];\n"; 
     }
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -56,7 +67,7 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             else
                 o << gv_id(cfg_it);
             o << " -> " << gv_id(succ);
-            o << "[penwidth=2 color=red";
+            o << "[penwidth=3 color=red arrowsize=2";
             if(cfg_it->exit && cfg_it->exit->op() == SSA_if)
                 o << " label=\"" << (i ? "TRUE" : "FALSE") << "\"";
             o << "];\n";
@@ -71,14 +82,34 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             ssa_value_t input = ssa_it->input(i);
             if(input.is_const())
             {
+                if((ssa_it->op() == SSA_read_global
+                    || ssa_it->op() == SSA_write_global
+                    || ssa_it->op() == SSA_fn_call)
+                   && i == 1
+                   && input.ptr<global_t>())
+                {
+                    o << "const_" << gv_id(ssa_it) << '_' << i;
+                    o << " [label=\"{";
+                    o << input.ptr<global_t>()->name.view();
+                    o << "}\" shape=box];\n";
+                }
+                else
+                {
+                    o << "const_" << gv_id(ssa_it) << '_' << i;
+                    o << " [label=\"" << to_double(input.fixed());
+                    o << "\" shape=box];\n";
+                }
+
                 o << "const_" << gv_id(ssa_it) << '_' << i;
-                o << " -> " << gv_id(ssa_it) << ";\n";
-                o << "const_" << gv_id(ssa_it) << '_' << i;
-                o << " [label=\"" << to_double(input.fixed());
-                o << "\" shape=box];\n";
+                o << " -> " << gv_id(ssa_it) << "[";
+
             }
             else
-                o << gv_id(input.handle()) << " -> " << gv_id(ssa_it) << ";\n";
+            {
+                o << gv_id(input.handle()) << " -> " << gv_id(ssa_it) << "[";
+            }
+            o << " fontcolor=lime fontsize=10 ";
+            o << " headlabel=\"" << i << "\"];\n";
         }
     }
 

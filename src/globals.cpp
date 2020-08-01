@@ -4,11 +4,11 @@
 #include <fstream>
 
 #include "alloca.hpp"
-#include "code_gen.hpp" // TODO?
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
 #include "o.hpp"
+#include "cg_schedule.hpp" // TODO
 #include "graphviz.hpp"
 
 std::string to_string(stmt_name_t stmt_name)
@@ -40,18 +40,14 @@ std::string to_string(global_class_t gclass)
     }
 }
 
-global_t* global_manager_t::global(ssa_node_t& ssa_node)
+global_t const* global_manager_t::global(ssa_node_t& ssa_node) const
 {
     switch(ssa_node.op())
     {
     case SSA_fn_call:
-        {
-            assert(ssa_node.input_size() >= 2);
-            assert(ssa_node.input(1).is_const());
-            global_t& global = operator[](ssa_node.input(1).whole());
-            assert(global.gclass == GLOBAL_FN);
-            return &global;
-        }
+        assert(ssa_node.input_size() >= 2);
+        assert(ssa_node.input(1).is_const());
+        return ssa_node.input(1).ptr<global_t const>();
     default:
         return nullptr;
     }
@@ -97,7 +93,7 @@ global_t& global_manager_t::new_fn(
         types[i] = params_begin[i].type;
     types[num_params] = return_type;
 
-    global_t& global = get(name);
+    global_t& global = lookup_name(name);
     verify_undefined(global);
     global.type = type_t::fn(types, types + num_params + 1);
     global.gclass = GLOBAL_FN;
@@ -107,7 +103,7 @@ global_t& global_manager_t::new_fn(
 
 global_t& global_manager_t::new_const(pstring_t name, type_t type)
 {
-    global_t& global = get(name);
+    global_t& global = lookup_name(name);
     verify_undefined(global);
     global.gclass = GLOBAL_CONST;
     global.type = type;
@@ -116,23 +112,65 @@ global_t& global_manager_t::new_const(pstring_t name, type_t type)
 
 global_t& global_manager_t::new_var(pstring_t name, type_t type)
 {
-    global_t& global = get(name);
+    global_t& global = lookup_name(name);
     verify_undefined(global);
     global.gclass = GLOBAL_VAR;
     global.type = type;
+    global.var = &m_vars.emplace_back(global, m_vars.size(), nullptr);
     return global;
 }
 
 void global_manager_t::finish()
 {
+    // Check to make sure every global was defined:
     for(global_t& global : globals)
-    {
-        for(global_t* dep : global.deps)
-            if(dep->gclass == GLOBAL_UNDEFINED)
-                compiler_error(dep->name, "Name not in scope.");
-    }
+        if(global.gclass == GLOBAL_UNDEFINED)
+            compiler_error(global.name, "Name not in scope.");
 
-    for(global_t* global : toposort_deps())
+    auto toposorted = toposort_deps();
+
+    /* TODO: remove
+    // Setup the 'modifies' bitsets.
+    // Also setup 'gvar_map'.
+    bitset_pool.clear();
+    m_modifies_bitset_size = bitset_size<bitset_uint_t>(m_vars.size());
+    for(global_t* global : toposorted)
+    {
+        if(global->gclass != GLOBAL_FN)
+            continue;
+
+        global->fn->reads = bitset_pool.alloc(m_modifies_bitset_size);
+        global->fn->writes = bitset_pool.alloc(m_modifies_bitset_size);
+        assert(bitset_all_clear(m_modifies_bitset_size, global->fn->reads));
+        assert(bitset_all_clear(m_modifies_bitset_size, global->fn->writes));
+
+        for(global_t* dep : global->deps)
+        {
+            if(dep->gclass == GLOBAL_VAR)
+            {
+                bitset_set(global->fn->modifies, dep->var->gvar_i);
+
+                // Add to 'gvar_map' here:
+                if(gvar_map.emplace(dep, fn_vars.size()).second)
+                    fn_vars.push_back({ dep->type, dep->name });
+            }
+            else if(dep->gclass == GLOBAL_FN)
+            {
+                assert(dep->fn->modifies);
+                bitset_or(m_modifies_bitset_size,
+                          global->fn->modifies, 
+                          dep->fn->modifies);
+            }
+        }
+    }
+    */
+
+    // TODO: These are some flags
+    constexpr bool optimize = false;
+    constexpr bool graph = true;
+    constexpr bool compile = false;
+
+    for(global_t* global : toposorted)
     {
         // Compile it!
         switch(global->gclass)
@@ -144,80 +182,58 @@ void global_manager_t::finish()
             {
                 // Compile the FN.
                 ir_t ir = build_ir(*this, *global);
-
                 assert(ir.valid());
 
-                bool changed;
-                unsigned i = 0;
-                do
-                {
-                    ++i;
-                    changed = false;
-                    changed |= o_phis(ir);
-                    changed |= o_abstract_interpret(ir);
-                }
-                //while(false);
-                while(changed);
-                std::cout << "I = " << i << '\n';
+                o_phis(ir);
 
-                std::printf("makin convent\n");
+                if(optimize)
+                {
+                    bool changed;
+                    do
+                    {
+                        changed = false;
+                        changed |= o_phis(ir);
+                        changed |= o_abstract_interpret(ir);
+                    }
+                    while(changed);
+                }
+
+                // Set the global's 'read' and 'write' bitsets:
+                calc_reads_writes(*global, ir);
+
                 //byteify(ir, *this, *global);
                 //make_conventional(ir);
 
+                if(graph)
                 {
-                    std::ofstream o(fmt("graphs/%_cfg.gv", 
-                                        global->name.view()));
-                    if(o.is_open())
-                        graphviz_cfg(o, ir);
+                    std::ofstream dg("graphs/deps.gv");
+                    gv_deps(dg);
+
+                    std::ofstream ocfg(fmt("graphs/%_cfg.gv", 
+                                           global->name.view()));
+                    if(ocfg.is_open())
+                        graphviz_cfg(ocfg, ir);
+
+                    std::ofstream ossa(fmt("graphs/%_ssa.gv", 
+                                           global->name.view()));
+                    if(ossa.is_open())
+                        graphviz_ssa(ossa, ir);
                 }
 
+                //TODO
+                if(compile)
                 {
-                    std::ofstream o(fmt("graphs/%_ssa.gv", 
-                                        global->name.view()));
-                    if(o.is_open())
-                        graphviz_ssa(o, ir);
+                    // Test scheduling
+                    cfg_data_pool::scope_guard_t<cfg_cg_d> c(cfg_pool::array_size());
+                    ssa_data_pool::scope_guard_t<ssa_cg_d> s(ssa_pool::array_size());
+                    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+                    {
+                        std::cout << " - \n";
+                        for(ssa_ht h : schedule_cfg_node(cfg_it))
+                            std::cout << h.index << ' ' << h->op() << '\n';
+                    }
                 }
 
-
-                /* TODO
-                //assert(ir_builder.ir.valid());
-                //o_remove_trivial_phis(ir_builder.ir);
-                //assert(ir_builder.ir.valid());
-                for(unsigned i = 0; i < 1; ++i)
-                {
-                    o_remove_redundant_phis(ir_builder.ir);
-                    o_remove_trivial_phis(ir_builder.ir);
-                    o_abstract_interpret(ir_builder.ir);
-                }
-
-                std::puts("DONE");
-                //o_abstract_interpret(ir_builder.ir);
-
-                {
-                    std::ofstream o(fmt("graphs/%_cfg.gv", 
-                                        global->name.view()));
-                    if(o.is_open())
-                        ir_builder.ir.gv_cfg(o);
-                    std::puts("done cfg");
-                }
-
-                {
-                    std::ofstream o(fmt("graphs/%_ssa.gv", 
-                                        global->name.view()));
-                    if(o.is_open())
-                        ir_builder.ir.gv_ssa(o);
-                    std::puts("done ssa");
-                }
-
-                /*
-                {
-                    scheduler_t scheduler(ir_builder.ir);
-                    std::ofstream o(fmt("graphs/%_cfg.gv", 
-                                        global->name.view()));
-                    if(o.is_open())
-                        scheduler.gv(o);
-                }
-                */
                 break;
             }
 
@@ -227,14 +243,74 @@ void global_manager_t::finish()
             break;
 
         case GLOBAL_VAR:
-            // Allocate memory
-            global->ds_region = ds_manager.alloc(global->type.sizeof_());
-            
-            // Sets 'modifies'.
-            for(std::uint16_t i = 0; i < global->ds_region.size; ++i)
-                global->modifies.set(global->ds_region.offset + i);
-
+            // TODO
             break;
+        }
+    }
+}
+
+void global_manager_t::calc_reads_writes(global_t& global, ir_t const& ir)
+{
+    assert(global.gclass == GLOBAL_FN);
+
+    unsigned const bitset_size = gvar_bitset_size<bitset_uint_t>();
+    global.fn->reads  = bitset_pool.alloc(bitset_size);
+    global.fn->writes = bitset_pool.alloc(bitset_size);
+
+    assert(bitset_all_clear(bitset_size, global.fn->reads));
+    assert(bitset_all_clear(bitset_size, global.fn->writes));
+
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+    {
+        if(ssa_it->op() == SSA_write_global)
+        {
+            assert(ssa_it->input_size() == 2);
+            if(global_t* written = ssa_it->input(1).ptr<global_t>())
+            {
+                assert(written->gclass == GLOBAL_VAR);
+
+                // Writes only have effect if they're not writing back a
+                // previously read value.
+                ssa_value_t value = ssa_it->input(0);
+                if(!value.holds_ref()
+                   || value->op() != SSA_read_global
+                   || value->input(1).ptr<global_t>() != written)
+                {
+                    bitset_set(global.fn->writes, written->var->id);
+                }
+            }
+        }
+        else if(ssa_it->op() == SSA_read_global)
+        {
+            assert(ssa_it->input_size() == 2);
+            if(global_t* read = ssa_it->input(1).ptr<global_t>())
+            {
+                assert(read->gclass == GLOBAL_VAR);
+
+                // Reads only have effect if something actually uses them:
+                for(unsigned i = 0; i < ssa_it->output_size(); ++i)
+                {
+                    ssa_ht output = ssa_it->output(i);
+                    if(output->op() != SSA_fence
+                        && (output->op() != SSA_write_global
+                            || output->input(1).ptr<global_t>() != read))
+                    {
+                        bitset_set(global.fn->reads, read->var->id);
+                        break;
+                    }
+                }
+            }
+        }
+        else if(ssa_it->op() == SSA_fn_call)
+        {
+            global_t* callee = ssa_it->input(1).ptr<global_t>();
+
+            assert(callee);
+            assert(callee->gclass == GLOBAL_FN);
+
+            bitset_or(bitset_size, global.fn->writes, callee->fn->writes);
+            bitset_or(bitset_size, global.fn->reads,  callee->fn->reads);
         }
     }
 }
@@ -263,14 +339,15 @@ void global_manager_t::toposort_visit(std::vector<global_t*>& topo,
         compiler_error(global.name, 
                        "Global contains recursive or circular dependency.");
     global.mark = MARK_TEMPORARY;
-    for(global_t* dep : global.deps)
-        toposort_visit(topo, *dep);
+    for(global_t* idep : global.ideps)
+        toposort_visit(topo, *idep);
     global.mark = MARK_PERMANENT;
     topo.push_back(&global);
 }
 
 void global_manager_t::debug_print()
 {
+#ifndef NDEBUG
     for(global_t const& global : globals)
     {
         std::cout << "GLOBAL " << global.name.view() << '\n';
@@ -284,6 +361,8 @@ void global_manager_t::debug_print()
                 var_decl_t var = global.fn->local_vars[i];
                 if(i < global.fn->num_params)
                     std::cout << "PARAM: ";
+                else
+                    std::cout << "LOCAL: ";
                 std::cout << var.type << ' ' << var.name.view() << '\n';
             }
             for(stmt_t const& stmt : global.fn->stmts)
@@ -303,14 +382,15 @@ void global_manager_t::debug_print()
     auto sorted = toposort_deps();
     for(global_t* global : sorted)
         std::cout << "GLOBAL " << global->name.view() << '\n';
+#endif
 }
 
 std::ostream& global_manager_t::gv_deps(std::ostream& o)
 {
     o << "digraph {\n";
     for(global_t& global : globals)
-        for(global_t* dep : global.deps)
-            o << global.name.view() << " -> " << dep->name.view() << '\n';
+        for(global_t* idep : global.ideps)
+            o << global.name.view() << " -> " << idep->name.view() << '\n';
     o << "}\n";
     return o;
 }

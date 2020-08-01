@@ -72,6 +72,7 @@ private:
     void parse_top_level();
     void parse_top_level_def();
 
+    void parse_vars_block();
     void parse_fn();
 
     void parse_statement();

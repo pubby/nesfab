@@ -6,7 +6,7 @@
 
 #include "alloca.hpp"
 #include "ir.hpp"
-#include "o.hpp"
+#include "worklist.hpp"
 
 namespace bc = ::boost::container;
 
@@ -15,7 +15,8 @@ namespace bc = ::boost::container;
 ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
 {
     assert(node.op() == SSA_phi);
-    ssa_value_t unique = nullptr;
+    ssa_value_t unique = {};
+    assert(!unique);
     for(unsigned i = 0; i < node.input_size(); ++i)
     {
         ssa_value_t input = node.input(i);
@@ -25,13 +26,14 @@ ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
 
         if(unique)
         {
-            if(input != unique)
-                return nullptr;
+            if(!input.eq(unique))
+                return {};
         }
         else
             unique = input;
     }
-    return unique;
+
+    return unique ? unique : node.handle();
 }
 
 bool o_remove_trivial_phis(ir_t& ir)
@@ -43,6 +45,7 @@ bool o_remove_trivial_phis(ir_t& ir)
     for(ssa_ht phi_it = cfg_node.phi_begin(); phi_it; ++phi_it)
     {
         assert(phi_it->op() == SSA_phi);
+        assert(phi_it->test_flags(FLAG_IN_WORKLIST) == false);
         ssa_worklist::push(phi_it);
     }
     
@@ -187,7 +190,7 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
 
         ssa_ht* inner_end = inner_begin;
 
-        ssa_value_t outer = nullptr;
+        ssa_value_t outer = {};
         std::size_t outer_count = 0;
 
         for(ssa_ht phi_h : scc)
@@ -201,7 +204,7 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
                 ssa_value_t input = phi.input(i);
                 if(input.is_const() || scc.find(input.handle()) == scc.end())
                 {
-                    if(outer != input)
+                    if(!outer.eq(input))
                         ++outer_count;
                     outer = input;
                     is_inner = false;

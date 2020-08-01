@@ -6,7 +6,6 @@
 #include "file.hpp"
 #include "parser.hpp"
 #include "pass1.hpp"
-#include "pool.hpp"
 
 int main()
 {

@@ -10,40 +10,40 @@
 
 using addr16_t = std::uint16_t;
 
-struct ds_region_t
+constexpr addr16_t ram_size = 2048;
+using ram_bitset_t = aggregate_bitset_t<std::uint64_t, (ram_size + 63)/ 64>;
+
+struct ram_region_t
 {
-    std::uint16_t short offset;
-    std::uint16_t short size;
+    addr16_t offset;
+    addr16_t size;
 };
 
-constexpr bool is_zp(std::uint16_t addr)
-{
-    return addr < 256;
-}
-
-constexpr bool is_zp(ds_region_t region)
+constexpr bool is_zp(addr16_t addr) { return addr < 256; }
+constexpr bool is_zp(ram_region_t region)
 { 
     return region.offset < 256 && (region.offset + region.size) <= 256; 
 }
 
-constexpr std::size_t ds_size = 1024;
-using ds_bitset_t = aggregate_bitset_t<std::uint64_t, (ds_size + 63)/ 64>;
-
-class ds_manager_t
+// TODO: use this
+class ram_allocator_t
 {
 public:
-    ds_region_t alloc(std::uint16_t size)
+    explicit ram_allocator_t(ram_region_t region) : m_region(region) {}
+
+    bool alloc(ram_region_t& region, addr16_t size)
     {
-        ds_region_t ret = { used, size };
-        used += size;
-        // TODO: better error message.
-        if(used > ds_size)
-            throw std::runtime_error("Data segment overflow.");
-        return ret;
+        if(m_region.size < size)
+            return false;
+        region = { m_region.offset, size };
+        m_region.offset += size;
+        m_region.size -= size;
+        return true;
     }
 
 private:
-    unsigned used = 0;
+    ram_region_t m_region;
 };
+
 
 #endif

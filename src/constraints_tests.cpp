@@ -4,8 +4,11 @@
 #include <algorithm>
 #include <cstdlib>
 #include <ctime>
+#include <iostream> // TODO
 
 #include "alloca.hpp"
+
+SSA_VERSION(1);
 
 known_bits_t random_bits(fixed_t::int_type mask, bool allow_top = false)
 {
@@ -24,12 +27,12 @@ constraints_t random_constraint(fixed_t::int_type mask, bool allow_top = false)
         do
             bounds = { rand() & mask, rand() & mask };
         while(allow_top || bounds.is_top());
-        return { bounds, from_bounds(bounds) };
+        return { bounds, from_bounds(bounds), CARRY_CLEAR };
     }
     else
     {
         known_bits_t bits = random_bits(mask, allow_top);
-        return { from_bits(bits), bits };
+        return { from_bits(bits), bits, CARRY_CLEAR };
     }
 }
 
@@ -257,22 +260,9 @@ void test_op(ssa_op_t op, Fn fn)
     for(int i = 0; i < argn; ++i)
         REQUIRE(is_subset(c_narrowed[i], c[i]));
 
-    for(unsigned i = 0; argn >= 3 && i < 16; ++i)
-    for(unsigned j = 0; argn >= 2 && j < 16; ++j)
-    for(unsigned k = 0; argn >= 1 && k < 16; ++k)
-    {
-        fixed_int_t a[3] = { i, j, k };
-        fixed_int_t o;
-        for(int i = 0; i < argn; ++i)
-            if(!c_narrowed[i](a[i] << 24))
-                goto next_iter2;
-        o = fn(a, argn);
-        o &= 0xF;
-        o <<= 24;
-        REQUIRE(n.bounds(o));
-        REQUIRE(n.bits(o));
-    next_iter2:;
-    }
+    constraints_t r2 = abstract_fn_table[op](0xF << 24, c_narrowed, argn);
+    REQUIRE(is_subset(r, r2));
+    REQUIRE(is_subset(n, r2));
 }
 
 TEST_CASE("random_subset", "[constraints]")

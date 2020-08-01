@@ -3,8 +3,7 @@
 
 #include <cstdint>
 
-#include "asm_decl.hpp"
-#include "asm_tables.hpp"
+#include "asm.hpp"
 #include "ir_decl.hpp"
 
 class global_manager_t;

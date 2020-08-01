@@ -5,10 +5,15 @@
 #include <ostream>
 #include <string_view>
 
+#define SSA_VERSION_NUMBER 1
+#define SSA_VERSION(V) \
+    static_assert(SSA_VERSION_NUMBER == (V), "SSA version mismatch.")
+
 // SSA flags:
 constexpr unsigned SSAF_TRACE_INPUTS = 1 << 0;
 constexpr unsigned SSAF_EFFECTFUL    = 1 << 1;
 constexpr unsigned SSAF_COPY         = 1 << 2;
+constexpr unsigned SSAF_CLOBBERS_CARRY = 1 << 3;
 
 enum ssa_op_t : short
 {

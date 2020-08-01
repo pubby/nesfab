@@ -157,13 +157,13 @@ public:
         return emplace(k, [](){ return mapped_type(); }).first->second;
     }
 
-    apair<value_type const*, bool> insert(value_type const& v)
+    insertion insert(value_type const& v)
     { 
         apair<value_type*, bool> pair = collection.insert(v); 
         return { &pair.first->first, &pair.first->second, pair.second };
     }
 
-    apair<value_type const*, bool> insert(value_type&& v)
+    insertion insert(value_type&& v)
     { 
         apair<value_type*, bool> pair = collection.insert(std::move(v)); 
         return { &pair.first->first, &pair.first->second, pair.second };

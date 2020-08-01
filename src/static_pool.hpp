@@ -1,5 +1,5 @@
-#ifndef POOL_HPP
-#define POOL_HPP
+#ifndef STATIC_POOL_HPP
+#define STATIC_POOL_HPP
 
 #include <cassert>
 #include <cstdint>
@@ -20,9 +20,9 @@ template<typename Tag = void>
 class static_any_pool_t
 {
 private:
-    inline static std::unique_ptr<char, c_delete> storage = {};
-    inline static std::size_t bytes_capacity = 0;
-    inline static std::size_t allocated_size = 0;
+    inline static thread_local std::unique_ptr<char, c_delete> storage = {};
+    inline static thread_local std::size_t bytes_capacity = 0;
+    inline static thread_local std::size_t allocated_size = 0;
 public:
     template<typename T> [[gnu::always_inline]]
     static T* data() 
@@ -89,6 +89,11 @@ public:
     };
 };
 
+// A simple pool based on a single vector, providing handles (indexes) into
+// the vector instead of pointers.
+// Pointers are invalidated upon allocation, but handles aren't.
+// 'T' must derive from 'intrusive_t', which provides an intrusive
+// linked-list interface for handling freed nodes.
 template<typename T, typename Tag>
 class static_intrusive_pool_t
 {
@@ -124,9 +129,9 @@ public:
             { return static_any_pool_t<Tag>::template get<U>(index); }
     };
 private:
-    inline static std::vector<T> storage = std::vector<T>(1);
-    inline static handle_t free_head = {};
-    inline static std::size_t used_size = 0;
+    inline static thread_local std::vector<T> storage = std::vector<T>(1);
+    inline static thread_local handle_t free_head = {};
+    inline static thread_local std::size_t used_size = 0;
 public:
     static handle_t alloc() 
     {

@@ -17,8 +17,8 @@ token_t* pass1_t::convert_expr(expr_temp_t& expr)
             else
             {
                 token.type = TOK_global_ident;
-                token.value = globals().get_index(token.pstring);
-                active_global->deps.insert(&globals()[token.value]);
+                token.set_ptr(&globals().lookup_name(token.pstring));
+                active_global->ideps.insert(token.ptr<global_t>());
             }
         }
     }

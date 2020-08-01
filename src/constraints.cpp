@@ -330,7 +330,7 @@ ABSTRACT(SSA_add)
 
     constraints_t ret = {};
 
-    fixed_int_t const neg_mask = ~(c[0].bits.known0 & c[1].bits.known0 & mask);
+    fixed_int_t const neg_mask = ~(c[0].bits.known0 & c[1].bits.known0) & mask;
     std::uint64_t const start_i = neg_mask ? builtin::ctz(neg_mask) : 0;
     std::uint64_t const end_i = ((1 + (neg_mask ? builtin::rclz(neg_mask) 
                                                 : sizeof_bits<fixed_int_t>))
@@ -350,8 +350,6 @@ ABSTRACT(SSA_add)
     fixed_int_t j = c[2].carry;
     for(; i < end_i; i += 2ull)
     {
-        std::printf("* * * i = %i\n", (int)i);
-        std::printf("* * * carry = %i\n", j);
         j |= (lhs_bits.known0 & 0b11) << 2ull;
         j |= (lhs_bits.known1 & 0b11) << 4ull;
         j |= (rhs_bits.known0 & 0b11) << 6ull;
@@ -531,35 +529,30 @@ NARROW(SSA_add)
     // We use an approximation approach.
     // We can solve bit equations of the form KNOWN ^ KNOWN ^ UNKNOWN = KNOWN
     // (Three arguments because of carries).
+
+    // Determine some of the carried bits:
+    fixed_int_t carry0 = (c[0].bits.known0 & c[1].bits.known0) << 1ull;
+    fixed_int_t carry1 = (c[0].bits.known1 & c[1].bits.known1) << 1ull;
+
+    fixed_int_t const carry_i = ~mask ? ((mask | (mask >> 1)) ^ mask) : 1;
     
     // First do the carry. If we know the lowest bit of c[0], c[1], and result
     // we can infer the required carry.
-    if(result.bits.known() & c[0].bits.known() & c[1].bits.known() & 0b1)
+    if(result.bits.known() & c[0].bits.known() & c[1].bits.known() & carry_i)
     {
-        if((result.bits.known1 ^ c[0].bits.known1 ^ c[1].bits.known1) & 0b1)
+        if((result.bits.known1 ^ c[0].bits.known1 ^ c[1].bits.known1)& carry_i)
             c[2].carry = CARRY_SET;
         else
             c[2].carry = CARRY_CLEAR;
     }
 
-    // Now for the value.
-    // Determine some of the carried bits:
-    fixed_int_t carry0 = (c[0].bits.known0 & c[1].bits.known0) << 1ull;
-    fixed_int_t carry1 = (c[0].bits.known1 & c[1].bits.known1) << 1ull;
-
     // If the SSA op has a carry input, use it in the lowest bit:
     switch(c[2].carry)
     {
-    case CARRY_BOTTOM: 
-        break;
-    case CARRY_CLEAR:
-        carry0 |= 1ull;
-        break;
-    case CARRY_SET:
-        carry1 |= 1ull;
-        break;
-    case CARRY_TOP:
-        return;
+    case CARRY_BOTTOM: break;
+    case CARRY_CLEAR:  carry0 |= 0ull; break;
+    case CARRY_SET:    carry1 |= 1ull; break;
+    case CARRY_TOP:    return;
     }
 
     fixed_int_t const solvable = result.bits.known() & (carry0 | carry1);

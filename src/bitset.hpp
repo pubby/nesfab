@@ -1,6 +1,7 @@
 #ifndef BITSET_HPP
 #define BITSET_HPP
 
+#include <algorithm>
 #include <array>
 #include <climits>
 #include <cstdint>
@@ -9,12 +10,14 @@
 #include "builtin.hpp"
 #include "sizeof_bits.hpp"
 
+using bitset_uint_t = std::uint64_t;
+
 // Gives the array size needed for a bitset containing 'bits_required' bits.
 template<typename UInt>
 std::size_t bitset_size(std::size_t bits_required)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
-    return (bits_required + sizeof_bits<UInt> - 1) / sizeof_bits<Uint>;
+    return (bits_required + sizeof_bits<UInt> - 1) / sizeof_bits<UInt>;
 }
 
 template<typename UInt>
@@ -42,7 +45,7 @@ void bitset_xor(std::size_t size, UInt* lhs, UInt const* rhs)
 }
 
 template<typename UInt>
-void bitset_reset(UInt* bitset, UInt i)
+void bitset_clear(UInt* bitset, UInt i)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     UInt const byte_i = i / sizeof_bits<UInt>;
@@ -88,17 +91,17 @@ bool bitset_test(UInt const* bitset, std::size_t i)
 }
 
 template<typename UInt>
-void bitset_reset_all(std::size_t size, UInt* bitset)
+void bitset_clear_all(std::size_t size, UInt* bitset)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
-    std::fill_n(bitset, size, (Uint)0);
+    std::fill_n(bitset, size, (UInt)0);
 }
 
 template<typename UInt>
 void bitset_set_all(std::size_t size, UInt* bitset)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
-    std::fill_n(bitset, size, ~(Uint)0);
+    std::fill_n(bitset, size, ~(UInt)0);
 }
 
 template<typename UInt>
@@ -121,7 +124,7 @@ bool bitset_all_set(std::size_t size, UInt const* bitset)
 
 
 template<typename UInt>
-bool bitset_all_reset(std::size_t size, UInt const* bitset)
+bool bitset_all_clear(std::size_t size, UInt const* bitset)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     for(std::size_t i = 0; i < size; ++i)
@@ -141,7 +144,7 @@ std::size_t bitset_popcount(std::size_t size, UInt const* bitset)
 }
 
 template<typename UInt>
-void bitset_eq(std::size_t size, UInt const* lhs, UInt const* rhs)
+bool bitset_eq(std::size_t size, UInt const* lhs, UInt const* rhs)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     return std::equal(lhs, lhs + size, rhs, rhs + size);
@@ -151,7 +154,32 @@ template<typename UInt>
 void bitset_copy(std::size_t size, UInt* lhs, UInt const* rhs)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
-    return std::copy_n(rhs, size, lhs);
+    std::copy_n(rhs, size, lhs);
+}
+
+// Calls 'fn' for each set bit of the bitset.
+template<typename UInt, typename Fn>
+void bitset_for_each_bit(UInt bitset, Fn fn, unsigned span = 0)
+{
+    while(bitset)
+    {
+        unsigned bit = builtin::ctz(bitset);
+        bitset ^= (UInt)1 << bit;
+        fn(bit + span);
+    }
+}
+
+
+// Calls 'fn' for each set bit of the bitset.
+template<typename UInt, typename Fn>
+void bitset_for_each_bit(std::size_t size, UInt* bitset, Fn fn)
+{
+    unsigned span = 0;
+    for(std::size_t i = 0; i < size; ++i)
+    {
+        bitset_for_each_bit(bitset[i], fn, span);
+        span += sizeof_bits<UInt>;
+    }
 }
 
 // A shitty bitset class that exists because std::bitset abstracts too much.
@@ -172,7 +200,7 @@ struct aggregate_bitset_t
     array_type array;
 
     [[gnu::flatten]]
-    void reset(UInt bit) { bitset_reset(array.data(), bit); }
+    void clear(UInt bit) { bitset_clear(array.data(), bit); }
 
     [[gnu::flatten]]
     void set(UInt bit) { bitset_set(array.data(), bit); }
@@ -187,7 +215,7 @@ struct aggregate_bitset_t
     bool test(UInt bit) const { return bitset_test(array.data(), bit); }
 
     [[gnu::flatten]]
-    void reset_all() { bitset_reset_all(N, array.data()); }
+    void clear_all() { bitset_clear_all(N, array.data()); }
 
     [[gnu::flatten]]
     void set_all() { bitset_set_all(N, array.data()); }

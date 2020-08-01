@@ -100,7 +100,7 @@ bool parser_t<P>::parse_token(token_type_t expecting)
 template<typename P>
 bool parser_t<P>::parse_token()
 {
-    std::int64_t value;
+    token_t::int_type value;
 restart:
     // Lex 1 token
     token_source = next_char;
@@ -384,7 +384,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
         {
             // fn types aren't legal syntax outside of fn pointers.
             if(pointer_levels == 0)
-                compiler_error("Invalid type.");
+                compiler_error("Expecting type.");
 
             parse_token();
 
@@ -405,7 +405,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
         }
     default: 
         if(!allow_void || pointer_levels > 0)
-            compiler_error("Invalid type.");
+            compiler_error("Expecting type.");
         type.name = TYPE_VOID;
         break;
     }
@@ -450,17 +450,32 @@ void parser_t<P>::parse_top_level_def()
     {
     case TOK_fn: 
         return parse_fn();
+    case TOK_vars: 
+        return parse_vars_block();
     default: 
-        // Maybe parse a global variable.
-        if(is_type_prefix(token.type))
-        {
-            var_decl_t var_decl = parse_var_decl();
-            policy().global_var(var_decl);
-            parse_line_ending();
-        }
-        else
-            compiler_error("Unexpected token at top level.");
+        compiler_error("Unexpected token at top level.");
     }
+}
+
+template<typename P>
+void parser_t<P>::parse_vars_block()
+{
+    int const vars_indent = indent;
+
+    // Parse the declaration
+    parse_token(TOK_vars);
+    parse_line_ending();
+
+    maybe_parse_block(vars_indent, 
+    [&]{ 
+        var_decl_t var_decl;
+        expr_temp_t expr;
+        if(parse_var_init(var_decl, expr))
+            policy().global_var(var_decl, &expr);
+        else
+            policy().global_var(var_decl, nullptr);
+        parse_line_ending();
+    });
 }
 
 template<typename P>

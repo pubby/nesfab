@@ -3,20 +3,9 @@
 
 #include "fixed.hpp"
 #include "ir_decl.hpp"
-#include "pool.hpp"
+#include "sizeof_bits.hpp"
 #include "ssa_op.hpp"
-
-////////////////////////////////////////
-// FLAGS
-////////////////////////////////////////
-
-// Flags that are useful among different passes.
-// These apply to both CFG and SSA nodes (though not all make sense for both)
-
-constexpr std::uint16_t FLAG_IN_WORKLIST = 1ull << 0;
-constexpr std::uint16_t FLAG_PROCESSED   = 1ull << 1;
-constexpr std::uint16_t FLAG_CARRY_KNOWN = 1ull << 2;
-constexpr std::uint16_t FLAG_CARRY_SET   = 1ull << 3;
+#include "static_pool.hpp"
 
 ////////////////////////////////////////
 // edge types                         //
@@ -25,32 +14,56 @@ constexpr std::uint16_t FLAG_CARRY_SET   = 1ull << 3;
 class ssa_fwd_edge_t
 {
 protected:
-    std::uint64_t value;
-    static constexpr std::uint64_t flag = 1ull << 63ull;
+    using uint_t = std::uint64_t;
+
+    static_assert(sizeof(std::uint64_t) <= sizeof(uint_t));
+    static_assert(sizeof(std::uintptr_t) <= sizeof(uint_t));
+    static_assert(sizeof(fixed_int_t) <= sizeof(uint_t));
+
+public:
+    uint_t value;
+
+    // 'value' has 'flag' set when holding a constant:
+    static constexpr uint_t flag = 1ull << (sizeof_bits<uint_t>-1ull);
 public:
     constexpr ssa_fwd_edge_t() = default;
-    constexpr ssa_fwd_edge_t(std::nullptr_t) : value(0) {}
     constexpr ssa_fwd_edge_t(unsigned v) { set(v); }
     constexpr ssa_fwd_edge_t(fixed_t fixed) { set(fixed); }
     constexpr ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
+    constexpr explicit ssa_fwd_edge_t(void* ptr) { set(ptr); }
 
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t const&) = default;
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t&&) = default;
     constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t const&) = default;
     constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t&&) = default;
 
-    bool is_const() const { return value & flag; }
-    bool is_handle() const { return !(value & flag); }
-    bool holds_ref() const { return value && is_handle(); }
+    constexpr bool is_const() const { return value & flag; }
+    constexpr bool is_handle() const { return !(value & flag); }
+    constexpr bool holds_ref() const { return value && is_handle(); }
 
-    fixed_t fixed() const { return { value & ~flag}; }
-    std::uint32_t whole() const { return fixed().whole(); }
+    fixed_t fixed() const { assert(is_const()); return { value & ~flag}; }
+    std::uint32_t whole() const { assert(is_const()); return fixed().whole(); }
 
-    ssa_ht handle() const { return { (std::uint32_t)value }; }
-    std::uint32_t index() const { return value >> 32ull; };
+    ssa_ht handle() const 
+        { assert(is_handle()); return { (std::uint32_t)value }; }
+    std::uint32_t index() const 
+        { assert(is_handle()); return value >> 32ull; };
+
+    template<typename T>
+    T* ptr() const 
+        { assert(is_const()); return reinterpret_cast<T*>(value << 1); }
 
     constexpr void set(fixed_t fixed) { value = fixed.value | flag; }
     constexpr void set(unsigned u) { set(fixed_t::whole(u)); }
+
+    constexpr void set(void* ptr) 
+    { 
+        uint_t uint = reinterpret_cast<std::uintptr_t>(ptr);
+        assert((uint & 1) == 0);
+        value = (uint >> 1ull) | flag;
+        assert(is_const());
+        assert(!is_handle());
+    }
 
     void set(ssa_ht ht, std::uint32_t index) 
     {
@@ -139,11 +152,11 @@ class ssa_value_t : public ssa_fwd_edge_t
 {
 public:
     constexpr ssa_value_t() = default;
-    constexpr ssa_value_t(std::nullptr_t n) : ssa_fwd_edge_t(n) {}
     constexpr ssa_value_t(unsigned v) : ssa_fwd_edge_t(v) {}
     constexpr ssa_value_t(fixed_t fixed) : ssa_fwd_edge_t(fixed) {}
     constexpr ssa_value_t(ssa_ht ht) : ssa_fwd_edge_t(ht, 0) {}
     constexpr ssa_value_t(ssa_fwd_edge_t const& edge) : ssa_fwd_edge_t(edge) {}
+    constexpr explicit ssa_value_t(void* ptr) : ssa_fwd_edge_t(ptr) {}
 
     explicit operator bool() const { return this->value; }
     bool operator!() const { return !this->value; }
@@ -154,6 +167,11 @@ public:
         { assert(handle()); return handle().operator->(); }
 
     type_t type() const;
+
+    // Normal operator== checks edge indices for equivalence.
+    // This version ignores edges and only checks the pointed-to value.
+    bool eq(ssa_value_t o) const
+        { return is_handle() ? handle() == o.handle() : *this == o; }
 };
 
 ////////////////////////////////////////
@@ -255,19 +273,20 @@ private:
     cfg_ht m_cfg_h = {};
     ssa_op_t m_op = SSA_pruned;
     std::uint16_t m_flags = 0;
-public:
-    std::uint32_t temp = 0; // Usable by any pass for any purpose.
-private:
     ssa_buffer_t m_io;
 public:
     ssa_node_t() = default;
     ssa_node_t(ssa_node_t&&) = default;
+    ssa_node_t& operator=(ssa_node_t&&) = default;
 
     ssa_ht handle() const { return { this - ssa_pool::data() }; }
 
     void set_flags(std::uint16_t f) { m_flags |= f; }
     void clear_flags(std::uint16_t f) { m_flags &= ~f; }
-    void test_flags(std::uint16_t f) { return (m_flags & f) == f; }
+    bool test_flags(std::uint16_t f) const { return (m_flags & f) == f; }
+
+    void set_mark(mark_t mark) { m_flags &= ~MARK_MASK; m_flags |= mark; }
+    mark_t get_mark() const { return (mark_t)(m_flags & MARK_MASK); }
 
     cfg_ht cfg_node() const { return m_cfg_h; }
     cfg_ht input_cfg(std::size_t i) const;
@@ -340,20 +359,24 @@ private:
     ssa_ht m_last_non_phi = {};
     ssa_ht m_phi_begin = {};
     std::uint16_t m_flags = 0;
+    std::uint16_t m_ssa_size = 0;
 public:
-    std::uint32_t temp = 0; // Usable by any pass for any purpose.
     ssa_ht exit = {};
 private:
     cfg_buffer_t m_io;
 public:
     cfg_node_t() = default;
     cfg_node_t(cfg_node_t&&) = default;
+    cfg_node_t& operator=(cfg_node_t&&) = default;
 
     cfg_ht handle() const { return { this - cfg_pool::data() }; }
 
     void set_flags(std::uint16_t f) { m_flags |= f; }
     void clear_flags(std::uint16_t f) { m_flags &= ~f; }
-    void test_flags(std::uint16_t f) { return (m_flags & f) == f; }
+    bool test_flags(std::uint16_t f) const { return (m_flags & f) == f; }
+
+    void set_mark(mark_t mark) { m_flags &= ~MARK_MASK; m_flags |= mark; }
+    mark_t get_mark() const { return (mark_t)(m_flags & MARK_MASK); }
 
     cfg_ht input(unsigned i) const { return m_io.input(i).handle; }
     cfg_fwd_edge_t input_edge(unsigned i) const { return m_io.input(i); }
@@ -382,6 +405,8 @@ public:
     ssa_ht phi_begin() { return m_phi_begin; }
     ssa_ht begin() const { return m_ssa_begin; }
     ssa_ht end() const { return {}; }
+
+    std::size_t ssa_size() const { return m_ssa_size; }
 
     ssa_ht emplace_ssa(ssa_op_t op, type_t type);
     template<typename... Args>
@@ -428,7 +453,15 @@ class ir_t
     friend class cfg_node_t;
 private:
     cfg_ht m_cfg_begin = {};
+    unsigned m_size = 0;
 public:
+    ir_t() = default;
+    ir_t(ir_t const&) = delete;
+    ir_t(ir_t&&) = default;
+
+    ir_t& operator=(ir_t const&) = delete;
+    ir_t& operator=(ir_t&&) = default;
+
     cfg_ht root = {};
     cfg_ht exit = {};
 
@@ -438,6 +471,8 @@ public:
 
     cfg_ht emplace_cfg();
     cfg_ht unsafe_prune_cfg(cfg_ht cfg_h);
+    
+    std::size_t cfg_size() const { return m_size; }
 
     // Creates a new node along an edge.
     cfg_ht split_edge(cfg_bck_edge_t edge);
@@ -546,5 +581,13 @@ void cfg_node_t::link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn)
     m_io.output(i) = { new_h, node.input_size() };
     node.append_input({ handle(), i });
 }
+
+////////////////////////////////////////
+// Utility functions                  //
+////////////////////////////////////////
+
+// Returns -1 if the node has no carry input, 
+// otherwise it returns the index of the carry input.
+int carry_input(ssa_node_t const& node);
 
 #endif

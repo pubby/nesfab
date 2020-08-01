@@ -1,9 +1,6 @@
 #ifndef PASS1_HPP
 #define PASS1_HPP
 
-// First pass of the compiler:
-// - Define types.
-
 #include <memory>
 #include <variant>
 #include <vector>
@@ -77,10 +74,10 @@ public:
     }
 
     // Global variables
-    // TODO
     [[gnu::always_inline]]
-    void global_var(var_decl_t const&)
+    void global_var(var_decl_t const& var_decl, expr_temp_t* expr)
     {
+        globals().new_var(var_decl.name, var_decl.type);
     }
 
     [[gnu::always_inline]]

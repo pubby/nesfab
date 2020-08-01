@@ -590,6 +590,7 @@ int main()
             keyword("fn"),
             keyword("goto"),
             keyword("label"),
+            keyword("vars"),
 
             // Symbols
             keyword(1, "lbrace", "{"),

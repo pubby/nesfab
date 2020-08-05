@@ -3,6 +3,7 @@
 
 #include "fixed.hpp"
 #include "ir_decl.hpp"
+#include "locator.hpp"
 #include "sizeof_bits.hpp"
 #include "ssa_op.hpp"
 #include "static_pool.hpp"
@@ -24,25 +25,32 @@ public:
     uint_t value;
 
     // 'value' has 'flag' set when holding a constant:
-    static constexpr uint_t flag = 1ull << (sizeof_bits<uint_t>-1ull);
+    static constexpr uint_t const_flag = 1ull << (sizeof_bits<uint_t>-1ull);
+    static constexpr uint_t ptr_flag = 0b11ull << (sizeof_bits<uint_t>-2ull);
+    static_assert((fixed_t::mask & (const_flag | ptr_flag)) == 0);
 public:
     constexpr ssa_fwd_edge_t() = default;
     constexpr ssa_fwd_edge_t(unsigned v) { set(v); }
     constexpr ssa_fwd_edge_t(fixed_t fixed) { set(fixed); }
     constexpr ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
-    constexpr explicit ssa_fwd_edge_t(void* ptr) { set(ptr); }
+    constexpr explicit ssa_fwd_edge_t(void const* ptr) { set(ptr); }
 
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t const&) = default;
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t&&) = default;
     constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t const&) = default;
     constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t&&) = default;
 
-    constexpr bool is_const() const { return value & flag; }
-    constexpr bool is_handle() const { return !(value & flag); }
+    constexpr bool is_const() const { return value & const_flag; }
+    constexpr bool is_ptr()   const { return (value & ptr_flag) == ptr_flag; }
+    constexpr bool is_handle() const { return !(value & const_flag); }
     constexpr bool holds_ref() const { return value && is_handle(); }
 
-    fixed_t fixed() const { assert(is_const()); return { value & ~flag}; }
-    std::uint32_t whole() const { assert(is_const()); return fixed().whole(); }
+    fixed_t fixed() const 
+        { assert(is_const()); return { value & fixed_t::mask }; }
+    std::uint32_t whole() const 
+        { assert(is_const()); return fixed().whole(); }
+    locator_ht locator() const
+        { assert(is_const()); return { fixed().whole() }; }
 
     ssa_ht handle() const 
         { assert(is_handle()); return { (std::uint32_t)value }; }
@@ -50,17 +58,19 @@ public:
         { assert(is_handle()); return value >> 32ull; };
 
     template<typename T>
-    T* ptr() const 
-        { assert(is_const()); return reinterpret_cast<T*>(value << 1); }
+    T const* ptr() const 
+        { assert(is_ptr()); return reinterpret_cast<T const*>(value << 2ull); }
 
-    constexpr void set(fixed_t fixed) { value = fixed.value | flag; }
-    constexpr void set(unsigned u) { set(fixed_t::whole(u)); }
+    constexpr void set(fixed_t fixed) 
+        { value = (fixed.value & fixed_t::mask) | const_flag; }
+    constexpr void set(unsigned u) 
+        { set(fixed_t::whole(u)); }
 
-    constexpr void set(void* ptr) 
+    constexpr void set(void const* ptr) 
     { 
         uint_t uint = reinterpret_cast<std::uintptr_t>(ptr);
-        assert((uint & 1) == 0);
-        value = (uint >> 1ull) | flag;
+        assert((uint & 0b11) == 0);
+        value = (uint >> 2ull) | ptr_flag;
         assert(is_const());
         assert(!is_handle());
     }
@@ -68,7 +78,7 @@ public:
     void set(ssa_ht ht, std::uint32_t index) 
     {
         value = ht.index;
-        value |= (std::uint64_t)index << 32ull;
+        value |= (uint_t)index << 32ull;
     }
 
     void set_handle(ssa_ht ht) 
@@ -83,7 +93,7 @@ public:
     { 
         assert(is_handle());
         value &= 0xFFFFFFFFull;
-        value |= (std::uint64_t)index << 32ull;
+        value |= (uint_t)index << 32ull;
         assert(this->index() == index);
     }
 
@@ -94,6 +104,10 @@ public:
             return handle().index;
         return value;
     }
+
+    // Normal operator== checks edge indices for equivalence.
+    // This version ignores edges and only checks the pointed-to value.
+    bool targets_eq(ssa_fwd_edge_t o) const { return target() == o.target(); }
 
     struct ssa_bck_edge_t* output() const;
 
@@ -156,7 +170,7 @@ public:
     constexpr ssa_value_t(fixed_t fixed) : ssa_fwd_edge_t(fixed) {}
     constexpr ssa_value_t(ssa_ht ht) : ssa_fwd_edge_t(ht, 0) {}
     constexpr ssa_value_t(ssa_fwd_edge_t const& edge) : ssa_fwd_edge_t(edge) {}
-    constexpr explicit ssa_value_t(void* ptr) : ssa_fwd_edge_t(ptr) {}
+    constexpr explicit ssa_value_t(void const* ptr) : ssa_fwd_edge_t(ptr) {}
 
     explicit operator bool() const { return this->value; }
     bool operator!() const { return !this->value; }
@@ -167,11 +181,6 @@ public:
         { assert(handle()); return handle().operator->(); }
 
     type_t type() const;
-
-    // Normal operator== checks edge indices for equivalence.
-    // This version ignores edges and only checks the pointed-to value.
-    bool eq(ssa_value_t o) const
-        { return is_handle() ? handle() == o.handle() : *this == o; }
 };
 
 ////////////////////////////////////////
@@ -269,7 +278,7 @@ class alignas(32) ssa_node_t : public intrusive_t<ssa_ht>
     // The following data members have been carefully aligned based on 
     // 64-byte cache lines. Don't mess with it unless you understand it!
 private:
-    type_t m_type = {};
+    type_t m_type = TYPE_VOID;
     cfg_ht m_cfg_h = {};
     ssa_op_t m_op = SSA_pruned;
     std::uint16_t m_flags = 0;
@@ -464,6 +473,8 @@ public:
 
     cfg_ht root = {};
     cfg_ht exit = {};
+
+    locator_manager_t locators;
 
     cfg_ht cfg_begin() const { return m_cfg_begin; }
     cfg_ht begin() const { return m_cfg_begin; }

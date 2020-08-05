@@ -13,7 +13,7 @@
 using bitset_uint_t = std::uint64_t;
 
 // Gives the array size needed for a bitset containing 'bits_required' bits.
-template<typename UInt>
+template<typename UInt = bitset_uint_t>
 std::size_t bitset_size(std::size_t bits_required)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
@@ -26,6 +26,14 @@ void bitset_and(std::size_t size, UInt* lhs, UInt const* rhs)
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     for(std::size_t i = 0; i < size; ++i)
         lhs[i] &= rhs[i];
+}
+
+template<typename UInt>
+void bitset_difference(std::size_t size, UInt* lhs, UInt const* rhs)
+{
+    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
+    for(std::size_t i = 0; i < size; ++i)
+        lhs[i] &= ~rhs[i];
 }
 
 template<typename UInt>

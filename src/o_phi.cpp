@@ -26,7 +26,7 @@ ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
 
         if(unique)
         {
-            if(!input.eq(unique))
+            if(!input.targets_eq(unique))
                 return {};
         }
         else
@@ -97,7 +97,7 @@ private:
     void visit(ssa_ht phi_h);
 public:
     using scc_t = fc::small_set<ssa_ht, 2>;
-    inline static std::vector<scc_t> sccs = {};
+    inline static thread_local std::vector<scc_t> sccs = {};
     std::size_t max_scc_size = 0;
     tarjan_t(ir_t& ir, unsigned subgraph_i,
              ssa_ht* phis, std::size_t phis_size);
@@ -204,7 +204,7 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
                 ssa_value_t input = phi.input(i);
                 if(input.is_const() || scc.find(input.handle()) == scc.end())
                 {
-                    if(!outer.eq(input))
+                    if(!outer.targets_eq(input))
                         ++outer_count;
                     outer = input;
                     is_inner = false;

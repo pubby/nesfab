@@ -82,15 +82,24 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             ssa_value_t input = ssa_it->input(i);
             if(input.is_const())
             {
-                if((ssa_it->op() == SSA_read_global
-                    || ssa_it->op() == SSA_write_global
-                    || ssa_it->op() == SSA_fn_call)
-                   && i == 1
-                   && input.ptr<global_t>())
+                if(ssa_it->op() == SSA_fn_call && i == 1)
                 {
                     o << "const_" << gv_id(ssa_it) << '_' << i;
                     o << " [label=\"{";
                     o << input.ptr<global_t>()->name.view();
+                    o << "}\" shape=box];\n";
+                }
+                else if((ssa_it->op() == SSA_read_global
+                         || ssa_it->op() == SSA_write_global)
+                        && i == 1)
+                {
+                    o << "const_" << gv_id(ssa_it) << '_' << i;
+                    o << " [label=\"{";
+                    if(ir.locators.is_single({ input.whole() }))
+                        o << ir.locators.get_single(
+                            { input.whole() }).name.view();
+                    else
+                        o << input.whole();
                     o << "}\" shape=box];\n";
                 }
                 else

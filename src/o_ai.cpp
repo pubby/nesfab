@@ -91,7 +91,7 @@ namespace // Anonymous namespace
 {
 
 bool has_constraints(ssa_node_t& node)
-    { return is_arithmetic(node.type().name); }
+    { return is_arithmetic(node.type()); }
 bool has_constraints(ssa_value_t value)
     { return value.is_const() || has_constraints(*value); }
 
@@ -521,7 +521,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace_h)
     }
 
     // For each parent, perform a narrowing operation.
-    fixed_t::int_type const mask = arithmetic_bitmask(trace.type().name);
+    fixed_t::int_type const mask = arithmetic_bitmask(trace.type());
     constraints_t narrowed = constraints_t::bottom(mask);
     for(unsigned i = 1; i < input_size; i += 2)
     {
@@ -565,7 +565,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace_h)
 void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_h)
 {
     ssa_node_t& ssa_node = *ssa_h;
-    fixed_int_t const mask = arithmetic_bitmask(ssa_node.type().name);
+    fixed_int_t const mask = arithmetic_bitmask(ssa_node.type());
 
     if(ssa_node.op() == SSA_trace)
         compute_trace_constraints(exec_i, ssa_h);
@@ -642,7 +642,7 @@ void ai_t::visit(ssa_ht ssa_h)
     constraints_t const old_constraints = normalize(ssa_data.constraints());
     assert(old_constraints.is_normalized());
 
-    fixed_int_t const mask = arithmetic_bitmask(ssa_node.type().name);
+    fixed_int_t const mask = arithmetic_bitmask(ssa_node.type());
 
     if(ssa_data.visited_count >= WIDEN_OP)
         ssa_data.constraints() = constraints_t::bottom(mask);

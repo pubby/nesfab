@@ -14,6 +14,9 @@ struct fixed_t
     using int_type = fixed_int_t;
     int_type value;
 
+    static constexpr fixed_int_t mask = 
+        (1ull << (type_t::max_total_bytes * 8ull)) - 1ull;
+
     static constexpr int_type shift = 24;
 
     constexpr explicit operator bool() const { return value; }
@@ -41,6 +44,13 @@ inline fixed_t::int_type arithmetic_bitmask(type_name_t type_name)
 {
     assert(is_arithmetic(type_name));
     return arithmetic_bitmask_table[type_name - TYPE_FIRST_ARITH];
+}
+
+[[gnu::pure]]
+inline fixed_t::int_type arithmetic_bitmask(type_t type)
+{
+    assert(is_arithmetic(type));
+    return arithmetic_bitmask(type.name());
 }
 
 inline fixed_t fixed_add(type_name_t type_name, fixed_t lhs, fixed_t rhs)

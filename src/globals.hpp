@@ -1,6 +1,8 @@
 #ifndef GLOBALS_HPP
 #define GLOBALS_HPP
 
+#include <condition_variable>
+#include <mutex>
 #include <ostream>
 #include <deque>
 
@@ -15,261 +17,227 @@
 #include "handle.hpp"
 #include "ir.hpp"
 #include "parser_types.hpp"
+#include "phase.hpp"
 #include "ram.hpp"
+#include "stmt.hpp"
 #include "symbol_table.hpp"
 #include "types.hpp"
 
 namespace bc = boost::container;
 
-class fn_t;
-class global_t;
-
-using stmt_handle_t = handle_t<unsigned, struct stmt_handle_tag_t>;
-
-#define STMT_ENUM \
-    X(STMT_END_BLOCK)\
-    X(STMT_EXPR)\
-    X(STMT_IF)\
-    X(STMT_ELSE)\
-    X(STMT_WHILE)\
-    X(STMT_DO)\
-    X(STMT_RETURN)\
-    X(STMT_BREAK)\
-    X(STMT_CONTINUE)\
-    X(STMT_LABEL)\
-    X(STMT_GOTO)
-
-// Negative values represent var inits, where the negated value 
-// holds the bitwise negated index of the fn variable.
-// (See 'get_local_var_i')
-enum stmt_name_t : int
-{
-    STMT_MIN_VAR_DECL = INT_MIN,
-    STMT_MAX_VAR_DECL = -1,
-#define X(x) x,
-    STMT_ENUM
-#undef X
-};
-
-std::string to_string(stmt_name_t);
-
-constexpr bool is_var_init(stmt_name_t stmt_name)
-{
-    return stmt_name < STMT_END_BLOCK;
-}
-
-constexpr unsigned get_local_var_i(stmt_name_t stmt_name)
-{
-    assert(is_var_init(stmt_name));
-    return ~static_cast<unsigned>(stmt_name);
-}
-
-#define GLOBAL_CLASS_ENUM \
+#define GLOBAL_CLASS_XENUM \
     X(GLOBAL_UNDEFINED) \
     X(GLOBAL_FN) \
     X(GLOBAL_CONST) \
     X(GLOBAL_VAR)
 
-enum global_class_t
+enum global_class_t : std::uint8_t
 {
 #define X(x) x,
-    GLOBAL_CLASS_ENUM
+    GLOBAL_CLASS_XENUM
 #undef X
 };
 
 std::string to_string(global_class_t gclass);
 
+using gvar_ht = handle_t<unsigned, struct gvar_ht_tag, ~0>;
+class fn_t;
+class fn_def_t;
+
 struct global_t
 {
-    pstring_t name;
-    global_class_t gclass;
-    type_t type;
-
-    union
+public:
+    using ideps_set_t = fc::vector_set<global_t*>;
+    pstring_t const name = {};
+private:
+    // These variables are set only by 'define', as soon
+    // as the global is parsed.
+    std::mutex m_define_mutex;
+    global_class_t m_gclass = GLOBAL_UNDEFINED;
+    type_t m_type = TYPE_VOID;
+    union impl_t
     {
-        class fn_t* fn;
-        class var_t* var;
-    };
+        unsigned index;
+        fn_t* fn;
+    } m_impl;
 
     // 'ideps' means "immediate dependencies".
-    // AKA any global name that appaers in the definition of this global.
-    fc::vector_set<global_t*> ideps;
+    // AKA any global name that appears in the definition of this global.
+    // This is set by 'define'
+    ideps_set_t m_ideps;
 
-    mark_t mark; // For toposorting.
-};
+    // Likewise, 'iuses' holds the immediate users of this global.
+    // This is built after all globals have been created, after parsing.
+    ideps_set_t m_iuses;
+    std::atomic<unsigned> m_ideps_left = 0;
 
-struct label_t
-{
-    cfg_ht node;
-    stmt_handle_t stmt_h;
-    unsigned goto_count;
-    bc::small_vector<cfg_ht, 2> inputs;
-};
+public:
+    explicit global_t(pstring_t name) : name(name) {}
 
-struct stmt_t
-{
-    stmt_name_t name;
-    pstring_t pstring;
-    union
+    global_class_t gclass() const 
+    { 
+        assert(compiler_phase() > PHASE_PARSE);
+        return m_gclass;
+    }
+
+    type_t type() const
+    { 
+        assert(compiler_phase() > PHASE_PARSE);
+        return m_type; 
+    }
+
+    fn_t const& fn() const 
+    { 
+        assert(compiler_phase() > PHASE_PARSE);
+        assert(gclass() == GLOBAL_FN); 
+        return *m_impl.fn;
+    }
+
+    gvar_ht var() const 
+    { 
+        assert(compiler_phase() > PHASE_PARSE);
+        assert(gclass() == GLOBAL_VAR); 
+        return { m_impl.index };
+    }
+
+    ideps_set_t const& ideps() const
     {
-        token_t* expr;
-        label_t* label;
-    };
+        assert(compiler_phase() > PHASE_PARSE);
+        return m_ideps;
+    }
+
+    fn_t& define_fn(type_t type, global_t::ideps_set_t&& ideps,
+                    fn_def_t&& fn_def);
+    gvar_ht define_var(type_t type, global_t::ideps_set_t&& ideps);
+
+private:
+    void define(global_class_t gclass, type_t type, impl_t impl, 
+                ideps_set_t&& ideps);
+    void compile();
+public:
+    // Allocates an expression.
+    static token_t const* new_expr(token_t const* begin, token_t const* end);
+    static label_t* new_label();
+
+    // Creates a global if it doesn't exist,
+    // otherwise returns the existing global with name.
+    static global_t& lookup(pstring_t name);
+
+    // Looks up a global variable given a gvar_ht index.
+    // This function can only be called after 'var_vec' is 100% built.
+    inline static global_t& lookup(gvar_ht gvar)
+    {
+        assert(compiler_phase() > PHASE_PARSE);
+        return *var_vec[gvar.value];
+    }
+
+    inline static std::size_t num_vars() 
+    { 
+        assert(compiler_phase() > PHASE_PARSE);
+        return var_vec.size();
+    }
+
+    inline static global_t& get_var(gvar_ht vh)
+    { 
+        assert(compiler_phase() > PHASE_PARSE);
+        assert(vh.value < var_vec.size());
+        return *var_vec[vh.value];
+    }
+
+    // Call after parsing to build 'm_iuses' and 'm_ideps_left',
+    // among other things.
+    // This function isn't thread-safe.
+    // Call from a single thread only.
+    static void build_order();
+
+    // Call after 'build_order' to well... compile everything!
+    static void compile_all();
+
+private:
+    // Returns and pops the next ready global from the ready list.
+    static global_t* await_ready_global();
+private:
+    inline static std::mutex label_pool_mutex;
+    inline static array_pool_t<label_t> label_pool;
+
+    inline static std::mutex expr_pool_mutex;
+    inline static array_pool_t<token_t> expr_pool;
+
+    inline static std::mutex global_pool_mutex;
+    inline static rh::robin_auto_table<global_t*> global_pool_map;
+    static std::deque<global_t> global_pool;
+
+    inline static std::mutex fn_pool_mutex;
+    static std::deque<fn_t> fn_pool;
+
+    inline static std::mutex var_vec_mutex;
+    static std::vector<global_t*> var_vec;
+
+    // These represent a queue globals ready to be compiled.
+    inline static std::condition_variable ready_cv;
+    inline static std::mutex ready_mutex;
+    static std::vector<global_t*> ready;
+    inline static unsigned globals_left;
 };
 
-class var_t
+class fn_def_t
 {
 public:
-    var_t(global_t& global, unsigned id, token_t* expr)
-    : global(global)
-    , id(id)
-    , expr(expr)
-    {}
+    unsigned num_params = 0;
+    // First elems are params
+    std::vector<var_decl_t> local_vars;
 
-    global_t& global;
-    unsigned const id = 0;
+    std::vector<stmt_t> stmts;
 
-    // Used inside the IR builder:
-    unsigned fn_var_i;
+    stmt_t const& operator[](stmt_ht h) const { return stmts[h.value]; }
+    stmt_t& operator[](stmt_ht h) { return stmts[h.value]; }
 
-    //int eq_class_i = 0;
-    token_t const* const expr = nullptr;
-    // ram_region_t region = {}; TODO
+    stmt_ht next_stmt() const { return { stmts.size() }; }
+
+    stmt_ht push_stmt(stmt_t stmt) 
+    { 
+        stmt_ht handle = next_stmt();
+        stmts.push_back(stmt); 
+        return handle;
+    }
+
+    stmt_ht push_var_init(unsigned name, token_t const* expr)
+    { 
+        stmt_ht handle = next_stmt();
+        stmts.push_back({ static_cast<stmt_name_t>(~name), {}, expr }); 
+        return handle;
+    }
 };
 
 class fn_t
 {
 public:
-    fn_t(var_decl_t const* params_begin, var_decl_t const* params_end)
-    : num_params(params_end - params_begin)
-    , local_vars(params_begin, params_end) 
-    {}
-
-    stmt_t const& operator[](stmt_handle_t h) const { return stmts[h.value]; }
-    stmt_t& operator[](stmt_handle_t h) { return stmts[h.value]; }
-
-    stmt_handle_t next_stmt() const { return { stmts.size() }; }
-
-    stmt_handle_t push_stmt(stmt_t stmt) 
-    { 
-        stmt_handle_t handle = next_stmt();
-        stmts.push_back(stmt); 
-        return handle;
-    }
-
-    stmt_handle_t push_var_init(unsigned name, token_t* expr)
-    { 
-        stmt_handle_t handle = next_stmt();
-        stmts.push_back({ static_cast<stmt_name_t>(~name), {}, expr }); 
-        return handle;
-    }
-
-    // TODO
-    //type_t fn_var_type(unsigned var_i) const { return fn_vars[var_i].type; }
-
-    unsigned num_params = 0;
-
-    // First elems are params
-    std::vector<var_decl_t> local_vars;
-
-    std::vector<stmt_t> stmts;
+    explicit fn_t(fn_def_t fn_def) : def(std::move(fn_def)) {}
 
     // TODO
     //std::vector<type_t> arg_bytes_types;
     //std::vector<addr16_t> arg_bytes;
     //std::vector<addr16_t> return_bytes;
 
-    // Bitsets which track which 'var_t's this function uses.
-    bitset_uint_t* reads = nullptr;  // All global vars read in fn (deep)
-    bitset_uint_t* writes = nullptr; // All global vars written in fn (deep)
-};
+    void calc_reads_writes(ir_t const& ir);
 
-class global_manager_t
-{
+    // These are only valid after 'calc_reads_writes' has ran.
+    bitset_uint_t const* reads() const  { assert(m_reads);  return m_reads; }
+    bitset_uint_t const* writes() const { assert(m_writes); return m_writes; }
+
 public:
-    global_manager_t() = default;
-    global_manager_t(global_manager_t const&) = delete;
-    global_manager_t& operator=(global_manager_t const&) = delete;
-
-    // Creates a global if it doesn't exist.
-    global_t& lookup_name(pstring_t name) { return globals[get_index(name)]; }
-
-    // Looks up the global referenced in a node
-    // TODO: remove this from class and make free function
-    global_t const* global(ssa_node_t& ssa_node) const;
-    global_t* global(ssa_node_t& ssa_node) 
-        { return const_cast<global_t*>(const_this()->global(ssa_node)); }
-
-    global_t& new_fn(
-        pstring_t name, 
-        var_decl_t const* params_begin, 
-        var_decl_t const* params_end, 
-        type_t return_type);
-    global_t& new_const(pstring_t name, type_t type);
-    global_t& new_var(pstring_t name, type_t type);
-
-    label_t* new_label() { return label_pool.alloc(); }
-
-    void finish();
-
-    template<typename T>
-    unsigned gvar_bitset_size() const 
-        { return bitset_size<T>(m_vars.size()); }
-
-    var_t const& var_from_id(unsigned id) const
-        { assert(id < m_vars.size()); return m_vars[id]; }
-    var_t& var_from_id(unsigned id)
-        { assert(id < m_vars.size()); return m_vars[id]; }
-
-    void debug_print();
-    std::ostream& gv_deps(std::ostream& o);
+    fn_def_t const def;
+private:
+    // Bitsets of all global vars read/written in fn (deep)
+    // These get assigned by 'calc_reads_writes'.
+    // The thread synchronization is implicit in the order of compilation.
+    bitset_uint_t* m_reads = nullptr;
+    bitset_uint_t* m_writes = nullptr;
 
 private:
-    global_manager_t const* const_this() const { return this; }
-
-    // Used to implement 'get'.
-    unsigned get_index(pstring_t name);
-
-    void calc_reads_writes(global_t& global, ir_t const& ir);
-
-    std::vector<global_t*> toposort_deps();
-
-    static void toposort_visit(std::vector<global_t*>&, global_t&);
-    void verify_undefined(global_t& global);
-
-    // TODO: rename to use 'm_' naming.
-    rh::robin_auto_table<unsigned> global_map;
-    std::deque<global_t> globals;
-    std::deque<fn_t> fns;
-    std::deque<var_t> m_vars;
-    array_pool_t<label_t> label_pool;
-
-    array_pool_t<bitset_uint_t> bitset_pool;
+    // Holds bitsets of 'm_reads' and 'm_writes'
+    static inline std::mutex bitset_pool_mutex;
+    static inline array_pool_t<bitset_uint_t> bitset_pool;
 };
-
-/* TODO
-void compile(global_t const& global)
-{
-    switch(global.gclass)
-    {
-    default:
-    case GLOBAL_UNDEFINED:
-        break;
-
-    case GLOBAL_FN:
-        // Compile the FN.
-        break;
-
-    case GLOBAL_CONST:
-        // Evaluate at runtime.
-        break;
-
-    case GLOBAL_VAR:
-        // Allocate memory
-        global.ram_region = alloc_ram();
-        break;
-    }
-}
-*/
 
 #endif

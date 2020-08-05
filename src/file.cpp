@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+std::vector<file_contents_t> _files;
+
 file_contents_t::file_contents_t(std::string filename)
 : m_filename(std::move(filename))
 {
@@ -19,10 +21,14 @@ file_contents_t::file_contents_t(std::string filename)
     m_source[sb.st_size] = '\0';
 }
 
-unsigned open_file(std::string name)
+void load_files(std::string* begin, std::string* end)
 {
-    files.emplace_back(std::move(name));
-    return files.size() - 1;
+    unsigned num_files = end - begin;
+
+    _files.clear();
+    _files.reserve(num_files);
+
+    for(unsigned i = 0; i < num_files; ++i)
+        _files.emplace_back(begin[i]);
 }
 
-std::vector<file_contents_t> files;

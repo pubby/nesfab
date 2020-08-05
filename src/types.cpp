@@ -2,87 +2,96 @@
 
 #include <algorithm>
 
-#include "hash.hpp"
+#include "robin/combine.hpp"
 
 using namespace std::literals;
 
-rh::robin_auto_table<type_t::map_elem_t> type_t::tail_map;
-std::vector<type_t> type_t::tails;
+array_pool_t<type_t> type_t::tails;
 
-unsigned type_t::get_tail_i(type_t const* begin, type_t const* end)
+type_t const* type_t::get_tail(type_t const& type)
+{
+    return get_tail(&type, &type + 1);
+}
+
+type_t const* type_t::get_tail(type_t const* begin, type_t const* end)
 {
     if(end - begin == 0)
         throw std::runtime_error("type has too few arguments.");
 
     // Hash the type string.
-    std::size_t hash = (end - begin);
+    std::size_t size = end - begin;
+    std::size_t hash = size;
 
     for(type_t const* it = begin; it < end; ++it)
     {
-        hash = combine_hashes(hash, it->name);
-        hash = combine_hashes(hash, it->tail_i);
+        std::hash<type_t const*> tail_hasher;
+        hash = rh::hash_combine(hash, it->name());
+        hash = rh::hash_combine(hash, tail_hasher(it->tail()));
     }
+
+    std::lock_guard<std::mutex> const lock(tail_mutex);
 
     rh::apair<map_elem_t*, bool> result = tail_map.emplace(
         hash,
-        [begin, end](map_elem_t elem) -> bool
+        [begin, end, size](map_elem_t elem) -> bool
         {
-            return (elem.size == end - begin
-                    && std::equal(begin, end, &tails[elem.tail_i]));
+            return (elem.size == size && std::equal(begin, end, elem.tail));
         },
-        [begin, end]() -> map_elem_t
+        [begin, end, size]() -> map_elem_t
         { 
-            // Substring search to see if the type string is already in
-            // the tails vector.
-            auto it = std::search(tails.begin(), tails.end(), begin, end);
-            if(it == tails.end())
-            {
-                // Create new.
-                unsigned const index = tails.size();
-                tails.insert(tails.end(), begin, end);
-                return { end - begin, index };
-            }
-            else
-                return { end - begin, it - tails.begin() };
-
+            return { size, tails.alloc(size) };
         });
 
-    return result.first->tail_i;
+    return result.first->tail;
 }
 
 void type_t::clear_all()
 {
+    std::lock_guard<std::mutex> const lock(tail_mutex);
     tail_map.clear();
     tails.clear();
 }
 
 type_t type_t::array(type_t elem_type, unsigned size)
 {
-    return { TYPE_ARRAY, size, get_tail_i(&elem_type, &elem_type + 1) };
+    return type_t(TYPE_ARRAY, size, get_tail(elem_type));
 }
 
 type_t type_t::ptr(type_t pointed_to_type)
 {
-    return { TYPE_PTR, 1, get_tail_i(&pointed_to_type, &pointed_to_type + 1) };
+    return type_t(TYPE_PTR, 1, get_tail(pointed_to_type));
 }
 
 type_t type_t::fn(type_t* begin, type_t* end)
 {
-    return { TYPE_FN, end - begin, get_tail_i(begin, end) };
+    return type_t(TYPE_FN, end - begin, get_tail(begin, end));
 }
 
-std::string type_string(type_t type) 
+std::size_t type_t::size_of() const
+{
+    if(is_arithmetic(name()))
+        return whole_bytes(name()) + frac_bytes(name());
+
+    switch(name())
+    {
+    default: assert(false); return 0;
+    case TYPE_PTR:   return 2;
+    case TYPE_ARRAY: return size() * m_tail[0].size_of();
+    }
+}
+
+std::string to_string(type_t type) 
 { 
     std::string str;
 
-    switch(type.name)
+    switch(type.name())
     {
     default: 
-        if(is_fixed(type.name))
+        if(is_fixed(type.name()))
         {
             std::string str("fixed"s);
-            str.push_back(whole_bytes(type.name) + '0');
-            str.push_back(frac_bytes(type.name) + '0');
+            str.push_back(whole_bytes(type.name()) + '0');
+            str.push_back(frac_bytes(type.name()) + '0');
             return str;
         }
         throw std::runtime_error("bad type");
@@ -95,17 +104,17 @@ std::string type_string(type_t type)
     case TYPE_ARRAY: // TODO
         throw std::runtime_error("TODO - unimplemented type"s);
     case TYPE_PTR:
-        return "%" + type_string(type[0]);
+        return "%" + to_string(type[0]);
     case TYPE_FN:
-        assert(type.size > 0);
+        assert(type.size() > 0);
         std::string str("fn("s);
-        for(int i = 0; i < type.size; ++i)
+        for(unsigned i = 0; i < type.size(); ++i)
         {
-            if(i == type.size - 1)
+            if(i == type.size() - 1)
                 str += ") "s;
             else if(i != 0)
                 str += ", "s;
-            str += type_string(type[i]);
+            str += to_string(type[i]);
         }
         return str;
     }
@@ -113,7 +122,7 @@ std::string type_string(type_t type)
 
 std::ostream& operator<<(std::ostream& ostr, type_t const& type)
 {
-    ostr << type_string(type);
+    ostr << to_string(type);
     return ostr;
 }
 
@@ -124,15 +133,15 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
         return CAST_NOP;
 
     // Othewise arithmetic types can be converted to bool using "!= 0".
-    if(is_arithmetic(from.name) && to.name == TYPE_BOOL)
+    if(is_arithmetic(from) && to == TYPE_BOOL)
         return CAST_BOOLIFY;
 
     // Otherwise you can't cast different pointers.
-    if(from.name == TYPE_PTR || to.name == TYPE_PTR)
+    if(from == TYPE_PTR || to == TYPE_PTR)
         return CAST_FAIL;
 
     // Otherwise arithmetic types can be converted amongst each other.
-    if(is_arithmetic(from.name) && is_arithmetic(to.name))
+    if(is_arithmetic(from) && is_arithmetic(to))
         return CAST_OP;
 
     return CAST_FAIL;

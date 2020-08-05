@@ -8,7 +8,7 @@
 
 // A simple allocator that only supports allocation, not free.
 // Memory is still cleared on pool destruction or the calling of 'clear()'.
-template<typename T, std::size_t ChunkSize = 64>
+template<typename T, std::size_t ChunkSize = 256>
 class array_pool_t
 {
 public:
@@ -121,7 +121,7 @@ public:
     // Calls Func on every allocated value.
 
     template<typename Func>
-    void foreach(Func func)
+    void for_each(Func func)
     {
         for(buffer_t* buffer = used.get(); buffer; buffer = buffer->prev.get())
             for(std::size_t i = 0; i < buffer->size; ++i)

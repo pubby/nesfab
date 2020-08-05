@@ -17,7 +17,7 @@ struct pstring_t
     std::uint16_t file_i;
 
     std::string_view view() const 
-        { return std::string_view(files[file_i].source() + offset, size); }
+        { return std::string_view(get_file(file_i).source() + offset, size); }
 
     constexpr std::uint32_t end() { return offset + size; }
 };

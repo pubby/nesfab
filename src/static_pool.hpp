@@ -40,7 +40,6 @@ public:
 
         if(new_size * sizeof(T) > bytes_capacity)
         {
-            std::puts("RESIZING");
             std::size_t const new_capacity = new_size * sizeof(T) * 2;
             std::unique_ptr<char, c_delete> new_storage(
                 (char*)std::aligned_alloc(64, new_capacity));

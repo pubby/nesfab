@@ -320,7 +320,7 @@ bool ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
 {
     assert(i < input_size());
 
-    if(new_value.target() == input(i).target())
+    if(new_value.targets_eq(input(i)))
         return false;
 
     // First deal with the node we're receiving input along 'i' from.

@@ -36,37 +36,10 @@ struct token_t
 
 struct var_decl_t
 {
-    type_t type;
+    type_t type = TYPE_VOID;
     pstring_t name;
 };
 
 using expr_temp_t = bc::small_vector<token_t, 16>;
-
-inline token_t* expr_end(token_t* expr)
-{
-    while(expr->type)
-        ++expr;
-    return expr;
-}
-
-// TODO: move this
-inline pstring_t expr_pstring(token_t* expr)
-{
-    assert(expr);
-    assert(expr->type);
-
-    unsigned min = ~0u;
-    unsigned max = 0;
-
-    for(token_t* i = expr; i->type; ++i)
-    {
-        min = std::min<unsigned>(min, i->pstring.offset);
-        max = std::max<unsigned>(max, i->pstring.end());
-    }
-
-    return { min, max - min, expr->pstring.file_i };
-}
-
-extern array_pool_t<token_t> expr_pool;
 
 #endif

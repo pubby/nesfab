@@ -3,7 +3,7 @@
 
 // Parser overview:
 // - Recursive descent with no/minimal backtracking.
-// - Does _NOT_ generate an AST.
+// - Does _NOT_ generate an AST itself.
 //   - Instead 'callbacks' are called when parts of the grammar are parsed.
 //   - These 'callbacks' take the form of template-driven policies.
 // - Throws on error, which GREATLY simplifies the logic. 
@@ -38,7 +38,7 @@ public:
     void parse() { parse_top_level(); }
 
 private:
-    char const* source() { return files[file_i].source(); }
+    char const* source() { return get_file(file_i).source(); }
     Policy& policy() { return *policy_ptr; }
 
     // Parses comma-separated values between token types 'l' and 'r'.
@@ -93,5 +93,13 @@ private:
     [[gnu::noreturn]] void compiler_error(std::string const& what) const
         { ::compiler_error(token.pstring, what); }
 };
+
+template<typename Policy>
+void parse(unsigned file_i)
+{
+    Policy policy;
+    parser_t parser(policy, file_i);
+    parser.parse();
+}
 
 #endif

@@ -349,7 +349,7 @@ finish_expr:
 template<typename P>
 type_t parser_t<P>::parse_type(bool allow_void)
 {
-    type_t type = {};
+    type_t type = TYPE_VOID;
 
     unsigned pointer_levels = 0;
     while(token.type == TOK_pointer)
@@ -360,10 +360,10 @@ type_t parser_t<P>::parse_type(bool allow_void)
 
     switch(token.type)
     {
-    case TOK_bool:  parse_token(); type.name = TYPE_BOOL; break;
-    case TOK_byte:  parse_token(); type.name = TYPE_BYTE; break;
-    case TOK_short: parse_token(); type.name = TYPE_SHORT; break;
-    case TOK_int:   parse_token(); type.name = TYPE_INT; break;
+    case TOK_bool:  parse_token(); type = TYPE_BOOL; break;
+    case TOK_byte:  parse_token(); type = TYPE_BYTE; break;
+    case TOK_short: parse_token(); type = TYPE_SHORT; break;
+    case TOK_int:   parse_token(); type = TYPE_INT; break;
     case TOK_fixed: 
         {
             unsigned w = token_source[5] - '0';
@@ -376,7 +376,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
                     "between fixed01 and fixed33.");
             }
 
-            type.name = TYPE_arithmetic(w, f);
+            type = TYPE_arithmetic(w, f);
             parse_token(); 
             break;
         }
@@ -406,7 +406,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
     default: 
         if(!allow_void || pointer_levels > 0)
             compiler_error("Expecting type.");
-        type.name = TYPE_VOID;
+        type = TYPE_VOID;
         break;
     }
 

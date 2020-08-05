@@ -1,4 +1,4 @@
-.PHONY: all tests deps cleandeps clean run 
+.PHONY: all tests deps cleandeps clean run
 all: compiler tests
 run: compiler
 	./compiler
@@ -23,10 +23,11 @@ endef
 SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
+GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++2a \
-  -O0 \
+  -O3 \
   -pthread \
   -g \
   -export-dynamic \
@@ -36,12 +37,13 @@ override CXXFLAGS+= \
   -Wno-narrowing \
   -Wno-missing-field-initializers \
   -fmax-errors=3 \
-  $(INCS)
-# -DNDEBUG
+  $(INCS) \
+  -DVERSION=\"$(GIT_VERSION)\" \
+  -DNDEBUG
 
 VPATH=$(SRCDIR)
 
-LDLIBS:=
+LDLIBS:= -lboost_program_options
 
 SRCS:= \
 main.cpp \
@@ -67,7 +69,10 @@ o_phi.cpp \
 o_ai.cpp \
 asm.cpp \
 cg_schedule.cpp \
-worklist.cpp
+worklist.cpp \
+locator.cpp \
+options.cpp \
+stmt.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

@@ -13,14 +13,16 @@
 #include <functional>
 #include <ostream>
 
-template<typename Int, typename Tag>
+template<typename Int, typename Tag, Int Null = 0>
 struct handle_t
 {
     using int_type = Int;
     using tag_type = Tag;
-    int_type value;
+    int_type value = Null;
 
-    constexpr explicit operator bool() const { return value; }
+    static constexpr Int null = Null;
+
+    constexpr explicit operator bool() const { return value != Null; }
     constexpr bool operator==(handle_t o) const { return value == o.value; }
     constexpr bool operator!=(handle_t o) const { return value != o.value; }
     constexpr bool operator<=(handle_t o) const { return value <= o.value; }

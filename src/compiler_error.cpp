@@ -13,7 +13,7 @@ namespace
 
     line_col_t get_line_col(pstring_t pstring)
     {
-        char const* source = files[pstring.file_i].source();
+        char const* source = _files[pstring.file_i].source();
         line_col_t ret = { 1, 1 };
 
         for(std::size_t i = 0; i < pstring.offset; ++i)
@@ -41,7 +41,7 @@ namespace
 
     char const* get_line_begin(pstring_t pstring)
     {
-        char const* source = files[pstring.file_i].source();
+        char const* source = _files[pstring.file_i].source();
         for(std::size_t i = pstring.offset;;--i)
         {
             if(source[i] == '\n' || source[i] == '\r')
@@ -53,7 +53,7 @@ namespace
 
     char const* get_line_end(pstring_t pstring)
     {
-        char const* source = files[pstring.file_i].source();
+        char const* source = _files[pstring.file_i].source();
         for(std::size_t i = pstring.offset + pstring.size;;++i)
             if(source[i] == '\n' || source[i] == '\r' || source[i] == '\0')
                 return source + i;
@@ -64,7 +64,7 @@ namespace
 std::string fmt_source_pos(pstring_t pstring)
 {
     line_col_t line_col = get_line_col(pstring);
-    return fmt("%:%:%", files[pstring.file_i].filename(), 
+    return fmt("%:%:%", _files[pstring.file_i].filename(), 
                line_col.line, line_col.col);
 }
 
@@ -86,7 +86,7 @@ std::string fmt_error(pstring_t pstring, std::string const& what)
             return str;
 
     unsigned const caret_position = 
-        (files[pstring.file_i].source() + pstring.offset) - line_begin;
+        (_files[pstring.file_i].source() + pstring.offset) - line_begin;
 
     str.resize(str.size() + caret_position, ' ');
 

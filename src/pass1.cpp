@@ -2,7 +2,7 @@
 
 #include "alloca.hpp"
 
-token_t* pass1_t::convert_expr(expr_temp_t& expr)
+token_t const* pass1_t::convert_expr(expr_temp_t& expr)
 {
     for(token_t& token : expr)
     {
@@ -16,15 +16,18 @@ token_t* pass1_t::convert_expr(expr_temp_t& expr)
             }
             else
             {
+                global_t& g = global_t::lookup(token.pstring);
                 token.type = TOK_global_ident;
-                token.set_ptr(&globals().lookup_name(token.pstring));
-                active_global->ideps.insert(token.ptr<global_t>());
+                token.set_ptr(&g);
+                ideps.insert(&g);
             }
         }
     }
 
-    // Store the expression in 'expr_pool' and return a pointer to it.
+    // Null-like terminator
     expr.push_back({});
-    return expr_pool.insert(expr.begin(), expr.end());
+
+    // Store the expression in 'expr_pool' and return a pointer to it.
+    return global_t::new_expr(&*expr.begin(), &*expr.end());
 }
 

@@ -348,3 +348,142 @@ schedule_t schedule_cfg_node(cfg_ht cfg_h)
     scheduler_t scheduler(cfg_h);
     return std::move(scheduler.schedule);
 }
+
+
+// TODO
+// TODO
+// TODO
+/*
+
+ssa_ht* in
+ssa_ht* out
+
+in<>
+out<>
+
+
+struct stack_val_t
+{
+    std::vector<>
+
+    std::vector<unsigned> remaining;
+};
+
+is_valid()
+{
+    if(op == SSA_fn_call)
+    {
+        // A fn call can only be scheduled if it doesn't clash with
+        // any globals currently live:
+
+        for(each global clobbered by fn call)
+        {
+            if(live)
+                return false;
+        }
+    }
+}
+
+// If we're stuck:
+// - Rewind stack to the last valid point.
+// - Mark said path as invalid
+// - If any paths remain, check them
+// - Otherwise, rewind once more
+*/
+/*
+
+live_t
+{
+    ssa_ht def;
+    unsigned outputs_remaining;
+};
+
+
+
+std::vector<ssa_ht> schedule;
+std::vector<ssa_ht> to_do;
+
+struct stack_val
+{
+    std::vector<> live;
+    unsigned scheduled;
+    bitset* tried;
+};
+
+unsigned gvar_num;
+
+    ssa_ht candidate = {};
+    while(!to_do.empty())
+    {
+        // First priority: try to find a successor node that's ready:
+        if(candidate)
+            candidate = successor_search(candidate);
+
+        // Second priority: try to find *any* node that's ready:
+        if(!candidate)
+            candidate = full_search();
+
+        if(!candidate)
+        {
+            // TODO
+            // Backtrack
+        }
+
+        // Schedule it:
+        assert(!candidate->test_flags(FLAG_PROCESSED));
+        candidate->set_flags(FLAG_PROCESSED);
+        bitset_set(m_scheduled_bitset, index(candidate_h));
+
+        schedule.push_back(candidate);
+
+        // Remove from to-do
+        // TODO
+
+        // If this node inputs a live var, stop tracking it:
+        bitset_for_each_bit(TODO, candidate->INPUTS,
+        [](unsigned v)
+        {
+            live[v].outputs_remaining -= 1;
+
+            if(live[v].outputs_remaining == 1)
+                bitset_set(ONE_LIVE, bit);
+            else if(live[v].outputs_remaining == 0)
+                live[v].def = {};
+        });
+
+        // If this node outputs a live var, track it:
+        bitset_for_each_bit(TODO, candidate->OUTPUTS,
+        [](unsigned v)
+        {
+            assert(!live[v].def);
+            live[v].def = candidate;
+        });
+
+        // If this node is a fn call, we don't prioritize successors
+        if(candidate->op() == SSA_fn_call)
+            candidate = {};
+    }
+
+bool scheduler_t::ready2(ssa_ht h, bitset_uint_t const* scheduled_bitset) const
+{
+    assert(h->cfg_node() == m_cfg_h);
+    assert(!h->test_flags(FLAG_PROCESSED)); // If already scheduled.
+
+    // A node is ready when all of its inputs are scheduled.
+    for(unsigned i = 0; i < m_bitset_size; ++i)
+        if((get_data(h).deps[i] & ~scheduled_bitset[i]) != 0)
+            return false;
+
+    // If the node clobbers a variable that is currently live,
+    // it's not ready, UNLESS it's the last the last use of said variable.
+    if(OUTPUTS & LIVE & ~(INPUTS & ONE_LIVE))
+        return false;
+
+    // If the node was previously tried, it's not ready.
+    if(NODE & TRIED)
+        return false;
+
+    // Otherwise it's ready!
+    return true;
+}
+*/

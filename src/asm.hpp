@@ -34,12 +34,23 @@ std::string to_string(addr_mode_t addr_mode);
 std::string to_string(op_name_t name);
 std::string to_string(op_t op);
 
-// Works like a bitset.
 using regs_t = std::uint8_t;
-constexpr regs_t REG_A = 1 << 0;
-constexpr regs_t REG_X = 1 << 1;
-constexpr regs_t REG_Y = 1 << 2;
-constexpr regs_t REG_C = 1 << 3;
+constexpr regs_t REG_A   = 0;
+constexpr regs_t REG_X   = 1;
+constexpr regs_t REG_Y   = 2;
+constexpr regs_t REG_C   = 3;
+constexpr unsigned NUM_VALUE_REGS = 3;
+constexpr unsigned NUM_REGS = 4;
+
+// Works like a bitset.
+constexpr regs_t REGF_A   = 1 << REG_A;
+constexpr regs_t REGF_X   = 1 << REG_X;
+constexpr regs_t REGF_Y   = 1 << REG_Y;
+constexpr regs_t REGF_C   = 1 << REG_C;
+
+constexpr regs_t REGF_AX   = REGF_A | REGF_X;
+constexpr regs_t REGF_AC   = REGF_A | REGF_C;
+constexpr regs_t REGF_ALL = REGF_A | REGF_X | REGF_Y | REGF_C;
 
 struct op_def_t
 {
@@ -55,52 +66,45 @@ struct op_def_t
 
 #include "asm_tables.hpp"
 
-constexpr op_name_t op_name(op_t op)
+consteval op_name_t op_name(op_t op)
 {
-    assert(op_defs_table[op].op == op);
     return op_defs_table[op].op_name;
 }
 
-constexpr std::uint8_t op_code(op_t op)
+consteval std::uint8_t op_code(op_t op)
 {
-    assert(op_defs_table[op].op == op);
     return op_defs_table[op].op_code;
 }
 
-constexpr addr_mode_t op_addr_mode(op_t op)
+consteval addr_mode_t op_addr_mode(op_t op)
 {
-    assert(op_defs_table[op].op == op);
     return op_defs_table[op].addr_mode;
 }
 
-constexpr unsigned op_cycles(op_t op)
+consteval unsigned op_cycles(op_t op)
 {
-    assert(op_defs_table[op].op == op);
     return op_defs_table[op].cycles;
 }
 
-constexpr unsigned op_size(op_t op)
+consteval unsigned op_size(op_t op)
 {
-    assert(op_defs_table[op].op == op);
     return op_defs_table[op].size;
 }
 
-constexpr regs_t op_input_regs(op_t op)
+consteval regs_t op_input_regs(op_t op)
 {
-    assert(op_defs_table[op].op == op);
     return op_defs_table[op].input_regs;
 }
 
-constexpr regs_t op_output_regs(op_t op)
+consteval regs_t op_output_regs(op_t op)
 {
-    assert(op_defs_table[op].op == op);
     return op_defs_table[op].output_regs;
 }
 
 using addr_mode_table_t = std::array<op_t, NUM_ADDR_MODES>;
 using op_name_mode_table_t = std::array<addr_mode_table_t, NUM_OP_NAMES>;
 
-constexpr op_name_mode_table_t op_name_mode_table = []() constexpr
+constexpr op_name_mode_table_t op_name_mode_table = []() consteval
 {
     op_name_mode_table_t ret = {};
 
@@ -113,7 +117,7 @@ constexpr op_name_mode_table_t op_name_mode_table = []() constexpr
     return ret;
 }();
 
-constexpr op_t get_op(op_name_t name, addr_mode_t mode)
+consteval op_t get_op(op_name_t name, addr_mode_t mode)
 {
     return op_name_mode_table[name][mode];
 }

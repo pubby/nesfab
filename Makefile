@@ -23,11 +23,13 @@ endef
 SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
-GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
+
+VERSION := "0.1"
+GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++2a \
-  -O3 \
+  -O0 \
   -pthread \
   -g \
   -export-dynamic \
@@ -38,8 +40,9 @@ override CXXFLAGS+= \
   -Wno-missing-field-initializers \
   -fmax-errors=3 \
   $(INCS) \
-  -DVERSION=\"$(GIT_VERSION)\" \
-  -DNDEBUG
+  -DVERSION=\"$(VERSION)\" \
+  -DGIT_COMMIT=\"$(GIT_COMMIT)\" 
+  #-DNDEBUG
 
 VPATH=$(SRCDIR)
 
@@ -51,6 +54,7 @@ parser.cpp \
 parser_types.cpp \
 symbol_table.cpp \
 ir.cpp \
+ir_util.cpp \
 ir_builder.cpp \
 types.cpp \
 compiler_error.cpp \
@@ -67,12 +71,14 @@ carry.cpp \
 o.cpp \
 o_phi.cpp \
 o_ai.cpp \
+o_unused.cpp \
 asm.cpp \
-cg_schedule.cpp \
-worklist.cpp \
 locator.cpp \
 options.cpp \
-stmt.cpp
+stmt.cpp \
+cg_schedule.cpp \
+cg_isel.cpp \
+cg_byteify.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

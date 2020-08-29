@@ -1,10 +1,35 @@
 #include "locator.hpp"
 
+#include "format.hpp"
 #include "globals.hpp"
 
-type_t locator_manager_t::type(locator_ht loc) const
+std::string to_string(locator_t loc)
 {
-    return is_single(loc) ? get_single(loc).type() : type_t{};
+    switch(loc.lclass())
+    {
+    case LCLASS_GLOBAL:
+        return loc.global().name;
+    case LCLASS_GLOBAL_SET:
+        return fmt("gset %", loc.index());
+    case LCLASS_THIS_ARG:
+        return fmt("arg %", loc.index());
+    case LCLASS_CALL_ARG:
+        return fmt("call %", loc.index());
+    case LCLASS_RETURN:
+        return fmt("ret %", loc.index());
+    default: return "unknown locator";
+    }
+}
+
+std::ostream& operator<<(std::ostream& o, locator_t loc)
+{
+    o << to_string(loc);
+    return o;
+}
+
+global_t& locator_t::global() const
+{
+    return global_t::lookup(gvar());
 }
 
 void locator_manager_t::setup(global_t const& global)
@@ -12,10 +37,10 @@ void locator_manager_t::setup(global_t const& global)
     assert(global.gclass() == GLOBAL_FN);
 
     bitset_pool.clear();
-    sets.clear();
-    handle_map.clear();
+    locs.clear();
+    map.clear();
 
-    unsigned const set_size = bitset_size<>(global_t::num_vars());
+    unsigned set_size = bitset_size<>(global_t::num_vars());
 
     // 'named_set' will hold all globals mentioned by name inside this fn.
     bitset_uint_t* named_set = bitset_pool.alloc(set_size);
@@ -24,7 +49,7 @@ void locator_manager_t::setup(global_t const& global)
     // Start out with a single equivalence class, containing all the
     // globals possibly used in this fn.
     // Then, this equivalence class will be broken up into multiple 
-    // disjoint subsets.
+    // disjoint sublocs.
 
     bitset_uint_t* initial_set = bitset_pool.alloc(set_size);
     assert(bitset_all_clear(set_size, initial_set));
@@ -42,12 +67,12 @@ void locator_manager_t::setup(global_t const& global)
 
             bitset_set(named_set, idep->var().value);
 
-            handle_map.insert({ idep, sets.size() });
-            sets.push_back(idep);
+            map.insert({ idep, locs.size() });
+            locs.push_back(idep);
         }
     }
-
-    m_num_singles = sets.size();
+    
+    first_set = locs.size();
 
     // The eq classes won't involve any global named in the fn.
     bitset_difference(set_size, initial_set, named_set);
@@ -70,7 +95,7 @@ void locator_manager_t::setup(global_t const& global)
 
         for(bitset_uint_t* in_set : eq_classes)
         {
-            // Split the eq class set into two sets:
+            // Split the eq class set into two locs:
             // - One which has everything in 'bitset' ('in')
             // - The complement of that ^ ('comp')
 
@@ -102,15 +127,49 @@ void locator_manager_t::setup(global_t const& global)
     // OK! The equivalence classes are built.
     // Now associate each variable with its eq class.
 
-    sets.reserve(sets.size() + eq_classes.size());
+    locs.reserve(locs.size() + eq_classes.size());
     for(unsigned i = 0; i < eq_classes.size(); ++i)
     {
-        bitset_for_each_bit(set_size, eq_classes[i], 
+        bitset_for_each(set_size, eq_classes[i], 
         [this](unsigned bit)
         {
             global_t& var = global_t::get_var({ bit });
-            handle_map.insert({ &var, sets.size() });
+            map.insert({ &var, locs.size() });
         });
-        sets.push_back(eq_classes[i]);
+        locs.push_back(eq_classes[i]);
     }
+}
+
+locator_t locator_manager_t::locator(global_t const& global) const
+{
+    return locator(index(global));
+}
+
+locator_t locator_manager_t::locator(unsigned i) const
+{
+    locator_t loc;
+    if(i < first_set)
+    {
+        loc.impl =
+        { 
+            .index = static_cast<global_t const*>(locs[i])->var().value,
+            .lclass = LCLASS_GLOBAL
+        };
+    }
+    else
+    {
+        loc.impl =
+        { 
+            .index = i,
+            .lclass = LCLASS_GLOBAL_SET
+        };
+    }
+    return loc;
+}
+
+type_t locator_manager_t::type(unsigned i) const
+{
+    if(i < first_set)
+        return static_cast<global_t const*>(locs[i])->type();
+    return TYPE_VOID;
 }

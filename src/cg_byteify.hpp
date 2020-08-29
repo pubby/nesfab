@@ -5,7 +5,6 @@
 
 #include "cg.hpp"
 
-void byteify(ir_t& ir, class global_manager_t& globals, 
-             struct global_t& global);
+void byteify(class ir_t& ir, struct global_t& global);
 
 #endif

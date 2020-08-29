@@ -206,6 +206,7 @@ void ssa_node_t::create(cfg_ht cfg_h, ssa_op_t op, type_t type)
 
 void ssa_node_t::destroy()
 {
+    m_op = SSA_null;
     m_io.reset();
 }
 
@@ -217,7 +218,7 @@ void ssa_node_t::build_set_input(unsigned i, ssa_value_t value)
     assert(i < input_size());
     assert(!input(i));
 
-    if(value.is_handle())
+    if(value.holds_ref())
     {
         ssa_node_t& new_node = *value;
         value.set_index(new_node.output_size());
@@ -240,7 +241,7 @@ void ssa_node_t::link_append_input(ssa_value_t value)
 {
     unsigned const i = input_size();
     m_io.resize_input(i + 1);
-    if(value.is_handle())
+    if(value.holds_ref())
     {
         ssa_node_t& node = *value;
         value.set_index(node.append_output({ handle(), i }));
@@ -257,7 +258,7 @@ void ssa_node_t::link_append_input(ssa_value_t* begin, ssa_value_t* end)
 
     for(ssa_value_t* it = begin; it < end; ++it)
     {
-        if(it->is_handle())
+        if(it->holds_ref())
         {
             ssa_node_t& node = **it;
             it->set_index(node.append_output({ handle(), i }));
@@ -272,7 +273,7 @@ void ssa_node_t::remove_inputs_output(unsigned i)
     assert(i < input_size());
 
     ssa_fwd_edge_t input = m_io.input(i);
-    if(input.is_handle())
+    if(input.holds_ref())
     {
         assert(input.handle());
 
@@ -281,7 +282,7 @@ void ssa_node_t::remove_inputs_output(unsigned i)
 
         // Remove the output edge that leads to our input on 'i'.
         from_node.m_io.last_output().input().set_index(from_i);
-       std::swap(from_node.m_io.output(from_i), from_node.m_io.last_output());
+        std::swap(from_node.m_io.output(from_i), from_node.m_io.last_output());
         from_node.m_io.shrink_output(from_node.output_size() - 1);
         
 #ifndef NDEBUG
@@ -320,25 +321,26 @@ bool ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
 {
     assert(i < input_size());
 
-    if(new_value.targets_eq(input(i)))
+    if(new_value == input(i))
         return false;
 
     // First deal with the node we're receiving input along 'i' from.
     remove_inputs_output(i);
 
     // Now change our input.
-    if(new_value.is_handle())
+    if(new_value.holds_ref())
     {
-        assert(new_value.handle());
         ssa_node_t& from_node = *new_value;
-        new_value.set_index(from_node.output_size());
 
         // Add the new output entry.
         std::size_t const append_i = from_node.output_size();
         from_node.m_io.resize_output(append_i + 1);
         from_node.m_io.output(append_i) = { handle(), i };
+
+        new_value.set_index(append_i);
     }
     m_io.input(i) = new_value;
+
     return true;
 }
 
@@ -356,43 +358,57 @@ void ssa_node_t::link_shrink_inputs(unsigned new_size)
     m_io.shrink_input(new_size);
 }
 
-void ssa_node_t::replace_with_const(fixed_t const_val)
-{
-    std::size_t const size = output_size();
-    for(unsigned i = 0; i < size; ++i)
-        m_io.output(i).input() = const_val;
-    m_io.clear_output();
-}
-
 void ssa_node_t::replace_with(ssa_value_t value)
 {
-    if(value.is_const())
-        return replace_with_const(value.fixed());
-
-    assert(value.handle());
-    ssa_node_t& node = *value;
-
-    if(&node == this)
-        return;
-
-    // All of this node's outputs will get appended onto 'node's outputs.
-    unsigned index = node.output_size();
     unsigned const this_size = output_size();
-    node.m_io.resize_output(this_size + index);
 
-    for(unsigned i = 0; i < this_size; ++i)
+    if(value.holds_ref())
     {
-        m_io.output(i).input().set(value.handle(), index);
-        node.m_io.output(index) = m_io.output(i);
-        ++index;
+        ssa_node_t& node = *value;
+
+        if(&node == this)
+            return;
+
+        // All of this node's outputs will get appended onto 'node's outputs.
+        unsigned index = node.output_size();
+        node.m_io.resize_output(this_size + index);
+
+        for(unsigned i = 0; i < this_size; ++i)
+        {
+            m_io.output(i).input().set(value.handle(), index);
+            node.m_io.output(index) = m_io.output(i);
+            ++index;
+        }
+    }
+    else
+    {
+        for(unsigned i = 0; i < this_size; ++i)
+            m_io.output(i).input() = value;
     }
 
     m_io.clear_output();
 }
 
-ssa_ht ssa_node_t::unsafe_prune()
+unsigned ssa_node_t::replace_with(input_class_t input_class, ssa_value_t value)
 {
-    return cfg_node()->unsafe_prune_ssa(handle());
+    unsigned changed = 0;
+    for(unsigned i = 0; i < output_size();)
+    {
+        auto oe = output_edge(i);
+        if(oe.input_class() == input_class)
+        {
+            oe.handle->link_change_input(oe.index, value);
+            ++changed;
+        }
+        else
+            ++i;
+    }
+    return changed;
+}
+
+ssa_ht ssa_node_t::prune()
+{
+    return cfg_node()->prune_ssa(handle());
 }
 
 ////////////////////////////////////////
@@ -402,14 +418,16 @@ ssa_ht ssa_node_t::unsafe_prune()
 void cfg_node_t::create()
 {
     assert(m_io.empty());
-    exit = {};
+    m_first_phi = {};
+    m_last_daisy = {};
     m_flags = 0;
 }
 
 void cfg_node_t::destroy()
 {
     assert(!ssa_begin());
-    assert(!exit);
+    assert(!m_first_phi);
+    assert(!m_last_daisy);
     m_io.reset();
 }
 
@@ -434,6 +452,116 @@ unsigned cfg_node_t::append_input(cfg_fwd_edge_t edge)
     return i;
 }
 
+void cfg_node_t::list_insert(ssa_ht it, ssa_node_t& node)
+{
+    assert(node.cfg_node() == handle());
+
+    node.next = it;
+
+    if(it)
+    {
+        assert(it->cfg_node() == handle());
+        node.prev = it->prev;
+        it->prev = node.handle();
+    }
+    else
+    {
+        node.prev = m_last_ssa;
+        m_last_ssa = node.handle();
+    }
+
+    if(node.prev)
+        node.prev->next = node.handle();
+
+    if(it == m_first_ssa)
+        m_first_ssa = node.handle();
+
+    assert(node.next == it);
+}
+
+void cfg_node_t::list_insert(ssa_node_t& node)
+{
+    list_insert(m_first_phi, node);
+    if(node.op() == SSA_phi)
+        m_first_phi = node.handle();
+}
+
+ssa_ht cfg_node_t::list_erase(ssa_node_t& node)
+{
+    assert(node.next != node.handle());
+    assert(node.prev != node.handle());
+
+    if(node.next)
+        node.next->prev = node.prev;
+    else
+        m_last_ssa = node.prev;
+
+    if(node.prev)
+        node.prev->next = node.next;
+    else
+        m_first_ssa = node.next;
+
+    if(node.op() == SSA_phi && node.handle() == m_first_phi)
+        m_first_phi = node.next;
+
+    if(node.test_flags(FLAG_DAISY) && node.handle() == m_last_daisy)
+    {
+        m_last_daisy = node.prev;
+        node.clear_flags(FLAG_DAISY);
+    }
+
+    ssa_ht ret = node.next;
+
+    node.next = {};
+    node.prev = {};
+
+    return ret;
+}
+
+void cfg_node_t::list_insert_daisy(ssa_ht it, ssa_node_t& node)
+{
+    assert(node.op() != SSA_phi);
+    assert(node.cfg_node() == handle());
+    assert(!node.test_flags(FLAG_DAISY));
+
+    list_erase(node);
+    if(it)
+    {
+        assert(it->cfg_node() == handle());
+        assert(it->test_flags(FLAG_DAISY));
+        list_insert(it, node);
+    }
+    else
+    {
+        if(m_last_daisy)
+            list_insert(m_last_daisy->next, node);
+        else
+            list_insert(m_first_ssa, node);
+        m_last_daisy = node.handle();
+    }
+
+    node.set_flags(FLAG_DAISY);
+}
+
+void cfg_node_t::list_append_daisy(ssa_node_t& node)
+{
+    assert(node.op() != SSA_phi);
+    assert(node.cfg_node() == handle());
+    list_insert_daisy(ssa_ht{}, node);
+    assert(last_daisy());
+    assert(last_daisy() == node.handle());
+}
+
+void cfg_node_t::list_erase_daisy(ssa_node_t& node)
+{
+    assert(node.op() != SSA_phi);
+    assert(node.cfg_node() == handle());
+    assert(node.test_flags(FLAG_DAISY));
+    list_erase(node);
+    list_insert(node);
+    assert(!node.test_flags(FLAG_DAISY));
+}
+
 ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
 {
     // Alloc and initialize it.
@@ -442,28 +570,7 @@ ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
     node.create(handle(), op, type);
 
     // Add it to our list.
-    if(op == SSA_phi)
-    {
-        if(!m_ssa_begin)
-            m_ssa_begin = h;
-        if(m_last_non_phi)
-            m_last_non_phi->next = h;
-        if(m_phi_begin)
-            m_phi_begin->prev = h;
-        node.next = m_phi_begin;
-        node.prev = m_last_non_phi;
-        m_phi_begin = h;
-    }
-    else
-    {
-        if(m_ssa_begin)
-            m_ssa_begin->prev = h;
-        if(!m_last_non_phi)
-            m_last_non_phi = h;
-        node.next = m_ssa_begin;
-        node.prev = {};
-        m_ssa_begin = h;
-    }
+    list_insert(node);
 
     // Up the size
     ++m_ssa_size;
@@ -471,44 +578,28 @@ ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
     return h;
 }
 
-void cfg_node_t::unsafe_prune_ssa()
+void cfg_node_t::prune_ssa()
 {
-    for(ssa_ht it = ssa_begin(); it; ++it)
-    {
-        it->link_clear_inputs();
-        it->replace_with_const({});
-    }
-
     while(ssa_ht it = ssa_begin())
-        unsafe_prune_ssa(it);
+        prune_ssa(it);
 }
 
-ssa_ht cfg_node_t::unsafe_prune_ssa(ssa_ht ssa_h)
+ssa_ht cfg_node_t::prune_ssa(ssa_ht ssa_h)
 {
     ssa_node_t& ssa_node = *ssa_h;
     ssa_ht ret = ssa_node.next;
 
     assert(ssa_node.cfg_node() == handle());
+
+    // Unlink all our shit
+    ssa_node.link_clear_inputs();
+    ssa_node.replace_with(ssa_ht{});
+
     assert(ssa_node.input_size() == 0);
+    assert(ssa_node.output_size() == 0);
 
     // Remove it from our list.
-    if(ssa_h == m_last_non_phi)
-        m_last_non_phi = ssa_node.prev;
-    if(ssa_h == m_phi_begin)
-        m_phi_begin = ssa_node.next;
-    if(ssa_node.prev)
-        ssa_node.prev->next = ssa_node.next;
-    else
-    {
-        assert(ssa_h == m_ssa_begin);
-        m_ssa_begin = ssa_node.next;
-    }
-    if(ssa_node.next)
-        ssa_node.next->prev = ssa_node.prev;
-
-    // Dealt with exit handle.
-    if(ssa_h == exit)
-        exit = {};
+    list_erase(ssa_node);
 
     // Free it
     ssa_node.destroy();
@@ -591,10 +682,8 @@ void cfg_node_t::remove_outputs_input(unsigned i)
     // Update all phi nodes
     for(ssa_ht phi_it = edge_node.phi_begin(); phi_it; ++phi_it)
     {
-        std::puts("updating phi");
         assert(phi_it->op() == SSA_phi);
         assert(phi_it->cfg_node() == edge.handle);
-        std::printf("%i %i\n", input_size(), phi_it->input_size());
         assert(phi_it->input_size() == edge_node.input_size());
         phi_it->link_remove_input(edge.index);
     }
@@ -627,37 +716,39 @@ cfg_ht ir_t::emplace_cfg()
     return h;
 }
 
-cfg_ht ir_t::unsafe_prune_cfg(cfg_ht cfg_h)
+cfg_ht ir_t::prune_cfg(cfg_ht cfg_node)
 {
-    std::printf("pruning cfg %i\n", cfg_h.index);
-    assert(cfg_h != root);
-    assert(cfg_h != exit);
+    cfg_node->prune_ssa();
+    assert(cfg_node->ssa_size() == 0);
 
-    cfg_node_t& cfg_node = *cfg_h;
-    assert(!cfg_node.ssa_begin());
+    cfg_node->link_clear_inputs();
+    cfg_node->link_clear_outputs();
 
-    cfg_ht ret = cfg_node.next;
+    assert(cfg_node->input_size() == 0);
+    assert(cfg_node->output_size() == 0);
+
+    cfg_ht ret = cfg_node->next;
 
     // Remove it from our list.
-    if(cfg_node.prev)
-        cfg_node.prev->next = cfg_node.next;
+    if(cfg_node->prev)
+        cfg_node->prev->next = cfg_node->next;
     else
     {
-        assert(cfg_h == m_cfg_begin);
-        m_cfg_begin = cfg_node.next;
+        assert(cfg_node == m_cfg_begin);
+        m_cfg_begin = cfg_node->next;
     }
-    if(cfg_node.next)
-        cfg_node.next->prev = cfg_node.prev;
+    if(cfg_node->next)
+        cfg_node->next->prev = cfg_node->prev;
 
     // Dealt with root/exit handle.
-    if(cfg_h == root)
+    if(cfg_node == root)
         root = {};
-    if(cfg_h == exit)
+    if(cfg_node == exit)
         exit = {};
 
     // Free it
-    cfg_node.destroy();
-    cfg_pool::free(cfg_h);
+    cfg_node->destroy();
+    cfg_pool::free(cfg_node);
     --m_size;
 
     return ret;
@@ -690,77 +781,56 @@ cfg_ht ir_t::merge_edge(cfg_ht cfg_h)
     cfg_node.input_edge(0).output() = cfg_node.output_edge(0);
     cfg_node.output_edge(0).input() = cfg_node.input_edge(0);
 
-    return unsafe_prune_cfg(cfg_h);
+    cfg_node.m_io.clear_input();
+    cfg_node.m_io.clear_output();
+
+    return prune_cfg(cfg_h);
 }
 
-bool ir_t::valid() const
+#ifndef NDEBUG
+void ir_t::assert_valid() const
 {
-#ifdef NDEBUG
-    return true;
-#else
-    bool valid = true;
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 
         cfg_node_t& cfg_node = *cfg_it;
 
         for(unsigned i = 0; i < cfg_node.input_size(); ++i)
         {
-            valid &= (bool)cfg_node.input_edge(i).handle;
-            valid &= (cfg_node.input_edge(i).output().input()
-                      == cfg_node.input_edge(i));
+            assert((bool)cfg_node.input_edge(i).handle);
+            assert((cfg_node.input_edge(i).output().input().edges_eq(
+                cfg_node.input_edge(i))));
         }
 
         for(unsigned i = 0; i < cfg_node.output_size(); ++i)
         {
-            valid &= (bool)cfg_node.output_edge(i).handle;
-            valid &= (cfg_node.output_edge(i).input().output()
-                      == cfg_node.output_edge(i));
+            assert((bool)cfg_node.output_edge(i).handle);
+            assert((cfg_node.output_edge(i).input().output().edges_eq(
+                cfg_node.output_edge(i))));
         }
 
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
         {
             ssa_node_t& ssa_node = *ssa_it;
 
-            valid &= ssa_node.cfg_node() == cfg_it;
+            assert(ssa_node.cfg_node() == cfg_it);
             if(ssa_node.op() == SSA_phi)
-                valid &= ssa_node.input_size() == cfg_node.input_size();
+                assert(ssa_node.input_size() == cfg_node.input_size());
 
             for(unsigned i = 0; i < ssa_node.input_size(); ++i)
             {
-                if(!ssa_node.input(i).is_handle())
+                if(!ssa_node.input(i).holds_ref())
                     continue;
-                valid &= (ssa_node.input_edge(i).output()->input().handle()
-                          == ssa_node.input_edge(i).handle());
+                assert(ssa_node.input_edge(i).output()->input().handle()
+                       == ssa_node.input_edge(i).handle());
             }
 
             for(unsigned i = 0; i < ssa_node.output_size(); ++i)
             {
-                valid &= (bool)ssa_node.output_edge(i).handle;
-                valid &= (*ssa_node.output_edge(i).input().output()
-                          == ssa_node.output_edge(i));
+                assert((bool)ssa_node.output_edge(i).handle);
+                assert(ssa_node.output_edge(i).input().output()->edges_eq(
+                    ssa_node.output_edge(i)));
             }
         }
     }
-    return valid;
+}
 #endif
-}
-
-////////////////////////////////////////
-// Utility functions                  //
-////////////////////////////////////////
-
-int carry_input(ssa_node_t const& node)
-{
-    SSA_VERSION(1);
-
-    switch(node.op())
-    {
-    case SSA_add:
-    case SSA_sub:
-        assert(node.input_size() == 3);
-        return 2;
-    default:
-        return -1;
-    }
-}
-

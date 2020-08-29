@@ -4,29 +4,27 @@
 
 namespace
 {
-
     struct line_col_t
     {
         unsigned line;
         unsigned col;
     };
 
-    line_col_t get_line_col(pstring_t pstring)
+    line_col_t get_line_col(char const* src, pstring_t pstring)
     {
-        char const* source = _files[pstring.file_i].source();
         line_col_t ret = { 1, 1 };
 
         for(std::size_t i = 0; i < pstring.offset; ++i)
         {
-            if(source[i] == '\n')
+            if(src[i] == '\n')
             {
-                if(source[i+1] == '\r')
+                if(src[i+1] == '\r')
                     ++i;
                 goto newline;
             }
-            else if(source[i] == '\r')
+            else if(src[i] == '\r')
             {
-                if(source[i+1] == '\n')
+                if(src[i+1] == '\n')
                     ++i;
             newline:
                 ++ret.line;
@@ -39,43 +37,56 @@ namespace
         return ret;
     }
 
-    char const* get_line_begin(pstring_t pstring)
+    char const* get_line_begin(char const* src, pstring_t pstring)
     {
-        char const* source = _files[pstring.file_i].source();
         for(std::size_t i = pstring.offset;;--i)
         {
-            if(source[i] == '\n' || source[i] == '\r')
-                return source + std::min<std::size_t>(pstring.offset, i+1);
+            if(src[i] == '\n' || src[i] == '\r')
+                return src + std::min<std::size_t>(pstring.offset, i+1);
             if(i == 0)
-                return source;
+                return src;
         }
     }
 
-    char const* get_line_end(pstring_t pstring)
+    char const* get_line_end(char const* src, pstring_t pstring)
     {
-        char const* source = _files[pstring.file_i].source();
         for(std::size_t i = pstring.offset + pstring.size;;++i)
-            if(source[i] == '\n' || source[i] == '\r' || source[i] == '\0')
-                return source + i;
+            if(src[i] == '\n' || src[i] == '\r' || src[i] == '\0')
+                return src + i;
     }
-
 } // end anon namespace
 
-std::string fmt_source_pos(pstring_t pstring)
+// Console colors:
+#define RED   "\x1B[31m"
+#define GRN   "\x1B[32m"
+#define YEL   "\x1B[33m"
+#define BLU   "\x1B[34m"
+#define MAG   "\x1B[35m"
+#define CYN   "\x1B[36m"
+#define WHT   "\x1B[37m"
+#define RESET "\x1B[0m"
+#define BOLD  "\x1B[1m"
+#define UNDERLINE "\x1B[4m"
+
+std::string fmt_source_pos(file_contents_t const& file, pstring_t pstring)
 {
-    line_col_t line_col = get_line_col(pstring);
-    return fmt("%:%:%", _files[pstring.file_i].filename(), 
-               line_col.line, line_col.col);
+    line_col_t line_col = get_line_col(file.source(), pstring);
+    return fmt(BOLD "%:%:%" RESET, file.name(), line_col.line, line_col.col);
 }
 
-std::string fmt_error(pstring_t pstring, std::string const& what)
+std::string fmt_error(file_contents_t const& file, pstring_t pstring, 
+                      std::string const& what)
 {
-    std::string str(fmt("%: error: %\n", 
-                        fmt_source_pos(pstring), what));
 
-    char const* line_begin = get_line_begin(pstring);
-    char const* line_end = get_line_end(pstring);
+    std::string str(fmt("%: " RED BOLD "error:" RESET " %\n", 
+                        fmt_source_pos(file, pstring), what));
 
+    char const* line_begin = get_line_begin(file.source(), pstring);
+    char const* line_end = get_line_end(file.source(), pstring);
+
+    std::string pre = fmt(" % | ", get_line_col(file.source(), pstring).line);
+
+    str += pre;
     str.insert(str.end(), line_begin, line_end);
     str.push_back('\n');
 
@@ -86,20 +97,25 @@ std::string fmt_error(pstring_t pstring, std::string const& what)
             return str;
 
     unsigned const caret_position = 
-        (_files[pstring.file_i].source() + pstring.offset) - line_begin;
+        pre.size() + (file.source() + pstring.offset) - line_begin;
 
     str.resize(str.size() + caret_position, ' ');
+
+    str += RED BOLD;
 
     unsigned i = 0;
     do
         str.push_back('^');
-    while (++i < pstring.size);
+    while(++i < pstring.size);
+
+    str += RESET;
 
     str.push_back('\n');
     return str;
 }
 
-void compiler_error(pstring_t pstring, std::string const& what)
+void compiler_error(file_contents_t const& file, pstring_t pstring, 
+                    std::string const& what)
 {
-    throw compiler_error_t(fmt_error(pstring, what));
+    throw compiler_error_t(fmt_error(file, pstring, what));
 }

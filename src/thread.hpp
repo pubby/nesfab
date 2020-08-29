@@ -18,6 +18,12 @@ void parallelize(unsigned const num_threads, Fn fn)
 
     std::atomic<bool> exception_thrown = false;
 
+    if(num_threads == 1)
+    {
+        fn(exception_thrown);
+        return;
+    }
+
     for(unsigned i = 0; i < num_threads; ++i)
     {
         threads.emplace_back(

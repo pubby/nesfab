@@ -39,7 +39,7 @@ type_t const* type_t::get_tail(type_t const* begin, type_t const* end)
         },
         [begin, end, size]() -> map_elem_t
         { 
-            return { size, tails.alloc(size) };
+            return { size, tails.insert(begin, end) };
         });
 
     return result.first->tail;
@@ -87,7 +87,7 @@ std::string to_string(type_t type)
     switch(type.name())
     {
     default: 
-        if(is_fixed(type.name()))
+        if(frac_bytes(type.name()) > 0)
         {
             std::string str("fixed"s);
             str.push_back(whole_bytes(type.name()) + '0');
@@ -100,7 +100,6 @@ std::string to_string(type_t type)
     case TYPE_BYTE:  return "byte"s;
     case TYPE_SHORT: return "short"s;
     case TYPE_INT:   return "int"s;
-    case TYPE_TABLE: // TODO
     case TYPE_ARRAY: // TODO
         throw std::runtime_error("TODO - unimplemented type"s);
     case TYPE_PTR:
@@ -147,3 +146,62 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
     return CAST_FAIL;
 }
 
+/////////////
+// STRUCTS //
+/////////////
+
+type_t arg_struct(type_t fn_type)
+{
+    assert(fn_type.name() == TYPE_FN);
+    assert(fn_type.size() >= 1);
+    fn_type.m_name = TYPE_STRUCT;
+    fn_type.m_size -= 1;
+    return fn_type;
+}
+
+std::size_t struct_size(type_t type)
+{
+    if(type.name() != TYPE_STRUCT)
+        return 1;
+    std::size_t size = 0;
+    for(type_t const& sub : type)
+        size += struct_size(sub);
+    return size;
+}
+
+static type_t const* _struct_index(type_t const& type, unsigned& i)
+{
+    if(type.name() != TYPE_STRUCT)
+    {
+        if(i == 0)
+            return &type;
+        --i;
+        return nullptr;
+    }
+
+    for(type_t const& sub : type)
+        if(type_t const* found = _struct_index(sub, i))
+            return found;
+
+    return nullptr;
+}
+
+type_t struct_index(type_t type, unsigned i)
+{
+    type_t const* result = _struct_index(type, i);
+    assert(result);
+    return *result;
+}
+
+static void _struct_fill(type_t type, type_t*& vec)
+{
+    if(type.name() != TYPE_STRUCT)
+        *(vec++) = type;
+    else for(type_t const& sub : type)
+        _struct_fill(sub, vec);
+}
+
+void struct_fill(type_t type, type_t* vec)
+{
+    struct_fill(type, vec);
+}

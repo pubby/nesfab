@@ -102,6 +102,7 @@ public:
     }
 
     std::size_t size() const { return table.size(); }
+    bool empty() const { return size() == 0; }
     void reserve(hash_type size) { table.reserve(size); }
 
 private:
@@ -208,8 +209,8 @@ public:
         return table.find(Policy::hash(k), eq<K>{k, data()}).second;
     }
 
-    void clear() { table.clear(); }
-    void reset() { table.reset(); }
+    void clear() { table.clear(); m_data.clear(); }
+    void reset() { table.reset(); m_data.clear(); m_data.shrink_to_fit(0); }
 
     void swap(batman_collection& o) noexcept 
     { 
@@ -223,6 +224,7 @@ public:
     }
 
     std::size_t size() const { return table.size(); }
+    bool empty() const { return size() == 0; }
 
     void reserve(hash_type size) { table.reserve(size); }
 
@@ -433,6 +435,7 @@ public:
         { a.swap(b); }
 
     std::size_t size() const { return collection.size(); }
+    bool empty() const { return size() == 0; }
     void reserve(hash_type size) { collection.reserve(size); }
 
     const_iterator cbegin() const noexcept 

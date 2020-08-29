@@ -16,8 +16,8 @@ struct pstring_t
     std::uint16_t size;
     std::uint16_t file_i;
 
-    std::string_view view() const 
-        { return std::string_view(get_file(file_i).source() + offset, size); }
+    std::string_view view(char const* buffer) const 
+        { return std::string_view(buffer + offset, size); }
 
     constexpr std::uint32_t end() { return offset + size; }
 };
@@ -43,8 +43,10 @@ constexpr pstring_t concat(pstring_t lo, pstring_t hi)
 // Useful for associative containers like std::map.
 struct pstring_less_t
 {
+    char const* source;
+
     bool operator()(pstring_t lhs, pstring_t rhs) const
-        { return lhs.view() < rhs.view(); }
+        { return lhs.view(source) < rhs.view(source); }
 };
 
 #endif

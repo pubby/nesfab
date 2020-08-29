@@ -36,37 +36,37 @@ struct fixed_t
 constexpr fixed_t operator""_f(unsigned long long int i) { return { i }; }
 
 template<typename T>
-using fixed_lut_t = std::array<T, TYPE_LAST_ARITH - TYPE_FIRST_ARITH + 1>;
-extern fixed_lut_t<fixed_t::int_type> arithmetic_bitmask_table;
+using fixed_lut_t = std::array<T, TYPE_LAST_NUM - TYPE_FIRST_NUM + 1>;
+extern fixed_lut_t<fixed_t::int_type> numeric_bitmask_table;
 
 [[gnu::pure]]
-inline fixed_t::int_type arithmetic_bitmask(type_name_t type_name)
+inline fixed_t::int_type numeric_bitmask(type_name_t type_name)
 {
-    assert(is_arithmetic(type_name));
-    return arithmetic_bitmask_table[type_name - TYPE_FIRST_ARITH];
+    assert(is_numeric(type_name));
+    return numeric_bitmask_table[type_name - TYPE_FIRST_NUM];
 }
 
 [[gnu::pure]]
-inline fixed_t::int_type arithmetic_bitmask(type_t type)
+inline fixed_t::int_type numeric_bitmask(type_t type)
 {
-    assert(is_arithmetic(type));
-    return arithmetic_bitmask(type.name());
+    assert(is_numeric(type));
+    return numeric_bitmask(type.name());
 }
 
 inline fixed_t fixed_add(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value + rhs.value) & arithmetic_bitmask(type_name) }; }
+    { return { (lhs.value + rhs.value) & numeric_bitmask(type_name) }; }
     
 inline fixed_t fixed_sub(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value - rhs.value) & arithmetic_bitmask(type_name) }; }
+    { return { (lhs.value - rhs.value) & numeric_bitmask(type_name) }; }
 
 inline fixed_t fixed_and(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value & rhs.value) & arithmetic_bitmask(type_name) }; }
+    { return { (lhs.value & rhs.value) & numeric_bitmask(type_name) }; }
 
 inline fixed_t fixed_or(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value | rhs.value) & arithmetic_bitmask(type_name) }; }
+    { return { (lhs.value | rhs.value) & numeric_bitmask(type_name) }; }
 
 inline fixed_t fixed_xor(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value ^ rhs.value) & arithmetic_bitmask(type_name) }; }
+    { return { (lhs.value ^ rhs.value) & numeric_bitmask(type_name) }; }
 
 constexpr double to_double(fixed_t f)
     { return (double)f.value / (double)(1 << fixed_t::shift); }

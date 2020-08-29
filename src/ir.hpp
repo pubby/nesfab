@@ -25,13 +25,15 @@ public:
     uint_t value;
 
     // 'value' has 'flag' set when holding a constant:
-    static constexpr uint_t const_flag = 1ull << (sizeof_bits<uint_t>-1ull);
-    static constexpr uint_t ptr_flag = 0b11ull << (sizeof_bits<uint_t>-2ull);
+    static constexpr uint_t const_flag = 0b11ull << 62;
+    static constexpr uint_t ptr_flag = 0b10ull << 62;
+    static constexpr uint_t locator_flag = 0b01ull << 62;
     static_assert((fixed_t::mask & (const_flag | ptr_flag)) == 0);
 public:
     constexpr ssa_fwd_edge_t() = default;
     constexpr ssa_fwd_edge_t(unsigned v) { set(v); }
     constexpr ssa_fwd_edge_t(fixed_t fixed) { set(fixed); }
+    constexpr ssa_fwd_edge_t(locator_t loc) { set(loc); }
     constexpr ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
     constexpr explicit ssa_fwd_edge_t(void const* ptr) { set(ptr); }
 
@@ -41,16 +43,26 @@ public:
     constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t&&) = default;
 
     constexpr bool is_const() const { return value & const_flag; }
-    constexpr bool is_ptr()   const { return (value & ptr_flag) == ptr_flag; }
+    constexpr bool is_num() const 
+        { return (value & const_flag) == const_flag; }
+    constexpr bool is_ptr()   const 
+        { return (value & const_flag) == ptr_flag; }
+    constexpr bool is_locator()   const 
+        { return (value & const_flag) == locator_flag; }
     constexpr bool is_handle() const { return !(value & const_flag); }
-    constexpr bool holds_ref() const { return value && is_handle(); }
+    constexpr bool holds_ref() const { return is_handle() && handle(); }
 
     fixed_t fixed() const 
-        { assert(is_const()); return { value & fixed_t::mask }; }
+        { assert(is_num()); return { value & fixed_t::mask }; }
     std::uint32_t whole() const 
-        { assert(is_const()); return fixed().whole(); }
-    locator_ht locator() const
-        { assert(is_const()); return { fixed().whole() }; }
+        { assert(is_num()); return fixed().whole(); }
+    std::uint32_t carry() const 
+        { assert(is_num()); assert(whole() < 2); return fixed().whole(); }
+    locator_t locator() const
+    { 
+        assert(is_locator()); 
+        return locator_t::from_uint(value & ~const_flag); 
+    }
 
     ssa_ht handle() const 
         { assert(is_handle()); return { (std::uint32_t)value }; }
@@ -61,10 +73,17 @@ public:
     T const* ptr() const 
         { assert(is_ptr()); return reinterpret_cast<T const*>(value << 2ull); }
 
+    bool eq_whole(unsigned w) const 
+        { return is_const() && fixed() == fixed_t::whole(w); }
+    bool eq_fixed(fixed_t f) const 
+        { return is_const() && fixed() == f; }
+
     constexpr void set(fixed_t fixed) 
         { value = (fixed.value & fixed_t::mask) | const_flag; }
     constexpr void set(unsigned u) 
         { set(fixed_t::whole(u)); }
+    constexpr void set(locator_t loc) 
+        { value = (loc.to_uint() & ~const_flag) | locator_flag; }
 
     constexpr void set(void const* ptr) 
     { 
@@ -72,6 +91,7 @@ public:
         assert((uint & 0b11) == 0);
         value = (uint >> 2ull) | ptr_flag;
         assert(is_const());
+        assert(is_ptr());
         assert(!is_handle());
     }
 
@@ -105,18 +125,14 @@ public:
         return value;
     }
 
-    // Normal operator== checks edge indices for equivalence.
-    // This version ignores edges and only checks the pointed-to value.
-    bool targets_eq(ssa_fwd_edge_t o) const { return target() == o.target(); }
 
     struct ssa_bck_edge_t* output() const;
 
-    bool operator==(ssa_fwd_edge_t const& o) const { return value == o.value; }
-    bool operator!=(ssa_fwd_edge_t const& o) const { return value != o.value; }
-    bool operator< (ssa_fwd_edge_t const& o) const { return value <  o.value; }
-    bool operator<=(ssa_fwd_edge_t const& o) const { return value <= o.value; }
-    bool operator> (ssa_fwd_edge_t const& o) const { return value >  o.value; }
-    bool operator>=(ssa_fwd_edge_t const& o) const { return value >= o.value; }
+    // This version ignores edges and only checks the pointed-to value.
+    bool targets_eq(ssa_fwd_edge_t o) const { return target() == o.target(); }
+
+    // This version checks edges too.
+    bool edges_eq(ssa_fwd_edge_t const& o) const { return value == o.value; }
 };
 
 struct ssa_bck_edge_t
@@ -125,11 +141,10 @@ struct ssa_bck_edge_t
     std::uint32_t index;
 
     ssa_fwd_edge_t& input() const;
+    input_class_t input_class() const;
 
-    bool operator==(ssa_bck_edge_t const& o) const 
+    bool edges_eq(ssa_bck_edge_t const& o) const 
         { return handle == o.handle && index == o.index; }
-    bool operator!=(ssa_bck_edge_t const& o) const 
-        { return !operator==(o); }
 };
 
 struct cfg_fwd_edge_t
@@ -139,10 +154,8 @@ struct cfg_fwd_edge_t
     
     struct cfg_bck_edge_t& output() const;
 
-    bool operator==(cfg_fwd_edge_t const& o) const 
+    bool edges_eq(cfg_fwd_edge_t const& o) const 
         { return handle == o.handle && index == o.index; }
-    bool operator!=(cfg_fwd_edge_t const& o) const 
-        { return !operator==(o); }
 };
 
 struct cfg_bck_edge_t
@@ -152,10 +165,8 @@ struct cfg_bck_edge_t
 
     cfg_fwd_edge_t& input() const;
 
-    bool operator==(cfg_bck_edge_t const& o) const 
+    bool edges_eq(cfg_bck_edge_t const& o) const 
         { return handle == o.handle && index == o.index; }
-    bool operator!=(cfg_bck_edge_t const& o) const 
-        { return !operator==(o); }
 };
 
 ////////////////////////////////////////
@@ -169,6 +180,7 @@ public:
     constexpr ssa_value_t(unsigned v) : ssa_fwd_edge_t(v) {}
     constexpr ssa_value_t(fixed_t fixed) : ssa_fwd_edge_t(fixed) {}
     constexpr ssa_value_t(ssa_ht ht) : ssa_fwd_edge_t(ht, 0) {}
+    constexpr ssa_value_t(locator_t loc) : ssa_fwd_edge_t(loc) {}
     constexpr ssa_value_t(ssa_fwd_edge_t const& edge) : ssa_fwd_edge_t(edge) {}
     constexpr explicit ssa_value_t(void const* ptr) : ssa_fwd_edge_t(ptr) {}
 
@@ -179,6 +191,11 @@ public:
         { assert(handle()); return handle().operator*(); }
     ssa_node_t* operator->() const 
         { assert(handle()); return handle().operator->(); }
+
+    bool operator==(ssa_value_t const& o) const { return targets_eq(o); }
+    bool operator!=(ssa_value_t const& o) const { return !targets_eq(o); }
+    bool operator<(ssa_value_t const& o) const 
+        { return target() < o.target(); }
 
     type_t type() const;
 };
@@ -280,7 +297,7 @@ class alignas(32) ssa_node_t : public intrusive_t<ssa_ht>
 private:
     type_t m_type = TYPE_VOID;
     cfg_ht m_cfg_h = {};
-    ssa_op_t m_op = SSA_pruned;
+    ssa_op_t m_op = SSA_null;
     std::uint16_t m_flags = 0;
     ssa_buffer_t m_io;
 public:
@@ -331,13 +348,24 @@ public:
     bool link_change_input(unsigned i, ssa_value_t new_value);
     void link_clear_inputs();
     void link_shrink_inputs(unsigned new_size);
+
+    bool in_daisy() const { return test_flags(FLAG_DAISY); }
+    void insert_daisy(ssa_ht it);
+    void append_daisy();
+    void erase_daisy();
+    
+    ssa_ht prev_daisy() const
+        { return (in_daisy() && prev) ? prev : ssa_ht{}; }
+    ssa_ht next_daisy() const
+        { return (next && next->in_daisy()) ? next : ssa_ht{}; }
     
     // Every node that takes this node as input now takes this value instead.
     // 'output_size() == 0' after calling.
-    void replace_with_const(fixed_t const_val);
     void replace_with(ssa_value_t value);    
+    // Returns number of nodes changed:
+    unsigned replace_with(input_class_t input_class, ssa_value_t value);
 
-    ssa_ht unsafe_prune(); // Returns the next handle
+    ssa_ht prune(); // Returns the next handle
 
 private:
     ssa_node_t(ssa_node_t const&) = default;
@@ -364,13 +392,14 @@ class alignas(32) cfg_node_t : public intrusive_t<cfg_ht>
     // The following data members have been carefully aligned based on 
     // 64-byte cache lines. Don't mess with it unless you understand it!
 private:
-    ssa_ht m_ssa_begin = {};
-    ssa_ht m_last_non_phi = {};
-    ssa_ht m_phi_begin = {};
+    ssa_ht m_first_ssa = {};
+    ssa_ht m_last_ssa = {};
+
+    ssa_ht m_first_phi = {};
+    ssa_ht m_last_daisy = {};
+
     std::uint16_t m_flags = 0;
     std::uint16_t m_ssa_size = 0;
-public:
-    ssa_ht exit = {};
 private:
     cfg_buffer_t m_io;
 public:
@@ -410,9 +439,11 @@ public:
     void link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn);
     void link_clear_outputs();
 
-    ssa_ht ssa_begin() { return m_ssa_begin; }
-    ssa_ht phi_begin() { return m_phi_begin; }
-    ssa_ht begin() const { return m_ssa_begin; }
+    ssa_ht ssa_begin() const { return m_first_ssa; }
+    ssa_ht phi_begin() const { return m_first_phi; }
+    ssa_ht first_daisy() const { return last_daisy() ? m_first_ssa : ssa_ht{};}
+    ssa_ht last_daisy() const { return m_last_daisy; }
+    ssa_ht begin() const { return m_first_ssa; }
     ssa_ht end() const { return {}; }
 
     std::size_t ssa_size() const { return m_ssa_size; }
@@ -435,8 +466,8 @@ public:
         return h;
     }
 
-    void unsafe_prune_ssa();
-    ssa_ht unsafe_prune_ssa(ssa_ht ssa_h);
+    void prune_ssa();
+    ssa_ht prune_ssa(ssa_ht ssa_h);
 
 private:
     cfg_node_t(cfg_node_t const& o) = default;
@@ -450,6 +481,14 @@ private:
     unsigned append_input(cfg_fwd_edge_t edge);
     void remove_inputs_output(unsigned i);
     void remove_outputs_input(unsigned i);
+
+    void list_insert(ssa_ht it, ssa_node_t& node);
+    void list_insert(ssa_node_t& node);
+    ssa_ht list_erase(ssa_node_t& node);
+
+    void list_insert_daisy(ssa_ht it, ssa_node_t& node);
+    void list_append_daisy(ssa_node_t& node);
+    void list_erase_daisy(ssa_node_t& node);
 };
 
 ////////////////////////////////////////
@@ -466,10 +505,10 @@ private:
 public:
     ir_t() = default;
     ir_t(ir_t const&) = delete;
-    ir_t(ir_t&&) = default;
+    ir_t(ir_t&&) = delete;
 
     ir_t& operator=(ir_t const&) = delete;
-    ir_t& operator=(ir_t&&) = default;
+    ir_t& operator=(ir_t&&) = delete;
 
     cfg_ht root = {};
     cfg_ht exit = {};
@@ -481,7 +520,7 @@ public:
     cfg_ht end() const { return {}; }
 
     cfg_ht emplace_cfg();
-    cfg_ht unsafe_prune_cfg(cfg_ht cfg_h);
+    cfg_ht prune_cfg(cfg_ht cfg_h);
     
     std::size_t cfg_size() const { return m_size; }
 
@@ -493,7 +532,12 @@ public:
     cfg_ht merge_edge(cfg_ht cfg_h);
 
     // Used for debug asserts.
-    bool valid() const;
+#ifdef NDEBUG
+    [[gnu::always_inline]]
+    void assert_valid() const {}
+#else
+    void assert_valid() const;
+#endif
 };
 
 ////////////////////////////////////////
@@ -502,7 +546,7 @@ public:
 
 inline ssa_bck_edge_t* ssa_fwd_edge_t::output() const
 {
-    if(is_const())
+    if(!holds_ref())
         return nullptr;
     assert(index() < handle()->output_size());
     return &handle()->m_io.output(index());
@@ -512,6 +556,14 @@ inline ssa_fwd_edge_t& ssa_bck_edge_t::input() const
 {
     assert(index < handle->input_size());
     return handle->m_io.input(index);
+}
+
+inline input_class_t ssa_bck_edge_t::input_class() const
+{
+    assert(index < handle->input_size());
+    if(index == 0)
+        return ssa_input0_class(handle->op());
+    return INPUT_VALUE;
 }
 
 inline cfg_bck_edge_t& cfg_fwd_edge_t::output() const
@@ -545,6 +597,15 @@ inline cfg_ht ssa_node_t::input_cfg(std::size_t i) const
     default: return cfg_node();
     }
 }
+
+inline void ssa_node_t::insert_daisy(ssa_ht it)
+    { return cfg_node()->list_insert_daisy(it, *this); }
+
+inline void ssa_node_t::append_daisy()
+    { return cfg_node()->list_append_daisy(*this); }
+
+inline void ssa_node_t::erase_daisy()
+    { return cfg_node()->list_erase_daisy(*this); }
 
 ////////////////////////////////////////
 // cfg_node_t functions               //
@@ -597,8 +658,148 @@ void cfg_node_t::link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn)
 // Utility functions                  //
 ////////////////////////////////////////
 
-// Returns -1 if the node has no carry input, 
-// otherwise it returns the index of the carry input.
-int carry_input(ssa_node_t const& node);
+inline global_t const& get_fn(ssa_node_t const& node)
+{
+    assert(node.op() == SSA_fn_call);
+    global_t const& ret = *node.input(0).ptr<global_t>();
+    return ret;
+}
+
+inline unsigned get_condition_i(ssa_op_t op)
+{
+    assert(op == SSA_if);
+    return 0;
+}
+
+inline ssa_value_t get_condition(ssa_node_t& node)
+{
+    assert(node.op() == SSA_if);
+    assert(node.input_size() > get_condition_i(node.op()));
+    return node.input(get_condition_i(node.op()));
+}
+
+// The first input index of a write globals array.
+inline unsigned write_globals_begin(ssa_op_t op)
+{
+    SSA_VERSION(1);
+    assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
+    if(op == SSA_fn_call)
+        return 1;
+    if(op == SSA_return)
+        return 0;
+    assert(false);
+    return 0;
+}
+
+inline bool is_locator_write(ssa_bck_edge_t e)
+{
+    ssa_op_t const op = e.handle->op();
+    return ((ssa_flags(op) & SSAF_WRITE_GLOBALS)
+            && e.index >= write_globals_begin(op));
+}
+
+/* TODO
+inline locator_ht get_locator(ssa_node_t const& node, unsigned i = 0)
+{
+    assert(node.op() == SSA_read_global || node.op() == SSA_write_globals);
+    assert(node.input(i*2 + 1).is_const());
+    return node.input(i*2 + 1).locator();;
+}
+*/
+
+inline int locator_input(ssa_ht h, locator_t loc)
+{
+    assert(ssa_flags(h->op()) & SSAF_WRITE_GLOBALS);
+    unsigned const begin = write_globals_begin(h->op());
+    unsigned const input_size = h->input_size();
+    assert((input_size - begin) % 2 == 0);
+    for(unsigned i = write_globals_begin(h->op()); i < input_size; i += 2)
+        if(h->input(i+1).locator() == loc)
+            return i;
+    return -1;
+}
+
+inline int locator_output(ssa_ht h, locator_t loc)
+{
+    unsigned const output_size = h->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+    {
+        ssa_ht output = h->output(i);
+        if(output->op() != SSA_read_global)
+            continue;
+        if(output->input(1).locator() == loc)
+            return i;
+    }
+    return -1;
+}
+
+template<typename Fn>
+void for_each_written_global(ssa_ht h, Fn fn)
+{
+    assert(ssa_flags(h->op()) & SSAF_WRITE_GLOBALS);
+    unsigned const begin = write_globals_begin(h->op());
+    unsigned const input_size = h->input_size();
+    assert((input_size - begin) % 2 == 0);
+    for(unsigned i = write_globals_begin(h->op()); i < input_size; i += 2)
+        fn(h->input(i), h->input(i+1).locator());
+}
+
+template<typename Fn>
+void for_each_node_input(ssa_ht h, Fn fn)
+{
+    unsigned const input_size = h->input_size();
+    for(unsigned i = 0; i < input_size; ++i)
+    {
+        ssa_value_t input = h->input(i);
+        if(input.holds_ref())
+            fn(input.handle(), i);
+    }
+}
+
+template<typename Fn>
+void for_each_input_matching(ssa_ht h, ssa_op_t match, Fn fn)
+{
+    unsigned const input_size = h->input_size();
+    for(unsigned i = 0; i < input_size; ++i)
+    {
+        ssa_value_t input = h->input(i);
+        if(input.holds_ref() && input->op() == match)
+            fn(input.handle());
+    }
+}
+
+template<typename Fn>
+void for_each_output_matching(ssa_ht h, input_class_t match, Fn fn)
+{
+    unsigned const output_size = h->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+    {
+        auto oe = h->output_edge(i);
+        if(oe.input_class() == match)
+            fn(oe.handle);
+    }
+}
+
+inline bool has_output_matching(ssa_ht h, input_class_t match)
+{
+    unsigned const output_size = h->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+        if(h->output_edge(i).input_class() == match)
+            return true;
+    return false;
+}
+
+template<typename Fn>
+void for_each_read_global(ssa_ht h, Fn fn)
+{
+    unsigned const output_size = h->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+    {
+        ssa_ht output = h->output(i);
+        if(output->op() != SSA_read_global)
+            continue;
+        fn(output, output->input(1).locator());
+    }
+}
 
 #endif

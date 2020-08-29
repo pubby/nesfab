@@ -1,5 +1,6 @@
 #include "ir_util.hpp"
 
+/*
 std::vector<cfg_util_t> cfg_util_pool;
 std::vector<cfg_ht> postorder;
 std::vector<cfg_ht> preorder;
@@ -266,4 +267,63 @@ void build_dominators_from_order(ir_t& ir)
         }
     }
 }
+*/
 
+////////////////////////////////////////
+// other stuff
+////////////////////////////////////////
+
+static void _toposort_visit(ssa_ht node, ssa_ht*& vec_end)
+{
+    if(node->get_mark() == MARK_PERMANENT)
+        return;
+
+    assert(node->get_mark() != MARK_TEMPORARY);
+    assert((node->set_mark(MARK_TEMPORARY), true));
+
+    unsigned const input_size = node->input_size();
+    for(unsigned i = 0; i < input_size; ++i)
+    {
+        ssa_value_t input = node->input(i);
+        if(input.holds_ref() && input->cfg_node() == node->cfg_node())
+            _toposort_visit(input.handle(), vec_end);
+    }
+
+    if(node->in_daisy())
+        if(ssa_ht prev = node.prev())
+            _toposort_visit(prev, vec_end);
+
+    node->set_mark(MARK_PERMANENT);
+    *(vec_end++) = node;
+}
+
+void toposort_cfg_node(cfg_ht cfg_node, ssa_ht* vec)
+{
+    for(ssa_ht ssa_it = cfg_node->ssa_begin(); ssa_it; ++ssa_it)
+    {
+        // Phi nodes always come first.
+        if(ssa_it->op() == SSA_phi)
+        {
+            *(vec++) = ssa_it;
+            ssa_it->set_mark(MARK_PERMANENT);
+        }
+        else
+            ssa_it->set_mark(MARK_NONE);
+    }
+
+    for(ssa_ht ssa_it = cfg_node->ssa_begin(); ssa_it; ++ssa_it)
+    {
+        if(ssa_it->in_daisy() && ssa_it != cfg_node->last_daisy())
+            continue;
+
+        unsigned const output_size = ssa_it->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            ssa_ht output = ssa_it->output(i);
+            if(output->cfg_node() == cfg_node && output->op() != SSA_phi)
+                goto not_leaf;
+        }
+        _toposort_visit(ssa_it, vec);
+    not_leaf:;
+    }
+}

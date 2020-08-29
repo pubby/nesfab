@@ -36,4 +36,7 @@ void build_loops_and_order(ir_t& ir);
 // Requires that the order was built.
 void build_dominators_from_order(ir_t& ir);
 
+// Sorts a single cfg_node. Outputs in 'vec' (which should be large enough)
+void toposort_cfg_node(cfg_ht cfg_node, ssa_ht* vec);
+
 #endif

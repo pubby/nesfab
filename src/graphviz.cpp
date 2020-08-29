@@ -1,5 +1,6 @@
 #include "graphviz.hpp"
 
+#include <iostream>
 #include <string>
 
 #include "globals.hpp"
@@ -40,14 +41,9 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->op() == SSA_fence)
-        {
-            o << gv_id(ssa_it) << " [label=\"\" color=black shape=insulator];\n";
-            continue;
-        }
         o << gv_id(ssa_it) << " [label=\"" << to_string(ssa_it->op());
         o << " " << ssa_it->type();
-        if(ssa_it == ssa_it->cfg_node()->exit)
+        if(ssa_it == ssa_it->cfg_node()->last_daisy())
             o << " (EXIT)";
         o << "\"";
 
@@ -62,13 +58,13 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
         for(unsigned i = 0; i < cfg_it->output_size(); ++i)
         {
             cfg_ht succ = cfg_it->output(i);
-            if(cfg_it->exit)
-                o << gv_id(cfg_it->exit);
+            if(cfg_it->last_daisy())
+                o << gv_id(cfg_it->last_daisy());
             else
                 o << gv_id(cfg_it);
             o << " -> " << gv_id(succ);
             o << "[penwidth=3 color=red arrowsize=2";
-            if(cfg_it->exit && cfg_it->exit->op() == SSA_if)
+            if(cfg_it->last_daisy() && cfg_it->last_daisy()->op() == SSA_if)
                 o << " label=\"" << (i ? "TRUE" : "FALSE") << "\"";
             o << "];\n";
         }
@@ -82,24 +78,18 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             ssa_value_t input = ssa_it->input(i);
             if(input.is_const())
             {
-                if(ssa_it->op() == SSA_fn_call && i == 1)
+                if(ssa_it->op() == SSA_fn_call && i == 0)
                 {
                     o << "const_" << gv_id(ssa_it) << '_' << i;
                     o << " [label=\"{";
-                    o << input.ptr<global_t>()->name.view();
+                    o << input.ptr<global_t>()->name;
                     o << "}\" shape=box];\n";
                 }
-                else if((ssa_it->op() == SSA_read_global
-                         || ssa_it->op() == SSA_write_global)
-                        && i == 1)
+                else if(input.is_locator())
                 {
                     o << "const_" << gv_id(ssa_it) << '_' << i;
                     o << " [label=\"{";
-                    if(ir.locators.is_single({ input.whole() }))
-                        o << ir.locators.get_single(
-                            { input.whole() }).name.view();
-                    else
-                        o << input.whole();
+                    o << input.locator();
                     o << "}\" shape=box];\n";
                 }
                 else
@@ -120,6 +110,17 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             o << " fontcolor=lime fontsize=10 ";
             o << " headlabel=\"" << i << "\"];\n";
         }
+    }
+
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(ssa_ht ssa_it = cfg_it->ssa_begin(); 
+        ssa_it->test_flags(FLAG_DAISY); ++ssa_it)
+    {
+        ssa_ht next = ssa_it.next();
+        if(!next || !next->test_flags(FLAG_DAISY))
+            continue;
+        o << gv_id(ssa_it) << " -> " << gv_id(next);
+        o << " [color=blue, style=dashed];\n";
     }
 
     o << "}\n";

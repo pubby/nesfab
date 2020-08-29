@@ -1,3 +1,5 @@
+#include "o_phi.hpp"
+
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
@@ -26,7 +28,7 @@ ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
 
         if(unique)
         {
-            if(!input.targets_eq(unique))
+            if(input != unique)
                 return {};
         }
         else
@@ -38,7 +40,7 @@ ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
 
 bool o_remove_trivial_phis(ir_t& ir)
 {
-    ssa_worklist::clear();
+    ssa_worklist.clear();
 
     // Queue all phi nodes into the worklist.
     for(cfg_node_t& cfg_node : ir)
@@ -46,15 +48,15 @@ bool o_remove_trivial_phis(ir_t& ir)
     {
         assert(phi_it->op() == SSA_phi);
         assert(phi_it->test_flags(FLAG_IN_WORKLIST) == false);
-        ssa_worklist::push(phi_it);
+        ssa_worklist.push(phi_it);
     }
     
     bool changed = false;
 
     // Check each phi node to see if it's trivial.
-    while(!ssa_worklist::empty())
+    while(!ssa_worklist.empty())
     {
-        ssa_ht phi_h = ssa_worklist::pop();
+        ssa_ht phi_h = ssa_worklist.pop();
         ssa_node_t& phi = *phi_h;
         if(ssa_value_t value = get_trivial_phi_value(phi))
         {
@@ -63,13 +65,12 @@ bool o_remove_trivial_phis(ir_t& ir)
             {
                 ssa_ht output_h = phi.output(i);
                 if(output_h->op() == SSA_phi && output_h != phi_h) 
-                    ssa_worklist::push(output_h);
+                    ssa_worklist.push(output_h);
             }
 
             // Delete the trivial phi.
-            phi.link_clear_inputs();
             phi.replace_with(value);
-            phi.unsafe_prune();
+            phi.prune();
 
             changed = true;
         }
@@ -107,7 +108,7 @@ tarjan_t::tarjan_t(ir_t& ir, unsigned subgraph_i,
                    ssa_ht* phis, std::size_t phis_size)
 : subgraph_i(subgraph_i)
 {
-    ssa_worklist::clear();
+    ssa_worklist.clear();
     sccs.clear();
 
     for(std::size_t i = 0; i < phis_size; ++i)
@@ -129,7 +130,7 @@ void tarjan_t::visit(ssa_ht phi_h)
 
     ++index;
 
-    ssa_worklist::push(phi_h);
+    ssa_worklist.push(phi_h);
 
     unsigned const output_size = phi.output_size();
     for(unsigned i = 0; i < output_size; ++i)
@@ -142,12 +143,16 @@ void tarjan_t::visit(ssa_ht phi_h)
             continue;
 
         if(output_data.index == UNDEFINED_INDEX)
+        {
             visit(output_h);
-        else if(!(output.test_flags(FLAG_IN_WORKLIST)))
-            continue;
-
-        if(phi_data.low_link > output_data.low_link)
-            phi_data.low_link = output_data.low_link;
+            phi_data.low_link = 
+                std::min(phi_data.low_link, output_data.low_link);
+        }
+        else if(output.test_flags(FLAG_IN_WORKLIST))
+        {
+            phi_data.low_link =
+                std::min(phi_data.low_link, output_data.index);
+        }
     }
 
     if(phi_data.low_link == phi_data.index)
@@ -156,7 +161,7 @@ void tarjan_t::visit(ssa_ht phi_h)
         ssa_ht h;
         do
         {
-            h = ssa_worklist::pop();
+            h = ssa_worklist.pop();
             // Add 'node' to the SCC:
             scc.container.push_back(h); // Unsorted insertion.
         }
@@ -204,7 +209,7 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
                 ssa_value_t input = phi.input(i);
                 if(input.is_const() || scc.find(input.handle()) == scc.end())
                 {
-                    if(!outer.targets_eq(input))
+                    if(outer != input)
                         ++outer_count;
                     outer = input;
                     is_inner = false;
@@ -225,9 +230,8 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
             for(ssa_ht phi_h : scc)
             {
                 ssa_node_t& phi = *phi_h;
-                phi.link_clear_inputs();
                 phi.replace_with(outer);
-                phi.unsafe_prune();
+                phi.prune();
                 changed = true;
             }
         }

@@ -7,10 +7,11 @@
 namespace fc
 {
 
-template<typename Key, typename Mapped, 
-         std::size_t N, typename Compare = std::less<void>>
+template<typename Key, typename Mapped, std::size_t N, 
+         typename Compare = std::less<std::pair<Key, Mapped>>,typename... Args>
 using small_map = flat_map<
-    ::boost::container::small_vector<std::pair<Key, Mapped>, N>, Compare>;
+    ::boost::container::small_vector<std::pair<Key, Mapped>, N, Args...>, 
+    Compare>;
 
 }
 

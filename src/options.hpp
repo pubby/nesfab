@@ -5,8 +5,9 @@
 
 struct options_t
 {
-    unsigned num_threads = 5;
-    bool graphviz = true;
+    int num_threads = 1;
+    bool optimize = false;
+    bool graphviz = false;
 };
 
 extern options_t _options;

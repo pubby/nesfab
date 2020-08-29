@@ -22,7 +22,7 @@ class flat_map_base
     D* self() { return static_cast<D*>(this); }
 public:
     using value_compare = first_compare<value_type, Compare>;
-    value_compare value_comp() const { return value_compare(); }
+    value_compare value_comp() const { return value_compare(B::key_comp()); }
 
     using B::insert;
     using B::erase;
@@ -76,7 +76,7 @@ public:
     {
         this->ds_insert_(first, last);
         auto it = std::unique(
-            self()->container.begin(), self()->container.end(), 
+            self()->container.begin(), self()->container.end(),
             impl::eq_comp<value_compare>{value_comp()});
         self()->container.erase(it, self()->container.end());
     }
@@ -114,8 +114,8 @@ public:
 
     template<typename... Args>
     iterator try_emplace(const_iterator hint, key_type&& key, Args&&... args)
-    { 
-        return try_emplace_(std::move(key), 
+    {
+        return try_emplace_(std::move(key),
                             std::forward<Args>(args)...).first;
     }
 
@@ -142,7 +142,7 @@ private:
         iterator it = self()->lower_bound(value.first);
         if(it == self()->end() || self()->value_comp()(value, *it))
         {
-            it = self()->container.insert(it.underlying, 
+            it = self()->container.insert(it.underlying,
                                           std::forward<V>(value));
             return std::make_pair(it, true);
         }
@@ -169,7 +169,7 @@ private:
         iterator it = self()->lower_bound(key);
         if(it == self()->end() || self()->key_comp()(key, it->first))
         {
-            it = self()->container.emplace(it.underlying, 
+            it = self()->container.emplace(it.underlying,
                 value_type(std::piecewise_construct,
                     std::forward_as_tuple(std::forward<K>(key)),
                     std::forward_as_tuple(std::forward<Args>(args)...)));
@@ -195,7 +195,7 @@ public:
     using B::count;
 
     // Modifiers
-    
+
     template<class P>
     std::pair<iterator, bool> insert(P&& value)
     {
@@ -211,7 +211,7 @@ public:
 
     // Lookup
 
-    template<typename K> 
+    template<typename K>
     size_type count(K const& key) const
     {
         return self()->find(key) != self()->end();
@@ -220,18 +220,31 @@ public:
 
 } // namespace impl
 
-template<typename Container, typename Compare = std::less<void>>
-class flat_map 
-: public impl::flat_map_base<flat_map<Container, Compare>, 
+template<typename Container, typename Compare = std::less<typename Container::value_type::first_type>>
+class flat_map
+: public impl::flat_map_base<flat_map<Container, Compare>,
     typename Container::value_type::first_type, Container, Compare>
 {
 #define FLATNAME flat_map
 #define FLATKEY typename Container::value_type::first_type
 #include "impl/class_def.hpp"
+#undef FLATNAME
+#undef FLATKEY
 };
 
-template<typename Key, typename T, typename Compare = std::less<void>>
-using vector_map = flat_map<std::vector<std::pair<Key, T>>, Compare>;
+template<typename Key, typename T, typename... Args>
+using vector_map = flat_map<std::vector<std::pair<Key, T>>, Args...>;
+
+template<typename Container, typename Compare>
+inline bool operator==(const flat_map<Container, Compare>& lhs, const flat_map<Container, Compare>& rhs)
+{
+  return lhs.container == rhs.container;
+}
+template<typename Container, typename Compare>
+inline bool operator!=(const flat_map<Container, Compare>& lhs, const flat_map<Container, Compare>& rhs)
+{
+  return lhs.container != rhs.container;
+}
 
 } // namespace fc
 

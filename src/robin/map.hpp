@@ -121,6 +121,7 @@ public:
     friend void swap(robin_map& a, robin_map& b) noexcept { a.swap(b); }
 
     std::size_t size() const { return collection.size(); }
+    bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
 private:
     collection_type collection;
@@ -170,7 +171,7 @@ public:
     }
 
     template<typename K, typename MConstruct>
-    apair<value_type const*, bool> emplace(K&& k, MConstruct mconstruct)
+    insertion emplace(K&& k, MConstruct mconstruct)
     {
         apair<value_type*, bool> pair = collection.emplace(
             k,
@@ -193,6 +194,7 @@ public:
     friend void swap(batman_map& a, batman_map& b) noexcept { a.swap(b); }
 
     std::size_t size() const { return collection.size(); }
+    bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
 
     const_iterator cbegin() const { return collection.cbegin(); }
@@ -272,6 +274,7 @@ public:
     friend void swap(joker_map& a, joker_map& b) noexcept { a.swap(b); }
 
     std::size_t size() const { return collection.size(); }
+    bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
 
     const_iterator cbegin() const { return collection.cbegin(); }

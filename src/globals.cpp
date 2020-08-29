@@ -11,6 +11,8 @@
 #include "o.hpp"
 #include "options.hpp"
 #include "cg_schedule.hpp" // TODO
+#include "cg_byteify.hpp" // TODO
+#include "cg_isel.hpp" // TODO
 #include "graphviz.hpp"
 #include "thread.hpp"
 
@@ -32,20 +34,20 @@ token_t const* global_t::new_expr(token_t const* begin, token_t const* end)
     return expr_pool.insert(begin, end);
 }
 
-global_t& global_t::lookup(pstring_t name)
+global_t& global_t::lookup(pstring_t name, char const* source)
 {
-    std::string_view view = name.view();
+    std::string_view view = name.view(source);
     auto hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
     std::lock_guard<std::mutex> lock(global_pool_mutex);
     rh::apair<global_t**, bool> result = global_pool_map.emplace(hash,
         [view](global_t* ptr) -> bool
         {
-            return view == ptr->name.view();
+            return std::equal(view.begin(), view.end(), ptr->name.begin());
         },
-        [&]() -> global_t*
+        [name, source]() -> global_t*
         { 
-            return &global_pool.emplace_back(name);
+            return &global_pool.emplace_back(name, source);
         });
 
     return **result.first;
@@ -53,39 +55,46 @@ global_t& global_t::lookup(pstring_t name)
 
 // Changes a global from UNDEFINED to some specified 'gclass'.
 // This gets called whenever a global is parsed.
-void global_t::define(global_class_t gclass, type_t type, impl_t impl,
-                      global_t::ideps_set_t&& ideps)
+void global_t::define(pstring_t pstring, global_class_t gclass, type_t type,
+                      impl_t impl, global_t::ideps_set_t&& ideps)
 {
     assert(compiler_phase() == PHASE_PARSE);
     {
         std::lock_guard<std::mutex> global_lock(m_define_mutex);
         if(m_gclass != GLOBAL_UNDEFINED)
         {
-            compiler_error(name, fmt(
-                "Global identifier already in use. Previous definition at %.",
-                fmt_source_pos(name)));
+            file_contents_t file1(pstring.file_i);
+            file_contents_t file2(m_pstring.file_i);
+            throw compiler_error_t(
+                fmt_error(file1, pstring, 
+                          fmt("Global identifier % already in use.", 
+                              pstring.view(file1.source())))
+                + fmt_error(file2, m_pstring, 
+                            "Previous definition here:"));
         }
         m_type = type;
         m_gclass = gclass;
+        m_pstring = pstring;
         m_impl = impl;
         m_ideps = std::move(ideps);
     }
     ideps.clear();
 }
 
-fn_t& global_t::define_fn(type_t type, global_t::ideps_set_t&& ideps, 
-                          fn_def_t&& fn_def)
+fn_t& global_t::define_fn(pstring_t pstring, type_t type,
+                          global_t::ideps_set_t&& ideps, fn_def_t&& fn_def)
 {
     fn_t* new_fn;
     {
         std::lock_guard<std::mutex> fns_lock(fn_pool_mutex);
         new_fn = &fn_pool.emplace_back(std::move(fn_def));
     }
-    define(GLOBAL_FN, type, { .fn = new_fn }, std::move(ideps));
+    define(pstring, GLOBAL_FN, type, { .fn = new_fn }, std::move(ideps));
     return *new_fn;
 }
 
-gvar_ht global_t::define_var(type_t type, global_t::ideps_set_t&& ideps)
+gvar_ht global_t::define_var(pstring_t pstring, type_t type,
+                             global_t::ideps_set_t&& ideps)
 {
     unsigned index;
     {
@@ -93,7 +102,7 @@ gvar_ht global_t::define_var(type_t type, global_t::ideps_set_t&& ideps)
         index = var_vec.size();
         var_vec.push_back(this);
     }
-    define(GLOBAL_VAR, type, { .index = index }, std::move(ideps));
+    define(pstring, GLOBAL_VAR, type, { .index = index }, std::move(ideps));
     return { index };
 }
 
@@ -107,9 +116,11 @@ void global_t::build_order()
     {
         // Check to make sure every global was defined:
         if(global.gclass() == GLOBAL_UNDEFINED)
-            compiler_error(global.name, "Name not in scope.");
+        {
+            file_contents_t file(global.m_pstring.file_i);
+            compiler_error(file, global.m_pstring, "Name not in scope.");
+        }
 
-        // Build 'm_iuse' and 'm_ideps_left':
         global.m_ideps_left.store(global.m_ideps.size(), 
                                   std::memory_order_relaxed);
         for(global_t* idep : global.m_ideps)
@@ -122,9 +133,6 @@ void global_t::build_order()
 
 void global_t::compile()
 {
-    constexpr bool optimize = false;
-    constexpr bool compile = false;
-
     // Compile it!
     switch(gclass())
     {
@@ -133,12 +141,13 @@ void global_t::compile()
     case GLOBAL_FN:
         {
             // Compile the FN.
-            ir_t ir = build_ir(*this);
-            assert(ir.valid());
+            ssa_pool::clear();
+            cfg_pool::clear();
+            ir_t ir;
+            build_ir(ir, *this);
+            ir.assert_valid();
 
-            o_phis(ir); // TODO: remove
-
-            if(optimize)
+            if(compiler_options().optimize)
             {
                 bool changed;
                 do
@@ -146,23 +155,57 @@ void global_t::compile()
                     changed = false;
                     changed |= o_phis(ir);
                     changed |= o_abstract_interpret(ir);
+                    changed |= o_remove_unused_ssa(ir);
                 }
                 while(changed);
             }
 
             // Set the global's 'read' and 'write' bitsets:
-            m_impl.fn->calc_reads_writes(ir);
+            m_impl.fn->calc_reads_writes_purity(ir);
 
-            //byteify(ir, *this, *global);
+            byteify(ir, *this);
             //make_conventional(ir);
+
+            if(compiler_options().optimize)
+            {
+                bool changed;
+                do
+                {
+                    changed = false;
+                    changed |= o_phis(ir);
+                    changed |= o_abstract_interpret(ir);
+                    changed |= o_remove_unused_ssa(ir);
+                }
+                while(changed);
+            }
+
+            // TODO: scheduling
+            schedule_ir(ir);
+
+            for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+            {
+                std::cout << "\n\n";
+                auto schedule = get_schedule(cfg_it);
+
+                for(ssa_ht h : schedule)
+                    std::cout << h->op() << '\n';
+
+                sel_t const* sel = select_instructions(&*schedule.begin(), 
+                                                       &*schedule.end());
+                while(sel)
+                {
+                    std::cout << "SEL " << to_string(sel->op) << ' ' << sel->cost << '\n';
+                    sel = sel->prev;
+                }
+            }
 
             if(compiler_options().graphviz)
             {
-                std::ofstream ocfg(fmt("graphs/%_cfg.gv", name.view()));
+                std::ofstream ocfg(fmt("graphs/%_cfg.gv", name));
                 if(ocfg.is_open())
                     graphviz_cfg(ocfg, ir);
 
-                std::ofstream ossa(fmt("graphs/%_ssa.gv", name.view()));
+                std::ofstream ossa(fmt("graphs/%_ssa.gv", name));
                 if(ossa.is_open())
                     graphviz_ssa(ossa, ir);
             }
@@ -242,7 +285,6 @@ void global_t::compile_all()
         while(!exception_thrown)
         {
             global_t* global = await_ready_global();
-            std::printf("compiling %p\n", global);
             if(!global)
                 return;
             global->compile();
@@ -250,59 +292,60 @@ void global_t::compile_all()
     });
 }
 
-void fn_t::calc_reads_writes(ir_t const& ir)
+void fn_t::calc_reads_writes_purity(ir_t const& ir)
 {
     unsigned const set_size = bitset_size<>(global_t::num_vars());
 
-    {
-        std::lock_guard<std::mutex> lock(bitset_pool_mutex);
-        m_writes = bitset_pool.alloc(set_size);
-        m_reads  = bitset_pool.alloc(set_size);
-    }
+    bitset_uint_t* writes = bitset_pool.alloc(set_size);
+    bitset_uint_t* reads  = bitset_pool.alloc(set_size);
+    bool io_pure = true;
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->op() == SSA_write_global)
+        if(ssa_flags(ssa_it->op()) & SSAF_IMPURE)
+            io_pure = false;
+
+        if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
         {
-            assert(ssa_it->input_size() == 2);
-            locator_ht loc = ssa_it->input(1).locator();
-
-            if(ir.locators.is_single(loc))
+            for_each_written_global(ssa_it,
+            [this, writes](ssa_value_t def, locator_t loc)
             {
-                global_t const& written = ir.locators.get_single(loc);
-                assert(written.gclass() == GLOBAL_VAR);
-
-                // Writes only have effect if they're not writing back a
-                // previously read value.
-                ssa_value_t value = ssa_it->input(0);
-                if(!value.holds_ref()
-                   || value->op() != SSA_read_global
-                   || value->input(1).locator() != loc)
+                if(loc.lclass() == LCLASS_GLOBAL)
                 {
-                    bitset_set(m_writes, written.var().value);
+                    global_t const& written = global_t::lookup(loc.gvar());
+                    assert(written.gclass() == GLOBAL_VAR);
+
+                    // Writes only have effect if they're not writing back a
+                    // previously read value.
+                    if(!def.holds_ref()
+                       || def->op() != SSA_read_global
+                       || def->input(1).locator() != loc)
+                    {
+                        bitset_set(writes, written.var().value);
+                    }
                 }
-            }
+            });
         }
         else if(ssa_it->op() == SSA_read_global)
         {
             assert(ssa_it->input_size() == 2);
-            locator_ht loc = ssa_it->input(1).locator();
+            locator_t loc = ssa_it->input(1).locator();
 
-            if(ir.locators.is_single(loc))
+            if(loc.lclass() == LCLASS_GLOBAL)
             {
-                global_t const& read = ir.locators.get_single(loc);
+                global_t const& read = global_t::lookup(loc.gvar());
                 assert(read.gclass() == GLOBAL_VAR);
 
                 // Reads only have effect if something actually uses them:
                 for(unsigned i = 0; i < ssa_it->output_size(); ++i)
                 {
-                    ssa_ht output = ssa_it->output(i);
-                    if(output->op() != SSA_fence
-                        && (output->op() != SSA_write_global
-                            || output->input(1).locator() != loc))
+                    auto oe = ssa_it->output_edge(i);
+                    // TODO: removed fence check here.
+                    if(!is_locator_write(oe)
+                       || oe.handle->input(oe.index + 1) != loc)
                     {
-                        bitset_set(m_reads, read.var().value);
+                        bitset_set(reads, read.var().value);
                         break;
                     }
                 }
@@ -310,14 +353,21 @@ void fn_t::calc_reads_writes(ir_t const& ir)
         }
         else if(ssa_it->op() == SSA_fn_call)
         {
-            global_t const* callee = ssa_it->input(1).ptr<global_t>();
+            global_t const& callee = get_fn(*ssa_it);
 
-            assert(callee);
-            assert(callee->gclass() == GLOBAL_FN);
+            assert(callee.gclass() == GLOBAL_FN);
 
-            bitset_or(set_size, m_writes, callee->fn().writes());
-            bitset_or(set_size, m_reads,  callee->fn().reads());
+            bitset_or(set_size, writes, callee.fn().writes());
+            bitset_or(set_size, reads,  callee.fn().reads());
+            io_pure &= callee.fn().io_pure();
         }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(bitset_pool_mutex);
+        m_writes = writes;
+        m_reads  = reads;
+        m_io_pure = io_pure;
     }
 }
 

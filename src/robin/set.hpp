@@ -77,6 +77,7 @@ public:
     friend void swap(robin_set& a, robin_set& b) noexcept { a.swap(b); }
 
     std::size_t size() const { return collection.size(); }
+    bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
 private:
     collection_type collection;
@@ -131,6 +132,7 @@ public:
     friend void swap(batman_set& a, batman_set& b) noexcept { a.swap(b); }
 
     std::size_t size() const { return collection.size(); }
+    bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
 
     const_iterator cbegin() const { return collection.cbegin(); }
@@ -192,6 +194,7 @@ public:
     friend void swap(joker_set& a, joker_set& b) noexcept { a.swap(b); }
 
     std::size_t size() const { return collection.size(); }
+    bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
 
     const_iterator cbegin() const { return collection.cbegin(); }

@@ -7,9 +7,10 @@
 namespace fc
 {
 
-template<typename T, std::size_t N, typename Compare = std::less<void>>
+template<typename T, std::size_t N, 
+         typename Compare = std::less<T>, typename... Args>
 using small_set = flat_set<
-    ::boost::container::small_vector<T, N>, Compare>;
+    ::boost::container::small_vector<T, N, Args...>, Compare>;
 
 }
 

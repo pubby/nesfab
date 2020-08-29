@@ -7,9 +7,9 @@
 namespace fc
 {
 
-template<typename T, std::size_t N, typename Compare = std::less<void>>
+template<typename T, std::size_t N, typename... Args>
 using small_multiset = flat_multiset<
-    ::boost::container::small_vector<T, N>, Compare>;
+    ::boost::container::small_vector<T, N>, Args...>;
 
 }
 

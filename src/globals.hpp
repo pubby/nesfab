@@ -48,13 +48,14 @@ struct global_t
 {
 public:
     using ideps_set_t = fc::vector_set<global_t*>;
-    pstring_t const name = {};
+    std::string const name;
 private:
     // These variables are set only by 'define', as soon
     // as the global is parsed.
     std::mutex m_define_mutex;
     global_class_t m_gclass = GLOBAL_UNDEFINED;
     type_t m_type = TYPE_VOID;
+    pstring_t m_pstring;
     union impl_t
     {
         unsigned index;
@@ -72,7 +73,10 @@ private:
     std::atomic<unsigned> m_ideps_left = 0;
 
 public:
-    explicit global_t(pstring_t name) : name(name) {}
+    global_t(pstring_t pstring, char const* source)
+    : name(pstring.view(source))
+    , m_pstring(pstring)
+    {}
 
     global_class_t gclass() const 
     { 
@@ -106,13 +110,14 @@ public:
         return m_ideps;
     }
 
-    fn_t& define_fn(type_t type, global_t::ideps_set_t&& ideps,
-                    fn_def_t&& fn_def);
-    gvar_ht define_var(type_t type, global_t::ideps_set_t&& ideps);
+    fn_t& define_fn(pstring_t pstring, type_t type, 
+                    global_t::ideps_set_t&& ideps, fn_def_t&& fn_def);
+    gvar_ht define_var(pstring_t pstring, type_t type,
+                       global_t::ideps_set_t&& ideps);
 
 private:
-    void define(global_class_t gclass, type_t type, impl_t impl, 
-                ideps_set_t&& ideps);
+    void define(pstring_t pstring, global_class_t gclass, type_t type, 
+                impl_t impl, ideps_set_t&& ideps);
     void compile();
 public:
     // Allocates an expression.
@@ -121,7 +126,7 @@ public:
 
     // Creates a global if it doesn't exist,
     // otherwise returns the existing global with name.
-    static global_t& lookup(pstring_t name);
+    static global_t& lookup(pstring_t name, char const* source);
 
     // Looks up a global variable given a gvar_ht index.
     // This function can only be called after 'var_vec' is 100% built.
@@ -219,20 +224,26 @@ public:
     //std::vector<addr16_t> arg_bytes;
     //std::vector<addr16_t> return_bytes;
 
-    void calc_reads_writes(ir_t const& ir);
+    void calc_reads_writes_purity(ir_t const& ir);
 
-    // These are only valid after 'calc_reads_writes' has ran.
+    // These are only valid after 'calc_reads_writes_purity' has ran.
     bitset_uint_t const* reads() const  { assert(m_reads);  return m_reads; }
     bitset_uint_t const* writes() const { assert(m_writes); return m_writes; }
+    bool io_pure() const { assert(m_writes); return m_io_pure; }
 
 public:
     fn_def_t const def;
 private:
     // Bitsets of all global vars read/written in fn (deep)
-    // These get assigned by 'calc_reads_writes'.
+    // These get assigned by 'calc_reads_writes_purity'.
     // The thread synchronization is implicit in the order of compilation.
     bitset_uint_t* m_reads = nullptr;
     bitset_uint_t* m_writes = nullptr;
+
+    // If the function doesn't modifies or I/O.
+    // (Using mutable memory state is OK.)
+    // Gets set by 'calc_reads_writes_purity'.
+    bool m_io_pure = false;
 
 private:
     // Holds bitsets of 'm_reads' and 'm_writes'

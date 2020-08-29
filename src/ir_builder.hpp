@@ -13,6 +13,6 @@ struct local_lookup_error_t : public std::exception
         { return "Failed local lookup."; }
 };
 
-ir_t build_ir(global_t& global);
+void build_ir(ir_t& ir, global_t& global);
 
 #endif

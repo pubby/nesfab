@@ -53,7 +53,7 @@ void bitset_xor(std::size_t size, UInt* lhs, UInt const* rhs)
 }
 
 template<typename UInt>
-void bitset_clear(UInt* bitset, UInt i)
+void bitset_clear(UInt* bitset, std::size_t i)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     UInt const byte_i = i / sizeof_bits<UInt>;
@@ -167,7 +167,7 @@ void bitset_copy(std::size_t size, UInt* lhs, UInt const* rhs)
 
 // Calls 'fn' for each set bit of the bitset.
 template<typename UInt, typename Fn>
-void bitset_for_each_bit(UInt bitset, Fn fn, unsigned span = 0)
+void bitset_for_each(UInt bitset, Fn fn, unsigned span = 0)
 {
     while(bitset)
     {
@@ -177,17 +177,43 @@ void bitset_for_each_bit(UInt bitset, Fn fn, unsigned span = 0)
     }
 }
 
-
 // Calls 'fn' for each set bit of the bitset.
 template<typename UInt, typename Fn>
-void bitset_for_each_bit(std::size_t size, UInt* bitset, Fn fn)
+void bitset_for_each(std::size_t size, UInt* bitset, Fn fn)
 {
     unsigned span = 0;
     for(std::size_t i = 0; i < size; ++i)
     {
-        bitset_for_each_bit(bitset[i], fn, span);
+        bitset_for_each(bitset[i], fn, span);
         span += sizeof_bits<UInt>;
     }
+}
+
+// Calls 'fn' for each set bit of the bitset.
+template<typename UInt, typename Fn>
+bool bitset_for_each_test(UInt bitset, Fn fn, unsigned span = 0)
+{
+    while(bitset)
+    {
+        unsigned bit = builtin::ctz(bitset);
+        bitset ^= (UInt)1 << bit;
+        if(!fn(bit + span))
+            return false;
+    }
+    return true;
+}
+
+template<typename UInt, typename Fn>
+bool bitset_for_each_test(std::size_t size, UInt* bitset, Fn fn)
+{
+    unsigned span = 0;
+    for(std::size_t i = 0; i < size; ++i)
+    {
+        if(!bitset_for_each_test(bitset[i], fn, span))
+            return false;
+        span += sizeof_bits<UInt>;
+    }
+    return true;
 }
 
 // A shitty bitset class that exists because std::bitset abstracts too much.

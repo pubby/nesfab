@@ -6,29 +6,19 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-std::vector<file_contents_t> _files;
+std::vector<std::string> source_file_names;
 
-file_contents_t::file_contents_t(std::string filename)
-: m_filename(std::move(filename))
+file_contents_t::file_contents_t(unsigned file_i)
+: m_file_i(file_i)
 {
-    int fd = open(m_filename.c_str(), O_RDONLY);
+    std::string const& name = source_file_names[file_i];
+    int fd = open(name.c_str(), O_RDONLY);
     struct stat sb;
     if(fstat(fd, &sb) == -1)
-        throw std::runtime_error("Unable to stat file.");
+        throw std::runtime_error("Unable to stat file: " + name);
     m_source.reset(new char[sb.st_size + 1]);
     if(read(fd, reinterpret_cast<void*>(m_source.get()), sb.st_size) == -1)
-        throw std::runtime_error("Unable to read file.");
+        throw std::runtime_error("Unable to read file: " + name);
     m_source[sb.st_size] = '\0';
-}
-
-void load_files(std::string* begin, std::string* end)
-{
-    unsigned num_files = end - begin;
-
-    _files.clear();
-    _files.reserve(num_files);
-
-    for(unsigned i = 0; i < num_files; ++i)
-        _files.emplace_back(begin[i]);
 }
 

@@ -123,6 +123,9 @@ public:
         handle_t& operator--() { *this = storage[index].prev; return *this; }
         handle_t operator--(int) { auto x = *this; operator--(); return x; }
 
+        handle_t next() const { return storage[index].next; }
+        handle_t prev() const { return storage[index].prev; }
+
         template<typename U>
         U& data() const 
             { return static_any_pool_t<Tag>::template get<U>(index); }

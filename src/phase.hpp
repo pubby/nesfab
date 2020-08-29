@@ -8,7 +8,6 @@
 enum compiler_phase_t
 {
     PHASE_INIT,
-    PHASE_LOAD_FILES,
     PHASE_PARSE,
     PHASE_ORDER_GLOBALS,
     PHASE_COMPILE,

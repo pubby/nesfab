@@ -20,12 +20,12 @@ static constexpr bool is_type_prefix(token_type_t type)
 }
 
 template<typename P>
-parser_t<P>::parser_t(P& policy, unsigned file_i)
+parser_t<P>::parser_t(P& policy, file_contents_t const& file)
 : policy_ptr(&policy)
-, file_i(file_i)
+, file(file)
 {
     line_source = token_source = next_char = source();
-    token.pstring.file_i = file_i;
+    token.pstring.file_i = file_i();
     parse_indented_token();
 }
 
@@ -118,7 +118,7 @@ restart:
     token.pstring.offset = token_source - source();
     token.pstring.size = next_char - token_source;
     token.value = 0;
-    assert(token.pstring.file_i == file_i);
+    assert(token.pstring.file_i == file_i());
 
     switch(token.type)
     {
@@ -272,7 +272,7 @@ applicable:
             unsigned argument_count = parse_args(TOK_lparen, TOK_rparen,
                 [&]() { parse_expr(expr_temp, fn_indent, open_parens+1); });
             char const* end = token_source;
-            pstring_t pstring = { begin - source(), end - begin, file_i };
+            pstring_t pstring = { begin - source(), end - begin, file_i() };
             expr_temp.push_back({ TOK_apply, pstring, argument_count });
             goto applicable;
         }
@@ -496,10 +496,11 @@ void parser_t<P>::parse_fn()
     type_t return_type = parse_type(true);
 
     // Parse the body of the function
-    policy().begin_fn(fn_name, &*params.begin(), &*params.end(), return_type);
+    auto state = policy().begin_fn(fn_name, &*params.begin(), &*params.end(), 
+                                   return_type);
     parse_line_ending();
     parse_block_statement(fn_indent);
-    policy().end_fn();
+    policy().end_fn(std::move(state));
 }
 
 template<typename P>

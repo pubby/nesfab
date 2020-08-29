@@ -45,5 +45,4 @@ private:
     ram_region_t m_region;
 };
 
-
 #endif

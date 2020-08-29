@@ -11,7 +11,6 @@
 #include "alloca.hpp"
 #include "compiler_error.hpp"
 #include "globals.hpp"
-#include "nothing.hpp"
 #include "parser_types.hpp"
 #include "symbol_table.hpp"
 #include "types.hpp"
@@ -19,22 +18,33 @@
 class pass1_t
 {
 private:
-    global_t* active_global;
-    type_t global_type;
+    file_contents_t const& file;
+    global_t* active_global = nullptr;
     global_t::ideps_set_t ideps;
     fn_def_t fn;
 
     symbol_table_t symbol_table;
-    fc::small_map<pstring_t, label_t*, 4, pstring_less_t> label_map;
-    fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
+    fc::small_map<pstring_t, label_t*, 4, pstring_less_t>
+        label_map;
+    fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> 
+        unlinked_gotos;
+
+    struct nothing_t {};
 public:
+    explicit pass1_t(file_contents_t const& file) 
+    : file(file)
+    , label_map(pstring_less_t{ file.source() })
+    , unlinked_gotos(pstring_less_t{ file.source() })
+    {}
+
     // Helpers
+    char const* source() { return file.source(); }
     token_t const* convert_expr(expr_temp_t& expr);
 
     // Functions
     [[gnu::always_inline]]
-    void begin_fn(pstring_t fn_name, var_decl_t const* params_begin, 
-                  var_decl_t const* params_end, type_t return_type)
+    var_decl_t begin_fn(pstring_t fn_name, var_decl_t const* params_begin, 
+                        var_decl_t const* params_end, type_t return_type)
     {
         assert(ideps.empty());
         assert(label_map.empty());
@@ -44,30 +54,35 @@ public:
         fn = fn_def_t();
 
         // Find the global
-        active_global = &global_t::lookup(fn_name);
+        active_global = &global_t::lookup(fn_name, source());
 
         // Create a scope for the parameters.
         assert(symbol_table.empty());
         symbol_table.push_scope();
 
         // Add the parameters to the symbol table.
-        unsigned const num_params = params_end - params_begin;
-        for(unsigned i = 0; i < num_params; ++i)
-            symbol_table.new_def(i, params_begin[i].name.view());
+        fn.num_params = params_end - params_begin;
+        for(unsigned i = 0; i < fn.num_params; ++i)
+        {
+            symbol_table.new_def(i, params_begin[i].name.view(source()));
+            fn.local_vars.push_back(params_begin[i]);
+        }
 
         // Find and store the fn's type:
-        type_t* types = ALLOCA_T(type_t, num_params + 1);
-        for(unsigned i = 0; i != num_params; ++i)
+        type_t* types = ALLOCA_T(type_t, fn.num_params + 1);
+        for(unsigned i = 0; i != fn.num_params; ++i)
             types[i] = params_begin[i].type;
-        types[num_params] = return_type;
-        global_type = type_t::fn(types, types + num_params + 1);
+        types[fn.num_params] = return_type;
+        type_t fn_type = type_t::fn(types, types + fn.num_params + 1);
 
         // Create a scope for the fn body.
         symbol_table.push_scope();
+
+        return { fn_type, fn_name };
     }
 
     [[gnu::always_inline]]
-    void end_fn()
+    void end_fn(var_decl_t decl)
     {
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
@@ -78,11 +93,12 @@ public:
         if(!unlinked_gotos.empty())
         {
             auto it = unlinked_gotos.begin();
-            compiler_error(it->first, "Label not in scope.");
+            compiler_error(file, it->first, "Label not in scope.");
         }
 
         // Create the global:
-        active_global->define_fn(global_type, std::move(ideps), std::move(fn));
+        active_global->define_fn(decl.name, decl.type, 
+                                 std::move(ideps), std::move(fn));
     }
 
     // Global variables
@@ -90,8 +106,9 @@ public:
     void global_var(var_decl_t const& var_decl, expr_temp_t* expr)
     {
         assert(ideps.empty());
-        active_global = &global_t::lookup(var_decl.name);
-        active_global->define_var(var_decl.type, std::move(ideps));
+        active_global = &global_t::lookup(var_decl.name, source());
+        active_global->define_var(var_decl.name, var_decl.type, 
+                                  std::move(ideps));
     }
 
     [[gnu::always_inline]]
@@ -106,13 +123,15 @@ public:
         // Create the var.
         unsigned handle = fn.local_vars.size();
         if(unsigned const* existing = 
-           symbol_table.new_def(handle, var_decl.name.view()))
+           symbol_table.new_def(handle, var_decl.name.view(source())))
         {
             // Already have a variable defined in this scope.
             throw compiler_error_t(
-                fmt_error(var_decl.name, "Identifier already in use.")
-                + fmt_error(fn.local_vars[*existing].name, 
-                            "Previous declaration here."));
+                fmt_error(file, var_decl.name, 
+                          fmt("Identifier % already in use.", 
+                              var_decl.name.view(source())))
+                + fmt_error(file, fn.local_vars[*existing].name, 
+                            "Previous definition here:"));
         }
         fn.local_vars.push_back(var_decl);
         fn.push_var_init(handle, expr ? convert_expr(*expr) : nullptr);
@@ -248,8 +267,9 @@ public:
         if(!pair.second)
         {
             throw compiler_error_t(
-                fmt_error(pstring, "Label name already in use.")
-                + fmt_error(pair.first->first, "Previous definition here."));
+                fmt_error(file, pstring, "Label name already in use.")
+                + fmt_error(file, pair.first->first, 
+                            "Previous definition here:"));
         }
 
         // Link up the unlinked gotos that jump to this label.

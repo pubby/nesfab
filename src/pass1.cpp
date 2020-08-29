@@ -10,13 +10,13 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
         if(token.type == TOK_ident)
         {
             if(unsigned const* handle = 
-               symbol_table.find(token.pstring.view()))
+               symbol_table.find(token.pstring.view(source())))
             {
                 token.value = *handle;
             }
             else
             {
-                global_t& g = global_t::lookup(token.pstring);
+                global_t& g = global_t::lookup(token.pstring, source());
                 token.type = TOK_global_ident;
                 token.set_ptr(&g);
                 ideps.insert(&g);

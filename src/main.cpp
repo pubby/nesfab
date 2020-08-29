@@ -18,23 +18,29 @@ namespace po = boost::program_options;
 
 int main(int argc, char** argv)
 {
+    // TODO: remove
+    /*
     std::cout << "type_t size = " << sizeof(type_t) << '\n';
     std::cout << "ssa_op_t size = " << sizeof(ssa_op_t) << '\n';
     std::cout << "ssa_node_t size = " << sizeof(ssa_node_t) << '\n';
     std::cout << "cfg_node_t size = " << sizeof(cfg_node_t) << '\n';
+    */
 
     try
     {
-        // Handle program options
+        /////////////////////////////
+        // Handle program options: //
+        /////////////////////////////
         {
             po::options_description desc("Allowed options");
             desc.add_options()
                 ("help,h", "produce help message")
                 ("version,v", "version")
-                ("graph,g", "outputs graphviz files")
-                ("input-file", po::value<std::vector<std::string>>(), 
+                ("input-file,i", po::value<std::vector<std::string>>(), 
                  "input file")
+                ("graphviz,g", "output graphviz files")
                 ("optimize,O", "optimize code")
+                ("threads,j", po::value<int>(), "number of compiler threads")
             ;
 
             po::positional_options_description p;
@@ -53,25 +59,36 @@ int main(int argc, char** argv)
 
             if(vm.count("version")) 
             {
-                std::cout << "version: " << VERSION << '\n';
+                std::cout << "MOSBOL version " << VERSION << '\n';
+                std::cout << "commit " << GIT_COMMIT << '\n';
+                std::cout << 
+                    "Copyright (C) 2020, Pubby\n"
+                    "This is free software. "
+                    "There is no warranty.\n";
                 return EXIT_SUCCESS;
             }
 
-            if (vm.count("input-file"))
-            {
-                for(auto& str : vm["input-file"].as< std::vector<std::string> >())
-                std::cout << "Input files are: " << str << '\n';
-            }
+            if(vm.count("input-file"))
+                source_file_names = 
+                    vm["input-file"].as<std::vector<std::string>>();
+
+            if(source_file_names.empty())
+                throw std::runtime_error("No input files.");
+
+            if(vm.count("optimize"))
+                _options.optimize = true;
+
+            if(vm.count("graphviz"))
+                _options.graphviz = true;
+
+            if(vm.count("threads"))
+                _options.num_threads = 
+                    std::clamp(vm["threads"].as<int>(), 1, 64);
         }
 
         ////////////////////////////////////
         // OK! Now to do the actual work: //
         ////////////////////////////////////
-
-        // Load every source file
-        set_compiler_phase(PHASE_LOAD_FILES);
-        std::vector<std::string> file_names = { "file.robust" };
-        load_files(&*file_names.begin(), &*file_names.end());
 
         // Parse the files, loading everything into globals:
         set_compiler_phase(PHASE_PARSE);
@@ -82,10 +99,11 @@ int main(int argc, char** argv)
             while(!exception_thrown)
             {
                 unsigned const file_i = next_file_i++;
-                if(file_i >= num_files())
+                if(file_i >= source_file_names.size())
                     return;
 
-                parse<pass1_t>(file_i);
+                file_contents_t file(file_i);
+                parse<pass1_t>(file);
             }
         });
 
@@ -107,7 +125,7 @@ int main(int argc, char** argv)
     }
     catch(std::exception& e)
     {
-        std::fprintf(stderr, "%s", e.what());
+        std::fprintf(stderr, "%s\n", e.what());
         return EXIT_FAILURE;
     }
 

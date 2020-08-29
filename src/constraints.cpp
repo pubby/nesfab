@@ -285,9 +285,14 @@ ABSTRACT(SSA_phi)
     return ret;
 };
 
-ABSTRACT(SSA_argument)
+ABSTRACT(SSA_read_global)
 {
-    assert(argn == 1);
+    assert(argn == 2);
+    return constraints_t::bottom(mask);
+};
+
+ABSTRACT(SSA_fn_call)
+{
     return constraints_t::bottom(mask);
 };
 
@@ -302,14 +307,25 @@ ABSTRACT(SSA_cast)
     assert(argn == 1);
     return apply_mask(mask, c[0]);
 };
+#include <iostream> // TODO
 
 ABSTRACT(SSA_add)
 {
     assert(argn == 3);
-    if(c[0].is_top() || c[1].is_top() || c[2].is_top())
+
+    constexpr unsigned C = 0;
+    constexpr unsigned L = 1;
+    constexpr unsigned R = 2;
+
+    if(c[L].is_top() || c[R].is_top() || c[C].is_top())
         return constraints_t::top();
 
-    // If we know bits in c[0] and c[1], we can determine which bits are
+    std::cout << "L = " << c[L] << '\n';
+    std::cout << "R = " << c[R] << '\n';
+    std::cout << "C = " << c[C] << '\n';
+    std::cout << "M = " << mask << '\n';
+
+    // If we know bits in c[L] and c[R], we can determine which bits are
     // known in the output.
     //
     // SLOW BUT ACCURATE TECHNIQUE (used)
@@ -321,24 +337,24 @@ ABSTRACT(SSA_add)
     // - Performance is improved slightly by using lookup tables.
     //
     // FAST BUT INACCURATE TECHNIQUE (not used)
-    // - If the rightmost bits of both c[0] and c[1] are known, we know
+    // - If the rightmost bits of both c[L] and c[R] are known, we know
     //   the rightmost bits of the output.
     // - If we know both bits along with the carry, we know the outpit bit.
-    //   (The carry is known when c[0] bit == c[1] bit.)
+    //   (The carry is known when c[L] bit == c[R] bit.)
     //
     // (FAST is about 10x faster than SLOW)
 
     constraints_t ret = {};
 
-    fixed_int_t const neg_mask = ~(c[0].bits.known0 & c[1].bits.known0) & mask;
+    fixed_int_t const neg_mask = ~(c[L].bits.known0 & c[R].bits.known0) & mask;
     std::uint64_t const start_i = neg_mask ? builtin::ctz(neg_mask) : 0;
-    std::uint64_t const end_i = ((1 + (neg_mask ? builtin::rclz(neg_mask) 
+    std::uint64_t const end_i = ((2 + (neg_mask ? builtin::rclz(neg_mask) 
                                                 : sizeof_bits<fixed_int_t>))
                                  & ~1ull);
     ret.bits.known0 = (1ull << start_i) - 1ull;
 
-    known_bits_t lhs_bits = c[0].bits;
-    known_bits_t rhs_bits = c[1].bits;
+    known_bits_t lhs_bits = c[L].bits;
+    known_bits_t rhs_bits = c[R].bits;
 
     lhs_bits.known0 >>= start_i;
     lhs_bits.known1 >>= start_i;
@@ -347,7 +363,8 @@ ABSTRACT(SSA_add)
 
     fixed_int_t i = start_i;
     // 'j' holds the carry.
-    fixed_int_t j = c[2].carry;
+    fixed_int_t j = c[C].carry;
+    assert(c[C].carry != CARRY_TOP);
     for(; i < end_i; i += 2ull)
     {
         j |= (lhs_bits.known0 & 0b11) << 2ull;
@@ -366,29 +383,35 @@ ABSTRACT(SSA_add)
         rhs_bits.known1 >>= 2ull;
     }
     ret.carry = (carry_t)j;
+    std::cout << "RET = " << ret << '\n';
+    assert(ret.carry != CARRY_TOP);
     if(i < sizeof_bits<fixed_int_t>)
         ret.bits.known0 |= ~((1ull << i) - 1ull);
 
     ret.bits = apply_mask(mask, ret.bits);
+    std::cout << "RET = " << ret << '\n';
     assert(!ret.bits.is_top());
 
     // OK! Now for the bounds.
     // Calculate 'min' and 'max.
-    if(builtin::add_overflow(c[0].bounds.max, c[1].bounds.max, ret.bounds.max))
+    if(builtin::add_overflow(c[L].bounds.max, c[R].bounds.max, ret.bounds.max))
     {
         // Value overflowed. Derive min/max from known bits.
         ret.bounds = apply_mask(mask, from_bits(ret.bits));
         assert(!ret.is_top());
         return normalize(ret);
     }
-    ret.bounds.min = c[0].bounds.min + c[1].bounds.min;
+    ret.bounds.min = c[L].bounds.min + c[R].bounds.min;
     ret.bounds = apply_mask(mask, ret.bounds);
 
     // 'min' and 'max' put constraints on the bits - neat!
     // Calculate those constraints here.
-    known_bits_t bounds_bits = from_bounds(ret.bounds);
+    assert(apply_mask(mask, ret.bits).bit_eq(ret.bits));
+    known_bits_t bounds_bits = apply_mask(mask, from_bounds(ret.bounds));
+    assert(apply_mask(mask, bounds_bits).bit_eq(bounds_bits));
     ret.bits.known0 |= bounds_bits.known0;
     ret.bits.known1 |= bounds_bits.known1;
+    std::cout << "RET = " << ret << '\n';
 
     assert(apply_mask(mask, ret.bits).bit_eq(ret.bits));
     assert(!ret.bounds.is_top());
@@ -526,28 +549,32 @@ NARROW(SSA_add)
     if(result.is_top())
         return;
 
+    constexpr unsigned C = 0;
+    constexpr unsigned L = 1;
+    constexpr unsigned R = 2;
+
     // We use an approximation approach.
     // We can solve bit equations of the form KNOWN ^ KNOWN ^ UNKNOWN = KNOWN
     // (Three arguments because of carries).
 
     // Determine some of the carried bits:
-    fixed_int_t carry0 = (c[0].bits.known0 & c[1].bits.known0) << 1ull;
-    fixed_int_t carry1 = (c[0].bits.known1 & c[1].bits.known1) << 1ull;
+    fixed_int_t carry0 = (c[L].bits.known0 & c[R].bits.known0) << 1ull;
+    fixed_int_t carry1 = (c[L].bits.known1 & c[R].bits.known1) << 1ull;
 
     fixed_int_t const carry_i = ~mask ? ((mask | (mask >> 1)) ^ mask) : 1;
     
-    // First do the carry. If we know the lowest bit of c[0], c[1], and result
+    // First do the carry. If we know the lowest bit of c[L], c[R], and result
     // we can infer the required carry.
-    if(result.bits.known() & c[0].bits.known() & c[1].bits.known() & carry_i)
+    if(result.bits.known() & c[L].bits.known() & c[R].bits.known() & carry_i)
     {
-        if((result.bits.known1 ^ c[0].bits.known1 ^ c[1].bits.known1)& carry_i)
-            c[2].carry = CARRY_SET;
+        if((result.bits.known1 ^ c[L].bits.known1 ^ c[R].bits.known1)& carry_i)
+            c[C].carry = CARRY_SET;
         else
-            c[2].carry = CARRY_CLEAR;
+            c[C].carry = CARRY_CLEAR;
     }
 
     // If the SSA op has a carry input, use it in the lowest bit:
-    switch(c[2].carry)
+    switch(c[C].carry)
     {
     case CARRY_BOTTOM: break;
     case CARRY_CLEAR:  carry0 |= 0ull; break;
@@ -556,37 +583,37 @@ NARROW(SSA_add)
     }
 
     fixed_int_t const solvable = result.bits.known() & (carry0 | carry1);
-    fixed_int_t const lsolvable = c[1].bits.known() & solvable;
-    fixed_int_t const rsolvable = c[0].bits.known() & solvable;
+    fixed_int_t const lsolvable = c[R].bits.known() & solvable;
+    fixed_int_t const rsolvable = c[L].bits.known() & solvable;
 
-    c[0].bits.known1 |= ((carry1 ^ c[1].bits.known1 ^ result.bits.known1) 
+    c[L].bits.known1 |= ((carry1 ^ c[R].bits.known1 ^ result.bits.known1) 
                          & lsolvable);
-    c[1].bits.known1 |= ((carry1 ^ c[0].bits.known1 ^ result.bits.known1) 
+    c[R].bits.known1 |= ((carry1 ^ c[L].bits.known1 ^ result.bits.known1) 
                          & rsolvable);
-    c[0].bits.known0 |= ~c[0].bits.known1 & lsolvable;
-    c[1].bits.known0 |= ~c[1].bits.known1 & rsolvable;
+    c[L].bits.known0 |= ~c[L].bits.known1 & lsolvable;
+    c[R].bits.known0 |= ~c[R].bits.known1 & rsolvable;
 
     // Move the bounds in after calculating bits.
-    c[0].bounds = intersect(c[0].bounds, from_bits(c[0].bits));
-    c[1].bounds = intersect(c[1].bounds, from_bits(c[1].bits));
+    c[L].bounds = intersect(c[L].bounds, from_bits(c[L].bits));
+    c[R].bounds = intersect(c[R].bounds, from_bits(c[R].bits));
 
     fixed_int_t max_sum;
-    if(builtin::add_overflow(c[0].bounds.max, c[1].bounds.max, max_sum))
+    if(builtin::add_overflow(c[L].bounds.max, c[R].bounds.max, max_sum))
     {
-        assert(c[0].is_normalized() && c[1].is_normalized());
+        assert(c[L].is_normalized() && c[R].is_normalized());
         return;
     }
 
     if(max_sum > mask)
     {
         // The original add can overflow! This complicates things.
-        fixed_int_t const min_sum = c[0].bounds.min + c[1].bounds.min;
+        fixed_int_t const min_sum = c[L].bounds.min + c[R].bounds.min;
         fixed_int_t const span = max_sum - min_sum;
         fixed_int_t const masked_min_sum = min_sum & mask;
 
         if(masked_min_sum + span > mask)
         {
-            assert(c[0].is_normalized() && c[1].is_normalized());
+            assert(c[L].is_normalized() && c[R].is_normalized());
             return;
         }
 
@@ -597,20 +624,20 @@ NARROW(SSA_add)
     }
 
     // If the result's max is less than expected, try lowering
-    // c[0] and c[1]'s max bound.
-    c[0].bounds.max = std::min(c[0].bounds.max, 
-                               result.bounds.max - c[1].bounds.min);
-    c[1].bounds.max = std::min(c[1].bounds.max, 
-                               result.bounds.max - c[0].bounds.min);
+    // c[L] and c[R]'s max bound.
+    c[L].bounds.max = std::min(c[L].bounds.max, 
+                               result.bounds.max - c[R].bounds.min);
+    c[R].bounds.max = std::min(c[R].bounds.max, 
+                               result.bounds.max - c[L].bounds.min);
 
     // If the result's min is greater than expected, try raising
-    // c[0] and c[1]'s min bound.
-    if(result.bounds.min > c[1].bounds.max)
-        c[0].bounds.min = std::max(c[0].bounds.min, 
-                                   result.bounds.min - c[1].bounds.max);
-    if(result.bounds.min > c[1].bounds.max)
-        c[1].bounds.min = std::max(c[1].bounds.min,
-                                   result.bounds.min - c[0].bounds.max);
+    // c[L] and c[R]'s min bound.
+    if(result.bounds.min > c[R].bounds.max)
+        c[L].bounds.min = std::max(c[L].bounds.min, 
+                                   result.bounds.min - c[R].bounds.max);
+    if(result.bounds.min > c[R].bounds.max)
+        c[R].bounds.min = std::max(c[R].bounds.min,
+                                   result.bounds.min - c[L].bounds.max);
 };
 
 NARROW(SSA_and)
@@ -747,12 +774,12 @@ NARROW(SSA_lte)
 
 extern std::array<abstract_fn_t*, NUM_SSA_OPS> const abstract_fn_table =
 {{
-#define SSA_DEF(name, argn, flags) abstract_fn_v<SSA_##name>,
+#define SSA_DEF(name, ...) abstract_fn_v<SSA_##name>,
 #include "ssa_op.inc"
 }};
 
 extern std::array<narrow_fn_t*, NUM_SSA_OPS> const narrow_fn_table =
 {{
-#define SSA_DEF(name, argn, flags) narrow_fn_v<SSA_##name>,
+#define SSA_DEF(name, ...) narrow_fn_v<SSA_##name>,
 #include "ssa_op.inc"
 }};

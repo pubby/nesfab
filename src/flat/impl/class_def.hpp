@@ -9,7 +9,7 @@ public:
 #include "container_traits.hpp"
 
     FLATNAME() = default;
-    explicit FLATNAME(Compare const& comp) : comp(comp), container() {}
+    explicit FLATNAME(Compare const& comp) : container(), comp(comp) {}
 
     template<class InputIt>
     FLATNAME(InputIt first, InputIt last)
@@ -51,7 +51,7 @@ public:
     FLATNAME& operator=(FLATNAME const&) = default;
     FLATNAME& operator=(FLATNAME&&) = default;
     FLATNAME& operator=(std::initializer_list<value_type> ilist)
-        { this->clear(); this->insert(ilist); }
+        { this->clear(); this->insert(ilist); return *this; }
 
     Container container;
     Compare comp;

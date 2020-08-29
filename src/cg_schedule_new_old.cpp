@@ -1,95 +1,116 @@
 #include "cg_schedule.hpp"
 
-#include <iostream> // TODO
-#include <vector>
+struct cfg_schedule_d
+{
+    // All nodes:
+    std::vector<ssa_ht> nodes;
 
-#include "alloca.hpp"
-#include "ir.hpp"
-#include "ir_util.hpp"
+    // Global modifying nodes:
+    //std::vector<ssa_ht> gmod_nodes;
+    //bitset_uint_t* gmod_nodes_set = nullptr;
 
-std::vector<cfg_schedule_d> cfg_schedule_pool;
+    //fc::small_map<locator_ht, ssa_ht> loc_inputs;
+    //fc::small_map<locator_ht, ssa_ht> loc_outputs;
 
-namespace { // anon namespace
+    // A set of all the nodes that have been scheduled.
+    bitset_uint_t* scheduled;
+
+    //std::vector<ssa_ht> worklist;
+    //unsigned initial_num_ready = 0;
+    //unsigned num_ready = 0;
+
+    //float* start_edge_phera = nullptr;
+
+    // Whatever locators are currently live, and their value.
+    //std::vector<loc_live_t> loc_live;
+};
 
 struct ssa_schedule_d
 {
     unsigned index = 0;
-    ssa_ht carry_user = {};
+    //unsigned edge_index = 0;
     bitset_uint_t* deps = nullptr;
+    //bitset_uint_t* extra_deps = nullptr;
+    //float* edge_phera = nullptr;
+
+    // Tracks which locators this node reads, but doesn't modify.
+    //fc::vector_map<ssa_ht, locator_ht> loc_only_reads;
+
+    // Tracks which locators this node modifies,
+    // and contains a count of all 'loc_only_reads' dependent on
+    // this modification.
+    //fc::vector_map<locator_ht, unsigned> loc_writes;
 };
+
+class aco_t
+{
+public:
+    struct candidate_t
+    {
+        unsigned worklist_i;
+        unsigned cost;
+        unsigned weight;
+    };
+private:
+
+    ir_t& ir;
+    cfg_ht cfg_node;
+
+    // TODO: thread_local
+
+    // 'nodes' holds all nodes to be ordered.
+    std::vector<ssa_ht> nodes;
+
+
+    ant_t ant;
+    ant_t best_ant;
+public:
+private:
+    void aco_t();
+    void run():
+    void run_ant();
+
+    template<bool Execute>
+    unsigned cost_execute(sel_t sel);
+}
+
+
+
 
 class scheduler_t
 {
 public:
-    std::vector<ssa_ht> schedule;
-
-    scheduler_t(ir_t& ir, cfg_ht cfg_node);
+    explicit scheduler_t(ir_t& ir);
 private:
+    // Assigns 'deps' and 'index' for each ssa_node in cfg_node.
+    // Returns all nodes in the cfg_node, toposorted
+    std::vector<ssa_ht> build_deps(cfg_ht cfg_node);
 
-    static inline thread_local array_pool_t<bitset_uint_t> bitset_pool;
-
+private:
     ir_t& ir;
-    cfg_ht cfg_node;
-    unsigned set_size;
-
-    ssa_ht carry_input_waiting;
-
-    // Each SSA node in the CFG node that has been scheduled.
-    bitset_uint_t* scheduled = nullptr;
-
-    // All the SSA nodes that maybe clobber the carry.
-    bitset_uint_t* carry_clobberers = nullptr;
-
-    ssa_schedule_d& data(ssa_ht h) const
-        { return h.data<ssa_schedule_d>(); }
-
-    void append_schedule(ssa_ht h);
-    void run();
-    
-    template<bool Relax>
-    bool ready(ssa_ht h, bitset_uint_t const* scheduled) const;
-
-    template<bool Relax>
-    int path_length(ssa_ht h, bitset_uint_t const* scheduled) const;
-
-    ssa_ht successor_search(ssa_ht last_scheduled) const;
-
-    template<bool Relax>
-    ssa_ht full_search() const;
-
+    array_pool_t<bitset_uint_t> bitset_pool;
+    array_pool_t<float> float_pool;
 };
 
-scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
-: ir(ir)
-, cfg_node(cfg_node)
+void propagate_deps_change(ssa_schedule_d const& changed_d)
 {
-    bitset_pool.clear();
-    set_size = bitset_size<>(cfg_node->ssa_size());
+    for(ssa_ht ssa_node : toposorted)
+    {
+        auto& d = data(ssa_node);
+        if(bitset_test(d.deps, changed_d.index))
+            bitset_or(set_size, d.deps, changed_d.deps);
+    }
+}
+
+std::vector<ssa_ht> build_deps(cfg_ht cfg_node)
+{
+    unsigned const set_size = bitset_size<>(cfg_it->ssa_size());
 
     std::vector<ssa_ht> toposorted(cfg_node->ssa_size());
     toposort_cfg_node(cfg_node, toposorted.data());
 
-    scheduled = bitset_pool.alloc(set_size);
-
     for(unsigned i = 0; i < toposorted.size(); ++i)
-    {
-        auto& d = data(toposorted[i]);
-        d.index = i;
-        d.deps = bitset_pool.alloc(set_size);
-    }
-
-    // The cfg_node's conditional must be scheduled last.
-    if(ssa_ht exit = cfg_node->last_daisy())
-    {
-        auto& exit_d = data(exit);
-        if(exit->op() == SSA_if) // TODO: handle switch
-        {
-            assert(exit->output_size() == 0);
-            for(ssa_ht ssa_node : toposorted)
-                if(ssa_node != exit)
-                    bitset_set(exit_d.deps, data(ssa_node).index);
-        }
-    }
+        data(toposorted[i]).index = i;
 
     for(ssa_ht ssa_node : toposorted)
     {
@@ -98,14 +119,15 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
             continue;
 
         auto& d = data(ssa_node);
+        d.deps = bitset_pool.alloc(set_size);
+        d.exrta_deps = bitset_pool.alloc(set_size);
 
         // Assign deps based on all inputs:
-        for_each_node_input(ssa_node, [this, &d](ssa_ht input, unsigned)
+        for_each_node_input(ssa_node, [this, &d](ssa_ht input)
         {
-            if(input->cfg_node() != this->cfg_node)
+            if(input->cfg_node() != cfg_node)
                 return;
             auto& input_d = data(input);
-            assert(d.index > input_d.index);
             bitset_set(d.deps, input_d.index);
             bitset_or(set_size, d.deps, input_d.deps);
         });
@@ -119,27 +141,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         }
     }
 
-    // Determine which ops will probably clobber the carry:
-    // TODO: this could be made more precise.
-    carry_clobberers = bitset_pool.alloc(set_size);
-    for(ssa_ht ssa_node : toposorted)
-        if(ssa_flags(ssa_node->op()) & SSAF_CLOBBERS_CARRY)
-            bitset_set(carry_clobberers, data(ssa_node).index);
-
-
     // Now add extra deps to aid scheduling efficiency.
-    run();
-    return;
-
-    auto propagate_deps_change = [&](ssa_schedule_d const& changed_d)
-    {
-        for(ssa_ht ssa_node : toposorted)
-        {
-            auto& d = data(ssa_node);
-            if(bitset_test(d.deps, changed_d.index))
-                bitset_or(set_size, d.deps, changed_d.deps);
-        }
-    };
 
     // In chains of carry operations, setup deps to avoid cases where
     // a carry would need to be stored.
@@ -149,25 +151,22 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         ssa_ht ssa_node = *it;
 
         // Determine if this node produces a carry used by a single output.
-        ssa_ht carry_user = {};
+        ssa_ht carry_out = {};
         for(unsigned i = 0; i < ssa_node->output_size(); ++i)
         {
             auto oe = ssa_node->output_edge(i);
-            if(oe.input_class() != INPUT_CARRY)
+            if(oe.input_edge() != INPUT_CARRY)
                 continue;
-            if(carry_user)
+            if(carry_out)
                 goto next_iter;
-            carry_user = oe.handle;
+            carry_out = oe.handle;
         }
-        if(carry_user->cfg_node() != cfg_node)
+        if(carry_out->cfg_node() != cfg_node)
             next_iter: continue;
 
         // OK! This node produces a carry used by a single output.
 
-        auto& d = data(ssa_node);
-        auto& carry_d = data(carry_user);
-
-        d.carry_user = carry_user;
+        auto& carry_d = data(carry_out);
 
         // 'temp_set' will hold all deps we'll try adding to 'd.deps':
         for(unsigned i = 0; i < set_size; ++i)
@@ -176,27 +175,26 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
 
         // Can't add a dep if a cycle would be created:
         unsigned const index = d.index;
-        bool const cycle = bitset_for_each_test(set_size, temp_set, 
-        [index, &toposorted](unsigned bit)
-        { 
-            auto& d = toposorted[bit].data<ssa_schedule_d>();
-            return !bitset_test(d.deps, index); 
-        });
-
-        if(cycle)
+        if(bitset_for_each_test(set_size, temp_set, [index](unsigned bit)
+           { return !bitset_test(data(toposorted[bit]).deps, index); }))
+        {
+            // Found cycle.
             continue;
+        }
 
         // Add em':
         bitset_or(set_size, d.deps, temp_set);
-        propagate_deps_change(d);
+
+        // Propagate the change
+        for(ssa_ht prop : toposorted)
+            if(bitset_test(data(prop).deps, d.index))
+                bitset_or(set_size, data(prop).deps, d.deps);
     }
 
     // If a node's result will be stored in a locator eventually,
     // it should come after previous writes/reads to that locator.
     for(ssa_ht ssa_node : toposorted)
     {
-        auto& d = data(ssa_node);
-
         for(unsigned i = 0; i < ssa_node->output_size(); ++i)
         {
             auto oe = ssa_node->output_edge(i);
@@ -205,12 +203,12 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
 
             locator_t const loc = oe.handle->input(oe.index + 1).locator();
 
-            assert(oe.handle->in_daisy());
+            assert(oe.handle->is_daisy());
 
             // Find the previous reader/writer of 'loc':
             for(ssa_ht daisy = oe.handle->prev_daisy(); daisy; --daisy)
             {
-                if(!(ssa_flags(daisy->op()) & SSAF_WRITE_GLOBALS))
+                if(!(ssa_flags(h->op()) & SSAF_WRITE_GLOBALS))
                     continue;
 
                 assert(daisy->cfg_node() == cfg_node);
@@ -218,16 +216,19 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
                 if(locator_input(daisy, loc) >= 0
                    || locator_output(daisy, loc) >= 0)
                 {
-                    auto& daisy_d = data(daisy);
-
                     // Can't add a dep if a cycle would be created:
                     if(bitset_test(daisy_d.deps, d.index))
                         break;
 
                     // Add a dep!
+                    auto& daisy_d = data(daisy);
                     bitset_set(d.deps, daisy_d.index);
                     bitset_or(set_size, d.deps, daisy_d.deps);
-                    propagate_deps_change(d);
+
+                    // Propagate the change
+                    for(ssa_ht prop : toposorted)
+                        if(bitset_test(data(prop).deps, d.index))
+                            bitset_or(set_size, data(prop).deps, d.deps);
 
                     break;
                 }
@@ -235,192 +236,31 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         }
     }
 
-    // OK! Everything was initialized. Now to run the greedy algorithm.
-    run();
+    return toposorted;
 }
 
-void scheduler_t::append_schedule(ssa_ht h)
+scheduler_t::scheduler_t(ir_t& ir)
+: ir(ir)
 {
-    auto& d = data(h);
-    bitset_set(scheduled, d.index);
-    schedule.push_back(h);
-
-    // Recursively schedule any linked, too:
-    for_each_output_matching(h, INPUT_LINK,
-    [this](ssa_ht link)
+    for(cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
-        assert(ready<true>(link, scheduled));
-        append_schedule(link);
-    });
-}
+        auto& cd = data(cfg_it);
+        cd.nodes = build_deps(cfg_it);
+        unsigned const set_size = bitset_size<>(cfg_it->ssa_size());
+        cd.scheduled = bitset_pool.alloc(set_size);
 
-void scheduler_t::run()
-{
-    assert(bitset_all_clear(set_size, scheduled));
-
-    carry_input_waiting = {};
-    ssa_ht candidate = {};
-
-    while(schedule.size() < cfg_node->ssa_size())
-    {
-        // First priority: try to find a successor node that's ready:
-        if(candidate)
-            candidate = successor_search(candidate);
-
-        // Second priority: try to find *any* node that's ready:
-        if(!candidate)
-            candidate = full_search<false>();
-
-        // Third priority: relax constraints
-        if(!candidate)
-            candidate = full_search<true>();
-
-        // OK, we should definitely have a candidate_h now.
-        assert(candidate);
-        assert(ready<false>(candidate, scheduled));
-        auto& d = data(candidate);
-
-        // Schedule it:
-        append_schedule(candidate);
-
-        // If this node inputs a carry, stop tracking it:
-        if(ssa_input0_class(candidate->op()) == INPUT_CARRY)
-            carry_input_waiting = {};
-
-        // If this node outputs a carry, track it:
-        if(d.carry_user)
-            carry_input_waiting = d.carry_user;
-    }
-
-    // Finally, re-assign 'index' to hold the position in the schedule:
-
-    for(unsigned i = 0; i < schedule.size(); ++i)
-    {
-        auto& d = data(schedule[i]);
-        d.index = i;
-        d.deps = nullptr;
-    }
-}
-
-template<bool Relax>
-bool scheduler_t::ready(ssa_ht h, bitset_uint_t const* scheduled) const
-{
-    assert(h->cfg_node() == cfg_node);
-
-    auto& d = data(h);
-
-    if(bitset_test(scheduled, d.index)) // If already scheduled
-        return false;
-
-    // A node is ready when all of its inputs are scheduled.
-    for(unsigned i = 0; i < set_size; ++i)
-        if(d.deps[i] & ~scheduled[i])
-            return false;
-
-    if(Relax)
-        return true;
-
-    // If a carry is live, we can't schedule any carry-clobbering ops.
-    if(carry_input_waiting && h != carry_input_waiting
-       && bitset_test(carry_clobberers, d.index))
-        return false;
-
-    return true;
-}
-
-template<bool Relax>
-int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
-{
-    // 'new_bitset' assumes 'h' will be scheduled:
-    auto* new_bitset = ALLOCA_T(bitset_uint_t, set_size);
-    bitset_copy(set_size, new_bitset, scheduled);
-    bitset_set(new_bitset, data(h).index);
-    
-    int max_length = 0;
-    int outputs_in_cfg_node = 0; // Number of outputs in the same CFG node.
-    unsigned output_size = h->output_size();
-    for(unsigned i = 0; i < output_size; ++i)
-    {
-        ssa_ht output = h->output(i);
-
-        if(output->cfg_node() != cfg_node)
-            continue;
-
-        if(!ready<Relax>(output, new_bitset))
-            continue;
-
-        ++outputs_in_cfg_node;
-
-        max_length = std::max(max_length, 
-                              path_length<Relax>(output, new_bitset));
-    }
-
-    return max_length + std::max<int>(0, outputs_in_cfg_node - 1);
-}
-
-ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
-{
-    int best_path_length = -1;
-    ssa_ht best = {};
-
-    unsigned const output_size = last_scheduled->output_size();
-    for(unsigned i = 0; i < output_size; ++i)
-    {
-        ssa_ht succ = last_scheduled->output(i);
-
-        if(succ->cfg_node() != cfg_node)
-            continue;
-
-        if(ready<false>(succ, scheduled))
+        // Allocate initial edge pheramones:
+        unsigned const nodes_size = cd.nodes.size();
+        for(unsigned i = 0; i < nodes_size; ++i)
         {
-            int l = path_length<false>(succ, this->scheduled);
-            if(l > best_path_length)
-            {
-                best_path_length = l;
-                best = succ;
-            }
+            auto& d = data(cd.nodes[i]);
+            d.edge_phera = float_pool.alloc(nodes_size);
+            constexpr intial_phera = 10.0f;
+            std::fill_n(d.edge_phera, nodes_size, initial_phera);
         }
     }
-
-    return best;
 }
 
-template<bool Relax>
-ssa_ht scheduler_t::full_search() const
-{
-    int best_path_length = -1;
-    ssa_ht best = {};
-
-    for(ssa_ht ssa_it = cfg_node->ssa_begin(); ssa_it; ++ssa_it)
-    {
-        if(!ready<Relax>(ssa_it, scheduled))
-            continue;
-
-        int l = path_length<Relax>(ssa_it, scheduled);
-        if(l > best_path_length)
-        {
-            best_path_length = l;
-            best = ssa_it;
-        }
-    }
-
-    return best;
-}
-
-} // end anon namespace
-
-void schedule_ir(ir_t& ir)
-{
-    cfg_schedule_pool.resize(cfg_pool::array_size());
-    ssa_data_pool::scope_guard_t<ssa_schedule_d> sg(ssa_pool::array_size());
-    for(cfg_ht h = ir.cfg_begin(); h; ++h)
-    {
-        scheduler_t s(ir, h);
-        get_schedule(h) = std::move(s.schedule);
-    }
-}
-
-// TODO: cleanup and delete
 /*
 void scheduler_t::run()
 {

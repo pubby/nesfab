@@ -31,7 +31,7 @@ struct token_t
     T* ptr() const { return reinterpret_cast<T*>(value); }
 
     // Used for debugging and logging.
-    std::string to_string() const;
+    std::string to_string(char const* source) const;
 };
 
 struct var_decl_t

@@ -22,7 +22,7 @@ public:
 
 private:
     Policy* policy_ptr;
-    unsigned file_i;
+    file_contents_t const& file;
 
     char const* line_source = nullptr;
     char const* token_source = nullptr;
@@ -33,12 +33,13 @@ private:
 
 public:
     parser_t() = delete;
-    parser_t(Policy& policy, unsigned file_i);
+    parser_t(Policy& policy, file_contents_t const& file);
 
     void parse() { parse_top_level(); }
 
 private:
-    char const* source() { return get_file(file_i).source(); }
+    char const* source() const { return file.source(); }
+    unsigned file_i() const { return file.index(); }
     Policy& policy() { return *policy_ptr; }
 
     // Parses comma-separated values between token types 'l' and 'r'.
@@ -91,14 +92,14 @@ private:
     void parse_label();
 
     [[gnu::noreturn]] void compiler_error(std::string const& what) const
-        { ::compiler_error(token.pstring, what); }
+        { ::compiler_error(file, token.pstring, what); }
 };
 
 template<typename Policy>
-void parse(unsigned file_i)
+void parse(file_contents_t& file)
 {
-    Policy policy;
-    parser_t parser(policy, file_i);
+    Policy policy(file);
+    parser_t parser(policy, file);
     parser.parse();
 }
 

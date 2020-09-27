@@ -8,9 +8,11 @@
 
 #include <cassert>
 #include <cstdint>
+#include <functional>
 #include <ostream>
 #include <vector>
 
+#include "robin/hash.hpp"
 #include "robin/map.hpp"
 
 #include "array_pool.hpp"
@@ -27,6 +29,8 @@ using gvar_ht = handle_t<unsigned, struct gvar_ht_tag, ~0>;
 
 enum locator_class_t : std::uint8_t
 {
+    LCLASS_NONE,
+
     LCLASS_GLOBAL,
     LCLASS_GLOBAL_SET,
     LCLASS_RAM,
@@ -35,7 +39,13 @@ enum locator_class_t : std::uint8_t
     LCLASS_CALL_ARG,
     LCLASS_RETURN,
 
-    LCLASS_CARRY,
+    LCLASS_CARRY, // TODO?
+
+    LCLASS_PHI, // TODO?
+
+    // Labels are uses during code gen.
+    LCLASS_CFG_LABEL,
+    LCLASS_MINOR_LABEL,
 };
 
 class locator_t
@@ -64,11 +74,20 @@ public:
     constexpr std::uint64_t to_uint() const { return intv; }
     constexpr static locator_t from_uint(std::uint64_t i);
 
+    constexpr static locator_t null() { return locator_t(); }
     constexpr static locator_t this_arg(unsigned argn, unsigned byte=0);
     constexpr static locator_t call_arg(unsigned argn);
     constexpr static locator_t this_ret();
     constexpr static locator_t ret(unsigned byte=0);
     constexpr static locator_t carry(ssa_ht h);
+    constexpr static locator_t phi(unsigned id);
+    constexpr static locator_t cfg_label(cfg_ht cfg_node);
+    constexpr static locator_t minor_label(unsigned id);
+
+    constexpr bool is_label() const
+    {
+        return lclass() == LCLASS_CFG_LABEL || lclass() == LCLASS_MINOR_LABEL;
+    }
 
     bool operator==(locator_t const& o) const 
         { return to_uint() == o.to_uint(); }
@@ -77,8 +96,10 @@ public:
     bool operator<(locator_t const& o) const 
         { return to_uint() < o.to_uint(); }
 
+    explicit operator bool() const { return intv; }
+
 private:
-    constexpr locator_t() = default;
+    constexpr locator_t() : intv(0) {}
 
     struct [[gnu::packed]] impl_t
     {
@@ -95,8 +116,19 @@ private:
     };
 
     static_assert(sizeof(impl_t) == sizeof(std::uint64_t));
-
 };
+
+namespace std
+{
+    template<>
+    struct hash<locator_t>
+    {
+        std::size_t operator()(locator_t const& loc) const noexcept
+        {
+            return rh::hash_finalize(loc.to_uint());
+        }
+    };
+}
 
 std::string to_string(locator_t loc);
 std::ostream& operator<<(std::ostream& o, locator_t loc);
@@ -133,6 +165,27 @@ inline constexpr locator_t locator_t::carry(ssa_ht h)
 {
     locator_t loc;
     loc.impl = { .index = h.index, .byte = 0, .lclass = LCLASS_CARRY };
+    return loc;
+}
+
+inline constexpr locator_t locator_t::phi(unsigned id)
+{
+    locator_t loc;
+    loc.impl = { .index = id, .byte = 0, .lclass = LCLASS_PHI };
+    return loc;
+}
+
+inline constexpr locator_t locator_t::cfg_label(cfg_ht h)
+{
+    locator_t loc;
+    loc.impl = { .index = h.index, .byte = 0, .lclass = LCLASS_CFG_LABEL };
+    return loc;
+}
+
+inline constexpr locator_t locator_t::minor_label(unsigned id)
+{
+    locator_t loc;
+    loc.impl = { .index = id, .byte = 0, .lclass = LCLASS_MINOR_LABEL };
     return loc;
 }
 

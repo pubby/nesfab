@@ -9,7 +9,7 @@ fixed_lut_t<fixed_t::int_type> numeric_bitmask_table = []()
 
         fixed_t::int_type v = 0;
 
-        if(type_name == TYPE_BOOL)
+        if(is_boolean(type_name))
             v = 1 << fixed_t::shift;
         else
         {

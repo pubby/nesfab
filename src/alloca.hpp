@@ -28,6 +28,6 @@ void allocaT_trait_check()
 // It's the sequel to alloca.
 // Expects "number of elements" rather than "total size of elements".
 #define ALLOCA_T(t, n) \
-    (allocaT_trait_check<t>(), static_cast<t*>(alloca(n * sizeof(t))))
+    (allocaT_trait_check<t>(), static_cast<t*>(alloca((n) * sizeof(t))))
 
 #endif

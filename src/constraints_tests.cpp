@@ -6,7 +6,13 @@
 #include <ctime>
 #include <iostream> // TODO
 
+#include <boost/container/small_vector.hpp>
+
 #include "alloca.hpp"
+
+namespace bc = ::boost::container;
+
+constexpr unsigned TEST_ITER = 1000;
 
 SSA_VERSION(1);
 
@@ -27,12 +33,14 @@ constraints_t random_constraint(fixed_t::int_type mask, bool allow_top = false)
         do
             bounds = { rand() & mask, rand() & mask };
         while(allow_top || bounds.is_top());
-        return { bounds, from_bounds(bounds), CARRY_CLEAR };
+        constraints_t c = { bounds, from_bounds(bounds) };
+        c.bits.known0 |= ~mask;
+        return normalize(c);
     }
     else
     {
         known_bits_t bits = random_bits(mask, allow_top);
-        return { from_bits(bits), bits, CARRY_CLEAR };
+        return normalize({ from_bits(bits), bits });
     }
 }
 
@@ -64,11 +72,10 @@ constraints_t random_subset(constraints_t c)
 TEST_CASE("const_", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
     {
-        constraints_t constraint = constraints_t::const_(std::rand(),
-                                                         CARRY_BOTTOM);
-        REQUIRE(constraint.is_val_const());
+        constraints_t constraint = constraints_t::const_(std::rand());
+        REQUIRE(constraint.is_const());
         REQUIRE(!constraint.is_top());
 
         REQUIRE(from_bits(constraint.bits).bit_eq(constraint.bounds));
@@ -82,7 +89,7 @@ TEST_CASE("top", "[constraints]")
     REQUIRE(known_bits_t::top().is_top());
     REQUIRE(constraints_t::top().is_top());
     REQUIRE(!known_bits_t::top().is_const());
-    REQUIRE(!constraints_t::top().is_val_const());
+    REQUIRE(!constraints_t::top().is_const());
 }
 
 TEST_CASE("from_bits", "[constraints]")
@@ -144,7 +151,7 @@ TEST_CASE("from_bounds", "[constraints]")
 
 TEST_CASE("intersect", "[constraints]")
 {
-    for(unsigned i = 0; i < 1000; ++i)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
     {
         constraints_t c1 = random_constraint(0xF << 4);
         constraints_t c2 = random_constraint(0xF << 4);
@@ -161,7 +168,7 @@ TEST_CASE("intersect", "[constraints]")
 
 TEST_CASE("union_", "[constraints]")
 {
-    for(unsigned i = 0; i < 1000; ++i)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
     {
         constraints_t c1 = random_constraint(0xF << 4);
         constraints_t c2 = random_constraint(0xF << 4);
@@ -179,7 +186,7 @@ TEST_CASE("union_", "[constraints]")
 
 TEST_CASE("tighten_bounds", "[constraints]")
 {
-    for(unsigned i = 0; i < 1000; ++i)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
     {
         known_bits_t bits = random_bits(0xFF);
         constraints_t c  = {{ 0, 0xFF }, bits };
@@ -202,7 +209,7 @@ TEST_CASE("normalize", "[constraints]")
     REQUIRE(normalize({{ 3, 9 }, { 0b11, 0 }}).bounds.bit_eq({ 4, 8 }));
     REQUIRE(normalize({{ 3, 9 }, { 0b10, 0 }}).bounds.bit_eq({ 4, 9 }));
 
-    for(unsigned i = 0; i < 1000; ++i)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
     {
         constraints_t c = random_constraint(0xFFF << 4, false);
         REQUIRE(normalize(c).bit_eq(normalize(normalize(c))));
@@ -210,32 +217,33 @@ TEST_CASE("normalize", "[constraints]")
     }
 }
 
-template<typename Fn>
+template<int Argn, typename Fn>
 void test_op(ssa_op_t op, Fn fn)
 {
-    int argn = ssa_argn(op);
-    if(argn < 0)
-        argn = 3;
-    REQUIRE(argn > 0);
-    constraints_t* c = ALLOCA_T(constraints_t, argn);
-    for(int i = 0; i < argn; ++i)
-        c[i] = random_constraint(0xF << 24);
-    constraints_t r = abstract_fn_table[op](0xF << 24, c, argn);
+    static_assert(Argn <= 3 && Argn > 0);
+    std::array<constraints_def_t, 3> cv;
+    cv[0] = { 0xF << 24, { random_constraint(0xF << 24) }};
+    cv[1] = { 0xF << 24, { random_constraint(0xF << 24) }};
+    cv[2] = { 0xF << 24, { random_constraint(1 << 24) }}; // Carry
+
+    constraints_def_t result;
+    result.mask = 0xF << 24;
+    result.vec.resize(2);
+
+    abstract_fn_table[op](cv.data(), Argn, result);
+    constraints_t r = result[0];
+    constraints_t rc = result[1];
     REQUIRE(!r.is_top());
 
-    if(argn > 3)
-        return;
-
-    for(unsigned i = 0; argn >= 3 && i < 16; ++i)
-    for(unsigned j = 0; argn >= 2 && j < 16; ++j)
-    for(unsigned k = 0; argn >= 1 && k < 16; ++k)
+    for(unsigned i = 0; i < 16; ++i)
+    for(unsigned j = 0; j < 16; ++j)
     {
-        fixed_int_t a[3] = { i, j, k };
+        fixed_int_t a[2] = { i, j };
         fixed_int_t o;
-        for(int i = 0; i < argn; ++i)
-            if(!c[i](a[i] << 24))
+        for(int i = 0; i < Argn; ++i)
+            if(!cv[i][0](a[i] << 24))
                 goto next_iter;
-        o = fn(a, argn);
+        o = fn(a);
         o &= 0xF;
         o <<= 24;
         REQUIRE(r.bounds(o));
@@ -244,31 +252,60 @@ void test_op(ssa_op_t op, Fn fn)
     }
 
     // Now test narrowing
-    constraints_t* c_narrowed = ALLOCA_T(constraints_t, argn);
-    for(int i = 0; i < argn; ++i)
-        c_narrowed[i] = c[i];
+    bc::small_vector<constraints_def_t, 16> cvn(Argn);
+    for(int i = 0; i < Argn; ++i)
+    {
+        cvn[i] = cv[i];
+        REQUIRE(!cvn[i][0].is_top());
+    }
 
+    // First check to make sure it preserves the original inputs:
+    narrow_fn_table[op](cvn.data(), Argn, result);
+
+    for(int i = 0; i < Argn; ++i)
+        REQUIRE(!cvn[i][0].is_top());
+
+    for(int i = 0; i < Argn; ++i)
+        REQUIRE(cvn[i][0].bit_eq(cv[i][0]));
+
+    constraints_def_t result2;
+    result2.mask = 0xF << 24;
+    result2.vec.resize(2);
+
+    abstract_fn_table[op](cvn.data(), Argn, result2);
+
+    REQUIRE(r.bit_eq(result2[0]));
+    REQUIRE(rc.bit_eq(result2[1]));
+
+
+    // Then check with a subset result:
     constraints_t n = random_subset(r);
+    REQUIRE(is_subset(n, r));
     REQUIRE(!n.is_top());
+    result2.vec = {{ n, result[1] }};
 
-    narrow_fn_table[op](0xF << 24, r, c_narrowed, argn);
+    narrow_fn_table[op](cvn.data(), Argn, result2);
 
-    for(int i = 0; i < argn; ++i)
-        if(c_narrowed[i].is_top())
+    for(int i = 0; i < Argn; ++i)
+    {
+        if(cvn[i][0].is_top())
             return;
+        cvn[i][0].normalize();
+    }
 
-    for(int i = 0; i < argn; ++i)
-        REQUIRE(is_subset(c_narrowed[i], c[i]));
+    for(int i = 0; i < Argn; ++i)
+        REQUIRE(is_subset(cvn[i][0], cv[i][0]));
 
-    constraints_t r2 = abstract_fn_table[op](0xF << 24, c_narrowed, argn);
-    REQUIRE(is_subset(r, r2));
-    REQUIRE(is_subset(n, r2));
+    abstract_fn_table[op](cvn.data(), Argn, result2);
+
+    REQUIRE(is_subset(result2[0], r));
+
 }
 
 TEST_CASE("random_subset", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
     {
         constraints_t c = random_constraint(0xF);
         constraints_t s = random_subset(c);
@@ -282,72 +319,70 @@ TEST_CASE("random_subset", "[constraints]")
 TEST_CASE("abstract_cast", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_cast, [](fixed_int_t* c, unsigned argn)
-            { return c[0]; });
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<1>(SSA_cast, [](fixed_int_t* c){ return c[0]; });
 }
 
 TEST_CASE("abstract_add", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_add, [](fixed_int_t* c, unsigned argn)
-            { return c[0] + c[1]; });
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<3>(SSA_add, [](fixed_int_t* c) { return c[0] + c[1]; });
 }
 
 TEST_CASE("abstract_and", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_and, [](fixed_int_t* c, unsigned argn)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_and, [](fixed_int_t* c)
             { return c[0] & c[1]; });
 }
 
 TEST_CASE("abstract_or", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_or, [](fixed_int_t* c, unsigned argn)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_or, [](fixed_int_t* c)
             { return c[0] | c[1]; });
 }
 
 TEST_CASE("abstract_xor", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_xor, [](fixed_int_t* c, unsigned argn)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_xor, [](fixed_int_t* c)
             { return c[0] ^ c[1]; });
 }
 
 TEST_CASE("abstract_eq", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_eq, [](fixed_int_t* c, unsigned argn)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_eq, [](fixed_int_t* c)
             { return c[0] == c[1]; });
 }
 
 TEST_CASE("abstract_not_eq", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_not_eq, [](fixed_int_t* c, unsigned argn)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_not_eq, [](fixed_int_t* c)
             { return c[0] != c[1]; });
 }
 
 TEST_CASE("abstract_lt", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_lt, [](fixed_int_t* c, unsigned argn)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_lt, [](fixed_int_t* c)
             { return c[0] < c[1]; });
 }
 
 TEST_CASE("abstract_lte", "[constraints]")
 {
     std::srand(std::time(nullptr));
-    for(unsigned i = 0; i < 1000; ++i)
-        test_op(SSA_lte, [](fixed_int_t* c, unsigned argn)
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_lte, [](fixed_int_t* c)
             { return c[0] <= c[1]; });
 }
 

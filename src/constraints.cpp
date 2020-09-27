@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 #include <ostream> // TODO
+#include <iostream> // TODO
 
 #include "builtin.hpp"
 #include "format.hpp"
@@ -48,8 +49,7 @@ std::string to_string(constraints_t const& c)
     return fmt("{ %, %, % }%", 
                to_string(c.bits), 
                to_string(c.bounds), 
-               to_string(c.carry), 
-               c.is_val_const() ? " (CONST)" : "");
+               c.is_const() ? " (CONST)" : "");
 }
 
 // For debugging mostly
@@ -101,7 +101,7 @@ known_bits_t apply_mask(fixed_int_t mask, known_bits_t b)
 
 constraints_t apply_mask(fixed_int_t mask, constraints_t c)
 {
-    return { apply_mask(mask, c.bounds), apply_mask(mask, c.bits), c.carry };
+    return { apply_mask(mask, c.bounds), apply_mask(mask, c.bits) };
 }
 
 bounds_t from_bits(known_bits_t bits)
@@ -140,18 +140,12 @@ known_bits_t intersect(known_bits_t a, known_bits_t b)
     return { a.known0 | b.known0, a.known1 | b.known1 };
 }
 
-carry_t intersect(carry_t a, carry_t b)
-{
-    return (carry_t)(a | b);
-}
-
 constraints_t intersect(constraints_t a, constraints_t b)
 {
     return 
     { 
         intersect(a.bounds, b.bounds),
         intersect(a.bits, b.bits),
-        intersect(a.carry, b.carry),
     };
 }
 
@@ -173,18 +167,12 @@ known_bits_t union_(known_bits_t a, known_bits_t b)
     return { a.known0 & b.known0, a.known1 & b.known1 };
 }
 
-carry_t union_(carry_t a, carry_t b)
-{
-    return (carry_t)(a & b);
-}
-
 constraints_t union_(constraints_t a, constraints_t b)
 {
     return 
     { 
         union_(a.bounds, b.bounds),
         union_(a.bits, b.bits),
-        union_(a.carry, b.carry),
     };
 }
 
@@ -205,11 +193,6 @@ bool is_subset(known_bits_t small, known_bits_t big)
         return true;
     return (intersect(big, small).bit_eq(small)
             && union_(small, big).bit_eq(big));
-}
-
-bool is_subset(carry_t small, carry_t big)
-{
-    return small == big || big == CARRY_BOTTOM;
 }
 
 bool is_subset(constraints_t small, constraints_t big)
@@ -265,67 +248,201 @@ constraints_t normalize(constraints_t c)
     return ret;
 }
 
+bool bit_eq(constraints_vec_t const& a, constraints_vec_t const& b)
+{
+    if(a.size() != b.size())
+        return false;
+    for(unsigned i = 0; i < a.size(); ++i)
+        if(!a[i].bit_eq(b[i]))
+            return false;
+    return true;
+}
+
+bool all_subset(constraints_vec_t const& a, constraints_vec_t const& b)
+{
+    if(a.size() != b.size())
+        return false;
+    for(unsigned i = 0; i < a.size(); ++i)
+        if(!is_subset(a[i], b[i]))
+            return false;
+    return true;
+}
+
+bool all_normalized(constraints_vec_t const& cv)
+{
+    for(constraints_t const& c : cv)
+        if(!c.is_normalized())
+            return false;
+    return true;
+}
+
+bool any_top(constraints_vec_t const& cv)
+{
+    for(constraints_t const& c : cv)
+        if(c.is_top())
+            return true;
+    return false;
+}
+
+static bool any_top(constraints_def_t const* cv, unsigned argn)
+{
+    for(unsigned i = 0; i < argn; ++i)
+        if(any_top(cv[i].vec))
+            return true;
+    return false;
+}
+
+static bool handle_top(constraints_def_t const* cv, unsigned argn, 
+                       constraints_def_t& r)
+{
+    if(any_top(cv, argn))
+    {
+        r.vec.assign(r.vec.size(), constraints_t::top());
+        return true;
+    }
+    return false;
+}
+
 template<ssa_op_t>
 static constexpr abstract_fn_t* abstract_fn_v = nullptr;
 
 template<ssa_op_t>
 static constexpr narrow_fn_t* narrow_fn_v = nullptr;
 
-#define ABSTRACT(op) template<> constexpr abstract_fn_t* abstract_fn_v<op> = \
-[](fixed_int_t mask, constraints_t const* c, unsigned argn) -> constraints_t
+#define ABSTRACT_FN [](constraints_def_t const* cv,\
+                       unsigned argn, constraints_def_t& result)
+#define ABSTRACT(op) template<> constexpr abstract_fn_t* abstract_fn_v<op>
 
-#define NARROW(op) template<> constexpr narrow_fn_t* narrow_fn_v<op> = \
-[](fixed_int_t mask, constraints_t result, constraints_t* c, unsigned argn)
+#define NARROW_FN [](constraints_def_t* cv, unsigned argn, \
+                     constraints_def_t const& result)
+#define NARROW(op) template<> constexpr narrow_fn_t* narrow_fn_v<op>
 
-ABSTRACT(SSA_phi)
+static constexpr auto abstract_bottom = ABSTRACT_FN
 {
-    constraints_t ret = constraints_t::top();
-    for(unsigned i = 0; i < argn; ++i)
-        ret = union_(ret, c[i]);
-    return ret;
+    assert(result.vec.size() >= 1);
+    result[0] = constraints_t::bottom(result.mask);
 };
 
-ABSTRACT(SSA_read_global)
+ABSTRACT(SSA_read_global) = abstract_bottom;
+ABSTRACT(SSA_fn_call) = abstract_bottom;
+ABSTRACT(SSA_uninitialized) = abstract_bottom;
+
+ABSTRACT(SSA_write_array) = ABSTRACT_FN
 {
-    assert(argn == 2);
-    return constraints_t::bottom(mask);
+    if(handle_top(cv, argn, result))
+        return;
+
+    auto& input_array = cv[0];
+    constraints_t const index = cv[1][0];
+    constraints_t const value = cv[2][0];
+
+    assert(cv[2].mask == result.mask);
+    assert(input_array.vec.size() == result.vec.size());
+
+    if(index.is_const())
+    {
+        unsigned const i = index.bounds.min >> fixed_t::shift;
+        if(i < result.vec.size())
+            result[i] = value;
+    }
+    else
+    {
+        unsigned const min_bound = index.bounds.min >> fixed_t::shift;
+        unsigned const max_bound = index.bounds.max >> fixed_t::shift;
+        unsigned const iter_to = std::min<unsigned>(max_bound + 1, 
+                                                    result.vec.size());
+
+        for(unsigned i = min_bound; i < iter_to; ++i)
+            if(index(fixed_t::whole(i).value))
+                result[i] = union_(input_array[i], value);
+    }
 };
 
-ABSTRACT(SSA_fn_call)
+ABSTRACT(SSA_read_array) = ABSTRACT_FN
 {
-    return constraints_t::bottom(mask);
+    if(handle_top(cv, argn, result))
+        return;
+
+    auto& input_array = cv[0];
+    constraints_t const index = cv[1][0];
+
+    unsigned const min_bound = index.bounds.min >> fixed_t::shift;
+    unsigned const max_bound = index.bounds.max >> fixed_t::shift;
+    unsigned const iter_to = std::min<unsigned>(max_bound + 1, 
+                                                result.vec.size());
+
+    result[0] = constraints_t::top();
+    for(unsigned i = min_bound; i < iter_to; ++i)
+        if(index(fixed_t::whole(i).value))
+            result[0] = union_(input_array[i], result[0]);
 };
 
-ABSTRACT(SSA_uninitialized)
+ABSTRACT(SSA_init_array) = ABSTRACT_FN
 {
-    assert(argn == 0);
-    return constraints_t::bottom(mask);
+    if(handle_top(cv, argn, result))
+        return;
+
+    auto& input_array = cv[0];
+    assert(input_array.vec.size() == result.vec.size());
+    result = input_array;
 };
 
-ABSTRACT(SSA_cast)
+ABSTRACT(SSA_init_array_fill) = ABSTRACT_FN
+{
+    if(handle_top(cv, argn, result))
+        return;
+
+    constraints_t const value = cv[0][0];
+    result.vec.assign(result.vec.size(), value);
+};
+
+ABSTRACT(SSA_phi) = ABSTRACT_FN
+{
+    assert(argn >= 1);
+
+    for(unsigned i = 0; i < result.vec.size(); ++i)
+    {
+        result[i] = constraints_t::top();
+        for(unsigned j = 0; j < argn; ++j)
+        {
+            std::printf("j = %i\n", j);
+            assert(cv[j].vec.size());
+            assert(cv[j].vec.size() >= result.vec.size());
+            result[i] = union_(result[i], cv[j][i]);
+        }
+    }
+};
+
+ABSTRACT(SSA_cast) = ABSTRACT_FN
 {
     assert(argn == 1);
-    return apply_mask(mask, c[0]);
+    result[0] = apply_mask(result.mask, cv[0][0]); // handles top itself
 };
-#include <iostream> // TODO
 
-ABSTRACT(SSA_add)
+ABSTRACT(SSA_add) = ABSTRACT_FN
 {
     assert(argn == 3);
 
-    constexpr unsigned C = 0;
-    constexpr unsigned L = 1;
-    constexpr unsigned R = 2;
+    if(handle_top(cv, argn, result))
+        return;
 
-    if(c[L].is_top() || c[R].is_top() || c[C].is_top())
-        return constraints_t::top();
+    // Inputs:
+    fixed_int_t const mask = result.mask;
+    constraints_t const L = cv[0][0];
+    constraints_t const R = cv[1][0];
+    constraints_t const C = cv[2][0];
+    constraints_t const shifted_C = 
+        constraints_t::shifted_carry(C.to_carry(), mask);
 
-    std::cout << "L = " << c[L] << '\n';
-    std::cout << "R = " << c[R] << '\n';
-    std::cout << "C = " << c[C] << '\n';
-    std::cout << "M = " << mask << '\n';
+    assert(L.is_normalized());
+    assert(R.is_normalized());
+    assert(C.is_normalized());
 
-    // If we know bits in c[L] and c[R], we can determine which bits are
+    // Outputs:
+    constraints_t& value = result[0];
+    constraints_t& carry = result[1];
+
+    // If we know bits in L and R, we can determine which bits are
     // known in the output.
     //
     // SLOW BUT ACCURATE TECHNIQUE (used)
@@ -337,24 +454,25 @@ ABSTRACT(SSA_add)
     // - Performance is improved slightly by using lookup tables.
     //
     // FAST BUT INACCURATE TECHNIQUE (not used)
-    // - If the rightmost bits of both c[L] and c[R] are known, we know
+    // - If the rightmost bits of both L and R are known, we know
     //   the rightmost bits of the output.
     // - If we know both bits along with the carry, we know the outpit bit.
-    //   (The carry is known when c[L] bit == c[R] bit.)
+    //   (The carry is known when L bit == R bit.)
     //
     // (FAST is about 10x faster than SLOW)
 
-    constraints_t ret = {};
+    value = {};
 
-    fixed_int_t const neg_mask = ~(c[L].bits.known0 & c[R].bits.known0) & mask;
+    fixed_int_t const neg_mask = ~(L.bits.known0 & R.bits.known0 
+                                   & shifted_C.bits.known0) & mask;
     std::uint64_t const start_i = neg_mask ? builtin::ctz(neg_mask) : 0;
-    std::uint64_t const end_i = ((2 + (neg_mask ? builtin::rclz(neg_mask) 
-                                                : sizeof_bits<fixed_int_t>))
+    std::uint64_t const end_i = ((1 + (mask ? builtin::rclz(mask) 
+                                             : sizeof_bits<fixed_int_t>))
                                  & ~1ull);
-    ret.bits.known0 = (1ull << start_i) - 1ull;
+    value.bits.known0 = (1ull << start_i) - 1ull;
 
-    known_bits_t lhs_bits = c[L].bits;
-    known_bits_t rhs_bits = c[R].bits;
+    known_bits_t lhs_bits = L.bits;
+    known_bits_t rhs_bits = R.bits;
 
     lhs_bits.known0 >>= start_i;
     lhs_bits.known1 >>= start_i;
@@ -363,8 +481,9 @@ ABSTRACT(SSA_add)
 
     fixed_int_t i = start_i;
     // 'j' holds the carry.
-    fixed_int_t j = c[C].carry;
-    assert(c[C].carry != CARRY_TOP);
+    fixed_int_t j = C.to_carry();
+    assert(j <= 4);
+    assert(C.to_carry() != CARRY_TOP);
     for(; i < end_i; i += 2ull)
     {
         j |= (lhs_bits.known0 & 0b11) << 2ull;
@@ -373,8 +492,8 @@ ABSTRACT(SSA_add)
         j |= (rhs_bits.known1 & 0b11) << 8ull;
 
         j = add_constraints_table[j];
-        ret.bits.known0 |= ((j >> 2ull) & 0b11ull) << i;
-        ret.bits.known1 |= ((j >> 4ull) & 0b11ull) << i;
+        value.bits.known0 |= ((j >> 2ull) & 0b11ull) << i;
+        value.bits.known1 |= ((j >> 4ull) & 0b11ull) << i;
         j &= 0b11;
 
         lhs_bits.known0 >>= 2ull;
@@ -382,393 +501,496 @@ ABSTRACT(SSA_add)
         rhs_bits.known0 >>= 2ull;
         rhs_bits.known1 >>= 2ull;
     }
-    ret.carry = (carry_t)j;
-    std::cout << "RET = " << ret << '\n';
-    assert(ret.carry != CARRY_TOP);
+    assert((carry_t)j != CARRY_TOP);
+    carry = constraints_t::carry((carry_t)j);
     if(i < sizeof_bits<fixed_int_t>)
-        ret.bits.known0 |= ~((1ull << i) - 1ull);
+        value.bits.known0 |= ~((1ull << i) - 1ull);
 
-    ret.bits = apply_mask(mask, ret.bits);
-    std::cout << "RET = " << ret << '\n';
-    assert(!ret.bits.is_top());
+    value.bits = apply_mask(mask, value.bits);
+    assert(!value.bits.is_top());
 
     // OK! Now for the bounds.
     // Calculate 'min' and 'max.
-    if(builtin::add_overflow(c[L].bounds.max, c[R].bounds.max, ret.bounds.max))
+    if(builtin::add_overflow(L.bounds.max, R.bounds.max, value.bounds.max)
+    || builtin::add_overflow(value.bounds.max, shifted_C.bounds.max, 
+                             value.bounds.max))
     {
         // Value overflowed. Derive min/max from known bits.
-        ret.bounds = apply_mask(mask, from_bits(ret.bits));
-        assert(!ret.is_top());
-        return normalize(ret);
+        value.bounds = apply_mask(mask, from_bits(value.bits));
+        assert(!value.is_top());
+        normalize(value);
+        return;
     }
-    ret.bounds.min = c[L].bounds.min + c[R].bounds.min;
-    ret.bounds = apply_mask(mask, ret.bounds);
+
+    value.bounds.min = L.bounds.min + R.bounds.min + shifted_C.bounds.min;
+    value.bounds = apply_mask(mask, value.bounds);
 
     // 'min' and 'max' put constraints on the bits - neat!
     // Calculate those constraints here.
-    assert(apply_mask(mask, ret.bits).bit_eq(ret.bits));
-    known_bits_t bounds_bits = apply_mask(mask, from_bounds(ret.bounds));
+    assert(apply_mask(mask, value.bits).bit_eq(value.bits));
+    known_bits_t bounds_bits = apply_mask(mask, from_bounds(value.bounds));
+    assert(!bounds_bits.is_top());
     assert(apply_mask(mask, bounds_bits).bit_eq(bounds_bits));
-    ret.bits.known0 |= bounds_bits.known0;
-    ret.bits.known1 |= bounds_bits.known1;
-    std::cout << "RET = " << ret << '\n';
 
-    assert(apply_mask(mask, ret.bits).bit_eq(ret.bits));
-    assert(!ret.bounds.is_top());
-    assert(!ret.bits.is_top());
-    return normalize(ret);
+    assert(apply_mask(mask, value.bits).bit_eq(value.bits));
+    value.bits.known0 |= bounds_bits.known0;
+    value.bits.known1 |= bounds_bits.known1;
+
+    assert(!value.bounds.is_top());
+    assert(!value.bits.is_top());
+    assert(apply_mask(mask, value.bits).bit_eq(value.bits));
+    normalize(value);
 };
 
-ABSTRACT(SSA_and)
+known_bits_t abstract_and(known_bits_t lhs, known_bits_t rhs, fixed_int_t mask)
 {
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
-        return constraints_t::top();
-    constraints_t ret;
-    ret.bits.known0 = c[0].bits.known0 | c[1].bits.known0 | ~mask;
-    ret.bits.known1 = (c[0].bits.known1 & c[1].bits.known1) & mask;
-    ret.bounds = from_bits(ret.bits);
-    ret.carry = CARRY_BOTTOM;
-    assert(ret.bounds.max <= mask);
-    assert(!ret.is_top() && ret.is_normalized());
-    return ret;
+    if(lhs.is_top() || rhs.is_top())
+        return known_bits_t::top();
+    return { .known0 = (lhs.known0 | rhs.known0) | ~mask,
+             .known1 = (lhs.known1 & rhs.known1) & mask };
+}
+
+ABSTRACT(SSA_and) = ABSTRACT_FN
+{
+    assert(argn == 2 && result.vec.size() >= 1);
+    result[0].bits = abstract_and(cv[0][0].bits, cv[1][0].bits, result.mask);
+    result[0].bounds = from_bits(result[0].bits);
+    assert(result[0].bounds.max <= result.mask && result[0].is_normalized());
 };
 
-ABSTRACT(SSA_or)
+known_bits_t abstract_or(known_bits_t lhs, known_bits_t rhs, fixed_int_t mask)
 {
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
-        return constraints_t::top();
-    constraints_t ret;
-    ret.bits.known0 = (c[0].bits.known0 & c[1].bits.known0) | ~mask;
-    ret.bits.known1 = (c[0].bits.known1 | c[1].bits.known1) & mask;
-    ret.bounds = from_bits(ret.bits);
-    ret.carry = CARRY_BOTTOM;
-    assert(ret.bounds.max <= mask);
-    assert(!ret.is_top() && ret.is_normalized());
-    return ret;
+    if(lhs.is_top() || rhs.is_top())
+        return known_bits_t::top();
+    return { .known0 = (lhs.known0 & rhs.known0) | ~mask,
+             .known1 = (lhs.known1 | rhs.known1) & mask };
+}
+
+ABSTRACT(SSA_or) = ABSTRACT_FN
+{
+    assert(argn == 2 && result.vec.size() >= 1);
+    result[0].bits = abstract_or(cv[0][0].bits, cv[1][0].bits, result.mask);
+    result[0].bounds = from_bits(result[0].bits);
+    assert(result[0].bounds.max <= result.mask && result[0].is_normalized());
 };
 
-ABSTRACT(SSA_xor)
+known_bits_t abstract_xor(known_bits_t lhs, known_bits_t rhs, fixed_int_t mask)
 {
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
-        return constraints_t::top();
-    fixed_int_t const known = c[0].bits.known() & c[1].bits.known() & mask;
-    fixed_int_t const x = c[0].bits.known1 ^ c[1].bits.known1;
-    constraints_t ret;
-    ret.bits = { (~x & known) | ~mask, x & known };
-    ret.bounds = from_bits( ret.bits);
-    ret.carry = CARRY_BOTTOM;
-    assert(ret.bounds.max <= mask);
-    assert(!ret.is_top() && ret.is_normalized());
-    return ret;
+    if(lhs.is_top() || rhs.is_top())
+        return known_bits_t::top();
+    fixed_int_t const known = lhs.known() & rhs.known() & mask;
+    fixed_int_t const x = lhs.known1 ^ rhs.known1;
+    return { (~x & known) | ~mask, x & known };
+}
+
+ABSTRACT(SSA_xor) = ABSTRACT_FN
+{
+    assert(argn == 2 && result.vec.size() >= 1);
+    result[0].bits = abstract_xor(cv[0][0].bits, cv[1][0].bits, result.mask);
+    result[0].bounds = from_bits(result[0].bits);
+    assert(result[0].bounds.max <= result.mask && result[0].is_normalized());
 };
 
-ABSTRACT(SSA_eq)
+known_bits_t abstract_eq(constraints_t lhs, constraints_t rhs)
 {
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
-        return constraints_t::top();
-    if(c[0].bits.known0 & c[1].bits.known1)
-        return constraints_t::whole(0, CARRY_BOTTOM);
-    if(c[0].bits.known1 & c[1].bits.known0)
-        return constraints_t::whole(0, CARRY_BOTTOM);
-    if(c[0].bounds.min > c[1].bounds.max 
-       || c[0].bounds.max < c[1].bounds.min)
-        return constraints_t::whole(0, CARRY_BOTTOM);
-    if(c[0].is_val_const() && c[1].is_val_const() 
-       && c[0].get_val_const() == c[1].get_val_const())
-        return constraints_t::whole(1, CARRY_BOTTOM);
-    return constraints_t::any_bool(CARRY_BOTTOM);
-};
+    if(lhs.is_top() || rhs.is_top())
+        return known_bits_t::top();
+    if(lhs.bits.known0 & rhs.bits.known1)
+        return known_bits_t::bool_(false);
+    if(lhs.bits.known1 & rhs.bits.known0)
+        return known_bits_t::bool_(false);
+    if(lhs.bounds.min > rhs.bounds.max 
+       || lhs.bounds.max < rhs.bounds.min)
+        return known_bits_t::bool_(false);
+    if(lhs.is_const() && rhs.is_const() && lhs.get_const() == rhs.get_const())
+        return known_bits_t::bool_(true);
+    return known_bits_t::any_bool();
+}
 
-ABSTRACT(SSA_not_eq)
+ABSTRACT(SSA_eq) = ABSTRACT_FN
 {
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
-        return constraints_t::top();
-    if(c[0].bits.known0 & c[1].bits.known1)
-        return constraints_t::whole(1, CARRY_BOTTOM);
-    if(c[0].bits.known1 & c[1].bits.known0)
-        return constraints_t::whole(1, CARRY_BOTTOM);
-    if(c[0].bounds.min > c[1].bounds.max 
-       || c[0].bounds.max < c[1].bounds.min)
-        return constraints_t::whole(1, CARRY_BOTTOM);
-    if(c[0].is_val_const() && c[1].is_val_const() 
-       && c[0].get_val_const() == c[1].get_val_const())
-        return constraints_t::whole(0, CARRY_BOTTOM);
-    return constraints_t::any_bool(CARRY_BOTTOM);
-};
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
 
-ABSTRACT(SSA_lt)
-{
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
-        return constraints_t::top();
-    if(c[0].bounds.max < c[1].bounds.min)
-        return constraints_t::whole(1, CARRY_BOTTOM);
-    if(c[1].bounds.max <= c[0].bounds.min)
-        return constraints_t::whole(0, CARRY_BOTTOM);
-    return constraints_t::any_bool(CARRY_BOTTOM);
-};
-
-ABSTRACT(SSA_lte)
-{
-    assert(argn == 2);
-    if(c[0].is_top() || c[1].is_top())
-        return constraints_t::top();
-    if(c[0].bounds.max <= c[1].bounds.min)
-        return constraints_t::whole(1, CARRY_BOTTOM);
-    if(c[1].bounds.max < c[0].bounds.min)
-        return constraints_t::whole(0, CARRY_BOTTOM);
-    return constraints_t::any_bool(CARRY_BOTTOM);
-};
-
-NARROW(SSA_phi)
-{
-    for(unsigned i = 0; i < argn; ++i)
-        c[i] = intersect(c[i], result);
-};
-
-NARROW(SSA_uninitialized)
-{
-    assert(argn == 0);
-    c[0] = result;
-};
-
-NARROW(SSA_cast)
-{
-    assert(argn == 1);
-    c[0] = result;
-};
-
-NARROW(SSA_add)
-{
-    assert(argn == 3);
-    if(result.is_top())
+    if(handle_top(cv, argn, result))
         return;
 
-    constexpr unsigned C = 0;
-    constexpr unsigned L = 1;
-    constexpr unsigned R = 2;
+    known_bits_t bits = known_bits_t::bool_(true);
+    for(unsigned i = 0; i < argn; i += 2)
+        bits = abstract_and(bits, abstract_eq(cv[i][0], cv[i+1][0]), ~0ull);
+
+    result[0].bits = bits;
+    result[0].bounds = from_bits(bits);
+};
+
+known_bits_t abstract_not_eq(constraints_t lhs, constraints_t rhs)
+{
+    if(lhs.is_top() || rhs.is_top())
+        return known_bits_t::top();
+    if(lhs.bits.known0 & rhs.bits.known1)
+        return known_bits_t::bool_(true);
+    if(lhs.bits.known1 & rhs.bits.known0)
+        return known_bits_t::bool_(true);
+    if(lhs.bounds.min > rhs.bounds.max 
+       || lhs.bounds.max < rhs.bounds.min)
+        return known_bits_t::bool_(true);
+    if(lhs.is_const() && rhs.is_const() 
+       && lhs.get_const() == rhs.get_const())
+        return known_bits_t::bool_(false);
+    return known_bits_t::any_bool();
+}
+
+ABSTRACT(SSA_not_eq) = ABSTRACT_FN
+{
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    known_bits_t bits = known_bits_t::bool_(false);
+    for(unsigned i = 0; i < argn; i += 2)
+        bits = abstract_or(bits, abstract_not_eq(cv[i][0], cv[i+1][0]), ~0ull);
+
+    result[0].bits = bits;
+    result[0].bounds = from_bits(bits);
+};
+
+constraints_t abstract_lt(constraints_t lhs, constraints_t rhs)
+{
+    if(lhs.is_top() || rhs.is_top())
+        return constraints_t::top();
+    if(lhs.bounds.max < rhs.bounds.min)
+        return constraints_t::bool_(true);
+    if(rhs.bounds.max <= lhs.bounds.min)
+        return constraints_t::bool_(false);
+    return constraints_t::any_bool();
+}
+
+ABSTRACT(SSA_lt) = ABSTRACT_FN
+{
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    for(int i = (int)argn - 2; i >= 0; i -= 2)
+    {
+        result[0] = abstract_lt(cv[i][0], cv[i+1][0]);
+        if(result[0].is_const())
+            return;
+    }
+
+    result[0] = constraints_t::any_bool();
+};
+
+constraints_t abstract_lte(constraints_t lhs, constraints_t rhs)
+{
+    if(lhs.is_top() || rhs.is_top())
+        return constraints_t::top();
+    if(lhs.bounds.max <= rhs.bounds.min)
+        return constraints_t::bool_(true);
+    if(rhs.bounds.max < lhs.bounds.min)
+        return constraints_t::bool_(false);
+    return constraints_t::any_bool();
+}
+
+ABSTRACT(SSA_lte) = ABSTRACT_FN
+{
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    for(int i = (int)argn - 2; i >= 0; i -= 2)
+    {
+        result[0] = abstract_lte(cv[i][0], cv[i+1][0]);
+        if(result[0].is_const())
+            return;
+    }
+
+    result[0] = constraints_t::any_bool();
+};
+
+static constexpr auto narrow_bottom = NARROW_FN
+{
+    constraints_t& input = cv[0][0];
+    input.bits.known0 |= result[0].bits.known0 & cv[0].mask;
+    input.bits.known1 |= result[0].bits.known1 & cv[0].mask;
+};
+
+NARROW(SSA_uninitialized) = narrow_bottom;
+NARROW(SSA_fn_call) = narrow_bottom;
+NARROW(SSA_cast) = narrow_bottom;
+
+NARROW(SSA_phi) = NARROW_FN
+{
+    for(unsigned i = 0; i < result.vec.size(); ++i)
+    for(unsigned j = 0; j < argn; ++j)
+    {
+        assert(cv[j].vec.size() >= result.vec.size());
+        assert(cv[j].mask == result.mask);
+        cv[j][i] = intersect(cv[j][i], result[i]);
+    }
+};
+
+NARROW(SSA_add) = NARROW_FN
+{
+    assert(argn == 3 && result.vec.size() >= 2);
+
+    if(any_top(result.vec))
+        return;
+
+    fixed_int_t const mask = result.mask;
+    constraints_t& L = cv[0][0];
+    constraints_t& R = cv[1][0];
+    constraints_t& C = cv[2][0];
+
+    assert(L.is_normalized() && R.is_normalized());
 
     // We use an approximation approach.
     // We can solve bit equations of the form KNOWN ^ KNOWN ^ UNKNOWN = KNOWN
     // (Three arguments because of carries).
 
     // Determine some of the carried bits:
-    fixed_int_t carry0 = (c[L].bits.known0 & c[R].bits.known0) << 1ull;
-    fixed_int_t carry1 = (c[L].bits.known1 & c[R].bits.known1) << 1ull;
+    fixed_int_t carry0 = 
+        ((L.bits.known0 & R.bits.known0 & mask) << 1ull) & mask;
+    fixed_int_t carry1 = 
+        ((L.bits.known1 & R.bits.known1 & mask) << 1ull) & mask;
 
-    fixed_int_t const carry_i = ~mask ? ((mask | (mask >> 1)) ^ mask) : 1;
+    fixed_int_t const carry_i = ~mask ? (~(mask << 1) & mask) : 1;
     
-    // First do the carry. If we know the lowest bit of c[L], c[R], and result
+    // First do the carry. If we know the lowest bit of L, R, and result
     // we can infer the required carry.
-    if(result.bits.known() & c[L].bits.known() & c[R].bits.known() & carry_i)
+    if(result[0].bits.known() & L.bits.known() & R.bits.known() & carry_i)
     {
-        if((result.bits.known1 ^ c[L].bits.known1 ^ c[R].bits.known1)& carry_i)
-            c[C].carry = CARRY_SET;
+        if((result[0].bits.known1 ^ L.bits.known1 ^ R.bits.known1) & carry_i)
+            C = constraints_t::carry(CARRY_SET);
         else
-            c[C].carry = CARRY_CLEAR;
+            C = constraints_t::carry(CARRY_CLEAR);
     }
 
     // If the SSA op has a carry input, use it in the lowest bit:
-    switch(c[C].carry)
+    switch(C.to_carry())
     {
     case CARRY_BOTTOM: break;
-    case CARRY_CLEAR:  carry0 |= 0ull; break;
-    case CARRY_SET:    carry1 |= 1ull; break;
+    case CARRY_CLEAR:  carry0 |= carry_i; break;
+    case CARRY_SET:    carry1 |= carry_i; break;
     case CARRY_TOP:    return;
     }
 
-    fixed_int_t const solvable = result.bits.known() & (carry0 | carry1);
-    fixed_int_t const lsolvable = c[R].bits.known() & solvable;
-    fixed_int_t const rsolvable = c[L].bits.known() & solvable;
+    fixed_int_t const solvable = result[0].bits.known() & (carry0 | carry1);
+    fixed_int_t const lsolvable = R.bits.known() & solvable;
+    fixed_int_t const rsolvable = L.bits.known() & solvable;
 
-    c[L].bits.known1 |= ((carry1 ^ c[R].bits.known1 ^ result.bits.known1) 
-                         & lsolvable);
-    c[R].bits.known1 |= ((carry1 ^ c[L].bits.known1 ^ result.bits.known1) 
-                         & rsolvable);
-    c[L].bits.known0 |= ~c[L].bits.known1 & lsolvable;
-    c[R].bits.known0 |= ~c[R].bits.known1 & rsolvable;
+    L.bits.known1 |= ((carry1 ^ R.bits.known1 ^ result[0].bits.known1) 
+                      & lsolvable);
+    R.bits.known1 |= ((carry1 ^ L.bits.known1 ^ result[0].bits.known1) 
+                      & rsolvable);
+    L.bits.known0 |= ~L.bits.known1 & lsolvable;
+    R.bits.known0 |= ~R.bits.known1 & rsolvable;
 
     // Move the bounds in after calculating bits.
-    c[L].bounds = intersect(c[L].bounds, from_bits(c[L].bits));
-    c[R].bounds = intersect(c[R].bounds, from_bits(c[R].bits));
+    L.bounds = intersect(L.bounds, from_bits(L.bits));
+    R.bounds = intersect(R.bounds, from_bits(R.bits));
+
+    L.normalize();
+    R.normalize();
+
+    constraints_t const shifted_C = constraints_t::shifted_carry(C.to_carry(), mask);
 
     fixed_int_t max_sum;
-    if(builtin::add_overflow(c[L].bounds.max, c[R].bounds.max, max_sum))
+    if(builtin::add_overflow(L.bounds.max, R.bounds.max, max_sum)
+    || builtin::add_overflow(max_sum, shifted_C.bounds.max, max_sum))
     {
-        assert(c[L].is_normalized() && c[R].is_normalized());
         return;
     }
+
+    constraints_t value = result[0];
 
     if(max_sum > mask)
     {
         // The original add can overflow! This complicates things.
-        fixed_int_t const min_sum = c[L].bounds.min + c[R].bounds.min;
+        fixed_int_t const min_sum = L.bounds.min + R.bounds.min + shifted_C.bounds.min;
         fixed_int_t const span = max_sum - min_sum;
         fixed_int_t const masked_min_sum = min_sum & mask;
 
         if(masked_min_sum + span > mask)
-        {
-            assert(c[L].is_normalized() && c[R].is_normalized());
             return;
-        }
 
         // Un-mask the result.
         fixed_int_t const masked_diff = min_sum - masked_min_sum;
-        result.bounds.min += masked_diff;
-        result.bounds.max += masked_diff;
+        value.bounds.min += masked_diff;
+        value.bounds.max += masked_diff;
     }
 
     // If the result's max is less than expected, try lowering
-    // c[L] and c[R]'s max bound.
-    c[L].bounds.max = std::min(c[L].bounds.max, 
-                               result.bounds.max - c[R].bounds.min);
-    c[R].bounds.max = std::min(c[R].bounds.max, 
-                               result.bounds.max - c[L].bounds.min);
+    // L and R's max bound.
+    L.bounds.max = std::min(L.bounds.max, value.bounds.max - R.bounds.min - shifted_C.bounds.min);
+    R.bounds.max = std::min(R.bounds.max, value.bounds.max - L.bounds.min - shifted_C.bounds.min);
 
     // If the result's min is greater than expected, try raising
-    // c[L] and c[R]'s min bound.
-    if(result.bounds.min > c[R].bounds.max)
-        c[L].bounds.min = std::max(c[L].bounds.min, 
-                                   result.bounds.min - c[R].bounds.max);
-    if(result.bounds.min > c[R].bounds.max)
-        c[R].bounds.min = std::max(c[R].bounds.min,
-                                   result.bounds.min - c[L].bounds.max);
+    // L and R's min bound.
+    if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
+        L.bounds.min = std::max(L.bounds.min, value.bounds.min - R.bounds.max - shifted_C.bounds.max);
+    if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
+        R.bounds.min = std::max(R.bounds.min, value.bounds.min - L.bounds.max - shifted_C.bounds.max);
 };
 
-NARROW(SSA_and)
+NARROW(SSA_and) = NARROW_FN
 {
-    assert(argn == 2);
-    if(result.is_top())
+    assert(argn == 2 && result.vec.size() >= 1);
+
+    if(result[0].is_top())
         return;
 
+    constraints_t& L = cv[0][0];
+    constraints_t& R = cv[1][0];
+
     // If output bit is true, both inputs must be true.
-    c[0].bits.known1 |= result.bits.known1;
-    c[1].bits.known1 |= result.bits.known1;
+    L.bits.known1 |= result[0].bits.known1;
+    R.bits.known1 |= result[0].bits.known1;
 
     // If we know the output is 0, and we know one input bit is 1,
     // the other input bit must be 0.
-    c[0].bits.known0 |= result.bits.known0 & c[1].bits.known1;
-    c[1].bits.known0 |= result.bits.known0 & c[0].bits.known1;
+    L.bits.known0 |= result[0].bits.known0 & R.bits.known1;
+    R.bits.known0 |= result[0].bits.known0 & L.bits.known1;
 };
 
-NARROW(SSA_or)
+NARROW(SSA_or) = NARROW_FN
 {
-    assert(argn == 2);
-    if(result.is_top())
+    assert(argn == 2 && result.vec.size() >= 1);
+
+    if(result[0].is_top())
         return;
 
+    constraints_t& L = cv[0][0];
+    constraints_t& R = cv[1][0];
+
     // If output bit is false, both inputs must be false.
-    c[0].bits.known0 |= result.bits.known0;
-    c[1].bits.known0 |= result.bits.known0;
+    L.bits.known0 |= result[0].bits.known0;
+    R.bits.known0 |= result[0].bits.known0;
 
     // If we know the output is 1, and we know one input bit is 0,
     // the other input bit must be 1.
-    c[0].bits.known1 |= result.bits.known1 & c[1].bits.known0;
-    c[1].bits.known1 |= result.bits.known1 & c[0].bits.known0;
+    L.bits.known1 |= result[0].bits.known1 & R.bits.known0;
+    R.bits.known1 |= result[0].bits.known1 & L.bits.known0;
 };
 
-NARROW(SSA_xor)
+NARROW(SSA_xor) = NARROW_FN
 {
-    assert(argn == 2);
-    if(result.is_top())
+    assert(argn == 2 && result.vec.size() >= 1);
+
+    if(result[0].is_top())
         return;
+
+    constraints_t& L = cv[0][0];
+    constraints_t& R = cv[1][0];
+
 
     // If we know the output is 0, and we know one input bit is 0,
     // the other input bit must be 0.
-    c[0].bits.known0 |= result.bits.known0 & c[1].bits.known0;
-    c[1].bits.known0 |= result.bits.known0 & c[0].bits.known0;
+    L.bits.known0 |= result[0].bits.known0 & R.bits.known0;
+    R.bits.known0 |= result[0].bits.known0 & L.bits.known0;
 
     // If we know the output is 0, and we know one input bit is 1,
     // the other input bit must be 1.
-    c[0].bits.known1 |= result.bits.known0 & c[1].bits.known1;
-    c[1].bits.known1 |= result.bits.known0 & c[0].bits.known1;
+    L.bits.known1 |= result[0].bits.known0 & R.bits.known1;
+    R.bits.known1 |= result[0].bits.known0 & L.bits.known1;
 
     // If we know the output is 1, and we know one input bit is 1,
     // the other input bit must be 0.
-    c[0].bits.known0 |= result.bits.known1 & c[1].bits.known1;
-    c[1].bits.known0 |= result.bits.known1 & c[0].bits.known1;
+    L.bits.known0 |= result[0].bits.known1 & R.bits.known1;
+    R.bits.known0 |= result[0].bits.known1 & L.bits.known1;
 
     // If we know the output is 1, and we know one input bit is 0,
     // the other input bit must be 1.
-    c[0].bits.known1 |= result.bits.known1 & c[1].bits.known0;
-    c[1].bits.known1 |= result.bits.known1 & c[0].bits.known0;
+    L.bits.known1 |= result[0].bits.known1 & R.bits.known0;
+    R.bits.known1 |= result[0].bits.known1 & L.bits.known0;
 };
 
-static void narrow_eq(fixed_int_t mask, constraints_t result, 
-                      constraints_t* c, unsigned argn, bool eq)
+template<bool Eq>
+static void narrow_eq(constraints_def_t* cv, 
+                      unsigned argn, constraints_def_t const& result)
 {
-    assert(argn == 2);
-    if(!result.is_val_const())
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
+
+    if(!result[0].is_const())
         return;
 
-    if(result.get_val_const() == fixed_t::whole(!eq).value)
+    if(result[0].get_const() == fixed_t::whole(Eq).value)
     {
+        for(unsigned i = 0; i < argn; i += 2)
+            cv[i][0] = cv[i+1][0] = intersect(cv[i][0], cv[i+1][0]);
+    }
+    else if(argn == 2)
+    {
+        assert(result[0].get_const() == fixed_t::whole(!Eq).value);
         for(unsigned i = 0; i < 2; ++i)
-        if(c[i].is_val_const())
         {
-            unsigned const o = 1 - i;
-            fixed_int_t const const_ = c[i].get_val_const();
-            if(c[o].bounds.min == const_)
-                ++c[o].bounds.min;
-            if(c[o].bounds.max == const_)
-                --c[o].bounds.max;
+            constraints_t& a = cv[i][0];
+            constraints_t& b = cv[1 - i][0];
+
+            if(!a.is_const())
+                continue;
+
+            fixed_int_t const const_ = a.get_const();
+
+            if(b.bounds.min == const_)
+                ++b.bounds.min;
+            if(b.bounds.max == const_)
+                --b.bounds.max;
         }
     }
-    else if(result.get_val_const() == fixed_t::whole(eq).value)
-        c[0] = c[1] = intersect(c[0], c[1]);
 }
 
-NARROW(SSA_eq)
-{
-    narrow_eq(mask, result, c, argn, true);
-};
+NARROW(SSA_eq) = narrow_eq<true>;
+NARROW(SSA_not_eq) = narrow_eq<false>;
 
-NARROW(SSA_not_eq)
+NARROW(SSA_lt) = NARROW_FN
 {
-    narrow_eq(mask, result, c, argn, false);
-};
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
 
-NARROW(SSA_lt)
-{
-    assert(argn == 2);
-    if(!result.is_val_const())
+    if(!result[0].is_const())
         return;
 
-    if(result.get_val_const() == fixed_t::whole(0).value)
+    constraints_t& L = cv[0][0];
+    constraints_t& R = cv[1][0];
+
+    if(result[0].get_const())
     {
-        c[0].bounds.min = std::max(c[0].bounds.min, c[1].bounds.min);
-        c[1].bounds.max = std::min(c[1].bounds.max, c[0].bounds.max);
+        L.bounds.max = std::min(L.bounds.max, R.bounds.max - 1);
+        R.bounds.min = std::max(R.bounds.min, L.bounds.min + 1);
     }
-    else if(result.get_val_const() == fixed_t::whole(1).value)
+    else
     {
-        c[0].bounds.max = std::min(c[0].bounds.max, c[1].bounds.max - 1);
-        c[1].bounds.min = std::max(c[1].bounds.min, c[0].bounds.min + 1);
+        L.bounds.min = std::max(L.bounds.min, R.bounds.min);
+        R.bounds.max = std::min(R.bounds.max, L.bounds.max);
     }
 };
 
-NARROW(SSA_lte)
+NARROW(SSA_lte) = NARROW_FN
 {
-    assert(argn == 2);
-    if(!result.is_val_const())
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
+
+    if(!result[0].is_const())
         return;
 
-    if(result.get_val_const() == fixed_t::whole(0).value)
+    constraints_t& L = cv[0][0];
+    constraints_t& R = cv[1][0];
+
+    if(result[0].get_const())
     {
-        c[0].bounds.min = std::max(c[0].bounds.min, c[1].bounds.min + 1);
-        c[1].bounds.max = std::min(c[1].bounds.max, c[0].bounds.max - 1);
+        L.bounds.max = std::min(L.bounds.max, R.bounds.max);
+        R.bounds.min = std::max(R.bounds.min, L.bounds.min);
     }
-    else if(result.get_val_const() == fixed_t::whole(1).value)
+    else
     {
-        c[0].bounds.max = std::min(c[0].bounds.max, c[1].bounds.max);
-        c[1].bounds.min = std::max(c[1].bounds.min, c[0].bounds.min);
+        L.bounds.min = std::max(L.bounds.min, R.bounds.min + 1);
+        R.bounds.max = std::min(R.bounds.max, L.bounds.max - 1);
     }
 };
 
+#undef ABSTRACT_FN
+#undef NARROW_FN
 #undef ABSTRACT
 #undef NARROW
 

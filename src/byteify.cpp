@@ -1,4 +1,4 @@
-#include "cg_byteify.hpp"
+#include "byteify.hpp"
 
 #include <array>
 
@@ -8,7 +8,7 @@
 #include "ir.hpp"
 #include "worklist.hpp"
 
-SSA_VERSION(1); // TODO: major rewrite
+SSA_VERSION(1);
 
 namespace bc = ::boost::container;
 
@@ -317,10 +317,10 @@ void byteify(ir_t& ir, global_t& global)
         case SSA_add:
         case SSA_sub:
             {
-                bm_t const lhs_bm = _get_bm(ssa_node->input(1));
-                bm_t const rhs_bm = _get_bm(ssa_node->input(2));
+                bm_t const lhs_bm = _get_bm(ssa_node->input(0));
+                bm_t const rhs_bm = _get_bm(ssa_node->input(1));
 
-                ssa_value_t carry = ssa_node->input(0);
+                ssa_value_t carry = ssa_node->input(2);
 
                 unsigned const end = end_byte(t);
                 for(unsigned i = begin_byte(t); i < end; ++i)
@@ -328,9 +328,9 @@ void byteify(ir_t& ir, global_t& global)
                     ssa_ht split = ssa_data.bm[i].handle();
 
                     split->alloc_input(3);
-                    split->build_set_input(0, carry);
-                    split->build_set_input(1, lhs_bm[i]);
-                    split->build_set_input(2, rhs_bm[i]);
+                    split->build_set_input(0, lhs_bm[i]);
+                    split->build_set_input(1, rhs_bm[i]);
+                    split->build_set_input(2, carry);
 
                     carry = split;
                 }

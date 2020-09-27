@@ -963,7 +963,7 @@ void ir_builder_t::compile_binary_operator(cfg_node_t& cfg_node,
     // Result will remain in 'lhs'.
     if(carry)
         lhs.ssa_value = cfg_node.emplace_ssa(op, result_type, 
-                                             0, lhs.ssa_value, rhs.ssa_value);
+                                             lhs.ssa_value, rhs.ssa_value, 0);
     else
         lhs.ssa_value = cfg_node.emplace_ssa(op, result_type, 
                                              lhs.ssa_value, rhs.ssa_value);

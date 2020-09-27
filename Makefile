@@ -76,9 +76,11 @@ asm.cpp \
 locator.cpp \
 options.cpp \
 stmt.cpp \
+cg.cpp \
+cg_liveness.cpp \
 cg_schedule.cpp \
 cg_isel.cpp \
-cg_byteify.cpp
+byteify.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

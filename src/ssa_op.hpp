@@ -31,7 +31,6 @@ enum ssa_op_t : short
     NUM_SSA_OPS,
 };
 
-
 constexpr std::array<signed char, NUM_SSA_OPS> const ssa_argn_table =
 {{
 #define SSA_DEF(x, argn, class, flags) argn,

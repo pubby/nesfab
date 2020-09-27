@@ -80,7 +80,7 @@ bool o_remove_unused_ssa(ir_t& ir)
         for(ssa_ht h : linked)
         {
             // We'll also check all inputs again.
-            for_each_node_input(h, [ssa_it](ssa_ht input, unsigned)
+            for_each_node_input(h, [ssa_it](ssa_ht input)
             {
                 input = _get_link_head(input);
                 if(input != ssa_it && _can_prune(*input))

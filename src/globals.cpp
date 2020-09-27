@@ -10,9 +10,8 @@
 #include "ir_builder.hpp"
 #include "o.hpp"
 #include "options.hpp"
-#include "cg_schedule.hpp" // TODO
-#include "cg_byteify.hpp" // TODO
-#include "cg_isel.hpp" // TODO
+#include "byteify.hpp"
+#include "cg.hpp"
 #include "graphviz.hpp"
 #include "thread.hpp"
 
@@ -179,25 +178,17 @@ void global_t::compile()
                 while(changed);
             }
 
-            // TODO: scheduling
-            schedule_ir(ir);
+            code_gen(ir);
 
+            /*
             for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
             {
-                std::cout << "\n\n";
-                auto schedule = get_schedule(cfg_it);
+                std::cout << "\n\nCFG:";
 
-                for(ssa_ht h : schedule)
-                    std::cout << h->op() << '\n';
-
-                sel_t const* sel = select_instructions(&*schedule.begin(), 
-                                                       &*schedule.end());
-                while(sel)
-                {
-                    std::cout << "SEL " << to_string(sel->op) << ' ' << sel->cost << '\n';
-                    sel = sel->prev;
-                }
+                for(ssa_node_t& n : *cfg_it)
+                    std::cout << n.op() << '\n';
             }
+            */
 
             if(compiler_options().graphviz)
             {

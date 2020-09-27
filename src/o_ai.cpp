@@ -58,8 +58,7 @@ struct cfg_ai_d
 struct ssa_ai_d
 {
     // The imprecise set of all values this node can have during runtime.
-    std::array<constraints_t, 2> constraints_array = 
-        {{ constraints_t::top(), constraints_t::top() }};
+    std::array<constraints_def_t, 2> constraints_array;
     unsigned constraints_i = 0;
 
     // If this node is a key to 'ai_cfg_data_t::rebuild_map', this pointer
@@ -74,7 +73,8 @@ struct ssa_ai_d
     // If any of the value's inputs were modified by the jump threading pass.
     bool touched = false;
 
-    constraints_t& constraints() { return constraints_array[constraints_i]; } 
+    constraints_def_t& constraints() 
+        { return constraints_array[constraints_i]; } 
     void set_active_constraints(executable_index_t e) { constraints_i = e; }
 };
 
@@ -86,31 +86,57 @@ ssa_ai_d& ai_data(ssa_ht h) { return h.data<ssa_ai_d>(); }
 namespace // Anonymous namespace
 {
 
-bool has_constraints(ssa_node_t& node)
-    { return is_numeric(node.type()); }
-bool has_constraints(ssa_value_t value)
-    { return value.is_const() || has_constraints(*value); }
-
-std::size_t ai_constraints_size(ssa_value_t value)
+std::size_t constraints_size(ssa_node_t const& node)
 {
-    assert(has_constraints(value));
-    return 1; // TODO: handle arrays
+    switch(node.op())
+    {
+    case SSA_add:
+    case SSA_sub:
+        return 2; // Second constraint is for the carry.
+    case SSA_trace:
+        return constraints_size(*node.input(0));
+    default:
+        if(is_array_like(node.type()))
+            return node.type().size();
+        return is_numeric(node.type()) ? 1 : 0;
+    }
 }
 
-// TODO
-constraints_t to_constraints(ssa_value_t value, unsigned i = 0)
+bool has_constraints(ssa_ht node)
 {
-    assert(has_constraints(value));
-    assert(i == 0); // TODO: handle arrays
+    assert(node);
+    return ai_data(node).constraints().vec.size();
+}
 
+bool has_constraints(ssa_value_t v)
+{
+    if(v.is_handle())
+        return has_constraints(v.handle());
+    return v.is_num();
+}
+
+void copy_constraints(ssa_value_t value, constraints_def_t& vec)
+{
     if(value.is_handle())
-        return ai_data(value.handle()).constraints();
+        vec = ai_data(value.handle()).constraints();
     else if(value.is_num())
-        return constraints_t::const_(
-            value.fixed().value, 
-            value.fixed().value ? CARRY_SET : CARRY_CLEAR);
+        vec = { numeric_bitmask(TYPE_LARGEST_FIXED), 
+                { constraints_t::const_(value.fixed().value) }};
     else
-        return constraints_t::top();
+        vec = {};
+}
+
+constraints_t first_constraint(ssa_value_t value)
+{
+    if(value.is_handle())
+    {
+        assert(has_constraints(value.handle()));
+        return ai_data(value.handle()).constraints()[0];
+    }
+    else if(value.is_num())
+        return constraints_t::const_(value.fixed().value);
+    assert(false);
+    return constraints_t::top();
 }
 
 // AI = abstract interpretation, NOT artificial intelligence.
@@ -164,7 +190,7 @@ ai_t::ai_t(ir_t& ir_) : ir(ir_)
     // it's rare in practice and simpler to code this way.
     for(cfg_node_t& node : ir)
         if(node.output_size() > cfg_ai_d::max_output_size)
-            return;
+            return; // TODO: handle this better
 
     ir.assert_valid();
 
@@ -394,11 +420,13 @@ void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original,
     if(ssa_flags(original->op()) & SSAF_TRACE_INPUTS)
     {
         // Recursively trace 'original', turning its inputs into traces too.
-        for_each_node_input(original,
-        [this, cfg_trace, trace](ssa_ht input, unsigned i)
+        unsigned const input_size = original->input_size();
+        for(unsigned i = 0; i < input_size; ++i)
         {
-            insert_trace(cfg_trace, input, trace, i);
-        });
+            ssa_value_t input = original->input(i);
+            if(input.holds_ref())
+                insert_trace(cfg_trace, input.handle(), trace, i);
+        }
     }
 
     // All outputs of the original node will need rebuilding.
@@ -471,8 +499,11 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     if(trace->input_size() == 2)
     {
         assert(trace->input(1).is_const());
-        trace_d.constraints() = constraints_t::const_(
-            trace->input(1).fixed().value, CARRY_BOTTOM);
+        trace_d.constraints() =
+        { 
+            numeric_bitmask(TYPE_LARGEST_FIXED),
+            { constraints_t::const_(trace->input(1).fixed().value) } 
+        };
         return;
     }
 
@@ -485,15 +516,16 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     {
         ssa_ht parent_trace = trace->input(i).handle();
         assert(parent_trace->op() == SSA_trace);
-        if(ai_data(parent_trace).constraints().is_top())
+        if(any_top(ai_data(parent_trace).constraints().vec))
             return;
     }
 
-    bc::small_vector<constraints_t, 16> c;
+    bc::small_vector<constraints_def_t, 16> c;
 
     // For each parent, perform a narrowing operation.
-    fixed_t::int_type const mask = numeric_bitmask(trace->type());
-    constraints_t narrowed = constraints_t::bottom(mask);
+    constraints_vec_t narrowed(
+        trace_d.constraints().vec.size(),
+        constraints_t::bottom(trace_d.constraints().mask));
     for(unsigned i = 1; i < input_size; i += 2)
     {
         ssa_ht parent_trace = trace->input(i).handle();
@@ -506,19 +538,24 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         // that it modifies. Create that array here.
         c.resize(num_args);
         for(unsigned j = 0; j < num_args; ++j)
-            c[j] = to_constraints(parent_original->input(j));
+            copy_constraints(parent_original->input(j), c[j]);
 
         auto& parent_trace_d = ai_data(parent_trace);
         assert(parent_trace_d.rebuild_mapping);
         ssa_op_t const op = parent_original->op();
         assert(narrow_fn(op));
         // Call the narrowing op:
-        narrow_fn(op)(mask, parent_trace_d.constraints(), c.data(), num_args);
-        narrowed = intersect(narrowed, c[arg_i]);
+        narrow_fn(op)(c.data(), num_args, parent_trace_d.constraints());
+
+        assert(c[arg_i].vec.size() == narrowed.size());
+        for(unsigned j = 0; j < narrowed.size(); ++j)
+            narrowed[j] = intersect(narrowed[j], c[arg_i][j]);
     }
 
     trace_d.set_active_constraints(exec_i);
-    trace_d.constraints() = union_(trace_d.constraints(), narrowed);
+    for(unsigned i = 0; i < narrowed.size(); ++i)
+        trace_d.constraints()[i] = union_(trace_d.constraints()[i],
+                                          narrowed[i]);
 }
 
 ////////////////////////////////////////
@@ -529,7 +566,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
 // You must normalize at call site.
 void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
 {
-    fixed_int_t const mask = numeric_bitmask(ssa_node->type());
+    auto& d = ai_data(ssa_node);
 
     if(ssa_node->op() == SSA_trace)
         compute_trace_constraints(exec_i, ssa_node);
@@ -537,7 +574,8 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
     {
         // Build an array holding all the argument's constraints.
         unsigned const input_size = ssa_node->input_size();
-        constraints_t* c = ALLOCA_T(constraints_t, input_size);
+        bc::small_vector<constraints_def_t, 16> c;
+        c.resize(input_size);
         if(ssa_node->op() == SSA_phi)
         {
             // For phi nodes, if an input CFG edge hasn't been marked
@@ -551,25 +589,19 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
                 auto& edge_d = ai_data(edge.handle);
 
                 if(edge_d.output_executable[exec_i] & (1ull << edge.index))
-                    c[i] = to_constraints(ssa_node->input(i));
+                    copy_constraints(ssa_node->input(i), c[i]);
                 else
-                    c[i] = constraints_t::top();
+                    c[i].vec.assign(d.constraints().vec.size(), 
+                                    constraints_t::top());
             }
         }
         else for(unsigned i = 0; i < input_size; ++i)
-        {
-            if(has_constraints(ssa_node->input(i)))
-                c[i] = to_constraints(ssa_node->input(i));
-            else
-                c[i] = constraints_t::top();
-        }
-
-        auto& d = ai_data(ssa_node);
+            copy_constraints(ssa_node->input(i), c[i]);
 
         // Call the ai op:
         assert(abstract_fn(ssa_node->op()));
         d.set_active_constraints(exec_i);
-        d.constraints() = abstract_fn(ssa_node->op())(mask, c, input_size);
+        abstract_fn(ssa_node->op())(c.data(), input_size, d.constraints());
     }
 }
 
@@ -585,21 +617,21 @@ void ai_t::visit(ssa_ht ssa_node)
         assert(has_constraints(condition));
         assert(ssa_node->cfg_node()->output_size() == 2);
 
-        constraints_t c = to_constraints(condition);
+        constraints_t c = first_constraint(condition);
         std::cout << "COND = " << c << '\n';
 
         if(c.is_top())
             return;
 
-        if(!c.is_val_const())
+        if(!c.is_const())
         {
             queue_edge(ssa_node->cfg_node(), 0);
             queue_edge(ssa_node->cfg_node(), 1);
         }
-        else if(c.get_val_const() == 0)
-            queue_edge(ssa_node->cfg_node(), 0);
-        else
+        else if(c.get_const())
             queue_edge(ssa_node->cfg_node(), 1);
+        else
+            queue_edge(ssa_node->cfg_node(), 0);
 
         return;
     }
@@ -608,28 +640,34 @@ void ai_t::visit(ssa_ht ssa_node)
 
     auto& d = ai_data(ssa_node);
 
-    constraints_t const old_constraints = d.constraints();
-    assert(old_constraints.is_normalized());
-
-    fixed_int_t const mask = numeric_bitmask(ssa_node->type());
+    thread_local constraints_vec_t old_constraints;
+    old_constraints = d.constraints().vec;
+    assert(all_normalized(old_constraints));
 
     if(d.visited_count >= WIDEN_OP)
-        d.constraints() = constraints_t::bottom(mask);
+    {
+        d.constraints().vec.assign(
+            d.constraints().vec.size(), 
+            constraints_t::bottom(d.constraints().mask));
+    }
     else
     {
         compute_constraints(EXEC_PROPAGATE, ssa_node);
         if(d.visited_count > WIDEN_OP_BOUNDS)
-            d.constraints().bounds = bounds_t::bottom(mask);
-        //d.constraints().normalize();
+            for(constraints_t& c : d.constraints().vec)
+                c.bounds = bounds_t::bottom(d.constraints().mask);
+        for(constraints_t& c : d.constraints().vec)
+            c.normalize();
     }
 
-    std::cout << "C = " << d.constraints() << '\n';
-    std::cout << "O = " << old_constraints << '\n';
+    // TODO:
+    std::cout << "C = " << d.constraints()[0] << '\n';
+    std::cout << "O = " << old_constraints[0] << '\n';
 
-    assert(d.constraints().is_normalized());
-    if(!d.constraints().bit_eq(old_constraints))
+    assert(all_normalized(d.constraints().vec));
+    if(!bit_eq(d.constraints().vec, old_constraints))
     {
-        assert(is_subset(old_constraints, d.constraints()));
+        assert(all_subset(old_constraints, d.constraints().vec));
 
         // Update the visited count. Traces increment twice as fast, which
         // was chosen to improve widening behavior.
@@ -659,10 +697,27 @@ void ai_t::range_propagate()
         {
             auto& sd = ai_data(ssa_it);
             sd.touched = false;
+
             assert(ssa_it->test_flags(FLAG_IN_WORKLIST) == false);
             assert(sd.visited_count == 0);
             assert(sd.constraints_i == EXEC_PROPAGATE);
-            assert(sd.constraints().bit_eq(constraints_t::top()));
+
+            constraints_def_t& constraints = sd.constraints();
+            type_t const type = ssa_it->type();
+
+            constraints.vec.clear();
+            constraints.vec.resize(constraints_size(*ssa_it),
+                                   constraints_t::top());
+
+            if(constraints.vec.empty())
+                continue;
+
+            if(type.name() == TYPE_ARRAY)
+                constraints.mask = numeric_bitmask(type[0]);
+            else if(type.name() == TYPE_BUFFER)
+                constraints.mask = numeric_bitmask(TYPE_BYTE);
+            else
+                sd.constraints().mask = numeric_bitmask(ssa_it->type());
         }
     }
 
@@ -718,12 +773,12 @@ void ai_t::prune_unreachable_code()
         ssa_ht branch = cfg_node.last_daisy();
         assert(branch && branch->op() == SSA_if);
 
-        constraints_t c = to_constraints(get_condition(*branch));
-        if(!c.is_val_const())
+        constraints_t c = first_constraint(get_condition(*branch));
+        if(!c.is_const())
             continue;
 
         // First calculate the branch index to remove.
-        bool const prune_i = !(c.get_val_const() >> fixed_t::shift);
+        bool const prune_i = !(c.get_const() >> fixed_t::shift);
 
         // Then remove the conditional.
         branch->prune();
@@ -759,23 +814,62 @@ void ai_t::fold_consts()
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->output_size() == 0 || !has_constraints(*ssa_it))
+        if(ssa_it->output_size() == 0 || !has_constraints(ssa_it))
             continue;
 
+        ssa_op_t const op = ssa_it->op();
         auto& d = ai_data(ssa_it);
 
-        if(d.constraints().is_val_const())
+        if(is_numeric(ssa_it->type()) && d.constraints()[0].is_const())
         {
-            fixed_t constant = { d.constraints().get_val_const() };
+            fixed_t constant = { d.constraints()[0].get_const() };
             if(ssa_it->replace_with(INPUT_VALUE, constant))
                 updated = true;
         }
-
-        if(d.constraints().is_carry_const())
+        else if(op == SSA_eq || op == SSA_not_eq)
         {
-            unsigned constant = d.constraints().get_carry_const();
-            if(ssa_it->replace_with(INPUT_CARRY, constant))
-                updated = true;
+            // Simplify comparisons, removing unnecessary operations:
+            for(unsigned i = 0; i < ssa_it->input_size();)
+            {
+                assert(ssa_it->input_size() % 2 == 0);
+
+                ssa_value_t const lhs = ssa_it->input(i);
+                ssa_value_t const rhs = ssa_it->input(i+1);
+
+                constraints_t const lhs_c = first_constraint(lhs);
+                constraints_t const rhs_c = first_constraint(rhs);
+
+                if(lhs_c.is_const() && rhs_c.is_const()
+                   && (lhs_c.get_const() == rhs_c.get_const())
+                      == (op == SSA_eq))
+                {
+                    ssa_it->link_remove_input(i+1);
+                    ssa_it->link_remove_input(i);
+                    continue;
+                }
+
+                i+= 2;
+            }
+        }
+        else if(op == SSA_lt || op == SSA_lte)
+        {
+            // Simplify comparisons, removing unnecessary operations:
+            while(unsigned const size = ssa_it->input_size())
+            {
+                ssa_value_t const lhs = ssa_it->input(size - 2);
+                ssa_value_t const rhs = ssa_it->input(size - 1);
+
+                constraints_t const lhs_c = first_constraint(lhs);
+                constraints_t const rhs_c = first_constraint(rhs);
+
+                if(lhs_c.is_const() && rhs_c.is_const() 
+                   && lhs_c.get_const() == rhs_c.get_const())
+                {
+                    ssa_it->link_shrink_inputs(size - 2);
+                }
+                else
+                    break;
+            }
         }
     }
     ir.assert_valid();
@@ -787,18 +881,20 @@ void ai_t::fold_consts()
 
 void ai_t::jump_thread_visit(ssa_ht ssa_node)
 {
-    if(!has_constraints(*ssa_node))
+    if(!has_constraints(ssa_node))
         return;
 
     auto& d = ai_data(ssa_node);
 
-    constraints_t const old_constraints = d.constraints();
-    assert(old_constraints.is_normalized());
+    // TODO
+    constraints_def_t const old_constraints = d.constraints();
+    assert(all_normalized(old_constraints.vec));
 
     compute_constraints(EXEC_JUMP_THREAD, ssa_node);
-    d.constraints().normalize();
+    for(constraints_t& c : d.constraints().vec)
+        c.normalize();
 
-    if(!d.constraints().bit_eq(old_constraints))
+    if(!bit_eq(d.constraints().vec, old_constraints.vec))
     {
         // Queue all outputs
         unsigned const output_size = ssa_node->output_size();
@@ -886,10 +982,10 @@ void ai_t::run_jump_thread(cfg_ht start, unsigned start_branch_i)
             ssa_ht branch = cfg_node.last_daisy();
             assert(branch && branch->op() == SSA_if);
 
-            constraints_t const c = to_constraints(get_condition(*branch));
-            if(!c.is_val_const())
+            constraints_t const c = first_constraint(get_condition(*branch));
+            if(!c.is_const())
                 break;
-            branch_i = c.get_val_const() >> fixed_t::shift;
+            branch_i = c.get_const() >> fixed_t::shift;
             ++branches_skipped;
         }
         else // Non-conditional nodes are always forced

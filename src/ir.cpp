@@ -2,6 +2,19 @@
 
 #include "builtin.hpp"
 
+std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s)
+{
+    if(s.is_handle())
+        o << "handle " << s.handle().index;
+    else if(s.is_num())
+        o << "num " << to_double(s.fixed());
+    else if(s.is_locator())
+        o << "locator " << s.locator();
+    else if(s.is_ptr())
+        o << "ptr " << s.ptr<void>();
+    return o;
+}
+
 // Allocates the specified amount, using small buffer optimization 
 // whenever possible.
 template<typename T, std::size_t StorageSize> 
@@ -404,6 +417,27 @@ unsigned ssa_node_t::replace_with(input_class_t input_class, ssa_value_t value)
             ++i;
     }
     return changed;
+}
+
+ssa_ht ssa_node_t::split_output_edge(bool this_cfg, unsigned output_i,
+                                     ssa_op_t op)
+{
+    ssa_bck_edge_t& oe = m_io.output(output_i);
+
+    // Create a copy and set its input to this.
+    cfg_ht cfg = this_cfg ? cfg_node() : oe.handle->cfg_node();
+    ssa_ht copy = cfg->emplace_ssa(op, type());
+    copy->alloc_input(1); 
+    copy->m_io.input(0) = ssa_fwd_edge_t(handle(), output_i);
+
+    // Update our (original) output's input to be copy,
+    // and also update copy's output.
+    oe.input() = ssa_fwd_edge_t(copy, copy->append_output(oe));
+
+    // Finally, update our own output:
+    oe = { copy, 0 };
+
+    return copy;
 }
 
 ssa_ht ssa_node_t::prune()

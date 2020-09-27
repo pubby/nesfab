@@ -51,11 +51,8 @@ constexpr std::uint16_t FLAG_DAISY          = 1ull << 3;
 constexpr std::uint16_t FLAG_IN_WORKLIST    = 1ull << 4;
 constexpr std::uint16_t FLAG_PROCESSED      = 1ull << 5;
 constexpr std::uint16_t FLAG_IRREDUCIBLE    = 1ull << 6;
-constexpr std::uint16_t FLAG_CARRY_KNOWN    = 1ull << 7;
-constexpr std::uint16_t FLAG_CARRY_SET      = 1ull << 8;
-constexpr std::uint16_t FLAG_STORED         = 1ull << 9;
-constexpr std::uint16_t FLAG_STORED_CARRY   = 1ull << 10;
-constexpr std::uint16_t FLAG_STORED_LOCATOR = 1ull << 11;
+constexpr std::uint16_t FLAG_STORED         = 1ull << 7;
+constexpr std::uint16_t FLAG_COALESCED      = 1ull << 8;
 
 
 #endif

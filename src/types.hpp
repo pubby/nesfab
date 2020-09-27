@@ -18,6 +18,20 @@
     FIXED(2,0) FIXED(2,1) FIXED(2,2) FIXED(2,3)\
     FIXED(3,0) FIXED(3,1) FIXED(3,2) FIXED(3,3)\
 
+// ARRAYS:
+// - Maximum size 256 bytes
+// - Can't be referenced using pointers
+// - Single dimension only - no multidimensional arrays
+
+// BUFFERS:
+// - No maximum size
+// - Convertable to pointers
+// - Single dimension only - no multidimensional buffers
+
+// STRUCTS:
+// No maximum size
+// Can't hold arrays or buffers
+
 enum type_name_t : std::uint8_t // Keep unsigned.
 {
     // Have void be the zeroth/default value.
@@ -27,7 +41,10 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     // These types use the 'tail_i' field in 'type_t'.
     // e.g. fn types or pointer types.
     TYPE_ARRAY,
+    TYPE_FIRST_ARRAY_LIKE = TYPE_ARRAY,
     TYPE_FIRST_COMP = TYPE_ARRAY,
+    TYPE_BUFFER,
+    TYPE_LAST_ARRAY_LIKE = TYPE_BUFFER,
     TYPE_STRUCT,
     TYPE_FN,
     TYPE_PTR,
@@ -36,6 +53,10 @@ enum type_name_t : std::uint8_t // Keep unsigned.
 
     // Bools aren't considered arithmetic or composite, but they are numeric.
     TYPE_BOOL,
+    TYPE_FIRST_BOOLEAN = TYPE_BOOL,
+    // Carry is a more specific version of bool:
+    TYPE_CARRY,
+    TYPE_LAST_BOOLEAN = TYPE_CARRY,
 #define FIXED(whole, frac) TYPE_FIXED_##whole##frac,
     FIXED_X
 #undef FIXED
@@ -60,7 +81,6 @@ public:
     // where FF is two bits storing the size of the fractional part in bytes,
     // and WW is two bits storing the size of the whole part in bytes.
     // Pointers are slightly special and come last.
-
 
     static constexpr unsigned max_whole_bytes = 3;
     static constexpr unsigned max_total_bytes = 6;
@@ -150,6 +170,18 @@ constexpr bool is_numeric(type_name_t type_name)
 constexpr bool is_numeric(type_t type)
     { return type.size() == 0 && is_numeric(type.name()); }
 
+constexpr bool is_boolean(type_name_t type_name)
+    { return (type_name >= TYPE_FIRST_BOOLEAN 
+              && type_name <= TYPE_LAST_BOOLEAN); }
+constexpr bool is_boolean(type_t type)
+    { return type.size() == 0 && is_boolean(type.name()); }
+
+constexpr bool is_array_like(type_name_t type_name)
+    { return (type_name >= TYPE_FIRST_ARRAY_LIKE 
+              && type_name <= TYPE_LAST_ARRAY_LIKE); }
+constexpr bool is_array_like(type_t type)
+    { return is_array_like(type.name()); }
+
 constexpr unsigned whole_bytes(type_name_t type_name)
 {
     switch(type_name)
@@ -203,6 +235,16 @@ constexpr unsigned begin_byte(type_name_t type_name)
 constexpr unsigned end_byte(type_name_t type_name)
 {
     return type_t::max_frac_bytes + whole_bytes(type_name);
+}
+
+constexpr bool valid_array_member(type_t type)
+{
+    return type.name() == TYPE_STRUCT || is_numeric(type);
+}
+
+constexpr bool valid_struct_member(type_t type)
+{
+    return type.name() == TYPE_STRUCT || is_numeric(type);
 }
 
 std::string to_string(type_t type);

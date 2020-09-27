@@ -79,9 +79,9 @@ public:
     robin_map& operator=(robin_map const&) = default;
     robin_map& operator=(robin_map&&) = default;
 
-    value_type& operator[](key_type const& k)
+    mapped_type& operator[](key_type const& k)
     {
-        return emplace(k, [](){ return mapped_type(); }).first->second;
+        return *emplace(k, [](){ return mapped_type(); }).mapped;
     }
 
     insertion insert(value_type const& v)
@@ -153,9 +153,9 @@ public:
     batman_map& operator=(batman_map const&) = default;
     batman_map& operator=(batman_map&&) = default;
 
-    value_type& operator[](key_type const& k)
+    mapped_type& operator[](key_type const& k)
     {
-        return emplace(k, [](){ return mapped_type(); }).first->second;
+        return *emplace(k, [](){ return mapped_type(); }).mapped;
     }
 
     insertion insert(value_type const& v)
@@ -233,9 +233,9 @@ public:
     joker_map& operator=(joker_map const&) = default;
     joker_map& operator=(joker_map&&) = default;
 
-    value_type& operator[](key_type const& k)
+    mapped_type& operator[](key_type const& k)
     {
-        return emplace(k, [](){ return mapped_type(); }).first->second;
+        return *emplace(k, [](){ return mapped_type(); }).mapped;
     }
 
     insertion insert(value_type const& v)

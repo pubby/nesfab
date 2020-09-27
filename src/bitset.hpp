@@ -7,10 +7,35 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "array_pool.hpp"
 #include "builtin.hpp"
 #include "sizeof_bits.hpp"
 
 using bitset_uint_t = std::uint64_t;
+using bitset_pool_t = array_pool_t<bitset_uint_t>;
+
+// A small-size optimized bitset.
+// Uses 'uint' when size == 1, otherwise ptr.
+union sso_bitset_t
+{
+    bitset_uint_t uint;
+    bitset_uint_t* ptr;
+
+    [[gnu::always_inline]] bitset_uint_t const* get(std::size_t size) const 
+        { return size == 1 ? &uint : ptr; }
+
+    [[gnu::always_inline]] bitset_uint_t* get(std::size_t size) 
+        { return size == 1 ? &uint : ptr; }
+};
+
+template<std::size_t N>
+sso_bitset_t bitset_alloc(array_pool_t<bitset_uint_t, N>& pool, 
+                          std::size_t size)
+{
+    if(size == 1)
+        return { .uint = 0 };
+    return { .ptr = pool.alloc(size) };
+}
 
 // Gives the array size needed for a bitset containing 'bits_required' bits.
 template<typename UInt = bitset_uint_t>
@@ -28,12 +53,29 @@ void bitset_and(std::size_t size, UInt* lhs, UInt const* rhs)
         lhs[i] &= rhs[i];
 }
 
+inline void bitset_and(std::size_t size, sso_bitset_t& lhs, sso_bitset_t rhs)
+{ 
+    if(size == 1)
+        lhs.uint &= rhs.uint;
+    else
+        bitset_and(size, lhs.ptr, rhs.ptr);
+}
+
 template<typename UInt>
 void bitset_difference(std::size_t size, UInt* lhs, UInt const* rhs)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     for(std::size_t i = 0; i < size; ++i)
         lhs[i] &= ~rhs[i];
+}
+
+inline void bitset_difference(std::size_t size, sso_bitset_t& lhs, 
+                              sso_bitset_t rhs)
+{ 
+    if(size == 1)
+        lhs.uint &= ~rhs.uint;
+    else
+        bitset_difference(size, lhs.ptr, rhs.ptr);
 }
 
 template<typename UInt>
@@ -44,12 +86,28 @@ void bitset_or(std::size_t size, UInt* lhs, UInt const* rhs)
         lhs[i] |= rhs[i];
 }
 
+inline void bitset_or(std::size_t size, sso_bitset_t& lhs, sso_bitset_t rhs)
+{ 
+    if(size == 1)
+        lhs.uint |= rhs.uint;
+    else
+        bitset_or(size, lhs.ptr, rhs.ptr);
+}
+
 template<typename UInt>
 void bitset_xor(std::size_t size, UInt* lhs, UInt const* rhs)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     for(std::size_t i = 0; i < size; ++i)
         lhs[i] ^= rhs[i];
+}
+
+inline void bitset_xor(std::size_t size, sso_bitset_t& lhs, sso_bitset_t rhs)
+{ 
+    if(size == 1)
+        lhs.uint ^= rhs.uint;
+    else
+        bitset_or(size, lhs.ptr, rhs.ptr);
 }
 
 template<typename UInt>
@@ -61,6 +119,14 @@ void bitset_clear(UInt* bitset, std::size_t i)
     bitset[byte_i] &= ~((UInt)1 << bit_i);
 }
 
+inline void bitset_clear(std::size_t size, sso_bitset_t& lhs, std::size_t i)
+{ 
+    if(size == 1)
+        lhs.uint &= ~(1ull << i);
+    else
+        bitset_clear(lhs.ptr, i);
+}
+
 template<typename UInt>
 void bitset_set(UInt* bitset, std::size_t i)
 {
@@ -68,6 +134,14 @@ void bitset_set(UInt* bitset, std::size_t i)
     UInt const byte_i = i / sizeof_bits<UInt>;
     UInt const bit_i = i % sizeof_bits<UInt>;
     bitset[byte_i] |= (UInt)1 << bit_i;
+}
+
+inline void bitset_set(std::size_t size, sso_bitset_t& lhs, std::size_t i)
+{ 
+    if(size == 1)
+        lhs.uint |= (1ull << i);
+    else
+        bitset_set(lhs.ptr, i);
 }
 
 template<typename UInt>
@@ -80,6 +154,19 @@ void bitset_set(UInt* bitset, std::size_t i, bool b)
     bitset[byte_i] |= (UInt)b << bit_i;
 }
 
+inline void bitset_set(std::size_t size, sso_bitset_t& lhs, 
+                       std::size_t i, bool b)
+{ 
+    if(size == 1)
+    {
+        lhs.uint &= ~(1ull << i);
+        lhs.uint |= (static_cast<bitset_uint_t>(b) << i);
+    }
+    else
+        bitset_set(lhs.ptr, i, b);
+}
+
+
 template<typename UInt>
 void bitset_flip(UInt* bitset, std::size_t i)
 {
@@ -87,6 +174,14 @@ void bitset_flip(UInt* bitset, std::size_t i)
     UInt const byte_i = i / sizeof_bits<UInt>;
     UInt const bit_i = i % sizeof_bits<UInt>;
     bitset[byte_i] ^= (UInt)1 << bit_i;
+}
+
+inline void bitset_flip(std::size_t size, sso_bitset_t& lhs, std::size_t i)
+{ 
+    if(size == 1)
+        lhs.uint ^= (1ull << i);
+    else
+        bitset_flip(lhs.ptr, i);
 }
 
 template<typename UInt>
@@ -98,11 +193,27 @@ bool bitset_test(UInt const* bitset, std::size_t i)
     return bitset[byte_i] & ((UInt)1 << bit_i);
 }
 
+inline bool bitset_test(std::size_t size, sso_bitset_t lhs, std::size_t i)
+{ 
+    if(size == 1)
+        return lhs.uint & (1ull << i);
+    else
+        return bitset_test(lhs.ptr, i);
+}
+
 template<typename UInt>
 void bitset_clear_all(std::size_t size, UInt* bitset)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     std::fill_n(bitset, size, (UInt)0);
+}
+
+inline void bitset_clear_all(std::size_t size, sso_bitset_t& lhs)
+{ 
+    if(size == 1)
+        lhs.uint = 0;
+    else
+        bitset_clear_all(size, lhs.ptr);
 }
 
 template<typename UInt>
@@ -112,12 +223,28 @@ void bitset_set_all(std::size_t size, UInt* bitset)
     std::fill_n(bitset, size, ~(UInt)0);
 }
 
+inline void bitset_set_all(std::size_t size, sso_bitset_t& lhs)
+{ 
+    if(size == 1)
+        lhs.uint = ~0ull;
+    else
+        bitset_set_all(size, lhs.ptr);
+}
+
 template<typename UInt>
 void bitset_flip_all(std::size_t size, UInt* bitset)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     for(std::size_t i = 0; i < size; ++i)
         bitset[i] = ~bitset[i];
+}
+
+inline void bitset_flip_all(std::size_t size, sso_bitset_t& lhs)
+{ 
+    if(size == 1)
+        lhs.uint = ~lhs.uint;
+    else
+        bitset_flip_all(size, lhs.ptr);
 }
 
 template<typename UInt>
@@ -130,6 +257,13 @@ bool bitset_all_set(std::size_t size, UInt const* bitset)
     return true;
 }
 
+inline bool bitset_all_set(std::size_t size, sso_bitset_t lhs)
+{ 
+    if(size == 1)
+        return lhs.uint == ~0ull;
+    else
+        return bitset_all_set(size, lhs.ptr);
+}
 
 template<typename UInt>
 bool bitset_all_clear(std::size_t size, UInt const* bitset)
@@ -139,6 +273,14 @@ bool bitset_all_clear(std::size_t size, UInt const* bitset)
         if(bitset[i] != 0)
             return false;
     return true;
+}
+
+inline bool bitset_all_clear(std::size_t size, sso_bitset_t lhs)
+{ 
+    if(size == 1)
+        return lhs.uint == 0ull;
+    else
+        return bitset_all_clear(size, lhs.ptr);
 }
 
 template<typename UInt>
@@ -151,6 +293,14 @@ std::size_t bitset_popcount(std::size_t size, UInt const* bitset)
     return count;
 }
 
+inline std::size_t bitset_popcount(std::size_t size, sso_bitset_t lhs)
+{ 
+    if(size == 1)
+        return builtin::popcount(lhs.uint);
+    else
+        return bitset_popcount(size, lhs.ptr);
+}
+
 template<typename UInt>
 bool bitset_eq(std::size_t size, UInt const* lhs, UInt const* rhs)
 {
@@ -158,11 +308,27 @@ bool bitset_eq(std::size_t size, UInt const* lhs, UInt const* rhs)
     return std::equal(lhs, lhs + size, rhs, rhs + size);
 }
 
+inline bool bitset_eq(std::size_t size, sso_bitset_t lhs, sso_bitset_t rhs)
+{ 
+    if(size == 1)
+        return lhs.uint == rhs.uint;
+    else
+        return bitset_eq(size, lhs.ptr, rhs.ptr);
+}
+
 template<typename UInt>
 void bitset_copy(std::size_t size, UInt* lhs, UInt const* rhs)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     std::copy_n(rhs, size, lhs);
+}
+
+inline void bitset_copy(std::size_t size, sso_bitset_t& lhs, sso_bitset_t rhs)
+{ 
+    if(size == 1)
+        lhs.uint = rhs.uint;
+    else
+        bitset_copy(size, lhs.ptr, rhs.ptr);
 }
 
 // Calls 'fn' for each set bit of the bitset.
@@ -179,7 +345,7 @@ void bitset_for_each(UInt bitset, Fn fn, unsigned span = 0)
 
 // Calls 'fn' for each set bit of the bitset.
 template<typename UInt, typename Fn>
-void bitset_for_each(std::size_t size, UInt* bitset, Fn fn)
+void bitset_for_each(std::size_t size, UInt const* bitset, Fn fn)
 {
     unsigned span = 0;
     for(std::size_t i = 0; i < size; ++i)
@@ -187,6 +353,15 @@ void bitset_for_each(std::size_t size, UInt* bitset, Fn fn)
         bitset_for_each(bitset[i], fn, span);
         span += sizeof_bits<UInt>;
     }
+}
+
+template<typename Fn>
+void bitset_for_each(std::size_t size, sso_bitset_t bitset, Fn fn)
+{ 
+    if(size == 1)
+        bitset_for_each(bitset.uint, std::move(fn), 0);
+    else
+        bitset_for_each(size, bitset.ptr, std::move(fn)); 
 }
 
 // Calls 'fn' for each set bit of the bitset.
@@ -214,6 +389,15 @@ bool bitset_for_each_test(std::size_t size, UInt* bitset, Fn fn)
         span += sizeof_bits<UInt>;
     }
     return true;
+}
+
+template<typename Fn>
+bool bitset_for_each_test(std::size_t size, sso_bitset_t bitset, Fn fn)
+{ 
+    if(size == 1)
+        return bitset_for_each_test(bitset.uint, std::move(fn), 0);
+    else
+        return bitset_for_each_test(size, bitset.ptr, std::move(fn)); 
 }
 
 // A shitty bitset class that exists because std::bitset abstracts too much.

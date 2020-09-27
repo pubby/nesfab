@@ -39,18 +39,25 @@ constexpr regs_t REG_A   = 0;
 constexpr regs_t REG_X   = 1;
 constexpr regs_t REG_Y   = 2;
 constexpr regs_t REG_C   = 3;
-constexpr unsigned NUM_VALUE_REGS = 3;
-constexpr unsigned NUM_REGS = 4;
+constexpr regs_t REG_Z   = 4;
+constexpr unsigned NUM_CPU_REGS = 5;
+constexpr regs_t REG_M   = 5; // RAM
 
 // Works like a bitset.
 constexpr regs_t REGF_A   = 1 << REG_A;
 constexpr regs_t REGF_X   = 1 << REG_X;
 constexpr regs_t REGF_Y   = 1 << REG_Y;
 constexpr regs_t REGF_C   = 1 << REG_C;
+constexpr regs_t REGF_Z   = 1 << REG_Z;
+constexpr regs_t REGF_M   = 1 << REG_M;
 
 constexpr regs_t REGF_AX   = REGF_A | REGF_X;
 constexpr regs_t REGF_AC   = REGF_A | REGF_C;
-constexpr regs_t REGF_ALL = REGF_A | REGF_X | REGF_Y | REGF_C;
+constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_Z;
+
+using asm_flags_t = std::uint32_t;
+
+constexpr asm_flags_t ASMF_MAYBE_STORE  = 1 << 0;
 
 struct op_def_t
 {
@@ -62,44 +69,34 @@ struct op_def_t
     std::uint8_t cycles;
     regs_t input_regs;
     regs_t output_regs;
+    asm_flags_t flags;
 };
 
 #include "asm_tables.hpp"
 
-consteval op_name_t op_name(op_t op)
-{
-    return op_defs_table[op].op_name;
-}
+constexpr op_name_t op_name(op_t op)
+    { return op_defs_table[op].op_name; }
 
-consteval std::uint8_t op_code(op_t op)
-{
-    return op_defs_table[op].op_code;
-}
+constexpr std::uint8_t op_code(op_t op)
+    { return op_defs_table[op].op_code; }
 
-consteval addr_mode_t op_addr_mode(op_t op)
-{
-    return op_defs_table[op].addr_mode;
-}
+constexpr addr_mode_t op_addr_mode(op_t op)
+    { return op_defs_table[op].addr_mode; }
 
-consteval unsigned op_cycles(op_t op)
-{
-    return op_defs_table[op].cycles;
-}
+constexpr unsigned op_cycles(op_t op)
+    { return op_defs_table[op].cycles; }
 
-consteval unsigned op_size(op_t op)
-{
-    return op_defs_table[op].size;
-}
+constexpr unsigned op_size(op_t op)
+    { return op_defs_table[op].size; }
 
-consteval regs_t op_input_regs(op_t op)
-{
-    return op_defs_table[op].input_regs;
-}
+constexpr regs_t op_input_regs(op_t op)
+    { return op_defs_table[op].input_regs; }
 
-consteval regs_t op_output_regs(op_t op)
-{
-    return op_defs_table[op].output_regs;
-}
+constexpr regs_t op_output_regs(op_t op)
+    { return op_defs_table[op].output_regs; }
+
+constexpr asm_flags_t op_flags(op_t op)
+    { return op_defs_table[op].flags; }
 
 using addr_mode_table_t = std::array<op_t, NUM_ADDR_MODES>;
 using op_name_mode_table_t = std::array<addr_mode_table_t, NUM_OP_NAMES>;
@@ -125,6 +122,22 @@ consteval op_t get_op(op_name_t name, addr_mode_t mode)
 inline addr_mode_table_t const& get_addr_modes(op_name_t name)
 {
     return op_name_mode_table[name];
+}
+
+constexpr op_name_t invert_branch(op_name_t name)
+{
+    switch(name)
+    {
+    case BPL: return BMI;
+    case BMI: return BPL;
+    case BEQ: return BNE;
+    case BNE: return BEQ;
+    case BCC: return BCS;
+    case BCS: return BCC;
+    case BVC: return BVS;
+    case BVS: return BVC;
+    default: return BAD_OP_NAME;
+    }
 }
 
 #endif

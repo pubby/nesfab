@@ -6,17 +6,16 @@
 #include <array>
 
 #include "asm.hpp"
+#include "cg.hpp"
 #include "ir.hpp"
 
 struct sel_t
 {
     sel_t const* prev = nullptr;
-    op_t op = BAD_OP;
     unsigned cost = 0;
-    ssa_value_t arg = {};
+    ainst_t inst = {};
 };
 
-sel_t const* select_instructions(ssa_ht const* schedule_begin, 
-                                 ssa_ht const* schedule_end);
+std::vector<ainst_t> select_instructions(cfg_ht cfg_node);
 
 #endif

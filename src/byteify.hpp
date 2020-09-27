@@ -1,5 +1,5 @@
-#ifndef CG_BYTEIFY_HPP
-#define CG_BYTEIFY_HPP
+#ifndef BYTEIFY_HPP
+#define BYTEIFY_HPP
 
 // Converts arithmetic types in the IR to all be bytes.
 

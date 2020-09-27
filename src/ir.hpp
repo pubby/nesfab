@@ -125,7 +125,6 @@ public:
         return value;
     }
 
-
     struct ssa_bck_edge_t* output() const;
 
     // This version ignores edges and only checks the pointed-to value.
@@ -133,7 +132,14 @@ public:
 
     // This version checks edges too.
     bool edges_eq(ssa_fwd_edge_t const& o) const { return value == o.value; }
+
+    type_t type() const;
+
+    explicit operator bool() const { return this->value; }
+    bool operator!() const { return !this->value; }
 };
+
+std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s);
 
 struct ssa_bck_edge_t
 {
@@ -184,9 +190,6 @@ public:
     constexpr ssa_value_t(ssa_fwd_edge_t const& edge) : ssa_fwd_edge_t(edge) {}
     constexpr explicit ssa_value_t(void const* ptr) : ssa_fwd_edge_t(ptr) {}
 
-    explicit operator bool() const { return this->value; }
-    bool operator!() const { return !this->value; }
-
     ssa_node_t& operator*() const 
         { assert(handle()); return handle().operator*(); }
     ssa_node_t* operator->() const 
@@ -196,8 +199,6 @@ public:
     bool operator!=(ssa_value_t const& o) const { return !targets_eq(o); }
     bool operator<(ssa_value_t const& o) const 
         { return target() < o.target(); }
-
-    type_t type() const;
 };
 
 ////////////////////////////////////////
@@ -327,6 +328,10 @@ public:
     ssa_bck_edge_t output_edge(unsigned i) const { return m_io.output(i); }
     std::uint32_t output_size() const { return m_io.output_size(); }
 
+    // Be careful with this; don't change from/to phi nodes or other
+    // nodes that have some extra behavior tied to their op.
+    void unsafe_set_op(ssa_op_t new_op) { m_op = new_op; }
+
     // Allocates memory for input/output, but doesn't link anything up.
     void alloc_input(unsigned size);
     void alloc_output(unsigned size);
@@ -348,6 +353,8 @@ public:
     bool link_change_input(unsigned i, ssa_value_t new_value);
     void link_clear_inputs();
     void link_shrink_inputs(unsigned new_size);
+
+    ssa_ht split_output_edge(bool this_cfg, unsigned output_i, ssa_op_t op);
 
     bool in_daisy() const { return test_flags(FLAG_DAISY); }
     void insert_daisy(ssa_ht it);
@@ -558,6 +565,16 @@ inline ssa_fwd_edge_t& ssa_bck_edge_t::input() const
     return handle->m_io.input(index);
 }
 
+inline type_t ssa_fwd_edge_t::type() const
+{ 
+    assert(operator bool());
+    if(is_num())
+        return { TYPE_LARGEST_FIXED };
+    if(holds_ref())
+        return handle()->type();
+    return { TYPE_VOID };
+}
+
 inline input_class_t ssa_bck_edge_t::input_class() const
 {
     assert(index < handle->input_size());
@@ -576,12 +593,6 @@ inline cfg_fwd_edge_t& cfg_bck_edge_t::input() const
 {
     assert(index < handle->input_size());
     return handle->m_io.input(index);
-}
-
-inline type_t ssa_value_t::type() const
-{ 
-    assert(operator bool());
-    return is_const() ? type_t{TYPE_LARGEST_FIXED} : handle()->type();
 }
 
 ////////////////////////////////////////
@@ -740,7 +751,7 @@ void for_each_written_global(ssa_ht h, Fn fn)
     unsigned const begin = write_globals_begin(h->op());
     unsigned const input_size = h->input_size();
     assert((input_size - begin) % 2 == 0);
-    for(unsigned i = write_globals_begin(h->op()); i < input_size; i += 2)
+    for(unsigned i = begin; i < input_size; i += 2)
         fn(h->input(i), h->input(i+1).locator());
 }
 
@@ -752,7 +763,7 @@ void for_each_node_input(ssa_ht h, Fn fn)
     {
         ssa_value_t input = h->input(i);
         if(input.holds_ref())
-            fn(input.handle(), i);
+            fn(input.handle());
     }
 }
 

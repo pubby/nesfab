@@ -17,6 +17,14 @@ std::string to_string(locator_t loc)
         return fmt("call %", loc.index());
     case LCLASS_RETURN:
         return fmt("ret %", loc.index());
+    case LCLASS_CARRY:
+        return fmt("carry %", loc.index());
+    case LCLASS_PHI:
+        return fmt("phi %", loc.index());
+    case LCLASS_CFG_LABEL:
+        return fmt("cfg label %", loc.index());
+    case LCLASS_MINOR_LABEL:
+        return fmt("minor label %", loc.index());
     default: return "unknown locator";
     }
 }

@@ -41,7 +41,8 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        o << gv_id(ssa_it) << " [label=\"" << to_string(ssa_it->op());
+        o << gv_id(ssa_it) << " [label=\"(" << ssa_it.index << ") ";
+        o << to_string(ssa_it->op());
         o << " " << ssa_it->type();
         if(ssa_it == ssa_it->cfg_node()->last_daisy())
             o << " (EXIT)";

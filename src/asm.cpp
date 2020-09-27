@@ -1,5 +1,7 @@
 #include "asm.hpp"
 
+#include <ostream>
+
 #include <boost/preprocessor/stringize.hpp>
 #include <boost/preprocessor/cat.hpp>
 

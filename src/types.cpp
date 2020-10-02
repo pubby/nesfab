@@ -97,10 +97,12 @@ std::string to_string(type_t type)
         throw std::runtime_error("bad type");
     case TYPE_VOID:  return "void"s;
     case TYPE_BOOL:  return "bool"s;
+    case TYPE_CARRY: return "carry"s;
     case TYPE_BYTE:  return "byte"s;
     case TYPE_SHORT: return "short"s;
     case TYPE_INT:   return "int"s;
     case TYPE_ARRAY: // TODO
+    case TYPE_BUFFER: // TODO
         throw std::runtime_error("TODO - unimplemented type"s);
     case TYPE_PTR:
         return "%" + to_string(type[0]);

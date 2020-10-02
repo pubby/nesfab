@@ -1,0 +1,11 @@
+vars
+    byte f
+    byte g
+
+fn foo(short x, short y, short z) short
+    f = z
+    g = 10
+    if(x == 8)
+        return (x & y) + (x & z)
+    else
+        return (x | y) + (x | z)

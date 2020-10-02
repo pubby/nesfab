@@ -36,6 +36,14 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .output_regs = REGF_M,
         .flags = ASMF_MAYBE_STORE,
     },
+    { 
+        .op = MAYBE_STORE_C,
+        .size = 9,
+        .cycles = 13,
+        .input_regs = REGF_C,
+        .output_regs = REGF_M,
+        .flags = ASMF_MAYBE_STORE,
+    },
 
     // ADC
     {
@@ -1435,6 +1443,16 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
     {
         OP(ALR, IMMEDIATE),
         .op_code = 0x4B,
+        .size = 2,
+        .cycles = 2,
+        .input_regs = REGF_A,
+        .output_regs = REGF_Z | REGF_A | REGF_C,
+    },
+
+    // ARR
+    {
+        OP(ARR, IMMEDIATE),
+        .op_code = 0x6B,
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,

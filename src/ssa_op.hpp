@@ -20,8 +20,8 @@ enum input_class_t
 {
     INPUT_NONE,
     INPUT_VALUE,
-    INPUT_CARRY,
     INPUT_LINK,
+    INPUT_TRACE,
 };
 
 enum ssa_op_t : short

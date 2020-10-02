@@ -10,6 +10,7 @@
 
 #include "array_pool.hpp"
 
+
 // An approximation of the CPU's state at a given position.
 struct cpu_t
 {
@@ -31,6 +32,20 @@ struct cpu_t
         return (req_store == o.req_store 
                 && conditional_regs == o.conditional_regs 
                 && regs == o.regs);
+    }
+
+    bool reg_eq(regs_t reg, ssa_value_t v) const
+    {
+        assert(is_orig_def(regs[reg]));
+        assert(is_orig_def(v));
+    #ifndef NDEBUG
+        if(reg == REG_C && v.is_num() && regs[reg].is_num())
+        {
+            assert(regs[reg].whole() <= 1);
+            assert(v.whole() <= 1);
+        }
+    #endif
+        return regs[reg] == v;
     }
 };
 
@@ -93,6 +108,14 @@ namespace isel
 
     // Main global state of the instruction selection algorithm.
     static thread_local state_t state;
+
+    ssa_value_t mem_arg(ssa_value_t v)
+    {
+        if(v.holds_ref())
+            if(locator_t loc = cset_locator(v.handle()))
+                return loc;
+        return v;
+    }
 
     unsigned get_cost(sel_t const* sel)
     {
@@ -181,6 +204,8 @@ namespace isel
         template<typename Cont> 
         void operator()(cpu_t cpu, sel_t const* prev, Cont cont) const
         {
+            assert(is_orig_def(v));
+
             if((Regs & Opt.can_set) == Regs)
             {
                 if(Opt.conditional)
@@ -192,7 +217,10 @@ namespace isel
                 if(Regs & REGF_Y)
                     cpu.regs[REG_Y] = v;
                 if(Regs & REGF_C)
+                {
                     cpu.regs[REG_C] = v;
+                    assert(!v.is_num() || v.whole() <= 1);
+                }
                 if(Regs & REGF_Z)
                     cpu.regs[REG_Z] = v;
                 cont(cpu, prev);
@@ -223,11 +251,12 @@ namespace isel
     };
 
     template<op_t Op, opt_t Opt>
-    using set_regs_for = set_regs<op_output_regs(Op), Opt>;
+    using set_regs_for = set_regs<op_output_regs(Op) & REGF_CPU, Opt>;
 
     template<op_t Op, opt_t Opt>
     constexpr bool can_set_regs_for = 
-        (Opt.can_set & op_output_regs(Op)) == op_output_regs(Op);
+        ((Opt.can_set & op_output_regs(Op) & REGF_CPU) 
+         == (op_output_regs(Op) & REGF_CPU));
 
     template<op_name_t OpName, opt_t Opt = opt_t{}>
     struct def_op
@@ -248,24 +277,31 @@ namespace isel
         void operator()(cpu_t cpu, sel_t const* prev, Cont cont) const
         {
             assert(v);
-            assert(!v.holds_ref() || v->type() == TYPE_BYTE);
+            assert(is_orig_def(v));
+            //assert(!v.holds_ref() || v->type() == TYPE_BYTE);
 
-            if(cpu.regs[REG_A] == v)
+            ssa_value_t def = orig_def(v);
+            ssa_value_t mem = mem_arg(v);
+
+            if(cpu.reg_eq(REG_A, def))
                 cont(cpu, prev);
             else if((Opt.can_set & REGF_A) == 0)
             {
                 assert(false);
                 return; // Abort!
             }
-            else if(cpu.regs[REG_X] == v)
-                (def_op<TXA, Opt>{v} >>= cont)(cpu, prev);
-            else if(cpu.regs[REG_Y] == v)
-                (def_op<TYA, Opt>{v} >>= cont)(cpu, prev);
+            else if(cpu.reg_eq(REG_X, def))
+                def_op<TXA, Opt>{def}(cpu, prev, cont);
+            else if(cpu.reg_eq(REG_Y, def))
+                def_op<TYA, Opt>{def}(cpu, prev, cont);
             else
             {
-                (def_op<LDA, Opt>{v, v} >>= cont)(cpu, prev);
-                if((Opt.can_set & REGF_X) && !v.is_num())
-                    (def_op<LAX, Opt>{v, v} >>= cont)(cpu, prev);
+                def_op<LDA, Opt>{def, mem}(cpu, prev, cont);
+                if((Opt.can_set & REGF_X) && !def.is_num())
+                    def_op<LAX, Opt>{def, mem}(cpu, prev, cont);
+                if((Opt.can_set & REGF_C) && def.is_num() && def.whole() == 0)
+                    def_op<ANC, Opt>{0u, 0u}(cpu, prev, cont);
+
             }
         }
     };
@@ -279,22 +315,26 @@ namespace isel
         void operator()(cpu_t cpu, sel_t const* prev, Cont cont) const
         {
             assert(v);
-            assert(!v.holds_ref() || v->type() == TYPE_BYTE);
+            assert(is_orig_def(v));
+            //assert(!v.holds_ref() || v->type() == TYPE_BYTE);
 
-            if(cpu.regs[REG_X] == v)
+            ssa_value_t def = orig_def(v);
+            ssa_value_t mem = mem_arg(v);
+
+            if(cpu.reg_eq(REG_X, def))
                 cont(cpu, prev);
             else if((Opt.can_set & REGF_X) == 0)
             {
                 assert(false);
                 return; // Abort!
             }
-            else if(cpu.regs[REG_A] == v)
-                def_op<TAX, Opt>{v}(cpu, prev, cont);
+            else if(cpu.reg_eq(REG_A, def))
+                def_op<TAX, Opt>{def}(cpu, prev, cont);
             else
             {
-                def_op<LDX, Opt>{v, v}(cpu, prev, cont);
-                if((Opt.can_set & REGF_A) && !v.is_num())
-                    def_op<LAX, Opt>{v, v}(cpu, prev, cont);
+                def_op<LDX, Opt>{def, mem}(cpu, prev, cont);
+                if((Opt.can_set & REGF_A) && !def.is_num())
+                    def_op<LAX, Opt>{def, mem}(cpu, prev, cont);
             }
         }
     };
@@ -308,19 +348,23 @@ namespace isel
         void operator()(cpu_t cpu, sel_t const* prev, Cont cont) const
         {
             assert(v);
-            assert(!v.holds_ref() || v->type() == TYPE_BYTE);
+            assert(is_orig_def(v));
+            //assert(!v.holds_ref() || v->type() == TYPE_BYTE);
 
-            if(cpu.regs[REG_Y] == v)
+            ssa_value_t def = orig_def(v);
+            ssa_value_t mem = mem_arg(v);
+
+            if(cpu.reg_eq(REG_Y, def))
                 cont(cpu, prev);
             else if((Opt.can_set & REGF_Y) == 0)
             {
                 assert(false);
                 return; // Abort!
             }
-            else if(cpu.regs[REG_A] == v)
-                def_op<TAY, Opt>{v}(cpu, prev, cont);
+            else if(cpu.reg_eq(REG_A, def))
+                def_op<TAY, Opt>{def}(cpu, prev, cont);
             else
-                def_op<LDY, Opt>{v, v}(cpu, prev, cont);
+                def_op<LDY, Opt>{def, mem}(cpu, prev, cont);
         }
     };
 
@@ -333,25 +377,29 @@ namespace isel
         void operator()(cpu_t cpu, sel_t const* prev, Cont cont) const
         {
             assert(v);
-            assert(!v.holds_ref() || v->type() == TYPE_BYTE);
+            assert(is_orig_def(v));
+            //assert(!v.holds_ref() || v->type() == TYPE_BYTE);
 
-            if(cpu.regs[REG_A] == v && cpu.regs[REG_X] == v)
+            ssa_value_t def = orig_def(v);
+            ssa_value_t mem = mem_arg(v);
+
+            if(cpu.reg_eq(REG_A, def) && cpu.reg_eq(REG_X, def))
                 cont(cpu, prev);
             else if((Opt.can_set & REGF_AX) != REGF_AX)
             {
                 assert(false);
                 return; // Abort!
             }
-            else if(cpu.regs[REG_X] == v)
-                def_op<TXA, Opt>{v}(cpu, prev, cont);
-            else if(cpu.regs[REG_A] == v)
-                def_op<TAX, Opt>{v}(cpu, prev, cont);
+            else if(cpu.reg_eq(REG_X, def))
+                def_op<TXA, Opt>{def}(cpu, prev, cont);
+            else if(cpu.reg_eq(REG_A, def))
+                def_op<TAX, Opt>{def}(cpu, prev, cont);
             else if(v.is_num())
-                (def_op<LDA, Opt>{v, v}
-                 >>= def_op<TAX, Opt>{v}
+                (def_op<LDA, Opt>{def, mem}
+                 >>= def_op<TAX, Opt>{def}
                  >>= cont)(cpu, prev);
             else
-                def_op<LAX, Opt>{v, v}(cpu, prev, cont);
+                def_op<LAX, Opt>{def, mem}(cpu, prev, cont);
         }
     };
 
@@ -364,11 +412,15 @@ namespace isel
         void operator()(cpu_t cpu, sel_t const* prev, Cont cont) const
         {
             assert(v);
-            assert(!v.holds_ref() 
-                   || v->type() == TYPE_BYTE
-                   || v->type() == TYPE_BOOL);
+            assert(is_orig_def(v));
+            ////assert(!v.holds_ref() 
+                   //|| v->type() == TYPE_BYTE
+                   //|| v->type() == TYPE_BOOL);
 
-            if(cpu.regs[REG_Z] == v)
+            ssa_value_t def = orig_def(v);
+            ssa_value_t mem = mem_arg(v);
+
+            if(cpu.reg_eq(REG_Z, def))
                 cont(cpu, prev);
             else if((Opt.can_set & REGF_Z) == 0)
             {
@@ -377,46 +429,52 @@ namespace isel
             }
             else
             {
-                if(cpu.regs[REG_A] == v)
+                if(cpu.reg_eq(REG_A, def))
                 {
-                    def_op<EOR, Opt>{v, 0u}(cpu, prev, cont);
-                    def_op<TAX, Opt>{v}(cpu, prev, cont);
-                    def_op<TAY, Opt>{v}(cpu, prev, cont);
+                    def_op<EOR, Opt>{def, 0u}(cpu, prev, cont);
+                    def_op<TAX, Opt>{def}(cpu, prev, cont);
+                    def_op<TAY, Opt>{def}(cpu, prev, cont);
                 }
                 else
-                    def_op<LDA, Opt>{v, v}(cpu, prev, cont);
+                    def_op<LDA, Opt>{def, mem}(cpu, prev, cont);
 
-                if(cpu.regs[REG_X] == v)
+                if(cpu.reg_eq(REG_X, def))
                 {
                     (def_op<INX, Opt>{}
                     >>= def_op<DEX, Opt>{}
-                    >>= set_regs<REGF_X | REGF_Z, Opt>{v}
+                    >>= set_regs<REGF_X | REGF_Z, Opt>{def}
                     >>= cont)(cpu, prev);
 
                     (def_op<CPX, Opt>{{}, 0u}
-                    >>= set_regs<REGF_X | REGF_Z, Opt>{v}
+                    >>= set_regs<REGF_X | REGF_Z, Opt>{def}
                     >>= cont)(cpu, prev);
 
-                    def_op<TXA, Opt>{v}(cpu, prev, cont);
+                    def_op<TXA, Opt>{def}(cpu, prev, cont);
                 }
                 else
-                    def_op<LDX, Opt>{v, v}(cpu, prev, cont);
+                    def_op<LDX, Opt>{def, mem}(cpu, prev, cont);
 
-                if(cpu.regs[REG_Y] == v)
+                if(cpu.reg_eq(REG_Y, def))
                 {
                     (def_op<INY, Opt>{}
                     >>= def_op<DEY, Opt>{}
-                    >>= set_regs<REGF_Y | REGF_Z, Opt>{v}
+                    >>= set_regs<REGF_Y | REGF_Z, Opt>{def}
                     >>= cont)(cpu, prev);
 
                     (def_op<CPY, Opt>{{}, 0u}
-                    >>= set_regs<REGF_Y | REGF_Z, Opt>{v}
+                    >>= set_regs<REGF_Y | REGF_Z, Opt>{def}
                     >>= cont)(cpu, prev);
 
-                    def_op<TYA, Opt>{v}(cpu, prev, cont);
+                    def_op<TYA, Opt>{def}(cpu, prev, cont);
                 }
                 else
-                    def_op<LDY, Opt>{v, v}(cpu, prev, cont);
+                    def_op<LDY, Opt>{def, mem}(cpu, prev, cont);
+
+                if(!cpu.reg_eq(REG_A, def) && !cpu.reg_eq(REG_X, def)
+                   && !def.is_num())
+                {
+                    def_op<LAX, Opt>{def, mem}(cpu, prev, cont);
+                }
             }
         }
     };
@@ -432,21 +490,33 @@ namespace isel
         {
             assert(a && c);
 
-            if(cpu.regs[REG_C] != c)
+            if(!cpu.reg_eq(REG_C, c))
             {
                 if((Opt.can_set & REGF_AC) != REGF_AC)
                     return;
+
+                ssa_value_t cdef = orig_def(c);
+                //ssa_value_t cmem = mem_arg(c);
+
+                ssa_value_t adef = orig_def(a);
 
                 if(c.is_handle())
                 {
                     assert(c.handle());
 
-                    ([=,*this](cpu_t cpu, sel_t const* prev, auto cont)
-                    { cont(cpu, &alloc_sel<LDA_ABSOLUTE>(prev, 
-                        locator_t::carry(c.handle()))); }
-                    >>= def_op<PHA, Opt>{}
-                    >>= def_op<PLP, Opt>{c}
-                    >>= load_A<Opt.mask(~REGF_C)>{a}
+                    (load_A<Opt>{ c }
+                    >>= def_op<CMP>{ {}, 1u }
+                    >>= set_regs<REGF_C, Opt>{ cdef }
+                    >>= cont)(cpu, prev);
+
+                    (load_X<Opt>{ c }
+                    >>= def_op<CPX>{ {}, 1u }
+                    >>= set_regs<REGF_C, Opt>{ cdef }
+                    >>= cont)(cpu, prev);
+
+                    (load_Y<Opt>{ c }
+                    >>= def_op<CPY>{ {}, 1u }
+                    >>= set_regs<REGF_C, Opt>{ cdef }
                     >>= cont)(cpu, prev);
                 }
                 else if(c.is_num())
@@ -454,8 +524,8 @@ namespace isel
                     // TODO: use constraints instead
                     if(c.carry())
                     {
-                        (def_op<SEC, Opt>{c}
-                        >>= load_A<Opt.mask(~REGF_C)>{a}
+                        (def_op<SEC, Opt>{ cdef }
+                        >>= load_A<Opt.mask(~REGF_C)>{ a }
                         >>= cont)(cpu, prev);
 
                         if((Opt.can_set & REGF_A) && a.is_num() 
@@ -463,14 +533,14 @@ namespace isel
                         {
                             unsigned const r = cpu.regs[REG_A].whole();
                             if((r & 1) == 1 && (r >> 1) == a.whole())
-                                (def_op<LSR, Opt>{a}
-                                 >>= set_regs<REGF_C, Opt>{1u}
-                                 >>= cont)(cpu, prev);
+                                (def_op<LSR, Opt>{ adef }
+                                >>= set_regs<REGF_C, Opt>{ 1u }
+                                >>= cont)(cpu, prev);
                         }
                     }
                     else
                     {
-                        (def_op<CLC, Opt>{c}
+                        (def_op<CLC, Opt>{ cdef }
                         >>= load_A<Opt.mask(~REGF_C)>{a}
                         >>= cont)(cpu, prev);
 
@@ -481,12 +551,12 @@ namespace isel
                             if((r >> 1) == a.whole())
                             {
                                 if((r & 1) == 0)
-                                    (def_op<LSR, Opt>{a}
-                                     >>= set_regs<REGF_C, Opt>{0u}
+                                    (def_op<LSR, Opt>{ adef }
+                                     >>= set_regs<REGF_C, Opt>{ 0u }
                                      >>= cont)(cpu, prev);
                                 else
-                                    (def_op<ALR, Opt>{a, 0xFEu}
-                                     >>= set_regs<REGF_C, Opt>{0u}
+                                    (def_op<ALR, Opt>{ adef, 0xFEu }
+                                     >>= set_regs<REGF_C, Opt>{ 0u }
                                      >>= cont)(cpu, prev);
                             }
 
@@ -598,19 +668,21 @@ namespace isel
         }
         else if(absolute && !arg.is_num())
         {
-            if(arg.is_const())
+            ssa_value_t mem = mem_arg(arg);
+
+            if(mem.is_const())
             {
                 if(can_set_regs_for<absolute, Opt>)
                     set_regs_for<absolute, Opt>{def}
-                        (cpu, &alloc_sel<absolute>(prev, arg), cont);
+                        (cpu, &alloc_sel<absolute>(prev, mem), cont);
                 else
                     assert(false);
 
                 return;
             }
 
-            assert(arg.is_handle());
-            ssa_ht h = arg.handle();
+            assert(mem.is_handle());
+            ssa_ht h = mem.handle();
             auto& d = cg_data(h);
 
             unsigned store_penalty = cost_fn<STA_ABSOLUTE> / 2;
@@ -632,7 +704,7 @@ namespace isel
             if(can_set_regs_for<absolute, Opt>)
             {
                 (set_regs_for<absolute, Opt>{def} >>= cont)
-                    (new_cpu, &alloc_sel<absolute>(prev, arg, store_penalty));
+                    (new_cpu, &alloc_sel<absolute>(prev, h, store_penalty));
 
                 // If the node(s) were already stored, no point in checking
                 // other methods of loading:
@@ -674,7 +746,6 @@ namespace isel
         auto result = state.next_map.insert({ cpu, sel });
 
         unsigned const sel_cost = get_cost(sel);
-        //std::cout << "FINISH " << sel_cost << '\n';
 
         if(!result.inserted && sel_cost < get_cost(*result.mapped))
             *result.mapped = sel;
@@ -689,29 +760,34 @@ namespace isel
     template<op_name_t StoreOp, bool Maybe = true>
     struct store
     {
-        ssa_ht h;
+        ssa_value_t v;
 
         template<typename Cont>
         void operator()(cpu_t cpu, sel_t const* prev, Cont cont) const
         {
             // Store the node in whatever locator needs it:
-            for(locator_t loc : cg_data(h).store_in_locs)
-                prev = &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(prev, loc);
+            if(v.holds_ref())
+                for(locator_t loc : cg_data(v.handle()).store_in_locs)
+                    prev = &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(
+                        prev, loc);
+
+            ssa_value_t const mem = mem_arg(v);
 
             // Store the node, locally:
-            if(Maybe)
+            if(Maybe && mem.holds_ref())
             {
                 switch(StoreOp)
                 {
-                case STA: cont(cpu, &alloc_sel<MAYBE_STA>(prev, h)); break;
-                case STX: cont(cpu, &alloc_sel<MAYBE_STX>(prev, h)); break;
-                case STY: cont(cpu, &alloc_sel<MAYBE_STY>(prev, h)); break;
-                case SAX: cont(cpu, &alloc_sel<MAYBE_SAX>(prev, h)); break;
+                case STA: cont(cpu, &alloc_sel<MAYBE_STA>(prev, mem)); break;
+                case STX: cont(cpu, &alloc_sel<MAYBE_STX>(prev, mem)); break;
+                case STY: cont(cpu, &alloc_sel<MAYBE_STY>(prev, mem)); break;
+                case SAX: cont(cpu, &alloc_sel<MAYBE_SAX>(prev, mem)); break;
                 default: assert(false); break;
                 }
             }
             else
-                cont(cpu, &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(prev, h));
+                cont(cpu, 
+                     &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(prev, mem));
         }
 
         void operator()(cpu_t cpu, sel_t const* prev) const
@@ -719,6 +795,51 @@ namespace isel
             operator()(cpu, prev, finish);
         }
     };
+
+    void store_carry(ssa_ht h)
+    {
+        ssa_value_t const mem = mem_arg(h);
+
+        if(cg_data(h).store_in_locs.size() || h->output_size() > 1
+           || (h->output_size() == 1 
+               && h->output(0)->cfg_node() != h->cfg_node()))
+        {
+            locator_t const lbl = locator_t::minor_label(state.next_label++);
+
+            select_step(
+                def_op<ARR>{ {}, 0 }
+                >>= store<STA, false>{h});
+
+            constexpr opt_t opt = { .can_set = ~REGF_C, .conditional = true };
+
+            select_step(
+                load_X<opt>{ 0u }
+                >>= def_op<BCC>{{}, lbl }
+                >>= def_op<INX, opt>{ {}, lbl }
+                >>= label{ lbl }
+                >>= clear_conditional{}
+                >>= set_regs<REGF_C>{ orig_def(h) }
+                >>= store<STX, false>{mem});
+
+            select_step(
+                load_Y<opt>{ 0u }
+                >>= def_op<BCC>{{}, lbl }
+                >>= def_op<INY, opt>{ {}, lbl }
+                >>= label{ lbl }
+                >>= clear_conditional{}
+                >>= set_regs<REGF_C>{ orig_def(h) }
+                >>= store<STY, false>{mem});
+        }
+        else
+        {
+            select_step([h, mem](cpu_t cpu, sel_t const* prev)
+            {
+                cpu.regs[REG_C] = orig_def(h);
+                assert(cpu.reg_eq(REG_C, orig_def(h)));
+                finish(cpu, &alloc_sel<MAYBE_STORE_C>(prev, mem));
+            });
+        }
+    }
 
     template<op_name_t BranchOp>
     void eq_branch(ssa_ht h, locator_t fail_label, locator_t success_label)
@@ -753,14 +874,14 @@ namespace isel
                     >>= finish)(cpu, prev);
                 }
             });
-
-            constexpr opt_t opt = { .conditional = true };
-
-            select_step(
-                def_op<BranchOp, opt>{ {}, success_label }
-                >>= clear_conditional{}
-                >>= finish);
         }
+
+        constexpr opt_t opt = { .conditional = true };
+
+        select_step(
+            def_op<BranchOp, opt>{ {}, success_label }
+            >>= clear_conditional{}
+            >>= finish);
     }
 
     template<op_name_t BranchOp>
@@ -769,15 +890,19 @@ namespace isel
         locator_t fail     = locator_t::minor_label(state.next_label++);
         locator_t success  = locator_t::minor_label(state.next_label++);
         locator_t complete = locator_t::minor_label(state.next_label++);
+
         eq_branch<BranchOp>(h, fail, success);
+
+        constexpr opt_t opt = { .conditional = true };
 
         select_step(
             label{ fail }
-            >>= def_op<LDA>{ h, 0 }
+            >>= def_op<LDA, opt>{ {}, 0 }
             >>= def_op<JMP>{ {}, complete }
             >>= label{ success }
-            >>= def_op<LDA>{ h, 1 }
+            >>= def_op<LDA, opt>{ {}, 1 }
             >>= label{ complete }
+            >>= clear_conditional{}
             >>= store<STA>{ h });
     }
 
@@ -843,24 +968,28 @@ namespace isel
     {
         for_each_written_global(h, [h](ssa_value_t def, locator_t loc)
         {
-            assert(def.is_handle());
-            assert(def->op() == SSA_locator_store);
+            if(def.is_handle())
+            {
+                assert(def->op() == SSA_locator_store);
 
-            if(def->test_flags(FLAG_COALESCED))
-                return;
+                if(def->test_flags(FLAG_COALESCED))
+                    return;
 
-            select_step([h, loc, def](cpu_t cpu, sel_t const* prev)
+                def = def->input(0);
+            }
+
+            select_step([loc, def](cpu_t cpu, sel_t const* prev)
             {
                 (load_A<>{ def }
-                 >>= def_op<STA>{ h, loc }
+                 >>= def_op<STA>{ {}, loc }
                  >>= finish)(cpu, prev);
 
                 (load_X<>{ def }
-                 >>= def_op<STX>{ h, loc }
+                 >>= def_op<STX>{ {}, loc }
                  >>= finish)(cpu, prev);
 
                 (load_Y<>{ def }
-                 >>= def_op<STY>{ h, loc }
+                 >>= def_op<STY>{ {}, loc }
                  >>= finish)(cpu, prev);
             });
         });
@@ -995,20 +1124,23 @@ namespace isel
 
         auto const copy_impl = [&](ssa_ht def, ssa_value_t input)
         {
+            ssa_value_t const orig = orig_def(def);
+
             (load_A<>{ input }
-            >>= set_regs<REGF_A>{ def }
+            >>= set_regs<REGF_A>{ orig }
             >>= store<STA>{ h })(cpu, prev);
 
             (load_X<>{ input }
-            >>= set_regs<REGF_X>{ def }
+            >>= set_regs<REGF_X>{ orig }
             >>= store<STX>{ h })(cpu, prev);
 
             (load_Y<>{ input }
-            >>= set_regs<REGF_Y>{ def }
+            >>= set_regs<REGF_Y>{ orig }
             >>= store<STY>{ h })(cpu, prev);
         };
 
         cfg_ht const cfg_node = h->cfg_node();
+        ssa_value_t const def = orig_def(h);
 
         switch(h->op())
         {
@@ -1019,11 +1151,11 @@ namespace isel
                 commutative(h, [&](ssa_value_t lhs, ssa_value_t rhs)
                 {
                     (load_CA<>{ carry, lhs }
-                    >>= def_op<ADC>{ h, rhs }
+                    >>= def_op<ADC>{ def, rhs }
                     >>= store<STA>{h})(cpu, prev);
                 });
 
-                if(!has_output_matching(h, INPUT_CARRY) && carry.is_const())
+                if(carry_used(*h) && carry.is_const())
                 {
                     commutative(h, [&](ssa_value_t lhs, ssa_value_t rhs)
                     {
@@ -1034,19 +1166,19 @@ namespace isel
                             (0x100 - rhs.whole() - carry.carry()) & 0xFF;
 
                         (load_AX<>{ lhs }
-                        >>= def_op<AXS>{ h, axs_arg }
+                        >>= def_op<AXS>{ def, axs_arg }
                         >>= set_regs<REGF_C>{}
                         >>= store<STX>{h})(cpu, prev);
 
                         (load_X<>{ lhs }
                         >>= load_A<opt_t{ ~REGF_X }>{ 0xFFu }
-                        >>= def_op<AXS>{ h, axs_arg }
+                        >>= def_op<AXS>{ def, axs_arg }
                         >>= set_regs<REGF_C>{}
                         >>= store<STX>{h})(cpu, prev);
 
                         (load_A<>{ 0xFFu }
                         >>= load_X<opt_t{ ~REGF_A }>{ lhs }
-                        >>= def_op<AXS>{ h, axs_arg }
+                        >>= def_op<AXS>{ def, axs_arg }
                         >>= set_regs<REGF_C>{}
                         >>= store<STX>{h})(cpu, prev);
                     });
@@ -1058,18 +1190,18 @@ namespace isel
             commutative(h, [&](ssa_value_t lhs, ssa_value_t rhs)
             {
                 (load_A<>{ lhs }
-                >>= def_op<AND>{ h, rhs }
+                >>= def_op<AND>{ def, rhs }
                 >>= store<STA>{h})(cpu, prev);
 
                 (load_A<>{ lhs }
                 >>= load_X<opt_t{ ~REGF_A }>{ rhs }
-                >>= def_op<AXS>{ h, 0xFFu }
+                >>= def_op<AXS>{ def, 0xFFu }
                 >>= set_regs<REGF_C>{}
                 >>= store<STX>{h})(cpu, prev);
 
                 (load_X<>{ lhs }
                 >>= load_A<opt_t{ ~REGF_X }>{ rhs }
-                >>= def_op<AXS>{ h, 0xFFu }
+                >>= def_op<AXS>{ def, 0xFFu }
                 >>= set_regs<REGF_C>{}
                 >>= store<STX>{h})(cpu, prev);
 
@@ -1090,7 +1222,7 @@ namespace isel
             commutative(h, [&](ssa_value_t lhs, ssa_value_t rhs)
             {
                 (load_A<>{ lhs }
-                >>= def_op<ORA>{ h, rhs }
+                >>= def_op<ORA>{ def, rhs }
                 >>= store<STA>{h})(cpu, prev);
 
                 // TODO: consider using add instructions, 
@@ -1101,7 +1233,7 @@ namespace isel
         case SSA_read_global:
             {
                 if(h->test_flags(FLAG_COALESCED))
-                    goto ignore_op;
+                    goto coalesced_op;
 
                 locator_t loc = h->input(1).locator();
                 assert(loc.lclass() != LCLASS_GLOBAL_SET);
@@ -1111,15 +1243,16 @@ namespace isel
             break;
 
         case SSA_phi_copy:
-            if(h->test_flags(FLAG_COALESCED))
-                goto ignore_op;
-            copy_impl(h, h->input(0));
-            break;
-
         case SSA_phi:
-            if(h->test_flags(FLAG_COALESCED))
-                goto ignore_op;
-            copy_impl(h, cset_locator(h->input(0).handle()));
+            {
+                ssa_value_t input = h->input(0);
+                if(input.holds_ref() 
+                   && cset_head(h) == cset_head(input.handle()))
+                {
+                    goto coalesced_op;
+                }
+                copy_impl(h, h->input(0));
+            }
             break;
 
         case SSA_fn_call:
@@ -1140,15 +1273,34 @@ namespace isel
             >>= finish)(cpu, prev);
             break;
 
+        case SSA_jump:
+            assert(cfg_node->output_size() == 1);
+            std::puts("JUMPIN");
+
+            // TODO: use conditional jumps for efficiency.
+            (def_op<JMP>{{}, locator_t::cfg_label(cfg_node->output(0)) }
+            >>= finish)(cpu, prev);
+
+            break;
+
         case SSA_entry:
         case SSA_locator_store:
         case SSA_eq:
         case SSA_not_eq:
         case SSA_branch_eq:
         case SSA_branch_not_eq:
+        case SSA_carry:
         ignore_op:
             finish(cpu, prev);
             break;
+
+        coalesced_op:
+            if(cg_data(h).store_in_locs.size())
+                copy_impl(h, h);
+            else
+                finish(cpu, prev);
+            break;
+
 
         default:
             std::cout << "FAIL = " << h->op() << '\n';
@@ -1160,6 +1312,10 @@ namespace isel
     void isel_node(ssa_ht h)
     {
         cfg_ht const cfg_node = h->cfg_node();
+
+        std::cout << "doing " << h->op() << '\n';
+        if(cg_data(h).store_in_locs.size())
+            std::puts("has store in locs");
 
         switch(h->op())
         {
@@ -1177,11 +1333,12 @@ namespace isel
             break;
 
         case SSA_return:
+        case SSA_fn_call:
             write_globals(h);
             break;
 
-        case SSA_fn_call:
-            write_globals(h);
+        case SSA_carry:
+            store_carry(h);
             break;
 
         default: break;

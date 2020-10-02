@@ -39,8 +39,6 @@ enum locator_class_t : std::uint8_t
     LCLASS_CALL_ARG,
     LCLASS_RETURN,
 
-    LCLASS_CARRY, // TODO?
-
     LCLASS_PHI, // TODO?
 
     // Labels are uses during code gen.
@@ -66,6 +64,7 @@ public:
         assert(lclass() == LCLASS_GLOBAL);
         return { impl.index }; 
     }
+    cfg_ht cfg_node() const { return { index() }; }
     global_t& global() const;
 
     std::uint16_t byte() const { return impl.byte; }
@@ -79,7 +78,6 @@ public:
     constexpr static locator_t call_arg(unsigned argn);
     constexpr static locator_t this_ret();
     constexpr static locator_t ret(unsigned byte=0);
-    constexpr static locator_t carry(ssa_ht h);
     constexpr static locator_t phi(unsigned id);
     constexpr static locator_t cfg_label(cfg_ht cfg_node);
     constexpr static locator_t minor_label(unsigned id);
@@ -158,13 +156,6 @@ inline constexpr locator_t locator_t::ret(unsigned byte)
 {
     locator_t loc;
     loc.impl = { .index = 0, .byte = byte, .lclass = LCLASS_RETURN };
-    return loc;
-}
-
-inline constexpr locator_t locator_t::carry(ssa_ht h)
-{
-    locator_t loc;
-    loc.impl = { .index = h.index, .byte = 0, .lclass = LCLASS_CARRY };
     return loc;
 }
 

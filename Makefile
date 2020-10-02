@@ -80,6 +80,7 @@ cg.cpp \
 cg_liveness.cpp \
 cg_schedule.cpp \
 cg_isel.cpp \
+cg_order.cpp \
 byteify.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))

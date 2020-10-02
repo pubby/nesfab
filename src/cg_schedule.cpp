@@ -72,17 +72,15 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         data(toposorted[i]).deps = bitset_pool.alloc(set_size);
     }
 
-    // The cfg_node's conditional must be scheduled last.
+    // The last daisy in the cfg_node should be scheduled last.
     if(ssa_ht exit = cfg_node->last_daisy())
     {
         auto& exit_d = data(exit);
-        if(exit->op() == SSA_if) // TODO: handle switch
-        {
-            assert(exit->output_size() == 0);
-            for(ssa_ht ssa_node : toposorted)
-                if(ssa_node != exit)
-                    bitset_set(exit_d.deps, index(ssa_node));
-        }
+        std::cout << exit->op() << '\n';
+        assert(exit->output_size() == 0);
+        for(ssa_ht ssa_node : toposorted)
+            if(ssa_node != exit)
+                bitset_set(exit_d.deps, index(ssa_node));
     }
 
     for(ssa_ht ssa_node : toposorted)
@@ -138,18 +136,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         ssa_ht ssa_node = *it;
 
         // Determine if this node produces a carry used by a single output.
-        ssa_ht carry_user = {};
-        for(unsigned i = 0; i < ssa_node->output_size(); ++i)
-        {
-            auto oe = ssa_node->output_edge(i);
-            if(oe.input_class() != INPUT_CARRY)
-                continue;
-            if(carry_user)
-                goto next_iter;
-            carry_user = oe.handle;
-        }
-        if(carry_user->cfg_node() != cfg_node)
-            next_iter: continue;
+
+        ssa_ht const carry = carry_output(*ssa_node);
+        if(!carry || carry->output_size() != 1)
+            continue;
+        ssa_ht const carry_user = carry->output(0);
 
         // OK! This node produces a carry used by a single output.
 
@@ -271,9 +262,12 @@ void scheduler_t::run()
         // Schedule it:
         append_schedule(candidate, next_rank++);
 
-        // If this node inputs a carry, stop tracking it:
-        if(ssa_input0_class(candidate->op()) == INPUT_CARRY)
+        // If this node inputs or clobbers a carry, stop tracking it:
+        if(candidate == carry_input_waiting 
+           || (ssa_flags(candidate->op()) & SSAF_CLOBBERS_CARRY))
+        {
             carry_input_waiting = {};
+        }
 
         // If this node outputs a carry, track it:
         if(d.carry_user)

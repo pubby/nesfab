@@ -15,7 +15,9 @@ namespace liveness_impl
 
 inline unsigned live_set_size() { return liveness_impl::set_size; }
 
-void calc_liveness(ir_t const& ir);
+void calc_liveness(ssa_ht node); // only does a single node
+unsigned calc_liveness(ir_t const& ir);
+unsigned calc_liveness(ir_t const& ir, unsigned pool_size);
 
 // If 'range' intersects 'def'.
 bool live_at_def(ssa_ht range, ssa_ht def);

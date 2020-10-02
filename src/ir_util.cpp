@@ -1,7 +1,8 @@
 #include "ir_util.hpp"
 
-/*
-std::vector<cfg_util_t> cfg_util_pool;
+#include "ir.hpp"
+
+std::vector<cfg_util_d> cfg_util_pool;
 std::vector<cfg_ht> postorder;
 std::vector<cfg_ht> preorder;
 fc::vector_set<cfg_ht> loop_headers;
@@ -12,28 +13,27 @@ fc::vector_set<cfg_ht> loop_headers;
 
 static void _visit_order(cfg_ht h)
 {
-    cfg_node_t& node = *h;
-    auto& util = h.util();
+    auto& u = util(h);
 
-    util.preorder_i = preorder.size();
+    u.preorder_i = preorder.size();
     preorder.push_back(h);
 
-    for(unsigned i = 0; i < node.output_size(); ++i)
+    for(unsigned i = 0; i < h->output_size(); ++i)
     {
-        cfg_ht succ_h = node.output(i);
-        auto& succ_util = succ_h.util();
+        cfg_ht succ = h->output(i);
+        auto& succ_u = util(succ);
 
-        if(succ_util.preorder_i == UNVISITED)
-            visit_order(*succ);
+        if(succ_u.preorder_i == UNVISITED)
+            _visit_order(succ);
     }
-    util.postorder_i = postorder.size();
-    postorder.push_back(&node);
+    u.postorder_i = postorder.size();
+    postorder.push_back(h);
 }
 
 // This does a basic depth-first traversal of the graph.
 void build_order(ir_t const& ir)
 {
-    cfg_util_pool.resize(cfg_pool_t::array_size());
+    cfg_util_pool.resize(cfg_pool::array_size());
 
     for(auto& util : cfg_util_pool)
     {
@@ -49,8 +49,8 @@ void build_order(ir_t const& ir)
 
     _visit_order(ir.root);
 
-    assert(preorder.empty() || preorder.front() == cfg_root);
-    assert(postorder.empty() || postorder.back() == cfg_root);
+    assert(preorder.empty() || preorder.front() == ir.root);
+    assert(postorder.empty() || postorder.back() == ir.root);
 }
 
 ////////////////////////////////////////
@@ -58,12 +58,14 @@ void build_order(ir_t const& ir)
 ////////////////////////////////////////
 
 // Used in '_tag_loop_header'.
+/* TODO: remove
 static int _dfsp_pos(cfg_ht h)
 {
-    auto& util = h.util();
-    assert(util.preorder_i != UNVISITED);
-    return util.postorder_i == UNVISITED ? util.preorder_i : -1;
+    auto& u = util(h);
+    assert(u.preorder_i != UNVISITED);
+    return u.postorder_i == UNVISITED ? u.preorder_i : -1;
 }
+*/
 
 // Adds a loop header to 'node'.
 // Nodes can have multiple looper headers, but only the immediate header is 
@@ -75,26 +77,26 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
     if(node == header || !header)
         return;
 
-    while(cfg_ht iloop_header = node.util().iloop_header)
+    while(cfg_ht iloop_header = util(node).iloop_header)
     {
         if(iloop_header == header)
             return;
 
-        auto& header_util = header.util();
-        auto& iloop_header_util = iloop_header.util();
+        auto& header_u = util(header);
+        auto& iloop_header_u = util(iloop_header);
 
         // 'iloop_header' should always be in the DFS path:
-        assert(iloop_header_util.preorder_i != UNVISITED
-               && iloop_header_util.postorder_i == UNVISITED);
+        assert(iloop_header_u.preorder_i != UNVISITED
+               && iloop_header_u.postorder_i == UNVISITED);
 
         // The new header should already be traversed:
-        assert(header_util.preorder_i != UNVISITED);
+        assert(header_u.preorder_i != UNVISITED);
 
-        if(header_util.postorder_i != UNVISITED // If header's in the path
-           && iloop_header_util.preorder_i < header_util.preorder_i)
+        if(header_u.postorder_i != UNVISITED // If header's in the path
+           && iloop_header_u.preorder_i < header_u.preorder_i)
            // And if 'iloop_header' comes before 'header' in the path.
         {
-            node.util().iloop_header = header;
+            util(node).iloop_header = header;
             node = header;
             header = iloop_header;
         }
@@ -102,67 +104,67 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
             node = iloop_header;
     }
 
-    node.util().iloop_header = header;
+    util(node).iloop_header = header;
 }
 
 // Paper: A New Algorithm for Identifying Loops in Decompilation
 // By Tao Wei, Jian Mao, Wei Zou, Yu Chen 
 static cfg_ht _visit_loops(cfg_ht node)
 {
-    auto& util = node.util();
+    auto& u = util(node);
 
-    util.preorder_i = preorder.size(); // Marks as traversed.
+    u.preorder_i = preorder.size(); // Marks as traversed.
     preorder.push_back(node);
 
     unsigned const output_size = node->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
         cfg_ht succ = node->output(i);
-        auto& succ_util = succ.util();
+        auto& succ_u = util(succ);
 
-        if(succ.preorder_i == UNVISITED) // If 'succ' hasn't been traversed.
+        if(succ_u.preorder_i == UNVISITED) // If 'succ' hasn't been traversed.
             _tag_loop_header(node, _visit_loops(succ));
-        else if(succ.postorder_i == UNVISITED) // Is back edge?
+        else if(succ_u.postorder_i == UNVISITED) // Is back edge?
         {
             loop_headers.insert(succ); // Create a new header
-            tag_loop_header(node, &succ);
+            _tag_loop_header(node, succ);
         }
-        else if(cfg_ht header = succ.iloop_header)
+        else if(cfg_ht header = succ_u.iloop_header)
         {
-            auto& header_util = header.util();
-            if(header_util.postorder_i == UNVISITED) // Is back edge?
+            auto& header_u = util(header);
+            if(header_u.postorder_i == UNVISITED) // Is back edge?
             {
-                assert(header_util.preorder_i != UNVISITED);
-                tag_loop_header(node, header);
+                assert(header_u.preorder_i != UNVISITED);
+                _tag_loop_header(node, header);
             }
             else
             {
                 // We've found a re-entry point.
 
                 unsigned const out_i = i;
-                unsigned const in_i = output_edge(i).index();
+                unsigned const in_i = node->output_edge(i).index;
 
-                if(out_i >= sizeof_bits<decltype(util.reentry_out)>)
+                if(out_i >= sizeof_bits<decltype(u.reentry_out)>)
                     throw std::runtime_error("CFG node has too many outputs.");
-                if(in_i >= sizeof_bits<decltype(util.reentry_in)>)
+                if(in_i >= sizeof_bits<decltype(u.reentry_in)>)
                     throw std::runtime_error("CFG node has too many inputs.");
 
-                util.reentry_out |= (1 << out_i);
-                succ_util.reentry_in |= (1 << in_i);
+                u.reentry_out |= (1 << out_i);
+                succ_u.reentry_in |= (1 << in_i);
 
                 header->set_flags(FLAG_IRREDUCIBLE);
 
                 // Travel up the iloop header tree until either finding
                 // a loop header that exists inside the current DFS path,
                 // or until we run out of headers to check.
-                while(header.iloop_header)
+                while(header_u.iloop_header)
                 {
-                    header = header.iloop_header;
+                    header = header_u.iloop_header;
                     // Check if 'header' is in the current DFS path:
-                    if(header.util().postorder_i == UNVISITED)
+                    if(util(header).postorder_i == UNVISITED)
                     {
-                        assert(header.util().preorder_i != UNVISITED);
-                        tag_loop_header(node, header);
+                        assert(util(header).preorder_i != UNVISITED);
+                        _tag_loop_header(node, header);
                         break;
                     }
 
@@ -172,26 +174,26 @@ static cfg_ht _visit_loops(cfg_ht node)
         }
     }
 
-    node.postorder_i = postorder.size();
+    u.postorder_i = postorder.size();
     postorder.push_back(node);
 
-    return util.iloop_header;
+    return u.iloop_header;
 }
 
 void build_loops_and_order(ir_t& ir)
 {
-    cfg_util_pool.resize(cfg_pool_t::array_size());
+    cfg_util_pool.resize(cfg_pool::array_size());
 
-    for(auto& util : cfg_util_pool)
+    for(auto& u : cfg_util_pool)
     {
-        util.preorder_i = 0;
-        util.postorder_i = 0;
-        util.iloop_header = 0;
-        util.reentry_in = 0;
-        util.reentry_out = 0;
+        u.preorder_i = 0;
+        u.postorder_i = 0;
+        u.iloop_header = {};
+        u.reentry_in = 0;
+        u.reentry_out = 0;
     }
 
-    for(cfg_ht cfg_it : ir.cfg_begin; cfg_it; ++cfg_it)
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
         cfg_it->clear_flags(FLAG_IRREDUCIBLE);
 
     preorder.clear();
@@ -202,26 +204,26 @@ void build_loops_and_order(ir_t& ir)
 
     loop_headers.clear();
 
-    _visit_loops(*root);
+    _visit_loops(ir.root);
 
-    assert(preorder.empty() || preorder.front() == cfg_root);
-    assert(postorder.empty() || postorder.back() == cfg_root);
+    assert(preorder.empty() || preorder.front() == ir.root);
+    assert(postorder.empty() || postorder.back() == ir.root);
 }
 
 ////////////////////////////////////////
 // dominance
 ////////////////////////////////////////
 
-static _dom_intersect(cfg_ht a, cfg_ht b)
+cfg_ht dom_intersect(cfg_ht a, cfg_ht b)
 {
     assert(a && b);
 
     while(a != b)
     {
-        if(a.util.postorder_i < b.util.postorder_i)
-            a = a.data<D>().idom;
-        if(a.util.postorder_i > b.util.postorder_i)
-            b = b.data<D>().idom;
+        if(util(a).postorder_i < util(b).postorder_i)
+            a = util(a).idom;
+        if(util(a).postorder_i > util(b).postorder_i)
+            b = util(b).idom;
         assert(a && b);
     }
 
@@ -254,20 +256,19 @@ void build_dominators_from_order(ir_t& ir)
             for(std::size_t i = 0; i < input_size; ++i)
             {
                 cfg_ht pred = node.input(i);
-                if(pred.data<D>().idom)
-                    new_idom = new_idom ? _dom_intersect(new_idom, pred) 
-                                        : pred_h;
+                if(util(pred).idom)
+                    new_idom = new_idom ? dom_intersect(new_idom, pred) 
+                                        : pred;
             }
 
-            if(new_idom != h.data<D>().idom)
+            if(new_idom != util(h).idom)
             {
-                h.data<D>().idom = new_idom;
+                util(h).idom = new_idom;
                 changed = true;
             }
         }
     }
 }
-*/
 
 ////////////////////////////////////////
 // other stuff

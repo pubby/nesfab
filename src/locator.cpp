@@ -10,17 +10,15 @@ std::string to_string(locator_t loc)
     case LCLASS_GLOBAL:
         return loc.global().name;
     case LCLASS_GLOBAL_SET:
-        return fmt("gset %", loc.index());
+        return fmt("gset %:%", loc.index(), loc.byte());
     case LCLASS_THIS_ARG:
-        return fmt("arg %", loc.index());
+        return fmt("arg %:%", loc.index(), loc.byte());
     case LCLASS_CALL_ARG:
-        return fmt("call %", loc.index());
+        return fmt("call %:%", loc.index(), loc.byte());
     case LCLASS_RETURN:
-        return fmt("ret %", loc.index());
-    case LCLASS_CARRY:
-        return fmt("carry %", loc.index());
+        return fmt("ret %:%", loc.index(), loc.byte());
     case LCLASS_PHI:
-        return fmt("phi %", loc.index());
+        return fmt("phi %:%", loc.index(), loc.byte());
     case LCLASS_CFG_LABEL:
         return fmt("cfg label %", loc.index());
     case LCLASS_MINOR_LABEL:

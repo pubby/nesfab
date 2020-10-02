@@ -327,6 +327,11 @@ ABSTRACT(SSA_read_global) = abstract_bottom;
 ABSTRACT(SSA_fn_call) = abstract_bottom;
 ABSTRACT(SSA_uninitialized) = abstract_bottom;
 
+ABSTRACT(SSA_carry) = ABSTRACT_FN
+{
+    result[0] = cv[0][1];
+};
+
 ABSTRACT(SSA_write_array) = ABSTRACT_FN
 {
     if(handle_top(cv, argn, result))
@@ -721,6 +726,11 @@ NARROW(SSA_uninitialized) = narrow_bottom;
 NARROW(SSA_fn_call) = narrow_bottom;
 NARROW(SSA_cast) = narrow_bottom;
 
+NARROW(SSA_carry) = NARROW_FN
+{
+    cv[0][1] = intersect(cv[0][1], result[0]);
+};
+
 NARROW(SSA_phi) = NARROW_FN
 {
     for(unsigned i = 0; i < result.vec.size(); ++i)
@@ -916,7 +926,7 @@ static void narrow_eq(constraints_def_t* cv,
     if(!result[0].is_const())
         return;
 
-    if(result[0].get_const() == fixed_t::whole(Eq).value)
+    if(!!result[0].get_const() == !!fixed_t::whole(Eq).value)
     {
         for(unsigned i = 0; i < argn; i += 2)
             cv[i][0] = cv[i+1][0] = intersect(cv[i][0], cv[i+1][0]);

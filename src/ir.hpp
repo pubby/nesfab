@@ -1,6 +1,9 @@
 #ifndef IR_HPP
 #define IR_HPP
 
+#include <functional>
+#include "robin/hash.hpp"
+
 #include "fixed.hpp"
 #include "ir_decl.hpp"
 #include "locator.hpp"
@@ -200,6 +203,18 @@ public:
     bool operator<(ssa_value_t const& o) const 
         { return target() < o.target(); }
 };
+
+namespace std
+{
+    template<>
+    struct hash<ssa_value_t>
+    {
+        std::size_t operator()(ssa_value_t const& v) const noexcept
+        {
+            return rh::hash_finalize(v.target());
+        }
+    };
+}
 
 ////////////////////////////////////////
 // node_io_buffers_t                  //
@@ -580,6 +595,8 @@ inline input_class_t ssa_bck_edge_t::input_class() const
     assert(index < handle->input_size());
     if(index == 0)
         return ssa_input0_class(handle->op());
+    if(handle->op() == SSA_trace)
+        return INPUT_LINK;
     return INPUT_VALUE;
 }
 
@@ -668,6 +685,40 @@ void cfg_node_t::link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn)
 ////////////////////////////////////////
 // Utility functions                  //
 ////////////////////////////////////////
+
+inline ssa_value_t orig_def(ssa_value_t v)
+{
+    if(v.holds_ref() && ssa_flags(v->op()) & SSAF_COPY)
+        return orig_def(v->input(0));
+    return v;
+}
+
+inline ssa_value_t is_orig_def(ssa_value_t v)
+{
+    return v == orig_def(v);
+}
+
+// Searches for this node's carry output node.
+// Returns -1 if it doesn't exist.
+inline int carry_output_i(ssa_node_t const& node)
+{
+    for(unsigned i = 0; i < node.output_size(); ++i)
+        if(node.output(i)->op() == SSA_carry)
+            return i;
+    return -1;
+}
+
+inline ssa_ht carry_output(ssa_node_t const& node)
+{
+    int i = carry_output_i(node);
+    return i >= 0 ? node.output(i) : ssa_ht{};
+}
+
+inline bool carry_used(ssa_node_t const& node)
+{
+    int i = carry_output_i(node);
+    return i >= 0 && node.output(i)->output_size();
+}
 
 inline global_t const& get_fn(ssa_node_t const& node)
 {

@@ -37,6 +37,13 @@ struct cfg_liveness_d
     bitset_uint_t* out; // Also used to hold the 'KILL' set temporarily.
 };
 
+struct cfg_order_d
+{
+    std::vector<unsigned> pheramones;
+    std::uint16_t bytes = 0;
+    std::uint16_t offset = 0;
+};
+
 struct ssa_schedule_d
 {
     ssa_ht carry_user = {};
@@ -57,6 +64,7 @@ struct ssa_isel_d
 struct cfg_cg_d
 {
     cfg_liveness_d live;
+    cfg_order_d order;
 
     std::vector<ssa_ht> schedule;
     std::vector<ainst_t> code;

@@ -332,7 +332,10 @@ void byteify(ir_t& ir, global_t& global)
                     split->build_set_input(1, rhs_bm[i]);
                     split->build_set_input(2, carry);
 
-                    carry = split;
+                    carry = ssa_node->cfg_node()->emplace_ssa(
+                        SSA_carry, TYPE_CARRY, split);
+                    ssa_data_pool::resize<ssa_byteify_d>(
+                        ssa_pool::array_size());
                 }
                 prune_nodes.push_back(ssa_node);
             }
@@ -368,12 +371,11 @@ void byteify(ir_t& ir, global_t& global)
                     ssa_value_t split = ssa_data.bm[i];
                     assert(split.holds_ref());
 
-                    locator_t const new_loc = loc;
                     loc.set_byte(i);
 
                     split->alloc_input(2);
                     split->build_set_input(0, link);
-                    split->build_set_input(1, new_loc);
+                    split->build_set_input(1, loc);
                 }
 
                 prune_nodes.push_back(ssa_node);

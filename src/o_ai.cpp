@@ -213,13 +213,13 @@ ai_t::ai_t(ir_t& ir_) : ir(ir_)
     std::puts("THREAD");
     thread_jumps();
     ir.assert_valid();
-
-    std::puts("REMOVE SKIP");
-    remove_skippable();
-    ir.assert_valid();
     
     std::puts("FOLD");
     fold_consts();
+    ir.assert_valid();
+
+    std::puts("REMOVE SKIP");
+    remove_skippable();
     ir.assert_valid();
 }
 
@@ -814,6 +814,9 @@ void ai_t::fold_consts()
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
+        if(ssa_it->op() == SSA_trace)
+            std::puts(" xx TRACe xx ");
+
         if(ssa_it->output_size() == 0 || !has_constraints(ssa_it))
             continue;
 
@@ -823,8 +826,10 @@ void ai_t::fold_consts()
         if(is_numeric(ssa_it->type()) && d.constraints()[0].is_const())
         {
             fixed_t constant = { d.constraints()[0].get_const() };
+            std::cout << " FOLDING " << ssa_it->op() << ' ' << (constant.value >> fixed_t::shift) << ' ' << ssa_it->output_size() << '\n';
             if(ssa_it->replace_with(INPUT_VALUE, constant))
                 updated = true;
+            std::cout << " CONT " << ssa_it->op() << ' ' << ssa_it->output_size() << '\n';
         }
         else if(op == SSA_eq || op == SSA_not_eq)
         {
@@ -845,6 +850,7 @@ void ai_t::fold_consts()
                 {
                     ssa_it->link_remove_input(i+1);
                     ssa_it->link_remove_input(i);
+                    updated = true;
                     continue;
                 }
 
@@ -866,6 +872,7 @@ void ai_t::fold_consts()
                    && lhs_c.get_const() == rhs_c.get_const())
                 {
                     ssa_it->link_shrink_inputs(size - 2);
+                    updated = true;
                 }
                 else
                     break;

@@ -3,8 +3,12 @@
 
 #include "ir_decl.hpp"
 
-// Removes SSA nodes that aren't used anywhere in the IR,
-// and don't have any observable effect.
+// Removes SSA nodes that don't have any observable effect.
+bool o_remove_no_effect(ir_t& ir);
+
+// Removes
+bool o_remove_unused_linked(ir_t& ir);
+
 bool o_remove_unused_ssa(ir_t& ir);
 
 #endif

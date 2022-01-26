@@ -17,12 +17,10 @@
 
 #include "array_pool.hpp"
 #include "bitset.hpp"
+#include "globals.hpp"
 #include "handle.hpp"
 #include "ir_decl.hpp"
 #include "types.hpp"
-
-struct global_t;
-using gvar_ht = handle_t<unsigned, struct gvar_ht_tag, ~0>;
 
 // TODO: remove
 //using locator_ht = handle_t<unsigned, struct locator_ht_tag, ~0u>;
@@ -31,9 +29,17 @@ enum locator_class_t : std::uint8_t
 {
     LCLASS_NONE,
 
-    LCLASS_GLOBAL,
-    LCLASS_GLOBAL_SET,
-    LCLASS_RAM,
+    LCLASS_IOTA, 
+
+    LCLASS_GVAR, // A global variable.
+    //LCLASS_CONST,
+
+    // When a function calls another function, 
+    // the IR tracks which gvars are used in that function.
+    // Rather than requiring one locator per gvar, a GVAR_SET can be used
+    // which combines several gvars into a single locator.
+    // (This is a size optimization)
+    LCLASS_GVAR_SET,
 
     LCLASS_THIS_ARG,
     LCLASS_CALL_ARG,
@@ -41,17 +47,17 @@ enum locator_class_t : std::uint8_t
 
     LCLASS_PHI, // TODO?
 
-    // Labels are uses during code gen.
+    // Labels are used during code gen. They map to assembly terms.
     LCLASS_CFG_LABEL,
     LCLASS_MINOR_LABEL,
 };
 
 class locator_t
 {
-friend class locator_manager_t;
+friend class gvar_locator_manager_t;
 public:
-    locator_t(gvar_ht gvar)
-    : impl{ .index = gvar.value, .lclass = LCLASS_GLOBAL }
+    explicit locator_t(gvar_ht gvar)
+    : impl{ .index = gvar.value, .lclass = LCLASS_GVAR }
     {}
 
     locator_t(locator_t const&) = default;
@@ -59,23 +65,39 @@ public:
 
     constexpr locator_class_t lclass() const { return impl.lclass; }
     constexpr std::uint32_t index() const { return impl.index; }
+
     gvar_ht gvar() const 
     { 
-        assert(lclass() == LCLASS_GLOBAL);
+        assert(lclass() == LCLASS_GVAR);
         return { impl.index }; 
     }
-    cfg_ht cfg_node() const { return { index() }; }
-    global_t& global() const;
+
+    fn_ht fn() const
+    {
+        assert(lclass() == LCLASS_THIS_ARG 
+               || lclass() == LCLASS_CALL_ARG);
+        return { impl.index };
+    }
+
+    cfg_ht cfg_node() const 
+    { 
+        assert(lclass() == LCLASS_CFG_LABEL);
+        return { index() }; 
+    }
 
     std::uint16_t byte() const { return impl.byte; }
     void set_byte(std::uint16_t byte) { impl.byte = byte; }
+
+    std::uint8_t arg() const { return impl.arg; }
+    void set_arg(std::uint8_t arg) { impl.arg = arg; }
 
     constexpr std::uint64_t to_uint() const { return intv; }
     constexpr static locator_t from_uint(std::uint64_t i);
 
     constexpr static locator_t null() { return locator_t(); }
-    constexpr static locator_t this_arg(unsigned argn, unsigned byte=0);
-    constexpr static locator_t call_arg(unsigned argn);
+    constexpr static locator_t iota(unsigned byte=0);
+    constexpr static locator_t this_arg(fn_ht, unsigned arg, unsigned byte=0);
+    constexpr static locator_t call_arg(fn_ht, unsigned arg, unsigned byte=0);
     constexpr static locator_t this_ret();
     constexpr static locator_t ret(unsigned byte=0);
     constexpr static locator_t phi(unsigned id);
@@ -104,7 +126,7 @@ private:
         std::uint32_t index;
         std::uint16_t byte; // TODO: Used for structs and shit
         locator_class_t lclass;
-        std::uint8_t unused;
+        std::uint8_t arg;
     };
 
     union
@@ -138,17 +160,24 @@ inline constexpr locator_t locator_t::from_uint(std::uint64_t i)
     return loc;
 }
 
-inline constexpr locator_t locator_t::this_arg(unsigned argn, unsigned byte)
+inline constexpr locator_t locator_t::iota(unsigned byte)
 {
     locator_t loc;
-    loc.impl = { .index = argn, .byte = byte, .lclass = LCLASS_THIS_ARG };
+    loc.impl = { .byte = byte, .lclass = LCLASS_IOTA };
     return loc;
 }
 
-inline constexpr locator_t locator_t::call_arg(unsigned argn)
+inline constexpr locator_t locator_t::this_arg(fn_ht fn, unsigned arg, unsigned byte)
 {
     locator_t loc;
-    loc.impl = { .index = argn, .byte = 0, .lclass = LCLASS_CALL_ARG };
+    loc.impl = { .index = fn.value, .byte = byte, .lclass = LCLASS_THIS_ARG, .arg = arg };
+    return loc;
+}
+
+inline constexpr locator_t locator_t::call_arg(fn_ht fn, unsigned arg, unsigned byte)
+{
+    locator_t loc;
+    loc.impl = { .index = fn.value, .byte = byte, .lclass = LCLASS_CALL_ARG, .arg = arg };
     return loc;
 }
 
@@ -180,14 +209,18 @@ inline constexpr locator_t locator_t::minor_label(unsigned id)
     return loc;
 }
 
-class locator_manager_t
+// This class exists to manage LCLASS_GVAR_SETs.
+// It puts gvars into these sets, then allows queries on what each set contains.
+class gvar_locator_manager_t
 {
 public:
-    void setup(global_t const& global);
+    // Call this to initialize the manager.
+    void setup(fn_t const& fn);
 
     bitset_uint_t const* get_set(locator_t loc) const
     {
-        assert(loc.lclass() == LCLASS_GLOBAL_SET);
+        assert(loc.lclass() == LCLASS_GVAR_SET);
+        assert(loc.index() >= first_set);
         return static_cast<bitset_uint_t const*>(locs[loc.index()]);
     }
 
@@ -207,6 +240,7 @@ public:
 private:
     array_pool_t<bitset_uint_t> bitset_pool;
     std::vector<void const*> locs;
+
     rh::robin_map<global_t const*, unsigned> map;
     unsigned first_set = 0;
 };

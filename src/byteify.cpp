@@ -75,7 +75,7 @@ static void _split_cast(ssa_ht ssa_node)
 // Converts all operations with non-BYTE types to only use BYTE.
 void byteify(ir_t& ir, global_t& global)
 {
-    assert(global.type().name() == TYPE_FN);
+    assert(global.gclass() == GLOBAL_FN);
 
     ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(
         ssa_pool::array_size());
@@ -163,7 +163,7 @@ void byteify(ir_t& ir, global_t& global)
 
     // Rewrite the inputs of certain nodes to use multi-byte
     bc::small_vector<ssa_value_t, 24> new_input;
-    global_t const* fn = nullptr;
+    fn_t const* fn = nullptr;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         cfg_node_t& cfg_node = *cfg_it;
@@ -190,18 +190,20 @@ void byteify(ir_t& ir, global_t& global)
                         if(loc.lclass() == LCLASS_CALL_ARG)
                         {
                             assert(ssa_it->op() == SSA_fn_call);
-                            t = fn->type()[loc.index()];
+                            t = fn->type.types()[loc.index()];
                         }
                         else if(loc.lclass() == LCLASS_RETURN)
                         {
                             assert(ssa_it->op() == SSA_return);
-                            t = global.type().return_type();
+                            t = global.impl<fn_t>().type.return_type();
                         }
-                        else if(loc.lclass() == LCLASS_GLOBAL)
-                            t = loc.global().type();
+                        else if(loc.lclass() == LCLASS_THIS_ARG)
+                            t = global.impl<fn_t>().type.types()[loc.index()];
+                        else if(loc.lclass() == LCLASS_GVAR)
+                            t = loc.gvar()->type;
                         else
                         {
-                            assert(loc.lclass() == LCLASS_GLOBAL_SET);
+                            assert(loc.lclass() == LCLASS_GVAR_SET);
                             new_input.push_back(v);
                             new_input.push_back(loc);
                             return;
@@ -382,8 +384,13 @@ void byteify(ir_t& ir, global_t& global)
             }
             break;
 
+        case SSA_uninitialized:
+            // TODO: split the node up?
+            break;
+
         default:
             // Shouldn't ever happen if this was coded correctly...
+            std::fprintf(stderr, "Unhandled op in byteify: %s\n", to_string(ssa_node->op()).data());
             assert(false);
             break;
         }

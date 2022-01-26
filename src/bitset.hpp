@@ -39,7 +39,7 @@ sso_bitset_t bitset_alloc(array_pool_t<bitset_uint_t, N>& pool,
 
 // Gives the array size needed for a bitset containing 'bits_required' bits.
 template<typename UInt = bitset_uint_t>
-std::size_t bitset_size(std::size_t bits_required)
+constexpr std::size_t bitset_size(std::size_t bits_required)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     return (bits_required + sizeof_bits<UInt> - 1) / sizeof_bits<UInt>;

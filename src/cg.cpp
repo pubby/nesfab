@@ -2,6 +2,8 @@
 
 #include <map>
 
+#include "flat/small_map.hpp"
+
 #include "robin/map.hpp"
 #include "robin/set.hpp"
 
@@ -9,6 +11,7 @@
 #include "cg_liveness.hpp"
 #include "cg_order.hpp"
 #include "cg_schedule.hpp"
+#include "ir_util.hpp"
 #include "locator.hpp"
 
 #include <iostream> // TODO
@@ -47,10 +50,13 @@ locator_t cset_locator(ssa_ht h)
     return locator_t::null();
 }
 
-bool cset_mergable(ssa_ht a, ssa_ht b)
+bool csets_mergable(ssa_ht a, ssa_ht b)
 {
     locator_t const loc_a = cset_locator(a);
     locator_t const loc_b = cset_locator(b);
+    if(loc_a.lclass() == LCLASS_CALL_ARG
+       || loc_b.lclass() == LCLASS_CALL_ARG)
+        return false;
     return (!loc_a || !loc_b 
             || loc_a.lclass() == LCLASS_PHI || loc_b.lclass() == LCLASS_PHI
             || loc_a == loc_b);
@@ -67,10 +73,47 @@ void cset_merge_locators(ssa_ht head_a, ssa_ht head_b)
     locator_t const loc_a = cset_locator(head_a);
     locator_t const loc_b = cset_locator(head_b);
 
-    if(loc_a && loc_a.lclass() != LCLASS_PHI)
-        bd.cset_head = ad.cset_head;
-    else if(loc_b && loc_b.lclass() != LCLASS_PHI)
+    assert(csets_mergable(head_a, head_b));
+
+    if(loc_a == loc_b)
         ad.cset_head = bd.cset_head;
+    else if(!loc_b || (loc_a && loc_b.lclass() == LCLASS_PHI))
+        bd.cset_head = ad.cset_head;
+    else if(!loc_a || (loc_b && loc_a.lclass() == LCLASS_PHI))
+        ad.cset_head = bd.cset_head;
+    else
+        assert(false);
+}
+
+void cset_remove(ssa_ht h)
+{
+    ssa_ht head = cset_head(h);
+
+    if(h == head)
+    {
+        ssa_ht next = cset_next(head);
+        for(ssa_ht it = next; it; it = cset_next(it))
+            cg_data(it).cset_head = next;
+        cg_data(next).cset_head = cg_data(head).cset_head;
+    }
+    else
+    {
+        // Re-write the head pointers in case 'h' is a head.
+        for(ssa_ht it = head; it; it = cset_next(it))
+            cg_data(it).cset_head = head;
+
+        // Find the node prior to 'h'
+        ssa_ht prev = {};
+        for(ssa_ht it = head; it != h; it = cset_next(it))
+            prev = it;
+        assert(prev); // 'h' would be head otherwise.
+
+        cg_data(prev).cset_next = cg_data(h).cset_next;
+    }
+
+    // Clear 'h' data:
+    cg_data(h).cset_head = {};
+    cg_data(h).cset_next = {};
 }
 
 // Appends 'h' onto the set of 'last'.
@@ -90,16 +133,20 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 
     assert(last_h != h);
     assert(!last_h || cset_is_last(last_h));
-    assert(cset_mergable(last_h, h));
+    assert(csets_mergable(last_h, h));
 
     if(cset_is_head(last_h))
     {
+        if(last_h == h)
+            return last_h;
         cset_merge_locators(last_h, h);
         cg_data(h).cset_head = last_h;
     }
     else
     {
         ssa_ht const head = cset_head(last_h);
+        if(head == h)
+            return last_h;
         cset_merge_locators(head, h);
         cg_data(h).cset_head = head;
     }
@@ -120,12 +167,22 @@ ssa_ht csets_dont_interfere(ssa_ht a, ssa_ht b)
     assert(cset_is_head(a));
     assert(cset_is_head(b));
 
+    if(a == b)
+    {
+        while(!cset_is_last(a))
+            a = cset_next(a);
+        return a;
+    }
+
     ssa_ht last_a;
     for(ssa_ht ai = a; ai; ai = cset_next(ai))
     {
         for(ssa_ht bi = b; bi; bi = cset_next(bi))
-            if(live_range_overlap(ai, bi))
+        {
+            assert(ai != bi);
+            if(orig_def(a) != orig_def(b) && live_range_overlap(ai, bi))
                 return {};
+        }
         last_a = ai;
     }
 
@@ -144,6 +201,118 @@ bool cset_live_at_any_def(ssa_ht a, ssa_ht const* b_begin, ssa_ht const* b_end)
 
     return false;
 }
+
+// TODO: make this way more efficient
+static bool _reaching(ssa_ht def, cfg_ht cfg, ssa_ht use, fc::vector_set<cfg_ht>& visited)
+{
+    if(visited.count(cfg))
+        return true;
+    visited.insert(cfg);
+
+    for(ssa_ht ssa_it = cset_head(def); ssa_it; ssa_it = cset_next(ssa_it))
+    {
+        if(ssa_it->cfg_node() != cfg)
+            continue;
+
+        if(orig_def(ssa_it) == def)
+            continue;
+
+        if(ssa_it->cfg_node() == use->cfg_node())
+            if(cg_data(ssa_it).schedule.index > cg_data(use).schedule.index)
+                continue;
+
+        if(ssa_it->cfg_node() == def->cfg_node())
+            if(cg_data(ssa_it).schedule.index < cg_data(def).schedule.index)
+                continue;
+
+        return false;
+
+    }
+
+    if(cfg == def->cfg_node())
+        return true;
+
+    unsigned const input_size = cfg->input_size();
+    for(unsigned i = 0; i < input_size; ++i)
+        if(!_reaching(def, cfg->input(i), use, visited))
+            return false;
+
+    return true;
+}
+
+static bool _reaching(ssa_ht def, ssa_ht use)
+{
+    fc::vector_set<cfg_ht> visited;
+    return _reaching(def, use->cfg_node(), use, visited);
+}
+
+namespace
+{
+struct dupe_exit_t
+{
+    void run(cfg_ht orig_cfg, unsigned edge_i, cfg_ht duped_cfg)
+    {
+        this->orig_cfg = orig_cfg;
+        this->edge_i = edge_i;
+        this->duped_cfg = duped_cfg;
+        map.clear();
+
+        for(ssa_ht ssa_it = orig_cfg->first_daisy(); ssa_it; 
+            ssa_it = ssa_it->next_daisy())
+        {
+            std::puts("x");
+            visit(ssa_it);
+        }
+
+        for(ssa_ht ssa_it = orig_cfg->ssa_begin(); ssa_it; ++ssa_it)
+            visit(ssa_it);
+    }
+
+private:
+    cfg_ht orig_cfg;
+    unsigned edge_i;
+    cfg_ht duped_cfg;
+
+    // A map from original nodes to duped nodes:
+    fc::small_map<ssa_ht, ssa_value_t, 8> map;
+
+    void visit(ssa_ht orig_ssa)
+    {
+        if(map.count(orig_ssa))
+            return;
+
+        if(orig_ssa->op() == SSA_phi)
+        {
+            map[orig_ssa] = orig_ssa->input(edge_i);
+            return;
+        }
+
+        ssa_ht duped_ssa = duped_cfg->emplace_ssa(
+            orig_ssa->op(), orig_ssa->type());
+        duped_ssa->alloc_input(orig_ssa->input_size());
+
+        if(orig_ssa->in_daisy())
+            duped_ssa->append_daisy();
+
+        map[orig_ssa] = duped_ssa;
+
+        for(unsigned i = 0; i < orig_ssa->input_size(); ++i)
+        {
+            ssa_value_t input = orig_ssa->input(i);
+
+            if(input.holds_ref() && input->cfg_node() == orig_cfg)
+            {
+                if(map.count(input.handle()) == 0)
+                    visit(input.handle());
+                assert(map.count(input.handle()));
+                input = map[input.handle()];
+            }
+
+            duped_ssa->build_set_input(i, input);
+        }
+    }
+};
+}// end anon namespace
 
 void code_gen(ir_t& ir)
 {
@@ -211,6 +380,23 @@ void code_gen(ir_t& ir)
     }
 
     ///////////////////
+    // DUPLICATE RTS //
+    ///////////////////
+
+    assert(ir.exit);
+    dupe_exit_t duper;
+    while(ir.exit->input_size())
+    {
+        cfg_ht duped_cfg = ir.emplace_cfg();
+        duper.run(ir.exit, 0, duped_cfg);
+
+        auto ie = ir.exit->input_edge(0);
+        ie.handle->link_change_output(ie.index, duped_cfg,
+            [](ssa_ht phi) { assert(false); return 0u; });
+    }
+    ir.prune_cfg(ir.exit);
+
+    ///////////////////
     // ALLOCATE CG_D //
     ///////////////////
 
@@ -230,7 +416,7 @@ void code_gen(ir_t& ir)
         unsigned cost;
     };
     
-    struct loc_data_t
+    struct global_loc_data_t
     {
         // Holds the the coalesced set of all nodes using this locator:
         ssa_ht cset = {};
@@ -240,14 +426,16 @@ void code_gen(ir_t& ir)
         std::vector<copy_t> copies;
 
         // Holds every node tagged with SSAF_WRITE_GLOBALS,
-        // that also writes to this locator:
+        // that also writes to this locator. (fn calls and returns)
         std::vector<ssa_ht> write_points;
 
-        std::map<fixed_t, bc::small_vector<ssa_bck_edge_t, 1>> 
-            const_writes; 
+        // Used to implement constant writes to global memory.
+        std::map<fixed_t, bc::small_vector<ssa_bck_edge_t, 1>> const_stores; 
     };
 
-    rh::batman_map<locator_t, loc_data_t> loc_map;
+    // Maps specific locators - global reads and writes - to their copies.
+    rh::batman_map<locator_t, global_loc_data_t> global_loc_map;
+
     bc::small_vector<copy_t, 32> phi_copies;
     bc::small_vector<ssa_ht, 16> phi_csets;
     unsigned phi_loc_index = 0;
@@ -257,7 +445,7 @@ void code_gen(ir_t& ir)
     {
         ssa_op_t const op = ssa_it->op();
 
-        // Use copies when going into out of global variables.
+        // Use copies when going into or out of global variables.
         // This is needed to correctly implement the loads and stores
         // of these pinned memory locations.
 
@@ -267,11 +455,13 @@ void code_gen(ir_t& ir)
         {
             // Consider 'SSA_read_global' to be a copy in its own right.
             locator_t const loc = ssa_it->input(1).locator();
-            loc_map[loc].copies.push_back({ ssa_it });
+            global_loc_map[loc].copies.push_back({ ssa_it });
         }
-        if(ssa_flags(op) & SSAF_WRITE_GLOBALS)
+        else if(ssa_flags(op) & SSAF_WRITE_GLOBALS)
         {
-            // For every write, insert a copy after every input.
+            // All global writes will get a tentative SSA_early_store node.
+            // If this early_store can coalesce, we'll keep it.
+            // Otherwise, it will be pruned later on.
 
             unsigned const input_size = ssa_it->input_size();
             for(unsigned i = write_globals_begin(op); i < input_size; i += 2)
@@ -279,33 +469,34 @@ void code_gen(ir_t& ir)
                 locator_t const loc = ssa_it->input(i + 1).locator();
                 ssa_fwd_edge_t ie = ssa_it->input_edge(i);
 
-                // For the time being, only nodes are copied.
                 if(ie.is_const())
                 {
-                    loc_data_t& ld = loc_map[loc];
-                    ld.const_writes[ie.fixed()].push_back({ ssa_it, i });
-                    continue;
+                    // Constants are handled later on,
+                    // as it takes analysis to determine where to insert the copy.
+
+                    global_loc_data_t& ld = global_loc_map[loc];
+                    ld.const_stores[ie.fixed()].push_back({ ssa_it, i });
                 }
-                else if(!ie.holds_ref())
-                    continue;
+                else if(ie.holds_ref())
+                {
+                    // Create a new SSA_early_store node here.
 
-                ssa_ht copy = ie.handle()->split_output_edge(
-                    true, ie.index(), SSA_locator_store);
-                copy->link_append_input(loc);
-                ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
+                    ssa_ht store = ie.handle()->split_output_edge(true, ie.index(), SSA_early_store);
+                    store->link_append_input(loc);
+                    ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
 
-                loc_data_t& ld = loc_map[loc];
-                ld.copies.push_back({ copy });
-                ld.write_points.push_back(ssa_it);
+                    global_loc_data_t& ld = global_loc_map[loc];
+                    ld.copies.push_back({ store });
+                    ld.write_points.push_back(ssa_it);
+                }
             }
         }
-
-        // Insert a copy of every phi argument at the end of every
-        // predecessor of the phi's cfg node.
-        // This is needed to convert out of SSA.
-
-        if(op == SSA_phi)
+        else if(op == SSA_phi)
         {
+            // Insert a copy of every phi argument at the end of every
+            // predecessor of the phi's cfg node.
+            // This is needed to convert out of SSA.
+
             // The cset of the phi copies will have a unique locator.
             // (These locators may be merged)
             locator_t const loc = locator_t::phi(phi_loc_index++);
@@ -316,10 +507,19 @@ void code_gen(ir_t& ir)
             for(unsigned i = 0; i < input_size; ++i)
             {
                 cfg_ht cfg_pred = cfg_it->input(i);
-                ssa_value_t input = ssa_it->input(i);
+                ssa_fwd_edge_t ie = ssa_it->input_edge(i);
+                
+                ssa_ht copy;
+                if(ie.holds_ref())
+                {
+                    ssa_value_t input = ie.handle();
+                    ssa_ht store = input->split_output_edge(true, ie.index(), SSA_early_store);
+                    copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), store);
+                    phi_copies.push_back({ copy });
+                }
+                else
+                    copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), ie);
 
-                ssa_ht copy = cfg_pred->emplace_ssa(
-                    SSA_phi_copy, ssa_it->type(), input);
                 ssa_it->link_change_input(i, copy);
                 ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
 
@@ -328,16 +528,30 @@ void code_gen(ir_t& ir)
                 copy->insert_daisy(cfg_pred->last_daisy());
 
                 // Add it to the cset.
+                // (All related phi_copys will belong to the same cset.)
                 last = cset_append(last, copy);
+                assert(cset_locator(copy) == loc);
 
-                if(input.holds_ref())
-                    phi_copies.push_back({ copy });
             }
 
             if(last.holds_ref())
                 phi_csets.push_back(last.handle());
         }
     }
+
+    //////////////
+    // RESIZING //
+    //////////////
+
+    // Some nodes may be created after scheduling. 
+    // Estimate an upper bound for the number of nodes needed here:
+    unsigned reserve = 0;
+    for(auto& pair : global_loc_map)
+        for(auto& pair : pair.second.const_stores)
+            reserve += pair.second.size() - 1;
+
+    // Then reserve extra space:
+    ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size() + reserve);
 
     ////////////////
     // SCHEDULING //
@@ -349,7 +563,7 @@ void code_gen(ir_t& ir)
     // LIVENESS SET CREATION //
     ///////////////////////////
 
-    calc_liveness(ir);
+    calc_ssa_liveness(ir, ssa_pool::array_size() + reserve);
     
     // Note: once the live sets have been built, the IR cannot be modified
     // until all liveness checks are done.
@@ -361,8 +575,35 @@ void code_gen(ir_t& ir)
 
     // Coalesce locators.
 
-    auto coalesce_loc = [&](locator_t loc, locator_data_t& ld, ssa_ht node)
+
+    auto const prune_early_store = [&](ssa_ht store) -> ssa_ht
     {
+        assert(store->op() == SSA_early_store);
+        //assert(!cg_data(store).cset_head);
+
+        ssa_ht const parent = store->input(0).handle();
+
+        cset_remove(store);
+        clear_liveness_for(ir, store);
+        store->replace_with(parent);
+        ssa_ht ret = store->prune();
+
+        unsigned const index = cg_data(store).schedule.index;
+        auto& schedule = cg_data(store->cfg_node()).schedule;
+        for(unsigned i = index+1; i < schedule.size(); ++i)
+            cg_data(schedule[i]).schedule.index -= 1;
+        schedule.erase(schedule.begin() + index);
+
+        clear_liveness_for(ir, parent);
+        calc_ssa_liveness(parent);
+
+        return ret;
+    };
+
+    // Tries to insert 'node' into the cset of 'ld'.
+    auto const coalesce_loc = [&](locator_t loc, global_loc_data_t& ld, ssa_ht node)
+    {
+        assert(node);
         assert(cset_is_head(node) && cset_is_last(node));
         assert(!cg_data(node).cset_head);
 
@@ -370,8 +611,7 @@ void code_gen(ir_t& ir)
         // i.e. its live range doesn't overlap any point where the
         // locator is already live.
 
-        if(live_at_any_def(node, &*ld.write_points.begin(), 
-                                 &*ld.write_points.end()))
+        if(live_at_any_def(node, &*ld.write_points.begin(), &*ld.write_points.end()))
             return false;
 
         if(ld.cset)
@@ -389,97 +629,140 @@ void code_gen(ir_t& ir)
             // It can be coalesced; create a new set out of it;
             ld.cset = node;
             // Also tag it to a locator:
-            cg_data(copy.node).cset_head = loc;
+            cg_data(node).cset_head = loc;
         }
 
         return true;
     };
 
-    for(auto& pair : loc_map)
+    // First coalesce gvar read/writes, mostly with other read/writes of the same locator,
+    // but also with some SSA_phi nodes.
+    for(auto& pair : global_loc_map)
     {
         locator_t const loc = pair.first;
         auto& ld = pair.second;
-
-        std::puts("PAIR");
 
         // Prioritize less busy ranges over larger ones.
         for(copy_t& copy : ld.copies)
             copy.cost = live_range_busyness(ir, copy.node);
         std::sort(ld.copies.begin(), ld.copies.end(),
-        [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
+            [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
 
         for(copy_t const& copy : ld.copies)
-        {
-            assert(ld.cset);
-            assert(cset_is_head(ld.cset));
-
-            coalesce_loc(loc, ld, copy.node);
-
-            // Try to coalesce locator_stores with phis
-            if(copy.node->op() == SSA_locator_store)
-            {
-                ssa_ht input = copy.node->input(0).handle();
-                if(input->op() != SSA_phi)
-                    continue;
-
-                ssa_ht last = csets_dont_interfere(ld.cset, cset_head(input));
-                if(!last)
-                    continue;
-
-                // It can be coalesced; add it to the cset.
-                ld.cset = cset_head(cset_append(last, input));
-                assert(loc == cset_locator(ld.cset));
-            }
-        }
+            if(!coalesce_loc(loc, ld, copy.node))
+                if(copy.node->op() == SSA_early_store)
+                    prune_early_store(copy.node);
     }
 
-    // Consts TODO
-
-    for(auto& pair : loc_map)
+    // Now insert early_stores for constants, trying to minimize the amount of stores needed.
+    build_loops_and_order(ir); // We'll need loop information eventually.
+    build_dominators_from_order(ir);
+    for(auto& pair : global_loc_map)
     {
         locator_t const loc = pair.first;
         auto& ld = pair.second;
 
-        for(auto& pair : ld.const_writes)
+        for(auto& pair : ld.const_stores)
         {
             auto& vec = pair.second;
 
-            if(vec.size() <= 1)
+            // If only a single constant is stored, a const_store isn't needed.
+            if(vec.size() < 2)
                 continue;
 
-            if(vec[0].handle == vec[1].handle)
+            // Otherwise we'll try to find 2 stores and combine them into 1.
+            for(unsigned i = 0; i < vec.size()-1; ++i)
+            for(unsigned j = i+1; j < vec.size(); ++j)
             {
-                // TODO
+                assert(i != j);
+
+                // 'a' and 'b' are the two nodes we're trying to combine:
+                ssa_ht a = vec[i].handle;
+                ssa_ht b = vec[j].handle;
+
+                cfg_ht a_cfg = a->cfg_node();
+                cfg_ht b_cfg = b->cfg_node();
+
+                // Create the store in a dominating spot:
+                cfg_ht store_cfg = dom_intersect(a_cfg, b_cfg);
+                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_BYTE, pair.first);
+                assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
+                auto& store_d = cg_data(store);
+
+                a->link_change_input(vec[i].index, store);
+                b->link_change_input(vec[j].index, store);
+
+                if(a->op() == SSA_early_store)
+                    a->unsafe_set_op(SSA_aliased_store);
+                if(b->op() == SSA_early_store)
+                    b->unsafe_set_op(SSA_aliased_store);
+
+                if(store_cfg == a_cfg)
+                {
+                    // If both are the same, pick the earliest one
+                    if(store_cfg == b_cfg && cg_data(b).schedule.index < cg_data(a).schedule.index)
+                        goto before_b;
+
+                    // pick the rank before 'a'
+                    store_d.schedule.index = cg_data(a).schedule.index;
+                }
+                else if(store_cfg == b_cfg)
+                {
+                    // pick the rank before 'b'
+                before_b:
+                    store_d.schedule.index = cg_data(b).schedule.index;
+                }
+                else
+                {
+                    assert(store_cfg->last_daisy());
+                    auto& last_d = cg_data(store_cfg->last_daisy());
+
+                    store_d.schedule.index = last_d.schedule.index;
+                }
+
+                // Now try to coalesce it into the locator's cset.
+                calc_ssa_liveness(store);
+                if(coalesce_loc(loc, ld, store))
+                {
+                    // 'i' becomes the new store:
+                    vec[i] = { store, 0 };
+
+                    // remove 'j':
+                    std::swap(vec[j], vec.back());
+                    vec.pop_back();
+
+                    unsigned const index = store_d.schedule.index;
+
+                    // add the store to the schedule, for real
+                    auto& schedule = cg_data(store_cfg).schedule;
+                    schedule.insert(schedule.begin() + index, store);
+
+                    for(unsigned k = index+1; k < schedule.size(); ++k)
+                        cg_data(schedule[k]).schedule.index += 1;
+
+                    --i;
+                    break;
+                }
+                else
+                {
+                    // Abort! Undo everything and prune it.
+                    clear_liveness_for(ir, store);
+                    store->replace_with(pair.first);
+                    store->prune();
+                }
             }
-
-            cfg_ht copy_cfg = dom_intersect(vec[0].handle, vec[1].handle);
-
-            ssa_ht copy = copy_cfg->emplace_ssa(SSA_copy, TYPE_BYTE, TODO);
-
-            // TODO: add copy to schedule
-
-            calc_liveness(copy);
-
-            coalesce_loc(loc, ld, copy);
-
-            // - Compute liveness for 'copy'
-            // - Add 'copy' to order?
-            // - try to emplace 'copy' into the cset.
-
-            // pick two
-            // find dominator
-            // check if path from dominator to both nodes intersects with cset
-            // if not, replace with node
-            // repeat until no progress is made
         }
     }
-
     // Coalesce phis:
+
+    std::puts("coalesce phis");
 
     // First try to coalesce 'SSA_phi's with their input 'SSA_phi_copy's.
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht phi_it = cfg_it->phi_begin(); phi_it; ++phi_it)
     {
+        assert(phi_it->input(0)->op() == SSA_phi_copy);
+
         ssa_ht cset = cset_head(phi_it->input(0).handle());
         ssa_ht phi_cset = cset_head(phi_it);
 
@@ -487,56 +770,100 @@ void code_gen(ir_t& ir)
             cset_append(last, phi_cset);
     }
 
+    std::puts("coalesce phis 2");
+
     // Prioritize less busy ranges over larger ones.
     for(copy_t& copy : phi_copies)
         copy.cost = live_range_busyness(ir, copy.node->input(0).handle());
     std::sort(phi_copies.begin(), phi_copies.end(),
     [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
 
-    // Now coalesce 'SSA_phi_copy's with their inputs.
+    // Now coalesce 'SSA_phi_copy's with their input early_stores.
     for(copy_t const& copy : phi_copies)
     {
-        std::puts("CHEKING PHI COPY");
+        assert(copy.node);
         assert(copy.node->op() == SSA_phi_copy);
+
         ssa_ht candidate = copy.node->input(0).handle();
+
+        assert(candidate);
+        assert(candidate->op() == SSA_early_store);
 
         ssa_ht copy_cset      = cset_head(copy.node);
         ssa_ht candidate_cset = cset_head(candidate);
 
-        if(locator_t const candidate_loc = cset_locator(candidate_cset))
-        {
-            //locator_t const copy_loc = cset_locator(copy_cset);
-            //if(copy_loc && candidate_loc != copy_loc)
-            if(!cset_mergable(copy_cset, candidate_cset))
-            {
-                std::puts("not merg");
-                continue;
-            }
+        assert(csets_mergable(copy_cset, candidate_cset));
 
-            if(auto* ptr = loc_map.find(candidate_loc))
+        if(ssa_ht last = csets_dont_interfere(copy_cset, candidate_cset))
+            cset_append(last, candidate_cset);
+        else
+            prune_early_store(candidate);
+    }
+
+    std::puts("coalesce phis 3");
+
+    // Now coalesce early stores with their parent
+    bc::small_vector<ssa_ht, 32> early_stores;
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht store = cfg_node.ssa_begin(); store;)
+    {
+        if(store->op() == SSA_early_store)
+        {
+            ssa_ht parent = store->input(0).handle();
+
+            ssa_ht store_cset = cset_head(store);
+            ssa_ht parent_cset = cset_head(parent);
+
+            assert(cset_locator(store_cset));
+
+            if(!csets_mergable(store_cset, parent_cset))
             {
-                if(cset_live_at_any_def(copy_cset, 
-                                        &*ptr->second.write_points.begin(), 
-                                        &*ptr->second.write_points.end()))
+                // Can't alias the early store :(
+
+                assert(store->output_size() == 1);
+                ssa_ht use = store->output(0);
+
+                unsigned const use_depth = loop_depth(use->cfg_node());
+                unsigned const def_depth = loop_depth(store->cfg_node());
+                if(def_depth > use_depth)
                 {
-                    std::puts("not live");
+                    std::printf("depth diff! %i\n", store.index);
+                    // The early store is inside a loop, 
+                    // meaning it will likely slow the code down.
+                    // Thus, let's remove it.
+                    store = prune_early_store(store);
+                    continue;
+                }
+                else
+                {
+                    ++store;
                     continue;
                 }
             }
-        }
 
-        if(ssa_ht last = csets_dont_interfere(candidate_cset, copy_cset))
-            cset_append(last, copy_cset);
-        else
-            std::puts("interfere");
+            //ssa_ht last = csets_dont_interfere(store_cset, parent_cset);
+            //if(ssa_ht last = csets_dont_interfere(store_cset, parent_cset))
+            {
+                cset_merge_locators(store_cset, parent_cset);
+                //assert(last);
+                //cset_append(last, parent_cset);
+                store->unsafe_set_op(SSA_aliased_store);
+                assert(cset_locator(store_cset));
+                assert(cset_locator(store_cset) == cset_locator(parent_cset));
+            }
+        }
+        ++store;
     }
+
+    std::puts("coalesce phis 4");
 
     // Now update the IR.
     // (Liveness checks can't be done after this.)
 
     fc::small_set<ssa_ht, 32> unique_csets;
-    for(auto& pair : loc_map)
-        unique_csets.insert(cset_head(pair.second.cset));
+    for(auto& pair : global_loc_map)
+        if(pair.second.cset)
+            unique_csets.insert(cset_head(pair.second.cset));
     for(ssa_ht h : phi_csets)
         unique_csets.insert(cset_head(h));
 
@@ -549,31 +876,22 @@ void code_gen(ir_t& ir)
         {
             assert(cset_locator(ssa_it) == loc);
 
-            /* TODO
-            if(ssa_it->op() == SSA_read_global
-               || (ssa_it->input_size() && ssa_it->input(0).holds_ref()
-                   && cset_locator(ssa_it->input(0).handle()) == loc))
-            {
-                ssa_it->set_flags(FLAG_COALESCED);
-            }
-            */
             ssa_it->set_flags(FLAG_COALESCED);
 
-            if(ssa_it->op() == SSA_locator_store)
+            if(ssa_it->op() == SSA_early_store)
             {
                 ssa_ht orig = ssa_it->input(0).handle();
 
-                if(cset_locator(orig) != loc)
-                    cg_data(orig).store_in_locs.insert(loc);
-
                 // Replace uses of 'orig' with uses of 'ssa_it' whenever
                 // said uses occur inside the live range of 'ssa_it'.
+                /*
                 for(unsigned i = 0; i < orig->output_size();)
                 {
                     auto oe = orig->output_edge(i);
                     if(oe.input_class() == INPUT_VALUE
                        && !(ssa_flags(oe.handle->op()) & SSAF_COPY)
-                       && live_at_def(ssa_it, oe.handle))
+                       && ((loc.lclass() == LCLASS_CALL_ARG && live_at_def(ssa_it, oe.handle))
+                           || (loc.lclass() != LCLASS_CALL_ARG && _reaching(orig, oe.handle))))
                     {
                         assert(ssa_it != oe.handle);
                         oe.handle->link_change_input(oe.index, ssa_it);
@@ -581,6 +899,7 @@ void code_gen(ir_t& ir)
                     else
                         ++i;
                 }
+                */
             }
 
         }
@@ -592,11 +911,10 @@ void code_gen(ir_t& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->op() == SSA_read_global 
-           && ssa_it->input(1).locator().lclass() == LCLASS_GLOBAL_SET)
+        if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LCLASS_GVAR_SET)
         {
             assert(ssa_it->test_flags(FLAG_COALESCED));
-            assert(ssa_it->input(0)->op() == SSA_locator_store);
+            assert(ssa_it->input(0)->op() == SSA_early_store);
             assert(ssa_it->input(0)->test_flags(FLAG_COALESCED));
         }
     }
@@ -605,6 +923,8 @@ void code_gen(ir_t& ir)
     ///////////////////////////
     // INSTRUCTION SELECTION //
     ///////////////////////////
+
+    rh::robin_map<ssa_value_t, unsigned> store_map;
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -618,16 +938,14 @@ void code_gen(ir_t& ir)
         d.code = select_instructions(cfg_it);
 
         for(ainst_t inst : d.code)
-        {
-            if(!inst.arg.holds_ref())
-                continue;
             if(op_input_regs(inst.op) & REGF_M)
-                inst.arg->set_flags(FLAG_STORED);
-        }
+                store_map.emplace(inst.arg.cg_mem(), 
+                                  [&]{ return store_map.size(); });
     }
 
     // Replace used MAYBE stores with real stores, 
     // and prune unused MAYBE stores:
+#if 0
     std::vector<ainst_t> temp_code;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -646,7 +964,7 @@ void code_gen(ir_t& ir)
                     continue;
                 }
 
-                if(!inst.arg->test_flags(FLAG_STORED))
+                if(!store_map.count(inst.arg.cg_mem()))
                     continue;
 
                 switch(inst.op)
@@ -672,6 +990,7 @@ void code_gen(ir_t& ir)
         
         d.code.swap(temp_code);
     }
+#endif
 
     ////////////////////////
     // ORDER BASIC BLOCKS //

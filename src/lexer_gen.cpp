@@ -590,18 +590,21 @@ int main()
             keyword("fn"),
             keyword("goto"),
             keyword("label"),
-            keyword("vars"),
+            keyword("mode"),
+            keyword("buffer"),
+            keyword("rom"),
+            keyword("ram"),
 
             // Symbols
             keyword(1, "lbrace", "{"),
             keyword(1, "rbrace", "}"),
 
-            keyword(1, "lbracket", "{"),
-            keyword(1, "rbracket", "}"),
+            keyword(1, "lbracket", "["),
+            keyword(1, "rbracket", "]"),
 
             //keyword(3, "colon", ":"),
             //keyword(3, "double_colon", "::"),
-            keyword(4, "pointer", "%"),
+            //keyword(4, "pointer", "%"),
             //keyword(4, "rarrow", "->"),
             keyword(6, "semicolon", ";"),
             keyword(6, "comma", ","),

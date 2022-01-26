@@ -97,18 +97,30 @@ public:
         }
 
         // Create the global:
-        active_global->define_fn(decl.name, decl.type, 
-                                 std::move(ideps), std::move(fn));
+        active_global->define_fn(decl.name, std::move(ideps), 
+                                 decl.type, std::move(fn));
+        ideps.clear();
     }
+
+    [[gnu::always_inline]]
+    group_ht begin_group(pstring_t group_name)
+    {
+        return global_t::lookup_group(group_name, source());
+    }
+
+    [[gnu::always_inline]]
+    void end_group(group_ht)
+    {}
 
     // Global variables
     [[gnu::always_inline]]
-    void global_var(var_decl_t const& var_decl, expr_temp_t* expr)
+    void global_var(group_ht group, var_decl_t const& var_decl, expr_temp_t* expr)
     {
         assert(ideps.empty());
+
         active_global = &global_t::lookup(var_decl.name, source());
-        active_global->define_var(var_decl.name, var_decl.type, 
-                                  std::move(ideps));
+        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, group);
+        ideps.clear();
     }
 
     [[gnu::always_inline]]
@@ -258,7 +270,7 @@ public:
     void label_statement(pstring_t pstring)
     {
         // Create a new label
-        label_t* label = global_t::new_label();
+        label_t* label = stmt_t::new_label();
         label->stmt_h = fn.push_stmt(
             { STMT_LABEL, pstring, { .label = label} });
 
@@ -298,6 +310,12 @@ public:
             fn[goto_h].label = it->second;
             it->second->goto_count += 1;
         }
+    }
+
+    [[gnu::always_inline]]
+    unsigned bank_index(pstring_t pstring)
+    {
+        return global_t::lookup_vbank(pstring, source()).value;
     }
 };
 

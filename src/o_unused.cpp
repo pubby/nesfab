@@ -20,12 +20,13 @@ static bool _can_prune(ssa_node_t& node)
 
     switch(node.op())
     {
-    default: return true;
+    default: 
+        return true;
     case SSA_if:
     case SSA_return:
         return false;
     case SSA_fn_call:
-        return get_fn(node).fn().io_pure();
+        return get_fn(node).io_pure();
     }
 }
 
@@ -49,7 +50,7 @@ static ssa_ht _get_link_head(ssa_ht h)
     return h;
 }
 
-bool o_remove_unused_ssa(ir_t& ir)
+bool o_remove_unused_linked(ir_t& ir)
 {
     bool changed = false;
 
@@ -95,5 +96,71 @@ bool o_remove_unused_ssa(ir_t& ir)
     }
 
     ir.assert_valid();
+    return changed;
+}
+
+bool o_remove_no_effect(ir_t& ir)
+{
+    ssa_worklist.clear();
+
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+    {
+        assert(!ssa_it->test_flags(FLAG_IN_WORKLIST));
+        ssa_it->set_flags(FLAG_PRUNED);
+    }
+
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+    {
+        if(ssa_it->op() == SSA_if
+           || ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS
+           /*|| ssa_input0_class(ssa_it->op()) == INPUT_LINK*/) // links are handled in other function
+        {
+            ssa_it->clear_flags(FLAG_PRUNED);
+            ssa_worklist.push(ssa_it);
+        }
+
+        //if(ssa_input0_class(ssa_it->op()) == INPUT_LINK)
+            //ssa_it->clear_flags(FLAG_PRUNED);
+    }
+
+    while(!ssa_worklist.empty())
+    {
+        ssa_ht ssa_it = ssa_worklist.pop();
+
+        for_each_node_input(ssa_it, [](ssa_ht input)
+        {
+            if(input->test_flags(FLAG_PRUNED))
+            {
+                input->clear_flags(FLAG_PRUNED);
+                ssa_worklist.push(input);
+            }
+        });
+    }
+
+    bool changed = false;
+
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it;)
+    {
+        if(ssa_it->test_flags(FLAG_PRUNED))
+        {
+            std::printf("pruning %i\n", ssa_it.index);
+            ssa_it = ssa_it->prune();
+            changed = true;
+        }
+        else
+            ++ssa_it;
+    }
+
+    return changed;
+}
+
+bool o_remove_unused_ssa(ir_t& ir)
+{
+    bool changed = false;
+    changed |= o_remove_unused_linked(ir);
+    changed |= o_remove_no_effect(ir);
     return changed;
 }

@@ -410,7 +410,6 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
         result[i] = constraints_t::top();
         for(unsigned j = 0; j < argn; ++j)
         {
-            std::printf("j = %i\n", j);
             assert(cv[j].vec.size());
             assert(cv[j].vec.size() >= result.vec.size());
             result[i] = union_(result[i], cv[j][i]);
@@ -574,6 +573,8 @@ known_bits_t abstract_or(known_bits_t lhs, known_bits_t rhs, fixed_int_t mask)
 ABSTRACT(SSA_or) = ABSTRACT_FN
 {
     assert(argn == 2 && result.vec.size() >= 1);
+    assert(cv[0].vec.size() >= 1);
+    assert(cv[1].vec.size() >= 1);
     result[0].bits = abstract_or(cv[0][0].bits, cv[1][0].bits, result.mask);
     result[0].bounds = from_bits(result[0].bits);
     assert(result[0].bounds.max <= result.mask && result[0].is_normalized());
@@ -673,18 +674,31 @@ constraints_t abstract_lt(constraints_t lhs, constraints_t rhs)
 ABSTRACT(SSA_lt) = ABSTRACT_FN
 {
     assert(argn % 2 == 0 && result.vec.size() >= 1);
+    assert(argn > 0);
 
     if(handle_top(cv, argn, result))
         return;
 
-    for(int i = (int)argn - 2; i >= 0; i -= 2)
+    for(int i = (int)argn - 2; i > 0; i -= 2)
     {
-        result[0] = abstract_lt(cv[i][0], cv[i+1][0]);
-        if(result[0].is_const())
+        auto eq = abstract_eq(cv[i][0], cv[i+1][0]);
+        if(eq.is_const())
+        {
+            if(!eq.get_const())
+            {
+                result[0] = abstract_lt(cv[i][0], cv[i+1][0]);
+                return;
+            }
+        }
+        else
+        {
+            result[0] = constraints_t::any_bool();
             return;
+        }
     }
 
-    result[0] = constraints_t::any_bool();
+    // The only way to get here is if all higher comparisons were equal
+    result[0] = abstract_lt(cv[0][0], cv[1][0]);
 };
 
 constraints_t abstract_lte(constraints_t lhs, constraints_t rhs)
@@ -701,18 +715,31 @@ constraints_t abstract_lte(constraints_t lhs, constraints_t rhs)
 ABSTRACT(SSA_lte) = ABSTRACT_FN
 {
     assert(argn % 2 == 0 && result.vec.size() >= 1);
+    assert(argn > 0);
 
     if(handle_top(cv, argn, result))
         return;
 
-    for(int i = (int)argn - 2; i >= 0; i -= 2)
+    for(int i = (int)argn - 2; i > 0; i -= 2)
     {
-        result[0] = abstract_lte(cv[i][0], cv[i+1][0]);
-        if(result[0].is_const())
+        auto eq = abstract_eq(cv[i][0], cv[i+1][0]);
+        if(eq.is_const())
+        {
+            if(!eq.get_const())
+            {
+                result[0] = abstract_lte(cv[i][0], cv[i+1][0]);
+                return;
+            }
+        }
+        else
+        {
+            result[0] = constraints_t::any_bool();
             return;
+        }
     }
 
-    result[0] = constraints_t::any_bool();
+    // The only way to get here is if all higher comparisons were equal
+    result[0] = abstract_lt(cv[0][0], cv[1][0]);
 };
 
 static constexpr auto narrow_bottom = NARROW_FN
@@ -922,15 +949,14 @@ static void narrow_eq(constraints_def_t* cv,
                       unsigned argn, constraints_def_t const& result)
 {
     assert(argn % 2 == 0 && result.vec.size() >= 1);
+    assert(argn > 0);
 
     if(!result[0].is_const())
         return;
 
-    if(!!result[0].get_const() == !!fixed_t::whole(Eq).value)
-    {
+    if(!!result[0].get_const() == Eq)
         for(unsigned i = 0; i < argn; i += 2)
             cv[i][0] = cv[i+1][0] = intersect(cv[i][0], cv[i+1][0]);
-    }
     else if(argn == 2)
     {
         assert(result[0].get_const() == fixed_t::whole(!Eq).value);
@@ -958,9 +984,12 @@ NARROW(SSA_not_eq) = narrow_eq<false>;
 NARROW(SSA_lt) = NARROW_FN
 {
     assert(argn % 2 == 0 && result.vec.size() >= 1);
+    assert(argn > 0);
 
-    if(!result[0].is_const())
+    if(argn != 2 || !result[0].is_const())
         return;
+
+    // TODO: implement argn > 2 narrows for this
 
     constraints_t& L = cv[0][0];
     constraints_t& R = cv[1][0];
@@ -981,8 +1010,10 @@ NARROW(SSA_lte) = NARROW_FN
 {
     assert(argn % 2 == 0 && result.vec.size() >= 1);
 
-    if(!result[0].is_const())
+    if(argn != 2 || !result[0].is_const())
         return;
+
+    // TODO: implement argn > 2 narrows for this
 
     constraints_t& L = cv[0][0];
     constraints_t& R = cv[1][0];

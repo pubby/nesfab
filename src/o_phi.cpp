@@ -175,6 +175,8 @@ void tarjan_t::visit(ssa_ht phi_h)
     }
 }
 
+// A set of redundant phis just reference each other, or one other value.
+
 // Paper: Simple and Efficient Construction of Static Single Assignment Form
 // https://pp.info.uni-karlsruhe.de/uploads/publikationen/braun13cc.pdf
 void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,

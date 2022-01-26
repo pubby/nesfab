@@ -96,8 +96,11 @@ std::size_t constraints_size(ssa_node_t const& node)
     case SSA_trace:
         return constraints_size(*node.input(0));
     default:
-        if(is_array_like(node.type()))
-            return node.type().size();
+        // TODO
+        //if(is_array_like(node.type()))
+            //return node.type().size();
+        //if(!is_numeric(node.type()))
+            //std::printf("not numeric: %s\n", to_string(node.op()).data());
         return is_numeric(node.type()) ? 1 : 0;
     }
 }
@@ -248,6 +251,23 @@ void ai_t::queue_node(executable_index_t exec_i, ssa_ht h)
 // SKIPPABLE                          //
 ////////////////////////////////////////
 
+static bool _search_not_skippable(cfg_ht cfg_h, ssa_ht ssa_h)
+{
+    unsigned const output_size = ssa_h->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+    {
+        ssa_ht output = ssa_h->output(i);
+
+        if(output->op() == SSA_trace)
+            return _search_not_skippable(cfg_h, output);
+
+        if(output->cfg_node() != cfg_h)
+            return true;
+    }
+
+    return false;
+}
+
 void ai_t::mark_skippable()
 {
     // A skippable CFG is one where every SSA node is either:
@@ -266,13 +286,8 @@ void ai_t::mark_skippable()
                 continue;
             assert(ssa_it->op() != SSA_trace);
 
-            unsigned const output_size = ssa_it->output_size();
-            for(unsigned i = 0; i < output_size; ++i)
-            {
-                ssa_node_t& output = *ssa_it->output(i);
-                if(output.cfg_node() != cfg_it && output.op() != SSA_trace)
-                    goto not_skippable;
-            }
+            if(_search_not_skippable(cfg_it, ssa_it))
+                goto not_skippable;
         }
 
         // Mark it as skippable!
@@ -452,8 +467,7 @@ void ai_t::insert_traces()
         if(!condition.is_handle())
             continue;
 
-        // Create new CFG nodes along each branch and insert SSA_traces
-        // into them.
+        // Create new CFG nodes along each branch and insert SSA_traces into them.
         for(unsigned i = 0; i < output_size; ++i)
         {
             cfg_ht cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
@@ -596,7 +610,11 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
             }
         }
         else for(unsigned i = 0; i < input_size; ++i)
+        {
             copy_constraints(ssa_node->input(i), c[i]);
+            std::cout << "copied = " << ssa_node->input(i) << std::endl;
+            std::cout << "copied size = " << c[i].vec.size() << std::endl;
+        }
 
         // Call the ai op:
         assert(abstract_fn(ssa_node->op()));
@@ -845,8 +863,7 @@ void ai_t::fold_consts()
                 constraints_t const rhs_c = first_constraint(rhs);
 
                 if(lhs_c.is_const() && rhs_c.is_const()
-                   && (lhs_c.get_const() == rhs_c.get_const())
-                      == (op == SSA_eq))
+                   && lhs_c.get_const() == rhs_c.get_const())
                 {
                     ssa_it->link_remove_input(i+1);
                     ssa_it->link_remove_input(i);

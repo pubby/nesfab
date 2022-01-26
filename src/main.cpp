@@ -62,7 +62,7 @@ int main(int argc, char** argv)
                 std::cout << "MOSBOL version " << VERSION << '\n';
                 std::cout << "commit " << GIT_COMMIT << '\n';
                 std::cout << 
-                    "Copyright (C) 2020, Pubby\n"
+                    "Copyright (C) 2022, Pubby\n"
                     "This is free software. "
                     "There is no warranty.\n";
                 return EXIT_SUCCESS;
@@ -114,8 +114,6 @@ int main(int argc, char** argv)
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);
         global_t::compile_all();
-
-
 
         //for(unsigned i = 0; i < 1; ++i)
         //{

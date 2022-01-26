@@ -23,7 +23,6 @@ private:
     ir_t& ir;
     cfg_ht cfg_node;
     unsigned set_size = 0;
-    unsigned next_rank = 0;
 
     ssa_ht carry_input_waiting;
 
@@ -36,9 +35,8 @@ private:
     ssa_schedule_d& data(ssa_ht h) const
         { return cg_data(h).schedule; }
     unsigned& index(ssa_ht h) const { return data(h).index; }
-    unsigned& rank(ssa_ht h) const  { return data(h).rank; }
 
-    void append_schedule(ssa_ht h, unsigned rank_);
+    void append_schedule(ssa_ht h);
     void run();
     
     template<bool Relax>
@@ -52,7 +50,24 @@ private:
     template<bool Relax>
     ssa_ht full_search() const;
 
+    void calc_exit_distance(ssa_ht ssa, int exit_distance=0) const;
 };
+
+// 'exit_distance' will penalize nodes used by the exit SSA node,
+// causing their work to be done closer to the exit.
+void scheduler_t::calc_exit_distance(ssa_ht ssa, int exit_distance) const
+{
+    if(ssa->cfg_node() != cfg_node)
+        return;
+
+    if(data(ssa).exit_distance <= exit_distance)
+        return;
+
+    data(ssa).exit_distance = exit_distance++;
+
+    if(ssa->op() != SSA_phi)
+        for_each_node_input(ssa, [&](ssa_ht input){ calc_exit_distance(input, exit_distance); });
+}
 
 scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
 : ir(ir)
@@ -70,17 +85,23 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
     {
         index(toposorted[i]) = i;
         data(toposorted[i]).deps = bitset_pool.alloc(set_size);
+        data(toposorted[i]).exit_distance = INT_MAX / 4; // Some sufficiently large number.
     }
+
+#ifndef NDEBUG
+    for(ssa_ht it = cfg_node->ssa_begin(); it; ++it)
+        assert(data(it).deps);
+#endif
 
     // The last daisy in the cfg_node should be scheduled last.
     if(ssa_ht exit = cfg_node->last_daisy())
     {
         auto& exit_d = data(exit);
-        std::cout << exit->op() << '\n';
         assert(exit->output_size() == 0);
         for(ssa_ht ssa_node : toposorted)
             if(ssa_node != exit)
                 bitset_set(exit_d.deps, index(ssa_node));
+        calc_exit_distance(exit);
     }
 
     for(ssa_ht ssa_node : toposorted)
@@ -123,6 +144,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         for(ssa_ht ssa_node : toposorted)
         {
             auto& d = data(ssa_node);
+            assert(d.deps);
             if(bitset_test(d.deps, index(changed)))
                 bitset_or(set_size, d.deps, data(changed).deps);
         }
@@ -157,9 +179,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
 
         // Can't add a dep if a cycle would be created:
         bool const cycle = bitset_for_each_test(set_size, temp_set, 
-        [index_, &toposorted](unsigned bit)
+        [index_, &toposorted, this](unsigned bit)
         { 
-            auto& d = toposorted[bit].data<ssa_schedule_d>();
+            assert(bit < toposorted.size());
+            auto& d = data(toposorted[bit]);
+            assert(d.deps);
             return !bitset_test(d.deps, index_); 
         });
 
@@ -217,19 +241,17 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
     run();
 }
 
-void scheduler_t::append_schedule(ssa_ht h, unsigned rank_)
+void scheduler_t::append_schedule(ssa_ht h)
 {
     bitset_set(scheduled, index(h));
     schedule.push_back(h);
 
-    rank(h) = rank_;
-
     // Recursively schedule any linked, too:
     for_each_output_matching(h, INPUT_LINK,
-    [this, rank_](ssa_ht link)
+    [this](ssa_ht link)
     {
         assert(ready<true>(link, scheduled));
-        append_schedule(link, rank_);
+        append_schedule(link);
     });
 }
 
@@ -260,7 +282,7 @@ void scheduler_t::run()
         auto& d = data(candidate);
 
         // Schedule it:
-        append_schedule(candidate, next_rank++);
+        append_schedule(candidate);
 
         // If this node inputs or clobbers a carry, stop tracking it:
         if(candidate == carry_input_waiting 
@@ -312,9 +334,9 @@ bool scheduler_t::ready(ssa_ht h, bitset_uint_t const* scheduled) const
 template<bool Relax>
 int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
 {
-    // 'new_bitset' assumes 'h' will be scheduled:
     auto* new_bitset = ALLOCA_T(bitset_uint_t, set_size);
     bitset_copy(set_size, new_bitset, scheduled);
+    // 'new_bitset' assumes 'h' will be scheduled:
     bitset_set(new_bitset, index(h));
     
     int max_length = 0;
@@ -332,11 +354,10 @@ int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
 
         ++outputs_in_cfg_node;
 
-        max_length = std::max(max_length, 
-                              path_length<Relax>(output, new_bitset));
+        max_length = std::max(max_length, path_length<Relax>(output, new_bitset));
     }
 
-    return max_length + std::max<int>(0, outputs_in_cfg_node - 1);
+    return (max_length + std::max<int>(0, outputs_in_cfg_node - 1));
 }
 
 ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
@@ -354,6 +375,11 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
 
         if(ready<false>(succ, scheduled))
         {
+            // Copies are so trivial we might as well schedule them next:
+            if(ssa_flags(succ->op()) & SSAF_COPY)
+                return succ;
+
+            // Otherwise find the best successor node by comparing path lengths:
             int l = path_length<false>(succ, this->scheduled);
             if(l > best_path_length)
             {
@@ -369,7 +395,7 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
 template<bool Relax>
 ssa_ht scheduler_t::full_search() const
 {
-    int best_path_length = -1;
+    int best_weight = INT_MIN;
     ssa_ht best = {};
 
     for(ssa_ht ssa_it = cfg_node->ssa_begin(); ssa_it; ++ssa_it)
@@ -377,10 +403,10 @@ ssa_ht scheduler_t::full_search() const
         if(!ready<Relax>(ssa_it, scheduled))
             continue;
 
-        int l = path_length<Relax>(ssa_it, scheduled);
-        if(l > best_path_length)
+        int w = path_length<Relax>(ssa_it, scheduled) * 8 + data(ssa_it).exit_distance;
+        if(w > best_weight)
         {
-            best_path_length = l;
+            best_weight = w;
             best = ssa_it;
         }
     }

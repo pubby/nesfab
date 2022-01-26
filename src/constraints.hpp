@@ -233,8 +233,8 @@ struct constraints_def_t
     fixed_int_t mask = 0;
     constraints_vec_t vec;
 
-    constraints_t const& operator[](unsigned i) const { return vec[i]; }
-    constraints_t& operator[](unsigned i) { return vec[i]; }
+    constraints_t const& operator[](unsigned i) const { assert(i < vec.size()); return vec[i]; }
+    constraints_t& operator[](unsigned i) { assert(i < vec.size()); return vec[i]; }
 };
 
 bool any_top(constraints_vec_t const& cv);

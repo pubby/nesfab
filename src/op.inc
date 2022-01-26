@@ -1,6 +1,7 @@
 // Nonexistent ops that are useful for tagging various things
 OP(BAD_OP)
 OP(ASM_LABEL)
+OP(ASM_DELAY)
 OP(MAYBE_STA)
 OP(MAYBE_STX)
 OP(MAYBE_STY)

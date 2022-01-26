@@ -17,7 +17,7 @@
 // - 
 
 // TODO:
-// - fix liveness for infintie loops
+// - fix liveness for infinite loops
 
 
 namespace

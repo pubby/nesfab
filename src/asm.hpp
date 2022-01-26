@@ -140,4 +140,16 @@ constexpr op_name_t invert_branch(op_name_t name)
     }
 }
 
+constexpr bool indirect_addr_mode(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    case MODE_INDIRECT:
+    case MODE_INDIRECT_X:
+    case MODE_INDIRECT_Y:
+        return true;
+    default: return false;
+    }
+}
+
 #endif

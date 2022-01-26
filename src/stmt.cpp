@@ -16,3 +16,16 @@ std::string to_string(stmt_name_t stmt_name)
 #undef X
     }
 }
+
+label_t* stmt_t::new_label()
+{
+    std::lock_guard<std::mutex> lock(label_pool_mutex);
+    return &label_pool.emplace();
+}
+
+token_t const* stmt_t::new_expr(token_t const* begin, token_t const* end)
+{
+    std::lock_guard<std::mutex> lock(expr_pool_mutex);
+    return expr_pool.insert(begin, end);
+}
+

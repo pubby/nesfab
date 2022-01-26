@@ -14,8 +14,7 @@ namespace builtin
     { return __builtin_clzll(i); }
 
 [[gnu::always_inline]] inline auto rclz(unsigned i) 
-    { return ((unsigned)sizeof_bits<unsigned>
-              - (unsigned)__builtin_clz(i)); }
+    { return ((unsigned)sizeof_bits<unsigned> - (unsigned)__builtin_clz(i)); }
 [[gnu::always_inline]] inline unsigned long rclz(unsigned long i) 
     { return ((unsigned long)sizeof_bits<unsigned long>
               - (unsigned long)__builtin_clzl(i)); }

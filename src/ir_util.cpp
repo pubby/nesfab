@@ -1,11 +1,12 @@
 #include "ir_util.hpp"
+#include <iostream> // TODO
 
 #include "ir.hpp"
 
-std::vector<cfg_util_d> cfg_util_pool;
-std::vector<cfg_ht> postorder;
-std::vector<cfg_ht> preorder;
-fc::vector_set<cfg_ht> loop_headers;
+thread_local std::vector<cfg_util_d> cfg_util_pool;
+thread_local std::vector<cfg_ht> postorder;
+thread_local std::vector<cfg_ht> preorder;
+thread_local std::vector<cfg_ht> loop_headers;
 
 ////////////////////////////////////////
 // order
@@ -37,8 +38,8 @@ void build_order(ir_t const& ir)
 
     for(auto& util : cfg_util_pool)
     {
-        util.preorder_i = 0;
-        util.postorder_i = 0;
+        util.preorder_i = UNVISITED;
+        util.postorder_i = UNVISITED;
     }
 
     preorder.clear();
@@ -57,18 +58,8 @@ void build_order(ir_t const& ir)
 // loops
 ////////////////////////////////////////
 
-// Used in '_tag_loop_header'.
-/* TODO: remove
-static int _dfsp_pos(cfg_ht h)
-{
-    auto& u = util(h);
-    assert(u.preorder_i != UNVISITED);
-    return u.postorder_i == UNVISITED ? u.preorder_i : -1;
-}
-*/
-
 // Adds a loop header to 'node'.
-// Nodes can have multiple looper headers, but only the immediate header is 
+// Nodes can have multiple loop headers, but only the immediate header is 
 // stored per node. 
 // This function weaves the new header in, adjusting the immediate headers
 // until everything nests nicely.
@@ -126,7 +117,12 @@ static cfg_ht _visit_loops(cfg_ht node)
             _tag_loop_header(node, _visit_loops(succ));
         else if(succ_u.postorder_i == UNVISITED) // Is back edge?
         {
-            loop_headers.insert(succ); // Create a new header
+            if(!succ_u.is_loop_header)
+            { 
+                // Create a new header
+                loop_headers.push_back(succ);
+                succ_u.is_loop_header = true;
+            }
             _tag_loop_header(node, succ);
         }
         else if(cfg_ht header = succ_u.iloop_header)
@@ -186,9 +182,10 @@ void build_loops_and_order(ir_t& ir)
 
     for(auto& u : cfg_util_pool)
     {
-        u.preorder_i = 0;
-        u.postorder_i = 0;
+        u.preorder_i = UNVISITED;
+        u.postorder_i = UNVISITED;
         u.iloop_header = {};
+        u.is_loop_header = false;
         u.reentry_in = 0;
         u.reentry_out = 0;
     }
@@ -208,6 +205,21 @@ void build_loops_and_order(ir_t& ir)
 
     assert(preorder.empty() || preorder.front() == ir.root);
     assert(postorder.empty() || postorder.back() == ir.root);
+}
+
+unsigned loop_depth(cfg_ht cfg)
+{
+    unsigned depth = 0;
+
+    assert(cfg);
+
+    if(!util(cfg).is_loop_header)
+        cfg = util(cfg).iloop_header;
+
+    for(; cfg; cfg = util(cfg).iloop_header)
+        ++depth;
+
+    return depth;
 }
 
 ////////////////////////////////////////
@@ -239,7 +251,8 @@ void build_dominators_from_order(ir_t& ir)
     for(auto& util : cfg_util_pool)
         util.idom = {};
 
-    for(bool changed = true; changed;)
+    bool changed;
+    do
     {
         changed = false;
 
@@ -247,18 +260,16 @@ void build_dominators_from_order(ir_t& ir)
         for(auto it = postorder.rbegin()+1; it < postorder.rend(); ++it)
         {
             cfg_ht h = *it;
-            cfg_node_t& node = *h;
             assert(h != ir.root);
 
             cfg_ht new_idom = {};
 
-            unsigned const input_size = node.input_size();
+            unsigned const input_size = h->input_size();
             for(std::size_t i = 0; i < input_size; ++i)
             {
-                cfg_ht pred = node.input(i);
-                if(util(pred).idom)
-                    new_idom = new_idom ? dom_intersect(new_idom, pred) 
-                                        : pred;
+                cfg_ht pred = h->input(i);
+                if(pred == ir.root || util(pred).idom)
+                    new_idom = new_idom ? dom_intersect(new_idom, pred) : pred;
             }
 
             if(new_idom != util(h).idom)
@@ -268,6 +279,7 @@ void build_dominators_from_order(ir_t& ir)
             }
         }
     }
+    while(changed);
 }
 
 ////////////////////////////////////////

@@ -29,7 +29,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++2a \
-  -O0 \
+  -O1 \
   -pthread \
   -g \
   -export-dynamic \
@@ -72,6 +72,7 @@ o.cpp \
 o_phi.cpp \
 o_ai.cpp \
 o_unused.cpp \
+o_merge_bb.cpp \
 asm.cpp \
 locator.cpp \
 options.cpp \

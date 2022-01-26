@@ -48,9 +48,9 @@ struct ssa_schedule_d
 {
     ssa_ht carry_user = {};
     bitset_uint_t* deps = nullptr;
+    int exit_distance = 0;
 
     unsigned index = 0;
-    unsigned rank = 0;
 };
 
 struct ssa_isel_d
@@ -74,9 +74,6 @@ struct ssa_cg_d
 {
     ssa_value_t cset_head = {}; // Basically a union-find pointer.
     ssa_ht cset_next = {}; // A linked-list to the next node
-
-    // The node will also be stored in these locators:
-    fc::small_set<locator_t, 1> store_in_locs;
 
     ssa_schedule_d schedule;
     ssa_isel_d isel;

@@ -32,14 +32,20 @@ SSA_DEF(write_array, 3, INPUT_VALUE, 0)
 // (array, index)
 SSA_DEF(read_array, 2, INPUT_VALUE, 0)
 
-// SSA_DEF(entry_copy, -1, SSAF_COPY) // TODO
-// SSA_DEF(exit_copy, -1, SSAF_COPY) // TODO
-// SSA_DEF(copy, -1, SSAF_COPY) // TODO
+// (ptr, index)
+SSA_DEF(read_ptr, 2, INPUT_VALUE, 0)
+// (ptr, index, value)
+SSA_DEF(write_ptr, 3, INPUT_VALUE, 0)
 
-SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY) // TODO
-SSA_DEF(locator_store, 1, INPUT_LINK,  SSAF_COPY) // TODO
+// Used to implement out-of-SSA for phi node inputs.
+// (node)
+SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY)
 
-SSA_DEF(, 1, INPUT_LINK, SSAF_COPY) // TODO
+// Stores into a locator at some point earlier in the program than needed.
+// Used in out-of-SSA as an optimization.
+// (node)
+SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY)
+SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY)
 
  SSA_DEF(trace, -1, INPUT_VALUE, 0)
 SSA_DEF(cast,   1, INPUT_VALUE, SSAF_TRACE_INPUTS)

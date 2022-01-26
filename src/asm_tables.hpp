@@ -5,6 +5,10 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
     { .op = BAD_OP },
     { .op = ASM_LABEL },
     { 
+        .op = ASM_DELAY,
+        .cycles = 255,
+    },
+    { 
         .op = MAYBE_STA,
         .size = 3,
         .cycles = 4,

@@ -2,6 +2,7 @@
 
 #include "alloca.hpp"
 #include "format.hpp"
+#include "globals.hpp"
 
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
@@ -16,7 +17,7 @@ static constexpr bool is_type_prefix(token_type_t type)
 {
     return (type == TOK_void || type == TOK_bool || type == TOK_byte
             || type == TOK_short || type == TOK_int || type == TOK_fixed
-            || type == TOK_pointer);
+            || type == TOK_ram || type == TOK_rom || type == TOK_fn);
 }
 
 template<typename P>
@@ -351,13 +352,6 @@ type_t parser_t<P>::parse_type(bool allow_void)
 {
     type_t type = TYPE_VOID;
 
-    unsigned pointer_levels = 0;
-    while(token.type == TOK_pointer)
-    {
-        parse_token();
-        ++pointer_levels;
-    }
-
     switch(token.type)
     {
     case TOK_bool:  parse_token(); type = TYPE_BOOL; break;
@@ -380,12 +374,8 @@ type_t parser_t<P>::parse_type(bool allow_void)
             parse_token(); 
             break;
         }
-    case TOK_fn:
+    case TOK_fn: // fn pointer
         {
-            // fn types aren't legal syntax outside of fn pointers.
-            if(pointer_levels == 0)
-                compiler_error("Expecting type.");
-
             parse_token();
 
             bc::small_vector<type_t, 8> params_and_return;
@@ -401,18 +391,72 @@ type_t parser_t<P>::parse_type(bool allow_void)
             type = type_t::fn(&*params_and_return.begin(), 
                               &*params_and_return.end());
 
-            break;
         }
+        break;
+
+    case TOK_ram: // ram pointer
+        {
+            parse_token();
+
+            group_bitset_t group_bitset = 0;
+
+            // Parse the group names:
+            parse_args(TOK_lbrace, TOK_rbrace, [&]
+            { 
+                group_bitset |= 1ull << global_t::lookup_group(parse_ident(), source()).value;
+            });
+
+            type = type_t::ram_ptr(group_bitset);
+        }
+        break;
+
+    case TOK_rom: // rom pointer
+        {
+            parse_token();
+
+            parse_token(TOK_lbrace);
+
+            vbank_ht bank = {};
+            if(token.type == TOK_ident)
+                bank = global_t::lookup_vbank(parse_ident(), source());
+
+            parse_token(TOK_rbrace);
+
+            type = type_t::rom_ptr(bank);
+        }
+        break;
+
+        /* TODO: buffers
+    case TOK_lbracket:
+        parse_token();
+        if(token.type != TOK_number || token.value <= 0)
+            compiler_error("Invalid buffer size.");
+        type = type_t::buffer(token.value);
+        parse_token(TOK_number); // TODO: allow expressions
+        parse_token(TOK_rbracket);
+        break;
+        */
+
     default: 
-        if(!allow_void || pointer_levels > 0)
+        if(!allow_void)
             compiler_error("Expecting type.");
         type = TYPE_VOID;
         break;
     }
 
-    // Add the pointer.
-    while(pointer_levels > 0)
-        type = type_t::ptr(type);
+    // Arrays
+    if(token.type == TOK_lbracket)
+    {
+        parse_token();
+
+        // TODO: allow expressions
+        if(token.type != TOK_number || token.value <= 0 || token.value > 256)
+            compiler_error("Invalid array size.");
+        type = type_t::array(type, token.value);
+        parse_token();
+
+        parse_token(TOK_rbracket);
+    }
 
     return type;
 }
@@ -450,32 +494,41 @@ void parser_t<P>::parse_top_level_def()
     {
     case TOK_fn: 
         return parse_fn();
-    case TOK_vars: 
-        return parse_vars_block();
+    case TOK_ram: 
+        return parse_group();
     default: 
         compiler_error("Unexpected token at top level.");
     }
 }
 
 template<typename P>
-void parser_t<P>::parse_vars_block()
+void parser_t<P>::parse_group()
 {
     int const vars_indent = indent;
 
     // Parse the declaration
-    parse_token(TOK_vars);
+    parse_token(TOK_ram);
+    pstring_t group_name = token.pstring;
+    if(token.type == TOK_ident)
+        parse_token();
+    else
+        group_name.size = 0;
     parse_line_ending();
+
+    group_ht group = policy().begin_group(group_name);
 
     maybe_parse_block(vars_indent, 
     [&]{ 
         var_decl_t var_decl;
         expr_temp_t expr;
         if(parse_var_init(var_decl, expr))
-            policy().global_var(var_decl, &expr);
+            compiler_error("Variables in ram block cannot have an initial value.");
         else
-            policy().global_var(var_decl, nullptr);
+            policy().global_var(group, var_decl, nullptr);
         parse_line_ending();
     });
+
+    policy().end_group(group);
 }
 
 template<typename P>
@@ -723,6 +776,7 @@ void parser_t<P>::parse_label()
     parse_line_ending();
 }
 
+// The policies for the parser:
 #include "pass1.hpp"
 template class parser_t<pass1_t>;
 

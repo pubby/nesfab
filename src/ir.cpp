@@ -299,6 +299,8 @@ void ssa_node_t::remove_inputs_output(unsigned i)
         from_node.m_io.shrink_output(from_node.output_size() - 1);
         
 #ifndef NDEBUG
+        if(from_i < from_node.m_io.output_size())
+            assert(from_node.m_io.output(from_i).input().index() == from_i);
         for(unsigned i = 0; i < from_node.output_size(); ++i)
             assert(from_node.output_edge(i).input().index() == i);
 #endif
@@ -307,25 +309,13 @@ void ssa_node_t::remove_inputs_output(unsigned i)
 
 void ssa_node_t::link_remove_input(unsigned i)
 {
-    assert(i < input_size());
-
-    // The last input will move to position 'i'.
-    // We have to adjust the edge's index too.
-    // Do that first, before calling 'remove_inputs_output'.
-    if(ssa_bck_edge_t* o = m_io.last_input().output())
-        o->index = i;
-
-    // Deal with the node we're receiving input along 'i' from.
-    remove_inputs_output(i);
-
-    // Remove the input edge on 'i'.
-    std::swap(m_io.input(i), m_io.last_input());
+    link_change_input(i, m_io.last_input());
+    link_change_input(input_size() - 1, 0u);
     m_io.shrink_input(input_size() - 1);
-
 #ifndef NDEBUG
-    for(unsigned i = 0; i < input_size(); ++i)
-        if(ssa_bck_edge_t* edge = input_edge(i).output())
-            assert(edge->index == i);
+    for(unsigned j = 0; j < input_size(); ++j)
+        if(ssa_bck_edge_t* edge = input_edge(j).output())
+            assert(!edge || edge->index == j);
 #endif
 }
 
@@ -643,6 +633,29 @@ ssa_ht cfg_node_t::prune_ssa(ssa_ht ssa_h)
     return ret;
 }
 
+void cfg_node_t::steal_ssa_nodes(cfg_ht cfg)
+{
+    if(&*cfg == this)
+        return;
+
+    while(ssa_ht it = cfg->ssa_begin())
+    {
+        ssa_node_t& node = *it;
+        bool const in_daisy = node.in_daisy();
+
+        assert(node.op() != SSA_phi);
+
+        cfg->list_erase(node);
+        node.m_cfg_h = handle();
+        list_insert(node);
+        if(in_daisy)
+            list_append_daisy(node);
+    }
+
+    m_ssa_size += cfg->m_ssa_size;
+    cfg->m_ssa_size = 0;
+}
+
 void cfg_node_t::link_remove_output(unsigned i)
 {
     assert(i < output_size());
@@ -852,6 +865,7 @@ void ir_t::assert_valid() const
 
             for(unsigned i = 0; i < ssa_node.input_size(); ++i)
             {
+                assert(ssa_node.input(i));
                 if(!ssa_node.input(i).holds_ref())
                     continue;
                 assert(ssa_node.input_edge(i).output()->input().handle()

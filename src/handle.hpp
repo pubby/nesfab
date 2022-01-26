@@ -13,7 +13,7 @@
 #include <functional>
 #include <ostream>
 
-template<typename Int, typename Tag, Int Null = 0>
+template<typename Int, typename Tag, Int Null = 0, bool GT = false>
 struct handle_t
 {
     using int_type = Int;
@@ -22,7 +22,13 @@ struct handle_t
 
     static constexpr Int null = Null;
 
-    constexpr explicit operator bool() const { return value != Null; }
+    constexpr explicit operator bool() const 
+    { 
+        if(GT)
+            return value > Null;
+        else
+            return value != Null; 
+    }
     constexpr bool operator==(handle_t o) const { return value == o.value; }
     constexpr bool operator!=(handle_t o) const { return value != o.value; }
     constexpr bool operator<=(handle_t o) const { return value <= o.value; }
@@ -30,7 +36,7 @@ struct handle_t
     constexpr bool operator<(handle_t o) const { return value < o.value; }
     constexpr bool operator>(handle_t o) const { return value > o.value; }
 
-    constexpr bool operator!() const { return !value; }
+    constexpr bool operator!() const { return !operator bool(); }
 
     handle_t& operator++() { ++value; return *this; }
     handle_t operator++(int) { handle_t h = *this; ++value; return h; }

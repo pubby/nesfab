@@ -120,6 +120,10 @@ public:
         assert(this->index() == index);
     }
 
+    // Sets locator bytes to 0 and returns.
+    // Used in code-gen.
+    ssa_value_t cg_mem() const;
+
     // Used when comparing two edges.
     std::uint64_t target() const 
     { 
@@ -491,6 +495,9 @@ public:
     void prune_ssa();
     ssa_ht prune_ssa(ssa_ht ssa_h);
 
+    // Moves all the SSA nodes in 'cfg' into this node.
+    void steal_ssa_nodes(cfg_ht cfg);
+
 private:
     cfg_node_t(cfg_node_t const& o) = default;
     cfg_node_t& operator=(cfg_node_t const& o) = default;
@@ -535,7 +542,7 @@ public:
     cfg_ht root = {};
     cfg_ht exit = {};
 
-    locator_manager_t locators;
+    gvar_locator_manager_t gvar_locators;
 
     cfg_ht cfg_begin() const { return m_cfg_begin; }
     cfg_ht begin() const { return m_cfg_begin; }
@@ -584,7 +591,7 @@ inline type_t ssa_fwd_edge_t::type() const
 { 
     assert(operator bool());
     if(is_num())
-        return { TYPE_LARGEST_FIXED };
+        return smallest_representable(fixed());
     if(holds_ref())
         return handle()->type();
     return { TYPE_VOID };
@@ -610,6 +617,17 @@ inline cfg_fwd_edge_t& cfg_bck_edge_t::input() const
 {
     assert(index < handle->input_size());
     return handle->m_io.input(index);
+}
+
+inline ssa_value_t ssa_fwd_edge_t::cg_mem() const
+{
+    if(is_locator())
+    {
+        locator_t loc = locator();
+        loc.set_byte(0);
+        return loc;
+    }
+    return *this;
 }
 
 ////////////////////////////////////////
@@ -720,11 +738,10 @@ inline bool carry_used(ssa_node_t const& node)
     return i >= 0 && node.output(i)->output_size();
 }
 
-inline global_t const& get_fn(ssa_node_t const& node)
+inline fn_t const& get_fn(ssa_node_t const& node)
 {
     assert(node.op() == SSA_fn_call);
-    global_t const& ret = *node.input(0).ptr<global_t>();
-    return ret;
+    return node.input(0).ptr<global_t>()->impl<fn_t>();
 }
 
 inline unsigned get_condition_i(ssa_op_t op)

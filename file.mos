@@ -1,11 +1,34 @@
-vars
-    byte f
+
+ram
+    short f
     byte g
 
-fn foo(short x, short y, short z) short
-    f = z
-    g = 10
-    if(x == 8)
-        return (x & y) + (x & z)
-    else
-        return (x | y) + (x | z)
+ram menu_vars
+    byte q
+
+fn foo(short x, byte y, byte z) byte
+    short a  = y + z
+    do
+        f += 2
+        x += 3
+    while x < 10
+
+    qux()
+
+    bar(x, y, z)
+
+    qux()
+
+    return (f & y) + (f & z)
+
+fn bar(byte x, byte y, byte z) byte
+    f = 5
+    byte a = x + y
+    z = a + a
+    byte b = x + z
+    z = b + b
+    byte c = y + z
+    z = c + c
+    return c
+
+fn qux()

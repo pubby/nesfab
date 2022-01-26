@@ -1,4 +1,4 @@
-#ifndef CG_SCHEDULE_HPP
+#ifndef Ca_SCHEDULE_HPP
 #define CG_SCHEDULE_HPP
 
 #include "ir_decl.hpp"

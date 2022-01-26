@@ -7,6 +7,7 @@
 #include "o_ai.hpp"
 #include "o_phi.hpp"
 #include "o_unused.hpp"
+#include "o_merge_bb.hpp"
 
 // TODO: remove?
 

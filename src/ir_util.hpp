@@ -3,8 +3,6 @@
 
 #include <vector>
 
-#include "flat/flat_set.hpp"
-
 #include "ir_decl.hpp"
 
 constexpr unsigned UNVISITED = -1;
@@ -15,16 +13,17 @@ struct cfg_util_d
     unsigned postorder_i = UNVISITED;
     cfg_ht idom = {};
     cfg_ht iloop_header = {};
+    bool is_loop_header = false;
 
     // Incoming edges with
     std::uint64_t reentry_in = 0;
     std::uint64_t reentry_out = 0;
 };
 
-extern std::vector<cfg_util_d> cfg_util_pool;
-extern std::vector<cfg_ht> postorder;
-extern std::vector<cfg_ht> preorder;
-extern fc::vector_set<cfg_ht> loop_headers;
+extern thread_local std::vector<cfg_util_d> cfg_util_pool;
+extern thread_local std::vector<cfg_ht> postorder;
+extern thread_local std::vector<cfg_ht> preorder;
+extern thread_local std::vector<cfg_ht> loop_headers;
 
 inline cfg_util_d& util(cfg_ht h)
 { 
@@ -38,6 +37,9 @@ void build_order(ir_t const& ir);
 
 // Does everything 'build_order' does, but also identifies loops.
 void build_loops_and_order(ir_t& ir);
+
+// Returns how many loops a node is in.
+unsigned loop_depth(cfg_ht cfg);
 
 // Builds the dominance tree.
 // Requires that the order was built.

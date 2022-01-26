@@ -83,15 +83,6 @@ public:
 
 aco_t::aco_t(ir_t& ir) : ir(ir), gen(0xDEADBEEF)
 {
-    // Setup 'bytes' members:
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        auto& d = cg_data(cfg_it);
-        d.order.bytes = 0;
-        for(ainst_t const& inst : d.code)
-            d.order.bytes += op_size(inst.op);
-    }
-
     // Initialize 'starting':
     starting.reserve(ir.cfg_size());
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -217,6 +208,15 @@ void aco_t::run_ant()
 
 std::vector<cfg_ht> order_ir(ir_t& ir)
 {
+    // Setup 'bytes' members:
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    {
+        auto& d = cg_data(cfg_it);
+        d.order.bytes = 0;
+        for(ainst_t const& inst : d.code)
+            d.order.bytes += op_size(inst.op);
+    }
+
     // For small CFG graphs, brute-force every combination.
     constexpr unsigned MAX_SIZE = 6;
     if(ir.cfg_size() <= MAX_SIZE)
@@ -230,6 +230,7 @@ std::vector<cfg_ht> order_ir(ir_t& ir)
         do 
         {
             unsigned cost = order_cost(order);
+            std::cout << "best cost = " << cost << '\n';
             if(cost < best_cost)
             {
                 best_order = order;

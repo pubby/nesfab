@@ -5,14 +5,14 @@
 
 class global_manager_t;
 class global_t;
+class fn_t;
 class ir_t;
 
-struct local_lookup_error_t : public std::exception
+struct var_lookup_error_t : public std::exception
 {
-    virtual const char* what() const noexcept
-        { return "Failed local lookup."; }
+    virtual const char* what() const noexcept { return "Failed var lookup."; }
 };
 
-void build_ir(ir_t& ir, global_t& global);
+void build_ir(ir_t& ir, fn_t& fn);
 
 #endif

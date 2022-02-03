@@ -54,14 +54,14 @@ bool csets_mergable(ssa_ht a, ssa_ht b)
 {
     locator_t const loc_a = cset_locator(a);
     locator_t const loc_b = cset_locator(b);
-    if(loc_a.lclass() == LCLASS_CALL_ARG
-       || loc_b.lclass() == LCLASS_CALL_ARG)
+    if(loc_a.lclass() == LCLASS_CALL_ARG || loc_b.lclass() == LCLASS_CALL_ARG)
         return false;
     return (!loc_a || !loc_b 
             || loc_a.lclass() == LCLASS_PHI || loc_b.lclass() == LCLASS_PHI
             || loc_a == loc_b);
 }
 
+// Mostly an implementation detail used inside 'cset_append'.
 void cset_merge_locators(ssa_ht head_a, ssa_ht head_b)
 {
     assert(cset_is_head(head_a));
@@ -575,7 +575,6 @@ void code_gen(ir_t& ir)
 
     // Coalesce locators.
 
-
     auto const prune_early_store = [&](ssa_ht store) -> ssa_ht
     {
         assert(store->op() == SSA_early_store);
@@ -841,15 +840,15 @@ void code_gen(ir_t& ir)
                 }
             }
 
-            //ssa_ht last = csets_dont_interfere(store_cset, parent_cset);
-            //if(ssa_ht last = csets_dont_interfere(store_cset, parent_cset))
+            if(ssa_ht last = csets_dont_interfere(store_cset, parent_cset))
             {
-                cset_merge_locators(store_cset, parent_cset);
+                //cset_merge_locators(store_cset, parent_cset);
                 //assert(last);
-                //cset_append(last, parent_cset);
+                cset_append(last, parent_cset);
                 store->unsafe_set_op(SSA_aliased_store);
                 assert(cset_locator(store_cset));
                 assert(cset_locator(store_cset) == cset_locator(parent_cset));
+                assert(cset_head(store) == cset_head(parent));
             }
         }
         ++store;
@@ -945,7 +944,7 @@ void code_gen(ir_t& ir)
 
     // Replace used MAYBE stores with real stores, 
     // and prune unused MAYBE stores:
-#if 0
+#if 1 // Changing to #if 0 can be useful for debugging.
     std::vector<ainst_t> temp_code;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -1001,6 +1000,51 @@ void code_gen(ir_t& ir)
     for(cfg_ht h : order)
     {
         std::cout << "CFG = " << h.index << '\n';
+        for(ainst_t inst : cg_data(h).code)
+            std::cout << inst << '\n';
+    }
+
+    /////////////////////////
+    // CONVERT TO asm_fn_t //
+    /////////////////////////
+
+    asm_fn_t asm_fn;
+    asm_bb_t asm_bb;
+
+    rh::robin_map<locator_t, int> label_map;
+
+    for(cfg_ht h : order)
+    {
+        auto& code = cg_data(h).code;
+
+        for(unsigned i = 0; i < code.size; ++i)
+        {
+            ainst_t const inst = code[i];
+
+            if(inst.op == ASM_LABEL)
+            {
+                assert(inst.op.arg.is_label());
+                auto result = label_map.emplace(inst.op.arg.label(), asm_fn.bbs.size());
+                assert(result.inserted);
+
+                if(asm_bb.code.size())
+                {
+                    asm_fn.bbs.push_back(std::move(asm_bb));
+                    asm_bb = {};
+                }
+            }
+            else if(op_flags(inst.op) & ASMF_BRANCH)
+            {
+                asm_bb.branch = 
+                asm_bb.code.assign(code.begin(), code.begin() + i + 1);
+
+
+                ++i;
+            }
+            else
+                bb.code.push_back(inst);
+        }
+
         for(ainst_t inst : cg_data(h).code)
             std::cout << inst << '\n';
     }

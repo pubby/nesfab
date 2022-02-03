@@ -88,7 +88,7 @@ public:
     constexpr void set(locator_t loc) 
         { value = (loc.to_uint() & ~const_flag) | locator_flag; }
 
-    constexpr void set(void const* ptr) 
+    void set(void const* ptr) 
     { 
         uint_t uint = reinterpret_cast<std::uintptr_t>(ptr);
         assert((uint & 0b11) == 0);
@@ -123,6 +123,8 @@ public:
     // Sets locator bytes to 0 and returns.
     // Used in code-gen.
     ssa_value_t cg_mem() const;
+    // Returns how many bytes the cg var requries.
+    std::uint16_t cg_mem_size() const { return 1; }
 
     // Used when comparing two edges.
     std::uint64_t target() const 
@@ -298,12 +300,11 @@ public:
 using ssa_buffer_t = node_io_buffers_t<ssa_fwd_edge_t, ssa_bck_edge_t, 3, 1>;
 using cfg_buffer_t = node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 2, 2>;
 
-template class node_io_buffers_t<ssa_fwd_edge_t, ssa_bck_edge_t, 3, 1>;
-template class node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 2, 2>;
-
 ////////////////////////////////////////
 // ssa_node_t                         //
 ////////////////////////////////////////
+
+class cfg_node_t;
 
 class alignas(32) ssa_node_t : public intrusive_t<ssa_ht>
 {
@@ -410,8 +411,8 @@ private:
 
 class alignas(32) cfg_node_t : public intrusive_t<cfg_ht>
 {
-    friend class cfg_fwd_edge_t;
-    friend class cfg_bck_edge_t;
+    friend struct cfg_fwd_edge_t;
+    friend struct cfg_bck_edge_t;
     friend class ssa_node_t;
     friend class ir_t;
 

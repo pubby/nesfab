@@ -223,6 +223,25 @@ void bitset_set_all(std::size_t size, UInt* bitset)
     std::fill_n(bitset, size, ~(UInt)0);
 }
 
+template<typename UInt>
+void bitset_set_n(std::size_t size, UInt* bitset, std::size_t n)
+{
+    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
+    assert(n <= size * sizeof_bits<UInt>);
+    std::fill_n(bitset, n / sizeof_bits<UInt>, ~(UInt)0);
+    if(UInt rem = n % sizeof_bits<UInt>)
+        bitset[n / sizeof_bits<UInt>] |= ~((1 << (sizeof_bits<UInt> - rem)) - 1);
+}
+template<typename UInt>
+void bitset_clear_n(std::size_t size, UInt* bitset, std::size_t n)
+{
+    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
+    assert(n <= size * sizeof_bits<UInt>);
+    std::fill_n(bitset, n / sizeof_bits<UInt>, 0);
+    if(UInt rem = n % sizeof_bits<UInt>)
+        bitset[n / sizeof_bits<UInt>] &= ((1 << (sizeof_bits<UInt> - rem)) - 1);
+}
+
 inline void bitset_set_all(std::size_t size, sso_bitset_t& lhs)
 { 
     if(size == 1)
@@ -400,6 +419,51 @@ bool bitset_for_each_test(std::size_t size, sso_bitset_t bitset, Fn fn)
         return bitset_for_each_test(size, bitset.ptr, std::move(fn)); 
 }
 
+template<typename UInt>
+void bitset_lshift(std::size_t size, UInt* bitset, std::size_t amount = 1)
+{
+    std::size_t const int_shifts = amount / sizeof_bits<UInt>;
+    std::size_t const bit_shifts = amount % sizeof_bits<UInt>;
+    std::size_t const ibit_shifts = sizeof_bits<UInt> - bit_shifts;
+
+    std::size_t i = 0;
+    if(bit_shifts == 0)
+        for(; i < size - int_shifts; ++i)
+            bitset[i] = bitset[i + int_shifts];
+    else if(size > int_shifts)
+    {
+        for(; i < size - int_shifts - 1; ++i)
+            bitset[i] = (bitset[i+int_shifts] << bit_shifts) | (bitset[i+int_shifts+1] >> ibit_shifts);
+        bitset[i] = (bitset[i+int_shifts] << bit_shifts);
+        ++i;
+    }
+    for(; i < size; ++i)
+        bitset[i] = 0;
+}
+
+template<typename UInt>
+void bitset_rshift(std::size_t size, UInt* bitset, std::size_t amount = 1)
+{
+    int const int_shifts = amount / sizeof_bits<UInt>;
+    int const bit_shifts = amount % sizeof_bits<UInt>;
+    int const ibit_shifts = sizeof_bits<UInt> - bit_shifts;
+
+    int i = size - 1;
+    if(bit_shifts == 0)
+        for(; i > int_shifts - 1; --i)
+            bitset[i] = bitset[i - int_shifts];
+    else if(size > (std::size_t)int_shifts)
+    {
+        for(; i > int_shifts; --i)
+            bitset[i] = (bitset[i-int_shifts] >> bit_shifts) | (bitset[i-int_shifts-1] << ibit_shifts);
+        bitset[i] = (bitset[i-int_shifts] >> bit_shifts);
+        --i;
+    }
+    for(; i >= 0; --i)
+        bitset[i] = 0;
+}
+
+
 // A shitty bitset class that exists because std::bitset abstracts too much.
 // 'aggregate_bitset_t' is an aggregate class and can use
 // any unsigned integer type.
@@ -416,6 +480,9 @@ struct aggregate_bitset_t
     static constexpr std::size_t num_bits = N * bits_per_int;
 
     array_type array;
+
+    UInt const* data() const { return array.data(); }
+    UInt* data() { return array.data(); }
 
     [[gnu::flatten]]
     void clear(UInt bit) { bitset_clear(array.data(), bit); }
@@ -443,6 +510,8 @@ struct aggregate_bitset_t
 
     [[gnu::flatten]]
     std::size_t popcount() { return bitset_popcount(N, array.data()); }
+
+    static aggregate_bitset_t filled(std::size_t size, std::size_t n = 0);
 };
 
 template<typename UInt, std::size_t N> [[gnu::flatten]]
@@ -466,6 +535,22 @@ aggregate_bitset_t<UInt, N>& operator^=(aggregate_bitset_t<UInt, N>& lhs,
                                       aggregate_bitset_t<UInt, N> const& rhs)
 {
     bitset_xor(N, lhs.array.data(), rhs.array.data());
+    return lhs;
+}
+
+template<typename UInt, std::size_t N> [[gnu::flatten]]
+aggregate_bitset_t<UInt, N>& operator<<=(aggregate_bitset_t<UInt, N>& lhs,
+                                         std::size_t amount)
+{
+    bitset_lshift(N, lhs.array.data(), amount);
+    return lhs;
+}
+
+template<typename UInt, std::size_t N> [[gnu::flatten]]
+aggregate_bitset_t<UInt, N>& operator>>=(aggregate_bitset_t<UInt, N>& lhs,
+                                         std::size_t amount)
+{
+    bitset_rshift(N, lhs.array.data(), amount);
     return lhs;
 }
 
@@ -494,10 +579,35 @@ aggregate_bitset_t<UInt, N> operator^(aggregate_bitset_t<UInt, N> lhs,
 }
 
 template<typename UInt, std::size_t N>
+aggregate_bitset_t<UInt, N> operator<<(aggregate_bitset_t<UInt, N> lhs,
+                                       std::size_t amount)
+{
+    lhs <<= amount;
+    return lhs;
+}
+
+template<typename UInt, std::size_t N>
+aggregate_bitset_t<UInt, N> operator>>(aggregate_bitset_t<UInt, N> lhs,
+                                       std::size_t amount)
+{
+    lhs >>= amount;
+    return lhs;
+}
+
+template<typename UInt, std::size_t N>
 aggregate_bitset_t<UInt, N> operator~(aggregate_bitset_t<UInt, N> lhs)
 {
     lhs.flip_all();
     return lhs;
+}
+
+template<typename UInt, std::size_t N>
+aggregate_bitset_t<UInt, N> 
+aggregate_bitset_t<UInt, N>::filled(std::size_t size, std::size_t n)
+{
+    aggregate_bitset_t bs;
+    bitset_set_n(num_ints, bs, size);
+    return bs >> n;
 }
 
 #endif

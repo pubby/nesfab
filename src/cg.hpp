@@ -27,6 +27,27 @@ struct ainst_t
 
 std::ostream& operator<<(std::ostream& o, ainst_t const& inst);
 
+struct asm_inst_t
+{
+    op_t op;
+    locator_t arg;
+};
+
+struct asm_bb_t
+{
+    std::vector<asm_inst_t> code;
+    std::vector<unsigned> inputs;
+    int branch = -1;
+};
+
+struct asm_fn_t
+{
+    std::vector<cg_bb_t> bbs;
+
+    std::vector<ssa_value_t> vars;
+    rh::batman_map<ssa_value_t, unsigned> var_map;
+};
+
 //////////
 // data //
 //////////

@@ -231,6 +231,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = REGF_C,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // BCS
@@ -241,6 +242,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = REGF_C,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // BEQ
@@ -251,6 +253,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // BIT
@@ -279,6 +282,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // BNE
@@ -289,6 +293,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // BPL
@@ -299,6 +304,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // BRK
@@ -319,6 +325,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // BVS
@@ -329,6 +336,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_BRANCH,
     },
 
     // CLC

@@ -350,6 +350,23 @@ void global_t::compile_all()
             global->compile();
         }
     });
+
+    /* TODO
+    // Now allocate memory.
+    for(gvar_ht i = {0}; i.value < global_impl_vec<gvar_t>.size(); ++i.value)
+    {
+        gvar_t& gvar = global_impl_vec<gvar_t>[i];
+
+        // TODO
+        throw 0;
+
+    }
+
+    for(fn_t& fn : global_impl_vec<fn_t>)
+    {
+
+    }
+    */
 }
 
 std::size_t fn_t::rw_bitset_size() 
@@ -443,6 +460,23 @@ void fn_t::calc_reads_writes_purity(ir_t const& ir)
         m_io_pure = io_pure;
     }
 }
+
+/*
+void alloc_args(ir_t const& ir)
+{
+    // Calculate which arg RAM is used by called fns:
+    m_recursive_arg_ram = {};
+    for(global_t* idep : global.ideps())
+        if(idep->gclass() == GLOBAL_FN)
+            m_recursive_arg_ram |= idep->impl<fn_t>().m_recursive_arg_ram;
+
+    // Now allocate RAM for our args:
+
+    // QUESTION: how do we determine what to allocate in ZP?
+    // - ptrs should always go in ZP
+    // - arrays should never go in ZP, I guess?
+}
+*/
 
 std::string to_string(global_class_t gclass)
 {

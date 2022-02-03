@@ -266,70 +266,451 @@ void calc_asm_liveness(ir_t const& ir, cg_store_map_t const& store_set)
     }
 }
 
-#if 0
+
+// BEHAVIOR:
+// - first compile everything and save its assembly
+// - count gvar uses, use that to allocate gvars
+// - 
+
+
+// Change all ssa_ht args to some optimized set of new locators
+// The tricky things is, how to cleverly reuse locators?
+
+// idea 1: directly use called fn memory 
+// idea 2: use distinct memory, coalesce later
+
+// color graph, but track which locators interfere with which fns 
+// some locators will be multi-byte
+// - pointers must be in ZP
+// - arrays can be large
+// 
+
+struct fn_arg_t
+{
+    rh::robin_set<locator_t> interferes_with;
+};
+
+
+#if 1
 TODO
 {
-    // Build the interference graph.
-    
-    std::vector<ram_bitset_t> ram_restrict(store_set.size(), 0);
-    std::vector<pointers> zp_only;
 
 
+    unsigned const num_vars = TODO;
 
+    // A 2d array representing an interference graph.
+    std::vector<bitset_uint_t> interferences(set_size * num_vars, 0);
+    std::vector<fc::vector_set<fn_t const*>> interfering_fns(num_vars);
 
-
-
-
-
-    std::vector<bitset_uint_t> pool(set_size * store_set.size(), 0);
-    std::vector<ram_bitset_t> ram_restrict(store_set.size(), 0);
-    std::vector<pointers> zp_only;
-
-    auto& d = cg_data(cfg_it);
-    bitset_uint_t* live = TODO;
-    bitset_copy(set_size, live, d.live_out);
-
+    // Step-through the code backwards, maintaining a current liveness set
+    // and using that to build an interference graph.
+    bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, set_size);
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
+        auto& d = cg_data(cfg_it);
+        bitset_copy(set_size, live, d.live_out);
+
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
             ainst_t const& inst = *it;
+
+            if(inst.op == JSR_ABSOLUTE)
+            {
+                fn_t* fn = TODO;
+                bitset_for_each(set_size, live, [&](unsigned i)
+                {
+                    interfering_fns[i].insert(fn);
+                });
+                continue;
+            }
 
             auto const* lookup = store_set.find(inst.arg.cg_mem());
             if(!lookup)
                 continue;
             unsigned const store_i = lookup->second;
 
-            if(op_input_regs(inst.op) & REGF_M)
+            else if(op_input_regs(inst.op) & REGF_M)
                 bitset_set(live, i);
             else if(op_output_regs(inst.op) & REGF_M)
                 bitset_clear(live, i);
+            else 
+                continue; // No change to 'live' this iteration.
 
             if(indirect_addr_mode(op_addr_mode(inst.op)))
             {
-                // The argument is a pointer, meaning it must be allocated
-                // to zero-page.
-                ram_restrict[i] |= ~zp_bitset;
+                // The argument is a pointer, 
+                // meaning it must be allocated to zero-page.
                 zp_only.push_back(i);
             }
 
-
-            if(inst.op == JSR_ABSOLUTE)
+            // Variables that are live together interfere with each other.
+            // Update the interference graph here:
+            bitset_for_each(set_size, live, [&](unsigned i)
             {
-                // TODO
-
-                // Can't allocate
-                ram_restrict[i] |= the_called_fn.locals_ram();
-
-                assert(false);
-            }
-
-            bitset_for_each_bit(set_size, [&](unsigned bit)
-            {
-                bitset_or(set_size, &pool[bit * set_size], live);
+                bitset_or(set_size, &interferences[i * set_size], live);
             });
         }
     }
+
+
+    // start with largest vars
+    // use RLF as tie breaker
+
+    // setup bitsets matching the locator's size
+    // when a node is colored, modify its interfering sets's locator bitsets
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    ////////////////
+
+
+
+
+
+    // RAM used by this function, or functions it calls.
+    ram_bitset_t fn_allocated_ram = {}; // TODO: add arguments / returns
+
+    // Each var we need to alloc tracks which RAM addresses it can go into.
+    // - 'usable_ram' tracks un-allocated addresses
+    // - 'sizable_ram' tracks addresses suitable for the start of the var
+    // ('sizable_ram' == 'usable_ram' for 1-byte variables, and is a subset for multi-byte ones)
+    std::vector<ram_bitset_t> usable_ram(store_set.size(), 0);
+    //std::vector<ram_bitset_t> sizable_ram(store_set.size(), 0); // TODO: implement
+
+    // A 2d array representing an interference graph.
+    std::vector<bitset_uint_t> interferences(set_size * store_set.size(), 0);
+
+    // Step-through the code backwards, maintaining a current liveness set
+    // and using that to build an interference graph.
+    bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, set_size);
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    {
+        auto& d = cg_data(cfg_it);
+        bitset_copy(set_size, live, d.live_out);
+
+        for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
+        {
+            ainst_t const& inst = *it;
+
+            if(inst.op == JSR_ABSOLUTE)
+            {
+                // Variables live at function calls cannot use the same
+                // memory that the function uses.
+
+                ram_bitset_t const fn_ram = the_called_fn.locals_ram();
+                freebie_ram |= fn_ram;
+                bitset_for_each(set_size, live, [&](unsigned i)
+                {
+                    usable_ram[i] &= ~fn_ram;
+                });
+
+                continue;
+            }
+
+            auto const* lookup = store_set.find(inst.arg.cg_mem());
+            if(!lookup)
+                continue;
+            unsigned const store_i = lookup->second;
+
+            else if(op_input_regs(inst.op) & REGF_M)
+                bitset_set(live, i);
+            else if(op_output_regs(inst.op) & REGF_M)
+                bitset_clear(live, i);
+            else 
+                continue; // No change to 'live' this iteration.
+
+            if(indirect_addr_mode(op_addr_mode(inst.op)))
+            {
+                // The argument is a pointer, 
+                // meaning it must be allocated to zero-page.
+                usable_ram[i] &= zp_bitset;
+                zp_only.push_back(i);
+            }
+
+            // Variables that are live together interfere with each other.
+            // Update the interference graph here:
+            bitset_for_each(set_size, live, [&](unsigned i)
+            {
+                bitset_or(set_size, &interferences[i * set_size], live);
+            });
+        }
+    }
+
+    // Nodes never interfere with themself:
+    for(unsigned i = 0; i < store_set.size(); ++i)
+        bitset_clear(&interferences[i * set_size], i);
+
+    // TODO: Properly handle multi-byte variables / arrays.
+    for(unsigned i = 0; i < store_set.size(); ++i)
+    {
+        sizable_ram[i] = usable_ram[i];
+        //ram_for_size(usable_ram, store_set[i]
+    }
+
+    // Build frequency
+    std::array<unsigned, ram_size> usable_freq;
+    for(int i = 0; i < store_set.size(); ++i)
+    {
+        bitset_for_each(set_size, usable_ram[i].data(), [&](unsigned addr)
+        {
+            usable_freq[i] += 1;
+        });
+    }
+
+    // Search for the next node to color:
+    int max_var_size = -1;
+    int min_freebie = INT_MAX;
+    int min_ease = INT_MAX;
+    unsigned best_i;
+    for(i = TODO)
+    {
+        // Prioritize big nodes:
+        unsigned const var_size = TODO;
+        if(var_size < max_var_size)
+            continue;
+
+        // Prioritize nodes with the least amount of freebie ram:
+        int const freebie = (usable_ram[i] & fn_allocated_ram).popcount();
+        if(freebie > min_freebie)
+            continue;
+
+        // Otherwise make our selection based on our ram options and our neighbor count.
+        int const ram = (usable_ram[i]).popcount();
+        int const neighbors = bitset_popcount(set_size, interferences[i *set_size]);
+        int const ease = ram - neighbors;
+
+        if(var_size > max_var_size || freebie < min_freebie || ease < min_ease)
+        {
+            max_var_size = var_size;
+            min_freebie = freebie;
+            min_ease = ease;
+            best_i = i;
+        }
+    }
+
+    // Now color the chosen node, allocating it in RAM:
+    unsigned min_penalty = ~0;
+    unsigned best_addr;
+    bitset_for_each(set_size, usable_ram[i].data(), [&](unsigned addr)
+    {
+        unsigned penalty = 0;
+
+        // Penalize high-frequency:
+        unsigned freq = 0;
+        for(unsigned i = 0; i < var_size; ++i)
+            freq = std::max(freq, usable_freq[addr + i]);
+        penalty += freq * ram_size;
+
+        // Penalize cross-page arrays:
+        if((addr & 0xFF) + size > 0xFF)
+           penalty += ram_size;
+
+        // Penalize later addresses:
+        penalty += addr;
+
+        if(penalty < min_penalty)
+        {
+            min_penalty = penalty;
+            best_addr = addr;
+        }
+    });
+
+    // Update:
+    bitset_clear(G, best_i);
+
+    ram_bitset_t const allocated_ram = ram_bitset_t::filled(var_size, best_addr);
+    ram_bitset_t const allocated_mask = ~allocated_ram;
+    fn_allocated_ram |= allocated_ram;
+
+    bitset_copy(set_size, temp_set, &interferences[best_i * set_size);
+    bitset_and(set_size, temp_set, G);
+    bitset_for_each(set_size, temp_set, [&](unsigned i)
+    {
+        usable_ram[i] &= allocated_mask;
+        //TODO: fix sizable ram
+        //sizable_ram[i] = usable_ram[i];
+    });
+
+
+
+
+
+
+    usable_ram[best_i];
+
+
+
+    // 'G' holds uncolored graph nodes:
+    bitset_uint_t* G = ALLOCA_T(bitset_uint_t, set_size); 
+    bitset_set_n(set_size, G, store_set.size());
+    assert(bitset_popcount(set_size, G) == store_set.size());
+        
+    // 'S' holds nodes colored to the same color, this iteration
+    bitset_uint_t* S const = ALLOCA_T(bitset_uint_t, set_size);
+    bitset_uint_t* S_neighbors const = ALLOCA_T(bitset_uint_t, set_size);
+    ram_bitset_t S_usable_ram;
+
+    // 1) Find the first node of a new colored set.
+    // We'll prioritize selecting nodes with the least freebie options availible,
+    // using neighbor count as a tie breaker (like the basic RLF graph coloring algorithm)
+    {
+        unsigned min_freebie = ~0;
+        int max_neighbors = -1;
+        unsigned best_i = ~0u;
+        for(int i = 0; i < store_set.size(); ++i)
+        {
+            unsigned const freebie = ~(usable_ram[i] & freebie_ram).popcount();
+            if(freebie > min_freebie)
+                continue;
+
+            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            if(freebie < min_freebie || neighbors > max_neighbors)
+            {
+                min_freebie = freebie;
+                max_neighbors = neighbors;
+                best_i = i;
+            }
+        }
+
+        // OK. We've selected a node: 'best_i'.
+
+        // Add our starting node to the set:
+        bitset_clear_all(set_size, S);
+        bitset_clear_all(set_size, S_neighbors);
+        bitset_set(S, best_i);
+        bitset_or(set_size, S_neighbors, &interferences[best_i * set_size]);
+        S_usable_ram = usable_ram[best_i];
+
+        // Remove from our uncolored graph:
+        assert(bitset_test(G, best_i));
+        bitset_clear(G, best_i);
+    }
+
+    // Now add additional nodes:
+    for(int i = 0; i < store_set.size(); ++i)
+    {
+        combined_usable_ram = S_usable_ram & usable_ram[i];
+        // Can't share a color if it results in no usable ram:
+        if(!combined_usable_ram)
+        next_iter: continue;
+
+        bitset_uint_t* const F = &interferences[i * set_size];
+
+        // Can't share a color if we interfere:
+        for(unsigned j = 0; j < set_size; ++j)
+            if(S[j] & F[j])
+                goto next_iter;
+
+        unsigned freebie_count = 0;
+        if(using_freebie)
+        {
+            freebie_count = (combined_usable_ram & freebie_ram).popcount();
+
+            // Don't convert non-freebie sets into freebie sets.
+            if(freebie_count == 0)
+                continue;
+
+            // Prioritize maximizing freebie ram used:
+            if(freebie_count < max_freebie_count)
+                continue;
+        }
+
+        // Count and maximize the number of nodes adjacent to both G and S.
+        // (Like RLF graph coloring algorithm)
+        num_neighbors_adjacent = 0;
+        for(unsigned j = 0; j < set_size; ++j)
+            num_neighbors_adjacent += builtin::popcount(G[j] & S_neighbors[j]);
+
+        if(num_neighbors_adjacent < max_neighbors_adjacent)
+            continue;
+
+        // Othewise minimize the number of neighbors not in S.
+        // (like RLF graph coloring algorithm)
+        num_not_in_s = 0;
+        for(unsigned j = 0; j < set_size; ++j)
+            num_not_in_s += builtin::popcount(G[j] & ~S[j]);
+
+        // Check for a new best here:
+        if(freebie_count > max_freebie_count
+           || num_neighbors_adjacent > max_neighbors_adjacent
+           || num_not_in_s < min_not_in_s)
+        {
+            max_freebie_count = freebie_count;
+            max_neighbors_adjacent = num_neighbors_adjacent;
+            min_not_in_s = num_not_in_s;
+            best_i = i;
+        }
+    }
+
+    // Add it to S
+    bitset_set(S, best_i);
+    bitset_or(set_size, S_neighbors, interferences[best_i * set_size]);
+    bitset_difference(set_size, S_neighbors, S);
+    S_usable_ram &= usable_ram[best_i];
+
+    // TODO: Remove it from G
+
+
+
+    // eventually...
+    
+    // Pick a ram:
+
+    for_each_bit(set_size, S_usable_ram, [&](unsigned i)
+    {
+        // Prefer ram addresses not in G nodes. 
+
+        // Prefer non-ZP
+
+        // Prefer larger
+
+    });
+
+
+
+
+
+
+
+        unsigned num_neighbors = 0;
+        unsigned num_S_neighbors = 0;
+        for(unsigned j = 0; j < set_size; ++j)
+        {
+            num_neighbors += builtin::popcount(G[j]);
+            num_S_neighbors += builtin::popcount(G[j] & in_S[j]);
+        }
+
+        unsigned const num_G_neighbors = num_neighbors - num_S_neighbors;
+
+        if(num_S_neighbors > most_S_neighbors
+           || (num_S_neighbors == most_S_neighbors 
+               && num_G_neighbors < least_G_neighbors))
+        {
+            most_S_neighbors = num_S_neighbors;
+            least_G_neighbors = G_neighbors;
+            best_i = i;
+        }
+    }
+
+    // Abort if we found no nodes.
+    if(most_S_neighbors <= 0)
+        break;
+
+    // Add our found node:
+    bitset_set(in_S, best_i);
+
+
 
     // Sort by interference size.
     std::vector<std::pair<unsigned, unsigned>> elim_order(store_set.size());

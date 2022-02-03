@@ -1,5 +1,16 @@
 #include "ram.hpp"
 
+void ram_for_size(ram_bitset_t& ram, std::size_t size)
+{
+    if(size <= 1)
+        return;
+
+    unsigned shift_by = 1;
+    for(size -= 1; shift_by <= size; shift_by <<= 1)
+        ram &= ram << shift_by;
+    ram &= ram << (size - (shift_by >> 1));
+}
+
 ram_region_t alloc_ram(ram_bitset_t& rbs, addr16_t size)
 {
     assert(size > 0);

@@ -52,12 +52,16 @@ constexpr regs_t REGF_Z   = 1 << REG_Z;
 constexpr regs_t REGF_M   = 1 << REG_M;
 
 constexpr regs_t REGF_AX   = REGF_A | REGF_X;
+constexpr regs_t REGF_AY   = REGF_A | REGF_Y;
 constexpr regs_t REGF_AC   = REGF_A | REGF_C;
+constexpr regs_t REGF_ACZ  = REGF_A | REGF_C | REGF_Z;
+constexpr regs_t REGF_CZ   = REGF_C | REGF_Z;
 constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_Z;
 
 using asm_flags_t = std::uint32_t;
 
 constexpr asm_flags_t ASMF_MAYBE_STORE  = 1 << 0;
+constexpr asm_flags_t ASMF_BRANCH = 1 << 1;
 
 struct op_def_t
 {
@@ -114,7 +118,7 @@ constexpr op_name_mode_table_t op_name_mode_table = []() consteval
     return ret;
 }();
 
-consteval op_t get_op(op_name_t name, addr_mode_t mode)
+constexpr op_t get_op(op_name_t name, addr_mode_t mode)
 {
     return op_name_mode_table[name][mode];
 }

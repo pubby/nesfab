@@ -29,6 +29,11 @@ constexpr bool is_zp(ram_region_t region)
     return region.offset < 256 && (region.offset + region.size) <= 256; 
 }
 
+// Modifies 'ram' to only include addresses that can hold a contiguous span of 'size' bytes
+// (This is useful for allocating multi-byte regions like arrays and pointers)
+void ram_for_size(ram_bitset_t& ram, std::size_t size);
+
+// TODO: remove?
 // Returns the first unused memory position of size 'size',
 // and modifies 'rbs' with the allocation.
 ram_region_t alloc_ram(ram_bitset_t& rbs, addr16_t size);

@@ -11,6 +11,12 @@
 
 struct sel_t
 {
+    sel_t(sel_t const* prev, unsigned cost, ainst_t inst)
+    : prev(prev)
+    , cost(cost)
+    , inst(inst)
+    {}
+
     sel_t const* prev = nullptr;
     unsigned cost = 0;
     ainst_t inst = {};

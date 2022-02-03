@@ -30,8 +30,7 @@ unsigned order_cost(std::vector<cfg_ht> const& order)
         for(unsigned i = 0; i < output_size; ++i)
         {
             cfg_ht output = h->output(i);
-            unsigned const dist = 
-                std::abs(branch_offset - (int)cg_data(output).order.offset);
+            unsigned const dist = std::abs(branch_offset - (int)cg_data(output).order.offset);
 
             if(dist > 127 - 4)
                 cost += op_cycles(JMP_ABSOLUTE);
@@ -43,6 +42,7 @@ unsigned order_cost(std::vector<cfg_ht> const& order)
     return cost;
 }
 
+// aco = ant colony optimization
 class aco_t
 {
 public:

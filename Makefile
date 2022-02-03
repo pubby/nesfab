@@ -27,12 +27,13 @@ INCS:=-I$(SRCDIR)
 VERSION := "0.1"
 GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
+#override CXX:=clang++
+
 override CXXFLAGS+= \
-  -std=c++2a \
-  -O1 \
+  -std=c++20 \
+  -O0 \
   -pthread \
   -g \
-  -export-dynamic \
   -Wall \
   -Wextra \
   -Wno-unused-parameter \

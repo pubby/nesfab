@@ -21,7 +21,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_X,
-        .output_regs = REGF_M,
+        //.output_regs = REGF_M,
         .flags = ASMF_MAYBE_STORE,
     },
     { 
@@ -29,7 +29,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_Y,
-        .output_regs = REGF_M,
+        //.output_regs = REGF_M,
         .flags = ASMF_MAYBE_STORE,
     },
     { 
@@ -37,7 +37,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_AX,
-        .output_regs = REGF_M,
+        //.output_regs = REGF_M,
         .flags = ASMF_MAYBE_STORE,
     },
     { 
@@ -45,8 +45,22 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 9,
         .cycles = 13,
         .input_regs = REGF_C,
-        .output_regs = REGF_M,
+        //.output_regs = REGF_M,
         .flags = ASMF_MAYBE_STORE,
+    },
+    { 
+        .op = SKB_JUMP,
+        .op_code = 0x80,
+        .size = 1,
+        .cycles = 2,
+        .flags = ASMF_JUMP,
+    },
+    { 
+        .op = IGN_JUMP,
+        .op_code = 0x0C,
+        .size = 1,
+        .cycles = 4,
+        .flags = ASMF_JUMP,
     },
 
     // ADC
@@ -228,10 +242,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BCC, RELATIVE),
         .op_code = 144,
         .size = 2,
-        .cycles = 2,
+        .cycles = 3,
         .input_regs = REGF_C,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BCC, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = REGF_C,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // BCS
@@ -239,10 +261,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BCS, RELATIVE),
         .op_code = 176,
         .size = 2,
-        .cycles = 2,
+        .cycles = 3,
         .input_regs = REGF_C,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BCS, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = REGF_C,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // BEQ
@@ -250,10 +280,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BEQ, RELATIVE),
         .op_code = 240,
         .size = 2,
-        .cycles = 2,
-        .input_regs = 0,
+        .cycles = 3,
+        .input_regs = REGF_Z,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BEQ, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = REGF_Z,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // BIT
@@ -279,10 +317,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BMI, RELATIVE),
         .op_code = 48,
         .size = 2,
-        .cycles = 2,
+        .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BMI, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // BNE
@@ -290,10 +336,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BNE, RELATIVE),
         .op_code = 208,
         .size = 2,
-        .cycles = 2,
-        .input_regs = 0,
+        .cycles = 3,
+        .input_regs = REGF_Z,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BNE, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = REGF_Z,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // BPL
@@ -301,10 +355,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BPL, RELATIVE),
         .op_code = 16,
         .size = 2,
-        .cycles = 2,
+        .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BPL, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // BRK
@@ -322,10 +384,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BVC, RELATIVE),
         .op_code = 80,
         .size = 2,
-        .cycles = 2,
+        .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BVC, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // BVS
@@ -333,10 +403,18 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BVS, RELATIVE),
         .op_code = 112,
         .size = 2,
-        .cycles = 2,
+        .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
+    },
+    {
+        OP(BVS, LONG),
+        .size = 5,
+        .cycles = 5,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH | ASMF_JUMP,
     },
 
     // CLC
@@ -679,6 +757,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_JUMP,
     },
     {
         OP(JMP, INDIRECT),
@@ -687,6 +766,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = REGF_M,
         .output_regs = 0,
+        .flags = ASMF_JUMP,
     },
 
     // JSR

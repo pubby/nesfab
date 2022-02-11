@@ -31,7 +31,8 @@ using stmt_ht = handle_t<unsigned, struct stmt_ht_tag, ~0>;
     X(STMT_BREAK)\
     X(STMT_CONTINUE)\
     X(STMT_LABEL)\
-    X(STMT_GOTO)
+    X(STMT_GOTO) \
+    X(STMT_GOTO_MODE)
 
 // Negative values represent var inits, where the negated value 
 // holds the bitwise negated index of the fn variable.

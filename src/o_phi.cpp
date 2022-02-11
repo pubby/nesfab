@@ -58,6 +58,9 @@ bool o_remove_trivial_phis(ir_t& ir)
     {
         ssa_ht phi_h = ssa_worklist.pop();
         ssa_node_t& phi = *phi_h;
+
+        assert(phi.op() == SSA_phi);
+
         if(ssa_value_t value = get_trivial_phi_value(phi))
         {
             // It's trivial! Add all dependent phi nodes to the worklist.
@@ -67,6 +70,8 @@ bool o_remove_trivial_phis(ir_t& ir)
                 if(output_h->op() == SSA_phi && output_h != phi_h) 
                     ssa_worklist.push(output_h);
             }
+
+            assert(!value.holds_ref() || value.handle() != phi_h);
 
             // Delete the trivial phi.
             phi.replace_with(value);

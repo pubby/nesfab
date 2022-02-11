@@ -11,7 +11,7 @@
 
 struct sel_t
 {
-    sel_t(sel_t const* prev, unsigned cost, ainst_t inst)
+    sel_t(sel_t const* prev, unsigned cost, cg_inst_t inst)
     : prev(prev)
     , cost(cost)
     , inst(inst)
@@ -19,9 +19,9 @@ struct sel_t
 
     sel_t const* prev = nullptr;
     unsigned cost = 0;
-    ainst_t inst = {};
+    cg_inst_t inst = {};
 };
 
-std::vector<ainst_t> select_instructions(cfg_ht cfg_node);
+std::vector<cg_inst_t> select_instructions(cfg_ht cfg_node);
 
 #endif

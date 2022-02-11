@@ -207,6 +207,10 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
             if(!is_locator_write(oe))
                 continue;
 
+            // We can only do this when everythings in the same CFG node
+            if(oe.handle->cfg_node() != cfg_node)
+                continue;
+
             locator_t const loc = oe.handle->input(oe.index + 1).locator();
 
             assert(oe.handle->in_daisy());

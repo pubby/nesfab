@@ -21,12 +21,12 @@ static bool _can_prune(ssa_node_t& node)
     switch(node.op())
     {
     default: 
-        return true;
+        return !(ssa_flags(node.op()) & SSAF_IMPURE);
     case SSA_if:
     case SSA_return:
         return false;
     case SSA_fn_call:
-        return get_fn(node).io_pure();
+        return get_fn(node)->ir_io_pure();
     }
 }
 
@@ -114,15 +114,13 @@ bool o_remove_no_effect(ir_t& ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
         if(ssa_it->op() == SSA_if
-           || ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS
-           /*|| ssa_input0_class(ssa_it->op()) == INPUT_LINK*/) // links are handled in other function
+           || (ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
+           || (ssa_flags(ssa_it->op()) & SSAF_IMPURE)
+           || ssa_input0_class(ssa_it->op()) == INPUT_LINK) // links are handled in other function
         {
             ssa_it->clear_flags(FLAG_PRUNED);
             ssa_worklist.push(ssa_it);
         }
-
-        //if(ssa_input0_class(ssa_it->op()) == INPUT_LINK)
-            //ssa_it->clear_flags(FLAG_PRUNED);
     }
 
     while(!ssa_worklist.empty())
@@ -146,7 +144,6 @@ bool o_remove_no_effect(ir_t& ir)
     {
         if(ssa_it->test_flags(FLAG_PRUNED))
         {
-            std::printf("pruning %i\n", ssa_it.index);
             ssa_it = ssa_it->prune();
             changed = true;
         }

@@ -75,6 +75,7 @@ private:
 
     void parse_group();
     void parse_fn();
+    void parse_mode();
 
     void parse_statement();
     void parse_flow_statement();

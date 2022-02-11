@@ -670,8 +670,10 @@ int main()
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
             accept("decimal", "number", many1(digit())),
 
+            // dummy:
             accept("number", "number", eof()),
-            accept("global_ident", "global identifier", eof())
+            accept("global_ident", "global identifier", eof()),
+            accept("weak_ident", "weak identifier", eof())
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

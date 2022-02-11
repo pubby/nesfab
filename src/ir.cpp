@@ -10,8 +10,8 @@ std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s)
         o << "num " << to_double(s.fixed());
     else if(s.is_locator())
         o << "locator " << s.locator();
-    else if(s.is_ptr())
-        o << "ptr " << s.ptr<void>();
+    //else if(s.is_ptr()) TODO: remove?
+        //o << "ptr " << s.ptr<void>();
     return o;
 }
 
@@ -878,6 +878,12 @@ void ir_t::assert_valid() const
                 assert(ssa_node.output_edge(i).input().output()->edges_eq(
                     ssa_node.output_edge(i)));
             }
+
+            for(ssa_ht daisy = ssa_node.prev_daisy(); daisy; --daisy)
+                assert(daisy->cfg_node() == cfg_it);
+            for(ssa_ht daisy = ssa_node.next_daisy(); daisy; ++daisy)
+                assert(daisy->cfg_node() == cfg_it);
+
         }
     }
 }

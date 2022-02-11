@@ -213,7 +213,7 @@ std::vector<cfg_ht> order_ir(ir_t& ir)
     {
         auto& d = cg_data(cfg_it);
         d.order.bytes = 0;
-        for(ainst_t const& inst : d.code)
+        for(cg_inst_t const& inst : d.code)
             d.order.bytes += op_size(inst.op);
     }
 

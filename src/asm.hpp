@@ -62,6 +62,7 @@ using asm_flags_t = std::uint32_t;
 
 constexpr asm_flags_t ASMF_MAYBE_STORE  = 1 << 0;
 constexpr asm_flags_t ASMF_BRANCH = 1 << 1;
+constexpr asm_flags_t ASMF_JUMP = 1 << 2;
 
 struct op_def_t
 {
@@ -98,6 +99,9 @@ constexpr regs_t op_input_regs(op_t op)
 
 constexpr regs_t op_output_regs(op_t op)
     { return op_defs_table[op].output_regs; }
+
+constexpr regs_t op_regs(op_t op)
+    { return op_input_regs(op) | op_output_regs(op); }
 
 constexpr asm_flags_t op_flags(op_t op)
     { return op_defs_table[op].flags; }
@@ -144,6 +148,12 @@ constexpr op_name_t invert_branch(op_name_t name)
     }
 }
 
+constexpr op_t invert_branch(op_t op)
+{
+    return get_op(invert_branch(op_name(op)), op_addr_mode(op));
+
+}
+
 constexpr bool indirect_addr_mode(addr_mode_t mode)
 {
     switch(mode)
@@ -152,8 +162,14 @@ constexpr bool indirect_addr_mode(addr_mode_t mode)
     case MODE_INDIRECT_X:
     case MODE_INDIRECT_Y:
         return true;
-    default: return false;
+    default: 
+        return false;
     }
+}
+
+constexpr bool is_relative_branch(op_t op)
+{
+    return (op_flags(op) & ASMF_BRANCH) && op_addr_mode(op) == MODE_RELATIVE;
 }
 
 #endif

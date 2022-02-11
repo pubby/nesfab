@@ -20,6 +20,9 @@ SSA_DEF(carry, 1, INPUT_LINK, SSAF_TRACE_INPUTS)
 // (fn, (arg, locator)...)
 SSA_DEF(fn_call, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_CLOBBERS_CARRY)
 
+// (fn, (arg, locator)...)
+SSA_DEF(goto_mode, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_IMPURE)
+
 // (link, locator)
 SSA_DEF(read_global, 2, INPUT_LINK, 0)
 

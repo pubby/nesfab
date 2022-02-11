@@ -8,6 +8,7 @@
 #include "array_pool.hpp"
 #include "bitset.hpp"
 #include "ir_decl.hpp"
+#include "ir.hpp"
 
 namespace liveness_impl
 {
@@ -36,10 +37,41 @@ bool live_range_overlap(ssa_ht a, ssa_ht b);
 // A rough approximation of how much a live range overlaps with all others.
 std::size_t live_range_busyness(ir_t& ir, ssa_ht h);
 
-// Key: Store targets (locators or ssa nodes)
-// Value: A unique integer in the range [0, size), used to index into bitsets
-using cg_store_map_t = rh::batman_map<ssa_value_t, unsigned>;
+// Tracks all vars used in assembly code, assigning them an index.
+class cg_var_map_t
+{
+public:
+    explicit cg_var_map_t(ir_t const& ir);
 
-void calc_asm_liveness(ir_t const& ir, cg_store_map_t const& store_set);
+    unsigned index(locator_t var) const
+    {
+        auto result = map.find(var.mem_head());
+        if(result)
+            return result->second;
+        throw std::runtime_error("Unknown locator in cg_locator_map_t.");
+    }
+
+    locator_t operator[](unsigned i) const 
+    { 
+        assert(i < map.size());
+        return map.begin()[i].first;
+    }
+
+    std::size_t size() const { return map.size(); }
+
+    static bool is_valid_var(locator_t arg);
+
+    template<typename Fn>
+    void for_each(Fn fn)
+    {
+        for(auto const& pair : map)
+            fn(pair.first, pair.second);
+    }
+
+private:
+    rh::batman_map<locator_t, unsigned> map;
+};
+
+void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map);
 
 #endif

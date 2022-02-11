@@ -43,7 +43,7 @@ namespace isel
     // An approximation of the CPU's state at a given position.
     struct cpu_t
     {
-        std::array<ssa_value_t, NUM_CPU_REGS> regs;
+        std::array<locator_t, NUM_CPU_REGS> regs;
 
         // When implementing minor branches (such as in multi-byte comparisons),
         // some registers will be conditionally set.
@@ -62,33 +62,24 @@ namespace isel
                     && regs == o.regs);
         }
 
-        bool reg_eq(regs_t reg, ssa_value_t v) const
+        bool reg_eq(regs_t reg, locator_t v) const
         {
             assert(is_orig_def(regs[reg]));
             assert(is_orig_def(v));
-        #ifndef NDEBUG
-            if(reg == REG_C && v.is_num() && regs[reg].is_num())
-            {
-                assert(regs[reg].whole() <= 1);
-                assert(v.whole() <= 1);
-            }
-        #endif
             return regs[reg] == v;
         }
 
         template<typename Options, regs_t Reg>
-        void set_reg(ssa_value_t value)
+        void set_reg(locator_t value)
         {
             if(Options::flags & OPT_CONDITIONAL)
                 conditional_regs |= 1 << Reg;
-            regs[Reg] = (Options::set_mask & (1 << Reg)) ? value : ssa_value_t{};
+            regs[Reg] = (Options::set_mask & (1 << Reg)) ? value : locator_t{};
         }
 
         template<typename Options, regs_t Regs>
-        void set_regs(ssa_value_t value)
+        void set_regs(locator_t value)
         {
-            assert(!value.is_num() || (value.whole() & 0xFF) == value.whole());
-
             if(Options::flags & OPT_CONDITIONAL)
                 conditional_regs |= Regs;
             if(Regs & REGF_A)
@@ -106,9 +97,9 @@ namespace isel
         // Dumbly sets registers based on 'op_output_regs'.
         // Use 'set_regs_for' for the smarter version!
         template<typename Options, op_t Op>
-        void set_output_regs(ssa_value_t value)
+        void set_output_regs(locator_t value)
         {
-            assert(!value.is_num());
+            assert(!value.is_const_num());
             set_regs<Options, op_output_regs(Op) & REGF_CPU>(value);
         }
 
@@ -116,7 +107,7 @@ namespace isel
         // If the registers and inputs are known constants,
         // the set values may be constants too.
         template<typename Options, op_t Op>
-        void set_regs_for(ssa_value_t def, ssa_value_t arg);
+        void set_regs_for(locator_t def, locator_t arg);
 
         // Queries if multiple registers are known numeric constants.
         template<regs_t Regs>
@@ -125,15 +116,15 @@ namespace isel
             bool result = true;
 
             if(Regs & REGF_A)
-                result &= regs[REG_A].is_num();
+                result &= regs[REG_A].is_const_num();
             if(Regs & REGF_X)
-                result &= regs[REG_X].is_num();
+                result &= regs[REG_X].is_const_num();
             if(Regs & REGF_Y)
-                result &= regs[REG_Y].is_num();
+                result &= regs[REG_Y].is_const_num();
             if(Regs & REGF_C)
-                result &= regs[REG_C].is_num();
+                result &= regs[REG_C].is_const_num();
             if(Regs & REGF_Z)
-                result &= regs[REG_Z].is_num();
+                result &= regs[REG_Z].is_const_num();
 
             return result;
         }
@@ -150,8 +141,8 @@ namespace std
         {
             std::size_t h = rh::hash_finalize(
                 cpu.req_store ^ cpu.conditional_regs);
-            for(ssa_value_t const& v : cpu.regs)
-                h = rh::hash_combine(h, v.target());
+            for(locator_t const& v : cpu.regs)
+                h = rh::hash_combine(h, v.to_uint());
             return h;
         }
     };
@@ -171,7 +162,7 @@ namespace isel
     template<typename Options, op_t Op>
     struct set_regs_for_impl
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             cpu.set_output_regs<Options, Op>(def);
         }
@@ -180,12 +171,12 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ADC_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_A | REGF_C>())
+            if(arg.is_const_num() && cpu.all_num<REGF_A | REGF_C>())
             {
                 static_assert(op_output_regs(ADC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_C));
-                unsigned const result = cpu.regs[REG_A].whole() + cpu.regs[REG_C].carry() + arg.whole();
+                unsigned const result = cpu.regs[REG_A].data() + !!cpu.regs[REG_C].data() + arg.data();
                 cpu.set_reg<Options, REG_A>(result & 0xFF);
                 cpu.set_reg<Options, REG_Z>((result & 0xFF) == 0);
                 cpu.set_reg<Options, REG_C>(!!(result & 0x100));
@@ -198,19 +189,19 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, AND_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_A>())
+            if(arg.is_const_num() && cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(AND_IMMEDIATE) == (REGF_A | REGF_Z));
-                unsigned const result = cpu.regs[REG_A].whole() & arg.whole();
-                cpu.set_reg<Options, REG_A>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
+                unsigned const result = cpu.regs[REG_A].data() & arg.data();
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
             }
-            else if(arg.is_num() && arg.whole() == 0)
+            else if(arg.is_const_num() && arg.data() == 0)
             {
-                cpu.set_reg<Options, REG_A>(0u);
-                cpu.set_reg<Options, REG_Z>(1u);
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(0u));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(1u));
             }
             else
                 cpu.set_output_regs<Options, AND_IMMEDIATE>(def);
@@ -220,16 +211,16 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ASL_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(ASL_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
-                unsigned const a = (cpu.regs[REG_A].whole() << 1) & 0xFF;
-                unsigned const c = !!(cpu.regs[REG_A].whole() & 128);
-                cpu.set_reg<Options, REG_A>(a);
-                cpu.set_reg<Options, REG_Z>(a == 0);
-                cpu.set_reg<Options, REG_C>(c);
+                unsigned const a = (cpu.regs[REG_A].data() << 1) & 0xFF;
+                unsigned const c = !!(cpu.regs[REG_A].data() & 128);
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(a));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(a == 0));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
             }
             else
                 cpu.set_output_regs<Options, ASL_IMPLIED>(def);
@@ -239,29 +230,29 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, CLC_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            cpu.set_reg<Options, REG_C>(0u);
+            cpu.set_reg<Options, REG_C>(locator_t::const_byte(0u));
         }
     };
 
     template<typename Options>
     struct set_regs_for_impl<Options, CMP_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_A>())
+            if(arg.is_const_num() && cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(CMP_IMMEDIATE) == (REGF_Z | REGF_C));
-                unsigned const z = arg.whole() == cpu.regs[REG_A].whole();
-                unsigned const c = arg.whole() <= cpu.regs[REG_A].whole();
-                cpu.set_reg<Options, REG_Z>(z);
-                cpu.set_reg<Options, REG_C>(c);
+                unsigned const z = arg.data() == cpu.regs[REG_A].data();
+                unsigned const c = arg.data() <= cpu.regs[REG_A].data();
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(z));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
             }
-            else if(arg.is_num() && arg.whole() == 0)
+            else if(arg.is_const_num() && arg.data() == 0)
             {
                 cpu.set_reg<Options, REG_Z>(def);
-                cpu.set_reg<Options, REG_C>(1u);
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(1u));
             }
             else
                 cpu.set_output_regs<Options, CMP_IMMEDIATE>(def);
@@ -271,20 +262,20 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, CPX_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_X>())
+            if(arg.is_const_num() && cpu.all_num<REGF_X>())
             {
                 static_assert(op_output_regs(CPX_IMMEDIATE) == (REGF_Z | REGF_C));
-                unsigned const z = arg.whole() == cpu.regs[REG_X].whole();
-                unsigned const c = arg.whole() <= cpu.regs[REG_X].whole();
-                cpu.set_reg<Options, REG_Z>(z);
-                cpu.set_reg<Options, REG_C>(c);
+                unsigned const z = arg.data() == cpu.regs[REG_X].data();
+                unsigned const c = arg.data() <= cpu.regs[REG_X].data();
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(z));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
             }
-            else if(arg.is_num() && arg.whole() == 0)
+            else if(arg.is_const_num() && arg.data() == 0)
             {
                 cpu.set_reg<Options, REG_Z>(def);
-                cpu.set_reg<Options, REG_C>(1u);
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(1u));
             }
             else
                 cpu.set_output_regs<Options, CPX_IMMEDIATE>(def);
@@ -294,20 +285,20 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, CPY_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_Y>())
+            if(arg.is_const_num() && cpu.all_num<REGF_Y>())
             {
                 static_assert(op_output_regs(CPY_IMMEDIATE) == (REGF_Z | REGF_C));
-                unsigned const z = arg.whole() == cpu.regs[REG_Y].whole();
-                unsigned const c = arg.whole() <= cpu.regs[REG_Y].whole();
-                cpu.set_reg<Options, REG_Z>(z);
-                cpu.set_reg<Options, REG_C>(c);
+                unsigned const z = arg.data() == cpu.regs[REG_Y].data();
+                unsigned const c = arg.data() <= cpu.regs[REG_Y].data();
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(z));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
             }
-            else if(arg.is_num() && arg.whole() == 0)
+            else if(arg.is_const_num() && arg.data() == 0)
             {
                 cpu.set_reg<Options, REG_Z>(def);
-                cpu.set_reg<Options, REG_C>(1u);
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(1u));
             }
             else
                 cpu.set_output_regs<Options, CPY_IMMEDIATE>(def);
@@ -317,14 +308,14 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, DEX_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_X>())
             {
                 static_assert(op_output_regs(DEX_IMPLIED) == (REGF_Z | REGF_X));
-                unsigned const result = (cpu.regs[REG_X].whole() - 1) & 0xFF;
-                cpu.set_reg<Options, REG_X>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
+                unsigned const result = (cpu.regs[REG_X].data() - 1) & 0xFF;
+                cpu.set_reg<Options, REG_X>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
             }
             else
                 cpu.set_output_regs<Options, DEX_IMPLIED>(def);
@@ -334,14 +325,14 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, DEY_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_Y>())
             {
                 static_assert(op_output_regs(DEY_IMPLIED) == (REGF_Z | REGF_Y));
-                unsigned const result = (cpu.regs[REG_Y].whole() - 1) & 0xFF;
-                cpu.set_reg<Options, REG_Y>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
+                unsigned const result = (cpu.regs[REG_Y].data() - 1) & 0xFF;
+                cpu.set_reg<Options, REG_Y>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
             }
             else
                 cpu.set_output_regs<Options, DEY_IMPLIED>(def);
@@ -351,14 +342,14 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, EOR_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(EOR_IMMEDIATE) == (REGF_Z | REGF_A));
-                unsigned const result = (cpu.regs[REG_Y].whole() ^ arg.whole());
-                cpu.set_reg<Options, REG_A>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
+                unsigned const result = (cpu.regs[REG_Y].data() ^ arg.data());
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
             }
             else
                 cpu.set_output_regs<Options, EOR_IMMEDIATE>(def);
@@ -368,14 +359,14 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, INX_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_X>())
             {
                 static_assert(op_output_regs(INX_IMPLIED) == (REGF_Z | REGF_X));
-                unsigned const result = (cpu.regs[REG_X].whole() + 1) & 0xFF;
-                cpu.set_reg<Options, REG_X>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
+                unsigned const result = (cpu.regs[REG_X].data() + 1) & 0xFF;
+                cpu.set_reg<Options, REG_X>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
             }
             else
                 cpu.set_output_regs<Options, INX_IMPLIED>(def);
@@ -385,14 +376,14 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, INY_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_Y>())
             {
                 static_assert(op_output_regs(INY_IMPLIED) == (REGF_Z | REGF_Y));
-                unsigned const result = (cpu.regs[REG_Y].whole() + 1) & 0xFF;
-                cpu.set_reg<Options, REG_Y>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
+                unsigned const result = (cpu.regs[REG_Y].data() + 1) & 0xFF;
+                cpu.set_reg<Options, REG_Y>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
             }
             else
                 cpu.set_output_regs<Options, INY_IMPLIED>(def);
@@ -402,13 +393,13 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, LDA_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num())
+            if(arg.is_const_num())
             {
                 static_assert(op_output_regs(LDA_IMMEDIATE) == (REGF_Z | REGF_A));
                 cpu.set_reg<Options, REG_A>(arg);
-                cpu.set_reg<Options, REG_Z>(arg.whole() == 0);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(arg.data() == 0));
             }
             else
                 cpu.set_output_regs<Options, LDA_IMMEDIATE>(def);
@@ -418,13 +409,13 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, LDX_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num())
+            if(arg.is_const_num())
             {
                 static_assert(op_output_regs(LDX_IMMEDIATE) == (REGF_Z | REGF_X));
                 cpu.set_reg<Options, REG_X>(arg);
-                cpu.set_reg<Options, REG_Z>(arg.whole() == 0);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(arg.data() == 0));
             }
             else
                 cpu.set_output_regs<Options, LDX_IMMEDIATE>(def);
@@ -434,13 +425,13 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, LDY_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num())
+            if(arg.is_const_num())
             {
                 static_assert(op_output_regs(LDY_IMMEDIATE) == (REGF_Z | REGF_Y));
                 cpu.set_reg<Options, REG_Y>(arg);
-                cpu.set_reg<Options, REG_Z>(arg.whole() == 0);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(arg.data() == 0));
             }
             else
                 cpu.set_output_regs<Options, LDY_IMMEDIATE>(def);
@@ -450,16 +441,16 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, LSR_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(LSR_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
-                unsigned const a = cpu.regs[REG_A].whole() >> 1;
-                unsigned const c  = cpu.regs[REG_A].whole() & 1;
-                cpu.set_reg<Options, REG_A>(a);
-                cpu.set_reg<Options, REG_Z>(a == 0);
-                cpu.set_reg<Options, REG_C>(c);
+                unsigned const a = cpu.regs[REG_A].data() >> 1;
+                unsigned const c  = cpu.regs[REG_A].data() & 1;
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(a));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(a == 0));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
             }
             else
                 cpu.set_output_regs<Options, LSR_IMPLIED>(def);
@@ -469,19 +460,19 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ORA_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             if(cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(ORA_IMMEDIATE) == (REGF_A | REGF_Z));
-                unsigned const result = (cpu.regs[REG_Y].whole() | arg.whole());
-                cpu.set_reg<Options, REG_A>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
+                unsigned const result = (cpu.regs[REG_Y].data() | arg.data());
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
             }
-            else if(arg.is_num() && arg.whole() == 0xFF)
+            else if(arg.is_const_num() && arg.data() == 0xFF)
             {
-                cpu.set_reg<Options, REG_A>(0xFFu);
-                cpu.set_reg<Options, REG_Z>(0u);
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(0xFFu));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(0u));
             }
             else
                 cpu.set_output_regs<Options, ORA_IMMEDIATE>(def);
@@ -491,20 +482,20 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ROL_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             static_assert(op_output_regs(ROL_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
 
             if(cpu.all_num<REGF_A>())
             {
-                unsigned const c = !!(cpu.regs[REG_A].whole() & 128);
-                cpu.set_reg<Options, REG_C>(c);
+                unsigned const c = !!(cpu.regs[REG_A].data() & 128);
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
 
                 if(cpu.all_num<REGF_C>())
                 {
-                    unsigned const a = ((cpu.regs[REG_A].whole() << 1) | cpu.regs[REG_C].carry()) & 0xFF;
-                    cpu.set_reg<Options, REG_A>(a);
-                    cpu.set_reg<Options, REG_Z>(a == 0);
+                    unsigned const a = ((cpu.regs[REG_A].data() << 1) | !!cpu.regs[REG_C].data()) & 0xFF;
+                    cpu.set_reg<Options, REG_A>(locator_t::const_byte(a));
+                    cpu.set_reg<Options, REG_Z>(locator_t::const_byte(a == 0));
                 }
                 else
                 {
@@ -512,11 +503,11 @@ namespace isel
                     cpu.set_reg<Options, REG_Z>(def);
                 }
             }
-            else if(cpu.all_num<REGF_C>() && cpu.regs[REG_C].carry())
+            else if(cpu.all_num<REGF_C>() && !!cpu.regs[REG_C].data())
             {
                 cpu.set_reg<Options, REG_A>(def);
                 cpu.set_reg<Options, REG_C>(def);
-                cpu.set_reg<Options, REG_Z>(0u);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(0u));
             }
             else
                 cpu.set_output_regs<Options, ROL_IMPLIED>(def);
@@ -526,20 +517,20 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ROR_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             static_assert(op_output_regs(ROR_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
 
             if(cpu.all_num<REGF_A>())
             {
-                unsigned const c = (cpu.regs[REG_A].whole() & 1);
-                cpu.set_reg<Options, REG_C>(c);
+                unsigned const c = (cpu.regs[REG_A].data() & 1);
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
 
                 if(cpu.all_num<REGF_C>())
                 {
-                    unsigned const a = ((cpu.regs[REG_A].whole() >> 1) | (cpu.regs[REG_C].carry() << 7)) & 0xFF;
-                    cpu.set_reg<Options, REG_A>(a);
-                    cpu.set_reg<Options, REG_Z>(a == 0);
+                    unsigned const a = ((cpu.regs[REG_A].data() >> 1) | (!!cpu.regs[REG_C].data() << 7)) & 0xFF;
+                    cpu.set_reg<Options, REG_A>(locator_t::const_byte(a));
+                    cpu.set_reg<Options, REG_Z>(locator_t::const_byte(a == 0));
                 }
                 else
                 {
@@ -547,11 +538,11 @@ namespace isel
                     cpu.set_reg<Options, REG_Z>(def);
                 }
             }
-            else if(cpu.all_num<REGF_C>() && cpu.regs[REG_C].carry())
+            else if(cpu.all_num<REGF_C>() && !!cpu.regs[REG_C].data())
             {
                 cpu.set_reg<Options, REG_A>(def);
                 cpu.set_reg<Options, REG_C>(def);
-                cpu.set_reg<Options, REG_Z>(0u);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(0u));
             }
             else
                 cpu.set_output_regs<Options, ROR_IMPLIED>(def);
@@ -561,15 +552,15 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, SBC_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_A | REGF_C>())
+            if(arg.is_const_num() && cpu.all_num<REGF_A | REGF_C>())
             {
                 static_assert(op_output_regs(SBC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_C));
-                unsigned const result = cpu.regs[REG_A].whole() + cpu.regs[REG_C].carry() + ~arg.whole();
-                cpu.set_reg<Options, REG_A>(result & 0xFF);
-                cpu.set_reg<Options, REG_Z>((result & 0xFF) == 0);
-                cpu.set_reg<Options, REG_C>(!!(result & 0x100));
+                unsigned const result = cpu.regs[REG_A].data() + !!cpu.regs[REG_C].data() + ~arg.data();
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(result & 0xFF));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte((result & 0xFF) == 0));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(!!(result & 0x100)));
             }
             else
                 cpu.set_output_regs<Options, SBC_IMMEDIATE>(def);
@@ -579,13 +570,13 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, TAX_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             static_assert(op_output_regs(TAX_IMPLIED) == (REGF_X | REGF_Z));
             if(cpu.all_num<REGF_A>())
             {
                 cpu.set_reg<Options, REG_X>(cpu.regs[REG_A]);
-                cpu.set_reg<Options, REG_Z>(cpu.regs[REG_A].whole() == 0);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(cpu.regs[REG_A].data() == 0));
             }
             else
                 cpu.set_output_regs<Options, TAX_IMPLIED>(def);
@@ -595,13 +586,13 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, TAY_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             static_assert(op_output_regs(TAY_IMPLIED) == (REGF_Y | REGF_Z));
             if(cpu.all_num<REGF_A>())
             {
                 cpu.set_reg<Options, REG_Y>(cpu.regs[REG_A]);
-                cpu.set_reg<Options, REG_Z>(cpu.regs[REG_A].whole() == 0);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(cpu.regs[REG_A].data() == 0));
             }
             else
                 cpu.set_output_regs<Options, TAY_IMPLIED>(def);
@@ -611,13 +602,13 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, TXA_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             static_assert(op_output_regs(TXA_IMPLIED) == (REGF_A | REGF_Z));
             if(cpu.all_num<REGF_X>())
             {
                 cpu.set_reg<Options, REG_A>(cpu.regs[REG_X]);
-                cpu.set_reg<Options, REG_Z>(cpu.regs[REG_X].whole() == 0);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(cpu.regs[REG_X].data() == 0));
             }
             else
                 cpu.set_output_regs<Options, TXA_IMPLIED>(def);
@@ -627,13 +618,13 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, TYA_IMPLIED>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             static_assert(op_output_regs(TYA_IMPLIED) == (REGF_A | REGF_Z));
             if(cpu.all_num<REGF_Y>())
             {
                 cpu.set_reg<Options, REG_A>(cpu.regs[REG_Y]);
-                cpu.set_reg<Options, REG_Z>(cpu.regs[REG_Y].whole() == 0);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(cpu.regs[REG_Y].data() == 0));
             }
             else
                 cpu.set_output_regs<Options, TYA_IMPLIED>(def);
@@ -643,21 +634,21 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, AXS_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_X | REGF_A>())
+            if(arg.is_const_num() && cpu.all_num<REGF_X | REGF_A>())
             {
                 static_assert(op_output_regs(AXS_IMMEDIATE) == (REGF_Z | REGF_X | REGF_C));
-                unsigned const result = (cpu.regs[REG_A].whole() & cpu.regs[REG_X].whole()) + ~arg.whole() + 1;
-                cpu.set_reg<Options, REG_X>(result & 0xFF);
-                cpu.set_reg<Options, REG_Z>((result & 0xFF) == 0);
-                cpu.set_reg<Options, REG_C>(!!(result & 0x100));
+                unsigned const result = (cpu.regs[REG_A].data() & cpu.regs[REG_X].data()) + ~arg.data() + 1;
+                cpu.set_reg<Options, REG_X>(locator_t::const_byte(result & 0xFF));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte((result & 0xFF) == 0));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(!!(result & 0x100)));
             }
-            else if(arg.is_num() && arg.whole() == 0)
+            else if(arg.is_const_num() && arg.data() == 0)
             {
                 cpu.set_reg<Options, REG_X>(def);
                 cpu.set_reg<Options, REG_Z>(def);
-                cpu.set_reg<Options, REG_C>(1u);
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(1u));
             }
             else
                 cpu.set_output_regs<Options, AXS_IMMEDIATE>(def);
@@ -667,21 +658,21 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ANC_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_A>())
+            if(arg.is_const_num() && cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(ANC_IMMEDIATE) == (REGF_Z | REGF_A | REGF_C));
-                unsigned const result = (cpu.regs[REG_A].whole() & arg.whole());
-                cpu.set_reg<Options, REG_A>(result);
-                cpu.set_reg<Options, REG_Z>(result == 0);
-                cpu.set_reg<Options, REG_C>(!!(result & 128));
+                unsigned const result = (cpu.regs[REG_A].data() & arg.data());
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(result));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(result == 0));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(!!(result & 128)));
             }
-            else if(arg.is_num() && arg.whole() == 0)
+            else if(arg.is_const_num() && arg.data() == 0)
             {
-                cpu.set_reg<Options, REG_A>(0u);
-                cpu.set_reg<Options, REG_Z>(1u);
-                cpu.set_reg<Options, REG_C>(0u);
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(0u));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(1u));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(0u));
             }
             else
                 cpu.set_output_regs<Options, ANC_IMMEDIATE>(def);
@@ -691,23 +682,23 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ALR_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
-            if(arg.is_num() && cpu.all_num<REGF_A>())
+            if(arg.is_const_num() && cpu.all_num<REGF_A>())
             {
                 static_assert(op_output_regs(ALR_IMMEDIATE) == (REGF_Z | REGF_A | REGF_C));
-                unsigned const and_ = (cpu.regs[REG_A].whole() & arg.whole());
+                unsigned const and_ = (cpu.regs[REG_A].data() & arg.data());
                 unsigned const a = and_ >> 1;
                 unsigned const c = and_ & 1;
-                cpu.set_reg<Options, REG_A>(a);
-                cpu.set_reg<Options, REG_Z>(a == 0);
-                cpu.set_reg<Options, REG_C>(c);
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(a));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(a == 0));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(c));
             }
-            else if(arg.is_num() && arg.whole() == 0)
+            else if(arg.is_const_num() && arg.data() == 0)
             {
-                cpu.set_reg<Options, REG_A>(0u);
-                cpu.set_reg<Options, REG_Z>(1u);
-                cpu.set_reg<Options, REG_C>(0u);
+                cpu.set_reg<Options, REG_A>(locator_t::const_byte(0u));
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(1u));
+                cpu.set_reg<Options, REG_C>(locator_t::const_byte(0u));
             }
             else
                 cpu.set_output_regs<Options, ALR_IMMEDIATE>(def);
@@ -717,20 +708,20 @@ namespace isel
     template<typename Options>
     struct set_regs_for_impl<Options, ARR_IMMEDIATE>
     {
-        static void call(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
+        static void call(cpu_t& cpu, locator_t def, locator_t arg)
         {
             static_assert(op_output_regs(ARR_IMMEDIATE) == (REGF_Z | REGF_A | REGF_C));
-            if(arg.is_num() && cpu.all_num<REGF_A>())
+            if(arg.is_const_num() && cpu.all_num<REGF_A>())
             {
-                unsigned const and_ = cpu.regs[REG_A].whole() & arg.whole();
+                unsigned const and_ = cpu.regs[REG_A].data() & arg.data();
                 unsigned const c = !!(and_ & 128);
                 cpu.set_reg<Options, REG_C>(c);
 
                 if(cpu.all_num<REGF_C>())
                 {
-                    unsigned const a = ((and_ >> 1) | (cpu.regs[REG_C].carry() << 7)) & 0xFF;
-                    cpu.set_reg<Options, REG_A>(a);
-                    cpu.set_reg<Options, REG_Z>(a == 0);
+                    unsigned const a = ((and_ >> 1) | (!!cpu.regs[REG_C].data() << 7)) & 0xFF;
+                    cpu.set_reg<Options, REG_A>(locator_t::const_byte(a));
+                    cpu.set_reg<Options, REG_Z>(locator_t::const_byte(a == 0));
                 }
                 else
                 {
@@ -738,11 +729,11 @@ namespace isel
                     cpu.set_reg<Options, REG_Z>(def);
                 }
             }
-            else if(cpu.all_num<REGF_C>() && cpu.regs[REG_C].carry())
+            else if(cpu.all_num<REGF_C>() && !!cpu.regs[REG_C].data())
             {
                 cpu.set_reg<Options, REG_A>(def);
                 cpu.set_reg<Options, REG_C>(def);
-                cpu.set_reg<Options, REG_Z>(0u);
+                cpu.set_reg<Options, REG_Z>(locator_t::const_byte(0u));
             }
             else
                 cpu.set_output_regs<Options, ARR_IMMEDIATE>(def);
@@ -750,7 +741,7 @@ namespace isel
     };
 
     template<typename Options, op_t Op>
-    void cpu_t::set_regs_for(ssa_value_t def, ssa_value_t arg)
+    void cpu_t::set_regs_for(locator_t def, locator_t arg)
     {
         set_regs_for_impl<Options, Op>::call(*this, def, arg);
     }
@@ -770,6 +761,13 @@ namespace isel
         //std::vector<isel_schedule_d> schedule_data;
 
         unsigned next_label = 0;
+
+        ssa_op_t ssa_op;
+
+        locator_t minor_label()
+        {
+            return locator_t::minor_label(global_t::current()->handle<fn_ht>(), next_label++);
+        }
     };
 
     // Main global state of the instruction selection algorithm.
@@ -787,24 +785,24 @@ namespace isel
     struct param
     {
         static inline thread_local ssa_value_t _node = {};
-        static inline thread_local ssa_value_t _value = {};
-        static inline thread_local ssa_value_t _trans = {};
+        static inline thread_local locator_t _value = {};
+        static inline thread_local locator_t _trans = {};
 
         static void set(ssa_value_t v)
         {
             _node = v;
-            _value = orig_def(v);
-            _trans = asm_arg(v);
+            _value = locator_t::from_ssa_value(orig_def(v));
+            _trans = locator_t::from_ssa_value(asm_arg(v));
         }
 
         [[gnu::always_inline]]
         static ssa_value_t node() { return _node; }
 
         [[gnu::always_inline]]
-        static ssa_value_t value() { return _value; }
+        static locator_t value() { return _value; }
 
         [[gnu::always_inline]]
-        static ssa_value_t trans() { return _trans; }
+        static locator_t trans() { return _trans; }
     };
 
     template<typename Param>
@@ -814,10 +812,10 @@ namespace isel
         static ssa_value_t node() { return Param::node()->input(1); }
 
         [[gnu::always_inline]]
-        static ssa_value_t value() { return orig_def(node()); }
+        static locator_t value() { return locator_t::from_ssa_value(orig_def(node())); }
 
         [[gnu::always_inline]]
-        static ssa_value_t trans() { return asm_arg(node()); }
+        static locator_t trans() { return locator_t::from_ssa_value(asm_arg(node())); }
 
     };
 
@@ -827,10 +825,10 @@ namespace isel
         static ssa_value_t node() { return {}; }
 
         [[gnu::always_inline]]
-        static ssa_value_t value() { return {}; }
+        static locator_t value() { return {}; }
 
         [[gnu::always_inline]]
-        static ssa_value_t trans() { return {}; }
+        static locator_t trans() { return {}; }
 
         // Pass-thru
         template<typename Cont>
@@ -840,17 +838,17 @@ namespace isel
         }
     };
 
-    template<unsigned I>
+    template<std::uint8_t I>
     struct const_
     {
         [[gnu::always_inline]]
         static ssa_value_t node() { return {}; }
 
         [[gnu::always_inline]]
-        static ssa_value_t value() { return I; }
+        static locator_t value() { return locator_t::const_byte(I); }
 
         [[gnu::always_inline]]
-        static ssa_value_t trans() { return I; }
+        static locator_t trans() { return locator_t::const_byte(I); }
     };
 
     unsigned get_cost(sel_t const* sel)
@@ -876,20 +874,19 @@ namespace isel
         }
     }
 
-    template<op_t Op>
-    constexpr unsigned cost_fn = (op_cycles(Op) << 8) + op_size(Op) + op_penalty<Op>();
+    template<op_t Op, bool Conditional = false>
+    constexpr unsigned cost_fn = Conditional 
+        ? (op_cycles(Op) * 192) + op_size(Op) + op_penalty<Op>() // Conditional ops are cheaper.
+        : (op_cycles(Op) * 256) + op_size(Op) + op_penalty<Op>();
 
     // THIS DETERMINES HOW BIG THE MAP GETS, AND HOW WIDE THE SEARCH IS:
     constexpr unsigned COST_CUTOFF = cost_fn<LDA_ABSOLUTE> * 3;
 
     template<typename Options, op_t Op>
-    sel_t& alloc_sel(sel_t const* prev, ssa_value_t arg, unsigned extra_cost = 0)
+    sel_t& alloc_sel(sel_t const* prev, locator_t arg, unsigned extra_cost = 0)
     {
-        unsigned cost = cost_fn<Op> + extra_cost;
-        if(Options::flags & OPT_CONDITIONAL)
-            cost >>= 1;
-        unsigned const total_cost = get_cost(prev) + cost;
-        return state.sel_pool.emplace(prev, total_cost, ainst_t{ Op, arg });
+        unsigned const total_cost = get_cost(prev) + extra_cost + cost_fn<Op, Options::flags & OPT_CONDITIONAL>;
+        return state.sel_pool.emplace(prev, total_cost, cg_inst_t{ Op, state.ssa_op, arg });
     }
 
     template<typename Options, typename Label>
@@ -898,7 +895,6 @@ namespace isel
         template<typename Cont>
         static void run(cpu_t cpu, sel_t const* prev) 
         {
-            assert(Label::trans().is_locator());
             Cont::run(cpu, &alloc_sel<Options, ASM_LABEL>(prev, Label::trans()));
         }
     };
@@ -1170,7 +1166,7 @@ namespace isel
                 pick_op<Options, LAX, Def, Def>
                 ::template run<Cont>(cpu, prev);
 
-                if(Def::value().is_num())
+                if(Def::value().is_const_num())
                 {
                     cpu_t cpu_copy;
 
@@ -1242,7 +1238,7 @@ namespace isel
                 pick_op<Options, LAX, Def, Def>
                 ::template run<Cont>(cpu, prev);
 
-                if(Def::value().is_num())
+                if(Def::value().is_const_num())
                 {
                     cpu_t cpu_copy;
 
@@ -1296,7 +1292,7 @@ namespace isel
                 pick_op<Options, LDY, Def, Def>
                 ::template run<Cont>(cpu, prev);
 
-                if(Def::value().is_num())
+                if(Def::value().is_const_num())
                 {
                     cpu_t cpu_copy;
 
@@ -1394,9 +1390,9 @@ namespace isel
         {
             if(cpu.reg_eq(REG_C, C::value()))
                 Cont::run(cpu, prev);
-            else if(C::value().is_num())
+            else if(C::value().is_const_num())
             {
-                if(C::value().carry())
+                if(C::value().data())
                     exact_op<Options, SEC_IMPLIED, C>
                     ::template run<Cont>(cpu, prev);
                 else
@@ -1422,8 +1418,8 @@ namespace isel
 
                     cpu_t new_cpu = cpu;
                     new_cpu.set_reg<Options, REG_C>(C::value());
-                    if(new_cpu.regs[REG_A].is_num())
-                        new_cpu.set_reg<Options, REG_Z>(new_cpu.regs[REG_A].whole() == 1);
+                    if(new_cpu.regs[REG_A].is_const_num())
+                        new_cpu.set_reg<Options, REG_Z>(locator_t::const_byte(new_cpu.regs[REG_A].data() == 1));
                     else
                         new_cpu.set_reg<Options, REG_Z>(new_cpu.regs[REG_A]);
 
@@ -1443,7 +1439,7 @@ namespace isel
             if(cpu.reg_eq(REG_C, C::value()))
                 load_A<typename Options::restrict_to<~REGF_C>, A>
                 ::template run<Cont>(cpu, prev);
-            else if(C::value().is_num())
+            else if(C::value().is_const_num())
             {
                 chain
                 < load_A<Options, A>
@@ -1490,21 +1486,21 @@ namespace isel
                 set_regs_for<Options, implied, Def>
                 ::template run<Cont>(cpu, &alloc_sel<Options, implied>(prev, {}));
         }
-        else if(relative && Arg::trans().is_locator())
+        else if(relative)
         {
-            assert(Arg::trans().locator().is_label());
+            assert(is_label(Arg::trans().lclass()));
             assert((op_output_regs(implied) & REGF_CPU) == 0);
             Cont::run(cpu, &alloc_sel<Options, relative>(prev, Arg::trans()));
         }
-        else if(immediate && Arg::trans().is_num())
+        else if(immediate && Arg::trans().is_const_num())
         {
             if(can_set_regs_for<Options, immediate>)
                 set_regs_for<Options, immediate, Def>
                 ::template run<Cont>(cpu, &alloc_sel<Options, immediate>(prev, Arg::trans()));
         }
-        else if(absolute && !Arg::trans().is_num())
+        else if(absolute)
         {
-            if(Arg::trans().is_const())
+            if(Arg::trans().lclass() != LOC_SSA)
             {
                 if(can_set_regs_for<Options, absolute>)
                     set_regs_for<Options, absolute, Def>
@@ -1512,8 +1508,7 @@ namespace isel
                 return;
             }
 
-            assert(Arg::trans().is_handle());
-            ssa_ht h = Arg::trans().handle();
+            ssa_ht h = Arg::trans().ssa_node();
             auto& d = cg_data(h);
 
             unsigned store_penalty = cost_fn<STA_ABSOLUTE> / 2;
@@ -1533,7 +1528,7 @@ namespace isel
 
             if(can_set_regs_for<Options, absolute>)
                 set_regs_for<Options, absolute, Def>
-                ::template run<Cont>(new_cpu, &alloc_sel<Options, absolute>(prev, h, store_penalty));
+                ::template run<Cont>(new_cpu, &alloc_sel<Options, absolute>(prev, Arg::trans(), store_penalty));
 
             // If the node(s) were already stored, no point in checking
             // other methods of loading:
@@ -1591,7 +1586,7 @@ namespace isel
         static void run(cpu_t const& cpu, sel_t const* prev)
         {
             // Store the node, locally:
-            if(Maybe && Param::trans().holds_ref())
+            if(Maybe && Param::trans().lclass() == LOC_SSA)
             {
                 switch(StoreOp)
                 {
@@ -1742,7 +1737,7 @@ namespace isel
                     p_lhs::set(h->input(i + j));
                     p_rhs::set(h->input(i + 1-j));
                     
-                    if(p_rhs::value().eq_whole(0))
+                    if(p_rhs::value().eq_const_byte(0))
                     {
                         chain
                         < load_Z<OC, p_lhs>
@@ -1790,9 +1785,9 @@ namespace isel
 
         using O = options<>;
 
-        fail::set(locator_t::minor_label(state.next_label++));
-        success::set(locator_t::minor_label(state.next_label++));
-        complete::set(locator_t::minor_label(state.next_label++));
+        fail::set(state.minor_label());
+        success::set(state.minor_label());
+        complete::set(state.minor_label());
 
         select_step([&](cpu_t cpu, sel_t const* const prev)
         {
@@ -1815,7 +1810,7 @@ namespace isel
         
         select_step([&](cpu_t cpu, sel_t const* const prev)
         {
-            if(cpu.regs[REG_X].eq_whole(0) && (O::can_set & REGF_X))
+            if(cpu.regs[REG_X].eq_const_byte(0) && (O::can_set & REGF_X))
             {
                 chain
                 < label<OC, success>
@@ -1826,7 +1821,7 @@ namespace isel
                 , store<O, STX, p_def>
                 >::template run<finish>(cpu, prev);
             }
-            else if(cpu.regs[REG_Y].eq_whole(0) && (O::can_set & REGF_Y))
+            else if(cpu.regs[REG_Y].eq_const_byte(0) && (O::can_set & REGF_Y))
             {
                 chain
                 < label<OC, success>
@@ -1837,7 +1832,7 @@ namespace isel
                 , store<O, STY, p_def>
                 >::template run<finish>(cpu, prev);
             }
-            else if(cpu.regs[REG_A].eq_whole(0) && (O::can_set & REGF_A))
+            else if(cpu.regs[REG_A].eq_const_byte(0) && (O::can_set & REGF_A))
             {
                 chain
                 < label<OC, success>
@@ -1906,43 +1901,27 @@ namespace isel
 
         using last_iter = condition<struct lt_last_iter_tag>;
         using next_label = param<struct lt_next_label_tag>;
-        using maybe_next_label = param<struct lt_maybe_next_label_tag>;
 
         for(int i = input_size - 2; i >= 0; i -= 2)
         {
             last_iter::set(i == 0);
-            next_label::set(locator_t::minor_label(state.next_label++));
+            next_label::set(state.minor_label());
 
             select_step([&, i](cpu_t cpu, sel_t const* const prev)
             {
                 p_lhs::set(h->input(i + 0));
                 p_rhs::set(h->input(i + 1));
                 
-                if(p_lhs::value().eq_whole(0))
-                {
-                    if(i == 0)
-                    {
-                        chain
-                        < load_Z<OC, p_rhs>
-                        , exact_op<OC, BNE_RELATIVE, null_, SuccessLabel>
-                        >::template run<finish>(cpu, prev);
-                    }
-                    else
-                    {
-                        chain
-                        < load_Z<OC, p_rhs>
-                        , exact_op<OC, BNE_RELATIVE, null_, SuccessLabel>
-                        >::template run<finish>(cpu, prev);
-                    }
-                }
-                else if(p_rhs::value().eq_whole(0))
+                if(p_lhs::value().eq_const_byte(0))
                 {
                     chain
                     < load_Z<OC, p_rhs>
                     , exact_op<OC, BNE_RELATIVE, null_, SuccessLabel>
-                    /* maybe BEQ to fail label */
+                    , if_<OC, last_iter, exact_op<OC, BEQ_RELATIVE, null_, FailLabel>>
                     >::template run<finish>(cpu, prev);
-
+                }
+                else if(p_rhs::value().eq_const_byte(0))
+                {
                     if(i == 0)
                         exact_op<OC, JMP_ABSOLUTE, null_, FailLabel>
                         ::template run<finish>(cpu, prev);
@@ -1950,16 +1929,10 @@ namespace isel
                         chain
                         < load_Z<OC, p_lhs>
                         , exact_op<OC, BNE_RELATIVE, null_, FailLabel>
-                        /* maybe BEQ to fail label */
                         >::template run<finish>(cpu, prev);
                 }
                 else
                 {
-                    if(i == 0)
-                        maybe_next_label::set(FailLabel::value());
-                    else
-                        maybe_next_label::set(next_label::value());
-
                     using normal = chain
                         < if_<OC, last_iter, null_, exact_op<OC, BEQ_RELATIVE, null_, next_label>>
                         , exact_op<OC, BCS_RELATIVE, null_, FailLabel>
@@ -1974,7 +1947,6 @@ namespace isel
                         , exact_op<OC, BCS_RELATIVE, null_, SuccessLabel>
                         , if_<OC, last_iter, null_, label<OC, next_label>>
                         >;
-
                     chain
                     < load_A<OC, p_lhs>
                     , pick_op<OC, CMP, null_, p_rhs>
@@ -2036,7 +2008,7 @@ namespace isel
                 if(cset_locator(def.handle()) == loc)
                     return;
 
-                def = def->input(0);
+                //def = def->input(0);
             }
 
             p_def::set(def);
@@ -2074,7 +2046,7 @@ namespace isel
         case SSA_carry:
             if(h->output_size() > 1 || (h->output_size() == 1 && h->output(0)->cfg_node() != h->cfg_node()))
             {
-                p_label<0>::set(locator_t::minor_label(state.next_label++));
+                p_label<0>::set(state.minor_label());
 
                 chain
                 < exact_op<O, AND_IMMEDIATE, null_, const_<0>>
@@ -2110,6 +2082,24 @@ namespace isel
 
         case SSA_add:
             p_carry::set(h->input(2));
+
+            // TODO: This should be a math identity, right?
+            if(p_lhs::value() == p_rhs::value())
+            {
+                chain
+                < load_AC<O, p_lhs, p_carry>
+                , exact_op<O, ROL_IMPLIED, p_def>
+                , store<O, STA, p_def>
+                >::run<finish>(cpu, prev);
+
+                if(p_carry::value().eq_const_byte(0))
+                    chain
+                    < load_A<O, p_lhs>
+                    , exact_op<O, ASL_IMPLIED, p_def>
+                    , store<O, STA, p_def>
+                    >::run<finish>(cpu, prev);
+            }
+
             commutative(h, [&]()
             {
                 chain
@@ -2120,23 +2110,23 @@ namespace isel
 
                 chain
                 < load_AC<O, p_lhs, p_carry>
-                , load_X<O::restrict_to<REGF_X>, p_rhs>
+                , load_X<O::restrict_to<~REGF_AC>, p_rhs>
                 , iota_op<O, ADC_ABSOLUTE_X, p_def>
                 , store<O, STA, p_def>
                 >::run<finish>(cpu, prev);
 
                 chain
                 < load_AC<O, p_lhs, p_carry>
-                , load_Y<O::restrict_to<REGF_Y>, p_rhs>
+                , load_Y<O::restrict_to<~REGF_AC>, p_rhs>
                 , iota_op<O, ADC_ABSOLUTE_Y, p_def>
                 , store<O, STA, p_def>
                 >::run<finish>(cpu, prev);
 
-                if(p_rhs::value().is_const())
+                if(p_rhs::value().is_const_num())
                 {
-                    p_label<0>::set(locator_t::minor_label(state.next_label++));
+                    p_label<0>::set(state.minor_label());
 
-                    if(p_rhs::value().whole() == 0 && carry_output_i(*h) == -1)
+                    if(p_rhs::value().data() == 0 && carry_output_i(*h) == -1)
                     {
                         chain
                         < load_C<O, p_carry>
@@ -2162,12 +2152,6 @@ namespace isel
 
                         if(p_def::trans() == p_lhs::trans())
                         {
-                            pick_op<O, INC, p_def, p_lhs>
-                            ::run<finish>(cpu, prev);
-                        }
-
-                        if(p_def::trans() == p_lhs::trans())
-                        {
                             chain
                             < exact_op<O, BCC_RELATIVE, null_, p_label<0>>
                             , pick_op<OC, INC, p_def, p_def>
@@ -2177,9 +2161,9 @@ namespace isel
                         }
                     }
 
-                    if(p_rhs::value().whole() == 0xFF && carry_output_i(*h) == -1)
+                    if(p_rhs::value().data() == 0xFF && carry_output_i(*h) == -1)
                     {
-                        p_label<0>::set(locator_t::minor_label(state.next_label++));
+                        p_label<0>::set(state.minor_label());
 
                         chain
                         < load_C<O, p_carry>
@@ -2214,9 +2198,9 @@ namespace isel
                         }
                     }
 
-                    if(p_carry::value().is_const())
+                    if(p_carry::value().is_const_num())
                     {
-                        p_temp::set((0x100 - p_rhs::value().whole() - p_carry::value().carry()) & 0xFF);
+                        p_temp::set((0x100 - p_rhs::value().data() - !!p_carry::value().data()) & 0xFF);
 
                         chain
                         < load_AX<O, p_lhs, p_lhs>
@@ -2224,7 +2208,7 @@ namespace isel
                         , store<O, STX, p_def>
                         >::run<finish>(cpu, prev);
 
-                        if((p_rhs::value().whole() + p_carry::value().carry()) == 1 && carry_output_i(*h) == -1)
+                        if((p_rhs::value().data() + !!p_carry::value().data()) == 1 && carry_output_i(*h) == -1)
                         {
                             chain
                             < load_X<O, p_lhs>
@@ -2243,7 +2227,7 @@ namespace isel
                                 ::run<finish>(cpu, prev);
                         }
 
-                        if(((p_rhs::value().whole() + p_carry::value().carry()) & 0xFF) == 0xFF && carry_output_i(*h) == -1)
+                        if(((p_rhs::value().data() + !!p_carry::value().data()) & 0xFF) == 0xFF && carry_output_i(*h) == -1)
                         {
                             chain
                             < load_X<O, p_lhs>
@@ -2377,6 +2361,14 @@ namespace isel
             >::run<finish>(cpu, prev);
             break;
 
+        case SSA_goto_mode:
+            p_arg<0>::set(h->input(0));
+            chain
+            < exact_op<O, JMP_ABSOLUTE, null_, p_arg<0>>
+            , set_regs<O, REGF_CPU, null_>
+            >::run<finish>(cpu, prev);
+            break;
+
         case SSA_return:
             exact_op<O, RTS_IMPLIED>
             ::run<finish>(cpu, prev);
@@ -2384,7 +2376,7 @@ namespace isel
 
         case SSA_jump:
             assert(cfg_node->output_size() == 1);
-            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
+            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
             exact_op<O, JMP_ABSOLUTE, null_, p_label<0>>
             ::run<finish>(cpu, prev);
             break;
@@ -2415,6 +2407,8 @@ namespace isel
 
     void isel_node(ssa_ht h)
     {
+        state.ssa_op = h->op();
+
         using O = options<>;
 
         cfg_ht const cfg_node = h->cfg_node();
@@ -2431,19 +2425,19 @@ namespace isel
 
         // Branch ops jump directly:
         case SSA_branch_eq:
-            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(1)));
             eq_branch<O, BEQ, p_label<0>, p_label<1>>(h);
             break;
         case SSA_branch_not_eq:
-            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(1)));
             eq_branch<O, BNE, p_label<0>, p_label<1>>(h);
             break;
 
         case SSA_branch_lt:
-            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(1)));
             lt_branch<O, p_label<0>, p_label<1>>(h);
             break;
 
@@ -2456,6 +2450,7 @@ namespace isel
 
         case SSA_return:
         case SSA_fn_call:
+        case SSA_goto_mode:
             write_globals<O>(h);
             break;
 
@@ -2471,7 +2466,7 @@ namespace isel
 
 } // namespace isel
 
-std::vector<ainst_t> select_instructions(cfg_ht cfg_node)
+std::vector<cg_inst_t> select_instructions(cfg_ht cfg_node)
 {
     using namespace isel;
 
@@ -2535,10 +2530,10 @@ std::vector<ainst_t> select_instructions(cfg_ht cfg_node)
     for(ssa_ht h : cd.schedule)
         isel_node(h);
 
-    std::vector<ainst_t> code;
+    std::vector<cg_inst_t> code;
     for(sel_t const* sel = state.best_sel; sel; sel = sel->prev)
         code.push_back(sel->inst);
-    code.push_back({ ASM_LABEL, cfg_node.index });
+    code.push_back({ ASM_LABEL, SSA_null, locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node) });
     std::reverse(code.begin(), code.end());
 
     return code;

@@ -2,30 +2,40 @@
 
 #include "format.hpp"
 #include "globals.hpp"
+#include "ir.hpp"
 
 std::string to_string(locator_t loc)
 {
     switch(loc.lclass())
     {
-    case LCLASS_IOTA:
-        return fmt("iota %", loc.byte());
-    case LCLASS_GVAR:
-        return fmt("gvar %:%", loc.gvar()->global.name, loc.byte());
-    case LCLASS_GVAR_SET:
-        return fmt("gset %:%", loc.index(), loc.byte());
-    case LCLASS_THIS_ARG:
-        return fmt("arg % %:%", loc.fn()->global.name, (int)loc.arg(), loc.byte());
-    case LCLASS_CALL_ARG:
-        return fmt("call % %:%", loc.fn()->global.name, (int)loc.arg(), loc.byte());
-    case LCLASS_RETURN:
-        return fmt("ret %:%", loc.index(), loc.byte());
-    case LCLASS_PHI:
-        return fmt("phi %:%", loc.index(), loc.byte());
-    case LCLASS_CFG_LABEL:
-        return fmt("cfg label %", loc.index());
-    case LCLASS_MINOR_LABEL:
-        return fmt("minor label %", loc.index());
-    default: return "unknown locator";
+    case LOC_NONE:
+        return "none";
+    case LOC_IOTA:
+        return fmt("iota %", loc.offset());
+    case LOC_GVAR:
+        return fmt("gvar %:%", loc.gvar()->global.name, (int)loc.offset());
+    case LOC_GVAR_SET:
+        return fmt("gset %:%", loc.handle(), (int)loc.offset());
+    case LOC_FN:
+        return fmt("fn %", loc.fn()->global.name);
+    case LOC_THIS_ARG:
+        return fmt("this arg % %:%", loc.fn()->global.name, loc.data(), (int)loc.offset());
+    case LOC_CALL_ARG:
+        return fmt("call arg % %:%", loc.fn()->global.name, loc.data(), (int)loc.offset());
+    case LOC_RETURN:
+        return fmt("ret % %", loc.fn()->global.name, (int)loc.offset());
+    case LOC_PHI:
+        return fmt("phi % %", loc.fn()->global.name, loc.data());
+    case LOC_CFG_LABEL:
+        return fmt("cfg label % %", loc.fn()->global.name, loc.data());
+    case LOC_MINOR_LABEL:
+        return fmt("minor label % %", loc.fn()->global.name, loc.data());
+    case LOC_CONST_BYTE:
+        return fmt("const byte %", loc.data());
+    case LOC_SSA:
+        return fmt("ssa %", loc.handle());
+    default: 
+        return "unknown locator";
     }
 }
 
@@ -33,6 +43,67 @@ std::ostream& operator<<(std::ostream& o, locator_t loc)
 {
     o << to_string(loc);
     return o;
+}
+
+locator_t locator_t::from_ssa_value(ssa_value_t v)
+{
+    if(v.holds_ref())
+        return ssa(v.handle());
+    else if(v.is_num())
+        return const_byte(v.whole());
+    else if(v.is_locator())
+        return v.locator();
+    else
+        return null();
+}
+
+std::size_t locator_t::mem_size() const
+{
+    // TODO: implement
+    throw std::runtime_error("Unimplemented locator_t::mem_size()");
+
+    /*
+    switch(lclass())
+    {
+    case LOC_CALL_ARG:
+        fn_t const& f = *fn();
+        return f.arg_loc_size(data());
+        break;
+
+    case LOC_GVAR:
+        {
+            type_t const type = fn()->type;
+            if(type.name() == TYPE_ARRAY)a_value_t _trans = {};
+
+        static void set(ssa_value_t v)
+        {
+            _node = v;
+            _value = orig_def(v);
+            _trans = asm_arg(v);
+        }
+
+        [[gnu::always_inline]]
+        static ssa_value_t node() { return _node; }
+
+        [[gnu::always_inline]]
+        static ssa_value_t value() { return _value; }
+
+        [[gnu::always_inline]]
+        static ssa_value_t trans() { return _trans; }
+    };
+
+    template<typename Param>
+    struct array_index
+    {
+        [[gnu::always_inline]]
+        static ssa_value_t node() { return Param::node()->input(1); }
+
+
+                return type.size();
+            else if(type.name() == TYPE_)
+        }
+    }
+    */
 }
 
 void gvar_locator_manager_t::setup(fn_t const& fn)
@@ -62,8 +133,8 @@ void gvar_locator_manager_t::setup(fn_t const& fn)
     {
         if(idep->gclass() == GLOBAL_FN)
         {
-            bitset_or(set_size, initial_set, idep->impl<fn_t>().reads());
-            bitset_or(set_size, initial_set, idep->impl<fn_t>().writes());
+            bitset_or(set_size, initial_set, idep->impl<fn_t>().ir_reads());
+            bitset_or(set_size, initial_set, idep->impl<fn_t>().ir_writes());
         }
         else if(idep->gclass() == GLOBAL_VAR)
         {
@@ -105,7 +176,7 @@ void gvar_locator_manager_t::setup(fn_t const& fn)
 
             for(unsigned i = 0; i < set_size; ++i)
             {
-                bitset_uint_t rw = idep->impl<fn_t>().reads()[i] | idep->impl<fn_t>().writes()[i];
+                bitset_uint_t rw = idep->impl<fn_t>().ir_reads()[i] | idep->impl<fn_t>().ir_writes()[i];
                 any_comp |= (comp_set[i] = in_set[i] & ~rw);
                 any_in |= (in_set[i] &= rw);
             }
@@ -153,19 +224,13 @@ locator_t gvar_locator_manager_t::locator(unsigned i) const
     locator_t loc;
     if(i < first_set)
     {
-        loc.impl =
-        { 
-            .index = static_cast<global_t const*>(locs[i])->index(),
-            .lclass = LCLASS_GVAR,
-        };
+        loc.set_lclass(LOC_GVAR);
+        loc.set_handle(static_cast<global_t const*>(locs[i])->index());
     }
     else
     {
-        loc.impl =
-        { 
-            .index = i,
-            .lclass = LCLASS_GVAR_SET
-        };
+        loc.set_lclass(LOC_GVAR_SET);
+        loc.set_handle(i);
     }
     return loc;
 }

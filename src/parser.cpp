@@ -1,6 +1,7 @@
 #include "parser.hpp"
 
 #include "alloca.hpp"
+#include "compiler_limits.hpp"
 #include "format.hpp"
 #include "globals.hpp"
 
@@ -403,7 +404,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
             // Parse the group names:
             parse_args(TOK_lbrace, TOK_rbrace, [&]
             { 
-                group_bitset |= 1ull << global_t::lookup_group(parse_ident(), source()).value;
+                group_bitset |= 1ull << global_t::lookup_group(file, parse_ident()).value;
             });
 
             type = type_t::ram_ptr(group_bitset);
@@ -418,7 +419,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
 
             vbank_ht bank = {};
             if(token.type == TOK_ident)
-                bank = global_t::lookup_vbank(parse_ident(), source());
+                bank = global_t::lookup_vbank(file, parse_ident());
 
             parse_token(TOK_rbrace);
 
@@ -494,6 +495,8 @@ void parser_t<P>::parse_top_level_def()
     {
     case TOK_fn: 
         return parse_fn();
+    case TOK_mode: 
+        return parse_mode();
     case TOK_ram: 
         return parse_group();
     default: 
@@ -542,8 +545,12 @@ void parser_t<P>::parse_fn()
 
     // Parse the arguments
     bc::small_vector<var_decl_t, 8> params;
-    parse_args(TOK_lparen, TOK_rparen,
-        [&]() { params.push_back(parse_var_decl()); });
+    parse_args(TOK_lparen, TOK_rparen, [&]() 
+    { 
+        if(params.size() >= MAX_FN_PARAMS)
+            compiler_error(fmt("Compiler limit reached: too many fn parameters (max is %).", MAX_FN_PARAMS));
+        params.push_back(parse_var_decl()); 
+    });
 
     // Parse the return type
     type_t return_type = parse_type(true);
@@ -554,6 +561,31 @@ void parser_t<P>::parse_fn()
     parse_line_ending();
     parse_block_statement(fn_indent);
     policy().end_fn(std::move(state));
+}
+
+template<typename P>
+void parser_t<P>::parse_mode()
+{
+    int const mode_indent = indent;
+
+    // Parse the declaration
+    parse_token(TOK_mode);
+    pstring_t mode_name = parse_ident();
+
+    // Parse the arguments
+    bc::small_vector<var_decl_t, 8> params;
+    parse_args(TOK_lparen, TOK_rparen, [&]() 
+    { 
+        if(params.size() >= MAX_FN_PARAMS)
+            compiler_error(fmt("Compiler limit reached: too many mode parameters (max is %).", MAX_FN_PARAMS));
+        params.push_back(parse_var_decl()); 
+    });
+
+    // Parse the body of the function
+    auto state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
+    parse_line_ending();
+    parse_block_statement(mode_indent);
+    policy().end_mode(std::move(state));
 }
 
 template<typename P>
@@ -764,7 +796,26 @@ template<typename P>
 void parser_t<P>::parse_goto()
 {
     parse_token(TOK_goto);
-    policy().goto_statement(parse_ident());
+    if(token.type == TOK_mode)
+    {
+        parse_token();
+
+        // Parse like a fn call:
+        expr_temp_t expr_temp;
+        expr_temp.push_back({ TOK_weak_ident, token.pstring });
+        pstring_t const mode = parse_ident();
+        char const* begin = token_source;
+        int const mode_indent = indent;
+        unsigned argument_count = parse_args(TOK_lparen, TOK_rparen,
+            [&]() { parse_expr(expr_temp, mode_indent, 1); });
+        char const* end = token_source;
+        pstring_t pstring = { begin - source(), end - begin, file_i() };
+        expr_temp.push_back({ TOK_apply, pstring, argument_count });
+
+        policy().goto_mode_statement(mode, expr_temp);
+    }
+    else
+        policy().goto_statement(parse_ident());
     parse_line_ending();
 }
 

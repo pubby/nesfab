@@ -75,7 +75,8 @@ constexpr token_type_t TOK_ident = 70;
 constexpr token_type_t TOK_decimal = 71;
 constexpr token_type_t TOK_number = 72;
 constexpr token_type_t TOK_global_ident = 73;
-constexpr token_type_t TOK_END = 74;
+constexpr token_type_t TOK_weak_ident = 74;
+constexpr token_type_t TOK_END = 75;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -155,6 +156,7 @@ inline std::string_view token_name(token_type_t type)
     case TOK_decimal: return "decimal"sv;
     case TOK_number: return "number"sv;
     case TOK_global_ident: return "global_ident"sv;
+    case TOK_weak_ident: return "weak_ident"sv;
     }
 }
 inline std::string_view token_string(token_type_t type)
@@ -236,6 +238,7 @@ inline std::string_view token_string(token_type_t type)
     case TOK_decimal: return "number"sv;
     case TOK_number: return "number"sv;
     case TOK_global_ident: return "global identifier"sv;
+    case TOK_weak_ident: return "weak identifier"sv;
     }
 }
 constexpr unsigned char token_precedence_table[] =
@@ -314,6 +317,7 @@ constexpr unsigned char token_precedence_table[] =
     0,
     0,
     0,
+    0,
 };
 #define TOK_KEY_CASES \
     case TOK_if:\
@@ -376,7 +380,7 @@ constexpr unsigned char token_precedence_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 73;
-constexpr token_type_t TOK_START = 74;
+constexpr token_type_t TOK_LAST_STATE = 74;
+constexpr token_type_t TOK_START = 75;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[10812];
+extern token_type_t const lexer_transition_table[10863];

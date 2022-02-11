@@ -90,6 +90,8 @@ int main(int argc, char** argv)
         // OK! Now to do the actual work: //
         ////////////////////////////////////
 
+        global_t::init();
+
         // Parse the files, loading everything into globals:
         set_compiler_phase(PHASE_PARSE);
         std::atomic<unsigned> next_file_i = 0;
@@ -107,6 +109,10 @@ int main(int argc, char** argv)
             }
         });
 
+        // Fix various things after parsing:
+        set_compiler_phase(PHASE_PARSE_CLEANUP);
+        global_t::parse_cleanup();
+
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);
         global_t::build_order();
@@ -114,6 +120,9 @@ int main(int argc, char** argv)
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);
         global_t::compile_all();
+
+        set_compiler_phase(PHASE_ALLOC_RAM);
+        global_t::alloc_ram();
 
         //for(unsigned i = 0; i < 1; ++i)
         //{

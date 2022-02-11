@@ -183,7 +183,7 @@ private:
     std::vector<cfg_ht> threaded_jumps;
 
 public:
-    bool updated = false;
+    int updated = false;
 };
 
 ai_t::ai_t(ir_t& ir_) : ir(ir_)
@@ -806,7 +806,7 @@ void ai_t::prune_unreachable_code()
         cfg_node.link_remove_output(prune_i);
         assert(cfg_node.output_size() == 1);
 
-        updated = true;
+        updated = __LINE__;
     }
 
     ir.assert_valid();
@@ -819,7 +819,7 @@ void ai_t::prune_unreachable_code()
         else
         {
             cfg_it = ir.prune_cfg(cfg_it);
-            updated = true;
+            updated = __LINE__;
         }
     }
 
@@ -846,7 +846,7 @@ void ai_t::fold_consts()
             fixed_t constant = { d.constraints()[0].get_const() };
             std::cout << " FOLDING " << ssa_it->op() << ' ' << (constant.value >> fixed_t::shift) << ' ' << ssa_it->output_size() << '\n';
             if(ssa_it->replace_with(INPUT_VALUE, constant))
-                updated = true;
+                updated = __LINE__;
             std::cout << " CONT " << ssa_it->op() << ' ' << ssa_it->output_size() << '\n';
         }
         else if(op == SSA_eq || op == SSA_not_eq)
@@ -867,7 +867,7 @@ void ai_t::fold_consts()
                 {
                     ssa_it->link_remove_input(i+1);
                     ssa_it->link_remove_input(i);
-                    updated = true;
+                    updated = __LINE__;
                     continue;
                 }
 
@@ -889,7 +889,7 @@ void ai_t::fold_consts()
                    && lhs_c.get_const() == rhs_c.get_const())
                 {
                     ssa_it->link_shrink_inputs(size - 2);
-                    updated = true;
+                    updated = __LINE__;
                 }
                 else
                     break;
@@ -1107,7 +1107,7 @@ void ai_t::thread_jumps()
 
     if(threaded_jumps.size() == 0)
         return;
-    updated = true;
+    updated = __LINE__;
 
     // Remove prior edges that are no longer used.
     assert(cfg_worklist.empty());
@@ -1144,5 +1144,6 @@ bool o_abstract_interpret(ir_t& ir)
     cfg_data_pool::scope_guard_t<cfg_ai_d> cg(cfg_pool::array_size());
     ssa_data_pool::scope_guard_t<ssa_ai_d> sg(ssa_pool::array_size());
     ai_t ai(ir);
+    o_remove_trivial_phis(ir); // clean-up phis created by ai_t
     return ai.updated;
 }

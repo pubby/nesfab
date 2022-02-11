@@ -11,9 +11,14 @@
 using addr16_t = std::uint16_t;
 
 constexpr addr16_t ram_size = 2048;
-using ram_bitset_t = 
-    aggregate_bitset_t<std::uint64_t, bitset_size<>(ram_size)>;
+using ram_bitset_t = aggregate_bitset_t<std::uint64_t, bitset_size<>(ram_size)>;
 constexpr ram_bitset_t zp_bitset = { ~0ull, ~0ull, ~0ull, ~0ull };
+
+constexpr addr16_t usable_ram_size = ram_size - 512;
+using usable_ram_bitset_t = aggregate_bitset_t<std::uint64_t, bitset_size<>(usable_ram_size)>;
+
+constexpr addr16_t page_size = 256;
+using page_bitset_t = aggregate_bitset_t<std::uint64_t, bitset_size<>(page_size)>;
 
 struct ram_region_t
 {

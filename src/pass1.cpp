@@ -7,19 +7,19 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
     for(token_t& token : expr)
     {
         // Lookup identifiers and replace their '.value' with an index.
-        if(token.type == TOK_ident)
+        if(token.type == TOK_ident || token.type == TOK_weak_ident)
         {
-            if(unsigned const* handle = 
-               symbol_table.find(token.pstring.view(source())))
-            {
+            if(unsigned const* handle = symbol_table.find(token.pstring.view(source())))
                 token.value = *handle;
-            }
             else
             {
-                global_t& g = global_t::lookup(token.pstring, source());
+                global_t& g = global_t::lookup(file.source(), token.pstring);
+                if(token.type != TOK_weak_ident)
+                    ideps.insert(&g);
+                else
+                    weak_ideps.insert(&g);
                 token.type = TOK_global_ident;
                 token.set_ptr(&g);
-                ideps.insert(&g);
             }
         }
     }

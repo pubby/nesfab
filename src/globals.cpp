@@ -6,6 +6,7 @@
 #include "alloca.hpp"
 #include "bitset.hpp"
 #include "compiler_error.hpp"
+#include "compiler_limits.hpp"
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
 #include "o.hpp"
@@ -14,16 +15,30 @@
 #include "cg.hpp"
 #include "graphviz.hpp"
 #include "thread.hpp"
+#include "guard.hpp"
 
 // global_t statics:
 std::deque<global_t> global_t::global_pool;
 std::vector<global_t*> global_t::ready;
 
-global_t& global_t::lookup(pstring_t name, char const* source)
-{
-    assert(compiler_phase() <= PHASE_PARSE);
+///////////////////////////////////////
 
+void group_t::add_interferences(group_bitset_t other_groups)
+{
+    // Can't interfere with itself:
+    other_groups &= ~(1ull << global.index());
+
+    assert(compiler_phase() == PHASE_COMPILE);
+    std::lock_guard<std::mutex> lock(m_interfering_groups_mutex);
+    m_interfering_groups |= other_groups;
+}
+
+///////////////////////////////////////
+
+global_t& global_t::lookup(char const* source, pstring_t name)
+{
     std::string_view view = name.view(source);
+
     auto hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
     std::lock_guard<std::mutex> lock(global_pool_mutex);
@@ -40,12 +55,31 @@ global_t& global_t::lookup(pstring_t name, char const* source)
     return **result.first;
 }
 
+global_t& global_t::lookup_sourceless(std::string_view view)
+{
+    auto hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
+
+    std::lock_guard<std::mutex> lock(global_pool_mutex);
+    rh::apair<global_t**, bool> result = global_pool_map.emplace(hash,
+        [view](global_t* ptr) -> bool
+        {
+            return std::equal(view.begin(), view.end(), ptr->name.begin());
+        },
+        [view]() -> global_t*
+        { 
+            return &global_pool.emplace_back(view);
+        });
+
+    return **result.first;
+}
+
 // Changes a global from UNDEFINED to some specified 'gclass'.
 // This gets called whenever a global is parsed.
-unsigned global_t::define(pstring_t pstring, global_class_t gclass, ideps_set_t&& ideps, 
+unsigned global_t::define(pstring_t pstring, global_class_t gclass, 
+                          ideps_set_t&& ideps, ideps_set_t&& weak_ideps,
                           std::function<unsigned(global_t&)> create_impl)
 {
-    assert(compiler_phase() == PHASE_PARSE);
+    assert(compiler_phase() <= PHASE_PARSE);
     unsigned ret;
     {
         std::lock_guard<std::mutex> global_lock(m_define_mutex);
@@ -53,19 +87,25 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass, ideps_set_t&
             return m_impl_index;
         if(m_gclass != GLOBAL_UNDEFINED)
         {
-            file_contents_t file1(pstring.file_i);
-            file_contents_t file2(m_pstring.file_i);
-            throw compiler_error_t(
-                fmt_error(file1, pstring, 
-                          fmt("Global identifier % already in use.", 
-                              pstring.view(file1.source())))
-                + fmt_error(file2, m_pstring, 
-                            "Previous definition here:"));
+            if(pstring && m_pstring)
+            {
+                file_contents_t file1(pstring.file_i);
+                file_contents_t file2(m_pstring.file_i);
+                throw compiler_error_t(
+                    fmt_error(file1, pstring, 
+                              fmt("Global identifier % already in use.", 
+                                  pstring.view(file1.source())))
+                    + fmt_error(file2, m_pstring, 
+                                "Previous definition here:"));
+            }
+            else
+                throw compiler_error_t(fmt("Global identifier % already in use.", name));
         }
         m_gclass = gclass;
         m_pstring = pstring; // Not necessary but useful for error reporting.
         m_impl_index = ret = create_impl(*this);
         m_ideps = std::move(ideps);
+        m_weak_ideps = std::move(weak_ideps);
     }
     ideps.clear();
     return ret;
@@ -79,33 +119,45 @@ static unsigned _append_to_vec(Args&&... args)
     return global_impl_vec<T>.size() - 1;
 }
 
-vbank_ht global_t::lookup_vbank(pstring_t name, char const* source)
+vbank_ht global_t::lookup_vbank(file_contents_t const& file, pstring_t name)
 {
     return 
     { 
-        lookup(name, source).define(name, GLOBAL_VBANK, {}, [](global_t& g)
+        lookup(file.source(), name).define(name, GLOBAL_VBANK, {}, {}, [](global_t& g)
             { return _append_to_vec<vbank_t>(g); })
     };
 }
 
-group_ht global_t::lookup_group(pstring_t name, char const* source)
+group_ht global_t::lookup_group(file_contents_t const& file, pstring_t name)
 {
     return 
     { 
-        lookup(name, source).define(name, GLOBAL_GROUP, {}, [](global_t& g)
-            { return _append_to_vec<group_t>(g); })
+        lookup(file.source(), name).define(name, GLOBAL_GROUP, {}, {}, [&](global_t& g)
+        { 
+            if(global_impl_vec<group_t>.size() >= MAX_GROUPS)
+                compiler_error(file, name, fmt("Compiler limit reached: too many groups (max is %).", MAX_GROUPS));
+            return _append_to_vec<group_t>(g); 
+        })
     };
+
 }
 
-fn_ht global_t::define_fn(pstring_t pstring,  global_t::ideps_set_t&& ideps, 
-                          type_t type, fn_def_t&& fn_def)
+fn_ht global_t::define_fn(pstring_t pstring,
+                          global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
+                          type_t type, fn_def_t&& fn_def, bool mode)
 {
     // Create the fn
     fn_ht const fn = 
     {
-        define(pstring, GLOBAL_FN, std::move(ideps), [&](global_t& g)
-            { return _append_to_vec<fn_t>(g, type, std::move(fn_def)); })
+        define(pstring, GLOBAL_FN, std::move(ideps), std::move(weak_ideps), [&](global_t& g)
+            { return _append_to_vec<fn_t>(g, type, std::move(fn_def), mode); })
     };
+
+    if(mode)
+    {
+        std::lock_guard<std::mutex> lock(modes_vec_mutex);
+        modes_vec.push_back(fn);
+    }
 
     return fn;
 }
@@ -116,7 +168,7 @@ gvar_ht global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps,
     // Create the var
     gvar_ht const var = 
     {
-        define(pstring, GLOBAL_VAR, std::move(ideps), [&](global_t& g)
+        define(pstring, GLOBAL_VAR, std::move(ideps), {}, [&](global_t& g)
             { return _append_to_vec<gvar_t>(g, type, group); })
     };
 
@@ -135,7 +187,7 @@ const_ht global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps
     // Create the const
     const_ht const cnst = 
     {
-        define(pstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
+        define(pstring, GLOBAL_CONST, std::move(ideps), {}, [&](global_t& g)
             { return _append_to_vec<const_t>(g, type, vbank); })
     };
 
@@ -146,6 +198,69 @@ const_ht global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps
     }
     
     return cnst;
+}
+
+void global_t::init()
+{
+    assert(compiler_phase() == PHASE_INIT);
+
+    using namespace std::literals;
+    lookup_sourceless("(universal group)"sv).define({}, GLOBAL_GROUP, {}, {}, [](global_t& g)
+    {
+        assert(global_impl_vec<group_t>.empty());
+        return _append_to_vec<group_t>(g); 
+    });
+
+    lookup_sourceless("(universal vbank)"sv).define({}, GLOBAL_VBANK, {}, {}, [](global_t& g)
+    {
+        assert(global_impl_vec<vbank_t>.empty());
+        return _append_to_vec<vbank_t>(g); 
+    });
+}
+
+bool global_t::has_dep(global_t& other)
+{
+    assert(this != &other);
+    
+    if(ideps().count(&other))
+        return true;
+
+    for(global_t* idep : ideps())
+        if(idep->has_dep(other))
+            return true;
+
+    return false;
+}
+
+// This function isn't thread-safe.
+// Call from a single thread only.
+void global_t::parse_cleanup()
+{
+    assert(compiler_phase() == PHASE_PARSE_CLEANUP);
+
+    // Handle weak ideps:
+    for(global_t& global : global_pool)
+    {
+        for(global_t* idep : global.m_weak_ideps)
+        {
+            // No point if we already have the idep.
+            if(global.ideps().count(idep))
+                continue;
+
+            // Avoid loops.
+            if(idep->has_dep(global))
+                continue;
+
+            global.m_ideps.insert(idep);
+        }
+
+        global.m_weak_ideps.clear();
+        global.m_weak_ideps.container.shrink_to_fit();
+    }
+
+    // Calculate language gvars and groups:
+    for(fn_t& fn : global_impl_vec<fn_t>)
+        fn.calc_lang_gvars_groups();
 }
 
 // This function isn't thread-safe.
@@ -159,8 +274,13 @@ void global_t::build_order()
         // Check to make sure every global was defined:
         if(global.gclass() == GLOBAL_UNDEFINED)
         {
-            file_contents_t file(global.m_pstring.file_i);
-            compiler_error(file, global.m_pstring, "Name not in scope.");
+            if(global.m_pstring)
+            {
+                file_contents_t file(global.m_pstring.file_i);
+                compiler_error(file, global.m_pstring, "Name not in scope.");
+            }
+            else
+                throw compiler_error_t(fmt("Name not in scope: %.", global.name));
         }
 
         global.m_ideps_left.store(global.m_ideps.size(), 
@@ -175,6 +295,10 @@ void global_t::build_order()
 
 void global_t::compile()
 {
+    assert(!currently_compiling);
+    currently_compiling = this;
+    auto on_exit = make_scope_guard([](){ currently_compiling = nullptr; });
+
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {
         std::ofstream ocfg(fmt("graphs/%_cfg_%.gv", name, suffix));
@@ -186,6 +310,8 @@ void global_t::compile()
             graphviz_ssa(ossa, ir);
     };
 
+    std::cout << "COMPILING " << name << std::endl;
+
     // Compile it!
     switch(gclass())
     {
@@ -193,15 +319,18 @@ void global_t::compile()
         throw std::runtime_error("Invalid global.");
     case GLOBAL_FN:
         {
+            fn_t& fn = this->impl<fn_t>();
+
             // Compile the FN.
             ssa_pool::clear();
             cfg_pool::clear();
             ir_t ir;
-            build_ir(ir, this->impl<fn_t>());
-            ir.assert_valid();
+            build_ir(ir, fn);
 
             if(compiler_options().graphviz)
                 save_graph(ir, "initial");
+
+            ir.assert_valid();
 
             if(compiler_options().optimize)
             {
@@ -221,7 +350,7 @@ void global_t::compile()
                 save_graph(ir, "o1");
 
             // Set the global's 'read' and 'write' bitsets:
-            impl<fn_t>().calc_reads_writes_purity(ir);
+            fn.calc_ir_reads_writes_purity(ir);
 
             byteify(ir, *this);
             //make_conventional(ir);
@@ -278,6 +407,7 @@ void global_t::compile()
             }
             */
 
+            fn.mark_compiled();
             break;
         }
 
@@ -302,6 +432,9 @@ void global_t::compile()
     // OK! The global is now compiled.
     // Now add all its dependents onto the ready list:
 
+
+    std::cout << "IUSES = " << m_iuses.size() << std::endl;
+
     global_t** newly_ready = ALLOCA_T(global_t*, m_iuses.size());
     global_t** newly_ready_end = newly_ready;
 
@@ -316,6 +449,8 @@ void global_t::compile()
         ready.insert(ready.end(), newly_ready, newly_ready_end);
         new_globals_left = --globals_left;
     }
+
+    std::cout << "GLOBALS LEFT = " << new_globals_left << std::endl;
 
     if(newly_ready_end != newly_ready || new_globals_left == 0)
         ready_cv.notify_all();
@@ -336,6 +471,8 @@ global_t* global_t::await_ready_global()
 
 void global_t::compile_all()
 {
+    assert(compiler_phase() == PHASE_COMPILE);
+
     globals_left = global_pool.size();
 
     // Spawn threads to compile in parallel:
@@ -369,19 +506,97 @@ void global_t::compile_all()
     */
 }
 
+void global_t::alloc_ram()
+{
+    assert(compiler_phase() == PHASE_ALLOC_RAM);
+
+    for(fn_ht mode_h : modes_vec)
+    {
+        fn_t& mode = *mode_h;
+        assert(mode.mode);
+
+        std::cout << "MODE = " << mode.global.name << std::endl;
+        bitset_for_each(mode.ir_groups(), [](unsigned bit)
+        {
+            group_ht group = {bit};
+            std::cout << "group = " << group->global.name << std::endl;
+        });
+    }
+
+    // First we'll allocate gvars:
+
+    // 1. order gvars by usage
+    // 2. 
+
+    /*
+    struct weighted_gvar_t
+    {
+        unsigned weight;
+        gvar_ht gvar;
+        bool operator<=>(gvar_usage const& o) const = default;
+    };
+
+    std::vector<weighted_gvar_t> order;
+
+    /*
+    for(gvar_ht gvar : TODO)
+    {
+
+    }
+    */
+}
+
 std::size_t fn_t::rw_bitset_size() 
 {
     return bitset_size<>(global_impl_vec<fn_t>.size());
 }
 
-void fn_t::calc_reads_writes_purity(ir_t const& ir)
+void fn_t::calc_lang_gvars_groups()
+{
+    if(m_lang_gvars)
+        return;
+
+    unsigned const set_size = rw_bitset_size();
+
+    {
+        std::lock_guard<std::mutex> lock(bitset_pool_mutex);
+        m_lang_gvars = bitset_pool.alloc(set_size);
+    }
+
+    for(global_t* idep : global.ideps())
+    {
+        if(idep->gclass() == GLOBAL_VAR)
+            bitset_set(m_lang_gvars, idep->index());
+        else if(idep->gclass() == GLOBAL_FN)
+        {
+            fn_t& fn = idep->impl<fn_t>();
+            fn.calc_lang_gvars_groups();
+
+            assert(fn.m_lang_gvars);
+            assert(fn.m_lang_groups);
+
+            bitset_or(set_size, m_lang_gvars, fn.m_lang_gvars);
+
+            m_lang_groups |= fn.m_lang_groups;
+        }
+    }
+
+    m_lang_groups |= 1ull << global_t::universal_group().value;
+}
+
+void fn_t::calc_ir_reads_writes_purity(ir_t const& ir)
 {
     unsigned const set_size = rw_bitset_size();
 
-    bitset_uint_t* writes = bitset_pool.alloc(set_size);
-    bitset_uint_t* reads  = bitset_pool.alloc(set_size);
+    bitset_uint_t* writes;
+    bitset_uint_t* reads;
     group_bitset_t groups = 0;
     bool io_pure = true;
+    {
+        std::lock_guard<std::mutex> lock(bitset_pool_mutex);
+        writes = bitset_pool.alloc(set_size);
+        reads  = bitset_pool.alloc(set_size);
+    }
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
@@ -394,9 +609,9 @@ void fn_t::calc_reads_writes_purity(ir_t const& ir)
             for_each_written_global(ssa_it,
             [this, writes, &groups](ssa_value_t def, locator_t loc)
             {
-                assert(loc.lclass() != LCLASS_GVAR_SET);
+                assert(loc.lclass() != LOC_GVAR_SET);
 
-                if(loc.lclass() == LCLASS_GVAR)
+                if(loc.lclass() == LOC_GVAR)
                 {
                     gvar_t const& written = *loc.gvar();
                     assert(written.global.gclass() == GLOBAL_VAR);
@@ -419,9 +634,9 @@ void fn_t::calc_reads_writes_purity(ir_t const& ir)
             assert(ssa_it->input_size() == 2);
             locator_t loc = ssa_it->input(1).locator();
 
-            assert(loc.lclass() != LCLASS_GVAR_SET);
+            assert(loc.lclass() != LOC_GVAR_SET);
 
-            if(loc.lclass() == LCLASS_GVAR)
+            if(loc.lclass() == LOC_GVAR)
             {
                 gvar_t const& read = *loc.gvar();
                 assert(read.global.gclass() == GLOBAL_VAR);
@@ -443,25 +658,31 @@ void fn_t::calc_reads_writes_purity(ir_t const& ir)
         }
         else if(ssa_it->op() == SSA_fn_call)
         {
-            fn_t const& callee = get_fn(*ssa_it);
+            fn_t const& callee = *get_fn(*ssa_it);
 
-            bitset_or(set_size, writes, callee.writes());
-            bitset_or(set_size, reads,  callee.reads());
-            groups  |= callee.groups();
-            io_pure &= callee.io_pure();
+            bitset_or(set_size, writes, callee.ir_writes());
+            bitset_or(set_size, reads,  callee.ir_reads());
+            groups  |= callee.ir_groups();
+            io_pure &= callee.ir_io_pure();
         }
     }
 
+    if(mode)
     {
-        std::lock_guard<std::mutex> lock(bitset_pool_mutex);
-        m_writes = writes;
-        m_reads  = reads;
-        m_groups = groups;
-        m_io_pure = io_pure;
+        bitset_for_each(groups, [groups](unsigned bit)
+        {
+            group_ht group = {bit};
+            group->add_interferences(groups);
+        });
     }
+
+    m_ir_writes = writes;
+    m_ir_reads  = reads;
+    m_ir_groups = groups;
+    m_ir_io_pure = io_pure;
 }
 
-/*
+/* TODO: remove
 void alloc_args(ir_t const& ir)
 {
     // Calculate which arg RAM is used by called fns:

@@ -1,28 +1,14 @@
-
-ram
-    short f
+ram menuVars
+    byte f
     byte g
 
-ram menu_vars
-    byte q
 
 fn foo(short x, byte y, byte z) byte
-    short a  = y + z
-    do
-        f += 2
-        x += 3
-    while x < 10
-
-    qux()
-
-    bar(x, y, z)
-
-    qux()
-
-    return (f & y) + (f & z)
+    goto mode main()
+    return 0
 
 fn bar(byte x, byte y, byte z) byte
-    f = 5
+    f += z
     byte a = x + y
     z = a + a
     byte b = x + z
@@ -31,4 +17,11 @@ fn bar(byte x, byte y, byte z) byte
     z = c + c
     return c
 
-fn qux()
+
+
+mode main()
+    foo(0, 1, 2)
+    f = 3
+    
+    
+

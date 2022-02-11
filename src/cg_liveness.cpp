@@ -5,6 +5,24 @@
 #include "ir.hpp"
 #include "worklist.hpp"
 
+cg_var_map_t::cg_var_map_t(ir_t const& ir)
+{
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(cg_inst_t inst : cg_data(cfg_it).code)
+        if(is_valid_var(inst.arg))
+            map.emplace(inst.arg.mem_head(), [&]{ return map.size(); });
+}
+
+bool cg_var_map_t::is_valid_var(locator_t arg)
+{
+    auto const l = arg.lclass();
+    return l == LOC_THIS_ARG || l == LOC_CALL_ARG || l == LOC_PHI || l == LOC_SSA;
+}
+
+//////////////////
+// cfg liveness //
+//////////////////
+
 static inline cfg_liveness_d& live(cfg_ht h) 
 { 
     return cg_data(h).live;
@@ -164,13 +182,13 @@ std::size_t live_range_busyness(ir_t& ir, ssa_ht h)
 // a second set of liveness checks is run to build an interference graph
 // and then allocate memory.
 
-void calc_asm_liveness(ir_t const& ir, cg_store_map_t const& store_set)
+void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map)
 {
     using namespace liveness_impl;
     cg_data_resize();
     bitset_pool.clear();
 
-    set_size = bitset_size<>(store_set.size());
+    set_size = bitset_size<>(var_map.size());
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -188,11 +206,11 @@ void calc_asm_liveness(ir_t const& ir, cg_store_map_t const& store_set)
         // Also set 'd.out' to temporarily hold all variables *NOT* defined
         // in this node.
         // (This set is sometimes called 'KILL')
-        for(ainst_t const& inst : cg_data(cfg_it).code)
+        for(cg_inst_t const& inst : cg_data(cfg_it).code)
         {
-            auto const* lookup = store_set.find(inst.arg);
-            assert(lookup);
-            unsigned const store_i = lookup->second;
+            if(!cg_var_map_t::is_valid_var(inst.arg))
+                continue;
+            unsigned const store_i = var_map.index(inst.arg);
 
             if((op_input_regs(inst.op) & REGF_M) && bitset_test(d.out, store_i))
                 bitset_set(d.in, store_i);
@@ -285,22 +303,52 @@ void calc_asm_liveness(ir_t const& ir, cg_store_map_t const& store_set)
 // - arrays can be large
 // 
 
-struct fn_arg_t
+#if 0
+struct group_ram_t
 {
-    rh::robin_set<locator_t> interferes_with;
+    usable_ram_bitset_t allocated_ram;
+    usable_ram_bitset_t usable_ram;
+    rh::robin_set<group_ht> interfering_groups;
 };
 
-
-#if 1
-TODO
+struct lvar_t
 {
+    rh::robin_set<locator_t> interferes_with;
+    usable_ram_bitset_t usable_ram;
+};
+
+rh::batman_set<locator_t> locs;
+
+// 1. pick a locator
+// 2. allocate said locator to a ram region
+// 3. for each interference, remove said ram region from 'usable_ram'
 
 
+// function vars:
+// - can interfere with called fn arguments
+
+// function args:
+// - can interfere with called fn arguments, OR callee functions
+
+
+// function vars: get their own group
+// function args: 
+
+
+// ALLOCATION STRATEGY;
+// 1. allocate globals
+// 2. 
+
+// 
+void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
+{
     unsigned const num_vars = TODO;
 
     // A 2d array representing an interference graph.
     std::vector<bitset_uint_t> interferences(set_size * num_vars, 0);
-    std::vector<fc::vector_set<fn_t const*>> interfering_fns(num_vars);
+
+    // Tracks which vars are live at fn calls.
+    std::vector<fc::vector_set<fn_ht>> interfering_fns(num_vars);
 
     // Step-through the code backwards, maintaining a current liveness set
     // and using that to build an interference graph.
@@ -312,36 +360,53 @@ TODO
 
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
-            ainst_t const& inst = *it;
+            cg_inst_t const& inst = *it;
 
             if(inst.op == JSR_ABSOLUTE)
             {
-                fn_t* fn = TODO;
+                fn_ht const fn = inst.arg.fn();
+
+                // Every live var will interfere with this fn:
                 bitset_for_each(set_size, live, [&](unsigned i)
                 {
+                    locator_t const loc = loc_map[i];
+
+                    // CALL_ARGs are used by their calling function
+                    if(loc.gclass() == LOC_CALL_ARG && loc.fn() == fn)
+                        bitset_clear(live, i);
+
                     interfering_fns[i].insert(fn);
                 });
+
+                // The fn's arguments are now live.
+                for(locator_t loc : fn->arg_locs())
+                    bitset_set(live, var_map.index(loc));
+
+                // TODO handle fn returns
+
                 continue;
             }
 
             auto const* lookup = store_set.find(inst.arg.cg_mem());
             if(!lookup)
                 continue;
-            unsigned const store_i = lookup->second;
+            unsigned const var_i = loc_map.index(inst.arg.
 
             else if(op_input_regs(inst.op) & REGF_M)
-                bitset_set(live, i);
+                bitset_set(live, var_store_i);
             else if(op_output_regs(inst.op) & REGF_M)
-                bitset_clear(live, i);
+                bitset_clear(live, var_store_i);
             else 
                 continue; // No change to 'live' this iteration.
 
+            /* TODO
             if(indirect_addr_mode(op_addr_mode(inst.op)))
             {
                 // The argument is a pointer, 
                 // meaning it must be allocated to zero-page.
                 zp_only.push_back(i);
             }
+            */
 
             // Variables that are live together interfere with each other.
             // Update the interference graph here:
@@ -350,6 +415,83 @@ TODO
                 bitset_or(set_size, &interferences[i * set_size], live);
             });
         }
+    }
+
+    // Cleanup: nodes never interfere with themself:
+    for(unsigned i = 0; i < store_set.size(); ++i)
+        bitset_clear(&interferences[i * set_size], i);
+
+    // 1) Find the first node of a new colored set.
+    {
+        unsigned max_size = 0;
+        int max_neighbors = -1;
+        unsigned best_i;
+
+        var_map.for_each([&](locator_t var, unsigned i)
+        {
+            unsigned const size = var.mem_size();
+            if(size < max_size)
+                return;
+
+            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            if(size > max_size || neighbors > max_negihbors)
+            {
+                max_size = size;
+                max_neighbors = neighbors;
+                best_i = i;
+            }
+        });
+
+
+
+
+        for(int i = 0; i < var_map.size(); ++i)
+        {
+            unsigned const size = 
+            if(freebie > min_freebie)
+                continue;
+
+            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            if(freebie < min_freebie || neighbors > max_neighbors)
+            {
+                min_freebie = freebie;
+                max_neighbors = neighbors;
+                best_i = i;
+            }
+        }
+
+
+
+        unsigned min_freebie = ~0;
+        int max_neighbors = -1;
+        unsigned best_i = ~0u;
+        for(int i = 0; i < var_map.size(); ++i)
+        {
+            unsigned const freebie = ~(usable_ram[i] & freebie_ram).popcount();
+            if(freebie > min_freebie)
+                continue;
+
+            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            if(freebie < min_freebie || neighbors > max_neighbors)
+            {
+                min_freebie = freebie;
+                max_neighbors = neighbors;
+                best_i = i;
+            }
+        }
+
+        // OK. We've selected a node: 'best_i'.
+
+        // Add our starting node to the set:
+        bitset_clear_all(set_size, S);
+        bitset_clear_all(set_size, S_neighbors);
+        bitset_set(S, best_i);
+        bitset_or(set_size, S_neighbors, &interferences[best_i * set_size]);
+        S_usable_ram = usable_ram[best_i];
+
+        // Remove from our uncolored graph:
+        assert(bitset_test(G, best_i));
+        bitset_clear(G, best_i);
     }
 
 
@@ -363,7 +505,21 @@ TODO
 
 
 
+    // OK let's allocate all vars.
+    // 1. sort by usage (most used end up in zp)
+    // 2. for each, in order of usage
+    //   3. pick a valid ram location
+    //   4. remove said allocated memory from interfering ram's options
 
+    // So what interferes?
+    // - global vars interfere with everything in the same group
+    // - fn locals interfere with called fns
+
+
+    // Fuck man, let's simplify
+    // -- allocate globals first
+    // -- allocate fns next, in order
+    // - 
 
 
 
@@ -401,7 +557,7 @@ TODO
 
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
-            ainst_t const& inst = *it;
+            cg_inst_t const& inst = *it;
 
             if(inst.op == JSR_ABSOLUTE)
             {

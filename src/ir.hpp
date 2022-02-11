@@ -72,9 +72,11 @@ public:
     std::uint32_t index() const 
         { assert(is_handle()); return value >> 32ull; };
 
+    /* TODO: remove?
     template<typename T>
     T const* ptr() const 
         { assert(is_ptr()); return reinterpret_cast<T const*>(value << 2ull); }
+        */
 
     bool eq_whole(unsigned w) const 
         { return is_const() && fixed() == fixed_t::whole(w); }
@@ -86,7 +88,11 @@ public:
     constexpr void set(unsigned u) 
         { set(fixed_t::whole(u)); }
     constexpr void set(locator_t loc) 
-        { value = (loc.to_uint() & ~const_flag) | locator_flag; }
+    { 
+        uint_t uint = loc.to_uint();
+        assert((uint & ~const_flag) == uint);
+        value = (uint & ~const_flag) | locator_flag; 
+    }
 
     void set(void const* ptr) 
     { 
@@ -120,11 +126,9 @@ public:
         assert(this->index() == index);
     }
 
-    // Sets locator bytes to 0 and returns.
-    // Used in code-gen.
-    ssa_value_t cg_mem() const;
-    // Returns how many bytes the cg var requries.
-    std::uint16_t cg_mem_size() const { return 1; }
+    // Matches locator_t functions. Used in code-gen.
+    ssa_value_t mem_head() const;
+    std::size_t mem_size() const;
 
     // Used when comparing two edges.
     std::uint64_t target() const 
@@ -620,15 +624,18 @@ inline cfg_fwd_edge_t& cfg_bck_edge_t::input() const
     return handle->m_io.input(index);
 }
 
-inline ssa_value_t ssa_fwd_edge_t::cg_mem() const
+inline ssa_value_t ssa_fwd_edge_t::mem_head() const
 {
     if(is_locator())
-    {
-        locator_t loc = locator();
-        loc.set_byte(0);
-        return loc;
-    }
+        return locator().mem_head();
     return *this;
+}
+
+inline std::size_t ssa_fwd_edge_t::mem_size() const
+{
+    if(is_locator())
+        return locator().mem_size();
+    return 1;
 }
 
 ////////////////////////////////////////
@@ -739,10 +746,10 @@ inline bool carry_used(ssa_node_t const& node)
     return i >= 0 && node.output(i)->output_size();
 }
 
-inline fn_t const& get_fn(ssa_node_t const& node)
+inline fn_ht get_fn(ssa_node_t const& node)
 {
     assert(node.op() == SSA_fn_call);
-    return node.input(0).ptr<global_t>()->impl<fn_t>();
+    return node.input(0).locator().fn();
 }
 
 inline unsigned get_condition_i(ssa_op_t op)
@@ -763,7 +770,7 @@ inline unsigned write_globals_begin(ssa_op_t op)
 {
     SSA_VERSION(1);
     assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
-    if(op == SSA_fn_call)
+    if(op == SSA_fn_call || op == SSA_goto_mode)
         return 1;
     if(op == SSA_return)
         return 0;

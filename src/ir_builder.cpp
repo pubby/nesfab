@@ -119,8 +119,7 @@ private:
     void compile();
     cfg_ht compile_block(cfg_ht cfg_h);
 
-    ssa_ht insert_fn_call(cfg_ht cfg_node, global_t const& fn_global, 
-                          rpn_value_t const* args);
+    ssa_ht insert_fn_call(cfg_ht cfg_node, fn_ht fn, rpn_value_t const* args);
     void exits_with_jump(cfg_node_t& node);
     void exits_with_branch(cfg_node_t& node, ssa_value_t condition);
     cfg_ht compile_goto(cfg_ht branch_node);
@@ -197,7 +196,7 @@ void ir_builder_t::compile()
     {
         ir.root.data<block_d>().fn_vars[i] = ir.root->emplace_ssa(
             SSA_read_global, fn.def.local_vars[i].type, entry, 
-            locator_t::this_arg(fn.global.handle<fn_ht>(), i, 3));
+            locator_t::this_arg(fn.handle(), i, 3));
     }
 
     // Insert nodes for gvar reads
@@ -244,7 +243,7 @@ void ir_builder_t::compile()
         ssa_ht phi = ir.exit->emplace_ssa(SSA_phi, return_type);
         phi->assign_input(&*return_values.begin(), &*return_values.end());
         return_inputs.push_back(phi);
-        return_inputs.push_back(locator_t::ret());
+        return_inputs.push_back(locator_t::ret(fn.handle()));
     }
 
     assert(return_inputs.size() % 2 == 0);
@@ -420,7 +419,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
                 throwing_cast(*cfg_node, rpn_stack.only1(), return_type);
                 return_values.push_back(rpn_stack.only1().ssa_value);
             }
-            else
+            else if(return_type.name() != TYPE_VOID)
                 compiler_error(stmt->pstring, fmt(
                     "Expecting return expression of type %.", return_type));
             return_jumps.push_back(cfg_node);
@@ -494,78 +493,112 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             }
             break;
         }
+
+    case STMT_GOTO_MODE:
+        {
+            assert(stmt->expr);
+
+
+            cfg_ht branch = cfg_node;
+
+            cfg_ht mode = insert_cfg(true);
+
+            cfg_node = compile_goto(cfg_node);
+            branch->build_set_output(0, mode);
+
+            compile_expr(mode, stmt->expr);
+
+            ++stmt;
+            break;
+        }
     }
     assert(false);
 }
 
-ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, 
-                                    global_t const& fn_global,
-                                    rpn_value_t const* args)
+ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t const* args)
 {
-    assert(fn_global.gclass() == GLOBAL_FN);
-    fn_t& fn_impl = fn_global.impl<fn_t>();
-
     unsigned const set_size = fn_t::rw_bitset_size();
 
     bc::small_vector<ssa_value_t, 32> fn_inputs;
 
     // The [0] argument holds the fn_t ptr.
-    fn_inputs.push_back(ssa_value_t(&fn_global));
+    fn_inputs.push_back(ssa_value_t(locator_t::fn(call)));
     
     // Prepare the input globals
-    unsigned const seen_bitset_size = bitset_size<>(ir.gvar_locators.size());
-    auto* seen = ALLOCA_T(bitset_uint_t, seen_bitset_size);
-    bitset_clear_all(seen_bitset_size, seen);
+    auto* const temp_set = ALLOCA_T(bitset_uint_t, fn_t::rw_bitset_size());
 
-    bitset_for_each(set_size, fn_impl.reads(),
-    [this, cfg_node, seen, &fn_inputs](unsigned bit)
-    {
-        global_t& var = gvar_ht{ bit }->global;
-        unsigned const loc_i = ir.gvar_locators.index(var);
+    bitset_uint_t const* reads_set;
+    if(!call->mode || fn.global.ideps().count(&call->global))
+        reads_set = call->ir_reads();
+    else
+        reads_set = call->lang_gvars();
 
-        if(bitset_test(seen, loc_i))
-            return;
-        bitset_set(seen, loc_i);
+    ir.gvar_locators.for_each(
+        [&](gvar_ht gvar, unsigned loc_i)
+        {
+            if(bitset_test(reads_set, gvar.value))
+            {
+                fn_inputs.push_back(var_lookup(cfg_node, loc2var(loc_i)));
+                fn_inputs.push_back(ir.gvar_locators.locator(loc_i));
+            }
+        },
+        [&](bitset_uint_t const* gvar_set, unsigned loc_i)
+        {
+            bitset_copy(set_size, temp_set, gvar_set);
+            bitset_and(set_size, temp_set, reads_set);
+            if(!bitset_all_clear(set_size, temp_set))
+            {
+                fn_inputs.push_back(var_lookup(cfg_node, loc2var(loc_i)));
+                fn_inputs.push_back(ir.gvar_locators.locator(loc_i));
+            }
 
-        fn_inputs.push_back(var_lookup(cfg_node, loc2var(loc_i)));
-        fn_inputs.push_back(ir.gvar_locators.locator(loc_i));
-    });
+        });
 
     // Prepare the arguments
-    unsigned const num_args = fn_impl.type.num_params();
+    unsigned const num_args = call->type.num_params();
     for(unsigned i = 0; i < num_args; ++i)
     {
         fn_inputs.push_back(args[i].ssa_value);
-        fn_inputs.push_back(locator_t::call_arg(fn_global.handle<fn_ht>(), i));
+        fn_inputs.push_back(locator_t::call_arg(call, i));
     }
 
     // Create the dependent node.
-    ssa_ht ret = cfg_node->emplace_ssa(
-        SSA_fn_call, fn_impl.type.return_type());
+    ssa_op_t const op = call->mode ? SSA_goto_mode : SSA_fn_call;
+    ssa_ht ret = cfg_node->emplace_ssa(op, call->type.return_type());
     assert(fn_inputs.size() % 2 == 1);
     ret->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
     ret->append_daisy();
 
-    // After the fn is called, read all the globals it has written to:
-
-    bitset_clear_all(seen_bitset_size, seen);
-
-    bitset_for_each(set_size, fn_impl.writes(),
-    [this, cfg_node, seen, ret](unsigned bit)
+    if(!call->mode)
     {
-        gvar_t& var = *gvar_ht{ bit };
-        unsigned const loc_i = ir.gvar_locators.index(var.global);
+        // After the fn is called, read all the globals it has written to:
+        bitset_uint_t const* writes_set = call->ir_writes();
 
-        if(bitset_test(seen, loc_i))
-            return;
-        bitset_set(seen, loc_i);
+        ir.gvar_locators.for_each(
+            [&](gvar_ht gvar, unsigned loc_i)
+            {
+                if(bitset_test(reads_set, gvar.value))
+                {
+                    ssa_ht read = cfg_node->emplace_ssa(
+                        SSA_read_global, gvar->type, ret, ir.gvar_locators.locator(loc_i));
+                    block_d& block_data = cfg_node.data<block_d>();
+                    block_data.fn_vars[loc2var(loc_i)] = read;
+                }
+            },
+            [&](bitset_uint_t const* gvar_set, unsigned loc_i)
+            {
+                bitset_copy(set_size, temp_set, gvar_set);
+                bitset_and(set_size, temp_set, reads_set);
+                if(!bitset_all_clear(set_size, temp_set))
+                {
+                    ssa_ht read = cfg_node->emplace_ssa(
+                        SSA_read_global, TYPE_VOID, ret, ir.gvar_locators.locator(loc_i));
+                    block_d& block_data = cfg_node.data<block_d>();
+                    block_data.fn_vars[loc2var(loc_i)] = read;
+                }
 
-        ssa_ht read = cfg_node->emplace_ssa(
-            SSA_read_global, var.type, ret, ir.gvar_locators.locator(loc_i));
-
-        block_d& block_data = cfg_node.data<block_d>();
-        block_data.fn_vars[loc2var(loc_i)] = read;
-    });
+            });
+    }
 
     return ret;
 }
@@ -719,7 +752,7 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
         switch(token->type)
         {
         default:
-            throw std::runtime_error("Invalid token in expression.");
+            throw std::runtime_error(fmt("Invalid token '%' in expression.", token_name(token->type)));
 
         case TOK_ident:
             rpn_stack.push({ 
@@ -752,7 +785,7 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
 
                 case GLOBAL_FN:
                     rpn_stack.push({ 
-                        .ssa_value = ssa_value_t(global),
+                        .ssa_value = ssa_value_t(locator_t::fn(global->handle<fn_ht>())),
                         .category = RVAL, 
                         .type = global->impl<fn_t>().type, 
                         .pstring = token->pstring });
@@ -823,11 +856,11 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
 
                 // For now, only const fns are allowed.
                 // In the future, fn pointers may be supported.
-                assert(fn_val.ssa_value.is_const());
-                global_t const& fn_global = *fn_val.ssa_value.ptr<global_t>();
+                assert(fn_val.ssa_value.is_locator());
+                fn_ht fn = fn_val.ssa_value.locator().fn();
 
                 // Type checks are done. Now convert the call to SSA.
-                ssa_ht fn_node = insert_fn_call(cfg_node, fn_global, args);
+                ssa_ht fn_node = insert_fn_call(cfg_node, fn, args);
 
                 // Update the eval stack.
                 rpn_stack.pop(num_args + 1);

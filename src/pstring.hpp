@@ -20,6 +20,8 @@ struct pstring_t
         { return std::string_view(buffer + offset, size); }
 
     constexpr std::uint32_t end() { return offset + size; }
+
+    constexpr explicit operator bool() const { return size; }
 };
 
 // Combines two pstrings into one. 

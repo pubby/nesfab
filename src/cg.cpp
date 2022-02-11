@@ -12,6 +12,7 @@
 #include "cg_order.hpp"
 #include "cg_schedule.hpp"
 #include "ir_util.hpp"
+#include "ir.hpp"
 #include "locator.hpp"
 
 #include <iostream> // TODO
@@ -31,13 +32,21 @@ ssa_ht cset_next(ssa_ht h)
 ssa_ht cset_head(ssa_ht h)
 {
     assert(h);
+    assert(h->op());
     while(true)
     {
         auto& d = cg_data(h);
         if(d.cset_head.holds_ref())
+        {
+            assert(d.cset_head->op());
+            assert(h != d.cset_head.handle());
             h = d.cset_head.handle();
+        }
         else
+        {
+            assert(h->op());
             return h;
+        }
     }
 }
 
@@ -54,10 +63,10 @@ bool csets_mergable(ssa_ht a, ssa_ht b)
 {
     locator_t const loc_a = cset_locator(a);
     locator_t const loc_b = cset_locator(b);
-    if(loc_a.lclass() == LCLASS_CALL_ARG || loc_b.lclass() == LCLASS_CALL_ARG)
-        return false;
+    //if(loc_a.lclass() == LOC_CALL_ARG || loc_b.lclass() == LOC_CALL_ARG)
+        //return false;
     return (!loc_a || !loc_b 
-            || loc_a.lclass() == LCLASS_PHI || loc_b.lclass() == LCLASS_PHI
+            || loc_a.lclass() == LOC_PHI || loc_b.lclass() == LOC_PHI
             || loc_a == loc_b);
 }
 
@@ -77,9 +86,9 @@ void cset_merge_locators(ssa_ht head_a, ssa_ht head_b)
 
     if(loc_a == loc_b)
         ad.cset_head = bd.cset_head;
-    else if(!loc_b || (loc_a && loc_b.lclass() == LCLASS_PHI))
+    else if(!loc_b || (loc_a && loc_b.lclass() == LOC_PHI))
         bd.cset_head = ad.cset_head;
-    else if(!loc_a || (loc_b && loc_a.lclass() == LCLASS_PHI))
+    else if(!loc_a || (loc_b && loc_a.lclass() == LOC_PHI))
         ad.cset_head = bd.cset_head;
     else
         assert(false);
@@ -87,19 +96,36 @@ void cset_merge_locators(ssa_ht head_a, ssa_ht head_b)
 
 void cset_remove(ssa_ht h)
 {
-    ssa_ht head = cset_head(h);
+    assert(h);
+    assert(h->op());
+
+    ssa_ht const head = cset_head(h);
+
+    assert(head);
+    assert(head->op());
 
     if(h == head)
     {
-        ssa_ht next = cset_next(head);
+        ssa_ht const next = cset_next(head);
+
+        if(!next)
+        {
+            cg_data(head).cset_head = {};
+            return;
+        }
+
+        assert(next != head);
+        std::cout << next.index << " : " << cg_data(head).cset_head << '\n';
         for(ssa_ht it = next; it; it = cset_next(it))
             cg_data(it).cset_head = next;
         cg_data(next).cset_head = cg_data(head).cset_head;
+        assert(cg_data(next).cset_head != next);
     }
     else
     {
         // Re-write the head pointers in case 'h' is a head.
-        for(ssa_ht it = head; it; it = cset_next(it))
+        assert(cset_next(head));
+        for(ssa_ht it = cset_next(head); it; it = cset_next(it))
             cg_data(it).cset_head = head;
 
         // Find the node prior to 'h'
@@ -161,7 +187,7 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 }
 
 // If theres no interference, returns a handle to the last node of 'a's cset.
-ssa_ht csets_dont_interfere(ssa_ht a, ssa_ht b)
+ssa_ht csets_dont_interfere(ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
 {
     assert(a && b);
     assert(cset_is_head(a));
@@ -174,14 +200,52 @@ ssa_ht csets_dont_interfere(ssa_ht a, ssa_ht b)
         return a;
     }
 
+    auto const fn_interferes = [](locator_t loc, ssa_ht fn_node)
+    {
+        fn_t const& fn = *get_fn(*fn_node);
+
+        switch(loc.lclass())
+        {
+        case LOC_CALL_ARG:
+            return fn.type.num_params() > 0;
+        case LOC_GVAR:
+            {
+                gvar_ht const gvar = loc.gvar();
+                return fn.ir_reads(gvar) || fn.ir_writes(gvar);
+            }
+        case LOC_RETURN:
+            return true; // TODO: this could be made more accurate, as some fns don't clobber the return vars
+        default: 
+            return false;
+        }
+    };
+
+    for(ssa_ht fn_node : fn_nodes)
+    {
+        assert(fn_node->op() == SSA_fn_call);
+
+        if(fn_interferes(cset_locator(a), fn_node))
+            for(ssa_ht bi = b; bi; bi = cset_next(bi))
+                if(live_at_def(bi, fn_node))
+                    return {};
+
+        if(fn_interferes(cset_locator(b), fn_node))
+            for(ssa_ht ai = a; ai; ai = cset_next(ai))
+                if(live_at_def(ai, fn_node))
+                    return {};
+    }
+
     ssa_ht last_a;
     for(ssa_ht ai = a; ai; ai = cset_next(ai))
     {
         for(ssa_ht bi = b; bi; bi = cset_next(bi))
         {
             assert(ai != bi);
-            if(orig_def(a) != orig_def(b) && live_range_overlap(ai, bi))
+            if(orig_def(ai) != orig_def(bi) && live_range_overlap(ai, bi))
+            {
+                std::printf("overlap: %i %i\n", ai.index, bi.index);
                 return {};
+            }
         }
         last_a = ai;
     }
@@ -383,18 +447,20 @@ void code_gen(ir_t& ir)
     // DUPLICATE RTS //
     ///////////////////
 
-    assert(ir.exit);
-    dupe_exit_t duper;
-    while(ir.exit->input_size())
+    if(ir.exit)
     {
-        cfg_ht duped_cfg = ir.emplace_cfg();
-        duper.run(ir.exit, 0, duped_cfg);
+        dupe_exit_t duper;
+        while(ir.exit->input_size())
+        {
+            cfg_ht duped_cfg = ir.emplace_cfg();
+            duper.run(ir.exit, 0, duped_cfg);
 
-        auto ie = ir.exit->input_edge(0);
-        ie.handle->link_change_output(ie.index, duped_cfg,
-            [](ssa_ht phi) { assert(false); return 0u; });
+            auto ie = ir.exit->input_edge(0);
+            ie.handle->link_change_output(ie.index, duped_cfg,
+                [](ssa_ht phi) { assert(false); return 0u; });
+        }
+        ir.prune_cfg(ir.exit);
     }
-    ir.prune_cfg(ir.exit);
 
     ///////////////////
     // ALLOCATE CG_D //
@@ -425,13 +491,12 @@ void code_gen(ir_t& ir)
         // copies used to implement locators:
         std::vector<copy_t> copies;
 
-        // Holds every node tagged with SSAF_WRITE_GLOBALS,
-        // that also writes to this locator. (fn calls and returns)
-        std::vector<ssa_ht> write_points;
-
         // Used to implement constant writes to global memory.
         std::map<fixed_t, bc::small_vector<ssa_bck_edge_t, 1>> const_stores; 
     };
+
+    // A list of all SSA_fn_call nodes
+    std::vector<ssa_ht> fn_nodes;
 
     // Maps specific locators - global reads and writes - to their copies.
     rh::batman_map<locator_t, global_loc_data_t> global_loc_map;
@@ -487,9 +552,11 @@ void code_gen(ir_t& ir)
 
                     global_loc_data_t& ld = global_loc_map[loc];
                     ld.copies.push_back({ store });
-                    ld.write_points.push_back(ssa_it);
                 }
             }
+
+            if(op == SSA_fn_call)
+                fn_nodes.push_back(ssa_it);
         }
         else if(op == SSA_phi)
         {
@@ -499,7 +566,7 @@ void code_gen(ir_t& ir)
 
             // The cset of the phi copies will have a unique locator.
             // (These locators may be merged)
-            locator_t const loc = locator_t::phi(phi_loc_index++);
+            locator_t const loc = locator_t::phi(global_t::current()->handle<fn_ht>(), phi_loc_index++);
             ssa_value_t last = loc;
 
             unsigned const input_size = ssa_it->input_size();
@@ -557,6 +624,7 @@ void code_gen(ir_t& ir)
     // SCHEDULING //
     ////////////////
 
+    ir.assert_valid();
     schedule_ir(ir);
 
     ///////////////////////////
@@ -610,13 +678,10 @@ void code_gen(ir_t& ir)
         // i.e. its live range doesn't overlap any point where the
         // locator is already live.
 
-        if(live_at_any_def(node, &*ld.write_points.begin(), &*ld.write_points.end()))
-            return false;
-
         if(ld.cset)
         {
             assert(cset_is_head(node));
-            ssa_ht last = csets_dont_interfere(ld.cset, node);
+            ssa_ht last = csets_dont_interfere(ld.cset, node, fn_nodes);
             if(!last) // If they interfere
                 return false;
             // It can be coalesced; add it to the cset.
@@ -765,7 +830,7 @@ void code_gen(ir_t& ir)
         ssa_ht cset = cset_head(phi_it->input(0).handle());
         ssa_ht phi_cset = cset_head(phi_it);
 
-        if(ssa_ht last = csets_dont_interfere(cset, phi_cset))
+        if(ssa_ht last = csets_dont_interfere(cset, phi_cset, fn_nodes))
             cset_append(last, phi_cset);
     }
 
@@ -793,7 +858,7 @@ void code_gen(ir_t& ir)
 
         assert(csets_mergable(copy_cset, candidate_cset));
 
-        if(ssa_ht last = csets_dont_interfere(copy_cset, candidate_cset))
+        if(ssa_ht last = csets_dont_interfere(copy_cset, candidate_cset, fn_nodes))
             cset_append(last, candidate_cset);
         else
             prune_early_store(candidate);
@@ -808,6 +873,7 @@ void code_gen(ir_t& ir)
     {
         if(store->op() == SSA_early_store)
         {
+            std::printf("try alias %i\n", store.index);
             ssa_ht parent = store->input(0).handle();
 
             ssa_ht store_cset = cset_head(store);
@@ -815,9 +881,27 @@ void code_gen(ir_t& ir)
 
             assert(cset_locator(store_cset));
 
+            ssa_ht last;
+
             if(!csets_mergable(store_cset, parent_cset))
+                goto fail;
+
+            last = csets_dont_interfere(store_cset, parent_cset, fn_nodes);
+
+            if(last)
             {
-                // Can't alias the early store :(
+                //cset_merge_locators(store_cset, parent_cset);
+                //assert(last);
+                cset_append(last, parent_cset);
+                store->unsafe_set_op(SSA_aliased_store);
+                assert(cset_locator(store_cset));
+                assert(cset_locator(store_cset) == cset_locator(parent_cset));
+                assert(cset_head(store) == cset_head(parent));
+            }
+            else
+            {
+            fail:
+                std::printf("can't alias %i\n", store.index);
 
                 assert(store->output_size() == 1);
                 ssa_ht use = store->output(0);
@@ -833,24 +917,9 @@ void code_gen(ir_t& ir)
                     store = prune_early_store(store);
                     continue;
                 }
-                else
-                {
-                    ++store;
-                    continue;
-                }
-            }
-
-            if(ssa_ht last = csets_dont_interfere(store_cset, parent_cset))
-            {
-                //cset_merge_locators(store_cset, parent_cset);
-                //assert(last);
-                cset_append(last, parent_cset);
-                store->unsafe_set_op(SSA_aliased_store);
-                assert(cset_locator(store_cset));
-                assert(cset_locator(store_cset) == cset_locator(parent_cset));
-                assert(cset_head(store) == cset_head(parent));
             }
         }
+
         ++store;
     }
 
@@ -861,11 +930,23 @@ void code_gen(ir_t& ir)
 
     fc::small_set<ssa_ht, 32> unique_csets;
     for(auto& pair : global_loc_map)
+    {
+        std::puts("x");
         if(pair.second.cset)
+        {
+            assert(pair.second.cset->op() != SSA_null);
+            std::cout << pair.second.cset->op() << '\n';
             unique_csets.insert(cset_head(pair.second.cset));
+        }
+        std::puts("xx");
+    }
     for(ssa_ht h : phi_csets)
+    {
+        std::puts("y");
         unique_csets.insert(cset_head(h));
+    }
 
+    std::puts("coalesce phis 5");
     for(ssa_ht cset : unique_csets)
     {
         assert(cset_is_head(cset));
@@ -889,8 +970,8 @@ void code_gen(ir_t& ir)
                     auto oe = orig->output_edge(i);
                     if(oe.input_class() == INPUT_VALUE
                        && !(ssa_flags(oe.handle->op()) & SSAF_COPY)
-                       && ((loc.lclass() == LCLASS_CALL_ARG && live_at_def(ssa_it, oe.handle))
-                           || (loc.lclass() != LCLASS_CALL_ARG && _reaching(orig, oe.handle))))
+                       && ((loc.lclass() == LOC_CALL_ARG && live_at_def(ssa_it, oe.handle))
+                           || (loc.lclass() != LOC_CALL_ARG && _reaching(orig, oe.handle))))
                     {
                         assert(ssa_it != oe.handle);
                         oe.handle->link_change_input(oe.index, ssa_it);
@@ -903,6 +984,7 @@ void code_gen(ir_t& ir)
 
         }
     }
+    std::puts("coalesce phis 6");
 
     // All gsets must be coalesced.
     // (otherwise something went wrong in an earlier optimization pass)
@@ -910,7 +992,7 @@ void code_gen(ir_t& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LCLASS_GVAR_SET)
+        if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LOC_GVAR_SET)
         {
             assert(ssa_it->test_flags(FLAG_COALESCED));
             assert(ssa_it->input(0)->op() == SSA_early_store);
@@ -923,73 +1005,68 @@ void code_gen(ir_t& ir)
     // INSTRUCTION SELECTION //
     ///////////////////////////
 
-    rh::robin_map<ssa_value_t, unsigned> store_map;
-
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
-        auto& d = cg_data(cfg_it);
+        rh::robin_map<locator_t, unsigned> store_map;
 
-        std::cout << "\n\n";
-
-        for(ssa_ht h : d.schedule)
-            std::cout << "sched " << h->op() << '\n';
-
-        d.code = select_instructions(cfg_it);
-
-        for(ainst_t inst : d.code)
-            if(op_input_regs(inst.op) & REGF_M)
-                store_map.emplace(inst.arg.cg_mem(), 
-                                  [&]{ return store_map.size(); });
-    }
-
-    // Replace used MAYBE stores with real stores, 
-    // and prune unused MAYBE stores:
-#if 1 // Changing to #if 0 can be useful for debugging.
-    std::vector<ainst_t> temp_code;
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        auto& d = cg_data(cfg_it);
-
-        temp_code.clear();
-        temp_code.reserve(d.code.size());
-
-        for(ainst_t inst : d.code)
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
         {
-            if(op_flags(inst.op) & ASMF_MAYBE_STORE)
-            {
-                if(!inst.arg.holds_ref())
-                {
-                    temp_code.push_back(std::move(inst));
-                    continue;
-                }
+            auto& d = cg_data(cfg_it);
 
-                if(!store_map.count(inst.arg.cg_mem()))
-                    continue;
+            std::cout << "\n\n";
 
-                switch(inst.op)
-                {
-                case MAYBE_STA: inst.op = STA_ABSOLUTE; break;
-                case MAYBE_STX: inst.op = STX_ABSOLUTE; break;
-                case MAYBE_STY: inst.op = STY_ABSOLUTE; break;
-                case MAYBE_SAX: inst.op = SAX_ABSOLUTE; break;
-                case MAYBE_STORE_C: 
-                    temp_code.push_back({ PHP_IMPLIED });
-                    temp_code.push_back({ PHA_IMPLIED });
-                    temp_code.push_back({ ARR_IMMEDIATE, 0 });
-                    inst.op = STA_ABSOLUTE;
-                    temp_code.push_back(std::move(inst));
-                    temp_code.push_back({ PLA_IMPLIED });
-                    temp_code.push_back({ PLP_IMPLIED });
-                    continue;
-                default: assert(false);
-                }
-            }
-            temp_code.push_back(std::move(inst));
+            for(ssa_ht h : d.schedule)
+                std::cout << "sched " << h->op() << ' ' << h.index << '\n';
+
+            d.code = select_instructions(cfg_it);
+
+            for(cg_inst_t inst : d.code)
+                if(op_input_regs(inst.op) & REGF_M)
+                    store_map.emplace(inst.arg.mem_head(), [&]{ return store_map.size(); });
         }
-        
-        d.code.swap(temp_code);
-    }
+
+        // Replace used MAYBE stores with real stores, 
+        // and prune unused MAYBE stores:
+#if 1 // Changing to #if 0 can be useful for debugging.
+        std::vector<cg_inst_t> temp_code;
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        {
+            auto& d = cg_data(cfg_it);
+
+            temp_code.clear();
+            temp_code.reserve(d.code.size());
+
+            for(cg_inst_t inst : d.code)
+            {
+                if(op_flags(inst.op) & ASMF_MAYBE_STORE)
+                {
+                    if(!store_map.count(inst.arg.mem_head()))
+                        continue;
+
+                    switch(inst.op)
+                    {
+                    case MAYBE_STA: inst.op = STA_ABSOLUTE; break;
+                    case MAYBE_STX: inst.op = STX_ABSOLUTE; break;
+                    case MAYBE_STY: inst.op = STY_ABSOLUTE; break;
+                    case MAYBE_SAX: inst.op = SAX_ABSOLUTE; break;
+                    case MAYBE_STORE_C: 
+                        temp_code.push_back({ PHP_IMPLIED, inst.ssa_op });
+                        temp_code.push_back({ PHA_IMPLIED, inst.ssa_op });
+                        temp_code.push_back({ ARR_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
+                        inst.op = STA_ABSOLUTE;
+                        temp_code.push_back(std::move(inst));
+                        temp_code.push_back({ PLA_IMPLIED, inst.ssa_op });
+                        temp_code.push_back({ PLP_IMPLIED, inst.ssa_op });
+                        continue;
+                    default: assert(false);
+                    }
+                }
+                temp_code.push_back(std::move(inst));
+            }
+            
+            d.code.swap(temp_code);
+        }
 #endif
+    }
 
     ////////////////////////
     // ORDER BASIC BLOCKS //
@@ -1000,14 +1077,94 @@ void code_gen(ir_t& ir)
     for(cfg_ht h : order)
     {
         std::cout << "CFG = " << h.index << '\n';
-        for(ainst_t inst : cg_data(h).code)
+        for(cg_inst_t inst : cg_data(h).code)
             std::cout << inst << '\n';
     }
+
+    ///////////////
+    // PEEP-HOLE //
+    ///////////////
+
+    // Remove unnecessary branch/jump ops that pointlessly jump over nothing.
+
+    for(int i = 0; i < (int)order.size() - 1;)
+    {
+        auto& code = cg_data(order[i]).code;
+
+        if(code.empty())
+        {
+            ++i;
+            continue;
+        }
+
+        auto const unnecessary_jump = [&order, i](cg_inst_t const& inst) -> bool
+        {
+            return ((op_flags(inst.op) & ASMF_JUMP) 
+                    && inst.arg.lclass() == LOC_CFG_LABEL
+                    && inst.arg.cfg_node() == order[i+1]);
+        };
+
+        // Pairs of inverted branches can be flipped.
+        if(code.size() >= 2)
+        {
+            cg_inst_t& inst = code[code.size() - 2];
+            if(code.back().op == invert_branch(inst.op) && unnecessary_jump(inst))
+            {
+                std::swap(inst, code.back());
+                code.pop_back();
+            }
+        }
+
+        if(unnecessary_jump(code.back()))
+            code.pop_back();
+        else
+            ++i;
+    }
+
+    ////////////////////////////
+    // CONVERT TO RELOCATABLE //
+    ////////////////////////////
+
+    relocatable_t reloc;
+
+    {
+        std::size_t size_upper_bound = 0;
+        for(cfg_ht h : order)
+            size_upper_bound += cg_data(h).code.size();
+        reloc.code.reserve(size_upper_bound);
+    }
+
+    for(cfg_ht h : order)
+    {
+        for(cg_inst_t inst : cg_data(h).code)
+        {
+            if(inst.op == ASM_LABEL)
+            {
+                auto result = reloc.labels.insert({ inst.arg, reloc.code.size() });
+                assert(result.inserted);
+            }
+            else
+            {
+                if((op_flags(inst.op) & ASMF_BRANCH) && op_addr_mode(inst.op) == MODE_RELATIVE)
+                    reloc.relative_branch_indices.push_back(reloc.code.size());
+                reloc.code.push_back(inst);
+            }
+        }
+    }
+
+    std::cout << "RELOC\n";
+    for(cg_inst_t inst : reloc.code)
+        std::cout << inst << '\n';
+
+    ///////////////////////
+    // MEMORY ALLOCATION //
+    ///////////////////////
 
     /////////////////////////
     // CONVERT TO asm_fn_t //
     /////////////////////////
 
+    /* TODO
     asm_fn_t asm_fn;
     asm_bb_t asm_bb;
 
@@ -1019,7 +1176,7 @@ void code_gen(ir_t& ir)
 
         for(unsigned i = 0; i < code.size; ++i)
         {
-            ainst_t const inst = code[i];
+            cg_inst_t const inst = code[i];
 
             if(inst.op == ASM_LABEL)
             {
@@ -1045,15 +1202,16 @@ void code_gen(ir_t& ir)
                 bb.code.push_back(inst);
         }
 
-        for(ainst_t inst : cg_data(h).code)
+        for(cg_inst_t inst : cg_data(h).code)
             std::cout << inst << '\n';
     }
+    */
 
 }
 
-std::ostream& operator<<(std::ostream& o, ainst_t const& inst)
+std::ostream& operator<<(std::ostream& o, cg_inst_t const& inst)
 {
-    o << "{ " << to_string(inst.op) << ", " << inst.arg << " }";
+    o << "{ " << to_string(inst.op) << ", " << inst.arg << "   (" << inst.ssa_op << ") }";
     return o;
 }
 

@@ -11,6 +11,7 @@
 #include "alloca.hpp"
 #include "compiler_error.hpp"
 #include "globals.hpp"
+#include "group.hpp"
 #include "parser_types.hpp"
 #include "symbol_table.hpp"
 #include "types.hpp"
@@ -171,26 +172,23 @@ public:
     }
 
     [[gnu::always_inline]]
-    group_ht begin_group(pstring_t group_name)
+    group_vars_t& begin_vars_group(pstring_t group_name)
     {
-        if(group_name.size)
-            return global_t::lookup_group(file, group_name);
-        else
-            return global_t::universal_group();
+        return group_t::lookup(file.source(), group_name).define_vars(group_name);
     }
 
     [[gnu::always_inline]]
-    void end_group(group_ht)
+    void end_vars_group(group_vars_t&)
     {}
 
     // Global variables
     [[gnu::always_inline]]
-    void global_var(group_ht group, var_decl_t const& var_decl, expr_temp_t* expr)
+    void global_var(group_vars_t& vars_group, var_decl_t const& var_decl, expr_temp_t* expr)
     {
         assert(ideps.empty());
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, group);
+        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, vars_group);
         ideps.clear();
     }
 
@@ -387,13 +385,6 @@ public:
     void goto_mode_statement(pstring_t mode, expr_temp_t& expr)
     {
         fn_def.push_stmt({ STMT_GOTO_MODE, mode, convert_expr(expr) });
-    }
-
-
-    [[gnu::always_inline]]
-    unsigned bank_index(pstring_t pstring)
-    {
-        return global_t::lookup_vbank(file, pstring).value;
     }
 };
 

@@ -19,9 +19,9 @@ constexpr token_type_t TOK_fn = 14;
 constexpr token_type_t TOK_goto = 15;
 constexpr token_type_t TOK_label = 16;
 constexpr token_type_t TOK_mode = 17;
-constexpr token_type_t TOK_buffer = 18;
-constexpr token_type_t TOK_rom = 19;
-constexpr token_type_t TOK_ram = 20;
+constexpr token_type_t TOK_vars = 18;
+constexpr token_type_t TOK_data = 19;
+constexpr token_type_t TOK_tbls = 20;
 constexpr token_type_t TOK_lbrace = 21;
 constexpr token_type_t TOK_rbrace = 22;
 constexpr token_type_t TOK_lbracket = 23;
@@ -71,12 +71,15 @@ constexpr token_type_t TOK_byte = 66;
 constexpr token_type_t TOK_short = 67;
 constexpr token_type_t TOK_int = 68;
 constexpr token_type_t TOK_fixed = 69;
-constexpr token_type_t TOK_ident = 70;
-constexpr token_type_t TOK_decimal = 71;
-constexpr token_type_t TOK_number = 72;
-constexpr token_type_t TOK_global_ident = 73;
-constexpr token_type_t TOK_weak_ident = 74;
-constexpr token_type_t TOK_END = 75;
+constexpr token_type_t TOK_ptr = 70;
+constexpr token_type_t TOK_banked_ptr = 71;
+constexpr token_type_t TOK_group_ident = 72;
+constexpr token_type_t TOK_ident = 73;
+constexpr token_type_t TOK_decimal = 74;
+constexpr token_type_t TOK_number = 75;
+constexpr token_type_t TOK_global_ident = 76;
+constexpr token_type_t TOK_weak_ident = 77;
+constexpr token_type_t TOK_END = 78;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -100,9 +103,9 @@ inline std::string_view token_name(token_type_t type)
     case TOK_goto: return "goto"sv;
     case TOK_label: return "label"sv;
     case TOK_mode: return "mode"sv;
-    case TOK_buffer: return "buffer"sv;
-    case TOK_rom: return "rom"sv;
-    case TOK_ram: return "ram"sv;
+    case TOK_vars: return "vars"sv;
+    case TOK_data: return "data"sv;
+    case TOK_tbls: return "tbls"sv;
     case TOK_lbrace: return "lbrace"sv;
     case TOK_rbrace: return "rbrace"sv;
     case TOK_lbracket: return "lbracket"sv;
@@ -152,6 +155,9 @@ inline std::string_view token_name(token_type_t type)
     case TOK_short: return "short"sv;
     case TOK_int: return "int"sv;
     case TOK_fixed: return "fixed"sv;
+    case TOK_ptr: return "ptr"sv;
+    case TOK_banked_ptr: return "banked_ptr"sv;
+    case TOK_group_ident: return "group_ident"sv;
     case TOK_ident: return "ident"sv;
     case TOK_decimal: return "decimal"sv;
     case TOK_number: return "number"sv;
@@ -182,9 +188,9 @@ inline std::string_view token_string(token_type_t type)
     case TOK_goto: return "goto"sv;
     case TOK_label: return "label"sv;
     case TOK_mode: return "mode"sv;
-    case TOK_buffer: return "buffer"sv;
-    case TOK_rom: return "rom"sv;
-    case TOK_ram: return "ram"sv;
+    case TOK_vars: return "vars"sv;
+    case TOK_data: return "data"sv;
+    case TOK_tbls: return "tbls"sv;
     case TOK_lbrace: return "lbrace"sv;
     case TOK_rbrace: return "rbrace"sv;
     case TOK_lbracket: return "lbracket"sv;
@@ -234,6 +240,9 @@ inline std::string_view token_string(token_type_t type)
     case TOK_short: return "short type"sv;
     case TOK_int: return "int type"sv;
     case TOK_fixed: return "fixed type"sv;
+    case TOK_ptr: return "PP type"sv;
+    case TOK_banked_ptr: return "PPP type"sv;
+    case TOK_group_ident: return "group identifier"sv;
     case TOK_ident: return "identifier"sv;
     case TOK_decimal: return "number"sv;
     case TOK_number: return "number"sv;
@@ -318,6 +327,9 @@ constexpr unsigned char token_precedence_table[] =
     0,
     0,
     0,
+    0,
+    0,
+    0,
 };
 #define TOK_KEY_CASES \
     case TOK_if:\
@@ -333,9 +345,9 @@ constexpr unsigned char token_precedence_table[] =
     case TOK_goto:\
     case TOK_label:\
     case TOK_mode:\
-    case TOK_buffer:\
-    case TOK_rom:\
-    case TOK_ram:\
+    case TOK_vars:\
+    case TOK_data:\
+    case TOK_tbls:\
     case TOK_lbrace:\
     case TOK_rbrace:\
     case TOK_lbracket:\
@@ -380,7 +392,7 @@ constexpr unsigned char token_precedence_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 74;
-constexpr token_type_t TOK_START = 75;
+constexpr token_type_t TOK_LAST_STATE = 77;
+constexpr token_type_t TOK_START = 78;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[10863];
+extern token_type_t const lexer_transition_table[11660];

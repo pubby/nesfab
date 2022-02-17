@@ -4,6 +4,7 @@
 #include "compiler_limits.hpp"
 #include "format.hpp"
 #include "globals.hpp"
+#include "group.hpp"
 
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
@@ -18,7 +19,7 @@ static constexpr bool is_type_prefix(token_type_t type)
 {
     return (type == TOK_void || type == TOK_bool || type == TOK_byte
             || type == TOK_short || type == TOK_int || type == TOK_fixed
-            || type == TOK_ram || type == TOK_rom || type == TOK_fn);
+            || type == TOK_ptr || type == TOK_banked_ptr || type == TOK_fn);
 }
 
 template<typename P>
@@ -189,6 +190,14 @@ pstring_t parser_t<P>::parse_ident()
 {
     pstring_t ident = token.pstring;
     parse_token(TOK_ident);
+    return ident;
+}
+
+template<typename P>
+pstring_t parser_t<P>::parse_group_ident()
+{
+    pstring_t ident = token.pstring;
+    parse_token(TOK_group_ident);
     return ident;
 }
 
@@ -395,35 +404,21 @@ type_t parser_t<P>::parse_type(bool allow_void)
         }
         break;
 
-    case TOK_ram: // ram pointer
+    case TOK_ptr:
+    case TOK_banked_ptr:
         {
             parse_token();
+            
+            bc::small_vector<group_ht, 8> groups;
 
-            group_bitset_t group_bitset = 0;
+            while(token.type == TOK_group_ident)
+            {
+                groups.push_back(group_t::lookup(source(), token.pstring).handle());
+                parse_token();
+            }
 
-            // Parse the group names:
-            parse_args(TOK_lbrace, TOK_rbrace, [&]
-            { 
-                group_bitset |= 1ull << global_t::lookup_group(file, parse_ident()).value;
-            });
-
-            type = type_t::ram_ptr(group_bitset);
-        }
-        break;
-
-    case TOK_rom: // rom pointer
-        {
-            parse_token();
-
-            parse_token(TOK_lbrace);
-
-            vbank_ht bank = {};
-            if(token.type == TOK_ident)
-                bank = global_t::lookup_vbank(file, parse_ident());
-
-            parse_token(TOK_rbrace);
-
-            type = type_t::rom_ptr(bank);
+            type = type_t::ptr(&*groups.begin(), &*groups.end(), 
+                               token.type == TOK_banked_ptr);
         }
         break;
 
@@ -497,41 +492,38 @@ void parser_t<P>::parse_top_level_def()
         return parse_fn();
     case TOK_mode: 
         return parse_mode();
-    case TOK_ram: 
-        return parse_group();
+    case TOK_vars: 
+        return parse_vars_group();
     default: 
         compiler_error("Unexpected token at top level.");
     }
 }
 
 template<typename P>
-void parser_t<P>::parse_group()
+void parser_t<P>::parse_vars_group()
 {
     int const vars_indent = indent;
 
     // Parse the declaration
-    parse_token(TOK_ram);
-    pstring_t group_name = token.pstring;
-    if(token.type == TOK_ident)
-        parse_token();
-    else
-        group_name.size = 0;
+    parse_token(TOK_vars);
+    pstring_t const group_name = token.pstring;
+    parse_token(TOK_group_ident);
     parse_line_ending();
 
-    group_ht group = policy().begin_group(group_name);
+    group_vars_t& group = policy().begin_vars_group(group_name);
 
     maybe_parse_block(vars_indent, 
     [&]{ 
         var_decl_t var_decl;
         expr_temp_t expr;
         if(parse_var_init(var_decl, expr))
-            compiler_error("Variables in ram block cannot have an initial value.");
+            compiler_error("Variables in vars block cannot have an initial value.");
         else
             policy().global_var(group, var_decl, nullptr);
         parse_line_ending();
     });
 
-    policy().end_group(group);
+    policy().end_vars_group(group);
 }
 
 template<typename P>

@@ -731,7 +731,7 @@ void ai_t::range_propagate()
                 continue;
 
             if(type.name() == TYPE_ARRAY)
-                constraints.mask = numeric_bitmask(type[0]);
+                constraints.mask = numeric_bitmask(type.elem_type());
             else if(type.name() == TYPE_BUFFER)
                 constraints.mask = numeric_bitmask(TYPE_BYTE);
             else

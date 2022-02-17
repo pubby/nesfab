@@ -110,6 +110,20 @@ public:
         return collection.find(k);
     }
 
+    mapped_type const* mapped(key_type const& k) const
+    { 
+        if(value_type const* pair = collection.find(k))
+            return &pair->second;
+        return nullptr;
+    }
+
+    mapped_type* mapped(key_type const& k)
+    { 
+        if(value_type* pair = collection.find(k))
+            return &pair->second;
+        return nullptr;
+    }
+
     void erase(value_type const& v) { collection.erase(v); }
     bool remove(key_type const& k) { return collection.remove(k); }
     bool count(key_type const& k) const { return collection.count(k); }
@@ -182,6 +196,20 @@ public:
     value_type const* find(key_type const& k) const
     { 
         return collection.find(k);
+    }
+
+    mapped_type const* mapped(key_type const& k) const
+    { 
+        if(value_type const* pair = collection.find(k))
+            return &pair->second;
+        return nullptr;
+    }
+
+    mapped_type* mapped(key_type const& k)
+    { 
+        if(value_type* pair = collection.find(k))
+            return &pair->second;
+        return nullptr;
     }
 
     bool remove(key_type const& k) { return collection.remove(k); }
@@ -262,6 +290,20 @@ public:
     value_type const* find(key_type const& k) const
     { 
         return collection.find(k);
+    }
+
+    mapped_type const* mapped(key_type const& k) const
+    { 
+        if(value_type const* pair = collection.find(k))
+            return &pair->second;
+        return nullptr;
+    }
+
+    mapped_type* mapped(key_type const& k)
+    { 
+        if(value_type* pair = collection.find(k))
+            return &pair->second;
+        return nullptr;
     }
 
     bool remove(key_type const& k) { return collection.remove(k); }

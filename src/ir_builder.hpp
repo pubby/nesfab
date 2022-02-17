@@ -13,6 +13,6 @@ struct var_lookup_error_t : public std::exception
     virtual const char* what() const noexcept { return "Failed var lookup."; }
 };
 
-void build_ir(ir_t& ir, fn_t& fn);
+void build_ir(ir_t& ir, fn_t const& fn);
 
 #endif

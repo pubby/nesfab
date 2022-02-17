@@ -4,39 +4,57 @@
 
 #include "robin/hash.hpp"
 
+#include "alloca.hpp"
 #include "fixed.hpp"
 #include "format.hpp"
 #include "globals.hpp"
+#include "group.hpp"
 
 using namespace std::literals;
 
-type_tails_manager_t type_t::type_tails;
+tails_manager_t<type_t> type_t::type_tails;
+tails_manager_t<group_ht> type_t::group_tails;
 
-vbank_ht type_t::vbank() const { assert(has_vbank(name())); return { m_impl.vbank }; }
+bool type_t::operator==(type_t o) const
+{
+    if(m_name != o.m_name || m_size != o.m_size)
+        return false;
+
+    if(has_type_tail(name()))
+        return std::equal(types(), types() + size(), o.types());
+    else if(has_group_tail(name()))
+        return std::equal(groups(), groups() + size(), o.groups());
+
+    return true;
+}
+
+group_ht type_t::group(unsigned i) const { return groups()[i]; }
 
 type_t type_t::buffer(unsigned size)
 { 
-    return type_t(TYPE_BUFFER, size, {}); 
-}
-
-type_t type_t::ram_ptr(group_bitset_t group_bitset)
-{ 
-    return type_t(TYPE_RAM_PTR, 0, { .group_bitset = group_bitset }); 
-}
-
-type_t type_t::rom_ptr(vbank_ht vbank)
-{ 
-    return type_t(TYPE_ROM_PTR, 0, { .vbank = vbank.value });
+    return type_t(TYPE_BUFFER, size); 
 }
 
 type_t type_t::array(type_t elem_type, unsigned size)
 { 
-    return type_t(TYPE_ARRAY, size, { .tail = type_tails.get(elem_type) });
+    return type_t(TYPE_ARRAY, size, type_tails.get(elem_type));
+}
+
+type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool banked)
+{
+    std::size_t const n = end - begin;
+    group_ht* groups = ALLOCA_T(group_ht, n);
+    std::copy(begin, end, groups);
+    std::sort(groups, groups + n);
+    group_ht* groups_end = std::unique(groups, groups + n);
+    return type_t(banked ? TYPE_BANKED_PTR : TYPE_PTR, 
+                  groups_end - groups, 
+                  group_tails.get(groups, groups_end));
 }
 
 type_t type_t::fn(type_t* begin, type_t* end)
 { 
-    return type_t(TYPE_FN, end - begin, { .tail = type_tails.get(begin, end) }); 
+    return type_t(TYPE_FN, end - begin, type_tails.get(begin, end)); 
 }
 
 std::size_t type_t::size_of() const
@@ -48,9 +66,8 @@ std::size_t type_t::size_of() const
     {
     // TODO: Some rom ptrs are only 2 bytes?
     default: assert(false); return 0;
-    case TYPE_RAM_PTR:   return 2;
-    case TYPE_ROM_PTR:   return 3;
-    case TYPE_FN:        return 3;
+    case TYPE_PTR:          return 2;
+    case TYPE_BANKED_PTR:   return 3;
     case TYPE_ARRAY: return size() * types()[0].size_of();
     }
 }
@@ -60,13 +77,12 @@ std::size_t type_t::hash() const
     std::size_t hash = name();
     hash = rh::hash_combine(hash, size());
 
-    if(has_tail(name()))
+    if(has_type_tail(name()))
         for(unsigned i = 0; i < size(); ++i)
-            hash = rh::hash_combine(hash, types()[i].hash());
-    else if(has_vbank(name()))
-        hash = rh::hash_combine(hash, vbank().value);
-    else if(has_group_bitset(name()))
-        hash = rh::hash_combine(hash, group_bitset());
+            hash = rh::hash_combine(hash, type(i).hash());
+    else if(has_group_tail(name()))
+        for(unsigned i = 0; i < size(); ++i)
+            hash = rh::hash_combine(hash, group(i).value);
 
     return hash;
 }
@@ -98,11 +114,13 @@ std::string to_string(type_t type)
     case TYPE_BUFFER:
         str += fmt("buffer[%]", type.size());
         break;
-    case TYPE_RAM_PTR:
-        str += fmt("ram{%}", type.group_bitset());
-        break;
-    case TYPE_ROM_PTR:
-        str += fmt("rom{%}", type.vbank().value);
+    case TYPE_BANKED_PTR:
+        str += "P";
+        // fall-through
+    case TYPE_PTR:
+        str += "PP";
+        for(unsigned i = 0; i < type.size(); ++i)
+            str += type.group(i)->name;
         break;
     case TYPE_FN:
         assert(type.size() > 0);
@@ -113,12 +131,8 @@ std::string to_string(type_t type)
                 str += ") "sv;
             else if(i != 0)
                 str += ", "sv;
-            str += to_string(type[i]);
+            str += to_string(type.type(i));
         }
-        if(type.vbank())
-            str += fmt("{%}", type.vbank().value);
-        else
-            str += "{}"sv;
         break;
     }
 
@@ -163,12 +177,14 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
 
     // RAM pointers can generalize
     // i.e. ram{foo} can convert to ram{foo, bar}
+    /* TODO
     if(from.name() == TYPE_RAM_PTR && to.name() == TYPE_RAM_PTR)
     {
         if((from.group_bitset() & to.group_bitset()) == from.group_bitset())
             return CAST_NOP;
         return CAST_FAIL;
     }
+    */
 
     // Othewise arithmetic types can be converted to bool using "!= 0".
     if(is_arithmetic(from) && to == TYPE_BOOL)
@@ -185,10 +201,36 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
     return CAST_FAIL;
 }
 
+type_name_t smallest_representable(fixed_t fixed)
+{
+    if(!fixed)
+        return TYPE_BYTE;
+
+    int const min = builtin::ctz(fixed.value) / 8;
+    int const max = builtin::rclz(fixed.value) / 8;
+
+    int const whole = std::max(max - 3, 1);
+    int const frac  = std::max(3 - min, 0);
+
+    return TYPE_arithmetic(whole, frac);
+}
+
+unsigned num_fields(type_t type)
+{
+    switch(type.name())
+    {
+    case TYPE_ARRAY: return type.size();
+    case TYPE_PTR: return 1;
+    case TYPE_BANKED_PTR: return 2;
+    default: return type.size_of();
+    }
+}
+
 /////////////
 // STRUCTS //
 /////////////
 
+/* TODO
 type_t arg_struct(type_t fn_type)
 {
     assert(fn_type.name() == TYPE_FN);
@@ -244,63 +286,5 @@ void struct_fill(type_t type, type_t* vec)
 {
     struct_fill(type, vec);
 }
+*/
 
-type_name_t smallest_representable(fixed_t fixed)
-{
-    type_name_t name = TYPE_INT;
-
-    if(!fixed)
-        return TYPE_BYTE;
-
-    int const min = builtin::ctz(fixed.value) / 8;
-    int const max = builtin::rclz(fixed.value) / 8;
-
-    int const whole = std::max(max - 3, 1);
-    int const frac  = std::max(3 - min, 0);
-
-    return TYPE_arithmetic(whole, frac);
-}
-
-//////////////////////////
-// type_tails_manager_t //
-//////////////////////////
-
-type_t const* type_tails_manager_t::get(type_t const* begin, type_t const* end)
-{
-    assert(end - begin != 0);
-
-    // Hash the range.
-
-    std::size_t size = end - begin;
-    std::size_t hash = size;
-
-    for(type_t const* it = begin; it < end; ++it)
-    {
-        std::hash<type_t> hasher;
-        hash = rh::hash_combine(hash, hasher(*it));
-    }
-
-    // Now insert into the map:
-
-    std::lock_guard<std::mutex> const lock(mutex);
-
-    rh::apair<map_elem_t*, bool> result = map.emplace(
-        hash,
-        [begin, end, size](map_elem_t elem) -> bool
-        {
-            return (elem.size == size && std::equal(begin, end, elem.tail));
-        },
-        [this, begin, end, size]() -> map_elem_t
-        { 
-            return { size, tails.insert(begin, end) };
-        });
-
-    return result.first->tail;
-}
-
-void type_tails_manager_t::clear()
-{
-    std::lock_guard<std::mutex> const lock(mutex);
-    map.clear();
-    tails.clear();
-}

@@ -591,9 +591,10 @@ int main()
             keyword("goto"),
             keyword("label"),
             keyword("mode"),
-            keyword("buffer"),
-            keyword("rom"),
-            keyword("ram"),
+
+            keyword("vars"),
+            keyword("data"),
+            keyword("tbls"),
 
             // Symbols
             keyword(1, "lbrace", "{"),
@@ -667,6 +668,9 @@ int main()
             accept("short", "short type", word("short")),
             accept("int", "int type", word("int")),
             accept("fixed", "fixed type", cat(word("fixed"), digit(), digit())),
+            accept("ptr", "PP type", word("PP")),
+            accept("banked_ptr", "PPP type", word("PPP")),
+            accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
             accept("decimal", "number", many1(digit())),
 

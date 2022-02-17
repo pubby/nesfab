@@ -83,7 +83,13 @@ cg_liveness.cpp \
 cg_schedule.cpp \
 cg_isel.cpp \
 cg_order.cpp \
-byteify.cpp
+byteify.cpp \
+asm_proc.cpp \
+gvar_loc_manager.cpp \
+span.cpp \
+span_allocator.cpp \
+group.cpp \
+ram.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

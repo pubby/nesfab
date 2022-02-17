@@ -8,7 +8,7 @@
 cg_var_map_t::cg_var_map_t(ir_t const& ir)
 {
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(cg_inst_t inst : cg_data(cfg_it).code)
+    for(asm_inst_t inst : cg_data(cfg_it).code)
         if(is_valid_var(inst.arg))
             map.emplace(inst.arg.mem_head(), [&]{ return map.size(); });
 }
@@ -206,7 +206,7 @@ void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map)
         // Also set 'd.out' to temporarily hold all variables *NOT* defined
         // in this node.
         // (This set is sometimes called 'KILL')
-        for(cg_inst_t const& inst : cg_data(cfg_it).code)
+        for(asm_inst_t const& inst : cg_data(cfg_it).code)
         {
             if(!cg_var_map_t::is_valid_var(inst.arg))
                 continue;
@@ -303,7 +303,7 @@ void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map)
 // - arrays can be large
 // 
 
-#if 0
+#if 1
 struct group_ram_t
 {
     usable_ram_bitset_t allocated_ram;
@@ -337,7 +337,29 @@ rh::batman_set<locator_t> locs;
 
 // ALLOCATION STRATEGY;
 // 1. allocate globals
-// 2. 
+// 2. allocate fn vars and shit
+
+// PARAMETERS:
+
+// - TREAT LOCALS AS ONE BLOB
+// - TREAT ARGS AS ONE BLOB
+
+
+
+// - allocate functions in order
+// - each locator gets a usable_ram bs
+// - 
+
+struct lvar_t
+{
+    fn_ht owning_fn;
+
+    bitset_t interferes_with_fns;
+    bitset_t interferes_with_fn_args;
+}
+
+// HOW DO WE HANDLE ARGS?
+
 
 // 
 void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
@@ -348,7 +370,9 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     std::vector<bitset_uint_t> interferences(set_size * num_vars, 0);
 
     // Tracks which vars are live at fn calls.
-    std::vector<fc::vector_set<fn_ht>> interfering_fns(num_vars);
+    //std::vector<fc::vector_set<fn_ht>> interfering_fns(num_vars);
+
+    std::vector<ram_bitset_t> usable_ram(num_vars, starting_ram);
 
     // Step-through the code backwards, maintaining a current liveness set
     // and using that to build an interference graph.
@@ -360,22 +384,26 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
-            cg_inst_t const& inst = *it;
+            asm_inst_t const& inst = *it;
 
             if(inst.op == JSR_ABSOLUTE)
             {
-                fn_ht const fn = inst.arg.fn();
+                fn_t const& fn = *inst.arg.fn();
 
                 // Every live var will interfere with this fn:
                 bitset_for_each(set_size, live, [&](unsigned i)
                 {
-                    locator_t const loc = loc_map[i];
+                    usable_ram[i] &= fn.usable_ram;
+
+                    //locator_t const loc = loc_map[i];
 
                     // CALL_ARGs are used by their calling function
+                    /*
                     if(loc.gclass() == LOC_CALL_ARG && loc.fn() == fn)
                         bitset_clear(live, i);
+                        */
 
-                    interfering_fns[i].insert(fn);
+                    //interfering_fns[i].insert(fn);
                 });
 
                 // The fn's arguments are now live.
@@ -420,6 +448,56 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     // Cleanup: nodes never interfere with themself:
     for(unsigned i = 0; i < store_set.size(); ++i)
         bitset_clear(&interferences[i * set_size], i);
+
+    struct rank_t
+    {
+        unsigned score;
+        unsigned i;
+        constexpr auto operator<=>(rank_t const&) const = default;
+    };
+
+    std::vector<rank_t> ranked;
+    ranked.resize(num_vars);
+
+    for(unsigned i = 0; i < num_vars; ++i)
+    {
+        unsigned score = 0;
+
+        // Prioritize big nodes:
+        unsigned const var_size = TODO;
+        score += var_size << 16;
+
+        // Less usable ram = higher priority
+        unsigned const taken_ram = ram_size - usable_ram[i].popcount();
+        unsigned const neighbors = bitset_popcount(set_size, interferences[i * set_size]);
+
+        score += taken_ram * neighbors;
+
+        ranked[i] = { .score = score, .i = i };
+    }
+
+    std::sort(ranked.begin(), ranked.end(), std::greater<>{});
+    
+    // sort by
+
+
+
+    // GOAL OF THIS FUNCTION
+    // - reduce many ssa node locators into a few locators
+    //   - can merge two locators if their liveness doesn't overlap
+
+    // 3 SETS:
+    // - arg set
+    // - lvar set
+    // - 
+
+    // IDEA: - 
+
+    // - if a loc is live for a fn call, it interferes with every local of that fn (recursively)
+    // - therefore, we should track fns with a set per loc
+
+    // QUESTION: how do arguments interfere?
+    // - arguments appear in fn itself, and calling fns
 
     // 1) Find the first node of a new colored set.
     {
@@ -557,7 +635,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
-            cg_inst_t const& inst = *it;
+            asm_inst_t const& inst = *it;
 
             if(inst.op == JSR_ABSOLUTE)
             {

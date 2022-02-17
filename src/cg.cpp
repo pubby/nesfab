@@ -7,10 +7,12 @@
 #include "robin/map.hpp"
 #include "robin/set.hpp"
 
+#include "alloca.hpp"
 #include "cg_isel.hpp"
 #include "cg_liveness.hpp"
 #include "cg_order.hpp"
 #include "cg_schedule.hpp"
+#include "globals.hpp"
 #include "ir_util.hpp"
 #include "ir.hpp"
 #include "locator.hpp"
@@ -187,7 +189,7 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 }
 
 // If theres no interference, returns a handle to the last node of 'a's cset.
-ssa_ht csets_dont_interfere(ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
+ssa_ht csets_dont_interfere(ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
 {
     assert(a && b);
     assert(cset_is_head(a));
@@ -200,21 +202,33 @@ ssa_ht csets_dont_interfere(ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_no
         return a;
     }
 
-    auto const fn_interferes = [](locator_t loc, ssa_ht fn_node)
+    auto const fn_interferes = [&ir](locator_t loc, ssa_ht fn_node)
     {
         fn_t const& fn = *get_fn(*fn_node);
 
         switch(loc.lclass())
         {
-        case LOC_CALL_ARG:
             return fn.type.num_params() > 0;
         case LOC_GVAR:
             {
                 gvar_ht const gvar = loc.gvar();
                 return fn.ir_reads(gvar) || fn.ir_writes(gvar);
             }
+        case LOC_GVAR_SET:
+            {
+                std::size_t const size = gvar_loc_manager_t::bitset_size();
+                assert(size == fn.ir_reads().size());
+
+                bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
+                bitset_copy(size, bs, fn.ir_reads().data());
+                bitset_or(size, bs, fn.ir_writes().data());
+                bitset_and(size, bs, ir.gvar_loc_manager.get_set(loc));
+
+                return !bitset_all_clear(size, bs);
+            }
+        case LOC_CALL_ARG:
         case LOC_RETURN:
-            return true; // TODO: this could be made more accurate, as some fns don't clobber the return vars
+            return true; // TODO: this could be made more accurate, as some fns don't clobber these
         default: 
             return false;
         }
@@ -378,7 +392,7 @@ private:
 };
 }// end anon namespace
 
-void code_gen(ir_t& ir)
+void code_gen(ir_t& ir, fn_t& fn)
 {
     ////////////////////////
     // CFG EDGE SPLITTING //
@@ -566,7 +580,7 @@ void code_gen(ir_t& ir)
 
             // The cset of the phi copies will have a unique locator.
             // (These locators may be merged)
-            locator_t const loc = locator_t::phi(global_t::current()->handle<fn_ht>(), phi_loc_index++);
+            locator_t const loc = locator_t::phi(fn.handle(), phi_loc_index++);
             ssa_value_t last = loc;
 
             unsigned const input_size = ssa_it->input_size();
@@ -681,7 +695,7 @@ void code_gen(ir_t& ir)
         if(ld.cset)
         {
             assert(cset_is_head(node));
-            ssa_ht last = csets_dont_interfere(ld.cset, node, fn_nodes);
+            ssa_ht last = csets_dont_interfere(ir, ld.cset, node, fn_nodes);
             if(!last) // If they interfere
                 return false;
             // It can be coalesced; add it to the cset.
@@ -830,7 +844,7 @@ void code_gen(ir_t& ir)
         ssa_ht cset = cset_head(phi_it->input(0).handle());
         ssa_ht phi_cset = cset_head(phi_it);
 
-        if(ssa_ht last = csets_dont_interfere(cset, phi_cset, fn_nodes))
+        if(ssa_ht last = csets_dont_interfere(ir, cset, phi_cset, fn_nodes))
             cset_append(last, phi_cset);
     }
 
@@ -858,7 +872,7 @@ void code_gen(ir_t& ir)
 
         assert(csets_mergable(copy_cset, candidate_cset));
 
-        if(ssa_ht last = csets_dont_interfere(copy_cset, candidate_cset, fn_nodes))
+        if(ssa_ht last = csets_dont_interfere(ir, copy_cset, candidate_cset, fn_nodes))
             cset_append(last, candidate_cset);
         else
             prune_early_store(candidate);
@@ -886,7 +900,7 @@ void code_gen(ir_t& ir)
             if(!csets_mergable(store_cset, parent_cset))
                 goto fail;
 
-            last = csets_dont_interfere(store_cset, parent_cset, fn_nodes);
+            last = csets_dont_interfere(ir, store_cset, parent_cset, fn_nodes);
 
             if(last)
             {
@@ -956,7 +970,7 @@ void code_gen(ir_t& ir)
         {
             assert(cset_locator(ssa_it) == loc);
 
-            ssa_it->set_flags(FLAG_COALESCED);
+            //ssa_it->set_flags(FLAG_COALESCED);
 
             if(ssa_it->op() == SSA_early_store)
             {
@@ -994,9 +1008,11 @@ void code_gen(ir_t& ir)
     {
         if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LOC_GVAR_SET)
         {
-            assert(ssa_it->test_flags(FLAG_COALESCED));
-            assert(ssa_it->input(0)->op() == SSA_early_store);
-            assert(ssa_it->input(0)->test_flags(FLAG_COALESCED));
+            assert(ssa_it->input(1).locator() == cset_locator(ssa_it));
+            // TODO
+            //assert(ssa_it->test_flags(FLAG_COALESCED));
+            //assert(ssa_it->input(0)->op() == SSA_early_store || ssa_it->input(0)->op() == SSA_aliased_store);
+            //assert(ssa_it->input(0)->test_flags(FLAG_COALESCED));
         }
     }
 #endif
@@ -1017,9 +1033,9 @@ void code_gen(ir_t& ir)
             for(ssa_ht h : d.schedule)
                 std::cout << "sched " << h->op() << ' ' << h.index << '\n';
 
-            d.code = select_instructions(cfg_it);
+            d.code = select_instructions(fn, cfg_it);
 
-            for(cg_inst_t inst : d.code)
+            for(asm_inst_t inst : d.code)
                 if(op_input_regs(inst.op) & REGF_M)
                     store_map.emplace(inst.arg.mem_head(), [&]{ return store_map.size(); });
         }
@@ -1027,7 +1043,7 @@ void code_gen(ir_t& ir)
         // Replace used MAYBE stores with real stores, 
         // and prune unused MAYBE stores:
 #if 1 // Changing to #if 0 can be useful for debugging.
-        std::vector<cg_inst_t> temp_code;
+        std::vector<asm_inst_t> temp_code;
         for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
         {
             auto& d = cg_data(cfg_it);
@@ -1035,7 +1051,7 @@ void code_gen(ir_t& ir)
             temp_code.clear();
             temp_code.reserve(d.code.size());
 
-            for(cg_inst_t inst : d.code)
+            for(asm_inst_t inst : d.code)
             {
                 if(op_flags(inst.op) & ASMF_MAYBE_STORE)
                 {
@@ -1077,7 +1093,7 @@ void code_gen(ir_t& ir)
     for(cfg_ht h : order)
     {
         std::cout << "CFG = " << h.index << '\n';
-        for(cg_inst_t inst : cg_data(h).code)
+        for(asm_inst_t inst : cg_data(h).code)
             std::cout << inst << '\n';
     }
 
@@ -1097,7 +1113,7 @@ void code_gen(ir_t& ir)
             continue;
         }
 
-        auto const unnecessary_jump = [&order, i](cg_inst_t const& inst) -> bool
+        auto const unnecessary_jump = [&order, i](asm_inst_t const& inst) -> bool
         {
             return ((op_flags(inst.op) & ASMF_JUMP) 
                     && inst.arg.lclass() == LOC_CFG_LABEL
@@ -1107,7 +1123,7 @@ void code_gen(ir_t& ir)
         // Pairs of inverted branches can be flipped.
         if(code.size() >= 2)
         {
-            cg_inst_t& inst = code[code.size() - 2];
+            asm_inst_t& inst = code[code.size() - 2];
             if(code.back().op == invert_branch(inst.op) && unnecessary_jump(inst))
             {
                 std::swap(inst, code.back());
@@ -1121,40 +1137,29 @@ void code_gen(ir_t& ir)
             ++i;
     }
 
-    ////////////////////////////
-    // CONVERT TO RELOCATABLE //
-    ////////////////////////////
-
-    relocatable_t reloc;
+    //////////////////////////
+    // CONVERT TO ASM_PROC //
+    /////////////////////////
 
     {
-        std::size_t size_upper_bound = 0;
+        asm_proc_t proc;
+
+            std::size_t size_upper_bound = 0;
+            for(cfg_ht h : order)
+                size_upper_bound += cg_data(h).code.size();
+            proc.code.reserve(size_upper_bound);
+
         for(cfg_ht h : order)
-            size_upper_bound += cg_data(h).code.size();
-        reloc.code.reserve(size_upper_bound);
-    }
+            for(asm_inst_t inst : cg_data(h).code)
+                proc.push_inst(inst);
 
-    for(cfg_ht h : order)
-    {
-        for(cg_inst_t inst : cg_data(h).code)
-        {
-            if(inst.op == ASM_LABEL)
-            {
-                auto result = reloc.labels.insert({ inst.arg, reloc.code.size() });
-                assert(result.inserted);
-            }
-            else
-            {
-                if((op_flags(inst.op) & ASMF_BRANCH) && op_addr_mode(inst.op) == MODE_RELATIVE)
-                    reloc.relative_branch_indices.push_back(reloc.code.size());
-                reloc.code.push_back(inst);
-            }
-        }
-    }
+        std::cout << "RELOC\n";
+        for(asm_inst_t inst : proc.code)
+            std::cout << inst << '\n';
 
-    std::cout << "RELOC\n";
-    for(cg_inst_t inst : reloc.code)
-        std::cout << inst << '\n';
+        // Add the proc to the fn
+        fn.assign_proc(std::move(proc));
+    }
 
     ///////////////////////
     // MEMORY ALLOCATION //
@@ -1176,7 +1181,7 @@ void code_gen(ir_t& ir)
 
         for(unsigned i = 0; i < code.size; ++i)
         {
-            cg_inst_t const inst = code[i];
+            asm_inst_t const inst = code[i];
 
             if(inst.op == ASM_LABEL)
             {
@@ -1202,16 +1207,10 @@ void code_gen(ir_t& ir)
                 bb.code.push_back(inst);
         }
 
-        for(cg_inst_t inst : cg_data(h).code)
+        for(asm_inst_t inst : cg_data(h).code)
             std::cout << inst << '\n';
     }
     */
 
-}
-
-std::ostream& operator<<(std::ostream& o, cg_inst_t const& inst)
-{
-    o << "{ " << to_string(inst.op) << ", " << inst.arg << "   (" << inst.ssa_op << ") }";
-    return o;
 }
 

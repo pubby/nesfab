@@ -12,7 +12,7 @@
 #include "robin/hash.hpp"
 
 #include "array_pool.hpp"
-#include "globals_types.hpp"
+#include "decl.hpp"
 
 #define FIXED_X \
     FIXED(0,0) FIXED(0,1) FIXED(0,2) FIXED(0,3)\
@@ -57,10 +57,10 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_ARRAY,
     TYPE_BUFFER,
     TYPE_STRUCT,
-    TYPE_RAM_PTR,
-    TYPE_FIRST_NUM = TYPE_RAM_PTR,
-    TYPE_FIRST_PTR = TYPE_RAM_PTR,
-    TYPE_ROM_PTR,
+    TYPE_PTR,
+    TYPE_FIRST_NUM = TYPE_PTR,
+    TYPE_FIRST_PTR = TYPE_PTR,
+    TYPE_BANKED_PTR,
     TYPE_FN, // should be named FN_PTR, but whatever
     TYPE_LAST_PTR = TYPE_FN,
 
@@ -83,15 +83,89 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_LARGEST_FIXED = TYPE_FIXED_33,
 };
 
-constexpr bool has_tail(type_name_t name)
-    { return name == TYPE_ARRAY || name == TYPE_FN; }
-constexpr bool has_vbank(type_name_t name)
-    { return name == TYPE_ROM_PTR; }
-constexpr bool has_group_bitset(type_name_t name)
-    { return name == TYPE_RAM_PTR; }
+constexpr bool is_arithmetic(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }
+constexpr bool is_numeric(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_NUM && type_name <= TYPE_LAST_NUM; }
+constexpr bool is_boolean(type_name_t type_name)
+    { return (type_name >= TYPE_FIRST_BOOLEAN 
+              && type_name <= TYPE_LAST_BOOLEAN); }
+constexpr bool is_ptr(type_name_t type_name)
+    { return (type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR); }
 
-struct vbank_ht;
+constexpr bool has_type_tail(type_name_t name)
+    { return name == TYPE_ARRAY || name == TYPE_FN; }
+constexpr bool has_group_tail(type_name_t name)
+    { return is_ptr(name); }
+constexpr bool has_tail(type_name_t name)
+    { return has_type_tail(name) || has_group_tail(name); }
+
 struct group_ht;
+
+// Implementation detail!
+// This takes a range of types and returns a pointer to allocated memory
+// that contains the same data.
+// The point being, it's faster to pass a pointer around than the actual range.
+template<typename T>
+class tails_manager_t
+{
+    struct map_elem_t
+    {
+        std::uint16_t size;
+        T const* tail;
+    };
+
+    std::mutex mutex; // Protects the objects below:
+    rh::robin_auto_table<map_elem_t> map;
+    array_pool_t<T> tails;
+
+public:
+    T const* get(T const* begin, T const* end)
+    {
+        if(end - begin == 0)
+            return nullptr;
+
+        // Hash the range.
+
+        std::size_t size = end - begin;
+        std::size_t hash = size;
+
+        for(T const* it = begin; it < end; ++it)
+        {
+            std::hash<T> hasher;
+            hash = rh::hash_combine(hash, hasher(*it));
+        }
+
+        // Now insert into the map:
+
+        std::lock_guard<std::mutex> const lock(mutex);
+
+        rh::apair<map_elem_t*, bool> result = map.emplace(
+            hash,
+            [begin, end, size](map_elem_t elem) -> bool
+            {
+                return (elem.size == size && std::equal(begin, end, elem.tail));
+            },
+            [this, begin, end, size]() -> map_elem_t
+            { 
+                return { size, tails.insert(begin, end) };
+            });
+
+        assert(std::equal(begin, end, result.first->tail));
+
+        return result.first->tail;
+    }
+
+    T const* get(T const& t) { return get(&t, &t+1); }
+
+    void clear()
+    {
+        std::lock_guard<std::mutex> const lock(mutex);
+        map.clear();
+        tails.clear();
+    }
+};
+
 
 class type_t
 {
@@ -113,36 +187,24 @@ public:
     constexpr type_name_t name() const { return m_name; }
     constexpr std::size_t size() const { return m_size; }
 
-    type_t const* types() const { assert(has_tail(name())); return m_impl.tail; }
-    vbank_ht vbank() const;
-    group_bitset_t group_bitset() const { assert(has_group_bitset(name())); return m_impl.group_bitset; }
+    type_t const* types() const 
+        { assert(has_type_tail(name())); return static_cast<type_t const*>(m_tail); }
+    group_ht const* groups() const 
+        { assert(has_group_tail(name())); return static_cast<group_ht const*>(m_tail); }
 
-    type_t operator[](unsigned i) const
-        { return types()[i]; }
-    type_t elem_type() const
-        { return operator[](0); }
+    type_t type(unsigned i) const { return types()[i]; }
+    type_t elem_type() const { return type(0); }
+    group_ht group(unsigned i) const;
 
+    /* TODO: remove
     type_t const* begin() const { return types(); }
     type_t const* end() const { return types() + size(); }
+    */
 
     std::size_t num_params() const { assert(name() == TYPE_FN); return size() - 1; }
     type_t return_type() const { assert(name() == TYPE_FN); return types()[size() - 1]; }
 
-    bool operator==(type_t o) const
-    {
-        if(m_name != o.m_name || m_size != o.m_size)
-            return false;
-
-        if(has_tail(name()))
-            return std::equal(begin(), end(), o.begin());
-        else if(has_group_bitset(name()))
-            return group_bitset() == o.group_bitset();
-        else if(has_vbank(name()))
-            return m_impl.vbank == o.m_impl.vbank;
-
-        return true;
-    }
-
+    bool operator==(type_t o) const;
     bool operator!=(type_t o) const { return !operator==(o); }
 
     std::size_t size_of() const;
@@ -151,57 +213,26 @@ public:
 
     // Type creation functions.
     static type_t buffer(unsigned size);
-    static type_t ram_ptr(group_bitset_t group_bitset);
-    static type_t rom_ptr(vbank_ht vbank);
     static type_t array(type_t elem_type, unsigned size);
+    static type_t ptr(group_ht const* begin, group_ht const* end, bool banked);
     static type_t fn(type_t* begin, type_t* end);
 
 private:
     type_name_t m_name = TYPE_VOID;
 
     // Overloaded; 
-    // - Holds tail size for fns
+    // - Holds tail size for fns and ptrs
     // - Array size for arrays
     std::uint16_t m_size = 0;
 
-    // Overloaded;
-    // - Holds types for fns and arrays
-    // - Holds group bitset for ram ptrs
-    // - Holds vbanks for rom ptrs
-    union impl_t
-    {
-        type_t const* tail = nullptr;
-        group_bitset_t group_bitset;
-        std::uint64_t vbank;
-    } m_impl;
+    // Holds types or groups, depending on 'm_name'.
+    void const* m_tail = nullptr;
 
-    type_t(type_name_t name, std::uint16_t size, impl_t impl)
-    : m_name(name), m_size(size), m_impl(impl) {}
+    type_t(type_name_t name, std::uint16_t size, void const* tail = nullptr)
+    : m_name(name), m_size(size), m_tail(tail) {}
 
-    static class type_tails_manager_t type_tails;
-};
-
-// Implementation detail!
-// This takes a range of types and returns a pointer to allocated memory
-// that contains the same data.
-// The point being, it's faster to pass a pointer around than the actual range.
-class type_tails_manager_t
-{
-    struct map_elem_t
-    {
-        std::uint16_t size;
-        type_t const* tail;
-    };
-
-    std::mutex mutex; // Protects the objects below:
-    rh::robin_auto_table<map_elem_t> map;
-    array_pool_t<type_t> tails;
-
-public:
-    type_t const* get(type_t const* begin, type_t const* end);
-    type_t const* get(type_t const& t) { return get(&t, &t+1); }
-
-    void clear();
+    static tails_manager_t<type_t> type_tails;
+    static tails_manager_t<group_ht> group_tails;
 };
 
 
@@ -229,24 +260,15 @@ inline bool operator!=(type_name_t lhs, type_t rhs)
     { return !operator==(lhs, rhs); }
     */
 
-constexpr bool is_arithmetic(type_name_t type_name)
-    { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }
 constexpr bool is_arithmetic(type_t type)
     { return type.size() == 0 && is_arithmetic(type.name()); }
 
-constexpr bool is_numeric(type_name_t type_name)
-    { return type_name >= TYPE_FIRST_NUM && type_name <= TYPE_LAST_NUM; }
 constexpr bool is_numeric(type_t type)
     { return type.size() == 0 && is_numeric(type.name()); }
 
-constexpr bool is_boolean(type_name_t type_name)
-    { return (type_name >= TYPE_FIRST_BOOLEAN 
-              && type_name <= TYPE_LAST_BOOLEAN); }
 constexpr bool is_boolean(type_t type)
     { return type.size() == 0 && is_boolean(type.name()); }
 
-constexpr bool is_ptr(type_name_t type_name)
-    { return (type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR); }
 constexpr bool is_ptr(type_t type)
     { return is_ptr(type.name()); }
 
@@ -255,8 +277,10 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     switch(type_name)
     {
     default: return 0;
-    case TYPE_ROM_PTR:  return 2;
-    case TYPE_BOOL: return 1;
+    case TYPE_CARRY: return 1;
+    case TYPE_BOOL:  return 1;
+    case TYPE_PTR:   return 2;
+    case TYPE_BANKED_PTR:  return 3;
 #define FIXED(whole, frac) case TYPE_FIXED_##whole##frac: return whole;
     FIXED_X
 #undef FIXED
@@ -310,12 +334,16 @@ constexpr bool valid_array_member(type_t type)
     return type.name() == TYPE_STRUCT || is_numeric(type);
 }
 
+/* TODO
 constexpr bool valid_struct_member(type_t type)
 {
     return type.name() == TYPE_STRUCT || is_numeric(type);
 }
+*/
 
 type_name_t smallest_representable(struct fixed_t fixed);
+
+unsigned num_fields(type_t type);
 
 std::string to_string(type_t type);
 std::ostream& operator<<(std::ostream& ostr, type_t const& type);
@@ -330,9 +358,13 @@ enum cast_result_t : char
 
 cast_result_t can_cast(type_t const& from, type_t const& to);
 
+/* TODO
 type_t arg_struct(type_t fn_type);
 std::size_t struct_size(type_t type);
 type_t struct_index(type_t type, unsigned i);
 void struct_fill(type_t type, type_t* vec);
+*/
+
+
 
 #endif

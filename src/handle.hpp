@@ -13,6 +13,8 @@
 #include <functional>
 #include <ostream>
 
+#include "robin/hash.hpp"
+
 template<typename Int, typename Tag, Int Null = 0, bool GT = false>
 struct handle_t
 {
@@ -57,6 +59,8 @@ struct handle_t
         { return { a - b.value }; }
     friend constexpr int_type operator-(handle_t a, handle_t b) 
         { return { a.value - b.value }; }
+
+    std::size_t hash() const { return rh::hash_finalize(value); }
 };
 
 template<typename Int, typename Tag>
@@ -66,19 +70,23 @@ std::ostream& operator<<(std::ostream& os, handle_t<Int, Tag> handle)
     return os;
 }
 
+template<typename T>
+struct handle_hash_t
+{
+    using argument_type = T;
+    using result_type = std::size_t;
+    result_type operator()(argument_type const& handle) const noexcept
+    {
+        return handle.hash();
+    }
+};
+
 namespace std
 {
-    template<typename Int, typename Tag>
-    struct hash<handle_t<Int, Tag>>
-    {
-        using argument_type = handle_t<Int, Tag>;
-        using result_type = std::size_t;
-        result_type operator()(argument_type const& handle_t) const noexcept
-        {
-            std::hash<typename argument_type::int_type> hasher;
-            return hasher(handle_t.value);
-        }
-    };
+    template<typename Int, typename Tag, Int Null, bool GT>
+    struct hash<handle_t<Int, Tag, Null, GT>> 
+    : public handle_hash_t<handle_t<Int, Tag, Null, GT>>
+    {};
 }
 
 #endif

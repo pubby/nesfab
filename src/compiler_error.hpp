@@ -19,11 +19,17 @@ public:
 
 std::string fmt_source_pos(file_contents_t const& file, pstring_t pstring);
 
-std::string fmt_error(file_contents_t const& file, pstring_t pstring,
+std::string fmt_error(file_contents_t const& file, pstring_t pstring, 
                       std::string const& what);
+std::string fmt_error(file_contents_t const& file, pstring_t pstring,
+                      std::string const& what, char const* color, char const* prefix);
 
 [[gnu::noreturn]] 
 void compiler_error(file_contents_t const& file, pstring_t pstring, 
                     std::string const& what);
+
+void compiler_warning(file_contents_t const& file, pstring_t pstring, std::string const& what);
+void compiler_warning(pstring_t pstring, std::string const& what);
+void compiler_warning(std::string const& what);
 
 #endif

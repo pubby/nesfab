@@ -11,7 +11,7 @@ enum compiler_phase_t
     PHASE_PARSE,
     PHASE_PARSE_CLEANUP,
     PHASE_ORDER_GLOBALS,
-    PHASE_COMPILE,
+    PHASE_COMPILE, // threaded
     PHASE_ALLOC_RAM,
 };
 

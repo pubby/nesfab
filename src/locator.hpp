@@ -8,23 +8,17 @@
 
 #include <cassert>
 #include <cstdint>
-#include <functional>
+#include <string>
 #include <ostream>
-#include <vector>
+#include <functional>
 
 #include "robin/hash.hpp"
-#include "robin/map.hpp"
 
-#include "array_pool.hpp"
-#include "bitset.hpp"
-#include "globals.hpp"
-#include "handle.hpp"
+#include "addr16.hpp"
+#include "decl.hpp"
 #include "ir_decl.hpp"
-#include "types.hpp"
 
-// TODO: remove
-//using locator_ht = handle_t<unsigned, struct locator_ht_tag, ~0u>;
-
+class type_t;
 struct ssa_value_t;
 
 enum locator_class_t : std::uint8_t
@@ -59,14 +53,46 @@ enum locator_class_t : std::uint8_t
     LOC_MINOR_LABEL,
 
     LOC_CONST_BYTE,
+    LOC_RELOCATION_ADDR,
 
     LOC_SSA,
 };
 
-
 constexpr bool is_label(locator_class_t lclass)
 {
     return lclass == LOC_CFG_LABEL || lclass == LOC_MINOR_LABEL;
+}
+
+constexpr bool has_arg_field(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_GVAR:
+    case LOC_THIS_ARG:
+    case LOC_CALL_ARG:
+    case LOC_RETURN:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool has_fn(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_FN:
+    case LOC_CALL_ARG:
+    case LOC_THIS_ARG:
+    case LOC_LVAR:
+    case LOC_RETURN:
+    case LOC_PHI:
+    case LOC_CFG_LABEL:
+    case LOC_MINOR_LABEL:
+        return true;
+    default:
+        return false;
+    }
 }
 
 class locator_t
@@ -74,6 +100,7 @@ class locator_t
 friend class gvar_locator_manager_t;
 public:
     constexpr locator_t() : locator_t(LOC_NONE, 0, 0, 0) {}
+
     constexpr locator_t(locator_class_t lc, std::uint64_t h, std::uint16_t d, std::int16_t o)
     {
         set_lclass(lc);
@@ -82,13 +109,26 @@ public:
         set_offset(o);
     }
 
+    constexpr locator_t(locator_class_t lc, std::uint64_t h, std::uint8_t a, std::uint8_t f, std::int16_t o)
+    {
+        set_lclass(lc);
+        set_handle(h);
+        set_arg(a);
+        set_field(f);
+        set_offset(o);
+    }
+
     locator_t(locator_t const&) = default;
     locator_t& operator=(locator_t const&) = default;
 
     constexpr locator_class_t lclass() const { return static_cast<locator_class_t>(impl >> 56ull); }
     constexpr std::uint32_t handle() const { return (impl >> 32ull) & 0xFFFFFF; }
-    constexpr std::uint16_t data() const { return impl >> 16ull; }
-    constexpr std::int16_t offset() const { return static_cast<std::make_signed_t<std::int16_t>>(impl); }
+    constexpr std::uint16_t data() const { assert(!has_arg_field(lclass())); return impl >> 16ull; }
+    // 'arg' and 'field' overlap with data; use one or the other.
+    constexpr std::uint8_t arg() const { assert(has_arg_field(lclass())); return impl >> 24ull; }
+    constexpr std::uint8_t field() const { assert(has_arg_field(lclass())); return impl >> 16ull; }
+    constexpr std::int16_t signed_offset() const { return static_cast<std::make_signed_t<std::int16_t>>(impl); }
+    constexpr std::uint16_t offset() const { return impl; }
 
     constexpr void set_lclass(locator_class_t lclass) 
     { 
@@ -106,15 +146,32 @@ public:
 
     constexpr void set_data(std::uint16_t data)
     { 
+        assert(!has_arg_field(lclass()));
         impl &= 0xFFFFFFFF0000FFFFull;
         impl |= (std::uint64_t)data << 16ull; 
         assert(data == this->data());
     }
 
-    constexpr void set_offset(std::int16_t offset) 
+    constexpr void set_arg(std::uint8_t arg)
+    { 
+        assert(has_arg_field(lclass()));
+        impl &= 0xFFFFFFFF00FFFFFFull;
+        impl |= (std::uint64_t)arg << 24; 
+        assert(arg == this->arg());
+    }
+
+    constexpr void set_field(std::uint8_t field)
+    { 
+        assert(has_arg_field(lclass()));
+        impl &= 0xFFFFFFFFFF00FFFFull;
+        impl |= (std::uint64_t)field << 16; 
+        assert(field == this->field());
+    }
+
+    constexpr void set_offset(std::uint16_t offset) 
     { 
         impl &= 0xFFFFFFFFFFFF0000ull;
-        impl |= static_cast<std::uint16_t>(offset); 
+        impl |= offset; 
         assert(offset == this->offset()); 
     }
 
@@ -126,14 +183,7 @@ public:
 
     fn_ht fn() const
     {
-        assert(lclass() == LOC_FN
-               || lclass() == LOC_CALL_ARG 
-               || lclass() == LOC_THIS_ARG
-               || lclass() == LOC_LVAR
-               || lclass() == LOC_RETURN
-               || lclass() == LOC_PHI
-               || lclass() == LOC_CFG_LABEL
-               || lclass() == LOC_MINOR_LABEL);
+        assert(has_fn(lclass()));
         return { handle() };
     }
 
@@ -157,6 +207,9 @@ public:
         return ret;
     }
 
+    type_t mem_type() const;
+    bool mem_zp_only() const;
+
     // Number of bytes this locator represents
     std::size_t mem_size() const;
 
@@ -176,20 +229,23 @@ public:
     constexpr static locator_t fn(fn_ht fn)
         { return locator_t(LOC_FN, fn.value, 0, 0); }
 
-    constexpr static locator_t this_arg(fn_ht fn, std::uint16_t arg, std::int16_t offset=0)
-        { return locator_t(LOC_THIS_ARG, fn.value, arg, offset); }
+    constexpr static locator_t this_arg(fn_ht fn, std::uint8_t arg, std::uint8_t field, std::uint16_t offset=0)
+        { return locator_t(LOC_THIS_ARG, fn.value, arg, field, offset); }
 
-    constexpr static locator_t call_arg(fn_ht fn, std::uint16_t arg, std::int16_t offset=0)
-        { return locator_t(LOC_CALL_ARG, fn.value, arg, offset); }
+    constexpr static locator_t call_arg(fn_ht fn, std::uint8_t arg, std::uint8_t field, std::uint16_t offset=0)
+        { return locator_t(LOC_CALL_ARG, fn.value, arg, field, offset); }
 
-    constexpr static locator_t gvar(gvar_ht gvar, std::int16_t offset=0)
-        { return locator_t(LOC_GVAR, gvar.value, 0, offset); }
+    constexpr static locator_t gvar(gvar_ht gvar, std::uint8_t field, std::uint16_t offset=0)
+        { return locator_t(LOC_GVAR, gvar.value, 0, field, offset); }
 
-    constexpr static locator_t lvar(fn_ht fn, std::uint16_t var, std::int16_t offset=0)
+    constexpr static locator_t gvar_set(fn_ht fn, std::uint16_t id)
+        { return locator_t(LOC_GVAR_SET, fn.value, id, 0); }
+
+    constexpr static locator_t lvar(fn_ht fn, std::uint16_t var, std::uint16_t offset=0)
         { return locator_t(LOC_LVAR, fn.value, var, offset); }
 
-    constexpr static locator_t ret(fn_ht fn, std::int16_t offset=0)
-        { return locator_t(LOC_RETURN, fn.value, 0, offset); }
+    constexpr static locator_t ret(fn_ht fn, std::uint16_t offset=0)
+        { return locator_t(LOC_RETURN, fn.value, 0, 0, offset); }
 
     constexpr static locator_t phi(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_PHI, fn.value, 0, 0); }
@@ -202,6 +258,9 @@ public:
 
     constexpr static locator_t const_byte(std::uint8_t value)
         { return locator_t(LOC_CONST_BYTE, 0, value, 0); }
+
+    constexpr static locator_t relocation_addr(addr16_t addr)
+        { return locator_t(LOC_RELOCATION_ADDR, 0, addr, 0); }
 
     constexpr static locator_t ssa(ssa_ht node)
         { return locator_t(LOC_SSA, node.index, 0, 0); }
@@ -245,54 +304,5 @@ namespace std
 
 std::string to_string(locator_t loc);
 std::ostream& operator<<(std::ostream& o, locator_t loc);
-
-
-// This class exists to manage LOC_GVAR_SETs.
-// It puts gvars into these sets, then allows queries on what each set contains.
-class gvar_locator_manager_t
-{
-public:
-    // Call this to initialize the manager.
-    void setup(fn_t const& fn);
-
-    bitset_uint_t const* get_set(locator_t loc) const
-    {
-        assert(loc.lclass() == LOC_GVAR_SET);
-        assert(loc.handle() >= first_set);
-        return static_cast<bitset_uint_t const*>(locs[loc.handle()]);
-    }
-
-    std::size_t size() const { return locs.size(); }
-
-    locator_t locator(global_t const& global) const;
-    locator_t locator(unsigned i) const;
-    type_t type(unsigned i) const;
-
-    unsigned index(global_t const& global) const
-    { 
-        auto const* pair = map.find(&global);
-        assert(pair);
-        return pair->second;
-    }
-
-    template<typename SingleFn, typename SetFn>
-    void for_each(SingleFn single_fn, SetFn set_fn)
-    {
-        assert(first_set <= locs.size());
-
-        for(unsigned i = 0; i < first_set; ++i)
-            single_fn(gvar_ht{ static_cast<global_t const*>(locs[i])->index() }, i);
-
-        for(unsigned i = first_set; i < locs.size(); ++i)
-            set_fn(static_cast<bitset_uint_t const*>(locs[i]), i);
-    }
-
-private:
-    array_pool_t<bitset_uint_t> bitset_pool;
-    std::vector<void const*> locs;
-
-    rh::robin_map<global_t const*, unsigned> map;
-    unsigned first_set = 0;
-};
 
 #endif

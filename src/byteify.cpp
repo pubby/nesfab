@@ -73,10 +73,8 @@ static void _split_cast(ssa_ht ssa_node)
 }
 
 // Converts all operations with non-BYTE types to only use BYTE.
-void byteify(ir_t& ir, global_t& global)
+void byteify(ir_t& ir, fn_t const& fn)
 {
-    assert(global.gclass() == GLOBAL_FN);
-
     ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(
         ssa_pool::array_size());
 
@@ -163,7 +161,7 @@ void byteify(ir_t& ir, global_t& global)
 
     // Rewrite the inputs of certain nodes to use multi-byte
     bc::small_vector<ssa_value_t, 24> new_input;
-    fn_t const* fn = nullptr;
+    fn_t const* called_fn = nullptr;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         cfg_node_t& cfg_node = *cfg_it;
@@ -176,7 +174,7 @@ void byteify(ir_t& ir, global_t& global)
             case SSA_fn_call:
                 // Because SSA constants lack types, it's necessary
                 // to look up the function's global definition first:
-                fn = &*get_fn(*ssa_it);
+                called_fn = &*get_fn(*ssa_it);
                 // fall-through
             case SSA_return:
                 {
@@ -190,15 +188,15 @@ void byteify(ir_t& ir, global_t& global)
                         if(loc.lclass() == LOC_CALL_ARG)
                         {
                             assert(ssa_it->op() == SSA_fn_call);
-                            t = fn->type.types()[loc.data()];
+                            t = called_fn->type.types()[loc.arg()];
                         }
                         else if(loc.lclass() == LOC_RETURN)
                         {
                             assert(ssa_it->op() == SSA_return);
-                            t = global.impl<fn_t>().type.return_type();
+                            t = fn.type.return_type();
                         }
                         else if(loc.lclass() == LOC_THIS_ARG)
-                            t = global.impl<fn_t>().type.types()[loc.data()];
+                            t = fn.type.types()[loc.arg()];
                         else if(loc.lclass() == LOC_GVAR)
                             t = loc.gvar()->type;
                         else
@@ -211,11 +209,12 @@ void byteify(ir_t& ir, global_t& global)
 
                         bm_t bm = _get_bm(v);
 
+                        unsigned const start = begin_byte(t.name());
                         unsigned const end = end_byte(t.name());
-                        for(unsigned j = begin_byte(t.name()); j < end; ++j)
+                        for(unsigned j = start; j < end; ++j)
                         {
                             locator_t new_loc = loc;
-                            new_loc.set_offset(j);
+                            new_loc.set_field(j - start);
 
                             new_input.push_back(bm[j]);
                             new_input.push_back(std::move(new_loc));
@@ -355,7 +354,7 @@ void byteify(ir_t& ir, global_t& global)
 
                     split->alloc_input(2);
                     split->build_set_input(0, ssa_node);
-                    split->build_set_input(1, locator_t::ret(global_t::current()->handle<fn_ht>(), i));
+                    split->build_set_input(1, locator_t::ret(fn.handle(), i));
                 }
             }
             break;
@@ -367,13 +366,14 @@ void byteify(ir_t& ir, global_t& global)
                 ssa_ht link = ssa_node->input(0).handle();
                 locator_t loc = ssa_node->input(1).locator();
 
+                unsigned const start = begin_byte(t);
                 unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
+                for(unsigned i = start; i < end; ++i)
                 {
                     ssa_value_t split = ssa_data.bm[i];
                     assert(split.holds_ref());
 
-                    loc.set_offset(i);
+                    loc.set_field(i - start);
 
                     split->alloc_input(2);
                     split->build_set_input(0, link);

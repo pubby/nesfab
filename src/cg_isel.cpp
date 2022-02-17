@@ -10,6 +10,7 @@
 
 #include "array_pool.hpp"
 #include "format.hpp"
+#include "globals.hpp"
 
 #define CONT_TEMPLATE 
 #define CONT cont_fn_t cont
@@ -764,9 +765,11 @@ namespace isel
 
         ssa_op_t ssa_op;
 
+        fn_ht fn;
+
         locator_t minor_label()
         {
-            return locator_t::minor_label(global_t::current()->handle<fn_ht>(), next_label++);
+            return locator_t::minor_label(fn, next_label++);
         }
     };
 
@@ -886,7 +889,7 @@ namespace isel
     sel_t& alloc_sel(sel_t const* prev, locator_t arg, unsigned extra_cost = 0)
     {
         unsigned const total_cost = get_cost(prev) + extra_cost + cost_fn<Op, Options::flags & OPT_CONDITIONAL>;
-        return state.sel_pool.emplace(prev, total_cost, cg_inst_t{ Op, state.ssa_op, arg });
+        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_op, arg });
     }
 
     template<typename Options, typename Label>
@@ -2376,7 +2379,7 @@ namespace isel
 
         case SSA_jump:
             assert(cfg_node->output_size() == 1);
-            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
+            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
             exact_op<O, JMP_ABSOLUTE, null_, p_label<0>>
             ::run<finish>(cpu, prev);
             break;
@@ -2425,19 +2428,19 @@ namespace isel
 
         // Branch ops jump directly:
         case SSA_branch_eq:
-            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
             eq_branch<O, BEQ, p_label<0>, p_label<1>>(h);
             break;
         case SSA_branch_not_eq:
-            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
             eq_branch<O, BNE, p_label<0>, p_label<1>>(h);
             break;
 
         case SSA_branch_lt:
-            p_label<0>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
             lt_branch<O, p_label<0>, p_label<1>>(h);
             break;
 
@@ -2466,10 +2469,11 @@ namespace isel
 
 } // namespace isel
 
-std::vector<cg_inst_t> select_instructions(cfg_ht cfg_node)
+std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
 {
     using namespace isel;
 
+    state.fn = fn.handle();
     auto& cd = cg_data(cfg_node);
 
     //////////////////////////////
@@ -2530,10 +2534,10 @@ std::vector<cg_inst_t> select_instructions(cfg_ht cfg_node)
     for(ssa_ht h : cd.schedule)
         isel_node(h);
 
-    std::vector<cg_inst_t> code;
+    std::vector<asm_inst_t> code;
     for(sel_t const* sel = state.best_sel; sel; sel = sel->prev)
         code.push_back(sel->inst);
-    code.push_back({ ASM_LABEL, SSA_null, locator_t::cfg_label(global_t::current()->handle<fn_ht>(), cfg_node) });
+    code.push_back({ ASM_LABEL, SSA_null, locator_t::cfg_label(state.fn, cfg_node) });
     std::reverse(code.begin(), code.end());
 
     return code;

@@ -77,9 +77,15 @@ std::string fmt_source_pos(file_contents_t const& file, pstring_t pstring)
 std::string fmt_error(file_contents_t const& file, pstring_t pstring, 
                       std::string const& what)
 {
+    return fmt_error(file, pstring, what, RED BOLD, "error");
+}
 
-    std::string str(fmt("%: " RED BOLD "error:" RESET " %\n", 
-                        fmt_source_pos(file, pstring), what));
+std::string fmt_error(file_contents_t const& file, pstring_t pstring, 
+                      std::string const& what, char const* color, char const* prefix)
+{
+
+    std::string str(fmt("%: %%:" RESET " %\n", 
+                        fmt_source_pos(file, pstring), color, prefix, what));
 
     char const* line_begin = get_line_begin(file.source(), pstring);
     char const* line_end = get_line_end(file.source(), pstring);
@@ -101,7 +107,7 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
 
     str.resize(str.size() + caret_position, ' ');
 
-    str += RED BOLD;
+    str += color;
 
     unsigned i = 0;
     do
@@ -118,4 +124,22 @@ void compiler_error(file_contents_t const& file, pstring_t pstring,
                     std::string const& what)
 {
     throw compiler_error_t(fmt_error(file, pstring, what));
+}
+
+void compiler_warning(file_contents_t const& file, pstring_t pstring, std::string const& what)
+{
+    std::string msg = fmt_error(file, pstring, what, YEL BOLD, "warning");
+    std::fputs(msg.data(), stderr);
+}
+
+void compiler_warning(pstring_t pstring, std::string const& what)
+{
+    file_contents_t file(pstring.file_i);
+    compiler_warning(file, pstring, what);
+}
+
+void compiler_warning(std::string const& what)
+{
+    std::fprintf(stderr, YEL BOLD "warning: " RESET "%s\n", what.data());
+    std::fflush(stderr);
 }

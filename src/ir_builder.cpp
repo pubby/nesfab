@@ -1,13 +1,16 @@
 #include "ir_builder.hpp"
 
+#include <boost/container/small_vector.hpp>
+
 #include "alloca.hpp"
 #include "bitset.hpp"
 #include "compiler_error.hpp"
 #include "globals.hpp"
 #include "pstring.hpp"
-#include "ram.hpp"
-#include "reusable_stack.hpp"
 #include "ir.hpp"
+#include "gvar_loc_manager.hpp"
+
+namespace bc = boost::container;
 
 namespace // Anonymous namespace
 { 
@@ -32,7 +35,8 @@ struct rpn_value_t
 
 class rpn_stack_t
 {
-    std::vector<rpn_value_t> stack;
+private:
+    bc::small_vector<rpn_value_t, 32> stack;
 public:
     void clear() { stack.clear(); }
 
@@ -62,6 +66,9 @@ public:
 
     rpn_value_t* past_top() { return &*stack.end(); }
 };
+
+// TODO
+using var_index_t = handle_t<unsigned, struct var_index_tag, ~0>;
 
 // Data associated with each block node, to be used when making IRs.
 struct block_d
@@ -95,17 +102,15 @@ public:
 private:
     // Helpers
     std::size_t num_locals() const { return fn.def.local_vars.size(); }
-    std::size_t num_fn_vars() const { return num_locals() + ir.gvar_locators.size(); }
+    std::size_t num_fn_vars() const { return num_locals() + ir.gvar_loc_manager.num_unique_locators(); }
     type_t var_i_type(unsigned var_i) const
     {
         if(var_i < num_locals())
             return fn.def.local_vars[var_i].type;
-        return ir.gvar_locators.type(var_i - num_locals());
+        return ir.gvar_loc_manager.type({ var_i - num_locals() });
     }
 
-    // Converts an index from 'ir.gvar_locators' into 
-    unsigned loc2var(unsigned locator_i) const
-        { return locator_i + num_locals(); }
+    unsigned to_var_i(gvar_loc_manager_t::index_t index) const { return index.value + num_locals(); }
 
     [[gnu::noreturn]] 
     void compiler_error(pstring_t pstring, std::string const& what) const
@@ -162,14 +167,13 @@ private:
     fn_t const& fn;
     stmt_t const* stmt;
     rpn_stack_t rpn_stack;
-    std::vector<logical_data_t> logical_stack;
+    bc::small_vector<logical_data_t, 8> logical_stack;
 
-    // TODO: change type?
-    reusable_stack<std::vector<cfg_ht>> break_stack;
-    reusable_stack<std::vector<cfg_ht>> continue_stack;
+    bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> break_stack;
+    bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> continue_stack;
 
-    std::vector<ssa_value_t> return_values;
-    std::vector<cfg_ht> return_jumps;
+    bc::small_vector<ssa_value_t, 8> return_values;
+    bc::small_vector<cfg_ht, 8> return_jumps;
 
     inline static thread_local array_pool_t<ssa_value_t> input_pool;
 };
@@ -178,8 +182,8 @@ ir_builder_t::ir_builder_t(ir_t& ir, fn_t const& fn)
 : ir(ir)
 , fn(fn)
 {
+    ir.gvar_loc_manager.init(fn.handle());
     stmt = fn.def.stmts.data();
-    ir.gvar_locators.setup(fn);
     input_pool.clear();
     compile();
 }
@@ -196,17 +200,17 @@ void ir_builder_t::compile()
     {
         ir.root.data<block_d>().fn_vars[i] = ir.root->emplace_ssa(
             SSA_read_global, fn.def.local_vars[i].type, entry, 
-            locator_t::this_arg(fn.handle(), i, 3));
+            locator_t::this_arg(fn.handle(), i, 0));
     }
 
     // Insert nodes for gvar reads
-    for(unsigned i = 0; i < ir.gvar_locators.size(); ++i)
+    ir.gvar_loc_manager.for_each_locator([&](locator_t loc, gvar_loc_manager_t::index_t i)
     {
-        ir.root.data<block_d>().fn_vars[loc2var(i)] = 
+        ir.root.data<block_d>().fn_vars[to_var_i(i)] = 
             ir.root->emplace_ssa(
-                SSA_read_global, ir.gvar_locators.type(i), 
-                entry, ir.gvar_locators.locator(i));
-    }
+                SSA_read_global, ir.gvar_loc_manager.type(i), 
+                entry, loc);
+    });
 
     // Create all of the SSA graph, minus the exit node:
     cfg_ht end = compile_block(ir.root);
@@ -227,13 +231,13 @@ void ir_builder_t::compile()
 
     // Write all globals at the exit:
     std::vector<ssa_value_t> return_inputs;
-    return_inputs.reserve(ir.gvar_locators.size() * 2);
+    return_inputs.reserve(ir.gvar_loc_manager.num_unique_locators() * 2);
 
-    for(unsigned i = 0; i < ir.gvar_locators.size(); ++i)
+    ir.gvar_loc_manager.for_each_locator([&](locator_t loc, gvar_loc_manager_t::index_t i)
     {
-        return_inputs.push_back(var_lookup(ir.exit, loc2var(i)));
-        return_inputs.push_back(ir.gvar_locators.locator(i));
-    }
+        return_inputs.push_back(var_lookup(ir.exit, to_var_i(i)));
+        return_inputs.push_back(loc);
+    });
 
     ssa_ht ret = ir.exit->emplace_ssa(SSA_return, TYPE_VOID);
 
@@ -261,7 +265,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
     while(true)
     switch(stmt->name)
     {
-    default:
+    default: // Handles var inits
         if(is_var_init(stmt->name))
         {
             unsigned const var_i = get_local_var_i(stmt->name);
@@ -341,8 +345,8 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             throwing_cast(*end_branch, rpn_stack.only1(), {TYPE_BOOL});
             exits_with_branch(*end_branch, rpn_stack.only1().ssa_value);
 
-            continue_stack.push();
-            break_stack.push();
+            continue_stack.emplace_back();
+            break_stack.emplace_back();
 
             // Compile the body.
             cfg_ht begin_body = insert_cfg(true);
@@ -352,26 +356,26 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             end_body->build_set_output(0, begin_branch);
 
             // All continue statements jump to branch_node.
-            for(cfg_ht node : continue_stack.top())
+            for(cfg_ht node : continue_stack.back())
                 node->build_set_output(0, begin_branch);
             seal_block(begin_branch.data<block_d>());
 
             // Create the exit node.
             cfg_node = insert_cfg(true);
             end_branch->build_set_output(0, cfg_node);
-            for(cfg_ht node : break_stack.top())
+            for(cfg_ht node : break_stack.back())
                 node->build_set_output(0, cfg_node);
 
-            continue_stack.pop();
-            break_stack.pop();
+            continue_stack.pop_back();
+            break_stack.pop_back();
             break;
         }
 
     case STMT_DO:
         {
             ++stmt;
-            continue_stack.push();
-            break_stack.push();
+            continue_stack.emplace_back();
+            break_stack.emplace_back();
 
             // Compile the loop body
             exits_with_jump(*cfg_node);
@@ -396,17 +400,17 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             seal_block(begin_body.data<block_d>());
 
             // All continue statements jump to the branch node.
-            for(cfg_ht node : continue_stack.top())
+            for(cfg_ht node : continue_stack.back())
                 node->build_set_output(0, begin_branch);
 
             // Create the exit cfg_node.
             cfg_node = insert_cfg(true);
             end_branch->build_set_output(0, cfg_node);
-            for(cfg_ht node : break_stack.top())
+            for(cfg_ht node : break_stack.back())
                 node->build_set_output(0, cfg_node);
 
-            continue_stack.pop();
-            break_stack.pop();
+            continue_stack.pop_back();
+            break_stack.pop_back();
             break;
         }
 
@@ -431,7 +435,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
     case STMT_BREAK:
         if(break_stack.empty())
             compiler_error(stmt->pstring, "break statement outside of loop.");
-        break_stack.top().push_back(cfg_node);
+        break_stack.back().push_back(cfg_node);
         cfg_node = compile_goto(cfg_node);
         ++stmt;
         break;
@@ -440,7 +444,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
         if(continue_stack.empty())
             compiler_error(stmt->pstring, 
                            "continue statement outside of loop.");
-        continue_stack.top().push_back(cfg_node);
+        continue_stack.back().push_back(cfg_node);
         cfg_node = compile_goto(cfg_node);
         ++stmt;
         break;
@@ -498,7 +502,6 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
         {
             assert(stmt->expr);
 
-
             cfg_ht branch = cfg_node;
 
             cfg_ht mode = insert_cfg(true);
@@ -517,49 +520,51 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
 
 ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t const* args)
 {
-    unsigned const set_size = fn_t::rw_bitset_size();
-
     bc::small_vector<ssa_value_t, 32> fn_inputs;
 
     // The [0] argument holds the fn_t ptr.
     fn_inputs.push_back(ssa_value_t(locator_t::fn(call)));
     
     // Prepare the input globals
-    auto* const temp_set = ALLOCA_T(bitset_uint_t, fn_t::rw_bitset_size());
 
-    bitset_uint_t const* reads_set;
+    bitset_t const* reads_set;
     if(!call->mode || fn.global.ideps().count(&call->global))
-        reads_set = call->ir_reads();
+        reads_set = &call->ir_reads();
     else
-        reads_set = call->lang_gvars();
+        reads_set = &call->lang_gvars();
 
-    ir.gvar_locators.for_each(
-        [&](gvar_ht gvar, unsigned loc_i)
+    ir.gvar_loc_manager.for_each_singleton([&](gvar_ht gvar, gvar_loc_manager_t::index_t i)
+    {
+        if(reads_set->test(gvar.value))
         {
-            if(bitset_test(reads_set, gvar.value))
-            {
-                fn_inputs.push_back(var_lookup(cfg_node, loc2var(loc_i)));
-                fn_inputs.push_back(ir.gvar_locators.locator(loc_i));
-            }
-        },
-        [&](bitset_uint_t const* gvar_set, unsigned loc_i)
-        {
-            bitset_copy(set_size, temp_set, gvar_set);
-            bitset_and(set_size, temp_set, reads_set);
-            if(!bitset_all_clear(set_size, temp_set))
-            {
-                fn_inputs.push_back(var_lookup(cfg_node, loc2var(loc_i)));
-                fn_inputs.push_back(ir.gvar_locators.locator(loc_i));
-            }
+            fn_inputs.push_back(var_lookup(cfg_node, to_var_i(i)));
+            fn_inputs.push_back(ir.gvar_loc_manager.locator(i));
+        }
+    });
 
-        });
+    unsigned const bs_size = impl_bitset_size<gvar_t>();
+    assert(bs_size == reads_set->size());
+    assert(bs_size == gvar_loc_manager_t::bitset_size());
+    auto* const temp_set = ALLOCA_T(bitset_uint_t, bs_size);
+
+    ir.gvar_loc_manager.for_each_set([&](bitset_uint_t const* gvar_set, gvar_loc_manager_t::index_t i)
+    {
+        bitset_copy(bs_size, temp_set, gvar_set);
+        bitset_and(bs_size, temp_set, reads_set->data());
+        if(!bitset_all_clear(bs_size, temp_set))
+        {
+            fn_inputs.push_back(var_lookup(cfg_node, to_var_i(i)));
+            fn_inputs.push_back(ir.gvar_loc_manager.locator(i));
+        }
+
+    });
 
     // Prepare the arguments
     unsigned const num_args = call->type.num_params();
     for(unsigned i = 0; i < num_args; ++i)
     {
         fn_inputs.push_back(args[i].ssa_value);
-        fn_inputs.push_back(locator_t::call_arg(call, i));
+        fn_inputs.push_back(locator_t::call_arg(call, i, 0));
     }
 
     // Create the dependent node.
@@ -572,32 +577,31 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
     if(!call->mode)
     {
         // After the fn is called, read all the globals it has written to:
-        bitset_uint_t const* writes_set = call->ir_writes();
+        bitset_t const& writes_set = call->ir_writes();
 
-        ir.gvar_locators.for_each(
-            [&](gvar_ht gvar, unsigned loc_i)
+        ir.gvar_loc_manager.for_each_singleton([&](gvar_ht gvar, gvar_loc_manager_t::index_t i)
+        {
+            if(writes_set.test(gvar.value))
             {
-                if(bitset_test(reads_set, gvar.value))
-                {
-                    ssa_ht read = cfg_node->emplace_ssa(
-                        SSA_read_global, gvar->type, ret, ir.gvar_locators.locator(loc_i));
-                    block_d& block_data = cfg_node.data<block_d>();
-                    block_data.fn_vars[loc2var(loc_i)] = read;
-                }
-            },
-            [&](bitset_uint_t const* gvar_set, unsigned loc_i)
-            {
-                bitset_copy(set_size, temp_set, gvar_set);
-                bitset_and(set_size, temp_set, reads_set);
-                if(!bitset_all_clear(set_size, temp_set))
-                {
-                    ssa_ht read = cfg_node->emplace_ssa(
-                        SSA_read_global, TYPE_VOID, ret, ir.gvar_locators.locator(loc_i));
-                    block_d& block_data = cfg_node.data<block_d>();
-                    block_data.fn_vars[loc2var(loc_i)] = read;
-                }
+                ssa_ht read = cfg_node->emplace_ssa(
+                    SSA_read_global, gvar->type, ret, ir.gvar_loc_manager.locator(i));
+                block_d& block_data = cfg_node.data<block_d>();
+                block_data.fn_vars[to_var_i(i)] = read;
+            }
+        });
 
-            });
+        ir.gvar_loc_manager.for_each_set([&](bitset_uint_t const* gvar_set, gvar_loc_manager_t::index_t i)
+        {
+            bitset_copy(bs_size, temp_set, gvar_set);
+            bitset_and(bs_size, temp_set, writes_set.data());
+            if(!bitset_all_clear(bs_size, temp_set))
+            {
+                ssa_ht read = cfg_node->emplace_ssa(
+                    SSA_read_global, TYPE_VOID, ret, ir.gvar_loc_manager.locator(i));
+                block_d& block_data = cfg_node.data<block_d>();
+                block_data.fn_vars[to_var_i(i)] = read;
+            }
+        });
     }
 
     return ret;
@@ -715,8 +719,7 @@ ssa_value_t ir_builder_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
         // To work around this, an incomplete phi node can be created, which
         // will then be filled when the node is sealed.
         assert(block_data.unsealed_phis);
-        ssa_ht phi = cfg_node->emplace_ssa(
-            SSA_phi, var_i_type(var_i));
+        ssa_ht phi = cfg_node->emplace_ssa(SSA_phi, var_i_type(var_i));
         block_data.fn_vars[var_i] = phi;
         block_data.unsealed_phis[var_i] = phi;
         assert(phi);
@@ -773,7 +776,7 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                         "Unimplemented global in expression.");
                 case GLOBAL_VAR:
                     {
-                        unsigned var_i = loc2var(ir.gvar_locators.index(*global));
+                        unsigned const var_i = to_var_i(ir.gvar_loc_manager.index(global->handle<gvar_ht>()));
                         rpn_stack.push({ 
                             .ssa_value = var_lookup(cfg_node, var_i), 
                             .category = LVAL_GLOBAL, 
@@ -1159,7 +1162,7 @@ std::uint64_t ir_builder_t::cast_args(
 
 } // end anonymous namespace
 
-void build_ir(ir_t& ir, fn_t& fn)
+void build_ir(ir_t& ir, fn_t const& fn)
 {
     cfg_data_pool::scope_guard_t<block_d> cfg_data_guard;
     ir_builder_t b(ir, fn);

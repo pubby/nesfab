@@ -1,6 +1,8 @@
 #ifndef ASM_HPP
 #define ASM_HPP
 
+// Code related to individual assembly instructions.
+
 #include <array>
 #include <cassert>
 #include <cstdint>

@@ -1,13 +1,20 @@
-ram menuVars
+vars @menu
     byte f
     byte g
 
+vars @pee
+    byte a
+    byte b
+
+vars @poo
+    short c
+    short d
 
 fn foo(short x, byte y, byte z) byte
     goto mode main()
     return 0
 
-fn bar(byte x, byte y, byte z) byte
+fn bar(short x, short y, short z) byte
     f += z
     byte a = x + y
     z = a + a
@@ -17,11 +24,8 @@ fn bar(byte x, byte y, byte z) byte
     z = c + c
     return c
 
+mode main() 
+    bar(1,2,3)
+    f += 2
 
-
-mode main()
-    foo(0, 1, 2)
-    f = 3
-    
-    
 

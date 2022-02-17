@@ -6,6 +6,7 @@
 
 #include "fixed.hpp"
 #include "ir_decl.hpp"
+#include "gvar_loc_manager.hpp"
 #include "locator.hpp"
 #include "sizeof_bits.hpp"
 #include "ssa_op.hpp"
@@ -547,7 +548,7 @@ public:
     cfg_ht root = {};
     cfg_ht exit = {};
 
-    gvar_locator_manager_t gvar_locators;
+    gvar_loc_manager_t gvar_loc_manager;
 
     cfg_ht cfg_begin() const { return m_cfg_begin; }
     cfg_ht begin() const { return m_cfg_begin; }

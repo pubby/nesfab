@@ -48,20 +48,6 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         //.output_regs = REGF_M,
         .flags = ASMF_MAYBE_STORE,
     },
-    { 
-        .op = SKB_JUMP,
-        .op_code = 0x80,
-        .size = 1,
-        .cycles = 2,
-        .flags = ASMF_JUMP,
-    },
-    { 
-        .op = IGN_JUMP,
-        .op_code = 0x0C,
-        .size = 1,
-        .cycles = 4,
-        .flags = ASMF_JUMP,
-    },
 
     // ADC
     {
@@ -1583,6 +1569,22 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 6,
         .input_regs = REGF_A | REGF_X,
         .output_regs = REGF_M,
+    },
+    // SKB
+    { 
+        OP(SKB, IMPLIED), // A 1-byte jmp
+        .op_code = 0x80,
+        .size = 1,
+        .cycles = 2,
+        .flags = ASMF_JUMP,
+    },
+    // IGN
+    { 
+        OP(IGN, IMPLIED), // A 2-byte jmp
+        .op_code = 0x0C,
+        .size = 1,
+        .cycles = 4,
+        .flags = ASMF_JUMP,
     },
 };
 

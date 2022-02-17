@@ -61,6 +61,7 @@ private:
     bool parse_line_ending();
 
     pstring_t parse_ident();
+    pstring_t parse_group_ident();
     expr_temp_t parse_expr();
     expr_temp_t parse_expr_then();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
@@ -73,7 +74,7 @@ private:
     void parse_top_level();
     void parse_top_level_def();
 
-    void parse_group();
+    void parse_vars_group();
     void parse_fn();
     void parse_mode();
 

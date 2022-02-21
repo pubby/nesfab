@@ -10,6 +10,7 @@
 
 #include "alloca.hpp"
 #include "bitset.hpp"
+#include "debug_print.hpp"
 #include "fixed.hpp"
 #include "ir.hpp"
 #include "o_phi.hpp"
@@ -93,6 +94,8 @@ std::size_t constraints_size(ssa_node_t const& node)
     case SSA_add:
     case SSA_sub:
         return 2; // Second constraint is for the carry.
+    case SSA_write_array:
+        return node.type().size();
     case SSA_trace:
         return constraints_size(*node.input(0));
     default:
@@ -101,7 +104,11 @@ std::size_t constraints_size(ssa_node_t const& node)
             //return node.type().size();
         //if(!is_numeric(node.type()))
             //std::printf("not numeric: %s\n", to_string(node.op()).data());
-        return is_numeric(node.type()) ? 1 : 0;
+        if(node.type().name() == TYPE_ARRAY)
+            return node.type().size();
+        if(is_numeric(node.type()))
+            return 1;
+        return 0;
     }
 }
 
@@ -123,8 +130,7 @@ void copy_constraints(ssa_value_t value, constraints_def_t& vec)
     if(value.is_handle())
         vec = ai_data(value.handle()).constraints();
     else if(value.is_num())
-        vec = { numeric_bitmask(TYPE_LARGEST_FIXED), 
-                { constraints_t::const_(value.fixed().value) }};
+        vec = { numeric_bitmask(TYPE_LARGEST_FIXED), { constraints_t::const_(value.fixed().value) }};
     else
         vec = {};
 }
@@ -197,31 +203,31 @@ ai_t::ai_t(ir_t& ir_) : ir(ir_)
 
     ir.assert_valid();
 
-    std::puts("TRACE");
+    debug_printf("TRACE");
     insert_traces();
     ir.assert_valid();
 
-    std::puts("PROPAGATE");
+    debug_printf("PROPAGATE");
     range_propagate();
     ir.assert_valid();
 
-    std::puts("PRUNE");
+    debug_printf("PRUNE");
     prune_unreachable_code();
     ir.assert_valid();
 
-    std::puts("MARK SKIP");
+    debug_printf("MARK SKIP");
     mark_skippable();
     ir.assert_valid();
 
-    std::puts("THREAD");
+    debug_printf("THREAD");
     thread_jumps();
     ir.assert_valid();
     
-    std::puts("FOLD");
+    debug_printf("FOLD");
     fold_consts();
     ir.assert_valid();
 
-    std::puts("REMOVE SKIP");
+    debug_printf("REMOVE SKIP");
     remove_skippable();
     ir.assert_valid();
 }
@@ -605,15 +611,16 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
                 if(edge_d.output_executable[exec_i] & (1ull << edge.index))
                     copy_constraints(ssa_node->input(i), c[i]);
                 else
-                    c[i].vec.assign(d.constraints().vec.size(), 
-                                    constraints_t::top());
+                    c[i].vec.assign(d.constraints().vec.size(), constraints_t::top());
             }
         }
         else for(unsigned i = 0; i < input_size; ++i)
         {
             copy_constraints(ssa_node->input(i), c[i]);
+#ifdef DEBUG_PRINT
             std::cout << "copied = " << ssa_node->input(i) << std::endl;
             std::cout << "copied size = " << c[i].vec.size() << std::endl;
+#endif
         }
 
         // Call the ai op:
@@ -626,7 +633,9 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
 // Performs range propagatation on a single SSA node.
 void ai_t::visit(ssa_ht ssa_node)
 {
+#ifdef DEBUG_PRINT
     std::cout << "visit " << to_string(ssa_node->op()) << '\n';
+#endif
 
     if(ssa_node->op() == SSA_if)
     {
@@ -636,7 +645,9 @@ void ai_t::visit(ssa_ht ssa_node)
         assert(ssa_node->cfg_node()->output_size() == 2);
 
         constraints_t c = first_constraint(condition);
+#ifdef DEBUG_PRINT
         std::cout << "COND = " << c << '\n';
+#endif
 
         if(c.is_top())
             return;
@@ -678,9 +689,10 @@ void ai_t::visit(ssa_ht ssa_node)
             c.normalize();
     }
 
-    // TODO:
+#ifdef DEBUG_PRINT
     std::cout << "C = " << d.constraints()[0] << '\n';
     std::cout << "O = " << old_constraints[0] << '\n';
+#endif
 
     assert(all_normalized(d.constraints().vec));
     if(!bit_eq(d.constraints().vec, old_constraints))
@@ -724,8 +736,7 @@ void ai_t::range_propagate()
             type_t const type = ssa_it->type();
 
             constraints.vec.clear();
-            constraints.vec.resize(constraints_size(*ssa_it),
-                                   constraints_t::top());
+            constraints.vec.resize(constraints_size(*ssa_it), constraints_t::top());
 
             if(constraints.vec.empty())
                 continue;
@@ -735,7 +746,7 @@ void ai_t::range_propagate()
             else if(type.name() == TYPE_BUFFER)
                 constraints.mask = numeric_bitmask(TYPE_BYTE);
             else
-                sd.constraints().mask = numeric_bitmask(ssa_it->type());
+                constraints.mask = numeric_bitmask(type);
         }
     }
 
@@ -750,7 +761,7 @@ void ai_t::range_propagate()
         while(!cfg_worklist.empty())
         {
             cfg_ht cfg_node = cfg_worklist.pop();
-            std::printf("CFG VISIT %i\n", cfg_node.index);
+            debug_printf("CFG VISIT %i\n", cfg_node.index);
             auto& d = ai_data(cfg_node);
 
             if(!d.executable[EXEC_PROPAGATE])
@@ -844,10 +855,18 @@ void ai_t::fold_consts()
         if(is_numeric(ssa_it->type()) && d.constraints()[0].is_const())
         {
             fixed_t constant = { d.constraints()[0].get_const() };
-            std::cout << " FOLDING " << ssa_it->op() << ' ' << (constant.value >> fixed_t::shift) << ' ' << ssa_it->output_size() << '\n';
+
+#ifdef DEBUG_PRINT
+            std::cout << " FOLDING " << ssa_it->op() << ' ' << (constant.value >> fixed_t::shift) 
+                      << ' ' << ssa_it->output_size() << '\n';
+#endif
+
             if(ssa_it->replace_with(INPUT_VALUE, constant))
                 updated = __LINE__;
+
+#ifdef DEBUG_PRINT
             std::cout << " CONT " << ssa_it->op() << ' ' << ssa_it->output_size() << '\n';
+#endif
         }
         else if(op == SSA_eq || op == SSA_not_eq)
         {
@@ -1103,7 +1122,9 @@ void ai_t::thread_jumps()
         }
     }
 
+#ifdef DEBUG_PRINT
     std::cout << "THREADS: " << threaded_jumps.size() << '\n';
+#endif
 
     if(threaded_jumps.size() == 0)
         return;

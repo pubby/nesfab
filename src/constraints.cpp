@@ -320,7 +320,8 @@ static constexpr narrow_fn_t* narrow_fn_v = nullptr;
 static constexpr auto abstract_bottom = ABSTRACT_FN
 {
     assert(result.vec.size() >= 1);
-    result[0] = constraints_t::bottom(result.mask);
+    for(constraints_t& constraint : result.vec)
+        constraint = constraints_t::bottom(result.mask);
 };
 
 ABSTRACT(SSA_read_global) = abstract_bottom;
@@ -341,12 +342,14 @@ ABSTRACT(SSA_write_array) = ABSTRACT_FN
     constraints_t const index = cv[1][0];
     constraints_t const value = cv[2][0];
 
-    assert(cv[2].mask == result.mask);
     assert(input_array.vec.size() == result.vec.size());
+
+    result.vec = input_array.vec;
 
     if(index.is_const())
     {
         unsigned const i = index.bounds.min >> fixed_t::shift;
+        assert(i < 256); // Arrays can't be larger than 256.
         if(i < result.vec.size())
             result[i] = value;
     }
@@ -354,12 +357,11 @@ ABSTRACT(SSA_write_array) = ABSTRACT_FN
     {
         unsigned const min_bound = index.bounds.min >> fixed_t::shift;
         unsigned const max_bound = index.bounds.max >> fixed_t::shift;
-        unsigned const iter_to = std::min<unsigned>(max_bound + 1, 
-                                                    result.vec.size());
+        unsigned const iter_to = std::min<unsigned>(max_bound + 1, result.vec.size());
 
         for(unsigned i = min_bound; i < iter_to; ++i)
             if(index(fixed_t::whole(i).value))
-                result[i] = union_(input_array[i], value);
+                result[i] = union_(result[i], value);
     }
 };
 
@@ -373,8 +375,7 @@ ABSTRACT(SSA_read_array) = ABSTRACT_FN
 
     unsigned const min_bound = index.bounds.min >> fixed_t::shift;
     unsigned const max_bound = index.bounds.max >> fixed_t::shift;
-    unsigned const iter_to = std::min<unsigned>(max_bound + 1, 
-                                                result.vec.size());
+    unsigned const iter_to = std::min<unsigned>(max_bound + 1, input_array.vec.size());
 
     result[0] = constraints_t::top();
     for(unsigned i = min_bound; i < iter_to; ++i)

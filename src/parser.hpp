@@ -74,7 +74,9 @@ private:
     void parse_top_level();
     void parse_top_level_def();
 
-    void parse_vars_group();
+    void parse_group_vars();
+    void parse_group_data(bool once);
+    void parse_top_level_const();
     void parse_fn();
     void parse_mode();
 

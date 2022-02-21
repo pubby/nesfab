@@ -28,10 +28,13 @@ SSA_DEF(read_global, 2, INPUT_LINK, 0)
 
 // (elements...)
 SSA_DEF(init_array, -1, INPUT_VALUE, 0)
+
 // (elements)
 SSA_DEF(init_array_fill, -1, INPUT_VALUE, 0)
+
 // (array, index, value)
 SSA_DEF(write_array, 3, INPUT_VALUE, 0)
+
 // (array, index)
 SSA_DEF(read_array, 2, INPUT_VALUE, 0)
 

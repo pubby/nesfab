@@ -593,8 +593,8 @@ int main()
             keyword("mode"),
 
             keyword("vars"),
-            keyword("data"),
-            keyword("tbls"),
+            keyword("once"),
+            keyword("many"),
 
             // Symbols
             keyword(1, "lbrace", "{"),
@@ -614,6 +614,7 @@ int main()
 
             //keyword(5, "period", "."),
             accept(7, "apply", "apply", eof()), // dummy
+            accept(7, "index", "index", eof()), // dummy
 
             //keyword(10, "asterisk", "*"),
             //keyword(10, "fslash", "/"),

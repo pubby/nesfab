@@ -46,7 +46,6 @@ enum locator_class_t : std::uint8_t
 
     // Used to allocate local vars
     LOC_LVAR,
-    LOC_LVAR_ZP,
 
     // Labels are used during code gen. They map to assembly terms.
     LOC_CFG_LABEL,
@@ -61,6 +60,11 @@ enum locator_class_t : std::uint8_t
 constexpr bool is_label(locator_class_t lclass)
 {
     return lclass == LOC_CFG_LABEL || lclass == LOC_MINOR_LABEL;
+}
+
+constexpr bool is_const(locator_class_t lclass)
+{
+    return lclass == LOC_CONST_BYTE;
 }
 
 constexpr bool has_arg_field(locator_class_t lclass)
@@ -241,8 +245,8 @@ public:
     constexpr static locator_t gvar_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GVAR_SET, fn.value, id, 0); }
 
-    constexpr static locator_t lvar(fn_ht fn, std::uint16_t var, std::uint16_t offset=0)
-        { return locator_t(LOC_LVAR, fn.value, var, offset); }
+    constexpr static locator_t lvar(fn_ht fn, std::uint16_t var_i, std::uint16_t offset=0)
+        { return locator_t(LOC_LVAR, fn.value, var_i, offset); }
 
     constexpr static locator_t ret(fn_ht fn, std::uint16_t offset=0)
         { return locator_t(LOC_RETURN, fn.value, 0, 0, offset); }

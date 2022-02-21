@@ -31,7 +31,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++20 \
-  -O0 \
+  -O1 \
   -pthread \
   -g \
   -Wall \
@@ -89,7 +89,9 @@ gvar_loc_manager.cpp \
 span.cpp \
 span_allocator.cpp \
 group.cpp \
-ram.cpp
+ram.cpp \
+ram_alloc.cpp \
+lvar.cpp 
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

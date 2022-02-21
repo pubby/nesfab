@@ -208,7 +208,6 @@ ssa_ht csets_dont_interfere(ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_
 
         switch(loc.lclass())
         {
-            return fn.type.num_params() > 0;
         case LOC_GVAR:
             {
                 gvar_ht const gvar = loc.gvar();
@@ -256,10 +255,7 @@ ssa_ht csets_dont_interfere(ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_
         {
             assert(ai != bi);
             if(orig_def(ai) != orig_def(bi) && live_range_overlap(ai, bi))
-            {
-                std::printf("overlap: %i %i\n", ai.index, bi.index);
                 return {};
-            }
         }
         last_a = ai;
     }
@@ -1030,8 +1026,10 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             std::cout << "\n\n";
 
+#ifndef DEBUG_PRINT
             for(ssa_ht h : d.schedule)
                 std::cout << "sched " << h->op() << ' ' << h.index << '\n';
+#endif
 
             d.code = select_instructions(fn, cfg_it);
 
@@ -1137,6 +1135,21 @@ void code_gen(ir_t& ir, fn_t& fn)
             ++i;
     }
 
+    /////////////////////
+    // BUILD LVAR INFO //
+    /////////////////////
+
+    {
+        lvars_manager_t lvars(fn.handle(), ir);
+
+        calc_asm_liveness(ir, lvars);
+        build_lvar_interferences(ir, lvars);
+
+        // Add the lvars to the fn
+        fn.assign_lvars(std::move(lvars));
+    }
+
+
     //////////////////////////
     // CONVERT TO ASM_PROC //
     /////////////////////////
@@ -1144,10 +1157,10 @@ void code_gen(ir_t& ir, fn_t& fn)
     {
         asm_proc_t proc;
 
-            std::size_t size_upper_bound = 0;
-            for(cfg_ht h : order)
-                size_upper_bound += cg_data(h).code.size();
-            proc.code.reserve(size_upper_bound);
+        std::size_t size_upper_bound = 0;
+        for(cfg_ht h : order)
+            size_upper_bound += cg_data(h).code.size();
+        proc.code.reserve(size_upper_bound);
 
         for(cfg_ht h : order)
             for(asm_inst_t inst : cg_data(h).code)

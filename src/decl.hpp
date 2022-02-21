@@ -48,10 +48,12 @@ template<typename T> inline std::mutex impl_deque_mutex;
 template<typename T> inline std::deque<T> impl_deque;
 
 template<typename T, typename... Args>
-static T& impl_deque_alloc(Args&&... args)
+static std::size_t impl_deque_alloc(T*& ptr, Args&&... args)
 {
     std::lock_guard<std::mutex> lock(impl_deque_mutex<T>);
-    return impl_deque<T>.emplace_back(std::forward<Args>(args)...);
+    std::size_t const ret = impl_deque<T>.size();
+    ptr = &impl_deque<T>.emplace_back(std::forward<Args>(args)...);
+    return ret;
 }
 
 template<typename T>
@@ -78,6 +80,13 @@ struct impl_ht : handle_t<unsigned, T, ~0>
 
     // This isn't thread safe without synchronization like impl_deque_mutex.
     T& unsafe() const { return impl_deque<T>[this->value]; }
+
+    // 'safe' meaning it's safe for the impl_deque.
+    T& safe() const 
+    { 
+        std::lock_guard<std::mutex> lock(impl_deque_mutex<T>);
+        return impl_deque<T>[this->value]; 
+    }
 };
 
 // Handles reference globals, with their '.value' indexing into 
@@ -86,6 +95,7 @@ template<typename T, global_class_t GCLASS>
 struct global_impl_ht : impl_ht<T>
 {
     static constexpr global_class_t gclass = GCLASS;
+    using impl_type = T;
     using global_handle_tag = void;
     global_t& global() const { return this->operator*().global; }
 };
@@ -96,6 +106,7 @@ template<typename T, group_class_t GCLASS>
 struct group_impl_ht : impl_ht<T>
 {
     static constexpr group_class_t gclass = GCLASS;
+    using impl_type = T;
     using group_handle_tag = void;
     group_t& group() const { return this->operator*().group; }
 };
@@ -104,7 +115,10 @@ struct fn_ht : global_impl_ht<fn_t, GLOBAL_FN> {};
 struct gvar_ht : global_impl_ht<gvar_t, GLOBAL_VAR> {};
 struct const_ht : global_impl_ht<const_t, GLOBAL_CONST> {};
 
-struct group_ht : impl_ht<group_t> {};
+struct group_ht : impl_ht<group_t> 
+{
+    group_data_t* data() const; // Defined in group.cpp
+};
 struct group_vars_ht : group_impl_ht<group_vars_t, GROUP_VARS> {};
 struct group_data_ht : group_impl_ht<group_data_t, GROUP_DATA> {};
 

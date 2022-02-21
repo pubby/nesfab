@@ -10,18 +10,6 @@
 namespace rh
 {
 
-template <typename Key, typename Mapped>
-struct insertion_t
-{
-    using key_type = Key;
-    using mapped_type = Mapped;
-    using value_type = apair<key_type, mapped_type>;
-
-    key_type const* key;
-    mapped_type* mapped;
-    bool inserted;
-};
-
 template<typename ValueType, typename Hash, typename KeyEqual>
 struct map_policy
 {
@@ -67,7 +55,7 @@ public:
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = apair<key_type, mapped_type>;
-    using insertion = rh::insertion_t<Key, Mapped>;
+    using insertion = apair<value_type*, bool>;
     using collection_type = 
         robin_collection<map_policy<value_type, Hash, KeyEqual>>;
     using hash_type = typename collection_type::hash_type;
@@ -81,28 +69,24 @@ public:
 
     mapped_type& operator[](key_type const& k)
     {
-        return *emplace(k, [](){ return mapped_type(); }).mapped;
+        return emplace(k, [](){ return mapped_type(); }).first->second;
     }
 
     insertion insert(value_type const& v)
     { 
-        apair<value_type*, bool> pair = collection.insert(v); 
-        return { &pair.first->first, &pair.first->second, pair.second };
+        return collection.insert(v); 
     }
 
     insertion insert(value_type&& v)
     { 
-        apair<value_type*, bool> pair = collection.insert(std::move(v)); 
-        return { &pair.first->first, &pair.first->second, pair.second };
+        return collection.insert(std::move(v)); 
     }
 
     template<typename K, typename MConstruct>
     insertion emplace(K&& k, MConstruct mconstruct)
     {
-        apair<value_type*, bool> pair = collection.emplace(
-            k,
+        return collection.emplace(k,
             [&](){ return value_type{ std::forward<K>(k), mconstruct() }; });
-        return { &pair.first->first, &pair.first->second, pair.second };
     }
 
     value_type const* find(key_type const& k) const
@@ -153,7 +137,7 @@ public:
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = apair<key_type, mapped_type>;
-    using insertion = rh::insertion_t<Key, Mapped>;
+    using insertion = apair<value_type*, bool>;
     using collection_type = 
         batman_collection<map_policy<value_type, Hash, KeyEqual>>;
     using hash_type = typename collection_type::hash_type;
@@ -169,28 +153,24 @@ public:
 
     mapped_type& operator[](key_type const& k)
     {
-        return *emplace(k, [](){ return mapped_type(); }).mapped;
+        return emplace(k, [](){ return mapped_type(); }).first->second;
     }
 
     insertion insert(value_type const& v)
     { 
-        apair<value_type*, bool> pair = collection.insert(v); 
-        return { &pair.first->first, &pair.first->second, pair.second };
+        return collection.insert(v); 
     }
 
     insertion insert(value_type&& v)
     { 
-        apair<value_type*, bool> pair = collection.insert(std::move(v)); 
-        return { &pair.first->first, &pair.first->second, pair.second };
+        return collection.insert(std::move(v)); 
     }
 
     template<typename K, typename MConstruct>
     insertion emplace(K&& k, MConstruct mconstruct)
     {
-        apair<value_type*, bool> pair = collection.emplace(
-            k,
+        return collection.emplace(k,
             [&](){ return value_type{ std::forward<K>(k), mconstruct() }; });
-        return { &pair.first->first, &pair.first->second, pair.second };
     }
 
     value_type const* find(key_type const& k) const
@@ -247,7 +227,7 @@ public:
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = apair<key_type, mapped_type>;
-    using insertion = rh::insertion_t<Key, Mapped>;
+    using insertion = apair<value_type*, bool>;
     using collection_type = 
         joker_collection<map_policy<value_type, Hash, KeyEqual>>;
     using hash_type = typename collection_type::hash_type;
@@ -263,28 +243,24 @@ public:
 
     mapped_type& operator[](key_type const& k)
     {
-        return *emplace(k, [](){ return mapped_type(); }).mapped;
+        return emplace(k, [](){ return mapped_type(); }).first->second;
     }
 
     insertion insert(value_type const& v)
     { 
-        apair<value_type*, bool> pair = collection.insert(v); 
-        return { &pair.first->first, &pair.first->second, pair.second };
+        return collection.insert(v); 
     }
 
     insertion insert(value_type&& v)
     { 
-        apair<value_type*, bool> pair = collection.insert(std::move(v)); 
-        return { &pair.first->first, &pair.first->second, pair.second };
+        return collection.insert(std::move(v)); 
     }
 
     template<typename K, typename MConstruct>
     insertion emplace(K&& k, MConstruct mconstruct)
     {
-        apair<value_type*, bool> pair = collection.emplace(
-            k,
+        return collection.emplace(k,
             [&](){ return value_type{ std::forward<K>(k), mconstruct() }; });
-        return { &pair.first->first, &pair.first->second, pair.second };
     }
 
     value_type const* find(key_type const& k) const

@@ -15,12 +15,14 @@ namespace bc = boost::container;
 namespace // Anonymous namespace
 { 
 
-enum value_category_t
+enum value_category_t : char
 {
     RVAL, 
-    LVAL_LOCAL,
-    LVAL_GLOBAL,
+    LVAL,
+    LVAL_INDEX,
 };
+
+inline value_category_t to_indexed(value_category_t vc) { return vc == LVAL ? LVAL_INDEX : vc; }
 
 // Expressions are stored in RPN form.
 // This struct is what the RPN stack holds.
@@ -125,6 +127,7 @@ private:
     cfg_ht compile_block(cfg_ht cfg_h);
 
     ssa_ht insert_fn_call(cfg_ht cfg_node, fn_ht fn, rpn_value_t const* args);
+    ssa_ht insert_array_index(cfg_ht cfg_node, rpn_value_t const& array, rpn_value_t const& arg);
     void exits_with_jump(cfg_node_t& node);
     void exits_with_branch(cfg_node_t& node, ssa_value_t condition);
     cfg_ht compile_goto(cfg_ht branch_node);
@@ -607,6 +610,13 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
     return ret;
 }
 
+ssa_ht ir_builder_t::insert_array_index(cfg_ht cfg_node, rpn_value_t const& array, rpn_value_t const& arg)
+{
+    ssa_ht ret = cfg_node->emplace_ssa(SSA_read_array, array.type.elem_type(),
+                                       array.ssa_value, arg.ssa_value);
+    return ret;
+}
+
 void ir_builder_t::exits_with_jump(cfg_node_t& node)
 {
     node.alloc_output(1);
@@ -760,7 +770,7 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
         case TOK_ident:
             rpn_stack.push({ 
                 .ssa_value = var_lookup(cfg_node, token->value), 
-                .category = LVAL_LOCAL, 
+                .category = LVAL, 
                 .type = fn.def.local_vars[token->value].type, 
                 .pstring = token->pstring,
                 .var_i = token->value });
@@ -779,7 +789,7 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                         unsigned const var_i = to_var_i(ir.gvar_loc_manager.index(global->handle<gvar_ht>()));
                         rpn_stack.push({ 
                             .ssa_value = var_lookup(cfg_node, var_i), 
-                            .category = LVAL_GLOBAL, 
+                            .category = LVAL, 
                             .type = global->impl<gvar_t>().type, 
                             .pstring = token->pstring,
                             .var_i = var_i });
@@ -866,13 +876,51 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 ssa_ht fn_node = insert_fn_call(cfg_node, fn, args);
 
                 // Update the eval stack.
-                rpn_stack.pop(num_args + 1);
-                rpn_stack.push({ 
+                rpn_value_t new_top =
+                {
                     .ssa_value = fn_node,
                     .category = RVAL, 
                     .type = fn_val.type.return_type(), 
-                    .pstring = token->pstring });
+                    .pstring = token->pstring
+                };
 
+                rpn_stack.pop(num_args + 1);
+                rpn_stack.push(std::move(new_top));
+
+                break;
+            }
+
+        case TOK_index:
+            {
+                // TOK_index is a psuedo token used to array indexing. 
+
+                // The eval stack contains the index on top.
+                // Right beneath it contains the array.
+                rpn_value_t& array_val = rpn_stack.peek(1);
+
+                if(array_val.type.name() != TYPE_ARRAY)
+                {
+                    compiler_error(array_val.pstring, fmt(
+                        "Expecting array type. Got %.", array_val.type));
+                }
+
+                rpn_value_t& array_index = rpn_stack.peek(0);
+
+                // Array indexes are always bytes.
+                throwing_cast(*cfg_node, array_index, TYPE_BYTE);
+
+                // Type checks are done. Now convert the index to SSA.
+                ssa_ht index_node = insert_array_index(cfg_node, array_val, array_index);
+
+                // Update the eval stack.
+                array_val.ssa_value = index_node;
+                array_val.category = to_indexed(array_val.category);
+                array_val.type = array_val.type.elem_type();
+                array_val.pstring = token->pstring;
+                rpn_stack.pop(1);
+            break;
+
+                // TODO
                 break;
             }
 
@@ -991,19 +1039,40 @@ void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
     assignee.pstring = concat(assignee.pstring, assignee.pstring);
 
     if(assignee.category == RVAL)
+    {
         compiler_error(assignee.pstring, 
             "Expecting lvalue on left side of assignment.");
+    }
 
     throwing_cast(cfg_node, assignment, assignee.type);
 
-    // Remap the identifier to point to the new value:
-    block_d& block_data = cfg_node.handle().data<block_d>();
     assert(assignee.var_i < num_fn_vars());
     assert(assignment.ssa_value);
-    block_data.fn_vars[assignee.var_i] = assignment.ssa_value;
+
+    // Remap the identifier to point to the new value:
+    block_d& block_data = cfg_node.handle().data<block_d>();
+    if(assignee.category == LVAL_INDEX)
+    {
+        // For arrays, we'll have to create a SSA_write_array node.
+
+        assert(assignee.ssa_value.holds_ref());
+        ssa_ht read = assignee.ssa_value.handle();
+        assert(read->op() == SSA_read_array);
+
+        ssa_ht write = cfg_node.emplace_ssa(
+            SSA_write_array, var_i_type(assignee.var_i),
+            read->input(0), read->input(1), assignment.ssa_value);
+
+        block_data.fn_vars[assignee.var_i] = write;
+    }
+    else
+    {
+        assert(assignee.category == LVAL);
+        block_data.fn_vars[assignee.var_i] = assignment.ssa_value;
+    }
+
 
     // Leave the assignee on the stack, slightly modified.
-    assignee.ssa_value = assignment.ssa_value;
     assignee.category = RVAL;
     rpn_stack.pop();
 }

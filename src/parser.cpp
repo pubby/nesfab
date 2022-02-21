@@ -262,7 +262,7 @@ inapplicable:
             parse_indented_token();
             if(indent <= starting_indent)
                 compiler_error("Multi-line expressions must be indented. "
-                            "(Did you forget to close a parenthesis?)");
+                               "(Did you forget to close a parenthesis?)");
             goto inapplicable;
         }
         else
@@ -301,6 +301,19 @@ applicable:
             }
             expr_temp.push_back(shunting_yard.back());
             shunting_yard.pop_back();
+        }
+
+    case TOK_lbracket:
+        {
+            char const* begin = token_source;
+            int const bracket_indent = indent;
+            parse_token();
+            parse_expr(expr_temp, bracket_indent, open_parens+1);
+            parse_token(TOK_rbracket);
+            char const* end = token_source;
+            pstring_t pstring = { begin - source(), end - begin, file_i() };
+            expr_temp.push_back({ TOK_index, pstring });
+            goto applicable;
         }
     
     case TOK_eol:
@@ -493,14 +506,20 @@ void parser_t<P>::parse_top_level_def()
     case TOK_mode: 
         return parse_mode();
     case TOK_vars: 
-        return parse_vars_group();
+        return parse_group_vars();
+    case TOK_once: 
+        return parse_group_data(true);
+    case TOK_many: 
+        return parse_group_data(false);
     default: 
+        //if(is_type_prefix(token.type))
+            //return parse_top_level_const();
         compiler_error("Unexpected token at top level.");
     }
 }
 
 template<typename P>
-void parser_t<P>::parse_vars_group()
+void parser_t<P>::parse_group_vars()
 {
     int const vars_indent = indent;
 
@@ -510,7 +529,7 @@ void parser_t<P>::parse_vars_group()
     parse_token(TOK_group_ident);
     parse_line_ending();
 
-    group_vars_t& group = policy().begin_vars_group(group_name);
+    auto group = policy().begin_group_vars(group_name);
 
     maybe_parse_block(vars_indent, 
     [&]{ 
@@ -523,7 +542,32 @@ void parser_t<P>::parse_vars_group()
         parse_line_ending();
     });
 
-    policy().end_vars_group(group);
+    policy().end_group();
+}
+
+template<typename P>
+void parser_t<P>::parse_group_data(bool once)
+{
+    int const indent = indent;
+
+    // Parse the declaration
+    parse_token(once ? TOK_once : TOK_many);
+    pstring_t const group_name = token.pstring;
+    parse_token(TOK_group_ident);
+    parse_line_ending();
+
+    auto group = policy().begin_group_data(group_name, once);
+
+    maybe_parse_block(indent, 
+    [&]{ 
+        var_decl_t var_decl;
+        expr_temp_t expr;
+        bool const has_expr = parse_var_init(var_decl, expr);
+        policy().global_const(group, var_decl, has_expr ? &expr : nullptr);
+        parse_line_ending();
+    });
+
+    policy().end_group();
 }
 
 template<typename P>

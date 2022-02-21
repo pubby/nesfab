@@ -2,22 +2,10 @@
 
 #include "alloca.hpp"
 #include "cg.hpp"
+#include "globals.hpp"
 #include "ir.hpp"
+#include "lvar.hpp"
 #include "worklist.hpp"
-
-cg_var_map_t::cg_var_map_t(ir_t const& ir)
-{
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(asm_inst_t inst : cg_data(cfg_it).code)
-        if(is_valid_var(inst.arg))
-            map.emplace(inst.arg.mem_head(), [&]{ return map.size(); });
-}
-
-bool cg_var_map_t::is_valid_var(locator_t arg)
-{
-    auto const l = arg.lclass();
-    return l == LOC_THIS_ARG || l == LOC_CALL_ARG || l == LOC_PHI || l == LOC_SSA;
-}
 
 //////////////////
 // cfg liveness //
@@ -83,7 +71,7 @@ unsigned calc_ssa_liveness(ir_t const& ir, unsigned pool_size)
     using namespace liveness_impl;
     cg_data_resize();
     bitset_pool.clear();
-    set_size = bitset_size<>(pool_size);
+    set_size = ::bitset_size<>(pool_size);
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
@@ -182,13 +170,12 @@ std::size_t live_range_busyness(ir_t& ir, ssa_ht h)
 // a second set of liveness checks is run to build an interference graph
 // and then allocate memory.
 
-void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map)
+void calc_asm_liveness(ir_t const& ir, lvars_manager_t const& lvars)
 {
     using namespace liveness_impl;
     cg_data_resize();
     bitset_pool.clear();
-
-    set_size = bitset_size<>(var_map.size());
+    set_size = lvars.bitset_size();
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -208,9 +195,10 @@ void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map)
         // (This set is sometimes called 'KILL')
         for(asm_inst_t const& inst : cg_data(cfg_it).code)
         {
-            if(!cg_var_map_t::is_valid_var(inst.arg))
+            int const store_i = lvars.index(inst.arg);
+
+            if(store_i < 0)
                 continue;
-            unsigned const store_i = var_map.index(inst.arg);
 
             if((op_input_regs(inst.op) & REGF_M) && bitset_test(d.out, store_i))
                 bitset_set(d.in, store_i);
@@ -224,7 +212,6 @@ void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map)
     // is running.
     auto* temp_set = ALLOCA_T(bitset_uint_t, set_size);
 
-    assert(ir.exit);
     cfg_worklist.clear();
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -284,95 +271,11 @@ void calc_asm_liveness(ir_t const& ir, cg_var_map_t const& var_map)
     }
 }
 
-
-// BEHAVIOR:
-// - first compile everything and save its assembly
-// - count gvar uses, use that to allocate gvars
-// - 
-
-
-// Change all ssa_ht args to some optimized set of new locators
-// The tricky things is, how to cleverly reuse locators?
-
-// idea 1: directly use called fn memory 
-// idea 2: use distinct memory, coalesce later
-
-// color graph, but track which locators interfere with which fns 
-// some locators will be multi-byte
-// - pointers must be in ZP
-// - arrays can be large
-// 
-
-#if 1
-struct group_ram_t
+void build_lvar_interferences(ir_t const& ir, lvars_manager_t& lvars)
 {
-    usable_ram_bitset_t allocated_ram;
-    usable_ram_bitset_t usable_ram;
-    rh::robin_set<group_ht> interfering_groups;
-};
+    using namespace liveness_impl;
 
-struct lvar_t
-{
-    rh::robin_set<locator_t> interferes_with;
-    usable_ram_bitset_t usable_ram;
-};
-
-rh::batman_set<locator_t> locs;
-
-// 1. pick a locator
-// 2. allocate said locator to a ram region
-// 3. for each interference, remove said ram region from 'usable_ram'
-
-
-// function vars:
-// - can interfere with called fn arguments
-
-// function args:
-// - can interfere with called fn arguments, OR callee functions
-
-
-// function vars: get their own group
-// function args: 
-
-
-// ALLOCATION STRATEGY;
-// 1. allocate globals
-// 2. allocate fn vars and shit
-
-// PARAMETERS:
-
-// - TREAT LOCALS AS ONE BLOB
-// - TREAT ARGS AS ONE BLOB
-
-
-
-// - allocate functions in order
-// - each locator gets a usable_ram bs
-// - 
-
-struct lvar_t
-{
-    fn_ht owning_fn;
-
-    bitset_t interferes_with_fns;
-    bitset_t interferes_with_fn_args;
-}
-
-// HOW DO WE HANDLE ARGS?
-
-
-// 
-void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
-{
-    unsigned const num_vars = TODO;
-
-    // A 2d array representing an interference graph.
-    std::vector<bitset_uint_t> interferences(set_size * num_vars, 0);
-
-    // Tracks which vars are live at fn calls.
-    //std::vector<fc::vector_set<fn_ht>> interfering_fns(num_vars);
-
-    std::vector<ram_bitset_t> usable_ram(num_vars, starting_ram);
+    assert(set_size == lvars.bitset_size());
 
     // Step-through the code backwards, maintaining a current liveness set
     // and using that to build an interference graph.
@@ -380,7 +283,9 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         auto& d = cg_data(cfg_it);
-        bitset_copy(set_size, live, d.live_out);
+
+        // Since we're going backwards, reset 'live' to the node's output state.
+        bitset_copy(set_size, live, d.live.out);
 
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
@@ -388,44 +293,42 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
             if(inst.op == JSR_ABSOLUTE)
             {
-                fn_t const& fn = *inst.arg.fn();
+                fn_ht const fn_h = inst.arg.fn();
+                fn_t const& fn = *fn_h;
 
                 // Every live var will interfere with this fn:
                 bitset_for_each(set_size, live, [&](unsigned i)
                 {
-                    usable_ram[i] &= fn.usable_ram;
-
-                    //locator_t const loc = loc_map[i];
-
-                    // CALL_ARGs are used by their calling function
-                    /*
-                    if(loc.gclass() == LOC_CALL_ARG && loc.fn() == fn)
-                        bitset_clear(live, i);
-                        */
-
-                    //interfering_fns[i].insert(fn);
+                    lvars.add_fn_interference(i, fn_h);
                 });
 
-                // The fn's arguments are now live.
-                for(locator_t loc : fn->arg_locs())
-                    bitset_set(live, var_map.index(loc));
+                // The fn's arguments are now live:
+                for(unsigned argn = 0; argn < fn.type.num_params(); ++argn)
+                {
+                    unsigned const num_fields = ::num_fields(fn.type.type(argn));
+                    for(unsigned field = 0; field < num_fields; ++field)
+                    {
+                        int lvar_i = lvars.index(locator_t::call_arg(fn_h, argn, field));
+                        assert(lvar_i >= 0);
+                        bitset_set(live, lvar_i);
+                    }
+                }
 
-                // TODO handle fn returns
-
-                continue;
+                // TODO handle fn returns?
             }
+            else
+            {
+                int const lvar_i = lvars.index(inst.arg);
+                if(lvar_i < 0)
+                    continue;
 
-            auto const* lookup = store_set.find(inst.arg.cg_mem());
-            if(!lookup)
-                continue;
-            unsigned const var_i = loc_map.index(inst.arg.
-
-            else if(op_input_regs(inst.op) & REGF_M)
-                bitset_set(live, var_store_i);
-            else if(op_output_regs(inst.op) & REGF_M)
-                bitset_clear(live, var_store_i);
-            else 
-                continue; // No change to 'live' this iteration.
+                if(op_input_regs(inst.op) & REGF_M)
+                    bitset_set(live, lvar_i);
+                else if(op_output_regs(inst.op) & REGF_M)
+                    bitset_clear(live, lvar_i);
+                else 
+                    continue; // No change to 'live' this iteration.
+            }
 
             /* TODO
             if(indirect_addr_mode(op_addr_mode(inst.op)))
@@ -438,16 +341,16 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
             // Variables that are live together interfere with each other.
             // Update the interference graph here:
-            bitset_for_each(set_size, live, [&](unsigned i)
-            {
-                bitset_or(set_size, &interferences[i * set_size], live);
-            });
+            lvars.add_lvar_interferences(live);
         }
     }
+}
+
+#if 0
 
     // Cleanup: nodes never interfere with themself:
     for(unsigned i = 0; i < store_set.size(); ++i)
-        bitset_clear(&interferences[i * set_size], i);
+        bitset_clear(&interferences[i * bitset_size], i);
 
     struct rank_t
     {
@@ -469,7 +372,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
         // Less usable ram = higher priority
         unsigned const taken_ram = ram_size - usable_ram[i].popcount();
-        unsigned const neighbors = bitset_popcount(set_size, interferences[i * set_size]);
+        unsigned const neighbors = bitset_popcount(bitset_size, interferences[i * bitset_size]);
 
         score += taken_ram * neighbors;
 
@@ -477,8 +380,21 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     }
 
     std::sort(ranked.begin(), ranked.end(), std::greater<>{});
-    
-    // sort by
+
+    for(rank_t rank : ranked)
+    {
+        unsigned const var_size = TODO;
+        bool const zp_only = TODO;
+        span_t const span = alloc_ram(usable_ram[rank.i], var_size, zp_only);
+
+        ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
+
+        // Propagate changes
+        bitset_for_each(bitset_size, &interferences[i * bitset_size], [&](unsigned i)
+        {
+            usable_ram[i] &= mask;
+        });
+    }
 
 
 
@@ -511,7 +427,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
             if(size < max_size)
                 return;
 
-            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            int const neighbors = bitset_popcount(bitset_size, &interferences[i * bitset_size]);
             if(size > max_size || neighbors > max_negihbors)
             {
                 max_size = size;
@@ -529,7 +445,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
             if(freebie > min_freebie)
                 continue;
 
-            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            int const neighbors = bitset_popcount(bitset_size, &interferences[i * bitset_size]);
             if(freebie < min_freebie || neighbors > max_neighbors)
             {
                 min_freebie = freebie;
@@ -549,7 +465,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
             if(freebie > min_freebie)
                 continue;
 
-            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            int const neighbors = bitset_popcount(bitset_size, &interferences[i * bitset_size]);
             if(freebie < min_freebie || neighbors > max_neighbors)
             {
                 min_freebie = freebie;
@@ -561,10 +477,10 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
         // OK. We've selected a node: 'best_i'.
 
         // Add our starting node to the set:
-        bitset_clear_all(set_size, S);
-        bitset_clear_all(set_size, S_neighbors);
+        bitset_clear_all(bitset_size, S);
+        bitset_clear_all(bitset_size, S_neighbors);
         bitset_set(S, best_i);
-        bitset_or(set_size, S_neighbors, &interferences[best_i * set_size]);
+        bitset_or(bitset_size, S_neighbors, &interferences[best_i * bitset_size]);
         S_usable_ram = usable_ram[best_i];
 
         // Remove from our uncolored graph:
@@ -623,15 +539,15 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     //std::vector<ram_bitset_t> sizable_ram(store_set.size(), 0); // TODO: implement
 
     // A 2d array representing an interference graph.
-    std::vector<bitset_uint_t> interferences(set_size * store_set.size(), 0);
+    std::vector<bitset_uint_t> interferences(bitset_size * store_set.size(), 0);
 
     // Step-through the code backwards, maintaining a current liveness set
     // and using that to build an interference graph.
-    bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, set_size);
+    bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, bitset_size);
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         auto& d = cg_data(cfg_it);
-        bitset_copy(set_size, live, d.live_out);
+        bitset_copy(bitset_size, live, d.live.out);
 
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
@@ -644,7 +560,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
                 ram_bitset_t const fn_ram = the_called_fn.locals_ram();
                 freebie_ram |= fn_ram;
-                bitset_for_each(set_size, live, [&](unsigned i)
+                bitset_for_each(bitset_size, live, [&](unsigned i)
                 {
                     usable_ram[i] &= ~fn_ram;
                 });
@@ -674,16 +590,16 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
             // Variables that are live together interfere with each other.
             // Update the interference graph here:
-            bitset_for_each(set_size, live, [&](unsigned i)
+            bitset_for_each(bitset_size, live, [&](unsigned i)
             {
-                bitset_or(set_size, &interferences[i * set_size], live);
+                bitset_or(bitset_size, &interferences[i * bitset_size], live);
             });
         }
     }
 
     // Nodes never interfere with themself:
     for(unsigned i = 0; i < store_set.size(); ++i)
-        bitset_clear(&interferences[i * set_size], i);
+        bitset_clear(&interferences[i * bitset_size], i);
 
     // TODO: Properly handle multi-byte variables / arrays.
     for(unsigned i = 0; i < store_set.size(); ++i)
@@ -696,7 +612,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     std::array<unsigned, ram_size> usable_freq;
     for(int i = 0; i < store_set.size(); ++i)
     {
-        bitset_for_each(set_size, usable_ram[i].data(), [&](unsigned addr)
+        bitset_for_each(bitset_size, usable_ram[i].data(), [&](unsigned addr)
         {
             usable_freq[i] += 1;
         });
@@ -721,7 +637,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
         // Otherwise make our selection based on our ram options and our neighbor count.
         int const ram = (usable_ram[i]).popcount();
-        int const neighbors = bitset_popcount(set_size, interferences[i *set_size]);
+        int const neighbors = bitset_popcount(bitset_size, interferences[i *bitset_size]);
         int const ease = ram - neighbors;
 
         if(var_size > max_var_size || freebie < min_freebie || ease < min_ease)
@@ -736,7 +652,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     // Now color the chosen node, allocating it in RAM:
     unsigned min_penalty = ~0;
     unsigned best_addr;
-    bitset_for_each(set_size, usable_ram[i].data(), [&](unsigned addr)
+    bitset_for_each(bitset_size, usable_ram[i].data(), [&](unsigned addr)
     {
         unsigned penalty = 0;
 
@@ -767,9 +683,9 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     ram_bitset_t const allocated_mask = ~allocated_ram;
     fn_allocated_ram |= allocated_ram;
 
-    bitset_copy(set_size, temp_set, &interferences[best_i * set_size);
-    bitset_and(set_size, temp_set, G);
-    bitset_for_each(set_size, temp_set, [&](unsigned i)
+    bitset_copy(bitset_size, temp_set, &interferences[best_i * bitset_size);
+    bitset_and(bitset_size, temp_set, G);
+    bitset_for_each(bitset_size, temp_set, [&](unsigned i)
     {
         usable_ram[i] &= allocated_mask;
         //TODO: fix sizable ram
@@ -786,13 +702,13 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
 
     // 'G' holds uncolored graph nodes:
-    bitset_uint_t* G = ALLOCA_T(bitset_uint_t, set_size); 
-    bitset_set_n(set_size, G, store_set.size());
-    assert(bitset_popcount(set_size, G) == store_set.size());
+    bitset_uint_t* G = ALLOCA_T(bitset_uint_t, bitset_size); 
+    bitset_set_n(bitset_size, G, store_set.size());
+    assert(bitset_popcount(bitset_size, G) == store_set.size());
         
     // 'S' holds nodes colored to the same color, this iteration
-    bitset_uint_t* S const = ALLOCA_T(bitset_uint_t, set_size);
-    bitset_uint_t* S_neighbors const = ALLOCA_T(bitset_uint_t, set_size);
+    bitset_uint_t* S const = ALLOCA_T(bitset_uint_t, bitset_size);
+    bitset_uint_t* S_neighbors const = ALLOCA_T(bitset_uint_t, bitset_size);
     ram_bitset_t S_usable_ram;
 
     // 1) Find the first node of a new colored set.
@@ -808,7 +724,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
             if(freebie > min_freebie)
                 continue;
 
-            int const neighbors = bitset_popcount(set_size, &interferences[i * set_size]);
+            int const neighbors = bitset_popcount(bitset_size, &interferences[i * bitset_size]);
             if(freebie < min_freebie || neighbors > max_neighbors)
             {
                 min_freebie = freebie;
@@ -820,10 +736,10 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
         // OK. We've selected a node: 'best_i'.
 
         // Add our starting node to the set:
-        bitset_clear_all(set_size, S);
-        bitset_clear_all(set_size, S_neighbors);
+        bitset_clear_all(bitset_size, S);
+        bitset_clear_all(bitset_size, S_neighbors);
         bitset_set(S, best_i);
-        bitset_or(set_size, S_neighbors, &interferences[best_i * set_size]);
+        bitset_or(bitset_size, S_neighbors, &interferences[best_i * bitset_size]);
         S_usable_ram = usable_ram[best_i];
 
         // Remove from our uncolored graph:
@@ -839,10 +755,10 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
         if(!combined_usable_ram)
         next_iter: continue;
 
-        bitset_uint_t* const F = &interferences[i * set_size];
+        bitset_uint_t* const F = &interferences[i * bitset_size];
 
         // Can't share a color if we interfere:
-        for(unsigned j = 0; j < set_size; ++j)
+        for(unsigned j = 0; j < bitset_size; ++j)
             if(S[j] & F[j])
                 goto next_iter;
 
@@ -863,7 +779,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
         // Count and maximize the number of nodes adjacent to both G and S.
         // (Like RLF graph coloring algorithm)
         num_neighbors_adjacent = 0;
-        for(unsigned j = 0; j < set_size; ++j)
+        for(unsigned j = 0; j < bitset_size; ++j)
             num_neighbors_adjacent += builtin::popcount(G[j] & S_neighbors[j]);
 
         if(num_neighbors_adjacent < max_neighbors_adjacent)
@@ -872,7 +788,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
         // Othewise minimize the number of neighbors not in S.
         // (like RLF graph coloring algorithm)
         num_not_in_s = 0;
-        for(unsigned j = 0; j < set_size; ++j)
+        for(unsigned j = 0; j < bitset_size; ++j)
             num_not_in_s += builtin::popcount(G[j] & ~S[j]);
 
         // Check for a new best here:
@@ -889,8 +805,8 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
     // Add it to S
     bitset_set(S, best_i);
-    bitset_or(set_size, S_neighbors, interferences[best_i * set_size]);
-    bitset_difference(set_size, S_neighbors, S);
+    bitset_or(bitset_size, S_neighbors, interferences[best_i * bitset_size]);
+    bitset_difference(bitset_size, S_neighbors, S);
     S_usable_ram &= usable_ram[best_i];
 
     // TODO: Remove it from G
@@ -901,7 +817,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     
     // Pick a ram:
 
-    for_each_bit(set_size, S_usable_ram, [&](unsigned i)
+    for_each_bit(bitset_size, S_usable_ram, [&](unsigned i)
     {
         // Prefer ram addresses not in G nodes. 
 
@@ -919,7 +835,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
 
         unsigned num_neighbors = 0;
         unsigned num_S_neighbors = 0;
-        for(unsigned j = 0; j < set_size; ++j)
+        for(unsigned j = 0; j < bitset_size; ++j)
         {
             num_neighbors += builtin::popcount(G[j]);
             num_S_neighbors += builtin::popcount(G[j] & in_S[j]);
@@ -950,7 +866,7 @@ void color_asm_ram(ir_t const& ir, cg_var_map_t const& var_map)
     std::vector<std::pair<unsigned, unsigned>> elim_order(store_set.size());
     for(unsigned i = 0; i < store_set.size(); ++i)
     {
-        elim_order[i].first = bitset_popcount(set_size, &pool[i * set_size]);
+        elim_order[i].first = bitset_popcount(bitset_size, &pool[i * bitset_size]);
         elim_order[i].first += ram_restrict[i].popcount();
         elim_order[i].second = i;
     }

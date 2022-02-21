@@ -5,7 +5,6 @@
 
 #include "addr16.hpp"
 #include "bitset.hpp"
-#include "span.hpp"
 
 // ds = data segment, i.e. all read/writable global variables.
 // (Note that BSS doesn't exist. Just use DS for BSS vars.)
@@ -35,11 +34,6 @@ constexpr bool is_zp(ram_region_t region)
     return region.offset < 256 && (region.offset + region.size) <= 256; 
 }
 */
-
-// Modifies 'ram' to only include addresses that can hold a contiguous span of 'size' bytes
-// (This is useful for allocating multi-byte regions like arrays and pointers)
-void ram_for_size(ram_bitset_t& ram, std::size_t size);
-span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, bool zp_only);
 
 // TODO: remove?
 // Returns the first unused memory position of size 'size',

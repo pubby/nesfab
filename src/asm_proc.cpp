@@ -1,6 +1,7 @@
 #include "asm_proc.hpp"
 
 #include "format.hpp"
+#include "globals.hpp"
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
@@ -13,7 +14,7 @@ void asm_proc_t::push_inst(asm_inst_t inst)
     if(inst.op == ASM_LABEL)
     {
         auto result = labels.insert({ inst.arg, code.size() });
-        assert(result.inserted);
+        assert(result.second);
     }
     else
     {
@@ -115,8 +116,49 @@ int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
     return bytes;
 }
 
-void asm_proc_t::write_binary(loc_mem_map_t const& lmm, std::uint8_t* rom, addr16_t start_addr) const
+void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
 {
+    os << fn.global.name << ":\n";
+    for(asm_inst_t const& inst : code)
+    {
+        os << to_string(inst.op) << ' ';
+
+        switch(inst.arg.lclass())
+        {
+        case LOC_CONST_BYTE:
+            os << "#" << inst.arg.data();
+            break;
+        case LOC_IOTA:
+            os << "__iota";
+            break;
+        case LOC_FN:
+            os << "fn " << inst.arg.fn()->global.name;
+            break;
+        case LOC_GVAR:
+            os << "gvar " << inst.arg.gvar()->global.name << " (" << inst.arg.gvar()->span(inst.arg.field()).addr << ")";
+            break;
+        case LOC_THIS_ARG:
+        case LOC_CALL_ARG:
+        case LOC_PHI:
+        case LOC_SSA:
+            os << "lvar " << fn.lvar_span(fn.lvars().index(inst.arg)) << "   " << inst.arg;
+            break;
+
+        case LOC_NONE:
+            break;
+
+        default:
+            os << "???" << ' ' << inst.arg;
+            break;
+        }
+
+        os << '\n';
+    }
+}
+
+void asm_proc_t::write_binary(std::uint8_t* rom, addr16_t start_addr) const
+{
+    /*
     rom += start_addr;
 
     for(asm_inst_t const& inst : code)
@@ -170,20 +212,5 @@ void asm_proc_t::write_binary(loc_mem_map_t const& lmm, std::uint8_t* rom, addr1
             throw std::runtime_error("Invalid addressing mode.");
         }
     }
-}
-
-///////////////////
-// loc_mem_map_t //
-///////////////////
-
-
-addr16_t loc_mem_map_t::get_addr(locator_t loc, addr16_t relocation_offset) const
-{
-    if(loc.lclass() == LOC_RELOCATION_ADDR)
-        return relocation_offset + loc.data();
-
-    if(auto* result = map.find(loc))
-        return result->second.addr;
-
-    throw std::runtime_error(fmt("loc_mem_map_t: missing locator %i", loc));
+    */
 }

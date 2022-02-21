@@ -2,6 +2,7 @@
 // See license.txt for details.
 
 #include <cstdlib>
+#include <chrono>
 #include <iostream>
 
 #include <boost/program_options.hpp>
@@ -90,7 +91,18 @@ int main(int argc, char** argv)
         // OK! Now to do the actual work: //
         ////////////////////////////////////
 
+        auto time = std::chrono::system_clock::now();
+
+        auto const output_time = [&time](char const* desc)
+        {
+            auto now = std::chrono::system_clock::now();
+            unsigned long long const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - time).count();
+            std::printf("time %s %lli ms\n", desc, ms);
+            time = std::chrono::system_clock::now();
+        };
+
         global_t::init();
+        output_time("init:    ");
 
         // Parse the files, loading everything into globals:
         set_compiler_phase(PHASE_PARSE);
@@ -112,6 +124,7 @@ int main(int argc, char** argv)
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);
         global_t::parse_cleanup();
+        output_time("parse:   ");
 
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);
@@ -120,9 +133,11 @@ int main(int argc, char** argv)
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);
         global_t::compile_all();
+        output_time("compile:  ");
 
         set_compiler_phase(PHASE_ALLOC_RAM);
         global_t::alloc_ram();
+        output_time("alloc ram:");
 
         //for(unsigned i = 0; i < 1; ++i)
         //{

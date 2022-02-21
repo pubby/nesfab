@@ -26,6 +26,13 @@ namespace // anonymous
     };
 }
 
+static type_t _bm_type(type_t t)
+{
+    if(t.name() == TYPE_ARRAY)
+        return t.elem_type();
+    return t;
+}
+
 static bm_t _get_bm(ssa_value_t value)
 {
     assert(value);
@@ -43,7 +50,7 @@ static bm_t _get_bm(ssa_value_t value)
     }
     else
     {
-        assert(is_arithmetic(value->type()));
+        assert(is_arithmetic(_bm_type(value->type())));
         return value.handle().data<ssa_byteify_d>().bm;
     }
 }
@@ -92,7 +99,8 @@ void byteify(ir_t& ir, fn_t const& fn)
         {
             ssa_node_t& ssa_node = *ssa_it;
             ssa_node.clear_flags(FLAG_PROCESSED); // For '_split_cast'.
-            type_t const type = ssa_node.type();
+
+            type_t const type = _bm_type(ssa_node.type());
 
             if(ssa_node.op() == SSA_cast)
             {
@@ -207,6 +215,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                             return;
                         }
 
+                        t = _bm_type(t);
+
                         bm_t bm = _get_bm(v);
 
                         unsigned const start = begin_byte(t.name());
@@ -223,10 +233,8 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     assert(new_input.size() % 2 == 0);
 
-                    ssa_it->link_shrink_inputs(
-                        write_globals_begin(ssa_it->op()));
-                    ssa_it->link_append_input(&*new_input.begin(),
-                                              &*new_input.end());
+                    ssa_it->link_shrink_inputs(write_globals_begin(ssa_it->op()));
+                    ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
                 }
                 break;
 
@@ -282,7 +290,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     for(ssa_ht ssa_node : ssa_workvec)
     {
         auto& ssa_data = ssa_node.data<ssa_byteify_d>(); 
-        type_name_t const t = ssa_node->type().name();
+        type_name_t const t = _bm_type(ssa_node->type()).name();
         assert(is_arithmetic(t));
 
         SSA_VERSION(1);
@@ -337,6 +345,40 @@ void byteify(ir_t& ir, fn_t const& fn)
                         SSA_carry, TYPE_CARRY, split);
                     ssa_data_pool::resize<ssa_byteify_d>(
                         ssa_pool::array_size());
+                }
+                prune_nodes.push_back(ssa_node);
+            }
+            break;
+
+        case SSA_read_array:
+            {
+                bm_t const array_bm = _get_bm(ssa_node->input(0));
+
+                unsigned const end = end_byte(t);
+                for(unsigned i = begin_byte(t); i < end; ++i)
+                {
+                    ssa_ht split = ssa_data.bm[i].handle();
+                    split->alloc_input(2);
+                    split->build_set_input(0, array_bm[i]);
+                    split->build_set_input(1, ssa_node->input(1));
+                }
+                prune_nodes.push_back(ssa_node);
+            }
+            break;
+
+        case SSA_write_array:
+            {
+                bm_t const array_bm = _get_bm(ssa_node->input(0));
+                bm_t const assign_bm = _get_bm(ssa_node->input(2));
+
+                unsigned const end = end_byte(t);
+                for(unsigned i = begin_byte(t); i < end; ++i)
+                {
+                    ssa_ht split = ssa_data.bm[i].handle();
+                    split->alloc_input(3);
+                    split->build_set_input(0, array_bm[i]);
+                    split->build_set_input(1, ssa_node->input(1));
+                    split->build_set_input(2, assign_bm[i]);
                 }
                 prune_nodes.push_back(ssa_node);
             }

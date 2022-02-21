@@ -2,7 +2,7 @@
 #define GROUP_HPP
 
 #include <string>
-#include <string>
+#include <utility>
 
 #include "robin/collection.hpp"
 #include "robin/set.hpp"
@@ -48,8 +48,8 @@ public:
         return impl_deque<T>[m_impl_index];
     }
 
-    group_vars_t& define_vars(pstring_t pstring);
-    group_data_t& define_data(pstring_t pstring);
+    std::pair<group_vars_t*, group_vars_ht> define_vars(pstring_t pstring);
+    std::pair<group_data_t*, group_data_ht> define_data(pstring_t pstring, bool once);
 
     static group_t& lookup(char const* source, pstring_t name);
 
@@ -61,6 +61,7 @@ public:
 private:
 
     unsigned define(pstring_t pstring, group_class_t gclass, 
+                    std::function<bool(group_t&)> valid_same,
                     std::function<unsigned(group_t&)> create_impl);
 
     inline static rh::robin_auto_table<group_t*> group_map;
@@ -86,28 +87,20 @@ public:
         std::lock_guard<std::mutex> lock(gvars_mutex);
         gvars.push_back(v);
     }
-
-    void add_interferences(bitset_uint_t const* other_groups);
-    bitset_t const& interfering_group_vars() { return m_interfering_group_vars; }
-
 private:
     std::mutex gvars_mutex; // Used during parsing only.
     std::vector<gvar_ht> gvars;
-
-    // Tracks 'group vars' that are live while this group is live.
-    bitset_t m_interfering_group_vars;
 };
 
 class group_data_t
 {
 public:
-    using group_impl_tag = void;
-    static constexpr group_class_t gclass = GROUP_DATA;
-
     group_t& group;
+    bool const once;
 
-    explicit group_data_t(group_t& group)
+    group_data_t(group_t& group, bool once)
     : group(group)
+    , once(once)
     {}
 
     group_data_ht handle() const { return group.handle<group_data_ht>(); }
@@ -115,13 +108,15 @@ public:
     void add_const(const_ht c)
     {
         assert(compiler_phase() <= PHASE_PARSE);
-        std::lock_guard<std::mutex> lock(consts_mutex);
-        consts.push_back(c);
+        std::lock_guard<std::mutex> lock(m_consts_mutex);
+        m_consts.push_back(c);
     }
 
+    std::vector<const_ht> const& consts() const { assert(compiler_phase() > PHASE_PARSE); return m_consts; }
+
 private:
-    std::mutex consts_mutex; // Used during parsing only.
-    std::vector<const_ht> consts;
+    std::mutex m_consts_mutex; // Used during parsing only.
+    std::vector<const_ht> m_consts;
 };
 
 #endif

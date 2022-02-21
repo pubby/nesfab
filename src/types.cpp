@@ -64,7 +64,6 @@ std::size_t type_t::size_of() const
 
     switch(name())
     {
-    // TODO: Some rom ptrs are only 2 bytes?
     default: assert(false); return 0;
     case TYPE_PTR:          return 2;
     case TYPE_BANKED_PTR:   return 3;
@@ -219,7 +218,7 @@ unsigned num_fields(type_t type)
 {
     switch(type.name())
     {
-    case TYPE_ARRAY: return type.size();
+    case TYPE_ARRAY: return type.elem_type().size_of();
     case TYPE_PTR: return 1;
     case TYPE_BANKED_PTR: return 2;
     default: return type.size_of();

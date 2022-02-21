@@ -25,6 +25,9 @@ inline constexpr bool priority_order(treap_node_t const& lhs, treap_node_t const
     return lhs.span.size > rhs.span.size;
 }
 
+// Allocates spans inside a larger set of spans.
+// Created to allocate ROM.
+
 class span_allocator_t
 {
 private:

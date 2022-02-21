@@ -1,28 +1,16 @@
 vars @menu
-    byte f
-    byte g
-
-vars @pee
-    byte a
-    byte b
-
-vars @poo
-    short c
-    short d
+    short f
+    short g
+    short[200] array
 
 fn foo(short x, byte y, byte z) byte
     goto mode main()
     return 0
 
-fn bar(short x, short y, short z) byte
-    f += z
-    byte a = x + y
-    z = a + a
-    byte b = x + z
-    z = b + b
-    byte c = y + z
-    z = c + c
-    return c
+fn bar(short x, short y, short z) short
+    array[10] = 5
+    return array[10]
+
 
 mode main() 
     bar(1,2,3)

@@ -172,23 +172,38 @@ public:
     }
 
     [[gnu::always_inline]]
-    group_vars_t& begin_vars_group(pstring_t group_name)
+    std::pair<group_vars_t*, group_vars_ht> begin_group_vars(pstring_t group_name)
     {
         return group_t::lookup(file.source(), group_name).define_vars(group_name);
     }
 
     [[gnu::always_inline]]
-    void end_vars_group(group_vars_t&)
+    std::pair<group_data_t*, group_data_ht> begin_group_data(pstring_t group_name, bool once)
+    {
+        return group_t::lookup(file.source(), group_name).define_data(group_name, once);
+    }
+
+    [[gnu::always_inline]]
+    void end_group()
     {}
 
-    // Global variables
     [[gnu::always_inline]]
-    void global_var(group_vars_t& vars_group, var_decl_t const& var_decl, expr_temp_t* expr)
+    void global_var(std::pair<group_vars_t*, group_vars_ht> group, var_decl_t const& var_decl, expr_temp_t* expr)
     {
         assert(ideps.empty());
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, vars_group);
+        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, group);
+        ideps.clear();
+    }
+
+    [[gnu::always_inline]]
+    void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, expr_temp_t* expr)
+    {
+        assert(ideps.empty());
+
+        active_global = &global_t::lookup(file.source(), var_decl.name);
+        active_global->define_const(var_decl.name, std::move(ideps), var_decl.type, group);
         ideps.clear();
     }
 

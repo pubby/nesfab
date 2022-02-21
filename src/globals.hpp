@@ -19,6 +19,7 @@
 #include "ram.hpp"
 #include "stmt.hpp"
 #include "types.hpp"
+#include "lvar.hpp"
 
 namespace bc = boost::container;
 
@@ -150,9 +151,9 @@ public:
                     global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
                     type_t type, fn_def_t&& fn_def, bool mode);
     gvar_t& define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                       type_t type, group_vars_t& group);
+                      type_t type, std::pair<group_vars_t*, group_vars_ht> group);
     const_t& define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                          type_t type, group_data_t& group);
+                          type_t type, std::pair<group_data_t*, group_data_ht> group);
 
     static void init();
 
@@ -179,6 +180,8 @@ public:
     // Call after 'compile_all'.
     // Assigns variables to ram addresses.
     static void alloc_ram();
+
+    static std::vector<fn_t*> modes() { assert(compiler_phase() > PHASE_PARSE); return modes_vec; }
 private:
     // Sets the variables of the global:
     unsigned define(pstring_t pstring, global_class_t gclass, 
@@ -223,7 +226,7 @@ public:
     fn_ht handle() const;
 
     void calc_lang_gvars_groups();
-    void calc_ir_reads_writes_purity(ir_t const& ir);
+    void calc_ir_bitsets(ir_t const& ir);
 
     bitset_t const& lang_gvars()  const { assert(m_lang_gvars);  return m_lang_gvars; }
     bitset_t const& lang_group_vars() const { assert(m_lang_group_vars); return m_lang_group_vars; }
@@ -232,6 +235,8 @@ public:
     bitset_t const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
     bitset_t const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
     bitset_t const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
+    bitset_t const& ir_immediate_group_data() const { assert(m_ir_immediate_group_data); return m_ir_immediate_group_data; }
+    bitset_t const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
 
     bool ir_reads(gvar_ht gvar)  const { return ir_reads().test(gvar.value); }
@@ -245,6 +250,16 @@ public:
     }
 
     asm_proc_t const& proc() const { assert(compiler_phase() > PHASE_COMPILE); return m_proc; }
+
+    void assign_lvars(lvars_manager_t&& lvars);
+    lvars_manager_t const& lvars() const { assert(compiler_phase() > PHASE_COMPILE); return m_lvars; }
+    
+    void mask_usable_ram(ram_bitset_t const& mask);
+    ram_bitset_t const& usable_ram() const { return m_usable_ram; }
+
+    ram_bitset_t const& lvar_ram() const { return m_lvar_ram; }
+    void assign_lvar_span(unsigned lvar_i, span_t span);
+    span_t lvar_span(unsigned lvar_i) const;
 
     bool emits_code() const { return true; } // TODO: implement
 
@@ -265,6 +280,8 @@ private:
     bitset_t m_ir_reads;
     bitset_t m_ir_writes;
     bitset_t m_ir_group_vars;
+    bitset_t m_ir_immediate_group_data;
+    bitset_t m_ir_calls;
 
     // If the function doesn't do I/O.
     // (Using mutable memory state is OK.)
@@ -273,6 +290,13 @@ private:
 
     // Holds the assembly code generated.
     asm_proc_t m_proc;
+
+    ram_bitset_t m_usable_ram = ram_bitset_t::filled(); // Tracks unallocated RAM addresses this fn can use
+    ram_bitset_t m_lvar_ram = ram_bitset_t::filled();// Tracks which addresses are used by this fn's lvars.
+
+    // Aids in allocating RAM for local variables:
+    lvars_manager_t m_lvars;
+    std::vector<span_t> m_lvar_spans;
 };
  
 class gvar_t
@@ -283,7 +307,7 @@ public:
 
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
-    gvar_t(global_t& global, type_t type, group_vars_t& group_vars)
+    gvar_t(global_t& global, type_t type, group_vars_ht group_vars)
     : global(global)
     , type(type)
     , group_vars(group_vars)
@@ -291,11 +315,18 @@ public:
 
     global_t& global;
     type_t const type;
-    group_vars_t& group_vars;
+    group_vars_ht group_vars;
 
     //group_bitset_t group_bitset() const { return 1ull << group.value; }
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
+
+    void alloc_spans();
+    span_t span(unsigned field) const { assert(compiler_phase() >= PHASE_ALLOC_RAM); return m_spans[field]; }
+    void assign_span(unsigned field, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[field] = span; }
+
+private:
+    std::vector<span_t> m_spans = {};
 };
 
 class const_t
@@ -304,15 +335,15 @@ public:
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_CONST;
 
-    const_t(global_t& global, type_t type, group_data_t& group_data)
+    const_t(global_t& global, type_t type, group_data_ht group)
     : global(global)
     , type(type)
-    , group_data(group_data)
+    , group(group)
     {}
 
     global_t& global;
     type_t const type;
-    group_data_t& group_data;
+    group_data_ht const group;
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

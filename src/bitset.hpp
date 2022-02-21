@@ -340,15 +340,21 @@ struct aggregate_bitset_t
     [[gnu::flatten]]
     void set_all() { bitset_set_all(N, data()); }
 
+    bool all_clear() const { return bitset_all_clear(N, data()); }
+
     [[gnu::flatten]]
-    void flip_all() { bitset_flip_all(N, data()); }
+    constexpr void flip_all()
+    { 
+        for(UInt& i : array)
+            i = ~i;
+    }
 
     [[gnu::flatten]]
     std::size_t popcount() const { return bitset_popcount(N, data()); }
 
     int lowest_bit_set() const { return bitset_lowest_bit_set(N, data()); }
 
-    static aggregate_bitset_t filled();
+    static constexpr aggregate_bitset_t filled();
     static aggregate_bitset_t filled(std::size_t size, std::size_t n = 0);
 };
 
@@ -373,6 +379,14 @@ aggregate_bitset_t<UInt, N>& operator^=(aggregate_bitset_t<UInt, N>& lhs,
                                       aggregate_bitset_t<UInt, N> const& rhs)
 {
     bitset_xor(N, lhs.data(), rhs.data());
+    return lhs;
+}
+
+template<typename UInt, std::size_t N> [[gnu::flatten]]
+aggregate_bitset_t<UInt, N>& operator-=(aggregate_bitset_t<UInt, N>& lhs,
+                                        aggregate_bitset_t<UInt, N> const& rhs)
+{
+    bitset_difference(N, lhs.data(), rhs.data());
     return lhs;
 }
 
@@ -417,6 +431,14 @@ aggregate_bitset_t<UInt, N> operator^(aggregate_bitset_t<UInt, N> lhs,
 }
 
 template<typename UInt, std::size_t N>
+aggregate_bitset_t<UInt, N> operator-(aggregate_bitset_t<UInt, N> lhs,
+                                      aggregate_bitset_t<UInt, N> const& rhs)
+{
+    lhs -= rhs;
+    return lhs;
+}
+
+template<typename UInt, std::size_t N>
 aggregate_bitset_t<UInt, N> operator<<(aggregate_bitset_t<UInt, N> lhs,
                                        std::size_t amount)
 {
@@ -433,19 +455,17 @@ aggregate_bitset_t<UInt, N> operator>>(aggregate_bitset_t<UInt, N> lhs,
 }
 
 template<typename UInt, std::size_t N>
-aggregate_bitset_t<UInt, N> operator~(aggregate_bitset_t<UInt, N> lhs)
+constexpr aggregate_bitset_t<UInt, N> operator~(aggregate_bitset_t<UInt, N> lhs)
 {
     lhs.flip_all();
     return lhs;
 }
 
 template<typename UInt, std::size_t N>
-aggregate_bitset_t<UInt, N> 
+constexpr aggregate_bitset_t<UInt, N> 
 aggregate_bitset_t<UInt, N>::filled()
 {
-    aggregate_bitset_t bs;
-    bs.set_all();
-    return bs;
+    return ~aggregate_bitset_t<UInt, N>{};
 }
 
 template<typename UInt, std::size_t N>
@@ -492,6 +512,7 @@ public:
         reset(o.size());
         assert(size() == o.size());
         std::copy(o.data(), o.data() + o.size(), data());
+        return *this;
     }
 
     bitset_t& operator=(bitset_t&& o) = default;
@@ -537,8 +558,10 @@ public:
     [[gnu::flatten]]
     void flip_all() { bitset_flip_all(size(), data()); }
 
+    bool all_clear() const { return bitset_all_clear(size(), data()); }
+
     [[gnu::flatten]]
-    std::size_t popcount() { return bitset_popcount(size(), data()); }
+    std::size_t popcount() const { return bitset_popcount(size(), data()); }
 
     template<typename Fn>
     void for_each(Fn const& fn) const { bitset_for_each(size(), data(), fn); }

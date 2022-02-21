@@ -72,12 +72,12 @@ type_t locator_t::mem_type() const
     case LOC_RETURN:
         return fn()->type.return_type();
     case LOC_LVAR:
-    case LOC_LVAR_ZP:
         assert(false);
         throw 0; // TODO
     case LOC_CONST_BYTE:
         return TYPE_BYTE;
     case LOC_SSA:
+        assert(compiler_phase() == PHASE_COMPILE);
         return ssa_node()->type();
     default:
         return TYPE_VOID;

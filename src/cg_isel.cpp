@@ -910,8 +910,8 @@ namespace isel
 
             unsigned const sel_cost = get_cost(sel);
 
-            if(!result.inserted && sel_cost < get_cost(*result.mapped))
-                *result.mapped = sel;
+            if(!result.second && sel_cost < get_cost(result.first->second))
+                result.first->second = sel;
 
             if(sel_cost < state.next_best_cost)
             {
@@ -2084,6 +2084,8 @@ namespace isel
             break;
 
         case SSA_add:
+            p_lhs::set(h->input(0));
+            p_rhs::set(h->input(1));
             p_carry::set(h->input(2));
 
             // TODO: This should be a math identity, right?

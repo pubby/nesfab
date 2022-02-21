@@ -27,6 +27,7 @@ group_t& group_t::lookup(char const* source, pstring_t name)
 }
 
 unsigned group_t::define(pstring_t pstring, group_class_t gclass, 
+                         std::function<bool(group_t&)> valid_same,
                          std::function<unsigned(group_t&)> create_impl)
 {
     assert(compiler_phase() <= PHASE_PARSE);
@@ -34,7 +35,7 @@ unsigned group_t::define(pstring_t pstring, group_class_t gclass,
     {
         std::lock_guard<std::mutex> group_lock(m_define_mutex);
 
-        if(m_gclass == gclass) // Groups can have multiple definition points.
+        if(m_gclass == gclass && valid_same(*this)) // Groups can have multiple definition points.
             return m_impl_index;
 
         if(m_gclass != GROUP_UNDEFINED)
@@ -61,47 +62,34 @@ unsigned group_t::define(pstring_t pstring, group_class_t gclass,
     return ret;
 }
 
-group_vars_t& group_t::define_vars(pstring_t pstring)
+std::pair<group_vars_t*, group_vars_ht> group_t::define_vars(pstring_t pstring)
 {
-    group_vars_t* ret;
+    group_vars_t* ptr = nullptr;
 
-    define(pstring, GROUP_VARS, [&ret](group_t& g)
+    group_vars_ht h = { define(pstring, GROUP_VARS, 
+    [](group_t& g) { return true; },
+    [&ptr](group_t& g)
     { 
-        ret = &impl_deque_alloc<group_vars_t>(g); 
-        return impl_deque<group_vars_t>.size() - 1;
-    });
+        return impl_deque_alloc<group_vars_t>(ptr, g); 
+    })};
 
-    return *ret;
+    return std::make_pair(ptr ? ptr : &h.safe(), h);
 }
 
-group_data_t& group_t::define_data(pstring_t pstring)
+std::pair<group_data_t*, group_data_ht> group_t::define_data(pstring_t pstring, bool once)
 {
-    group_data_t* ret;
+    group_data_t* ptr = nullptr;
 
-    define(pstring, GROUP_DATA, [&ret](group_t& g)
+    group_data_ht h = { define(pstring, GROUP_DATA, 
+    [once](group_t& g)
+    {
+        group_data_t& data = group_data_ht{ g.m_impl_index }.safe();
+        return data.once == once;
+    },
+    [&ptr, once](group_t& g)
     { 
-        ret = &impl_deque_alloc<group_data_t>(g); 
-        return impl_deque<group_data_t>.size() - 1;
-    });
+        return impl_deque_alloc<group_data_t>(ptr, g, once); 
+    })};
 
-    return *ret;
+    return std::make_pair(ptr ? ptr : &h.safe(), h);
 }
-
-//////////////////
-// group_vars_t //
-//////////////////
-
-void group_vars_t::add_interferences(bitset_uint_t const* other_groups)
-{
-    assert(compiler_phase() == PHASE_ALLOC_RAM);
-
-    if(!m_interfering_group_vars)
-        m_interfering_group_vars.reset(impl_bitset_size<group_vars_t>());
-
-    bitset_or(m_interfering_group_vars.size(), 
-              m_interfering_group_vars.data(), 
-              other_groups);
-    // Always interfere with itself:
-    m_interfering_group_vars.set(handle().value);
-}
-

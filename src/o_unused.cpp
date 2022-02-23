@@ -36,7 +36,7 @@ static bool _build_linked(ssa_ht ssa_node, Vec& vec)
     for(unsigned i = 0; i < ssa_node->output_size(); ++i)
     {
         auto oe = ssa_node->output_edge(i);
-        if(oe.input_class() != INPUT_LINK || !_build_linked(oe.handle, vec))
+        if(/*oe.input_class() != INPUT_ORDER && */(oe.input_class() != INPUT_LINK || !_build_linked(oe.handle, vec)))
             return false;
     }
     vec.push_back(ssa_node);
@@ -87,6 +87,22 @@ bool o_remove_unused_linked(ir_t& ir)
                 if(input != ssa_it && _can_prune(*input))
                     ssa_worklist.push(input);
             });
+
+            /* TODO
+            if(ssa_flags(h->op()) & SSAF_ARG0_ORDERS)
+            {
+                ssa_value_t prev = h->input(0);
+
+                for(unsigned i = 0; i < h->output_size();)
+                {
+                    auto oe = h->output_edge(i);
+                    if(oe.input_class() == INPUT_ORDER)
+                        oe.handle->link_change_input(i, prev);
+                    else
+                        ++i;
+                }
+            }
+            */
 
             assert(!h->test_flags(FLAG_IN_WORKLIST));
             h->prune();

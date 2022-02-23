@@ -14,7 +14,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 4,
         .input_regs = REGF_A,
         .output_regs = REGF_M,
-        .flags = ASMF_MAYBE_STORE,
+        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_STX,
@@ -22,7 +22,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 4,
         .input_regs = REGF_X,
         //.output_regs = REGF_M,
-        .flags = ASMF_MAYBE_STORE,
+        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_STY,
@@ -30,7 +30,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y,
         //.output_regs = REGF_M,
-        .flags = ASMF_MAYBE_STORE,
+        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_SAX,
@@ -38,7 +38,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 4,
         .input_regs = REGF_AX,
         //.output_regs = REGF_M,
-        .flags = ASMF_MAYBE_STORE,
+        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_STORE_C,
@@ -46,7 +46,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 13,
         .input_regs = REGF_C,
         //.output_regs = REGF_M,
-        .flags = ASMF_MAYBE_STORE,
+        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
     },
 
     // ADC

@@ -15,12 +15,18 @@ constexpr unsigned SSAF_COPY           = 1 << 1;
 constexpr unsigned SSAF_CLOBBERS_CARRY = 1 << 2;
 constexpr unsigned SSAF_WRITE_GLOBALS  = 1 << 3;
 constexpr unsigned SSAF_IMPURE         = 1 << 4;
+constexpr unsigned SSAF_ARG0_ORDERS    = 1 << 5; // Behaves like INPUT_ORDER
+constexpr unsigned SSAF_WRITE_ARRAY    = 1 << 6;
+constexpr unsigned SSAF_READ_ARRAY     = 1 << 7;
+constexpr unsigned SSAF_INDEXES_ARRAY  = 1 << 8;
+constexpr unsigned SSAF_CG_NEVER_STORE = 1 << 9; // The op has no associated memory during code gen
 
 enum input_class_t
 {
     INPUT_NONE,
     INPUT_VALUE,
-    INPUT_LINK,
+    INPUT_LINK,  // Used when multiple nodes behave like one node
+    INPUT_ORDER, // Used when a node must occur after another node, but has no true data dependency.
     INPUT_TRACE,
 };
 

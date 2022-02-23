@@ -94,8 +94,6 @@ std::size_t constraints_size(ssa_node_t const& node)
     case SSA_add:
     case SSA_sub:
         return 2; // Second constraint is for the carry.
-    case SSA_write_array:
-        return node.type().size();
     case SSA_trace:
         return constraints_size(*node.input(0));
     default:

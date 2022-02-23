@@ -58,7 +58,7 @@ locator_t cset_locator(ssa_ht h)
     auto& d = cg_data(h);
     if(d.cset_head.is_locator())
         return d.cset_head.locator();
-    return locator_t::null();
+    return locator_t::none();
 }
 
 bool csets_mergable(ssa_ht a, ssa_ht b)
@@ -534,7 +534,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         }
         else if(ssa_flags(op) & SSAF_WRITE_GLOBALS)
         {
-            // All global writes will get a tentative SSA_early_store node.
+            // Global writes will get a tentative SSA_early_store node.
             // If this early_store can coalesce, we'll keep it.
             // Otherwise, it will be pruned later on.
 
@@ -554,6 +554,10 @@ void code_gen(ir_t& ir, fn_t& fn)
                 }
                 else if(ie.holds_ref())
                 {
+                    // Don't bother with arrays.
+                    if(ssa_flags(ie.handle()->op()) & SSAF_WRITE_ARRAY)
+                        continue;
+
                     // Create a new SSA_early_store node here.
 
                     ssa_ht store = ie.handle()->split_output_edge(true, ie.index(), SSA_early_store);
@@ -852,7 +856,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     std::sort(phi_copies.begin(), phi_copies.end(),
     [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
 
-    // Now coalesce 'SSA_phi_copy's with their input early_stores.
+    // Coalesce 'SSA_phi_copy's with their input early_stores.
     for(copy_t const& copy : phi_copies)
     {
         assert(copy.node);
@@ -876,8 +880,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
     std::puts("coalesce phis 3");
 
-    // Now coalesce early stores with their parent
-    bc::small_vector<ssa_ht, 32> early_stores;
+    // Coalesce early stores with their parent
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht store = cfg_node.ssa_begin(); store;)
     {
@@ -933,10 +936,106 @@ void code_gen(ir_t& ir, fn_t& fn)
         ++store;
     }
 
+    // Coalesce array operations
+    for(cfg_ht cfg_it : postorder)
+    {
+        auto& d = cg_data(cfg_it);
+        for(ssa_ht h : d.schedule)
+        {
+            if(!(ssa_flags(h->op()) & SSAF_WRITE_ARRAY) || h->op() == SSA_copy_array)
+                continue;
+
+            if(!h->input(0).holds_ref())
+                continue;
+
+            ssa_ht parent = h->input(0).handle();
+
+            ssa_ht this_cset = cset_head(h);
+            ssa_ht parent_cset = cset_head(parent);
+
+            if(!csets_mergable(this_cset, parent_cset))
+                continue;
+
+            if(ssa_ht last = csets_dont_interfere(ir, this_cset, parent_cset, fn_nodes))
+            {
+                cset_append(last, parent_cset);
+                assert(cset_head(h) == cset_head(parent));
+            }
+        }
+    }
+
     std::puts("coalesce phis 4");
 
     // Now update the IR.
     // (Liveness checks can't be done after this.)
+
+    // Discover and tag "direct" array reads.
+    // Such reads can be implemented more efficiently in cg_isel,
+    // using ABSOLUTE_X and ABSOLUTE_Y modes without storing an intermediate.
+    for(cfg_ht cfg_it : postorder)
+    {
+        auto& d = cg_data(cfg_it);
+        for(ssa_ht h : d.schedule)
+        {
+            if(h->op() != SSA_read_array || !h->input(0).holds_ref())
+                continue;
+
+            std::printf("trying read %i\n", h.index);
+
+            ssa_ht const array = h->input(0).handle();
+
+            unsigned const size = h->output_size();
+            for(unsigned i = 0; i < size; ++i)
+            {
+                std::printf("output %i\n", i);
+                ssa_ht const output = h->output(i);
+                if(output->cfg_node() != cfg_it)
+                {
+                    std::printf("failed cfg %i\n", i);
+                    goto next_read_array_iter;
+                }
+
+                if(!live_at_def(array, output))
+                {
+                    std::printf("failed liveness %i %i\n", array.index, output.index);
+                    goto next_read_array_iter;
+                }
+
+                /*
+                // It's not ideal to use direct reads if there's high X/Y register pressure.
+                // Thus, we'll try to estimate register pressure here,
+                // and only use direct reads when there's little pressure.
+                auto const& schedule = cg_data(cfg_it).schedule;
+                unsigned const start = cg_data(h).schedule.index;
+                unsigned const end = cg_data(output).schedule.index;
+                fc::small_set<ssa_value_t, 4> indexers;
+                for(unsigned j = start; j <= end; ++j)
+                {
+                    assert(j < schedule.size());
+                    ssa_ht const node = schedule[j];
+
+                    if(ssa_flags(node->op()) & SSAF_INDEXES_ARRAY)
+                        indexers.insert(node->input(2));
+                    else
+                    {
+                        for_each_node_input(node, [&](ssa_ht input)
+                        {
+                            if(input->op() == SSA_cg_read_array_direct)
+                                indexers.insert(input->input(2));
+                        });
+                    }
+
+                    if(indexers.size() > 2) // Two registers: X, Y
+                        goto next_read_array_iter;
+                }
+                */
+            }
+
+            // Success! Make it direct:
+            h->unsafe_set_op(SSA_cg_read_array_direct);
+        next_read_array_iter:;
+        }
+    }
 
     fc::small_set<ssa_ht, 32> unique_csets;
     for(auto& pair : global_loc_map)
@@ -956,6 +1055,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         unique_csets.insert(cset_head(h));
     }
 
+    // TODO
     std::puts("coalesce phis 5");
     for(ssa_ht cset : unique_csets)
     {
@@ -1026,10 +1126,10 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             std::cout << "\n\n";
 
-#ifndef DEBUG_PRINT
+//#ifndef DEBUG_PRINT
             for(ssa_ht h : d.schedule)
                 std::cout << "sched " << h->op() << ' ' << h.index << '\n';
-#endif
+//#endif
 
             d.code = select_instructions(fn, cfg_it);
 
@@ -1166,9 +1266,11 @@ void code_gen(ir_t& ir, fn_t& fn)
             for(asm_inst_t inst : cg_data(h).code)
                 proc.push_inst(inst);
 
+        /* TODO
         std::cout << "RELOC\n";
         for(asm_inst_t inst : proc.code)
             std::cout << inst << '\n';
+            */
 
         // Add the proc to the fn
         fn.assign_proc(std::move(proc));

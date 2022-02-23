@@ -857,6 +857,17 @@ void for_each_input_matching(ssa_ht h, ssa_op_t match, Fn fn)
 }
 
 template<typename Fn>
+void for_each_output(ssa_ht h, Fn fn)
+{
+    unsigned const output_size = h->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+    {
+        ssa_ht output = h->output(i);
+        fn(output);
+    }
+}
+
+template<typename Fn>
 void for_each_output_matching(ssa_ht h, input_class_t match, Fn fn)
 {
     unsigned const output_size = h->output_size();

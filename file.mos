@@ -8,8 +8,12 @@ fn foo(short x, byte y, byte z) byte
     return 0
 
 fn bar(short x, short y, short z) short
-    array[10] = 5
-    return array[10]
+    if x > 5
+        array[10] = 10
+    else
+        array[10] = 15
+    array[0] = 11
+    return array[y] + 5
 
 
 mode main() 

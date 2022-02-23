@@ -884,6 +884,19 @@ void ir_t::assert_valid() const
             for(ssa_ht daisy = ssa_node.next_daisy(); daisy; ++daisy)
                 assert(daisy->cfg_node() == cfg_it);
 
+            // Array checks.
+
+            /*
+            if(ssa_node.op() == SSA_write_array || ssa_node.op() == SSA_read_array)
+            {
+                std::printf("i = %i\n", ssa_it.index);
+                assert(ssa_node.input(0).holds_ref());
+                ssa_ht const array_input = ssa_node.input(0).handle();
+
+                assert(ssa_node.input(1).is_locator());
+                locator_t const loc = ssa_node.input(1).locator();
+            }
+            */
         }
     }
 }

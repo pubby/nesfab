@@ -12,7 +12,7 @@ std::string to_string(locator_t loc)
     case LOC_NONE:
         return "none";
     case LOC_IOTA:
-        return fmt("iota %", loc.offset());
+        return fmt("iota % %", loc.offset());
     case LOC_GVAR:
         return fmt("gvar % %.%:%", loc.gvar()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
     case LOC_GVAR_SET:
@@ -35,6 +35,8 @@ std::string to_string(locator_t loc)
         return fmt("const byte %", loc.data());
     case LOC_SSA:
         return fmt("ssa %", loc.handle());
+    case LOC_LOCAL:
+        return fmt("local % %.%:%", loc.handle(), (int)loc.arg(), (int)loc.field(), (int)loc.offset());
     default: 
         return "unknown locator";
     }
@@ -55,7 +57,7 @@ locator_t locator_t::from_ssa_value(ssa_value_t v)
     else if(v.is_locator())
         return v.locator();
     else
-        return null();
+        return none();
 }
 
 type_t locator_t::mem_type() const
@@ -71,9 +73,6 @@ type_t locator_t::mem_type() const
         return fn()->type.type(arg());
     case LOC_RETURN:
         return fn()->type.return_type();
-    case LOC_LVAR:
-        assert(false);
-        throw 0; // TODO
     case LOC_CONST_BYTE:
         return TYPE_BYTE;
     case LOC_SSA:

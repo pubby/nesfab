@@ -112,6 +112,13 @@ private:
         return ir.gvar_loc_manager.type({ var_i - num_locals() });
     }
 
+    locator_t var_i_locator(unsigned var_i) const
+    {
+        if(var_i < num_locals())
+            return locator_t::local(var_i);
+        return ir.gvar_loc_manager.locator(gvar_loc_manager_t::index_t{ var_i - num_locals() });
+    }
+
     unsigned to_var_i(gvar_loc_manager_t::index_t index) const { return index.value + num_locals(); }
 
     [[gnu::noreturn]] 
@@ -612,8 +619,9 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
 
 ssa_ht ir_builder_t::insert_array_index(cfg_ht cfg_node, rpn_value_t const& array, rpn_value_t const& arg)
 {
+    locator_t loc = var_i_locator(array.var_i);
     ssa_ht ret = cfg_node->emplace_ssa(SSA_read_array, array.type.elem_type(),
-                                       array.ssa_value, arg.ssa_value);
+                                       array.ssa_value, loc, arg.ssa_value);
     return ret;
 }
 
@@ -1059,9 +1067,10 @@ void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
         ssa_ht read = assignee.ssa_value.handle();
         assert(read->op() == SSA_read_array);
 
+        locator_t loc = var_i_locator(assignee.var_i);
         ssa_ht write = cfg_node.emplace_ssa(
             SSA_write_array, var_i_type(assignee.var_i),
-            read->input(0), read->input(1), assignment.ssa_value);
+            read->input(0), loc, read->input(2), assignment.ssa_value);
 
         block_data.fn_vars[assignee.var_i] = write;
     }

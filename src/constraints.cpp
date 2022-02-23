@@ -339,8 +339,8 @@ ABSTRACT(SSA_write_array) = ABSTRACT_FN
         return;
 
     auto& input_array = cv[0];
-    constraints_t const index = cv[1][0];
-    constraints_t const value = cv[2][0];
+    constraints_t const index = cv[2][0];
+    constraints_t const value = cv[3][0];
 
     assert(input_array.vec.size() == result.vec.size());
 
@@ -371,7 +371,7 @@ ABSTRACT(SSA_read_array) = ABSTRACT_FN
         return;
 
     auto& input_array = cv[0];
-    constraints_t const index = cv[1][0];
+    constraints_t const index = cv[2][0];
 
     unsigned const min_bound = index.bounds.min >> fixed_t::shift;
     unsigned const max_bound = index.bounds.max >> fixed_t::shift;
@@ -383,22 +383,22 @@ ABSTRACT(SSA_read_array) = ABSTRACT_FN
             result[0] = union_(input_array[i], result[0]);
 };
 
-ABSTRACT(SSA_init_array) = ABSTRACT_FN
+ABSTRACT(SSA_copy_array) = ABSTRACT_FN
 {
     if(handle_top(cv, argn, result))
         return;
 
-    auto& input_array = cv[0];
+    auto& input_array = cv[2];
     assert(input_array.vec.size() == result.vec.size());
     result = input_array;
 };
 
-ABSTRACT(SSA_init_array_fill) = ABSTRACT_FN
+ABSTRACT(SSA_fill_array) = ABSTRACT_FN
 {
     if(handle_top(cv, argn, result))
         return;
 
-    constraints_t const value = cv[0][0];
+    constraints_t const value = cv[2][0];
     result.vec.assign(result.vec.size(), value);
 };
 

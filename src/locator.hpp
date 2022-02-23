@@ -45,7 +45,7 @@ enum locator_class_t : std::uint8_t
     LOC_PHI, // TODO?
 
     // Used to allocate local vars
-    LOC_LVAR,
+    LOC_LOCAL,
 
     // Labels are used during code gen. They map to assembly terms.
     LOC_CFG_LABEL,
@@ -75,6 +75,7 @@ constexpr bool has_arg_field(locator_class_t lclass)
     case LOC_THIS_ARG:
     case LOC_CALL_ARG:
     case LOC_RETURN:
+    case LOC_LOCAL:
         return true;
     default:
         return false;
@@ -88,7 +89,6 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_FN:
     case LOC_CALL_ARG:
     case LOC_THIS_ARG:
-    case LOC_LVAR:
     case LOC_RETURN:
     case LOC_PHI:
     case LOC_CFG_LABEL:
@@ -225,7 +225,7 @@ public:
         return ret;
     }
 
-    constexpr static locator_t null() { return locator_t(); }
+    constexpr static locator_t none() { return locator_t(); }
 
     constexpr static locator_t iota(std::int16_t offset = 0) 
         { return locator_t(LOC_IOTA, 0, 0, offset); }
@@ -245,8 +245,8 @@ public:
     constexpr static locator_t gvar_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GVAR_SET, fn.value, id, 0); }
 
-    constexpr static locator_t lvar(fn_ht fn, std::uint16_t var_i, std::uint16_t offset=0)
-        { return locator_t(LOC_LVAR, fn.value, var_i, offset); }
+    constexpr static locator_t local(std::uint16_t var_i, std::uint16_t offset=0)
+        { return locator_t(LOC_LOCAL, var_i, 0, 0, offset); }
 
     constexpr static locator_t ret(fn_ht fn, std::uint16_t offset=0)
         { return locator_t(LOC_RETURN, fn.value, 0, 0, offset); }

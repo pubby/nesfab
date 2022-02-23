@@ -25,12 +25,17 @@ private:
     unsigned set_size = 0;
 
     ssa_ht carry_input_waiting;
+    std::array<ssa_value_t, 2> array_indexers = {};
 
     // Each SSA node in the CFG node that has been scheduled.
     bitset_uint_t* scheduled = nullptr;
 
     // All the SSA nodes that maybe clobber the carry.
     bitset_uint_t* carry_clobberers = nullptr;
+
+    // All the SSA nodes that are used to index arrays.
+    // TODO
+    //bitset_uint_t* array_indexers = nullptr;
 
     ssa_schedule_d& data(ssa_ht h) const
         { return cg_data(h).schedule; }
@@ -51,6 +56,19 @@ private:
     ssa_ht full_search() const;
 
     void calc_exit_distance(ssa_ht ssa, int exit_distance=0) const;
+
+    void add_array_index(ssa_value_t index)
+    {
+        if(array_indexers[0] == index)
+            return;
+        else if(array_indexers[1] == index)
+            std::swap(array_indexers[0], array_indexers[1]);
+        else
+        {
+            array_indexers[1] = array_indexers[0];
+            array_indexers[0] = index;
+        }
+    }
 };
 
 // 'exit_distance' will penalize nodes used by the exit SSA node,
@@ -136,7 +154,6 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
     for(ssa_ht ssa_node : toposorted)
         if(ssa_flags(ssa_node->op()) & SSAF_CLOBBERS_CARRY)
             bitset_set(carry_clobberers, index(ssa_node));
-
 
     // Now add extra deps to aid scheduling efficiency.
     auto propagate_deps_change = [&](ssa_ht changed)
@@ -241,6 +258,70 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         }
     }
 
+    // ARRAYS:
+    // - Schedule write_arrays after all read_arrays from previous write_arrays
+
+    for(ssa_ht ssa_node : toposorted)
+    {
+        if(!(ssa_flags(ssa_node->op()) & SSAF_WRITE_ARRAY))
+            continue;
+
+        auto& d = data(ssa_node);
+
+        assert(ssa_node->input(0).holds_ref());
+        ssa_ht const array_input = ssa_node->input(0).handle();
+
+        assert(ssa_node->input(1).is_locator());
+        locator_t const loc = ssa_node->input(1).locator();
+
+        for_each_output(array_input, [&](ssa_ht read)
+        {
+            if(ssa_node == read)
+                return;
+
+            if(!(ssa_flags(read->op()) & SSAF_READ_ARRAY))
+                return;
+
+            assert(read->input(1).is_locator());
+            assert(read->input(1).locator() == loc);
+
+            // We can only do this when the read is in the same CFG node
+            if(read->cfg_node() != cfg_node)
+                return;
+
+            // Can't add a dep if a cycle would be created:
+            if(bitset_test(data(read).deps, index(ssa_node)))
+                return;
+
+            // Add a dep!
+            bitset_set(d.deps, index(read));
+            bitset_or(set_size, d.deps, data(read).deps);
+            propagate_deps_change(ssa_node);
+
+            // We'll also try to schedule read's outputs before the write.
+            // This improves code gen!
+            for_each_output(read, [&](ssa_ht output)
+            {
+                if(ssa_node == output)
+                    return;
+
+                // We can only do this when the read is in the same CFG node
+                if(read->cfg_node() != cfg_node)
+                    return;
+
+                // Can't add a dep if a cycle would be created:
+                if(bitset_test(data(read).deps, index(ssa_node)))
+                    return;
+
+                // Add a dep!
+                bitset_set(d.deps, index(output));
+                bitset_or(set_size, d.deps, data(output).deps);
+                propagate_deps_change(ssa_node);
+
+            });
+        });
+    }
+
     // OK! Everything was initialized. Now to run the greedy algorithm.
     run();
 }
@@ -257,6 +338,10 @@ void scheduler_t::append_schedule(ssa_ht h)
         assert(ready<true>(link, scheduled));
         append_schedule(link);
     });
+
+    // Handle array indexes
+    if(ssa_flags(h->op()) & SSAF_INDEXES_ARRAY)
+        add_array_index(h->input(2));
 }
 
 void scheduler_t::run()
@@ -407,7 +492,18 @@ ssa_ht scheduler_t::full_search() const
         if(!ready<Relax>(ssa_it, scheduled))
             continue;
 
+        // Fairly arbitrary formula.
         int w = path_length<Relax>(ssa_it, scheduled) * 8 + data(ssa_it).exit_distance;
+
+        if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_ARRAY)
+        {
+            ssa_value_t index = ssa_it->input(2);
+            if(index == array_indexers[0])
+                w += 32 * 8; // Fairly arbitrary numbers
+            else if(index == array_indexers[1])
+                w += 16 * 8; // Fairly arbitrary numbers
+        }
+
         if(w > best_weight)
         {
             best_weight = w;

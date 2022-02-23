@@ -40,6 +40,7 @@ override CXXFLAGS+= \
   -Wno-narrowing \
   -Wno-missing-field-initializers \
   -fmax-errors=3 \
+  -ftemplate-depth=100 \
   $(INCS) \
   -DVERSION=\"$(VERSION)\" \
   -DGIT_COMMIT=\"$(GIT_COMMIT)\" 

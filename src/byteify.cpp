@@ -140,10 +140,14 @@ void byteify(ir_t& ir, fn_t const& fn)
                 break;
             }
 
+            type_t split_type = TYPE_BYTE;
+            if(ssa_node.type().name() == TYPE_ARRAY)
+                split_type = type_t::array(TYPE_BYTE, ssa_node.type().size());
+
             bm_t bm = zero_bm;
             unsigned const end = end_byte(type.name());
             for(unsigned i = begin_byte(type.name()); i < end; ++i)
-                bm[i] = cfg_node.emplace_ssa(split_op, type_t{TYPE_BYTE});
+                bm[i] = cfg_node.emplace_ssa(split_op, split_type);
             // !!IMPORTANT: 'ssa_node' is invalidated after this!!
 
             // We created nodes, so we have to resize:
@@ -354,13 +358,20 @@ void byteify(ir_t& ir, fn_t const& fn)
             {
                 bm_t const array_bm = _get_bm(ssa_node->input(0));
 
+                unsigned const start = begin_byte(t);
                 unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
+                for(unsigned i = start; i < end; ++i)
                 {
                     ssa_ht split = ssa_data.bm[i].handle();
-                    split->alloc_input(2);
+
+                    locator_t loc = ssa_node->input(1).locator();
+                    loc.set_field(i - start);
+
+                    assert(ssa_argn(SSA_read_array) == 3);
+                    split->alloc_input(3);
                     split->build_set_input(0, array_bm[i]);
-                    split->build_set_input(1, ssa_node->input(1));
+                    split->build_set_input(1, loc);
+                    split->build_set_input(2, ssa_node->input(2));
                 }
                 prune_nodes.push_back(ssa_node);
             }
@@ -369,16 +380,23 @@ void byteify(ir_t& ir, fn_t const& fn)
         case SSA_write_array:
             {
                 bm_t const array_bm = _get_bm(ssa_node->input(0));
-                bm_t const assign_bm = _get_bm(ssa_node->input(2));
+                bm_t const assign_bm = _get_bm(ssa_node->input(3));
 
+                unsigned const start = begin_byte(t);
                 unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
+                for(unsigned i = start; i < end; ++i)
                 {
                     ssa_ht split = ssa_data.bm[i].handle();
-                    split->alloc_input(3);
+
+                    locator_t loc = ssa_node->input(1).locator();
+                    loc.set_field(i - start);
+
+                    assert(ssa_argn(SSA_write_array) == 4);
+                    split->alloc_input(4);
                     split->build_set_input(0, array_bm[i]);
-                    split->build_set_input(1, ssa_node->input(1));
-                    split->build_set_input(2, assign_bm[i]);
+                    split->build_set_input(1, loc);
+                    split->build_set_input(2, ssa_node->input(2));
+                    split->build_set_input(3, assign_bm[i]);
                 }
                 prune_nodes.push_back(ssa_node);
             }
@@ -442,8 +460,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     for(ssa_ht h : prune_nodes)
     {
         if(h->type() == TYPE_BYTE)
-            h->replace_with(
-                h.data<ssa_byteify_d>().bm[type_t::max_frac_bytes]);
+            h->replace_with(h.data<ssa_byteify_d>().bm[type_t::max_frac_bytes]);
         h->prune();
     }
 }

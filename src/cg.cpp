@@ -211,7 +211,7 @@ ssa_ht csets_dont_interfere(ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_
         case LOC_GVAR:
             {
                 gvar_ht const gvar = loc.gvar();
-                return fn.ir_reads(gvar) || fn.ir_writes(gvar);
+                return fn.ir_writes(gvar);
             }
         case LOC_GVAR_SET:
             {
@@ -219,8 +219,7 @@ ssa_ht csets_dont_interfere(ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_
                 assert(size == fn.ir_reads().size());
 
                 bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
-                bitset_copy(size, bs, fn.ir_reads().data());
-                bitset_or(size, bs, fn.ir_writes().data());
+                bitset_copy(size, bs, fn.ir_writes().data());
                 bitset_and(size, bs, ir.gvar_loc_manager.get_set(loc));
 
                 return !bitset_all_clear(size, bs);

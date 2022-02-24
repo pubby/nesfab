@@ -1,5 +1,7 @@
 #include "ram_alloc.hpp"
 
+#include <iostream> // TODO
+
 #include "decl.hpp"
 #include "globals.hpp"
 #include "group.hpp"
@@ -275,6 +277,9 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         build_order(mode_rank);
 
         for(fn_ht fn : fn_order)
+            std::cout << "building " << fn->global.name << std::endl;
+
+        for(fn_ht fn : fn_order)
             alloc_locals<ZP_ONLY_ALLOC>(fn);
 
         for(fn_ht fn : fn_order)
@@ -304,7 +309,8 @@ void ram_allocator_t::build_order(fn_ht fn)
     {
         std::vector<fn_ht> fn_rank;
         fn_rank.reserve(fn->ir_calls().popcount());
-        fn->ir_calls().for_each([&](unsigned i){ fn_rank.push_back(fn_ht{i}); });
+        fn->ir_calls().for_each([&fn_rank](unsigned i){ fn_rank.push_back(fn_ht{i}); });
+        std::cout << "fn rank size = " << fn_rank.size() << std::endl;
         build_order(fn_rank);
     }
 
@@ -320,6 +326,8 @@ void ram_allocator_t::alloc_locals(fn_ht h)
 
     assert(d.step < Step);
     assert((data(h).usable_ram & data(h).lvar_ram).all_clear());
+
+    std::cout << "lvars =  " << fn.lvars().num_all_lvars() << std::endl;
 
     // Setup lvar usable ram:
     std::vector<ram_bitset_t> lvar_usable_ram;

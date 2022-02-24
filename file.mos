@@ -1,18 +1,13 @@
 vars @menu
-    short f
-    short g
-    short[200] array
+    byte f
+    byte g
+    byte[200] array
 
-fn foo(short x, byte y, byte z) byte
-    goto mode main()
-    return 0
 
-fn bar(short x, short y, short z) short
-    return x + y
-
+fn bar(byte x, byte y, byte z) short
+    return array[y] + 5
 
 mode main() 
-    bar(1,2,3)
-    f += 2
+    f += bar(1,2,3)
 
 

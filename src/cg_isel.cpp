@@ -1533,14 +1533,15 @@ namespace isel
         >(cpu, prev, cont);
     }
 
-    template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY, bool Enable = (AbsoluteX || AbsoluteY) && (Opt::flags & OPT_NO_DIRECT)>
+    template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY
+            , bool Enable = (AbsoluteX || AbsoluteY) && !(Opt::flags & OPT_NO_DIRECT)>
     struct pick_op_xy
     {
         static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
         {
             using OptN = typename Opt::add_flags<OPT_NO_DIRECT>;
 
-            if(AbsoluteX)
+            if(AbsoluteX != BAD_OP)
             {
                 chain
                 < load_X<OptN, array_index<Arg>>
@@ -1548,7 +1549,7 @@ namespace isel
                 >(cpu, prev, cont);
             }
 
-            if(AbsoluteY)
+            if(AbsoluteY != BAD_OP)
             {
                 chain
                 < load_Y<OptN, array_index<Arg>>

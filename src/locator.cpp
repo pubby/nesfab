@@ -16,7 +16,7 @@ std::string to_string(locator_t loc)
     case LOC_GVAR:
         return fmt("gvar % %.%:%", loc.gvar()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
     case LOC_GVAR_SET:
-        return fmt("gset %.%:%", loc.handle(), (int)loc.offset());
+        return fmt("gset %.%", loc.handle(), (int)loc.offset());
     case LOC_FN:
         return fmt("fn %", loc.fn()->global.name);
     case LOC_THIS_ARG:
@@ -24,7 +24,7 @@ std::string to_string(locator_t loc)
     case LOC_CALL_ARG:
         return fmt("call arg % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
     case LOC_RETURN:
-        return fmt("ret % %", loc.fn()->global.name, (int)loc.offset());
+        return fmt("ret % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
     case LOC_PHI:
         return fmt("phi % %", loc.fn()->global.name, loc.data());
     case LOC_CFG_LABEL:

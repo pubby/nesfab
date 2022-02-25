@@ -197,18 +197,13 @@ void byteify(ir_t& ir, fn_t const& fn)
                     {
                         type_t t;
 
-                        if(loc.lclass() == LOC_CALL_ARG)
-                        {
-                            assert(ssa_it->op() == SSA_fn_call);
-                            t = called_fn->type.types()[loc.arg()];
-                        }
+                        if(loc.lclass() == LOC_ARG)
+                            t = loc.fn()->type.types()[loc.arg()];
                         else if(loc.lclass() == LOC_RETURN)
                         {
                             assert(ssa_it->op() == SSA_return);
                             t = fn.type.return_type();
                         }
-                        else if(loc.lclass() == LOC_THIS_ARG)
-                            t = fn.type.types()[loc.arg()];
                         else if(loc.lclass() == LOC_GVAR)
                             t = loc.gvar()->type;
                         else
@@ -406,15 +401,16 @@ void byteify(ir_t& ir, fn_t const& fn)
         // All the split nodes created will reference it as a link.
         case SSA_fn_call:
             {
+                unsigned const start = begin_byte(t);
                 unsigned const end = end_byte(t);
-                for(unsigned i = begin_byte(t); i < end; ++i)
+                for(unsigned i = start; i < end; ++i)
                 {
                     ssa_ht split = ssa_data.bm[i].handle();
                     assert(split->op() == SSA_read_global);
 
                     split->alloc_input(2);
                     split->build_set_input(0, ssa_node);
-                    split->build_set_input(1, locator_t::ret(fn.handle(), i));
+                    split->build_set_input(1, locator_t::ret(ssa_node->input(0).locator().fn(), i - start));
                 }
             }
             break;

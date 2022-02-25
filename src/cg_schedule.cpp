@@ -310,7 +310,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
                     return;
 
                 // Can't add a dep if a cycle would be created:
-                if(bitset_test(data(read).deps, index(ssa_node)))
+                if(bitset_test(data(output).deps, index(ssa_node)))
                     return;
 
                 // Add a dep!
@@ -320,6 +320,46 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
 
             });
         });
+    }
+
+    // Try to use indexers immediately,
+    // scheduling other nodes that use them afterwards.
+    for(ssa_ht ssa_node : toposorted)
+    {
+        if(!(ssa_flags(ssa_node->op()) & SSAF_INDEXES_ARRAY))
+            continue;
+
+        if(!ssa_node->input(2).holds_ref())
+            continue;
+
+        ssa_ht const indexer = ssa_node->input(2).handle();
+
+        unsigned const size = indexer->output_size();
+        for(unsigned i = 0; i < size; ++i)
+        {
+            auto oe = indexer->output_edge(i);
+
+            if((ssa_flags(oe.handle->op()) & SSAF_INDEXES_ARRAY) && oe.index == 2)
+                continue;
+
+            if(oe.handle == ssa_node)
+                continue;
+
+            // We can only do this when the read is in the same CFG node
+            if(oe.handle->cfg_node() != cfg_node)
+                return;
+
+            auto& d = data(oe.handle);
+
+            // Can't add a dep if a cycle would be created:
+            if(bitset_test(data(ssa_node).deps, index(oe.handle)))
+                return;
+
+            // Add a dep!
+            bitset_set(d.deps, index(ssa_node));
+            bitset_or(set_size, d.deps, data(ssa_node).deps);
+            propagate_deps_change(oe.handle);
+        }
     }
 
     // OK! Everything was initialized. Now to run the greedy algorithm.
@@ -335,7 +375,7 @@ void scheduler_t::append_schedule(ssa_ht h)
     for_each_output_matching(h, INPUT_LINK,
     [this](ssa_ht link)
     {
-        assert(ready<true>(link, scheduled));
+        //assert(ready<true>(link, scheduled));
         append_schedule(link);
     });
 
@@ -433,25 +473,36 @@ int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
     unsigned output_size = h->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
-        ssa_ht output = h->output(i);
+        auto oe = h->output_edge(i);
 
-        if(output->cfg_node() != cfg_node)
+        if(oe.handle->cfg_node() != cfg_node)
             continue;
 
-        if(!ready<Relax>(output, new_bitset))
+        if(!ready<Relax>(oe.handle, new_bitset))
+        {
+            //if((ssa_flags(oe.handle->op()) & SSAF_INDEXES_ARRAY) && oe.index == 2)
+                //return -1;
             continue;
+        }
 
-        ++outputs_in_cfg_node;
+        if(oe.input_class() == INPUT_VALUE)
+            ++outputs_in_cfg_node;
 
-        max_length = std::max(max_length, path_length<Relax>(output, new_bitset));
+        int const l = path_length<Relax>(oe.handle, new_bitset);
+
+        if(l < 0)
+            return l;
+
+        max_length = std::max(max_length, l);
     }
+
 
     return (max_length + std::max<int>(0, outputs_in_cfg_node - 1));
 }
 
 ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
 {
-    int best_path_length = -1;
+    int best_score = -1;
     ssa_ht best = {};
 
     unsigned const output_size = last_scheduled->output_size();
@@ -469,10 +520,11 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
                 return succ;
 
             // Otherwise find the best successor node by comparing path lengths:
-            int l = path_length<false>(succ, this->scheduled);
-            if(l > best_path_length)
+            int score = path_length<false>(succ, this->scheduled);
+
+            if(score > best_score)
             {
-                best_path_length = l;
+                best_score = score;
                 best = succ;
             }
         }

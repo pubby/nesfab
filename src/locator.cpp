@@ -19,10 +19,8 @@ std::string to_string(locator_t loc)
         return fmt("gset %.%", loc.handle(), (int)loc.offset());
     case LOC_FN:
         return fmt("fn %", loc.fn()->global.name);
-    case LOC_THIS_ARG:
+    case LOC_ARG:
         return fmt("this arg % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
-    case LOC_CALL_ARG:
-        return fmt("call arg % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
     case LOC_RETURN:
         return fmt("ret % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
     case LOC_PHI:
@@ -68,8 +66,7 @@ type_t locator_t::mem_type() const
         return type_t::array(TYPE_BYTE, 256);
     case LOC_GVAR: 
         return gvar()->type;
-    case LOC_THIS_ARG:
-    case LOC_CALL_ARG:
+    case LOC_ARG:
         return fn()->type.type(arg());
     case LOC_RETURN:
         return fn()->type.return_type();

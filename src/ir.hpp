@@ -504,6 +504,9 @@ public:
     // Moves all the SSA nodes in 'cfg' into this node.
     void steal_ssa_nodes(cfg_ht cfg);
 
+    // Same, but only 1 node.
+    void steal_ssa(ssa_ht ssa);
+
 private:
     cfg_node_t(cfg_node_t const& o) = default;
     cfg_node_t& operator=(cfg_node_t const& o) = default;

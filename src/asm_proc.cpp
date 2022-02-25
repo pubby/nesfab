@@ -135,10 +135,9 @@ void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
             os << "fn " << inst.arg.fn()->global.name;
             break;
         case LOC_GVAR:
-            os << "gvar " << inst.arg.gvar()->global.name << " (" << inst.arg.gvar()->span(inst.arg.field()).addr << ")";
+            os << "gvar " << inst.arg.gvar()->global.name << " " << inst.arg.gvar()->span(inst.arg.field());
             break;
-        case LOC_THIS_ARG:
-        case LOC_CALL_ARG:
+        case LOC_ARG:
         case LOC_PHI:
         case LOC_SSA:
             os << "lvar " << fn.lvar_span(fn.lvars().index(inst.arg)) << "   " << inst.arg;

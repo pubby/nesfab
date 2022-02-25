@@ -4,10 +4,20 @@
 // Instruction selection
 
 #include <array>
+#include <exception>
 
 #include "asm.hpp"
 #include "cg.hpp"
 #include "ir.hpp"
+
+struct isel_no_progress_error_t : public std::exception
+{
+    virtual char const* what() const noexcept 
+    { 
+        return ("Instruction selector unable to make progress. " 
+                "File a bug report with reproducible code!");
+    }
+};
 
 struct sel_t
 {

@@ -316,6 +316,7 @@ void global_t::compile()
                     changed |= o_merge_basic_blocks(ir);
                     changed |= o_abstract_interpret(ir);
                     changed |= o_remove_unused_ssa(ir);
+                    changed |= o_global_value_numbering(ir);
                 }
                 while(changed);
             }
@@ -342,6 +343,7 @@ void global_t::compile()
                     changed |= o_merge_basic_blocks(ir);
                     changed |= o_abstract_interpret(ir);
                     changed |= o_remove_unused_ssa(ir);
+                    changed |= o_global_value_numbering(ir);
 
                 }
                 while(changed);
@@ -791,10 +793,9 @@ span_t fn_t::lvar_span(unsigned lvar_i) const
     if(lvar_i < m_lvars.num_this_lvars())
         return m_lvar_spans[lvar_i];
 
-    locator_t loc = m_lvars.locator(lvar_i);
-    if(loc.lclass() == LOC_CALL_ARG)
+    locator_t const loc = m_lvars.locator(lvar_i);
+    if(loc.lclass() == LOC_ARG && loc.fn() != handle())
     {
-        loc.set_lclass(LOC_THIS_ARG);
         int index = loc.fn()->m_lvars.index(loc);
 
         if(index < 0)

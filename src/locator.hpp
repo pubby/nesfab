@@ -38,8 +38,7 @@ enum locator_class_t : std::uint8_t
     // (This is a size optimization)
     LOC_GVAR_SET,
 
-    LOC_THIS_ARG,
-    LOC_CALL_ARG,
+    LOC_ARG,
     LOC_RETURN,
 
     LOC_PHI, // TODO?
@@ -72,8 +71,7 @@ constexpr bool has_arg_field(locator_class_t lclass)
     switch(lclass)
     {
     case LOC_GVAR:
-    case LOC_THIS_ARG:
-    case LOC_CALL_ARG:
+    case LOC_ARG:
     case LOC_RETURN:
     case LOC_LOCAL:
         return true;
@@ -87,8 +85,7 @@ constexpr bool has_fn(locator_class_t lclass)
     switch(lclass)
     {
     case LOC_FN:
-    case LOC_CALL_ARG:
-    case LOC_THIS_ARG:
+    case LOC_ARG:
     case LOC_RETURN:
     case LOC_PHI:
     case LOC_CFG_LABEL:
@@ -233,11 +230,8 @@ public:
     constexpr static locator_t fn(fn_ht fn)
         { return locator_t(LOC_FN, fn.value, 0, 0); }
 
-    constexpr static locator_t this_arg(fn_ht fn, std::uint8_t arg, std::uint8_t field, std::uint16_t offset=0)
-        { return locator_t(LOC_THIS_ARG, fn.value, arg, field, offset); }
-
-    constexpr static locator_t call_arg(fn_ht fn, std::uint8_t arg, std::uint8_t field, std::uint16_t offset=0)
-        { return locator_t(LOC_CALL_ARG, fn.value, arg, field, offset); }
+    constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t field, std::uint16_t offset=0)
+        { return locator_t(LOC_ARG, fn.value, arg, field, offset); }
 
     constexpr static locator_t gvar(gvar_ht gvar, std::uint8_t field, std::uint16_t offset=0)
         { return locator_t(LOC_GVAR, gvar.value, 0, field, offset); }

@@ -252,7 +252,7 @@ public:
     asm_proc_t const& proc() const { assert(compiler_phase() > PHASE_COMPILE); return m_proc; }
 
     void assign_lvars(lvars_manager_t&& lvars);
-    lvars_manager_t const& lvars() const { assert(compiler_phase() > PHASE_COMPILE); return m_lvars; }
+    lvars_manager_t const& lvars() const { assert(compiler_phase() >= PHASE_COMPILE); return m_lvars; }
     
     void mask_usable_ram(ram_bitset_t const& mask);
     ram_bitset_t const& usable_ram() const { return m_usable_ram; }

@@ -189,7 +189,7 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 }
 
 // If theres no interference, returns a handle to the last node of 'a's cset.
-ssa_ht csets_dont_interfere(ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
+ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
 {
     assert(a && b);
     assert(cset_is_head(a));
@@ -202,29 +202,30 @@ ssa_ht csets_dont_interfere(ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_
         return a;
     }
 
-    auto const fn_interferes = [&ir](locator_t loc, ssa_ht fn_node)
+    auto const fn_interferes = [&ir, fn](locator_t loc, ssa_ht fn_node)
     {
-        fn_t const& fn = *get_fn(*fn_node);
+        fn_t const& called = *get_fn(*fn_node);
 
         switch(loc.lclass())
         {
         case LOC_GVAR:
             {
                 gvar_ht const gvar = loc.gvar();
-                return fn.ir_writes(gvar);
+                return called.ir_writes(gvar);
             }
         case LOC_GVAR_SET:
             {
                 std::size_t const size = gvar_loc_manager_t::bitset_size();
-                assert(size == fn.ir_reads().size());
+                assert(size == called.ir_reads().size());
 
                 bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
-                bitset_copy(size, bs, fn.ir_writes().data());
+                bitset_copy(size, bs, called.ir_writes().data());
                 bitset_and(size, bs, ir.gvar_loc_manager.get_set(loc));
 
                 return !bitset_all_clear(size, bs);
             }
-        case LOC_CALL_ARG:
+        case LOC_ARG:
+            return loc.fn() != fn; // TODO: this could be made more accurate
         case LOC_RETURN:
             return true; // TODO: this could be made more accurate, as some fns don't clobber these
         default: 
@@ -694,7 +695,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         if(ld.cset)
         {
             assert(cset_is_head(node));
-            ssa_ht last = csets_dont_interfere(ir, ld.cset, node, fn_nodes);
+            ssa_ht last = csets_dont_interfere(fn.handle(), ir, ld.cset, node, fn_nodes);
             if(!last) // If they interfere
                 return false;
             // It can be coalesced; add it to the cset.
@@ -843,7 +844,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         ssa_ht cset = cset_head(phi_it->input(0).handle());
         ssa_ht phi_cset = cset_head(phi_it);
 
-        if(ssa_ht last = csets_dont_interfere(ir, cset, phi_cset, fn_nodes))
+        if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, cset, phi_cset, fn_nodes))
             cset_append(last, phi_cset);
     }
 
@@ -871,7 +872,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         assert(csets_mergable(copy_cset, candidate_cset));
 
-        if(ssa_ht last = csets_dont_interfere(ir, copy_cset, candidate_cset, fn_nodes))
+        if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, copy_cset, candidate_cset, fn_nodes))
             cset_append(last, candidate_cset);
         else
             prune_early_store(candidate);
@@ -898,7 +899,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             if(!csets_mergable(store_cset, parent_cset))
                 goto fail;
 
-            last = csets_dont_interfere(ir, store_cset, parent_cset, fn_nodes);
+            last = csets_dont_interfere(fn.handle(), ir, store_cset, parent_cset, fn_nodes);
 
             if(last)
             {
@@ -955,7 +956,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             if(!csets_mergable(this_cset, parent_cset))
                 continue;
 
-            if(ssa_ht last = csets_dont_interfere(ir, this_cset, parent_cset, fn_nodes))
+            if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, this_cset, parent_cset, fn_nodes))
             {
                 cset_append(last, parent_cset);
                 assert(cset_head(h) == cset_head(parent));

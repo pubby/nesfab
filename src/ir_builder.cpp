@@ -210,7 +210,7 @@ void ir_builder_t::compile()
     {
         ir.root.data<block_d>().fn_vars[i] = ir.root->emplace_ssa(
             SSA_read_global, fn.def.local_vars[i].type, entry, 
-            locator_t::this_arg(fn.handle(), i, 0));
+            locator_t::arg(fn.handle(), i, 0));
     }
 
     // Insert nodes for gvar reads
@@ -537,8 +537,10 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
     
     // Prepare the input globals
 
+    bool const is_idep = fn.global.ideps().count(&call->global) > 0;
+
     bitset_t const* reads_set;
-    if(!call->mode || fn.global.ideps().count(&call->global))
+    if(!call->mode || is_idep)
         reads_set = &call->ir_reads();
     else
         reads_set = &call->lang_gvars();
@@ -573,8 +575,14 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
     unsigned const num_args = call->type.num_params();
     for(unsigned i = 0; i < num_args; ++i)
     {
+        locator_t const loc = locator_t::arg(call, i, 0);
+
+        // If the arg isn't used in the function, ignore it.
+        if(is_idep && call->lvars().index(loc) < 0)
+            continue;
+
         fn_inputs.push_back(args[i].ssa_value);
-        fn_inputs.push_back(locator_t::call_arg(call, i, 0));
+        fn_inputs.push_back(loc);
     }
 
     // Create the dependent node.

@@ -20,6 +20,8 @@ constexpr unsigned SSAF_WRITE_ARRAY    = 1 << 6;
 constexpr unsigned SSAF_READ_ARRAY     = 1 << 7;
 constexpr unsigned SSAF_INDEXES_ARRAY  = 1 << 8;
 constexpr unsigned SSAF_CG_NEVER_STORE = 1 << 9; // The op has no associated memory during code gen
+constexpr unsigned SSAF_NO_GVN         = 1 << 10; // Won't be optimized in GVN pass
+constexpr unsigned SSAF_COMMUTATIVE    = 1 << 11; // First two args can be swapped
 
 enum input_class_t
 {

@@ -3,8 +3,6 @@
 
 #include <cstdint>
 
-#include "flat/flat_map.hpp"
-
 #include "constraints.hpp"
 #include "ir_decl.hpp"
 

@@ -308,9 +308,9 @@ void build_lvar_interferences(ir_t const& ir, lvars_manager_t& lvars)
                     unsigned const num_fields = ::num_fields(fn.type.type(argn));
                     for(unsigned field = 0; field < num_fields; ++field)
                     {
-                        int lvar_i = lvars.index(locator_t::call_arg(fn_h, argn, field));
-                        assert(lvar_i >= 0);
-                        bitset_set(live, lvar_i);
+                        int const lvar_i = lvars.index(locator_t::arg(fn_h, argn, field));
+                        if(lvar_i >= 0)
+                            bitset_set(live, lvar_i);
                     }
                 }
 

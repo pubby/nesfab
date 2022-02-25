@@ -73,9 +73,9 @@ public:
         m_fn_interferences[i].insert(fn); 
     }
 
-    static bool is_this_lvar(locator_t arg);
-    static bool is_call_lvar(locator_t arg);
-    static bool is_lvar(locator_t arg) { return is_this_lvar(arg) || is_call_lvar(arg); }
+    static bool is_this_lvar(fn_ht fn, locator_t arg);
+    static bool is_call_lvar(fn_ht fn, locator_t arg);
+    static bool is_lvar(fn_ht fn, locator_t arg) { return is_this_lvar(fn, arg) || is_call_lvar(fn, arg); }
 
 private:
     bitset_uint_t* lvar_interferences(unsigned i) 

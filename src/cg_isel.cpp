@@ -19,8 +19,8 @@
 namespace isel
 {
     using options_flags_t = std::uint8_t;
-    constexpr options_flags_t OPT_CONDITIONAL = 1 << 0;
-    constexpr options_flags_t OPT_NO_DIRECT   = 1 << 1;
+    constexpr options_flags_t OPT_NO_DIRECT   = 0b10; // Works as a 2-bit counter
+    constexpr options_flags_t OPT_CONDITIONAL = 1 << 2;
 
     // Options, to be passed to various construction functions:
     struct options_t
@@ -56,6 +56,9 @@ namespace isel
 
         template<options_flags_t NewFlags>
         using add_flags = options<CanSet, SetMask, Flags | NewFlags>;
+
+        // Used to implement OPT_NO_DIRECT; it adds 1 to flags.
+        using inc_no_direct = options<CanSet, SetMask, Flags + 1>;
 
         template<options_flags_t NewFlags>
         using remove_flags = options<CanSet, SetMask, Flags & ~NewFlags>;
@@ -1065,7 +1068,7 @@ namespace isel
                 fn(pair.first, pair.second, &cont);
 
         if(state.next_map.empty())
-            throw std::runtime_error("Instruction selection failed to make progress.");
+            throw isel_no_progress_error_t{};
 
         state.map.swap(state.next_map);
         state.best_cost = state.next_best_cost;
@@ -1382,7 +1385,7 @@ namespace isel
             {
                 chain
                 < exact_op<Opt, TYA_IMPLIED>
-                , exact_op<Opt, TAY_IMPLIED, Def>
+                , exact_op<Opt, TAX_IMPLIED, Def>
                 >(cpu, prev, cont);
             }
 
@@ -1428,7 +1431,7 @@ namespace isel
             {
                 chain
                 < exact_op<Opt, TXA_IMPLIED>
-                , exact_op<Opt, TAX_IMPLIED, Def>
+                , exact_op<Opt, TAY_IMPLIED, Def>
                 >(cpu, prev, cont);
             }
 
@@ -1534,12 +1537,12 @@ namespace isel
     }
 
     template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY
-            , bool Enable = (AbsoluteX || AbsoluteY) && !(Opt::flags & OPT_NO_DIRECT)>
+            , bool Enable = (AbsoluteX || AbsoluteY) && (Opt::flags & OPT_NO_DIRECT) < OPT_NO_DIRECT>
     struct pick_op_xy
     {
         static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
         {
-            using OptN = typename Opt::add_flags<OPT_NO_DIRECT>;
+            using OptN = typename Opt::inc_no_direct;
 
             if(AbsoluteX != BAD_OP)
             {
@@ -2083,7 +2086,7 @@ namespace isel
                 {
                     p_label<0>::set(state.minor_label());
 
-                    if(p_rhs::value().data() == 0 && carry_output_i(*h) == -1)
+                    if(p_rhs::value().data() == 0 && !carry_used(*h))
                     {
                         chain
                         < load_C<Opt, p_carry>
@@ -2118,7 +2121,7 @@ namespace isel
                         }
                     }
 
-                    if(p_rhs::value().data() == 0xFF && carry_output_i(*h) == -1)
+                    if(p_rhs::value().data() == 0xFF && !carry_used(*h))
                     {
                         p_label<0>::set(state.minor_label());
 
@@ -2165,7 +2168,7 @@ namespace isel
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
 
-                        if((p_rhs::value().data() + !!p_carry::value().data()) == 1 && carry_output_i(*h) == -1)
+                        if((p_rhs::value().data() + !!p_carry::value().data()) == 1 && !carry_used(*h))
                         {
                             chain
                             < load_X<Opt, p_lhs>
@@ -2183,7 +2186,7 @@ namespace isel
                                 pick_op<Opt, INC, p_def, p_def>(cpu, prev, cont);
                         }
 
-                        if(((p_rhs::value().data() + !!p_carry::value().data()) & 0xFF) == 0xFF && carry_output_i(*h) == -1)
+                        if(((p_rhs::value().data() + !!p_carry::value().data()) & 0xFF) == 0xFF && !carry_used(*h))
                         {
                             chain
                             < load_X<Opt, p_lhs>
@@ -2531,6 +2534,9 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
     // DO THE SELECTIONS //
     ///////////////////////
 
+do_selections:
+    for(ssa_ht h : cd.schedule)
+        cg_data(h).isel = {}; // Reset isel data.
     state.sel_pool.clear();
     state.map.clear();
     assert(state.map.empty());
@@ -2541,7 +2547,40 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
     state.map.insert({ cpu_t{}, nullptr });
 
     for(ssa_ht h : cd.schedule)
-        isel_node(h);
+    {
+        try
+        {
+            isel_node(h);
+        }
+        catch(isel_no_progress_error_t const&)
+        {
+            // Try and repair.
+            bool repaired = false;
+            for_each_node_input(h, [&](ssa_ht input)
+            {
+                if(input->cfg_node() != cfg_node)
+                    return;
+
+                if(input->op() == SSA_cg_read_array_direct)
+                {
+                    input->unsafe_set_op(SSA_read_array);
+                    repaired = true;
+                }
+            });
+
+            if(repaired)
+            {
+                std::puts("REPAIRED!");
+                goto do_selections;
+            }
+            else
+                throw;
+        }
+        catch(...)
+        {
+            throw;
+        }
+    }
 
     std::vector<asm_inst_t> code;
     for(sel_t const* sel = state.best_sel; sel; sel = sel->prev)

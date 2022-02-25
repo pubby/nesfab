@@ -656,6 +656,25 @@ void cfg_node_t::steal_ssa_nodes(cfg_ht cfg)
     cfg->m_ssa_size = 0;
 }
 
+void cfg_node_t::steal_ssa(ssa_ht ssa)
+{
+    assert(ssa->op() != SSA_phi);
+    cfg_node_t& old_cfg = *ssa->cfg_node();
+
+    if(&old_cfg == this)
+        return;
+
+    bool const in_daisy = ssa->in_daisy();
+
+    old_cfg.list_erase(*ssa);
+    old_cfg.m_ssa_size -= 1;
+
+    list_insert(*ssa);
+    if(in_daisy)
+        list_append_daisy(*ssa);
+    m_ssa_size += 1;
+}
+
 void cfg_node_t::link_remove_output(unsigned i)
 {
     assert(i < output_size());

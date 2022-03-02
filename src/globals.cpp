@@ -136,16 +136,15 @@ fn_t& global_t::define_fn(pstring_t pstring,
 }
 
 gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                             type_t type, std::pair<group_vars_t*, group_vars_ht> group)
+                             type_t type, std::pair<group_vars_t*, group_vars_ht> group,
+                             token_t const* expr)
 {
     gvar_t* ret;
-
-    // TODO: sleep
 
     // Create the var
     gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), {}, [&](global_t& g)
     { 
-        return impl_deque_alloc<gvar_t>(ret, g, type, group.second);
+        return impl_deque_alloc<gvar_t>(ret, g, type, group.second, expr);
     })};
 
     // Add it to the group
@@ -169,6 +168,21 @@ const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps
     // Add it to the group
     assert(group.first);
     group.first->add_const(h);
+    
+    return *ret;
+}
+
+struct_t& global_t::define_struct(pstring_t pstring, global_t::ideps_set_t&& ideps,
+                                  field_map_t&& fields)
+                                
+{
+    struct_t* ret;
+
+    // Create the struct
+    struct_ht h = { define(pstring, GLOBAL_STRUCT, std::move(ideps), {}, [&](global_t& g)
+    { 
+        return impl_deque_alloc<struct_t>(ret, g, std::move(fields));
+    })};
     
     return *ret;
 }
@@ -239,11 +253,55 @@ void global_t::parse_cleanup()
         fn.calc_lang_gvars_groups();
 }
 
+global_t* global_t::detect_cycle(global_t& global, std::vector<std::string>& error_msgs)
+{
+    if(global.m_ideps_left == 2) // Re-use 'm_ideps_left' to track the DFS.
+        return nullptr;
+
+    if(global.m_ideps_left == 1)
+        return &global;
+
+    global.m_ideps_left = 1;
+
+    for(global_t* idep : global.m_ideps)
+    {
+        if(global_t* error = detect_cycle(*idep, error_msgs))
+        {
+            if(error != &global)
+            {
+                file_contents_t file(global.m_pstring.file_i);
+                error_msgs.push_back(fmt_error(file, global.m_pstring, 
+                    "Mutually recursive with:"));
+                return error;
+            }
+
+            file_contents_t file(global.m_pstring.file_i);
+            std::string msg = fmt_error(file, global.m_pstring,
+                fmt("% has a recursive definition.", global.name));
+            for(std::string const& str : error_msgs)
+                msg += str;
+
+            throw compiler_error_t(std::move(msg));
+        }
+    }
+
+    global.m_ideps_left = 2;
+
+    return nullptr;
+}
+
 // This function isn't thread-safe.
 // Call from a single thread only.
 void global_t::build_order()
 {
     assert(compiler_phase() == PHASE_ORDER_GLOBALS);
+
+    // Detect cycles
+    for(global_t& global : global_pool)
+    {
+        std::vector<std::string> error_msgs;
+        detect_cycle(global, error_msgs);
+    }
 
     for(global_t& global : global_pool)
     {
@@ -251,16 +309,12 @@ void global_t::build_order()
         if(global.gclass() == GLOBAL_UNDEFINED)
         {
             if(global.m_pstring)
-            {
-                file_contents_t file(global.m_pstring.file_i);
-                compiler_error(file, global.m_pstring, "Name not in scope.");
-            }
+                compiler_error(global.m_pstring, "Name not in scope.");
             else
                 throw compiler_error_t(fmt("Name not in scope: %.", global.name));
         }
 
-        global.m_ideps_left.store(global.m_ideps.size(), 
-                                  std::memory_order_relaxed);
+        global.m_ideps_left.store(global.m_ideps.size(), std::memory_order_relaxed);
         for(global_t* idep : global.m_ideps)
             idep->m_iuses.insert(&global);
 
@@ -294,6 +348,8 @@ void global_t::compile()
     case GLOBAL_FN:
         {
             fn_t& fn = this->impl<fn_t>();
+
+            fn.dethunkify();
 
             // Compile the FN.
             ssa_pool::clear();
@@ -392,9 +448,15 @@ void global_t::compile()
         break;
 
     case GLOBAL_VAR:
-        // TODO
+        this->impl<gvar_t>().compile();
+        break;
+
+    case GLOBAL_STRUCT:
+        this->impl<struct_t>().compile();
         break;
     }
+
+    m_compiled = true;
 
     // OK! The global is now compiled.
     // Now add all its dependents onto the ready list:
@@ -824,23 +886,45 @@ void alloc_args(ir_t const& ir)
 }
 */
 
+void fn_t::dethunkify()
+{
+    assert(compiler_phase() == PHASE_COMPILE);
+    m_type = ::dethunkify(m_type);
+    m_def.dethunkify();
+}
+
 ////////////
 // gvar_t //
 ////////////
+
+void gvar_t::compile()
+{
+    m_type = dethunkify(m_type);
+}
 
 void gvar_t::alloc_spans()
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
     assert(m_spans.empty());
-    m_spans.resize(num_fields(type));
+    m_spans.resize(num_atoms(type()));
 }
 
 void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
 {
     assert(compiler_phase() > PHASE_COMPILE);
-    unsigned const num = num_fields(type);
-    for(unsigned field = 0; field < num; ++field)
-        fn(locator_t::gvar(handle(), field));
+    unsigned const num = num_atoms(type());
+    for(unsigned atom = 0; atom < num; ++atom)
+        fn(locator_t::gvar(handle(), atom));
+}
+
+//////////////
+// struct_t //
+//////////////
+
+void struct_t::compile()
+{
+    for(auto& pair : m_fields)
+        pair.second.type = dethunkify(pair.second.type);
 }
 
 ////////////////////
@@ -857,4 +941,3 @@ std::string to_string(global_class_t gclass)
 #undef X
     }
 }
-

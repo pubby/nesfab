@@ -128,7 +128,7 @@ locator_t gvar_loc_manager_t::locator(index_t i) const
 type_t gvar_loc_manager_t::type(index_t i) const
 {
     if(i.value < singletons.size())
-        return singletons[i.value]->type;
+        return singletons[i.value]->type();
     else
         return TYPE_VOID;
 }

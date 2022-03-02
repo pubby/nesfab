@@ -12,8 +12,8 @@
 
 using namespace std::literals;
 
-tails_manager_t<type_t> type_t::type_tails;
-tails_manager_t<group_ht> type_t::group_tails;
+thread_local tails_manager_t<type_t> type_t::type_tails;
+thread_local tails_manager_t<group_ht> type_t::group_tails;
 
 bool type_t::operator==(type_t o) const
 {
@@ -21,9 +21,9 @@ bool type_t::operator==(type_t o) const
         return false;
 
     if(has_type_tail(name()))
-        return std::equal(types(), types() + size(), o.types());
+        return std::equal(types(), types() + type_tail_size(), o.types());
     else if(has_group_tail(name()))
-        return std::equal(groups(), groups() + size(), o.groups());
+        return std::equal(groups(), groups() + group_tail_size(), o.groups());
 
     return true;
 }
@@ -57,6 +57,16 @@ type_t type_t::fn(type_t* begin, type_t* end)
     return type_t(TYPE_FN, end - begin, type_tails.get(begin, end)); 
 }
 
+type_t type_t::struct_thunk(global_t const& global)
+{
+    return type_t(TYPE_STRUCT_THUNK, 0, &global);
+}
+
+type_t type_t::struct_(struct_t const& s)
+{
+    return type_t(TYPE_STRUCT, 0, &s);
+}
+
 std::size_t type_t::size_of() const
 {
     if(is_arithmetic(name()))
@@ -68,6 +78,11 @@ std::size_t type_t::size_of() const
     case TYPE_PTR:          return 2;
     case TYPE_BANKED_PTR:   return 3;
     case TYPE_ARRAY: return size() * types()[0].size_of();
+    case TYPE_STRUCT:
+        std::size_t size = 0;
+        for(unsigned i = 0; i < struct_().fields().size(); ++i)
+            size += struct_().field(i).type.size_of();
+        return size;
     }
 }
 
@@ -77,10 +92,10 @@ std::size_t type_t::hash() const
     hash = rh::hash_combine(hash, size());
 
     if(has_type_tail(name()))
-        for(unsigned i = 0; i < size(); ++i)
+        for(unsigned i = 0; i < type_tail_size(); ++i)
             hash = rh::hash_combine(hash, type(i).hash());
     else if(has_group_tail(name()))
-        for(unsigned i = 0; i < size(); ++i)
+        for(unsigned i = 0; i < group_tail_size(); ++i)
             hash = rh::hash_combine(hash, group(i).value);
 
     return hash;
@@ -93,37 +108,58 @@ std::string to_string(type_t type)
     switch(type.name())
     {
     default: 
-        if(frac_bytes(type.name()) > 0)
-        {
-            str += "fixed"sv;
-            str.push_back(whole_bytes(type.name()) + '0');
-            str.push_back(frac_bytes(type.name()) + '0');
-            break;
-        }
-        throw std::runtime_error("bad type");
-    case TYPE_VOID:  str += "void"sv;  break;
-    case TYPE_BOOL:  str += "bool"sv;  break;
-    case TYPE_CARRY: str += "carry"sv; break;
-    case TYPE_BYTE:  str += "byte"sv;  break;
-    case TYPE_SHORT: str += "short"sv; break;
-    case TYPE_INT:   str += "int"sv;   break;
+        assert(false);
+        throw std::runtime_error(fmt("bad type %", (int)type.name()));
+    case TYPE_VOID:  str += "Void"sv;  break;
+    case TYPE_BOOL:  str += "Bool"sv;  break;
+    case TYPE_NUM:   str += "Num"sv;  break;
+    case TYPE_F1:    str += "F"sv;  break;
+    case TYPE_F2:    str += "FF"sv;  break;
+    case TYPE_F3:    str += "FFF"sv;  break;
+    case TYPE_U10:   str += "U"sv;  break;
+    case TYPE_U20:   str += "UU"sv;  break;
+    case TYPE_U30:   str += "UUU"sv;  break;
+    case TYPE_U11:   str += "UF"sv;  break;
+    case TYPE_U21:   str += "UUF"sv;  break;
+    case TYPE_U31:   str += "UUUF"sv;  break;
+    case TYPE_U12:   str += "UFF"sv;  break;
+    case TYPE_U22:   str += "UUFF"sv;  break;
+    case TYPE_U32:   str += "UUUFF"sv;  break;
+    case TYPE_U13:   str += "UFFF"sv;  break;
+    case TYPE_U23:   str += "UUFFF"sv;  break;
+    case TYPE_U33:   str += "UUUFFF"sv;  break;
+    case TYPE_S10:   str += "S"sv;  break;
+    case TYPE_S20:   str += "SS"sv;  break;
+    case TYPE_S30:   str += "SSS"sv;  break;
+    case TYPE_S11:   str += "SF"sv;  break;
+    case TYPE_S21:   str += "SSF"sv;  break;
+    case TYPE_S31:   str += "SSSF"sv;  break;
+    case TYPE_S12:   str += "SFF"sv;  break;
+    case TYPE_S22:   str += "SSFF"sv;  break;
+    case TYPE_S32:   str += "SSSFF"sv;  break;
+    case TYPE_S13:   str += "SFFF"sv;  break;
+    case TYPE_S23:   str += "SSFFF"sv;  break;
+    case TYPE_S33:   str += "SSSFFF"sv;  break;
     case TYPE_ARRAY:
         str = fmt("%[%]", to_string(type.elem_type()), type.size());
         break;
+    case TYPE_STRUCT:
+        str = type.struct_().global.name;
+        break;
     case TYPE_BUFFER:
-        str += fmt("buffer[%]", type.size());
+        str = fmt("buffer[%]", type.size());
         break;
     case TYPE_BANKED_PTR:
-        str += "P";
+        str = "P";
         // fall-through
     case TYPE_PTR:
-        str += "PP";
+        str = "PP";
         for(unsigned i = 0; i < type.size(); ++i)
             str += type.group(i)->name;
         break;
     case TYPE_FN:
         assert(type.size() > 0);
-        str += "fn("sv;
+        str = "fn("sv;
         for(unsigned i = 0; i < type.size(); ++i)
         {
             if(i == type.size() - 1)
@@ -193,13 +229,26 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
     if(is_ptr(from) || is_ptr(to))
         return CAST_FAIL;
 
+    // Num can be converted to any arithmetic type.
+    if(from.name() == TYPE_NUM && is_arithmetic(to))
+        return CAST_OP;
+
+    // Num can be converted to any arithmetic type.
+    //if(from.name() == TYPE_NUM && is_arithmetic(to))
+        //return CAST_OP;
+
     // Otherwise arithmetic types can be converted amongst each other.
     if(is_arithmetic(from) && is_arithmetic(to))
         return CAST_OP;
 
+    // Arithmetic types can be converted to NUM
+    //if(is_arithmetic(from) == TYPE_NUM && is_arithmetic(to)
+        //return CAST_COMPTIME;
+
     return CAST_FAIL;
 }
 
+/* TODO
 type_name_t smallest_representable(fixed_t fixed)
 {
     if(!fixed)
@@ -213,15 +262,63 @@ type_name_t smallest_representable(fixed_t fixed)
 
     return TYPE_arithmetic(whole, frac);
 }
+*/
 
-unsigned num_fields(type_t type)
+unsigned num_members(type_t type)
+{
+    if(type.name() == TYPE_STRUCT)
+    {
+        unsigned count = 0; 
+        for(auto const& pair : type.struct_().fields())
+            count += num_members(pair.second.type);
+        return count;
+    }
+    else if(type.name() == TYPE_ARRAY)
+        return num_members(type.elem_type());
+    return 1;
+}
+
+unsigned num_atoms(type_t type)
 {
     switch(type.name())
     {
-    case TYPE_ARRAY: return type.elem_type().size_of();
+    case TYPE_STRUCT: assert(false); // TODO
+    case TYPE_ARRAY: return 1;
     case TYPE_PTR: return 1;
     case TYPE_BANKED_PTR: return 2;
     default: return type.size_of();
+    }
+}
+
+type_t dethunkify(type_t t)
+{
+    assert(compiler_phase() == PHASE_COMPILE);
+    switch(t.name())
+    {
+    case TYPE_STRUCT_THUNK:
+        if(t.global().gclass() != GLOBAL_STRUCT)
+            throw std::runtime_error(fmt("%: Expected struct type.", t.global().name));
+        return type_t::struct_(t.global().impl<struct_t>());
+
+        /* TODO
+    case TYPE_ARRAY_THUNK:
+        // 1. evaluate the expression
+        // 2. set the type
+        */
+
+    case TYPE_ARRAY:
+        return type_t::array(dethunkify(t.elem_type()), t.size());
+
+    case TYPE_FN:
+        {
+            type_t* args = ALLOCA_T(type_t, t.size());
+            for(unsigned i = 0; i < t.size(); ++i)
+                args[i] = dethunkify(t.type(i));
+            return type_t::fn(args, args + t.size());
+        }
+
+    default:
+        return t;
     }
 }
 

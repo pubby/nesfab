@@ -592,6 +592,7 @@ int main()
             keyword("label"),
             keyword("mode"),
 
+            keyword("struct"),
             keyword("vars"),
             keyword("once"),
             keyword("many"),
@@ -616,8 +617,8 @@ int main()
             accept(7, "apply", "apply", eof()), // dummy
             accept(7, "index", "index", eof()), // dummy
 
-            //keyword(10, "asterisk", "*"),
-            //keyword(10, "fslash", "/"),
+            keyword(10, "asterisk", "*"),
+            keyword(10, "fslash", "/"),
 
             keyword(11, "plus", "+"),
             keyword(11, "minus", "-"),
@@ -663,16 +664,40 @@ int main()
 
             keyword(1, "rparen", ")"),
 
-            accept("void", "void type", word("void")),
-            accept("bool", "bool type", word("bool")),
-            accept("byte", "byte type", word("byte")),
-            accept("short", "short type", word("short")),
-            accept("int", "int type", word("int")),
-            accept("fixed", "fixed type", cat(word("fixed"), digit(), digit())),
-            accept("ptr", "PP type", word("PP")),
-            accept("banked_ptr", "PPP type", word("PPP")),
+            accept("Void", "void type", word("Void")), // First type
+            accept("F", "F type", word("F")),
+            accept("FF", "FF type", word("FF")),
+            accept("FFF", "FFF type", word("FFF")),
+            accept("U", "U type", word("U")),
+            accept("UU", "UU type", word("UU")),
+            accept("UUU", "UUU type", word("UUU")),
+            accept("UF", "UF type", word("UF")),
+            accept("UUF", "UUF type", word("UUF")),
+            accept("UUUF", "UUUF type", word("UUUF")),
+            accept("UFF", "UFF type", word("UFF")),
+            accept("UUFF", "UUFF type", word("UUFF")),
+            accept("UUUFF", "UUUFF type", word("UUUFF")),
+            accept("UFFF", "UFFF type", word("UFFF")),
+            accept("UUFFF", "UUFFF type", word("UUFFF")),
+            accept("UUUFFF", "UUUFFF type", word("UUUFFF")),
+            accept("S", "S type", word("S")),
+            accept("SS", "SS type", word("SS")),
+            accept("SSS", "SSS type", word("SSS")),
+            accept("SF", "SF type", word("SF")),
+            accept("SSF", "SSF type", word("SSF")),
+            accept("SSSF", "SSSF type", word("SSSF")),
+            accept("SFF", "SFF type", word("SFF")),
+            accept("SSFF", "SSFF type", word("SSFF")),
+            accept("SSSFF", "SSSFF type", word("SSSFF")),
+            accept("SFFF", "SFFF type", word("SFFF")),
+            accept("SSFFF", "SSFFF type", word("SSFFF")),
+            accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
+            accept("PP", "PP type", word("PP")),
+            accept("PPP", "PPP type", word("PPP")),
+            accept("Bool", "bool type", word("Bool")), // Last type
             accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
+            accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
             accept("decimal", "number", many1(digit())),
 
             // dummy:

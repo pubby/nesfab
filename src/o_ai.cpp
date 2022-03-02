@@ -128,7 +128,7 @@ void copy_constraints(ssa_value_t value, constraints_def_t& vec)
     if(value.is_handle())
         vec = ai_data(value.handle()).constraints();
     else if(value.is_num())
-        vec = { numeric_bitmask(TYPE_LARGEST_FIXED), { constraints_t::const_(value.fixed().value) }};
+        vec = { numeric_bitmask(TYPE_NUM), { constraints_t::const_(value.fixed().value) }};
     else
         vec = {};
 }
@@ -516,10 +516,10 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     // The constraints of this is always constant.
     if(trace->input_size() == 2)
     {
-        assert(trace->input(1).is_const());
+        assert(trace->input(1).is_num());
         trace_d.constraints() =
         { 
-            numeric_bitmask(TYPE_LARGEST_FIXED),
+            numeric_bitmask(TYPE_NUM),
             { constraints_t::const_(trace->input(1).fixed().value) } 
         };
         return;
@@ -572,8 +572,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
 
     trace_d.set_active_constraints(exec_i);
     for(unsigned i = 0; i < narrowed.size(); ++i)
-        trace_d.constraints()[i] = union_(trace_d.constraints()[i],
-                                          narrowed[i]);
+        trace_d.constraints()[i] = union_(trace_d.constraints()[i], narrowed[i]);
 }
 
 ////////////////////////////////////////
@@ -742,7 +741,7 @@ void ai_t::range_propagate()
             if(type.name() == TYPE_ARRAY)
                 constraints.mask = numeric_bitmask(type.elem_type());
             else if(type.name() == TYPE_BUFFER)
-                constraints.mask = numeric_bitmask(TYPE_BYTE);
+                constraints.mask = numeric_bitmask(TYPE_U);
             else
                 constraints.mask = numeric_bitmask(type);
         }

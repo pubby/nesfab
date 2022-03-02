@@ -1,5 +1,16 @@
 #include "stmt.hpp"
 
+bool has_expression(stmt_name_t stmt_name)
+{
+    switch(stmt_name)
+    {
+    default: return false;
+#define X(x, e) case x: return e;
+    STMT_XENUM
+#undef X
+    }
+}
+
 std::string to_string(stmt_name_t stmt_name)
 {
     switch(stmt_name)
@@ -11,21 +22,19 @@ std::string to_string(stmt_name_t stmt_name)
         else
             return "bad stmt_name_t";
 
-#define X(x) case x: return #x;
+#define X(x, e) case x: return #x;
     STMT_XENUM
 #undef X
     }
 }
 
-label_t* stmt_t::new_label()
-{
-    std::lock_guard<std::mutex> lock(label_pool_mutex);
-    return &label_pool.emplace();
-}
-
 token_t const* stmt_t::new_expr(token_t const* begin, token_t const* end)
 {
-    std::lock_guard<std::mutex> lock(expr_pool_mutex);
     return expr_pool.insert(begin, end);
 }
 
+void fn_def_t::dethunkify()
+{
+    for(auto& decl : local_vars)
+        decl.type = ::dethunkify(decl.type);
+}

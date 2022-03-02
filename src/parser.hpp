@@ -79,6 +79,7 @@ private:
     void parse_top_level_const();
     void parse_fn();
     void parse_mode();
+    void parse_struct();
 
     void parse_statement();
     void parse_flow_statement();

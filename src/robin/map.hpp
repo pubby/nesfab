@@ -14,6 +14,7 @@ template<typename ValueType, typename Hash, typename KeyEqual>
 struct map_policy
 {
     using key_type = typename ValueType::first_type;
+    using mapped_type = typename ValueType::second_type;
     using value_type = ValueType;
     using hasher = Hash;
     using key_equal = KeyEqual;

@@ -14,8 +14,10 @@
 #include "array_pool.hpp"
 #include "decl.hpp"
 
+#define FRAC_X \
+    FIXED(0,1) FIXED(0,2) FIXED(0,3)\
+
 #define FIXED_X \
-    FIXED(0,0) FIXED(0,1) FIXED(0,2) FIXED(0,3)\
     FIXED(1,0) FIXED(1,1) FIXED(1,2) FIXED(1,3)\
     FIXED(2,0) FIXED(2,1) FIXED(2,2) FIXED(2,3)\
     FIXED(3,0) FIXED(3,1) FIXED(3,2) FIXED(3,3)\
@@ -54,9 +56,12 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     // Have void be the zeroth/default value.
     TYPE_VOID = 0,
 
+    TYPE_STRUCT_THUNK, // Will convert to struct type eventually
+    TYPE_STRUCT,
+
+    //TYPE_ARRAY_THUNK, // The size will be determined later.
     TYPE_ARRAY,
     TYPE_BUFFER,
-    TYPE_STRUCT,
     TYPE_PTR,
     TYPE_FIRST_NUM = TYPE_PTR,
     TYPE_FIRST_PTR = TYPE_PTR,
@@ -64,32 +69,52 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_FN, // should be named FN_PTR, but whatever
     TYPE_LAST_PTR = TYPE_FN,
 
+
     // Bools aren't considered arithmetic or composite, but they are numeric.
     TYPE_BOOL,
-    TYPE_FIRST_BOOLEAN = TYPE_BOOL,
-    // Carry is a more specific version of bool:
-    TYPE_CARRY,
-    TYPE_LAST_BOOLEAN = TYPE_CARRY,
-#define FIXED(whole, frac) TYPE_FIXED_##whole##frac,
+
+    // Numerical literals readily convert to other numeric types,
+    // assuming they fit in said representation.
+    TYPE_NUM,
+#define FIXED(whole, frac) TYPE_F##frac,
+    FRAC_X
+#undef FIXED
+#define FIXED(whole, frac) TYPE_U##whole##frac,
     FIXED_X
 #undef FIXED
-    TYPE_BYTE = TYPE_FIXED_10,
-    TYPE_SHORT = TYPE_FIXED_20,
-    TYPE_INT = TYPE_FIXED_30,
+#define FIXED(whole, frac) TYPE_S##whole##frac,
+    FIXED_X
+#undef FIXED
+    TYPE_U = TYPE_U10,
+    TYPE_S = TYPE_S10,
 
-    TYPE_FIRST_ARITH = TYPE_FIXED_01,
-    TYPE_LAST_ARITH = TYPE_FIXED_33,
-    TYPE_LAST_NUM   = TYPE_FIXED_33,
-    TYPE_LARGEST_FIXED = TYPE_FIXED_33,
+    TYPE_FIRST_F = TYPE_F1,
+    TYPE_LAST_F  = TYPE_F3,
+
+    TYPE_FIRST_U = TYPE_U10,
+    TYPE_LAST_U  = TYPE_U33,
+
+    TYPE_FIRST_S = TYPE_S10,
+    TYPE_LAST_S  = TYPE_S33,
+
+    TYPE_FIRST_ARITH = TYPE_NUM,
+    TYPE_LAST_ARITH  = TYPE_S33,
+    TYPE_LAST_NUM    = TYPE_S33,
+
+    TYPE_LARGEST_U = TYPE_U33,
+    TYPE_LARGEST_S = TYPE_S33,
 };
 
 constexpr bool is_arithmetic(type_name_t type_name)
     { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }
 constexpr bool is_numeric(type_name_t type_name)
     { return type_name >= TYPE_FIRST_NUM && type_name <= TYPE_LAST_NUM; }
-constexpr bool is_boolean(type_name_t type_name)
-    { return (type_name >= TYPE_FIRST_BOOLEAN 
-              && type_name <= TYPE_LAST_BOOLEAN); }
+constexpr bool is_frac(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_F && type_name <= TYPE_LAST_F; }
+constexpr bool is_unsigned(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_U && type_name <= TYPE_LAST_U; }
+constexpr bool is_signed(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_S && type_name <= TYPE_LAST_S; }
 constexpr bool is_ptr(type_name_t type_name)
     { return (type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR); }
 
@@ -115,7 +140,7 @@ class tails_manager_t
         T const* tail;
     };
 
-    std::mutex mutex; // Protects the objects below:
+    //std::mutex mutex; // Protects the objects below: // TODO: remove?
     rh::robin_auto_table<map_elem_t> map;
     array_pool_t<T> tails;
 
@@ -138,7 +163,7 @@ public:
 
         // Now insert into the map:
 
-        std::lock_guard<std::mutex> const lock(mutex);
+        //std::lock_guard<std::mutex> const lock(mutex);
 
         rh::apair<map_elem_t*, bool> result = map.emplace(
             hash,
@@ -160,7 +185,7 @@ public:
 
     void clear()
     {
-        std::lock_guard<std::mutex> const lock(mutex);
+        //std::lock_guard<std::mutex> const lock(mutex);
         map.clear();
         tails.clear();
     }
@@ -187,14 +212,33 @@ public:
     constexpr type_name_t name() const { return m_name; }
     constexpr std::size_t size() const { return m_size; }
 
+    std::size_t type_tail_size() const
+    {
+        if(!has_type_tail(name()))
+            return 0;
+        if(name() == TYPE_ARRAY)
+            return 1;
+        return size();
+    }
+
+    std::size_t group_tail_size() const
+    {
+        if(!has_group_tail(name()))
+            return 0;
+        return size();
+    }
+
     type_t const* types() const 
         { assert(has_type_tail(name())); return static_cast<type_t const*>(m_tail); }
     group_ht const* groups() const 
         { assert(has_group_tail(name())); return static_cast<group_ht const*>(m_tail); }
 
-    type_t type(unsigned i) const { return types()[i]; }
+    type_t type(unsigned i) const { assert(has_type_tail(name())); assert(i < type_tail_size()); return types()[i]; }
     type_t elem_type() const { return type(0); }
     group_ht group(unsigned i) const;
+
+    global_t const& global() const { assert(name() == TYPE_STRUCT_THUNK); return *static_cast<global_t const*>(m_tail); }
+    struct_t const& struct_() const { assert(name() == TYPE_STRUCT); return *static_cast<struct_t const*>(m_tail); }
 
     /* TODO: remove
     type_t const* begin() const { return types(); }
@@ -216,23 +260,27 @@ public:
     static type_t array(type_t elem_type, unsigned size);
     static type_t ptr(group_ht const* begin, group_ht const* end, bool banked);
     static type_t fn(type_t* begin, type_t* end);
+    static type_t struct_thunk(global_t const& global);
+    static type_t struct_(struct_t const& s);
 
 private:
     type_name_t m_name = TYPE_VOID;
+
+    //std::uint8_t m_array_size; // TODO
 
     // Overloaded; 
     // - Holds tail size for fns and ptrs
     // - Array size for arrays
     std::uint16_t m_size = 0;
 
-    // Holds types or groups, depending on 'm_name'.
+    // Holds types, groups, or globals, depending on 'm_name'.
     void const* m_tail = nullptr;
 
     type_t(type_name_t name, std::uint16_t size, void const* tail = nullptr)
     : m_name(name), m_size(size), m_tail(tail) {}
 
-    static tails_manager_t<type_t> type_tails;
-    static tails_manager_t<group_ht> group_tails;
+    static thread_local tails_manager_t<type_t> type_tails;
+    static thread_local tails_manager_t<group_ht> group_tails;
 };
 
 
@@ -260,14 +308,12 @@ inline bool operator!=(type_name_t lhs, type_t rhs)
     { return !operator==(lhs, rhs); }
     */
 
+// TODO: remove these
 constexpr bool is_arithmetic(type_t type)
     { return type.size() == 0 && is_arithmetic(type.name()); }
 
 constexpr bool is_numeric(type_t type)
     { return type.size() == 0 && is_numeric(type.name()); }
-
-constexpr bool is_boolean(type_t type)
-    { return type.size() == 0 && is_boolean(type.name()); }
 
 constexpr bool is_ptr(type_t type)
     { return is_ptr(type.name()); }
@@ -277,11 +323,14 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     switch(type_name)
     {
     default: return 0;
-    case TYPE_CARRY: return 1;
     case TYPE_BOOL:  return 1;
     case TYPE_PTR:   return 2;
     case TYPE_BANKED_PTR:  return 3;
-#define FIXED(whole, frac) case TYPE_FIXED_##whole##frac: return whole;
+    case TYPE_NUM: return 4;
+#define FIXED(whole, frac) case TYPE_F##frac: return 0;
+    FRAC_X
+#undef FIXED
+#define FIXED(whole, frac) case TYPE_U##whole##frac: case TYPE_S##whole##frac: return whole;
     FIXED_X
 #undef FIXED
     }
@@ -292,7 +341,11 @@ constexpr unsigned frac_bytes(type_name_t type_name)
     switch(type_name)
     {
     default: return 0;
-#define FIXED(whole, frac) case TYPE_FIXED_##whole##frac: return frac;
+    case TYPE_NUM: return 3;
+#define FIXED(whole, frac) case TYPE_F##frac: return frac;
+    FRAC_X
+#undef FIXED
+#define FIXED(whole, frac) case TYPE_U##whole##frac: case TYPE_S##whole##frac: return frac;
     FIXED_X
 #undef FIXED
     }
@@ -303,20 +356,38 @@ constexpr unsigned total_bytes(type_name_t type_name)
     return whole_bytes(type_name) + frac_bytes(type_name);
 }
 
-constexpr type_name_t TYPE_arithmetic(unsigned w, unsigned f)
+constexpr type_name_t type_f(unsigned f)
 {
-    assert(w <= 3);
+    assert(f > 0);
     assert(f <= 3);
-    return type_name_t(TYPE_FIXED_00 + w*4 + f);
+    return type_name_t(TYPE_F1 - 1 + f);
 }
 
-constexpr type_name_t promote_arithmetic(type_name_t a, type_name_t b)
+constexpr type_name_t type_u(unsigned w, unsigned f)
 {
-    assert(is_arithmetic(a));
-    assert(is_arithmetic(b));
+    assert(w > 0);
+    assert(w <= 3);
+    assert(f <= 3);
+    return type_name_t(TYPE_U10 - 4 + w*4 + f);
+}
 
-    return TYPE_arithmetic(std::max(whole_bytes(a), whole_bytes(b)), 
-                           std::max(frac_bytes(a), frac_bytes(b)));
+constexpr type_name_t type_s(unsigned w, unsigned f)
+{
+    assert(w > 0);
+    assert(w <= 3);
+    assert(f <= 3);
+    return type_name_t(TYPE_S10 - 4 + w*4 + f);
+}
+
+inline type_name_t promote_arithmetic(type_name_t a, type_name_t b)
+{
+    assert(false);
+    return TYPE_VOID; // TODO
+    //assert(is_arithmetic(a));
+    //assert(is_arithmetic(b));
+
+    //return TYPE_arithmetic(std::max(whole_bytes(a), whole_bytes(b)), 
+                           //std::max(frac_bytes(a), frac_bytes(b)));
 }
 
 constexpr unsigned begin_byte(type_name_t type_name)
@@ -341,9 +412,10 @@ constexpr bool valid_struct_member(type_t type)
 }
 */
 
-type_name_t smallest_representable(struct fixed_t fixed);
+//type_name_t smallest_representable(struct fixed_t fixed);
 
-unsigned num_fields(type_t type);
+unsigned num_members(type_t type);
+unsigned num_atoms(type_t type);
 
 std::string to_string(type_t type);
 std::ostream& operator<<(std::ostream& ostr, type_t const& type);
@@ -354,9 +426,12 @@ enum cast_result_t : char
     CAST_NOP,
     CAST_OP,
     CAST_BOOLIFY,
+    CAST_COMPTIME,
 };
 
 cast_result_t can_cast(type_t const& from, type_t const& to);
+
+type_t dethunkify(type_t t);
 
 /* TODO
 type_t arg_struct(type_t fn_type);
@@ -364,7 +439,5 @@ std::size_t struct_size(type_t type);
 type_t struct_index(type_t type, unsigned i);
 void struct_fill(type_t type, type_t* vec);
 */
-
-
 
 #endif

@@ -14,15 +14,15 @@ std::string to_string(locator_t loc)
     case LOC_IOTA:
         return fmt("iota % %", loc.offset());
     case LOC_GVAR:
-        return fmt("gvar % %.%:%", loc.gvar()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
+        return fmt("gvar % %.%:%", loc.gvar()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
     case LOC_GVAR_SET:
         return fmt("gset %.%", loc.handle(), (int)loc.offset());
     case LOC_FN:
         return fmt("fn %", loc.fn()->global.name);
     case LOC_ARG:
-        return fmt("this arg % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
+        return fmt("this arg % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
     case LOC_RETURN:
-        return fmt("ret % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.field(), (int)loc.offset());
+        return fmt("ret % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
     case LOC_PHI:
         return fmt("phi % %", loc.fn()->global.name, loc.data());
     case LOC_CFG_LABEL:
@@ -34,7 +34,7 @@ std::string to_string(locator_t loc)
     case LOC_SSA:
         return fmt("ssa %", loc.handle());
     case LOC_LOCAL:
-        return fmt("local % %.%:%", loc.handle(), (int)loc.arg(), (int)loc.field(), (int)loc.offset());
+        return fmt("local % %.%:%", loc.handle(), (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
     default: 
         return "unknown locator";
     }
@@ -63,15 +63,15 @@ type_t locator_t::mem_type() const
     switch(lclass())
     {
     case LOC_IOTA:
-        return type_t::array(TYPE_BYTE, 256);
+        return type_t::array(TYPE_U, 256);
     case LOC_GVAR: 
-        return gvar()->type;
+        return gvar()->type();
     case LOC_ARG:
-        return fn()->type.type(arg());
+        return fn()->type().type(arg());
     case LOC_RETURN:
-        return fn()->type.return_type();
+        return fn()->type().return_type();
     case LOC_CONST_BYTE:
-        return TYPE_BYTE;
+        return TYPE_U;
     case LOC_SSA:
         assert(compiler_phase() == PHASE_COMPILE);
         return ssa_node()->type();
@@ -90,7 +90,7 @@ std::size_t locator_t::mem_size() const
         return t.size();
     case TYPE_PTR:
     case TYPE_BANKED_PTR:
-        return field() == 0 ? 2 : 1;
+        return atom() == 0 ? 2 : 1;
     default:
         assert(!is_ptr(t.name()));
         return 1;
@@ -100,5 +100,5 @@ std::size_t locator_t::mem_size() const
 bool locator_t::mem_zp_only() const
 {
     type_t const t = mem_type();
-    return is_ptr(t.name()) && field() == 0;
+    return is_ptr(t.name()) && atom() == 0;
 }

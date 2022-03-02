@@ -6,6 +6,7 @@
 
 #include "robin/collection.hpp"
 #include "robin/set.hpp"
+#include "robin/map.hpp"
 
 #include "flat/flat_set.hpp"
 
@@ -66,6 +67,47 @@ private:
 };
 */
 
+// A data member of a struct.
+struct field_t
+{
+    pstring_t pstring;
+    type_t type;
+    //token_t const* init_expr = nullptr;
+};
+
+using field_map_t = rh::batman_map<std::string, field_t>;
+
+class struct_t
+{
+public:
+    using global_impl_tag = void;
+    static constexpr global_class_t gclass = GLOBAL_STRUCT;
+
+    struct_t(global_t& global, field_map_t&& fields)
+    : global(global)
+    , m_fields(std::move(fields))
+    {}
+
+    global_t& global;
+
+    field_map_t const& fields() const { assert(compiler_phase() > PHASE_PARSE); return m_fields; }
+    field_t const& field(unsigned i) const { assert(compiler_phase() > PHASE_PARSE); return m_fields.begin()[i].second; }
+
+    unsigned member(unsigned i) const
+    {
+        assert(compiler_phase() > PHASE_PARSE);
+        assert(i < fields().size());
+        unsigned ef = 0;
+        for(unsigned k = 0; k < i; ++k)
+            ef += num_members(field(k).type);
+        return ef;
+    }
+
+    void compile();
+private:
+    field_map_t m_fields;
+};
+
 class global_t
 {
 public:
@@ -95,6 +137,8 @@ private:
     // This is built after all globals have been created, after parsing.
     ideps_set_t m_iuses;
     std::atomic<unsigned> m_ideps_left = 0;
+
+    std::atomic<bool> m_compiled = false; // Use for debugging only.
 public:
     explicit global_t(std::string_view name)
     : name(name)
@@ -143,6 +187,8 @@ public:
         return impl_deque<T>[m_impl_index];
     }
 
+    bool compiled() const { return m_compiled; }
+
     // If this global has a dependency to 'other'
     bool has_dep(global_t& other);
 
@@ -151,9 +197,12 @@ public:
                     global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
                     type_t type, fn_def_t&& fn_def, bool mode);
     gvar_t& define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                      type_t type, std::pair<group_vars_t*, group_vars_ht> group);
+                      type_t type, std::pair<group_vars_t*, group_vars_ht> group,
+                      token_t const* expr);
     const_t& define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
                           type_t type, std::pair<group_data_t*, group_data_ht> group);
+    struct_t& define_struct(pstring_t pstring, global_t::ideps_set_t&& ideps, 
+                            field_map_t&& map);
 
     static void init();
 
@@ -167,6 +216,9 @@ public:
 
     // Call after parsing
     static void parse_cleanup();
+
+    // Implementation detail used in 'build_order'.
+    static global_t* detect_cycle(global_t& global, std::vector<std::string>& error_msgs);
 
     // Call after parse_cleanup to build 'm_iuses' and 'm_ideps_left',
     // among other things.
@@ -218,12 +270,17 @@ public:
 
     fn_t(global_t& global, type_t type, fn_def_t fn_def, bool mode) 
     : global(global)
-    , type(std::move(type))
-    , def(std::move(fn_def)) 
     , mode(mode)
+    , m_type(std::move(type))
+    , m_def(std::move(fn_def)) 
     {}
 
     fn_ht handle() const;
+
+    type_t type() const { return m_type; }
+    fn_def_t const& def() const { return m_def; }
+
+    void dethunkify();
 
     void calc_lang_gvars_groups();
     void calc_ir_bitsets(ir_t const& ir);
@@ -265,12 +322,13 @@ public:
 
 public:
     global_t& global;
-    type_t const type;
-    fn_def_t const def;
     bool const mode;
 
     //rom_alloc_ht rom_alloc; TODO
 private:
+    type_t m_type;
+    fn_def_t m_def;
+
     bitset_t m_lang_gvars;
     bitset_t m_lang_group_vars;
 
@@ -307,17 +365,22 @@ public:
 
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
-    gvar_t(global_t& global, type_t type, group_vars_ht group_vars)
+    gvar_t(global_t& global, type_t type, group_vars_ht group_vars, token_t const* expr)
     : global(global)
-    , type(type)
     , group_vars(group_vars)
+    , init_expr(expr)
+    , m_type(type)
     {}
 
     global_t& global;
-    type_t const type;
-    group_vars_ht group_vars;
+    group_vars_ht const group_vars = {};
+    token_t const* const init_expr = nullptr;
+
+    type_t type() const { assert(global.compiled()); return m_type; }
 
     //group_bitset_t group_bitset() const { return 1ull << group.value; }
+
+    void compile();
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
@@ -326,6 +389,7 @@ public:
     void assign_span(unsigned field, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[field] = span; }
 
 private:
+    type_t m_type = {};
     std::vector<span_t> m_spans = {};
 };
 

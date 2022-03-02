@@ -113,7 +113,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 continue;
             }
 
-            if(type == TYPE_BYTE)
+            if(type == TYPE_U)
             {
                 auto& ssa_data = ssa_it.data<ssa_byteify_d>(); 
                 ssa_data.bm = zero_bm;
@@ -140,9 +140,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                 break;
             }
 
-            type_t split_type = TYPE_BYTE;
+            type_t split_type = TYPE_U;
             if(ssa_node.type().name() == TYPE_ARRAY)
-                split_type = type_t::array(TYPE_BYTE, ssa_node.type().size());
+                split_type = type_t::array(TYPE_U, ssa_node.type().size());
 
             bm_t bm = zero_bm;
             unsigned const end = end_byte(type.name());
@@ -198,14 +198,14 @@ void byteify(ir_t& ir, fn_t const& fn)
                         type_t t;
 
                         if(loc.lclass() == LOC_ARG)
-                            t = loc.fn()->type.types()[loc.arg()];
+                            t = loc.fn()->type().types()[loc.arg()];
                         else if(loc.lclass() == LOC_RETURN)
                         {
                             assert(ssa_it->op() == SSA_return);
-                            t = fn.type.return_type();
+                            t = fn.type().return_type();
                         }
                         else if(loc.lclass() == LOC_GVAR)
-                            t = loc.gvar()->type;
+                            t = loc.gvar()->type();
                         else
                         {
                             assert(loc.lclass() == LOC_GVAR_SET);
@@ -223,7 +223,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                         for(unsigned j = start; j < end; ++j)
                         {
                             locator_t new_loc = loc;
-                            new_loc.set_field(j - start);
+                            new_loc.set_atom(j - start);
 
                             new_input.push_back(bm[j]);
                             new_input.push_back(std::move(new_loc));
@@ -341,7 +341,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     split->build_set_input(2, carry);
 
                     carry = ssa_node->cfg_node()->emplace_ssa(
-                        SSA_carry, TYPE_CARRY, split);
+                        SSA_carry, TYPE_BOOL, split);
                     ssa_data_pool::resize<ssa_byteify_d>(
                         ssa_pool::array_size());
                 }
@@ -360,7 +360,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_ht split = ssa_data.bm[i].handle();
 
                     locator_t loc = ssa_node->input(1).locator();
-                    loc.set_field(i - start);
+                    loc.set_atom(i - start);
 
                     assert(ssa_argn(SSA_read_array) == 3);
                     split->alloc_input(3);
@@ -384,7 +384,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_ht split = ssa_data.bm[i].handle();
 
                     locator_t loc = ssa_node->input(1).locator();
-                    loc.set_field(i - start);
+                    loc.set_atom(i - start);
 
                     assert(ssa_argn(SSA_write_array) == 4);
                     split->alloc_input(4);
@@ -429,7 +429,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_value_t split = ssa_data.bm[i];
                     assert(split.holds_ref());
 
-                    loc.set_field(i - start);
+                    loc.set_atom(i - start);
 
                     split->alloc_input(2);
                     split->build_set_input(0, link);
@@ -455,7 +455,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     // Prune nodes that are now unnecessary:
     for(ssa_ht h : prune_nodes)
     {
-        if(h->type() == TYPE_BYTE)
+        if(h->type() == TYPE_U)
             h->replace_with(h.data<ssa_byteify_d>().bm[type_t::max_frac_bytes]);
         h->prune();
     }

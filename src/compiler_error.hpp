@@ -28,6 +28,10 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
 void compiler_error(file_contents_t const& file, pstring_t pstring, 
                     std::string const& what);
 
+[[gnu::noreturn]] 
+void compiler_error(pstring_t pstring, std::string const& what);
+
+
 void compiler_warning(file_contents_t const& file, pstring_t pstring, std::string const& what);
 void compiler_warning(pstring_t pstring, std::string const& what);
 void compiler_warning(std::string const& what);

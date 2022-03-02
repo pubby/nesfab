@@ -2,19 +2,6 @@
 
 #include "builtin.hpp"
 
-std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s)
-{
-    if(s.is_handle())
-        o << "handle " << s.handle().index;
-    else if(s.is_num())
-        o << "num " << to_double(s.fixed());
-    else if(s.is_locator())
-        o << "locator " << s.locator();
-    //else if(s.is_ptr()) TODO: remove?
-        //o << "ptr " << s.ptr<void>();
-    return o;
-}
-
 // Allocates the specified amount, using small buffer optimization 
 // whenever possible.
 template<typename T, std::size_t StorageSize> 

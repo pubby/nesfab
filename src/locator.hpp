@@ -66,7 +66,7 @@ constexpr bool is_const(locator_class_t lclass)
     return lclass == LOC_CONST_BYTE;
 }
 
-constexpr bool has_arg_field(locator_class_t lclass)
+constexpr bool has_arg_atom(locator_class_t lclass)
 {
     switch(lclass)
     {
@@ -115,7 +115,7 @@ public:
         set_lclass(lc);
         set_handle(h);
         set_arg(a);
-        set_field(f);
+        set_atom(f);
         set_offset(o);
     }
 
@@ -124,10 +124,10 @@ public:
 
     constexpr locator_class_t lclass() const { return static_cast<locator_class_t>(impl >> 56ull); }
     constexpr std::uint32_t handle() const { return (impl >> 32ull) & 0xFFFFFF; }
-    constexpr std::uint16_t data() const { assert(!has_arg_field(lclass())); return impl >> 16ull; }
-    // 'arg' and 'field' overlap with data; use one or the other.
-    constexpr std::uint8_t arg() const { assert(has_arg_field(lclass())); return impl >> 24ull; }
-    constexpr std::uint8_t field() const { assert(has_arg_field(lclass())); return impl >> 16ull; }
+    constexpr std::uint16_t data() const { assert(!has_arg_atom(lclass())); return impl >> 16ull; }
+    // 'arg' and 'atom' overlap with data; use one or the other.
+    constexpr std::uint8_t arg() const { assert(has_arg_atom(lclass())); return impl >> 24ull; }
+    constexpr std::uint8_t atom() const { assert(has_arg_atom(lclass())); return impl >> 16ull; }
     constexpr std::int16_t signed_offset() const { return static_cast<std::make_signed_t<std::int16_t>>(impl); }
     constexpr std::uint16_t offset() const { return impl; }
 
@@ -147,7 +147,7 @@ public:
 
     constexpr void set_data(std::uint16_t data)
     { 
-        assert(!has_arg_field(lclass()));
+        assert(!has_arg_atom(lclass()));
         impl &= 0xFFFFFFFF0000FFFFull;
         impl |= (std::uint64_t)data << 16ull; 
         assert(data == this->data());
@@ -155,18 +155,18 @@ public:
 
     constexpr void set_arg(std::uint8_t arg)
     { 
-        assert(has_arg_field(lclass()));
+        assert(has_arg_atom(lclass()));
         impl &= 0xFFFFFFFF00FFFFFFull;
         impl |= (std::uint64_t)arg << 24; 
         assert(arg == this->arg());
     }
 
-    constexpr void set_field(std::uint8_t field)
+    constexpr void set_atom(std::uint8_t atom)
     { 
-        assert(has_arg_field(lclass()));
+        assert(has_arg_atom(lclass()));
         impl &= 0xFFFFFFFFFF00FFFFull;
-        impl |= (std::uint64_t)field << 16; 
-        assert(field == this->field());
+        impl |= (std::uint64_t)atom << 16; 
+        assert(atom == this->atom());
     }
 
     constexpr void set_offset(std::uint16_t offset) 
@@ -230,11 +230,11 @@ public:
     constexpr static locator_t fn(fn_ht fn)
         { return locator_t(LOC_FN, fn.value, 0, 0); }
 
-    constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t field, std::uint16_t offset=0)
-        { return locator_t(LOC_ARG, fn.value, arg, field, offset); }
+    constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_ARG, fn.value, arg, atom, offset); }
 
-    constexpr static locator_t gvar(gvar_ht gvar, std::uint8_t field, std::uint16_t offset=0)
-        { return locator_t(LOC_GVAR, gvar.value, 0, field, offset); }
+    constexpr static locator_t gvar(gvar_ht gvar, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_GVAR, gvar.value, 0, atom, offset); }
 
     constexpr static locator_t gvar_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GVAR_SET, fn.value, id, 0); }

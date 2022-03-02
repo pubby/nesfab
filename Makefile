@@ -56,6 +56,7 @@ parser.cpp \
 parser_types.cpp \
 symbol_table.cpp \
 ir.cpp \
+ir_edge.cpp \
 ir_util.cpp \
 ir_builder.cpp \
 types.cpp \
@@ -92,7 +93,9 @@ span_allocator.cpp \
 group.cpp \
 ram.cpp \
 ram_alloc.cpp \
-lvar.cpp 
+lvar.cpp \
+o_gvn.cpp \
+interpret.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

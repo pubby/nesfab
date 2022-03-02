@@ -17,9 +17,7 @@ static constexpr int operator_precedence(token_type_t type)
 
 static constexpr bool is_type_prefix(token_type_t type)
 {
-    return (type == TOK_void || type == TOK_bool || type == TOK_byte
-            || type == TOK_short || type == TOK_int || type == TOK_fixed
-            || type == TOK_ptr || type == TOK_banked_ptr || type == TOK_fn);
+    return (type >= TOK_Void && type <= TOK_Bool) || type == TOK_type_ident;
 }
 
 template<typename P>
@@ -377,27 +375,37 @@ type_t parser_t<P>::parse_type(bool allow_void)
 
     switch(token.type)
     {
-    case TOK_bool:  parse_token(); type = TYPE_BOOL; break;
-    case TOK_byte:  parse_token(); type = TYPE_BYTE; break;
-    case TOK_short: parse_token(); type = TYPE_SHORT; break;
-    case TOK_int:   parse_token(); type = TYPE_INT; break;
-    case TOK_fixed: 
-        {
-            unsigned w = token_source[5] - '0';
-            unsigned f = token_source[6] - '0';
-
-            if(w > 3 || f == 0 || f > 3)
-            {
-                compiler_error(
-                    "Fixed-point type has invalid size. Valid types are "
-                    "between fixed01 and fixed33.");
-            }
-
-            type = TYPE_arithmetic(w, f);
-            parse_token(); 
-            break;
-        }
-    case TOK_fn: // fn pointer
+    case TOK_Void:   parse_token(); type = TYPE_VOID; break;
+    case TOK_Bool:   parse_token(); type = TYPE_BOOL; break;
+    case TOK_F:      parse_token(); type = TYPE_F1; break;
+    case TOK_FF:     parse_token(); type = TYPE_F2; break;
+    case TOK_FFF:    parse_token(); type = TYPE_F3; break;
+    case TOK_U:      parse_token(); type = TYPE_U10; break;
+    case TOK_UU:     parse_token(); type = TYPE_U20; break;
+    case TOK_UUU:    parse_token(); type = TYPE_U30; break;
+    case TOK_UF:     parse_token(); type = TYPE_U11; break;
+    case TOK_UUF:    parse_token(); type = TYPE_U21; break;
+    case TOK_UUUF:   parse_token(); type = TYPE_U31; break;
+    case TOK_UFF:    parse_token(); type = TYPE_U12; break;
+    case TOK_UUFF:   parse_token(); type = TYPE_U22; break;
+    case TOK_UUUFF:  parse_token(); type = TYPE_U32; break;
+    case TOK_UFFF:   parse_token(); type = TYPE_U12; break;
+    case TOK_UUFFF:  parse_token(); type = TYPE_U22; break;
+    case TOK_UUUFFF: parse_token(); type = TYPE_U33; break;
+    case TOK_S:      parse_token(); type = TYPE_S10; break;
+    case TOK_SS:     parse_token(); type = TYPE_S20; break;
+    case TOK_SSS:    parse_token(); type = TYPE_S30; break;
+    case TOK_SF:     parse_token(); type = TYPE_S11; break;
+    case TOK_SSF:    parse_token(); type = TYPE_S21; break;
+    case TOK_SSSF:   parse_token(); type = TYPE_S31; break;
+    case TOK_SFF:    parse_token(); type = TYPE_S12; break;
+    case TOK_SSFF:   parse_token(); type = TYPE_S22; break;
+    case TOK_SSSFF:  parse_token(); type = TYPE_S32; break;
+    case TOK_SFFF:   parse_token(); type = TYPE_S12; break;
+    case TOK_SSFFF:  parse_token(); type = TYPE_S22; break;
+    case TOK_SSSFFF: parse_token(); type = TYPE_S33; break;
+                     /*
+    case TOK_fn: // fn pointer // TODO: remove?
         {
             parse_token();
 
@@ -416,9 +424,10 @@ type_t parser_t<P>::parse_type(bool allow_void)
 
         }
         break;
+        */
 
-    case TOK_ptr:
-    case TOK_banked_ptr:
+    case TOK_PP:
+    case TOK_PPP:
         {
             parse_token();
             
@@ -431,9 +440,9 @@ type_t parser_t<P>::parse_type(bool allow_void)
             }
 
             type = type_t::ptr(&*groups.begin(), &*groups.end(), 
-                               token.type == TOK_banked_ptr);
+                               token.type == TOK_PPP);
+            break;
         }
-        break;
 
         /* TODO: buffers
     case TOK_lbracket:
@@ -445,6 +454,14 @@ type_t parser_t<P>::parse_type(bool allow_void)
         parse_token(TOK_rbracket);
         break;
         */
+
+    case TOK_type_ident:
+        {
+            global_t const& global = global_t::lookup(source(), token.pstring);
+            parse_token();
+            type = type_t::struct_thunk(global);
+            break;
+        }
 
     default: 
         if(!allow_void)
@@ -511,11 +528,40 @@ void parser_t<P>::parse_top_level_def()
         return parse_group_data(true);
     case TOK_many: 
         return parse_group_data(false);
+    case TOK_struct: 
+        return parse_struct();
     default: 
         //if(is_type_prefix(token.type))
             //return parse_top_level_const();
         compiler_error("Unexpected token at top level.");
     }
+}
+
+template<typename P>
+void parser_t<P>::parse_struct()
+{
+    int const struct_indent = indent;
+
+    // Parse the declaration
+    parse_token(TOK_struct);
+    pstring_t const struct_name = token.pstring;
+    parse_token(TOK_type_ident);
+    parse_line_ending();
+
+    auto struct_ = policy().begin_struct(struct_name);
+
+    maybe_parse_block(struct_indent, 
+    [&]{ 
+        var_decl_t var_decl;
+        expr_temp_t expr;
+        if(parse_var_init(var_decl, expr)) // TODO: support
+            compiler_error("Variables in struct block cannot have an initial value.");
+        else
+            policy().struct_field(struct_, var_decl, nullptr);
+        parse_line_ending();
+    });
+
+    policy().end_struct(struct_);
 }
 
 template<typename P>
@@ -535,7 +581,7 @@ void parser_t<P>::parse_group_vars()
     [&]{ 
         var_decl_t var_decl;
         expr_temp_t expr;
-        if(parse_var_init(var_decl, expr))
+        if(parse_var_init(var_decl, expr)) // TODO: support
             compiler_error("Variables in vars block cannot have an initial value.");
         else
             policy().global_var(group, var_decl, nullptr);
@@ -548,7 +594,7 @@ void parser_t<P>::parse_group_vars()
 template<typename P>
 void parser_t<P>::parse_group_data(bool once)
 {
-    int const indent = indent;
+    int const group_indent = indent;
 
     // Parse the declaration
     parse_token(once ? TOK_once : TOK_many);
@@ -558,7 +604,7 @@ void parser_t<P>::parse_group_data(bool once)
 
     auto group = policy().begin_group_data(group_name, once);
 
-    maybe_parse_block(indent, 
+    maybe_parse_block(group_indent, 
     [&]{ 
         var_decl_t var_decl;
         expr_temp_t expr;

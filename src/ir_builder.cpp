@@ -9,68 +9,12 @@
 #include "pstring.hpp"
 #include "ir.hpp"
 #include "gvar_loc_manager.hpp"
+#include "rpn.hpp"
 
 namespace bc = boost::container;
 
 namespace // Anonymous namespace
 { 
-
-enum value_category_t : char
-{
-    RVAL, 
-    LVAL,
-    LVAL_INDEX,
-};
-
-inline value_category_t to_indexed(value_category_t vc) { return vc == LVAL ? LVAL_INDEX : vc; }
-
-// Expressions are stored in RPN form.
-// This struct is what the RPN stack holds.
-struct rpn_value_t
-{
-    ssa_value_t ssa_value = {};
-    value_category_t category = RVAL;
-    type_t type = TYPE_VOID;
-    pstring_t pstring = {};
-    unsigned var_i = 0;
-};
-
-class rpn_stack_t
-{
-private:
-    bc::small_vector<rpn_value_t, 32> stack;
-public:
-    void clear() { stack.clear(); }
-
-    std::size_t size() const { return stack.size(); }
-
-    // For when the stack has exactly 1 element, returns that element
-    rpn_value_t& only1() 
-        { assert(stack.size() == 1); return stack[0]; }
-
-    rpn_value_t& peek(int i) 
-        { assert(i < (int)stack.size()); return stack.rbegin()[i]; }
-
-    void pop() 
-        { assert(!stack.empty()); stack.pop_back(); }
-
-    void pop(unsigned i) 
-        { assert(i <= stack.size()); stack.resize(stack.size() - i); }
-
-    void push(rpn_value_t rpn_value) 
-        { stack.push_back(std::move(rpn_value)); }
-
-    void tuck(rpn_value_t rpn_value, unsigned place) 
-    { 
-        assert(place <= stack.size());
-        stack.insert(stack.end() - place, std::move(rpn_value));
-    }
-
-    rpn_value_t* past_top() { return &*stack.end(); }
-};
-
-// TODO
-using var_index_t = handle_t<unsigned, struct var_index_tag, ~0>;
 
 // Data associated with each block node, to be used when making IRs.
 struct block_d
@@ -103,12 +47,12 @@ public:
     ir_builder_t(ir_t& ir, fn_t const& fn);
 private:
     // Helpers
-    std::size_t num_locals() const { return fn.def.local_vars.size(); }
+    std::size_t num_locals() const { return fn.def().local_vars.size(); }
     std::size_t num_fn_vars() const { return num_locals() + ir.gvar_loc_manager.num_unique_locators(); }
     type_t var_i_type(unsigned var_i) const
     {
         if(var_i < num_locals())
-            return fn.def.local_vars[var_i].type;
+            return fn.def().local_vars[var_i].type;
         return ir.gvar_loc_manager.type({ var_i - num_locals() });
     }
 
@@ -154,6 +98,7 @@ private:
     void compile_binary_operator(cfg_node_t&, ssa_op_t op, type_t result_type, 
                                  bool carry = false);
     void compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry = false);
+    void compile_shift(cfg_node_t& cfg_node, ssa_op_t op);
     void compile_compare(cfg_node_t& cfg_node, ssa_op_t op);
     void force_cast(cfg_node_t&, rpn_value_t& rpn_value, type_t to_type);
     void force_boolify(cfg_node_t& cfg_node, rpn_value_t& rpn_value);
@@ -171,6 +116,12 @@ private:
         pstring_t lhs_pstring;
     };
 
+    struct label_t
+    {
+        cfg_ht node = {};
+        bc::small_vector<cfg_ht, 2> inputs;
+    };
+
 public:
     ir_t& ir;
 private:
@@ -185,6 +136,8 @@ private:
     bc::small_vector<ssa_value_t, 8> return_values;
     bc::small_vector<cfg_ht, 8> return_jumps;
 
+    rh::robin_map<stmt_t const*, label_t> label_map;
+
     inline static thread_local array_pool_t<ssa_value_t> input_pool;
 };
 
@@ -193,7 +146,7 @@ ir_builder_t::ir_builder_t(ir_t& ir, fn_t const& fn)
 , fn(fn)
 {
     ir.gvar_loc_manager.init(fn.handle());
-    stmt = fn.def.stmts.data();
+    stmt = fn.def().stmts.data();
     input_pool.clear();
     compile();
 }
@@ -206,10 +159,10 @@ void ir_builder_t::compile()
     entry->append_daisy();
 
     // Insert nodes for the arguments
-    for(unsigned i = 0; i < fn.def.num_params; ++i)
+    for(unsigned i = 0; i < fn.def().num_params; ++i)
     {
         ir.root.data<block_d>().fn_vars[i] = ir.root->emplace_ssa(
-            SSA_read_global, fn.def.local_vars[i].type, entry, 
+            SSA_read_global, fn.def().local_vars[i].type, entry, 
             locator_t::arg(fn.handle(), i, 0));
     }
 
@@ -228,7 +181,7 @@ void ir_builder_t::compile()
 
     // Now create the exit block.
     // All return statements create a jump, which will jump to the exit node.
-    type_t return_type = fn.type.return_type();
+    type_t return_type = fn.type().return_type();
     if(return_type != TYPE_VOID)
         return_values.push_back(
             end->emplace_ssa(SSA_uninitialized, return_type));
@@ -285,13 +238,13 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             {
                 cfg_node = compile_expr(cfg_node, stmt->expr);
                 throwing_cast(*cfg_node, rpn_stack.peek(0), 
-                              fn.def.local_vars[var_i].type);
-                value = rpn_stack.only1().ssa_value;
+                              fn.def().local_vars[var_i].type);
+                value = rpn_stack.only1().value;
             }
             else
             {
                 value = cfg_node->emplace_ssa(
-                    SSA_uninitialized, fn.def.local_vars[var_i].type);
+                    SSA_uninitialized, fn.def().local_vars[var_i].type);
             }
 
             cfg_node.data<block_d>().fn_vars[var_i] = value;
@@ -316,7 +269,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             cfg_ht branch = compile_expr(cfg_node, stmt->expr);
             ++stmt;
             throwing_cast(*branch, rpn_stack.only1(), {TYPE_BOOL});
-            exits_with_branch(*branch, rpn_stack.only1().ssa_value);
+            exits_with_branch(*branch, rpn_stack.only1().value);
 
             // Create new cfg_node for the 'true' branch.
             cfg_ht begin_true = insert_cfg(true);
@@ -353,7 +306,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             cfg_ht end_branch = compile_expr(begin_branch, stmt->expr);
             ++stmt;
             throwing_cast(*end_branch, rpn_stack.only1(), {TYPE_BOOL});
-            exits_with_branch(*end_branch, rpn_stack.only1().ssa_value);
+            exits_with_branch(*end_branch, rpn_stack.only1().value);
 
             continue_stack.emplace_back();
             break_stack.emplace_back();
@@ -366,6 +319,8 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             end_body->build_set_output(0, begin_branch);
 
             // All continue statements jump to branch_node.
+            // TODO: properly implement continue in 'for'
+            assert(false);
             for(cfg_ht node : continue_stack.back())
                 node->build_set_output(0, begin_branch);
             seal_block(begin_branch.data<block_d>());
@@ -404,7 +359,7 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
             cfg_ht end_branch = compile_expr(begin_branch, stmt->expr);
             ++stmt;
             throwing_cast(*end_branch, rpn_stack.only1(), {TYPE_BOOL});
-            exits_with_branch(*end_branch, rpn_stack.only1().ssa_value);
+            exits_with_branch(*end_branch, rpn_stack.only1().value);
 
             end_branch->build_set_output(1, begin_body);
             seal_block(begin_body.data<block_d>());
@@ -426,12 +381,12 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
 
     case STMT_RETURN:
         {
-            type_t return_type = fn.type.return_type();
+            type_t return_type = fn.type().return_type();
             if(stmt->expr)
             {
                 cfg_node = compile_expr(cfg_node, stmt->expr);
                 throwing_cast(*cfg_node, rpn_stack.only1(), return_type);
-                return_values.push_back(rpn_stack.only1().ssa_value);
+                return_values.push_back(rpn_stack.only1().value);
             }
             else if(return_type.name() != TYPE_VOID)
                 compiler_error(stmt->pstring, fmt(
@@ -461,49 +416,51 @@ cfg_ht ir_builder_t::compile_block(cfg_ht cfg_node)
 
     case STMT_LABEL:
         {
-            label_t* label = stmt->label; assert(label);
+            label_t& label = label_map[stmt];
+            unsigned const use_count = stmt->use_count;
             pstring_t label_name = stmt->pstring;
             ++stmt;
 
             // If there's no goto to this label, just ignore it.
-            if(label->goto_count == 0)
+            if(use_count == 0)
                 break;
 
             exits_with_jump(*cfg_node);
-            label->inputs.push_back(cfg_node);
+            label.inputs.push_back(cfg_node);
 
-            if(label->goto_count + 1 == label->inputs.size())
+            if(use_count + 1 == label.inputs.size())
             {
                 // All the gotos to this label have been compiled,
                 // that means this block can be sealed immediately!
-                label->node = cfg_node = insert_cfg(true, label_name);
-                for(cfg_ht node : label->inputs)
-                    node->build_set_output(0, label->node);
+                label.node = cfg_node = insert_cfg(true, label_name);
+                for(cfg_ht node : label.inputs)
+                    node->build_set_output(0, label.node);
             }
             else // Otherwise, seal the node at a later time.
-                label->node = cfg_node = insert_cfg(false, label_name);
+                label.node = cfg_node = insert_cfg(false, label_name);
 
             break;
         }
 
     case STMT_GOTO:
         {
-            label_t* label = stmt->label; assert(label);
+            label_t& label = label_map[&fn.def()[stmt->link]];
+            unsigned const use_count = fn.def()[stmt->link].use_count;
+            assert(use_count > 0);
             ++stmt;
-            assert(label->goto_count > 0);
 
             // Add the jump to the label.
-            label->inputs.push_back(cfg_node);
+            label.inputs.push_back(cfg_node);
             cfg_node = compile_goto(cfg_node);
 
             // If this is the last goto, finish and seal the node.
-            if(label->goto_count + 1 == label->inputs.size())
+            if(use_count + 1 == label.inputs.size())
             {
-                assert(label->node);
-                for(cfg_ht node : label->inputs)
-                    node->build_set_output(0, label->node);
+                assert(label.node);
+                for(cfg_ht node : label.inputs)
+                    node->build_set_output(0, label.node);
                 // Seal the block.
-                seal_block(label->node.data<block_d>());
+                seal_block(label.node.data<block_d>());
             }
             break;
         }
@@ -572,7 +529,7 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
     });
 
     // Prepare the arguments
-    unsigned const num_args = call->type.num_params();
+    unsigned const num_args = call->type().num_params();
     for(unsigned i = 0; i < num_args; ++i)
     {
         locator_t const loc = locator_t::arg(call, i, 0);
@@ -581,13 +538,13 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
         if(is_idep && call->lvars().index(loc) < 0)
             continue;
 
-        fn_inputs.push_back(args[i].ssa_value);
+        fn_inputs.push_back(args[i].value);
         fn_inputs.push_back(loc);
     }
 
     // Create the dependent node.
     ssa_op_t const op = call->mode ? SSA_goto_mode : SSA_fn_call;
-    ssa_ht ret = cfg_node->emplace_ssa(op, call->type.return_type());
+    ssa_ht ret = cfg_node->emplace_ssa(op, call->type().return_type());
     assert(fn_inputs.size() % 2 == 1);
     ret->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
     ret->append_daisy();
@@ -602,7 +559,7 @@ ssa_ht ir_builder_t::insert_fn_call(cfg_ht cfg_node, fn_ht call, rpn_value_t con
             if(writes_set.test(gvar.value))
             {
                 ssa_ht read = cfg_node->emplace_ssa(
-                    SSA_read_global, gvar->type, ret, ir.gvar_loc_manager.locator(i));
+                    SSA_read_global, gvar->type(), ret, ir.gvar_loc_manager.locator(i));
                 block_d& block_data = cfg_node.data<block_d>();
                 block_data.fn_vars[to_var_i(i)] = read;
             }
@@ -629,7 +586,7 @@ ssa_ht ir_builder_t::insert_array_index(cfg_ht cfg_node, rpn_value_t const& arra
 {
     locator_t loc = var_i_locator(array.var_i);
     ssa_ht ret = cfg_node->emplace_ssa(SSA_read_array, array.type.elem_type(),
-                                       array.ssa_value, loc, arg.ssa_value);
+                                       array.value, loc, arg.value);
     return ret;
 }
 
@@ -726,7 +683,7 @@ ssa_value_t ir_builder_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
         {
             if(block_data.label_name.size && var_i < num_locals())
             {
-                pstring_t var_name = fn.def.local_vars[var_i].name;
+                pstring_t var_name = fn.def().local_vars[var_i].name;
                 file_contents_t file(var_name.file_i);
                 throw compiler_error_t(
                     fmt_error(file, block_data.label_name, fmt(
@@ -785,9 +742,9 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
 
         case TOK_ident:
             rpn_stack.push({ 
-                .ssa_value = var_lookup(cfg_node, token->value), 
+                .value = var_lookup(cfg_node, token->value), 
                 .category = LVAL, 
-                .type = fn.def.local_vars[token->value].type, 
+                .type = fn.def().local_vars[token->value].type, 
                 .pstring = token->pstring,
                 .var_i = token->value });
             break;
@@ -804,9 +761,9 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                     {
                         unsigned const var_i = to_var_i(ir.gvar_loc_manager.index(global->handle<gvar_ht>()));
                         rpn_stack.push({ 
-                            .ssa_value = var_lookup(cfg_node, var_i), 
+                            .value = var_lookup(cfg_node, var_i), 
                             .category = LVAL, 
-                            .type = global->impl<gvar_t>().type, 
+                            .type = global->impl<gvar_t>().type(), 
                             .pstring = token->pstring,
                             .var_i = var_i });
                     }
@@ -814,9 +771,9 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
 
                 case GLOBAL_FN:
                     rpn_stack.push({ 
-                        .ssa_value = ssa_value_t(locator_t::fn(global->handle<fn_ht>())),
+                        .value = ssa_value_t(locator_t::fn(global->handle<fn_ht>())),
                         .category = RVAL, 
-                        .type = global->impl<fn_t>().type, 
+                        .type = global->impl<fn_t>().type(), 
                         .pstring = token->pstring });
                     break;
                 }
@@ -829,9 +786,9 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
 
         case TOK_number:
             rpn_stack.push({
-                .ssa_value = token->value, 
+                .value = token->value, 
                 .category = RVAL, 
-                .type = { TYPE_INT }, 
+                .type = { TYPE_NUM }, 
                 .pstring = token->pstring });
             break;
 
@@ -885,8 +842,8 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
 
                 // For now, only const fns are allowed.
                 // In the future, fn pointers may be supported.
-                assert(fn_val.ssa_value.is_locator());
-                fn_ht fn = fn_val.ssa_value.locator().fn();
+                assert(fn_val.value.is_locator());
+                fn_ht fn = fn_val.value.locator().fn();
 
                 // Type checks are done. Now convert the call to SSA.
                 ssa_ht fn_node = insert_fn_call(cfg_node, fn, args);
@@ -894,10 +851,10 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 // Update the eval stack.
                 rpn_value_t new_top =
                 {
-                    .ssa_value = fn_node,
+                    .value = fn_node,
                     .category = RVAL, 
                     .type = fn_val.type.return_type(), 
-                    .pstring = token->pstring
+                    .pstring = concat(fn_val.pstring, token->pstring)
                 };
 
                 rpn_stack.pop(num_args + 1);
@@ -923,13 +880,13 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 rpn_value_t& array_index = rpn_stack.peek(0);
 
                 // Array indexes are always bytes.
-                throwing_cast(*cfg_node, array_index, TYPE_BYTE);
+                throwing_cast(*cfg_node, array_index, TYPE_U);
 
                 // Type checks are done. Now convert the index to SSA.
                 ssa_ht index_node = insert_array_index(cfg_node, array_val, array_index);
 
                 // Update the eval stack.
-                array_val.ssa_value = index_node;
+                array_val.value = index_node;
                 array_val.category = to_indexed(array_val.category);
                 array_val.type = array_val.type.elem_type();
                 array_val.pstring = token->pstring;
@@ -972,11 +929,23 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
             compile_compare(*cfg_node, SSA_lte);
             break;
 
+        case TOK_asterisk: 
+            compile_arith(*cfg_node, SSA_mul);
+            break;
+        case TOK_fslash: 
+            compile_arith(*cfg_node, SSA_div);
+            break;
         case TOK_plus:
             compile_arith(*cfg_node, SSA_add, true);  
             break;
         case TOK_minus: 
             compile_arith(*cfg_node, SSA_sub, true);
+            break;
+        case TOK_lshift:
+            compile_shift(*cfg_node, SSA_shl);  
+            break;
+        case TOK_rshift: 
+            compile_shift(*cfg_node, SSA_shr);
             break;
         case TOK_bitwise_and: 
             compile_arith(*cfg_node, SSA_and);
@@ -1016,7 +985,7 @@ cfg_ht ir_builder_t::compile_logical_begin(cfg_ht cfg_node, bool short_cut_i)
     rpn_value_t& top = rpn_stack.peek(0);
     throwing_cast(*cfg_node, top, { TYPE_BOOL });
     cfg_ht branch_node = cfg_node;
-    exits_with_branch(*branch_node, top.ssa_value);
+    exits_with_branch(*branch_node, top.value);
     logical_stack.push_back({ branch_node, top.pstring });
     rpn_stack.pop();
 
@@ -1038,8 +1007,8 @@ cfg_ht ir_builder_t::compile_logical_end(cfg_ht cfg_node, bool short_cut_i)
     cfg_node->build_set_output(0, merge_node);
     logical.branch_node->build_set_output(short_cut_i, merge_node);
 
-    top.ssa_value = merge_node->emplace_ssa(
-        SSA_phi, type_t{TYPE_BOOL}, top.ssa_value, short_cut_i);
+    top.value = merge_node->emplace_ssa(
+        SSA_phi, type_t{TYPE_BOOL}, top.value, short_cut_i);
     top.pstring = concat(logical.lhs_pstring, top.pstring);
     top.category = RVAL;
     assert(top.type == type_t{TYPE_BOOL});
@@ -1047,6 +1016,7 @@ cfg_ht ir_builder_t::compile_logical_end(cfg_ht cfg_node, bool short_cut_i)
 }
 
 // TODO: handle?
+// TODO: copy arrays
 void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
 {
     rpn_value_t& assignee = rpn_stack.peek(1);
@@ -1063,7 +1033,7 @@ void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
     throwing_cast(cfg_node, assignment, assignee.type);
 
     assert(assignee.var_i < num_fn_vars());
-    assert(assignment.ssa_value);
+    assert(assignment.value);
 
     // Remap the identifier to point to the new value:
     block_d& block_data = cfg_node.handle().data<block_d>();
@@ -1071,21 +1041,21 @@ void ir_builder_t::compile_assign(cfg_node_t& cfg_node)
     {
         // For arrays, we'll have to create a SSA_write_array node.
 
-        assert(assignee.ssa_value.holds_ref());
-        ssa_ht read = assignee.ssa_value.handle();
+        assert(assignee.value.holds_ref());
+        ssa_ht read = assignee.value.handle();
         assert(read->op() == SSA_read_array);
 
         locator_t loc = var_i_locator(assignee.var_i);
         ssa_ht write = cfg_node.emplace_ssa(
             SSA_write_array, var_i_type(assignee.var_i),
-            read->input(0), loc, read->input(2), assignment.ssa_value);
+            read->input(0), loc, read->input(2), assignment.value);
 
         block_data.fn_vars[assignee.var_i] = write;
     }
     else
     {
         assert(assignee.category == LVAL);
-        block_data.fn_vars[assignee.var_i] = assignment.ssa_value;
+        block_data.fn_vars[assignee.var_i] = assignment.value;
     }
 
 
@@ -1098,6 +1068,7 @@ void ir_builder_t::compile_assign_arith(cfg_node_t& cfg_node, ssa_op_t op,
                                         bool carry)
 {
     rpn_stack.tuck(rpn_stack.peek(1), 1);
+    throwing_cast(cfg_node, rpn_stack.peek(0), rpn_stack.peek(1).type);
     compile_arith(cfg_node, op, carry);
     compile_assign(cfg_node);
 }
@@ -1111,20 +1082,42 @@ void ir_builder_t::compile_binary_operator(cfg_node_t& cfg_node,
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
 
+
     // Result will remain in 'lhs'.
+    ssa_value_t result;
     if(carry)
-        lhs.ssa_value = cfg_node.emplace_ssa(op, result_type, 
-                                             lhs.ssa_value, rhs.ssa_value, 0);
+        result = cfg_node.emplace_ssa(op, result_type, lhs.value, rhs.value, 0);
     else
-        lhs.ssa_value = cfg_node.emplace_ssa(op, result_type, 
-                                             lhs.ssa_value, rhs.ssa_value);
+        result = cfg_node.emplace_ssa(op, result_type, lhs.value, rhs.value);
 
-    lhs.type = result_type;
-    lhs.category = RVAL;
-    lhs.pstring = concat(lhs.pstring, rhs.pstring);
+    rpn_value_t new_top =
+    {
+        .value = result,
+        .category = RVAL, 
+        .type = result_type, 
+        .pstring = concat(lhs.pstring, rhs.pstring)
+    };
+    
+    rpn_stack.pop(2);
+    rpn_stack.push(new_top);
+}
 
-    // Pop 'rhs':
-    rpn_stack.pop();
+void ir_builder_t::compile_shift(cfg_node_t& cfg_node, ssa_op_t op)
+{
+    rpn_value_t& lhs = rpn_stack.peek(1);
+    rpn_value_t& rhs = rpn_stack.peek(0);
+
+    if(!is_arithmetic(lhs.type) || !is_arithmetic(rhs.type))
+    {
+        // TODO: improve error string
+        pstring_t pstring = concat(lhs.pstring, rhs.pstring);
+        compiler_error(pstring, "Expecting arithmetic types.");
+    }
+
+    if(rhs.type.name() != TYPE_U)
+        compiler_error(rhs.pstring, "Ride-hand side of shift must be type U.");
+
+    compile_binary_operator(cfg_node, op, lhs.type);
 }
 
 void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry)
@@ -1139,11 +1132,28 @@ void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry)
         compiler_error(pstring, "Expecting arithmetic types.");
     }
 
-    // Promote result type to the largest argument type.
-    type_t new_type = { promote_arithmetic(lhs.type.name(), rhs.type.name()) };
-    assert(is_arithmetic(new_type));
+    type_t result_type = lhs.type;
+    if(result_type.name() == TYPE_NUM)
+        result_type = rhs.type;
 
-    compile_binary_operator(cfg_node, op, new_type, carry);
+    if(result_type.name() == TYPE_NUM)
+    {
+        // TODO
+        assert(false);
+        return;
+    }
+
+    if(result_type != rhs.type)
+    {
+        // TODO: improve error string
+        pstring_t pstring = concat(lhs.pstring, rhs.pstring);
+        compiler_error(pstring, fmt("Operator is not defined for this type combination. (% and %)",
+                                    lhs.type, rhs.type));
+    }
+
+    assert(is_arithmetic(result_type));
+
+    compile_binary_operator(cfg_node, op, result_type, carry);
 }
 
 void ir_builder_t::compile_compare(cfg_node_t& cfg_node, ssa_op_t op)
@@ -1165,8 +1175,8 @@ void ir_builder_t::compile_compare(cfg_node_t& cfg_node, ssa_op_t op)
 void ir_builder_t::force_cast(cfg_node_t& cfg_node, 
                               rpn_value_t& rpn_value, type_t to_type)
 {
-    rpn_value.ssa_value = cfg_node.emplace_ssa(
-        SSA_cast, to_type, rpn_value.ssa_value);
+    rpn_value.value = cfg_node.emplace_ssa(
+        SSA_cast, to_type, rpn_value.value);
     rpn_value.type = to_type;
     rpn_value.category = RVAL;
 }
@@ -1174,8 +1184,8 @@ void ir_builder_t::force_cast(cfg_node_t& cfg_node,
 // This is used to implement the other cast functions.
 void ir_builder_t::force_boolify(cfg_node_t& cfg_node, rpn_value_t& rpn_value)
 {
-    rpn_value.ssa_value = cfg_node.emplace_ssa(
-        SSA_not_eq, {TYPE_BOOL}, rpn_value.ssa_value, 0u);
+    rpn_value.value = cfg_node.emplace_ssa(
+        SSA_not_eq, {TYPE_BOOL}, rpn_value.value, 0u);
     rpn_value.type = {TYPE_BOOL};
     rpn_value.category = RVAL;
 }

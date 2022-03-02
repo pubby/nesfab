@@ -53,20 +53,26 @@ inline fixed_t::int_type numeric_bitmask(type_t type)
     return numeric_bitmask(type.name());
 }
 
-inline fixed_t fixed_add(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value + rhs.value) & numeric_bitmask(type_name) }; }
-    
-inline fixed_t fixed_sub(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value - rhs.value) & numeric_bitmask(type_name) }; }
+[[gnu::pure]]
+inline fixed_t mask_numeric(fixed_t f, type_name_t type_name)
+{
+    assert(is_numeric(type_name));
+    return fixed_t{ f.value & numeric_bitmask(type_name) };
+}
 
-inline fixed_t fixed_and(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value & rhs.value) & numeric_bitmask(type_name) }; }
+[[gnu::pure]]
+inline bool is_masked(fixed_t f, type_name_t type_name)
+{
+    assert(is_numeric(type_name));
+    return (f.value & numeric_bitmask(type_name)) == f.value;
+}
 
-inline fixed_t fixed_or(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value | rhs.value) & numeric_bitmask(type_name) }; }
-
-inline fixed_t fixed_xor(type_name_t type_name, fixed_t lhs, fixed_t rhs)
-    { return { (lhs.value ^ rhs.value) & numeric_bitmask(type_name) }; }
+inline constexpr fixed_t boolify(fixed_t f)
+{
+    if(f)
+        return { 1ull << fixed_t::shift };
+    return { 0 };
+}
 
 constexpr double to_double(fixed_t f)
     { return (double)f.value / (double)(1 << fixed_t::shift); }

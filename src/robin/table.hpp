@@ -409,6 +409,7 @@ protected:
     void move_impl(robin_table& o)
     {
         values = std::move(o.values);
+        assert(!o.values);
         hashes = o.hashes;
         hashes_end_ = o.hashes_end_;
         mask_ = o.mask_;
@@ -450,6 +451,28 @@ public:
     using value_type = T;
     using hash_type = UIntType;
     using ratio_type = std::ratio<1, 2>;
+
+    robin_auto_table() = default;
+    robin_auto_table(robin_auto_table const&) = default;
+    robin_auto_table(robin_auto_table&& o) 
+    : table(std::move(o.table))
+    {
+        used_size = o.used_size;
+        rehash_size = o.rehash_size;
+        o.used_size = 0;
+        o.rehash_size = 0;
+    }
+
+    robin_auto_table& operator=(robin_auto_table const& o) = default;
+    robin_auto_table& operator=(robin_auto_table&& o) 
+    {
+        table = std::move(o.table);
+        used_size = o.used_size;
+        rehash_size = o.rehash_size;
+        o.used_size = 0;
+        o.rehash_size = 0;
+        return *this;
+    }
 
     template<typename Eq, typename C>
     apair<value_type*, bool> 

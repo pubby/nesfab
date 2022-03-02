@@ -10,6 +10,8 @@
 #include <deque>
 #include <type_traits>
 
+#include "robin/map.hpp"
+
 #include "phase.hpp"
 #include "handle.hpp"
 
@@ -18,14 +20,17 @@ class global_t;
 class fn_t;
 class gvar_t;
 class const_t;
+class struct_t;
 class group_vars_t;
 class group_data_t;
+struct field_t;
 
 #define GLOBAL_CLASS_XENUM \
     X(GLOBAL_UNDEFINED) \
     X(GLOBAL_FN) \
     X(GLOBAL_VAR) \
-    X(GLOBAL_CONST)
+    X(GLOBAL_CONST) \
+    X(GLOBAL_STRUCT)
 
 enum global_class_t : std::uint8_t
 {
@@ -60,7 +65,7 @@ template<typename T>
 std::size_t impl_bitset_size()
 {
     assert(compiler_phase() > PHASE_PARSE);
-    return bitset_size<>(impl_deque<T>.size());
+    return bitset_size<>(impl_deque<T>.size() + 1);
 }
 
 template<typename T>
@@ -114,6 +119,7 @@ struct group_impl_ht : impl_ht<T>
 struct fn_ht : global_impl_ht<fn_t, GLOBAL_FN> {};
 struct gvar_ht : global_impl_ht<gvar_t, GLOBAL_VAR> {};
 struct const_ht : global_impl_ht<const_t, GLOBAL_CONST> {};
+struct struct_ht : global_impl_ht<struct_t, GLOBAL_STRUCT> {};
 
 struct group_ht : impl_ht<group_t> 
 {
@@ -127,6 +133,7 @@ namespace std
     template<> struct hash<fn_ht> : handle_hash_t<fn_ht> {};
     template<> struct hash<gvar_ht> : handle_hash_t<gvar_ht> {};
     template<> struct hash<const_ht> : handle_hash_t<const_ht> {};
+    template<> struct hash<struct_ht> : handle_hash_t<struct_ht> {};
     template<> struct hash<group_ht> : handle_hash_t<group_ht> {};
     template<> struct hash<group_vars_ht> : handle_hash_t<group_vars_ht> {};
     template<> struct hash<group_data_ht> : handle_hash_t<group_data_ht> {};

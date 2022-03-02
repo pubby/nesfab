@@ -37,7 +37,7 @@ constraints_t apply_mask(fixed_int_t mask, constraints_t c);
 
 bounds_t from_bits(known_bits_t bits);
 bounds_t from_bits(known_bits_t bits, fixed_int_t mask);
-known_bits_t from_bounds(bounds_t bounds, fixed_int_t first_bit = 0);
+known_bits_t from_bounds(bounds_t bounds);
 
 bounds_t intersect(bounds_t a, bounds_t b);
 known_bits_t intersect(known_bits_t a, known_bits_t b);

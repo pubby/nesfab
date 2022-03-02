@@ -1,13 +1,16 @@
-vars @menu
-    byte f
-    byte g
-    byte[200] array
+struct Foo
+    UU x
+    UU y
+    Bar z
 
+struct Bar
+    UU x
+    UU y
+    UU z
 
-fn bar(byte x, byte y, byte z) short
-    return array[y] + 5
+fn bar() U
+    return 10
 
-mode main() 
-    f += bar(1,2,3)
-
-
+fn foo() Foo
+    Foo array
+    return array

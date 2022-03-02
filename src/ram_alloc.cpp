@@ -221,7 +221,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             if(!span)
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
 
-            gvar.assign_span(loc.field(), span);
+            gvar.assign_span(loc.atom(), span);
 
             ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
 

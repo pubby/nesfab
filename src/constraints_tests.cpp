@@ -218,7 +218,7 @@ TEST_CASE("normalize", "[constraints]")
 }
 
 template<int Argn, typename Fn>
-void test_op(ssa_op_t op, Fn fn)
+void test_op(ssa_op_t op, Fn fn, bool debug = false)
 {
     static_assert(Argn <= 3 && Argn > 0);
     std::array<constraints_def_t, 3> cv;
@@ -246,8 +246,26 @@ void test_op(ssa_op_t op, Fn fn)
         o = fn(a);
         o &= 0xF;
         o <<= 24;
+        if(debug && (!r.bounds(o) || !r.bits(o)))
+        {
+            std::cout << cv[0][0] << std::endl;
+            std::cout << cv[1][0] << std::endl;
+            std::cout << cv[2][0] << std::endl;
+            std::cout << r << std::endl;
+            std::cout << (a[0]) << std::endl;
+            std::cout << (a[1]) << std::endl;
+            std::cout << (o >> 24) << std::endl;
+        }
         REQUIRE(r.bounds(o));
         REQUIRE(r.bits(o));
+
+        // If the inputs are const, the output should be as well.
+        for(int i = 0; i < Argn; ++i)
+            if(!cv[i][0].is_const())
+                goto not_const;
+        REQUIRE(r.is_const());
+    not_const:
+
     next_iter:;
     }
 
@@ -328,6 +346,20 @@ TEST_CASE("abstract_add", "[constraints]")
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
         test_op<3>(SSA_add, [](fixed_int_t* c) { return c[0] + c[1]; });
+}
+
+TEST_CASE("abstract_shl", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_shl, [](fixed_int_t* c) { return c[0] << c[1]; });
+}
+
+TEST_CASE("abstract_shr", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2>(SSA_shr, [](fixed_int_t* c) { return c[0] >> c[1]; }, true);
 }
 
 TEST_CASE("abstract_and", "[constraints]")

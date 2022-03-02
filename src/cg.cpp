@@ -763,7 +763,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
                 // Create the store in a dominating spot:
                 cfg_ht store_cfg = dom_intersect(a_cfg, b_cfg);
-                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_BYTE, pair.first);
+                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, pair.first); // TODO: type?
                 assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
                 auto& store_d = cg_data(store);
 

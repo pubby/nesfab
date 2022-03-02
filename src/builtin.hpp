@@ -6,6 +6,16 @@
 namespace builtin
 {
 
+using int128 = __int128;
+using uint128 = unsigned __int128;
+
+[[gnu::unused]] static int128 mul128(int128 lhs, int128 rhs) 
+    { return lhs * rhs; }
+
+[[gnu::unused]] static uint128 umul128(uint128 lhs, uint128 rhs)
+    { return lhs * rhs; }
+
+
 [[gnu::always_inline]] inline auto clz(unsigned i) 
     { return __builtin_clz(i); }
 [[gnu::always_inline]] inline unsigned long clz(unsigned long i) 
@@ -28,6 +38,15 @@ namespace builtin
     { return __builtin_ctzl(i); }
 [[gnu::always_inline]] inline unsigned long long ctz(unsigned long long i) 
     { return __builtin_ctzll(i); }
+
+[[gnu::always_inline]] inline auto rctz(unsigned i) 
+    { return ((unsigned)sizeof_bits<unsigned> - (unsigned)__builtin_ctz(i)); }
+[[gnu::always_inline]] inline unsigned long rctz(unsigned long i) 
+    { return ((unsigned long)sizeof_bits<unsigned long>
+              - (unsigned long)__builtin_ctzl(i)); }
+[[gnu::always_inline]] inline unsigned long long rctz(unsigned long long i) 
+    { return ((unsigned long long)sizeof_bits<unsigned long long>
+              - (unsigned long long)__builtin_ctzll(i)); }
 
 [[gnu::always_inline]] inline auto popcount(unsigned i) 
     { return __builtin_popcount(i); }

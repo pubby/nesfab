@@ -21,18 +21,23 @@ namespace bc = ::boost::container;
 using stmt_ht = handle_t<unsigned, struct stmt_ht_tag, ~0>;
 
 #define STMT_XENUM \
-    X(STMT_END_BLOCK)\
-    X(STMT_EXPR)\
-    X(STMT_IF)\
-    X(STMT_ELSE)\
-    X(STMT_WHILE)\
-    X(STMT_DO)\
-    X(STMT_RETURN)\
-    X(STMT_BREAK)\
-    X(STMT_CONTINUE)\
-    X(STMT_LABEL)\
-    X(STMT_GOTO) \
-    X(STMT_GOTO_MODE)
+    X(STMT_IF,         true)\
+    X(STMT_ELSE,       0)\
+    X(STMT_END_BLOCK,  0)\
+    X(STMT_END_DO,     true)\
+    X(STMT_WHILE,      true)\
+    X(STMT_END_WHILE,  0)\
+    X(STMT_FOR,        true)\
+    X(STMT_FOR_EFFECT, true)\
+    X(STMT_END_FOR,    0)\
+    X(STMT_EXPR,       true)\
+    X(STMT_DO,         0)\
+    X(STMT_RETURN,     true)\
+    X(STMT_BREAK,      0)\
+    X(STMT_CONTINUE,   0)\
+    X(STMT_LABEL,      0)\
+    X(STMT_GOTO,       0) \
+    X(STMT_GOTO_MODE,  true)
 
 // Negative values represent var inits, where the negated value 
 // holds the bitwise negated index of the fn variable.
@@ -41,10 +46,12 @@ enum stmt_name_t : int
 {
     STMT_MIN_VAR_DECL = INT_MIN,
     STMT_MAX_VAR_DECL = -1,
-#define X(x) x,
+#define X(x, e) x,
     STMT_XENUM
 #undef X
 };
+
+bool has_expression(stmt_name_t stmt);
 
 std::string to_string(stmt_name_t);
 
@@ -59,34 +66,22 @@ constexpr unsigned get_local_var_i(stmt_name_t stmt_name)
     return ~static_cast<unsigned>(stmt_name);
 }
 
-struct label_t
-{
-    cfg_ht node;
-    stmt_ht stmt_h;
-    unsigned goto_count;
-    bc::small_vector<cfg_ht, 2> inputs;
-};
-
 struct stmt_t
 {
     stmt_name_t name;
+    stmt_ht link; // A stmt index, used to speed-up interpreters
     pstring_t pstring;
     union
     {
         token_t const* expr;
-        label_t* label;
+        unsigned use_count; // Used for labels
     };
 
     // You can permanently allocate exprs and labels with these:
     static token_t const* new_expr(token_t const* begin, token_t const* end);
-    static label_t* new_label();
 
 private:
-    inline static std::mutex label_pool_mutex;
-    inline static array_pool_t<label_t> label_pool;
-
-    inline static std::mutex expr_pool_mutex;
-    inline static array_pool_t<token_t> expr_pool;
+    static inline thread_local array_pool_t<token_t> expr_pool;
 };
 
 std::string to_string(stmt_name_t stmt_name);
@@ -115,9 +110,11 @@ public:
     stmt_ht push_var_init(unsigned name, token_t const* expr)
     { 
         stmt_ht handle = next_stmt();
-        stmts.push_back({ static_cast<stmt_name_t>(~name), {}, expr }); 
+        stmts.push_back({ static_cast<stmt_name_t>(~name), {}, {}, expr }); 
         return handle;
     }
+
+    void dethunkify();
 };
 
 #endif

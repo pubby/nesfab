@@ -303,12 +303,12 @@ void build_lvar_interferences(ir_t const& ir, lvars_manager_t& lvars)
                 });
 
                 // The fn's arguments are now live:
-                for(unsigned argn = 0; argn < fn.type.num_params(); ++argn)
+                for(unsigned argn = 0; argn < fn.type().num_params(); ++argn)
                 {
-                    unsigned const num_fields = ::num_fields(fn.type.type(argn));
-                    for(unsigned field = 0; field < num_fields; ++field)
+                    unsigned const num_atoms = ::num_atoms(fn.type().type(argn));
+                    for(unsigned atom = 0; atom < num_atoms; ++atom)
                     {
-                        int const lvar_i = lvars.index(locator_t::arg(fn_h, argn, field));
+                        int const lvar_i = lvars.index(locator_t::arg(fn_h, argn, atom));
                         if(lvar_i >= 0)
                             bitset_set(live, lvar_i);
                     }

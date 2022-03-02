@@ -5,6 +5,8 @@
 #include <variant>
 #include <vector>
 
+#include <boost/container/small_vector.hpp>
+
 #include "flat/small_map.hpp"
 #include "flat/small_multimap.hpp"
 
@@ -16,6 +18,8 @@
 #include "symbol_table.hpp"
 #include "types.hpp"
 
+namespace bc = boost::container;
+
 class pass1_t
 {
 private:
@@ -24,12 +28,14 @@ private:
     global_t::ideps_set_t ideps;
     global_t::ideps_set_t weak_ideps;
     fn_def_t fn_def;
+    field_map_t field_map;
 
     symbol_table_t symbol_table;
-    fc::small_map<pstring_t, label_t*, 4, pstring_less_t>
-        label_map;
-    fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> 
-        unlinked_gotos;
+    fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
+    fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
+
+    bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> break_stack;
+    bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> continue_stack;
 
     struct nothing_t {};
 public:
@@ -41,6 +47,7 @@ public:
 
     // Helpers
     char const* source() { return file.source(); }
+    void this_uses_type(type_t type);
     token_t const* convert_expr(expr_temp_t& expr);
 
     // Functions
@@ -77,6 +84,9 @@ public:
             types[i] = params_begin[i].type;
         types[fn_def.num_params] = return_type;
         type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);
+
+        // Track it!
+        this_uses_type(fn_type);
 
         // Create a scope for the fn body.
         symbol_table.push_scope();
@@ -142,6 +152,9 @@ public:
         types[fn_def.num_params] = TYPE_VOID;
         type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);
 
+        // Track it!
+        this_uses_type(fn_type);
+
         // Create a scope for the fn body.
         symbol_table.push_scope();
 
@@ -172,6 +185,47 @@ public:
     }
 
     [[gnu::always_inline]]
+    pstring_t begin_struct(pstring_t struct_name)
+    {
+        assert(ideps.empty());
+        assert(weak_ideps.empty());
+
+        // Reset the struct:
+        field_map.clear();
+
+        // Find the global
+        active_global = &global_t::lookup(file.source(), struct_name);
+
+        return struct_name;
+    }
+
+    void end_struct(pstring_t struct_name)
+    {
+        active_global->define_struct(
+            struct_name, std::move(ideps), std::move(field_map));
+    }
+
+    void struct_field(pstring_t struct_name, var_decl_t const& var_decl, expr_temp_t* expr)
+    {
+        auto result = field_map.insert({ std::string(var_decl.name.view(file.source())), 
+            field_t{ .pstring = var_decl.name, .type = var_decl.type }});
+
+        if(!result.second)
+        {
+            // Already have a field with that name.
+            throw compiler_error_t(
+                fmt_error(file, var_decl.name, 
+                          fmt("Multiple definitions of % in %.", 
+                              var_decl.name.view(source()),
+                              struct_name.view(source())))
+                + fmt_error(file, result.first->second.pstring, 
+                            "Previous definition here:"));
+        }
+
+        this_uses_type(var_decl.type);
+    }
+
+    [[gnu::always_inline]]
     std::pair<group_vars_t*, group_vars_ht> begin_group_vars(pstring_t group_name)
     {
         return group_t::lookup(file.source(), group_name).define_vars(group_name);
@@ -188,12 +242,18 @@ public:
     {}
 
     [[gnu::always_inline]]
-    void global_var(std::pair<group_vars_t*, group_vars_ht> group, var_decl_t const& var_decl, expr_temp_t* expr)
+    void global_var(std::pair<group_vars_t*, group_vars_ht> group, var_decl_t const& var_decl, expr_temp_t* expr_temp)
     {
         assert(ideps.empty());
 
+        this_uses_type(var_decl.type);
+
+        token_t const* init_expr = nullptr;
+        if(expr_temp)
+            init_expr = stmt_t::new_expr(&*expr_temp->begin(), &*expr_temp->end());
+
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, group);
+        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, group, init_expr);
         ideps.clear();
     }
 
@@ -201,6 +261,8 @@ public:
     void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, expr_temp_t* expr)
     {
         assert(ideps.empty());
+
+        this_uses_type(var_decl.type);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
         active_global->define_const(var_decl.name, std::move(ideps), var_decl.type, group);
@@ -210,7 +272,7 @@ public:
     [[gnu::always_inline]]
     void expr_statement(expr_temp_t& expr)
     {
-        fn_def.push_stmt({ STMT_EXPR, {}, convert_expr(expr) });
+        fn_def.push_stmt({ STMT_EXPR, {}, {}, convert_expr(expr) });
     }
 
     [[gnu::always_inline]]
@@ -231,76 +293,98 @@ public:
         }
         fn_def.local_vars.push_back(var_decl);
         fn_def.push_var_init(handle, expr ? convert_expr(*expr) : nullptr);
+        this_uses_type(var_decl.type);
     }
 
     [[gnu::always_inline]]
-    nothing_t begin_if(pstring_t pstring, expr_temp_t& condition)
+    stmt_ht begin_if(pstring_t pstring, expr_temp_t& condition)
     {
         symbol_table.push_scope();
-        fn_def.stmts.push_back({ STMT_IF, pstring, convert_expr(condition) });
-        return {};
+        return fn_def.push_stmt({ STMT_IF, {}, pstring, convert_expr(condition) });
     }
 
     [[gnu::always_inline]]
-    void end_if(nothing_t) 
+    void end_if(stmt_ht if_begin) 
     { 
-        fn_def.push_stmt({ STMT_END_BLOCK });
+        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_BLOCK, if_begin }) + 1;
         symbol_table.pop_scope();
     }
 
     [[gnu::always_inline]]
-    nothing_t end_if_begin_else(nothing_t, pstring_t pstring)
+    stmt_ht end_if_begin_else(stmt_ht if_begin, pstring_t pstring)
     {
-        fn_def.push_stmt({ STMT_END_BLOCK });
-        fn_def.push_stmt({ STMT_ELSE, pstring });
+        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_BLOCK, if_begin }) + 1;
         symbol_table.pop_scope();
         symbol_table.push_scope();
-        return {};
+        return fn_def.push_stmt({ STMT_ELSE, {}, pstring });
     }
 
     [[gnu::always_inline]]
-    void end_else(nothing_t) 
+    void end_else(stmt_ht else_begin) 
     { 
-        fn_def.push_stmt({ STMT_END_BLOCK });
+        fn_def[else_begin].link = fn_def.push_stmt({ STMT_END_BLOCK, else_begin }) + 1;
         symbol_table.pop_scope();
     }
 
     [[gnu::always_inline]]
-    nothing_t begin_do_while(pstring_t pstring) 
+    stmt_ht begin_do_while(pstring_t pstring) 
     { 
         symbol_table.push_scope();
-        fn_def.push_stmt({ STMT_DO, pstring });
-        return {};
+        break_stack.emplace_back();
+        continue_stack.emplace_back();
+        return fn_def.push_stmt({ STMT_DO, {}, pstring });
     }
 
     [[gnu::always_inline]]
-    void end_do_while(nothing_t, pstring_t pstring, expr_temp_t& condition)
+    void end_do_while(stmt_ht begin_do, pstring_t pstring, expr_temp_t& condition)
     {
-        fn_def.push_stmt({ STMT_END_BLOCK });
-        fn_def.push_stmt({ STMT_WHILE, pstring, convert_expr(condition) });
+        stmt_ht const cond = fn_def.push_stmt({ STMT_END_DO, begin_do, pstring, convert_expr(condition) });
+        fn_def[begin_do].link = cond;
+
+        for(stmt_ht h : break_stack.back())
+            fn_def[h].link = cond + 1;
+        for(stmt_ht h : continue_stack.back())
+            fn_def[h].link = cond;
+
+        break_stack.pop_back();
+        continue_stack.pop_back();
         symbol_table.pop_scope();
     }
 
     [[gnu::always_inline]]
-    nothing_t begin_while(pstring_t pstring, expr_temp_t& condition)
+    stmt_ht begin_while(pstring_t pstring, expr_temp_t& condition)
     {
         symbol_table.push_scope();
-        fn_def.push_stmt({ STMT_WHILE, pstring, convert_expr(condition) });
-        return {};
+        break_stack.emplace_back();
+        continue_stack.emplace_back();
+        return fn_def.push_stmt({ STMT_WHILE, {}, pstring, convert_expr(condition) });
     }
 
     [[gnu::always_inline]]
-    void end_while(nothing_t)
+    void end_while(stmt_ht begin_while)
     {
-        fn_def.push_stmt({ STMT_END_BLOCK });
+        stmt_ht const exit = fn_def.push_stmt({ STMT_END_WHILE, begin_while });
+        fn_def[begin_while].link = exit + 1;
+
+        for(stmt_ht h : break_stack.back())
+            fn_def[h].link = exit + 1;
+        for(stmt_ht h : continue_stack.back())
+            fn_def[h].link = begin_while;
+
+        break_stack.pop_back();
+        continue_stack.pop_back();
         symbol_table.pop_scope();
     }
 
+    struct for_d
+    {
+        stmt_ht begin_for;
+        expr_temp_t* effect;
+    };
+
     [[gnu::always_inline]]
-    expr_temp_t* begin_for(pstring_t pstring,
-                           var_decl_t* var_decl, expr_temp_t* init, 
-                           expr_temp_t* condition, 
-                           expr_temp_t* effect)
+    for_d begin_for(pstring_t pstring, var_decl_t* var_decl, expr_temp_t* init, 
+                    expr_temp_t* condition, expr_temp_t* effect)
     {
         symbol_table.push_scope();
 
@@ -309,23 +393,35 @@ public:
         else if(init)
             expr_statement(*init);
 
+        stmt_ht begin_for;
+
         if(condition)
-            fn_def.push_stmt({ STMT_WHILE, pstring, convert_expr(*condition) });
+            begin_for = fn_def.push_stmt({ STMT_FOR, {}, pstring, convert_expr(*condition) });
         else
-            fn_def.push_stmt({ STMT_WHILE, pstring, nullptr });
+            begin_for = fn_def.push_stmt({ STMT_FOR, {}, pstring, nullptr });
 
         symbol_table.push_scope();
+        break_stack.emplace_back();
+        continue_stack.emplace_back();
         
-        return effect;
+        return { begin_for, effect };
     }
 
     [[gnu::always_inline]]
-    void end_for(expr_temp_t* effect)
+    void end_for(for_d d)
     {
         symbol_table.pop_scope();
-        if(effect)
-            expr_statement(*effect);
-        fn_def.push_stmt({ STMT_END_BLOCK });
+        stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, {}, {}, d.effect ? convert_expr(*d.effect) : nullptr });
+        stmt_ht const exit = fn_def.push_stmt({ STMT_END_FOR, d.begin_for });
+        fn_def[d.begin_for].link = exit + 1;
+
+        for(stmt_ht h : break_stack.back())
+            fn_def[h].link = exit + 1;
+        for(stmt_ht h : continue_stack.back())
+            fn_def[h].link = effect;
+
+        break_stack.pop_back();
+        continue_stack.pop_back();
         symbol_table.pop_scope();
     }
 
@@ -333,30 +429,28 @@ public:
     void return_statement(pstring_t pstring, expr_temp_t* expr)
     {
         if(expr)
-            fn_def.push_stmt({ STMT_RETURN, pstring, convert_expr(*expr) });
+            fn_def.push_stmt({ STMT_RETURN, {}, pstring, convert_expr(*expr) });
         else
-            fn_def.push_stmt({ STMT_RETURN, pstring, nullptr });
+            fn_def.push_stmt({ STMT_RETURN, {}, pstring, nullptr });
     }
 
     [[gnu::always_inline]]
     void break_statement(pstring_t pstring)
     {
-        fn_def.push_stmt({ STMT_BREAK, pstring });
+        break_stack.back().push_back(fn_def.push_stmt({ STMT_BREAK, {}, pstring }));
     }
 
     [[gnu::always_inline]]
     void continue_statement(pstring_t pstring)
     {
-        fn_def.push_stmt({ STMT_CONTINUE, pstring });
+        break_stack.back().push_back(fn_def.push_stmt({ STMT_CONTINUE, {}, pstring }));
     }
 
     [[gnu::always_inline]]
     void label_statement(pstring_t pstring)
     {
         // Create a new label
-        label_t* label = stmt_t::new_label();
-        label->stmt_h = fn_def.push_stmt(
-            { STMT_LABEL, pstring, { .label = label} });
+        stmt_ht label = fn_def.push_stmt({ STMT_LABEL, {}, pstring, { .use_count = 0 } });
 
         // Add it to the label map
         auto pair = label_map.emplace(pstring, label);
@@ -364,23 +458,22 @@ public:
         {
             throw compiler_error_t(
                 fmt_error(file, pstring, "Label name already in use.")
-                + fmt_error(file, pair.first->first, 
-                            "Previous definition here:"));
+                + fmt_error(file, pair.first->first, "Previous definition here:"));
         }
 
         // Link up the unlinked gotos that jump to this label.
         auto lower = unlinked_gotos.lower_bound(pstring);
         auto upper = unlinked_gotos.upper_bound(pstring);
         for(auto it = lower; it < upper; ++it)
-            fn_def[it->second].label = label;
-        label->goto_count = std::distance(lower, upper);
+            fn_def[it->second].link = label + 1;
+        fn_def[label].use_count = std::distance(lower, upper);
         unlinked_gotos.erase(lower, upper);
     }
 
     [[gnu::always_inline]]
     void goto_statement(pstring_t pstring)
     {
-        stmt_ht goto_h = fn_def.push_stmt({ STMT_GOTO, pstring });
+        stmt_ht goto_h = fn_def.push_stmt({ STMT_GOTO, {}, pstring });
 
         auto it = label_map.find(pstring);
         if(it == label_map.end())
@@ -391,15 +484,15 @@ public:
         }
         else
         {
-            fn_def[goto_h].label = it->second;
-            it->second->goto_count += 1;
+            fn_def[goto_h].link = it->second + 1;
+            fn_def[it->second].use_count += 1;
         }
     }
 
     [[gnu::always_inline]]
     void goto_mode_statement(pstring_t mode, expr_temp_t& expr)
     {
-        fn_def.push_stmt({ STMT_GOTO_MODE, mode, convert_expr(expr) });
+        fn_def.push_stmt({ STMT_GOTO_MODE, {}, mode, convert_expr(expr) });
     }
 };
 

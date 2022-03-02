@@ -13,6 +13,8 @@
 #include "pass1.hpp"
 #include "thread.hpp"
 
+#include "interpret.hpp" // TODO: remove?
+
 extern char __GIT_COMMIT;
 
 namespace po = boost::program_options;
@@ -125,6 +127,26 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_PARSE_CLEANUP);
         global_t::parse_cleanup();
         output_time("parse:   ");
+
+        set_compiler_phase(PHASE_COMPILE); // todo
+        for(struct_t& s : impl_deque<struct_t>)
+            s.compile();
+
+        for(fn_t& fn : impl_deque<fn_t>)
+        {
+            if(fn.mode)
+                continue;
+            fn.dethunkify();
+            interpreter_t inter(fn, nullptr);
+            for(auto& a : inter.final_result.value)
+            {
+                std::cout << "membe\n";
+                for(auto& b : a)
+                    std::cout << fn.global.name << (b.is_num() ? b.whole() : -1) << std::endl;
+            }
+        }
+
+        return 0;
 
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);

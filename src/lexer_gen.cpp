@@ -114,6 +114,8 @@ rptr keyword(char const* a, std::string w)
     { return accept(a, a, word(std::move(w)), 1); }
 rptr many1(rptr r)
     { return cat(clone(r), kleene(clone(r))); }
+rptr maybe(rptr r)
+    { return cat(clone(r), nullptr); }
 
 nfa_t gen_nfa(regex_t const& regex, 
               std::deque<nfa_node_t>& nodes, 
@@ -613,9 +615,11 @@ int main()
             keyword(1, "lparen", "("),
 
 
-            //keyword(5, "period", "."),
+            keyword(5, "period", "."),
             accept(7, "apply", "apply", eof()), // dummy
             accept(7, "index", "index", eof()), // dummy
+            accept(8, "unary_minus", "unary -", eof()), // dummy
+            accept(8, "unary_xor", "~", word("~")),
 
             keyword(10, "asterisk", "*"),
             keyword(10, "fslash", "/"),
@@ -694,11 +698,12 @@ int main()
             accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
             accept("PP", "PP type", word("PP")),
             accept("PPP", "PPP type", word("PPP")),
-            accept("Bool", "bool type", word("Bool")), // Last type
+            accept("Num", "Num type", word("Num")), // Last type
+            accept("Bool", "Bool type", word("Bool")), // Last type
             accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
             accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
-            accept("decimal", "number", many1(digit())),
+            accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
 
             // dummy:
             accept("number", "number", eof()),

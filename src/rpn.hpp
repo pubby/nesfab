@@ -8,7 +8,9 @@
 
 #include <boost/container/small_vector.hpp>
 
-#include "types.hpp"
+#include "fixed.hpp"
+#include "type.hpp"
+#include "type_mask.hpp"
 #include "pstring.hpp"
 #include "ir_edge.hpp"
 #include "compiler_error.hpp"
@@ -19,69 +21,10 @@ enum value_category_t : char
 {
     RVAL, 
     LVAL,
-    LVAL_INDEX,
+    LVAL_INDEX, // TODO: remove?
 };
 
 inline constexpr value_category_t to_indexed(value_category_t vc) { return vc == LVAL ? LVAL_INDEX : vc; }
-
-// compile-time-value
-using cval_t = bc::small_vector<bc::small_vector<ssa_value_t, 1>, 1>;
-
-
-// STRUCT OF ARRAYS
-
-// Convert everything to a flat structure
-// - args
-// - atoms
-
-// ARRAY OF STRUCTS
-// - 
-
-// structs[x] = structs[y]
-// - translates to multiple array reads / writes, one per struct field
-
-/* TODO
-class cval_t
-{
-public:
-    using ptr_t = std::unique_ptr<cval_t[]>;
-
-    bool single() const { return size < 0; }
-
-    cval_t(cval_t const& o)
-    {
-        if(o.single())
-            value = o.value();
-        else
-        {
-            ptr = new[o.size];
-            std::copy(o.ptr, o.ptr + o.size, ptr);
-            size = o.size;
-        }
-    }
-
-    ~cval_t()
-    {
-        if(size >= 0)
-            delete[] ptr;
-    }
-
-private:
-    static_assert(std::is_trivially_destructible_v<ssa_value_t>);
-    union
-    {
-        ssa_value_t value;
-        cval_t* ptr;
-    };
-    int size = -1;
-};
-*/
-
-struct cpair_t
-{
-    cval_t value;
-    type_t type;
-};
 
 // Expressions are stored in RPN form.
 // This struct is what the RPN stack holds.
@@ -105,7 +48,9 @@ struct rpn_value_t
         return value.fixed();
     }
 
-    unsigned whole() const { return fixed().whole(); }
+    sfixed_int_t sfixed() const { return to_signed(fixed().value, type.name()); }
+    fixed_int_t whole() const { return fixed().value >> fixed_t::shift; }
+    sfixed_int_t swhole() const { return sfixed() >> fixed_t::shift; }
 };
 
 class rpn_stack_t

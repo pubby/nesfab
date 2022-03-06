@@ -813,7 +813,7 @@ namespace isel
         }
     };
 
-    template<op_t Op>
+    template<op_t Op> [[gnu::noinline]]
     bool cpu_t::set_regs_for(options_t opt, locator_t def, locator_t arg)
     {
         constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
@@ -1030,7 +1030,7 @@ namespace isel
     };
 
     // Combines multiple functions into a single one.
-    template<cont_t... Conts> [[gnu::flatten]]
+    template<cont_t... Conts> [[gnu::noinline]]
     void chain(cpu_t const& cpu, sel_t const* sel, cons_t const* cont)
     {
         chain_t<Conts...> c(cont);
@@ -1074,7 +1074,7 @@ namespace isel
         state.best_cost = state.next_best_cost;
     }
 
-    template<typename Opt, regs_t Regs, typename Param>
+    template<typename Opt, regs_t Regs, typename Param> [[gnu::noinline]]
     void set_regs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
@@ -1082,7 +1082,7 @@ namespace isel
             cont->call(cpu_copy, prev);
     };
 
-    template<typename Opt, op_t Op, typename Def, typename Arg>
+    template<typename Opt, op_t Op, typename Def, typename Arg> [[gnu::noinline]]
     void set_regs_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
@@ -1095,6 +1095,7 @@ namespace isel
         return (opt.can_set & op_output_regs(op) & REGF_CPU) == (op_output_regs(op) & REGF_CPU);
     }
 
+    [[gnu::noinline]]
     void clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
@@ -1112,7 +1113,7 @@ namespace isel
         cont->call(cpu_copy, prev);
     };
 
-    template<typename Label>
+    template<typename Label> [[gnu::noinline]]
     void label(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
@@ -1120,7 +1121,7 @@ namespace isel
 
     // TODO
     // Generates an op, picking the addressing mode based on its paramters.
-    template<typename Opt, op_name_t OpName, typename Def, typename Arg>
+    template<typename Opt, op_name_t OpName, typename Def, typename Arg> [[gnu::noinline]]
     void pick_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont);
 
     // Modifies 'cpu' and returns a penalty, handling 'req_store'.
@@ -1161,7 +1162,7 @@ namespace isel
     }
 
     // Spits out the op specified.
-    template<op_t Op>
+    template<op_t Op> [[gnu::noinline]]
     void exact_op(options_t opt, locator_t def, locator_t arg,
                   cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
@@ -1202,14 +1203,14 @@ namespace isel
             cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, penalty));
     }
 
-    template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_>
+    template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
     void exact_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         exact_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
     }
 
     // Generates an op using the 0..255 table.
-    template<typename Opt, op_t Op, typename Def = null_>
+    template<typename Opt, op_t Op, typename Def = null_> [[gnu::noinline]]
     void iota_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
@@ -1218,7 +1219,7 @@ namespace isel
             cont->call(cpu_copy, &alloc_sel<Op>(Opt::to_struct, prev, locator_t::iota()));
     };
 
-    template<typename Opt, typename Def>
+    template<typename Opt, typename Def> [[gnu::noinline]]
     void load_Z(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(cpu.reg_eq(REG_Z, Def::value()))
@@ -1330,7 +1331,7 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename Def>
+    template<typename Opt, typename Def> [[gnu::noinline]]
     void load_A(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(cpu.reg_eq(REG_A, Def::value()))
@@ -1370,7 +1371,7 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename Def>
+    template<typename Opt, typename Def> [[gnu::noinline]]
     void load_X(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(cpu.reg_eq(REG_X, Def::value()))
@@ -1416,7 +1417,7 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename Def>
+    template<typename Opt, typename Def> [[gnu::noinline]]
     void load_Y(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(cpu.reg_eq(REG_Y, Def::value()))
@@ -1441,7 +1442,7 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename Def>
+    template<typename Opt, typename Def> [[gnu::noinline]]
     void load_C(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(cpu.reg_eq(REG_C, Def::value()))
@@ -1499,7 +1500,7 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename A, typename X>
+    template<typename Opt, typename A, typename X> [[gnu::noinline]]
     void load_AX(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         chain
@@ -1513,7 +1514,7 @@ namespace isel
         >(cpu, prev, cont);
     };
 
-    template<typename Opt, typename A, typename Y>
+    template<typename Opt, typename A, typename Y> [[gnu::noinline]]
     void load_AY(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         chain
@@ -1527,7 +1528,7 @@ namespace isel
         >(cpu, prev, cont);
     };
 
-    template<typename Opt, typename A, typename C>
+    template<typename Opt, typename A, typename C> [[gnu::noinline]]
     void load_AC(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         chain
@@ -1540,6 +1541,7 @@ namespace isel
             , bool Enable = (AbsoluteX || AbsoluteY) && (Opt::flags & OPT_NO_DIRECT) < OPT_NO_DIRECT>
     struct pick_op_xy
     {
+        [[gnu::noinline]]
         static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
         {
             using OptN = typename Opt::inc_no_direct;
@@ -1565,12 +1567,13 @@ namespace isel
     template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY>
     struct pick_op_xy<Opt, Def, Arg, AbsoluteX, AbsoluteY, false>
     {
+        [[gnu::noinline]]
         static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont) {}
     };
 
 
     // pick_op impl
-    template<typename Opt, op_name_t OpName, typename Def, typename Arg>
+    template<typename Opt, op_name_t OpName, typename Def, typename Arg> [[gnu::noinline]]
     void pick_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         constexpr op_t implied    = get_op(OpName, MODE_IMPLIED);
@@ -1595,7 +1598,7 @@ namespace isel
     // Adds a store operation.
     // 'Maybe' means the store may not be required in the final code;
     // such instructions can be pruned later.
-    template<typename Opt, op_name_t StoreOp, typename Param, bool Maybe = true>
+    template<typename Opt, op_name_t StoreOp, typename Param, bool Maybe = true> [[gnu::noinline]]
     void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         // Store the node, locally:
@@ -1627,7 +1630,7 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename Def, typename Load, typename Store>
+    template<typename Opt, typename Def, typename Load, typename Store> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         chain
@@ -1654,7 +1657,7 @@ namespace isel
         cont->call(cpu, prev);
     }
 
-    template<typename Opt, typename Condition, cont_t Then, cont_t Else = nullptr>
+    template<typename Opt, typename Condition, cont_t Then, cont_t Else = nullptr> [[gnu::noinline]]
     static void if_(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cons_t c = { nullptr, cont };

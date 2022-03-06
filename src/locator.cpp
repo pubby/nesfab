@@ -2,7 +2,7 @@
 
 #include "format.hpp"
 #include "globals.hpp"
-#include "types.hpp"
+#include "type.hpp"
 #include "ir.hpp"
 
 std::string to_string(locator_t loc)

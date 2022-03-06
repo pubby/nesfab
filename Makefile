@@ -31,7 +31,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++20 \
-  -O0 \
+  -O2 \
   -pthread \
   -g \
   -Wall \
@@ -43,8 +43,8 @@ override CXXFLAGS+= \
   -ftemplate-depth=100 \
   $(INCS) \
   -DVERSION=\"$(VERSION)\" \
-  -DGIT_COMMIT=\"$(GIT_COMMIT)\" 
-  #-DNDEBUG
+  -DGIT_COMMIT=\"$(GIT_COMMIT)\" \
+  -DNDEBUG
 
 VPATH=$(SRCDIR)
 
@@ -53,18 +53,18 @@ LDLIBS:= -lboost_program_options
 SRCS:= \
 main.cpp \
 parser.cpp \
-parser_types.cpp \
+token.cpp \
 symbol_table.cpp \
 ir.cpp \
 ir_edge.cpp \
 ir_util.cpp \
 ir_builder.cpp \
-types.cpp \
+type.cpp \
 compiler_error.cpp \
 file.cpp \
 globals.cpp \
 pass1.cpp \
-fixed.cpp \
+type_mask.cpp \
 constraints.cpp \
 ssa_op.cpp \
 lex_tables.cpp \
@@ -103,7 +103,7 @@ DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
 TESTS_SRCS:= \
 tests.cpp \
 robin_tests.cpp \
-fixed.cpp \
+type_mask.cpp \
 fixed_tests.cpp \
 constraints.cpp \
 constraints_tests.cpp \
@@ -128,8 +128,7 @@ $(OBJDIR)/%.d: $(SRCDIR)/%.cpp
 # Lexer
 
 $(SRCDIR)/lex_tables.hpp: lexer_gen
-	./lexer_gen
-	mv lex_tables.hpp $(SRCDIR)/
+	./lexer_gen && mv lex_tables.hpp $(SRCDIR)/
 
 $(SRCDIR)/lex_tables.cpp: $(SRCDIR)/lex_tables.hpp
 	mv lex_tables.cpp $(SRCDIR)/

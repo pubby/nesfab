@@ -44,6 +44,7 @@ int main(int argc, char** argv)
                 ("graphviz,g", "output graphviz files")
                 ("optimize,O", "optimize code")
                 ("threads,j", po::value<int>(), "number of compiler threads")
+                ("timelimit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
             ;
 
             po::positional_options_description p;
@@ -87,6 +88,10 @@ int main(int argc, char** argv)
             if(vm.count("threads"))
                 _options.num_threads = 
                     std::clamp(vm["threads"].as<int>(), 1, 64);
+
+            if(vm.count("timelimit"))
+                _options.time_limit = 
+                    std::max(vm["timelimit"].as<int>(), 0);
         }
 
         ////////////////////////////////////
@@ -128,6 +133,7 @@ int main(int argc, char** argv)
         global_t::parse_cleanup();
         output_time("parse:   ");
 
+        /* TODO: remove
         set_compiler_phase(PHASE_COMPILE); // todo
         for(struct_t& s : impl_deque<struct_t>)
             s.compile();
@@ -147,6 +153,7 @@ int main(int argc, char** argv)
         }
 
         return 0;
+        */
 
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);

@@ -16,9 +16,9 @@ namespace // anonymous
 {
     // bm = bytemap
     // This is used to break up arithmetic types into several bytes.
-    using bm_t = std::array<ssa_value_t, type_t::max_total_bytes>;
-    static_assert(type_t::max_total_bytes == 6); // To match 'zero_bm' below.
-    constexpr bm_t zero_bm = { 0u, 0u, 0u, 0u, 0u, 0u };
+    using bm_t = std::array<ssa_value_t, max_total_bytes>;
+    static_assert(max_total_bytes == 7); // To match 'zero_bm' below.
+    constexpr bm_t zero_bm = { 0u, 0u, 0u, 0u, 0u, 0u, 0u };
 
     struct ssa_byteify_d
     {
@@ -50,7 +50,7 @@ static bm_t _get_bm(ssa_value_t value)
     }
     else
     {
-        assert(is_arithmetic(_bm_type(value->type())));
+        assert(is_arithmetic(_bm_type(value->type().name())));
         return value.handle().data<ssa_byteify_d>().bm;
     }
 }
@@ -108,7 +108,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 // and will be removed entirely.
                 // The forwarding will happen after all other nodes that
                 // need splitting have been split.
-                assert(is_arithmetic(type));
+                assert(is_arithmetic(type).name());
                 prune_nodes.push_back(ssa_it);
                 continue;
             }
@@ -117,7 +117,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             {
                 auto& ssa_data = ssa_it.data<ssa_byteify_d>(); 
                 ssa_data.bm = zero_bm;
-                ssa_data.bm[type_t::max_frac_bytes] = ssa_it;
+                ssa_data.bm[max_frac_bytes] = ssa_it;
 #ifndef NDEBUG
                 for(ssa_value_t v : ssa_data.bm)
                     assert(v);
@@ -125,7 +125,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 continue;
             }
 
-            if(!is_arithmetic(type))
+            if(!is_arithmetic(type.name()))
                 continue;
 
             SSA_VERSION(1);
@@ -258,7 +258,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     {
                         ssa_value_t input = ssa_it->input(i);
                         type_name_t t = input.type().name();
-                        assert(is_arithmetic(t));
+                        assert(is_arithmetic(t).name());
                         bms[i] = _get_bm(input);
                         begin = std::min(begin, begin_byte(t));
                         end = std::max(end, end_byte(t));
@@ -290,7 +290,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     {
         auto& ssa_data = ssa_node.data<ssa_byteify_d>(); 
         type_name_t const t = _bm_type(ssa_node->type()).name();
-        assert(is_arithmetic(t));
+        assert(is_arithmetic(t).name());
 
         SSA_VERSION(1);
         switch(ssa_node->op())
@@ -456,7 +456,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     for(ssa_ht h : prune_nodes)
     {
         if(h->type() == TYPE_U)
-            h->replace_with(h.data<ssa_byteify_d>().bm[type_t::max_frac_bytes]);
+            h->replace_with(h.data<ssa_byteify_d>().bm[max_frac_bytes]);
         h->prune();
     }
 }

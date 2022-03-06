@@ -16,11 +16,11 @@
 #include "o_phi.hpp"
 #include "sizeof_bits.hpp"
 #include "worklist.hpp"
+#include "type_mask.hpp"
 
 namespace bc = ::boost::container;
 
 #include <iostream> // TODO
-#include <bitset> // TODO
 
 namespace {
 
@@ -104,7 +104,7 @@ std::size_t constraints_size(ssa_node_t const& node)
             //std::printf("not numeric: %s\n", to_string(node.op()).data());
         if(node.type().name() == TYPE_ARRAY)
             return node.type().size();
-        if(is_numeric(node.type()))
+        if(is_numeric(node.type().name()))
             return 1;
         return 0;
     }
@@ -739,11 +739,11 @@ void ai_t::range_propagate()
                 continue;
 
             if(type.name() == TYPE_ARRAY)
-                constraints.mask = numeric_bitmask(type.elem_type());
+                constraints.mask = numeric_bitmask(type.elem_type().name());
             else if(type.name() == TYPE_BUFFER)
                 constraints.mask = numeric_bitmask(TYPE_U);
             else
-                constraints.mask = numeric_bitmask(type);
+                constraints.mask = numeric_bitmask(type.name());
         }
     }
 
@@ -849,7 +849,7 @@ void ai_t::fold_consts()
         ssa_op_t const op = ssa_it->op();
         auto& d = ai_data(ssa_it);
 
-        if(is_numeric(ssa_it->type()) && d.constraints()[0].is_const())
+        if(is_numeric(ssa_it->type().name()) && d.constraints()[0].is_const())
         {
             fixed_t constant = { d.constraints()[0].get_const() };
 

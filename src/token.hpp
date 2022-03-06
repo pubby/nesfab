@@ -1,24 +1,20 @@
-#ifndef PARSER_TYPES_HPP
-#define PARSER_TYPES_HPP
+#ifndef TOKEN_HPP
+#define TOKEN_HPP
 
 #include <cstdint>
-#include <optional>
 #include <string>
-#include <vector>
 
 #include <boost/container/small_vector.hpp>
 
 #include "array_pool.hpp"
-#include "fixed.hpp"
 #include "lex_tables.hpp"
 #include "pstring.hpp"
-#include "types.hpp"
 
 namespace bc = boost::container;
 
 struct token_t
 {
-    using int_type = fixed_int_t;
+    using int_type = std::uint64_t; // Should match fixed_int_t
     static_assert(sizeof(int_type) >= sizeof(std::uintptr_t));
 
     token_type_t type;
@@ -32,14 +28,9 @@ struct token_t
 
     // Used for debugging and logging.
     std::string to_string(char const* source) const;
-};
 
-struct var_decl_t
-{
-    type_t type = TYPE_VOID;
-    pstring_t name;
+    // Allocates a string of tokens with forever lifetime.
+    static token_t const* new_expr(token_t const* begin, token_t const* end);
 };
-
-using expr_temp_t = bc::small_vector<token_t, 16>;
 
 #endif

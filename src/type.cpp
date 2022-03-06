@@ -1,10 +1,12 @@
-#include "types.hpp"
+#include "type.hpp"
 
 #include <algorithm>
 
 #include "robin/hash.hpp"
+#include "robin/collection.hpp"
 
 #include "alloca.hpp"
+#include "array_pool.hpp"
 #include "fixed.hpp"
 #include "format.hpp"
 #include "globals.hpp"
@@ -12,8 +14,76 @@
 
 using namespace std::literals;
 
-thread_local tails_manager_t<type_t> type_t::type_tails;
-thread_local tails_manager_t<group_ht> type_t::group_tails;
+namespace  // Anonymous
+{
+    // Implementation detail!
+    // This takes a range of types and returns a pointer to allocated memory
+    // that contains the same data.
+    // The point being, it's faster to pass a pointer around than the actual range.
+    template<typename T>
+    class tails_manager_t
+    {
+        struct map_elem_t
+        {
+            std::uint16_t size;
+            T const* tail;
+        };
+
+        //std::mutex mutex; // Protects the objects below: // TODO: remove?
+        rh::robin_auto_table<map_elem_t> map;
+        array_pool_t<T> tails;
+
+    public:
+        T const* get(T const* begin, T const* end)
+        {
+            if(end - begin == 0)
+                return nullptr;
+
+            // Hash the range.
+
+            std::size_t size = end - begin;
+            std::size_t hash = size;
+
+            for(T const* it = begin; it < end; ++it)
+            {
+                std::hash<T> hasher;
+                hash = rh::hash_combine(hash, hasher(*it));
+            }
+
+            // Now insert into the map:
+
+            //std::lock_guard<std::mutex> const lock(mutex);
+
+            rh::apair<map_elem_t*, bool> result = map.emplace(
+                hash,
+                [begin, end, size](map_elem_t elem) -> bool
+                {
+                    return (elem.size == size && std::equal(begin, end, elem.tail));
+                },
+                [this, begin, end, size]() -> map_elem_t
+                { 
+                    return { size, tails.insert(begin, end) };
+                });
+
+            assert(std::equal(begin, end, result.first->tail));
+
+            return result.first->tail;
+        }
+
+        T const* get(T const& t) { return get(&t, &t+1); }
+
+        void clear()
+        {
+            //std::lock_guard<std::mutex> const lock(mutex);
+            map.clear();
+            tails.clear();
+        }
+    };
+
+    thread_local tails_manager_t<type_t> type_tails;
+    thread_local tails_manager_t<group_ht> group_tails;
+    thread_local tails_manager_t<array_thunk_t> array_thunk_tails;
+} // end anonymous namespace
 
 bool type_t::operator==(type_t o) const
 {
@@ -38,6 +108,11 @@ type_t type_t::buffer(unsigned size)
 type_t type_t::array(type_t elem_type, unsigned size)
 { 
     return type_t(TYPE_ARRAY, size, type_tails.get(elem_type));
+}
+
+type_t type_t::array_thunk(type_t elem_type, token_t const* tokens)
+{
+    return type_t(TYPE_ARRAY_THUNK, 0, tokens);
 }
 
 type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool banked)
@@ -222,15 +297,19 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
     */
 
     // Othewise arithmetic types can be converted to bool using "!= 0".
-    if(is_arithmetic(from) && to == TYPE_BOOL)
+    if(is_arithmetic(from.name()) && to == TYPE_BOOL)
         return CAST_BOOLIFY;
 
+    // Nums can convert to other arithmetic types using rounding.
+    if(from.name() == TYPE_NUM && is_arithmetic(to.name()))
+        return CAST_ROUND_NUM;
+
     // Otherwise you can't cast different pointers.
-    if(is_ptr(from) || is_ptr(to))
+    if(is_ptr(from.name()) || is_ptr(to.name()))
         return CAST_FAIL;
 
     // Num can be converted to any arithmetic type.
-    if(from.name() == TYPE_NUM && is_arithmetic(to))
+    if(from.name() == TYPE_NUM && is_arithmetic(to.name()))
         return CAST_OP;
 
     // Num can be converted to any arithmetic type.
@@ -238,7 +317,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
         //return CAST_OP;
 
     // Otherwise arithmetic types can be converted amongst each other.
-    if(is_arithmetic(from) && is_arithmetic(to))
+    if(is_arithmetic(from.name()) && is_arithmetic(to.name()))
         return CAST_OP;
 
     // Arithmetic types can be converted to NUM

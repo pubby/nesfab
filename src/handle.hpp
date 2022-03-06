@@ -31,13 +31,8 @@ struct handle_t
         else
             return value != Null; 
     }
-    constexpr bool operator==(handle_t o) const { return value == o.value; }
-    constexpr bool operator!=(handle_t o) const { return value != o.value; }
-    constexpr bool operator<=(handle_t o) const { return value <= o.value; }
-    constexpr bool operator>=(handle_t o) const { return value >= o.value; }
-    constexpr bool operator<(handle_t o) const { return value < o.value; }
-    constexpr bool operator>(handle_t o) const { return value > o.value; }
 
+    constexpr auto operator<=>(handle_t const&) const = default;
     constexpr bool operator!() const { return !operator bool(); }
 
     handle_t& operator++() { ++value; return *this; }
@@ -75,10 +70,7 @@ struct handle_hash_t
 {
     using argument_type = T;
     using result_type = std::size_t;
-    result_type operator()(argument_type const& handle) const noexcept
-    {
-        return handle.hash();
-    }
+    result_type operator()(argument_type const& handle) const noexcept { return handle.hash(); }
 };
 
 namespace std

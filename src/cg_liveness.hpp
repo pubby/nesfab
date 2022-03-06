@@ -9,7 +9,7 @@
 
 namespace liveness_impl
 {
-    inline thread_local bitset_pool_t bitset_pool;
+    inline thread_local array_pool_t<bitset_uint_t> bitset_pool;
     inline thread_local unsigned set_size;
 }
 

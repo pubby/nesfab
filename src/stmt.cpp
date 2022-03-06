@@ -28,11 +28,6 @@ std::string to_string(stmt_name_t stmt_name)
     }
 }
 
-token_t const* stmt_t::new_expr(token_t const* begin, token_t const* end)
-{
-    return expr_pool.insert(begin, end);
-}
-
 void fn_def_t::dethunkify()
 {
     for(auto& decl : local_vars)

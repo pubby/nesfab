@@ -29,7 +29,6 @@ public:
     static constexpr uint_t const_flag = 0b11ull << 62;
     static constexpr uint_t ptr_flag = 0b10ull << 62;
     static constexpr uint_t locator_flag = 0b01ull << 62;
-    static_assert((fixed_t::mask & (const_flag | ptr_flag)) == 0);
 public:
     constexpr ssa_fwd_edge_t() = default;
     constexpr ssa_fwd_edge_t(unsigned v) { set(v); }
@@ -54,7 +53,7 @@ public:
     constexpr bool holds_ref() const { return is_handle() && handle(); }
 
     fixed_t fixed() const 
-        { assert(is_num()); return { value & fixed_t::mask }; }
+        { assert(is_num()); return { value & ~const_flag }; }
     std::uint32_t whole() const 
         { assert(is_num()); return fixed().whole(); }
     std::uint32_t carry() const 
@@ -82,7 +81,7 @@ public:
         { return is_num() && fixed() == f; }
 
     constexpr void set(fixed_t fixed) 
-        { value = (fixed.value & fixed_t::mask) | const_flag; }
+        { value = fixed.value | const_flag; }
     constexpr void set(unsigned u) 
         { set(fixed_t::whole(u)); }
     constexpr void set(locator_t loc) 

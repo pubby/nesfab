@@ -1,12 +1,11 @@
 #include "globals.hpp"
 
-#include <iostream>
-#include <fstream>
+#include <iostream> // TODO remove?
+#include <fstream> // TODO remove?
 
 #include "alloca.hpp"
 #include "bitset.hpp"
 #include "compiler_error.hpp"
-#include "compiler_limits.hpp"
 #include "fnv1a.hpp"
 #include "ir_builder.hpp"
 #include "o.hpp"
@@ -18,6 +17,7 @@
 #include "guard.hpp"
 #include "group.hpp"
 #include "ram_alloc.hpp"
+#include "interpret.hpp"
 
 // global_t statics:
 std::deque<global_t> global_t::global_pool;
@@ -155,19 +155,20 @@ gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps,
 }
 
 const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                                type_t type, std::pair<group_data_t*, group_data_ht> group)
+                                type_t type, std::pair<group_data_t*, group_data_ht> group,
+                                token_t const* expr)
 {
     const_t* ret;
 
     // Create the const
     const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), {}, [&](global_t& g)
     { 
-        return impl_deque_alloc<const_t>(ret, g, type, group.second);
+        return impl_deque_alloc<const_t>(ret, g, type, group.second, expr);
     })};
 
     // Add it to the group
-    assert(group.first);
-    group.first->add_const(h);
+    if(group.first)
+        group.first->add_const(h);
     
     return *ret;
 }
@@ -336,9 +337,9 @@ void global_t::compile()
             graphviz_ssa(ossa, ir);
     };
 
-#ifdef DEBUG_PRINT
+//#ifdef DEBUG_PRINT
     std::cout << "COMPILING " << name << std::endl;
-#endif
+//#endif
 
     // Compile it!
     switch(gclass())
@@ -350,6 +351,8 @@ void global_t::compile()
             fn_t& fn = this->impl<fn_t>();
 
             fn.dethunkify();
+
+            break;
 
             // Compile the FN.
             ssa_pool::clear();
@@ -443,8 +446,7 @@ void global_t::compile()
         }
 
     case GLOBAL_CONST:
-        // Evaluate at runtime.
-        // TODO
+        this->impl<const_t>().compile();
         break;
 
     case GLOBAL_VAR:
@@ -900,6 +902,9 @@ void fn_t::dethunkify()
 void gvar_t::compile()
 {
     m_type = dethunkify(m_type);
+
+    if(init_expr)
+        m_cval = std::move(interpret_expr(global.pstring(), init_expr, m_type).value);
 }
 
 void gvar_t::alloc_spans()
@@ -915,6 +920,18 @@ void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
     unsigned const num = num_atoms(type());
     for(unsigned atom = 0; atom < num; ++atom)
         fn(locator_t::gvar(handle(), atom));
+}
+
+/////////////
+// const_t //
+/////////////
+
+void const_t::compile()
+{
+    m_type = dethunkify(m_type);
+    assert(init_expr);
+    m_cval = std::move(interpret_expr(global.pstring(), init_expr, m_type).value);
+    std::printf("%s = %i\n", global.name.data(), m_cval[0][0].whole());
 }
 
 //////////////

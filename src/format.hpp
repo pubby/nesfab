@@ -16,8 +16,7 @@ void fmt_impl(std::ostringstream& ss, char const* str)
 }
 
 template<char F, typename T, typename... Ts>
-void fmt_impl(std::ostringstream& ss, char const* str, 
-              T const& t, Ts const&... ts)
+void fmt_impl(std::ostringstream& ss, char const* str, T const& t, Ts const&... ts)
 {
     while(*str)
     {

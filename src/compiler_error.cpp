@@ -39,6 +39,9 @@ namespace
 
     char const* get_line_begin(char const* src, pstring_t pstring)
     {
+        while(pstring.offset && (src[pstring.offset] == '\n' || src[pstring.offset] == '\r'))
+            --pstring.offset;
+
         for(std::size_t i = pstring.offset;;--i)
         {
             if(src[i] == '\n' || src[i] == '\r')
@@ -50,6 +53,9 @@ namespace
 
     char const* get_line_end(char const* src, pstring_t pstring)
     {
+        while(pstring.offset && (src[pstring.offset] == '\n' || src[pstring.offset] == '\r'))
+            --pstring.offset;
+
         for(std::size_t i = pstring.offset + pstring.size;;++i)
             if(src[i] == '\n' || src[i] == '\r' || src[i] == '\0')
                 return src + i;
@@ -118,6 +124,16 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
 
     str.push_back('\n');
     return str;
+}
+
+std::string fmt_note(file_contents_t const& file, pstring_t pstring, std::string const& what)
+{
+    return fmt_error(file, pstring, what, CYN BOLD, "note");
+}
+
+std::string fmt_note(std::string const& what)
+{
+    return fmt(BOLD CYN "note: " RESET "%\n", what);
 }
 
 void compiler_error(file_contents_t const& file, pstring_t pstring, 

@@ -6,6 +6,7 @@
 struct options_t
 {
     int num_threads = 1;
+    int time_limit = 1000;
     bool optimize = false;
     bool graphviz = false;
 };

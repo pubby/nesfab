@@ -12,11 +12,12 @@
 
 #include "alloca.hpp"
 #include "compiler_error.hpp"
+#include "fnv1a.hpp"
 #include "globals.hpp"
 #include "group.hpp"
-#include "parser_types.hpp"
+#include "parser_decl.hpp"
 #include "symbol_table.hpp"
-#include "types.hpp"
+#include "type.hpp"
 
 namespace bc = boost::container;
 
@@ -101,7 +102,7 @@ public:
         symbol_table.pop_scope(); // param scope
         label_map.clear();
         assert(symbol_table.empty());
-        fn_def.push_stmt({ STMT_END_BLOCK });
+        fn_def.push_stmt({ STMT_END_FN, {}, decl.name });
 
         if(!unlinked_gotos.empty())
         {
@@ -207,19 +208,41 @@ public:
 
     void struct_field(pstring_t struct_name, var_decl_t const& var_decl, expr_temp_t* expr)
     {
-        auto result = field_map.insert({ std::string(var_decl.name.view(file.source())), 
+        assert(symbol_table.empty());
+
+        auto const hash = fnv1a<std::uint64_t>::hash(var_decl.name.view(file.source()));
+
+        auto result = field_map.insert({ hash, 
             field_t{ .pstring = var_decl.name, .type = var_decl.type }});
 
         if(!result.second)
         {
-            // Already have a field with that name.
-            throw compiler_error_t(
-                fmt_error(file, var_decl.name, 
-                          fmt("Multiple definitions of % in %.", 
-                              var_decl.name.view(source()),
-                              struct_name.view(source())))
-                + fmt_error(file, result.first->second.pstring, 
-                            "Previous definition here:"));
+            pstring_t const map_pstring = result.first->second.pstring;
+
+            assert(var_decl.name.file_i == map_pstring.file_i);
+
+            if(var_decl.name.view(file.source()) == map_pstring.view(file.source()))
+            {
+                // Already have a field with that name.
+                throw compiler_error_t(
+                    fmt_error(file, var_decl.name, 
+                              fmt("Multiple definitions of % in %.", 
+                                  var_decl.name.view(source()),
+                                  struct_name.view(source())))
+                    + fmt_error(file, map_pstring, 
+                                "Previous definition here:"));
+            }
+            else
+            {
+                throw compiler_error_t(
+                    fmt_error(file, var_decl.name, 
+                              fmt("Hash collisision! % in %...", 
+                                  var_decl.name.view(source()),
+                                  struct_name.view(source())))
+                    + fmt_error(file, map_pstring, 
+                                "...has the same fnv1a hash as:")
+                    + fmt_note("Rename one to avoid this issue."));
+            }
         }
 
         this_uses_type(var_decl.type);
@@ -250,7 +273,7 @@ public:
 
         token_t const* init_expr = nullptr;
         if(expr_temp)
-            init_expr = stmt_t::new_expr(&*expr_temp->begin(), &*expr_temp->end());
+            init_expr = convert_expr(*expr_temp);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
         active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, group, init_expr);
@@ -258,14 +281,17 @@ public:
     }
 
     [[gnu::always_inline]]
-    void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, expr_temp_t* expr)
+    void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, expr_temp_t& expr_temp)
     {
+        assert(symbol_table.empty());
         assert(ideps.empty());
 
         this_uses_type(var_decl.type);
 
+        token_t const* init_expr = convert_expr(expr_temp);
+
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_const(var_decl.name, std::move(ideps), var_decl.type, group);
+        active_global->define_const(var_decl.name, std::move(ideps), var_decl.type, group, init_expr);
         ideps.clear();
     }
 

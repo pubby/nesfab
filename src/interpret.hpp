@@ -1,30 +1,47 @@
 #ifndef INTERPRETER_HPP
 #define INTERPRETER_HPP
 
+#include <chrono>
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
 
+#include "cval.hpp"
 #include "decl.hpp"
 #include "ir_decl.hpp"
 #include "rpn.hpp"
 #include "stmt.hpp"
 
 namespace bc = boost::container;
+namespace sc = std::chrono;
+
+struct interpreter_out_of_time_t : public std::exception
+{
+    explicit interpreter_out_of_time_t(std::string const& msg)
+    : msg(msg) {}
+
+    virtual const char* what() const noexcept { return msg.c_str(); }
+    std::string msg;
+};
 
 class interpreter_t
 {
 private:
+    pstring_t pstring = {};
     fn_t const* fn = nullptr;
     stmt_t const* stmt = nullptr;
     rpn_stack_t rpn_stack;
     std::vector<cval_t> local_vars;
     std::vector<type_t> local_var_types;
+
+    using clock = sc::steady_clock;
+    sc::time_point<clock> start_time;
+
 public:
     cpair_t final_result;
 
-    explicit interpreter_t(token_t const* expr, type_t expected_type = TYPE_VOID);
-    interpreter_t(fn_t const& fn, cval_t const* args);
+    interpreter_t(pstring_t pstring, token_t const* expr, type_t expected_type = TYPE_VOID);
+    interpreter_t(pstring_t pstring, fn_t const& fn, cval_t const* args);
 
 private:
     struct access_t
@@ -43,9 +60,16 @@ private:
     void interpret_compare(Fn fn);
     template<typename Fn>
     void interpret_arith(Fn fn);
+    template<typename Fn>
+    void interpret_shift(Fn fn);
+    template<typename Fn>
+    void interpret_assign_arith(Fn fn);
+    void interpret_logical_begin(token_t const*& token, token_type_t logical, token_type_t logical_end);
+    void interpret_logical_end();
 
     // Cast-related
     void force_cast(rpn_value_t& rpn_value, type_t to_type);
+    void force_round_num(rpn_value_t& rpn_value, type_t to_type);
     void force_boolify(rpn_value_t& rpn_value);
     bool cast(rpn_value_t& rpn_value, type_t to_type);
     void throwing_cast(rpn_value_t& rpn_value, type_t to_type);
@@ -56,9 +80,11 @@ private:
     type_t var_i_type(unsigned var_i) const;
     void init_locals(access_t a, cval_t& cval);
     access_t access(rpn_value_t const& rpn_value) const;
+    ssa_value_t const& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index) const;
+    ssa_value_t& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index);
 };
 
-cpair_t interpret_expr(token_t const* expr, type_t expected_type = TYPE_VOID);
+cpair_t interpret_expr(pstring_t pstring, token_t const* expr, type_t expected_type = TYPE_VOID);
 
 
 /*

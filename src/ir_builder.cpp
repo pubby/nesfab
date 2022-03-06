@@ -1107,7 +1107,7 @@ void ir_builder_t::compile_shift(cfg_node_t& cfg_node, ssa_op_t op)
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
 
-    if(!is_arithmetic(lhs.type) || !is_arithmetic(rhs.type))
+    if(!is_arithmetic(lhs.type.name()) || !is_arithmetic(rhs.type.name()))
     {
         // TODO: improve error string
         pstring_t pstring = concat(lhs.pstring, rhs.pstring);
@@ -1125,7 +1125,7 @@ void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry)
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
 
-    if(!is_arithmetic(lhs.type) || !is_arithmetic(rhs.type))
+    if(!is_arithmetic(lhs.type.name()) || !is_arithmetic(rhs.type.name()))
     {
         // TODO: improve error string
         pstring_t pstring = concat(lhs.pstring, rhs.pstring);
@@ -1161,7 +1161,7 @@ void ir_builder_t::compile_compare(cfg_node_t& cfg_node, ssa_op_t op)
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
 
-    if(!is_arithmetic(lhs.type) || !is_arithmetic(rhs.type))
+    if(!is_arithmetic(lhs.type.name()) || !is_arithmetic(rhs.type.name()))
     {
         // TODO: improve error string
         pstring_t pstring = concat(lhs.pstring, rhs.pstring);

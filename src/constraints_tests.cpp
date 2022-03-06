@@ -16,7 +16,7 @@ constexpr unsigned TEST_ITER = 1000;
 
 SSA_VERSION(1);
 
-known_bits_t random_bits(fixed_t::int_type mask, bool allow_top = false)
+known_bits_t random_bits(fixed_int_t mask, bool allow_top = false)
 {
     known_bits_t bits;
     do
@@ -25,7 +25,7 @@ known_bits_t random_bits(fixed_t::int_type mask, bool allow_top = false)
     return bits;
 }
 
-constraints_t random_constraint(fixed_t::int_type mask, bool allow_top = false)
+constraints_t random_constraint(fixed_int_t mask, bool allow_top = false)
 {
     if(rand() & 1)
     {
@@ -135,7 +135,7 @@ TEST_CASE("from_bounds", "[constraints]")
                 REQUIRE(bounds(i << 4));
 
         bounds_t test = { 15 << 4, 0 };
-        for(fixed_t::int_type i = 0; i <= 15; ++i)
+        for(fixed_int_t i = 0; i <= 15; ++i)
         {
             if(bits(i << 4))
             {
@@ -155,7 +155,7 @@ TEST_CASE("intersect", "[constraints]")
     {
         constraints_t c1 = random_constraint(0xF << 4);
         constraints_t c2 = random_constraint(0xF << 4);
-        for(fixed_t::int_type i = 0; i <= 15; ++i)
+        for(fixed_int_t i = 0; i <= 15; ++i)
         {
             constraints_t in = intersect(c1, c2);
             REQUIRE((c1(i<<4) && c2(i<<4)) == in(i<<4));
@@ -172,7 +172,7 @@ TEST_CASE("union_", "[constraints]")
     {
         constraints_t c1 = random_constraint(0xF << 4);
         constraints_t c2 = random_constraint(0xF << 4);
-        for(fixed_t::int_type i = 0; i <= 15; ++i)
+        for(fixed_int_t i = 0; i <= 15; ++i)
         {
             constraints_t un = union_(c1, c2);
             if(c1(i<<4) || c2(i<<4))

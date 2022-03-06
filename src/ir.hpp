@@ -5,6 +5,7 @@
 #include "robin/hash.hpp"
 
 #include "fixed.hpp"
+#include "type.hpp"
 #include "ir_decl.hpp"
 #include "ir_edge.hpp"
 #include "gvar_loc_manager.hpp"

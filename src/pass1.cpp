@@ -46,6 +46,6 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
     expr.push_back({});
 
     // Store the expression in 'expr_pool' and return a pointer to it.
-    return stmt_t::new_expr(&*expr.begin(), &*expr.end());
+    return token_t::new_expr(&*expr.begin(), &*expr.end());
 }
 

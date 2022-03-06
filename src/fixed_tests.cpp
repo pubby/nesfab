@@ -1,5 +1,5 @@
 #include "catch/catch.hpp"
-#include "fixed.hpp"
+#include "type_mask.hpp"
 
 TEST_CASE("numeric_bitmask", "[fixed]")
 {

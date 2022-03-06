@@ -15,12 +15,13 @@
 #include "bitset.hpp"
 #include "file.hpp"
 #include "decl.hpp"
-#include "parser_types.hpp"
+#include "parser_decl.hpp"
 #include "phase.hpp"
 #include "ram.hpp"
 #include "stmt.hpp"
-#include "types.hpp"
+#include "type.hpp"
 #include "lvar.hpp"
+#include "cval.hpp"
 
 namespace bc = boost::container;
 
@@ -75,7 +76,7 @@ struct field_t
     //token_t const* init_expr = nullptr;
 };
 
-using field_map_t = rh::batman_map<std::string, field_t>;
+using field_map_t = rh::batman_map<std::uint64_t, field_t, std::identity>;
 
 class struct_t
 {
@@ -200,7 +201,8 @@ public:
                       type_t type, std::pair<group_vars_t*, group_vars_ht> group,
                       token_t const* expr);
     const_t& define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                          type_t type, std::pair<group_data_t*, group_data_ht> group);
+                          type_t type, std::pair<group_data_t*, group_data_ht> group,
+                          token_t const* expr);
     struct_t& define_struct(pstring_t pstring, global_t::ideps_set_t&& ideps, 
                             field_map_t&& map);
 
@@ -390,6 +392,7 @@ public:
 
 private:
     type_t m_type = {};
+    cval_t m_cval;
     std::vector<span_t> m_spans = {};
 };
 
@@ -399,15 +402,27 @@ public:
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_CONST;
 
-    const_t(global_t& global, type_t type, group_data_ht group)
+    const_t(global_t& global, type_t type, group_data_ht group, token_t const* expr)
     : global(global)
-    , type(type)
     , group(group)
-    {}
+    , init_expr(expr)
+    , m_type(type)
+    {
+        assert(init_expr);
+    }
 
     global_t& global;
-    type_t const type;
     group_data_ht const group;
+    token_t const* const init_expr = nullptr;
+
+    type_t type() const { assert(global.compiled()); return m_type; }
+
+    void compile();
+    cval_t const& cval() const { assert(global.compiled()); return m_cval; }
+
+private:
+    type_t m_type = {};
+    cval_t m_cval;
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

@@ -3,7 +3,7 @@
 #include <boost/container/small_vector.hpp>
 
 #include "globals.hpp"
-#include "types.hpp"
+#include "type.hpp"
 
 std::size_t gvar_loc_manager_t::bitset_size() { return impl_bitset_size<gvar_t>(); }
 

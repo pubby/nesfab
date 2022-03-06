@@ -7,13 +7,12 @@
 #include <climits>
 #include <cstdint>
 #include <type_traits>
+#include <memory>
 
-#include "array_pool.hpp"
 #include "builtin.hpp"
 #include "sizeof_bits.hpp"
 
 using bitset_uint_t = std::uint64_t;
-using bitset_pool_t = array_pool_t<bitset_uint_t>;
 
 // Gives the array size needed for a bitset containing 'bits_required' bits.
 template<typename UInt = bitset_uint_t>

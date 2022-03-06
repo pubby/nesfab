@@ -46,7 +46,6 @@ constexpr pstring_t concat(pstring_t lo, pstring_t hi)
 struct pstring_less_t
 {
     char const* source;
-
     bool operator()(pstring_t lhs, pstring_t rhs) const
         { return lhs.view(source) < rhs.view(source); }
 };

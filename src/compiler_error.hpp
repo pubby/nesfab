@@ -24,6 +24,9 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
 std::string fmt_error(file_contents_t const& file, pstring_t pstring,
                       std::string const& what, char const* color, char const* prefix);
 
+std::string fmt_note(file_contents_t const& file, pstring_t pstring, std::string const& what);
+std::string fmt_note(std::string const& what);
+
 [[gnu::noreturn]] 
 void compiler_error(file_contents_t const& file, pstring_t pstring, 
                     std::string const& what);

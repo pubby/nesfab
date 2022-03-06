@@ -35,12 +35,12 @@ struct fnv1a
     static constexpr T seed  = fnv1a_constants<T>::seed;
 
     [[gnu::always_inline]]
-    static inline T hash(unsigned char byte, T hashval = seed)
+    static constexpr inline T hash(unsigned char byte, T hashval = seed)
     {
         return (byte ^ hashval) * prime;
     }
 
-    static T hash(char const* data, std::size_t size, T hashval = seed)
+    static constexpr T hash(char const* data, std::size_t size, T hashval = seed)
     {
         assert(data);
         while(size--)
@@ -48,7 +48,7 @@ struct fnv1a
         return hashval;
     }
 
-    static T hash(char const* begin, char const* end, T hashval = seed)
+    static constexpr T hash(char const* begin, char const* end, T hashval = seed)
     {
         assert(begin && end);
         while(begin < end)
@@ -56,7 +56,7 @@ struct fnv1a
         return hashval;
     }
 
-    static T hash(std::string_view view, T hashval = seed)
+    static constexpr T hash(std::string_view view, T hashval = seed)
     {
         return hash(view.data(), view.size(), hashval);
     }

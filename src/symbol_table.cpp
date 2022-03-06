@@ -24,7 +24,8 @@ unsigned const* symbol_table_t::new_def(unsigned handle, std::string_view name)
 
 unsigned const* symbol_table_t::find(std::string_view name) const
 {
-    assert(scope_stack.size() > 0);
+    if(scope_stack.size() <= 0)
+        return nullptr;
 
     // Early exit if the table doesn't hold the hash.
     hash_type hash = fnv1a<hash_type>::hash(name);

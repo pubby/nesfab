@@ -1,5 +1,7 @@
 #include "file.hpp"
 
+#include <cassert>
+
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -11,6 +13,7 @@ std::vector<std::string> source_file_names;
 file_contents_t::file_contents_t(unsigned file_i)
 : m_file_i(file_i)
 {
+    assert(file_i < source_file_names.size());
     std::string const& name = source_file_names[file_i];
     int fd = open(name.c_str(), O_RDONLY);
     struct stat sb;

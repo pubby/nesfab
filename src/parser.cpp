@@ -1,10 +1,11 @@
 #include "parser.hpp"
 
 #include "alloca.hpp"
-#include "compiler_limits.hpp"
+#include "fixed.hpp"
 #include "format.hpp"
 #include "globals.hpp"
 #include "group.hpp"
+#include "fnv1a.hpp"
 
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
@@ -101,7 +102,8 @@ bool parser_t<P>::parse_token(token_type_t expecting)
 template<typename P>
 bool parser_t<P>::parse_token()
 {
-    token_t::int_type value;
+    token_t::int_type value, frac;
+    unsigned frac_scale = 0;
 restart:
     // Lex 1 token
     token_source = next_char;
@@ -139,14 +141,40 @@ restart:
         goto restart;
 
     case TOK_decimal:
-        value = 0;
+        value = frac = 0;
+        frac_scale = 1;
         for(char const* it = token_source; it != next_char; ++it)
         {
-            value *= 10;
-            value += *it - '0';
-            if(value > std::numeric_limits<token_t::int_type>::max())
-                compiler_error("Integer literal is too large.");
+            if(*it == '.')
+            {
+                for(++it; it != next_char; ++it)
+                {
+                    if(frac_scale <= (1ull << fixed_t::shift))
+                    {
+                        frac_scale *= 10;
+                        frac *= 10;
+                        frac += *it - '0';
+                    }
+                }
+
+                frac *= 1ull << fixed_t::shift;
+                frac /= frac_scale;
+                assert(frac < 1ull << fixed_t::shift);
+
+                break;
+            }
+            else
+            {
+                value *= 10;
+                value += *it - '0';
+                if(value >= (1ull << 32))
+                    compiler_error("Integer literal is too large.");
+            }
         }
+
+        value <<= fixed_t::shift;
+        value |= frac;
+
         token.type = TOK_number;
         token.value = value;
         // fall-through
@@ -243,6 +271,7 @@ inapplicable:
     {
     case TOK_ident:
     case TOK_number:
+    number:
         expr_temp.push_back(token);
         goto applicable_advance;
 
@@ -265,6 +294,44 @@ inapplicable:
         }
         else
             compiler_error("Line ended with an incomplete expression.");
+
+    case TOK_minus:
+        {
+            token_t t = token;
+            parse_token();
+
+            // Handling numbers separately may grant a tiny speedup
+            // (note the code would still work without this)
+            if(token.type == TOK_number)
+            {
+                token.value = -token.value;
+                goto number;
+            }
+
+            expr_temp.push_back({ TOK_number, token.pstring, 0ull });
+            t.type = TOK_unary_minus;
+            shunting_yard.push_back(t);
+            goto inapplicable;
+        }
+
+    case TOK_unary_xor:
+        {
+            token_t t = token;
+            parse_token();
+
+            // Handling numbers separately may grant a tiny speedup
+            // (note the code would still work without this)
+            if(token.type == TOK_number)
+            {
+                token.value = ~token.value;
+                goto number;
+            }
+
+            expr_temp.push_back({ TOK_number, token.pstring, ~0ull });
+            shunting_yard.push_back(t);
+            goto inapplicable;
+        }
+
     default:
         compiler_error("Unexpected token while parsing expression.");
     }
@@ -311,6 +378,18 @@ applicable:
             char const* end = token_source;
             pstring_t pstring = { begin - source(), end - begin, file_i() };
             expr_temp.push_back({ TOK_index, pstring });
+            goto applicable;
+        }
+
+    case TOK_period:
+        {
+            parse_token();
+            pstring_t pstring = token.pstring;
+            parse_token(TOK_ident);
+
+            std::uint64_t const hash = fnv1a<std::uint64_t>::hash(pstring.view(source()));
+            expr_temp.push_back({ TOK_period, pstring, hash });
+
             goto applicable;
         }
     
@@ -376,6 +455,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
     switch(token.type)
     {
     case TOK_Void:   parse_token(); type = TYPE_VOID; break;
+    case TOK_Num:    parse_token(); type = TYPE_NUM; break;
     case TOK_Bool:   parse_token(); type = TYPE_BOOL; break;
     case TOK_F:      parse_token(); type = TYPE_F1; break;
     case TOK_FF:     parse_token(); type = TYPE_F2; break;
@@ -475,13 +555,25 @@ type_t parser_t<P>::parse_type(bool allow_void)
     {
         parse_token();
 
-        // TODO: allow expressions
-        if(token.type != TOK_number || token.value <= 0 || token.value > 256)
-            compiler_error("Invalid array size.");
-        type = type_t::array(type, token.value);
-        parse_token();
+        int const array_indent = indent;
+        expr_temp_t expr_temp;
+        parse_expr(expr_temp, array_indent, 1);
+
+        if(expr_temp.size() == 1 && expr_temp[0].type == TOK_number)
+        {
+            unsigned const size = expr_temp[0].value >> fixed_t::shift;
+            if(size <= 0 || size > 256)
+                compiler_error(expr_temp[0].pstring, "Invalid array size.");
+            type = type_t::array(type, size);
+        }
+        else
+        {
+            expr_temp.push_back({});
+            type = type_t::array_thunk(type, token_t::new_expr(&*expr_temp.begin(), &*expr_temp.end()));
+        }
 
         parse_token(TOK_rbracket);
+
     }
 
     return type;
@@ -531,9 +623,10 @@ void parser_t<P>::parse_top_level_def()
     case TOK_struct: 
         return parse_struct();
     default: 
-        //if(is_type_prefix(token.type))
-            //return parse_top_level_const();
-        compiler_error("Unexpected token at top level.");
+        if(is_type_prefix(token.type))
+            return parse_const();
+        else
+            compiler_error("Unexpected token at top level.");
     }
 }
 
@@ -604,16 +697,31 @@ void parser_t<P>::parse_group_data(bool once)
 
     auto group = policy().begin_group_data(group_name, once);
 
-    maybe_parse_block(group_indent, 
-    [&]{ 
+    maybe_parse_block(group_indent, [&]{ 
         var_decl_t var_decl;
         expr_temp_t expr;
-        bool const has_expr = parse_var_init(var_decl, expr);
-        policy().global_const(group, var_decl, has_expr ? &expr : nullptr);
+        if(!parse_var_init(var_decl, expr))
+            compiler_error("Constants must be assigned a value.");
+        policy().global_const(group, var_decl, expr);
         parse_line_ending();
     });
 
     policy().end_group();
+}
+
+template<typename P>
+void parser_t<P>::parse_const()
+{
+    var_decl_t var_decl;
+    expr_temp_t expr;
+    if(!parse_var_init(var_decl, expr))
+        compiler_error(var_decl.name, "Constants must be assigned a value.");
+
+    if(var_decl.type.name() == TYPE_BUFFER)
+        compiler_error(var_decl.name, "Buffers cannot be defined at top-level.");
+
+    policy().global_const({}, var_decl, expr);
+    parse_line_ending();
 }
 
 template<typename P>
@@ -627,12 +735,7 @@ void parser_t<P>::parse_fn()
 
     // Parse the arguments
     bc::small_vector<var_decl_t, 8> params;
-    parse_args(TOK_lparen, TOK_rparen, [&]() 
-    { 
-        if(params.size() >= MAX_FN_PARAMS)
-            compiler_error(fmt("Compiler limit reached: too many fn parameters (max is %).", MAX_FN_PARAMS));
-        params.push_back(parse_var_decl()); 
-    });
+    parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl()); });
 
     // Parse the return type
     type_t return_type = parse_type(true);
@@ -656,12 +759,7 @@ void parser_t<P>::parse_mode()
 
     // Parse the arguments
     bc::small_vector<var_decl_t, 8> params;
-    parse_args(TOK_lparen, TOK_rparen, [&]() 
-    { 
-        if(params.size() >= MAX_FN_PARAMS)
-            compiler_error(fmt("Compiler limit reached: too many mode parameters (max is %).", MAX_FN_PARAMS));
-        params.push_back(parse_var_decl()); 
-    });
+    parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl()); });
 
     // Parse the body of the function
     auto state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());

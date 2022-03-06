@@ -11,7 +11,8 @@
 
 #include "compiler_error.hpp"
 #include "file.hpp"
-#include "parser_types.hpp"
+#include "parser_decl.hpp"
+#include "token.hpp"
 #include "pstring.hpp"
 
 template<typename Policy>
@@ -74,6 +75,7 @@ private:
     void parse_top_level();
     void parse_top_level_def();
 
+    void parse_const();
     void parse_group_vars();
     void parse_group_data(bool once);
     void parse_top_level_const();
@@ -96,6 +98,8 @@ private:
     void parse_goto();
     void parse_label();
 
+    [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const
+        { ::compiler_error(file, pstring, what); }
     [[gnu::noreturn]] void compiler_error(std::string const& what) const
         { ::compiler_error(file, token.pstring, what); }
 };

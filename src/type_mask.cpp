@@ -5,7 +5,7 @@
 fixed_lut_t<fixed_int_t> const numeric_bitmask_table = []()
 {
     fixed_lut_t<fixed_int_t> table;
-    for(int i = TYPE_FIRST_NUM; i <= TYPE_LAST_NUM; ++i)
+    for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
     {
         type_name_t type_name = (type_name_t)i;
 
@@ -21,7 +21,7 @@ fixed_lut_t<fixed_int_t> const numeric_bitmask_table = []()
                 v |= 0xFFull << (8 * (3 + j));
         }
 
-        table[i - TYPE_FIRST_NUM] = v;
+        table[i - TYPE_FIRST_SCALAR] = v;
     }
     return table;
 }();
@@ -29,10 +29,10 @@ fixed_lut_t<fixed_int_t> const numeric_bitmask_table = []()
 fixed_lut_t<fixed_int_t> const numeric_sub_bitmask_table = []()
 {
     fixed_lut_t<fixed_int_t> table;
-    for(int i = TYPE_FIRST_NUM; i <= TYPE_LAST_NUM; ++i)
+    for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
     {
         type_name_t type_name = (type_name_t)i;
-        table[i - TYPE_FIRST_NUM] = (1ull << (8 * (3 - frac_bytes(type_name)))) - 1ull;
+        table[i - TYPE_FIRST_SCALAR] = (1ull << (8 * (3 - frac_bytes(type_name)))) - 1ull;
     }
     return table;
 }();
@@ -40,10 +40,10 @@ fixed_lut_t<fixed_int_t> const numeric_sub_bitmask_table = []()
 fixed_lut_t<fixed_int_t> const numeric_super_bitmask_table = []()
 {
     fixed_lut_t<fixed_int_t> table;
-    for(int i = TYPE_FIRST_NUM; i <= TYPE_LAST_NUM; ++i)
+    for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
     {
         type_name_t type_name = (type_name_t)i;
-        table[i - TYPE_FIRST_NUM] = ~((1ull << (8 * (3 + whole_bytes(type_name)))) - 1ull);
+        table[i - TYPE_FIRST_SCALAR] = ~((1ull << (8 * (3 + whole_bytes(type_name)))) - 1ull);
     }
     return table;
 }();

@@ -31,7 +31,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++20 \
-  -O2 \
+  -O1 \
   -pthread \
   -g \
   -Wall \
@@ -44,7 +44,7 @@ override CXXFLAGS+= \
   $(INCS) \
   -DVERSION=\"$(VERSION)\" \
   -DGIT_COMMIT=\"$(GIT_COMMIT)\" \
-  -DNDEBUG
+  #-DNDEBUG
 
 VPATH=$(SRCDIR)
 
@@ -95,7 +95,7 @@ ram.cpp \
 ram_alloc.cpp \
 lvar.cpp \
 o_gvn.cpp \
-interpret.cpp
+eval.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

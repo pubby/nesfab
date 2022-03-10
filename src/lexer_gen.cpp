@@ -112,6 +112,10 @@ rptr keyword(int precedence, char const* a, std::string w)
     { return accept(a, a, word(std::move(w)), precedence); }
 rptr keyword(char const* a, std::string w)
     { return accept(a, a, word(std::move(w)), 1); }
+rptr op(int precedence, char const* a, char const* w)
+    { return accept(a, w, word(w), precedence); }
+rptr op(char const* a, char const* w)
+    { return accept(a, w, word(w), 1); }
 rptr many1(rptr r)
     { return cat(clone(r), kleene(clone(r))); }
 rptr maybe(rptr r)
@@ -615,56 +619,58 @@ int main()
             keyword(1, "lparen", "("),
 
 
+
             keyword(5, "period", "."),
+            keyword(7, "sizeof", "sizeof"),
+            accept(7, "sizeof_expr", "sizeof", eof()), // dummy
+            keyword(7, "len", "len"),
+            accept(7, "len_expr", "len", eof()), // dummy
             accept(7, "apply", "apply", eof()), // dummy
+            accept(7, "cast_argn", "cast", eof()), // dummy
+            accept(7, "cast_type", "cast type", eof()), // dummy
             accept(7, "index", "index", eof()), // dummy
             accept(8, "unary_minus", "unary -", eof()), // dummy
-            accept(8, "unary_xor", "~", word("~")),
+            op(8, "unary_xor", "~"),
+            op(8, "unary_negate", "!"),
 
-            keyword(10, "asterisk", "*"),
-            keyword(10, "fslash", "/"),
+            op(10, "asterisk", "*"),
+            op(10, "fslash", "/"),
 
-            keyword(11, "plus", "+"),
-            keyword(11, "minus", "-"),
+            op(11, "plus", "+"),
+            op(11, "minus", "-"),
 
-            keyword(12, "lshift", "<<"),
-            keyword(12, "rshift", ">>"),
+            op(12, "lshift", "<<"),
+            op(12, "rshift", ">>"),
 
-            keyword(13, "bitwise_and", "&"),
-            keyword(14, "bitwise_xor", "^"),
-            keyword(15, "bitwise_or", "|"),
+            op(13, "bitwise_and", "&"),
+            op(14, "bitwise_xor", "^"),
+            op(15, "bitwise_or", "|"),
 
-            keyword(16, "lt", "<"),
-            keyword(16, "lte", "<="),
-            keyword(16, "gt", ">"),
-            keyword(16, "gte", ">="),
+            op(16, "lt", "<"),
+            op(16, "lte", "<="),
+            op(16, "gt", ">"),
+            op(16, "gte", ">="),
 
-            keyword(17, "eq", "=="),
-            keyword(17, "not_eq", "!="),
+            op(17, "eq", "=="),
+            op(17, "not_eq", "!="),
 
-            keyword(18, "logical_and", "&&"),
+            op(18, "logical_and", "&&"),
             accept(18, "end_logical_and", "end_logical_and", eof()),
-            keyword(19, "logical_or", "||"),
+            op(19, "logical_or", "||"),
             accept(19, "end_logical_or", "end_logical_or", eof()),
 
-            keyword("bitwise_not", "~"),
-            keyword("logical_not", "!"),
-            keyword("plus_plus", "++"),
-            keyword("minus_minus", "--"),
-
-            keyword(30, "assign", "="),
-            keyword(30, "plus_assign", "+="),
-            keyword(30, "minus_assign", "-="),
-            keyword(30, "times_assign", "*="),
-            keyword(30, "div_assign", "/="),
-            keyword(30, "bitwise_and_assign", "&="),
-            keyword(30, "logical_and_assign", "&&="),
-            keyword(30, "bitwise_or_assign", "|="),
-            keyword(30, "logical_or_assign", "||="),
-            keyword(30, "bitwise_not_assign", "~="),
-            keyword(30, "bitwise_xor_assign", "^="),
-            keyword(30, "lshift_assign", "<<="),
-            keyword(30, "rshift_assign", ">>="),
+            op(30, "assign", "="),
+            op(30, "plus_assign", "+="),
+            op(30, "minus_assign", "-="),
+            op(30, "times_assign", "*="),
+            op(30, "div_assign", "/="),
+            op(30, "bitwise_and_assign", "&="),
+            op(30, "logical_and_assign", "&&="),
+            op(30, "bitwise_or_assign", "|="),
+            op(30, "logical_or_assign", "||="),
+            op(30, "bitwise_xor_assign", "^="),
+            op(30, "lshift_assign", "<<="),
+            op(30, "rshift_assign", ">>="),
 
             keyword(1, "rparen", ")"),
 
@@ -698,7 +704,8 @@ int main()
             accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
             accept("PP", "PP type", word("PP")),
             accept("PPP", "PPP type", word("PPP")),
-            accept("Num", "Num type", word("Num")), // Last type
+            accept("Int", "Int type", word("Int")),
+            accept("Real", "Real type", word("Real")),
             accept("Bool", "Bool type", word("Bool")), // Last type
             accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
@@ -706,7 +713,8 @@ int main()
             accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
 
             // dummy:
-            accept("number", "number", eof()),
+            accept("int", "int", eof()),
+            accept("real", "real", eof()),
             accept("global_ident", "global identifier", eof()),
             accept("weak_ident", "weak identifier", eof())
             ),

@@ -37,7 +37,7 @@ type_t ssa_fwd_edge_t::type() const
 { 
     assert(operator bool());
     if(is_num())
-        return { TYPE_NUM };
+        return { TYPE_REAL }; // TODO
     if(holds_ref())
         return handle()->type();
     return { TYPE_VOID };

@@ -73,7 +73,8 @@ struct field_t
 {
     pstring_t pstring;
     type_t type;
-    //token_t const* init_expr = nullptr;
+    token_t const* init_expr = nullptr;
+    cval_t default_cval;
 };
 
 using field_map_t = rh::batman_map<std::uint64_t, field_t, std::identity>;
@@ -282,7 +283,7 @@ public:
     type_t type() const { return m_type; }
     fn_def_t const& def() const { return m_def; }
 
-    void dethunkify();
+    void compile();
 
     void calc_lang_gvars_groups();
     void calc_ir_bitsets(ir_t const& ir);

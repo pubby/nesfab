@@ -115,6 +115,10 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
 
     str += color;
 
+    // Remove trailing whitespace
+    while(pstring.size && std::isspace(file.source()[pstring.offset + pstring.size - 1]))
+        --pstring.size;
+
     unsigned i = 0;
     do
         str.push_back('^');

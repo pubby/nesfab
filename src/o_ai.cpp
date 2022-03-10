@@ -104,7 +104,7 @@ std::size_t constraints_size(ssa_node_t const& node)
             //std::printf("not numeric: %s\n", to_string(node.op()).data());
         if(node.type().name() == TYPE_ARRAY)
             return node.type().size();
-        if(is_numeric(node.type().name()))
+        if(is_scalar(node.type().name()))
             return 1;
         return 0;
     }
@@ -128,7 +128,7 @@ void copy_constraints(ssa_value_t value, constraints_def_t& vec)
     if(value.is_handle())
         vec = ai_data(value.handle()).constraints();
     else if(value.is_num())
-        vec = { numeric_bitmask(TYPE_NUM), { constraints_t::const_(value.fixed().value) }};
+        vec = { numeric_bitmask(TYPE_REAL), { constraints_t::const_(value.fixed().value) }};
     else
         vec = {};
 }
@@ -519,7 +519,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         assert(trace->input(1).is_num());
         trace_d.constraints() =
         { 
-            numeric_bitmask(TYPE_NUM),
+            numeric_bitmask(TYPE_REAL),
             { constraints_t::const_(trace->input(1).fixed().value) } 
         };
         return;
@@ -849,7 +849,7 @@ void ai_t::fold_consts()
         ssa_op_t const op = ssa_it->op();
         auto& d = ai_data(ssa_it);
 
-        if(is_numeric(ssa_it->type().name()) && d.constraints()[0].is_const())
+        if(is_scalar(ssa_it->type().name()) && d.constraints()[0].is_const())
         {
             fixed_t constant = { d.constraints()[0].get_const() };
 

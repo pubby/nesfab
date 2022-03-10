@@ -15,6 +15,8 @@
 #include "ir_edge.hpp"
 #include "compiler_error.hpp"
 
+#include <iostream> // TODO: remove
+
 namespace bc = boost::container;
 
 enum value_category_t : char
@@ -71,7 +73,8 @@ public:
 
     void pop(unsigned i) { assert(i <= stack.size()); stack.resize(stack.size() - i); }
 
-    void push(rpn_value_t value) { stack.push_back(std::move(value)); }
+    void push(rpn_value_t const& value) { stack.push_back(value); }
+    void push(rpn_value_t&& value) { stack.push_back(std::move(value)); }
 
     void tuck(rpn_value_t value, unsigned place) 
     { 

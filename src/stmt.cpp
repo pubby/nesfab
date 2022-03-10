@@ -27,9 +27,3 @@ std::string to_string(stmt_name_t stmt_name)
 #undef X
     }
 }
-
-void fn_def_t::dethunkify()
-{
-    for(auto& decl : local_vars)
-        decl.type = ::dethunkify(decl.type);
-}

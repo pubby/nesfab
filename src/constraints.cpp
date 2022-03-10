@@ -7,6 +7,7 @@
 
 #include "builtin.hpp"
 #include "format.hpp"
+#include "type_mask.hpp"
 
 extern std::uint8_t const add_constraints_table[1024];
 

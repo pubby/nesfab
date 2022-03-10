@@ -108,8 +108,6 @@ public:
         stmts.push_back({ static_cast<stmt_name_t>(~name), {}, {}, expr }); 
         return handle;
     }
-
-    void dethunkify();
 };
 
 #endif

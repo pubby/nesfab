@@ -7,12 +7,22 @@
 
 #include "alloca.hpp"
 #include "array_pool.hpp"
+#include "compiler_error.hpp"
 #include "fixed.hpp"
 #include "format.hpp"
 #include "globals.hpp"
 #include "group.hpp"
+#include "pstring.hpp"
+#include "eval.hpp"
 
 using namespace std::literals;
+
+struct array_thunk_t
+{
+    pstring_t pstring;
+    type_t elem_type;
+    token_t const* expr;
+};
 
 namespace  // Anonymous
 {
@@ -29,7 +39,6 @@ namespace  // Anonymous
             T const* tail;
         };
 
-        //std::mutex mutex; // Protects the objects below: // TODO: remove?
         rh::robin_auto_table<map_elem_t> map;
         array_pool_t<T> tails;
 
@@ -52,8 +61,6 @@ namespace  // Anonymous
 
             // Now insert into the map:
 
-            //std::lock_guard<std::mutex> const lock(mutex);
-
             rh::apair<map_elem_t*, bool> result = map.emplace(
                 hash,
                 [begin, end, size](map_elem_t elem) -> bool
@@ -71,19 +78,14 @@ namespace  // Anonymous
         }
 
         T const* get(T const& t) { return get(&t, &t+1); }
-
-        void clear()
-        {
-            //std::lock_guard<std::mutex> const lock(mutex);
-            map.clear();
-            tails.clear();
-        }
     };
 
     thread_local tails_manager_t<type_t> type_tails;
     thread_local tails_manager_t<group_ht> group_tails;
-    thread_local tails_manager_t<array_thunk_t> array_thunk_tails;
+    thread_local array_pool_t<array_thunk_t> array_thunks;
 } // end anonymous namespace
+
+type_t const* type_t::new_type(type_t const& type) { return type_tails.get(type); }
 
 bool type_t::operator==(type_t o) const
 {
@@ -110,9 +112,9 @@ type_t type_t::array(type_t elem_type, unsigned size)
     return type_t(TYPE_ARRAY, size, type_tails.get(elem_type));
 }
 
-type_t type_t::array_thunk(type_t elem_type, token_t const* tokens)
+type_t type_t::array_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens)
 {
-    return type_t(TYPE_ARRAY_THUNK, 0, tokens);
+    return type_t(TYPE_ARRAY_THUNK, 0, &array_thunks.insert({ pstring, elem_type, tokens }));
 }
 
 type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool banked)
@@ -149,7 +151,7 @@ std::size_t type_t::size_of() const
 
     switch(name())
     {
-    default: assert(false); return 0;
+    default:                return 0; // Error!
     case TYPE_PTR:          return 2;
     case TYPE_BANKED_PTR:   return 3;
     case TYPE_ARRAY: return size() * types()[0].size_of();
@@ -159,6 +161,13 @@ std::size_t type_t::size_of() const
             size += struct_().field(i).type.size_of();
         return size;
     }
+}
+
+std::size_t type_t::array_length() const
+{
+    if(name() == TYPE_ARRAY)
+        return size();
+    return 0;
 }
 
 std::size_t type_t::hash() const
@@ -183,11 +192,13 @@ std::string to_string(type_t type)
     switch(type.name())
     {
     default: 
-        assert(false);
         throw std::runtime_error(fmt("bad type %", (int)type.name()));
+    case TYPE_ARRAY_THUNK:  str += "array thunk"sv; break;
+    case TYPE_STRUCT_THUNK: str += "struct thunk"sv; break;
     case TYPE_VOID:  str += "Void"sv;  break;
     case TYPE_BOOL:  str += "Bool"sv;  break;
-    case TYPE_NUM:   str += "Num"sv;  break;
+    case TYPE_INT:   str += "Int"sv;  break;
+    case TYPE_REAL:  str += "Real"sv;  break;
     case TYPE_F1:    str += "F"sv;  break;
     case TYPE_F2:    str += "FF"sv;  break;
     case TYPE_F3:    str += "FFF"sv;  break;
@@ -255,7 +266,7 @@ std::ostream& operator<<(std::ostream& ostr, type_t const& type)
     return ostr;
 }
 
-cast_result_t can_cast(type_t const& from, type_t const& to)
+cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
 {
     // Buffers should be converted to ptrs, prior.
     assert(from.name() != TYPE_BUFFER && to.name() != TYPE_BUFFER);
@@ -296,33 +307,35 @@ cast_result_t can_cast(type_t const& from, type_t const& to)
     }
     */
 
-    // Othewise arithmetic types can be converted to bool using "!= 0".
-    if(is_arithmetic(from.name()) && to == TYPE_BOOL)
-        return CAST_BOOLIFY;
-
-    // Nums can convert to other arithmetic types using rounding.
-    if(from.name() == TYPE_NUM && is_arithmetic(to.name()))
-        return CAST_ROUND_NUM;
-
     // Otherwise you can't cast different pointers.
     if(is_ptr(from.name()) || is_ptr(to.name()))
         return CAST_FAIL;
 
-    // Num can be converted to any arithmetic type.
-    if(from.name() == TYPE_NUM && is_arithmetic(to.name()))
-        return CAST_OP;
+    // Othewise arithmetic types can be converted to bool using "!= 0".
+    if(is_arithmetic(from.name()) && to == TYPE_BOOL)
+        return CAST_BOOLIFY;
 
-    // Num can be converted to any arithmetic type.
-    //if(from.name() == TYPE_NUM && is_arithmetic(to))
-        //return CAST_OP;
+    // Otherwise Reals have special casting rules:
+    if(from.name() == TYPE_REAL)
+    {
+        if(implicit && frac_bytes(to.name()) == 0)
+            return CAST_FAIL; // Can't implicitly convert to non-fixed point.
+        else if(is_arithmetic(to.name()))
+            return CAST_ROUND_REAL; // Reals implement rounding.
+    }
 
-    // Otherwise arithmetic types can be converted amongst each other.
+    // Otherwise Ints have special casting rules:
+    if(from.name() == TYPE_INT && is_arithmetic(to.name()))
+        return CAST_CONVERT_INT;
+
+    // Otherwise arithmetic types can be converted amongst each other,
     if(is_arithmetic(from.name()) && is_arithmetic(to.name()))
-        return CAST_OP;
-
-    // Arithmetic types can be converted to NUM
-    //if(is_arithmetic(from) == TYPE_NUM && is_arithmetic(to)
-        //return CAST_COMPTIME;
+    {
+        if(is_arithmetic_subset(from.name(), to.name()))
+            return CAST_PROMOTE;
+        else
+            return implicit ? CAST_FAIL : CAST_TRUNCATE;
+    }
 
     return CAST_FAIL;
 }
@@ -369,7 +382,7 @@ unsigned num_atoms(type_t type)
     }
 }
 
-type_t dethunkify(type_t t)
+type_t dethunkify(type_t t, eval_t* env)
 {
     assert(compiler_phase() == PHASE_COMPILE);
     switch(t.name())
@@ -379,20 +392,26 @@ type_t dethunkify(type_t t)
             throw std::runtime_error(fmt("%: Expected struct type.", t.global().name));
         return type_t::struct_(t.global().impl<struct_t>());
 
-        /* TODO
     case TYPE_ARRAY_THUNK:
-        // 1. evaluate the expression
-        // 2. set the type
-        */
+        {
+            array_thunk_t const& thunk = t.array_thunk();
+            cpair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_U, env);
+            assert(result.value.size());
+            assert(result.value[0].size());
+            unsigned size = result.value[0][0].whole();
+            if(size <= 0 || size > 256)
+                compiler_error(thunk.pstring, "Invalid array size.");
+            return type_t::array(thunk.elem_type, size);
+        }
 
     case TYPE_ARRAY:
-        return type_t::array(dethunkify(t.elem_type()), t.size());
+        return type_t::array(dethunkify(t.elem_type(), env), t.size());
 
     case TYPE_FN:
         {
             type_t* args = ALLOCA_T(type_t, t.size());
             for(unsigned i = 0; i < t.size(); ++i)
-                args[i] = dethunkify(t.type(i));
+                args[i] = dethunkify(t.type(i), env);
             return type_t::fn(args, args + t.size());
         }
 

@@ -50,7 +50,7 @@ static bm_t _get_bm(ssa_value_t value)
     }
     else
     {
-        assert(is_arithmetic(_bm_type(value->type().name())));
+        assert(is_arithmetic(_bm_type(value->type().name()).name()));
         return value.handle().data<ssa_byteify_d>().bm;
     }
 }
@@ -108,7 +108,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 // and will be removed entirely.
                 // The forwarding will happen after all other nodes that
                 // need splitting have been split.
-                assert(is_arithmetic(type).name());
+                assert(is_arithmetic(type.name()));
                 prune_nodes.push_back(ssa_it);
                 continue;
             }
@@ -258,7 +258,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     {
                         ssa_value_t input = ssa_it->input(i);
                         type_name_t t = input.type().name();
-                        assert(is_arithmetic(t).name());
+                        assert(is_arithmetic(t));
                         bms[i] = _get_bm(input);
                         begin = std::min(begin, begin_byte(t));
                         end = std::max(end, end_byte(t));
@@ -290,7 +290,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     {
         auto& ssa_data = ssa_node.data<ssa_byteify_d>(); 
         type_name_t const t = _bm_type(ssa_node->type()).name();
-        assert(is_arithmetic(t).name());
+        assert(is_arithmetic(t));
 
         SSA_VERSION(1);
         switch(ssa_node->op())

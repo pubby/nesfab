@@ -11,6 +11,10 @@
 #include "gvar_loc_manager.hpp"
 #include "rpn.hpp"
 
+void build_ir(ir_t& ir, fn_t const& fn)
+{}
+
+#if 1
 namespace bc = boost::container;
 
 namespace // Anonymous namespace
@@ -689,7 +693,7 @@ ssa_value_t ir_builder_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
                     fmt_error(file, block_data.label_name, fmt(
                         "Jump to label crosses initialization "
                         "of variable %.", var_name.view(file.source())))
-                    + fmt_error(file, var_name, fmt(
+                    + fmt_note(file, var_name, fmt(
                         "Variable is defined here:")));
             }
             throw;
@@ -784,11 +788,11 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
             compile_assign(*cfg_node);
             break;
 
-        case TOK_number:
+        case TOK_int: // TODO
             rpn_stack.push({
                 .value = token->value, 
                 .category = RVAL, 
-                .type = { TYPE_NUM }, 
+                .type = { TYPE_INT },  // TODO
                 .pstring = token->pstring });
             break;
 
@@ -1133,10 +1137,10 @@ void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry)
     }
 
     type_t result_type = lhs.type;
-    if(result_type.name() == TYPE_NUM)
+    if(result_type.name() == TYPE_INT)
         result_type = rhs.type;
 
-    if(result_type.name() == TYPE_NUM)
+    if(result_type.name() == TYPE_INT)
     {
         // TODO
         assert(false);
@@ -1151,7 +1155,7 @@ void ir_builder_t::compile_arith(cfg_node_t& cfg_node, ssa_op_t op, bool carry)
                                     lhs.type, rhs.type));
     }
 
-    assert(is_arithmetic(result_type));
+    assert(is_arithmetic(result_type.name()));
 
     compile_binary_operator(cfg_node, op, result_type, carry);
 }
@@ -1263,3 +1267,4 @@ void build_ir(ir_t& ir, fn_t const& fn)
     cfg_data_pool::scope_guard_t<block_d> cfg_data_guard;
     ir_builder_t b(ir, fn);
 }
+#endif

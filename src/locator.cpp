@@ -17,6 +17,8 @@ std::string to_string(locator_t loc)
         return fmt("gvar % %.%:%", loc.gvar()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
     case LOC_GVAR_SET:
         return fmt("gset %.%", loc.handle(), (int)loc.offset());
+    case LOC_GLOBAL_CONST:
+        return fmt("global const % %.%:%", loc.const_()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
     case LOC_FN:
         return fmt("fn %", loc.fn()->global.name);
     case LOC_ARG:

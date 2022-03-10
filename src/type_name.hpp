@@ -22,22 +22,26 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_VOID = 0,
 
     TYPE_STRUCT_THUNK, // Will convert to struct type eventually.
+    TYPE_FIRST_THUNK = TYPE_STRUCT_THUNK,
+    TYPE_ARRAY_THUNK, // The size will be determined later.
+    TYPE_LAST_THUNK = TYPE_ARRAY_THUNK,
+
     TYPE_STRUCT,
 
-    TYPE_ARRAY_THUNK, // The size will be determined later.
     TYPE_ARRAY,
 
     TYPE_BUFFER,
 
     TYPE_PTR,
-    TYPE_FIRST_NUM = TYPE_PTR,
+    TYPE_FIRST_SCALAR = TYPE_PTR,
     TYPE_FIRST_PTR = TYPE_PTR,
     TYPE_BANKED_PTR,
     TYPE_FN, // should be named FN_PTR, but whatever
     TYPE_LAST_PTR = TYPE_FN,
 
-    // Bools aren't considered arithmetic or composite, but they are numeric.
+    // Bools are considered arithmetic.
     TYPE_BOOL,
+    TYPE_FIRST_ARITH = TYPE_BOOL,
 
     // Numerical literals readily convert to other numeric types,
     // assuming they fit in said representation.
@@ -50,7 +54,10 @@ enum type_name_t : std::uint8_t // Keep unsigned.
 #define FIXED(whole, frac) TYPE_S##whole##frac,
     FIXED_X
 #undef FIXED
-    TYPE_NUM,
+    TYPE_INT,
+    TYPE_FIRST_CT = TYPE_INT,
+    TYPE_REAL,
+    TYPE_LAST_CT = TYPE_REAL,
     TYPE_U = TYPE_U10,
     TYPE_S = TYPE_S10,
 
@@ -61,11 +68,10 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_LAST_U  = TYPE_U33,
 
     TYPE_FIRST_S = TYPE_S10,
-    TYPE_LAST_S  = TYPE_NUM,
+    TYPE_LAST_S  = TYPE_REAL,
 
-    TYPE_FIRST_ARITH = TYPE_U,
-    TYPE_LAST_ARITH  = TYPE_NUM,
-    TYPE_LAST_NUM    = TYPE_NUM,
+    TYPE_LAST_ARITH  = TYPE_REAL,
+    TYPE_LAST_SCALAR    = TYPE_REAL,
 
     TYPE_LARGEST_U = TYPE_U33,
     TYPE_LARGEST_S = TYPE_S33,
@@ -73,8 +79,10 @@ enum type_name_t : std::uint8_t // Keep unsigned.
 
 constexpr bool is_arithmetic(type_name_t type_name)
     { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }
-constexpr bool is_numeric(type_name_t type_name)
-    { return type_name >= TYPE_FIRST_NUM && type_name <= TYPE_LAST_NUM; }
+constexpr bool is_quantity(type_name_t type_name)
+    { return is_arithmetic(type_name) && type_name != TYPE_BOOL; }
+constexpr bool is_scalar(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_SCALAR && type_name <= TYPE_LAST_SCALAR; }
 constexpr bool is_frac(type_name_t type_name)
     { return type_name >= TYPE_FIRST_F && type_name <= TYPE_LAST_F; }
 constexpr bool is_unsigned(type_name_t type_name)
@@ -82,14 +90,35 @@ constexpr bool is_unsigned(type_name_t type_name)
 constexpr bool is_signed(type_name_t type_name)
     { return type_name >= TYPE_FIRST_S && type_name <= TYPE_LAST_S; }
 constexpr bool is_ptr(type_name_t type_name)
-    { return (type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR); }
+    { return type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR; }
+constexpr bool is_thunk(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_THUNK && type_name <= TYPE_LAST_THUNK; }
+constexpr bool is_ct(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_CT && type_name <= TYPE_LAST_CT; }
+constexpr bool is_aggregate(type_name_t type_name)
+{ 
+    return (type_name == TYPE_ARRAY 
+            || type_name == TYPE_STRUCT
+            || type_name == TYPE_ARRAY_THUNK 
+            || type_name == TYPE_STRUCT_THUNK); 
+}
 
 constexpr bool has_type_tail(type_name_t name)
     { return name == TYPE_ARRAY || name == TYPE_FN; }
 constexpr bool has_group_tail(type_name_t name)
-    { return is_ptr(name); }
+    { return is_ptr(name) || name == TYPE_BUFFER; }
 constexpr bool has_tail(type_name_t name)
-    { return has_type_tail(name) || has_group_tail(name); }
+{ 
+    return (has_type_tail(name) 
+            || has_group_tail(name)
+            || is_thunk(name)
+            || name == TYPE_STRUCT); 
+}
+
+constexpr bool is_simple(type_name_t type_name)
+{
+    return !has_tail(type_name);
+}
 
 constexpr unsigned whole_bytes(type_name_t type_name)
 {
@@ -99,7 +128,8 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     case TYPE_BOOL:  return 1;
     case TYPE_PTR:   return 2;
     case TYPE_BANKED_PTR:  return 3;
-    case TYPE_NUM: return 4;
+    case TYPE_INT:
+    case TYPE_REAL: return 4;
 #define FIXED(whole, frac) case TYPE_F##frac: return 0;
     FRAC_X
 #undef FIXED
@@ -114,7 +144,7 @@ constexpr unsigned frac_bytes(type_name_t type_name)
     switch(type_name)
     {
     default: return 0;
-    case TYPE_NUM: return 3;
+    case TYPE_REAL: return 3;
 #define FIXED(whole, frac) case TYPE_F##frac: return frac;
     FRAC_X
 #undef FIXED
@@ -160,6 +190,27 @@ constexpr unsigned begin_byte(type_name_t type_name)
 constexpr unsigned end_byte(type_name_t type_name)
 {
     return max_frac_bytes + whole_bytes(type_name);
+}
+
+// True if 'super' can represent every value that 'sub' can.
+constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)
+{
+    if(sub == TYPE_BOOL)
+        return true;
+
+    if(!is_arithmetic(sub) || !is_arithmetic(super))
+        return false;
+
+    if(frac_bytes(sub) > frac_bytes(super))
+        return false;
+
+    if(whole_bytes(sub) > whole_bytes(super))
+        return false;
+
+    if(whole_bytes(sub) == whole_bytes(super) && is_signed(sub) != is_signed(super))
+        return false;
+
+    return true;
 }
 
 #endif

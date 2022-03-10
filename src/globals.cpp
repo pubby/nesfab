@@ -17,7 +17,7 @@
 #include "guard.hpp"
 #include "group.hpp"
 #include "ram_alloc.hpp"
-#include "interpret.hpp"
+#include "eval.hpp"
 
 // global_t statics:
 std::deque<global_t> global_t::global_pool;
@@ -326,17 +326,6 @@ void global_t::build_order()
 
 void global_t::compile()
 {
-    auto const save_graph = [&](ir_t& ir, char const* suffix)
-    {
-        std::ofstream ocfg(fmt("graphs/%_cfg_%.gv", name, suffix));
-        if(ocfg.is_open())
-            graphviz_cfg(ocfg, ir);
-
-        std::ofstream ossa(fmt("graphs/%_ssa_%.gv", name, suffix));
-        if(ossa.is_open())
-            graphviz_ssa(ossa, ir);
-    };
-
 //#ifdef DEBUG_PRINT
     std::cout << "COMPILING " << name << std::endl;
 //#endif
@@ -347,103 +336,8 @@ void global_t::compile()
     default:
         throw std::runtime_error("Invalid global.");
     case GLOBAL_FN:
-        {
-            fn_t& fn = this->impl<fn_t>();
-
-            fn.dethunkify();
-
-            break;
-
-            // Compile the FN.
-            ssa_pool::clear();
-            cfg_pool::clear();
-            ir_t ir;
-            build_ir(ir, fn);
-
-            if(compiler_options().graphviz)
-                save_graph(ir, "initial");
-
-            ir.assert_valid();
-
-            if(compiler_options().optimize)
-            {
-                bool changed;
-                do
-                {
-                    changed = false;
-                    changed |= o_phis(ir);
-                    changed |= o_merge_basic_blocks(ir);
-                    changed |= o_abstract_interpret(ir);
-                    changed |= o_remove_unused_ssa(ir);
-                    changed |= o_global_value_numbering(ir);
-                }
-                while(changed);
-            }
-
-            if(compiler_options().graphviz)
-                save_graph(ir, "o1");
-
-            // Set the global's 'read' and 'write' bitsets:
-            fn.calc_ir_bitsets(ir);
-
-            byteify(ir, fn);
-            //make_conventional(ir);
-
-            if(compiler_options().graphviz)
-                save_graph(ir, "byteify");
-
-            if(compiler_options().optimize)
-            {
-                bool changed;
-                do
-                {
-                    changed = false;
-                    changed |= o_phis(ir);
-                    changed |= o_merge_basic_blocks(ir);
-                    changed |= o_abstract_interpret(ir);
-                    changed |= o_remove_unused_ssa(ir);
-                    changed |= o_global_value_numbering(ir);
-
-                }
-                while(changed);
-            }
-
-            if(compiler_options().graphviz)
-                save_graph(ir, "o2");
-
-            code_gen(ir, fn);
-
-            if(compiler_options().graphviz)
-                save_graph(ir, "cg");
-
-            /*
-            for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-            {
-                std::cout << "\n\nCFG:";
-
-                for(ssa_node_t& n : *cfg_it)
-                    std::cout << n.op() << '\n';
-            }
-            */
-
-            //TODO
-            /*
-            if(compile)
-            {
-                // Test scheduling
-                cfg_data_pool::scope_guard_t<cfg_cg_d> c(cfg_pool::array_size());
-                ssa_data_pool::scope_guard_t<ssa_cg_d> s(ssa_pool::array_size());
-                for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-                {
-                    std::cout << " - \n";
-                    for(ssa_ht h : schedule_cfg_node(cfg_it))
-                        std::cout << h.index << ' ' << h->op() << '\n';
-                }
-            }
-            */
-
-            break;
-        }
+        this->impl<fn_t>().compile();
+        break;
 
     case GLOBAL_CONST:
         this->impl<const_t>().compile();
@@ -888,11 +782,113 @@ void alloc_args(ir_t const& ir)
 }
 */
 
-void fn_t::dethunkify()
+void fn_t::compile()
 {
     assert(compiler_phase() == PHASE_COMPILE);
+
     m_type = ::dethunkify(m_type);
-    m_def.dethunkify();
+
+    return;
+
+    // Compile the FN.
+    ssa_pool::clear();
+    cfg_pool::clear();
+    ir_t ir;
+    build_ir(ir, *this);
+
+    auto const save_graph = [&](ir_t& ir, char const* suffix)
+    {
+        std::ofstream ocfg(fmt("graphs/%_cfg_%.gv", global.name, suffix));
+        if(ocfg.is_open())
+            graphviz_cfg(ocfg, ir);
+
+        std::ofstream ossa(fmt("graphs/%_ssa_%.gv", global.name, suffix));
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    };
+
+
+    if(compiler_options().graphviz)
+        save_graph(ir, "initial");
+
+    ir.assert_valid();
+
+    if(compiler_options().optimize)
+    {
+        bool changed;
+        do
+        {
+            changed = false;
+            changed |= o_phis(ir);
+            changed |= o_merge_basic_blocks(ir);
+            changed |= o_abstract_interpret(ir);
+            changed |= o_remove_unused_ssa(ir);
+            changed |= o_global_value_numbering(ir);
+        }
+        while(changed);
+    }
+
+    if(compiler_options().graphviz)
+        save_graph(ir, "o1");
+
+    // Set the global's 'read' and 'write' bitsets:
+    calc_ir_bitsets(ir);
+
+    byteify(ir, *this);
+    //make_conventional(ir);
+
+    if(compiler_options().graphviz)
+        save_graph(ir, "byteify");
+
+    if(compiler_options().optimize)
+    {
+        bool changed;
+        do
+        {
+            changed = false;
+            changed |= o_phis(ir);
+            changed |= o_merge_basic_blocks(ir);
+            changed |= o_abstract_interpret(ir);
+            changed |= o_remove_unused_ssa(ir);
+            changed |= o_global_value_numbering(ir);
+
+        }
+        while(changed);
+    }
+
+    if(compiler_options().graphviz)
+        save_graph(ir, "o2");
+
+    code_gen(ir, *this);
+
+    if(compiler_options().graphviz)
+        save_graph(ir, "cg");
+
+    /*
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    {
+        std::cout << "\n\nCFG:";
+
+        for(ssa_node_t& n : *cfg_it)
+            std::cout << n.op() << '\n';
+    }
+    */
+
+    //TODO
+    /*
+    if(compile)
+    {
+        // Test scheduling
+        cfg_data_pool::scope_guard_t<cfg_cg_d> c(cfg_pool::array_size());
+        ssa_data_pool::scope_guard_t<ssa_cg_d> s(ssa_pool::array_size());
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        {
+            std::cout << " - \n";
+            for(ssa_ht h : schedule_cfg_node(cfg_it))
+                std::cout << h.index << ' ' << h->op() << '\n';
+        }
+    }
+    */
 }
 
 ////////////
@@ -901,6 +897,8 @@ void fn_t::dethunkify()
 
 void gvar_t::compile()
 {
+    assert(compiler_phase() == PHASE_COMPILE);
+
     m_type = dethunkify(m_type);
 
     if(init_expr)
@@ -940,6 +938,8 @@ void const_t::compile()
 
 void struct_t::compile()
 {
+    assert(compiler_phase() == PHASE_COMPILE);
+
     for(auto& pair : m_fields)
         pair.second.type = dethunkify(pair.second.type);
 }

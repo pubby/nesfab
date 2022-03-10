@@ -48,13 +48,21 @@ public:
 
     // Helpers
     char const* source() { return file.source(); }
-    void this_uses_type(type_t type);
+    void uses_type(type_t type);
     token_t const* convert_expr(expr_temp_t& expr);
 
-    // Functions
     [[gnu::always_inline]]
-    var_decl_t begin_fn(pstring_t fn_name, var_decl_t const* params_begin, 
-                        var_decl_t const* params_end, type_t return_type)
+    void prepare_global()
+    {
+        assert(ideps.empty());
+        assert(weak_ideps.empty());
+        assert(label_map.empty());
+        assert(unlinked_gotos.empty());
+        assert(symbol_table.empty());
+    }
+
+    [[gnu::always_inline]]
+    void prepare_fn(pstring_t fn_name)
     {
         assert(ideps.empty());
         assert(weak_ideps.empty());
@@ -70,7 +78,13 @@ public:
         // Create a scope for the parameters.
         assert(symbol_table.empty());
         symbol_table.push_scope();
+    }
 
+    // Functions
+    [[gnu::always_inline]]
+    var_decl_t fn_decl(pstring_t fn_name, var_decl_t const* params_begin, 
+                       var_decl_t const* params_end, type_t return_type)
+    {
         // Add the parameters to the symbol table.
         fn_def.num_params = params_end - params_begin;
         for(unsigned i = 0; i < fn_def.num_params; ++i)
@@ -87,7 +101,7 @@ public:
         type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);
 
         // Track it!
-        this_uses_type(fn_type);
+        uses_type(fn_type);
 
         // Create a scope for the fn body.
         symbol_table.push_scope();
@@ -154,7 +168,7 @@ public:
         type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);
 
         // Track it!
-        this_uses_type(fn_type);
+        uses_type(fn_type);
 
         // Create a scope for the fn body.
         symbol_table.push_scope();
@@ -245,7 +259,7 @@ public:
             }
         }
 
-        this_uses_type(var_decl.type);
+        uses_type(var_decl.type);
     }
 
     [[gnu::always_inline]]
@@ -267,9 +281,7 @@ public:
     [[gnu::always_inline]]
     void global_var(std::pair<group_vars_t*, group_vars_ht> group, var_decl_t const& var_decl, expr_temp_t* expr_temp)
     {
-        assert(ideps.empty());
-
-        this_uses_type(var_decl.type);
+        uses_type(var_decl.type);
 
         token_t const* init_expr = nullptr;
         if(expr_temp)
@@ -283,10 +295,7 @@ public:
     [[gnu::always_inline]]
     void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, expr_temp_t& expr_temp)
     {
-        assert(symbol_table.empty());
-        assert(ideps.empty());
-
-        this_uses_type(var_decl.type);
+        uses_type(var_decl.type);
 
         token_t const* init_expr = convert_expr(expr_temp);
 
@@ -319,7 +328,7 @@ public:
         }
         fn_def.local_vars.push_back(var_decl);
         fn_def.push_var_init(handle, expr ? convert_expr(*expr) : nullptr);
-        this_uses_type(var_decl.type);
+        uses_type(var_decl.type);
     }
 
     [[gnu::always_inline]]

@@ -21,10 +21,18 @@ struct token_t
     pstring_t pstring;
     int_type value;
 
-    void set_ptr(void* ptr) { value = reinterpret_cast<int_type>(ptr); }
+    void set_ptr(void const* ptr) { value = reinterpret_cast<int_type>(ptr); }
 
     template<typename T>
     T* ptr() const { return reinterpret_cast<T*>(value); }
+
+    template<typename T>
+    static token_t make_ptr(token_type_t type, pstring_t pstring, T const* ptr)
+    {
+        token_t token{ type, pstring };
+        token.set_ptr(ptr);
+        return token;
+    }
 
     // Used for debugging and logging.
     std::string to_string(char const* source) const;

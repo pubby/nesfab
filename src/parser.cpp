@@ -143,6 +143,7 @@ restart:
     case TOK_decimal:
         value = frac = 0;
         frac_scale = 1;
+
         for(char const* it = token_source; it != next_char; ++it)
         {
             if(*it == '.')
@@ -161,21 +162,23 @@ restart:
                 frac /= frac_scale;
                 assert(frac < 1ull << fixed_t::shift);
 
-                break;
+                token.type = TOK_real;
+                goto not_int;
             }
             else
             {
                 value *= 10;
                 value += *it - '0';
-                if(value >= (1ull << 32))
+                if(value >= (1ull << 31))
                     compiler_error("Integer literal is too large.");
             }
         }
+        token.type = TOK_int;
+    not_int:
 
         value <<= fixed_t::shift;
         value |= frac;
 
-        token.type = TOK_number;
         token.value = value;
         // fall-through
     default: 
@@ -263,6 +266,42 @@ void parser_t<P>::parse_expr(expr_temp_t& expr_temp,
     using shunting_yard_t = bc::small_vector<token_t, 16>;
     shunting_yard_t shunting_yard;
 
+    auto const type_info_impl = [&](token_type_t expr_token, std::size_t(type_t::*fn)() const)
+    {
+        token_t t = token;
+        parse_token();
+
+        if(is_type_prefix(token.type))
+        {
+            type_t const type = parse_type(false);
+            t.pstring.size = token.pstring.offset - t.pstring.offset;
+
+            std::uint64_t const size = (type.*fn)();
+
+            if(size == 0)
+            {
+                t.set_ptr(type_t::new_type(type));
+                expr_temp.push_back(t);
+            }
+            else
+                expr_temp.push_back({ TOK_int, t.pstring, size << fixed_t::shift });
+        }
+        else
+        {
+            int const impl_indent = indent;
+            expr_temp_t impl_temp;
+
+            parse_token(TOK_lparen);
+            parse_expr(impl_temp, impl_indent, open_parens+1);
+            parse_token(TOK_rparen);
+
+            t.pstring.size = token.pstring.offset - t.pstring.offset;
+            t.type = expr_token;
+            t.set_ptr(policy().convert_expr(impl_temp));
+            expr_temp.push_back(t);
+        }
+    };
+
     // The algorithm toggles between two states: applicable and inapplicable.
     // An applicable string is one that can be on the left side of an operator.
     // An inapplicable string is one that can't (e.g. "foo +").
@@ -270,7 +309,8 @@ inapplicable:
     switch(token.type)
     {
     case TOK_ident:
-    case TOK_number:
+    case TOK_int:
+    case TOK_real:
     number:
         expr_temp.push_back(token);
         goto applicable_advance;
@@ -302,38 +342,57 @@ inapplicable:
 
             // Handling numbers separately may grant a tiny speedup
             // (note the code would still work without this)
-            if(token.type == TOK_number)
+            if(token.type == TOK_int || token.type == TOK_real)
             {
                 token.value = -token.value;
                 goto number;
             }
 
-            expr_temp.push_back({ TOK_number, token.pstring, 0ull });
             t.type = TOK_unary_minus;
             shunting_yard.push_back(t);
             goto inapplicable;
         }
 
     case TOK_unary_xor:
-        {
-            token_t t = token;
-            parse_token();
+    case TOK_unary_negate:
+        shunting_yard.push_back(token);
+        parse_token();
+        goto inapplicable;
 
-            // Handling numbers separately may grant a tiny speedup
-            // (note the code would still work without this)
-            if(token.type == TOK_number)
-            {
-                token.value = ~token.value;
-                goto number;
-            }
+    case TOK_sizeof:
+        type_info_impl(TOK_sizeof_expr, &type_t::size_of);
+        goto applicable;
 
-            expr_temp.push_back({ TOK_number, token.pstring, ~0ull });
-            shunting_yard.push_back(t);
-            goto inapplicable;
-        }
+    case TOK_len:
+        type_info_impl(TOK_len_expr, &type_t::array_length);
+        goto applicable;
 
     default:
-        compiler_error("Unexpected token while parsing expression.");
+        if(is_type_prefix(token.type))
+        {
+            // Insert a cast.
+            // Casts are implemented as a pair of two tokens:
+            // - a TOK_cast_argn first, counting how many arguments the cast parsed
+            // - a TOK_cast_type second, containing a pointer to the desired type
+
+            int const cast_indent = indent;
+            char const* begin = token_source;
+
+            type_t const type = parse_type(false);
+
+            unsigned argument_count = parse_args(TOK_lparen, TOK_rparen,
+                [&]() { parse_expr(expr_temp, cast_indent, open_parens+1); });
+
+            char const* end = token_source;
+            pstring_t pstring = { begin - source(), end - begin, file_i() };
+
+            expr_temp.push_back({ TOK_cast_argn, pstring, argument_count });
+            expr_temp.push_back(token_t::make_ptr(TOK_cast_type, pstring, type_t::new_type(type)));
+
+            goto applicable;
+        }
+        else
+            compiler_error("Unexpected token while parsing expression.");
     }
 
 applicable_advance:
@@ -455,7 +514,8 @@ type_t parser_t<P>::parse_type(bool allow_void)
     switch(token.type)
     {
     case TOK_Void:   parse_token(); type = TYPE_VOID; break;
-    case TOK_Num:    parse_token(); type = TYPE_NUM; break;
+    case TOK_Int:    parse_token(); type = TYPE_INT; break;
+    case TOK_Real:   parse_token(); type = TYPE_REAL; break;
     case TOK_Bool:   parse_token(); type = TYPE_BOOL; break;
     case TOK_F:      parse_token(); type = TYPE_F1; break;
     case TOK_FF:     parse_token(); type = TYPE_F2; break;
@@ -553,13 +613,14 @@ type_t parser_t<P>::parse_type(bool allow_void)
     // Arrays
     if(token.type == TOK_lbracket)
     {
+        pstring_t const start_pstring = token.pstring;
         parse_token();
 
         int const array_indent = indent;
         expr_temp_t expr_temp;
         parse_expr(expr_temp, array_indent, 1);
 
-        if(expr_temp.size() == 1 && expr_temp[0].type == TOK_number)
+        if(expr_temp.size() == 1 && expr_temp[0].type == TOK_int)
         {
             unsigned const size = expr_temp[0].value >> fixed_t::shift;
             if(size <= 0 || size > 256)
@@ -569,7 +630,8 @@ type_t parser_t<P>::parse_type(bool allow_void)
         else
         {
             expr_temp.push_back({});
-            type = type_t::array_thunk(type, token_t::new_expr(&*expr_temp.begin(), &*expr_temp.end()));
+            type = type_t::array_thunk(fast_concat(start_pstring, token.pstring), type, 
+                policy().convert_expr(expr_temp));
         }
 
         parse_token(TOK_rbracket);
@@ -633,6 +695,7 @@ void parser_t<P>::parse_top_level_def()
 template<typename P>
 void parser_t<P>::parse_struct()
 {
+    policy().prepare_global();
     int const struct_indent = indent;
 
     // Parse the declaration
@@ -660,6 +723,7 @@ void parser_t<P>::parse_struct()
 template<typename P>
 void parser_t<P>::parse_group_vars()
 {
+    policy().prepare_global();
     int const vars_indent = indent;
 
     // Parse the declaration
@@ -672,6 +736,7 @@ void parser_t<P>::parse_group_vars()
 
     maybe_parse_block(vars_indent, 
     [&]{ 
+        policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
         if(parse_var_init(var_decl, expr)) // TODO: support
@@ -687,6 +752,7 @@ void parser_t<P>::parse_group_vars()
 template<typename P>
 void parser_t<P>::parse_group_data(bool once)
 {
+    policy().prepare_global();
     int const group_indent = indent;
 
     // Parse the declaration
@@ -698,6 +764,7 @@ void parser_t<P>::parse_group_data(bool once)
     auto group = policy().begin_group_data(group_name, once);
 
     maybe_parse_block(group_indent, [&]{ 
+        policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
         if(!parse_var_init(var_decl, expr))
@@ -712,6 +779,7 @@ void parser_t<P>::parse_group_data(bool once)
 template<typename P>
 void parser_t<P>::parse_const()
 {
+    policy().prepare_global();
     var_decl_t var_decl;
     expr_temp_t expr;
     if(!parse_var_init(var_decl, expr))
@@ -733,6 +801,8 @@ void parser_t<P>::parse_fn()
     parse_token(TOK_fn);
     pstring_t fn_name = parse_ident();
 
+    policy().prepare_fn(fn_name);
+
     // Parse the arguments
     bc::small_vector<var_decl_t, 8> params;
     parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl()); });
@@ -740,9 +810,9 @@ void parser_t<P>::parse_fn()
     // Parse the return type
     type_t return_type = parse_type(true);
 
+    auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type);
+
     // Parse the body of the function
-    auto state = policy().begin_fn(fn_name, &*params.begin(), &*params.end(), 
-                                   return_type);
     parse_line_ending();
     parse_block_statement(fn_indent);
     policy().end_fn(std::move(state));

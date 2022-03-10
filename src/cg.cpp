@@ -248,7 +248,7 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::v
                     return {};
     }
 
-    ssa_ht last_a;
+    ssa_ht last_a = {};
     for(ssa_ht ai = a; ai; ai = cset_next(ai))
     {
         for(ssa_ht bi = b; bi; bi = cset_next(bi))

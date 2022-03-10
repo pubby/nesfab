@@ -25,7 +25,8 @@ constexpr fixed_t operator""_f(unsigned long long int i) { return { i }; }
 
 constexpr double to_double(fixed_t f)
 { 
-    return (double)f.value / (double)(1 << fixed_t::shift); 
+    sfixed_int_t value = static_cast<sfixed_int_t>(f.value);
+    return (double)value / (double)(1ull << fixed_t::shift); 
 }
 
 #endif

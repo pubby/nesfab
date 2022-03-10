@@ -13,7 +13,7 @@
 #include "pass1.hpp"
 #include "thread.hpp"
 
-#include "interpret.hpp" // TODO: remove?
+#include "eval.hpp" // TODO: remove?
 
 extern char __GIT_COMMIT;
 

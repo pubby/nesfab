@@ -53,6 +53,8 @@ enum locator_class_t : std::uint8_t
     LOC_CONST_BYTE,
     LOC_RELOCATION_ADDR,
 
+    LOC_GLOBAL_CONST,
+
     LOC_SSA,
 };
 
@@ -182,6 +184,12 @@ public:
         return { handle() }; 
     }
 
+    const_ht const_() const 
+    { 
+        assert(lclass() == LOC_GLOBAL_CONST);
+        return { handle() }; 
+    }
+
     fn_ht fn() const
     {
         assert(has_fn(lclass()));
@@ -238,6 +246,9 @@ public:
 
     constexpr static locator_t gvar_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GVAR_SET, fn.value, id, 0); }
+
+    constexpr static locator_t global_const(const_ht c, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_GLOBAL_CONST, c.value, 0, atom, offset); }
 
     constexpr static locator_t local(std::uint16_t var_i, std::uint16_t offset=0)
         { return locator_t(LOC_LOCAL, var_i, 0, 0, offset); }

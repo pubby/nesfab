@@ -2,7 +2,7 @@
 
 #include "alloca.hpp"
 
-void pass1_t::this_uses_type(type_t type)
+void pass1_t::uses_type(type_t type)
 {
     if(type.name() == TYPE_STRUCT_THUNK)
         ideps.insert(const_cast<global_t*>(&type.global()));
@@ -10,7 +10,7 @@ void pass1_t::this_uses_type(type_t type)
     {
         unsigned const size = type.type_tail_size();
         for(unsigned i = 0; i < size; ++i)
-            this_uses_type(type.type(i));
+            uses_type(type.type(i));
     }
 }
 

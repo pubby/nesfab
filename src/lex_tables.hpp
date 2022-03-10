@@ -31,87 +31,91 @@ constexpr token_type_t TOK_semicolon = 26;
 constexpr token_type_t TOK_comma = 27;
 constexpr token_type_t TOK_lparen = 28;
 constexpr token_type_t TOK_period = 29;
-constexpr token_type_t TOK_apply = 30;
-constexpr token_type_t TOK_index = 31;
-constexpr token_type_t TOK_unary_minus = 32;
-constexpr token_type_t TOK_unary_xor = 33;
-constexpr token_type_t TOK_asterisk = 34;
-constexpr token_type_t TOK_fslash = 35;
-constexpr token_type_t TOK_plus = 36;
-constexpr token_type_t TOK_minus = 37;
-constexpr token_type_t TOK_lshift = 38;
-constexpr token_type_t TOK_rshift = 39;
-constexpr token_type_t TOK_bitwise_and = 40;
-constexpr token_type_t TOK_bitwise_xor = 41;
-constexpr token_type_t TOK_bitwise_or = 42;
-constexpr token_type_t TOK_lt = 43;
-constexpr token_type_t TOK_lte = 44;
-constexpr token_type_t TOK_gt = 45;
-constexpr token_type_t TOK_gte = 46;
-constexpr token_type_t TOK_eq = 47;
-constexpr token_type_t TOK_not_eq = 48;
-constexpr token_type_t TOK_logical_and = 49;
-constexpr token_type_t TOK_end_logical_and = 50;
-constexpr token_type_t TOK_logical_or = 51;
-constexpr token_type_t TOK_end_logical_or = 52;
-constexpr token_type_t TOK_bitwise_not = 53;
-constexpr token_type_t TOK_logical_not = 54;
-constexpr token_type_t TOK_plus_plus = 55;
-constexpr token_type_t TOK_minus_minus = 56;
-constexpr token_type_t TOK_assign = 57;
-constexpr token_type_t TOK_plus_assign = 58;
-constexpr token_type_t TOK_minus_assign = 59;
-constexpr token_type_t TOK_times_assign = 60;
-constexpr token_type_t TOK_div_assign = 61;
-constexpr token_type_t TOK_bitwise_and_assign = 62;
-constexpr token_type_t TOK_logical_and_assign = 63;
-constexpr token_type_t TOK_bitwise_or_assign = 64;
-constexpr token_type_t TOK_logical_or_assign = 65;
-constexpr token_type_t TOK_bitwise_not_assign = 66;
-constexpr token_type_t TOK_bitwise_xor_assign = 67;
-constexpr token_type_t TOK_lshift_assign = 68;
-constexpr token_type_t TOK_rshift_assign = 69;
-constexpr token_type_t TOK_rparen = 70;
-constexpr token_type_t TOK_Void = 71;
-constexpr token_type_t TOK_F = 72;
-constexpr token_type_t TOK_FF = 73;
-constexpr token_type_t TOK_FFF = 74;
-constexpr token_type_t TOK_U = 75;
-constexpr token_type_t TOK_UU = 76;
-constexpr token_type_t TOK_UUU = 77;
-constexpr token_type_t TOK_UF = 78;
-constexpr token_type_t TOK_UUF = 79;
-constexpr token_type_t TOK_UUUF = 80;
-constexpr token_type_t TOK_UFF = 81;
-constexpr token_type_t TOK_UUFF = 82;
-constexpr token_type_t TOK_UUUFF = 83;
-constexpr token_type_t TOK_UFFF = 84;
-constexpr token_type_t TOK_UUFFF = 85;
-constexpr token_type_t TOK_UUUFFF = 86;
-constexpr token_type_t TOK_S = 87;
-constexpr token_type_t TOK_SS = 88;
-constexpr token_type_t TOK_SSS = 89;
-constexpr token_type_t TOK_SF = 90;
-constexpr token_type_t TOK_SSF = 91;
-constexpr token_type_t TOK_SSSF = 92;
-constexpr token_type_t TOK_SFF = 93;
-constexpr token_type_t TOK_SSFF = 94;
-constexpr token_type_t TOK_SSSFF = 95;
-constexpr token_type_t TOK_SFFF = 96;
-constexpr token_type_t TOK_SSFFF = 97;
-constexpr token_type_t TOK_SSSFFF = 98;
-constexpr token_type_t TOK_PP = 99;
-constexpr token_type_t TOK_PPP = 100;
-constexpr token_type_t TOK_Num = 101;
-constexpr token_type_t TOK_Bool = 102;
-constexpr token_type_t TOK_group_ident = 103;
-constexpr token_type_t TOK_ident = 104;
-constexpr token_type_t TOK_type_ident = 105;
-constexpr token_type_t TOK_decimal = 106;
-constexpr token_type_t TOK_number = 107;
-constexpr token_type_t TOK_global_ident = 108;
-constexpr token_type_t TOK_weak_ident = 109;
-constexpr token_type_t TOK_END = 110;
+constexpr token_type_t TOK_sizeof = 30;
+constexpr token_type_t TOK_sizeof_expr = 31;
+constexpr token_type_t TOK_len = 32;
+constexpr token_type_t TOK_len_expr = 33;
+constexpr token_type_t TOK_apply = 34;
+constexpr token_type_t TOK_cast_argn = 35;
+constexpr token_type_t TOK_cast_type = 36;
+constexpr token_type_t TOK_index = 37;
+constexpr token_type_t TOK_unary_minus = 38;
+constexpr token_type_t TOK_unary_xor = 39;
+constexpr token_type_t TOK_unary_negate = 40;
+constexpr token_type_t TOK_asterisk = 41;
+constexpr token_type_t TOK_fslash = 42;
+constexpr token_type_t TOK_plus = 43;
+constexpr token_type_t TOK_minus = 44;
+constexpr token_type_t TOK_lshift = 45;
+constexpr token_type_t TOK_rshift = 46;
+constexpr token_type_t TOK_bitwise_and = 47;
+constexpr token_type_t TOK_bitwise_xor = 48;
+constexpr token_type_t TOK_bitwise_or = 49;
+constexpr token_type_t TOK_lt = 50;
+constexpr token_type_t TOK_lte = 51;
+constexpr token_type_t TOK_gt = 52;
+constexpr token_type_t TOK_gte = 53;
+constexpr token_type_t TOK_eq = 54;
+constexpr token_type_t TOK_not_eq = 55;
+constexpr token_type_t TOK_logical_and = 56;
+constexpr token_type_t TOK_end_logical_and = 57;
+constexpr token_type_t TOK_logical_or = 58;
+constexpr token_type_t TOK_end_logical_or = 59;
+constexpr token_type_t TOK_assign = 60;
+constexpr token_type_t TOK_plus_assign = 61;
+constexpr token_type_t TOK_minus_assign = 62;
+constexpr token_type_t TOK_times_assign = 63;
+constexpr token_type_t TOK_div_assign = 64;
+constexpr token_type_t TOK_bitwise_and_assign = 65;
+constexpr token_type_t TOK_logical_and_assign = 66;
+constexpr token_type_t TOK_bitwise_or_assign = 67;
+constexpr token_type_t TOK_logical_or_assign = 68;
+constexpr token_type_t TOK_bitwise_xor_assign = 69;
+constexpr token_type_t TOK_lshift_assign = 70;
+constexpr token_type_t TOK_rshift_assign = 71;
+constexpr token_type_t TOK_rparen = 72;
+constexpr token_type_t TOK_Void = 73;
+constexpr token_type_t TOK_F = 74;
+constexpr token_type_t TOK_FF = 75;
+constexpr token_type_t TOK_FFF = 76;
+constexpr token_type_t TOK_U = 77;
+constexpr token_type_t TOK_UU = 78;
+constexpr token_type_t TOK_UUU = 79;
+constexpr token_type_t TOK_UF = 80;
+constexpr token_type_t TOK_UUF = 81;
+constexpr token_type_t TOK_UUUF = 82;
+constexpr token_type_t TOK_UFF = 83;
+constexpr token_type_t TOK_UUFF = 84;
+constexpr token_type_t TOK_UUUFF = 85;
+constexpr token_type_t TOK_UFFF = 86;
+constexpr token_type_t TOK_UUFFF = 87;
+constexpr token_type_t TOK_UUUFFF = 88;
+constexpr token_type_t TOK_S = 89;
+constexpr token_type_t TOK_SS = 90;
+constexpr token_type_t TOK_SSS = 91;
+constexpr token_type_t TOK_SF = 92;
+constexpr token_type_t TOK_SSF = 93;
+constexpr token_type_t TOK_SSSF = 94;
+constexpr token_type_t TOK_SFF = 95;
+constexpr token_type_t TOK_SSFF = 96;
+constexpr token_type_t TOK_SSSFF = 97;
+constexpr token_type_t TOK_SFFF = 98;
+constexpr token_type_t TOK_SSFFF = 99;
+constexpr token_type_t TOK_SSSFFF = 100;
+constexpr token_type_t TOK_PP = 101;
+constexpr token_type_t TOK_PPP = 102;
+constexpr token_type_t TOK_Int = 103;
+constexpr token_type_t TOK_Real = 104;
+constexpr token_type_t TOK_Bool = 105;
+constexpr token_type_t TOK_group_ident = 106;
+constexpr token_type_t TOK_ident = 107;
+constexpr token_type_t TOK_type_ident = 108;
+constexpr token_type_t TOK_decimal = 109;
+constexpr token_type_t TOK_int = 110;
+constexpr token_type_t TOK_real = 111;
+constexpr token_type_t TOK_global_ident = 112;
+constexpr token_type_t TOK_weak_ident = 113;
+constexpr token_type_t TOK_END = 114;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -147,10 +151,17 @@ inline std::string_view token_name(token_type_t type)
     case TOK_comma: return "comma"sv;
     case TOK_lparen: return "lparen"sv;
     case TOK_period: return "period"sv;
+    case TOK_sizeof: return "sizeof"sv;
+    case TOK_sizeof_expr: return "sizeof_expr"sv;
+    case TOK_len: return "len"sv;
+    case TOK_len_expr: return "len_expr"sv;
     case TOK_apply: return "apply"sv;
+    case TOK_cast_argn: return "cast_argn"sv;
+    case TOK_cast_type: return "cast_type"sv;
     case TOK_index: return "index"sv;
     case TOK_unary_minus: return "unary_minus"sv;
     case TOK_unary_xor: return "unary_xor"sv;
+    case TOK_unary_negate: return "unary_negate"sv;
     case TOK_asterisk: return "asterisk"sv;
     case TOK_fslash: return "fslash"sv;
     case TOK_plus: return "plus"sv;
@@ -170,10 +181,6 @@ inline std::string_view token_name(token_type_t type)
     case TOK_end_logical_and: return "end_logical_and"sv;
     case TOK_logical_or: return "logical_or"sv;
     case TOK_end_logical_or: return "end_logical_or"sv;
-    case TOK_bitwise_not: return "bitwise_not"sv;
-    case TOK_logical_not: return "logical_not"sv;
-    case TOK_plus_plus: return "plus_plus"sv;
-    case TOK_minus_minus: return "minus_minus"sv;
     case TOK_assign: return "assign"sv;
     case TOK_plus_assign: return "plus_assign"sv;
     case TOK_minus_assign: return "minus_assign"sv;
@@ -183,7 +190,6 @@ inline std::string_view token_name(token_type_t type)
     case TOK_logical_and_assign: return "logical_and_assign"sv;
     case TOK_bitwise_or_assign: return "bitwise_or_assign"sv;
     case TOK_logical_or_assign: return "logical_or_assign"sv;
-    case TOK_bitwise_not_assign: return "bitwise_not_assign"sv;
     case TOK_bitwise_xor_assign: return "bitwise_xor_assign"sv;
     case TOK_lshift_assign: return "lshift_assign"sv;
     case TOK_rshift_assign: return "rshift_assign"sv;
@@ -218,13 +224,15 @@ inline std::string_view token_name(token_type_t type)
     case TOK_SSSFFF: return "SSSFFF"sv;
     case TOK_PP: return "PP"sv;
     case TOK_PPP: return "PPP"sv;
-    case TOK_Num: return "Num"sv;
+    case TOK_Int: return "Int"sv;
+    case TOK_Real: return "Real"sv;
     case TOK_Bool: return "Bool"sv;
     case TOK_group_ident: return "group_ident"sv;
     case TOK_ident: return "ident"sv;
     case TOK_type_ident: return "type_ident"sv;
     case TOK_decimal: return "decimal"sv;
-    case TOK_number: return "number"sv;
+    case TOK_int: return "int"sv;
+    case TOK_real: return "real"sv;
     case TOK_global_ident: return "global_ident"sv;
     case TOK_weak_ident: return "weak_ident"sv;
     }
@@ -264,46 +272,48 @@ inline std::string_view token_string(token_type_t type)
     case TOK_comma: return "comma"sv;
     case TOK_lparen: return "lparen"sv;
     case TOK_period: return "period"sv;
+    case TOK_sizeof: return "sizeof"sv;
+    case TOK_sizeof_expr: return "sizeof"sv;
+    case TOK_len: return "len"sv;
+    case TOK_len_expr: return "len"sv;
     case TOK_apply: return "apply"sv;
+    case TOK_cast_argn: return "cast"sv;
+    case TOK_cast_type: return "cast type"sv;
     case TOK_index: return "index"sv;
     case TOK_unary_minus: return "unary -"sv;
     case TOK_unary_xor: return "~"sv;
-    case TOK_asterisk: return "asterisk"sv;
-    case TOK_fslash: return "fslash"sv;
-    case TOK_plus: return "plus"sv;
-    case TOK_minus: return "minus"sv;
-    case TOK_lshift: return "lshift"sv;
-    case TOK_rshift: return "rshift"sv;
-    case TOK_bitwise_and: return "bitwise_and"sv;
-    case TOK_bitwise_xor: return "bitwise_xor"sv;
-    case TOK_bitwise_or: return "bitwise_or"sv;
-    case TOK_lt: return "lt"sv;
-    case TOK_lte: return "lte"sv;
-    case TOK_gt: return "gt"sv;
-    case TOK_gte: return "gte"sv;
-    case TOK_eq: return "eq"sv;
-    case TOK_not_eq: return "not_eq"sv;
-    case TOK_logical_and: return "logical_and"sv;
+    case TOK_unary_negate: return "!"sv;
+    case TOK_asterisk: return "*"sv;
+    case TOK_fslash: return "/"sv;
+    case TOK_plus: return "+"sv;
+    case TOK_minus: return "-"sv;
+    case TOK_lshift: return "<<"sv;
+    case TOK_rshift: return ">>"sv;
+    case TOK_bitwise_and: return "&"sv;
+    case TOK_bitwise_xor: return "^"sv;
+    case TOK_bitwise_or: return "|"sv;
+    case TOK_lt: return "<"sv;
+    case TOK_lte: return "<="sv;
+    case TOK_gt: return ">"sv;
+    case TOK_gte: return ">="sv;
+    case TOK_eq: return "=="sv;
+    case TOK_not_eq: return "!="sv;
+    case TOK_logical_and: return "&&"sv;
     case TOK_end_logical_and: return "end_logical_and"sv;
-    case TOK_logical_or: return "logical_or"sv;
+    case TOK_logical_or: return "||"sv;
     case TOK_end_logical_or: return "end_logical_or"sv;
-    case TOK_bitwise_not: return "bitwise_not"sv;
-    case TOK_logical_not: return "logical_not"sv;
-    case TOK_plus_plus: return "plus_plus"sv;
-    case TOK_minus_minus: return "minus_minus"sv;
-    case TOK_assign: return "assign"sv;
-    case TOK_plus_assign: return "plus_assign"sv;
-    case TOK_minus_assign: return "minus_assign"sv;
-    case TOK_times_assign: return "times_assign"sv;
-    case TOK_div_assign: return "div_assign"sv;
-    case TOK_bitwise_and_assign: return "bitwise_and_assign"sv;
-    case TOK_logical_and_assign: return "logical_and_assign"sv;
-    case TOK_bitwise_or_assign: return "bitwise_or_assign"sv;
-    case TOK_logical_or_assign: return "logical_or_assign"sv;
-    case TOK_bitwise_not_assign: return "bitwise_not_assign"sv;
-    case TOK_bitwise_xor_assign: return "bitwise_xor_assign"sv;
-    case TOK_lshift_assign: return "lshift_assign"sv;
-    case TOK_rshift_assign: return "rshift_assign"sv;
+    case TOK_assign: return "="sv;
+    case TOK_plus_assign: return "+="sv;
+    case TOK_minus_assign: return "-="sv;
+    case TOK_times_assign: return "*="sv;
+    case TOK_div_assign: return "/="sv;
+    case TOK_bitwise_and_assign: return "&="sv;
+    case TOK_logical_and_assign: return "&&="sv;
+    case TOK_bitwise_or_assign: return "|="sv;
+    case TOK_logical_or_assign: return "||="sv;
+    case TOK_bitwise_xor_assign: return "^="sv;
+    case TOK_lshift_assign: return "<<="sv;
+    case TOK_rshift_assign: return ">>="sv;
     case TOK_rparen: return "rparen"sv;
     case TOK_Void: return "void type"sv;
     case TOK_F: return "F type"sv;
@@ -335,13 +345,15 @@ inline std::string_view token_string(token_type_t type)
     case TOK_SSSFFF: return "SSSFFF type"sv;
     case TOK_PP: return "PP type"sv;
     case TOK_PPP: return "PPP type"sv;
-    case TOK_Num: return "Num type"sv;
+    case TOK_Int: return "Int type"sv;
+    case TOK_Real: return "Real type"sv;
     case TOK_Bool: return "Bool type"sv;
     case TOK_group_ident: return "group identifier"sv;
     case TOK_ident: return "identifier"sv;
     case TOK_type_ident: return "type identifier"sv;
     case TOK_decimal: return "number"sv;
-    case TOK_number: return "number"sv;
+    case TOK_int: return "int"sv;
+    case TOK_real: return "real"sv;
     case TOK_global_ident: return "global identifier"sv;
     case TOK_weak_ident: return "weak identifier"sv;
     }
@@ -380,6 +392,13 @@ constexpr unsigned char token_precedence_table[] =
     5,
     7,
     7,
+    7,
+    7,
+    7,
+    7,
+    7,
+    7,
+    8,
     8,
     8,
     10,
@@ -401,11 +420,6 @@ constexpr unsigned char token_precedence_table[] =
     18,
     19,
     19,
-    1,
-    1,
-    1,
-    1,
-    30,
     30,
     30,
     30,
@@ -419,6 +433,8 @@ constexpr unsigned char token_precedence_table[] =
     30,
     30,
     1,
+    0,
+    0,
     0,
     0,
     0,
@@ -485,10 +501,17 @@ constexpr unsigned char token_precedence_table[] =
     case TOK_comma:\
     case TOK_lparen:\
     case TOK_period:\
+    case TOK_sizeof:\
+    case TOK_sizeof_expr:\
+    case TOK_len:\
+    case TOK_len_expr:\
     case TOK_apply:\
+    case TOK_cast_argn:\
+    case TOK_cast_type:\
     case TOK_index:\
     case TOK_unary_minus:\
     case TOK_unary_xor:\
+    case TOK_unary_negate:\
     case TOK_asterisk:\
     case TOK_fslash:\
     case TOK_plus:\
@@ -508,10 +531,6 @@ constexpr unsigned char token_precedence_table[] =
     case TOK_end_logical_and:\
     case TOK_logical_or:\
     case TOK_end_logical_or:\
-    case TOK_bitwise_not:\
-    case TOK_logical_not:\
-    case TOK_plus_plus:\
-    case TOK_minus_minus:\
     case TOK_assign:\
     case TOK_plus_assign:\
     case TOK_minus_assign:\
@@ -521,13 +540,12 @@ constexpr unsigned char token_precedence_table[] =
     case TOK_logical_and_assign:\
     case TOK_bitwise_or_assign:\
     case TOK_logical_or_assign:\
-    case TOK_bitwise_not_assign:\
     case TOK_bitwise_xor_assign:\
     case TOK_lshift_assign:\
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 109;
-constexpr token_type_t TOK_START = 111;
+constexpr token_type_t TOK_LAST_STATE = 113;
+constexpr token_type_t TOK_START = 114;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[16740];
+extern token_type_t const lexer_transition_table[18042];

@@ -10,7 +10,7 @@
 #include "globals.hpp"
 #include "file.hpp"
 #include "options.hpp"
-#include "ir_decl.hpp"
+#include "ir.hpp"
 #include "rpn.hpp"
 #include "stmt.hpp"
 
@@ -26,12 +26,12 @@ struct block_d
     // 3) global variable sets
     // The following sets use this order.
 
-    // An array of size 'num_fn_vars()'
+    // An array of size 'num_vars()'
     // Keeps track of which ssa node a var refers to.
     // A handle of {0} means the local var isn't in the block.
     ssa_value_t* fn_vars = nullptr;
 
-    // An array of size 'num_fn_vars()'
+    // An array of size 'num_vars()'
     // Phi nodes in the block which have yet to be sealed.
     ssa_value_t* unsealed_phis = nullptr;
 
@@ -56,7 +56,46 @@ private:
     using clock = sc::steady_clock;
     sc::time_point<clock> start_time;
 
-    inline static thread_local array_pool_t<ssa_value_t> input_pool;
+    struct logical_data_t
+    {
+        cfg_ht branch_node;
+        pstring_t lhs_pstring;
+    };
+
+    struct label_t
+    {
+        cfg_ht node = {};
+        bc::small_vector<cfg_ht, 2> inputs;
+    };
+
+    // Data used by the ir builder can go inside this struct (for organization).
+    struct ir_builder_t
+    {
+        bc::small_vector<logical_data_t, 8> logical_stack;
+
+        bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> break_stack;
+        bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> continue_stack;
+
+        bc::small_vector<ssa_value_t, 8> return_values;
+        bc::small_vector<cfg_ht, 8> return_jumps;
+
+        array_pool_t<ssa_value_t> pool;
+
+        void clear()
+        {
+            logical_stack.clear();
+
+            break_stack.clear();
+            continue_stack.clear();
+            
+            return_values.clear();
+            return_jumps.clear();
+
+            pool.clear();
+        }
+    };
+
+    inline static thread_local ir_builder_t builder;
 public:
     cpair_t final_result;
 
@@ -95,6 +134,8 @@ public:
 
     template<do_t D>
     void interpret_stmts();
+
+    cfg_ht compile_block(cfg_ht cfg_node);
 
     template<do_t D>
     void do_expr(rpn_stack_t& rpn_stack, token_t const* expr);
@@ -157,12 +198,33 @@ public:
     template<do_t D>
     int cast_args(pstring_t pstring, rpn_value_t* begin, rpn_value_t* end, type_t const* type_begin, bool implicit);
 
-    std::size_t num_locals() const;
+    std::size_t num_locals() const { assert(fn); return fn->def().local_vars.size(); }
+
+    // Counts locals and gvars. Only usable during ir building.
+    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gvar_loc_manager.num_unique_locators(); }
+
     type_t var_i_type(unsigned var_i) const;
     void init_cval(access_t a, cval_t& cval);
     access_t access(rpn_value_t const& rpn_value) const;
     ssa_value_t const& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index) const;
     ssa_value_t& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index);
+
+    ///////////////////////
+    // compiler-specific //
+    ///////////////////////
+
+    unsigned to_var_i(gvar_loc_manager_t::index_t index) const { return index.value + num_locals(); }
+
+    // Block and local variable functions
+    void seal_block(block_d& block_data);
+    void fill_phi_args(ssa_ht phi, unsigned var_i);
+    ssa_value_t var_lookup(cfg_ht node, unsigned var_i);
+
+    cfg_ht insert_cfg(bool seal, pstring_t label_name = {});
+    void cfg_exits_with_jump(cfg_node_t& node);
+    void cfg_exits_with_branch(cfg_node_t& node, ssa_value_t condition);
+    cfg_ht compile_goto(cfg_ht branch_node);
+
 };
 
 
@@ -206,18 +268,17 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, cval_t co
         interpret_locals[i] = args[i];
     }
 
-
     if(D == COMPILE)
     {
         assert(false);
         assert(ir);
 
+        builder.clear(); // TODO: make sure this isn't called in recursion
         ir->gvar_loc_manager.init(fn->handle());
-        input_pool.clear(); // TODO: make sure this isn't called in recursion
 
         ir->root = insert_cfg(true);
 
-        ssa_ht const entry = ir.root->emplace_ssa(SSA_entry, TYPE_VOID);
+        ssa_ht const entry = ir->root->emplace_ssa(SSA_entry, TYPE_VOID);
         entry->append_daisy();
 
         // Insert nodes for the arguments
@@ -238,19 +299,19 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, cval_t co
         });
 
         // Create all of the SSA graph, minus the exit node:
-        cfg_ht const end = compile_block(ir.root);
-        exits_with_jump(*end);
+        cfg_ht const end = compile_block(ir->root);
+        cfg_exits_with_jump(*end);
 
         // Now create the exit block.
         // All return statements create a jump, which will jump to the exit node.
         type_t const return_type = fn->type().return_type();
         if(return_type != TYPE_VOID)
-            return_values.push_back(
+            builder.return_values.push_back(
                 end->emplace_ssa(SSA_uninitialized, return_type));
 
         ir->exit = insert_cfg(true);
 
-        for(cfg_ht node : return_jumps)
+        for(cfg_ht node : builder.return_jumps)
             node->build_set_output(0, ir->exit);
         end->build_set_output(0, ir->exit);
 
@@ -264,15 +325,15 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, cval_t co
             return_inputs.push_back(loc);
         });
 
-        ssa_ht ret = ir.exit->emplace_ssa(SSA_return, TYPE_VOID);
+        ssa_ht ret = ir->exit->emplace_ssa(SSA_return, TYPE_VOID);
 
         // Append the return value, if it exists:
         if(return_type != TYPE_VOID)
         {
-            ssa_ht phi = ir.exit->emplace_ssa(SSA_phi, return_type);
-            phi->assign_input(&*return_values.begin(), &*return_values.end());
+            ssa_ht phi = ir->exit->emplace_ssa(SSA_phi, return_type);
+            phi->assign_input(&*builder.return_values.begin(), &*builder.return_values.end());
             return_inputs.push_back(phi);
-            return_inputs.push_back(locator_t::ret(fn.handle()));
+            return_inputs.push_back(locator_t::ret(fn->handle()));
         }
 
         assert(return_inputs.size() % 2 == 0);
@@ -280,7 +341,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, cval_t co
         ret->append_daisy();
 
 #ifndef NDEBUG
-        for(cfg_ht h = ir.cfg_begin(); h; ++h)
+        for(cfg_ht h = ir->cfg_begin(); h; ++h)
             assert(h.data<block_d>().sealed());
 #endif
     }
@@ -300,11 +361,6 @@ void eval_t::do_expr_result(token_t const* expr, type_t expected_type)
         final_result.value = to_cval(rpn_stack.only1());
 
     final_result.type = rpn_stack.only1().type;
-}
-
-std::size_t eval_t::num_locals() const 
-{ 
-    return fn ? fn->def().local_vars.size() : 0; 
 }
 
 /* TODO: remove?
@@ -610,6 +666,271 @@ void eval_t::interpret_stmts()
         }
     }
     assert(false);
+}
+
+cfg_ht eval_t::compile_block(cfg_ht cfg_node)
+{
+#if 0
+    while(true)
+    switch(stmt->name)
+    {
+    default: // Handles var inits
+        if(is_var_init(stmt->name))
+        {
+            unsigned const var_i = get_local_var_i(stmt->name);
+
+            ssa_value_t value;
+            if(stmt->expr)
+            {
+                cfg_node = compile_expr(cfg_node, stmt->expr);
+                throwing_cast(*cfg_node, rpn_stack.peek(0), 
+                              fn.def().local_vars[var_i].type);
+                value = rpn_stack.only1().value;
+            }
+            else
+            {
+                value = cfg_node->emplace_ssa(
+                    SSA_uninitialized, fn.def().local_vars[var_i].type);
+            }
+
+            cfg_node.data<block_d>().fn_vars[var_i] = value;
+            ++stmt;
+        }
+        else
+            throw std::runtime_error("Unimplemented stmt.");
+        break;
+
+    case STMT_END_BLOCK:
+        ++stmt;
+        return cfg_node;
+
+    case STMT_EXPR:
+        cfg_node = compile_expr(cfg_node, stmt->expr);
+        ++stmt;
+        break;
+
+    case STMT_IF:
+        {
+            // Branch the active node.
+            cfg_ht branch = compile_expr(cfg_node, stmt->expr);
+            ++stmt;
+            throwing_cast(*branch, rpn_stack.only1(), {TYPE_BOOL});
+            exits_with_branch(*branch, rpn_stack.only1().value);
+
+            // Create new cfg_node for the 'true' branch.
+            cfg_ht begin_true = insert_cfg(true);
+            branch->build_set_output(1, begin_true);
+            cfg_ht end_true = compile_block(begin_true);
+            exits_with_jump(*end_true);
+
+            if(stmt->name == STMT_ELSE)
+            {
+                // Create new block for the 'false' branch.
+                ++stmt;
+                cfg_ht begin_false = insert_cfg(true);
+                branch->build_set_output(0, begin_false);
+                // repurpose 'branch' to hold end of the 'false' branch.
+                // Simplifies the assignment that follows.
+                branch = compile_block(begin_false);
+                exits_with_jump(*branch);
+            }
+
+            // Merge the two nodes.
+            cfg_node = insert_cfg(true);
+            end_true->build_set_output(0, cfg_node);
+            branch->build_set_output(0, cfg_node);
+            break;
+        }
+
+    case STMT_WHILE:
+        {
+            // The loop condition will go in its own block.
+            exits_with_jump(*cfg_node);
+            cfg_ht begin_branch = insert_cfg(false);
+            cfg_node->build_set_output(0, begin_branch);
+
+            cfg_ht end_branch = compile_expr(begin_branch, stmt->expr);
+            ++stmt;
+            throwing_cast(*end_branch, rpn_stack.only1(), {TYPE_BOOL});
+            exits_with_branch(*end_branch, rpn_stack.only1().value);
+
+            continue_stack.emplace_back();
+            break_stack.emplace_back();
+
+            // Compile the body.
+            cfg_ht begin_body = insert_cfg(true);
+            end_branch->build_set_output(1, begin_body);
+            cfg_ht end_body = compile_block(begin_body);
+            exits_with_jump(*end_body);
+            end_body->build_set_output(0, begin_branch);
+
+            // All continue statements jump to branch_node.
+            // TODO: properly implement continue in 'for'
+            assert(false);
+            for(cfg_ht node : continue_stack.back())
+                node->build_set_output(0, begin_branch);
+            seal_block(begin_branch.data<block_d>());
+
+            // Create the exit node.
+            cfg_node = insert_cfg(true);
+            end_branch->build_set_output(0, cfg_node);
+            for(cfg_ht node : break_stack.back())
+                node->build_set_output(0, cfg_node);
+
+            continue_stack.pop_back();
+            break_stack.pop_back();
+            break;
+        }
+
+    case STMT_DO:
+        {
+            ++stmt;
+            continue_stack.emplace_back();
+            break_stack.emplace_back();
+
+            // Compile the loop body
+            exits_with_jump(*cfg_node);
+            cfg_ht begin_body = insert_cfg(false);
+            cfg_node->build_set_output(0, begin_body);
+            cfg_ht end_body = compile_block(begin_body);
+
+            assert(stmt->name == STMT_WHILE);
+
+            // The loop condition can go in its own block, which is
+            // necessary to implement 'continue'.
+            exits_with_jump(*end_body);
+            cfg_ht begin_branch = insert_cfg(true);
+            end_body->build_set_output(0, begin_branch);
+
+            cfg_ht end_branch = compile_expr(begin_branch, stmt->expr);
+            ++stmt;
+            throwing_cast(*end_branch, rpn_stack.only1(), {TYPE_BOOL});
+            exits_with_branch(*end_branch, rpn_stack.only1().value);
+
+            end_branch->build_set_output(1, begin_body);
+            seal_block(begin_body.data<block_d>());
+
+            // All continue statements jump to the branch node.
+            for(cfg_ht node : continue_stack.back())
+                node->build_set_output(0, begin_branch);
+
+            // Create the exit cfg_node.
+            cfg_node = insert_cfg(true);
+            end_branch->build_set_output(0, cfg_node);
+            for(cfg_ht node : break_stack.back())
+                node->build_set_output(0, cfg_node);
+
+            continue_stack.pop_back();
+            break_stack.pop_back();
+            break;
+        }
+
+    case STMT_RETURN:
+        {
+            type_t return_type = fn.type().return_type();
+            if(stmt->expr)
+            {
+                cfg_node = compile_expr(cfg_node, stmt->expr);
+                throwing_cast(*cfg_node, rpn_stack.only1(), return_type);
+                builder.return_values.push_back(rpn_stack.only1().value);
+            }
+            else if(return_type.name() != TYPE_VOID)
+                compiler_error(stmt->pstring, fmt(
+                    "Expecting return expression of type %.", return_type));
+            return_jumps.push_back(cfg_node);
+            cfg_node = compile_goto(cfg_node);
+            ++stmt;
+            break;
+        }
+
+    case STMT_BREAK:
+        if(break_stack.empty())
+            compiler_error(stmt->pstring, "break statement outside of loop.");
+        break_stack.back().push_back(cfg_node);
+        cfg_node = compile_goto(cfg_node);
+        ++stmt;
+        break;
+
+    case STMT_CONTINUE:
+        if(continue_stack.empty())
+            compiler_error(stmt->pstring, 
+                           "continue statement outside of loop.");
+        continue_stack.back().push_back(cfg_node);
+        cfg_node = compile_goto(cfg_node);
+        ++stmt;
+        break;
+
+    case STMT_LABEL:
+        {
+            label_t& label = label_map[stmt];
+            unsigned const use_count = stmt->use_count;
+            pstring_t label_name = stmt->pstring;
+            ++stmt;
+
+            // If there's no goto to this label, just ignore it.
+            if(use_count == 0)
+                break;
+
+            exits_with_jump(*cfg_node);
+            label.inputs.push_back(cfg_node);
+
+            if(use_count + 1 == label.inputs.size())
+            {
+                // All the gotos to this label have been compiled,
+                // that means this block can be sealed immediately!
+                label.node = cfg_node = insert_cfg(true, label_name);
+                for(cfg_ht node : label.inputs)
+                    node->build_set_output(0, label.node);
+            }
+            else // Otherwise, seal the node at a later time.
+                label.node = cfg_node = insert_cfg(false, label_name);
+
+            break;
+        }
+
+    case STMT_GOTO:
+        {
+            label_t& label = label_map[&fn.def()[stmt->link]];
+            unsigned const use_count = fn.def()[stmt->link].use_count;
+            assert(use_count > 0);
+            ++stmt;
+
+            // Add the jump to the label.
+            label.inputs.push_back(cfg_node);
+            cfg_node = compile_goto(cfg_node);
+
+            // If this is the last goto, finish and seal the node.
+            if(use_count + 1 == label.inputs.size())
+            {
+                assert(label.node);
+                for(cfg_ht node : label.inputs)
+                    node->build_set_output(0, label.node);
+                // Seal the block.
+                seal_block(label.node.data<block_d>());
+            }
+            break;
+        }
+
+    case STMT_GOTO_MODE:
+        {
+            assert(stmt->expr);
+
+            cfg_ht branch = cfg_node;
+
+            cfg_ht mode = insert_cfg(true);
+
+            cfg_node = compile_goto(cfg_node);
+            branch->build_set_output(0, mode);
+
+            compile_expr(mode, stmt->expr);
+
+            ++stmt;
+            break;
+        }
+    }
+    assert(false);
+#endif
+    assert(0);
 }
 
 template<eval_t::do_t D>
@@ -1358,6 +1679,7 @@ void eval_t::req_quantity(token_t const& token, rpn_value_t const& lhs, rpn_valu
 
 // Applies an operator to the top two values on the eval stack,
 // turning them into a single value.
+/* TODO
 void eval_t::compile_binary_operator(cfg_node_t& cfg_node, ssa_op_t op, type_t result_type, bool carry)
 {
     rpn_value_t& lhs = rpn_stack.peek(1);
@@ -1381,6 +1703,7 @@ void eval_t::compile_binary_operator(cfg_node_t& cfg_node, ssa_op_t op, type_t r
     rpn_stack.pop(2);
     rpn_stack.push(std::move(new_top));
 }
+*/
 
 
 template<typename Policy>
@@ -1794,4 +2117,44 @@ int eval_t::cast_args(pstring_t pstring, rpn_value_t* begin,
 
     return -1; // means no errors!
 }
+
+cfg_ht eval_t::insert_cfg(bool seal, pstring_t label_name)
+{
+    cfg_ht const new_node = ir->emplace_cfg();
+    cfg_data_pool::resize<block_d>(cfg_pool::array_size());
+    block_d& block_data = new_node.data<block_d>();
+    block_data.fn_vars = builder.pool.alloc(num_vars());
+    block_data.unsealed_phis = seal ? nullptr : builder.pool.alloc(num_vars());
+    block_data.label_name = label_name;
+    return new_node;
+}
+
+void eval_t::cfg_exits_with_jump(cfg_node_t& node)
+{
+    node.alloc_output(1);
+}
+
+void eval_t::cfg_exits_with_branch(cfg_node_t& node, ssa_value_t condition)
+{
+    ssa_ht if_h = node.emplace_ssa(SSA_if, TYPE_VOID, condition);
+    if_h->append_daisy();
+    node.alloc_output(2);
+    assert(node.output_size() == 2);
+    assert(node.last_daisy() == if_h);
+}
+
+// Jumps are like 'break', 'continue', 'goto', etc.
+cfg_ht eval_t::compile_goto(cfg_ht branch_node)
+{
+    // The syntax allows code to exist following a jump statement.
+    // Said code is unreachable, but gets compiled anyway.
+    // Implement using a conditional that always takes the false branch.
+    // (This will be optimized out later)
+
+    cfg_exits_with_branch(*branch_node, 0u);
+    cfg_ht dead_branch = insert_cfg(true);
+    branch_node->build_set_output(1, dead_branch);
+    return dead_branch;
+}
+
 

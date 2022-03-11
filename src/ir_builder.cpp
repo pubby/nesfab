@@ -14,7 +14,7 @@
 void build_ir(ir_t& ir, fn_t const& fn)
 {}
 
-#if 1
+#if 0
 namespace bc = boost::container;
 
 namespace // Anonymous namespace

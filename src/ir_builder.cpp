@@ -867,6 +867,20 @@ cfg_ht ir_builder_t::compile_expr(cfg_ht cfg_node, token_t const* expr)
                 break;
             }
 
+            // inlining:
+            // - create a new 'eval_t'.
+            // - run the eval_t
+            // -- different enter / returns behavior
+            // how to handle globals?
+            // how to handle locals?
+            // how to handle structs?
+
+            // STRUCTS:
+            // - represent several SSA nodes
+            // - lvals: work like interpreter
+
+
+
         case TOK_index:
             {
                 // TOK_index is a psuedo token used to array indexing. 

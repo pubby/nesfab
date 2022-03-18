@@ -14,6 +14,24 @@
 #include "rpn.hpp"
 #include "stmt.hpp"
 
+
+
+
+// - interpreter and compiler need to have compatible representations
+// - - ssa_value_t is that representation
+
+// - compiler needs to have multiple definitions per-CFG block
+// - interpreter needs only one definition
+
+// - compiler tracks arrays as a single node
+// - interpreter tracks arrays per-element
+
+// - example:
+// - ct function generates ct array
+// -  o r
+
+
+
 namespace sc = std::chrono;
 namespace bc = boost::container;
 

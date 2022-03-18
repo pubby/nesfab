@@ -32,13 +32,25 @@ inline constexpr value_category_t to_indexed(value_category_t vc) { return vc ==
 // This struct is what the RPN stack holds.
 struct rpn_value_t
 {
-    ssa_value_t value = {};
+    cval_t const* cval_ptr;
     ssa_value_t index = {};
     bc::small_vector<std::uint8_t, 4> members;
     value_category_t category = RVAL;
     type_t type = TYPE_VOID;
     pstring_t pstring = {};
-    unsigned var_i = 0;
+    cval_t cval_storage;
+
+    cval_t const& const_cval() const { return cval_ptr ? *cval_ptr : 
+    cval_t& mutable_cval() const { assert(category == LVAL); return const_cast<cval_t&>(const_cval()); }
+
+    void store_in_self()
+    {
+        if(cval_ptr)
+        {
+            cval_storage = *cval_ptr;
+            cval_ptr = nullptr;
+        }
+    }
 
     fixed_t fixed() const
     { 

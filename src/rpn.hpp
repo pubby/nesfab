@@ -15,42 +15,27 @@
 #include "ir_edge.hpp"
 #include "compiler_error.hpp"
 
-#include <iostream> // TODO: remove
-
 namespace bc = boost::container;
 
 enum value_category_t : char
 {
     RVAL, 
     LVAL,
-    LVAL_INDEX, // TODO: remove?
 };
-
-inline constexpr value_category_t to_indexed(value_category_t vc) { return vc == LVAL ? LVAL_INDEX : vc; }
 
 // Expressions are stored in RPN form.
 // This struct is what the RPN stack holds.
 struct rpn_value_t
 {
-    cval_t const* cval_ptr;
+    ssa_value_t value = {};
     ssa_value_t index = {};
     bc::small_vector<std::uint8_t, 4> members;
     value_category_t category = RVAL;
     type_t type = TYPE_VOID;
     pstring_t pstring = {};
-    cval_t cval_storage;
-
-    cval_t const& const_cval() const { return cval_ptr ? *cval_ptr : 
-    cval_t& mutable_cval() const { assert(category == LVAL); return const_cast<cval_t&>(const_cval()); }
-
-    void store_in_self()
-    {
-        if(cval_ptr)
-        {
-            cval_storage = *cval_ptr;
-            cval_ptr = nullptr;
-        }
-    }
+    unsigned var_i = ~0u;
+    // TODO
+    bool ct = false; // If value was computed at compile-time.
 
     fixed_t fixed() const
     { 
@@ -62,9 +47,10 @@ struct rpn_value_t
         return value.fixed();
     }
 
-    sfixed_int_t sfixed() const { return to_signed(fixed().value, type.name()); }
-    fixed_int_t whole() const { return fixed().value >> fixed_t::shift; }
-    sfixed_int_t swhole() const { return sfixed() >> fixed_t::shift; }
+    fixed_uint_t u() const { return fixed().value; }
+    fixed_sint_t s() const { return to_signed(fixed().value, type.name()); }
+    fixed_uint_t whole() const { return u() >> fixed_t::shift; }
+    fixed_sint_t swhole() const { return s() >> fixed_t::shift; }
 };
 
 class rpn_stack_t

@@ -2,14 +2,14 @@
 
 #include "builtin.hpp"
 
-fixed_lut_t<fixed_int_t> const numeric_bitmask_table = []()
+fixed_lut_t<fixed_uint_t> const numeric_bitmask_table = []()
 {
-    fixed_lut_t<fixed_int_t> table;
+    fixed_lut_t<fixed_uint_t> table;
     for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
     {
         type_name_t type_name = (type_name_t)i;
 
-        fixed_int_t v = 0;
+        fixed_uint_t v = 0;
 
         if(type_name == TYPE_BOOL)
             v = 1ull << fixed_t::shift;
@@ -26,9 +26,9 @@ fixed_lut_t<fixed_int_t> const numeric_bitmask_table = []()
     return table;
 }();
 
-fixed_lut_t<fixed_int_t> const numeric_sub_bitmask_table = []()
+fixed_lut_t<fixed_uint_t> const numeric_sub_bitmask_table = []()
 {
-    fixed_lut_t<fixed_int_t> table;
+    fixed_lut_t<fixed_uint_t> table;
     for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
     {
         type_name_t type_name = (type_name_t)i;
@@ -37,9 +37,9 @@ fixed_lut_t<fixed_int_t> const numeric_sub_bitmask_table = []()
     return table;
 }();
 
-fixed_lut_t<fixed_int_t> const numeric_super_bitmask_table = []()
+fixed_lut_t<fixed_uint_t> const numeric_super_bitmask_table = []()
 {
-    fixed_lut_t<fixed_int_t> table;
+    fixed_lut_t<fixed_uint_t> table;
     for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
     {
         type_name_t type_name = (type_name_t)i;
@@ -48,24 +48,24 @@ fixed_lut_t<fixed_int_t> const numeric_super_bitmask_table = []()
     return table;
 }();
 
-sfixed_int_t to_signed(fixed_int_t f, fixed_int_t bitmask)
+fixed_sint_t to_signed(fixed_uint_t f, fixed_uint_t bitmask)
 {
     assert(bitmask);
 
-    fixed_int_t const high_bit = bitmask & ~(bitmask >> 1ull);
+    fixed_uint_t const high_bit = bitmask & ~(bitmask >> 1ull);
 
     if(f & high_bit)
     {
         f |= ~0ull << builtin::rclz(bitmask);
-        assert(static_cast<sfixed_int_t>(f) < 0ll);
+        assert(static_cast<fixed_sint_t>(f) < 0ll);
     }
 
-    return static_cast<sfixed_int_t>(f);
+    return static_cast<fixed_sint_t>(f);
 }
 
-sfixed_int_t to_signed(fixed_int_t f, type_name_t type_name)
+fixed_sint_t to_signed(fixed_uint_t f, type_name_t type_name)
 {
     if(is_signed(type_name))
         return to_signed(f, numeric_bitmask(type_name));
-    return static_cast<sfixed_int_t>(f);
+    return static_cast<fixed_sint_t>(f);
 }

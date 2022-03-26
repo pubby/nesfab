@@ -6,32 +6,32 @@
 #include "fixed.hpp"
 #include "type_name.hpp"
 
-constexpr fixed_int_t fixed_mask = (1ull << (max_total_bytes * 8ull)) - 1ull;
-constexpr fixed_int_t frac_mask = (1ull << fixed_t::shift) - 1ull;
-constexpr fixed_int_t whole_mask = ~frac_mask;
+constexpr fixed_uint_t fixed_mask = (1ull << (max_total_bytes * 8ull)) - 1ull;
+constexpr fixed_uint_t frac_mask = (1ull << fixed_t::shift) - 1ull;
+constexpr fixed_uint_t whole_mask = ~frac_mask;
 
 template<typename T>
 using fixed_lut_t = std::array<T, TYPE_LAST_SCALAR - TYPE_FIRST_SCALAR + 1>;
-extern fixed_lut_t<fixed_int_t> const numeric_bitmask_table;
-extern fixed_lut_t<fixed_int_t> const numeric_sub_bitmask_table;
-extern fixed_lut_t<fixed_int_t> const numeric_super_bitmask_table;
+extern fixed_lut_t<fixed_uint_t> const numeric_bitmask_table;
+extern fixed_lut_t<fixed_uint_t> const numeric_sub_bitmask_table;
+extern fixed_lut_t<fixed_uint_t> const numeric_super_bitmask_table;
 
 [[gnu::pure]]
-inline fixed_int_t numeric_bitmask(type_name_t type_name)
+inline fixed_uint_t numeric_bitmask(type_name_t type_name)
 {
     assert(is_scalar(type_name));
     return numeric_bitmask_table[type_name - TYPE_FIRST_SCALAR];
 }
 
 [[gnu::pure]]
-inline fixed_int_t numeric_submask(type_name_t type_name)
+inline fixed_uint_t numeric_submask(type_name_t type_name)
 {
     assert(is_scalar(type_name));
     return numeric_sub_bitmask_table[type_name - TYPE_FIRST_SCALAR];
 }
 
 [[gnu::pure]]
-inline fixed_int_t numeric_supermask(type_name_t type_name)
+inline fixed_uint_t numeric_supermask(type_name_t type_name)
 {
     assert(is_scalar(type_name));
     return numeric_super_bitmask_table[type_name - TYPE_FIRST_SCALAR];
@@ -59,7 +59,7 @@ inline constexpr fixed_t boolify(fixed_t f)
     return { 0 };
 }
 
-sfixed_int_t to_signed(fixed_int_t f, fixed_int_t bitmask);
-sfixed_int_t to_signed(fixed_int_t f, type_name_t type_name);
+fixed_sint_t to_signed(fixed_uint_t f, fixed_uint_t bitmask);
+fixed_sint_t to_signed(fixed_uint_t f, type_name_t type_name);
 
 #endif

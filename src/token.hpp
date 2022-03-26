@@ -14,7 +14,7 @@ namespace bc = boost::container;
 
 struct token_t
 {
-    using int_type = std::uint64_t; // Should match fixed_int_t
+    using int_type = std::uint64_t; // Should match fixed_uint_t
     static_assert(sizeof(int_type) >= sizeof(std::uintptr_t));
 
     token_type_t type;

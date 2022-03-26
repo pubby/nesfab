@@ -156,6 +156,8 @@ constexpr bool valid_struct_member(type_t type)
 std::string to_string(type_t type);
 std::ostream& operator<<(std::ostream& ostr, type_t const& type);
 
+bool is_ct(type_t type);
+
 unsigned num_members(type_t type);
 unsigned num_atoms(type_t type);
 

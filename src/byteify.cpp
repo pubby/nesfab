@@ -40,7 +40,7 @@ static bm_t _get_bm(ssa_value_t value)
     if(value.is_const())
     {
         bm_t bm;
-        fixed_int_t f = value.fixed().value;
+        fixed_uint_t f = value.fixed().value;
         for(unsigned i = 0; i < bm.size(); ++i)
         {
             bm[i] = f & 0xFF;

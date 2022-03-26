@@ -356,6 +356,25 @@ type_name_t smallest_representable(fixed_t fixed)
 }
 */
 
+bool is_ct(type_t type)
+{
+    switch(type.name())
+    {
+    case TYPE_REAL:
+    case TYPE_INT:
+        return true;
+    case TYPE_ARRAY:
+        return is_ct(type.elem_type());
+    case TYPE_STRUCT:
+        for(auto const& pair : type.struct_().fields())
+            if(is_ct(pair.second.type))
+                return true;
+        return false;
+    default:
+        return false;
+    }
+}
+
 unsigned num_members(type_t type)
 {
     if(type.name() == TYPE_STRUCT)

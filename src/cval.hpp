@@ -8,8 +8,10 @@
 
 namespace bc = boost::container;
 
+using ct_array_t = bc::small_vector<ssa_value_t, 1>;
+
 // compile-time-value
-struct cval_t : public bc::small_vector<bc::small_vector<ssa_value_t, 1>, 1>;
+using cval_t = bc::small_vector<bc::small_vector<ssa_value_t, 1>, 1>;
 
 struct cpair_t
 {
@@ -20,7 +22,7 @@ struct cpair_t
 template<>
 struct std::hash<cpair_t>
 {
-    std::size_t operator()(S const& s) const noexcept
+    std::size_t operator()(cpair_t const& s) const noexcept
     {
         std::size_t h = std::hash<type_t>{}(s.type);
         for(auto const& vec : s.value)

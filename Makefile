@@ -41,6 +41,7 @@ override CXXFLAGS+= \
   -Wno-missing-field-initializers \
   -fmax-errors=3 \
   -ftemplate-depth=100 \
+  -pipe \
   $(INCS) \
   -DVERSION=\"$(VERSION)\" \
   -DGIT_COMMIT=\"$(GIT_COMMIT)\" \
@@ -109,7 +110,8 @@ constraints.cpp \
 constraints_tests.cpp \
 carry.cpp \
 ssa_op.cpp \
-add_constraints_table.cpp
+add_constraints_table.cpp \
+catch/catch.cpp
 
 TESTS_OBJS := $(foreach o,$(TESTS_SRCS),$(OBJDIR)/$(o:.cpp=.o))
 TESTS_DEPS := $(foreach o,$(TESTS_SRCS),$(OBJDIR)/$(o:.cpp=.d))

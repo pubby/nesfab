@@ -31,12 +31,12 @@ std::ostream& operator<<(std::ostream& o, bounds_t const& b);
 std::ostream& operator<<(std::ostream& o, known_bits_t const& b);
 std::ostream& operator<<(std::ostream& o, constraints_t const& c);
 
-bounds_t apply_mask(fixed_int_t mask, bounds_t b);
-known_bits_t apply_mask(fixed_int_t mask, known_bits_t b);
-constraints_t apply_mask(fixed_int_t mask, constraints_t c);
+bounds_t apply_mask(fixed_uint_t mask, bounds_t b);
+known_bits_t apply_mask(fixed_uint_t mask, known_bits_t b);
+constraints_t apply_mask(fixed_uint_t mask, constraints_t c);
 
 bounds_t from_bits(known_bits_t bits);
-bounds_t from_bits(known_bits_t bits, fixed_int_t mask);
+bounds_t from_bits(known_bits_t bits, fixed_uint_t mask);
 known_bits_t from_bounds(bounds_t bounds);
 
 bounds_t intersect(bounds_t a, bounds_t b);
@@ -57,17 +57,17 @@ constraints_t normalize(constraints_t c);
 
 struct bounds_t
 {
-    fixed_int_t min;
-    fixed_int_t max;
+    fixed_uint_t min;
+    fixed_uint_t max;
 
     // Construction
     constexpr static bounds_t top() 
         { return { ~0ull, 0 }; }
-    constexpr static bounds_t bottom(fixed_int_t mask) 
+    constexpr static bounds_t bottom(fixed_uint_t mask) 
         { return { 0, mask }; }
-    constexpr static bounds_t const_(fixed_int_t fixed) 
+    constexpr static bounds_t const_(fixed_uint_t fixed) 
         { return { fixed, fixed}; }
-    constexpr static bounds_t whole(fixed_int_t fixed) 
+    constexpr static bounds_t whole(fixed_uint_t fixed) 
         { return { fixed << fixed_t::shift, fixed << fixed_t::shift} ; }
     static constexpr bounds_t bool_(bool b) { return whole(b); }
     static constexpr bounds_t any_bool()
@@ -80,27 +80,27 @@ struct bounds_t
         { return min == max; }
     constexpr bool bit_eq(bounds_t o) const
         { return min == o.min && max == o.max; }
-    constexpr bool operator()(fixed_int_t fixed) const
+    constexpr bool operator()(fixed_uint_t fixed) const
         { return fixed >= min && fixed <= max; }
 
     // Data
-    constexpr fixed_int_t get_const() const 
+    constexpr fixed_uint_t get_const() const 
         { assert(is_const()); return min; }
 };
 
 struct known_bits_t
 {
-    fixed_int_t known0;
-    fixed_int_t known1;
+    fixed_uint_t known0;
+    fixed_uint_t known1;
 
     // Construction
     constexpr static known_bits_t top() 
         { return { ~0ull, ~0ll }; }
-    constexpr static known_bits_t bottom(fixed_int_t mask) 
+    constexpr static known_bits_t bottom(fixed_uint_t mask) 
         { return { ~mask, 0 }; }
-    constexpr static known_bits_t const_(fixed_int_t fixed) 
+    constexpr static known_bits_t const_(fixed_uint_t fixed) 
         { return { ~fixed, fixed}; }
-    constexpr static known_bits_t whole(fixed_int_t fixed) 
+    constexpr static known_bits_t whole(fixed_uint_t fixed) 
         { return { ~(fixed << fixed_t::shift), fixed << fixed_t::shift }; }
     static constexpr known_bits_t bool_(bool b) { return whole(b); }
     static constexpr known_bits_t any_bool()
@@ -113,13 +113,13 @@ struct known_bits_t
         { return ~(known0 ^ known1) == 0; }
     constexpr bool bit_eq(known_bits_t o) const
         { return known0 == o.known0 && known1 == o.known1; }
-    constexpr bool operator()(fixed_int_t fixed) const
+    constexpr bool operator()(fixed_uint_t fixed) const
         { return (fixed & known1) == known1 && (~fixed & known0) == known0; }
 
     // Data
-    constexpr fixed_int_t get_const() const 
+    constexpr fixed_uint_t get_const() const 
         { assert(is_const()); return known1; }
-    constexpr fixed_int_t known() const
+    constexpr fixed_uint_t known() const
         { return known0 | known1; }
 };
 
@@ -134,7 +134,7 @@ struct constraints_t
         return { bounds_t::top(), known_bits_t::top() }; 
     }
 
-    constexpr static constraints_t bottom(fixed_int_t mask) 
+    constexpr static constraints_t bottom(fixed_uint_t mask) 
     { 
         return 
         { 
@@ -143,12 +143,12 @@ struct constraints_t
         };
     }
 
-    constexpr static constraints_t const_(fixed_int_t fixed) 
+    constexpr static constraints_t const_(fixed_uint_t fixed) 
     { 
         return { bounds_t::const_(fixed), known_bits_t::const_(fixed) };
     }
 
-    constexpr static constraints_t whole(fixed_int_t fixed) 
+    constexpr static constraints_t whole(fixed_uint_t fixed) 
     { 
         return { bounds_t::whole(fixed), known_bits_t::whole(fixed) };
     }
@@ -169,10 +169,10 @@ struct constraints_t
         }
     }
 
-    static constraints_t shifted_carry(carry_t cr, fixed_int_t mask = 1)
+    static constraints_t shifted_carry(carry_t cr, fixed_uint_t mask = 1)
     {
         assert(mask);
-        fixed_int_t const i = ~(mask << 1ull) & mask;
+        fixed_uint_t const i = ~(mask << 1ull) & mask;
         switch(cr)
         {
         case CARRY_BOTTOM: return {{ 0, i }, {    ~i, 0 }};
@@ -201,13 +201,13 @@ struct constraints_t
     }
     bool normal_eq(constraints_t o) const
         { return ::normalize(*this).bit_eq(::normalize(o)); }
-    constexpr bool operator()(fixed_int_t fixed) const
+    constexpr bool operator()(fixed_uint_t fixed) const
         { return bounds(fixed) && bits(fixed); }
     bool is_normalized() const // Relatively expensive; don't use often.
         { return bit_eq(::normalize(*this)); }
 
     // Data
-    fixed_int_t get_const() const
+    fixed_uint_t get_const() const
     { 
         assert(is_const());
         return bounds.is_const() ? bounds.get_const() : bits.get_const();
@@ -230,7 +230,7 @@ using constraints_vec_t = bc::small_vector<constraints_t, 2>;
 
 struct constraints_def_t
 {
-    fixed_int_t mask = 0;
+    fixed_uint_t mask = 0;
     constraints_vec_t vec;
 
     constraints_t const& operator[](unsigned i) const { assert(i < vec.size()); return vec[i]; }

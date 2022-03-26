@@ -154,6 +154,7 @@ public:
     void interpret_stmts();
 
     cfg_ht compile_block(cfg_ht cfg_node);
+    cfg_ht compile_expr(rpn_stack_t& rpn_stack, cfg_ht cfg_node, token_t const* expr);
 
     template<do_t D>
     void do_expr(rpn_stack_t& rpn_stack, token_t const* expr);
@@ -688,11 +689,11 @@ void eval_t::interpret_stmts()
 
 cfg_ht eval_t::compile_block(cfg_ht cfg_node)
 {
-#if 0
     while(true)
     switch(stmt->name)
     {
     default: // Handles var inits
+#if 0
         if(is_var_init(stmt->name))
         {
             unsigned const var_i = get_local_var_i(stmt->name);
@@ -717,7 +718,6 @@ cfg_ht eval_t::compile_block(cfg_ht cfg_node)
         else
             throw std::runtime_error("Unimplemented stmt.");
         break;
-
     case STMT_END_BLOCK:
         ++stmt;
         return cfg_node;
@@ -945,17 +945,288 @@ cfg_ht eval_t::compile_block(cfg_ht cfg_node)
             ++stmt;
             break;
         }
+#endif
+        ;
     }
     assert(false);
-#endif
     assert(0);
+}
+
+cfg_ht eval_t::compile_expr(rpn_stack_t& rpn_stack, cfg_ht cfg_node, token_t const* expr)
+{
+    rpn_stack.clear();
+    builder.logical_stack.clear();
+
+    for(token_t const* token = expr; token->type; ++token)
+    {
+        switch(token->type)
+        {
+        default:
+            throw std::runtime_error(fmt("Invalid token '%' in expression.", token_name(token->type)));
+
+#if 0
+        case TOK_ident:
+            rpn_stack.push({ 
+                .value = var_lookup(cfg_node, token->value), 
+                .category = LVAL, 
+                .type = fn->def().local_vars[token->value].type, 
+                .pstring = token->pstring,
+                .var_i = token->value });
+            break;
+
+        case TOK_global_ident:
+            {
+                global_t* global = token->ptr<global_t>();
+                switch(global->gclass())
+                {
+                default:
+                    throw std::runtime_error(
+                        "Unimplemented global in expression.");
+                case GLOBAL_VAR:
+                    {
+                        unsigned const var_i = to_var_i(ir.gvar_loc_manager.index(global->handle<gvar_ht>()));
+                        rpn_stack.push({ 
+                            .value = var_lookup(cfg_node, var_i), 
+                            .category = LVAL, 
+                            .type = global->impl<gvar_t>().type(), 
+                            .pstring = token->pstring,
+                            .var_i = var_i });
+                    }
+                    break;
+
+                case GLOBAL_FN:
+                    rpn_stack.push({ 
+                        .value = ssa_value_t(locator_t::fn(global->handle<fn_ht>())),
+                        .category = RVAL, 
+                        .type = global->impl<fn_t>().type(), 
+                        .pstring = token->pstring });
+                    break;
+                }
+            }
+            break;
+
+        case TOK_assign:
+            compile_assign(*cfg_node);
+            break;
+
+        case TOK_int: // TODO
+            rpn_stack.push({
+                .value = token->value, 
+                .category = RVAL, 
+                .type = { TYPE_INT },  // TODO
+                .pstring = token->pstring });
+            break;
+
+        case TOK_apply:
+            {
+                // TOK_apply is a psuedo token used to represent application. 
+                // The token's 'value' stores the application's arity:
+                std::size_t const num_args = token->value;
+
+                // The eval stack contains the arguments to be applied.
+                // Right beneath those it contains the fn value to be called.
+                rpn_value_t& fn_val = rpn_stack.peek(num_args);
+
+                if(fn_val.type.name() != TYPE_FN)
+                {
+                    compiler_error(fn_val.pstring, fmt(
+                        "Expecting function type. Got %.", fn_val.type));
+                }
+
+                std::size_t const num_params = fn_val.type.num_params();
+                type_t const* const params = fn_val.type.types();
+
+                if(num_args != num_params)
+                {
+                    compiler_error(
+                        fn_val.pstring, fmt(
+                        "Passed % arguments to a function of type %. "
+                        "Expecting % arguments.",
+                        num_args, fn_val.type, num_params));
+                }
+
+                // Now for the arguments.
+                // Cast all arguments to match the fn signature.
+                rpn_value_t* const args = &rpn_stack.peek(num_args - 1);
+
+                for(std::uint64_t arg = 0, fail_bits = cast_args(*cfg_node, 
+                    fn_val.pstring, args, rpn_stack.past_top(), params)
+                   ; fail_bits; ++arg)
+                {
+                    if(fail_bits & 1)
+                    {
+                        compiler_error(
+                            args[arg].pstring, fmt(
+                            "Unable to convert type % "
+                            "to type % in function application.\n"
+                            "Expected signature: % ",
+                            args[arg].type, params[arg], fn_val.type));
+                    }
+                    fail_bits >>= 1;
+                }
+
+                // For now, only const fns are allowed.
+                // In the future, fn pointers may be supported.
+                assert(fn_val.value.is_locator());
+                fn_ht fn = fn_val.value.locator().fn();
+
+                // Type checks are done. Now convert the call to SSA.
+                ssa_ht fn_node = insert_fn_call(cfg_node, fn, args);
+
+                // Update the eval stack.
+                rpn_value_t new_top =
+                {
+                    .value = fn_node,
+                    .category = RVAL, 
+                    .type = fn_val.type.return_type(), 
+                    .pstring = concat(fn_val.pstring, token->pstring)
+                };
+
+                rpn_stack.pop(num_args + 1);
+                rpn_stack.push(std::move(new_top));
+
+                break;
+            }
+
+            // inlining:
+            // - create a new 'eval_t'.
+            // - run the eval_t
+            // -- different enter / returns behavior
+            // how to handle globals?
+            // how to handle locals?
+            // how to handle structs?
+
+            // STRUCTS:
+            // - represent several SSA nodes
+            // - lvals: work like interpreter
+
+
+
+        case TOK_index:
+            {
+                // TOK_index is a psuedo token used to array indexing. 
+
+                // The eval stack contains the index on top.
+                // Right beneath it contains the array.
+                rpn_value_t& array_val = rpn_stack.peek(1);
+
+                if(array_val.type.name() != TYPE_ARRAY)
+                {
+                    compiler_error(array_val.pstring, fmt(
+                        "Expecting array type. Got %.", array_val.type));
+                }
+
+                rpn_value_t& array_index = rpn_stack.peek(0);
+
+                // Array indexes are always bytes.
+                throwing_cast(*cfg_node, array_index, TYPE_U);
+
+                // Type checks are done. Now convert the index to SSA.
+                ssa_ht index_node = insert_array_index(cfg_node, array_val, array_index);
+
+                // Update the eval stack.
+                array_val.value = index_node;
+                array_val.category = to_indexed(array_val.category);
+                array_val.type = array_val.type.elem_type();
+                array_val.pstring = token->pstring;
+                rpn_stack.pop(1);
+            break;
+
+                // TODO
+                break;
+            }
+
+        case TOK_logical_and:
+            cfg_node = compile_logical_begin(cfg_node, false);
+            break;
+        case TOK_logical_or:
+            cfg_node = compile_logical_begin(cfg_node, true);
+            break;
+        case TOK_end_logical_and:
+            cfg_node = compile_logical_end(cfg_node, false);
+            break;
+        case TOK_end_logical_or:
+            cfg_node = compile_logical_end(cfg_node, true);
+            break;
+
+        case TOK_eq:
+            compile_compare(*cfg_node, SSA_eq);
+            break;
+        case TOK_not_eq:
+            compile_compare(*cfg_node, SSA_not_eq);
+            break;
+        case TOK_gt:
+            std::swap(rpn_stack.peek(0), rpn_stack.peek(1));
+            // fall-through
+        case TOK_lt:
+            compile_compare(*cfg_node, SSA_lt);
+            break;
+        case TOK_gte:
+            std::swap(rpn_stack.peek(0), rpn_stack.peek(1));
+            // fall-through
+        case TOK_lte:
+            compile_compare(*cfg_node, SSA_lte);
+            break;
+
+        case TOK_asterisk: 
+            compile_arith(*cfg_node, SSA_mul);
+            break;
+        case TOK_fslash: 
+            compile_arith(*cfg_node, SSA_div);
+            break;
+        case TOK_plus:
+            compile_arith(*cfg_node, SSA_add, true);  
+            break;
+        case TOK_minus: 
+            compile_arith(*cfg_node, SSA_sub, true);
+            break;
+        case TOK_lshift:
+            compile_shift(*cfg_node, SSA_shl);  
+            break;
+        case TOK_rshift: 
+            compile_shift(*cfg_node, SSA_shr);
+            break;
+        case TOK_bitwise_and: 
+            compile_arith(*cfg_node, SSA_and);
+            break;
+        case TOK_bitwise_or:  
+            compile_arith(*cfg_node, SSA_or);
+            break;
+        case TOK_bitwise_xor:
+            compile_arith(*cfg_node, SSA_xor);
+            break;
+
+        case TOK_plus_assign:
+            compile_assign_arith(*cfg_node, SSA_add, true);
+            break;
+        case TOK_minus_assign:
+            compile_assign_arith(*cfg_node, SSA_sub, true);
+            break;
+        case TOK_bitwise_and_assign:
+            compile_assign_arith(*cfg_node, SSA_and);
+            break;
+        case TOK_bitwise_or_assign:
+            compile_assign_arith(*cfg_node, SSA_or);
+            break;
+        case TOK_bitwise_xor_assign:
+            compile_assign_arith(*cfg_node, SSA_xor);
+            break;
+#endif
+        }
+    }
+
+    assert(rpn_stack.size() == 1);
+    assert(builder.logical_stack.empty());
+    return cfg_node;
 }
 
 template<eval_t::do_t D>
 void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 {
+    cfg_ht cfg_node; // TODO
+    assert(0);
     using namespace std::literals::chrono_literals;
-    using S = sfixed_int_t;
+    using S = fixed_sint_t;
 
     check_time();
 
@@ -975,11 +1246,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
         case TOK_ident:
             assert(token->value < num_locals());
 
-            if(D == COMPILE)
-            {
-                assert(false);
-            }
-            else if(D == INTERPRET_CE)
+            if(D == INTERPRET_CE)
                 compiler_error(token->pstring, "Expression cannot be evaluated at compile time.");
             else
             {
@@ -994,7 +1261,9 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     .var_i = token->value,
                 };
 
-                if(D == INTERPRET && !is_aggregate(new_top.type.name()))
+                if(D == COMPILE) 
+                    new_top.value = var_lookup(cfg_node, token->value);
+                else if(D == INTERPRET && !is_aggregate(new_top.type.name()))
                 {
                     if(interpret_locals[token->value].empty())
                         compiler_error(token->pstring, "Variable is invalid because goto jumped past its initialization.");
@@ -1012,8 +1281,29 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 switch(global->gclass())
                 {
                 default: 
-                    assert(false);
-                    std::terminate();
+                    throw std::runtime_error(
+                        "Unimplemented global in expression.");
+
+                case GLOBAL_VAR:
+                    if(D == COMPILE || D == CHECK)
+                    {
+                        unsigned const var_i = to_var_i(ir->gvar_loc_manager.index(global->handle<gvar_ht>()));
+                        rpn_value_t new_top =
+                        {
+                            .category = LVAL, 
+                            .type = global->impl<gvar_t>().type(),
+                            .pstring = token->pstring,
+                            .var_i = var_i,
+                        };
+
+                        if(D == COMPILE)
+                            new_top.value = var_lookup(cfg_node, var_i);
+
+                        rpn_stack.push(std::move(new_top));
+                    }
+                    else
+                        compiler_error(token->pstring, "Cannot use global variable in this context.");
+                    break;
 
                 case GLOBAL_CONST:
                     {
@@ -1021,26 +1311,19 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                         assert(!is_thunk(c.type().name()));
                         assert(c.cval().size());
 
-                        if(D == COMPILE)
+                        rpn_value_t new_top =
                         {
-                            assert(false);
-                        }
+                            .category = RVAL, 
+                            .type = c.type(),
+                            .pstring = token->pstring,
+                        };
+
+                        if(is_aggregate(c.type().name()))
+                            new_top.value = locator_t::global_const(global->handle<const_ht>());
                         else
-                        {
-                            rpn_value_t new_top =
-                            {
-                                .category = RVAL, 
-                                .type = c.type(),
-                                .pstring = token->pstring,
-                            };
+                            new_top.value = c.cval()[0][0];
 
-                            if(is_aggregate(c.type().name()))
-                                new_top.value = locator_t::global_const(global->handle<const_ht>());
-                            else
-                                new_top.value = c.cval()[0][0];
-
-                            rpn_stack.push(std::move(new_top));
-                        }
+                        rpn_stack.push(std::move(new_top));
                     }
                     break;
 
@@ -1106,14 +1389,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 struct_val.members.push_back(field_i);
                 struct_val.pstring = concat(struct_val.pstring, token->pstring);
                 
-                if(is_interpret(D))
+                if(D != CHECK && !is_aggregate(struct_val.type.name()))
                 {
-                    if(!is_aggregate(struct_val.type.name()))
-                    {
-                        access_t a = access(struct_val);
-                        a.index = std::max(a.index, 0);
-                        struct_val.value = local_leaf(struct_val, a);
-                    }
+                    access_t a = access(struct_val);
+                    a.index = std::max(a.index, 0);
+                    struct_val.value = local_leaf(struct_val, a);
                 }
 
                 break;
@@ -1166,9 +1446,12 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 // For now, only const fns are allowed.
                 // In the future, fn pointers may be supported.
                 assert(fn_val.value.is_locator());
-                fn_ht fn = fn_val.value.locator().fn();
+                fn_ht call = fn_val.value.locator().fn();
 
                 pstring_t const call_pstring = concat(fn_val.pstring, token->pstring);
+
+                if(call->mode && D != COMPILE)
+                    compiler_error(call_pstring, "Cannot goto mode at compile time.");
 
                 // Now do the call!
 
@@ -1186,6 +1469,8 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 }
                 else if(is_interpret(D))
                 {
+                interpret_fn:
+
                     bc::small_vector<cval_t, 8> cval_args(num_args);
                     for(unsigned i = 0; i < num_args; ++i)
                         cval_args[i] = to_cval(args[i]);
@@ -1193,13 +1478,13 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     try
                     {
                         // NOTE: call as INTERPRET, not D.
-                        eval_t call(do_wrapper_t<INTERPRET>{}, call_pstring, *fn, cval_args.data());
+                        eval_t sub(do_wrapper_t<INTERPRET>{}, call_pstring, *call, cval_args.data());
 
                         // Allocate a temporary local var for the return:
                         unsigned const return_i = interpret_locals.size();
                         assert(return_i == local_types.size());
-                        interpret_locals.push_back(std::move(call.final_result.value));
-                        local_types.push_back(std::move(call.final_result.type));
+                        interpret_locals.push_back(std::move(sub.final_result.value));
+                        local_types.push_back(std::move(sub.final_result.type));
 
                         // Update the eval stack.
                         rpn_value_t new_top =
@@ -1225,7 +1510,114 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 }
                 else if(D == COMPILE)
                 {
-                    assert(false);
+                    if(is_ct(call->type().return_type()))
+                        goto interpret_fn;
+                    // TODO: Interpret in other situations, too.
+
+                    bc::small_vector<ssa_value_t, 32> fn_inputs;
+
+                    // The [0] argument holds the fn_t ptr.
+                    fn_inputs.push_back(ssa_value_t(locator_t::fn(call)));
+                    
+                    // Prepare the input globals
+
+                    bool const is_idep = fn->global.ideps().count(&call->global) > 0;
+                    assert(is_idep || fn->mode);
+
+                    bitset_t const* reads_set;
+                    if(!call->mode || is_idep)
+                        reads_set = &call->ir_reads();
+                    else
+                        reads_set = &call->lang_gvars();
+
+                    ir->gvar_loc_manager.for_each_singleton([&](gvar_ht gvar, gvar_loc_manager_t::index_t i)
+                    {
+                        if(reads_set->test(gvar.value))
+                        {
+                            fn_inputs.push_back(var_lookup(cfg_node, to_var_i(i)));
+                            fn_inputs.push_back(ir->gvar_loc_manager.locator(i));
+                        }
+                    });
+
+                    unsigned const bs_size = impl_bitset_size<gvar_t>();
+                    assert(bs_size == reads_set->size());
+                    assert(bs_size == gvar_loc_manager_t::bitset_size());
+                    auto* const temp_set = ALLOCA_T(bitset_uint_t, bs_size);
+
+                    ir->gvar_loc_manager.for_each_set([&](bitset_uint_t const* gvar_set, gvar_loc_manager_t::index_t i)
+                    {
+                        bitset_copy(bs_size, temp_set, gvar_set);
+                        bitset_and(bs_size, temp_set, reads_set->data());
+                        if(!bitset_all_clear(bs_size, temp_set))
+                        {
+                            fn_inputs.push_back(var_lookup(cfg_node, to_var_i(i)));
+                            fn_inputs.push_back(ir->gvar_loc_manager.locator(i));
+                        }
+
+                    });
+
+                    // Prepare the arguments
+                    unsigned const num_args = call->type().num_params();
+                    for(unsigned i = 0; i < num_args; ++i)
+                    {
+                        locator_t const loc = locator_t::arg(call, i, 0);
+
+                        // If the arg isn't used in the function, ignore it.
+                        if(is_idep && call->lvars().index(loc) < 0)
+                            continue;
+
+                        fn_inputs.push_back(args[i].value);
+                        fn_inputs.push_back(loc);
+                    }
+
+                    // Create the dependent node.
+                    ssa_op_t const op = call->mode ? SSA_goto_mode : SSA_fn_call;
+                    ssa_ht const fn_node = cfg_node->emplace_ssa(op, call->type().return_type());
+                    assert(fn_inputs.size() % 2 == 1);
+                    fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
+                    fn_node->append_daisy();
+
+                    if(!call->mode)
+                    {
+                        // After the fn is called, read all the globals it has written to:
+                        bitset_t const& writes_set = call->ir_writes();
+
+                        ir->gvar_loc_manager.for_each_singleton([&](gvar_ht gvar, gvar_loc_manager_t::index_t i)
+                        {
+                            if(writes_set.test(gvar.value))
+                            {
+                                ssa_ht read = cfg_node->emplace_ssa(
+                                    SSA_read_global, gvar->type(), fn_node, ir->gvar_loc_manager.locator(i));
+                                block_d& block_data = cfg_node.data<block_d>();
+                                block_data.fn_vars[to_var_i(i)] = read;
+                            }
+                        });
+
+                        ir->gvar_loc_manager.for_each_set([&](bitset_uint_t const* gvar_set, gvar_loc_manager_t::index_t i)
+                        {
+                            bitset_copy(bs_size, temp_set, gvar_set);
+                            bitset_and(bs_size, temp_set, writes_set.data());
+                            if(!bitset_all_clear(bs_size, temp_set))
+                            {
+                                ssa_ht read = cfg_node->emplace_ssa(
+                                    SSA_read_global, TYPE_VOID, fn_node, ir->gvar_loc_manager.locator(i));
+                                block_d& block_data = cfg_node.data<block_d>();
+                                block_data.fn_vars[to_var_i(i)] = read;
+                            }
+                        });
+                    }
+
+                    // Update the eval stack.
+                    rpn_value_t new_top =
+                    {
+                        .value = fn_node,
+                        .category = RVAL, 
+                        .type = fn_val.type.return_type(), 
+                        .pstring = concat(fn_val.pstring, token->pstring)
+                    };
+
+                    rpn_stack.pop(num_args + 1);
+                    rpn_stack.push(std::move(new_top));
                 }
 
                 break;
@@ -1240,7 +1632,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 rpn_value_t* const args = &rpn_stack.peek(argn - 1);
                 assert(rpn_stack.past_top() - args == argn);
 
-                // Advance the token.
+                // Advance the token to get the TOK_cast_type.
                 ++token;
                 assert(token->type == TOK_cast_type);
                 type_t const type = dethunkify(*token->ptr<type_t const>(), this);
@@ -1253,90 +1645,117 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             argn < size ? "few" : "many", type, size));
                 };
 
-                cval_t new_cval;
-
-                if(type.name() == TYPE_STRUCT)
+                if(is_aggregate(type.name()))
                 {
-                    struct_t const& s = type.struct_();
-                    check_argn(s.fields().size());
-
-                    type_t* const types = ALLOCA_T(type_t, s.fields().size());
-                    for(unsigned i = 0; i < s.fields().size(); ++i)
+                    rpn_value_t new_top = 
                     {
-                        types[i] = s.field(i).type;
-                        assert(!is_thunk(types[i].name()));
-                    }
-
-                    int const cast_result = cast_args<D>(token->pstring, args, rpn_stack.past_top(), types, false);
-
-                    if(cast_result >= 0)
-                    {
-                        assert(cast_result < (int)s.fields().size());
-                        compiler_error(
-                            args[cast_result].pstring, fmt(
-                            "Unable to convert type % to type % in cast to %.\n",
-                            args[cast_result].type, types[cast_result], s.global.name));
-                    }
-
-                    // Create a new cval.
-                    new_cval.resize(num_members(type));
-                    init_cval({ type }, new_cval);
-
-                    for(unsigned i = 0, j = 0; i < s.fields().size(); ++i)
-                    {
-                        cval_t arg = to_cval(args[i]);
-
-                        for(unsigned k = 0; k < arg.size(); ++k)
-                        {
-                            assert((j + k) < new_cval.size());
-                            new_cval[j + k] = std::move(arg[k]);
-                        }
-
-                        j += arg.size();
-                    }
-
-                    goto add_new_cval;
-
-                }
-                else if(type.name() == TYPE_ARRAY)
-                {
-                    check_argn(type.array_length());
-
-                    for(unsigned i = 0; i < type.array_length(); ++i)
-                        throwing_cast<D>(args[i], type.elem_type(), false);
-
-                    // Create a new cval.
-                    new_cval.resize(num_members(type));
-                    for(auto& vec : new_cval)
-                        vec.resize(type.array_length());
-
-                    for(unsigned i = 0; i < type.array_length(); ++i)
-                    {
-                        cval_t arg = to_cval(args[i]);
-                        assert(arg.size() == new_cval.size());
-
-                        for(unsigned j = 0; j < arg.size(); ++j)
-                        {
-                            assert(arg[j].size() == 1);
-                            new_cval[j][i] = arg[j][0];
-                        }
-                    }
-
-                add_new_cval:
-
-                    // Allocate a temporary.
-                    unsigned const temp_i = interpret_locals.size();
-                    assert(temp_i == local_types.size());
-                    interpret_locals.push_back(std::move(new_cval));
-                    local_types.push_back(type);
-
-                    // Update the stack.
-                    rpn_stack.pop(argn);
-                    rpn_stack.push({
                         .category = RVAL, 
                         .type = type, 
                         .pstring = token->pstring,
-                        .var_i = temp_i });
+                    };
+
+                    auto const allocate_temp = [this](cval_t&& cval, type_t type) -> unsigned
+                    {
+                        unsigned const temp_i = interpret_locals.size();
+                        assert(temp_i == local_types.size());
+
+                        interpret_locals.push_back(std::move(cval));
+                        local_types.push_back(type);
+
+                        return temp_i;
+                    };
+
+                    if(type.name() == TYPE_STRUCT)
+                    {
+                        struct_t const& s = type.struct_();
+                        check_argn(s.fields().size());
+
+                        type_t* const types = ALLOCA_T(type_t, s.fields().size());
+                        for(unsigned i = 0; i < s.fields().size(); ++i)
+                        {
+                            types[i] = s.field(i).type;
+                            assert(!is_thunk(types[i].name()));
+                        }
+
+                        int const cast_result = cast_args<D>(token->pstring, args, rpn_stack.past_top(), types, false);
+
+                        if(cast_result >= 0)
+                        {
+                            assert(cast_result < (int)s.fields().size());
+                            compiler_error(
+                                args[cast_result].pstring, fmt(
+                                "Unable to convert type % to type % in cast to %.\n",
+                                args[cast_result].type, types[cast_result], s.global.name));
+                        }
+
+                        if(is_interpret(D))
+                        {
+                            // Create a new cval.
+                            cval_t new_cval(num_members(type));
+                            init_cval({ type }, new_cval);
+
+                            for(unsigned i = 0, j = 0; i < s.fields().size(); ++i)
+                            {
+                                cval_t arg = to_cval(args[i]);
+
+                                for(unsigned k = 0; k < arg.size(); ++k)
+                                {
+                                    assert((j + k) < new_cval.size());
+                                    new_cval[j + k] = std::move(arg[k]);
+                                }
+
+                                j += arg.size();
+                            }
+
+                            // Move the cval into 'new_top':
+                            new_top.var_i = alloc_temp(std::move(new_cval), type);
+                        }
+                        else if(D == COMPILE)
+                        {
+                            assert(false);
+                        }
+
+                        goto add_new_cval;
+
+                    }
+                    else if(type.name() == TYPE_ARRAY)
+                    {
+                        check_argn(type.array_length());
+
+                        for(unsigned i = 0; i < type.array_length(); ++i)
+                            throwing_cast<D>(args[i], type.elem_type(), false);
+
+                        if(is_interpret(D))
+                        {
+                            // Create a new cval.
+                            cval_t new_cval(num_members(type));
+                            for(auto& vec : new_cval)
+                                vec.resize(type.array_length());
+
+                            for(unsigned i = 0; i < type.array_length(); ++i)
+                            {
+                                cval_t arg = to_cval(args[i]);
+                                assert(arg.size() == new_cval.size());
+
+                                for(unsigned j = 0; j < arg.size(); ++j)
+                                {
+                                    assert(arg[j].size() == 1);
+                                    new_cval[j][i] = arg[j][0];
+                                }
+                            }
+
+                            // Move the cval into 'new_top':
+                            new_top.var_i = alloc_temp(std::move(new_cval), type);
+                        }
+                        else if(D == COMPILE)
+                        {
+                            assert(false);
+                        }
+                    }
+
+                    // Update the stack.
+                    rpn_stack.pop(argn);
+                    rpn_stack.push(std::move(new_top));
                 }
                 else if(is_scalar(type.name()))
                 {
@@ -1349,7 +1768,6 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 rpn_stack.peek(0).pstring = concat(token->pstring, rpn_stack.peek(0).pstring);
             }
             break;
-
 
         case TOK_index:
             {
@@ -1605,7 +2023,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 req_quantity(*token, top);
 
                 if(is_interpret(D))
-                    top.value.set(mask_numeric(fixed_t{ -top.sfixed() }, top.type.name()));
+                    top.value.set(mask_numeric(fixed_t{ -top.s() }, top.type.name()));
                 else if(D == COMPILE)
                     assert(false);
 
@@ -1617,11 +2035,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 rpn_value_t& top = rpn_stack.peek(0);
                 req_quantity(*token, top);
 
-                std::printf("top = %i\n", (int)top.sfixed());
-                std::printf("top = %i\n", (int)~top.sfixed());
+                std::printf("top = %i\n", (int)top.s());
+                std::printf("top = %i\n", (int)~top.s());
 
                 if(is_interpret(D))
-                    top.value.set(mask_numeric(fixed_t{ ~top.fixed().value }, top.type.name()));
+                    top.value.set(mask_numeric(fixed_t{ ~top.u() }, top.type.name()));
                 else if(D == COMPILE)
                     assert(false);
 
@@ -1740,7 +2158,7 @@ void eval_t::do_compare(rpn_stack_t& rpn_stack, token_t const& token)
 
     if(is_interpret(Policy::D))
     {
-        bool const result = Policy::interpret(lhs.sfixed(), rhs.sfixed());
+        bool const result = Policy::interpret(lhs.s(), rhs.s());
         new_top.value.set((unsigned)result);
     }
     else if(Policy::D == COMPILE)
@@ -1763,12 +2181,12 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
 
     if(lhs.type != rhs.type)
     {
-        if(is_ct(lhs.type.name()) && can_cast(lhs.type, rhs.type, true))
+        if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
         {
             result_type = rhs.type;
             throwing_cast<Policy::D>(lhs, result_type, true);
         }
-        else if(is_ct(rhs.type.name()) && can_cast(rhs.type, lhs.type, true))
+        else if(is_ct(rhs.type) && can_cast(rhs.type, lhs.type, true))
         {
             result_type = lhs.type;
             throwing_cast<Policy::D>(rhs, result_type, true);
@@ -1800,7 +2218,7 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
         assert(is_masked(lhs.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
 
-        fixed_t result = { Policy::interpret(lhs.sfixed(), rhs.sfixed()) };
+        fixed_t result = { Policy::interpret(lhs.s(), rhs.s()) };
         result.value &= numeric_bitmask(result_type.name());
         new_top.value.set(result);
     }
@@ -1841,7 +2259,7 @@ void eval_t::do_shift(rpn_stack_t& rpn_stack, token_t const& token)
         assert(is_masked(lhs.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
 
-        fixed_t result = { Policy::interpret(lhs.sfixed(), rhs.whole()) };
+        fixed_t result = { Policy::interpret(lhs.s(), rhs.whole()) };
         result.value &= numeric_bitmask(result_type.name());
         new_top.value.set(result);
     }
@@ -1916,7 +2334,7 @@ void eval_t::do_logical_end(rpn_stack_t& rpn_stack)
 template<eval_t::do_t D>
 void eval_t::force_truncate(rpn_value_t& rpn_value, type_t to_type, pstring_t cast_pstring)
 {
-    assert(!is_ct(rpn_value.type.name()));
+    assert(!is_ct(rpn_value.type));
     assert(is_arithmetic(to_type.name()) && is_arithmetic(rpn_value.type.name()));
 
     rpn_value_t new_rpn =
@@ -1939,7 +2357,7 @@ void eval_t::force_truncate(rpn_value_t& rpn_value, type_t to_type, pstring_t ca
 template<eval_t::do_t D>
 void eval_t::force_promote(rpn_value_t& rpn_value, type_t to_type, pstring_t cast_pstring)
 {
-    assert(!is_ct(rpn_value.type.name()));
+    assert(!is_ct(rpn_value.type));
     assert(is_arithmetic(to_type.name()) && is_arithmetic(rpn_value.type.name()));
 
     rpn_value_t new_rpn =
@@ -1950,7 +2368,7 @@ void eval_t::force_promote(rpn_value_t& rpn_value, type_t to_type, pstring_t cas
     };
 
     if(is_interpret(D))
-        new_rpn.value.set(mask_numeric({ rpn_value.sfixed() }, to_type.name()));
+        new_rpn.value.set(mask_numeric({ rpn_value.s() }, to_type.name()));
     else if(D == COMPILE)
     {
         assert(false);
@@ -1976,13 +2394,13 @@ void eval_t::force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool impl
     {
         fixed_t const masked = mask_numeric(rpn_value.fixed(), to_type.name());
 
-        if(implicit && to_signed(masked.value, to_type.name()) != rpn_value.sfixed())
+        if(implicit && to_signed(masked.value, to_type.name()) != rpn_value.s())
         {
             file_contents_t file(rpn_value.pstring.file_i);
             throw compiler_error_t(
                 fmt_error(file, rpn_value.pstring, fmt(
                     "Int value of % can't be represented in type %. (Implicit type conversion)", 
-                    to_double(fixed_t{ rpn_value.sfixed() }), to_type))
+                    to_double(fixed_t{ rpn_value.s() }), to_type))
                 + fmt_note("Add an explicit cast operator to override.")
                 );
         }
@@ -2008,17 +2426,17 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
 
     if(D != CHECK)
     {
-        sfixed_int_t const original = to_signed(rpn_value.fixed().value, { TYPE_REAL });
-        fixed_int_t value = rpn_value.fixed().value;
-        fixed_int_t const mask = numeric_bitmask(to_type.name());
-        if(fixed_int_t z = builtin::ctz(mask))
+        fixed_sint_t const original = to_signed(rpn_value.u(), { TYPE_REAL });
+        fixed_uint_t value = rpn_value.u();
+        fixed_uint_t const mask = numeric_bitmask(to_type.name());
+        if(fixed_uint_t z = builtin::ctz(mask))
             value += (1ull << (z - 1)) & value;
         value &= mask;
 
         if(implicit)
         {
-            fixed_int_t const supermask = numeric_supermask(to_type.name());
-            if((to_signed(value, to_type.name()) & supermask) != (rpn_value.sfixed() & supermask))
+            fixed_uint_t const supermask = numeric_supermask(to_type.name());
+            if((to_signed(value, to_type.name()) & supermask) != (rpn_value.s() & supermask))
             {
                 file_contents_t file(rpn_value.pstring.file_i);
                 throw compiler_error_t(
@@ -2033,7 +2451,7 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
         assert(is_masked({value}, to_type.name()));
 
         new_rpn.value.set(fixed_t{ value });
-        assert(new_rpn.value.fixed().value == value);
+        assert(new_rpn.u() == value);
     }
 
     rpn_value = std::move(new_rpn);

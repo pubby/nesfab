@@ -16,7 +16,7 @@ constexpr unsigned TEST_ITER = 1000;
 
 SSA_VERSION(1);
 
-known_bits_t random_bits(fixed_int_t mask, bool allow_top = false)
+known_bits_t random_bits(fixed_uint_t mask, bool allow_top = false)
 {
     known_bits_t bits;
     do
@@ -25,7 +25,7 @@ known_bits_t random_bits(fixed_int_t mask, bool allow_top = false)
     return bits;
 }
 
-constraints_t random_constraint(fixed_int_t mask, bool allow_top = false)
+constraints_t random_constraint(fixed_uint_t mask, bool allow_top = false)
 {
     if(rand() & 1)
     {
@@ -135,7 +135,7 @@ TEST_CASE("from_bounds", "[constraints]")
                 REQUIRE(bounds(i << 4));
 
         bounds_t test = { 15 << 4, 0 };
-        for(fixed_int_t i = 0; i <= 15; ++i)
+        for(fixed_uint_t i = 0; i <= 15; ++i)
         {
             if(bits(i << 4))
             {
@@ -155,7 +155,7 @@ TEST_CASE("intersect", "[constraints]")
     {
         constraints_t c1 = random_constraint(0xF << 4);
         constraints_t c2 = random_constraint(0xF << 4);
-        for(fixed_int_t i = 0; i <= 15; ++i)
+        for(fixed_uint_t i = 0; i <= 15; ++i)
         {
             constraints_t in = intersect(c1, c2);
             REQUIRE((c1(i<<4) && c2(i<<4)) == in(i<<4));
@@ -172,7 +172,7 @@ TEST_CASE("union_", "[constraints]")
     {
         constraints_t c1 = random_constraint(0xF << 4);
         constraints_t c2 = random_constraint(0xF << 4);
-        for(fixed_int_t i = 0; i <= 15; ++i)
+        for(fixed_uint_t i = 0; i <= 15; ++i)
         {
             constraints_t un = union_(c1, c2);
             if(c1(i<<4) || c2(i<<4))
@@ -238,8 +238,8 @@ void test_op(ssa_op_t op, Fn fn, bool debug = false)
     for(unsigned i = 0; i < 16; ++i)
     for(unsigned j = 0; j < 16; ++j)
     {
-        fixed_int_t a[2] = { i, j };
-        fixed_int_t o;
+        fixed_uint_t a[2] = { i, j };
+        fixed_uint_t o;
         for(int i = 0; i < Argn; ++i)
             if(!cv[i][0](a[i] << 24))
                 goto next_iter;
@@ -338,35 +338,35 @@ TEST_CASE("abstract_cast", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<1>(SSA_cast, [](fixed_int_t* c){ return c[0]; });
+        test_op<1>(SSA_cast, [](fixed_uint_t* c){ return c[0]; });
 }
 
 TEST_CASE("abstract_add", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<3>(SSA_add, [](fixed_int_t* c) { return c[0] + c[1]; });
+        test_op<3>(SSA_add, [](fixed_uint_t* c) { return c[0] + c[1]; });
 }
 
 TEST_CASE("abstract_shl", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_shl, [](fixed_int_t* c) { return c[0] << c[1]; });
+        test_op<2>(SSA_shl, [](fixed_uint_t* c) { return c[0] << c[1]; });
 }
 
 TEST_CASE("abstract_shr", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_shr, [](fixed_int_t* c) { return c[0] >> c[1]; }, true);
+        test_op<2>(SSA_shr, [](fixed_uint_t* c) { return c[0] >> c[1]; }, true);
 }
 
 TEST_CASE("abstract_and", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_and, [](fixed_int_t* c)
+        test_op<2>(SSA_and, [](fixed_uint_t* c)
             { return c[0] & c[1]; });
 }
 
@@ -374,7 +374,7 @@ TEST_CASE("abstract_or", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_or, [](fixed_int_t* c)
+        test_op<2>(SSA_or, [](fixed_uint_t* c)
             { return c[0] | c[1]; });
 }
 
@@ -382,7 +382,7 @@ TEST_CASE("abstract_xor", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_xor, [](fixed_int_t* c)
+        test_op<2>(SSA_xor, [](fixed_uint_t* c)
             { return c[0] ^ c[1]; });
 }
 
@@ -390,7 +390,7 @@ TEST_CASE("abstract_eq", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_eq, [](fixed_int_t* c)
+        test_op<2>(SSA_eq, [](fixed_uint_t* c)
             { return c[0] == c[1]; });
 }
 
@@ -398,7 +398,7 @@ TEST_CASE("abstract_not_eq", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_not_eq, [](fixed_int_t* c)
+        test_op<2>(SSA_not_eq, [](fixed_uint_t* c)
             { return c[0] != c[1]; });
 }
 
@@ -406,7 +406,7 @@ TEST_CASE("abstract_lt", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_lt, [](fixed_int_t* c)
+        test_op<2>(SSA_lt, [](fixed_uint_t* c)
             { return c[0] < c[1]; });
 }
 
@@ -414,7 +414,7 @@ TEST_CASE("abstract_lte", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_lte, [](fixed_int_t* c)
+        test_op<2>(SSA_lte, [](fixed_uint_t* c)
             { return c[0] <= c[1]; });
 }
 

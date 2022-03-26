@@ -54,6 +54,7 @@ enum locator_class_t : std::uint8_t
     LOC_RELOCATION_ADDR,
 
     LOC_GLOBAL_CONST,
+    LOC_LOCAL_CONST,
 
     LOC_SSA,
 };
@@ -249,6 +250,9 @@ public:
 
     constexpr static locator_t global_const(const_ht c, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_GLOBAL_CONST, c.value, 0, atom, offset); }
+
+    constexpr static locator_t local_const(std::uint16_t id=0, std::uint16_t offset=0)
+        { return locator_t(LOC_LOCAL_CONST, id, 0, 0, offset); }
 
     constexpr static locator_t local(std::uint16_t var_i, std::uint16_t offset=0)
         { return locator_t(LOC_LOCAL, var_i, 0, 0, offset); }

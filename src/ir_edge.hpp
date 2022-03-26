@@ -20,7 +20,7 @@ protected:
 
     static_assert(sizeof(std::uint64_t) <= sizeof(uint_t));
     static_assert(sizeof(std::uintptr_t) <= sizeof(uint_t));
-    static_assert(sizeof(fixed_int_t) <= sizeof(uint_t));
+    static_assert(sizeof(fixed_uint_t) <= sizeof(uint_t));
 
 public:
     uint_t value;

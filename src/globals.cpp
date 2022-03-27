@@ -136,7 +136,7 @@ fn_t& global_t::define_fn(pstring_t pstring,
 }
 
 gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                             type_t type, std::pair<group_vars_t*, group_vars_ht> group,
+                             src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
                              token_t const* expr)
 {
     gvar_t* ret;
@@ -144,7 +144,7 @@ gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps,
     // Create the var
     gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), {}, [&](global_t& g)
     { 
-        return impl_deque_alloc<gvar_t>(ret, g, type, group.second, expr);
+        return impl_deque_alloc<gvar_t>(ret, g, src_type, group.second, expr);
     })};
 
     // Add it to the group
@@ -155,7 +155,7 @@ gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps,
 }
 
 const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                                type_t type, std::pair<group_data_t*, group_data_ht> group,
+                                src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
                                 token_t const* expr)
 {
     const_t* ret;
@@ -163,7 +163,7 @@ const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps
     // Create the const
     const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), {}, [&](global_t& g)
     { 
-        return impl_deque_alloc<const_t>(ret, g, type, group.second, expr);
+        return impl_deque_alloc<const_t>(ret, g, src_type, group.second, expr);
     })};
 
     // Add it to the group
@@ -786,7 +786,16 @@ void fn_t::compile()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    m_type = ::dethunkify(m_type);
+    {
+        type_t* types = ALLOCA_T(type_t, def().num_params + 1);
+        for(unsigned i = 0; i != def().num_params; ++i)
+            types[i] = ::dethunkify(def().local_vars[i].src_type);
+        types[def().num_params] = ::dethunkify(def().return_type);
+        m_type = type_t::fn(types, types + def().num_params + 1);
+
+    }
+    // TODO
+    //m_type = ::dethunkify(m_type);
 
     return;
 
@@ -899,10 +908,10 @@ void gvar_t::compile()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    m_type = dethunkify(m_type);
+    m_src_type.type = dethunkify(m_src_type);
 
     if(init_expr)
-        m_cval = std::move(interpret_expr(global.pstring(), init_expr, m_type).value);
+        m_sval = std::move(interpret_expr(global.pstring(), init_expr, m_src_type.type).value);
 }
 
 void gvar_t::alloc_spans()
@@ -926,22 +935,66 @@ void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
 
 void const_t::compile()
 {
-    m_type = dethunkify(m_type);
+    m_src_type.type = dethunkify(m_src_type);
     assert(init_expr);
-    m_cval = std::move(interpret_expr(global.pstring(), init_expr, m_type).value);
-    std::printf("%s = %i\n", global.name.data(), m_cval[0][0].whole());
+    m_sval = std::move(interpret_expr(global.pstring(), init_expr, m_src_type.type).value);
+
+    // TODO: remove all this
+    if(ssa_value_t const* v = std::get_if<ssa_value_t>(&m_sval[0]))
+        std::printf("%s = %i\n", global.name.data(), v->whole());
+    else if(ct_array_t const* a = std::get_if<ct_array_t>(&m_sval[0]))
+    {
+        unsigned array_size = m_src_type.type.array_length();
+        for(unsigned i = 0; i < array_size; ++i)
+            std::printf("%s[%u] = %i\n", global.name.data(), i, (*a)[i].whole());
+
+    }
 }
 
 //////////////
 // struct_t //
 //////////////
 
+void struct_t::gen_member_types(struct_t const& s, unsigned array_size)
+{
+    for(unsigned i = 0; i < s.fields().size(); ++i)
+    {
+        type_t type = s.field(i).type();
+        if(type.name() == TYPE_ARRAY)
+        {
+            array_size = type.size();
+            type = type.elem_type();
+        }
+
+        assert(!is_thunk(type.name()));
+
+        if(type.name() == TYPE_STRUCT)
+            gen_member_types(type.struct_(), array_size);
+        else
+        {
+            assert(!is_aggregate(type.name()));
+            assert(array_size <= 256);
+
+            if(array_size)
+            {
+                m_member_types.push_back(type_t::array(type, array_size));
+                m_has_array_member = true;
+            }
+            else
+                m_member_types.push_back(type);
+        }
+    }
+}
+
 void struct_t::compile()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
     for(auto& pair : m_fields)
-        pair.second.type = dethunkify(pair.second.type);
+        pair.second.type() = dethunkify(pair.second.decl.src_type);
+
+    assert(m_member_types.empty());
+    gen_member_types(*this, 0);
 }
 
 ////////////////////

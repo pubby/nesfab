@@ -14,7 +14,7 @@ class parser_t;
 
 struct var_decl_t
 {
-    type_t type = TYPE_VOID;
+    src_type_t src_type;
     pstring_t name;
 };
 

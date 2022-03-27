@@ -4,10 +4,16 @@
 #include <cstdint>
 #include <ostream>
 
+#include <boost/container/small_vector.hpp>
+
 #include "ir_decl.hpp"
 #include "locator.hpp"
 #include "ssa_op.hpp"
 #include "fixed.hpp"
+
+namespace bc = boost::container;
+
+class ssa_value_t;
 
 ////////////////////////////////////////
 // edge types                         //
@@ -35,7 +41,7 @@ public:
     constexpr ssa_fwd_edge_t(fixed_t fixed) { set(fixed); }
     constexpr ssa_fwd_edge_t(locator_t loc) { set(loc); }
     constexpr ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
-    //constexpr explicit ssa_fwd_edge_t(void const* ptr) { set(ptr); }
+    constexpr explicit ssa_fwd_edge_t(ssa_value_t const* ptr) { set(ptr); }
 
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t const&) = default;
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t&&) = default;
@@ -47,7 +53,7 @@ public:
         { return (value & const_flag) == const_flag; }
     constexpr bool is_ptr()   const 
         { return (value & const_flag) == ptr_flag; }
-    constexpr bool is_locator()   const 
+    constexpr bool is_locator() const 
         { return (value & const_flag) == locator_flag; }
     constexpr bool is_handle() const { return !(value & const_flag); }
     constexpr bool holds_ref() const { return is_handle() && handle(); }
@@ -69,11 +75,11 @@ public:
     std::uint32_t index() const 
         { assert(is_handle()); return value >> 32ull; };
 
-    /* TODO: remove?
     template<typename T>
     T const* ptr() const 
         { assert(is_ptr()); return reinterpret_cast<T const*>(value << 2ull); }
-        */
+
+    ssa_value_t const* ct_array() const;
 
     bool eq_whole(unsigned w) const 
         { return is_num() && fixed() == fixed_t::whole(w); }
@@ -91,7 +97,6 @@ public:
         value = (uint & ~const_flag) | locator_flag; 
     }
 
-    /* TODO: remove?
     void set(void const* ptr) 
     { 
         uint_t uint = reinterpret_cast<std::uintptr_t>(ptr);
@@ -101,7 +106,6 @@ public:
         assert(is_ptr());
         assert(!is_handle());
     }
-    */
 
     void set(ssa_ht ht, std::uint32_t index) 
     {

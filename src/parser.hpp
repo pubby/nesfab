@@ -67,7 +67,7 @@ private:
     expr_temp_t parse_expr_then();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
 
-    type_t parse_type(bool allow_void);
+    src_type_t parse_type(bool allow_void);
 
     var_decl_t parse_var_decl();
     bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr);

@@ -248,11 +248,11 @@ public:
     constexpr static locator_t gvar_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GVAR_SET, fn.value, id, 0); }
 
-    constexpr static locator_t global_const(const_ht c, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_GLOBAL_CONST, c.value, 0, atom, offset); }
+    constexpr static locator_t global_const(const_ht c, std::uint8_t arg=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_GLOBAL_CONST, c.value, arg, atom, offset); }
 
-    constexpr static locator_t local_const(std::uint16_t id=0, std::uint16_t offset=0)
-        { return locator_t(LOC_LOCAL_CONST, id, 0, 0, offset); }
+    constexpr static locator_t local_const(std::uint16_t id=0, std::uint8_t arg=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_LOCAL_CONST, id, arg, atom, offset); }
 
     constexpr static locator_t local(std::uint16_t var_i, std::uint16_t offset=0)
         { return locator_t(LOC_LOCAL, var_i, 0, 0, offset); }

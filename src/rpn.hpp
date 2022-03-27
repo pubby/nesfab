@@ -14,6 +14,7 @@
 #include "pstring.hpp"
 #include "ir_edge.hpp"
 #include "compiler_error.hpp"
+#include "cval.hpp"
 
 namespace bc = boost::container;
 
@@ -27,9 +28,9 @@ enum value_category_t : char
 // This struct is what the RPN stack holds.
 struct rpn_value_t
 {
-    ssa_value_t value = {};
+    sval_t sval = {};
     ssa_value_t index = {};
-    bc::small_vector<std::uint8_t, 4> members;
+    unsigned member = 0;
     value_category_t category = RVAL;
     type_t type = TYPE_VOID;
     pstring_t pstring = {};
@@ -39,18 +40,58 @@ struct rpn_value_t
 
     fixed_t fixed() const
     { 
-        if(!value)
+        ssa_value_t const* v;
+
+        if(sval.size() != 1)
+        {
+            std::puts("1");
+            goto not_cne;
+        }
+
+        if(!(v = std::get_if<ssa_value_t>(&sval[0])))
+        {
+            std::puts("2");
+            goto not_cne;
+        }
+
+        if(!*v)
             compiler_error(pstring, "Value is uninitialized.");
-        if(!value.is_num())
-            compiler_error(pstring, "Expecting constant numeric expression.");
-        assert(is_masked(value.fixed(), type.name()));
-        return value.fixed();
+
+        if(!v->is_num() || !is_arithmetic(type.name()))
+        {
+            std::puts("3");
+            goto not_cne;
+        }
+
+        assert(is_masked(v->fixed(), type.name()));
+        return v->fixed();
+
+    not_cne:
+        compiler_error(pstring, "Expecting constant numeric expression.");
     }
 
     fixed_uint_t u() const { return fixed().value; }
     fixed_sint_t s() const { return to_signed(fixed().value, type.name()); }
     fixed_uint_t whole() const { return u() >> fixed_t::shift; }
     fixed_sint_t swhole() const { return s() >> fixed_t::shift; }
+
+    ssa_value_t& ssa(unsigned member = 0)
+    {
+        assert(member < sval.size());
+        return std::get<ssa_value_t>(sval[member]);
+    }
+
+    ssa_value_t const& ssa(unsigned member = 0) const
+    {
+        assert(member < sval.size());
+        return std::get<ssa_value_t>(sval[member]);
+    }
+
+    ct_array_t ct_array(unsigned member = 0) const
+    {
+        assert(member < sval.size());
+        return std::get<ct_array_t>(sval[member]);
+    }
 };
 
 class rpn_stack_t

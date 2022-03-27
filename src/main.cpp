@@ -29,7 +29,7 @@ int main(int argc, char** argv)
     std::cout << "cfg_node_t size = " << sizeof(cfg_node_t) << '\n';
     */
 
-    try
+    //try
     {
         /////////////////////////////
         // Handle program options: //
@@ -174,11 +174,13 @@ int main(int argc, char** argv)
             //globals.finish();
         //}
     }
+    /*
     catch(std::exception& e)
     {
         std::fprintf(stderr, "%s\n", e.what());
         return EXIT_FAILURE;
     }
+    */
 
     return EXIT_SUCCESS;
 }

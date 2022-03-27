@@ -14,6 +14,7 @@
 
 struct token_t;
 struct array_thunk_t;
+struct src_type_t;
 class eval_t;
 
 class type_t
@@ -96,7 +97,6 @@ private:
     : m_name(name), m_size(size), m_tail(tail) {}
 };
 
-
 namespace std
 {
     template<>
@@ -105,6 +105,14 @@ namespace std
         std::size_t operator()(type_t const& type) const noexcept { return type.hash(); }
     };
 }
+
+// Pairs a pstring with a type.
+struct src_type_t
+{
+    type_t type;
+    pstring_t pstring;
+};
+
 
 /* TODO: remove
 inline bool operator==(type_t lhs, type_name_t rhs)
@@ -158,8 +166,13 @@ std::ostream& operator<<(std::ostream& ostr, type_t const& type);
 
 bool is_ct(type_t type);
 
-unsigned num_members(type_t type);
+unsigned num_members(type_t type); // TODO: make faster
 unsigned num_atoms(type_t type);
+
+unsigned member_index(type_t const& type, unsigned i);
+type_t member_type(type_t const& type, unsigned i);
+type_t strip_array(type_t const& type);
+bool has_array(type_t const& type);
 
 enum cast_result_t : char
 {
@@ -174,7 +187,7 @@ enum cast_result_t : char
 
 cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit);
 
-type_t dethunkify(type_t t, eval_t* env = nullptr);
+type_t dethunkify(src_type_t src_type, eval_t* env = nullptr);
 
 /* TODO
 type_t arg_struct(type_t fn_type);

@@ -82,8 +82,9 @@ public:
 
     // Functions
     [[gnu::always_inline]]
-    var_decl_t fn_decl(pstring_t fn_name, var_decl_t const* params_begin, 
-                       var_decl_t const* params_end, type_t return_type)
+    var_decl_t fn_decl(pstring_t fn_name, var_decl_t 
+                       const* params_begin, var_decl_t const* params_end, 
+                       src_type_t return_type)
     {
         // Add the parameters to the symbol table.
         fn_def.num_params = params_end - params_begin;
@@ -93,11 +94,18 @@ public:
             fn_def.local_vars.push_back(params_begin[i]);
         }
 
+        pstring_t pstring = return_type.pstring;
+
+        fn_def.return_type = return_type;
+
         // Find and store the fn's type:
         type_t* types = ALLOCA_T(type_t, fn_def.num_params + 1);
         for(unsigned i = 0; i != fn_def.num_params; ++i)
-            types[i] = params_begin[i].type;
-        types[fn_def.num_params] = return_type;
+        {
+            types[i] = params_begin[i].src_type.type;
+            pstring = concat(params_begin[i].src_type.pstring, pstring);
+        }
+        types[fn_def.num_params] = return_type.type;
         type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);
 
         // Track it!
@@ -106,7 +114,7 @@ public:
         // Create a scope for the fn body.
         symbol_table.push_scope();
 
-        return { fn_type, fn_name };
+        return { { fn_type, pstring }, fn_name };
     }
 
     [[gnu::always_inline]]
@@ -127,7 +135,7 @@ public:
         // Create the global:
         active_global->define_fn(decl.name, 
                                  std::move(ideps), std::move(weak_ideps),
-                                 decl.type, std::move(fn_def), false);
+                                 decl.src_type.type, std::move(fn_def), false);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -163,7 +171,7 @@ public:
         // Find and store the fn's type:
         type_t* types = ALLOCA_T(type_t, fn_def.num_params + 1);
         for(unsigned i = 0; i != fn_def.num_params; ++i)
-            types[i] = params_begin[i].type;
+            types[i] = params_begin[i].src_type.type;
         types[fn_def.num_params] = TYPE_VOID;
         type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);
 
@@ -194,7 +202,7 @@ public:
         // Create the global:
         active_global->define_fn(decl.name, 
                                  std::move(ideps), std::move(weak_ideps),
-                                 decl.type, std::move(fn_def), true);
+                                 decl.src_type.type, std::move(fn_def), true);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -226,12 +234,11 @@ public:
 
         auto const hash = fnv1a<std::uint64_t>::hash(var_decl.name.view(file.source()));
 
-        auto result = field_map.insert({ hash, 
-            field_t{ .pstring = var_decl.name, .type = var_decl.type }});
+        auto result = field_map.insert({ hash, field_t{ .decl = var_decl }});
 
         if(!result.second)
         {
-            pstring_t const map_pstring = result.first->second.pstring;
+            pstring_t const map_pstring = result.first->second.decl.name;
 
             assert(var_decl.name.file_i == map_pstring.file_i);
 
@@ -259,7 +266,7 @@ public:
             }
         }
 
-        uses_type(var_decl.type);
+        uses_type(var_decl.src_type.type);
     }
 
     [[gnu::always_inline]]
@@ -281,26 +288,26 @@ public:
     [[gnu::always_inline]]
     void global_var(std::pair<group_vars_t*, group_vars_ht> group, var_decl_t const& var_decl, expr_temp_t* expr_temp)
     {
-        uses_type(var_decl.type);
+        uses_type(var_decl.src_type.type);
 
         token_t const* init_expr = nullptr;
         if(expr_temp)
             init_expr = convert_expr(*expr_temp);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_var(var_decl.name, std::move(ideps), var_decl.type, group, init_expr);
+        active_global->define_var(var_decl.name, std::move(ideps), var_decl.src_type, group, init_expr);
         ideps.clear();
     }
 
     [[gnu::always_inline]]
     void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, expr_temp_t& expr_temp)
     {
-        uses_type(var_decl.type);
+        uses_type(var_decl.src_type.type);
 
         token_t const* init_expr = convert_expr(expr_temp);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_const(var_decl.name, std::move(ideps), var_decl.type, group, init_expr);
+        active_global->define_const(var_decl.name, std::move(ideps), var_decl.src_type, group, init_expr);
         ideps.clear();
     }
 
@@ -328,7 +335,7 @@ public:
         }
         fn_def.local_vars.push_back(var_decl);
         fn_def.push_var_init(handle, expr ? convert_expr(*expr) : nullptr);
-        uses_type(var_decl.type);
+        uses_type(var_decl.src_type.type);
     }
 
     [[gnu::always_inline]]

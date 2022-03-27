@@ -273,7 +273,7 @@ void parser_t<P>::parse_expr(expr_temp_t& expr_temp,
 
         if(is_type_prefix(token.type))
         {
-            type_t const type = parse_type(false);
+            type_t const type = parse_type(false).type;
             t.pstring.size = token.pstring.offset - t.pstring.offset;
 
             std::uint64_t const size = (type.*fn)();
@@ -378,7 +378,7 @@ inapplicable:
             int const cast_indent = indent;
             char const* begin = token_source;
 
-            type_t const type = parse_type(false);
+            src_type_t const src_type = parse_type(false);
 
             unsigned argument_count = parse_args(TOK_lparen, TOK_rparen,
                 [&]() { parse_expr(expr_temp, cast_indent, open_parens+1); });
@@ -387,7 +387,7 @@ inapplicable:
             pstring_t pstring = { begin - source(), end - begin, file_i() };
 
             expr_temp.push_back({ TOK_cast_argn, pstring, argument_count });
-            expr_temp.push_back(token_t::make_ptr(TOK_cast_type, pstring, type_t::new_type(type)));
+            expr_temp.push_back(token_t::make_ptr(TOK_cast_type, src_type.pstring, type_t::new_type(src_type.type)));
 
             goto applicable;
         }
@@ -507,64 +507,43 @@ finish_expr:
 }
 
 template<typename P>
-type_t parser_t<P>::parse_type(bool allow_void)
+src_type_t parser_t<P>::parse_type(bool allow_void)
 {
-    type_t type = TYPE_VOID;
+    src_type_t result = { TYPE_VOID, token.pstring };
 
     switch(token.type)
     {
-    case TOK_Void:   parse_token(); type = TYPE_VOID; break;
-    case TOK_Int:    parse_token(); type = TYPE_INT; break;
-    case TOK_Real:   parse_token(); type = TYPE_REAL; break;
-    case TOK_Bool:   parse_token(); type = TYPE_BOOL; break;
-    case TOK_F:      parse_token(); type = TYPE_F1; break;
-    case TOK_FF:     parse_token(); type = TYPE_F2; break;
-    case TOK_FFF:    parse_token(); type = TYPE_F3; break;
-    case TOK_U:      parse_token(); type = TYPE_U10; break;
-    case TOK_UU:     parse_token(); type = TYPE_U20; break;
-    case TOK_UUU:    parse_token(); type = TYPE_U30; break;
-    case TOK_UF:     parse_token(); type = TYPE_U11; break;
-    case TOK_UUF:    parse_token(); type = TYPE_U21; break;
-    case TOK_UUUF:   parse_token(); type = TYPE_U31; break;
-    case TOK_UFF:    parse_token(); type = TYPE_U12; break;
-    case TOK_UUFF:   parse_token(); type = TYPE_U22; break;
-    case TOK_UUUFF:  parse_token(); type = TYPE_U32; break;
-    case TOK_UFFF:   parse_token(); type = TYPE_U12; break;
-    case TOK_UUFFF:  parse_token(); type = TYPE_U22; break;
-    case TOK_UUUFFF: parse_token(); type = TYPE_U33; break;
-    case TOK_S:      parse_token(); type = TYPE_S10; break;
-    case TOK_SS:     parse_token(); type = TYPE_S20; break;
-    case TOK_SSS:    parse_token(); type = TYPE_S30; break;
-    case TOK_SF:     parse_token(); type = TYPE_S11; break;
-    case TOK_SSF:    parse_token(); type = TYPE_S21; break;
-    case TOK_SSSF:   parse_token(); type = TYPE_S31; break;
-    case TOK_SFF:    parse_token(); type = TYPE_S12; break;
-    case TOK_SSFF:   parse_token(); type = TYPE_S22; break;
-    case TOK_SSSFF:  parse_token(); type = TYPE_S32; break;
-    case TOK_SFFF:   parse_token(); type = TYPE_S12; break;
-    case TOK_SSFFF:  parse_token(); type = TYPE_S22; break;
-    case TOK_SSSFFF: parse_token(); type = TYPE_S33; break;
-                     /*
-    case TOK_fn: // fn pointer // TODO: remove?
-        {
-            parse_token();
-
-            bc::small_vector<type_t, 8> params_and_return;
-
-            // Parse the function parameters.
-            parse_args(TOK_lbrace, TOK_rbrace,
-                [&]{ params_and_return.push_back(parse_type(false)); });
-
-            // Parse the return type.
-            params_and_return.push_back(parse_type(true));
-
-            // Set the tail.
-            type = type_t::fn(&*params_and_return.begin(), 
-                              &*params_and_return.end());
-
-        }
-        break;
-        */
+    case TOK_Void:   parse_token(); result.type = TYPE_VOID; break;
+    case TOK_Int:    parse_token(); result.type = TYPE_INT; break;
+    case TOK_Real:   parse_token(); result.type = TYPE_REAL; break;
+    case TOK_Bool:   parse_token(); result.type = TYPE_BOOL; break;
+    case TOK_F:      parse_token(); result.type = TYPE_F1; break;
+    case TOK_FF:     parse_token(); result.type = TYPE_F2; break;
+    case TOK_FFF:    parse_token(); result.type = TYPE_F3; break;
+    case TOK_U:      parse_token(); result.type = TYPE_U10; break;
+    case TOK_UU:     parse_token(); result.type = TYPE_U20; break;
+    case TOK_UUU:    parse_token(); result.type = TYPE_U30; break;
+    case TOK_UF:     parse_token(); result.type = TYPE_U11; break;
+    case TOK_UUF:    parse_token(); result.type = TYPE_U21; break;
+    case TOK_UUUF:   parse_token(); result.type = TYPE_U31; break;
+    case TOK_UFF:    parse_token(); result.type = TYPE_U12; break;
+    case TOK_UUFF:   parse_token(); result.type = TYPE_U22; break;
+    case TOK_UUUFF:  parse_token(); result.type = TYPE_U32; break;
+    case TOK_UFFF:   parse_token(); result.type = TYPE_U12; break;
+    case TOK_UUFFF:  parse_token(); result.type = TYPE_U22; break;
+    case TOK_UUUFFF: parse_token(); result.type = TYPE_U33; break;
+    case TOK_S:      parse_token(); result.type = TYPE_S10; break;
+    case TOK_SS:     parse_token(); result.type = TYPE_S20; break;
+    case TOK_SSS:    parse_token(); result.type = TYPE_S30; break;
+    case TOK_SF:     parse_token(); result.type = TYPE_S11; break;
+    case TOK_SSF:    parse_token(); result.type = TYPE_S21; break;
+    case TOK_SSSF:   parse_token(); result.type = TYPE_S31; break;
+    case TOK_SFF:    parse_token(); result.type = TYPE_S12; break;
+    case TOK_SSFF:   parse_token(); result.type = TYPE_S22; break;
+    case TOK_SSSFF:  parse_token(); result.type = TYPE_S32; break;
+    case TOK_SFFF:   parse_token(); result.type = TYPE_S12; break;
+    case TOK_SSFFF:  parse_token(); result.type = TYPE_S22; break;
+    case TOK_SSSFFF: parse_token(); result.type = TYPE_S33; break;
 
     case TOK_PP:
     case TOK_PPP:
@@ -579,8 +558,7 @@ type_t parser_t<P>::parse_type(bool allow_void)
                 parse_token();
             }
 
-            type = type_t::ptr(&*groups.begin(), &*groups.end(), 
-                               token.type == TOK_PPP);
+            result.type = type_t::ptr(&*groups.begin(), &*groups.end(), token.type == TOK_PPP);
             break;
         }
 
@@ -599,14 +577,14 @@ type_t parser_t<P>::parse_type(bool allow_void)
         {
             global_t const& global = global_t::lookup(source(), token.pstring);
             parse_token();
-            type = type_t::struct_thunk(global);
+            result.type = type_t::struct_thunk(global);
             break;
         }
 
     default: 
         if(!allow_void)
             compiler_error("Expecting type.");
-        type = TYPE_VOID;
+        result.type = TYPE_VOID;
         break;
     }
 
@@ -625,20 +603,20 @@ type_t parser_t<P>::parse_type(bool allow_void)
             unsigned const size = expr_temp[0].value >> fixed_t::shift;
             if(size <= 0 || size > 256)
                 compiler_error(expr_temp[0].pstring, "Invalid array size.");
-            type = type_t::array(type, size);
+            result.type = type_t::array(result.type, size);
         }
         else
         {
             expr_temp.push_back({});
-            type = type_t::array_thunk(fast_concat(start_pstring, token.pstring), type, 
+            result.type = type_t::array_thunk(fast_concat(start_pstring, token.pstring), result.type, 
                 policy().convert_expr(expr_temp));
         }
 
         parse_token(TOK_rbracket);
-
     }
 
-    return type;
+    result.pstring.size = token.pstring.offset - result.pstring.offset;
+    return result;
 }
 
 template<typename P>
@@ -785,7 +763,7 @@ void parser_t<P>::parse_const()
     if(!parse_var_init(var_decl, expr))
         compiler_error(var_decl.name, "Constants must be assigned a value.");
 
-    if(var_decl.type.name() == TYPE_BUFFER)
+    if(var_decl.src_type.type.name() == TYPE_BUFFER)
         compiler_error(var_decl.name, "Buffers cannot be defined at top-level.");
 
     policy().global_const({}, var_decl, expr);
@@ -808,7 +786,7 @@ void parser_t<P>::parse_fn()
     parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl()); });
 
     // Parse the return type
-    type_t return_type = parse_type(true);
+    src_type_t return_type = parse_type(true);
 
     auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type);
 

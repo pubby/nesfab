@@ -71,44 +71,16 @@ private:
 // A data member of a struct.
 struct field_t
 {
-    pstring_t pstring;
-    type_t type;
+    var_decl_t decl;
     token_t const* init_expr = nullptr;
-    cval_t default_cval;
+    sval_t default_sval;
+
+    type_t& type() { return decl.src_type.type; }
+    type_t const& type() const { return decl.src_type.type; }
+    pstring_t type_pstring() const { return decl.src_type.pstring; }
 };
 
 using field_map_t = rh::batman_map<std::uint64_t, field_t, std::identity>;
-
-class struct_t
-{
-public:
-    using global_impl_tag = void;
-    static constexpr global_class_t gclass = GLOBAL_STRUCT;
-
-    struct_t(global_t& global, field_map_t&& fields)
-    : global(global)
-    , m_fields(std::move(fields))
-    {}
-
-    global_t& global;
-
-    field_map_t const& fields() const { assert(compiler_phase() > PHASE_PARSE); return m_fields; }
-    field_t const& field(unsigned i) const { assert(compiler_phase() > PHASE_PARSE); return m_fields.begin()[i].second; }
-
-    unsigned member(unsigned i) const
-    {
-        assert(compiler_phase() > PHASE_PARSE);
-        assert(i < fields().size());
-        unsigned ef = 0;
-        for(unsigned k = 0; k < i; ++k)
-            ef += num_members(field(k).type);
-        return ef;
-    }
-
-    void compile();
-private:
-    field_map_t m_fields;
-};
 
 class global_t
 {
@@ -199,10 +171,10 @@ public:
                     global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
                     type_t type, fn_def_t&& fn_def, bool mode);
     gvar_t& define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                      type_t type, std::pair<group_vars_t*, group_vars_ht> group,
+                      src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
                       token_t const* expr);
     const_t& define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                          type_t type, std::pair<group_data_t*, group_data_ht> group,
+                          src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
                           token_t const* expr);
     struct_t& define_struct(pstring_t pstring, global_t::ideps_set_t&& ideps, 
                             field_map_t&& map);
@@ -263,6 +235,54 @@ private:
     inline static std::mutex ready_mutex;
     static std::vector<global_t*> ready;
     inline static unsigned globals_left;
+};
+
+class struct_t
+{
+public:
+    using global_impl_tag = void;
+    static constexpr global_class_t gclass = GLOBAL_STRUCT;
+
+    struct_t(global_t& global, field_map_t&& fields)
+    : global(global)
+    , m_fields(std::move(fields))
+    {}
+
+    global_t& global;
+
+    field_map_t const& fields() const { assert(compiler_phase() > PHASE_PARSE); return m_fields; }
+    field_t const& field(unsigned i) const { assert(compiler_phase() > PHASE_PARSE); return m_fields.begin()[i].second; }
+
+    unsigned member(unsigned i) const
+    {
+        assert(compiler_phase() > PHASE_PARSE);
+        assert(i < fields().size());
+        unsigned ef = 0;
+        for(unsigned k = 0; k < i; ++k)
+            ef += num_members(field(k).decl.src_type.type);
+        return ef;
+    }
+
+    type_t member_type(unsigned i) const 
+    {
+        assert(compiler_phase() >= PHASE_COMPILE);
+        assert(global.compiled());
+        assert(i < m_member_types.size());
+        return m_member_types[i];
+    }
+
+    bool has_array_member() const { assert(global.compiled()); return m_has_array_member; }
+
+    void compile();
+private:
+    void gen_member_types(struct_t const& s, unsigned array_size);
+
+    field_map_t m_fields;
+
+    // Cached vectors, tracking expanded members
+    std::vector<type_t> m_member_types;
+
+    bool m_has_array_member = false;
 };
 
 class fn_t
@@ -368,18 +388,18 @@ public:
 
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
-    gvar_t(global_t& global, type_t type, group_vars_ht group_vars, token_t const* expr)
+    gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, token_t const* expr)
     : global(global)
     , group_vars(group_vars)
     , init_expr(expr)
-    , m_type(type)
+    , m_src_type(src_type)
     {}
 
     global_t& global;
     group_vars_ht const group_vars = {};
     token_t const* const init_expr = nullptr;
 
-    type_t type() const { assert(global.compiled()); return m_type; }
+    type_t type() const { assert(global.compiled()); return m_src_type.type; }
 
     //group_bitset_t group_bitset() const { return 1ull << group.value; }
 
@@ -392,8 +412,8 @@ public:
     void assign_span(unsigned field, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[field] = span; }
 
 private:
-    type_t m_type = {};
-    cval_t m_cval;
+    src_type_t m_src_type = {};
+    sval_t m_sval;
     std::vector<span_t> m_spans = {};
 };
 
@@ -403,11 +423,11 @@ public:
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_CONST;
 
-    const_t(global_t& global, type_t type, group_data_ht group, token_t const* expr)
+    const_t(global_t& global, src_type_t src_type, group_data_ht group, token_t const* expr)
     : global(global)
     , group(group)
     , init_expr(expr)
-    , m_type(type)
+    , m_src_type(src_type)
     {
         assert(init_expr);
     }
@@ -416,14 +436,14 @@ public:
     group_data_ht const group;
     token_t const* const init_expr = nullptr;
 
-    type_t type() const { assert(global.compiled()); return m_type; }
+    type_t type() const { assert(global.compiled()); return m_src_type.type; }
 
     void compile();
-    cval_t const& cval() const { assert(global.compiled()); return m_cval; }
+    sval_t const& sval() const { assert(global.compiled()); return m_sval; }
 
 private:
-    type_t m_type = {};
-    cval_t m_cval;
+    src_type_t m_src_type = {};
+    sval_t m_sval;
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

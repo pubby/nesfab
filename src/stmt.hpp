@@ -86,6 +86,7 @@ class fn_def_t
 {
 public:
     unsigned num_params = 0;
+    src_type_t return_type;
     // First elems are params
     std::vector<var_decl_t> local_vars;
     std::vector<stmt_t> stmts;

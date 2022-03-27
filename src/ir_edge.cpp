@@ -1,6 +1,7 @@
 #include "ir_edge.hpp"
 
 #include "ir.hpp"
+#include "globals.hpp"
 
 std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s)
 {
@@ -79,4 +80,22 @@ std::size_t ssa_fwd_edge_t::mem_size() const
     return 1;
 }
 
-
+ssa_value_t const* ssa_fwd_edge_t::ct_array() const
+{
+    assert(false);
+    /*
+    // TODO
+    if(is_locator())
+    {
+        locator_t const loc = locator();
+        if(loc.lclass() == LOC_GLOBAL_CONST)
+            return ::ct_array(loc.const_()->sval()[loc.arg()]);
+        if(loc.lclass() == LOC_LOCAL_CONST)
+            assert(false); // TODO!!
+    }
+    else if(is_ptr())
+        return ptr<ssa_value_t>();
+    else
+        return nullptr;
+        */
+}

@@ -7,7 +7,7 @@
 
 class eval_t;
 class type_t;
-struct cpair_t;
+struct spair_t;
 struct pstring_t;
 struct token_t;
 
@@ -21,7 +21,7 @@ struct out_of_time_t : public std::exception
     std::string msg;
 };
 
-cpair_t interpret_expr(pstring_t pstring, token_t const* expr, 
+spair_t interpret_expr(pstring_t pstring, token_t const* expr, 
                        type_t expected_type, eval_t* env = nullptr);
 
 #endif

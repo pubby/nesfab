@@ -191,7 +191,7 @@ public:
         symbol_table.pop_scope(); // param scope
         label_map.clear();
         assert(symbol_table.empty());
-        fn_def.push_stmt({ STMT_END_BLOCK });
+        fn_def.push_stmt({ STMT_END_FN });
 
         if(!unlinked_gotos.empty())
         {
@@ -348,14 +348,14 @@ public:
     [[gnu::always_inline]]
     void end_if(stmt_ht if_begin) 
     { 
-        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_BLOCK, if_begin }) + 1;
+        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_IF, if_begin }) + 1;
         symbol_table.pop_scope();
     }
 
     [[gnu::always_inline]]
     stmt_ht end_if_begin_else(stmt_ht if_begin, pstring_t pstring)
     {
-        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_BLOCK, if_begin }) + 1;
+        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_IF, if_begin }) + 1;
         symbol_table.pop_scope();
         symbol_table.push_scope();
         return fn_def.push_stmt({ STMT_ELSE, {}, pstring });
@@ -364,7 +364,7 @@ public:
     [[gnu::always_inline]]
     void end_else(stmt_ht else_begin) 
     { 
-        fn_def[else_begin].link = fn_def.push_stmt({ STMT_END_BLOCK, else_begin }) + 1;
+        fn_def[else_begin].link = fn_def.push_stmt({ STMT_END_IF, else_begin }) + 1;
         symbol_table.pop_scope();
     }
 

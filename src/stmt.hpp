@@ -24,7 +24,7 @@ using stmt_ht = handle_t<unsigned, struct stmt_ht_tag, ~0>;
     X(STMT_END_FN,     0)\
     X(STMT_IF,         true)\
     X(STMT_ELSE,       0)\
-    X(STMT_END_BLOCK,  0)\
+    X(STMT_END_IF,     0)\
     X(STMT_END_DO,     true)\
     X(STMT_WHILE,      true)\
     X(STMT_END_WHILE,  0)\
@@ -58,7 +58,7 @@ std::string to_string(stmt_name_t);
 
 constexpr bool is_var_init(stmt_name_t stmt_name)
 {
-    return stmt_name < STMT_END_BLOCK;
+    return int(stmt_name) < 0;
 }
 
 constexpr unsigned get_local_var_i(stmt_name_t stmt_name)

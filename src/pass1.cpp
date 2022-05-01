@@ -4,7 +4,7 @@
 
 void pass1_t::uses_type(type_t type)
 {
-    if(type.name() == TYPE_STRUCT_THUNK)
+    if(type.name() == TYPE_STRUCT_THUNK || type.name() == TYPE_STRUCT)
         ideps.insert(const_cast<global_t*>(&type.global()));
     else if(has_type_tail(type.name()))
     {
@@ -39,6 +39,12 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
             global_t& g = global_t::lookup(file.source(), token.pstring);
             ideps.insert(&g);
             token.set_ptr(&g);
+        }
+        else if(token.type == TOK_cast_type
+                || token.type == TOK_sizeof
+                || token.type == TOK_len)
+        {
+            uses_type(*token.ptr<type_t>());
         }
     }
 

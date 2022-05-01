@@ -88,7 +88,7 @@ cg_isel.cpp \
 cg_order.cpp \
 byteify.cpp \
 asm_proc.cpp \
-gvar_loc_manager.cpp \
+gmanager.cpp \
 span.cpp \
 span_allocator.cpp \
 group.cpp \
@@ -96,7 +96,8 @@ ram.cpp \
 ram_alloc.cpp \
 lvar.cpp \
 o_gvn.cpp \
-eval.cpp
+eval.cpp \
+sval.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

@@ -21,54 +21,13 @@
 #include "stmt.hpp"
 #include "type.hpp"
 #include "lvar.hpp"
-#include "cval.hpp"
+#include "sval.hpp"
 
 namespace bc = boost::container;
 
 std::string to_string(global_class_t gclass);
 
-/* TODO
-class group_t
-{
-public:
-    using global_impl_tag = void;
-    static constexpr global_class_t gclass = GLOBAL_GROUP;
-
-    group_ht handle() const;
-
-    explicit group_t(global_t& global)
-    : global(global)
-    {}
-
-    global_t& global;
-
-    void add_gvar(gvar_ht gvar)
-    {
-        assert(compiler_phase() <= PHASE_PARSE);
-        std::lock_guard<std::mutex> lock(m_gvars_mutex);
-        m_gvars.push_back(gvar);
-    }
-
-    void add_interference(group_ht group);
-    void add_interferences(bitset_uint_t const* other_groups);
-
-    void mark_ram_unavailable(ram_bitset_t ram)
-    {
-        m_usable_ram &= ~ram;
-    }
-
-private:
-    std::mutex m_gvars_mutex; // Used during parsing only.
-    std::vector<gvar_ht> m_gvars;
-
-    std::mutex m_interfering_groups_mutex;
-    bitset_t m_interfering_groups;
-
-    ram_bitset_t m_usable_ram = {};
-};
-*/
-
-// A data member of a struct.
+// A data member of a record.
 struct field_t
 {
     var_decl_t decl;
@@ -195,7 +154,11 @@ public:
     // Implementation detail used in 'build_order'.
     static global_t* detect_cycle(global_t& global, std::vector<std::string>& error_msgs);
 
-    // Call after parse_cleanup to build 'm_iuses' and 'm_ideps_left',
+    // Call after 'parse_cleanup' to properly handle struct members.
+    // This allocates 'gmember_t's.
+    static void count_members(); 
+
+    // Call after 'count_members' to build 'm_iuses' and 'm_ideps_left',
     // among other things.
     // This function isn't thread-safe.
     // Call from a single thread only.
@@ -240,6 +203,7 @@ private:
 class struct_t
 {
 public:
+    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_STRUCT;
 
@@ -250,44 +214,48 @@ public:
 
     global_t& global;
 
-    field_map_t const& fields() const { assert(compiler_phase() > PHASE_PARSE); return m_fields; }
-    field_t const& field(unsigned i) const { assert(compiler_phase() > PHASE_PARSE); return m_fields.begin()[i].second; }
+    field_map_t const& fields() const { return m_fields; }
+    field_t const& field(unsigned i) const { return m_fields.begin()[i].second; }
 
-    unsigned member(unsigned i) const
+    unsigned num_members() const { assert(m_num_members != UNCOUNTED); return m_num_members; }
+
+    unsigned member(unsigned field_i) const
     {
-        assert(compiler_phase() > PHASE_PARSE);
-        assert(i < fields().size());
-        unsigned ef = 0;
-        for(unsigned k = 0; k < i; ++k)
-            ef += num_members(field(k).decl.src_type.type);
-        return ef;
+        assert(field_i < fields().size());
+        unsigned m = 0;
+        for(unsigned k = 0; k < field_i; ++k)
+            m += ::num_members(field(k).type());
+        return m;
     }
 
     type_t member_type(unsigned i) const 
     {
-        assert(compiler_phase() >= PHASE_COMPILE);
         assert(global.compiled());
         assert(i < m_member_types.size());
         return m_member_types[i];
     }
 
-    bool has_array_member() const { assert(global.compiled()); return m_has_array_member; }
+    bool has_array_member() const { return m_has_array_member; }
 
+    unsigned count_members(); 
     void compile();
 private:
     void gen_member_types(struct_t const& s, unsigned array_size);
 
     field_map_t m_fields;
 
+    static constexpr unsigned UNCOUNTED = ~0u;
+    unsigned m_num_members = UNCOUNTED;
+
     // Cached vectors, tracking expanded members
     std::vector<type_t> m_member_types;
-
     bool m_has_array_member = false;
 };
 
 class fn_t
 {
 public:
+    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_FN;
 
@@ -296,12 +264,24 @@ public:
     , mode(mode)
     , m_type(std::move(type))
     , m_def(std::move(fn_def)) 
+    /* TODO
+    , m_param_record([this]()
+    {
+        field_vector_t fields;
+        for(unsigned i = 0; i < m_def.num_params; ++i)
+            fields.push_back({field_t{ .decl = m_def.local_vars[i] }});
+        return fields;
+    }())
+    */
     {}
 
     fn_ht handle() const;
 
     type_t type() const { return m_type; }
     fn_def_t const& def() const { return m_def; }
+
+    // TODO
+    //record_t<field_vector_t> const& param_record() const { return m_param_record; }
 
     void compile();
 
@@ -319,8 +299,8 @@ public:
     bitset_t const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
 
-    bool ir_reads(gvar_ht gvar)  const { return ir_reads().test(gvar.value); }
-    bool ir_writes(gvar_ht gvar) const { return ir_writes().test(gvar.value); }
+    bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.value); }
+    bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.value); }
 
     // Be careful to call this from a single thread only.
     void assign_proc(asm_proc_t&& proc)
@@ -351,6 +331,12 @@ public:
 private:
     type_t m_type;
     fn_def_t m_def;
+
+    // TODO
+    ct_manager_t m_ct_manager;
+
+    // TODO
+    //record_t<field_vector_t> m_param_record;
 
     bitset_t m_lang_gvars;
     bitset_t m_lang_group_vars;
@@ -383,6 +369,7 @@ private:
 class gvar_t
 {
 public:
+    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_VAR;
 
@@ -401,25 +388,53 @@ public:
 
     type_t type() const { assert(global.compiled()); return m_src_type.type; }
 
+    gmember_ht begin_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_begin_gmember; }
+    gmember_ht end_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_begin_gmember; }
+    void set_gmember_range(gmember_ht begin, gmember_ht end);
+
     //group_bitset_t group_bitset() const { return 1ull << group.value; }
 
+    void dethunkify(bool full);
     void compile();
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
-    void alloc_spans();
-    span_t span(unsigned field) const { assert(compiler_phase() >= PHASE_ALLOC_RAM); return m_spans[field]; }
-    void assign_span(unsigned field, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[field] = span; }
-
 private:
     src_type_t m_src_type = {};
-    sval_t m_sval;
-    std::vector<span_t> m_spans = {};
+    sval_t m_sval; // TODO?
+
+    gmember_ht m_begin_gmember = {};
+    gmember_ht m_end_gmember = {};
+};
+
+class gmember_t
+{
+public:
+    static constexpr compiler_phase_t impl_vector_phase = PHASE_COUNT_MEMBERS;
+
+    gmember_t(gvar_t& parent, unsigned index)
+    : gvar(parent)
+    , index(index)
+    {}
+
+    gvar_t& gvar;
+    unsigned const index;
+
+    unsigned member() const { return gvar.begin_gmember().value - index; }
+    type_t type() const { return member_type(gvar.type(), member()); }
+
+    void alloc_spans();
+    span_t span(unsigned atom) const { assert(compiler_phase() >= PHASE_ALLOC_RAM); return m_spans[atom]; }
+    void assign_span(unsigned atom, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[atom] = span; }
+
+private:
+    bc::small_vector<span_t, 2> m_spans = {};
 };
 
 class const_t
 {
 public:
+    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_CONST;
 

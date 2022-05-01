@@ -293,6 +293,30 @@ global_t* global_t::detect_cycle(global_t& global, std::vector<std::string>& err
 
 // This function isn't thread-safe.
 // Call from a single thread only.
+void global_t::count_members()
+{
+    unsigned total_members = 0;
+    for(struct_t& s : impl_deque<struct_t>)
+        total_members += s.count_members();
+
+    impl_vector<gmember_t>.reserve(total_members);
+
+    for(gvar_t& gvar : impl_deque<gvar_t>)
+    {
+        gvar.dethunkify(false);
+
+        unsigned const begin = impl_vector<gmember_t>.size();
+
+        unsigned const num = ::num_members(gvar.type());
+        for(unsigned i = 0; i < num; ++i)
+            impl_vector<gmember_t>.emplace_back(gvar, impl_vector<gmember_t>.size());
+
+        gvar.set_gmember_range({begin}, {impl_vector<gmember_t>.size()});
+    }
+}
+
+// This function isn't thread-safe.
+// Call from a single thread only.
 void global_t::build_order()
 {
     assert(compiler_phase() == PHASE_ORDER_GLOBALS);
@@ -638,8 +662,8 @@ void fn_t::calc_lang_gvars_groups()
 
 void fn_t::calc_ir_bitsets(ir_t const& ir)
 {
-    bitset_t  reads(impl_bitset_size<gvar_t>());
-    bitset_t writes(impl_bitset_size<gvar_t>());
+    bitset_t  reads(impl_bitset_size<gmember_t>());
+    bitset_t writes(impl_bitset_size<gmember_t>());
     bitset_t group_vars(impl_bitset_size<group_vars_t>());
     bitset_t immediate_group_data(impl_bitset_size<group_data_t>());
     bitset_t calls(impl_bitset_size<fn_t>());
@@ -669,10 +693,10 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
             for_each_written_global(ssa_it,
             [this, &writes, &group_vars](ssa_value_t def, locator_t loc)
             {
-                if(loc.lclass() == LOC_GVAR)
+                if(loc.lclass() == LOC_GMEMBER)
                 {
-                    gvar_t const& written = *loc.gvar();
-                    assert(written.global.gclass() == GLOBAL_VAR);
+                    gmember_t const& written = *loc.gmember();
+                    assert(written.gvar.global.gclass() == GLOBAL_VAR);
 
                     // Writes only have effect if they're not writing back a
                     // previously read value.
@@ -681,8 +705,8 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                        || def->op() != SSA_read_global
                        || def->input(1).locator() != loc)
                     {
-                        writes.set(loc.gvar().value);
-                        group_vars.set(written.group_vars.value);
+                        writes.set(written.index);
+                        group_vars.set(written.gvar.group_vars.value);
                     }
                 }
             });
@@ -692,21 +716,20 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
             assert(ssa_it->input_size() == 2);
             locator_t loc = ssa_it->input(1).locator();
 
-            if(loc.lclass() == LOC_GVAR)
+            if(loc.lclass() == LOC_GMEMBER)
             {
-                gvar_t const& read = *loc.gvar();
-                assert(read.global.gclass() == GLOBAL_VAR);
+                gmember_t const& read = *loc.gmember();
+                assert(read.gvar.global.gclass() == GLOBAL_VAR);
 
                 // Reads only have effect if something actually uses them:
                 for(unsigned i = 0; i < ssa_it->output_size(); ++i)
                 {
                     auto oe = ssa_it->output_edge(i);
                     // TODO: verify this is correct
-                    if(!is_locator_write(oe)
-                       || oe.handle->input(oe.index + 1) != loc)
+                    if(!is_locator_write(oe) || oe.handle->input(oe.index + 1) != loc)
                     {
-                        reads.set(loc.gvar().value);
-                        group_vars.set(read.group_vars.value);
+                        reads.set(read.index);
+                        group_vars.set(read.gvar.group_vars.value);
                         break;
                     }
                 }
@@ -786,24 +809,21 @@ void fn_t::compile()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
+    // Dethunkify the fn type:
     {
         type_t* types = ALLOCA_T(type_t, def().num_params + 1);
         for(unsigned i = 0; i != def().num_params; ++i)
-            types[i] = ::dethunkify(def().local_vars[i].src_type);
-        types[def().num_params] = ::dethunkify(def().return_type);
+            types[i] = ::dethunkify(def().local_vars[i].src_type, true);
+        types[def().num_params] = ::dethunkify(def().return_type, true);
         m_type = type_t::fn(types, types + def().num_params + 1);
-
     }
-    // TODO
-    //m_type = ::dethunkify(m_type);
-
-    return;
 
     // Compile the FN.
     ssa_pool::clear();
     cfg_pool::clear();
     ir_t ir;
     build_ir(ir, *this);
+    std::printf("post cfg size = %i\n", ir.cfg_size());
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {
@@ -842,6 +862,8 @@ void fn_t::compile()
 
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(ir);
+
+    return;
 
     byteify(ir, *this);
     //make_conventional(ir);
@@ -904,29 +926,50 @@ void fn_t::compile()
 // gvar_t //
 ////////////
 
+void gvar_t::set_gmember_range(gmember_ht begin, gmember_ht end)
+{
+    assert(compiler_phase() == PHASE_COUNT_MEMBERS);
+    m_begin_gmember = begin;
+    m_end_gmember = end;
+}
+
+void gvar_t::dethunkify(bool full)
+{
+    assert(compiler_phase() == PHASE_COMPILE || compiler_phase() == PHASE_COUNT_MEMBERS);
+    m_src_type.type = ::dethunkify(m_src_type, full);
+}
+
 void gvar_t::compile()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    m_src_type.type = dethunkify(m_src_type);
+    dethunkify(true);
 
     if(init_expr)
         m_sval = std::move(interpret_expr(global.pstring(), init_expr, m_src_type.type).value);
 }
 
-void gvar_t::alloc_spans()
+void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
+{
+    assert(compiler_phase() > PHASE_COMPILE);
+
+    for(gmember_ht h = begin_gmember(); h != end_gmember(); ++h)
+    {
+        unsigned const num = num_atoms(h->type());
+        for(unsigned atom = 0; atom < num; ++atom)
+            fn(locator_t::gmember(h, atom));
+    }
+}
+
+///////////////
+// gmember_t //
+///////////////
+
+void gmember_t::alloc_spans()
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
     assert(m_spans.empty());
     m_spans.resize(num_atoms(type()));
-}
-
-void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
-{
-    assert(compiler_phase() > PHASE_COMPILE);
-    unsigned const num = num_atoms(type());
-    for(unsigned atom = 0; atom < num; ++atom)
-        fn(locator_t::gvar(handle(), atom));
 }
 
 /////////////
@@ -935,7 +978,7 @@ void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
 
 void const_t::compile()
 {
-    m_src_type.type = dethunkify(m_src_type);
+    m_src_type.type = ::dethunkify(m_src_type, true);
     assert(init_expr);
     m_sval = std::move(interpret_expr(global.pstring(), init_expr, m_src_type.type).value);
 
@@ -955,11 +998,57 @@ void const_t::compile()
 // struct_t //
 //////////////
 
+unsigned struct_t::count_members()
+{
+    assert(compiler_phase() == PHASE_COUNT_MEMBERS);
+
+    if(m_num_members != UNCOUNTED)
+        return m_num_members;
+
+    unsigned count = 0;
+
+    for(unsigned i = 0; i < fields().size(); ++i)
+    {
+        type_t type = const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, false);
+
+        if(is_array(type.name()))
+            type = type.elem_type();
+
+        if(type.name() == TYPE_STRUCT)
+        {
+            struct_t& s = const_cast<struct_t&>(type.struct_());
+            s.count_members();
+            assert(s.m_num_members != UNCOUNTED);
+            count += s.m_num_members;
+        }
+        else
+        {
+            assert(!is_aggregate(type.name()));
+            ++count;
+        }
+    }
+
+    return m_num_members = count;
+}
+
+void struct_t::compile()
+{
+    assert(compiler_phase() == PHASE_COMPILE);
+
+    // Dethunkify
+    for(unsigned i = 0; i < fields().size(); ++i)
+        const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, true);
+
+    gen_member_types(*this, 0);
+}
+
+// Builds 'm_member_types', sets 'm_has_array_member', and dethunkifies the struct.
 void struct_t::gen_member_types(struct_t const& s, unsigned array_size)
 {
-    for(unsigned i = 0; i < s.fields().size(); ++i)
+    for(unsigned i = 0; i < fields().size(); ++i)
     {
         type_t type = s.field(i).type();
+
         if(type.name() == TYPE_ARRAY)
         {
             array_size = type.size();
@@ -969,7 +1058,10 @@ void struct_t::gen_member_types(struct_t const& s, unsigned array_size)
         assert(!is_thunk(type.name()));
 
         if(type.name() == TYPE_STRUCT)
+        {
+            assert(&type.struct_() != &s);
             gen_member_types(type.struct_(), array_size);
+        }
         else
         {
             assert(!is_aggregate(type.name()));
@@ -984,17 +1076,6 @@ void struct_t::gen_member_types(struct_t const& s, unsigned array_size)
                 m_member_types.push_back(type);
         }
     }
-}
-
-void struct_t::compile()
-{
-    assert(compiler_phase() == PHASE_COMPILE);
-
-    for(auto& pair : m_fields)
-        pair.second.type() = dethunkify(pair.second.decl.src_type);
-
-    assert(m_member_types.empty());
-    gen_member_types(*this, 0);
 }
 
 ////////////////////

@@ -204,11 +204,11 @@ void byteify(ir_t& ir, fn_t const& fn)
                             assert(ssa_it->op() == SSA_return);
                             t = fn.type().return_type();
                         }
-                        else if(loc.lclass() == LOC_GVAR)
-                            t = loc.gvar()->type();
+                        else if(loc.lclass() == LOC_GMEMBER)
+                            t = loc.gmember()->type();
                         else
                         {
-                            assert(loc.lclass() == LOC_GVAR_SET);
+                            assert(loc.lclass() == LOC_GMEMBER_SET);
                             new_input.push_back(v);
                             new_input.push_back(loc);
                             return;
@@ -410,7 +410,8 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     split->alloc_input(2);
                     split->build_set_input(0, ssa_node);
-                    split->build_set_input(1, locator_t::ret(ssa_node->input(0).locator().fn(), i - start));
+                    assert(0); // TODO
+                    //split->build_set_input(1, locator_t::ret(ssa_node->input(0).locator().fn(), i - start));
                 }
             }
             break;

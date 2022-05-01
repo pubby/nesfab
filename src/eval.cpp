@@ -1,11 +1,12 @@
 #include "eval.hpp"
 
+#include <cassert>
 #include <chrono>
 
 #include <boost/container/small_vector.hpp>
 
 #include "alloca.hpp"
-#include "cval.hpp"
+#include "sval.hpp"
 #include "decl.hpp"
 #include "globals.hpp"
 #include "file.hpp"
@@ -17,29 +18,34 @@
 namespace sc = std::chrono;
 namespace bc = boost::container;
 
+using ssa_value_array_t = bc::small_vector<ssa_value_t, 1>;
+
 // Data associated with each block node, to be used when making IRs.
 struct block_d
 {
+    using vector_t = std::vector<sval_t>;
+
+    // TODO: remove comment?
     // Variables are mapped to a range in this order:
     // 1) local variables
     // 2) global variables
     // 3) global variable sets
     // The following sets use this order.
 
-    // An array of size 'num_vars()'
+    // An array of size 'num_ssa_vars()'
     // Keeps track of which ssa node a var refers to.
     // A handle of {0} means the local var isn't in the block.
-    ssa_value_t* fn_vars = nullptr;
+    vector_t vars;
 
-    // An array of size 'num_vars()'
+    // An array of size 'num_ssa_vars()'
     // Phi nodes in the block which have yet to be sealed.
-    ssa_value_t* unsealed_phis = nullptr;
+    vector_t unsealed_phis;
 
     // Only used for labels.
     pstring_t label_name = {};
 
     // A CFG node is sealed when all its predecessors are set.
-    constexpr bool sealed() const { return unsealed_phis == nullptr; }
+    bool sealed = false;
 };
 
 class eval_t
@@ -50,7 +56,7 @@ private:
     stmt_t const* stmt = nullptr;
     ir_t* ir = nullptr;
     bc::small_vector<sval_t, 8> interpret_locals;
-    bc::small_vector<type_t, 8> local_types;
+    bc::small_vector<type_t, 8> var_types;
 
     // TODO
     //bc::small_vector<sval_t, 8> compile_locals;
@@ -80,10 +86,12 @@ private:
         bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> break_stack;
         bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> continue_stack;
 
-        bc::small_vector<ssa_value_t, 8> return_values;
+        bc::small_vector<ssa_value_array_t, 8> return_values;
         bc::small_vector<cfg_ht, 8> return_jumps;
 
-        array_pool_t<ssa_value_t> pool;
+        rh::robin_map<stmt_t const*, label_t> label_map;
+
+        ct_manager_t ct_manager;
 
         void clear()
         {
@@ -97,7 +105,9 @@ private:
             return_values.clear();
             return_jumps.clear();
 
-            pool.clear();
+            label_map.clear();
+
+            ct_manager.clear();
         }
     };
 
@@ -124,6 +134,8 @@ public:
     template<do_t D>
     eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn, sval_t const* args);
 
+    eval_t(ir_t& ir, fn_t const& fn);
+
     struct access_t
     {
         type_t type = {};
@@ -144,8 +156,9 @@ public:
     template<do_t D>
     void interpret_stmts();
 
-    cfg_ht compile_block(cfg_ht cfg_node);
-    cfg_ht compile_expr(rpn_stack_t& rpn_stack, cfg_ht cfg_node, token_t const* expr);
+    void compile_block();
+    // TODO: remove?
+    //void compile_expr(rpn_stack_t& rpn_stack, token_t const* expr);
 
     template<do_t D>
     void do_expr(rpn_stack_t& rpn_stack, token_t const* expr);
@@ -210,9 +223,6 @@ public:
 
     std::size_t num_locals() const { assert(fn); return fn->def().local_vars.size(); }
 
-    // Counts locals and gvars. Only usable during ir building.
-    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gvar_loc_manager.num_unique_locators(); }
-
     type_t var_i_type(unsigned var_i) const;
     void init_sval(access_t a, sval_t& sval);
     access_t access(rpn_value_t const& rpn_value) const;
@@ -223,17 +233,26 @@ public:
     // compiler-specific //
     ///////////////////////
 
-    unsigned to_var_i(gvar_loc_manager_t::index_t index) const { return index.value + num_locals(); }
+    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gmanager.num_locators(); }
+
+    unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.value + num_locals(); }
+    template<typename T>
+    unsigned to_var_i(T gvar) const { return to_var_i(ir->gmanager.var_i(gvar)); }
 
     // Block and local variable functions
     void seal_block(block_d& block_data);
-    void fill_phi_args(ssa_ht phi, unsigned var_i);
+    void fill_phi_args(ssa_ht phi, unsigned var_i, unsigned member);
+    ssa_value_t var_lookup(cfg_ht node, unsigned var_i, unsigned member);
     sval_t var_lookup(cfg_ht node, unsigned var_i);
+    ssa_value_t from_variant(ct_variant_t const& v, type_t type);
+    ssa_value_array_t from_sval(sval_t const& sval, type_t type);
 
     cfg_ht insert_cfg(bool seal, pstring_t label_name = {});
-    void cfg_exits_with_jump(cfg_node_t& node);
-    void cfg_exits_with_branch(cfg_node_t& node, ssa_value_t condition);
-    cfg_ht compile_goto(cfg_ht branch_node);
+    void cfg_exits_with_jump();
+    void cfg_exits_with_branch(ssa_value_t condition);
+    cfg_ht compile_goto();
+
+    void compile_binary_operator(rpn_stack_t&, ssa_op_t op, type_t result_type, bool carry = false);
 
 };
 
@@ -253,6 +272,11 @@ spair_t interpret_expr(pstring_t pstring, token_t const* expr, type_t expected_t
     }
 }
 
+void build_ir(ir_t& ir, fn_t const& fn)
+{
+    eval_t eval(ir, fn);
+}
+
 template<eval_t::do_t D>
 eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, type_t expected_type)
 : pstring(pstring)
@@ -268,98 +292,178 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, sval_t co
 , stmt(fn_ref.def().stmts.data())
 , start_time(clock::now())
 {
-    // TODO
-    interpret_locals.resize(fn->def().local_vars.size());
-    local_types.resize(fn->def().local_vars.size());
+    unsigned const nlocals = num_locals();
 
-    unsigned const argn = fn->type().num_params();
-    for(unsigned i = 0; i < argn; ++i)
-    {
-        local_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, this);
-        interpret_locals[i] = args[i];
-    }
+    var_types.resize(nlocals);
+    for(unsigned i = 0; i < nlocals; ++i)
+        var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
 
     if(D == COMPILE)
     {
-        /*
-        assert(false);
-        assert(ir);
+        // Reset the static thread-local state:
+        builder.clear();
 
-        builder.clear(); // TODO: make sure this isn't called in recursion
-        ir->gvar_loc_manager.init(fn->handle());
-
-        ir->root = insert_cfg(true);
-
-        ssa_ht const entry = ir->root->emplace_ssa(SSA_entry, TYPE_VOID);
-        entry->append_daisy();
-
-        // Insert nodes for the arguments
-        for(unsigned i = 0; i < fn->def().num_params; ++i)
-        {
-            ir->root.data<block_d>().fn_vars[i] = ir->root->emplace_ssa(
-                SSA_read_global, fn->def().local_vars[i].type, entry, 
-                locator_t::arg(fn->handle(), i, 0));
-        }
-
-        // Insert nodes for gvar reads
-        ir->gvar_loc_manager.for_each_locator([&](locator_t loc, gvar_loc_manager_t::index_t i)
-        {
-            ir->root.data<block_d>().fn_vars[to_var_i(i)] = 
-                ir->root->emplace_ssa(
-                    SSA_read_global, ir->gvar_loc_manager.type(i), 
-                    entry, loc);
-        });
-
-        // Create all of the SSA graph, minus the exit node:
-        cfg_ht const end = compile_block(ir->root);
-        cfg_exits_with_jump(*end);
-
-        // Now create the exit block.
-        // All return statements create a jump, which will jump to the exit node.
-        type_t const return_type = fn->type().return_type();
-        if(return_type != TYPE_VOID)
-            builder.return_values.push_back(
-                end->emplace_ssa(SSA_uninitialized, return_type));
-
-        ir->exit = insert_cfg(true);
-
-        for(cfg_ht node : builder.return_jumps)
-            node->build_set_output(0, ir->exit);
-        end->build_set_output(0, ir->exit);
-
-        // Write all globals at the exit:
-        std::vector<ssa_value_t> return_inputs;
-        return_inputs.reserve(ir->gvar_loc_manager.num_unique_locators() * 2);
-
-        ir->gvar_loc_manager.for_each_locator([&](locator_t loc, gvar_loc_manager_t::index_t i)
-        {
-            return_inputs.push_back(var_lookup(ir->exit, to_var_i(i)));
-            return_inputs.push_back(loc);
-        });
-
-        ssa_ht ret = ir->exit->emplace_ssa(SSA_return, TYPE_VOID);
-
-        // Append the return value, if it exists:
-        if(return_type != TYPE_VOID)
-        {
-            ssa_ht phi = ir->exit->emplace_ssa(SSA_phi, return_type);
-            phi->assign_input(&*builder.return_values.begin(), &*builder.return_values.end());
-            return_inputs.push_back(phi);
-            return_inputs.push_back(locator_t::ret(fn->handle()));
-        }
-
-        assert(return_inputs.size() % 2 == 0);
-        ret->assign_input(&*return_inputs.begin(), &*return_inputs.end());
-        ret->append_daisy();
-
-#ifndef NDEBUG
-        for(cfg_ht h = ir->cfg_begin(); h; ++h)
-            assert(h.data<block_d>().sealed());
-#endif
-        */
+        // Add global vars to 'var_types':
+        var_types.reserve(var_types.size() + ir->gmanager.num_gvar_locators());
+        ir->gmanager.for_each_gvar([&](gvar_ht gvar, auto) { var_types.push_back(gvar->type()); });
+        assert(num_vars() >= var_types.size());
+        var_types.resize(num_vars(), TYPE_VOID);
     }
     else
+    {
+        interpret_locals.resize(nlocals);
+        for(unsigned i = 0; i < nlocals; ++i)
+            interpret_locals[i] = args[i];
+
         interpret_stmts<D>();
+    }
+}
+
+eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
+: fn(&fn_ref)
+, stmt(fn_ref.def().stmts.data())
+, ir(&ir_ref)
+, start_time(clock::now())
+{
+    // Reset the static thread-local state:
+    builder.clear();
+
+    unsigned const nlocals = num_locals();
+
+    var_types.resize(nlocals);
+    for(unsigned i = 0; i < nlocals; ++i)
+        var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
+
+    // Add global vars to 'var_types':
+    var_types.reserve(var_types.size() + ir->gmanager.num_gvar_locators());
+    ir->gmanager.for_each_gvar([&](gvar_ht gvar, auto) { var_types.push_back(gvar->type()); });
+    assert(num_vars() >= var_types.size());
+    var_types.resize(num_vars(), TYPE_VOID);
+
+    builder.clear(); // TODO: make sure this isn't called in recursion
+    ir->gmanager.init(fn->handle());
+
+    ir->root = builder.cfg = insert_cfg(true);
+
+    ssa_ht const entry = ir->root->emplace_ssa(SSA_entry, TYPE_VOID);
+    entry->append_daisy();
+
+    // Insert nodes for the arguments
+    unsigned const nparams = fn->def().num_params;
+    for(unsigned i = 0; i < nparams; ++i)
+    {
+        type_t const type = var_types[i];
+        unsigned nmember = ::num_members(type);
+
+        for(unsigned m = 0; m < nmember; ++m)
+        {
+            ir->root.data<block_d>().vars[i][m] = ir->root->emplace_ssa(
+                SSA_read_global, type, entry, 
+                locator_t::arg(fn->handle(), i, m, 0));
+        }
+    }
+
+    // Insert nodes for gmember reads
+    ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t i)
+    {
+        unsigned const var_i = to_var_i(i);
+        auto& vars = ir->root.data<block_d>().vars;
+        assert(vars.size() == var_types.size());
+
+        for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+        {
+            assert(var_i < vars.size());
+            assert(m->index < vars[var_i].size());
+
+            vars[var_i][m->index] = ir->root->emplace_ssa(
+                SSA_read_global, var_types[var_i], entry, locator_t::gmember(m, 0));
+        }
+    });
+
+    // Insert nodes for gmember set reads
+    ir->gmanager.for_each_gmember_set(fn->handle(),
+    [&](bitset_uint_t const* gmember_set, gmanager_t::index_t i, locator_t locator)
+    {
+        unsigned const var_i = to_var_i(i);
+        auto& vars = ir->root.data<block_d>().vars;
+        assert(vars.size() == var_types.size());
+        assert(vars[var_i].size() == 1);
+
+        vars[var_i][0] = ir->root->emplace_ssa(
+            SSA_read_global, var_types[var_i], entry, locator);
+    });
+
+    // Create all of the SSA graph, minus the exit node:
+    compile_block();
+    cfg_exits_with_jump();
+    cfg_ht const end = builder.cfg;
+
+    // Now create the exit block.
+    // All return statements create a jump, which will jump to the exit node.
+    type_t const return_type = fn->type().return_type();
+    if(return_type != TYPE_VOID)
+    {
+        ssa_value_array_t array;
+
+        unsigned const num_m = ::num_members(return_type);
+        for(unsigned m = 0; m < num_m; ++m)
+            array.push_back(end->emplace_ssa(SSA_uninitialized, ::member_type(return_type, m)));
+
+        builder.return_values.push_back(std::move(array));
+    }
+
+    ir->exit = insert_cfg(true);
+
+    for(cfg_ht node : builder.return_jumps)
+        node->build_set_output(0, ir->exit);
+    end->build_set_output(0, ir->exit);
+
+    // Write all globals at the exit:
+    std::vector<ssa_value_t> return_inputs;
+    return_inputs.reserve(ir->gmanager.num_locators() * 2);
+
+    ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t i)
+    {
+        unsigned const var_i = to_var_i(i);
+
+        for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+        {
+            return_inputs.push_back(var_lookup(ir->exit, var_i, m->index));
+            return_inputs.push_back(locator_t::gmember(m, 0));
+        }
+    });
+
+    ssa_ht ret = ir->exit->emplace_ssa(SSA_return, TYPE_VOID);
+
+    // Append the return value, if it exists:
+    if(return_type != TYPE_VOID)
+    {
+        unsigned const num_m = ::num_members(return_type);
+        for(unsigned m = 0; m < num_m; ++m)
+        {
+            ssa_ht phi = ir->exit->emplace_ssa(SSA_phi, member_type(return_type, m));
+            
+            unsigned const size = builder.return_values.size();
+            phi->alloc_input(size);
+
+            for(unsigned i = 0; i < size; ++i)
+                phi->build_set_input(i, builder.return_values[i][m]);
+
+            return_inputs.push_back(phi);
+            return_inputs.push_back(locator_t::ret(fn->handle(), m, 0));
+        }
+    }
+
+    assert(return_inputs.size() % 2 == 0);
+    ret->assign_input(&*return_inputs.begin(), &*return_inputs.end());
+    ret->append_daisy();
+
+#ifndef NDEBUG
+    for(cfg_ht h = ir->cfg_begin(); h; ++h)
+        assert(h.data<block_d>().sealed);
+#endif
+
+    std::printf("cfg size = %i\n", ir->cfg_size());
 }
 
 template<eval_t::do_t D>
@@ -379,179 +483,8 @@ void eval_t::do_expr_result(token_t const* expr, type_t expected_type)
 /* TODO: remove?
 type_t eval_t::var_i_type(unsigned var_i) const
 {
-    assert(var_i < local_types.size());
-    return local_types[var_i];
-}
-*/
-
-/*
-sval_t const& eval_t::root_sval(rpn_value_t const& rpn_value) const
-{
-    if(rpn_value.value.is_locator())
-    {
-        if(rpn_value.value.locator().lclass() == LOC_GLOBAL_CONST)
-            return rpn_value.value.locator().const_()->sval();
-        if(rpn_value.value.locator().lclass() == LOC_LOCAL_CONST)
-            assert(false); // TODO!!
-    }
-    assert(rpn_value.var_i < interpret_locals.size());
-    return interpret_locals[rpn_value.var_i];
-}
-
-
-type_t eval_t::root_type(rpn_value_t const& rpn_value) const
-{
-    if(rpn_value.value.is_locator())
-    {
-        if(rpn_value.value.locator().lclass() == LOC_GLOBAL_CONST)
-            return rpn_value.value.locator().const_()->type();
-        if(rpn_value.value.locator().lclass() == LOC_LOCAL_CONST)
-            assert(false); // TODO!!
-    }
-    assert(rpn_value.var_i < local_types.size());
-    return local_types[rpn_value.var_i];
-}
-*/
-
-/*  TODO
-ssa_value_t eval_t::local_leaf(rpn_value_t const& rpn_value, access_t a) const
-{
-    assert(rpn_value.var_i < local_types.size());
-    assert(a.member < interpret_locals[rpn_value.var_i].size());
-
-    sval_t const& sval = root_sval(rpn_value);
-
-    if(a.member >= sval.size()) // Can happen during INTERPRET_CE
-        compiler_error(rpn_value.pstring, "Unable to access during constant evaluation. ");
-
-    ssa_value_t array = sval[a.member];
-
-    if((unsigned)a.index >= array.size())
-    {
-        compiler_error(rpn_value.pstring, 
-                       fmt("Array index is out of bounds. (index of % >= size of %)", 
-                       a.index, array.size()));
-    }
-
-    return array[a.index];
-}
-
-auto eval_t::access(rpn_value_t const& rpn_value) const -> access_t
-{
-    access_t a = { .type = root_type(rpn_value) };
-    assert(a.index < 0);
-    assert(!is_thunk(a.type.name()));
-
-    for(unsigned m = 0;;) // 'm' will track the member
-    {
-        if(a.type.name() == TYPE_ARRAY)
-        {
-            if(!rpn_value.index)
-            {
-                assert(m == rpn_value.members.size());
-                return a;
-            }
-
-            assert(!a.index);
-
-            a.index = rpn_value.index;
-            a.type = a.type.elem_type();
-        }
-        else if(m == rpn_value.members.size())
-            return a;
-        else
-        {
-            assert(a.type.name() == TYPE_STRUCT);
-
-            struct_t const& s = a.type.struct_();
-            a.member += s.member(rpn_value.members[m]);
-            a.type = s.field(rpn_value.members[m]).type;
-
-            ++m;
-        }
-    }
-}
-
-template<eval_t::do_t D>
-sval_t eval_t::to_sval(rpn_value_t const& rpn_value) const
-{
-    if(is_aggregate(rpn_value.type.name()))
-    {
-        auto a = access(rpn_value);
-
-        sval_t sval(num_members(a.type));
-
-        sval_t const& from = root_sval(rpn_value);
-
-        if(!a.index)
-            for(unsigned i = 0; i < sval.size(); ++i)
-                sval[i] = from[a.member + i];
-        else
-        {
-            if(is_interpret(D))
-            {
-                if(!a.index.is_num())
-                    compiler_error(rpn_value.pstring, "Array index must be known at compile time.");
-
-                unsigned const index = a.index.whole();
-
-                for(unsigned i = 0; i < sval.size(); ++i)
-                {
-                    ct_array_t const* array = from[a.member + i].ct_array();
-                    if(!array)
-                        compiler_error(rpn_value.pstring, "Array must be known at compile time.");
-                    sval[i] = array[index];
-                }
-            }
-            else if(D == COMPILE)
-            {
-                type_t const rt = root_type(rpn_value);
-
-                for(unsigned i = 0; i < sval.size(); ++i)
-                {
-                    type_t mt = member_type(rt, i);
-
-                    if(mt.name() == TYPE_ARRAY)
-                    {
-                        assert(a.index);
-                        sval[i] = builder.cfg->emplace_ssa(
-                            SSA_read_array, mt.elem_type(), from[a.member + i], locator_t::none(), a.index);
-                    }
-                    else
-                    {
-                        assert(!a.index);
-                        sval[i] = from[a.member + i];
-                    }
-
-                }
-            }
-        }
-
-        return sval;
-    }
-    else
-        return { rpn_value.value };
-}
-*/
-
-// TODO
-/*
-void eval_t::init_sval(access_t a, sval_t& sval)
-{
-    if(a.type.name() == TYPE_STRUCT)
-    {
-        struct_t const& s = a.type.struct_();
-        for(unsigned i = 0; i < s.fields().size(); ++i)
-            init_sval({ s.field(i).type, a.member + s.member(i) , a.index }, sval);
-    }
-    else if(a.type.name() == TYPE_ARRAY)
-        init_sval({ a.type.elem_type(), a.member, a.type.size() }, sval);
-    else
-    {
-        assert(a.member < sval.size());
-        a.index = std::max(a.index, 1);
-        sval[a.member].resize(a.index);
-    }
+    assert(var_i < var_types.size());
+    return var_types[var_i];
 }
 */
 
@@ -586,7 +519,7 @@ void eval_t::interpret_stmts()
         // Temporary locals can be allocated in 'do_expr'; this resets that.
         // TODO: remove
         //interpret_locals.resize(num_locals());
-        //local_types.resize(num_locals());
+        //var_types.resize(num_locals());
 
         switch(stmt->name)
         {
@@ -599,14 +532,14 @@ void eval_t::interpret_stmts()
                 unsigned const var_i = ::get_local_var_i(stmt->name);
 
                 // Prepare the type.
-                assert(var_i < local_types.size());
-                if(local_types[var_i].name() == TYPE_VOID)
-                    local_types[var_i] = dethunkify(fn->def().local_vars[var_i].src_type, this);
+                assert(var_i < var_types.size());
+                if(var_types[var_i].name() == TYPE_VOID)
+                    var_types[var_i] = dethunkify(fn->def().local_vars[var_i].src_type, true, this);
 
                 if(stmt->expr)
                 {
                     do_expr<D>(rpn_stack, stmt->expr);
-                    throwing_cast<D>(rpn_stack.peek(0), local_types[var_i], true);
+                    throwing_cast<D>(rpn_stack.peek(0), var_types[var_i], true);
 
                     if(D == INTERPRET)
                     {
@@ -617,32 +550,21 @@ void eval_t::interpret_stmts()
                 }
                 else if(D == INTERPRET)
                 {
-                    unsigned const num = num_members(local_types[var_i]);
+                    type_t const type = var_types[var_i];
+                    unsigned const num = num_members(type);
                     assert(num > 0);
-                    interpret_locals[var_i].resize(num);
+
+                    sval_t sval;
+                    sval.reserve(num);
 
                     for(unsigned i = 0; i < num; ++i)
                     {
-                        type_t const mt = member_type(local_types[var_i], i);
-                        if(mt.name() != TYPE_ARRAY)
-                            continue;
-                        interpret_locals[var_i][i] = make_ct_array(mt.array_length());
+                        type_t const mt = member_type(type, i);
+                        if(mt.name() == TYPE_ARRAY)
+                            sval.emplace_back(make_ct_array(mt.array_length()));
+                        else
+                            sval.emplace_back();
                     }
-
-                    /* TODO: remove
-                    //type_t const t = local_types[var_i];
-                    //unsigned const num = 
-
-                    interpret_arrays[var_i] = std::make_new<ct_array_t>(num);
-
-                    for(unsigned i = 0; i < num; ++i)
-                    {
-                        type_t const m = member_type(t, i);
-                        if(m.name() != TYPE_ARRAY)
-                            continue;
-                        (*interpret_arrays[var_i])[i].resize(m.size());
-                    }
-                    */
                 }
 
                 ++stmt;
@@ -658,7 +580,7 @@ void eval_t::interpret_stmts()
             break;
 
         case STMT_DO:
-        case STMT_END_BLOCK:
+        case STMT_END_IF:
         case STMT_LABEL:
             ++stmt;
             break;
@@ -740,9 +662,10 @@ void eval_t::interpret_stmts()
     assert(false);
 }
 
-cfg_ht eval_t::compile_block(cfg_ht cfg_node)
+void eval_t::compile_block()
 {
-#if 0
+    rpn_stack_t rpn_stack;
+
     while(true)
     switch(stmt->name)
     {
@@ -751,224 +674,273 @@ cfg_ht eval_t::compile_block(cfg_ht cfg_node)
         {
             unsigned const var_i = get_local_var_i(stmt->name);
 
-            ssa_value_t value;
+            sval_t sval;
             if(stmt->expr)
             {
-                cfg_node = compile_expr(cfg_node, stmt->expr);
-                throwing_cast(*cfg_node, rpn_stack.peek(0), 
-                              fn.def().local_vars[var_i].type);
-                value = rpn_stack.only1().value;
+                do_expr<COMPILE>(rpn_stack, stmt->expr);
+                throwing_cast<COMPILE>(rpn_stack.peek(0), var_types[var_i], true);
+                sval = rpn_stack.only1().sval;
             }
             else
             {
-                value = cfg_node->emplace_ssa(
-                    SSA_uninitialized, fn.def().local_vars[var_i].type);
+                type_t const type = var_types[var_i];
+                unsigned const num = num_members(type);
+                assert(num > 0);
+
+                sval.reserve(num);
+                
+                for(unsigned i = 0; i < num; ++i)
+                {
+                    type_t const mt = member_type(type, i);
+                    sval.emplace_back(builder.cfg->emplace_ssa(SSA_uninitialized, mt));
+                }
             }
 
-            cfg_node.data<block_d>().fn_vars[var_i] = value;
+            builder.cfg.data<block_d>().vars[var_i] = std::move(sval);
             ++stmt;
+
+            std::printf("init var %i %i\n", var_i, builder.cfg.index);
         }
         else
             throw std::runtime_error("Unimplemented stmt.");
         break;
-    case STMT_END_BLOCK:
+
+    case STMT_END_IF:
+    case STMT_END_DO:
+    case STMT_END_WHILE:
+    case STMT_END_FN:
         ++stmt;
-        return cfg_node;
+        return;
 
     case STMT_EXPR:
-        cfg_node = compile_expr(cfg_node, stmt->expr);
+        do_expr<COMPILE>(rpn_stack, stmt->expr);
         ++stmt;
         break;
 
     case STMT_IF:
         {
             // Branch the active node.
-            cfg_ht branch = compile_expr(cfg_node, stmt->expr);
+            do_expr<COMPILE>(rpn_stack, stmt->expr);
             ++stmt;
-            throwing_cast(*branch, rpn_stack.only1(), {TYPE_BOOL});
-            exits_with_branch(*branch, rpn_stack.only1().value);
+            cfg_ht branch = builder.cfg;
+            throwing_cast<COMPILE>(rpn_stack.only1(), TYPE_BOOL, true);
+            cfg_exits_with_branch(rpn_stack.only1().ssa());
 
             // Create new cfg_node for the 'true' branch.
-            cfg_ht begin_true = insert_cfg(true);
+            cfg_ht const begin_true = builder.cfg = insert_cfg(true);
             branch->build_set_output(1, begin_true);
-            cfg_ht end_true = compile_block(begin_true);
-            exits_with_jump(*end_true);
+            compile_block();
+            cfg_exits_with_jump();
+            cfg_ht const end_true = builder.cfg;
 
             if(stmt->name == STMT_ELSE)
             {
                 // Create new block for the 'false' branch.
                 ++stmt;
-                cfg_ht begin_false = insert_cfg(true);
+                cfg_ht const begin_false = builder.cfg = insert_cfg(true);
                 branch->build_set_output(0, begin_false);
-                // repurpose 'branch' to hold end of the 'false' branch.
+                compile_block();
+
+                // Repurpose 'branch' to hold end of the 'false' branch.
                 // Simplifies the assignment that follows.
-                branch = compile_block(begin_false);
-                exits_with_jump(*branch);
+                branch = builder.cfg;
+                cfg_exits_with_jump();
             }
 
             // Merge the two nodes.
-            cfg_node = insert_cfg(true);
-            end_true->build_set_output(0, cfg_node);
-            branch->build_set_output(0, cfg_node);
-            break;
+            builder.cfg = insert_cfg(true);
+            end_true->build_set_output(0, builder.cfg);
+            branch->build_set_output(0, builder.cfg);
         }
+        break;
 
+    case STMT_FOR:
     case STMT_WHILE:
         {
+            bool const is_for = stmt->name == STMT_FOR;
+            cfg_ht const entry = builder.cfg;
+
             // The loop condition will go in its own block.
-            exits_with_jump(*cfg_node);
-            cfg_ht begin_branch = insert_cfg(false);
-            cfg_node->build_set_output(0, begin_branch);
+            cfg_exits_with_jump();
+            cfg_ht const begin_branch = builder.cfg = insert_cfg(false);
+            entry->build_set_output(0, begin_branch);
 
-            cfg_ht end_branch = compile_expr(begin_branch, stmt->expr);
+            do_expr<COMPILE>(rpn_stack, stmt->expr);
             ++stmt;
-            throwing_cast(*end_branch, rpn_stack.only1(), {TYPE_BOOL});
-            exits_with_branch(*end_branch, rpn_stack.only1().value);
+            cfg_ht const end_branch = builder.cfg;
+            throwing_cast<COMPILE>(rpn_stack.only1(), TYPE_BOOL, true);
+            cfg_exits_with_branch(rpn_stack.only1().ssa());
 
-            continue_stack.emplace_back();
-            break_stack.emplace_back();
+            builder.continue_stack.emplace_back();
+            builder.break_stack.emplace_back();
 
             // Compile the body.
-            cfg_ht begin_body = insert_cfg(true);
+            cfg_ht const begin_body = builder.cfg = insert_cfg(true);
             end_branch->build_set_output(1, begin_body);
-            cfg_ht end_body = compile_block(begin_body);
-            exits_with_jump(*end_body);
-            end_body->build_set_output(0, begin_branch);
+            compile_block();
+            cfg_ht const end_body = builder.cfg;
+            cfg_exits_with_jump();
 
-            // All continue statements jump to branch_node.
-            // TODO: properly implement continue in 'for'
-            assert(false);
-            for(cfg_ht node : continue_stack.back())
-                node->build_set_output(0, begin_branch);
+            cfg_ht begin_for_expr = begin_branch; // Will be 'begin_branch' only for WHILE stmts, otherwise see below:
+            if(is_for)
+            {
+                // Compile the 'for' expr in its own block:
+                assert(stmt->name == STMT_FOR_EFFECT);
+                begin_for_expr = builder.cfg = insert_cfg(true);
+                do_expr<COMPILE>(rpn_stack, stmt->expr);
+                ++stmt;
+                cfg_ht const end_for_expr = builder.cfg;
+                end_for_expr->build_set_output(0, begin_branch);
+            }
+            end_body->build_set_output(0, begin_for_expr);
+
+            // All continue statements jump to the 'begin_for_expr'.
+            for(cfg_ht node : builder.continue_stack.back())
+                node->build_set_output(0, begin_for_expr);
             seal_block(begin_branch.data<block_d>());
 
             // Create the exit node.
-            cfg_node = insert_cfg(true);
-            end_branch->build_set_output(0, cfg_node);
-            for(cfg_ht node : break_stack.back())
-                node->build_set_output(0, cfg_node);
+            cfg_ht const begin_exit = builder.cfg = insert_cfg(true);
+            end_branch->build_set_output(0, begin_exit);
+            for(cfg_ht node : builder.break_stack.back())
+                node->build_set_output(0, begin_exit);
 
-            continue_stack.pop_back();
-            break_stack.pop_back();
-            break;
+            builder.continue_stack.pop_back();
+            builder.break_stack.pop_back();
         }
+        break;
 
     case STMT_DO:
         {
+            cfg_ht const entry = builder.cfg;
+
             ++stmt;
-            continue_stack.emplace_back();
-            break_stack.emplace_back();
+            builder.continue_stack.emplace_back();
+            builder.break_stack.emplace_back();
 
             // Compile the loop body
-            exits_with_jump(*cfg_node);
-            cfg_ht begin_body = insert_cfg(false);
-            cfg_node->build_set_output(0, begin_body);
-            cfg_ht end_body = compile_block(begin_body);
+            cfg_exits_with_jump();
+            cfg_ht const begin_body = builder.cfg = insert_cfg(false);
+            entry->build_set_output(0, begin_body);
+            compile_block();
+            cfg_ht const end_body = builder.cfg;
 
-            assert(stmt->name == STMT_WHILE);
+            assert(stmt->name == STMT_END_DO);
 
             // The loop condition can go in its own block, which is
             // necessary to implement 'continue'.
-            exits_with_jump(*end_body);
-            cfg_ht begin_branch = insert_cfg(true);
+            cfg_exits_with_jump();
+            cfg_ht const begin_branch = builder.cfg = insert_cfg(true);
             end_body->build_set_output(0, begin_branch);
 
-            cfg_ht end_branch = compile_expr(begin_branch, stmt->expr);
+            do_expr<COMPILE>(rpn_stack, stmt->expr);
             ++stmt;
-            throwing_cast(*end_branch, rpn_stack.only1(), {TYPE_BOOL});
-            exits_with_branch(*end_branch, rpn_stack.only1().value);
+            cfg_ht const end_branch = builder.cfg;
+            throwing_cast<COMPILE>(rpn_stack.only1(), TYPE_BOOL, true);
+            cfg_exits_with_branch(rpn_stack.only1().ssa());
 
             end_branch->build_set_output(1, begin_body);
             seal_block(begin_body.data<block_d>());
 
             // All continue statements jump to the branch node.
-            for(cfg_ht node : continue_stack.back())
+            for(cfg_ht node : builder.continue_stack.back())
                 node->build_set_output(0, begin_branch);
 
             // Create the exit cfg_node.
-            cfg_node = insert_cfg(true);
-            end_branch->build_set_output(0, cfg_node);
-            for(cfg_ht node : break_stack.back())
-                node->build_set_output(0, cfg_node);
+            cfg_ht const begin_exit = builder.cfg = insert_cfg(true);
+            end_branch->build_set_output(0, begin_exit);
+            for(cfg_ht node : builder.break_stack.back())
+                node->build_set_output(0, begin_exit);
 
-            continue_stack.pop_back();
-            break_stack.pop_back();
-            break;
+            builder.continue_stack.pop_back();
+            builder.break_stack.pop_back();
         }
+        break;
 
     case STMT_RETURN:
         {
-            type_t return_type = fn.type().return_type();
+            type_t const return_type = fn->type().return_type();
+
             if(stmt->expr)
             {
-                cfg_node = compile_expr(cfg_node, stmt->expr);
-                throwing_cast(*cfg_node, rpn_stack.only1(), return_type);
-                builder.return_values.push_back(rpn_stack.only1().value);
+                do_expr<COMPILE>(rpn_stack, stmt->expr);
+                throwing_cast<COMPILE>(rpn_stack.only1(), return_type, true);
+
+                auto const& rpn = rpn_stack.only1();
+
+                ssa_value_array_t array;
+                array.reserve(rpn.sval.size());
+
+                for(unsigned i = 0; i < rpn.sval.size(); ++i)
+                    array.push_back(from_variant(rpn.sval[i], member_type(rpn.type, i)));
+
+                builder.return_values.push_back(std::move(array));
             }
             else if(return_type.name() != TYPE_VOID)
+            {
                 compiler_error(stmt->pstring, fmt(
                     "Expecting return expression of type %.", return_type));
-            return_jumps.push_back(cfg_node);
-            cfg_node = compile_goto(cfg_node);
+            }
+
+            builder.return_jumps.push_back(builder.cfg);
+            builder.cfg = compile_goto();
             ++stmt;
-            break;
         }
+        break;
 
     case STMT_BREAK:
-        if(break_stack.empty())
+        if(builder.break_stack.empty())
             compiler_error(stmt->pstring, "break statement outside of loop.");
-        break_stack.back().push_back(cfg_node);
-        cfg_node = compile_goto(cfg_node);
+        builder.break_stack.back().push_back(builder.cfg);
+        builder.cfg = compile_goto();
         ++stmt;
         break;
 
     case STMT_CONTINUE:
-        if(continue_stack.empty())
-            compiler_error(stmt->pstring, 
-                           "continue statement outside of loop.");
-        continue_stack.back().push_back(cfg_node);
-        cfg_node = compile_goto(cfg_node);
+        if(builder.continue_stack.empty())
+            compiler_error(stmt->pstring, "continue statement outside of loop.");
+        builder.continue_stack.back().push_back(builder.cfg);
+        builder.cfg = compile_goto();
         ++stmt;
         break;
 
     case STMT_LABEL:
         {
-            label_t& label = label_map[stmt];
+            label_t& label = builder.label_map[stmt];
             unsigned const use_count = stmt->use_count;
-            pstring_t label_name = stmt->pstring;
+            pstring_t const label_name = stmt->pstring;
             ++stmt;
 
             // If there's no goto to this label, just ignore it.
             if(use_count == 0)
                 break;
 
-            exits_with_jump(*cfg_node);
-            label.inputs.push_back(cfg_node);
+            cfg_exits_with_jump();
+            label.inputs.push_back(builder.cfg);
 
             if(use_count + 1 == label.inputs.size())
             {
                 // All the gotos to this label have been compiled,
                 // that means this block can be sealed immediately!
-                label.node = cfg_node = insert_cfg(true, label_name);
+                label.node = builder.cfg = insert_cfg(true, label_name);
                 for(cfg_ht node : label.inputs)
                     node->build_set_output(0, label.node);
             }
             else // Otherwise, seal the node at a later time.
-                label.node = cfg_node = insert_cfg(false, label_name);
-
-            break;
+                label.node = builder.cfg = insert_cfg(false, label_name);
         }
+        break;
 
     case STMT_GOTO:
         {
-            label_t& label = label_map[&fn.def()[stmt->link]];
-            unsigned const use_count = fn.def()[stmt->link].use_count;
+            label_t& label = builder.label_map[&fn->def()[stmt->link]];
+            unsigned const use_count = fn->def()[stmt->link].use_count;
             assert(use_count > 0);
             ++stmt;
 
             // Add the jump to the label.
-            label.inputs.push_back(cfg_node);
-            cfg_node = compile_goto(cfg_node);
+            label.inputs.push_back(builder.cfg);
+            builder.cfg = compile_goto();
 
             // If this is the last goto, finish and seal the node.
             if(use_count + 1 == label.inputs.size())
@@ -986,26 +958,21 @@ cfg_ht eval_t::compile_block(cfg_ht cfg_node)
         {
             assert(stmt->expr);
 
-            cfg_ht branch = cfg_node;
-
-            cfg_ht mode = insert_cfg(true);
-
-            cfg_node = compile_goto(cfg_node);
-            branch->build_set_output(0, mode);
-
-            compile_expr(mode, stmt->expr);
-
+            cfg_ht const branch = builder.cfg;
+            cfg_ht const mode = builder.cfg = insert_cfg(true);
+            do_expr<COMPILE>(rpn_stack, stmt->expr);
             ++stmt;
-            break;
+            builder.cfg = branch;
+            builder.cfg = compile_goto();
+            branch->build_set_output(0, mode);
         }
-        ;
+        break;
     }
     assert(false);
-    assert(0);
-#endif
 }
 
-cfg_ht eval_t::compile_expr(rpn_stack_t& rpn_stack, cfg_ht cfg_node, token_t const* expr)
+/*
+void eval_t::compile_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 {
     rpn_stack.clear();
     builder.logical_stack.clear();
@@ -1019,10 +986,11 @@ cfg_ht eval_t::compile_expr(rpn_stack_t& rpn_stack, cfg_ht cfg_node, token_t con
 
 #if 0
         case TOK_ident:
+            assert(token->value < var_types.size());
             rpn_stack.push({ 
-                .value = var_lookup(cfg_node, token->value), 
+                .sval = var_lookup(builder.cfg, token->value), 
                 .category = LVAL, 
-                .type = fn->def().local_vars[token->value].type, 
+                .type = var_types[token->value], 
                 .pstring = token->pstring,
                 .var_i = token->value });
             break;
@@ -1269,8 +1237,8 @@ cfg_ht eval_t::compile_expr(rpn_stack_t& rpn_stack, cfg_ht cfg_node, token_t con
 
     assert(rpn_stack.size() == 1);
     assert(builder.logical_stack.empty());
-    return cfg_node;
 }
+*/
 
 template<eval_t::do_t D>
 void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
@@ -1301,12 +1269,12 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             else
             {
                 assert(D == CHECK || D == INTERPRET || D == COMPILE);
-                assert(token->value < local_types.size());
+                assert(token->value < var_types.size());
 
                 rpn_value_t new_top =
                 {
                     .category = LVAL, 
-                    .type = local_types[token->value],
+                    .type = var_types[token->value],
                     .pstring = token->pstring,
                     .var_i = token->value,
                 };
@@ -1350,7 +1318,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
                         if(D == COMPILE)
                         {
-                            unsigned const var_i = to_var_i(ir->gvar_loc_manager.index(global->handle<gvar_ht>()));
+                            unsigned const var_i = to_var_i(global->handle<gvar_ht>());
                             new_top.var_i = var_i;
                             new_top.sval = var_lookup(builder.cfg, var_i);
                         }
@@ -1408,7 +1376,6 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 .type = { TYPE_REAL }, 
                 .pstring = token->pstring });
             break;
-
 
         case TOK_period:
             {
@@ -1558,8 +1525,6 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 }
                 else if(D == COMPILE)
                 {
-                    assert(0);
-                    /* TODO
                     if(is_ct(call->type().return_type()))
                         goto interpret_fn;
                     // TODO: Interpret in other situations, too.
@@ -1574,6 +1539,169 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     bool const is_idep = fn->global.ideps().count(&call->global) > 0;
                     assert(is_idep || fn->mode);
 
+                    std::size_t const gmember_bs_size = gmanager_t::bitset_size();
+                    bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
+
+                    // Prepare global inputs:
+
+                    if(is_idep)
+                    {
+                        assert(call->ir_reads().size() == gmember_bs_size);
+
+                        // Use 'ir_reads()' to determine which members are needed by the called fn.
+
+                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+                        {
+                            bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
+                            bitset_and(gmember_bs_size, temp_bs, gmember_set);
+                            if(bitset_all_clear(gmember_bs_size, temp_bs))
+                                return;
+                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
+                            fn_inputs.push_back(locator);
+                        });
+
+                        ir->gmanager.for_each_gvar(
+                        [&](gvar_ht gvar, gmanager_t::index_t index)
+                        {
+                            for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+                            {
+                                if(call->ir_reads().test(m.value))
+                                {
+                                    fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m.value));
+                                    fn_inputs.push_back(locator_t::gmember(m, 0));
+                                }
+                            }
+                        });
+                    }
+                    else
+                    {
+                        // 'call' may not be compiled yet, thus we can't rely on 'ir_reads'.
+                        // Instead, we'll check 'lang_gvars'.
+
+                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+                        {
+                            bitset_for_each(gmember_bs_size, gmember_set, [&](unsigned bit)
+                            {
+                                gmember_ht const gmember = { bit };
+                                if(!call->lang_gvars().test(gmember->gvar.handle().value))
+                                    return;
+
+                                fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), gmember.value));
+                                fn_inputs.push_back(locator_t::gmember(gmember, 0));
+                            });
+                        });
+
+                        ir->gmanager.for_each_gvar(
+                        [&](gvar_ht gvar, gmanager_t::index_t index)
+                        {
+                            if(!call->lang_gvars().test(gvar.value))
+                                return;
+
+                            for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+                            {
+                                fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m.value));
+                                fn_inputs.push_back(locator_t::gmember(m, 0));
+                            }
+                        });
+                    }
+
+                    // Prepare the arguments
+                    assert(0);
+                    unsigned const num_members = 0; // TODO //call->param_record().num_members();
+                    for(unsigned i = 0; i < num_params; ++i)
+                    {
+                        type_t const param_type = call->type().type(i);
+                        unsigned const num_param_members = ::num_members(param_type);
+
+                        for(unsigned j = 0; j < num_param_members; ++j)
+                        {
+                            locator_t const loc = locator_t::arg(call, i, j, 0);
+
+                            // If the arg isn't used in the function, ignore it.
+                            if(is_idep && call->lvars().index(loc) < 0)
+                                continue;
+
+                            type_t const member_type = ::member_type(param_type, j);
+
+                            fn_inputs.push_back(from_variant(args[i].sval[j], member_type));
+                            fn_inputs.push_back(loc);
+                        }
+                    }
+
+                    // Create the dependent node.
+                    ssa_op_t const op = call->mode ? SSA_goto_mode : SSA_fn_call;
+                    ssa_ht const fn_node = builder.cfg->emplace_ssa(op, call->type().return_type());
+                    assert(fn_inputs.size() % 2 == 1);
+                    fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
+                    fn_node->append_daisy();
+
+                    if(!call->mode)
+                    {
+                        assert(is_idep);
+
+                        // After the fn is called, read all the globals it has written to:
+
+                        ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
+                        {
+                            for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+                            {
+                                if(call->ir_writes().test(m.value))
+                                {
+                                    ssa_ht read = builder.cfg->emplace_ssa(
+                                        SSA_read_global, m->type(), fn_node, locator_t::gmember(m, 0));
+                                    block_d& block_data = builder.cfg.data<block_d>();
+                                    block_data.vars[to_var_i(index)][m->member()] = read;
+                                }
+                            }
+                        });
+
+                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        [&](bitset_uint_t const* gvar_set, gmanager_t::index_t index, locator_t locator)
+                        {
+                            bitset_copy(gmember_bs_size, temp_bs, gvar_set);
+                            bitset_and(gmember_bs_size, temp_bs, call->ir_writes().data());
+                            if(!bitset_all_clear(gmember_bs_size, temp_bs))
+                            {
+                                ssa_ht read = builder.cfg->emplace_ssa(
+                                    SSA_read_global, TYPE_VOID, fn_node, locator);
+                                block_d& block_data = builder.cfg.data<block_d>();
+                                block_data.vars[to_var_i(index)][0] = read;
+                            }
+                        });
+
+                        // TODO sleep
+                        
+                        rpn_value_t new_top =
+                        {
+                            .category = RVAL, 
+                            .type = fn_rpn.type.return_type(), 
+                            .pstring = concat(fn_rpn.pstring, token->pstring)
+                        };
+
+                        type_t const return_type = fn_rpn.type.return_type();
+                        unsigned const return_members = ::num_members(return_type);
+
+                        for(unsigned m = 0; m < return_members; ++m)
+                        {
+                            ssa_ht ret = builder.cfg->emplace_ssa(
+                                SSA_read_global, member_type(return_type, m), fn_node, locator_t::ret(call, m, 0));
+
+                            new_top.sval.push_back(ret);
+                        }
+
+                        // Update the eval stack.
+
+                        rpn_stack.pop(num_args + 1);
+                        rpn_stack.push(std::move(new_top));
+                    }
+                    else
+                    {
+                        rpn_stack.pop(num_args + 1);
+                    }
+
+#if 0
                     bitset_t const* reads_set;
                     if(!call->mode || is_idep)
                         reads_set = &call->ir_reads();
@@ -1584,7 +1712,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     {
                         if(reads_set->test(gvar.value))
                         {
-                            fn_inputs.push_back(var_lookup(cfg_node, to_var_i(i)));
+                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(i)));
                             fn_inputs.push_back(ir->gvar_loc_manager.locator(i));
                         }
                     });
@@ -1600,29 +1728,40 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                         bitset_and(bs_size, temp_set, reads_set->data());
                         if(!bitset_all_clear(bs_size, temp_set))
                         {
-                            fn_inputs.push_back(var_lookup(cfg_node, to_var_i(i)));
+                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(i)));
                             fn_inputs.push_back(ir->gvar_loc_manager.locator(i));
                         }
-
                     });
 
                     // Prepare the arguments
                     unsigned const num_args = call->type().num_params();
+                    unsigned const num_members = call->param_record().num_members();
+                    unsigned member_i = 0;
                     for(unsigned i = 0; i < num_args; ++i)
                     {
-                        locator_t const loc = locator_t::arg(call, i, 0);
+                        type_t const param_type = call->type().type(i);
+                        unsigned const num_param_members = ::num_members(param_type);
 
-                        // If the arg isn't used in the function, ignore it.
-                        if(is_idep && call->lvars().index(loc) < 0)
-                            continue;
+                        for(unsigned j = 0; j < num_param_members; ++j)
+                        {
+                            locator_t const loc = locator_t::arg(call, member_i, 0);
+                            ++member_i;
 
-                        fn_inputs.push_back(args[i].value);
-                        fn_inputs.push_back(loc);
+                            // If the arg isn't used in the function, ignore it.
+                            if(is_idep && call->lvars().index(loc) < 0)
+                                continue;
+
+                            fn_inputs.push_back(args[i].sval[j]);
+                            fn_inputs.push_back(loc);
+
+                            ++arg_members;
+                        }
                     }
+                    assert(member_i == call->record().num_members());
 
                     // Create the dependent node.
                     ssa_op_t const op = call->mode ? SSA_goto_mode : SSA_fn_call;
-                    ssa_ht const fn_node = cfg_node->emplace_ssa(op, call->type().return_type());
+                    ssa_ht const fn_node = builder.cfg->emplace_ssa(op, call->type().return_type());
                     assert(fn_inputs.size() % 2 == 1);
                     fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
                     fn_node->append_daisy();
@@ -1636,9 +1775,9 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                         {
                             if(writes_set.test(gvar.value))
                             {
-                                ssa_ht read = cfg_node->emplace_ssa(
+                                ssa_ht read = builder.cfg->emplace_ssa(
                                     SSA_read_global, gvar->type(), fn_node, ir->gvar_loc_manager.locator(i));
-                                block_d& block_data = cfg_node.data<block_d>();
+                                block_d& block_data = builder.cfg.data<block_d>();
                                 block_data.fn_vars[to_var_i(i)] = read;
                             }
                         });
@@ -1649,9 +1788,9 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             bitset_and(bs_size, temp_set, writes_set.data());
                             if(!bitset_all_clear(bs_size, temp_set))
                             {
-                                ssa_ht read = cfg_node->emplace_ssa(
+                                ssa_ht read = builder.cfg->emplace_ssa(
                                     SSA_read_global, TYPE_VOID, fn_node, ir->gvar_loc_manager.locator(i));
-                                block_d& block_data = cfg_node.data<block_d>();
+                                block_d& block_data = builder.cfg.data<block_d>();
                                 block_data.fn_vars[to_var_i(i)] = read;
                             }
                         });
@@ -1668,7 +1807,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
                     rpn_stack.pop(num_args + 1);
                     rpn_stack.push(std::move(new_top));
-                */
+#endif
                 }
 
                 break;
@@ -1686,7 +1825,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 // Advance the token to get the TOK_cast_type.
                 ++token;
                 assert(token->type == TOK_cast_type);
-                type_t const type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, this);
+                type_t const type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, true, this);
 
                 auto const check_argn = [&](unsigned size)
                 { 
@@ -1728,7 +1867,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                                 args[cast_result].type, types[cast_result], s.global.name));
                         }
 
-                        if(is_interpret(D))
+                        if(D != CHECK)
                         {
                             // Create a new sval.
                             sval_t new_sval;
@@ -1742,16 +1881,12 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
                             new_top.sval = std::move(new_sval);
                         }
-                        else if(D == COMPILE)
-                        {
-                            assert(false);
-                        }
                     }
                     else if(type.name() == TYPE_ARRAY)
                     {
                         check_argn(type.array_length());
 
-                        for(unsigned i = 0; i < type.array_length(); ++i)
+                        for(unsigned i = 0; i < argn; ++i)
                             throwing_cast<D>(args[i], type.elem_type(), false);
 
                         if(is_interpret(D))
@@ -1771,7 +1906,23 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                         }
                         else if(D == COMPILE)
                         {
-                            assert(false);
+                            // Create a new sval.
+                            sval_t new_sval(num_members(type));
+
+                            for(unsigned i = 0; i < new_sval.size(); ++i)
+                            {
+                                type_t const mt = member_type(type, i);
+                                assert(mt.name() == TYPE_ARRAY);
+
+                                ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);
+                                h->alloc_input(argn);
+                                for(unsigned j = 0; j < argn; ++j)
+                                    h->build_set_input(j, std::get<ssa_value_t>(args[j].sval[i]));
+
+                                new_sval[i] = h;
+                            }
+
+                            new_top.sval = std::move(new_sval);
                         }
                     }
 
@@ -1830,7 +1981,18 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 }
                 else if(D == COMPILE)
                 {
-                    assert(false);
+                    array_val.index = array_index.ssa();
+
+                    for(unsigned i = 0; i < array_val.sval.size(); ++i)
+                    {
+                        type_t const etype = ::member_type(array_val.type, i);
+                        assert(etype.name() == TYPE_ARRAY);
+
+                        array_val.sval[i] = builder.cfg->emplace_ssa(
+                            SSA_read_array, etype.elem_type(), 
+                            from_variant(array_val.sval[i], etype), locator_t::none(), 
+                            std::get<ssa_value_t>(array_index.sval[0]));
+                    }
                 }
 
                 // Set after calling 'access':
@@ -1849,7 +2011,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
         case TOK_sizeof:
             {
-                common_type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, this);
+                common_type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, true, this);
             do_sizeof:
                 unsigned const size = common_type.size_of();
 
@@ -1870,7 +2032,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
         case TOK_len:
             {
-                common_type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, this);
+                common_type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, true, this);
             do_len:
                 unsigned const size = common_type.array_length();
 
@@ -1912,6 +2074,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct eq_p : do_wrapper_t<D>
             {
                 static bool interpret(S lhs, S rhs) { return lhs == rhs; }
+                static ssa_op_t op() { return SSA_eq; }
             };
             do_compare<eq_p>(rpn_stack, *token);
             break;
@@ -1919,34 +2082,29 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct not_eq_p : do_wrapper_t<D>
             {
                 static bool interpret(S lhs, S rhs) { return lhs != rhs; }
+                static ssa_op_t op() { return SSA_not_eq; }
             };
             do_compare<not_eq_p>(rpn_stack, *token);
             break;
         case TOK_gt:
-            struct gt_p : do_wrapper_t<D>
-            {
-                static bool interpret(S lhs, S rhs) { return lhs > rhs; }
-            };
-            do_compare<gt_p>(rpn_stack, *token);
-            break;
+            std::swap(rpn_stack.peek(0), rpn_stack.peek(1));
+            // fall-through
         case TOK_lt:
             struct lt_p : do_wrapper_t<D>
             {
                 static bool interpret(S lhs, S rhs) { return lhs < rhs; }
+                static ssa_op_t op() { return SSA_lt; }
             };
             do_compare<lt_p>(rpn_stack, *token);
             break;
         case TOK_gte:
-            struct gte_p : do_wrapper_t<D>
-            {
-                static bool interpret(S lhs, S rhs) { return lhs >= rhs; }
-            };
-            do_compare<gte_p>(rpn_stack, *token);
-            break;
+            std::swap(rpn_stack.peek(0), rpn_stack.peek(1));
+            // fall-through
         case TOK_lte:
             struct lte_p : do_wrapper_t<D>
             {
                 static bool interpret(S lhs, S rhs) { return lhs <= rhs; }
+                static ssa_op_t op() { return SSA_lte; }
             };
             do_compare<lte_p>(rpn_stack, *token);
             break;
@@ -1955,6 +2113,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct plus_p : do_wrapper_t<D>
             {
                 static S interpret(S lhs, S rhs) { return lhs + rhs; }
+                static ssa_op_t op() { return SSA_add; }
             };
             do_arith<plus_p>(rpn_stack, *token);
             break;
@@ -1966,6 +2125,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct minus_p : do_wrapper_t<D>
             {
                 static S interpret(S lhs, S rhs) { return lhs - rhs; }
+                static ssa_op_t op() { return SSA_sub; }
             };
             do_arith<minus_p>(rpn_stack, *token);
             break;
@@ -1977,6 +2137,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct bitwise_and_p : do_wrapper_t<D>
             {
                 static S interpret(S lhs, S rhs) { return lhs & rhs; }
+                static ssa_op_t op() { return SSA_and; }
             };
             do_arith<bitwise_and_p>(rpn_stack, *token);
             break;
@@ -1988,6 +2149,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct bitwise_or_p : do_wrapper_t<D>
             {
                 static S interpret(S lhs, S rhs) { return lhs | rhs; }
+                static ssa_op_t op() { return SSA_or; }
             };
             do_arith<bitwise_or_p>(rpn_stack, *token);
             break;
@@ -1999,6 +2161,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct bitwise_xor_p : do_wrapper_t<D>
             {
                 static S interpret(S lhs, S rhs) { return lhs ^ rhs; }
+                static ssa_op_t op() { return SSA_xor; }
             };
             do_arith<bitwise_xor_p>(rpn_stack, *token);
             break;
@@ -2036,7 +2199,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 if(is_interpret(D))
                     top.ssa().set(unsigned(!top.whole()));
                 else if(D == COMPILE)
-                    assert(false);
+                {
+                    // Must be two lines; reference invalidation lurks.
+                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_eq, TYPE_BOOL, top.ssa(), 0u);
+                    top.ssa() = ssa;
+                }
 
                 break;
             }
@@ -2049,7 +2216,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 if(is_interpret(D))
                     top.ssa().set(mask_numeric(fixed_t{ -top.s() }, top.type.name()));
                 else if(D == COMPILE)
-                    assert(false);
+                {
+                    // Must be two lines; reference invalidation lurks.
+                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_sub, top.type, 0u, top.ssa());
+                    top.ssa() = ssa;
+                }
 
                 break;
             }
@@ -2065,7 +2236,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 if(is_interpret(D))
                     top.ssa().set(mask_numeric(fixed_t{ ~top.u() }, top.type.name()));
                 else if(D == COMPILE)
-                    assert(false);
+                {
+                    // Must be two lines; reference invalidation lurks.
+                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_xor, top.type, numeric_bitmask(top.type.name()), top.ssa());
+                    top.ssa() = ssa;
+                }
 
                 break;
             }
@@ -2086,52 +2261,81 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
 
     throwing_cast<D>(assignment, assignee.type, true);
 
-    assert(assignee.var_i < interpret_locals.size());
+    assert(assignee.sval.size() == assignment.sval.size());
+    assert(assignee.var_i < var_types.size());
+
+    sval_t* local;
 
     // Remap the identifier to point to the new value.
     if(D == INTERPRET)
     {
-        sval_t& local = interpret_locals[assignee.var_i];
+        assert(assignee.var_i < interpret_locals.size());
+        local = &interpret_locals[assignee.var_i];
+        goto have_local;
+    }
+    else if(D == COMPILE)
+    {
+        local = &builder.cfg.data<block_d>().vars[assignee.var_i];
+    have_local:
 
         if(assignee.index)
         {
-            type_t const mt = member_type(local_types[assignee.var_i], assignee.member);
+            type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
             assert(mt.name() == TYPE_ARRAY);
             assert(mt.elem_type() == assignee.type);
 
             unsigned const array_size = mt.array_length();
-            unsigned const index = assignee.index.whole();
 
-            for(unsigned i = 0; i < assignment.sval.size(); ++i)
+            if(D == INTERPRET)
             {
-                ct_array_t& shared = std::get<ct_array_t>(local[i + assignee.member]);
+                unsigned const index = assignee.index.whole();
 
-                // If the array has multiple owners, copy it, creating a new one.
-                if(shared.use_count() > 1)
+                for(unsigned i = 0; i < assignment.sval.size(); ++i)
                 {
-                    std::puts("copying array");
-                    ct_array_t new_shared = make_ct_array(array_size);
-                    std::copy(shared.get(), shared.get() + array_size, new_shared.get());
-                    shared = std::move(new_shared);
-                }
-                else
-                    std::puts("NOT copying array");
+                    ct_array_t& shared = std::get<ct_array_t>((*local)[i + assignee.member]);
 
-                shared[index] = assignment.ssa(i);
+                    // If the array has multiple owners, copy it, creating a new one.
+                    if(shared.use_count() > 1)
+                    {
+                        std::puts("copying array");
+                        ct_array_t new_shared = make_ct_array(array_size);
+                        std::copy(shared.get(), shared.get() + array_size, new_shared.get());
+                        shared = std::move(new_shared);
+                    }
+                    else
+                        std::puts("NOT copying array");
+
+                    shared[index] = assignment.ssa(i);
+                }
+            }
+            else
+            {
+                assert(D == COMPILE);
+
+                for(unsigned i = 0; i < assignment.sval.size(); ++i)
+                {
+                    ssa_ht read = assignee.ssa(i).handle();
+                    assert(read->op() == SSA_read_array);
+
+                    assert(assignment.type.name() != TYPE_ARRAY);
+                    type_t const type = member_type(assignment.type, i);
+
+                    ssa_ht write = builder.cfg->emplace_ssa(
+                        SSA_write_array, type,
+                        read->input(0), locator_t::none(), read->input(2), std::get<ssa_value_t>(assignment.sval[i]));
+
+                    (*local)[i + assignee.member] = write;
+                }
             }
         }
         else
         {
             for(unsigned i = 0; i < assignment.sval.size(); ++i)
-                local[i + assignee.member] = assignment.sval[i];
+                (*local)[i + assignee.member] = assignment.sval[i];
         }
 
         assignee.sval = std::move(assignment.sval);
         assignee.category = RVAL;
-    }
-    else if(D == COMPILE)
-    {
-        assert(false);
     }
 
     // Leave the assignee on the stack, slightly modified.
@@ -2161,8 +2365,7 @@ void eval_t::req_quantity(token_t const& token, rpn_value_t const& lhs, rpn_valu
 
 // Applies an operator to the top two values on the eval stack,
 // turning them into a single value.
-/* TODO
-void eval_t::compile_binary_operator(cfg_node_t& cfg_node, ssa_op_t op, type_t result_type, bool carry)
+void eval_t::compile_binary_operator(rpn_stack_t& rpn_stack, ssa_op_t op, type_t result_type, bool carry)
 {
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
@@ -2170,13 +2373,13 @@ void eval_t::compile_binary_operator(cfg_node_t& cfg_node, ssa_op_t op, type_t r
     // Result will remain in 'lhs'.
     ssa_value_t result;
     if(carry)
-        result = cfg_node.emplace_ssa(op, result_type, lhs.value, rhs.value, 0);
+        result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa(), 0);
     else
-        result = cfg_node.emplace_ssa(op, result_type, lhs.value, rhs.value);
+        result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa());
 
     rpn_value_t new_top =
     {
-        .value = result,
+        .sval = { result },
         .category = RVAL, 
         .type = result_type, 
         .pstring = concat(lhs.pstring, rhs.pstring)
@@ -2185,7 +2388,6 @@ void eval_t::compile_binary_operator(cfg_node_t& cfg_node, ssa_op_t op, type_t r
     rpn_stack.pop(2);
     rpn_stack.push(std::move(new_top));
 }
-*/
 
 
 template<typename Policy>
@@ -2209,7 +2411,7 @@ void eval_t::do_compare(rpn_stack_t& rpn_stack, token_t const& token)
     }
     else if(Policy::D == COMPILE)
     {
-        assert(false);
+        compile_binary_operator(rpn_stack, Policy::op(), TYPE_BOOL);
     }
 
     rpn_stack.pop(2);
@@ -2259,18 +2461,24 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
+    if(Policy::D == COMPILE)
+    {
+        if(is_ct(result_type))
+            goto interpret;
+
+        compile_binary_operator(rpn_stack, Policy::op(), result_type);
+        return;
+    }
+
     if(is_interpret(Policy::D))
     {
+    interpret:
         assert(is_masked(lhs.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
 
         fixed_t result = { Policy::interpret(lhs.s(), rhs.s()) };
         result.value &= numeric_bitmask(result_type.name());
         new_top.sval = make_sval(result);
-    }
-    else if(Policy::D == COMPILE)
-    {
-        assert(false);
     }
 
     rpn_stack.pop(2);
@@ -2595,37 +2803,193 @@ cfg_ht eval_t::insert_cfg(bool seal, pstring_t label_name)
     cfg_ht const new_node = ir->emplace_cfg();
     cfg_data_pool::resize<block_d>(cfg_pool::array_size());
     block_d& block_data = new_node.data<block_d>();
-    block_data.fn_vars = builder.pool.alloc(num_vars());
-    block_data.unsealed_phis = seal ? nullptr : builder.pool.alloc(num_vars());
     block_data.label_name = label_name;
+    block_data.sealed = seal;
+
+    auto const init_vector = [this](block_d::vector_t& vec)
+    {
+        assert(num_vars() == var_types.size());
+        vec.resize(var_types.size());
+        for(unsigned i = 0; i < var_types.size(); ++i)
+            vec[i].resize(num_members(var_types[i]));
+    };
+
+    init_vector(block_data.vars);
+    if(!seal)
+        init_vector(block_data.unsealed_phis);
+
     return new_node;
 }
 
-void eval_t::cfg_exits_with_jump(cfg_node_t& node)
+void eval_t::seal_block(block_d& block_data)
 {
-    node.alloc_output(1);
+    assert(block_data.sealed == false);
+    ssa_value_t* v;
+    for(unsigned i = 0; i < num_vars(); ++i)
+        for(unsigned member = 0; member < block_data.unsealed_phis[i].size(); ++member)
+            if((v = std::get_if<ssa_value_t>(&block_data.unsealed_phis[i][member])) && v->holds_ref())
+                fill_phi_args(v->handle(), i, member);
+    block_data.unsealed_phis.clear();
 }
 
-void eval_t::cfg_exits_with_branch(cfg_node_t& node, ssa_value_t condition)
+// Relevant paper:
+//   Simple and Efficient Construction of Static Single Assignment Form
+ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
 {
-    ssa_ht if_h = node.emplace_ssa(SSA_if, TYPE_VOID, condition);
+    std::printf("lookup var %i %i\n", var_i, cfg_node.index);
+    block_d& block_data = cfg_node.data<block_d>();
+
+    assert(var_i < block_data.vars.size());
+    assert(member < block_data.vars[var_i].size());
+
+    if(ssa_value_t lookup = from_variant(block_data.vars[var_i][member], member_type(var_types[var_i], member)))
+        return lookup;
+    else if(block_data.sealed)
+    {
+        // If the block doesn't contain a definition for 'var_i',
+        // recursively look up its definition in predecessor nodes.
+        // If there are multiple predecessors, a phi node will be created.
+        try
+        {
+            switch(cfg_node->input_size())
+            {
+            case 0:
+                std::printf("failed var %i %i\n", var_i, cfg_node.index);
+                throw var_lookup_error_t();
+            case 1:
+                return var_lookup(cfg_node->input(0), var_i, member);
+            default:
+                ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, var_types[var_i]);
+                block_data.vars[var_i][member] = phi;
+                fill_phi_args(phi, var_i, member);
+            #ifndef NDEBUG
+                for(unsigned i = 0; i < phi->input_size(); ++i)
+                    assert(phi->input(i));
+                assert(phi);
+            #endif
+                return phi;
+            }
+        }
+        catch(var_lookup_error_t&)
+        {
+            if(block_data.label_name.size && var_i < num_locals())
+            {
+                pstring_t var_name = fn->def().local_vars[var_i].name;
+                file_contents_t file(var_name.file_i);
+                throw compiler_error_t(
+                    fmt_error(file, block_data.label_name, fmt(
+                        "Jump to label crosses initialization "
+                        "of variable %.", var_name.view(file.source())))
+                    + fmt_note(file, var_name, fmt(
+                        "Variable is defined here:")));
+            }
+            throw;
+        }
+    }
+    else 
+    {
+        // If the node is unsealed, the predecessors are not fully known,
+        // and thus it's impossible to determine the var's definition.
+        // To work around this, an incomplete phi node can be created, which
+        // will then be filled when the node is sealed.
+        assert(block_data.unsealed_phis.size() == block_data.vars.size());
+        ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, var_types[var_i]);
+        block_data.vars[var_i][member] = phi;
+        block_data.unsealed_phis[var_i][member] = phi;
+        assert(phi);
+        return phi;
+    }
+}
+
+sval_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
+{
+    block_d& block_data = cfg_node.data<block_d>();
+
+    assert(var_i < block_data.vars.size());
+
+    sval_t sval(block_data.vars[var_i].size());
+    for(unsigned member = 0; member < sval.size(); ++member)
+    {
+        assert(member < block_data.vars[var_i].size());
+        sval[member] = var_lookup(cfg_node, var_i, member);
+    }
+
+    return sval;
+}
+
+void eval_t::fill_phi_args(ssa_ht phi, unsigned var_i, unsigned member)
+{
+    // Input must be an empty phi node.
+    assert(phi->op() == SSA_phi);
+    assert(phi->input_size() == 0);
+
+    // Fill the input array using local lookups.
+    cfg_ht const cfg_node = phi->cfg_node();
+    unsigned const input_size = cfg_node->input_size();
+    phi->alloc_input(input_size);
+    for(unsigned i = 0; i < input_size; ++i)
+    {
+        // This has to be on two lines, otherwise reference invalidation lurks.
+        ssa_value_t v = var_lookup(cfg_node->input(i), var_i, member);
+        phi->build_set_input(i, v);
+    }
+}
+
+ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
+{
+    if(ssa_value_t const* value = std::get_if<ssa_value_t>(&v))
+       return *value;
+    else if(ct_array_t const* array = std::get_if<ct_array_t>(&v))
+    {
+        assert(num_members(type) == 1);
+
+        ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);
+        unsigned const length = type.array_length();
+        h->alloc_input(length);
+        for(unsigned i = 0; j < length; ++i)
+            h->build_set_input(i, (*array)[i]);
+
+        return h;
+    }
+    return {};
+}
+
+ssa_value_array_t eval_t::from_sval(sval_t const& sval, type_t type)
+{
+    ssa_value_array_t array;
+    array.reserve(sval.size());
+
+    for(unsigned i = 0; i < sval.size(); ++i)
+        array.push_back(from_variant(sval[i], member_type(type, i)));
+
+    return array;
+}
+
+void eval_t::cfg_exits_with_jump()
+{
+    builder.cfg->alloc_output(1);
+}
+
+void eval_t::cfg_exits_with_branch(ssa_value_t condition)
+{
+    ssa_ht const if_h = builder.cfg->emplace_ssa(SSA_if, TYPE_VOID, condition);
     if_h->append_daisy();
-    node.alloc_output(2);
-    assert(node.output_size() == 2);
-    assert(node.last_daisy() == if_h);
+    builder.cfg->alloc_output(2);
+    assert(builder.cfg->output_size() == 2);
+    assert(builder.cfg->last_daisy() == if_h);
 }
 
 // Jumps are like 'break', 'continue', 'goto', etc.
-cfg_ht eval_t::compile_goto(cfg_ht branch_node)
+cfg_ht eval_t::compile_goto()
 {
     // The syntax allows code to exist following a jump statement.
     // Said code is unreachable, but gets compiled anyway.
     // Implement using a conditional that always takes the false branch.
     // (This will be optimized out later)
 
-    cfg_exits_with_branch(*branch_node, 0u);
+    cfg_exits_with_branch(0u);
     cfg_ht dead_branch = insert_cfg(true);
-    branch_node->build_set_output(1, dead_branch);
+    builder.cfg->build_set_output(1, dead_branch);
     return dead_branch;
 }
 

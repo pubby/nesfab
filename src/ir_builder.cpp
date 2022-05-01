@@ -8,11 +8,12 @@
 #include "globals.hpp"
 #include "pstring.hpp"
 #include "ir.hpp"
-#include "gvar_loc_manager.hpp"
 #include "rpn.hpp"
 
+/*
 void build_ir(ir_t& ir, fn_t const& fn)
 {}
+*/
 
 #if 0
 namespace bc = boost::container;
@@ -97,7 +98,7 @@ private:
     cfg_ht compile_expr(cfg_ht cfg_node, token_t const* expr);
     cfg_ht compile_logical_begin(cfg_ht cfg_node, bool short_cut_i);
     cfg_ht compile_logical_end(cfg_ht cfg_node, bool short_cut_i);
-    void compile_assign(cfg_node_t& cfg_node);
+    void
     void compile_assign_arith(cfg_node_t&, ssa_op_t op, bool carry = false);
     void compile_binary_operator(cfg_node_t&, ssa_op_t op, type_t result_type, 
                                  bool carry = false);
@@ -671,8 +672,7 @@ ssa_value_t ir_builder_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
             case 1:
                 return var_lookup(cfg_node->input(0), var_i);
             default:
-                ssa_ht phi = cfg_node->emplace_ssa(
-                    SSA_phi, var_i_type(var_i));
+                ssa_ht phi = cfg_node->emplace_ssa(SSA_phi, var_i_type(var_i));
                 block_data.fn_vars[var_i] = phi;
                 fill_phi_args(phi, var_i);
             #ifndef NDEBUG
@@ -714,7 +714,7 @@ ssa_value_t ir_builder_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
     }
 }
 
-void ir_builder_t::fill_phi_args(ssa_ht phi, unsigned var_i)
+void ir_builder_t::fill_phi_args(ssa_ht phi, unsigned var_i, unsigned member)
 {
     // Input must be an empty phi node.
     assert(phi->op() == SSA_phi);

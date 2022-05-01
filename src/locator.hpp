@@ -28,23 +28,20 @@ enum locator_class_t : std::uint8_t
     LOC_IOTA, 
 
     LOC_FN, // A function.
-    LOC_GVAR, // A global variable.
+    LOC_GMEMBER, // A global member.
     //LOC_CONST,
 
     // When a function calls another function, 
-    // the IR tracks which gvars are used in that function.
-    // Rather than requiring one locator per gvar, a GVAR_SET can be used
-    // which combines several gvars into a single locator.
+    // the IR tracks which gmembers are used in that function.
+    // Rather than requiring one locator per gmembers, a GVAR_SET can be used
+    // which combines several gmembers into a single locator.
     // (This is a size optimization)
-    LOC_GVAR_SET,
+    LOC_GMEMBER_SET,
 
     LOC_ARG,
     LOC_RETURN,
 
     LOC_PHI, // TODO?
-
-    // Used to allocate local vars
-    LOC_LOCAL,
 
     // Labels are used during code gen. They map to assembly terms.
     LOC_CFG_LABEL,
@@ -54,7 +51,7 @@ enum locator_class_t : std::uint8_t
     LOC_RELOCATION_ADDR,
 
     LOC_GLOBAL_CONST,
-    LOC_LOCAL_CONST,
+    LOC_CT_PAIR,
 
     LOC_SSA,
 };
@@ -69,14 +66,13 @@ constexpr bool is_const(locator_class_t lclass)
     return lclass == LOC_CONST_BYTE;
 }
 
-constexpr bool has_arg_atom(locator_class_t lclass)
+constexpr bool has_arg_member_atom(locator_class_t lclass)
 {
     switch(lclass)
     {
-    case LOC_GVAR:
+    case LOC_GMEMBER:
     case LOC_ARG:
     case LOC_RETURN:
-    case LOC_LOCAL:
         return true;
     default:
         return false;
@@ -93,15 +89,22 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_PHI:
     case LOC_CFG_LABEL:
     case LOC_MINOR_LABEL:
+    case LOC_CT_PAIR:
         return true;
     default:
         return false;
     }
 }
 
+// what we need:
+// - arg
+// - member
+// - atom
+// - offset
+
 class locator_t
 {
-friend class gvar_locator_manager_t;
+friend class gmember_locator_manager_t;
 public:
     constexpr locator_t() : locator_t(LOC_NONE, 0, 0, 0) {}
 
@@ -113,12 +116,13 @@ public:
         set_offset(o);
     }
 
-    constexpr locator_t(locator_class_t lc, std::uint64_t h, std::uint8_t a, std::uint8_t f, std::int16_t o)
+    constexpr locator_t(locator_class_t lc, std::uint64_t h, std::uint8_t arg, std::uint8_t m, std::uint8_t atom, std::int16_t o)
     {
         set_lclass(lc);
         set_handle(h);
-        set_arg(a);
-        set_atom(f);
+        set_arg(arg);
+        set_member(m);
+        set_atom(atom);
         set_offset(o);
     }
 
@@ -127,12 +131,15 @@ public:
 
     constexpr locator_class_t lclass() const { return static_cast<locator_class_t>(impl >> 56ull); }
     constexpr std::uint32_t handle() const { return (impl >> 32ull) & 0xFFFFFF; }
-    constexpr std::uint16_t data() const { assert(!has_arg_atom(lclass())); return impl >> 16ull; }
-    // 'arg' and 'atom' overlap with data; use one or the other.
-    constexpr std::uint8_t arg() const { assert(has_arg_atom(lclass())); return impl >> 24ull; }
-    constexpr std::uint8_t atom() const { assert(has_arg_atom(lclass())); return impl >> 16ull; }
+    constexpr std::uint16_t data() const { assert(!has_arg_member_atom(lclass())); return impl >> 16ull; }
     constexpr std::int16_t signed_offset() const { return static_cast<std::make_signed_t<std::int16_t>>(impl); }
     constexpr std::uint16_t offset() const { return impl; }
+
+    // 'arg', 'member', and 'atom' overlap with 'data'; use one or the other.
+    constexpr std::uint8_t member() const { assert(has_arg_member_atom(lclass())); return impl >> 24ull; }
+    constexpr std::uint8_t arg() const { assert(has_arg_member_atom(lclass())); return (impl >> 19ull) & 0b11111; }
+    constexpr std::uint8_t atom() const { assert(has_arg_member_atom(lclass())); return (impl >> 16ull) & 0b111; }
+
 
     constexpr void set_lclass(locator_class_t lclass) 
     { 
@@ -150,25 +157,36 @@ public:
 
     constexpr void set_data(std::uint16_t data)
     { 
-        assert(!has_arg_atom(lclass()));
+        assert(!has_arg_member_atom(lclass()));
         impl &= 0xFFFFFFFF0000FFFFull;
         impl |= (std::uint64_t)data << 16ull; 
         assert(data == this->data());
     }
 
+    constexpr void set_member(std::uint8_t member)
+    { 
+        assert(member < MAX_MEMBERS);
+        assert(has_arg_member_atom(lclass()));
+        impl &= 0xFFFFFFFF00FFFFFFull;
+        impl |= (std::uint64_t)member << 24; 
+        assert(member == this->member());
+    }
+
     constexpr void set_arg(std::uint8_t arg)
     { 
-        assert(has_arg_atom(lclass()));
-        impl &= 0xFFFFFFFF00FFFFFFull;
-        impl |= (std::uint64_t)arg << 24; 
+        assert(arg < MAX_FN_ARGS);
+        assert(has_arg_member_atom(lclass()));
+        impl &= 0xFFFFFFFFFF07FFFFull;
+        impl |= ((std::uint64_t)arg & 0b11111) << 19; 
         assert(arg == this->arg());
     }
 
     constexpr void set_atom(std::uint8_t atom)
     { 
-        assert(has_arg_atom(lclass()));
-        impl &= 0xFFFFFFFFFF00FFFFull;
-        impl |= (std::uint64_t)atom << 16; 
+        assert(atom < MAX_ATOMS);
+        assert(has_arg_member_atom(lclass()));
+        impl &= 0xFFFFFFFFFFF8FFFFull;
+        impl |= ((std::uint64_t)atom & 0b111) << 16; 
         assert(atom == this->atom());
     }
 
@@ -179,9 +197,9 @@ public:
         assert(offset == this->offset()); 
     }
 
-    gvar_ht gvar() const 
+    gmember_ht gmember() const 
     { 
-        assert(lclass() == LOC_GVAR);
+        assert(lclass() == LOC_GMEMBER);
         return { handle() }; 
     }
 
@@ -239,26 +257,23 @@ public:
     constexpr static locator_t fn(fn_ht fn)
         { return locator_t(LOC_FN, fn.value, 0, 0); }
 
-    constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t atom, std::uint16_t offset=0)
-        { return locator_t(LOC_ARG, fn.value, arg, atom, offset); }
+    constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_ARG, fn.value, arg, member, atom, offset); }
 
-    constexpr static locator_t gvar(gvar_ht gvar, std::uint8_t atom, std::uint16_t offset=0)
-        { return locator_t(LOC_GVAR, gvar.value, 0, atom, offset); }
+    constexpr static locator_t gmember(gmember_ht gmember, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_GMEMBER, gmember.value, 0, 0, atom, offset); }
 
-    constexpr static locator_t gvar_set(fn_ht fn, std::uint16_t id)
-        { return locator_t(LOC_GVAR_SET, fn.value, id, 0); }
+    constexpr static locator_t gmember_set(fn_ht fn, std::uint16_t id)
+        { return locator_t(LOC_GMEMBER_SET, fn.value, id, 0); }
 
-    constexpr static locator_t global_const(const_ht c, std::uint8_t arg=0, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_GLOBAL_CONST, c.value, arg, atom, offset); }
+    constexpr static locator_t global_const(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_GLOBAL_CONST, c.value, 0, member, atom, offset); }
 
-    constexpr static locator_t local_const(std::uint16_t id=0, std::uint8_t arg=0, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_LOCAL_CONST, id, arg, atom, offset); }
+    constexpr static locator_t ct_pair(fn_ht fn, std::uint16_t id, std::uint16_t offset=0)
+        { return locator_t(LOC_CT_PAIR, fn.value, id, offset); }
 
-    constexpr static locator_t local(std::uint16_t var_i, std::uint16_t offset=0)
-        { return locator_t(LOC_LOCAL, var_i, 0, 0, offset); }
-
-    constexpr static locator_t ret(fn_ht fn, std::uint16_t offset=0)
-        { return locator_t(LOC_RETURN, fn.value, 0, 0, offset); }
+    constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_RETURN, fn.value, 0, member, atom, offset); }
 
     constexpr static locator_t phi(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_PHI, fn.value, 0, 0); }

@@ -80,6 +80,7 @@ std::size_t ssa_fwd_edge_t::mem_size() const
     return 1;
 }
 
+/* TODO: remove?
 ssa_value_t const* ssa_fwd_edge_t::ct_array() const
 {
     assert(false);
@@ -97,5 +98,5 @@ ssa_value_t const* ssa_fwd_edge_t::ct_array() const
         return ptr<ssa_value_t>();
     else
         return nullptr;
-        */
 }
+        */

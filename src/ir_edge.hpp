@@ -79,7 +79,8 @@ public:
     T const* ptr() const 
         { assert(is_ptr()); return reinterpret_cast<T const*>(value << 2ull); }
 
-    ssa_value_t const* ct_array() const;
+    // TODO: remove?
+    //ssa_value_t const* ct_array() const;
 
     bool eq_whole(unsigned w) const 
         { return is_num() && fixed() == fixed_t::whole(w); }

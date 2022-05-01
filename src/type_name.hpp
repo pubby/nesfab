@@ -95,13 +95,12 @@ constexpr bool is_thunk(type_name_t type_name)
     { return type_name >= TYPE_FIRST_THUNK && type_name <= TYPE_LAST_THUNK; }
 constexpr bool is_ct(type_name_t type_name)
     { return type_name >= TYPE_FIRST_CT && type_name <= TYPE_LAST_CT; }
+constexpr bool is_array(type_name_t type_name)
+    { return type_name == TYPE_ARRAY || type_name == TYPE_ARRAY_THUNK; }
+constexpr bool is_struct(type_name_t type_name)
+    { return type_name == TYPE_STRUCT || type_name == TYPE_STRUCT_THUNK; }
 constexpr bool is_aggregate(type_name_t type_name)
-{ 
-    return (type_name == TYPE_ARRAY 
-            || type_name == TYPE_STRUCT
-            || type_name == TYPE_ARRAY_THUNK 
-            || type_name == TYPE_STRUCT_THUNK); 
-}
+    { return is_array(type_name) || is_struct(type_name); }
 
 constexpr bool has_type_tail(type_name_t name)
     { return name == TYPE_ARRAY || name == TYPE_FN; }

@@ -126,8 +126,8 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
     ///////////////////
 
     {
-        for(gvar_t& gvar : impl_deque<gvar_t>)
-            gvar.alloc_spans();
+        for(gmember_t& gm : impl_vector<gmember_t>)
+            gm.alloc_spans();
 
         // Init data
         for(unsigned i = 0; i < impl_deque<group_vars_t>.size(); ++i)
@@ -152,11 +152,11 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             });
         }
 
-        // Count how often gvars appears in emitted code...
+        // Count how often gmembers appears in emitted code...
 
-        rh::batman_map<locator_t, unsigned> gvar_count;
+        rh::batman_map<locator_t, unsigned> gmember_count;
         for(gvar_t const& gvar : impl_deque<gvar_t>)
-            gvar.for_each_locator([&](locator_t loc){ gvar_count.insert({ loc, 0 }); });
+            gvar.for_each_locator([&](locator_t loc){ gmember_count.insert({ loc, 0 }); });
 
         for(fn_t const& fn : impl_deque<fn_t>)
         {
@@ -164,8 +164,8 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
                 continue;
 
             for(asm_inst_t const& inst : fn.proc().code)
-                if(inst.arg.lclass() == LOC_GVAR)
-                    if(unsigned* count = gvar_count.mapped(inst.arg.mem_head()))
+                if(inst.arg.lclass() == LOC_GMEMBER)
+                    if(unsigned* count = gmember_count.mapped(inst.arg.mem_head()))
                         *count += 1;
         }
 
@@ -177,17 +177,17 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             locator_t loc;
         };
 
-        std::vector<rank_t> ordered_gvars_zp;
-        std::vector<rank_t> ordered_gvars;
+        std::vector<rank_t> ordered_gmembers_zp;
+        std::vector<rank_t> ordered_gmembers;
 
         // Track which gvars are unused and use them to generate warning messages.
-        fc::vector_set<gvar_ht> unused_gvars;
+        fc::vector_set<gvar_t const*> unused_gvars;
 
-        for(auto const& pair : gvar_count)
+        for(auto const& pair : gmember_count)
         {
             if(pair.second == 0)
             {
-                unused_gvars.insert(pair.first.gvar());
+                unused_gvars.insert(&pair.first.gmember()->gvar);
                 continue;
             }
 
@@ -195,23 +195,23 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             // Priority 2: frequency in code
 
             if(pair.first.mem_zp_only())
-                ordered_gvars_zp.push_back({ pair.first.mem_size(), pair.first });
+                ordered_gmembers_zp.push_back({ pair.first.mem_size(), pair.first });
             else
-                ordered_gvars.push_back({ (pair.first.mem_size() * 256) + pair.second, pair.first });
+                ordered_gmembers.push_back({ (pair.first.mem_size() * 256) + pair.second, pair.first });
         }
 
-        for(gvar_ht gvar : unused_gvars)
+        for(gvar_t const* gvar : unused_gvars)
             compiler_warning(gvar->global.pstring(), "Not every byte of global variable is used.");
 
-        std::sort(ordered_gvars_zp.begin(), ordered_gvars_zp.end(), 
+        std::sort(ordered_gmembers_zp.begin(), ordered_gmembers_zp.end(), 
                   [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
-        std::sort(ordered_gvars.begin(), ordered_gvars.end(), 
+        std::sort(ordered_gmembers.begin(), ordered_gmembers.end(), 
                   [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
 
-        auto const alloc_gvar_loc = [&](locator_t loc)
+        auto const alloc_gmember_loc = [&](locator_t loc)
         {
-            gvar_t& gvar = *loc.gvar();
-            group_vars_d& d = data(gvar.group_vars);
+            gmember_t& gmember = *loc.gmember();
+            group_vars_d& d = data(gmember.gvar.group_vars);
 
             std::printf("allocing %i %i\n", loc.mem_size(), loc.mem_zp_only());
 
@@ -221,7 +221,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             if(!span)
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
 
-            gvar.assign_span(loc.atom(), span);
+            gmember.assign_span(loc.atom(), span);
 
             ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
 
@@ -231,11 +231,11 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             });
         };
 
-        for(rank_t const& rank : ordered_gvars_zp)
-            alloc_gvar_loc(rank.loc);
+        for(rank_t const& rank : ordered_gmembers_zp)
+            alloc_gmember_loc(rank.loc);
 
-        for(rank_t const& rank : ordered_gvars)
-            alloc_gvar_loc(rank.loc);
+        for(rank_t const& rank : ordered_gmembers)
+            alloc_gmember_loc(rank.loc);
     }
 
     //////////////////

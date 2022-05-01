@@ -29,7 +29,7 @@ int main(int argc, char** argv)
     std::cout << "cfg_node_t size = " << sizeof(cfg_node_t) << '\n';
     */
 
-    //try
+    try
     {
         /////////////////////////////
         // Handle program options: //
@@ -155,6 +155,10 @@ int main(int argc, char** argv)
         return 0;
         */
 
+        // Count and arrange struct members:
+        set_compiler_phase(PHASE_COUNT_MEMBERS);
+        global_t::count_members();
+
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);
         global_t::build_order();
@@ -174,13 +178,11 @@ int main(int argc, char** argv)
             //globals.finish();
         //}
     }
-    /*
     catch(std::exception& e)
     {
         std::fprintf(stderr, "%s\n", e.what());
         return EXIT_FAILURE;
     }
-    */
 
     return EXIT_SUCCESS;
 }

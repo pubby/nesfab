@@ -308,7 +308,8 @@ void build_lvar_interferences(ir_t const& ir, lvars_manager_t& lvars)
                     unsigned const num_atoms = ::num_atoms(fn.type().type(argn));
                     for(unsigned atom = 0; atom < num_atoms; ++atom)
                     {
-                        int const lvar_i = lvars.index(locator_t::arg(fn_h, argn, atom));
+                        assert(0); // TODO! Fix line below
+                        int const lvar_i = 0;//lvars.index(locator_t::arg(fn_h, argn, atom));
                         if(lvar_i >= 0)
                             bitset_set(live, lvar_i);
                     }

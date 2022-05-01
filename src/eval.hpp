@@ -5,6 +5,8 @@
 #include <exception>
 #include <vector>
 
+class ir_t;
+class fn_t;
 class eval_t;
 class type_t;
 struct spair_t;
@@ -21,7 +23,14 @@ struct out_of_time_t : public std::exception
     std::string msg;
 };
 
+struct var_lookup_error_t : public std::exception
+{
+    virtual const char* what() const noexcept { return "Failed var lookup."; }
+};
+
 spair_t interpret_expr(pstring_t pstring, token_t const* expr, 
                        type_t expected_type, eval_t* env = nullptr);
+
+void build_ir(ir_t& ir, fn_t const& fn);
 
 #endif

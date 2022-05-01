@@ -7,39 +7,48 @@
 
 std::string to_string(locator_t loc)
 {
+    std::string str;
+
     switch(loc.lclass())
     {
+    default: 
+        return "unknown locator";
     case LOC_NONE:
         return "none";
     case LOC_IOTA:
-        return fmt("iota % %", loc.offset());
-    case LOC_GVAR:
-        return fmt("gvar % %.%:%", loc.gvar()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
-    case LOC_GVAR_SET:
-        return fmt("gset %.%", loc.handle(), (int)loc.offset());
+        str = "offset"; break;
+    case LOC_GMEMBER:
+        str = fmt("gmember %", loc.gmember()->gvar.global.name); break;
+    case LOC_GMEMBER_SET:
+        str = fmt("gset %", loc.handle()); break;
     case LOC_GLOBAL_CONST:
-        return fmt("global const % %.%:%", loc.const_()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
+        str = fmt("global const %", loc.const_()->global.name); break;
     case LOC_FN:
-        return fmt("fn %", loc.fn()->global.name);
+        str = fmt("fn %", loc.fn()->global.name); break;
     case LOC_ARG:
-        return fmt("this arg % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
+        str = fmt("arg % %.%:%", loc.fn()->global.name); break;
     case LOC_RETURN:
-        return fmt("ret % %.%:%", loc.fn()->global.name, (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
+        str = fmt("ret %", loc.fn()->global.name); break;
     case LOC_PHI:
-        return fmt("phi % %", loc.fn()->global.name, loc.data());
+        str = fmt("phi %", loc.fn()->global.name); break;
     case LOC_CFG_LABEL:
-        return fmt("cfg label % %", loc.fn()->global.name, loc.data());
+        str = fmt("cfg label %", loc.fn()->global.name); break;
     case LOC_MINOR_LABEL:
-        return fmt("minor label % %", loc.fn()->global.name, loc.data());
+        str = fmt("minor label %", loc.fn()->global.name); break;
     case LOC_CONST_BYTE:
-        return fmt("const byte %", loc.data());
+        str = "const byte"; break;
     case LOC_SSA:
-        return fmt("ssa %", loc.handle());
-    case LOC_LOCAL:
-        return fmt("local % %.%:%", loc.handle(), (int)loc.arg(), (int)loc.atom(), (int)loc.offset());
-    default: 
-        return "unknown locator";
+        str = fmt("ssa %", loc.handle()); break;
+    case LOC_CT_PAIR:
+        str = fmt("ct_pair %", loc.fn()->global.name); break;
     }
+
+    if(has_arg_member_atom(loc.lclass()))
+        str += fmt(" %.%:% (%)", (int)loc.arg(), (int)loc.member(), (int)loc.atom(), (int)loc.offset());
+    else
+        str += fmt(" [%] (%)", (int)loc.data(), (int)loc.offset());
+
+    return str;
 }
 
 std::ostream& operator<<(std::ostream& o, locator_t loc)
@@ -66,8 +75,8 @@ type_t locator_t::mem_type() const
     {
     case LOC_IOTA:
         return type_t::array(TYPE_U, 256);
-    case LOC_GVAR: 
-        return gvar()->type();
+    case LOC_GMEMBER: 
+        return gmember()->type();
     case LOC_ARG:
         return fn()->type().type(arg());
     case LOC_RETURN:

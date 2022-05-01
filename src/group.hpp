@@ -14,6 +14,7 @@
 class group_t
 {
 public:
+    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     std::string const name;
 private:
     std::mutex m_define_mutex;
@@ -70,6 +71,7 @@ private:
 class group_vars_t
 {
 public:
+    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     using group_impl_tag = void;
     static constexpr group_class_t gclass = GROUP_DATA;
 
@@ -95,6 +97,8 @@ private:
 class group_data_t
 {
 public:
+    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
+
     group_t& group;
     bool const once;
 

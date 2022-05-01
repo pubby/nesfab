@@ -208,19 +208,16 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::v
 
         switch(loc.lclass())
         {
-        case LOC_GVAR:
+        case LOC_GMEMBER:
+            return called.ir_writes(loc.gmember());
+        case LOC_GMEMBER_SET:
             {
-                gvar_ht const gvar = loc.gvar();
-                return called.ir_writes(gvar);
-            }
-        case LOC_GVAR_SET:
-            {
-                std::size_t const size = gvar_loc_manager_t::bitset_size();
+                std::size_t const size = gmanager_t::bitset_size();
                 assert(size == called.ir_reads().size());
 
                 bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
                 bitset_copy(size, bs, called.ir_writes().data());
-                bitset_and(size, bs, ir.gvar_loc_manager.get_set(loc));
+                bitset_and(size, bs, ir.gmanager.get_set(loc));
 
                 return !bitset_all_clear(size, bs);
             }
@@ -1102,7 +1099,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LOC_GVAR_SET)
+        if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LOC_GMEMBER_SET)
         {
             assert(ssa_it->input(1).locator() == cset_locator(ssa_it));
             // TODO

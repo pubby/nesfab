@@ -49,7 +49,7 @@ public:
         { assert(has_group_tail(name())); return static_cast<group_ht const*>(m_tail); }
 
     type_t type(unsigned i) const { assert(has_type_tail(name())); assert(i < type_tail_size()); return types()[i]; }
-    type_t elem_type() const { return type(0); }
+    type_t elem_type() const;
     group_ht group(unsigned i) const;
 
     global_t const& global() const { assert(name() == TYPE_STRUCT_THUNK); return *static_cast<global_t const*>(m_tail); }
@@ -106,12 +106,28 @@ namespace std
     };
 }
 
+struct array_thunk_t
+{
+    pstring_t pstring;
+    type_t elem_type;
+    token_t const* expr;
+};
+
 // Pairs a pstring with a type.
 struct src_type_t
 {
     type_t type;
     pstring_t pstring;
 };
+
+inline type_t type_t::elem_type() const
+{ 
+    assert(is_array(name()));
+    if(name() == TYPE_ARRAY)
+        return type(0); 
+    assert(name() == TYPE_ARRAY_THUNK);
+    return array_thunk().elem_type;
+}
 
 
 /* TODO: remove
@@ -166,7 +182,8 @@ std::ostream& operator<<(std::ostream& ostr, type_t const& type);
 
 bool is_ct(type_t type);
 
-unsigned num_members(type_t type); // TODO: make faster
+// unsigned calc_num_members(type_t type); // TODO: remove?
+unsigned num_members(type_t type);
 unsigned num_atoms(type_t type);
 
 unsigned member_index(type_t const& type, unsigned i);
@@ -187,7 +204,10 @@ enum cast_result_t : char
 
 cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit);
 
-type_t dethunkify(src_type_t src_type, eval_t* env = nullptr);
+// Converts THUNKs to regular types.
+// If 'full' is true, the type will be fully stripped of thunks.
+// Otherwise, only thunks necessary for counting members will be changed.
+type_t dethunkify(src_type_t src_type, bool full, eval_t* env = nullptr);
 
 /* TODO
 type_t arg_struct(type_t fn_type);

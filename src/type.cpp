@@ -17,13 +17,6 @@
 
 using namespace std::literals;
 
-struct array_thunk_t
-{
-    pstring_t pstring;
-    type_t elem_type;
-    token_t const* expr;
-};
-
 namespace  // Anonymous
 {
     // Implementation detail!
@@ -376,18 +369,30 @@ bool is_ct(type_t type)
     }
 }
 
-unsigned num_members(type_t type)
+/* TODO: remove?
+unsigned calc_num_members(type_t type)
 {
     assert(!is_thunk(type.name()));
 
     if(type.name() == TYPE_STRUCT)
     {
         unsigned count = 0; 
-        for(auto const& pair : type.struct_().fields())
+        for(auto const& pair : type.struct_().record().fields())
             count += num_members(pair.second.type());
         return count;
     }
     else if(type.name() == TYPE_ARRAY)
+        return calc_num_members(type.elem_type());
+    return 1;
+}
+*/
+
+unsigned num_members(type_t type)
+{
+    assert(type.name() != TYPE_STRUCT_THUNK);
+    if(type.name() == TYPE_STRUCT)
+        return type.struct_().num_members();
+    else if(is_array(type.name()))
         return num_members(type.elem_type());
     return 1;
 }
@@ -408,13 +413,17 @@ unsigned num_atoms(type_t type)
 
 unsigned member_index(type_t const& type, unsigned i)
 {
-    assert(!is_thunk(type.name()));
+    assert(type.name() != TYPE_STRUCT_THUNK);
 
     switch(type.name())
     {
-    case TYPE_STRUCT: return type.struct_().member(i);
-    case TYPE_ARRAY: return member_index(type.elem_type(), i);
-    default: return 0;
+    case TYPE_STRUCT: 
+        return type.struct_().member(i);
+    case TYPE_ARRAY: 
+    case TYPE_ARRAY_THUNK: 
+        return member_index(type.elem_type(), i);
+    default: 
+        return 0;
     }
 }
 
@@ -452,11 +461,11 @@ bool has_array(type_t const& type)
     }
 }
 
-type_t dethunkify(src_type_t src_type, eval_t* env)
+type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 {
     type_t& t = src_type.type;
 
-    assert(compiler_phase() == PHASE_COMPILE);
+    assert(compiler_phase() > PHASE_PARSE);
     switch(t.name())
     {
     case TYPE_STRUCT_THUNK:
@@ -467,19 +476,28 @@ type_t dethunkify(src_type_t src_type, eval_t* env)
     case TYPE_ARRAY_THUNK:
         {
             array_thunk_t const& thunk = t.array_thunk();
-            spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_U, env);
-            assert(result.value.size());
-            unsigned size = std::get<ssa_value_t>(result.value[0]).whole();
-            if(has_array(thunk.elem_type))
-                compiler_error(thunk.pstring, "Arrays cannot be multidimensional.");
-            if(size <= 0 || size > 256)
-                compiler_error(thunk.pstring, "Invalid array size.");
-            return type_t::array(thunk.elem_type, size);
+            type_t const elem_type = dethunkify({ thunk.elem_type, src_type.pstring }, full,  env);
+
+            if(full)
+            {
+                spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_U, env);
+                assert(result.value.size());
+                unsigned size = std::get<ssa_value_t>(result.value[0]).whole();
+
+                if(has_array(elem_type))
+                    compiler_error(thunk.pstring, "Arrays cannot be multidimensional.");
+                if(size <= 0 || size > 256)
+                    compiler_error(thunk.pstring, "Invalid array size.");
+
+                return type_t::array(elem_type, size);
+            }
+            else
+                return type_t::array_thunk(thunk.pstring, elem_type, thunk.expr);
         }
 
     case TYPE_ARRAY:
         {
-            type_t const elem = dethunkify({ t.elem_type(), src_type.pstring }, env);
+            type_t const elem = dethunkify({ t.elem_type(), src_type.pstring }, full, env);
             if(has_array(elem))
                 compiler_error(src_type.pstring, "Arrays cannot be multi-dimensional.");
             return type_t::array(elem, t.size());
@@ -489,7 +507,7 @@ type_t dethunkify(src_type_t src_type, eval_t* env)
         {
             type_t* args = ALLOCA_T(type_t, t.size());
             for(unsigned i = 0; i < t.size(); ++i)
-                args[i] = dethunkify({ t.type(i), src_type.pstring }, env);
+                args[i] = dethunkify({ t.type(i), src_type.pstring }, full, env);
             return type_t::fn(args, args + t.size());
         }
 

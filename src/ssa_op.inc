@@ -37,8 +37,11 @@ SSA_DEF(write_array, 4, INPUT_VALUE, SSAF_ARG0_ORDERS | SSAF_WRITE_ARRAY | SSAF_
 // (array dest, new locator, arrau src)
 SSA_DEF(copy_array, 2, INPUT_ORDER, SSAF_ARG0_ORDERS | SSAF_WRITE_ARRAY | SSAF_READ_ARRAY)
 
-// (array, locator, value)
-SSA_DEF(fill_array, 3, INPUT_ORDER, SSAF_ARG0_ORDERS | SSAF_WRITE_ARRAY)
+// (value)
+SSA_DEF(fill_array, 3, INPUT_ORDER, 0)
+
+// (values...)
+SSA_DEF(init_array, -1, INPUT_ORDER, 0)
 
 // IDEAS:
 // - inc_array

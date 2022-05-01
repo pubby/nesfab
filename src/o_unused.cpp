@@ -88,6 +88,7 @@ bool o_remove_unused_linked(ir_t& ir)
                     ssa_worklist.push(input);
             });
 
+            assert(0);
             /* TODO
             if(ssa_flags(h->op()) & SSAF_ARG0_ORDERS)
             {

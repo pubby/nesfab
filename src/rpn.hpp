@@ -14,7 +14,7 @@
 #include "pstring.hpp"
 #include "ir_edge.hpp"
 #include "compiler_error.hpp"
-#include "cval.hpp"
+#include "sval.hpp"
 
 namespace bc = boost::container;
 
@@ -36,7 +36,7 @@ struct rpn_value_t
     pstring_t pstring = {};
     unsigned var_i = ~0u;
     // TODO
-    bool ct = false; // If value was computed at compile-time.
+    //bool ct = false; // If value was computed at compile-time.
 
     fixed_t fixed() const
     { 
@@ -67,6 +67,7 @@ struct rpn_value_t
         return v->fixed();
 
     not_cne:
+    assert(0);
         compiler_error(pstring, "Expecting constant numeric expression.");
     }
 
@@ -75,7 +76,8 @@ struct rpn_value_t
     fixed_uint_t whole() const { return u() >> fixed_t::shift; }
     fixed_sint_t swhole() const { return s() >> fixed_t::shift; }
 
-    ssa_value_t& ssa(unsigned member = 0)
+    ssa_value_t& ssa() { assert(sval.size() == 1); return ssa(0); }
+    ssa_value_t& ssa(unsigned member)
     {
         assert(member < sval.size());
         return std::get<ssa_value_t>(sval[member]);

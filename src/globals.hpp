@@ -128,7 +128,7 @@ public:
     // Helpers that delegate to 'define':
     fn_t& define_fn(pstring_t pstring, 
                     global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-                    type_t type, fn_def_t&& fn_def, bool mode);
+                    type_t type, fn_def_t&& fn_def, fclass_t fclass);
     gvar_t& define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
                       src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
                       token_t const* expr);
@@ -259,9 +259,9 @@ public:
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_FN;
 
-    fn_t(global_t& global, type_t type, fn_def_t fn_def, bool mode) 
+    fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass) 
     : global(global)
-    , mode(mode)
+    , fclass(fclass)
     , m_type(std::move(type))
     , m_def(std::move(fn_def)) 
     /* TODO
@@ -325,7 +325,7 @@ public:
 
 public:
     global_t& global;
-    bool const mode;
+    fclass_t const fclass;
 
     //rom_alloc_ht rom_alloc; TODO
 private:
@@ -333,7 +333,7 @@ private:
     fn_def_t m_def;
 
     // TODO
-    ct_manager_t m_ct_manager;
+    //ct_manager_t m_ct_manager;
 
     // TODO
     //record_t<field_vector_t> m_param_record;

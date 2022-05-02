@@ -5,6 +5,8 @@
 #include <exception>
 #include <vector>
 
+#include "pstring.hpp"
+
 class ir_t;
 class fn_t;
 class eval_t;
@@ -26,6 +28,14 @@ struct out_of_time_t : public std::exception
 struct var_lookup_error_t : public std::exception
 {
     virtual const char* what() const noexcept { return "Failed var lookup."; }
+};
+
+struct fn_not_rt_t : public std::exception
+{
+    explicit fn_not_rt_t(pstring_t pstring) : pstring(pstring) {}
+
+    virtual const char* what() const noexcept { return "Function is not defined for run-time."; }
+    pstring_t pstring;
 };
 
 spair_t interpret_expr(pstring_t pstring, token_t const* expr, 

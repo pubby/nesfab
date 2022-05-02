@@ -364,6 +364,11 @@ bool is_ct(type_t type)
             if(is_ct(pair.second.type()))
                 return true;
         return false;
+    case TYPE_FN:
+        for(unsigned i = 0; i < type.size(); ++i)
+            if(is_ct(type.type(i)))
+                return true;
+        return false;
     default:
         return false;
     }

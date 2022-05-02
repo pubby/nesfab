@@ -26,7 +26,7 @@ std::string to_string(locator_t loc)
     case LOC_FN:
         str = fmt("fn %", loc.fn()->global.name); break;
     case LOC_ARG:
-        str = fmt("arg % %.%:%", loc.fn()->global.name); break;
+        str = fmt("arg %", loc.fn()->global.name); break;
     case LOC_RETURN:
         str = fmt("ret %", loc.fn()->global.name); break;
     case LOC_PHI:

@@ -594,9 +594,10 @@ int main()
             keyword("then"),
             keyword("return"),
             keyword("fn"),
+            keyword("ct"),
+            keyword("mode"),
             keyword("goto"),
             keyword("label"),
-            keyword("mode"),
 
             keyword("struct"),
             keyword("vars"),

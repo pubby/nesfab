@@ -142,7 +142,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         for(fn_t* mode : global_t::modes())
         {
             assert(mode);
-            assert(mode->mode);
+            assert(mode->fclass == FN_MODE);
 
             assert(mode->ir_group_vars());
             mode->ir_group_vars().for_each([&](unsigned i)
@@ -248,6 +248,9 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         {
             fn_t const& fn = *fn_ht{i};
 
+            if(fn.fclass == FN_CT)
+                continue;
+
             fn.ir_group_vars().for_each([&](unsigned j)
             {
                 fn_data[i].usable_ram &= group_vars_data[j].usable_ram;
@@ -258,6 +261,9 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         for(unsigned i = 0; i < impl_deque<fn_t>.size(); ++i)
         {
             fn_t const& fn = *fn_ht{i};
+
+            if(fn.fclass == FN_CT)
+                continue;
 
             fn_data[i].lvar_count += fn.lvars().num_this_lvars();
 

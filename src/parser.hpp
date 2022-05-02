@@ -79,7 +79,7 @@ private:
     void parse_group_vars();
     void parse_group_data(bool once);
     void parse_top_level_const();
-    void parse_fn();
+    void parse_fn(bool ct);
     void parse_mode();
     void parse_struct();
 

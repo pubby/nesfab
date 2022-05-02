@@ -118,7 +118,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    void end_fn(var_decl_t decl)
+    void end_fn(var_decl_t decl, fclass_t fclass)
     {
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
@@ -135,7 +135,7 @@ public:
         // Create the global:
         active_global->define_fn(decl.name, 
                                  std::move(ideps), std::move(weak_ideps),
-                                 decl.src_type.type, std::move(fn_def), false);
+                                 decl.src_type.type, std::move(fn_def), fclass);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -202,7 +202,7 @@ public:
         // Create the global:
         active_global->define_fn(decl.name, 
                                  std::move(ideps), std::move(weak_ideps),
-                                 decl.src_type.type, std::move(fn_def), true);
+                                 decl.src_type.type, std::move(fn_def), FN_MODE);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -334,7 +334,7 @@ public:
                             "Previous definition here:"));
         }
         fn_def.local_vars.push_back(var_decl);
-        fn_def.push_var_init(handle, expr ? convert_expr(*expr) : nullptr);
+        fn_def.push_var_init(handle, expr ? convert_expr(*expr) : nullptr, var_decl.src_type.pstring);
         uses_type(var_decl.src_type.type);
     }
 

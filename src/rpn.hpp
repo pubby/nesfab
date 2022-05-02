@@ -35,8 +35,7 @@ struct rpn_value_t
     type_t type = TYPE_VOID;
     pstring_t pstring = {};
     unsigned var_i = ~0u;
-    // TODO
-    //bool ct = false; // If value was computed at compile-time.
+    bool rt = false; // If value is computed at run-time.
 
     fixed_t fixed() const
     { 
@@ -67,8 +66,7 @@ struct rpn_value_t
         return v->fixed();
 
     not_cne:
-    assert(0);
-        compiler_error(pstring, "Expecting constant numeric expression.");
+        compiler_error(pstring, "Expecting compile-time constant numeric expression.");
     }
 
     fixed_uint_t u() const { return fixed().value; }
@@ -94,6 +92,8 @@ struct rpn_value_t
         assert(member < sval.size());
         return std::get<ct_array_t>(sval[member]);
     }
+
+    bool is_ct() const { return rt == false && ::is_ct(sval); }
 };
 
 class rpn_stack_t

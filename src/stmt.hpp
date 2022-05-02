@@ -103,10 +103,10 @@ public:
         return handle;
     }
 
-    stmt_ht push_var_init(unsigned name, token_t const* expr)
+    stmt_ht push_var_init(unsigned name, token_t const* expr, pstring_t pstring)
     { 
         stmt_ht handle = next_stmt();
-        stmts.push_back({ static_cast<stmt_name_t>(~name), {}, {}, expr }); 
+        stmts.push_back({ static_cast<stmt_name_t>(~name), {}, pstring, expr }); 
         return handle;
     }
 };

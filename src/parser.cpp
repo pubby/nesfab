@@ -651,7 +651,9 @@ void parser_t<P>::parse_top_level_def()
     switch(token.type)
     {
     case TOK_fn: 
-        return parse_fn();
+        return parse_fn(false);
+    case TOK_ct: 
+        return parse_fn(true);
     case TOK_mode: 
         return parse_mode();
     case TOK_vars: 
@@ -771,12 +773,12 @@ void parser_t<P>::parse_const()
 }
 
 template<typename P>
-void parser_t<P>::parse_fn()
+void parser_t<P>::parse_fn(bool ct)
 {
     int const fn_indent = indent;
 
     // Parse the declaration
-    parse_token(TOK_fn);
+    parse_token(ct ? TOK_ct : TOK_fn);
     pstring_t fn_name = parse_ident();
 
     policy().prepare_fn(fn_name);
@@ -793,7 +795,7 @@ void parser_t<P>::parse_fn()
     // Parse the body of the function
     parse_line_ending();
     parse_block_statement(fn_indent);
-    policy().end_fn(std::move(state));
+    policy().end_fn(std::move(state), ct ? FN_CT : FN_FN);
 }
 
 template<typename P>

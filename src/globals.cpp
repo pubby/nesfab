@@ -116,17 +116,17 @@ static unsigned _append_to_vec(Args&&... args)
 
 fn_t& global_t::define_fn(pstring_t pstring,
                           global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-                          type_t type, fn_def_t&& fn_def, bool mode)
+                          type_t type, fn_def_t&& fn_def, fclass_t fclass)
 {
     fn_t* ret;
 
     // Create the fn
     define(pstring, GLOBAL_FN, std::move(ideps), std::move(weak_ideps), [&](global_t& g)
     { 
-        return impl_deque_alloc<fn_t>(ret, g, type, std::move(fn_def), mode); 
+        return impl_deque_alloc<fn_t>(ret, g, type, std::move(fn_def), fclass); 
     });
 
-    if(mode)
+    if(fclass == FN_MODE)
     {
         std::lock_guard<std::mutex> lock(modes_vec_mutex);
         modes_vec.push_back(ret);
@@ -646,7 +646,7 @@ void fn_t::calc_lang_gvars_groups()
         {
             fn_t& fn = idep->impl<fn_t>();
 
-            if(fn.mode)
+            if(fn.fclass == FN_MODE)
                 continue;
 
             fn.calc_lang_gvars_groups();
@@ -818,12 +818,23 @@ void fn_t::compile()
         m_type = type_t::fn(types, types + def().num_params + 1);
     }
 
+    if(fclass == FN_CT)
+        return; // Nothing else to do!
+
+    for(unsigned i = 0; i < def().num_params; ++i)
+    {
+        auto const& decl = def().local_vars[i];
+        if(is_ct(decl.src_type.type))
+            compiler_error(decl.src_type.pstring, fmt("Function must be declared as ct to use type %.", decl.src_type.type));
+    }
+    if(is_ct(def().return_type.type))
+        compiler_error(def().return_type.pstring, fmt("Function must be declared as ct to use type %.", def().return_type.type));
+
     // Compile the FN.
     ssa_pool::clear();
     cfg_pool::clear();
     ir_t ir;
     build_ir(ir, *this);
-    std::printf("post cfg size = %i\n", ir.cfg_size());
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {

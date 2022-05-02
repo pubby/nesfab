@@ -575,6 +575,8 @@ void cfg_node_t::list_erase_daisy(ssa_node_t& node)
 
 ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
 {
+    assert(!is_ct(type));
+
     // Alloc and initialize it.
     ssa_ht h = ssa_pool::alloc();
     ssa_node_t& node = *h;

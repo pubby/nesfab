@@ -219,4 +219,11 @@ template<typename t>
 struct is_group_impl<t, std::void_t<typename t::group_impl_tag>>
 : std::true_type {};
 
+enum fclass_t : char
+{
+    FN_FN,
+    FN_CT,
+    FN_MODE,
+};
+
 #endif

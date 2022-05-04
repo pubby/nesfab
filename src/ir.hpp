@@ -485,6 +485,7 @@ inline bool carry_used(ssa_node_t const& node)
 inline fn_ht get_fn(ssa_node_t const& node)
 {
     assert(node.op() == SSA_fn_call);
+    assert(node.input_size() >= 1);
     return node.input(0).locator().fn();
 }
 

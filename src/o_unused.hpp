@@ -3,7 +3,7 @@
 
 #include "ir_decl.hpp"
 
-// Removes SSA nodes that don't have any observable effect.
+// Removes SSA nodes that have no observable effect.
 bool o_remove_no_effect(ir_t& ir);
 
 // Removes

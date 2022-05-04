@@ -939,7 +939,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         auto& d = cg_data(cfg_it);
         for(ssa_ht h : d.schedule)
         {
-            if(!(ssa_flags(h->op()) & SSAF_WRITE_ARRAY) || h->op() == SSA_copy_array)
+            if(!(ssa_flags(h->op()) & SSAF_WRITE_ARRAY)/* || h->op() == SSA_copy_array*/) // TODO
                 continue;
 
             if(!h->input(0).holds_ref())

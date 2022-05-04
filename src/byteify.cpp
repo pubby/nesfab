@@ -127,18 +127,8 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             if(!is_arithmetic(type.name()))
                 continue;
-
+            
             SSA_VERSION(1);
-            ssa_op_t split_op;
-            switch(ssa_node.op())
-            {
-            default:
-                split_op = ssa_node.op();
-                break;
-            case SSA_fn_call:
-                split_op = SSA_read_global;
-                break;
-            }
 
             type_t split_type = TYPE_U;
             if(ssa_node.type().name() == TYPE_ARRAY)
@@ -147,7 +137,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             bm_t bm = zero_bm;
             unsigned const end = end_byte(type.name());
             for(unsigned i = begin_byte(type.name()); i < end; ++i)
-                bm[i] = cfg_node.emplace_ssa(split_op, split_type);
+                bm[i] = cfg_node.emplace_ssa(ssa_node.op(), split_type);
             // !!IMPORTANT: 'ssa_node' is invalidated after this!!
 
             // We created nodes, so we have to resize:
@@ -328,6 +318,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 bm_t const lhs_bm = _get_bm(ssa_node->input(0));
                 bm_t const rhs_bm = _get_bm(ssa_node->input(1));
 
+                assert(ssa_node->input_size() == 3);
                 ssa_value_t carry = ssa_node->input(2);
 
                 unsigned const end = end_byte(t);
@@ -394,25 +385,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                     split->build_set_input(3, assign_bm[i]);
                 }
                 prune_nodes.push_back(ssa_node);
-            }
-            break;
-
-        // Keeps the original node.
-        // All the split nodes created will reference it as a link.
-        case SSA_fn_call:
-            {
-                unsigned const start = begin_byte(t);
-                unsigned const end = end_byte(t);
-                for(unsigned i = start; i < end; ++i)
-                {
-                    ssa_ht split = ssa_data.bm[i].handle();
-                    assert(split->op() == SSA_read_global);
-
-                    split->alloc_input(2);
-                    split->build_set_input(0, ssa_node);
-                    assert(0); // TODO
-                    //split->build_set_input(1, locator_t::ret(ssa_node->input(0).locator().fn(), i - start));
-                }
             }
             break;
 

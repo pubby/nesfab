@@ -36,9 +36,16 @@ static bool _build_linked(ssa_ht ssa_node, Vec& vec)
     for(unsigned i = 0; i < ssa_node->output_size(); ++i)
     {
         auto oe = ssa_node->output_edge(i);
-        if(/*oe.input_class() != INPUT_ORDER && */(oe.input_class() != INPUT_LINK || !_build_linked(oe.handle, vec)))
+
+        // If the node has an output that isn't a link, the node is used and shouldn't be pruned.
+        if(oe.input_class() != INPUT_LINK)
+            return false;
+
+        // Recurse.
+        if(!_build_linked(oe.handle, vec))
             return false;
     }
+
     vec.push_back(ssa_node);
     return true;
 }
@@ -88,23 +95,6 @@ bool o_remove_unused_linked(ir_t& ir)
                     ssa_worklist.push(input);
             });
 
-            assert(0);
-            /* TODO
-            if(ssa_flags(h->op()) & SSAF_ARG0_ORDERS)
-            {
-                ssa_value_t prev = h->input(0);
-
-                for(unsigned i = 0; i < h->output_size();)
-                {
-                    auto oe = h->output_edge(i);
-                    if(oe.input_class() == INPUT_ORDER)
-                        oe.handle->link_change_input(i, prev);
-                    else
-                        ++i;
-                }
-            }
-            */
-
             assert(!h->test_flags(FLAG_IN_WORKLIST));
             h->prune();
         }
@@ -120,6 +110,7 @@ bool o_remove_no_effect(ir_t& ir)
 {
     ssa_worklist.clear();
 
+    // Assume every node will be pruned, then prove which nodes shouldn't be.
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
@@ -127,6 +118,7 @@ bool o_remove_no_effect(ir_t& ir)
         ssa_it->set_flags(FLAG_PRUNED);
     }
 
+    // Certain nodes will never be pruned by this. 
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
@@ -144,6 +136,7 @@ bool o_remove_no_effect(ir_t& ir)
     {
         ssa_ht ssa_it = ssa_worklist.pop();
 
+        // Inputs to unprunable nodes are also unprunable.
         for_each_node_input(ssa_it, [](ssa_ht input)
         {
             if(input->test_flags(FLAG_PRUNED))
@@ -156,6 +149,7 @@ bool o_remove_no_effect(ir_t& ir)
 
     bool changed = false;
 
+    // Do the pruning:
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it;)
     {

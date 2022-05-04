@@ -874,13 +874,13 @@ void fn_t::compile()
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(ir);
 
-    return;
-
     byteify(ir, *this);
     //make_conventional(ir);
 
     if(compiler_options().graphviz)
         save_graph(ir, "byteify");
+
+    return;
 
     if(compiler_options().optimize)
     {

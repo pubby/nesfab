@@ -384,6 +384,7 @@ ABSTRACT(SSA_read_array) = ABSTRACT_FN
             result[0] = union_(input_array[i], result[0]);
 };
 
+/* TODO
 ABSTRACT(SSA_copy_array) = ABSTRACT_FN
 {
     if(handle_top(cv, argn, result))
@@ -402,6 +403,7 @@ ABSTRACT(SSA_fill_array) = ABSTRACT_FN
     constraints_t const value = cv[2][0];
     result.vec.assign(result.vec.size(), value);
 };
+*/
 
 ABSTRACT(SSA_phi) = ABSTRACT_FN
 {

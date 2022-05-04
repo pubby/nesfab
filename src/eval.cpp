@@ -26,16 +26,9 @@ struct block_d
 {
     using vector_t = std::vector<ssa_value_array_t>;
 
-    // TODO: remove comment?
-    // Variables are mapped to a range in this order:
-    // 1) local variables
-    // 2) global variables
-    // 3) global variable sets
-    // The following sets use this order.
-
     // An array of size 'num_ssa_vars()'
     // Keeps track of which ssa node a var refers to.
-    // A handle of {0} means the local var isn't in the block.
+    // A handle of {} means the local var isn't in the block.
     vector_t vars;
 
     // An array of size 'num_ssa_vars()'
@@ -58,9 +51,6 @@ private:
     ir_t* ir = nullptr;
     bc::small_vector<sval_t, 8> interpret_locals;
     bc::small_vector<type_t, 8> var_types;
-
-    // TODO
-    //bc::small_vector<sval_t, 8> compile_locals;
 
     using clock = sc::steady_clock;
     sc::time_point<clock> start_time;
@@ -92,8 +82,6 @@ private:
 
         rh::robin_map<stmt_t const*, label_t> label_map;
 
-        //ct_manager_t ct_manager;
-
         void clear()
         {
             cfg = {};
@@ -107,8 +95,6 @@ private:
             return_jumps.clear();
 
             label_map.clear();
-
-            //ct_manager.clear();
         }
     };
 
@@ -144,22 +130,12 @@ public:
         ssa_value_t index = {};
     };
 
-    /* TODO: remove
-    template<do_t D>
-    /sval_t to_sval(rpn_value_t const& rpn_value) const;
-    sval_t const& root_sval(rpn_value_t const& rpn_value) const;
-    type_t root_type(rpn_value_t const& rpn_value) const;
-    ssa_value_t local_leaf(rpn_value_t const& rpn_value, access_t a) const;
-    */
-
     void check_time();
 
     template<do_t D>
     void interpret_stmts();
 
     void compile_block();
-    // TODO: remove?
-    //void compile_expr(rpn_stack_t& rpn_stack, token_t const* expr);
 
     template<do_t D>
     void do_expr(rpn_stack_t& rpn_stack, token_t const* expr);
@@ -254,7 +230,6 @@ public:
     cfg_ht compile_goto();
 
     void compile_binary_operator(rpn_stack_t&, ssa_op_t op, type_t result_type, bool carry = false);
-
 };
 
 thread_local eval_t::ir_builder_t eval_t::builder;
@@ -275,6 +250,13 @@ spair_t interpret_expr(pstring_t pstring, token_t const* expr, type_t expected_t
 
 void build_ir(ir_t& ir, fn_t const& fn)
 {
+    cfg_pool::clear();
+    ssa_pool::clear();
+
+    assert(cfg_data_pool::array_size() == 0);
+    assert(ssa_data_pool::array_size() == 0);
+    cfg_data_pool::scope_guard_t<block_d> cg(0);
+
     eval_t eval(ir, fn);
 }
 
@@ -317,7 +299,10 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, sval_t co
 
         interpret_locals.resize(nlocals);
         for(unsigned i = 0; i < num_args; ++i)
+        {
+            assert(args[i].size() == num_members(var_types[i]));
             interpret_locals[i] = args[i];
+        }
 
         interpret_stmts<D>();
     }
@@ -344,6 +329,8 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
     assert(num_vars() >= var_types.size());
     var_types.resize(num_vars(), TYPE_VOID);
 
+    // OK! var_types is built.
+
     builder.clear(); // TODO: make sure this isn't called in recursion
     ir->gmanager.init(fn->handle());
 
@@ -359,10 +346,12 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
         type_t const type = var_types[i];
         unsigned nmember = ::num_members(type);
 
+        assert(ir->root.data<block_d>().vars[i].size() == nmember);
+
         for(unsigned m = 0; m < nmember; ++m)
         {
             ir->root.data<block_d>().vars[i][m] = ir->root->emplace_ssa(
-                SSA_read_global, type, entry, 
+                SSA_read_global, member_type(type, m), entry, 
                 locator_t::arg(fn->handle(), i, m, 0));
         }
     }
@@ -380,7 +369,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
             assert(m->index < vars[var_i].size());
 
             vars[var_i][m->index] = ir->root->emplace_ssa(
-                SSA_read_global, var_types[var_i], entry, locator_t::gmember(m, 0));
+                SSA_read_global, member_type(var_types[var_i], m->index), entry, locator_t::gmember(m, 0));
         }
     });
 
@@ -466,8 +455,6 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
     for(cfg_ht h = ir->cfg_begin(); h; ++h)
         assert(h.data<block_d>().sealed);
 #endif
-
-    std::printf("cfg size = %i\n", ir->cfg_size());
 }
 
 template<eval_t::do_t D>
@@ -484,14 +471,6 @@ void eval_t::do_expr_result(token_t const* expr, type_t expected_type)
 
     final_result.type = rpn_stack.only1().type;
 }
-
-/* TODO: remove?
-type_t eval_t::var_i_type(unsigned var_i) const
-{
-    assert(var_i < var_types.size());
-    return var_types[var_i];
-}
-*/
 
 void eval_t::check_time()
 {
@@ -520,11 +499,6 @@ void eval_t::interpret_stmts()
     while(true)
     {
         check_time();
-
-        // Temporary locals can be allocated in 'do_expr'; this resets that.
-        // TODO: remove
-        //interpret_locals.resize(num_locals());
-        //var_types.resize(num_locals());
 
         switch(stmt->name)
         {
@@ -708,8 +682,6 @@ void eval_t::compile_block()
 
             builder.cfg.data<block_d>().vars[var_i] = std::move(value);
             ++stmt;
-
-            std::printf("init var %i %i\n", var_i, builder.cfg.index);
         }
         else
             throw std::runtime_error("Unimplemented stmt.");
@@ -981,275 +953,6 @@ void eval_t::compile_block()
     assert(false);
 }
 
-/*
-void eval_t::compile_expr(rpn_stack_t& rpn_stack, token_t const* expr)
-{
-    rpn_stack.clear();
-    builder.logical_stack.clear();
-
-    for(token_t const* token = expr; token->type; ++token)
-    {
-        switch(token->type)
-        {
-        default:
-            throw std::runtime_error(fmt("Invalid token '%' in expression.", token_name(token->type)));
-
-#if 0
-        case TOK_ident:
-            assert(token->value < var_types.size());
-            rpn_stack.push({ 
-                .sval = var_lookup(builder.cfg, token->value), 
-                .category = LVAL, 
-                .type = var_types[token->value], 
-                .pstring = token->pstring,
-                .var_i = token->value });
-            break;
-
-        case TOK_global_ident:
-            {
-                global_t* global = token->ptr<global_t>();
-                switch(global->gclass())
-                {
-                default:
-                    throw std::runtime_error(
-                        "Unimplemented global in expression.");
-                case GLOBAL_VAR:
-                    {
-                        unsigned const var_i = to_var_i(ir.gvar_loc_manager.index(global->handle<gvar_ht>()));
-                        rpn_stack.push({ 
-                            .value = var_lookup(cfg_node, var_i), 
-                            .category = LVAL, 
-                            .type = global->impl<gvar_t>().type(), 
-                            .pstring = token->pstring,
-                            .var_i = var_i });
-                    }
-                    break;
-
-                case GLOBAL_FN:
-                    rpn_stack.push({ 
-                        .value = ssa_value_t(locator_t::fn(global->handle<fn_ht>())),
-                        .category = RVAL, 
-                        .type = global->impl<fn_t>().type(), 
-                        .pstring = token->pstring });
-                    break;
-                }
-            }
-            break;
-
-        case TOK_assign:
-            compile_assign(*cfg_node);
-            break;
-
-        case TOK_int: // TODO
-            rpn_stack.push({
-                .value = token->value, 
-                .category = RVAL, 
-                .type = { TYPE_INT },  // TODO
-                .pstring = token->pstring });
-            break;
-
-        case TOK_apply:
-            {
-                // TOK_apply is a psuedo token used to represent application. 
-                // The token's 'value' stores the application's arity:
-                std::size_t const num_args = token->value;
-
-                // The eval stack contains the arguments to be applied.
-                // Right beneath those it contains the fn value to be called.
-                rpn_value_t& fn_rpn = rpn_stack.peek(num_args);
-
-                if(fn_rpn.type.name() != TYPE_FN)
-                {
-                    compiler_error(fn_rpn.pstring, fmt(
-                        "Expecting function type. Got %.", fn_rpn.type));
-                }
-
-                std::size_t const num_params = fn_rpn.type.num_params();
-                type_t const* const params = fn_rpn.type.types();
-
-                if(num_args != num_params)
-                {
-                    compiler_error(
-                        fn_rpn.pstring, fmt(
-                        "Passed % arguments to a function of type %. "
-                        "Expecting % arguments.",
-                        num_args, fn_rpn.type, num_params));
-                }
-
-                // Now for the arguments.
-                // Cast all arguments to match the fn signature.
-                rpn_value_t* const args = &rpn_stack.peek(num_args - 1);
-
-                for(std::uint64_t arg = 0, fail_bits = cast_args(*cfg_node, 
-                    fn_rpn.pstring, args, rpn_stack.past_top(), params)
-                   ; fail_bits; ++arg)
-                {
-                    if(fail_bits & 1)
-                    {
-                        compiler_error(
-                            args[arg].pstring, fmt(
-                            "Unable to convert type % "
-                            "to type % in function application.\n"
-                            "Expected signature: % ",
-                            args[arg].type, params[arg], fn_rpn.type));
-                    }
-                    fail_bits >>= 1;
-                }
-
-                // For now, only const fns are allowed.
-                // In the future, fn pointers may be supported.
-                assert(fn_rpn.value.is_locator());
-                fn_ht fn = fn_rpn.value.locator().fn();
-
-                // Type checks are done. Now convert the call to SSA.
-                ssa_ht fn_node = insert_fn_call(cfg_node, fn, args);
-
-                // Update the eval stack.
-                rpn_value_t new_top =
-                {
-                    .value = fn_node,
-                    .category = RVAL, 
-                    .type = fn_rpn.type.return_type(), 
-                    .pstring = concat(fn_rpn.pstring, token->pstring)
-                };
-
-                rpn_stack.pop(num_args + 1);
-                rpn_stack.push(std::move(new_top));
-
-                break;
-            }
-
-            // inlining:
-            // - create a new 'eval_t'.
-            // - run the eval_t
-            // -- different enter / returns behavior
-            // how to handle globals?
-            // how to handle locals?
-            // how to handle structs?
-
-            // STRUCTS:
-            // - represent several SSA nodes
-            // - lvals: work like interpreter
-
-
-
-        case TOK_index:
-            {
-                // TOK_index is a psuedo token used to array indexing. 
-
-                // The eval stack contains the index on top.
-                // Right beneath it contains the array.
-                rpn_value_t& array_val = rpn_stack.peek(1);
-
-                if(array_val.type.name() != TYPE_ARRAY)
-                {
-                    compiler_error(array_val.pstring, fmt(
-                        "Expecting array type. Got %.", array_val.type));
-                }
-
-                rpn_value_t& array_index = rpn_stack.peek(0);
-
-                // Array indexes are always bytes.
-                throwing_cast(*cfg_node, array_index, TYPE_U);
-
-                // Type checks are done. Now convert the index to SSA.
-                ssa_ht index_node = insert_array_index(cfg_node, array_val, array_index);
-
-                // Update the eval stack.
-                array_val.value = index_node;
-                array_val.category = to_indexed(array_val.category);
-                array_val.type = array_val.type.elem_type();
-                array_val.pstring = token->pstring;
-                rpn_stack.pop(1);
-
-                // TODO
-                break;
-            }
-
-        case TOK_logical_and:
-            cfg_node = compile_logical_begin(cfg_node, false);
-            break;
-        case TOK_logical_or:
-            cfg_node = compile_logical_begin(cfg_node, true);
-            break;
-        case TOK_end_logical_and:
-            cfg_node = compile_logical_end(cfg_node, false);
-            break;
-        case TOK_end_logical_or:
-            cfg_node = compile_logical_end(cfg_node, true);
-            break;
-
-        case TOK_eq:
-            compile_compare(*cfg_node, SSA_eq);
-            break;
-        case TOK_not_eq:
-            compile_compare(*cfg_node, SSA_not_eq);
-            break;
-        case TOK_gt:
-            std::swap(rpn_stack.peek(0), rpn_stack.peek(1));
-            // fall-through
-        case TOK_lt:
-            compile_compare(*cfg_node, SSA_lt);
-            break;
-        case TOK_gte:
-            std::swap(rpn_stack.peek(0), rpn_stack.peek(1));
-            // fall-through
-        case TOK_lte:
-            compile_compare(*cfg_node, SSA_lte);
-            break;
-
-        case TOK_asterisk: 
-            compile_arith(*cfg_node, SSA_mul);
-            break;
-        case TOK_fslash: 
-            compile_arith(*cfg_node, SSA_div);
-            break;
-        case TOK_plus:
-            compile_arith(*cfg_node, SSA_add, true);  
-            break;
-        case TOK_minus: 
-            compile_arith(*cfg_node, SSA_sub, true);
-            break;
-        case TOK_lshift:
-            compile_shift(*cfg_node, SSA_shl);  
-            break;
-        case TOK_rshift: 
-            compile_shift(*cfg_node, SSA_shr);
-            break;
-        case TOK_bitwise_and: 
-            compile_arith(*cfg_node, SSA_and);
-            break;
-        case TOK_bitwise_or:  
-            compile_arith(*cfg_node, SSA_or);
-            break;
-        case TOK_bitwise_xor:
-            compile_arith(*cfg_node, SSA_xor);
-            break;
-
-        case TOK_plus_assign:
-            compile_assign_arith(*cfg_node, SSA_add, true);
-            break;
-        case TOK_minus_assign:
-            compile_assign_arith(*cfg_node, SSA_sub, true);
-            break;
-        case TOK_bitwise_and_assign:
-            compile_assign_arith(*cfg_node, SSA_and);
-            break;
-        case TOK_bitwise_or_assign:
-            compile_assign_arith(*cfg_node, SSA_or);
-            break;
-        case TOK_bitwise_xor_assign:
-            compile_assign_arith(*cfg_node, SSA_xor);
-            break;
-#endif
-        }
-    }
-
-    assert(rpn_stack.size() == 1);
-    assert(builder.logical_stack.empty());
-}
-*/
-
 template<eval_t::do_t D>
 void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 {
@@ -1306,8 +1009,8 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     new_top.sval = interpret_locals[token->value];
                 }
 
+                assert(new_top.sval.size() == num_members(new_top.type));
                 rpn_stack.push(std::move(new_top));
-                std::printf("%i rt = %i\n", token->value, rpn_stack.peek(0).rt);
             }
 
             break;
@@ -1425,8 +1128,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 {
                     // Shrink the sval to only contain the specified field.
                     unsigned const size = num_members(it->second.type());
-                    for(unsigned i = 0; i < size; ++i)
-                        struct_val.sval[i] = std::move(struct_val.sval[i + member_i]);
+                    assert(struct_val.sval.size() == num_members(struct_val.type));
+                    assert(size + member_i <= struct_val.sval.size());
+                    if(member_i != 0)
+                        for(unsigned i = 0; i < size; ++i)
+                            struct_val.sval[i] = std::move(struct_val.sval[i + member_i]);
                     struct_val.sval.resize(size);
                 }
 
@@ -1514,7 +1220,6 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     bc::small_vector<sval_t, 8> sval_args(num_args);
                     for(unsigned i = 0; i < num_args; ++i)
                     {
-                        std::printf("rt == %i\n", args[i].rt);
                         if(!args[i].is_ct())
                             compiler_error(args[i].pstring, "Expecting compile-time constant value.");
                         sval_args[i] = args[i].sval;
@@ -1533,11 +1238,6 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             .type = fn_rpn.type.return_type(), 
                             .pstring = call_pstring,
                         };
-
-                        std::puts("fn return sval:");
-                        for(auto const& v : new_top.sval)
-                            if(ct_array_t const* a = std::get_if<ct_array_t>(&v))
-                                std::cout << (*a)[0] << std::endl;
 
                         rpn_stack.pop(num_args + 1);
                         rpn_stack.push(std::move(new_top));
@@ -1634,8 +1334,6 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     }
 
                     // Prepare the arguments
-                    assert(0);
-                    unsigned const num_members = 0; // TODO //call->param_record().num_members();
                     for(unsigned i = 0; i < num_params; ++i)
                     {
                         type_t const param_type = call->type().type(i);
@@ -1646,8 +1344,8 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             locator_t const loc = locator_t::arg(call, i, j, 0);
 
                             // If the arg isn't used in the function, ignore it.
-                            if(is_idep && call->lvars().index(loc) < 0)
-                                continue;
+                            //if(is_idep && call->lvars().index(loc) < 0)
+                                //continue;
 
                             type_t const member_type = ::member_type(param_type, j);
 
@@ -1658,12 +1356,12 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
                     // Create the dependent node.
                     ssa_op_t const op = (call->fclass == FN_MODE) ? SSA_goto_mode : SSA_fn_call;
-                    ssa_ht const fn_node = builder.cfg->emplace_ssa(op, call->type().return_type());
+                    ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
                     assert(fn_inputs.size() % 2 == 1);
                     fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
                     fn_node->append_daisy();
 
-                    if(!call->fclass == FN_MODE)
+                    if(call->fclass != FN_MODE)
                     {
                         assert(is_idep);
 
@@ -1917,6 +1615,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
                         if(is_interpret(D))
                         {
+                        interpret_cast_array:
                             // Create a new sval.
                             sval_t new_sval(num_members(type));
 
@@ -1932,10 +1631,24 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                         }
                         else if(D == COMPILE)
                         {
-                            // Create a new sval.
-                            sval_t new_sval(num_members(type));
+                            unsigned const num_mem = num_members(type);
 
-                            for(unsigned i = 0; i < new_sval.size(); ++i)
+                            for(unsigned i = 0; i < num_mem; ++i)
+                            {
+                                type_t const mt = member_type(type, i);
+                                assert(mt.name() == TYPE_ARRAY);
+
+                                for(unsigned j = 0; j < argn; ++j)
+                                    if(!args[j].is_ct())
+                                        goto isnt_ct;
+                            }
+                            goto interpret_cast_array;
+                        isnt_ct:
+
+                            // Create a new sval.
+                            sval_t new_sval(num_mem);
+
+                            for(unsigned i = 0; i < num_mem; ++i)
                             {
                                 type_t const mt = member_type(type, i);
                                 assert(mt.name() == TYPE_ARRAY);
@@ -2002,18 +1715,8 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                                 index, array_val.type.array_length()));
                     }
 
-                    std::printf("index = %i\n", index);
-                    for(auto const& v : array_val.sval)
-                        if(ct_array_t const* a = std::get_if<ct_array_t>(&v))
-                            std::cout << (*a)[0] << std::endl;
-
                     for(ct_variant_t& v : array_val.sval)
-                    {
-                        ssa_value_t const ssa = std::get<ct_array_t>(v)[index];
-                        std::cout << ssa << std::endl;;
-                        v = ssa;
-                        std::cout << std::get<ssa_value_t>(v) << std::endl;
-                    }
+                        v = std::get<ct_array_t>(v)[index];
                 }
                 else if(D == COMPILE)
                 {
@@ -2209,6 +1912,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct lshift_p : do_wrapper_t<D>
             {
                 static S interpret(S lhs, std::uint8_t shift) { return lhs << shift; }
+                static ssa_op_t op() { return SSA_shl; }
             };
             do_shift<lshift_p>(rpn_stack, *token);
             break;
@@ -2220,6 +1924,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             struct rshift_p : do_wrapper_t<D>
             {
                 static S interpret(S lhs, std::uint8_t shift) { return lhs >> shift; }
+                static ssa_op_t op() { return SSA_shr; }
             };
             do_shift<rshift_p>(rpn_stack, *token);
             break;
@@ -2265,9 +1970,6 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             {
                 rpn_value_t& top = rpn_stack.peek(0);
                 req_quantity(*token, top);
-
-                std::printf("top = %i\n", (int)top.s());
-                std::printf("top = %i\n", (int)~top.s());
 
                 if(is_interpret(D))
                     top.ssa().set(mask_numeric(fixed_t{ ~top.u() }, top.type.name()));
@@ -2322,13 +2024,10 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
                 // If the array has multiple owners, copy it, creating a new one.
                 if(shared.use_count() > 1)
                 {
-                    std::puts("copying array");
                     ct_array_t new_shared = make_ct_array(array_size);
                     std::copy(shared.get(), shared.get() + array_size, new_shared.get());
                     shared = std::move(new_shared);
                 }
-                else
-                    std::puts("NOT copying array");
 
                 shared[index] = assignment.ssa(i);
             }
@@ -2352,8 +2051,6 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
             assert(mt.name() == TYPE_ARRAY);
             assert(mt.elem_type() == assignee.type);
 
-            unsigned const array_size = mt.array_length();
-
             for(unsigned i = 0; i < assignment.sval.size(); ++i)
             {
                 ssa_ht read = assignee.ssa(i).handle();
@@ -2370,7 +2067,10 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
             }
         }
         else
-            local = from_sval(assignment.sval, assignment.type);
+        {
+            for(unsigned i = 0; i < assignment.sval.size(); ++i)
+                local[i + assignee.member] = from_variant(assignment.sval[i], member_type(assignment.type, i));
+        }
 
         assignee.sval = std::move(assignment.sval);
         assignee.category = RVAL;
@@ -2399,7 +2099,6 @@ void eval_t::req_quantity(token_t const& token, rpn_value_t const& lhs, rpn_valu
                                     token_string(token.type), lhs.type, rhs.type));
     }
 }
-
 
 // Applies an operator to the top two values on the eval stack,
 // turning them into a single value.
@@ -2442,15 +2141,13 @@ void eval_t::do_compare(rpn_stack_t& rpn_stack, token_t const& token)
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
-    if(is_interpret(Policy::D))
+    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
     {
         bool const result = Policy::interpret(lhs.s(), rhs.s());
         new_top.sval = make_sval((unsigned)result);
     }
     else if(Policy::D == COMPILE)
-    {
-        compile_binary_operator(rpn_stack, Policy::op(), TYPE_BOOL);
-    }
+        return compile_binary_operator(rpn_stack, Policy::op(), TYPE_BOOL);
 
     rpn_stack.pop(2);
     rpn_stack.push(std::move(new_top));
@@ -2479,7 +2176,6 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
         }
         else
         {
-        //bad_types: TODO
             pstring_t pstring = concat(lhs.pstring, rhs.pstring);
             compiler_error(pstring, fmt("% isn't defined for this type combination. (% and %)",
                                         token_string(token.type), lhs.type, rhs.type));
@@ -2499,18 +2195,8 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
-    if(Policy::D == COMPILE)
+    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
     {
-        if(lhs.is_ct() && rhs.is_ct())
-            goto interpret;
-
-        compile_binary_operator(rpn_stack, Policy::op(), result_type);
-        return;
-    }
-
-    if(is_interpret(Policy::D))
-    {
-    interpret:
         assert(is_masked(lhs.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
 
@@ -2518,6 +2204,8 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
         result.value &= numeric_bitmask(result_type.name());
         new_top.sval = make_sval(result);
     }
+    else if(Policy::D == COMPILE)
+        return compile_binary_operator(rpn_stack, Policy::op(), result_type, ssa_argn(Policy::op()) > 2);
 
     rpn_stack.pop(2);
     rpn_stack.push(std::move(new_top));
@@ -2546,7 +2234,7 @@ void eval_t::do_shift(rpn_stack_t& rpn_stack, token_t const& token)
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
-    if(is_interpret(Policy::D))
+    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
     {
         assert(is_masked(lhs.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
@@ -2556,9 +2244,7 @@ void eval_t::do_shift(rpn_stack_t& rpn_stack, token_t const& token)
         new_top.sval = make_sval(result);
     }
     else if(Policy::D == COMPILE)
-    {
-        assert(false);
-    }
+        return compile_binary_operator(rpn_stack, Policy::op(), result_type);
 
     rpn_stack.pop(2);
     rpn_stack.push(std::move(new_top));
@@ -2607,7 +2293,14 @@ void eval_t::do_logical_begin(rpn_stack_t& rpn_stack, token_t const*& token)
     }
     else if(Policy::D == COMPILE)
     {
-        assert(false);
+        cfg_ht const branch_node = builder.cfg;
+        cfg_exits_with_branch(top.ssa());
+        builder.logical_stack.push_back({ branch_node, top.pstring });
+        rpn_stack.pop();
+
+        cfg_ht const long_cut = insert_cfg(true);
+        branch_node->build_set_output(Policy::logical_token() != TOK_logical_or, long_cut);
+        builder.cfg = long_cut;
     }
 }
 
@@ -2619,7 +2312,20 @@ void eval_t::do_logical_end(rpn_stack_t& rpn_stack)
 
     if(Policy::D == COMPILE)
     {
-        assert(false);
+        logical_data_t logical = builder.logical_stack.back();
+        builder.logical_stack.pop_back();
+
+        cfg_ht const merge_node = insert_cfg(true);
+        cfg_exits_with_jump();
+        builder.cfg->build_set_output(0, merge_node);
+        logical.branch_node->build_set_output(Policy::logical_token() == TOK_logical_or, merge_node);
+
+        top.ssa() = merge_node->emplace_ssa(
+            SSA_phi, TYPE_BOOL, top.ssa(), Policy::logical_token() == TOK_logical_or);
+        top.pstring = concat(logical.lhs_pstring, top.pstring);
+        top.category = RVAL;
+
+        builder.cfg = merge_node;
     }
 }
 
@@ -2692,7 +2398,7 @@ void eval_t::force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool impl
             file_contents_t file(rpn_value.pstring.file_i);
             throw compiler_error_t(
                 fmt_error(file, rpn_value.pstring, fmt(
-                    "Int value of % can't be represented in type %. (Implicit type conversion)", 
+                    "Int value of % cannot be represented in type %. (Implicit type conversion)", 
                     to_double(fixed_t{ rpn_value.s() }), to_type))
                 + fmt_note("Add an explicit cast operator to override.")
                 );
@@ -2762,7 +2468,6 @@ void eval_t::force_boolify(rpn_value_t& rpn_value, pstring_t cast_pstring)
         .pstring = cast_pstring ? concat(rpn_value.pstring, cast_pstring) : rpn_value.pstring,
         .rt = D == COMPILE,
     };
-
 
     if(is_interpret(D) || (D == COMPILE && rpn_value.is_ct()))
     {
@@ -2852,7 +2557,7 @@ cfg_ht eval_t::insert_cfg(bool seal, pstring_t label_name)
         assert(num_vars() == var_types.size());
         vec.resize(var_types.size());
         for(unsigned i = 0; i < var_types.size(); ++i)
-            vec[i].resize(num_members(var_types[i]));
+            vec[i].resize(::num_members(var_types[i]));
     };
 
     init_vector(block_data.vars);
@@ -2877,7 +2582,6 @@ void eval_t::seal_block(block_d& block_data)
 //   Simple and Efficient Construction of Static Single Assignment Form
 ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
 {
-    std::printf("lookup var %i %i\n", var_i, cfg_node.index);
     block_d& block_data = cfg_node.data<block_d>();
 
     assert(var_i < block_data.vars.size());
@@ -2895,7 +2599,6 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
             switch(cfg_node->input_size())
             {
             case 0:
-                std::printf("failed var %i %i\n", var_i, cfg_node.index);
                 throw var_lookup_error_t();
             case 1:
                 return var_lookup(cfg_node->input(0), var_i, member);
@@ -2949,6 +2652,9 @@ sval_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
     assert(var_i < block_data.vars.size());
 
     sval_t sval(block_data.vars[var_i].size());
+
+    assert(sval.size() == num_members(var_types[var_i]));
+
     for(unsigned member = 0; member < sval.size(); ++member)
     {
         assert(member < block_data.vars[var_i].size());

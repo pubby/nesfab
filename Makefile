@@ -31,7 +31,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++20 \
-  -O1 \
+  -O2 \
   -pthread \
   -g \
   -Wall \

@@ -2,52 +2,6 @@
 
 #include "builtin.hpp"
 
-fixed_lut_t<fixed_uint_t> const numeric_bitmask_table = []()
-{
-    fixed_lut_t<fixed_uint_t> table;
-    for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
-    {
-        type_name_t type_name = (type_name_t)i;
-
-        fixed_uint_t v = 0;
-
-        if(type_name == TYPE_BOOL)
-            v = 1ull << fixed_t::shift;
-        else
-        {
-            for(unsigned j = 0; j < frac_bytes(type_name); ++j)
-                v |= 0xFFull << (8 * (2 - j));
-            for(unsigned j = 0; j < whole_bytes(type_name); ++j)
-                v |= 0xFFull << (8 * (3 + j));
-        }
-
-        table[i - TYPE_FIRST_SCALAR] = v;
-    }
-    return table;
-}();
-
-fixed_lut_t<fixed_uint_t> const numeric_sub_bitmask_table = []()
-{
-    fixed_lut_t<fixed_uint_t> table;
-    for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
-    {
-        type_name_t type_name = (type_name_t)i;
-        table[i - TYPE_FIRST_SCALAR] = (1ull << (8 * (3 - frac_bytes(type_name)))) - 1ull;
-    }
-    return table;
-}();
-
-fixed_lut_t<fixed_uint_t> const numeric_super_bitmask_table = []()
-{
-    fixed_lut_t<fixed_uint_t> table;
-    for(int i = TYPE_FIRST_SCALAR; i <= TYPE_LAST_SCALAR; ++i)
-    {
-        type_name_t type_name = (type_name_t)i;
-        table[i - TYPE_FIRST_SCALAR] = ~((1ull << (8 * (3 + whole_bytes(type_name)))) - 1ull);
-    }
-    return table;
-}();
-
 fixed_sint_t to_signed(fixed_uint_t f, fixed_uint_t bitmask)
 {
     assert(bitmask);

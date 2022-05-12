@@ -337,9 +337,11 @@ private:
     cfg_ht m_cfg_begin = {};
     unsigned m_size = 0;
 public:
-    ir_t() = default;
+    ir_t();
     ir_t(ir_t const&) = delete;
     ir_t(ir_t&&) = delete;
+
+    ~ir_t();
 
     ir_t& operator=(ir_t const&) = delete;
     ir_t& operator=(ir_t&&) = delete;

@@ -58,6 +58,7 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_FIRST_CT = TYPE_INT,
     TYPE_REAL,
     TYPE_LAST_CT = TYPE_REAL,
+    NUM_TYPE_NAMES,
     TYPE_U = TYPE_U10,
     TYPE_S = TYPE_S10,
 
@@ -76,6 +77,8 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_LARGEST_U = TYPE_U33,
     TYPE_LARGEST_S = TYPE_S33,
 };
+
+static_assert(NUM_TYPE_NAMES < 64);
 
 constexpr bool is_arithmetic(type_name_t type_name)
     { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }

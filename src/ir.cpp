@@ -751,6 +751,18 @@ void cfg_node_t::remove_outputs_input(unsigned i)
 // ir_t                               //
 ////////////////////////////////////////
 
+ir_t::ir_t()
+{
+    assert(cfg_pool::size() == 0);
+    assert(ssa_pool::size() == 0);
+}
+
+ir_t::~ir_t()
+{
+    cfg_pool::clear();
+    ssa_pool::clear();
+}
+
 cfg_ht ir_t::emplace_cfg()
 {
     // Alloc and initialize it.

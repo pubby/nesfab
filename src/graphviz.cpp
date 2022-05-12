@@ -138,8 +138,6 @@ void graphviz_cfg(std::ostream& o, ir_t const& ir)
         o << " [label=\"" << cfg_it.index;
         if(cfg_it == ir.root)
             o << " (ROOT)";
-        if(cfg_it == ir.exit)
-            o << " (EXIT)";
         o << "\"];\n"; 
     }
 

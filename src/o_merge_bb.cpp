@@ -8,19 +8,23 @@ bool o_merge_basic_blocks(ir_t& ir)
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it;)
     {
+        // Find an edge that can be merged.
+
         if(cfg_it->output_size() != 1)
         {
             ++cfg_it;
             continue;
         }
 
-        cfg_ht output = cfg_it->output(0);
+        cfg_ht const output = cfg_it->output(0);
 
-        if(output->input_size() != 1 || cfg_it == output || output == ir.exit)
+        if(output->input_size() != 1 || cfg_it == output)
         {
             ++cfg_it;
             continue;
         }
+
+        // Perform the merge.
 
         cfg_it->steal_ssa_nodes(output);
         assert(output->ssa_size() == 0);
@@ -37,6 +41,9 @@ bool o_merge_basic_blocks(ir_t& ir)
                 { return phi->input(phi_i); });
         }
         output->link_clear_outputs();
+
+        if(output == ir.exit)
+            ir.exit = cfg_it;
 
         ir.prune_cfg(output);
 

@@ -874,6 +874,8 @@ void fn_t::compile()
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(ir);
 
+    return;
+
     byteify(ir, *this);
     //make_conventional(ir);
 

@@ -319,6 +319,9 @@ static bool _reaching(ssa_ht def, ssa_ht use)
 
 namespace
 {
+// The canonical IR representation has a single exit 'ir.exit',
+// but for code generation purposes, it's better to have multiple 'rts' instructions.
+// The code below handles this, splitting the single 'ir.exit' into multiple.
 struct dupe_exit_t
 {
     void run(cfg_ht orig_cfg, unsigned edge_i, cfg_ht duped_cfg)
@@ -328,12 +331,8 @@ struct dupe_exit_t
         this->duped_cfg = duped_cfg;
         map.clear();
 
-        for(ssa_ht ssa_it = orig_cfg->first_daisy(); ssa_it; 
-            ssa_it = ssa_it->next_daisy())
-        {
-            std::puts("x");
+        for(ssa_ht ssa_it = orig_cfg->first_daisy(); ssa_it; ssa_it = ssa_it->next_daisy())
             visit(ssa_it);
-        }
 
         for(ssa_ht ssa_it = orig_cfg->ssa_begin(); ssa_it; ++ssa_it)
             visit(ssa_it);

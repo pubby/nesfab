@@ -98,7 +98,7 @@ public:
         value = (uint & ~const_flag) | locator_flag; 
     }
 
-    void set(void const* ptr) 
+    constexpr void set(void const* ptr) 
     { 
         uint_t uint = reinterpret_cast<std::uintptr_t>(ptr);
         assert((uint & 0b11) == 0);
@@ -108,7 +108,7 @@ public:
         assert(!is_handle());
     }
 
-    void set(ssa_ht ht, std::uint32_t index) 
+    constexpr void set(ssa_ht ht, std::uint32_t index) 
     {
         value = ht.index;
         value |= (uint_t)index << 32ull;

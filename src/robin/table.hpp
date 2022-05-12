@@ -291,9 +291,12 @@ public:
 
             // realloc values
             value_storage* const old_values = values.release();
-            values.reset(reinterpret_cast<value_storage*>(
-                std::realloc(old_values, new_size * sizeof(value_type))));
-            if(UNLIKELY(!values))
+            value_storage* const new_values = reinterpret_cast<value_storage*>(
+                std::realloc(old_values, new_size * sizeof(value_type)));
+
+            if(LIKELY(new_values))
+                values.reset(new_values);
+            else
             {
                 values.reset(old_values);
                 throw std::bad_alloc();
@@ -431,7 +434,7 @@ protected:
 
     static hash_type null_hash;
 
-    std::unique_ptr<value_storage> values;
+    std::unique_ptr<value_storage, c_delete> values;
     hash_type* hashes;
     hash_type* hashes_end_;
     hash_type mask_;

@@ -250,9 +250,6 @@ spair_t interpret_expr(pstring_t pstring, token_t const* expr, type_t expected_t
 
 void build_ir(ir_t& ir, fn_t const& fn)
 {
-    cfg_pool::clear();
-    ssa_pool::clear();
-
     assert(cfg_data_pool::array_size() == 0);
     assert(ssa_data_pool::array_size() == 0);
     cfg_data_pool::scope_guard_t<block_d> cg(0);
@@ -2434,7 +2431,7 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
 
         if(implicit)
         {
-            fixed_uint_t const supermask = numeric_supermask(to_type.name());
+            fixed_uint_t supermask = ::supermask(numeric_bitmask(to_type.name()));
             if((to_signed(value, to_type.name()) & supermask) != (rpn_value.s() & supermask))
             {
                 file_contents_t file(rpn_value.pstring.file_i);

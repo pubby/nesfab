@@ -26,10 +26,12 @@ struct bounds_t;
 struct known_bits_t;
 struct constraints_t;
 
+std::string to_string(constraints_mask_t const& cm);
 std::string to_string(bounds_t const& b);
 std::string to_string(constraints_t const& c);
 std::string to_string(known_bits_t const& b);
 
+std::ostream& operator<<(std::ostream& o, constraints_mask_t const& cm);
 std::ostream& operator<<(std::ostream& o, bounds_t const& b);
 std::ostream& operator<<(std::ostream& o, known_bits_t const& b);
 std::ostream& operator<<(std::ostream& o, constraints_t const& c);
@@ -275,6 +277,8 @@ struct constraints_def_t
 
     constraints_t const& operator[](unsigned i) const { assert(i < vec.size()); return vec[i]; }
     constraints_t& operator[](unsigned i) { assert(i < vec.size()); return vec[i]; }
+
+    bool is_top(unsigned i = 0) const { assert(i < vec.size()); return vec[i].is_top(cm); }
 };
 
 bool any_top(constraints_def_t const& def);

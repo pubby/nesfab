@@ -141,6 +141,8 @@ public:
     ssa_op_t op() const { return m_op; }
     type_t type() const { return m_type; }
 
+    void set_type(type_t type) { m_type = type; }
+
     ssa_value_t input(unsigned i) const { return m_io.input(i); }
     ssa_fwd_edge_t input_edge(unsigned i) const { return m_io.input(i); }
     std::uint32_t input_size() const { return m_io.input_size(); }
@@ -457,7 +459,7 @@ inline ssa_value_t orig_def(ssa_value_t v)
     return v;
 }
 
-inline ssa_value_t is_orig_def(ssa_value_t v)
+inline bool is_orig_def(ssa_value_t v)
 {
     return v == orig_def(v);
 }

@@ -42,23 +42,26 @@ constexpr regs_t REG_X   = 1;
 constexpr regs_t REG_Y   = 2;
 constexpr regs_t REG_C   = 3;
 constexpr regs_t REG_Z   = 4;
-constexpr unsigned NUM_CPU_REGS = 5;
-constexpr regs_t REG_M   = 5; // RAM
+constexpr regs_t REG_N   = 5;
+constexpr unsigned NUM_CPU_REGS = 6;
+constexpr regs_t REG_M   = 6; // RAM
 
 // Works like a bitset.
-constexpr regs_t REGF_A   = 1 << REG_A;
-constexpr regs_t REGF_X   = 1 << REG_X;
-constexpr regs_t REGF_Y   = 1 << REG_Y;
-constexpr regs_t REGF_C   = 1 << REG_C;
-constexpr regs_t REGF_Z   = 1 << REG_Z;
-constexpr regs_t REGF_M   = 1 << REG_M;
+constexpr regs_t REGF_A = 1 << REG_A;
+constexpr regs_t REGF_X = 1 << REG_X;
+constexpr regs_t REGF_Y = 1 << REG_Y;
+constexpr regs_t REGF_C = 1 << REG_C;
+constexpr regs_t REGF_Z = 1 << REG_Z;
+constexpr regs_t REGF_N = 1 << REG_N;
+constexpr regs_t REGF_M = 1 << REG_M;
 
 constexpr regs_t REGF_AX   = REGF_A | REGF_X;
 constexpr regs_t REGF_AY   = REGF_A | REGF_Y;
 constexpr regs_t REGF_AC   = REGF_A | REGF_C;
-constexpr regs_t REGF_ACZ  = REGF_A | REGF_C | REGF_Z;
-constexpr regs_t REGF_CZ   = REGF_C | REGF_Z;
-constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_Z;
+constexpr regs_t REGF_NZ   = REGF_N | REGF_Z;
+constexpr regs_t REGF_ACNZ = REGF_A | REGF_C | REGF_N | REGF_Z;
+constexpr regs_t REGF_CNZ  = REGF_C | REGF_NZ;
+constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_NZ;
 
 using asm_flags_t = std::uint32_t;
 

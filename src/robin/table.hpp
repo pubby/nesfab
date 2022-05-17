@@ -276,14 +276,15 @@ public:
            && alignof(value_type) <= sizeof(std::max_align_t))
         {
             // realloc hashes
-            hash_type* const old_hashes = hashes == &null_hash ? nullptr 
-                                                               : hashes;
-            hashes = reinterpret_cast<hash_type*>(
-                std::realloc(old_hashes, (new_size+1) * sizeof(hash_type)));
-            if(UNLIKELY(!hashes))
             {
-                hashes = old_hashes;
-                throw std::bad_alloc();
+                hash_type* const old_hashes = hashes == &null_hash ? nullptr : hashes;
+                hashes = reinterpret_cast<hash_type*>(
+                    std::realloc(old_hashes, (new_size+1) * sizeof(hash_type)));
+                if(UNLIKELY(!hashes))
+                {
+                    hashes = old_hashes;
+                    throw std::bad_alloc();
+                }
             }
             hashes_end_ = hashes + new_size;
             *hashes_end_ = 0;

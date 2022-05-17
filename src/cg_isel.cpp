@@ -12,819 +12,14 @@
 #include "array_pool.hpp"
 #include "format.hpp"
 #include "globals.hpp"
+#include "cg_isel_cpu.hpp"
 
 #define CONT_TEMPLATE 
 #define CONT cont_fn_t cont
 
 namespace isel
 {
-    using options_flags_t = std::uint8_t;
-    constexpr options_flags_t OPT_NO_DIRECT   = 0b10; // Works as a 2-bit counter
-    constexpr options_flags_t OPT_CONDITIONAL = 1 << 2;
-
-    // Options, to be passed to various construction functions:
-    struct options_t
-    {
-        regs_t can_set = REGF_CPU;
-        regs_t set_mask = REGF_CPU;
-        options_flags_t flags = 0;
-
-        options_t restrict_to(regs_t regs) { return { can_set & regs, set_mask, flags }; }
-        options_t mask(regs_t regs) { return { can_set, set_mask & regs, flags }; }
-        options_t add_flags(options_flags_t f) { return { can_set, set_mask, flags | f }; }
-        options_t remove_flags(options_flags_t f) { return { can_set, set_mask, flags & ~f }; }
-    };
-
-    // A compile-time version of the above.
-    // (TODO: in C++20 we should be able to use just options_t as a template value param,
-    //  but as of writing GCC is buggy and ICEs, and clang doesn't have the feature.)
-    template<regs_t CanSet = REGF_CPU, regs_t SetMask = REGF_CPU, options_flags_t Flags = 0>
-    struct options
-    {
-        static constexpr regs_t can_set = CanSet;
-        static constexpr regs_t set_mask = SetMask;
-        static constexpr options_flags_t flags = Flags;
-
-        template<regs_t Regs>
-        using restrict_to = options<CanSet & Regs, SetMask, Flags>;
-
-        template<regs_t Regs>
-        using unrestrict = options<CanSet | Regs, SetMask, Flags>;
-
-        template<regs_t Regs>
-        using mask = options<CanSet, SetMask & Regs, Flags>;
-
-        template<options_flags_t NewFlags>
-        using add_flags = options<CanSet, SetMask, Flags | NewFlags>;
-
-        // Used to implement OPT_NO_DIRECT; it adds 1 to flags.
-        using inc_no_direct = options<CanSet, SetMask, Flags + 1>;
-
-        template<options_flags_t NewFlags>
-        using remove_flags = options<CanSet, SetMask, Flags & ~NewFlags>;
-
-        static constexpr options_t to_struct = options_t{ CanSet, SetMask, Flags };
-    };
-
-    // An approximation of the CPU's state at a given position.
-    struct cpu_t
-    {
-        std::array<locator_t, NUM_CPU_REGS> regs;
-
-        // When implementing minor branches (such as in multi-byte comparisons),
-        // some registers will be conditionally set.
-        // These flags track which registers are conditional:
-        regs_t conditional_regs;
-
-        // This bitset keeps track of which variables must be stored.
-        // To shrink the size down to 64 bits, a rolling window is used
-        // based around the live ranges occuring within a single CFG node.
-        std::uint64_t req_store;
-
-        bool operator==(cpu_t const& o) const
-        { 
-            return (req_store == o.req_store 
-                    && conditional_regs == o.conditional_regs
-                    && regs == o.regs);
-        }
-
-        bool reg_eq(regs_t reg, locator_t v) const
-        {
-            assert(is_orig_def(regs[reg]));
-            assert(is_orig_def(v));
-            return regs[reg] == v;
-        }
-
-        template<regs_t Reg> [[gnu::noinline]]
-        bool set_reg(options_t opt, locator_t value)
-        {
-            if(!(opt.can_set & (1 << Reg)))
-                return false;
-            if(opt.flags & OPT_CONDITIONAL)
-                conditional_regs |= 1 << Reg;
-            set_reg_impl<Reg>(opt, value);
-            return true;
-        }
-
-        template<regs_t Reg> [[gnu::always_inline]]
-        bool set_reg(options_t opt, std::uint8_t b)
-        {
-            return set_reg<Reg>(opt, locator_t::const_byte(b));
-        }
-
-
-        template<regs_t Reg> [[gnu::always_inline]]
-        void set_reg_impl(options_t opt, locator_t value)
-        {
-            if((Reg == REG_C || Reg == REG_Z) && value.is_const_num())
-                value.set_data(!!value.data());
-
-            if(value.is_const_num() || (opt.set_mask & (1 << Reg)))
-                regs[Reg] = value;
-            else
-                regs[Reg] = locator_t{};
-        }
-
-        template<regs_t Reg> [[gnu::always_inline]]
-        void set_reg_impl(options_t opt, std::uint8_t b)
-        {
-            return set_reg_impl<Reg>(opt, locator_t::const_byte(b));
-        }
-
-        template<regs_t Regs> [[gnu::noinline]]
-        void set_regs_impl(options_t opt, locator_t value)
-        {
-            if(Regs & REGF_A)
-                set_reg_impl<REG_A>(opt, value);
-            if(Regs & REGF_X)
-                set_reg_impl<REG_X>(opt, value);
-            if(Regs & REGF_Y)
-                set_reg_impl<REG_Y>(opt, value);
-            if(Regs & REGF_C)
-                set_reg_impl<REG_C>(opt, value);
-            if(Regs & REGF_Z)
-                set_reg_impl<REG_Z>(opt, value);
-        }
-
-        template<regs_t Regs> [[gnu::noinline]]
-        bool set_regs(options_t opt, locator_t value)
-        {
-            if((Regs & opt.can_set) != Regs)
-                return false;
-            if(opt.flags & OPT_CONDITIONAL)
-                conditional_regs |= Regs;
-            set_regs_impl<Regs>(opt, value);
-            return true;
-        }
-
-        template<op_t Op>
-        bool set_output_regs_impl(options_t opt, locator_t value)
-        {
-            constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
-            assert(!value.is_const_num());
-            return set_regs<Regs>(opt, value);
-        }
-
-        // Dumbly sets registers based on 'op_output_regs'.
-        // Use 'set_regs_for' for the smarter version!
-        template<op_t Op>
-        bool set_output_regs(options_t opt, locator_t value)
-        {
-            constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
-            if((Regs & opt.can_set) != Regs)
-                return false;
-            if(opt.flags & OPT_CONDITIONAL)
-                conditional_regs |= Regs;
-            assert(!value.is_const_num());
-            return set_regs<Regs>(opt, value);
-        }
-
-        // Sets registers based on an assembly op.
-        // If the registers and inputs are known constants,
-        // the set values may be constants too.
-        template<op_t Op>
-        bool set_regs_for(options_t opt, locator_t def, locator_t arg);
-
-        // Queries if multiple registers are known numeric constants.
-        template<regs_t Regs>
-        bool all_num() const
-        {
-            bool result = true;
-
-            if(Regs & REGF_A)
-                result &= regs[REG_A].is_const_num();
-            if(Regs & REGF_X)
-                result &= regs[REG_X].is_const_num();
-            if(Regs & REGF_Y)
-                result &= regs[REG_Y].is_const_num();
-            if(Regs & REGF_C)
-                result &= regs[REG_C].is_const_num();
-            if(Regs & REGF_Z)
-                result &= regs[REG_Z].is_const_num();
-
-            return result;
-        }
-
-    };
-}
-
-namespace std
-{
-    template<>
-    struct hash<isel::cpu_t>
-    {
-        std::size_t operator()(isel::cpu_t const& cpu) const noexcept
-        {
-            std::size_t h = rh::hash_finalize(
-                cpu.req_store ^ cpu.conditional_regs);
-            for(locator_t const& v : cpu.regs)
-                h = rh::hash_combine(h, v.to_uint());
-            return h;
-        }
-    };
-}
-
-namespace isel
-{
-    template<op_t Op>
-    struct set_regs_for_impl
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            cpu.set_output_regs<Op>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ADC_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_A | REGF_C>())
-            {
-                static_assert(op_output_regs(ADC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_C));
-                unsigned const result = cpu.regs[REG_A].data() + !!cpu.regs[REG_C].data() + arg.data();
-                cpu.set_reg_impl<REG_A>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, (result & 0xFF) == 0);
-                cpu.set_reg_impl<REG_C>(opt, !!(result & 0x100));
-            }
-            else
-                cpu.set_output_regs_impl<ADC_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<AND_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(AND_IMMEDIATE) == (REGF_A | REGF_Z));
-                std::uint8_t const result = cpu.regs[REG_A].data() & arg.data();
-                cpu.set_reg_impl<REG_A>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-            }
-            else if(arg.eq_const(0))
-            {
-                cpu.set_reg_impl<REG_A>(opt, 0u);
-                cpu.set_reg_impl<REG_Z>(opt, 1u);
-            }
-            else
-                cpu.set_output_regs_impl<AND_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ASL_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(ASL_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
-                std::uint8_t const a = cpu.regs[REG_A].data() << 1;
-                bool const c = cpu.regs[REG_A].data() & 128;
-                cpu.set_reg_impl<REG_A>(opt, a);
-                cpu.set_reg_impl<REG_Z>(opt, a == 0);
-                cpu.set_reg_impl<REG_C>(opt, c);
-            }
-            else
-                cpu.set_output_regs_impl<ASL_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<CLC_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            cpu.set_reg_impl<REG_C>(opt, 0u);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<CMP_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(CMP_IMMEDIATE) == (REGF_Z | REGF_C));
-                bool const z = arg.data() == cpu.regs[REG_A].data();
-                bool const c = arg.data() <= cpu.regs[REG_A].data();
-                cpu.set_reg_impl<REG_Z>(opt, z);
-                cpu.set_reg_impl<REG_C>(opt, c);
-            }
-            else if(arg.eq_const(0))
-            {
-                cpu.set_reg_impl<REG_Z>(opt, def);
-                cpu.set_reg_impl<REG_C>(opt, 1u);
-            }
-            else
-                cpu.set_output_regs_impl<CMP_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<CPX_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_X>())
-            {
-                static_assert(op_output_regs(CPX_IMMEDIATE) == (REGF_Z | REGF_C));
-                bool const z = arg.data() == cpu.regs[REG_X].data();
-                bool const c = arg.data() <= cpu.regs[REG_X].data();
-                cpu.set_reg_impl<REG_Z>(opt, z);
-                cpu.set_reg_impl<REG_C>(opt, c);
-            }
-            else if(arg.is_const_num() && arg.data() == 0)
-            {
-                cpu.set_reg_impl<REG_Z>(opt, def);
-                cpu.set_reg_impl<REG_C>(opt, 1u);
-            }
-            else
-                cpu.set_output_regs_impl<CPX_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<CPY_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_Y>())
-            {
-                static_assert(op_output_regs(CPY_IMMEDIATE) == (REGF_Z | REGF_C));
-                bool const z = arg.data() == cpu.regs[REG_Y].data();
-                bool const c = arg.data() <= cpu.regs[REG_Y].data();
-                cpu.set_reg_impl<REG_Z>(opt, z);
-                cpu.set_reg_impl<REG_C>(opt, c);
-            }
-            else if(arg.eq_const(0))
-            {
-                cpu.set_reg_impl<REG_Z>(opt, def);
-                cpu.set_reg_impl<REG_C>(opt, 1u);
-            }
-            else
-                cpu.set_output_regs_impl<CPY_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<DEX_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_X>())
-            {
-                static_assert(op_output_regs(DEX_IMPLIED) == (REGF_Z | REGF_X));
-                std::uint8_t const result = cpu.regs[REG_X].data() - 1;
-                cpu.set_reg_impl<REG_X>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-            }
-            else
-                cpu.set_output_regs_impl<DEX_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<DEY_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_Y>())
-            {
-                static_assert(op_output_regs(DEY_IMPLIED) == (REGF_Z | REGF_Y));
-                std::uint8_t const result = cpu.regs[REG_Y].data() - 1;
-                cpu.set_reg_impl<REG_Y>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-            }
-            else
-                cpu.set_output_regs_impl<DEY_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<EOR_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(EOR_IMMEDIATE) == (REGF_Z | REGF_A));
-                std::uint8_t const result = cpu.regs[REG_Y].data() ^ arg.data();
-                cpu.set_reg_impl<REG_A>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-            }
-            else
-                cpu.set_output_regs_impl<EOR_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<INX_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_X>())
-            {
-                static_assert(op_output_regs(INX_IMPLIED) == (REGF_Z | REGF_X));
-                std::uint8_t const result = cpu.regs[REG_X].data() + 1;
-                cpu.set_reg_impl<REG_X>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-            }
-            else
-                cpu.set_output_regs_impl<INX_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<INY_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_Y>())
-            {
-                static_assert(op_output_regs(INY_IMPLIED) == (REGF_Z | REGF_Y));
-                std::uint8_t const result = cpu.regs[REG_Y].data() + 1;
-                cpu.set_reg_impl<REG_Y>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-            }
-            else
-                cpu.set_output_regs_impl<INY_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<LDA_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num())
-            {
-                static_assert(op_output_regs(LDA_IMMEDIATE) == (REGF_Z | REGF_A));
-                cpu.set_reg_impl<REG_A>(opt, arg);
-                cpu.set_reg_impl<REG_Z>(opt, arg.data() == 0);
-            }
-            else
-                cpu.set_output_regs_impl<LDA_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<LDX_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num())
-            {
-                static_assert(op_output_regs(LDX_IMMEDIATE) == (REGF_Z | REGF_X));
-                cpu.set_reg_impl<REG_X>(opt, arg);
-                cpu.set_reg_impl<REG_Z>(opt, arg.data() == 0);
-            }
-            else
-                cpu.set_output_regs_impl<LDX_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<LDY_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num())
-            {
-                static_assert(op_output_regs(LDY_IMMEDIATE) == (REGF_Z | REGF_Y));
-                cpu.set_reg_impl<REG_Y>(opt, arg);
-                cpu.set_reg_impl<REG_Z>(opt, arg.data() == 0);
-            }
-            else
-                cpu.set_output_regs_impl<LDY_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<LSR_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(LSR_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
-                std::uint8_t const a = cpu.regs[REG_A].data() >> 1;
-                std::uint8_t const c  = cpu.regs[REG_A].data() & 1;
-                cpu.set_reg_impl<REG_A>(opt, a);
-                cpu.set_reg_impl<REG_Z>(opt, a == 0);
-                cpu.set_reg_impl<REG_C>(opt, c);
-            }
-            else
-                cpu.set_output_regs_impl<LSR_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ORA_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(ORA_IMMEDIATE) == (REGF_A | REGF_Z));
-                std::uint8_t const result = cpu.regs[REG_Y].data() | arg.data();
-                cpu.set_reg_impl<REG_A>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-            }
-            else if(arg.eq_const(0xFF))
-            {
-                cpu.set_reg_impl<REG_A>(opt, 0xFFu);
-                cpu.set_reg_impl<REG_Z>(opt, 0u);
-            }
-            else
-                cpu.set_output_regs_impl<ORA_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ROL_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            static_assert(op_output_regs(ROL_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
-
-            if(cpu.all_num<REGF_A>())
-            {
-                bool const c = cpu.regs[REG_A].data() & 128;
-                cpu.set_reg_impl<REG_C>(opt, c);
-
-                if(cpu.all_num<REGF_C>())
-                {
-                    std::uint8_t const a = (cpu.regs[REG_A].data() << 1) | !!cpu.regs[REG_C].data();
-                    cpu.set_reg_impl<REG_A>(opt, locator_t::const_byte(a));
-                    cpu.set_reg_impl<REG_Z>(opt, locator_t::const_byte(a == 0));
-                }
-                else
-                {
-                    cpu.set_reg_impl<REG_A>(opt, def);
-                    cpu.set_reg_impl<REG_Z>(opt, def);
-                }
-            }
-            else if(cpu.all_num<REGF_C>() && cpu.regs[REG_C].data())
-            {
-                cpu.set_reg_impl<REG_A>(opt, def);
-                cpu.set_reg_impl<REG_C>(opt, def);
-                cpu.set_reg_impl<REG_Z>(opt, 0u);
-            }
-            else
-                cpu.set_output_regs_impl<ROL_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ROR_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            static_assert(op_output_regs(ROR_IMPLIED) == (REGF_A | REGF_Z | REGF_C));
-
-            if(cpu.all_num<REGF_A>())
-            {
-                bool c = (cpu.regs[REG_A].data() & 1);
-                cpu.set_reg_impl<REG_C>(opt, c);
-
-                if(cpu.all_num<REGF_C>())
-                {
-                    std::uint8_t const a = (cpu.regs[REG_A].data() >> 1) | (!!cpu.regs[REG_C].data() << 7);
-                    cpu.set_reg_impl<REG_A>(opt, a);
-                    cpu.set_reg_impl<REG_Z>(opt, a == 0);
-                }
-                else
-                {
-                    cpu.set_reg_impl<REG_A>(opt, def);
-                    cpu.set_reg_impl<REG_Z>(opt, def);
-                }
-            }
-            else if(cpu.all_num<REGF_C>() && !!cpu.regs[REG_C].data())
-            {
-                cpu.set_reg_impl<REG_A>(opt, def);
-                cpu.set_reg_impl<REG_C>(opt, def);
-                cpu.set_reg_impl<REG_Z>(opt, 0u);
-            }
-            else
-                cpu.set_output_regs_impl<ROR_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<SBC_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_A | REGF_C>())
-            {
-                static_assert(op_output_regs(SBC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_C));
-                unsigned const result = cpu.regs[REG_A].data() + !!cpu.regs[REG_C].data() + ~arg.data();
-                cpu.set_reg_impl<REG_A>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, (result & 0xFF) == 0);
-                cpu.set_reg_impl<REG_C>(opt, !!(result & 0x100));
-            }
-            else
-                cpu.set_output_regs_impl<SBC_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<TAX_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            static_assert(op_output_regs(TAX_IMPLIED) == (REGF_X | REGF_Z));
-            if(cpu.all_num<REGF_A>())
-            {
-                cpu.set_reg_impl<REG_X>(opt, cpu.regs[REG_A]);
-                cpu.set_reg_impl<REG_Z>(opt, cpu.regs[REG_A].data() == 0);
-            }
-            else
-                cpu.set_output_regs_impl<TAX_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<TAY_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            static_assert(op_output_regs(TAY_IMPLIED) == (REGF_Y | REGF_Z));
-            if(cpu.all_num<REGF_A>())
-            {
-                cpu.set_reg_impl<REG_Y>(opt, cpu.regs[REG_A]);
-                cpu.set_reg_impl<REG_Z>(opt, cpu.regs[REG_A].data() == 0);
-            }
-            else
-                cpu.set_output_regs_impl<TAY_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<TXA_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            static_assert(op_output_regs(TXA_IMPLIED) == (REGF_A | REGF_Z));
-            if(cpu.all_num<REGF_X>())
-            {
-                cpu.set_reg_impl<REG_A>(opt, cpu.regs[REG_X]);
-                cpu.set_reg_impl<REG_Z>(opt, cpu.regs[REG_X].data() == 0);
-            }
-            else
-                cpu.set_output_regs_impl<TXA_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<TYA_IMPLIED>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            static_assert(op_output_regs(TYA_IMPLIED) == (REGF_A | REGF_Z));
-            if(cpu.all_num<REGF_Y>())
-            {
-                cpu.set_reg_impl<REG_A>(opt, cpu.regs[REG_Y]);
-                cpu.set_reg_impl<REG_Z>(opt, cpu.regs[REG_Y].data() == 0);
-            }
-            else
-                cpu.set_output_regs_impl<TYA_IMPLIED>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<AXS_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_X | REGF_A>())
-            {
-                static_assert(op_output_regs(AXS_IMMEDIATE) == (REGF_Z | REGF_X | REGF_C));
-                unsigned const result = (cpu.regs[REG_A].data() & cpu.regs[REG_X].data()) + ~arg.data() + 1;
-                cpu.set_reg_impl<REG_X>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, (result & 0xFF) == 0);
-                cpu.set_reg_impl<REG_C>(opt, !!(result & 0x100));
-            }
-            else if(arg.is_const_num() && arg.data() == 0)
-            {
-                cpu.set_reg_impl<REG_X>(opt, def);
-                cpu.set_reg_impl<REG_Z>(opt, def);
-                cpu.set_reg_impl<REG_C>(opt, 1u);
-            }
-            else
-                cpu.set_output_regs_impl<AXS_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ANC_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(ANC_IMMEDIATE) == (REGF_Z | REGF_A | REGF_C));
-                std::uint8_t const result = cpu.regs[REG_A].data() & arg.data();
-                cpu.set_reg_impl<REG_A>(opt, result);
-                cpu.set_reg_impl<REG_Z>(opt, result == 0);
-                cpu.set_reg_impl<REG_C>(opt, !!(result & 128));
-            }
-            else if(arg.is_const_num() && arg.data() == 0)
-            {
-                cpu.set_reg_impl<REG_A>(opt, 0u);
-                cpu.set_reg_impl<REG_Z>(opt, 1u);
-                cpu.set_reg_impl<REG_C>(opt, 0u);
-            }
-            else
-                cpu.set_output_regs_impl<ANC_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ALR_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            if(arg.is_const_num() && cpu.all_num<REGF_A>())
-            {
-                static_assert(op_output_regs(ALR_IMMEDIATE) == (REGF_Z | REGF_A | REGF_C));
-                std::uint8_t const and_ = cpu.regs[REG_A].data() & arg.data();
-                std::uint8_t const a = and_ >> 1;
-                std::uint8_t const c = and_ & 1;
-                cpu.set_reg_impl<REG_A>(opt, a);
-                cpu.set_reg_impl<REG_Z>(opt, a == 0);
-                cpu.set_reg_impl<REG_C>(opt, c);
-            }
-            else if(arg.is_const_num() && arg.data() == 0)
-            {
-                cpu.set_reg_impl<REG_A>(opt, 0u);
-                cpu.set_reg_impl<REG_Z>(opt, 1u);
-                cpu.set_reg_impl<REG_C>(opt, 0u);
-            }
-            else if(arg.is_const_num() && arg.data() == 1)
-            {
-                cpu.set_reg_impl<REG_A>(opt, 0u);
-                cpu.set_reg_impl<REG_Z>(opt, 1u);
-                cpu.set_reg_impl<REG_C>(opt, def);
-            }
-            else
-                cpu.set_output_regs_impl<ALR_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<>
-    struct set_regs_for_impl<ARR_IMMEDIATE>
-    {
-        static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
-        {
-            static_assert(op_output_regs(ARR_IMMEDIATE) == (REGF_Z | REGF_A | REGF_C));
-            if(arg.is_const_num() && cpu.all_num<REGF_A>())
-            {
-                std::uint8_t const and_ = cpu.regs[REG_A].data() & arg.data();
-                std::uint8_t const c = !!(and_ & 128);
-                cpu.set_reg_impl<REG_C>(opt, c);
-
-                if(cpu.all_num<REGF_C>())
-                {
-                    std::uint8_t const a = (and_ >> 1) | (!!cpu.regs[REG_C].data() << 7);
-                    cpu.set_reg_impl<REG_A>(opt, a);
-                    cpu.set_reg_impl<REG_Z>(opt, a == 0);
-                }
-                else
-                {
-                    cpu.set_reg_impl<REG_A>(opt, def);
-                    cpu.set_reg_impl<REG_Z>(opt, def);
-                }
-            }
-            else if(cpu.all_num<REGF_C>() && !!cpu.regs[REG_C].data())
-            {
-                cpu.set_reg_impl<REG_A>(opt, def);
-                cpu.set_reg_impl<REG_C>(opt, def);
-                cpu.set_reg_impl<REG_Z>(opt, 0u);
-            }
-            else
-                cpu.set_output_regs_impl<ARR_IMMEDIATE>(opt, def);
-        }
-    };
-
-    template<op_t Op> [[gnu::noinline]]
-    bool cpu_t::set_regs_for(options_t opt, locator_t def, locator_t arg)
-    {
-        constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
-        if((Regs & opt.can_set) != Regs)
-            return false;
-        if(opt.flags & OPT_CONDITIONAL)
-            conditional_regs |= Regs;
-        set_regs_for_impl<Op>::call(opt, *this, def, arg);
-        return true;
-    }
-
+    // Backbone state of the instruction selection algorithm.
     struct state_t
     {
         rh::batman_map<cpu_t, sel_t const*> map;
@@ -1037,6 +232,12 @@ namespace isel
         c.cons.call(cpu, sel);
     }
 
+    template<typename Label> [[gnu::noinline]]
+    void label(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
+    };
+
     // Finishes the selection.
     void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
     {
@@ -1075,22 +276,22 @@ namespace isel
     }
 
     template<typename Opt, regs_t Regs, typename Param> [[gnu::noinline]]
-    void set_regs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void set_defs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
-        if(cpu_copy.set_regs<Regs>(Opt::to_struct, Param::value()))
+        if(cpu_copy.set_defs<Regs>(Opt::to_struct, Param::value()))
             cont->call(cpu_copy, prev);
     };
 
     template<typename Opt, op_t Op, typename Def, typename Arg> [[gnu::noinline]]
-    void set_regs_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void set_defs_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
-        if(cpu_copy.set_regs_for<Op>(Opt::to_struct, Def::value(), Arg::trans()))
+        if(cpu_copy.set_defs_for<Op>(Opt::to_struct, Def::value(), Arg::trans()))
             cont->call(cpu_copy, prev);
     };
 
-    constexpr bool can_set_regs_for(options_t opt, op_t op)
+    constexpr bool can_set_defs_for(options_t opt, op_t op)
     {
         return (opt.can_set & op_output_regs(op) & REGF_CPU) == (op_output_regs(op) & REGF_CPU);
     }
@@ -1100,23 +301,20 @@ namespace isel
     {
         cpu_t cpu_copy = cpu;
         if(cpu_copy.conditional_regs & REGF_A)
-            cpu_copy.regs[REG_A] = {};
+            cpu_copy.defs[REG_A] = {};
         if(cpu_copy.conditional_regs & REGF_X)
-            cpu_copy.regs[REG_X] = {};
+            cpu_copy.defs[REG_X] = {};
         if(cpu_copy.conditional_regs & REGF_Y)
-            cpu_copy.regs[REG_Y] = {};
+            cpu_copy.defs[REG_Y] = {};
         if(cpu_copy.conditional_regs & REGF_C)
-            cpu_copy.regs[REG_C] = {};
+            cpu_copy.defs[REG_C] = {};
         if(cpu_copy.conditional_regs & REGF_Z)
-            cpu_copy.regs[REG_Z] = {};
+            cpu_copy.defs[REG_Z] = {};
+        if(cpu_copy.conditional_regs & REGF_N)
+            cpu_copy.defs[REG_N] = {};
+        cpu_copy.known_mask &= ~cpu_copy.conditional_regs;
         cpu_copy.conditional_regs = 0;
         cont->call(cpu_copy, prev);
-    };
-
-    template<typename Label> [[gnu::noinline]]
-    void label(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
-    {
-        cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
     };
 
     // TODO
@@ -1199,7 +397,7 @@ namespace isel
         unsigned penalty = 0;
         if(ssa_addr_mode(op_addr_mode(Op)))
             penalty = handle_req_store_penalty(cpu_copy, arg);
-        if(cpu_copy.set_regs_for<Op>(opt, def, arg))
+        if(cpu_copy.set_defs_for<Op>(opt, def, arg))
             cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, penalty));
     }
 
@@ -1215,58 +413,72 @@ namespace isel
     {
         static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
         cpu_t cpu_copy = cpu;
-        if(cpu_copy.set_output_regs<Op>(Opt::to_struct, Def::value()))
+        if(cpu_copy.set_output_defs<Op>(Opt::to_struct, Def::value()))
             cont->call(cpu_copy, &alloc_sel<Op>(Opt::to_struct, prev, locator_t::iota()));
     };
 
     template<typename Opt, typename Def> [[gnu::noinline]]
-    void load_Z(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_NZ_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(cpu.reg_eq(REG_Z, Def::value()))
+        locator_t const v = Def::value();
+
+        if((cpu.def_eq(REG_Z, v) || (v.is_const_num() && cpu.is_known(REG_Z) && cpu.known[REG_Z] == !v.data()))
+        && (cpu.def_eq(REG_N, v) || (v.is_const_num() && cpu.is_known(REG_N) && cpu.known[REG_N] == !!(v.data() & 0x80))))
             cont->call(cpu, prev);
-        else if(!(Opt::can_set & REGF_Z))
+        else if((Opt::can_set & REGF_NZ) != REGF_NZ)
             return;
-        else if(cpu.reg_eq(REG_A, Def::value()))
+        else if(cpu.def_eq(REG_A, v))
         {
             exact_op<EOR_IMMEDIATE>(
-                Opt::template mask<REGF_A | REGF_X>::template unrestrict<REGF_A>::to_struct, 
-                Def::value(), locator_t::const_byte(0),
+                Opt::template unrestrict<REGF_A>::to_struct, 
+                v, locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            exact_op<TAX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
 
-            exact_op<TYA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
-        else if(cpu.reg_eq(REG_X, Def::value()))
+        else if(cpu.def_eq(REG_X, v))
         {
             chain
-            < exact_op<typename Opt::mask<REGF_Z | REGF_X>::unrestrict<REGF_X>, INX_IMPLIED>
-            , exact_op<typename Opt::mask<REGF_Z | REGF_X>::unrestrict<REGF_X>, DEX_IMPLIED, Def>
+            < exact_op<typename Opt::unrestrict<REGF_X>, INX_IMPLIED>
+            , exact_op<typename Opt::unrestrict<REGF_X>, DEX_IMPLIED, Def>
             >(cpu, prev, cont);
 
             exact_op<CPX_IMMEDIATE>(
-                Opt::template mask<REGF_X>::to_struct, 
-                Def::value(), locator_t::const_byte(0),
+                Opt::template valid_for<REGF_NZ>::to_struct, 
+                v, locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            exact_op<TXA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
-        else if(cpu.reg_eq(REG_Y, Def::value()))
+        else if(cpu.def_eq(REG_Y, v))
         {
             chain
-            < exact_op<typename Opt::template mask<REGF_Z | REGF_X>::template unrestrict<REGF_Y>, INY_IMPLIED>
-            , exact_op<typename Opt::template mask<REGF_Z | REGF_X>::template unrestrict<REGF_Y>, DEY_IMPLIED, Def>
+            < exact_op<typename Opt::template unrestrict<REGF_Y>, INY_IMPLIED>
+            , exact_op<typename Opt::template unrestrict<REGF_Y>, DEY_IMPLIED, Def>
             >(cpu, prev, cont);
 
             exact_op<CPY_IMMEDIATE>(
-                Opt::template mask<REGF_Y>::to_struct, 
-                Def::value(), locator_t::const_byte(0),
+                Opt::template valid_for<REGF_NZ>::to_struct, 
+                v, locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            exact_op<TYA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
         else
         {
+            std::cout << v.data() << std::endl;
+            std::cout << !v.data() << std::endl;
+            std::cout << !!(v.data() & 0x80) << std::endl;
+            std::cout << cpu.defs[REG_A] << std::endl;
+            std::cout << 'a' << (int)cpu.is_known(REG_A) << std::endl;
+            std::cout << 'n' << (int)cpu.is_known(REG_N) << std::endl;
+            std::cout << 'z' << (int)cpu.is_known(REG_Z) << std::endl;
+            std::cout << (int)cpu.known[REG_A] << std::endl;
+            std::cout << (int)cpu.known[REG_N] << std::endl;
+            std::cout << (int)cpu.known[REG_Z] << std::endl;
+            std::cout << v << std::endl;
             pick_op<Opt, LDA, Def, Def>(cpu, prev, cont);
 
             pick_op<Opt, LDX, Def, Def>(cpu, prev, cont);
@@ -1282,48 +494,47 @@ namespace isel
     {
         if(value.is_const_num())
         {
+            std::uint8_t const byte = value.data();
+
             cpu_t cpu_copy;
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<ANC_IMMEDIATE>(opt, {}, value)
-            && cpu_copy.regs[REG_A] == value)
+            if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, {}, value) && cpu_copy.is_known(REG_A, byte))
                 cont->call(cpu_copy, &alloc_sel<ANC_IMMEDIATE>(opt, prev, value));
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<LSR_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_A] == value)
+            if(cpu_copy.set_defs_for<LSR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
                 cont->call(cpu_copy, &alloc_sel<LSR_IMPLIED>(opt, prev));
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<ASL_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_A] == value)
+            if(cpu_copy.set_defs_for<ASL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
                 cont->call(cpu_copy, &alloc_sel<ASL_IMPLIED>(opt, prev));
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<ROL_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_A] == value)
+            if(cpu_copy.set_defs_for<ROL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
                 cont->call(cpu_copy, &alloc_sel<ROL_IMPLIED>(opt, prev));
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<ROR_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_A] == value)
+            if(cpu_copy.set_defs_for<ROR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
                 cont->call(cpu_copy, &alloc_sel<ROR_IMPLIED>(opt, prev));
 
-            if(cpu.regs[REG_A].is_const_num())
+            if(cpu.is_known(REG_A))
             {
                 unsigned mask = value.data() << 1;
-                if((mask & cpu.regs[REG_A].data() & 0xFF) == mask)
+                if((mask & cpu.known[REG_A] & 0xFF) == mask)
                 {
                     assert(mask < 0x100);
+                    // ALR can set the carry, or clear the carry.
+                    // We'll try to find both:
                     for(unsigned i = 0; i < 2; ++i)
                     {
-                        locator_t loc = locator_t::const_byte(mask | i);
+                        locator_t const arg = locator_t::const_byte(mask | i);
                         cpu_copy = cpu;
-                        if(cpu_copy.set_regs_for<ALR_IMMEDIATE>(opt, {}, value)
-                        && cpu_copy.regs[REG_A] == value)
+                        if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, {}, arg) && cpu_copy.is_known(REG_A, byte))
                             cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(opt, prev, value));
 
-                        if((cpu.regs[REG_A].data() & 1) == 0)
+                        // No point in doing the second iteration if it can't set the carry:
+                        if(!(cpu.known[REG_A] & 1))
                             break;
                     }
                 }
@@ -1334,21 +545,23 @@ namespace isel
     template<typename Opt, typename Def> [[gnu::noinline]]
     void load_A(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(cpu.reg_eq(REG_A, Def::value()))
+        locator_t const v = Def::value();
+
+        if(cpu.value_eq(REG_A, v))
             cont->call(cpu, prev);
         else if(!(Opt::can_set & REGF_A))
             return;
-        else if(cpu.reg_eq(REG_X, Def::value()))
-            exact_op<TXA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
-        else if(cpu.reg_eq(REG_Y, Def::value()))
-            exact_op<TYA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+        else if(cpu.value_eq(REG_X, v))
+            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+        else if(cpu.value_eq(REG_Y, Def::value()))
+            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         else
         {
             pick_op<Opt, LDA, Def, Def>(cpu, prev, cont);
 
             pick_op<Opt, LAX, Def, Def>(cpu, prev, cont);
 
-            load_A_impl(Opt::template mask<REGF_A>::to_struct, Def::value(), cpu, prev, cont);
+            load_A_impl(Opt::template valid_for<REGF_A | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
@@ -1357,16 +570,16 @@ namespace isel
     {
         if(value.is_const_num())
         {
+            std::uint8_t const byte = value.data();
+
             cpu_t cpu_copy;
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<INX_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_X] == value)
+            if(cpu_copy.set_defs_for<INX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
                 cont->call(cpu_copy, &alloc_sel<INX_IMPLIED>(opt, prev));
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<DEX_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_X] == value)
+            if(cpu_copy.set_defs_for<DEX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
                 cont->call(cpu_copy, &alloc_sel<DEX_IMPLIED>(opt, prev));
         }
     }
@@ -1374,15 +587,17 @@ namespace isel
     template<typename Opt, typename Def> [[gnu::noinline]]
     void load_X(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(cpu.reg_eq(REG_X, Def::value()))
+        locator_t const v = Def::value();
+
+        if(cpu.value_eq(REG_X, v))
             cont->call(cpu, prev);
         else if(!(Opt::can_set & REGF_X))
             return;
-        else if(cpu.reg_eq(REG_A, Def::value()))
-            exact_op<TAX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+        else if(cpu.value_eq(REG_A, v))
+            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         else
         {
-            if(cpu.reg_eq(REG_Y, Def::value()))
+            if(cpu.value_eq(REG_Y, v))
             {
                 chain
                 < exact_op<Opt, TYA_IMPLIED>
@@ -1394,7 +609,7 @@ namespace isel
 
             pick_op<Opt, LAX, Def, Def>(cpu, prev, cont);
 
-            load_X_impl(Opt::template mask<REGF_X>::to_struct, Def::value(), cpu, prev, cont);
+            load_X_impl(Opt::template valid_for<REGF_X | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
@@ -1403,16 +618,16 @@ namespace isel
     {
         if(value.is_const_num())
         {
+            std::uint8_t const byte = value.data();
+
             cpu_t cpu_copy;
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<INY_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_X] == value)
+            if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
                 cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(opt, prev));
 
             cpu_copy = cpu;
-            if(cpu_copy.set_regs_for<DEY_IMPLIED>(opt, {}, {})
-            && cpu_copy.regs[REG_Y] == value)
+            if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
                 cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(opt, prev));
         }
     }
@@ -1420,15 +635,17 @@ namespace isel
     template<typename Opt, typename Def> [[gnu::noinline]]
     void load_Y(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(cpu.reg_eq(REG_Y, Def::value()))
+        locator_t const v = Def::value();
+
+        if(cpu.value_eq(REG_Y, v))
             cont->call(cpu, prev);
         else if(!(Opt::can_set & REGF_Y))
             return;
-        else if(cpu.reg_eq(REG_A, Def::value()))
-            exact_op<TAY_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+        else if(cpu.value_eq(REG_A, v))
+            exact_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         else
         {
-            if(cpu.reg_eq(REG_X, Def::value()))
+            if(cpu.value_eq(REG_X, v))
             {
                 chain
                 < exact_op<Opt, TXA_IMPLIED>
@@ -1438,33 +655,35 @@ namespace isel
 
             pick_op<Opt, LDY, Def, Def>(cpu, prev, cont);
 
-            load_Y_impl(Opt::template mask<REGF_Y>::to_struct, Def::value(), cpu, prev, cont);
+            load_Y_impl(Opt::template valid_for<REGF_Y | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
     template<typename Opt, typename Def> [[gnu::noinline]]
     void load_C(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(cpu.reg_eq(REG_C, Def::value()))
+        locator_t const v = Def::value();
+
+        if(cpu.value_eq(REG_C, v))
             cont->call(cpu, prev);
         else if(!(Opt::can_set & REGF_C))
             return;
-        else if(Def::value().is_const_num())
+        else if(v.is_const_num())
         {
-            if(Def::value().data())
-                exact_op<SEC_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+            if(v.data())
+                exact_op<SEC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
             else
-                exact_op<CLC_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+                exact_op<CLC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
         /* TODO: this may not be valid.
-        else if(cpu.reg_eq(REG_Z, Def::value()))
+        else if(cpu.reg_eq(REG_NZ, Def::value()))
         {
             if(cpu.reg_eq(REG_C, locator_t::const_byte(0)))
             {
                 chain
                 < exact_op<Opt, BEQ_IMPLIED, none_, const_<1>>
                 , exact_op<typename Opt::add_flag<OPT_CONDITIONAL>, SEC_IMPLIED>
-                , set_regs<Opt, REGF_C, Def>
+                , set_defs<Opt, REGF_C, Def>
                 >(cpu, prev, cont);
             }
             else if(cpu.reg_eq(REG_C, locator_t::const_byte(1)))
@@ -1472,7 +691,7 @@ namespace isel
                 chain
                 < exact_op<Opt, BNE_IMPLIED, none_, const_<1>>
                 , exact_op<typename Opt::add_flag<OPT_CONDITIONAL>, CLC_IMPLIED>
-                , set_regs<Opt, REGF_C, Def>
+                , set_defs<Opt, REGF_C, Def>
                 >(cpu, prev, cont);
             }
             else
@@ -1481,7 +700,7 @@ namespace isel
                 < exact_op<Opt, CLC_IMPLIED>
                 , exact_op<Opt, BNE_IMPLIED, none_, const_<1>>
                 , exact_op<typename Opt::add_flag<OPT_CONDITIONAL>, SEC_IMPLIED>
-                , set_regs<Opt, REGF_C, Def>
+                , set_defs<Opt, REGF_C, Def>
                 >(cpu, prev, cont);
             }
         }
@@ -1490,12 +709,12 @@ namespace isel
         {
             chain
             < load_A<Opt, Def>
-            , exact_op<typename Opt::mask<REGF_C>, LSR_IMPLIED, Def>
+            , exact_op<typename Opt::valid_for<REGF_C>, LSR_IMPLIED, Def>
             >(cpu, prev, cont);
 
             chain
             < load_A<Opt, Def>
-            , exact_op<typename Opt::mask<REGF_C>, ALR_IMMEDIATE, Def, const_<1>>
+            , exact_op<typename Opt::valid_for<REGF_C>, ALR_IMMEDIATE, Def, const_<1>>
             >(cpu, prev, cont);
         }
     }
@@ -1635,19 +854,19 @@ namespace isel
     {
         chain
         < load_A<Opt, Load>
-        , set_regs<Opt, REGF_A, Def>
+        , set_defs<Opt, REGF_A, Def>
         , store<Opt, STA, Store>
         >(cpu, prev, cont);
 
         chain
         < load_X<Opt, Load>
-        , set_regs<Opt, REGF_X, Def>
+        , set_defs<Opt, REGF_X, Def>
         , store<Opt, STX, Store>
         >(cpu, prev, cont);
 
         chain
         < load_Y<Opt, Load>
-        , set_regs<Opt, REGF_Y, Def>
+        , set_defs<Opt, REGF_Y, Def>
         , store<Opt, STY, Store>
         >(cpu, prev, cont);
     };
@@ -1657,6 +876,8 @@ namespace isel
         cont->call(cpu, prev);
     }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress"
     template<typename Opt, typename Condition, cont_t Then, cont_t Else = nullptr> [[gnu::noinline]]
     static void if_(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
@@ -1665,10 +886,11 @@ namespace isel
         if(Condition::value())
             c.fn = Then ? Then : no_effect;
         else
-            c.fn = Else ? Then : no_effect;
+            c.fn = Else ? Else : no_effect;
 
         c.call(cpu, prev);
     }
+#pragma GCC diagnostic pop
 
     template<typename Tag>
     struct condition
@@ -1697,9 +919,14 @@ namespace isel
     {
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         constexpr op_t InverseOp = get_op(invert_branch(BranchOp), MODE_RELATIVE);
+        using SignLabel = std::conditional_t<BranchOp == BEQ, FailLabel, SuccessLabel>;
+        using sign_check = condition<struct eq_sign_check_tag>;
 
         for(unsigned i = 0; i < h->input_size(); i += 2)
         {
+            // The last comparison cares about sign.
+            sign_check::set(i + 2 == h->input_size());
+
             select_step([&, i](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
             {
                 for(unsigned j = 0; j < 2; ++j)
@@ -1707,10 +934,19 @@ namespace isel
                     p_lhs::set(h->input(i + j));
                     p_rhs::set(h->input(i + 1-j));
                     
-                    if(p_rhs::value().eq_const_byte(0))
+                    if(p_lhs::value().eq_const_byte(0))
+                    {
+                        if(p_lhs::value().eq_const_byte(0))
+                        {
+                            cont->call(cpu, prev);
+                            break;
+                        }
+                    }
+                    else if(p_rhs::value().eq_const_byte(0))
                     {
                         chain
-                        < load_Z<OptC, p_lhs>
+                        < load_NZ_for<OptC, p_lhs>
+                        , if_<OptC, sign_check, exact_op<OptC, BMI_RELATIVE, null_, SignLabel>>
                         , exact_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
                     }
@@ -1718,18 +954,24 @@ namespace isel
                     {
                         chain
                         < load_A<OptC, p_lhs>
+                        , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
+                                                      exact_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
                         , pick_op<OptC, CMP, null_, p_rhs>
                         , exact_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
                         < load_X<OptC, p_lhs>
+                        , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
+                                                      exact_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
                         , pick_op<OptC, CPX, null_, p_rhs>
                         , exact_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
                         < load_Y<OptC, p_lhs>
+                        , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
+                                                      exact_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
                         , pick_op<OptC, CPY, null_, p_rhs>
                         , exact_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
@@ -1746,122 +988,48 @@ namespace isel
             >);
     }
 
-    /* TODO
     template<op_name_t BranchOp>
     void eq_store(ssa_ht h)
     {
         using fail = p_label<0>;
         using success = p_label<1>;
-        using complete = p_label<2>;
-
         using O = options<>;
+
+        // For now, this implementation only loads the result in register X.
+
+        select_step(exact_op<O, LDX_IMMEDIATE, null_, const_<0>>);
 
         fail::set(state.minor_label());
         success::set(state.minor_label());
-        complete::set(state.minor_label());
-
-        select_step([&](cpu_t cpu, sel_t const* const prev)
-        {
-            exact_op<O, LDA_IMMEDIATE, null_, const_<0>>
-            ::template run<finish>(cpu, prev);
-
-            exact_op<O, LDX_IMMEDIATE, null_, const_<0>>
-            ::template run<finish>(cpu, prev);
-
-            exact_op<O, LDY_IMMEDIATE, null_, const_<0>>
-            ::template run<finish>(cpu, prev);
-
-            finish::run(cpu, prev);
-        });
-
-        using OC = O::add_flags<OPT_CONDITIONAL>;
-        eq_branch<options<>, BranchOp, fail, success>(h);
 
         p_def::set(h);
+
+        eq_branch<O::restrict_to<~REGF_X>, BranchOp, fail, success>(h);
+
+        using OC = O::add_flags<OPT_CONDITIONAL>;
         
-        select_step([&](cpu_t cpu, sel_t const* const prev)
+        select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
         {
-            if(cpu.regs[REG_X].eq_const_byte(0) && (O::can_set & REGF_X))
-            {
-                chain
-                < label<OC, success>
-                , exact_op<OC, INX_IMPLIED>
-                , clear_conditional
-                , label<O, fail>
-                , set_regs<O, REGF_X, p_def>
-                , store<O, STX, p_def>
-                >::template run<finish>(cpu, prev);
-            }
-            else if(cpu.regs[REG_Y].eq_const_byte(0) && (O::can_set & REGF_Y))
-            {
-                chain
-                < label<OC, success>
-                , exact_op<OC, INY_IMPLIED>
-                , clear_conditional
-                , label<O, fail>
-                , set_regs<O, REGF_Y, p_def>
-                , store<O, STY, p_def>
-                >::template run<finish>(cpu, prev);
-            }
-            else if(cpu.regs[REG_A].eq_const_byte(0) && (O::can_set & REGF_A))
-            {
-                chain
-                < label<OC, success>
-                , exact_op<OC, LDA_IMMEDIATE, null_, const_<1>>
-                , clear_conditional
-                , label<O, fail>
-                , set_regs<O, REGF_Y, p_def>
-                , store<O, STY, p_def>
-                >::template run<finish>(cpu, prev);
-            }
-            else
-            {
-                chain
-                < label<OC, fail>
-                , exact_op<OC, LDA_ABSOLUTE, null_, const_<0>>
-                , exact_op<OC, JMP_ABSOLUTE, null_, complete>
-                , clear_conditional
-                , label<OC, success>
-                , exact_op<OC, LDA_ABSOLUTE, null_, const_<1>>
-                , label<OC, complete>
-                , clear_conditional
-                , set_regs<O, REGF_A, p_def>
-                , store<options<>, STA, p_def>
-                >::template run<finish>(cpu, prev);
+            // Explicitly instantiate the labels.
+            // (For some reason, GCC can't link without these lines. Could be a compiler bug.)
+            &label<success>;
+            &label<fail>;
 
-                chain
-                < label<OC, fail>
-                , exact_op<OC, LDX_ABSOLUTE, null_, const_<0>>
-                , exact_op<OC, JMP_ABSOLUTE, null_, complete>
-                , clear_conditional
-                , label<OC, success>
-                , exact_op<OC, LDX_ABSOLUTE, null_, const_<1>>
-                , label<OC, complete>
-                , clear_conditional
-                , set_regs<O, REGF_X, p_def>
-                , store<options<>, STX, p_def>
-                >::template run<finish>(cpu, prev);
-
-                chain
-                < label<OC, fail>
-                , exact_op<OC, LDY_ABSOLUTE, null_, const_<0>>
-                , exact_op<OC, JMP_ABSOLUTE, null_, complete>
-                , clear_conditional
-                , label<OC, success>
-                , exact_op<OC, LDY_ABSOLUTE, null_, const_<1>>
-                , label<OC, complete>
-                , clear_conditional
-                , set_regs<O, REGF_Y, p_def>
-                , store<options<>, STY, p_def>
-                >::template run<finish>(cpu, prev);
-            }
+            chain
+            < label<success>
+            , exact_op<OC, INX_IMPLIED>
+            , clear_conditional
+            , label<fail>
+            , set_defs<O, REGF_X, p_def>
+            , store<O, STX, p_def>
+            >(cpu, prev, cont);
         });
     }
-    */
 
     template<typename Opt, typename FailLabel, typename SuccessLabel>
     void lt_branch(ssa_ht h)
     {
+        assert(0); // TODO: properly implement this.
         //if(OrEqual)
             //std::swap(fail_label, success_label);
 
@@ -1887,7 +1055,7 @@ namespace isel
                 if(p_lhs::value().eq_const_byte(0))
                 {
                     chain
-                    < load_Z<OptC, p_rhs>
+                    < load_NZ_for<OptC, p_rhs>
                     , exact_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
                     , if_<OptC, last_iter, exact_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
@@ -1898,7 +1066,7 @@ namespace isel
                         exact_op<JMP_ABSOLUTE>(OptC::to_struct, {}, FailLabel::trans(), cpu, prev, cont);
                     else
                         chain
-                        < load_Z<OptC, p_lhs>
+                        < load_NZ_for<OptC, p_lhs>
                         , exact_op<OptC, BNE_RELATIVE, null_, FailLabel>
                         >(cpu, prev, cont);
                 }
@@ -2009,7 +1177,7 @@ namespace isel
 
                 chain
                 < exact_op<Opt, AND_IMMEDIATE, null_, const_<0>>
-                , exact_op<Opt::mask<REGF_A>, ROL_IMPLIED, p_def>
+                , exact_op<Opt::valid_for<REGF_A>, ROL_IMPLIED, p_def>
                 , store<Opt, STA, p_def, false>
                 >(cpu, prev, cont);
 
@@ -2019,7 +1187,7 @@ namespace isel
                 , exact_op<OptC, INX_IMPLIED>
                 , label<p_label<0>>
                 , clear_conditional
-                , set_regs<Opt, REGF_X | REGF_C, p_def>
+                , set_defs<Opt, REGF_X | REGF_C, p_def>
                 , store<Opt, STX, p_def, false>
                 >(cpu, prev, cont);
 
@@ -2029,14 +1197,14 @@ namespace isel
                 , exact_op<OptC, INY_IMPLIED>
                 , label<p_label<0>>
                 , clear_conditional
-                , set_regs<Opt, REGF_Y | REGF_C, p_def>
+                , set_defs<Opt, REGF_Y | REGF_C, p_def>
                 , store<Opt, STY, p_def, false>
                 >(cpu, prev, cont);
             }
             else
             {
                 cpu_t new_cpu = cpu;
-                if(new_cpu.set_reg<REG_C>(Opt::to_struct, p_def::value()))
+                if(new_cpu.set_def<REG_C>(Opt::to_struct, p_def::value()))
                     cont->call(new_cpu, &alloc_sel<MAYBE_STORE_C>(Opt::to_struct, prev, p_def::trans()));
             }
             break;
@@ -2051,14 +1219,14 @@ namespace isel
             {
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
-                , exact_op<Opt::mask<REGF_A | REGF_Z>, ROL_IMPLIED, p_def>
+                , exact_op<Opt::valid_for<REGF_A | REGF_NZ>, ROL_IMPLIED, p_def>
                 , store<Opt, STA, p_def>
                 >(cpu, prev, cont);
 
                 if(p_carry::value().eq_const_byte(0))
                     chain
                     < load_A<Opt, p_lhs>
-                    , exact_op<Opt::mask<REGF_A | REGF_Z>, ASL_IMPLIED, p_def>
+                    , exact_op<Opt::valid_for<REGF_A | REGF_NZ>, ASL_IMPLIED, p_def>
                     , store<Opt, STA, p_def>
                     >(cpu, prev, cont);
             }
@@ -2067,21 +1235,21 @@ namespace isel
             {
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
-                , pick_op<Opt::mask<REGF_A | REGF_Z>, ADC, p_def, p_rhs>
+                , pick_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC, p_def, p_rhs>
                 , store<Opt, STA, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , load_X<Opt::restrict_to<~REGF_AC>, p_rhs>
-                , iota_op<Opt::mask<REGF_A | REGF_Z>, ADC_ABSOLUTE_X, p_def>
+                , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_X, p_def>
                 , store<Opt, STA, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , load_Y<Opt::restrict_to<~REGF_AC>, p_rhs>
-                , iota_op<Opt::mask<REGF_A | REGF_Z>, ADC_ABSOLUTE_Y, p_def>
+                , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_Y, p_def>
                 , store<Opt, STA, p_def>
                 >(cpu, prev, cont);
 
@@ -2098,7 +1266,7 @@ namespace isel
                         , exact_op<OptC, INX_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_regs<Opt, REGF_X, p_def>
+                        , set_defs<Opt, REGF_X, p_def>
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
 
@@ -2109,7 +1277,7 @@ namespace isel
                         , exact_op<OptC, INY_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_regs<Opt, REGF_Y, p_def>
+                        , set_defs<Opt, REGF_Y, p_def>
                         , store<Opt, STY, p_def>
                         >(cpu, prev, cont);
 
@@ -2135,7 +1303,7 @@ namespace isel
                         , exact_op<OptC, DEX_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_regs<Opt, REGF_X, p_def>
+                        , set_defs<Opt, REGF_X, p_def>
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
 
@@ -2146,7 +1314,7 @@ namespace isel
                         , exact_op<OptC, DEY_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_regs<Opt, REGF_Y, p_def>
+                        , set_defs<Opt, REGF_Y, p_def>
                         , store<Opt, STY, p_def>
                         >(cpu, prev, cont);
 
@@ -2163,11 +1331,11 @@ namespace isel
 
                     if(p_carry::value().is_const_num())
                     {
-                        p_temp::set((0x100 - p_rhs::value().data() - !!p_carry::value().data()) & 0xFF);
+                        p_temp::set(ssa_value_t((0x100 - p_rhs::value().data() - !!p_carry::value().data()) & 0xFF, TYPE_U));
 
                         chain
                         < load_AX<Opt, p_lhs, p_lhs>
-                        , exact_op<Opt::mask<REGF_X | REGF_Z>, AXS_IMMEDIATE, p_def, p_temp>
+                        , exact_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_temp>
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
 
@@ -2222,7 +1390,7 @@ namespace isel
 
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
-                , exact_op<Opt::mask<REGF_X | REGF_Z>, AXS_IMMEDIATE, p_def, const_<0>>
+                , exact_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, const_<0>>
                 , store<Opt, STX, p_def>
                 >(cpu, prev, cont);
 
@@ -2373,7 +1541,7 @@ namespace isel
             p_arg<0>::set(h->input(0));
             chain
             < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
-            , set_regs<Opt, REGF_CPU, null_>
+            , set_defs<Opt, REGF_CPU, null_>
             >(cpu, prev, cont);
             break;
 
@@ -2381,7 +1549,7 @@ namespace isel
             p_arg<0>::set(h->input(0));
             chain
             < exact_op<Opt, JMP_ABSOLUTE, null_, p_arg<0>>
-            , set_regs<Opt, REGF_CPU, null_>
+            , set_defs<Opt, REGF_CPU, null_>
             >(cpu, prev, cont);
             break;
 
@@ -2397,15 +1565,15 @@ namespace isel
 
             /* TODO: remove?
         case SSA_if:
-            (load_Z<>{ h->input(0) }
+            (load_NZ<>{ h->input(0) }
             >>= def_op<BNE>{ {}, locator_t::cfg_label(cfg_node->output(0)) }
             >>= def_op<BEQ>{ {}, locator_t::cfg_label(cfg_node->output(1)) }
             >>= finish)(cpu, prev);
             break;
             */
 
-        case SSA_eq:
-        case SSA_not_eq:
+        case SSA_multi_eq:
+        case SSA_multi_not_eq:
         case SSA_branch_eq:
         case SSA_branch_not_eq:
         case SSA_branch_lt:
@@ -2431,12 +1599,12 @@ namespace isel
 
         switch(h->op())
         {
-        case SSA_eq:     
-            throw 0; // TODO
-            //eq_store<BEQ>(h); 
+        case SSA_multi_eq:     
+            //throw 0; // TODO
+            eq_store<BEQ>(h); 
             break;
 
-        case SSA_not_eq: 
+        case SSA_multi_not_eq: 
             throw 0; // TODO
             //eq_store<BNE>(h); 
             break;
@@ -2572,10 +1740,7 @@ do_selections:
             });
 
             if(repaired)
-            {
-                std::puts("REPAIRED!");
                 goto do_selections;
-            }
             else
                 throw;
         }

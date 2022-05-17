@@ -28,6 +28,7 @@ void asm_proc_t::push_inst(asm_inst_t inst)
 
 void asm_proc_t::expand_branch_ops()
 {
+    // Loop until we can do no more work.
     bool progress; 
     do
     {
@@ -43,6 +44,7 @@ void asm_proc_t::expand_branch_ops()
             unsigned const label_i = labels[inst.arg];
             int const dist = bytes_between(i+1, label_i);
 
+            // Change to long pseudo instruction when out of range
             if(dist > 127 || dist < -128)
             {
                 inst.op = get_op(op_name(inst.op), MODE_LONG);
@@ -59,23 +61,70 @@ void asm_proc_t::nopify_short_jumps()
     {
         asm_inst_t& inst = code[i];
 
-        if(inst.op != JMP_ABSOLUTE)
-            continue;
-
-        unsigned const label_i = labels[inst.arg];
-        int const dist = bytes_between(i+1, label_i);
-
-        if(dist == 1)
+        if(inst.op == JMP_ABSOLUTE)
         {
-            inst.op = SKB_IMPLIED;
-            inst.arg = {};
+            unsigned const label_i = labels[inst.arg];
+            int const dist = bytes_between(i+1, label_i);
+            
+            if(dist == 0)
+            {
+                // Prune unnecessary jumps
+                inst.op = ASM_PRUNED;
+                inst.arg = {};
+            }
+            else if(dist == 1)
+            {
+                inst.op = SKB_IMPLIED;
+                inst.arg = {};
+            }
+            else if(dist == 2 && op_code(code[i+1].op) != 0x20) // Check for 0x20 to avoid reading a PPU register
+            {
+                inst.op = IGN_IMPLIED;
+                inst.arg = {};
+            }
         }
-        else if(dist == 2 && op_code(code[i+1].op) != 0x20) // Check for 0x20 to avoid reading a PPU register
+        else if(op_flags(inst.op) & ASMF_BRANCH)
         {
-            inst.op = IGN_IMPLIED;
-            inst.arg = {};
+            // Prune unecessary branches
+
+            unsigned const label_i = labels[inst.arg];
+            int const dist = bytes_between(i+1, label_i);
+
+            if(dist == 0)
+            {
+                inst.op = ASM_PRUNED;
+                inst.arg = {};
+            }
+            else if(dist == 2 && code[i+1].op == invert_branch(inst.op))
+            {
+                // Handles code like:
+                //  BEQ l1
+                //  BNE l2
+                //  L1:
+                // (Removes the first BEQ)
+
+                if(code[i].arg == code[i].arg)
+                {
+                    // Prune both
+                    code[i].op = code[i+1].op = ASM_PRUNED;
+                    code[i].arg = code[i+1].arg = {};
+                }
+                else
+                {
+                    // Prune the useless branch op
+                    code[i] = code[i+1];
+                    code[i+1].op = ASM_PRUNED;
+                    code[i+1].arg = {};
+                }
+            }
         }
     }
+}
+
+void asm_proc_t::optimize()
+{
+    nopify_short_jumps();
+    expand_branch_ops(); // Call after 'nopify_short_jumps'
 }
 
 void asm_proc_t::make_relocatable()
@@ -119,8 +168,16 @@ int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
 void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
 {
     os << fn.global.name << ":\n";
-    for(asm_inst_t const& inst : code)
+    for(unsigned i = 0; i < code.size(); ++i)
     {
+        asm_inst_t const& inst = code[i];
+
+        for(auto const& pair : labels)
+        {
+            if(pair.second == i)
+                os << "LABEL " << pair.first << ":\n";
+        }
+
         os << to_string(inst.op) << ' ';
 
         switch(inst.arg.lclass())

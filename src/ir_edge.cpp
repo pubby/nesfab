@@ -8,7 +8,7 @@ std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s)
     if(s.is_handle())
         o << "handle " << s.handle().index;
     else if(s.is_num())
-        o << "num " << to_double(s.fixed());
+        o << "num " << to_double(s.fixed()) << " (" << s.type_name() << ')';
     else if(s.is_locator())
         o << "locator " << s.locator();
     //else if(s.is_ptr()) TODO: remove?
@@ -38,7 +38,7 @@ type_t ssa_fwd_edge_t::type() const
 { 
     assert(operator bool());
     if(is_num())
-        return { TYPE_REAL }; // TODO
+        return { type_name() };
     if(holds_ref())
         return handle()->type();
     return { TYPE_VOID };

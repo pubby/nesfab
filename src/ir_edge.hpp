@@ -10,6 +10,7 @@
 #include "locator.hpp"
 #include "ssa_op.hpp"
 #include "fixed.hpp"
+#include "type_name.hpp"
 
 namespace bc = boost::container;
 
@@ -37,8 +38,8 @@ public:
     static constexpr uint_t locator_flag = 0b01ull << 62;
 public:
     constexpr ssa_fwd_edge_t() = default;
-    constexpr ssa_fwd_edge_t(unsigned v) { set(v); }
-    constexpr ssa_fwd_edge_t(fixed_t fixed) { set(fixed); }
+    constexpr ssa_fwd_edge_t(unsigned v, type_name_t tn) { set(v, tn); }
+    constexpr ssa_fwd_edge_t(fixed_t fixed, type_name_t tn) { set(fixed, tn); }
     constexpr ssa_fwd_edge_t(locator_t loc) { set(loc); }
     constexpr ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
     constexpr explicit ssa_fwd_edge_t(ssa_value_t const* ptr) { set(ptr); }
@@ -59,7 +60,7 @@ public:
     constexpr bool holds_ref() const { return is_handle() && handle(); }
 
     fixed_t fixed() const 
-        { assert(is_num()); return { value & ~const_flag }; }
+        { assert(is_num()); return { value & MAX_FIXED_MASK }; }
     std::uint32_t whole() const 
         { assert(is_num()); return fixed().whole(); }
     std::uint32_t carry() const 
@@ -70,8 +71,7 @@ public:
         return locator_t::from_uint(value & ~const_flag); 
     }
 
-    ssa_ht handle() const 
-        { assert(is_handle()); return { (std::uint32_t)value }; }
+    ssa_ht handle() const { assert(is_handle()); return { (std::uint32_t)value }; }
     std::uint32_t index() const 
         { assert(is_handle()); return value >> 32ull; };
 
@@ -87,10 +87,10 @@ public:
     bool eq_fixed(fixed_t f) const 
         { return is_num() && fixed() == f; }
 
-    constexpr void set(fixed_t fixed) 
-        { value = fixed.value | const_flag; }
-    constexpr void set(unsigned u) 
-        { set(fixed_t::whole(u)); }
+    constexpr void set(fixed_t fixed, type_name_t type_name) 
+        { value = (fixed.value & MAX_FIXED_MASK) | (uint_t(type_name) << 56) | const_flag; }
+    constexpr void set(unsigned u, type_name_t type_name) 
+        { set(fixed_t::whole(u), type_name); }
     constexpr void set(locator_t loc) 
     { 
         uint_t uint = loc.to_uint();
@@ -141,6 +141,8 @@ public:
             return handle().index;
         return value;
     }
+
+    type_name_t type_name() const { assert(is_num()); return type_name_t((value & ~const_flag) >> 56); }
 
     struct ssa_bck_edge_t* output() const;
 
@@ -200,8 +202,8 @@ class ssa_value_t : public ssa_fwd_edge_t
 {
 public:
     constexpr ssa_value_t() = default;
-    constexpr ssa_value_t(unsigned v) : ssa_fwd_edge_t(v) {}
-    constexpr ssa_value_t(fixed_t fixed) : ssa_fwd_edge_t(fixed) {}
+    constexpr ssa_value_t(unsigned v, type_name_t tn) : ssa_fwd_edge_t(v, tn) {}
+    constexpr ssa_value_t(fixed_t fixed, type_name_t tn) : ssa_fwd_edge_t(fixed, tn) {}
     constexpr ssa_value_t(ssa_ht ht) : ssa_fwd_edge_t(ht, 0) {}
     constexpr ssa_value_t(locator_t loc) : ssa_fwd_edge_t(loc) {}
     constexpr ssa_value_t(ssa_fwd_edge_t const& edge) : ssa_fwd_edge_t(edge) {}

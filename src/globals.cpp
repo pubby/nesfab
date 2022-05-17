@@ -838,7 +838,7 @@ void fn_t::compile()
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {
-        std::ofstream ocfg(fmt("graphs/%_cfg_%.gv", global.name, suffix));
+        std::ofstream ocfg(fmt("graphs/cfg/%_cfg_%.gv", global.name, suffix));
         if(ocfg.is_open())
             graphviz_cfg(ocfg, ir);
 
@@ -868,21 +868,17 @@ void fn_t::compile()
         while(changed);
     }
 
-    if(compiler_options().graphviz)
-        save_graph(ir, "o1");
-
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(ir);
 
-    return;
+    if(compiler_options().graphviz)
+        save_graph(ir, "o1");
 
     byteify(ir, *this);
     //make_conventional(ir);
 
     if(compiler_options().graphviz)
         save_graph(ir, "byteify");
-
-    return;
 
     if(compiler_options().optimize)
     {
@@ -908,6 +904,8 @@ void fn_t::compile()
     if(compiler_options().graphviz)
         save_graph(ir, "cg");
 
+    return;
+
     /*
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -928,7 +926,7 @@ void fn_t::compile()
         for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
         {
             std::cout << " - \n";
-            for(ssa_ht h : schedule_cfg_node(cfg_it))
+         tinglerz bar   for(ssa_ht h : schedule_cfg_node(cfg_it))
                 std::cout << h.index << ' ' << h->op() << '\n';
         }
     }

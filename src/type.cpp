@@ -1,6 +1,7 @@
 #include "type.hpp"
 
 #include <algorithm>
+#include <string>
 
 #include "robin/hash.hpp"
 #include "robin/collection.hpp"
@@ -186,40 +187,7 @@ std::string to_string(type_t type)
     switch(type.name())
     {
     default: 
-        throw std::runtime_error(fmt("bad type %", (int)type.name()));
-    case TYPE_ARRAY_THUNK:  str += "array thunk"sv; break;
-    case TYPE_STRUCT_THUNK: str += "struct thunk"sv; break;
-    case TYPE_VOID:  str += "Void"sv;  break;
-    case TYPE_BOOL:  str += "Bool"sv;  break;
-    case TYPE_INT:   str += "Int"sv;  break;
-    case TYPE_REAL:  str += "Real"sv;  break;
-    case TYPE_F1:    str += "F"sv;  break;
-    case TYPE_F2:    str += "FF"sv;  break;
-    case TYPE_F3:    str += "FFF"sv;  break;
-    case TYPE_U10:   str += "U"sv;  break;
-    case TYPE_U20:   str += "UU"sv;  break;
-    case TYPE_U30:   str += "UUU"sv;  break;
-    case TYPE_U11:   str += "UF"sv;  break;
-    case TYPE_U21:   str += "UUF"sv;  break;
-    case TYPE_U31:   str += "UUUF"sv;  break;
-    case TYPE_U12:   str += "UFF"sv;  break;
-    case TYPE_U22:   str += "UUFF"sv;  break;
-    case TYPE_U32:   str += "UUUFF"sv;  break;
-    case TYPE_U13:   str += "UFFF"sv;  break;
-    case TYPE_U23:   str += "UUFFF"sv;  break;
-    case TYPE_U33:   str += "UUUFFF"sv;  break;
-    case TYPE_S10:   str += "S"sv;  break;
-    case TYPE_S20:   str += "SS"sv;  break;
-    case TYPE_S30:   str += "SSS"sv;  break;
-    case TYPE_S11:   str += "SF"sv;  break;
-    case TYPE_S21:   str += "SSF"sv;  break;
-    case TYPE_S31:   str += "SSSF"sv;  break;
-    case TYPE_S12:   str += "SFF"sv;  break;
-    case TYPE_S22:   str += "SSFF"sv;  break;
-    case TYPE_S32:   str += "SSSFF"sv;  break;
-    case TYPE_S13:   str += "SFFF"sv;  break;
-    case TYPE_S23:   str += "SSFFF"sv;  break;
-    case TYPE_S33:   str += "SSSFFF"sv;  break;
+        str = to_string(type.name()); break;
     case TYPE_ARRAY:
         str = fmt("%[%]", to_string(type.elem_type()), type.size());
         break;

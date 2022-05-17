@@ -297,7 +297,7 @@ void ssa_node_t::remove_inputs_output(unsigned i)
 void ssa_node_t::link_remove_input(unsigned i)
 {
     link_change_input(i, m_io.last_input());
-    link_change_input(input_size() - 1, 0u);
+    link_change_input(input_size() - 1, ssa_value_t(0u, TYPE_VOID));
     m_io.shrink_input(input_size() - 1);
 #ifndef NDEBUG
     for(unsigned j = 0; j < input_size(); ++j)
@@ -658,6 +658,7 @@ void cfg_node_t::steal_ssa(ssa_ht ssa)
     old_cfg.list_erase(*ssa);
     old_cfg.m_ssa_size -= 1;
 
+    ssa->m_cfg_h = handle();
     list_insert(*ssa);
     if(in_daisy)
         list_append_daisy(*ssa);

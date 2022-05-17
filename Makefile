@@ -31,7 +31,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++20 \
-  -O2 \
+  -O0 \
   -pthread \
   -g \
   -Wall \
@@ -65,7 +65,6 @@ compiler_error.cpp \
 file.cpp \
 globals.cpp \
 pass1.cpp \
-type_mask.cpp \
 constraints.cpp \
 ssa_op.cpp \
 lex_tables.cpp \
@@ -97,7 +96,9 @@ ram_alloc.cpp \
 lvar.cpp \
 o_gvn.cpp \
 eval.cpp \
-sval.cpp
+sval.cpp \
+type_name.cpp \
+cg_isel_cpu.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -105,7 +106,6 @@ DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
 TESTS_SRCS:= \
 tests.cpp \
 robin_tests.cpp \
-type_mask.cpp \
 fixed_tests.cpp \
 constraints.cpp \
 constraints_tests.cpp \

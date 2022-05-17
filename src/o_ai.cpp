@@ -128,7 +128,7 @@ void copy_constraints(ssa_value_t value, constraints_def_t& def)
     if(value.is_handle())
         def = ai_data(value.handle()).constraints();
     else if(value.is_num())
-        def = { REAL_MASK, { constraints_t::const_(value.fixed().value, REAL_MASK) }};
+        def = { type_constraints_mask(value.type_name()), { constraints_t::const_(value.fixed().value, REAL_MASK) }};
     else
         def = {};
 }
@@ -391,7 +391,7 @@ void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original,
         if(h != parent_trace.handle())
         {
             h->link_append_input(parent_trace);
-            h->link_append_input(arg_i);
+            h->link_append_input(ssa_value_t(arg_i, TYPE_VOID));
         }
         return;
     }
@@ -418,7 +418,7 @@ void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original,
         // - First comes the parent trace.
         // - Second comes the argument index into the parent trace.
         trace->build_set_input(1, parent_trace);
-        trace->build_set_input(2, arg_i);
+        trace->build_set_input(2, ssa_value_t(arg_i, TYPE_VOID));
     }
     else
     {
@@ -468,9 +468,13 @@ void ai_t::insert_traces()
         // Create new CFG nodes along each branch and insert SSA_traces into them.
         for(unsigned i = 0; i < output_size; ++i)
         {
+            // This is bool for conditionals.
+            // TODO: handle switch
+            constexpr type_name_t type_name = TYPE_BOOL;
+
             cfg_ht cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
             cfg_data_pool::resize<cfg_ai_d>(cfg_pool::array_size());
-            insert_trace(cfg_trace, condition.handle(), i, 0);
+            insert_trace(cfg_trace, condition.handle(), ssa_value_t(i, type_name), 0);
         }
     }
 
@@ -511,10 +515,11 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     if(trace->input_size() == 2)
     {
         assert(trace->input(1).is_num());
+        constraints_mask_t const cm = type_constraints_mask(trace->input(1).type_name());
         trace_d.constraints() =
         { 
-            REAL_MASK,
-            { constraints_t::const_(trace->input(1).fixed().value, REAL_MASK) } 
+            cm,
+            { constraints_t::const_(trace->input(1).fixed().value, cm) } 
         };
         return;
     }
@@ -692,6 +697,9 @@ void ai_t::visit(ssa_ht ssa_node)
     assert(all_normalized(d.constraints()));
     if(!bit_eq(d.constraints().vec, old_constraints.vec))
     {
+        std::cout << std::endl;
+        std::cout << old_constraints.cm << std::endl;
+        std::cout << d.constraints().cm << std::endl;
         assert(old_constraints.cm == d.constraints().cm);
         assert(all_subset(old_constraints.vec, d.constraints().vec, d.constraints().cm));
 
@@ -861,7 +869,7 @@ void ai_t::fold_consts()
                       << ' ' << ssa_it->output_size() << '\n';
 #endif
 
-            if(ssa_it->replace_with(INPUT_VALUE, constant))
+            if(ssa_it->replace_with(INPUT_VALUE, ssa_value_t(constant, ssa_it->type().name())))
                 updated = __LINE__;
 
 #ifdef DEBUG_PRINT

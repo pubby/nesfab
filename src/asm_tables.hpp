@@ -4,6 +4,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
 {
     { .op = BAD_OP },
     { .op = ASM_LABEL },
+    { .op = ASM_PRUNED },
     { 
         .op = ASM_DELAY,
         .cycles = 255,
@@ -56,7 +57,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A | REGF_C,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ADC, ZERO_PAGE),
@@ -64,7 +65,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_A | REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ADC, ZERO_PAGE_X),
@@ -72,7 +73,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ADC, ABSOLUTE),
@@ -80,7 +81,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ADC, ABSOLUTE_X),
@@ -88,7 +89,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ADC, ABSOLUTE_Y),
@@ -96,7 +97,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ADC, INDIRECT_X),
@@ -104,7 +105,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_A | REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ADC, INDIRECT_Y),
@@ -112,7 +113,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_A | REGF_C | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
 
     // AND
@@ -122,7 +123,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(AND, ZERO_PAGE),
@@ -130,7 +131,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(AND, ZERO_PAGE_X),
@@ -138,7 +139,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(AND, ABSOLUTE),
@@ -146,7 +147,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(AND, ABSOLUTE_X),
@@ -154,7 +155,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(AND, ABSOLUTE_Y),
@@ -162,7 +163,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(AND, INDIRECT_X),
@@ -170,7 +171,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(AND, INDIRECT_Y),
@@ -178,7 +179,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
 
     // ASL
@@ -188,7 +189,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ASL, ZERO_PAGE),
@@ -196,7 +197,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_C | REGF_M,
     },
     {
         OP(ASL, ZERO_PAGE_X),
@@ -204,7 +205,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_C | REGF_M,
     },
     {
         OP(ASL, ABSOLUTE),
@@ -212,7 +213,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 6,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_C | REGF_M,
     },
     {
         OP(ASL, ABSOLUTE_X),
@@ -220,7 +221,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 7,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_C | REGF_M,
     },
 
     // BCC
@@ -267,7 +268,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .op_code = 240,
         .size = 2,
         .cycles = 3,
-        .input_regs = REGF_Z,
+        .input_regs = REGF_NZ,
         .output_regs = 0,
         .flags = ASMF_BRANCH | ASMF_JUMP,
     },
@@ -275,7 +276,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BEQ, LONG),
         .size = 5,
         .cycles = 5,
-        .input_regs = REGF_Z,
+        .input_regs = REGF_NZ,
         .output_regs = 0,
         .flags = ASMF_BRANCH | ASMF_JUMP,
     },
@@ -287,7 +288,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z,
+        .output_regs = REGF_NZ,
     },
     {
         OP(BIT, ABSOLUTE),
@@ -295,7 +296,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z,
+        .output_regs = REGF_NZ,
     },
 
     // BMI
@@ -323,7 +324,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .op_code = 208,
         .size = 2,
         .cycles = 3,
-        .input_regs = REGF_Z,
+        .input_regs = REGF_NZ,
         .output_regs = 0,
         .flags = ASMF_BRANCH | ASMF_JUMP,
     },
@@ -331,7 +332,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         OP(BNE, LONG),
         .size = 5,
         .cycles = 5,
-        .input_regs = REGF_Z,
+        .input_regs = REGF_NZ,
         .output_regs = 0,
         .flags = ASMF_BRANCH | ASMF_JUMP,
     },
@@ -450,7 +451,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CMP, ZERO_PAGE),
@@ -458,7 +459,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CMP, ZERO_PAGE_X),
@@ -466,7 +467,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CMP, ABSOLUTE),
@@ -474,7 +475,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CMP, ABSOLUTE_X),
@@ -482,7 +483,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CMP, ABSOLUTE_Y),
@@ -490,7 +491,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CMP, INDIRECT_X),
@@ -498,7 +499,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CMP, INDIRECT_Y),
@@ -506,7 +507,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
 
     // CPX
@@ -516,7 +517,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_X,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CPX, ZERO_PAGE),
@@ -524,7 +525,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CPX, ABSOLUTE),
@@ -532,7 +533,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
 
     // CPY
@@ -542,7 +543,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CPY, ZERO_PAGE),
@@ -550,7 +551,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
     {
         OP(CPY, ABSOLUTE),
@@ -558,7 +559,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
 
     // DEC
@@ -568,7 +569,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
     {
         OP(DEC, ZERO_PAGE_X),
@@ -576,7 +577,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
     {
         OP(DEC, ABSOLUTE),
@@ -584,7 +585,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 6,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
     {
         OP(DEC, ABSOLUTE_X),
@@ -592,7 +593,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 7,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
 
     // DEX
@@ -602,7 +603,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_X,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
 
     // DEY
@@ -612,7 +613,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_Y,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
 
     // EOR
@@ -622,7 +623,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(EOR, ZERO_PAGE),
@@ -630,7 +631,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(EOR, ZERO_PAGE_X),
@@ -638,7 +639,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(EOR, ABSOLUTE),
@@ -646,7 +647,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(EOR, ABSOLUTE_X),
@@ -654,7 +655,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(EOR, ABSOLUTE_Y),
@@ -662,7 +663,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(EOR, INDIRECT_X),
@@ -670,7 +671,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(EOR, INDIRECT_Y),
@@ -678,7 +679,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
 
     // INC
@@ -688,7 +689,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
     {
         OP(INC, ZERO_PAGE_X),
@@ -696,7 +697,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
     {
         OP(INC, ABSOLUTE),
@@ -704,7 +705,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 6,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
     {
         OP(INC, ABSOLUTE_X),
@@ -712,7 +713,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 7,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_M,
+        .output_regs = REGF_NZ | REGF_M,
     },
 
     // INX
@@ -722,7 +723,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_X,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
 
     // INY
@@ -732,7 +733,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_Y,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
 
     // JMP
@@ -772,7 +773,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = 0,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(LDA, ZERO_PAGE),
@@ -780,7 +781,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(LDA, ZERO_PAGE_X),
@@ -788,7 +789,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(LDA, ABSOLUTE),
@@ -796,7 +797,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(LDA, ABSOLUTE_X),
@@ -804,7 +805,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(LDA, ABSOLUTE_Y),
@@ -812,7 +813,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(LDA, INDIRECT_X),
@@ -820,7 +821,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(LDA, INDIRECT_Y),
@@ -828,7 +829,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
 
     // LDX
@@ -838,7 +839,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = 0,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
     {
         OP(LDX, ZERO_PAGE),
@@ -846,7 +847,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
     {
         OP(LDX, ZERO_PAGE_Y),
@@ -854,7 +855,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
     {
         OP(LDX, ABSOLUTE),
@@ -862,7 +863,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
     {
         OP(LDX, ABSOLUTE_Y),
@@ -870,7 +871,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
 
     // LDY
@@ -880,7 +881,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = 0,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
     {
         OP(LDY, ZERO_PAGE),
@@ -888,7 +889,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
     {
         OP(LDY, ZERO_PAGE_X),
@@ -896,7 +897,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
     {
         OP(LDY, ABSOLUTE),
@@ -904,7 +905,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
     {
         OP(LDY, ABSOLUTE_X),
@@ -912,7 +913,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
 
     // LSR
@@ -922,7 +923,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(LSR, ZERO_PAGE),
@@ -930,7 +931,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(LSR, ZERO_PAGE_X),
@@ -938,7 +939,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(LSR, ABSOLUTE),
@@ -946,7 +947,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 6,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(LSR, ABSOLUTE_X),
@@ -954,7 +955,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 7,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
 
     // NOP
@@ -974,7 +975,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(ORA, ZERO_PAGE),
@@ -982,7 +983,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(ORA, ZERO_PAGE_X),
@@ -990,7 +991,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(ORA, ABSOLUTE),
@@ -998,7 +999,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(ORA, ABSOLUTE_X),
@@ -1006,7 +1007,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(ORA, ABSOLUTE_Y),
@@ -1014,7 +1015,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(ORA, INDIRECT_X),
@@ -1022,7 +1023,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
     {
         OP(ORA, INDIRECT_Y),
@@ -1030,7 +1031,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
 
     // PHA
@@ -1060,7 +1061,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 4,
         .input_regs = 0,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
 
     // PLP
@@ -1070,7 +1071,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 4,
         .input_regs = 0,
-        .output_regs = REGF_Z | REGF_C,
+        .output_regs = REGF_NZ | REGF_C,
     },
 
     // ROL
@@ -1080,7 +1081,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_A | REGF_C,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ROL, ZERO_PAGE),
@@ -1088,7 +1089,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(ROL, ZERO_PAGE_X),
@@ -1096,7 +1097,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(ROL, ABSOLUTE),
@@ -1104,7 +1105,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 6,
         .input_regs = REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(ROL, ABSOLUTE_X),
@@ -1112,7 +1113,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 3,
         .input_regs = REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
 
     // ROR
@@ -1122,7 +1123,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_A | REGF_C,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(ROR, ZERO_PAGE),
@@ -1130,7 +1131,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(ROR, ZERO_PAGE_X),
@@ -1138,7 +1139,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(ROR, ABSOLUTE),
@@ -1146,7 +1147,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 6,
         .input_regs = REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
     {
         OP(ROR, ABSOLUTE_X),
@@ -1154,7 +1155,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 7,
         .input_regs = REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_M,
     },
 
     // RTI
@@ -1164,7 +1165,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 6,
         .input_regs = 0,
-        .output_regs = REGF_C | REGF_Z,
+        .output_regs = REGF_C | REGF_NZ,
     },
 
     // RTS
@@ -1184,7 +1185,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A | REGF_C,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(SBC, ZERO_PAGE),
@@ -1192,7 +1193,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_A | REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(SBC, ZERO_PAGE_X),
@@ -1200,7 +1201,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(SBC, ABSOLUTE),
@@ -1208,7 +1209,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(SBC, ABSOLUTE_X),
@@ -1216,7 +1217,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(SBC, ABSOLUTE_Y),
@@ -1224,7 +1225,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_A | REGF_C | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(SBC, INDIRECT_X),
@@ -1232,7 +1233,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_A | REGF_C | REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
     {
         OP(SBC, INDIRECT_Y),
@@ -1240,7 +1241,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_A | REGF_C | REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
 
     // SEC
@@ -1390,7 +1391,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
 
     // TAY
@@ -1400,7 +1401,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_Y,
+        .output_regs = REGF_NZ | REGF_Y,
     },
 
     // TSX
@@ -1410,7 +1411,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = 0,
-        .output_regs = REGF_Z | REGF_X,
+        .output_regs = REGF_NZ | REGF_X,
     },
 
     // TXA
@@ -1420,7 +1421,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_X,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
 
     // TXS
@@ -1440,7 +1441,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_Y,
-        .output_regs = REGF_Z | REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
     },
 
     /////////////
@@ -1454,7 +1455,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 3,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_X,
+        .output_regs = REGF_NZ | REGF_A | REGF_X,
     },
     {
         OP(LAX, ZERO_PAGE_Y),
@@ -1462,7 +1463,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_X,
+        .output_regs = REGF_NZ | REGF_A | REGF_X,
     },
     {
         OP(LAX, ABSOLUTE),
@@ -1470,7 +1471,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_X,
+        .output_regs = REGF_NZ | REGF_A | REGF_X,
     },
     {
         OP(LAX, ABSOLUTE_Y),
@@ -1478,7 +1479,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3,
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_X,
+        .output_regs = REGF_NZ | REGF_A | REGF_X,
     },
     {
         OP(LAX, INDIRECT_X),
@@ -1486,7 +1487,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_X,
+        .output_regs = REGF_NZ | REGF_A | REGF_X,
     },
     {
         OP(LAX, INDIRECT_Y),
@@ -1494,7 +1495,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 5,
         .input_regs = REGF_Y | REGF_M,
-        .output_regs = REGF_Z | REGF_A | REGF_X,
+        .output_regs = REGF_NZ | REGF_A | REGF_X,
     },
 
     // AXS
@@ -1504,7 +1505,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A | REGF_X,
-        .output_regs = REGF_Z | REGF_X | REGF_C,
+        .output_regs = REGF_NZ | REGF_X | REGF_C,
     },
 
     // ANC
@@ -1514,7 +1515,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
 
     // ALR
@@ -1524,7 +1525,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
 
     // ARR
@@ -1534,7 +1535,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 2,
         .cycles = 2,
         .input_regs = REGF_A,
-        .output_regs = REGF_Z | REGF_A | REGF_C,
+        .output_regs = REGF_NZ | REGF_A | REGF_C,
     },
 
     // SAX

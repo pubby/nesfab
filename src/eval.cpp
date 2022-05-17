@@ -1075,7 +1075,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             break;
 
         case TOK_int:
-            common_value.set(mask_numeric(fixed_t{ token->value }, TYPE_INT));
+            common_value.set(mask_numeric(fixed_t{ token->value }, TYPE_INT), TYPE_INT);
         push_int:
             rpn_stack.push({
                 .sval = { common_value },
@@ -1085,7 +1085,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
             break;
 
         case TOK_real:
-            common_value.set(mask_numeric(fixed_t{ token->value }, TYPE_REAL));
+            common_value.set(mask_numeric(fixed_t{ token->value }, TYPE_REAL), TYPE_REAL);
             rpn_stack.push({
                 .sval = { common_value },
                 .category = RVAL, 
@@ -1703,7 +1703,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 if(is_interpret(D))
                 {
                     unsigned const index = array_index.whole();
-                    array_val.index.set(index);
+                    array_val.index.set(index, TYPE_U);
                     
                     if(index >= array_val.type.array_length())
                     {
@@ -1754,7 +1754,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 if(size == 0)
                     compiler_error(token->pstring, fmt("Type % has no size.", common_type));
 
-                common_value.set(size);
+                common_value.set(size, TYPE_INT);
                 goto push_int;
             }
 
@@ -1775,7 +1775,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 if(size == 0)
                     compiler_error(token->pstring, fmt("Type % isn't an array.", common_type));
 
-                common_value.set(size);
+                common_value.set(size, TYPE_INT);
                 goto push_int;
             }
 
@@ -1935,11 +1935,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 throwing_cast<D>(top, { TYPE_BOOL }, true);
 
                 if(is_interpret(D))
-                    top.ssa().set(unsigned(!top.whole()));
+                    top.ssa().set(unsigned(!top.whole()), top.type.name());
                 else if(D == COMPILE)
                 {
                     // Must be two lines; reference invalidation lurks.
-                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_eq, TYPE_BOOL, top.ssa(), 0u);
+                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_eq, TYPE_BOOL, top.ssa(), ssa_value_t(0u, TYPE_BOOL));
                     top.ssa() = ssa;
                 }
 
@@ -1952,11 +1952,11 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 req_quantity(*token, top);
 
                 if(is_interpret(D))
-                    top.ssa().set(mask_numeric(fixed_t{ -top.s() }, top.type.name()));
+                    top.ssa().set(mask_numeric(fixed_t{ -top.s() }, top.type.name()), top.type.name());
                 else if(D == COMPILE)
                 {
                     // Must be two lines; reference invalidation lurks.
-                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_sub, top.type, 0u, top.ssa());
+                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_sub, top.type, ssa_value_t(0u, top.type.name()), top.ssa());
                     top.ssa() = ssa;
                 }
 
@@ -1969,11 +1969,13 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 req_quantity(*token, top);
 
                 if(is_interpret(D))
-                    top.ssa().set(mask_numeric(fixed_t{ ~top.u() }, top.type.name()));
+                    top.ssa().set(mask_numeric(fixed_t{ ~top.u() }, top.type.name()), top.type.name());
                 else if(D == COMPILE)
                 {
                     // Must be two lines; reference invalidation lurks.
-                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_xor, top.type, numeric_bitmask(top.type.name()), top.ssa());
+                    ssa_ht ssa = builder.cfg->emplace_ssa(SSA_xor, top.type, 
+                                                          ssa_value_t(numeric_bitmask(top.type.name()), top.type.name()), 
+                                                          top.ssa());
                     top.ssa() = ssa;
                 }
 
@@ -2107,7 +2109,7 @@ void eval_t::compile_binary_operator(rpn_stack_t& rpn_stack, ssa_op_t op, type_t
     // Result will remain in 'lhs'.
     ssa_value_t result;
     if(carry)
-        result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa(), 0);
+        result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa(), ssa_value_t(0u, TYPE_BOOL));
     else
         result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa());
 
@@ -2138,13 +2140,40 @@ void eval_t::do_compare(rpn_stack_t& rpn_stack, token_t const& token)
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
+    if(!is_scalar(lhs.type.name()) || !is_scalar(rhs.type.name()))
+    {
+        pstring_t pstring = concat(lhs.pstring, rhs.pstring);
+        compiler_error(pstring, fmt("% isn't defined for this type combination. (% and %)",
+                                    token_string(token.type), lhs.type, rhs.type));
+    }
+
+    if(lhs.type != rhs.type)
+    {
+        if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
+            throwing_cast<Policy::D>(lhs, rhs.type, true);
+        else if(is_ct(rhs.type) && can_cast(rhs.type, lhs.type, true))
+            throwing_cast<Policy::D>(rhs, lhs.type, true);
+    }
+
     if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
     {
         bool const result = Policy::interpret(lhs.s(), rhs.s());
-        new_top.sval = make_sval((unsigned)result);
+        new_top.sval = make_sval(ssa_value_t((unsigned)result, TYPE_BOOL));
     }
     else if(Policy::D == COMPILE)
+    {
+        // The implementation is kept simpler if both types being compared have the same size.
+        if((Policy::op() == SSA_eq || Policy::op() == SSA_not_eq) && lhs.type != rhs.type)
+        {
+            unsigned const w = std::max(whole_bytes(lhs.type.name()), whole_bytes(rhs.type.name()));
+            unsigned const f = std::max(frac_bytes(lhs.type.name()), frac_bytes(rhs.type.name()));
+
+            throwing_cast<Policy::D>(lhs, type_s_or_u(w, f, is_signed(lhs.type.name())), true, lhs.pstring);
+            throwing_cast<Policy::D>(rhs, type_s_or_u(w, f, is_signed(rhs.type.name())), true, rhs.pstring);
+        }
+
         return compile_binary_operator(rpn_stack, Policy::op(), TYPE_BOOL);
+    }
 
     rpn_stack.pop(2);
     rpn_stack.push(std::move(new_top));
@@ -2199,7 +2228,7 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
 
         fixed_t result = { Policy::interpret(lhs.s(), rhs.s()) };
         result.value &= numeric_bitmask(result_type.name());
-        new_top.sval = make_sval(result);
+        new_top.sval = make_sval(ssa_value_t(result, result_type.name()));
     }
     else if(Policy::D == COMPILE)
         return compile_binary_operator(rpn_stack, Policy::op(), result_type, ssa_argn(Policy::op()) > 2);
@@ -2238,7 +2267,7 @@ void eval_t::do_shift(rpn_stack_t& rpn_stack, token_t const& token)
 
         fixed_t result = { Policy::interpret(lhs.s(), rhs.whole()) };
         result.value &= numeric_bitmask(result_type.name());
-        new_top.sval = make_sval(result);
+        new_top.sval = make_sval(ssa_value_t(result, result_type.name()));
     }
     else if(Policy::D == COMPILE)
         return compile_binary_operator(rpn_stack, Policy::op(), result_type);
@@ -2318,7 +2347,7 @@ void eval_t::do_logical_end(rpn_stack_t& rpn_stack)
         logical.branch_node->build_set_output(Policy::logical_token() == TOK_logical_or, merge_node);
 
         top.ssa() = merge_node->emplace_ssa(
-            SSA_phi, TYPE_BOOL, top.ssa(), Policy::logical_token() == TOK_logical_or);
+            SSA_phi, TYPE_BOOL, top.ssa(), ssa_value_t(Policy::logical_token() == TOK_logical_or, TYPE_BOOL));
         top.pstring = concat(logical.lhs_pstring, top.pstring);
         top.category = RVAL;
 
@@ -2341,7 +2370,7 @@ void eval_t::force_truncate(rpn_value_t& rpn_value, type_t to_type, pstring_t ca
     };
 
     if(is_interpret(D) || (D == COMPILE && rpn_value.is_ct()))
-        new_rpn.sval = make_sval(mask_numeric(rpn_value.fixed(), to_type.name()));
+        new_rpn.sval = make_sval(ssa_value_t(mask_numeric(rpn_value.fixed(), to_type.name()), to_type.name()));
     else if(D == COMPILE)
         new_rpn.sval = make_sval(builder.cfg->emplace_ssa(SSA_cast, to_type, rpn_value.ssa()));
 
@@ -2362,7 +2391,7 @@ void eval_t::force_promote(rpn_value_t& rpn_value, type_t to_type, pstring_t cas
     };
 
     if(is_interpret(D) || (D == COMPILE && rpn_value.is_ct()))
-        new_rpn.sval = make_sval(mask_numeric({ rpn_value.s() }, to_type.name()));
+        new_rpn.sval = make_sval(ssa_value_t(mask_numeric({ rpn_value.s() }, to_type.name()), to_type.name()));
     else if(D == COMPILE)
     {
         if(is_ct(to_type))
@@ -2401,7 +2430,7 @@ void eval_t::force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool impl
                 );
         }
 
-        new_rpn.sval = make_sval(masked);
+        new_rpn.sval = make_sval(ssa_value_t(masked, to_type.name()));
     }
 
     rpn_value = std::move(new_rpn);
@@ -2422,7 +2451,7 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
 
     if(D != CHECK)
     {
-        fixed_sint_t const original = to_signed(rpn_value.u(), { TYPE_REAL });
+        fixed_sint_t const original = to_signed(rpn_value.u(), TYPE_REAL);
         fixed_uint_t value = rpn_value.u();
         fixed_uint_t const mask = numeric_bitmask(to_type.name());
         if(fixed_uint_t z = builtin::ctz(mask))
@@ -2431,8 +2460,8 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
 
         if(implicit)
         {
-            fixed_uint_t supermask = ::supermask(numeric_bitmask(to_type.name()));
-            if((to_signed(value, to_type.name()) & supermask) != (rpn_value.s() & supermask))
+            fixed_uint_t const supermask = ::supermask(numeric_bitmask(to_type.name()));
+            if(static_cast<fixed_sint_t>(original & supermask) != to_signed(original & mask, to_type.name()))
             {
                 file_contents_t file(rpn_value.pstring.file_i);
                 throw compiler_error_t(
@@ -2446,7 +2475,7 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
 
         assert(is_masked({value}, to_type.name()));
 
-        new_rpn.sval = make_sval(fixed_t{ value });
+        new_rpn.sval = make_sval(ssa_value_t(fixed_t{ value }, to_type.name()));
         assert(new_rpn.u() == value);
     }
 
@@ -2469,12 +2498,12 @@ void eval_t::force_boolify(rpn_value_t& rpn_value, pstring_t cast_pstring)
     if(is_interpret(D) || (D == COMPILE && rpn_value.is_ct()))
     {
         if(is_arithmetic(rpn_value.type.name()))
-            new_rpn.sval = make_sval(boolify(rpn_value.fixed()));
+            new_rpn.sval = make_sval(ssa_value_t(boolify(rpn_value.fixed()), TYPE_BOOL));
     }
     else if(D == COMPILE)
     {
         new_rpn.sval = make_sval(builder.cfg->emplace_ssa(
-            SSA_not_eq, TYPE_BOOL, rpn_value.ssa(), 0u));
+            SSA_not_eq, TYPE_BOOL, rpn_value.ssa(), ssa_value_t(0u, rpn_value.type.name())));
     }
 
     rpn_value = std::move(new_rpn);
@@ -2736,7 +2765,7 @@ cfg_ht eval_t::compile_goto()
     // Implement using a conditional that always takes the false branch.
     // (This will be optimized out later)
 
-    cfg_exits_with_branch(0u);
+    cfg_exits_with_branch(ssa_value_t(0u, TYPE_BOOL));
     cfg_ht dead_branch = insert_cfg(true);
     builder.cfg->build_set_output(1, dead_branch);
     return dead_branch;

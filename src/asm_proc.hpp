@@ -26,16 +26,12 @@ struct asm_proc_t
 {
     std::vector<asm_inst_t> code;
     rh::robin_map<locator_t, unsigned> mem_usage; // Counts how many times locators are mentioned.
-    rh::robin_map<locator_t, unsigned> labels;
+    rh::batman_map<locator_t, unsigned> labels; // Maps from locators to code indices
 
     // Adds 'inst' to 'code':
     void push_inst(asm_inst_t inst);
 
-    // Converts invalid relative branches into long branches.
-    void expand_branch_ops();
-
-    // Converts very short jumps to SKB or IGN ops.
-    void nopify_short_jumps();
+    void optimize();
 
     // Converts identifier-based labels to relocatable ones.
     void make_relocatable();
@@ -47,6 +43,13 @@ struct asm_proc_t
 
     void write_assembly(std::ostream& os, fn_t const& fn) const;
     void write_binary(std::uint8_t* rom, addr16_t start_addr) const;
+
+private:
+    // Converts very short jumps to SKB or IGN ops.
+    void nopify_short_jumps();
+
+    // Converts invalid relative branches into long branches.
+    void expand_branch_ops();
 };
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst);

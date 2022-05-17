@@ -41,6 +41,7 @@ ssa_ht cset_head(ssa_ht h)
         if(d.cset_head.holds_ref())
         {
             assert(d.cset_head->op());
+            assert(d.cset_head.is_handle());
             assert(h != d.cset_head.handle());
             h = d.cset_head.handle();
         }
@@ -434,13 +435,15 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         switch(condition->op())
         {
-        case SSA_eq:
+        case SSA_multi_eq:
             condition->unsafe_set_op(SSA_branch_eq); break;
-        case SSA_not_eq:
+        case SSA_multi_not_eq:
             condition->unsafe_set_op(SSA_branch_not_eq); break;
         case SSA_lt:
+            assert(0); // TODO
             condition->unsafe_set_op(SSA_branch_lt); break;
         case SSA_lte:
+            assert(0); // TODO
             condition->unsafe_set_op(SSA_branch_lte); break;
         default: continue;
         }
@@ -453,7 +456,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     // DUPLICATE RTS //
     ///////////////////
 
-    if(ir.exit)
+    if(ir.exit && ir.exit != ir.root)
     {
         dupe_exit_t duper;
         while(ir.exit->input_size())
@@ -463,7 +466,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             auto ie = ir.exit->input_edge(0);
             ie.handle->link_change_output(ie.index, duped_cfg,
-                [](ssa_ht phi) { assert(false); return 0u; });
+                [](ssa_ht phi) { assert(false); return ssa_value_t(0u, TYPE_VOID); });
         }
         ir.prune_cfg(ir.exit);
     }
@@ -759,7 +762,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
                 // Create the store in a dominating spot:
                 cfg_ht store_cfg = dom_intersect(a_cfg, b_cfg);
-                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, pair.first); // TODO: type?
+                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, ssa_value_t(pair.first, TYPE_VOID)); // TODO: type?
                 assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
                 auto& store_d = cg_data(store);
 
@@ -821,7 +824,7 @@ void code_gen(ir_t& ir, fn_t& fn)
                 {
                     // Abort! Undo everything and prune it.
                     clear_liveness_for(ir, store);
-                    store->replace_with(pair.first);
+                    store->replace_with(ssa_value_t(pair.first, TYPE_VOID)); // TODO: is TYPE_VOID correct?
                     store->prune();
                 }
             }
@@ -835,13 +838,26 @@ void code_gen(ir_t& ir, fn_t& fn)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht phi_it = cfg_it->phi_begin(); phi_it; ++phi_it)
     {
+        assert(phi_it->input(0).holds_ref());
         assert(phi_it->input(0)->op() == SSA_phi_copy);
 
-        ssa_ht cset = cset_head(phi_it->input(0).handle());
-        ssa_ht phi_cset = cset_head(phi_it);
+        // Search for a ssa_node input:
+        for(unsigned i = 0; i < phi_it->input_size(); ++i)
+        {
+            if(!phi_it->input(i).holds_ref())
+                continue;
 
-        if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, cset, phi_cset, fn_nodes))
-            cset_append(last, phi_cset);
+            assert(phi_it->input(i).is_handle());
+            assert(phi_it->input(i)->op() == SSA_phi_copy);
+
+            ssa_ht cset = cset_head(phi_it->input(i).handle());
+            ssa_ht phi_cset = cset_head(phi_it);
+
+            if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, cset, phi_cset, fn_nodes))
+                cset_append(last, phi_cset);
+
+            break;
+        }
     }
 
     std::puts("coalesce phis 2");
@@ -883,6 +899,14 @@ void code_gen(ir_t& ir, fn_t& fn)
         if(store->op() == SSA_early_store)
         {
             std::printf("try alias %i\n", store.index);
+
+            if(!store->input(0).holds_ref())
+            {
+                ++store;
+                continue;
+            }
+
+            assert(store->input(0).holds_ref());
             ssa_ht parent = store->input(0).handle();
 
             ssa_ht store_cset = cset_head(store);
@@ -1066,7 +1090,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             if(ssa_it->op() == SSA_early_store)
             {
-                ssa_ht orig = ssa_it->input(0).handle();
+                //ssa_ht orig = ssa_it->input(0).handle();
 
                 // Replace uses of 'orig' with uses of 'ssa_it' whenever
                 // said uses occur inside the live range of 'ssa_it'.
@@ -1262,11 +1286,17 @@ void code_gen(ir_t& ir, fn_t& fn)
             for(asm_inst_t inst : cg_data(h).code)
                 proc.push_inst(inst);
 
-        /* TODO
+        proc.optimize();
+
+        proc.write_assembly(std::cout, fn);
+
+        proc.make_relocatable();
+
         std::cout << "RELOC\n";
-        for(asm_inst_t inst : proc.code)
-            std::cout << inst << '\n';
-            */
+        proc.write_assembly(std::cout, fn);
+        std::cout << "DONE RELOC\n";
+        //for(asm_inst_t inst : proc.code)
+            //std::cout << inst << '\n';
 
         // Add the proc to the fn
         fn.assign_proc(std::move(proc));

@@ -7,6 +7,8 @@ using fixed_uint_t = std::uint64_t;
 using fixed_sint_t = std::int64_t;
 static_assert(sizeof(fixed_uint_t) >= sizeof(std::uintptr_t));
 
+constexpr fixed_uint_t MAX_FIXED_MASK = (1ull << 56) - 1ull;
+
 struct fixed_t
 {
     fixed_uint_t value;

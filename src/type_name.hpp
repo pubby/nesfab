@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <string>
 
 static constexpr unsigned max_frac_bytes = 3;
 static constexpr unsigned max_whole_bytes = 4;
@@ -184,6 +185,11 @@ constexpr type_name_t type_s(unsigned w, unsigned f)
     return type_name_t(TYPE_S10 - 4 + w*4 + f);
 }
 
+constexpr type_name_t type_s_or_u(unsigned w, unsigned f, bool s)
+{
+    return s ? type_s(w, f) : type_u(w, f);
+}
+
 constexpr unsigned begin_byte(type_name_t type_name)
 {
     return max_frac_bytes - frac_bytes(type_name);
@@ -214,5 +220,7 @@ constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)
 
     return true;
 }
+
+std::string to_string(type_name_t type_name);
 
 #endif

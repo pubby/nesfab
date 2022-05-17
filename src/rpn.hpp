@@ -42,25 +42,16 @@ struct rpn_value_t
         ssa_value_t const* v;
 
         if(sval.size() != 1)
-        {
-            std::puts("1");
             goto not_cne;
-        }
 
         if(!(v = std::get_if<ssa_value_t>(&sval[0])))
-        {
-            std::puts("2");
             goto not_cne;
-        }
 
         if(!*v)
             compiler_error(pstring, "Value is uninitialized.");
 
         if(!v->is_num() || !is_arithmetic(type.name()))
-        {
-            std::puts("3");
             goto not_cne;
-        }
 
         assert(is_masked(v->fixed(), type.name()));
         return v->fixed();

@@ -18,7 +18,8 @@ namespace // anonymous
     // This is used to break up arithmetic types into several bytes.
     using bm_t = std::array<ssa_value_t, max_total_bytes>;
     static_assert(max_total_bytes == 7); // To match 'zero_bm' below.
-    constexpr bm_t zero_bm = { 0u, 0u, 0u, 0u, 0u, 0u, 0u };
+    constexpr ssa_value_t sv = ssa_value_t(0u, TYPE_U);
+    constexpr bm_t zero_bm = { sv, sv, sv, sv, sv, sv, sv };
 
     struct ssa_byteify_d
     {
@@ -43,7 +44,7 @@ static bm_t _get_bm(ssa_value_t value)
         fixed_uint_t f = value.fixed().value;
         for(unsigned i = 0; i < bm.size(); ++i)
         {
-            bm[i] = f & 0xFF;
+            bm[i] = ssa_value_t(f & 0xFF, value.type_name());
             f >>= 8;
         }
         return bm;
@@ -62,19 +63,30 @@ static void _split_cast(ssa_ht ssa_node)
 
     // Check if the input is a cast that wasn't split yet:
     ssa_value_t input = ssa_node->input(0);
-    if(input.holds_ref() && input->op() == SSA_cast 
-       && !input->test_flags(FLAG_PROCESSED))
-    {
+    if(input.holds_ref() && input->op() == SSA_cast && !input->test_flags(FLAG_PROCESSED))
         _split_cast(input.handle());
-    }
 
     type_t const type = ssa_node->type();
     auto& data = ssa_node.data<ssa_byteify_d>();
+
+    type_t const input_type = input.type();
+    std::cout << "input type = " << input_type << std::endl;
+
     data.bm = zero_bm;
     bm_t input_bm = _get_bm(input);
     unsigned const end = end_byte(type.name());
     for(unsigned i = begin_byte(type.name()); i < end; ++i)
         data.bm[i] = input_bm[i];
+
+    if(is_signed(input_type.name()))// && whole_bytes(input_type.name()) < whole_bytes(type.name()))
+    {
+        // We have to sign extend!
+        unsigned i = end_byte(input_type.name());
+        assert(i > 0);
+        ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, data.bm[i - 1]);
+        for(; i < end; ++i)
+            data.bm[i] = extension;
+    }
 
     ssa_node->set_flags(FLAG_PROCESSED);
 }
@@ -113,7 +125,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 continue;
             }
 
-            if(type == TYPE_U)
+            if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
             {
                 auto& ssa_data = ssa_it.data<ssa_byteify_d>(); 
                 ssa_data.bm = zero_bm;
@@ -229,8 +241,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             case SSA_eq:
             case SSA_not_eq:
-            case SSA_lt:
-            case SSA_lte:
                 {
                     // Comparisons convert to N parallel comparisons,
                     // where N is the size in bytes of the largest argument.
@@ -241,31 +251,94 @@ void byteify(ir_t& ir, fn_t const& fn)
                     new_input.clear();
                     assert(ssa_it->input_size() == 2);
 
-                    std::array<bm_t, 2> bms;
-                    unsigned begin = ~0;
-                    unsigned end = 0;
-                    for(unsigned i = 0; i < 2; ++i)
+                    ssa_value_t const l = ssa_it->input(0);
+                    ssa_value_t const r = ssa_it->input(1);
+
+                    type_name_t const lt = l.type().name();
+                    type_name_t const rt = r.type().name();
+
+                    bm_t sbm = _get_bm(is_signed(lt) ? l : r);
+                    bm_t ubm = _get_bm(is_signed(lt) ? r : l);
+
+                    int begin = begin_byte(lt);
+                    int end = end_byte(lt);
+
+                    assert((unsigned)begin == begin_byte(rt));
+                    assert((unsigned)end == end_byte(rt));
+                    assert(begin != end);
+
+                    // If the signs differ, 
+                    if(is_signed(lt) != is_signed(rt))
                     {
-                        ssa_value_t input = ssa_it->input(i);
-                        type_name_t t = input.type().name();
-                        assert(is_arithmetic(t));
-                        bms[i] = _get_bm(input);
-                        begin = std::min(begin, begin_byte(t));
-                        end = std::max(end, end_byte(t));
+                        std::puts("DIFFER!");
+                        if(sbm[end-1].holds_ref() && sbm[end-1]->op() == SSA_sign_extend)
+                        {
+                            // If the most significant signed comparison(s) are sign-extended,
+                            // we can eliminate the sign-extension's use inside the comparison.
+
+                            ssa_value_t const extend = sbm[end-1]->input(0);
+
+                            for(int i = end-2; i >= begin; --i)
+                            {
+                                std::printf("i = %i\n", i);
+                                if(sbm[i].holds_ref() && sbm[i]->op() == SSA_sign_extend)
+                                {
+                                    if(sbm[i]->input(0) != extend)
+                                        break;
+                                }
+                                else
+                                {
+                                    if(sbm[i] != extend)
+                                        break;
+
+                                    // We can simplify!
+
+                                    // Comparisons above the sign can be simplified:
+                                    for(int j = i+1; j < end; ++j) 
+                                        sbm[j] = ssa_value_t(0u, TYPE_U);
+
+                                    // Make 'i' the most significant:
+                                    std::swap(sbm[i], sbm[end-1]);
+                                    std::swap(ubm[i], ubm[end-1]);
+
+                                    break;
+                                }
+                            }
+                        }
                     }
 
-                    for(unsigned j = begin; j < end; ++j)
-                        for(unsigned i = 0; i < 2; ++i)
-                            new_input.push_back(bms[i][j]);
+
+                    for(int i = begin; i < end; ++i)
+                    {
+                        new_input.push_back(ubm[i]);
+                        new_input.push_back(sbm[i]);
+                    }
+
+                    // Last two arguments compare signs.
+                    // If we don't have to do that, insert trivially true dummy args:
+                    if(is_signed(lt) == is_signed(rt))
+                    {
+                        new_input.push_back(ssa_value_t(0u, TYPE_U));
+                        new_input.push_back(ssa_value_t(0u, TYPE_U));
+                    }
 
                     ssa_it->link_clear_inputs();
                     ssa_it->link_append_input(&*new_input.begin(),
                                               &*new_input.end());
 
+                    ssa_it->unsafe_set_op(ssa_it->op() == SSA_eq ? SSA_multi_eq : SSA_multi_not_eq);
+
                     // Should always have an even number of args.
                     assert(ssa_it->input_size() % 2 == 0);
+                    assert(ssa_it->input_size() > 0);
                 }
                 break;
+
+            case SSA_lt:
+            case SSA_lte:
+                // TODO
+                assert(0);
+                
 
             default:
                 break;
@@ -281,6 +354,9 @@ void byteify(ir_t& ir, fn_t const& fn)
         auto& ssa_data = ssa_node.data<ssa_byteify_d>(); 
         type_name_t const t = _bm_type(ssa_node->type()).name();
         assert(is_arithmetic(t));
+
+        if(ssa_node->type() == TYPE_S)
+            ssa_node->set_type(TYPE_U);
 
         SSA_VERSION(1);
         switch(ssa_node->op())

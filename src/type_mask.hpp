@@ -39,64 +39,56 @@ constexpr fixed_lut_t<fixed_uint_t> numeric_bitmask_table = []()
 }();
 
 
-[[gnu::pure]]
 constexpr fixed_uint_t numeric_bitmask(type_name_t type_name)
 {
     assert(is_scalar(type_name));
     return numeric_bitmask_table[type_name - TYPE_FIRST_SCALAR];
 }
 
-[[gnu::pure]]
-inline fixed_t mask_numeric(fixed_t f, type_name_t type_name)
+constexpr fixed_t mask_numeric(fixed_t f, type_name_t type_name)
 {
     assert(is_scalar(type_name));
     return fixed_t{ f.value & numeric_bitmask(type_name) };
 }
 
-[[gnu::pure]]
-inline bool is_masked(fixed_t f, type_name_t type_name)
+constexpr bool is_masked(fixed_t f, type_name_t type_name)
 {
     assert(is_scalar(type_name));
     return (f.value & numeric_bitmask(type_name)) == f.value;
 }
 
-[[gnu::pure]]
-inline constexpr fixed_t boolify(fixed_t f)
+constexpr fixed_t boolify(fixed_t f)
 {
     if(f)
         return { 1ull << fixed_t::shift };
     return { 0 };
 }
 
-fixed_sint_t to_signed(fixed_uint_t f, fixed_uint_t bitmask);
-fixed_sint_t to_signed(fixed_uint_t f, type_name_t type_name);
+constexpr fixed_uint_t high_bit_only(fixed_uint_t i) { return i & ~(i >> 1); }
 
-[[gnu::pure]]
-inline fixed_uint_t high_bit_only(fixed_uint_t i) { return i & ~(i >> 1); }
+constexpr fixed_uint_t low_bit_only(fixed_uint_t i) { return i & ~(i << 1); }
 
-[[gnu::pure]]
-inline fixed_uint_t low_bit_only(fixed_uint_t i) { return i & ~(i << 1); }
+constexpr bool is_mask(fixed_uint_t i) { return !((low_bit_only(i) + i) & i); }
 
-[[gnu::pure]]
-inline bool is_mask(fixed_uint_t i) { return !((low_bit_only(i) + i) & i); }
+constexpr fixed_uint_t below_mask(fixed_uint_t i) { assert(is_mask(i)); return low_bit_only(i) - 1ull; }
 
-[[gnu::pure]]
-inline fixed_uint_t below_mask(fixed_uint_t i) { assert(is_mask(i)); return low_bit_only(i) - 1; }
+constexpr fixed_uint_t above_mask(fixed_uint_t i) { assert(is_mask(i)); return ~((high_bit_only(i) << 1) - 1ull); }
 
-[[gnu::pure]]
-inline fixed_uint_t above_mask(fixed_uint_t i) { assert(is_mask(i)); return ~((high_bit_only(i) << 1) - 1); }
+constexpr fixed_uint_t submask(fixed_uint_t i) { assert(is_mask(i)); return i | below_mask(i); }
 
-[[gnu::pure]]
-inline fixed_uint_t submask(fixed_uint_t i) { assert(is_mask(i)); return i | below_mask(i); }
+constexpr fixed_uint_t supermask(fixed_uint_t i) { assert(is_mask(i)); return i | above_mask(i); }
 
-[[gnu::pure]]
-inline fixed_uint_t supermask(fixed_uint_t i) { assert(is_mask(i)); return i | above_mask(i); }
-
-[[gnu::pure]]
-inline fixed_sint_t sign_extend(fixed_uint_t i, fixed_uint_t mask) 
+constexpr fixed_sint_t sign_extend(fixed_uint_t i, fixed_uint_t mask) 
 { 
     if(i & high_bit_only(mask))
         return static_cast<fixed_sint_t>(i | above_mask(mask));
+    return static_cast<fixed_sint_t>(i);
+}
+
+constexpr fixed_sint_t to_signed(fixed_uint_t i, type_name_t tn) 
+{
+    if(is_signed(tn))
+        return sign_extend(i, numeric_bitmask(tn));
     return static_cast<fixed_sint_t>(i);
 }
 

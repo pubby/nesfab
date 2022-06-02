@@ -899,30 +899,9 @@ ABSTRACT(SSA_lt) = ABSTRACT_FN
 
 ABSTRACT(SSA_multi_lt) = ABSTRACT_FN
 {
+    // It's quite difficult to implement multi_lt, so for now we'll skip it.
+    // TODO: Properly implement
     result[0] = constraints_t::any_bool();
-    /* TODO
-    assert(0);
-    assert(argn % 2 == 0 && argn > 2 && result.vec.size() >= 1);
-
-    if(handle_top(cv, argn, result))
-        return;
-
-    if(!cv[0][0].is_const() || !cv[1][0].is_const())
-    {
-        result[0] = constraints_t::any_bool();
-        return;
-    }
-
-    type_name_t const lt = type_name_t(cv[0][0].get_const() >> fixed_t::shift);
-    type_name_t const rt = type_name_t(cv[1][0].get_const() >> fixed_t::shift);
-
-    known_bits_t bits = known_bits_t::bool_(true);
-    for(unsigned i = 0; i < argn; i += 2)
-        bits = abstract_and(bits, abstract_eq(cv[i][0], cv[i].cm, cv[i+1][0], cv[i+1].cm, i == argn - 2).bits, BOOL_MASK.mask);
-
-    result[0].bits = bits;
-    result[0].bounds = from_bits(bits, BOOL_MASK);
-    */
 };
 
 constraints_t abstract_lte(constraints_t lhs, constraints_mask_t lhs_cm, 
@@ -947,6 +926,12 @@ ABSTRACT(SSA_lte) = ABSTRACT_FN
     result[0] = abstract_lte(cv[0][0], cv[0].cm, cv[1][0], cv[1].cm);
 };
 
+ABSTRACT(SSA_multi_lte) = ABSTRACT_FN
+{
+    // It's quite difficult to implement multi_lte, so for now we'll skip it.
+    // TODO: Implement
+    result[0] = constraints_t::any_bool();
+};
 
 #if 0
 

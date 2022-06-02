@@ -1063,7 +1063,7 @@ namespace isel
         });
     }
 
-    template<typename Opt, typename FailLabel, typename SuccessLabel>
+    template<typename Opt, typename FailLabel, typename SuccessLabel, bool Flip = false>
     void lt_branch(ssa_ht h)
     {
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
@@ -1073,8 +1073,8 @@ namespace isel
 
         using last_comp = condition<struct lt_last_comp_tag>;
 
-        type_name_t const lt = type_name_t(h->input(0).whole());
-        type_name_t const rt = type_name_t(h->input(1).whole());
+        type_name_t const lt = type_name_t(h->input(0 ^ Flip).whole());
+        type_name_t const rt = type_name_t(h->input(1 ^ Flip).whole());
 
         int const lwhole = whole_bytes(lt);
         int const rwhole = whole_bytes(rt);
@@ -1091,8 +1091,8 @@ namespace isel
         int const rsize = rwhole + rfrac;
 
         // Offsets into the node's input array.
-        int const loffset = 2 + lfrac;
-        int const roffset = 2 + lsize + rfrac;
+        int const loffset = 2 + lfrac + (Flip ? rsize : 0);
+        int const roffset = 2 + rfrac + (Flip ? 0 : lsize);
         assert(loffset != roffset);
 
         bool const lsigned = is_signed(lt);
@@ -2132,6 +2132,7 @@ namespace isel
         case SSA_branch_eq:
         case SSA_branch_not_eq:
         case SSA_branch_lt:
+        case SSA_branch_lte:
         case SSA_entry:
         case SSA_aliased_store:
         case SSA_uninitialized:
@@ -2187,15 +2188,14 @@ namespace isel
         case SSA_branch_lt:
             p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
             p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
-            lt_branch<Opt, p_label<0>, p_label<1>>(h);
+            lt_branch<Opt, p_label<0>, p_label<1>, false>(h);
             break;
 
-            /*
         case SSA_branch_lte:
-            lt_branch<true>(h, locator_t::cfg_label(cfg_node->output(0)), 
-                               locator_t::cfg_label(cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
+            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
+            lt_branch<Opt, p_label<0>, p_label<1>, true>(h);
             break;
-            */
 
         case SSA_return:
         case SSA_fn_call:

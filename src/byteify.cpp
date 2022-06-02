@@ -70,7 +70,6 @@ static void _split_cast(ssa_ht ssa_node)
     auto& data = ssa_node.data<ssa_byteify_d>();
 
     type_t const input_type = input.type();
-    std::cout << "input type = " << input_type << std::endl;
 
     data.bm = zero_bm;
     bm_t input_bm = _get_bm(input);
@@ -242,11 +241,13 @@ void byteify(ir_t& ir, fn_t const& fn)
             case SSA_eq:
             case SSA_not_eq:
                 {
-                    // Comparisons convert to N parallel comparisons,
+                    // Equality comparisons convert to N parallel comparisons,
                     // where N is the size in bytes of the largest argument.
 
                     // The format is interleaved (ababab instead of aaabbb)
                     // to make it easier to remove arguments in optimization.
+
+                    // The last comparison assumes one argument is signed, the other isn't.
 
                     new_input.clear();
                     assert(ssa_it->input_size() == 2);
@@ -270,7 +271,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                     // If the signs differ, 
                     if(is_signed(lt) != is_signed(rt))
                     {
-                        std::puts("DIFFER!");
                         if(sbm[end-1].holds_ref() && sbm[end-1]->op() == SSA_sign_extend)
                         {
                             // If the most significant signed comparison(s) are sign-extended,
@@ -280,7 +280,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                             for(int i = end-2; i >= begin; --i)
                             {
-                                std::printf("i = %i\n", i);
                                 if(sbm[i].holds_ref() && sbm[i]->op() == SSA_sign_extend)
                                 {
                                     if(sbm[i]->input(0) != extend)
@@ -323,8 +322,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     }
 
                     ssa_it->link_clear_inputs();
-                    ssa_it->link_append_input(&*new_input.begin(),
-                                              &*new_input.end());
+                    ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
 
                     ssa_it->unsafe_set_op(ssa_it->op() == SSA_eq ? SSA_multi_eq : SSA_multi_not_eq);
 
@@ -336,9 +334,77 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             case SSA_lt:
             case SSA_lte:
-                // TODO
-                assert(0);
-                
+                {
+                    // Comparisons convert to N parallel comparisons,
+                    // where N is the size in bytes of the largest argument.
+
+                    // The format is interleaved (ababab instead of aaabbb)
+                    // to make it easier to remove arguments in optimization.
+
+                    new_input.clear();
+                    assert(ssa_it->input_size() == 2);
+
+                    ssa_value_t const l = ssa_it->input(0);
+                    ssa_value_t const r = ssa_it->input(1);
+
+                    type_name_t const lt = l.type().name();
+                    type_name_t const rt = r.type().name();
+
+                    bool const both_signed = is_signed(lt) && is_signed(rt);
+                    unsigned const lwhole = whole_bytes(lt);
+                    unsigned const rwhole = whole_bytes(rt);
+
+                    // First two args are the types:
+                    if(both_signed && lwhole != rwhole)
+                    {
+                        // When both are signed, the types must have an equal number of whole bytes.
+                        // (This simplifies code gen)
+                        unsigned const w = std::max(lwhole, rwhole);
+                        new_input.push_back(ssa_value_t(type_s(w, frac_bytes(lt)), TYPE_INT));
+                        new_input.push_back(ssa_value_t(type_s(w, frac_bytes(rt)), TYPE_INT));
+                    }
+                    else
+                    {
+                        new_input.push_back(ssa_value_t((unsigned)lt, TYPE_INT));
+                        new_input.push_back(ssa_value_t((unsigned)rt, TYPE_INT));
+                    }
+
+                    bm_t lbm = _get_bm(l);
+                    int lbegin = begin_byte(lt);
+                    int lend = end_byte(lt);
+                    for(int i = lbegin; i < lend; ++i)
+                        new_input.push_back(lbm[i]);
+
+                    // If both are signed, sign-extend.
+                    if(both_signed && lwhole < rwhole)
+                    {
+                        ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
+                        for(unsigned i = 0; i < rwhole - lwhole; ++i)
+                            new_input.push_back(extension);
+                    }
+
+                    bm_t rbm = _get_bm(r);
+                    int rbegin = begin_byte(rt);
+                    int rend = end_byte(rt);
+                    for(int i = rbegin; i < rend; ++i)
+                        new_input.push_back(rbm[i]);
+
+                    // If both are signed, sign-extend.
+                    if(both_signed && rwhole < lwhole)
+                    {
+                        ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
+                        for(unsigned i = 0; i < lwhole - rwhole; ++i)
+                            new_input.push_back(extension);
+                    }
+
+                    ssa_it->link_clear_inputs();
+                    ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
+
+                    ssa_it->unsafe_set_op(ssa_it->op() == SSA_lt ? SSA_multi_lt : SSA_multi_lte);
+
+                    assert(ssa_it->input_size() >= 4); // 2 type args, plus at least one input per argument
+                }
+                break;
 
             default:
                 break;

@@ -54,6 +54,7 @@ enum locator_class_t : std::uint8_t
     LOC_CT_PAIR,
 
     LOC_SSA,
+    LOC_MINOR_VAR,
 };
 
 constexpr bool is_label(locator_class_t lclass)
@@ -139,7 +140,6 @@ public:
     constexpr std::uint8_t member() const { assert(has_arg_member_atom(lclass())); return impl >> 24ull; }
     constexpr std::uint8_t arg() const { assert(has_arg_member_atom(lclass())); return (impl >> 19ull) & 0b11111; }
     constexpr std::uint8_t atom() const { assert(has_arg_member_atom(lclass())); return (impl >> 16ull) & 0b111; }
-
 
     constexpr void set_lclass(locator_class_t lclass) 
     { 
@@ -292,6 +292,9 @@ public:
 
     constexpr static locator_t ssa(ssa_ht node)
         { return locator_t(LOC_SSA, node.index, 0, 0); }
+
+    constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
+        { return locator_t(LOC_MINOR_VAR, fn.value, id, 0); }
 
     static locator_t from_ssa_value(ssa_value_t v);
 

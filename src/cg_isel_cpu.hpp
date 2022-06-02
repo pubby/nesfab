@@ -206,7 +206,6 @@ struct cpu_t
             return false;
         if(opt.flags & OPT_CONDITIONAL)
             conditional_regs |= Regs;
-        assert(!value.is_const_num());
         return set_defs<Regs>(opt, value);
     }
 

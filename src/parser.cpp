@@ -529,8 +529,8 @@ src_type_t parser_t<P>::parse_type(bool allow_void)
     case TOK_UFF:    parse_token(); result.type = TYPE_U12; break;
     case TOK_UUFF:   parse_token(); result.type = TYPE_U22; break;
     case TOK_UUUFF:  parse_token(); result.type = TYPE_U32; break;
-    case TOK_UFFF:   parse_token(); result.type = TYPE_U12; break;
-    case TOK_UUFFF:  parse_token(); result.type = TYPE_U22; break;
+    case TOK_UFFF:   parse_token(); result.type = TYPE_U13; break;
+    case TOK_UUFFF:  parse_token(); result.type = TYPE_U23; break;
     case TOK_UUUFFF: parse_token(); result.type = TYPE_U33; break;
     case TOK_S:      parse_token(); result.type = TYPE_S10; break;
     case TOK_SS:     parse_token(); result.type = TYPE_S20; break;
@@ -541,8 +541,8 @@ src_type_t parser_t<P>::parse_type(bool allow_void)
     case TOK_SFF:    parse_token(); result.type = TYPE_S12; break;
     case TOK_SSFF:   parse_token(); result.type = TYPE_S22; break;
     case TOK_SSSFF:  parse_token(); result.type = TYPE_S32; break;
-    case TOK_SFFF:   parse_token(); result.type = TYPE_S12; break;
-    case TOK_SSFFF:  parse_token(); result.type = TYPE_S22; break;
+    case TOK_SFFF:   parse_token(); result.type = TYPE_S13; break;
+    case TOK_SSFFF:  parse_token(); result.type = TYPE_S23; break;
     case TOK_SSSFFF: parse_token(); result.type = TYPE_S33; break;
 
     case TOK_PP:

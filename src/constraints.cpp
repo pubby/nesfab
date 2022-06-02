@@ -815,7 +815,8 @@ ABSTRACT(SSA_multi_eq) = ABSTRACT_FN
 };
 
 constraints_t abstract_not_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
-                              constraints_t rhs, constraints_mask_t rhs_cm)
+                              constraints_t rhs, constraints_mask_t rhs_cm,
+                              bool sign_diff = false)
 {
     // For now, require both types be the same size.
     assert(lhs_cm.mask == rhs_cm.mask);
@@ -823,7 +824,7 @@ constraints_t abstract_not_eq(constraints_t lhs, constraints_mask_t lhs_cm,
     if(lhs.is_top(lhs_cm) || rhs.is_top(rhs_cm))
         return constraints_t::top();
 
-    if(lhs_cm.signed_ != rhs_cm.signed_)
+    if(sign_diff || lhs_cm.signed_ != rhs_cm.signed_)
     {
         fixed_uint_t const sign_bit = high_bit_only(lhs_cm.mask);
         assert(sign_bit == high_bit_only(rhs_cm.mask));
@@ -859,6 +860,21 @@ ABSTRACT(SSA_not_eq) = ABSTRACT_FN
     result[0] = abstract_not_eq(cv[0][0], cv[0].cm, cv[1][0], cv[1].cm);
 };
 
+ABSTRACT(SSA_multi_not_eq) = ABSTRACT_FN
+{
+    assert(argn % 2 == 0 && result.vec.size() >= 1);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    known_bits_t bits = known_bits_t::bool_(false);
+    for(unsigned i = 0; i < argn; i += 2)
+        bits = abstract_or(bits, abstract_not_eq(cv[i][0], cv[i].cm, cv[i+1][0], cv[i+1].cm, i == argn - 2).bits, BOOL_MASK.mask);
+
+    result[0].bits = bits;
+    result[0].bounds = from_bits(bits, BOOL_MASK);
+};
+
 constraints_t abstract_lt(constraints_t lhs, constraints_mask_t lhs_cm, 
                           constraints_t rhs, constraints_mask_t rhs_cm)
 {
@@ -879,6 +895,34 @@ ABSTRACT(SSA_lt) = ABSTRACT_FN
         return;
     
     result[0] = abstract_lt(cv[0][0], cv[0].cm, cv[1][0], cv[1].cm);
+};
+
+ABSTRACT(SSA_multi_lt) = ABSTRACT_FN
+{
+    result[0] = constraints_t::any_bool();
+    /* TODO
+    assert(0);
+    assert(argn % 2 == 0 && argn > 2 && result.vec.size() >= 1);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    if(!cv[0][0].is_const() || !cv[1][0].is_const())
+    {
+        result[0] = constraints_t::any_bool();
+        return;
+    }
+
+    type_name_t const lt = type_name_t(cv[0][0].get_const() >> fixed_t::shift);
+    type_name_t const rt = type_name_t(cv[1][0].get_const() >> fixed_t::shift);
+
+    known_bits_t bits = known_bits_t::bool_(true);
+    for(unsigned i = 0; i < argn; i += 2)
+        bits = abstract_and(bits, abstract_eq(cv[i][0], cv[i].cm, cv[i+1][0], cv[i+1].cm, i == argn - 2).bits, BOOL_MASK.mask);
+
+    result[0].bits = bits;
+    result[0].bounds = from_bits(bits, BOOL_MASK);
+    */
 };
 
 constraints_t abstract_lte(constraints_t lhs, constraints_mask_t lhs_cm, 
@@ -1425,6 +1469,9 @@ static void narrow_eq(constraints_def_t* cv, unsigned argn, constraints_def_t co
 NARROW(SSA_eq) = narrow_eq<true>;
 NARROW(SSA_not_eq) = narrow_eq<false>;
 
+NARROW(SSA_multi_lt) = NARROW_FN {};
+NARROW(SSA_multi_lte) = NARROW_FN {};
+
 template<bool Eq>
 static void narrow_multi_eq(constraints_def_t* cv, unsigned argn, constraints_def_t const& result)
 {
@@ -1444,6 +1491,7 @@ static void narrow_multi_eq(constraints_def_t* cv, unsigned argn, constraints_de
 }
 
 NARROW(SSA_multi_eq) = narrow_multi_eq<true>;
+NARROW(SSA_multi_not_eq) = narrow_multi_eq<false>;
 
 NARROW(SSA_lt) = NARROW_FN
 {

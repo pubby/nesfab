@@ -436,16 +436,19 @@ void code_gen(ir_t& ir, fn_t& fn)
         switch(condition->op())
         {
         case SSA_multi_eq:
-            condition->unsafe_set_op(SSA_branch_eq); break;
+            condition->unsafe_set_op(SSA_branch_eq); 
+            break;
         case SSA_multi_not_eq:
-            condition->unsafe_set_op(SSA_branch_not_eq); break;
-        case SSA_lt:
-            assert(0); // TODO
-            condition->unsafe_set_op(SSA_branch_lt); break;
-        case SSA_lte:
-            assert(0); // TODO
-            condition->unsafe_set_op(SSA_branch_lte); break;
-        default: continue;
+            condition->unsafe_set_op(SSA_branch_not_eq); 
+            break;
+        case SSA_multi_lt:
+            condition->unsafe_set_op(SSA_branch_lt); 
+            break;
+        case SSA_multi_lte:
+            condition->unsafe_set_op(SSA_branch_lte); 
+            break;
+        default: 
+            continue;
         }
 
         if_h->prune();

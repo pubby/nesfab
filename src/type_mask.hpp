@@ -38,7 +38,6 @@ constexpr fixed_lut_t<fixed_uint_t> numeric_bitmask_table = []()
     return table;
 }();
 
-
 constexpr fixed_uint_t numeric_bitmask(type_name_t type_name)
 {
     assert(is_scalar(type_name));

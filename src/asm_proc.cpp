@@ -103,7 +103,7 @@ void asm_proc_t::nopify_short_jumps()
                 //  L1:
                 // (Removes the first BEQ)
 
-                if(code[i].arg == code[i].arg)
+                if(code[i+1].arg == code[i].arg)
                 {
                     // Prune both
                     code[i].op = code[i+1].op = ASM_PRUNED;

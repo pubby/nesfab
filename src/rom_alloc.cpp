@@ -53,12 +53,12 @@ struct rom_once_t : public rom_alloc_t
 }
 
 {
-    for(const_t const& cnst : impl_deque<const_t)
+    for(const_t const& const_ : impl_deque<const_t>)
     {
-        if(!emit_rom(cnst))
+        if(!emit_rom(const_))
             continue;
 
-        if(cnst.group_data)
+        if(const_.group_data)
         {
             rom_once_t once = {};
         }
@@ -69,10 +69,14 @@ struct rom_once_t : public rom_alloc_t
     }
 
 
-    for(fn_t const& fn : impl_deque<fn_t)
+    for(fn_t const& fn : impl_deque<fn_t>)
     {
         if(!emit_rom(fn))
             continue;
+
+        // When is a fn once vs many?
+        // - MANY WHEN: it uses some 'once' data
+        // - ONCE WHEN: everything else
 
         if(fn.ir_group_data().all_clear())
         {
@@ -155,7 +159,7 @@ public:
                 throw std::runtime_error("Unable to allocate static address (out of ROM space).");
         }
 
-        // Use 'allocator' to fill banks.
+        // Copy 'allocator' to fill banks.
         banks.clear();
         for(unsigned i = 0; i < num_banks; ++i)
             banks.emplace_back(allocator);
@@ -163,7 +167,7 @@ public:
 
         struct once_rank_t
         {
-            float score;
+            float score;c/thread/2142448
             rom_once_t* once;
 
             constexpr auto operator<=>(once_rank_t const&) const = default;
@@ -173,10 +177,10 @@ public:
         std::vector<once_rank_t> ordered_onces;
         ordered_onces.reserve(rom_deque<rom_once_t>.size());
         for(rom_once_t& once : rom_deque<rom_once_t>)
-            ordered_onces.push_back({ rank(once), &once });
+            ordered_onces.push_back({ once_rank(once), &once });
         std::sort(ordered_onces.begin(), ordered_onces.end(), std::greater<>{});
 
-        // Allocate onces
+        // Allocate onces (this also allocates their required_manys)
         for(once_rank_t const& rank : ordered_onces)
             alloc(*rank.once);
     }
@@ -191,16 +195,17 @@ private:
     };
 
     std::vector<bank_t> banks;
-    std::vector<bank_rank_t> ranks;
+    std::vector<bank_rank_t> bank_ranks;
 
-    static float rank(rom_once_t const& once)
+    // Used to create an allocation order for onces.
+    static float once_rank(rom_once_t const& once)
     {
         int many_size = 0;
         bitset_for_each(many_bitset_size(), once.required_manys.get(), [&](unsigned i)
         {
-            rom_many_t const& many = *rom_many_ht{ i };
+            rom_many_t const& many = *rom_many_ht{i};
             if(many.static_addr)
-                many_size += many.size * 8;
+                many_size += many.size * 8; // Arbitrary constant
             else
                 many_size += many.size;
         });
@@ -210,9 +215,11 @@ private:
         return many_size + once.size + related;
     }
 
-    static float rank(bank_t const& bank, rom_once_t const& once)
+    // Used to find the best bank to allocate a once in
+    static float bank_rank(bank_t const& bank, rom_once_t const& once)
     {
-        bitset_uint_t* unallocated_manys = ALLOCA_T(bitset_uint_t, many_bitset_size());
+        // Count how much we have to allocate for required_manys
+        bitset_uint_t* const unallocated_manys = ALLOCA_T(bitset_uint_t, many_bitset_size());
         bitset_copy(many_bitset_size(), unallocated_manys, once.required_manys.get());
         bitset_difference(many_bitset_size(), unallocated_manys, bank.allocated_manys.get());
 
@@ -223,7 +230,8 @@ private:
             unallocated_many_size += many.size;
         });
 
-        bitset_uint_t* onces = ALLOCA_T(bitset_uint_t, once_bitset_size());
+        // Count related / unrelated onces
+        bitset_uint_t* const onces = ALLOCA_T(bitset_uint_t, once_bitset_size());
         bitset_copy(once_bitset_size(), onces, once.related_onces.get());
         bitset_and(once_bitset_size(), onces, bank.allocated_onces.get());
         int const related = bitset_popcount(once_bitset_size(), onces);
@@ -234,14 +242,14 @@ private:
         return unallocated_many_size + related - (unrelated * 0.25f) + (bank.allocator.bytes_free() / r);
     }
 
-    void rank_for(rom_once_t const& once)
+    void rank_banks_for(rom_once_t const& once)
     {
         assert(ranks.size() == banks.size());
 
         for(unsigned i = 0; i < banks.size(); ++i)
-            ranks[i] = { rank(banks[i], once), i };
+            bank_ranks[i] = { bank_rank(banks[i], once), i };
 
-        std::sort(ranks.begin(), ranks.end(), std::greater<>{});
+        std::sort(bank_ranks.begin(), bank_ranks.end(), std::greater<>{});
     }
 
     void alloc(rom_once_t& once)
@@ -254,8 +262,9 @@ private:
 
         bc::small_vector<many_span_t, 32> many_spans;
 
-        rank_for(once);
-        for(bank_rank_t const& r : ranks)
+        rank_banks_for(once); // Builds 'bank_ranks'
+
+        for(bank_rank_t const& r : bank_ranks)
         {
             bank_t& bank = banks[r.bank_index];
 
@@ -281,7 +290,7 @@ private:
                 return true;
             });
 
-            // Now try to allocate 'once's span:
+            // If we succeeded in allocating manys, try to allocate 'once's span:
             if(!allocated_manys || !(once.span = bank.allocator.alloc(once.size, once.alignment)))
             {
                 // If we fail, free allocated 'many' memory.
@@ -290,8 +299,7 @@ private:
                 continue;
             }
 
-            // If we succeed, record the results:
-
+            // If we succeed, record the results and return:
             for(many_span_t const& ms : many_spans)
             {
                 ms.many->span = ms.span;

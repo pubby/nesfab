@@ -464,163 +464,9 @@ void global_t::alloc_ram()
 {
     ::alloc_ram(ram_bitset_t::filled());
 
+    // TODO: remove
     for(fn_t const& fn : impl_deque<fn_t>)
         fn.proc().write_assembly(std::cout, fn);
-#if 0
-    assert(compiler_phase() == PHASE_ALLOC_RAM);
-
-    for(fn_t* mode : modes_vec)
-    {
-        assert(mode);
-        assert(mode->mode);
-
-        // Build interference graph among 'group vars':
-        assert(mode->ir_group_vars());
-        mode->ir_group_vars().for_each([&](unsigned i)
-        {
-            group_vars_ht{i}->add_interferences(mode->ir_group_vars().data());
-        });
-
-        /*
-        std::cout << "MODE = " << mode.global.name << std::endl;
-        bitset_for_each(mode.ir_groups(), [](unsigned bit)
-        {
-            group_ht group = {bit};
-            std::cout << "group = " << group->global.name << std::endl;
-        });
-        */
-    }
-
-    // First we'll allocate gvars:
-
-    rh::batman_map<locator_t, unsigned> gvar_count;
-    for(gvar_t const& gvar : impl_deque<gvar_t>)
-        gvar.for_each_locator([&](locator_t loc){ gvar_count.insert({ loc, 0 }); });
-
-    for(fn_t const& fn : impl_deque<fn_t>)
-    {
-        if(!fn.emits_code())
-            continue;
-
-        for(asm_inst_t const& inst : fn.proc().code)
-            if(inst.arg.lclass() == LOC_GVAR)
-                if(unsigned* count = gvar_count.mapped(inst.arg.mem_head()))
-                    *count += 1;
-    }
-
-    struct gvar_rank_t
-    {
-        float score;
-        locator_t loc;
-    };
-
-    std::vector<gvar_rank_t> ordered_gvars_zp;
-    std::vector<gvar_rank_t> ordered_gvars;
-
-    // Track which gvars are unused and use them to generate warning messages.
-    fc::vector_set<gvar_ht> unused_gvars;
-
-    for(auto const& pair : gvar_count)
-    {
-        if(pair.second == 0)
-            unused_gvars.insert(pair.first.gvar());
-
-        if(pair.first.mem_zp_only())
-            ordered_gvars_zp.push_back({ pair.first.mem_size(), pair.first });
-        else
-            ordered_gvars.push_back({ (pair.first.mem_size() * 1000.0f) + pair.second, pair.first });
-    }
-
-    for(gvar_ht gvar : unused_gvars)
-        compiler_warning(gvar->global.pstring(), "Global variable wastes RAM (not every byte is used).");
-
-    std::sort(ordered_gvars_zp.begin(), ordered_gvars_zp.end(), 
-              [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
-    std::sort(ordered_gvars.begin(), ordered_gvars.end(), 
-              [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
-
-    for(auto const& rank : ordered_gvars)
-    {
-        std::cout << rank.loc.gvar().value << ' ' << rank.score << '\n';
-    }
-
-    std::vector<ram_bitset_t> group_vars_usable_ram;
-    group_vars_usable_ram.resize(impl_deque<group_vars_t>.size(), ram_bitset_t::filled());
-
-    auto const alloc_gvar_loc = [&](locator_t loc)
-    {
-        std::cout << loc.gvar().value << '\n';
-        // - lookup the group
-        gvar_t& gvar = *loc.gvar();
-        group_vars_t& group_vars = gvar.group_vars;
-
-        span_t const span = ::alloc_ram(group_vars_usable_ram[group_vars.handle().value],
-                                        loc.mem_size(), loc.mem_zp_only());
-
-        if(!span)
-            throw std::runtime_error("Unable to allocate global variable (out of RAM).");
-
-        ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
-
-        std::cout << "group = " << group_vars.handle().value << std::endl;
-        group_vars_usable_ram.at(group_vars.handle().value) &= mask;
-        //group_vars_usable_ram.at(group_vars.handle().value).clear(span.addr);
-        // TODO: change how bitset is allocated
-        group_vars.interfering_group_vars().for_each([&](unsigned i)
-        {
-            std::cout << "groups = " << i << std::endl;
-            group_vars_usable_ram[i] &= mask;
-        });
-
-        std::cout << loc << " = " << span << std::endl;
-    };
-
-    for(gvar_rank_t const& rank : ordered_gvars_zp)
-        alloc_gvar_loc(rank.loc);
-
-    for(gvar_rank_t const& rank : ordered_gvars)
-        alloc_gvar_loc(rank.loc);
-
-
-    {
-        // Now for locals
-
-        std::vector<ram_bitset_t> usable_ram;
-        usable_ram.resize(fn.lvars.num_lvars(), starting_ram);
-
-        for(unsigned i = 0; i < fn.lvars.num_lvars(); ++i)
-        {
-            usable_ram[i] &= fn.usable_ram;
-        }
-
-
-
-    }
-
-    // What do gvars interfere with?
-    // - gvars in their group
-    // - gvars in groups 
-
-    // 1. order gvars by usage
-    // 2. 
-
-    /*
-    struct weighted_gvar_t
-    {
-        unsigned weight;
-        gvar_ht gvar;
-        bool operator<=>(gvar_usage const& o) const = default;
-    };
-
-    std::vector<weighted_gvar_t> order;
-
-    /*
-    for(gvar_ht gvar : TODO)
-    {
-
-    }
-    */
-#endif
 }
 
 //////////
@@ -665,7 +511,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     bitset_t  reads(impl_bitset_size<gmember_t>());
     bitset_t writes(impl_bitset_size<gmember_t>());
     bitset_t group_vars(impl_bitset_size<group_vars_t>());
-    bitset_t immediate_group_data(impl_bitset_size<group_data_t>());
+    bitset_t immediate_group_data(impl_bitset_size<group_data_t>()); // TODO: unused
     bitset_t calls(impl_bitset_size<fn_t>());
     bool io_pure = true;
 

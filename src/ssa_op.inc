@@ -68,7 +68,7 @@ SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY)
 
 SSA_DEF(trace, -1, INPUT_VALUE, 0)
 SSA_DEF(cast,   1, INPUT_VALUE, SSAF_TRACE_INPUTS)
-SSA_DEF(sign_extend, 1, INPUT_VALUE, SSAF_TRACE_INPUTS)
+SSA_DEF(sign_extend, 1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_BRANCHY_CG)
 
 // (lhs, rhs, carry)
 SSA_DEF(add,    3, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_COMMUTATIVE)
@@ -91,23 +91,23 @@ SSA_DEF(lte,    2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
 
 // Last two arguments are compared as if the first is unsigned, the second is signed.
 // Other arguments are compared as if both are unsigned.
-SSA_DEF(multi_eq,     -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
-SSA_DEF(multi_not_eq, -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
+SSA_DEF(multi_eq,     -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
+SSA_DEF(multi_not_eq, -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 
 // The first two arguments are the types being compared, as constant ints.
 // Next, the sequential bytes of LHS, followed by the sequential bytes of RHS.
 // If both types are signed, both types must have the same number of whole bytes.
-SSA_DEF(multi_lt,  -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
-SSA_DEF(multi_lte, -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
+SSA_DEF(multi_lt,  -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
+SSA_DEF(multi_lte, -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 
 //SSA_DEF(byte_lt,     -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
 //SSA_DEF(byte_lte,    -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
 
 SSA_DEF(jump,           0, INPUT_VALUE, 0)
-SSA_DEF(branch_eq,     -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY)
-SSA_DEF(branch_not_eq, -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY)
-SSA_DEF(branch_lt,     -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY)
-SSA_DEF(branch_lte,    -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY)
+SSA_DEF(branch_eq,     -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
+SSA_DEF(branch_not_eq, -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
+SSA_DEF(branch_lt,     -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
+SSA_DEF(branch_lte,    -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 
 // With carry versions: TODO
 // SSA_DEF(rolc, 2, SSAF_TRAC_INPUTS)

@@ -103,10 +103,11 @@ bool live_at_def(ssa_ht range, ssa_ht def)
     if(range == def)
         return false;
 
+    bool const same_cfg = range->cfg_node() == def->cfg_node();
     auto const& def_live = live(def->cfg_node()); 
 
     // If 'range' begins before 'def':
-    if((range->cfg_node() == def->cfg_node() && cg_data(range).schedule.index < cg_data(def).schedule.index)
+    if((same_cfg && cg_data(range).schedule.index < cg_data(def).schedule.index)
        || bitset_test(def_live.in, range.index))
     {
         // Interfere if range is also live-out at def.
@@ -117,11 +118,8 @@ bool live_at_def(ssa_ht range, ssa_ht def)
         for(unsigned i = 0; i < range->output_size(); ++i)
         {
             ssa_ht output = range->output(i);
-            if(output->cfg_node() == def->cfg_node() 
-               && cg_data(def).schedule.index < cg_data(output).schedule.index)
-            {
+            if(output->cfg_node() == def->cfg_node() && cg_data(def).schedule.index < cg_data(output).schedule.index)
                 return true;
-            }
         }
     }
 

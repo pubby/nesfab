@@ -527,6 +527,25 @@ ABSTRACT(SSA_cast) = ABSTRACT_FN
 {
     assert(argn == 1);
     result[0] = apply_mask(cv[0][0], result.cm); // handles top itself
+
+    // Sign-extend
+    if(result.cm.signed_ && cv[0].cm.signed_ && result.cm.mask > cv[0].cm.mask)
+    {
+        fixed_uint_t const sign_bit = high_bit_only(cv[0].cm.mask);
+        fixed_uint_t const extended = result.cm.mask & ~submask(cv[0].cm.mask);
+
+        std::cout << extended << std::endl;
+
+        result[0].bits.known0 &= ~extended;
+        result[0].bits.known1 &= ~extended;
+
+        if(result[0].bits.known0 & sign_bit)
+            result[0].bits.known0 |= extended;
+        if(result[0].bits.known1 & sign_bit)
+            result[0].bits.known1 |= extended;
+    }
+
+    std::cout << "casting " << result[0] << std::endl;
 };
 
 ABSTRACT(SSA_sign_extend) = ABSTRACT_FN
@@ -551,6 +570,9 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
 {
     assert(argn >= 1);
 
+    std::cout << "START PHI\n";
+    std::cout << constraints_t::bottom(type_constraints_mask(TYPE_F2)) << std::endl;
+
     for(unsigned i = 0; i < result.vec.size(); ++i)
     {
         result[i] = constraints_t::top();
@@ -559,6 +581,8 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
             assert(cv[j].vec.size());
             assert(cv[j].vec.size() >= result.vec.size());
             result[i] = union_(result[i], cv[j][i]);
+            std::cout << "UNION " << cv[j][i] << std::endl;
+            std::cout << "PHI   " << result[i] << std::endl;
         }
     }
 };
@@ -891,6 +915,10 @@ ABSTRACT(SSA_lt) = ABSTRACT_FN
 {
     assert(argn == 2 && result.vec.size() >= 1);
 
+    // TODO: remove
+    result[0] = constraints_t::any_bool();
+    return;
+
     if(handle_top(cv, argn, result))
         return;
     
@@ -933,9 +961,38 @@ ABSTRACT(SSA_multi_lte) = ABSTRACT_FN
     result[0] = constraints_t::any_bool();
 };
 
-#if 0
+ABSTRACT(SSA_init_array) = ABSTRACT_FN
+{
+    if(handle_top(cv, argn, result))
+        return;
 
-/*
+    assert(result.vec.size() == argn);
+
+    for(unsigned i = 0; i < result.vec.size(); ++i)
+    {
+        assert(cv[i].vec.size() == 1);
+        result[i] = cv[i][0];
+    }
+};
+
+ABSTRACT(SSA_read_array) = ABSTRACT_FN
+{
+    if(handle_top(cv, argn, result))
+        return;
+
+    auto& input_array = cv[0];
+    constraints_t const index = cv[2][0];
+
+    unsigned const min_bound = index.bounds.min >> fixed_t::shift;
+    unsigned const max_bound = index.bounds.max >> fixed_t::shift;
+    unsigned const iter_to = std::min<unsigned>(max_bound + 1, input_array.vec.size());
+
+    result[0] = constraints_t::top();
+    for(unsigned i = min_bound; i < iter_to; ++i)
+        if(index(fixed_t::whole(i).value, cv[2].cm))
+            result[0] = union_(input_array[i], result[0]);
+};
+
 ABSTRACT(SSA_write_array) = ABSTRACT_FN
 {
     if(handle_top(cv, argn, result))
@@ -963,28 +1020,14 @@ ABSTRACT(SSA_write_array) = ABSTRACT_FN
         unsigned const iter_to = std::min<unsigned>(max_bound + 1, result.vec.size());
 
         for(unsigned i = min_bound; i < iter_to; ++i)
-            if(index(fixed_t::whole(i).value))
+            if(index(fixed_t::whole(i).value, cv[2].cm))
                 result[i] = union_(result[i], value);
     }
 };
 
-ABSTRACT(SSA_read_array) = ABSTRACT_FN
-{
-    if(handle_top(cv, argn, result))
-        return;
+#if 0
 
-    auto& input_array = cv[0];
-    constraints_t const index = cv[2][0];
-
-    unsigned const min_bound = index.bounds.min >> fixed_t::shift;
-    unsigned const max_bound = index.bounds.max >> fixed_t::shift;
-    unsigned const iter_to = std::min<unsigned>(max_bound + 1, input_array.vec.size());
-
-    result[0] = constraints_t::top();
-    for(unsigned i = min_bound; i < iter_to; ++i)
-        if(index(fixed_t::whole(i).value))
-            result[0] = union_(input_array[i], result[0]);
-};
+/*
 
 /* TODO
 ABSTRACT(SSA_copy_array) = ABSTRACT_FN

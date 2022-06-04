@@ -39,10 +39,10 @@ std::string to_string(locator_t loc)
         str = "const byte"; break;
     case LOC_SSA:
         str = fmt("ssa %", loc.handle()); break;
-    case LOC_CT_PAIR:
-        str = fmt("ct_pair %", loc.fn()->global.name); break;
     case LOC_MINOR_VAR:
         str = fmt("minor var %", loc.fn()->global.name); break;
+    case LOC_ROM_ARRAY:
+        str = "rom_array"; break;
     }
 
     if(has_arg_member_atom(loc.lclass()))

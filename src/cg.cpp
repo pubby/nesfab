@@ -12,6 +12,7 @@
 #include "cg_liveness.hpp"
 #include "cg_order.hpp"
 #include "cg_schedule.hpp"
+#include "cg_array.hpp"
 #include "globals.hpp"
 #include "ir_util.hpp"
 #include "ir.hpp"
@@ -455,6 +456,12 @@ void code_gen(ir_t& ir, fn_t& fn)
         condition->append_daisy();
     }
 
+    ////////////////
+    // ROM ARRAYS //
+    ////////////////
+
+    build_rom_arrays(ir);
+
     ///////////////////
     // DUPLICATE RTS //
     ///////////////////
@@ -728,6 +735,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         std::sort(ld.copies.begin(), ld.copies.end(),
             [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
 
+        // Do the coalescing:
         for(copy_t const& copy : ld.copies)
             if(!coalesce_loc(loc, ld, copy.node))
                 if(copy.node->op() == SSA_early_store)
@@ -747,7 +755,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             auto& vec = pair.second;
 
             // If only a single constant is stored, a const_store isn't needed.
-            if(vec.size() < 2)
+            if(vec.size() <= 1)
                 continue;
 
             // Otherwise we'll try to find 2 stores and combine them into 1.
@@ -765,7 +773,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
                 // Create the store in a dominating spot:
                 cfg_ht store_cfg = dom_intersect(a_cfg, b_cfg);
-                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, ssa_value_t(pair.first, TYPE_VOID)); // TODO: type?
+                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, ssa_value_t(pair.first, TYPE_U));
                 assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
                 auto& store_d = cg_data(store);
 
@@ -833,8 +841,8 @@ void code_gen(ir_t& ir, fn_t& fn)
             }
         }
     }
-    // Coalesce phis:
 
+    // Coalesce phis:
     std::puts("coalesce phis");
 
     // First try to coalesce 'SSA_phi's with their input 'SSA_phi_copy's.
@@ -1024,7 +1032,7 @@ void code_gen(ir_t& ir, fn_t& fn)
                     goto next_read_array_iter;
                 }
 
-                /*
+                /* TODO
                 // It's not ideal to use direct reads if there's high X/Y register pressure.
                 // Thus, we'll try to estimate register pressure here,
                 // and only use direct reads when there's little pressure.
@@ -1291,12 +1299,12 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         proc.optimize();
 
-        proc.write_assembly(std::cout, fn);
+        //proc.write_assembly(std::cout, fn); TODO: remove
 
         proc.make_relocatable();
 
         std::cout << "RELOC\n";
-        proc.write_assembly(std::cout, fn);
+        // proc.write_assembly(std::cout, fn); TODO: remove
         std::cout << "DONE RELOC\n";
         //for(asm_inst_t inst : proc.code)
             //std::cout << inst << '\n';

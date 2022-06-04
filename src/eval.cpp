@@ -312,7 +312,8 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
 , start_time(clock::now())
 {
     // Reset the static thread-local state:
-    builder.clear();
+    builder.clear(); // TODO: make sure this isn't called in recursion
+    ir->gmanager.init(fn->handle());
 
     unsigned const nlocals = num_locals();
 
@@ -327,9 +328,6 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
     var_types.resize(num_vars(), TYPE_VOID);
 
     // OK! var_types is built.
-
-    builder.clear(); // TODO: make sure this isn't called in recursion
-    ir->gmanager.init(fn->handle());
 
     ir->root = builder.cfg = insert_cfg(true);
 
@@ -354,8 +352,10 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
     }
 
     // Insert nodes for gmember reads
+    std::puts("begin each gvar");
     ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t i)
     {
+        std::puts("each gvar");
         unsigned const var_i = to_var_i(i);
         auto& vars = ir->root.data<block_d>().vars;
         assert(vars.size() == var_types.size());
@@ -364,6 +364,8 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
         {
             assert(var_i < vars.size());
             assert(m->index < vars[var_i].size());
+
+            std::cout << "inserting " << var_i << ' ' << m->index << std::endl;
 
             vars[var_i][m->index] = ir->root->emplace_ssa(
                 SSA_read_global, member_type(var_types[var_i], m->index), entry, locator_t::gmember(m, 0));
@@ -2056,7 +2058,8 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
                 assert(read->op() == SSA_read_array);
 
                 assert(assignment.type.name() != TYPE_ARRAY);
-                type_t const type = member_type(assignment.type, i);
+                type_t const type = type_t::array(member_type(assignment.type, i), mt.size());
+                assert(type.name() == TYPE_ARRAY);
 
                 ssa_ht write = builder.cfg->emplace_ssa(
                     SSA_write_array, type,

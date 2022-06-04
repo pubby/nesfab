@@ -51,7 +51,7 @@ enum locator_class_t : std::uint8_t
     LOC_RELOCATION_ADDR,
 
     LOC_GLOBAL_CONST,
-    LOC_CT_PAIR,
+    LOC_ROM_ARRAY,
 
     LOC_SSA,
     LOC_MINOR_VAR,
@@ -90,7 +90,6 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_PHI:
     case LOC_CFG_LABEL:
     case LOC_MINOR_LABEL:
-    case LOC_CT_PAIR:
         return true;
     default:
         return false;
@@ -269,8 +268,8 @@ public:
     constexpr static locator_t global_const(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_GLOBAL_CONST, c.value, 0, member, atom, offset); }
 
-    constexpr static locator_t ct_pair(fn_ht fn, std::uint16_t id, std::uint16_t offset=0)
-        { return locator_t(LOC_CT_PAIR, fn.value, id, offset); }
+    constexpr static locator_t rom_array(std::uint16_t id, std::uint16_t offset=0)
+        { return locator_t(LOC_ROM_ARRAY, 0, id, offset); }
 
     constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
         { return locator_t(LOC_RETURN, fn.value, 0, member, atom, offset); }
@@ -321,17 +320,14 @@ private:
     std::uint64_t impl = 0;
 };
 
-namespace std
+template<>
+struct std::hash<locator_t>
 {
-    template<>
-    struct hash<locator_t>
+    std::size_t operator()(locator_t const& loc) const noexcept
     {
-        std::size_t operator()(locator_t const& loc) const noexcept
-        {
-            return rh::hash_finalize(loc.to_uint());
-        }
-    };
-}
+        return rh::hash_finalize(loc.to_uint());
+    }
+};
 
 std::string to_string(locator_t loc);
 std::ostream& operator<<(std::ostream& o, locator_t loc);

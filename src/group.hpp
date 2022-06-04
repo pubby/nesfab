@@ -89,9 +89,14 @@ public:
         std::lock_guard<std::mutex> lock(gvars_mutex);
         gvars.push_back(v);
     }
+
+
 private:
     std::mutex gvars_mutex; // Used during parsing only.
     std::vector<gvar_ht> gvars;
+
+    //std::mutex m_interfering_groups_mutex;
+    //bitset_t m_interfering_groups;
 };
 
 class group_data_t

@@ -556,6 +556,16 @@ ssa_ht scheduler_t::full_search() const
                 w += 16 * 8; // Fairly arbitrary numbers
         }
 
+        // Slightly penalize nodes that introduce branches.
+        // (This isn't necessary per se, but such nodes are harder to
+        // track in code gen, so we might as well.)
+        if(ssa_flags(ssa_it->op()) & SSAF_BRANCHY_CG)
+        {
+            // Arbitrary numbers
+            w *= 7;
+            w /= 8;
+        }
+
         if(w > best_weight)
         {
             best_weight = w;

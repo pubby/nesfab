@@ -1,5 +1,5 @@
-#ifndef LIVENESS_HPP
-#define LIVENESS_HPP
+#ifndef CG_LIVENESS_HPP
+#define CG_LIVENESS_HPP
 
 // A self-contained implementation of live variable analysis.
 

@@ -48,7 +48,7 @@ public:
     group_ht const* groups() const 
         { assert(has_group_tail(name())); return static_cast<group_ht const*>(m_tail); }
 
-    type_t type(unsigned i) const { assert(has_type_tail(name())); assert(i < type_tail_size()); return types()[i]; }
+    type_t type(unsigned i) const { assert(has_type_tail(name())); assert(i < type_tail_size()); assert(types()); return types()[i]; }
     type_t elem_type() const;
     group_ht group(unsigned i) const;
 

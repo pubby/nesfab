@@ -386,10 +386,10 @@ public:
     group_vars_ht const group_vars = {};
     token_t const* const init_expr = nullptr;
 
-    type_t type() const { assert(global.compiled()); return m_src_type.type; }
+    type_t type() const { assert(!is_thunk(m_src_type.type.name())); return m_src_type.type; }
 
     gmember_ht begin_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_begin_gmember; }
-    gmember_ht end_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_begin_gmember; }
+    gmember_ht end_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_end_gmember; }
     void set_gmember_range(gmember_ht begin, gmember_ht end);
 
     //group_bitset_t group_bitset() const { return 1ull << group.value; }

@@ -51,7 +51,8 @@ static bm_t _get_bm(ssa_value_t value)
     }
     else
     {
-        assert(is_arithmetic(_bm_type(value->type().name()).name()));
+        assert(value.holds_ref());
+        assert(is_arithmetic(_bm_type(value->type()).name()));
         return value.handle().data<ssa_byteify_d>().bm;
     }
 }

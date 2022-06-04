@@ -15,12 +15,13 @@ constexpr unsigned SSAF_COPY           = 1 << 1;
 constexpr unsigned SSAF_CLOBBERS_CARRY = 1 << 2;
 constexpr unsigned SSAF_WRITE_GLOBALS  = 1 << 3;
 constexpr unsigned SSAF_IMPURE         = 1 << 4;
-constexpr unsigned SSAF_WRITE_ARRAY    = 1 << 5;
+constexpr unsigned SSAF_WRITE_ARRAY    = 1 << 5; // Modifies an array in arg0
 constexpr unsigned SSAF_READ_ARRAY     = 1 << 6;
 constexpr unsigned SSAF_INDEXES_ARRAY  = 1 << 7;
 constexpr unsigned SSAF_CG_NEVER_STORE = 1 << 8; // The op has no associated memory during code gen
 constexpr unsigned SSAF_NO_GVN         = 1 << 9; // Won't be optimized in GVN pass
 constexpr unsigned SSAF_COMMUTATIVE    = 1 << 10; // First two args can be swapped
+constexpr unsigned SSAF_BRANCHY_CG     = 1 << 11; // Potentially uses a conditional in code gen
 
 enum input_class_t
 {

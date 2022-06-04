@@ -42,7 +42,7 @@ enum rom_alloc_class_t : char
 
 struct rom_alloc_ht
 {
-    roma_class_t rclass;
+    rom_alloc_class_t rclass;
     unsigned value;
 };
 

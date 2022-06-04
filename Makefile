@@ -98,7 +98,8 @@ o_gvn.cpp \
 eval.cpp \
 sval.cpp \
 type_name.cpp \
-cg_isel_cpu.cpp
+cg_isel_cpu.cpp \
+cg_array.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

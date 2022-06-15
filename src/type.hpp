@@ -13,7 +13,7 @@
 #include "pstring.hpp"
 
 struct token_t;
-struct array_thunk_t;
+struct tea_thunk_t;
 struct src_type_t;
 class eval_t;
 
@@ -31,7 +31,7 @@ public:
     {
         if(!has_type_tail(name()))
             return 0;
-        if(name() == TYPE_ARRAY)
+        if(name() == TYPE_TEA)
             return 1;
         return size();
     }
@@ -54,8 +54,8 @@ public:
 
     global_t const& global() const { assert(name() == TYPE_STRUCT_THUNK); return *static_cast<global_t const*>(m_tail); }
     struct_t const& struct_() const { assert(name() == TYPE_STRUCT); return *static_cast<struct_t const*>(m_tail); }
-    array_thunk_t const& array_thunk() const
-        { assert(name() == TYPE_ARRAY_THUNK); return *static_cast<array_thunk_t const*>(m_tail); }
+    tea_thunk_t const& tea_thunk() const
+        { assert(name() == TYPE_TEA_THUNK || name() == TYPE_PAA_THUNK); return *static_cast<tea_thunk_t const*>(m_tail); }
 
     std::size_t num_params() const { assert(name() == TYPE_FN); return size() - 1; }
     type_t return_type() const { assert(name() == TYPE_FN); return types()[size() - 1]; }
@@ -65,13 +65,16 @@ public:
 
     std::size_t size_of() const;
     std::size_t array_length() const;
+    void set_array_length(std::size_t size);
+    bool is_unsized_array() const { return is_array(name()) && !is_thunk(name()) && m_size == 0; }
 
     std::size_t hash() const;
 
     // Type creation functions.
-    static type_t buffer(unsigned size);
-    static type_t array(type_t elem_type, unsigned size);
-    static type_t array_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens);
+    static type_t paa(unsigned size, group_ht group);
+    static type_t paa_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens, group_ht group);
+    static type_t tea(type_t elem_type, unsigned size);
+    static type_t tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens);
     static type_t ptr(group_ht const* begin, group_ht const* end, bool banked);
     static type_t fn(type_t* begin, type_t* end);
     static type_t struct_thunk(global_t const& global);
@@ -82,15 +85,14 @@ public:
 
 private:
     type_name_t m_name = TYPE_VOID;
-
-    //std::uint8_t m_array_size; // TODO
+    //std::uint8_t m_unused; // TODO
 
     // Overloaded; 
     // - Holds tail size for fns and ptrs
     // - Array size for arrays
     std::uint16_t m_size = 0;
 
-    // Holds types, groups, or globals, depending on 'm_name'.
+    // Holds types, groups, globals, or thunks, depending on 'm_name'.
     void const* m_tail = nullptr;
 
     type_t(type_name_t name, std::uint16_t size, void const* tail = nullptr)
@@ -106,11 +108,19 @@ namespace std
     };
 }
 
-struct array_thunk_t
+struct tea_thunk_t
 {
     pstring_t pstring;
     type_t elem_type;
     token_t const* expr;
+};
+
+struct paa_thunk_t
+{
+    pstring_t pstring;
+    type_t elem_type;
+    token_t const* expr;
+    group_ht group;
 };
 
 // Pairs a pstring with a type.
@@ -122,13 +132,12 @@ struct src_type_t
 
 inline type_t type_t::elem_type() const
 { 
-    assert(is_array(name()));
-    if(name() == TYPE_ARRAY)
+    assert(is_tea(name()));
+    if(name() == TYPE_TEA)
         return type(0); 
-    assert(name() == TYPE_ARRAY_THUNK);
-    return array_thunk().elem_type;
+    assert(name() == TYPE_TEA_THUNK);
+    return tea_thunk().elem_type;
 }
-
 
 /* TODO: remove
 inline bool operator==(type_t lhs, type_name_t rhs)
@@ -189,7 +198,7 @@ unsigned num_atoms(type_t type);
 unsigned member_index(type_t const& type, unsigned i);
 type_t member_type(type_t const& type, unsigned i);
 type_t strip_array(type_t const& type);
-bool has_array(type_t const& type);
+bool has_tea(type_t const& type);
 
 enum cast_result_t : char
 {
@@ -202,6 +211,7 @@ enum cast_result_t : char
     CAST_CONVERT_INT,
 };
 
+bool can_size_unsized_array(type_t const& sized, type_t const& unsized);
 cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit);
 
 // Converts THUNKs to regular types.

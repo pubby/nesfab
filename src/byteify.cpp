@@ -29,7 +29,7 @@ namespace // anonymous
 
 static type_t _bm_type(type_t t)
 {
-    if(t.name() == TYPE_ARRAY)
+    if(t.name() == TYPE_TEA)
         return t.elem_type();
     return t;
 }
@@ -143,8 +143,8 @@ void byteify(ir_t& ir, fn_t const& fn)
             SSA_VERSION(1);
 
             type_t split_type = TYPE_U;
-            if(ssa_node.type().name() == TYPE_ARRAY)
-                split_type = type_t::array(TYPE_U, ssa_node.type().size());
+            if(ssa_node.type().name() == TYPE_TEA)
+                split_type = type_t::tea(TYPE_U, ssa_node.type().size());
 
             bm_t bm = zero_bm;
             unsigned const end = end_byte(type.name());

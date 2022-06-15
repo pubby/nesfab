@@ -34,9 +34,8 @@ parser_t<P>::parser_t(P& policy, file_contents_t const& file)
 // Template definitions have to come before anything that uses them!
 
 template<typename P>
-template<typename Func> 
-unsigned parser_t<P>::parse_args(token_type_t l, token_type_t r, 
-                                 Func parse_func)
+template<bool TrailingComma, typename Func> 
+unsigned parser_t<P>::parse_args(token_type_t l, token_type_t r, Func parse_func)
 {
     unsigned count = 0;
     parse_token(l);
@@ -45,12 +44,31 @@ unsigned parser_t<P>::parse_args(token_type_t l, token_type_t r,
         while(true)
         {
             ++count;
+
+            while(token.type == TOK_eol)
+                parse_line_ending();
+
             parse_func();
+
+            while(token.type == TOK_eol)
+                parse_line_ending();
+
             if(token.type == r)
                 break;
-            else if(token.type != TOK_comma)
+
+            if(token.type != TOK_comma)
                 compiler_error(fmt("Expecting , or %.", token_string(r)));
+
             parse_token();
+
+            if(TrailingComma)
+            {
+                while(token.type == TOK_eol)
+                    parse_line_ending();
+
+                if(token.type == r)
+                    break;
+            }
         }
     }
     parse_token();
@@ -273,7 +291,7 @@ void parser_t<P>::parse_expr(expr_temp_t& expr_temp,
 
         if(is_type_prefix(token.type))
         {
-            type_t const type = parse_type(false).type;
+            type_t const type = parse_type(false, false, {}).type;
             t.pstring.size = token.pstring.offset - t.pstring.offset;
 
             std::uint64_t const size = (type.*fn)();
@@ -370,25 +388,7 @@ inapplicable:
     default:
         if(is_type_prefix(token.type))
         {
-            // Insert a cast.
-            // Casts are implemented as a pair of two tokens:
-            // - a TOK_cast_argn first, counting how many arguments the cast parsed
-            // - a TOK_cast_type second, containing a pointer to the desired type
-
-            int const cast_indent = indent;
-            char const* begin = token_source;
-
-            src_type_t const src_type = parse_type(false);
-
-            unsigned argument_count = parse_args(TOK_lparen, TOK_rparen,
-                [&]() { parse_expr(expr_temp, cast_indent, open_parens+1); });
-
-            char const* end = token_source;
-            pstring_t pstring = { begin - source(), end - begin, file_i() };
-
-            expr_temp.push_back({ TOK_cast_argn, pstring, argument_count });
-            expr_temp.push_back(token_t::make_ptr(TOK_cast_type, src_type.pstring, type_t::new_type(src_type.type)));
-
+            parse_cast(expr_temp, open_parens+1);
             goto applicable;
         }
         else
@@ -507,7 +507,31 @@ finish_expr:
 }
 
 template<typename P>
-src_type_t parser_t<P>::parse_type(bool allow_void)
+void parser_t<P>::parse_cast(expr_temp_t& expr_temp, int open_parens)
+{
+    int const cast_indent = indent;
+    char const* begin = token_source;
+
+    src_type_t src_type = parse_type(false, true, {});
+
+    unsigned argument_count = parse_args<true>(TOK_lparen, TOK_rparen,
+        [&]() { parse_expr(expr_temp, cast_indent, open_parens+1); });
+
+    char const* end = token_source;
+    pstring_t pstring = { begin - source(), end - begin, file_i() };
+
+    if(src_type.type.is_unsized_array())
+        src_type.type.set_array_length(argument_count);
+
+    // Casts are implemented as a pair of two tokens:
+    // - a TOK_cast_argn first, counting how many arguments the cast parsed
+    // - a TOK_cast_type second, containing a pointer to the desired type
+    expr_temp.push_back({ TOK_cast_argn, pstring, argument_count });
+    expr_temp.push_back(token_t::make_ptr(TOK_cast_type, src_type.pstring, type_t::new_type(src_type.type)));
+}
+
+template<typename P>
+src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group_ht group)
 {
     src_type_t result = { TYPE_VOID, token.pstring };
 
@@ -562,16 +586,48 @@ src_type_t parser_t<P>::parse_type(bool allow_void)
             break;
         }
 
-        /* TODO: buffers
+    // PAA
     case TOK_lbracket:
-        parse_token();
-        if(token.type != TOK_number || token.value <= 0)
-            compiler_error("Invalid buffer size.");
-        type = type_t::buffer(token.value);
-        parse_token(TOK_number); // TODO: allow expressions
-        parse_token(TOK_rbracket);
+        {
+            if(!group)
+                compiler_error("Pointer-addressable array types can only appear in group contexts.");
+
+            pstring_t const start_pstring = token.pstring;
+            parse_token();
+
+            if(token.type == TOK_rbracket)
+            {
+                if(allow_blank_size)
+                    result.type = type_t::paa(0, group);
+                else
+                    compiler_error("Array length must be specified in this context.");
+            }
+            else
+            {
+                int const array_indent = indent;
+                expr_temp_t expr_temp;
+                parse_expr(expr_temp, array_indent, 1);
+
+                if(expr_temp.size() == 1 && expr_temp[0].type == TOK_int)
+                {
+                    unsigned const size = expr_temp[0].value >> fixed_t::shift;
+                    if(size <= 0 || size > 1 << 16)
+                        compiler_error(expr_temp[0].pstring, "Invalid array size.");
+                    result.type = type_t::paa(size, group);
+                }
+                else
+                {
+                    expr_temp.push_back({});
+                    result.type = type_t::paa_thunk(fast_concat(start_pstring, token.pstring), result.type, 
+                        policy().convert_expr(expr_temp), group);
+                }
+
+                parse_token(TOK_rbracket);
+            }
+
+            parse_token(TOK_rbracket);
+        }
         break;
-        */
 
     case TOK_type_ident:
         {
@@ -588,28 +644,38 @@ src_type_t parser_t<P>::parse_type(bool allow_void)
         break;
     }
 
-    // Arrays
+    // TEA
     if(token.type == TOK_lbracket)
     {
         pstring_t const start_pstring = token.pstring;
         parse_token();
 
-        int const array_indent = indent;
-        expr_temp_t expr_temp;
-        parse_expr(expr_temp, array_indent, 1);
-
-        if(expr_temp.size() == 1 && expr_temp[0].type == TOK_int)
+        if(token.type == TOK_rbracket)
         {
-            unsigned const size = expr_temp[0].value >> fixed_t::shift;
-            if(size <= 0 || size > 256)
-                compiler_error(expr_temp[0].pstring, "Invalid array size.");
-            result.type = type_t::array(result.type, size);
+            if(allow_blank_size)
+                result.type = type_t::tea(result.type, 0);
+            else
+                compiler_error("Array length must be specified in this context.");
         }
         else
         {
-            expr_temp.push_back({});
-            result.type = type_t::array_thunk(fast_concat(start_pstring, token.pstring), result.type, 
-                policy().convert_expr(expr_temp));
+            int const array_indent = indent;
+            expr_temp_t expr_temp;
+            parse_expr(expr_temp, array_indent, 1);
+
+            if(expr_temp.size() == 1 && expr_temp[0].type == TOK_int)
+            {
+                unsigned const size = expr_temp[0].value >> fixed_t::shift;
+                if(size <= 0 || size > 256)
+                    compiler_error(expr_temp[0].pstring, "Invalid array length.");
+                result.type = type_t::tea(result.type, size);
+            }
+            else
+            {
+                expr_temp.push_back({});
+                result.type = type_t::tea_thunk(fast_concat(start_pstring, token.pstring), result.type, 
+                    policy().convert_expr(expr_temp));
+            }
         }
 
         parse_token(TOK_rbracket);
@@ -620,22 +686,60 @@ src_type_t parser_t<P>::parse_type(bool allow_void)
 }
 
 template<typename P>
-var_decl_t parser_t<P>::parse_var_decl()
+var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group)
 {
-    return { parse_type(false), parse_ident() };
+    return { parse_type(false, block_init, group), parse_ident() };
 }
 
 // Returns true if the var init contains an expression.
 template<typename P>
-bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr)
+bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool block_init, group_ht group)
 {
-    var_decl = parse_var_decl();
+    int const var_indent = indent;
+    var_decl = parse_var_decl(block_init, group);
     if(token.type == TOK_assign)
     {
         parse_token();
         expr = parse_expr();
+        if(block_init)
+            parse_line_ending();
         return true;
     }
+    else if(block_init && is_paa(var_decl.src_type.type.name()))
+    {
+        parse_line_ending();
+
+        unsigned size = 0;
+        maybe_parse_block(var_indent, [&]
+        { 
+            if(token.type == TOK_file)
+            {
+                parse_token(TOK_file);
+                parse_token(TOK_period);
+                pstring_t const file_type = parse_ident();
+            }
+            else
+                parse_cast(expr);
+
+            parse_line_ending();
+        });
+
+        auto& type = var_decl.src_type.type;
+        if(!is_thunk(type.name()))
+        {
+            if(type.array_length() == 0)
+                type.set_array_length(size);
+            else if(type.array_length() != size)
+                compiler_error(var_decl.name, fmt("Length of array (%) does not match its type (%).", size, type));
+        }
+
+        expr.push_back({ TOK_cast_argn, var_decl.name, size });
+        expr.push_back(token_t::make_ptr(TOK_cast_type, var_decl.src_type.pstring, type_t::new_type(var_decl.src_type.type)));
+
+        return true;
+    }
+    else if(block_init)
+        parse_line_ending();
     return false;
 }
 
@@ -686,15 +790,14 @@ void parser_t<P>::parse_struct()
 
     auto struct_ = policy().begin_struct(struct_name);
 
-    maybe_parse_block(struct_indent, 
-    [&]{ 
+    maybe_parse_block(struct_indent, [&]
+    { 
         var_decl_t var_decl;
         expr_temp_t expr;
-        if(parse_var_init(var_decl, expr)) // TODO: support
-            compiler_error("Variables in struct block cannot have an initial value.");
+        if(parse_var_init(var_decl, expr, true, {})) // TODO: Allow default values in structs.
+            compiler_error(var_decl.name, "Variables in struct block cannot have an initial value.");
         else
             policy().struct_field(struct_, var_decl, nullptr);
-        parse_line_ending();
     });
 
     policy().end_struct(struct_);
@@ -719,11 +822,10 @@ void parser_t<P>::parse_group_vars()
         policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
-        if(parse_var_init(var_decl, expr)) // TODO: support
-            compiler_error("Variables in vars block cannot have an initial value.");
+        if(parse_var_init(var_decl, expr, true, group.first->group.handle()))
+            compiler_error(var_decl.name, "Variables in vars block cannot have an initial value.");
         else
             policy().global_var(group, var_decl, nullptr);
-        parse_line_ending();
     });
 
     policy().end_group();
@@ -747,10 +849,9 @@ void parser_t<P>::parse_group_data(bool once)
         policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
-        if(!parse_var_init(var_decl, expr))
+        if(!parse_var_init(var_decl, expr, true, group.first->group.handle()))
             compiler_error("Constants must be assigned a value.");
         policy().global_const(group, var_decl, expr);
-        parse_line_ending();
     });
 
     policy().end_group();
@@ -762,14 +863,13 @@ void parser_t<P>::parse_const()
     policy().prepare_global();
     var_decl_t var_decl;
     expr_temp_t expr;
-    if(!parse_var_init(var_decl, expr))
+    if(!parse_var_init(var_decl, expr, true, {}))
         compiler_error(var_decl.name, "Constants must be assigned a value.");
 
-    if(var_decl.src_type.type.name() == TYPE_BUFFER)
-        compiler_error(var_decl.name, "Buffers cannot be defined at top-level.");
+    if(var_decl.src_type.type.name() == TYPE_PAA)
+        compiler_error(var_decl.name, "Pointer-addressable arrays cannot be defined at top-level.");
 
     policy().global_const({}, var_decl, expr);
-    parse_line_ending();
 }
 
 template<typename P>
@@ -785,10 +885,10 @@ void parser_t<P>::parse_fn(bool ct)
 
     // Parse the arguments
     bc::small_vector<var_decl_t, 8> params;
-    parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl()); });
+    parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
 
     // Parse the return type
-    src_type_t return_type = parse_type(true);
+    src_type_t return_type = parse_type(true, false, {});
 
     auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type);
 
@@ -809,7 +909,7 @@ void parser_t<P>::parse_mode()
 
     // Parse the arguments
     bc::small_vector<var_decl_t, 8> params;
-    parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl()); });
+    parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
 
     // Parse the body of the function
     auto state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
@@ -873,11 +973,10 @@ void parser_t<P>::parse_var_init_statement()
 {
     var_decl_t var_decl;
     expr_temp_t expr;
-    if(parse_var_init(var_decl, expr))
+    if(parse_var_init(var_decl, expr, true, {}))
         policy().local_var(var_decl, &expr);
     else
         policy().local_var(var_decl, nullptr);
-    parse_line_ending();
 }
 
 template<typename P>
@@ -960,7 +1059,7 @@ void parser_t<P>::parse_for()
     {
         if(is_type_prefix(token.type))
         {
-            if(parse_var_init(var_init, init_expr))
+            if(parse_var_init(var_init, init_expr, false, {}))
                 maybe_init_expr = &init_expr;
             maybe_var_init = &var_init;
         }

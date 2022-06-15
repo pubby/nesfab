@@ -53,6 +53,41 @@ struct rom_once_t : public rom_alloc_t
 }
 
 {
+
+    // Buffers are tagged by the programmer either ONCE or MANY
+
+    // Functions are not tagged.
+    // If a function uses a ONCE buffer, it must be MANY
+    // If a function uses a MANY buffer, 
+
+    for(auto it = rom_array_map.begin(); it != rom_array_map.end(); ++it)
+    {
+        auto const& pair = *it;
+
+        std::size_t summed_fn_sizes = 0;
+        for(fn_ht fn : pair.second.used_by)
+            summed_fn_sizes += fn->proc().size_in_bytes();
+
+        std::size_t const array_size = pair.first.data.size();
+        if(pair.second.used_by.empty() || summed_fn_sizes / pair.second.used_by.size() > array_size)
+        {
+            // The array should be a 'many'
+
+            rom_deque<rom_many_t>.push_back(
+            { 
+                .require_static_addr = false,
+                .required_manys =  ,
+                .interfering_static_manys =  ,
+            });
+        }
+        else
+        {
+            // The array should be a 'once'
+        }
+
+
+    }
+
     for(const_t const& const_ : impl_deque<const_t>)
     {
         if(!emit_rom(const_))

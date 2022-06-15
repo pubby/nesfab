@@ -460,7 +460,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     // ROM ARRAYS //
     ////////////////
 
-    build_rom_arrays(ir);
+    build_rom_arrays(fn.handle(), ir);
 
     ///////////////////
     // DUPLICATE RTS //

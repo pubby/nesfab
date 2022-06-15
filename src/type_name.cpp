@@ -12,8 +12,9 @@ std::string to_string(type_name_t type_name)
     {
     default: 
         throw std::runtime_error(fmt("bad type name %", (int)type_name));
-    case TYPE_ARRAY_THUNK:  return "array thunk"s; 
-    case TYPE_STRUCT_THUNK: return "struct thunk"s; 
+    case TYPE_TEA_THUNK:  return "TEA_THUNK"s; 
+    case TYPE_PAA_THUNK:  return "PAA_THUNK"s; 
+    case TYPE_STRUCT_THUNK: return "STRUCT_THUNK"s; 
     case TYPE_VOID:  return "Void"s;  
     case TYPE_BOOL:  return "Bool"s;  
     case TYPE_INT:   return "Int"s;  
@@ -45,9 +46,9 @@ std::string to_string(type_name_t type_name)
     case TYPE_S13:   return "SFFF"s;  
     case TYPE_S23:   return "SSFFF"s;  
     case TYPE_S33:   return "SSSFFF"s;  
-    case TYPE_ARRAY:  return "ARRAY"s; 
+    case TYPE_TEA:  return "TEA"s; 
+    case TYPE_PAA:  return "PAA"s; 
     case TYPE_STRUCT: return "STRUCT"s; 
-    case TYPE_BUFFER: return "BUFFER"s; 
     case TYPE_BANKED_PTR: return "BANKED_PTR"s;
     case TYPE_PTR: return "PTR"s;
     case TYPE_FN: return "FN"s;

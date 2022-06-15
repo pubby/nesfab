@@ -90,7 +90,6 @@ public:
         gvars.push_back(v);
     }
 
-
 private:
     std::mutex gvars_mutex; // Used during parsing only.
     std::vector<gvar_ht> gvars;

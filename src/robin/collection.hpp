@@ -32,6 +32,9 @@ public:
     using hash_type = typename table_type::hash_type;
     using policy_type = Policy;
 
+    using iterator = value_type*;
+    using const_iterator = value_type const*;
+
     robin_collection() = default;
     explicit robin_collection(hash_type size) { reserve(size); }
     robin_collection(robin_collection const&) = default;
@@ -39,18 +42,18 @@ public:
     robin_collection& operator=(robin_collection const&) = default;
     robin_collection& operator=(robin_collection&&) = default;
 
-    apair<value_type*, bool> insert(value_type const& t)
+    apair<iterator, bool> insert(value_type const& t)
     { 
         return emplace(t, [&]() -> value_type const& { return t; }); 
     }
 
-    apair<value_type*, bool> insert(value_type&& t)
+    apair<iterator, bool> insert(value_type&& t)
     { 
         return emplace(t, [&]() -> value_type&& { return std::move(t); }); 
     }
 
     template<typename K, typename C>
-    apair<value_type*, bool> emplace(K const& key, C&& construct)
+    apair<iterator, bool> emplace(K const& key, C&& construct)
     { 
         return table.emplace(
             Policy::hash(key),
@@ -58,16 +61,17 @@ public:
             std::forward<C>(construct));
     }
 
+    // Returns nullptr on failure, NOT cend()!!
     template<typename K>
-    value_type const* find(K const& k) const
+    value_type const* lookup(K const& k) const
     { 
-        return table.find(Policy::hash(k), eq<K>{k}).second;
+        return table.lookup(Policy::hash(k), eq<K>{k}).second;
     }
 
     template<typename K>
-    value_type* find(K const& k)
+    value_type* lookup(K const& k)
     { 
-        return const_cast<value_type*>(const_this()->find(k));
+        return const_cast<value_type*>(const_this()->lookup(k));
     }
 
     void erase(value_type const& v)
@@ -78,7 +82,7 @@ public:
     template<typename K>
     bool remove(K const& k)
     { 
-        auto pair = table.find(Policy::hash(k), eq<K>{k});
+        auto pair = table.lookup(Policy::hash(k), eq<K>{k});
         if(!pair.first)
             return false;
         table.erase(pair);
@@ -86,7 +90,7 @@ public:
     }
 
     template<typename K>
-    bool count(K const& k) const { return find(k); }
+    bool count(K const& k) const { return lookup(k); }
 
     void clear() { table.clear(); }
     void reset() { table.reset(); }
@@ -145,18 +149,18 @@ public:
     batman_collection& operator=(batman_collection const&) = default;
     batman_collection& operator=(batman_collection&&) = default;
 
-    apair<value_type*, bool> insert(value_type const& t)
+    apair<iterator, bool> insert(value_type const& t)
     { 
         return emplace(t, [&]() -> value_type const& { return t; }); 
     }
 
-    apair<value_type*, bool> insert(value_type&& t)
+    apair<iterator, bool> insert(value_type&& t)
     { 
         return emplace(t, [&]() -> value_type&& { return std::move(t); }); 
     }
 
     template<typename K, typename C>
-    apair<value_type*, bool> emplace(K const& key, C construct)
+    apair<iterator, bool> emplace(K const& key, C construct)
     { 
         apair<index_type*, bool> result = table.emplace(
             Policy::hash(key),
@@ -172,31 +176,30 @@ public:
 
     // Returns nullptr on failure, NOT cend()!!
     template<typename K>
-    value_type const* find(K const& k) const
+    value_type const* lookup(K const& k) const
     { 
-        index_type const* ptr = table.find(
+        index_type const* ptr = table.lookup(
             Policy::hash(k), eq<K>{k, data()}).second;
         return ptr ? data() + *ptr : nullptr;
     }
 
     template<typename K>
-    value_type* find(K const& k)
+    value_type* lookup(K const& k)
     { 
-        return const_cast<value_type*>(const_this()->find(k));
+        return const_cast<value_type*>(const_this()->lookup(k));
     }
 
     // For values we know are in the container.
     void erase(value_type const& v)
     {
-        erase_impl(table.find(Policy::hash(v), 
-                              eq_i{ std::addressof(v) - data() }));
+        erase_impl(table.lookup(Policy::hash(v), eq_i{ std::addressof(v) - data() }));
     }
 
     // For values that might be in the container.
     template<typename K>
     bool remove(K const& k)
     { 
-        auto pair = table.find(Policy::hash(k), eq<K>{ k, data() });
+        auto pair = table.lookup(Policy::hash(k), eq<K>{ k, data() });
         if(!pair.second)
             return false;
         erase_impl(pair);
@@ -206,7 +209,7 @@ public:
     template<typename K>
     bool count(K const& k) const
     { 
-        return table.find(Policy::hash(k), eq<K>{k, data()}).second;
+        return table.lookup(Policy::hash(k), eq<K>{k, data()}).second;
     }
 
     void clear() { table.clear(); m_data.clear(); }
@@ -246,7 +249,7 @@ private:
         using std::swap;
         if(*pair.second != m_data.size() - 1)
         {
-            *table.find(
+            *table.lookup(
                 Policy::hash(m_data.back()), 
                 eq<value_type>{m_data.back(), data()}).second = *pair.second;
             swap(data()[*pair.second], m_data.back());
@@ -318,12 +321,7 @@ public:
     joker_iterator& operator-=(difference_type i) { ptr -= i; return *this; }
     difference_type operator-(joker_iterator it) const { return ptr - it.ptr; }
     value_type& operator[](difference_type i) const { return *ptr[i]; }
-    bool operator==(joker_iterator it) const { return ptr == it.ptr; }
-    bool operator!=(joker_iterator it) const { return ptr != it.ptr; }
-    bool operator>=(joker_iterator it) const { return ptr >= it.ptr; }
-    bool operator<=(joker_iterator it) const { return ptr <= it.ptr; }
-    bool operator<(joker_iterator it) const { return ptr < it.ptr; }
-    bool operator>(joker_iterator it) const { return ptr > it.ptr; }
+    auto operator<=>(joker_iterator const& it) const = default;
     value_type& operator*() const { return **ptr; }
     value_type* operator->() const { return ptr->get(); }
     joker_iterator& operator++() { ++ptr; return *this; }
@@ -374,7 +372,7 @@ public:
     joker_collection& operator=(joker_collection const&) = default;
     joker_collection& operator=(joker_collection&&) = default;
 
-    apair<value_type*, bool> insert(value_type const& t) 
+    apair<iterator, bool> insert(value_type const& t) 
     {
         apair<unique_ptr_t*, bool> pair = collection.emplace(
             t, 
@@ -382,43 +380,43 @@ public:
         return { pair.first->get(), pair.second };
     }
 
-    apair<value_type*, bool> insert(value_type&& t)
+    apair<iterator, bool> insert(value_type&& t)
     { 
         apair<unique_ptr_t*, bool> pair = collection.emplace(
             t, 
             [&]() { return unique_ptr_t(new value_type(std::move(t))); }); 
-        return { pair.first->get(), pair.second };
+        return { iterator(pair.first), pair.second };
     }
 
     template<typename K>
-    apair<value_type*, bool> emplace(K&& key)
+    apair<iterator, bool> emplace(K&& key)
     {
         apair<unique_ptr_t*, bool> pair = collection.emplace(
             key, 
             [&](){ return unique_ptr_t(new value_type()); });
-        return { pair.first->get(), pair.second };
+        return { iterator(pair.first), pair.second };
     }
 
     template<typename K, typename C>
-    apair<value_type*, bool> emplace(K&& key, C construct)
+    apair<iterator, bool> emplace(K&& key, C construct)
     { 
         apair<unique_ptr_t*, bool> pair = collection.emplace(
             key, 
             [&](){ return unique_ptr_t(new value_type(construct())); });
-        return { pair.first->get(), pair.second };
+        return { iterator(pair.first), pair.second };
     }
 
     // Returns nullptr on failure, NOT cend()!!
     template<typename K>
-    value_type const* find(K const& k) const
+    value_type const* lookup(K const& k) const
     { 
-        unique_ptr_t* ptr = collection.find(k);
+        unique_ptr_t* ptr = collection.lookup(k);
         return ptr ? ptr->get() : nullptr;
     }
 
     template<typename K>
-    value_type* find(K const& k)
-        { return const_cast<value_type*>(const_this()->find(k)); }
+    value_type* lookup(K const& k)
+        { return const_cast<value_type*>(const_this()->lookp(k)); }
 
     // For values that might be in the container.
     template<typename K>

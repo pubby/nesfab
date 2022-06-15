@@ -1,20 +1,27 @@
 #include "cg_array.hpp"
 
-std::mutex rom_array_set_mutex;
-rom_array_set_type rom_array_set;
+std::mutex rom_array_map_mutex;
+rom_array_map_t rom_array_map;
 
-static locator_t lookup_rom_array(rom_array_t&& rom_array, std::uint16_t offset=0)
+static locator_t _lookup_rom_array(fn_ht fn, rom_array_t&& rom_array, std::uint16_t offset=0)
 {
-    rh::apair<rom_array_set_type::value_type const*, bool> result;
+    rom_array_map_t::insertion result;
     {
-        std::lock_guard<std::mutex> lock(rom_array_set_mutex);
-        result = rom_array_set.insert(std::move(rom_array));
+        std::lock_guard<std::mutex> lock(rom_array_map_mutex);
+        result = rom_array_map.emplace(std::move(rom_array), []() -> rom_array_meta_t { return {}; });
     }
 
-    return locator_t::rom_array(result.first - rom_array_set.begin(), offset);
+    rom_array_meta_t& meta = result.first->second;
+
+    {
+        std::lock_guard<std::mutex> lock(meta.mutex);
+        meta.used_by.insert(fn);
+    }
+
+    return locator_t::rom_array(result.first - rom_array_map.begin(), offset);
 }
 
-void build_rom_arrays(ir_t& ir)
+void build_rom_arrays(fn_ht fn, ir_t& ir)
 {
     std::puts("building rom");
     for(cfg_node_t const& cfg : ir)
@@ -50,7 +57,7 @@ void build_rom_arrays(ir_t& ir)
                     assert(false);
             }
 
-            ssa_it->replace_with(lookup_rom_array(std::move(rom_array)));
+            ssa_it->replace_with(_lookup_rom_array(fn, std::move(rom_array)));
             ssa_it = ssa_it->prune();
             continue;
         }

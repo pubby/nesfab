@@ -76,7 +76,7 @@ type_t locator_t::mem_type() const
     switch(lclass())
     {
     case LOC_IOTA:
-        return type_t::array(TYPE_U, 256);
+        return type_t::tea(TYPE_U, 256);
     case LOC_GMEMBER: 
         return gmember()->type();
     case LOC_ARG:
@@ -99,7 +99,7 @@ std::size_t locator_t::mem_size() const
 
     switch(t.name())
     {
-    case TYPE_ARRAY: 
+    case TYPE_TEA: 
         return t.size();
     case TYPE_PTR:
     case TYPE_BANKED_PTR:

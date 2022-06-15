@@ -24,14 +24,14 @@ enum type_name_t : std::uint8_t // Keep unsigned.
 
     TYPE_STRUCT_THUNK, // Will convert to struct type eventually.
     TYPE_FIRST_THUNK = TYPE_STRUCT_THUNK,
-    TYPE_ARRAY_THUNK, // The size will be determined later.
-    TYPE_LAST_THUNK = TYPE_ARRAY_THUNK,
+    TYPE_TEA_THUNK, // The size will be determined later.
+    TYPE_PAA_THUNK, // The size will be determined later.
+    TYPE_LAST_THUNK = TYPE_PAA_THUNK,
 
     TYPE_STRUCT,
 
-    TYPE_ARRAY,
-
-    TYPE_BUFFER,
+    TYPE_TEA,  // typed-element array
+    TYPE_PAA, // pointer-addressable array
 
     TYPE_PTR,
     TYPE_FIRST_SCALAR = TYPE_PTR,
@@ -99,17 +99,21 @@ constexpr bool is_thunk(type_name_t type_name)
     { return type_name >= TYPE_FIRST_THUNK && type_name <= TYPE_LAST_THUNK; }
 constexpr bool is_ct(type_name_t type_name)
     { return type_name >= TYPE_FIRST_CT && type_name <= TYPE_LAST_CT; }
+constexpr bool is_tea(type_name_t type_name)
+    { return type_name == TYPE_TEA || type_name == TYPE_TEA_THUNK; }
+constexpr bool is_paa(type_name_t type_name)
+    { return type_name == TYPE_PAA || type_name == TYPE_PAA_THUNK; }
 constexpr bool is_array(type_name_t type_name)
-    { return type_name == TYPE_ARRAY || type_name == TYPE_ARRAY_THUNK; }
+    { return is_tea(type_name) || is_paa(type_name); }
 constexpr bool is_struct(type_name_t type_name)
     { return type_name == TYPE_STRUCT || type_name == TYPE_STRUCT_THUNK; }
 constexpr bool is_aggregate(type_name_t type_name)
-    { return is_array(type_name) || is_struct(type_name); }
+    { return is_tea(type_name) || is_struct(type_name); }
 
 constexpr bool has_type_tail(type_name_t name)
-    { return name == TYPE_ARRAY || name == TYPE_FN; }
+    { return name == TYPE_TEA || name == TYPE_FN; }
 constexpr bool has_group_tail(type_name_t name)
-    { return is_ptr(name) || name == TYPE_BUFFER; }
+    { return is_ptr(name) || name == TYPE_PAA; }
 constexpr bool has_tail(type_name_t name)
 { 
     return (has_type_tail(name) 

@@ -235,12 +235,12 @@ public:
         return m_member_types[i];
     }
 
-    bool has_array_member() const { return m_has_array_member; }
+    bool has_tea_member() const { return m_has_tea_member; }
 
     unsigned count_members(); 
     void compile();
 private:
-    void gen_member_types(struct_t const& s, unsigned array_size);
+    void gen_member_types(struct_t const& s, unsigned tea_size);
 
     field_map_t m_fields;
 
@@ -249,7 +249,7 @@ private:
 
     // Cached vectors, tracking expanded members
     std::vector<type_t> m_member_types;
-    bool m_has_array_member = false;
+    bool m_has_tea_member = false;
 };
 
 class fn_t

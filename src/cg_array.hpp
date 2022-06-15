@@ -6,8 +6,11 @@
 #include <mutex>
 #include <vector>
 
-#include "robin/set.hpp"
+#include "robin/map.hpp"
 
+#include "flat/small_set.hpp"
+
+#include "globals.hpp"
 #include "ir.hpp"
 
 struct rom_array_t
@@ -15,6 +18,12 @@ struct rom_array_t
     std::vector<locator_t> data;
 
     auto operator<=>(rom_array_t const&) const = default;
+};
+
+struct rom_array_meta_t
+{
+    std::mutex mutex; // Protects the members below
+    fc::small_set<fn_ht, 4> used_by;
 };
 
 template<>
@@ -39,11 +48,11 @@ struct std::hash<rom_array_t>
     }
 };
 
-using rom_array_set_type = rh::batman_set<rom_array_t>;
-extern std::mutex rom_array_set_mutex;
-extern rom_array_set_type rom_array_set;
+using rom_array_map_t = rh::joker_map<rom_array_t, rom_array_meta_t>;
+extern std::mutex rom_array_map_mutex;
+extern rom_array_map_t rom_array_map;
 
 // Orders CFG basic blocks, trying to find an optimal layout for branches.
-void build_rom_arrays(ir_t& ir);
+void build_rom_arrays(fn_ht fn, ir_t& ir);
 
 #endif

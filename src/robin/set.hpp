@@ -61,9 +61,9 @@ public:
         return { pair.first, pair.second };
     }
 
-    value_type const* find(key_type const& k) const
+    value_type const* lookup(key_type const& k) const
     { 
-        return collection.find(k);
+        return collection.lookup(k);
     }
 
     void erase(value_type const& v) { collection.erase(v); }
@@ -117,9 +117,9 @@ public:
         return { pair.first, pair.second };
     }
 
-    value_type const* find(key_type const& k) const
+    value_type const* lookup(key_type const& k) const
     { 
-        return collection.find(k);
+        return collection.lookup(k);
     }
 
     bool remove(key_type const& k) { return collection.remove(k); }
@@ -179,9 +179,9 @@ public:
         return { pair.first, pair.second };
     }
 
-    value_type const* find(key_type const& k) const
+    value_type const* lookup(key_type const& k) const
     { 
-        return collection.find(k);
+        return collection.lookup(k);
     }
 
     bool remove(key_type const& k) { return collection.remove(k); }

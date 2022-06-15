@@ -56,9 +56,11 @@ public:
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = apair<key_type, mapped_type>;
-    using insertion = apair<value_type*, bool>;
     using collection_type = 
         robin_collection<map_policy<value_type, Hash, KeyEqual>>;
+    using iterator = typename collection_type::iterator;
+    using const_iterator = typename collection_type::const_iterator;
+    using insertion = apair<iterator, bool>;
     using hash_type = typename collection_type::hash_type;
 
     robin_map() = default;
@@ -90,21 +92,21 @@ public:
             [&](){ return value_type{ std::forward<K>(k), mconstruct() }; });
     }
 
-    value_type const* find(key_type const& k) const
+    value_type const* lookup(key_type const& k) const
     { 
-        return collection.find(k);
+        return collection.lookup(k);
     }
 
     mapped_type const* mapped(key_type const& k) const
     { 
-        if(value_type const* pair = collection.find(k))
+        if(value_type const* pair = collection.lookup(k))
             return &pair->second;
         return nullptr;
     }
 
     mapped_type* mapped(key_type const& k)
     { 
-        if(value_type* pair = collection.find(k))
+        if(value_type* pair = collection.lookup(k))
             return &pair->second;
         return nullptr;
     }
@@ -138,12 +140,12 @@ public:
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = apair<key_type, mapped_type>;
-    using insertion = apair<value_type*, bool>;
     using collection_type = 
         batman_collection<map_policy<value_type, Hash, KeyEqual>>;
     using hash_type = typename collection_type::hash_type;
     using iterator = typename collection_type::iterator;
     using const_iterator = typename collection_type::const_iterator;
+    using insertion = apair<iterator, bool>;
 
     batman_map() = default;
     explicit batman_map(hash_type size) { reserve(size); }
@@ -174,21 +176,21 @@ public:
             [&](){ return value_type{ std::forward<K>(k), mconstruct() }; });
     }
 
-    value_type const* find(key_type const& k) const
+    value_type const* lookup(key_type const& k) const
     { 
-        return collection.find(k);
+        return collection.lookup(k);
     }
 
     mapped_type const* mapped(key_type const& k) const
     { 
-        if(value_type const* pair = collection.find(k))
+        if(value_type const* pair = collection.lookup(k))
             return &pair->second;
         return nullptr;
     }
 
     mapped_type* mapped(key_type const& k)
     { 
-        if(value_type* pair = collection.find(k))
+        if(value_type* pair = collection.lookup(k))
             return &pair->second;
         return nullptr;
     }
@@ -228,12 +230,12 @@ public:
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = apair<key_type, mapped_type>;
-    using insertion = apair<value_type*, bool>;
     using collection_type = 
         joker_collection<map_policy<value_type, Hash, KeyEqual>>;
     using hash_type = typename collection_type::hash_type;
     using iterator = typename collection_type::iterator;
     using const_iterator = typename collection_type::const_iterator;
+    using insertion = apair<iterator, bool>;
 
     joker_map() = default;
     explicit joker_map(hash_type size) { reserve(size); }
@@ -264,21 +266,21 @@ public:
             [&](){ return value_type{ std::forward<K>(k), mconstruct() }; });
     }
 
-    value_type const* find(key_type const& k) const
+    value_type const* lookup(key_type const& k) const
     { 
-        return collection.find(k);
+        return collection.lookup(k);
     }
 
     mapped_type const* mapped(key_type const& k) const
     { 
-        if(value_type const* pair = collection.find(k))
+        if(value_type const* pair = collection.lookup(k))
             return &pair->second;
         return nullptr;
     }
 
     mapped_type* mapped(key_type const& k)
     { 
-        if(value_type* pair = collection.find(k))
+        if(value_type* pair = collection.lookup(k))
             return &pair->second;
         return nullptr;
     }

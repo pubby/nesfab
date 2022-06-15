@@ -21,7 +21,7 @@ public:
 
     int index(locator_t var) const
     {
-        if(auto result = m_map.find(var.mem_head()))
+        if(auto result = m_map.lookup(var.mem_head()))
             return result - m_map.begin();
         return -1;
     }

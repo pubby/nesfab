@@ -131,7 +131,7 @@ auto gmanager_t::var_i(gmember_ht gmember) const -> index_t
     auto it = gvar_set.find(gmember->gvar.handle());
     if(it != gvar_set.end())
         return { it - gvar_set.begin() };
-    else if(auto const* pair = gmember_sets_map.find(gmember))
+    else if(auto const* pair = gmember_sets_map.lookup(gmember))
         return { pair->second + num_gvar_locators() };
     return {};
 }

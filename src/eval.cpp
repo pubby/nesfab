@@ -463,7 +463,10 @@ void eval_t::do_expr_result(token_t const* expr, type_t expected_type)
     do_expr<D>(rpn_stack, expr);
 
     if(expected_type.name() != TYPE_VOID)
-        throwing_cast<D>(rpn_stack.only1(), expected_type, true);
+    {
+        if(!can_size_unsized_array(rpn_stack.only1().type, expected_type))
+            throwing_cast<D>(rpn_stack.only1(), expected_type, true);
+    }
 
     if(is_interpret(D))
         final_result.value = rpn_stack.only1().sval;
@@ -517,6 +520,10 @@ void eval_t::interpret_stmts()
                 if(stmt->expr)
                 {
                     do_expr<D>(rpn_stack, stmt->expr);
+
+                    if(can_size_unsized_array(rpn_stack.peek(0).type, var_types[var_i]))
+                        var_types[var_i].set_array_length(rpn_stack.peek(0).type.array_length());
+
                     throwing_cast<D>(rpn_stack.peek(0), var_types[var_i], true);
 
                     if(D == INTERPRET)
@@ -538,7 +545,7 @@ void eval_t::interpret_stmts()
                     for(unsigned i = 0; i < num; ++i)
                     {
                         type_t const mt = member_type(type, i);
-                        if(mt.name() == TYPE_ARRAY)
+                        if(mt.name() == TYPE_TEA)
                             sval.emplace_back(make_ct_array(mt.array_length()));
                         else
                             sval.emplace_back();
@@ -662,6 +669,10 @@ void eval_t::compile_block()
             if(stmt->expr)
             {
                 do_expr<COMPILE>(rpn_stack, stmt->expr);
+
+                if(can_size_unsized_array(rpn_stack.peek(0).type, var_types[var_i]))
+                    var_types[var_i].set_array_length(rpn_stack.peek(0).type.array_length());
+
                 throwing_cast<COMPILE>(rpn_stack.peek(0), var_types[var_i], true);
                 value = from_sval(rpn_stack.only1().sval, rpn_stack.only1().type);
             }
@@ -1110,9 +1121,9 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 struct_t const& s = struct_val.type.struct_();
 
                 std::uint64_t const hash = token->value;
-                auto const it = s.fields().find(hash);
+                auto const ptr = s.fields().lookup(hash);
 
-                if(!it)
+                if(!ptr)
                 {
                     file_contents_t file(token->pstring.file_i);
                     compiler_error(file, token->pstring, fmt(
@@ -1120,13 +1131,13 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                         token->pstring.view(file.source()), s.global.name));
                 }
 
-                unsigned const field_i = it - s.fields().begin();
+                unsigned const field_i = ptr - s.fields().begin();
                 unsigned const member_i = member_index(struct_val.type, field_i);
                 
                 if(D != CHECK)
                 {
                     // Shrink the sval to only contain the specified field.
-                    unsigned const size = num_members(it->second.type());
+                    unsigned const size = num_members(ptr->second.type());
                     assert(struct_val.sval.size() == num_members(struct_val.type));
                     assert(size + member_i <= struct_val.sval.size());
                     if(member_i != 0)
@@ -1136,7 +1147,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 }
 
                 struct_val.member += member_i;
-                struct_val.type = it->second.type();
+                struct_val.type = ptr->second.type();
                 struct_val.pstring = concat(struct_val.pstring, token->pstring);
 
                 break;
@@ -1605,7 +1616,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             new_top.sval = std::move(new_sval);
                         }
                     }
-                    else if(type.name() == TYPE_ARRAY)
+                    else if(type.name() == TYPE_TEA)
                     {
                         check_argn(type.array_length());
 
@@ -1635,7 +1646,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             for(unsigned i = 0; i < num_mem; ++i)
                             {
                                 type_t const mt = member_type(type, i);
-                                assert(mt.name() == TYPE_ARRAY);
+                                assert(mt.name() == TYPE_TEA);
 
                                 for(unsigned j = 0; j < argn; ++j)
                                     if(!args[j].is_ct())
@@ -1650,7 +1661,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             for(unsigned i = 0; i < num_mem; ++i)
                             {
                                 type_t const mt = member_type(type, i);
-                                assert(mt.name() == TYPE_ARRAY);
+                                assert(mt.name() == TYPE_TEA);
 
                                 ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);
                                 h->alloc_input(argn);
@@ -1688,7 +1699,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 // Right beneath it contains the array.
                 rpn_value_t& array_val = rpn_stack.peek(1);
 
-                if(array_val.type.name() != TYPE_ARRAY)
+                if(array_val.type.name() != TYPE_TEA)
                 {
                     compiler_error(array_val.pstring, fmt(
                         "Expecting array type. Got %.", array_val.type));
@@ -1724,7 +1735,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     for(unsigned i = 0; i < array_val.sval.size(); ++i)
                     {
                         type_t const etype = ::member_type(array_val.type, i);
-                        assert(etype.name() == TYPE_ARRAY);
+                        assert(etype.name() == TYPE_TEA);
 
                         array_val.sval[i] = builder.cfg->emplace_ssa(
                             SSA_read_array, etype.elem_type(), 
@@ -2012,7 +2023,7 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
         if(assignee.index)
         {
             type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
-            assert(mt.name() == TYPE_ARRAY);
+            assert(mt.name() == TYPE_TEA);
             assert(mt.elem_type() == assignee.type);
 
             unsigned const array_size = mt.array_length();
@@ -2049,7 +2060,7 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
         if(assignee.index)
         {
             type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
-            assert(mt.name() == TYPE_ARRAY);
+            assert(mt.name() == TYPE_TEA);
             assert(mt.elem_type() == assignee.type);
 
             for(unsigned i = 0; i < assignment.sval.size(); ++i)
@@ -2057,9 +2068,9 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
                 ssa_ht read = assignee.ssa(i).handle();
                 assert(read->op() == SSA_read_array);
 
-                assert(assignment.type.name() != TYPE_ARRAY);
-                type_t const type = type_t::array(member_type(assignment.type, i), mt.size());
-                assert(type.name() == TYPE_ARRAY);
+                assert(assignment.type.name() != TYPE_TEA);
+                type_t const type = type_t::tea(member_type(assignment.type, i), mt.size());
+                assert(type.name() == TYPE_TEA);
 
                 ssa_ht write = builder.cfg->emplace_ssa(
                     SSA_write_array, type,

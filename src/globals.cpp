@@ -837,15 +837,19 @@ void const_t::compile()
 {
     m_src_type.type = ::dethunkify(m_src_type, true);
     assert(init_expr);
-    m_sval = std::move(interpret_expr(global.pstring(), init_expr, m_src_type.type).value);
+    {
+        spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
+        m_sval = std::move(spair.value);
+        m_src_type.type = std::move(spair.type); // Handles unsized arrays
+    }
 
     // TODO: remove all this
     if(ssa_value_t const* v = std::get_if<ssa_value_t>(&m_sval[0]))
         std::printf("%s = %i\n", global.name.data(), v->whole());
     else if(ct_array_t const* a = std::get_if<ct_array_t>(&m_sval[0]))
     {
-        unsigned array_size = m_src_type.type.array_length();
-        for(unsigned i = 0; i < array_size; ++i)
+        unsigned tea_size = m_src_type.type.array_length();
+        for(unsigned i = 0; i < tea_size; ++i)
             std::printf("%s[%u] = %i\n", global.name.data(), i, (*a)[i].whole());
 
     }
@@ -868,7 +872,7 @@ unsigned struct_t::count_members()
     {
         type_t type = const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, false);
 
-        if(is_array(type.name()))
+        if(is_tea(type.name()))
             type = type.elem_type();
 
         if(type.name() == TYPE_STRUCT)
@@ -900,15 +904,15 @@ void struct_t::compile()
 }
 
 // Builds 'm_member_types', sets 'm_has_array_member', and dethunkifies the struct.
-void struct_t::gen_member_types(struct_t const& s, unsigned array_size)
+void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
 {
     for(unsigned i = 0; i < fields().size(); ++i)
     {
         type_t type = s.field(i).type();
 
-        if(type.name() == TYPE_ARRAY)
+        if(type.name() == TYPE_TEA)
         {
-            array_size = type.size();
+            tea_size = type.size();
             type = type.elem_type();
         }
 
@@ -917,17 +921,17 @@ void struct_t::gen_member_types(struct_t const& s, unsigned array_size)
         if(type.name() == TYPE_STRUCT)
         {
             assert(&type.struct_() != &s);
-            gen_member_types(type.struct_(), array_size);
+            gen_member_types(type.struct_(), tea_size);
         }
         else
         {
             assert(!is_aggregate(type.name()));
-            assert(array_size <= 256);
+            assert(tea_size <= 256);
 
-            if(array_size)
+            if(tea_size)
             {
-                m_member_types.push_back(type_t::array(type, array_size));
-                m_has_array_member = true;
+                m_member_types.push_back(type_t::tea(type, tea_size));
+                m_has_tea_member = true;
             }
             else
                 m_member_types.push_back(type);

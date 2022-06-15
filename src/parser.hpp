@@ -44,7 +44,7 @@ private:
     Policy& policy() { return *policy_ptr; }
 
     // Parses comma-separated values between token types 'l' and 'r'.
-    template<typename Func> 
+    template<bool TrailingComma = false, typename Func> 
     unsigned parse_args(token_type_t l, token_type_t r, Func parse_func);
 
     // Parses an indented block OR a non-indented newline.
@@ -66,11 +66,12 @@ private:
     expr_temp_t parse_expr();
     expr_temp_t parse_expr_then();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
+    void parse_cast(expr_temp_t&, int open_parens=0);
 
-    src_type_t parse_type(bool allow_void);
+    src_type_t parse_type(bool allow_void, bool allow_bank_size, group_ht group);
 
-    var_decl_t parse_var_decl();
-    bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr);
+    var_decl_t parse_var_decl(bool block_init, group_ht group);
+    bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool block_init, group_ht group);
 
     void parse_top_level();
     void parse_top_level_def();

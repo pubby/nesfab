@@ -598,6 +598,7 @@ int main()
             keyword("mode"),
             keyword("goto"),
             keyword("label"),
+            keyword("file"),
 
             keyword("struct"),
             keyword("vars"),

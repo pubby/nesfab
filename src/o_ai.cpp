@@ -102,7 +102,7 @@ std::size_t constraints_size(ssa_node_t const& node)
             //return node.type().size();
         //if(!is_numeric(node.type()))
             //std::printf("not numeric: %s\n", to_string(node.op()).data());
-        if(node.type().name() == TYPE_ARRAY)
+        if(node.type().name() == TYPE_TEA)
             return node.type().size();
         if(is_scalar(node.type().name()))
             return 1;
@@ -745,9 +745,9 @@ void ai_t::range_propagate()
             if(constraints.vec.empty())
                 continue;
 
-            if(type.name() == TYPE_ARRAY)
+            if(type.name() == TYPE_TEA)
                 constraints.cm = type_constraints_mask(type.elem_type().name());
-            else if(type.name() == TYPE_BUFFER)
+            else if(type.name() == TYPE_PAA)
                 constraints.cm = type_constraints_mask(TYPE_U);
             else
                 constraints.cm = type_constraints_mask(type.name());

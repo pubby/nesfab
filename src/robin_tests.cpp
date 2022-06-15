@@ -32,7 +32,7 @@ void test_set()
         unsigned const x = std::rand() % 1024;
         REQUIRE(stdset.count(x) == rhset.count(x));
 
-        if(unsigned const* y = rhset.find(x))
+        if(unsigned const* y = rhset.lookup(x))
             REQUIRE(*y == x);
     }
 

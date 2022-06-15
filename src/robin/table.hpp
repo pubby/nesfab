@@ -199,9 +199,10 @@ public:
         }
     }
 
+    // Returns nullptrs on failure
     template<typename Eq>
     apair<hash_type const*, value_type const*> 
-    find(hash_type hash, Eq const& equals) const
+    lookup(hash_type hash, Eq const& equals) const
     {
         hash_type* hash_ptr = hashes + (hash & mask_);
         hash &= ~mask_;
@@ -220,9 +221,9 @@ public:
 
     template<typename Eq>
     apair<hash_type*, value_type*> 
-    find(hash_type hash, Eq const& equals)
+    lookup(hash_type hash, Eq const& equals)
     {
-        auto pair = const_this()->find(hash, equals);
+        auto pair = const_this()->lookup(hash, equals);
         return make_apair(
             const_cast<hash_type*>(pair.first),
             const_cast<value_type*>(pair.second));
@@ -266,6 +267,7 @@ public:
     // (The table isn't circular and the buffer is larger than the hash space.
     // Elements can extend far past the upper side. This function expands 
     // that space, without expanding the hash space.)
+    #pragma GCC diagnostic ignored "-Wuse-after-free"
     void realloc(hash_type new_size)
     {
         hash_type const old_size = allocated_size();
@@ -277,9 +279,9 @@ public:
         {
             // realloc hashes
             {
-                hash_type* const old_hashes = hashes == &null_hash ? nullptr : hashes;
+                hash_type* const old_hashes = hashes;
                 hashes = reinterpret_cast<hash_type*>(
-                    std::realloc(old_hashes, (new_size+1) * sizeof(hash_type)));
+                    std::realloc((hashes == &null_hash) ? nullptr : hashes, (new_size+1) * sizeof(hash_type)));
                 if(UNLIKELY(!hashes))
                 {
                     hashes = old_hashes;
@@ -319,6 +321,7 @@ public:
             *this = std::move(new_table);
         }
     }
+    #pragma GCC diagnostic pop
 
     template<typename Ratio>
     void reserve(std::size_t size, hash_type used_size)
@@ -499,16 +502,16 @@ public:
 
     template<typename Eq>
     apair<hash_type const*, value_type const*> 
-    find(hash_type hash, Eq const& equals) const
+    lookup(hash_type hash, Eq const& equals) const
     {
-        return table.find(hash, equals);
+        return table.lookup(hash, equals);
     }
 
     template<typename Eq>
     apair<hash_type*, value_type*> 
-    find(hash_type hash, Eq const& equals)
+    lookup(hash_type hash, Eq const& equals)
     {
-        return table.find(hash, equals);
+        return table.lookup(hash, equals);
     }
 
     void erase(apair<hash_type*, value_type*> pair)

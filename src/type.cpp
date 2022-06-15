@@ -76,7 +76,8 @@ namespace  // Anonymous
 
     thread_local tails_manager_t<type_t> type_tails;
     thread_local tails_manager_t<group_ht> group_tails;
-    thread_local array_pool_t<array_thunk_t> array_thunks;
+    thread_local array_pool_t<tea_thunk_t> tea_thunks;
+    thread_local array_pool_t<paa_thunk_t> paa_thunks;
 } // end anonymous namespace
 
 type_t const* type_t::new_type(type_t const& type) { return type_tails.get(type); }
@@ -96,20 +97,25 @@ bool type_t::operator==(type_t o) const
 
 group_ht type_t::group(unsigned i) const { return groups()[i]; }
 
-type_t type_t::buffer(unsigned size)
+type_t type_t::paa(unsigned size, group_ht group)
 { 
-    return type_t(TYPE_BUFFER, size); 
+    return type_t(TYPE_PAA, size, group_tails.get(group)); 
 }
 
-type_t type_t::array(type_t elem_type, unsigned size)
-{ 
-    assert(is_thunk(elem_type.name()) || !has_array(elem_type));
-    return type_t(TYPE_ARRAY, size, type_tails.get(elem_type));
-}
-
-type_t type_t::array_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens)
+type_t type_t::paa_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens, group_ht group)
 {
-    return type_t(TYPE_ARRAY_THUNK, 0, &array_thunks.insert({ pstring, elem_type, tokens }));
+    return type_t(TYPE_PAA_THUNK, 0, &paa_thunks.insert({ pstring, elem_type, tokens, group }));
+}
+
+type_t type_t::tea(type_t elem_type, unsigned size)
+{ 
+    assert(is_thunk(elem_type.name()) || !has_tea(elem_type));
+    return type_t(TYPE_TEA, size, type_tails.get(elem_type));
+}
+
+type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens)
+{
+    return type_t(TYPE_TEA_THUNK, 0, &tea_thunks.insert({ pstring, elem_type, tokens }));
 }
 
 type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool banked)
@@ -149,7 +155,7 @@ std::size_t type_t::size_of() const
     default:                return 0; // Error!
     case TYPE_PTR:          return 2;
     case TYPE_BANKED_PTR:   return 3;
-    case TYPE_ARRAY: return size() * types()[0].size_of();
+    case TYPE_TEA:          return size() * types()[0].size_of();
     case TYPE_STRUCT:
         std::size_t size = 0;
         for(unsigned i = 0; i < struct_().fields().size(); ++i)
@@ -160,9 +166,15 @@ std::size_t type_t::size_of() const
 
 std::size_t type_t::array_length() const
 {
-    if(name() == TYPE_ARRAY)
+    if(name() == TYPE_TEA || name() == TYPE_PAA)
         return size();
     return 0;
+}
+
+void type_t::set_array_length(std::size_t size)
+{
+    assert(name() == TYPE_TEA || name() == TYPE_PAA);
+    m_size = size;
 }
 
 std::size_t type_t::hash() const
@@ -188,14 +200,14 @@ std::string to_string(type_t type)
     {
     default: 
         str = to_string(type.name()); break;
-    case TYPE_ARRAY:
-        str = fmt("%[%]", to_string(type.elem_type()), type.size());
-        break;
     case TYPE_STRUCT:
         str = type.struct_().global.name;
         break;
-    case TYPE_BUFFER:
-        str = fmt("buffer[%]", type.size());
+    case TYPE_TEA:
+        str = fmt("%[%]", to_string(type.elem_type()), type.size() ? std::to_string(type.size()) : "");
+        break;
+    case TYPE_PAA:
+        str = fmt("[%]", type.size() ? std::to_string(type.size()) : "");
         break;
     case TYPE_BANKED_PTR:
         str = "P";
@@ -228,10 +240,20 @@ std::ostream& operator<<(std::ostream& ostr, type_t const& type)
     return ostr;
 }
 
+bool can_size_unsized_array(type_t const& sized, type_t const& unsized)
+{
+    return (unsized.is_unsized_array()
+            && sized.name() == unsized.name()
+            && sized.elem_type() == unsized.elem_type()
+            && sized.array_length() > 0);
+}
+
 cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
 {
+    assert(!is_thunk(from.name()) && !is_thunk(to.name()));
+
     // Buffers should be converted to ptrs, prior.
-    assert(from.name() != TYPE_BUFFER && to.name() != TYPE_BUFFER);
+    assert(from.name() != TYPE_PAA && to.name() != TYPE_PAA);
 
     // Same types; no cast needed!
     if(from == to)
@@ -325,7 +347,7 @@ bool is_ct(type_t type)
     case TYPE_REAL:
     case TYPE_INT:
         return true;
-    case TYPE_ARRAY:
+    case TYPE_TEA:
         return is_ct(type.elem_type());
     case TYPE_STRUCT:
         for(auto const& pair : type.struct_().fields())
@@ -354,7 +376,7 @@ unsigned calc_num_members(type_t type)
             count += num_members(pair.second.type());
         return count;
     }
-    else if(type.name() == TYPE_ARRAY)
+    else if(type.name() == TYPE_TEA)
         return calc_num_members(type.elem_type());
     return 1;
 }
@@ -365,7 +387,7 @@ unsigned num_members(type_t type)
     assert(type.name() != TYPE_STRUCT_THUNK);
     if(type.name() == TYPE_STRUCT)
         return type.struct_().num_members();
-    else if(is_array(type.name()))
+    else if(is_tea(type.name()))
         return num_members(type.elem_type());
     return 1;
 }
@@ -377,7 +399,7 @@ unsigned num_atoms(type_t type)
     switch(type.name())
     {
     case TYPE_STRUCT: assert(false); // TODO
-    case TYPE_ARRAY: return 1;
+    case TYPE_TEA: return 1;
     case TYPE_PTR: return 1;
     case TYPE_BANKED_PTR: return 2;
     default: return type.size_of();
@@ -392,8 +414,8 @@ unsigned member_index(type_t const& type, unsigned i)
     {
     case TYPE_STRUCT: 
         return type.struct_().member(i);
-    case TYPE_ARRAY: 
-    case TYPE_ARRAY_THUNK: 
+    case TYPE_TEA: 
+    case TYPE_TEA_THUNK: 
         return member_index(type.elem_type(), i);
     default: 
         return 0;
@@ -405,31 +427,31 @@ type_t member_type(type_t const& type, unsigned i)
     assert(i < num_members(type));
     if(type.name() == TYPE_STRUCT)
         return type.struct_().member_type(i);
-    else if(type.name() == TYPE_ARRAY)
+    else if(type.name() == TYPE_TEA)
     {
         type_t mt = member_type(type.elem_type(), i);
         assert(!is_aggregate(mt.name()));
-        return type_t::array(mt, type.size());
+        return type_t::tea(mt, type.size());
     }
     return type;
 }
 
 type_t strip_array(type_t const& type)
 {
-    if(type.name() == TYPE_ARRAY)
+    if(type.name() == TYPE_TEA)
         return type.elem_type();
     return type;
 }
 
-bool has_array(type_t const& type)
+bool has_tea(type_t const& type)
 {
     assert(type.name() != TYPE_STRUCT_THUNK);
 
     switch(type.name())
     {
-    case TYPE_STRUCT: return type.struct_().has_array_member();
-    case TYPE_ARRAY_THUNK:
-    case TYPE_ARRAY: return true;
+    case TYPE_STRUCT: return type.struct_().has_tea_member();
+    case TYPE_TEA_THUNK:
+    case TYPE_TEA: return true;
     default: return false;
     }
 }
@@ -446,9 +468,9 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
             throw std::runtime_error(fmt("%: Expected struct type.", t.global().name));
         return type_t::struct_(t.global().impl<struct_t>());
 
-    case TYPE_ARRAY_THUNK:
+    case TYPE_TEA_THUNK:
         {
-            array_thunk_t const& thunk = t.array_thunk();
+            tea_thunk_t const& thunk = t.tea_thunk();
             type_t const elem_type = dethunkify({ thunk.elem_type, src_type.pstring }, full,  env);
 
             if(full)
@@ -457,23 +479,23 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
                 assert(result.value.size());
                 unsigned size = std::get<ssa_value_t>(result.value[0]).whole();
 
-                if(has_array(elem_type))
+                if(has_tea(elem_type))
                     compiler_error(thunk.pstring, "Arrays cannot be multidimensional.");
                 if(size <= 0 || size > 256)
                     compiler_error(thunk.pstring, "Invalid array size.");
 
-                return type_t::array(elem_type, size);
+                return type_t::tea(elem_type, size);
             }
             else
-                return type_t::array_thunk(thunk.pstring, elem_type, thunk.expr);
+                return type_t::tea_thunk(thunk.pstring, elem_type, thunk.expr);
         }
 
-    case TYPE_ARRAY:
+    case TYPE_TEA:
         {
             type_t const elem = dethunkify({ t.elem_type(), src_type.pstring }, full, env);
-            if(has_array(elem))
+            if(has_tea(elem))
                 compiler_error(src_type.pstring, "Arrays cannot be multi-dimensional.");
-            return type_t::array(elem, t.size());
+            return type_t::tea(elem, t.size());
         }
 
     case TYPE_FN:

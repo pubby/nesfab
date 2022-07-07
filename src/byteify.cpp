@@ -38,15 +38,35 @@ static bm_t _get_bm(ssa_value_t value)
 {
     assert(value);
 
-    if(value.is_const())
+    if(value.is_num())
     {
         bm_t bm;
         fixed_uint_t f = value.fixed().value;
         for(unsigned i = 0; i < bm.size(); ++i)
         {
-            bm[i] = ssa_value_t(f & 0xFF, value.type_name());
+            bm[i] = ssa_value_t(f & 0xFF, TYPE_U);
             f >>= 8;
         }
+        return bm;
+    }
+    else if(value.is_locator())
+    {
+        bm_t bm = zero_bm;
+
+        locator_t const loc = value.locator();
+        type_t const t = loc.type();
+        assert(is_scalar(t.name()));
+
+        unsigned const start = begin_byte(t.name());
+        unsigned const end = end_byte(t.name());
+
+        for(unsigned j = start; j < end; ++j)
+        {
+            locator_t new_loc = loc;
+            new_loc.set_atom(j - start);
+            bm[j] = new_loc;
+        }
+
         return bm;
     }
     else

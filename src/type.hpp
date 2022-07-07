@@ -50,7 +50,7 @@ public:
 
     type_t type(unsigned i) const { assert(has_type_tail(name())); assert(i < type_tail_size()); assert(types()); return types()[i]; }
     type_t elem_type() const;
-    group_ht group(unsigned i) const;
+    group_ht group(unsigned i = 0) const;
 
     global_t const& global() const { assert(name() == TYPE_STRUCT_THUNK); return *static_cast<global_t const*>(m_tail); }
     struct_t const& struct_() const { assert(name() == TYPE_STRUCT); return *static_cast<struct_t const*>(m_tail); }
@@ -75,6 +75,7 @@ public:
     static type_t paa_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens, group_ht group);
     static type_t tea(type_t elem_type, unsigned size);
     static type_t tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens);
+    static type_t ptr(group_ht group, bool banked);
     static type_t ptr(group_ht const* begin, group_ht const* end, bool banked);
     static type_t fn(type_t* begin, type_t* end);
     static type_t struct_thunk(global_t const& global);
@@ -209,6 +210,7 @@ enum cast_result_t : char
     CAST_BOOLIFY,
     CAST_ROUND_REAL,
     CAST_CONVERT_INT,
+    CAST_INTIFY_PTR,
 };
 
 bool can_size_unsized_array(type_t const& sized, type_t const& unsized);

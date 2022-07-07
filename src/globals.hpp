@@ -438,9 +438,11 @@ public:
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_CONST;
 
-    const_t(global_t& global, src_type_t src_type, group_data_ht group, token_t const* expr)
+    inline const_ht handle() const { return global.handle<const_ht>(); }
+
+    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, token_t const* expr)
     : global(global)
-    , group(group)
+    , group_data(group_data)
     , init_expr(expr)
     , m_src_type(src_type)
     {
@@ -448,10 +450,11 @@ public:
     }
 
     global_t& global;
-    group_data_ht const group;
+    group_data_ht const group_data;
     token_t const* const init_expr = nullptr;
 
     type_t type() const { assert(global.compiled()); return m_src_type.type; }
+    group_ht group();
 
     void compile();
     sval_t const& sval() const { assert(global.compiled()); return m_sval; }

@@ -30,6 +30,7 @@ class struct_t;
 class group_vars_t;
 class group_data_t;
 struct field_t;
+struct lt_value_t;
 
 #define GLOBAL_CLASS_XENUM \
     X(GLOBAL_UNDEFINED) \
@@ -104,7 +105,7 @@ struct impl_ht : handle_t<unsigned, T, ~0>
     T* operator->() const { return &operator*(); }
     T& operator*() const
     { 
-        assert(compiler_phase() > PHASE_PARSE);
+        assert(compiler_phase() > T::impl_deque_phase);
 #ifndef NDEBUG
         if(this->value >= impl_deque<T>.size())
             std::fprintf(stderr, "Bad handle index = %i\n", this->value);
@@ -123,6 +124,8 @@ struct impl_ht : handle_t<unsigned, T, ~0>
         return impl_deque<T>[this->value]; 
     }
 };
+
+struct lt_ht : impl_ht<lt_value_t> {};
 
 // Handles reference globals, with their '.value' indexing into 
 // the corresponding 'imple_deque'.

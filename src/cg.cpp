@@ -511,7 +511,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         std::vector<copy_t> copies;
 
         // Used to implement constant writes to global memory.
-        std::map<fixed_t, bc::small_vector<ssa_bck_edge_t, 1>> const_stores; 
+        std::map<locator_t, bc::small_vector<ssa_bck_edge_t, 1>> const_stores; 
     };
 
     // A list of all SSA_fn_call nodes
@@ -558,8 +558,17 @@ void code_gen(ir_t& ir, fn_t& fn)
                     // Constants are handled later on,
                     // as it takes analysis to determine where to insert the copy.
 
+                    locator_t c;
+                    if(ie.is_num())
+                    {
+                        assert(is_byte(ie.fixed()));
+                        c = locator_t::const_byte(ie.whole());
+                    }
+                    else if(ie.is_locator())
+                        c = ie.locator();
+
                     global_loc_data_t& ld = global_loc_map[loc];
-                    ld.const_stores[ie.fixed()].push_back({ ssa_it, i });
+                    ld.const_stores[c].push_back({ ssa_it, i });
                 }
                 else if(ie.holds_ref())
                 {
@@ -773,7 +782,10 @@ void code_gen(ir_t& ir, fn_t& fn)
 
                 // Create the store in a dominating spot:
                 cfg_ht store_cfg = dom_intersect(a_cfg, b_cfg);
-                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, ssa_value_t(pair.first, TYPE_U));
+                ssa_value_t const v = pair.first.lclass() == LOC_CONST_BYTE
+                                      ? ssa_value_t(pair.first.data(), TYPE_U) 
+                                      : ssa_value_t(pair.first);
+                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, v);
                 assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
                 auto& store_d = cg_data(store);
 
@@ -835,7 +847,7 @@ void code_gen(ir_t& ir, fn_t& fn)
                 {
                     // Abort! Undo everything and prune it.
                     clear_liveness_for(ir, store);
-                    store->replace_with(ssa_value_t(pair.first, TYPE_VOID)); // TODO: is TYPE_VOID correct?
+                    store->replace_with(v);
                     store->prune();
                 }
             }

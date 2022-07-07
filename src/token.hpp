@@ -6,7 +6,6 @@
 
 #include <boost/container/small_vector.hpp>
 
-#include "array_pool.hpp"
 #include "lex_tables.hpp"
 #include "pstring.hpp"
 
@@ -36,9 +35,6 @@ struct token_t
 
     // Used for debugging and logging.
     std::string to_string(char const* source) const;
-
-    // Allocates a string of tokens with forever lifetime.
-    static token_t const* new_expr(token_t const* begin, token_t const* end);
 };
 
 #endif

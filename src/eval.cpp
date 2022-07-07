@@ -51,6 +51,7 @@ private:
     ir_t* ir = nullptr;
     bc::small_vector<sval_t, 8> interpret_locals;
     bc::small_vector<type_t, 8> var_types;
+    std::vector<locator_t> paa; // Only used when defining PAA inits
 
     using clock = sc::steady_clock;
     sc::time_point<clock> start_time;
@@ -179,6 +180,9 @@ public:
 
     template<do_t D>
     void force_promote(rpn_value_t& rpn_value, type_t to_type, pstring_t pstring = {});
+
+    template<do_t D>
+    void force_intify_ptr(rpn_value_t& rpn_value, type_t to_type, pstring_t pstring = {});
 
     template<do_t D>
     void force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool implicit, pstring_t pstring = {});
@@ -1005,8 +1009,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                 if(D == COMPILE) 
                 {
                     new_top.sval = var_lookup(builder.cfg, token->value);
-                    new_top.rt = true;
-                    std::puts("ident!");
+                    new_top.time = RT;
                 }
                 else if(D == INTERPRET)
                 {
@@ -1049,7 +1052,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             unsigned const var_i = to_var_i(global->handle<gvar_ht>());
                             new_top.var_i = var_i;
                             new_top.sval = var_lookup(builder.cfg, var_i);
-                            new_top.rt = true;
+                            new_top.time = RT;
                         }
 
                         rpn_stack.push(std::move(new_top));
@@ -1062,17 +1065,33 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                     {
                         const_t const& c = global->impl<const_t>();
                         assert(!is_thunk(c.type().name()));
-                        assert(c.sval().size());
 
-                        rpn_value_t new_top =
+                        if(is_paa(c.type().name()))
                         {
-                            .sval = c.sval(),
-                            .category = RVAL, 
-                            .type = c.type(),
-                            .pstring = token->pstring,
-                        };
+                            // Convert to a pointer.
+                            rpn_value_t new_top =
+                            {
+                                .sval = make_sval(locator_t::lt_const_ptr(c.handle())),
+                                .category = RVAL, 
+                                .time = LT,
+                                .type = type_t::ptr(c.type().group(), true),
+                                .pstring = token->pstring,
+                            };
+                            rpn_stack.push(std::move(new_top));
+                        }
+                        else
+                        {
+                            assert(c.sval().size());
 
-                        rpn_stack.push(std::move(new_top));
+                            rpn_value_t new_top =
+                            {
+                                .sval = c.sval(),
+                                .category = RVAL, 
+                                .type = c.type(),
+                                .pstring = token->pstring,
+                            };
+                            rpn_stack.push(std::move(new_top));
+                        }
                     }
                     break;
 
@@ -1354,6 +1373,7 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
                             locator_t const loc = locator_t::arg(call, i, j, 0);
 
                             // If the arg isn't used in the function, ignore it.
+                            // TODO
                             //if(is_idep && call->lvars().index(loc) < 0)
                                 //continue;
 
@@ -1546,6 +1566,37 @@ void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
 
                 break;
             }
+
+            // TODO
+            /* TODO
+        case TOK_byte_array_argn:
+            assert(0);
+            {
+                // TOK_byte_array are pseudo tokens used to implement bulk data of bytes.
+
+                // Extract how many args this cast parsed:
+                unsigned const argn = token->value;
+
+                // Advance the token to get the TOK_byte_array.
+                ++token;
+                assert(token->type == TOK_byte_array);
+                locator_t const* byte_array = token->ptr<locator_t const>();
+
+                ct_array_t ct_array = make_ct_array(argn);
+                std::copy(byte_array, byte_array + argn, ct_array.get());
+
+                rpn_value_t new_top = 
+                {
+                    .category = RVAL, 
+                    .type = type, 
+                    .pstring = token->pstring,
+                };
+                assert(0); // TODO
+
+                rpn_stack.push(std::move(new_top));
+            }
+            break;
+            */
 
         case TOK_cast_argn:
             {
@@ -2098,17 +2149,17 @@ void eval_t::req_quantity(token_t const& token, rpn_value_t const& value)
 {
     if(!is_quantity(value.type.name()))
     {
-        compiler_error(value.pstring, fmt("% expects arithmetic quantity inputs. (Input is %)", 
+        compiler_error(value.pstring, fmt("% expects arithmetic quantity inputs. (Operand is %)", 
                                           token_string(token.type), value.type));
     }
 }
     
 void eval_t::req_quantity(token_t const& token, rpn_value_t const& lhs, rpn_value_t const& rhs)
 {
-    if(!is_quantity(lhs.type.name()) || !is_arithmetic(rhs.type.name()))
+    if(!is_quantity(lhs.type.name()) || !is_quantity(rhs.type.name()))
     {
         pstring_t pstring = concat(lhs.pstring, rhs.pstring);
-        compiler_error(pstring, fmt("% expects arithmetic quantity inputs. (Inputs are % and %)", 
+        compiler_error(pstring, fmt("% expects arithmetic quantity inputs. (Operands are % and %)", 
                                     token_string(token.type), lhs.type, rhs.type));
     }
 }
@@ -2193,59 +2244,169 @@ void eval_t::do_compare(rpn_stack_t& rpn_stack, token_t const& token)
     rpn_stack.push(std::move(new_top));
 }
 
+static locator_t _loc_const(sval_t const& sval)
+{
+    if(sval.size() != 1)
+        return {};
+    if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&sval[0]))
+        if(ssa->is_locator() && ssa->locator().lclass() == LOC_LT_CONST_PTR)
+            return ssa->locator();
+    return {};
+}
+
 template<typename Policy>
 void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
 {
+    ssa_op_t const op = Policy::op();
+    bool const summable = op == SSA_add || op == SSA_sub;
+
     rpn_value_t& lhs = rpn_stack.peek(1);
     rpn_value_t& rhs = rpn_stack.peek(0);
-    req_quantity(token, lhs, rhs);
-
-    type_t result_type;
-
-    if(lhs.type != rhs.type)
+    if(summable)
     {
-        if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
+        if(!is_summable(lhs.type.name()) || !is_summable(rhs.type.name()))
         {
-            result_type = rhs.type;
-            throwing_cast<Policy::D>(lhs, result_type, true);
-        }
-        else if(is_ct(rhs.type) && can_cast(rhs.type, lhs.type, true))
-        {
-            result_type = lhs.type;
-            throwing_cast<Policy::D>(rhs, result_type, true);
-        }
-        else
-        {
+        invalid_input:
             pstring_t pstring = concat(lhs.pstring, rhs.pstring);
-            compiler_error(pstring, fmt("% isn't defined for this type combination. (% and %)",
+            compiler_error(pstring, fmt("Operator % is not defined for these types. (Operands are % and %)", 
                                         token_string(token.type), lhs.type, rhs.type));
         }
     }
     else
-        result_type = lhs.type;
+        req_quantity(token, lhs, rhs);
 
-    assert(is_arithmetic(result_type.name()));
-    assert(lhs.type == result_type);
-    assert(rhs.type == result_type);
+    //type_t result_type;
 
     rpn_value_t new_top =
     {
         .category = RVAL, 
-        .type = result_type, 
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
-    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+    if(summable)
     {
-        assert(is_masked(lhs.fixed(), lhs.type.name()));
-        assert(is_masked(rhs.fixed(), rhs.type.name()));
+        bool const lptr = is_ptr(lhs.type.name());
+        bool const rptr = is_ptr(rhs.type.name());
+        
+        if(lptr)
+        {
+            if(rptr)
+            {
+                if(op == SSA_sub)
+                {
+                    new_top.type = TYPE_S20;
 
-        fixed_t result = { Policy::interpret(lhs.s(), rhs.s()) };
-        result.value &= numeric_bitmask(result_type.name());
-        new_top.sval = make_sval(ssa_value_t(result, result_type.name()));
+                    if(Policy::D != CHECK)
+                    {
+                        // If both are locators with the same handle,
+                        // we can calculate this at CT
+                        locator_t const l = _loc_const(lhs.sval);
+                        locator_t const r = _loc_const(rhs.sval);
+                        // TODO: check for interpret
+                        if(l && r && l.const_() && l.const_() == r.const_())
+                        {
+                            std::uint16_t const diff = l.offset() - r.offset();
+                            new_top.sval = make_sval(ssa_value_t(diff, TYPE_S20));
+                        }
+                        else
+                        {
+                            // TODO: replace with a link-time expression
+                            if(is_interpret(Policy::D))
+                                compiler_error(new_top.pstring, "Unable to resolve at compile-time.");
+                            else if(Policy::D == COMPILE)
+                            {
+                                throwing_cast<Policy::D>(lhs, new_top.type, false);
+                                throwing_cast<Policy::D>(rhs, new_top.type, false);
+                                return compile_binary_operator(rpn_stack, Policy::op(), new_top.type, ssa_argn(Policy::op()) > 2);
+                            }
+                        }
+                    }
+                }
+                else
+                    goto invalid_input;
+            }
+            else
+            {
+            ptr_int:
+                new_top.type = lhs.type;
+
+                throwing_cast<Policy::D>(rhs, TYPE_S20, true);
+
+                if(Policy::D != CHECK)
+                {
+                    locator_t const l = _loc_const(lhs.sval);
+
+                    if(l && l.const_() && rhs.is_ct())
+                    {
+                        std::uint16_t const sum = std::uint16_t(l.offset()) + rhs.whole();
+                        new_top.sval = make_sval(locator_t::lt_const_ptr(l.const_(), 0, 0, sum));
+                    }
+                    else
+                    {
+                        // TODO: replace with a link-time expression
+                        if(is_interpret(Policy::D))
+                            compiler_error(new_top.pstring, "Unable to resolve at compile-time.");
+                        else if(Policy::D == COMPILE)
+                        {
+                            throwing_cast<Policy::D>(lhs, new_top.type, false);
+                            throwing_cast<Policy::D>(rhs, new_top.type, false);
+                            return compile_binary_operator(rpn_stack, Policy::op(), new_top.type, ssa_argn(Policy::op()) > 2);
+                        }
+                    }
+                }
+            }
+        }
+        else if(rptr)
+        {
+            if(op != SSA_add)
+                goto invalid_input;
+
+            std::swap(lhs, rhs);
+            goto ptr_int;
+        }
+        else
+            goto no_ptrs;
     }
-    else if(Policy::D == COMPILE)
-        return compile_binary_operator(rpn_stack, Policy::op(), result_type, ssa_argn(Policy::op()) > 2);
+    else
+    {
+    no_ptrs:
+        if(lhs.type != rhs.type)
+        {
+            if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
+            {
+                new_top.type = rhs.type;
+                throwing_cast<Policy::D>(lhs, new_top.type, true);
+            }
+            else if(is_ct(rhs.type) && can_cast(rhs.type, lhs.type, true))
+            {
+                new_top.type = lhs.type;
+                throwing_cast<Policy::D>(rhs, new_top.type, true);
+            }
+            else
+            {
+                compiler_error(new_top.pstring, fmt("% isn't defined for this type combination. (% and %)",
+                                                    token_string(token.type), lhs.type, rhs.type));
+            }
+        }
+        else
+            new_top.type = lhs.type;
+
+        assert(is_arithmetic(new_top.type.name()));
+        assert(lhs.type == new_top.type);
+        assert(rhs.type == new_top.type);
+
+        if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+        {
+            assert(is_masked(lhs.fixed(), lhs.type.name()));
+            assert(is_masked(rhs.fixed(), rhs.type.name()));
+
+            fixed_t result = { Policy::interpret(lhs.s(), rhs.s()) };
+            result.value &= numeric_bitmask(new_top.type.name());
+            new_top.sval = make_sval(ssa_value_t(result, new_top.type.name()));
+        }
+        else if(Policy::D == COMPILE)
+            return compile_binary_operator(rpn_stack, Policy::op(), new_top.type, ssa_argn(Policy::op()) > 2);
+    }
 
     rpn_stack.pop(2);
     rpn_stack.push(std::move(new_top));
@@ -2416,6 +2577,41 @@ void eval_t::force_promote(rpn_value_t& rpn_value, type_t to_type, pstring_t cas
     rpn_value = std::move(new_rpn);
 }
 
+
+template<eval_t::do_t D>
+void eval_t::force_intify_ptr(rpn_value_t& rpn_value, type_t to_type, pstring_t cast_pstring)
+{
+    assert(!is_ct(rpn_value.type));
+    assert(!is_ct(to_type));
+    assert(is_arithmetic(to_type.name()) && is_ptr(rpn_value.type.name()));
+
+    rpn_value_t new_rpn =
+    {
+        .category = RVAL, 
+        .type = to_type, 
+        .pstring = cast_pstring ? concat(rpn_value.pstring, cast_pstring) : rpn_value.pstring,
+    };
+
+    if(is_interpret(D))
+    {
+        // TODO: insert link time expr
+        assert(0);
+        //new_rpn.sval = {
+    }
+    else if(D == COMPILE)
+    {
+
+        ssa_value_t first_cast = rpn_value.ssa();
+
+        if(to_type.name() != TYPE_U20)
+            first_cast = builder.cfg->emplace_ssa(SSA_cast, TYPE_U20, first_cast);
+
+        new_rpn.sval = make_sval(builder.cfg->emplace_ssa(SSA_cast, to_type, first_cast));
+    }
+
+    rpn_value = std::move(new_rpn);
+}
+
 template<eval_t::do_t D>
 void eval_t::force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool implicit, pstring_t cast_pstring)
 {
@@ -2504,9 +2700,9 @@ void eval_t::force_boolify(rpn_value_t& rpn_value, pstring_t cast_pstring)
     rpn_value_t new_rpn =
     {
         .category = RVAL, 
+        .time = (D == COMPILE) ? RT : CT, // TODO: what is this for?
         .type = { TYPE_BOOL }, 
         .pstring = cast_pstring ? concat(rpn_value.pstring, cast_pstring) : rpn_value.pstring,
-        .rt = D == COMPILE,
     };
 
     if(is_interpret(D) || (D == COMPILE && rpn_value.is_ct()))
@@ -2549,6 +2745,9 @@ bool eval_t::cast(rpn_value_t& rpn_value, type_t to_type, bool implicit, pstring
         return true;
     case CAST_ROUND_REAL:
         force_round_real<D>(rpn_value, to_type, implicit, cast_pstring);
+        return true;
+    case CAST_INTIFY_PTR:
+        force_intify_ptr<D>(rpn_value, to_type, cast_pstring);
         return true;
     }
 }

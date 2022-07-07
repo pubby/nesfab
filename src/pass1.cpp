@@ -1,6 +1,7 @@
 #include "pass1.hpp"
 
 #include "alloca.hpp"
+#include "eternal_new.hpp"
 
 void pass1_t::uses_type(type_t type)
 {
@@ -51,7 +52,7 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
     // Null-like terminator
     expr.push_back({});
 
-    // Store the expression in 'expr_pool' and return a pointer to it.
-    return token_t::new_expr(&*expr.begin(), &*expr.end());
+    // Store the expression and return a pointer to it.
+    return eternal_new<token_t>(&*expr.begin(), &*expr.end());
 }
 

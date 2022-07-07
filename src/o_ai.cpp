@@ -120,7 +120,7 @@ bool has_constraints(ssa_value_t v)
 {
     if(v.is_handle())
         return has_constraints(v.handle());
-    return v.is_num();
+    return v.is_num() || v.is_locator();
 }
 
 void copy_constraints(ssa_value_t value, constraints_def_t& def)
@@ -128,7 +128,17 @@ void copy_constraints(ssa_value_t value, constraints_def_t& def)
     if(value.is_handle())
         def = ai_data(value.handle()).constraints();
     else if(value.is_num())
-        def = { type_constraints_mask(value.type_name()), { constraints_t::const_(value.fixed().value, REAL_MASK) }};
+        def = { type_constraints_mask(value.num_type_name()), { constraints_t::const_(value.fixed().value, REAL_MASK) }};
+    else if(value.is_locator())
+    {
+        locator_t const loc = value.locator();
+        type_t const type = loc.type();
+
+        if(is_scalar(type.name()))
+            def = { type_constraints_mask(type.name()), { constraints_t::bottom(type_constraints_mask(type.name())) }};
+        else
+            def = {};
+    }
     else
         def = {};
 }
@@ -515,7 +525,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     if(trace->input_size() == 2)
     {
         assert(trace->input(1).is_num());
-        constraints_mask_t const cm = type_constraints_mask(trace->input(1).type_name());
+        constraints_mask_t const cm = type_constraints_mask(trace->input(1).num_type_name());
         trace_d.constraints() =
         { 
             cm,

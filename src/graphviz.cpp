@@ -96,7 +96,7 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                 else
                 {
                     o << "const_" << gv_id(ssa_it) << '_' << i;
-                    o << " [label=\"" << to_double(input.fixed()) << " " << to_string(input.type_name());
+                    o << " [label=\"" << to_double(input.fixed()) << " " << to_string(input.num_type_name());
                     o << "\" shape=box];\n";
                 }
 

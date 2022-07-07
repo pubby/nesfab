@@ -50,11 +50,13 @@ enum locator_class_t : std::uint8_t
     LOC_CONST_BYTE,
     LOC_RELOCATION_ADDR,
 
-    LOC_GLOBAL_CONST,
     LOC_ROM_ARRAY,
 
     LOC_SSA,
     LOC_MINOR_VAR,
+
+    LOC_LT_CONST_PTR,
+    LOC_LT_EXPR, // link-time expression
 };
 
 constexpr bool is_label(locator_class_t lclass)
@@ -74,6 +76,8 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_GMEMBER:
     case LOC_ARG:
     case LOC_RETURN:
+    case LOC_LT_CONST_PTR:
+    case LOC_LT_EXPR:
         return true;
     default:
         return false;
@@ -108,7 +112,7 @@ friend class gmember_locator_manager_t;
 public:
     constexpr locator_t() : locator_t(LOC_NONE, 0, 0, 0) {}
 
-    constexpr locator_t(locator_class_t lc, std::uint64_t h, std::uint16_t d, std::int16_t o)
+    constexpr locator_t(locator_class_t lc, std::uint32_t h, std::uint16_t d, std::int16_t o)
     {
         set_lclass(lc);
         set_handle(h);
@@ -116,7 +120,7 @@ public:
         set_offset(o);
     }
 
-    constexpr locator_t(locator_class_t lc, std::uint64_t h, std::uint8_t arg, std::uint8_t m, std::uint8_t atom, std::int16_t o)
+    constexpr locator_t(locator_class_t lc, std::uint32_t h, std::uint8_t arg, std::uint8_t m, std::uint8_t atom, std::int16_t o)
     {
         set_lclass(lc);
         set_handle(h);
@@ -204,7 +208,7 @@ public:
 
     const_ht const_() const 
     { 
-        assert(lclass() == LOC_GLOBAL_CONST);
+        assert(lclass() == LOC_LT_CONST_PTR);
         return { handle() }; 
     }
 
@@ -265,9 +269,6 @@ public:
     constexpr static locator_t gmember_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GMEMBER_SET, fn.value, id, 0); }
 
-    constexpr static locator_t global_const(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_GLOBAL_CONST, c.value, 0, member, atom, offset); }
-
     constexpr static locator_t rom_array(std::uint16_t id, std::uint16_t offset=0)
         { return locator_t(LOC_ROM_ARRAY, 0, id, offset); }
 
@@ -295,6 +296,12 @@ public:
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_MINOR_VAR, fn.value, id, 0); }
 
+    constexpr static locator_t lt_const_ptr(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_LT_CONST_PTR, c.value, 0, member, atom, offset); }
+
+    constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_LT_EXPR, lt.value, 0, member, atom, offset); }
+
     static locator_t from_ssa_value(ssa_value_t v);
 
     bool operator==(locator_t const& o) const 
@@ -309,6 +316,8 @@ public:
     constexpr bool is_const_num() const { return lclass() == LOC_CONST_BYTE; }
     constexpr bool eq_const(unsigned i) const { return is_const_num() && data() == i; }
     constexpr bool eq_const_byte(std::uint8_t i) const { return is_const_num() && data() == i; }
+
+    type_t type() const;
 
 private:
 

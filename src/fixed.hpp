@@ -31,5 +31,10 @@ constexpr double to_double(fixed_t f)
     return (double)value / (double)(1ull << fixed_t::shift); 
 }
 
+constexpr bool is_byte(fixed_t fixed)
+{
+    return (fixed.value & (0xFFull << fixed_t::shift)) == fixed.value;
+}
+
 #endif
 

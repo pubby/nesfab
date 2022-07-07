@@ -1,6 +1,8 @@
 #ifndef PARSER_DECL_HPP
 #define PARSER_DECL_HPP
 
+#include <string>
+
 #include <boost/container/small_vector.hpp>
 
 #include "token.hpp"
@@ -18,6 +20,13 @@ struct var_decl_t
     pstring_t name;
 };
 
+struct string_literal_t
+{
+    std::string string;
+    pstring_t pstring;
+};
+
 using expr_temp_t = bc::small_vector<token_t, 16>;
+using expr_vec_t = std::vector<token_t>;
 
 #endif

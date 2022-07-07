@@ -79,9 +79,6 @@ public:
     T const* ptr() const 
         { assert(is_ptr()); return reinterpret_cast<T const*>(value << 2ull); }
 
-    // TODO: remove?
-    //ssa_value_t const* ct_array() const;
-
     bool eq_whole(unsigned w) const 
         { return is_num() && fixed() == fixed_t::whole(w); }
     bool eq_fixed(fixed_t f) const 
@@ -142,7 +139,7 @@ public:
         return value;
     }
 
-    type_name_t type_name() const { assert(is_num()); return type_name_t((value & ~const_flag) >> 56); }
+    type_name_t num_type_name() const { assert(is_num()); return type_name_t((value & ~const_flag) >> 56); }
 
     struct ssa_bck_edge_t* output() const;
 

@@ -24,6 +24,13 @@ enum value_category_t : char
     LVAL,
 };
 
+enum value_time_t : char
+{
+    CT,
+    LT,
+    RT,
+};
+
 // Expressions are stored in RPN form.
 // This struct is what the RPN stack holds.
 struct rpn_value_t
@@ -32,10 +39,10 @@ struct rpn_value_t
     ssa_value_t index = {};
     unsigned member = 0;
     value_category_t category = RVAL;
+    value_time_t time = CT; // When the value is computed
     type_t type = TYPE_VOID;
     pstring_t pstring = {};
     unsigned var_i = ~0u;
-    bool rt = false; // If value is computed at run-time.
 
     fixed_t fixed() const
     { 
@@ -84,7 +91,7 @@ struct rpn_value_t
         return std::get<ct_array_t>(sval[member]);
     }
 
-    bool is_ct() const { return rt == false && ::is_ct(sval); }
+    bool is_ct() const { return time == CT && ::is_ct(sval); }
 };
 
 class rpn_stack_t

@@ -95,6 +95,8 @@ constexpr bool is_signed(type_name_t type_name)
     { return type_name >= TYPE_FIRST_S && type_name <= TYPE_LAST_S; }
 constexpr bool is_ptr(type_name_t type_name)
     { return type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR; }
+constexpr bool is_summable(type_name_t type_name)
+    { return is_quantity(type_name) || is_ptr(type_name); }
 constexpr bool is_thunk(type_name_t type_name)
     { return type_name >= TYPE_FIRST_THUNK && type_name <= TYPE_LAST_THUNK; }
 constexpr bool is_ct(type_name_t type_name)

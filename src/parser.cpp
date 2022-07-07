@@ -6,6 +6,8 @@
 #include "globals.hpp"
 #include "group.hpp"
 #include "fnv1a.hpp"
+#include "convert_file.hpp"
+#include "eternal_new.hpp"
 
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
@@ -18,7 +20,7 @@ static constexpr int operator_precedence(token_type_t type)
 
 static constexpr bool is_type_prefix(token_type_t type)
 {
-    return (type >= TOK_Void && type <= TOK_Bool) || type == TOK_type_ident;
+    return (type >= TOK_Void && type <= TOK_Bool) || type == TOK_type_ident || type == TOK_lbracket;
 }
 
 template<typename P>
@@ -238,6 +240,58 @@ pstring_t parser_t<P>::parse_ident()
     pstring_t ident = token.pstring;
     parse_token(TOK_ident);
     return ident;
+}
+
+static constexpr char _escape_char(char ch) 
+{
+    switch(ch)
+    {
+    case 'n': 
+    case 'N': 
+        return '\n';
+    case '\'': 
+        return '\'';
+    case '"': 
+        return '"';
+    case '\\': 
+        return '\\';
+    case '0':
+        return '\0';
+    default:
+        return ch;
+    }
+}
+
+template<typename P>
+string_literal_t parser_t<P>::parse_string_literal()
+{
+    char const* begin = token_source;
+    expect_token(TOK_dquote);
+
+    string_literal_t ret;
+    while(true)
+    {
+        char ch = *next_char++;
+
+        if(ch == '\"')
+            break;
+        else if(std::iscntrl(ch))
+            compiler_error("Unexpected character in string literal.");
+        else if(ch == '\\')
+        {
+            char const e = *next_char++;
+            if(std::iscntrl(e))
+                compiler_error("Unexpected character in string literal.");
+            ch = _escape_char(e);
+        }
+
+        ret.string.push_back(ch);
+    }
+
+    ret.pstring = { begin - source(), next_char - begin, file_i() };
+    parse_token();
+
+    return ret;
 }
 
 template<typename P>
@@ -507,7 +561,7 @@ finish_expr:
 }
 
 template<typename P>
-void parser_t<P>::parse_cast(expr_temp_t& expr_temp, int open_parens)
+src_type_t parser_t<P>::parse_cast(expr_temp_t& expr_temp, int open_parens)
 {
     int const cast_indent = indent;
     char const* begin = token_source;
@@ -528,6 +582,8 @@ void parser_t<P>::parse_cast(expr_temp_t& expr_temp, int open_parens)
     // - a TOK_cast_type second, containing a pointer to the desired type
     expr_temp.push_back({ TOK_cast_argn, pstring, argument_count });
     expr_temp.push_back(token_t::make_ptr(TOK_cast_type, src_type.pstring, type_t::new_type(src_type.type)));
+    
+    return src_type;
 }
 
 template<typename P>
@@ -621,8 +677,6 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
                     result.type = type_t::paa_thunk(fast_concat(start_pstring, token.pstring), result.type, 
                         policy().convert_expr(expr_temp), group);
                 }
-
-                parse_token(TOK_rbracket);
             }
 
             parse_token(TOK_rbracket);
@@ -715,11 +769,23 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool b
             if(token.type == TOK_file)
             {
                 parse_token(TOK_file);
-                parse_token(TOK_period);
-                pstring_t const file_type = parse_ident();
+                pstring_t const script = parse_ident();
+                string_literal_t filename = parse_string_literal();
+                std::vector<locator_t> data = convert_file(source(), script, filename);
+                expr.push_back(token_t::make_ptr(TOK_push_paa_byte_array, filename.pstring, 
+                                                 eternal_new<locator_t>(&*data.begin(), &*data.end())));
+                expr.push_back({ TOK_push_paa, filename.pstring, data.size() });
+                size += data.size();
             }
             else
-                parse_cast(expr);
+            {
+                src_type_t const cast_type = parse_cast(expr); // Appends to 'expr'
+                unsigned const cast_size = cast_type.type.size_of();
+                if(cast_size == 0)
+                    compiler_error(cast_type.pstring, fmt("Type % cannot appear in pointer-addressable array.", cast_type.type));
+                expr.push_back({ TOK_push_paa });
+                size += cast_size;
+            }
 
             parse_line_ending();
         });
@@ -732,6 +798,9 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool b
             else if(type.array_length() != size)
                 compiler_error(var_decl.name, fmt("Length of array (%) does not match its type (%).", size, type));
         }
+
+        if(type.array_length() == 0)
+            compiler_error(var_decl.name, "Pointer-addressable array of size 0.");
 
         expr.push_back({ TOK_cast_argn, var_decl.name, size });
         expr.push_back(token_t::make_ptr(TOK_cast_type, var_decl.src_type.pstring, type_t::new_type(var_decl.src_type.type)));
@@ -992,8 +1061,7 @@ void parser_t<P>::parse_if()
     {
         pstring = token.pstring;
         parse_token();
-        auto else_state = 
-            policy().end_if_begin_else(std::move(if_state), pstring);
+        auto else_state = policy().end_if_begin_else(std::move(if_state), pstring);
         if(token.type != TOK_eol)
             parse_flow_statement();
         else

@@ -612,6 +612,9 @@ int main()
             keyword(1, "lbracket", "["),
             keyword(1, "rbracket", "]"),
 
+            keyword(1, "dquote", "\""),
+            keyword(1, "quote", "'"),
+
             //keyword(3, "colon", ":"),
             //keyword(3, "double_colon", "::"),
             //keyword(4, "pointer", "%"),
@@ -718,7 +721,11 @@ int main()
             accept("int", "int", eof()),
             accept("real", "real", eof()),
             accept("global_ident", "global identifier", eof()),
-            accept("weak_ident", "weak identifier", eof())
+            accept("weak_ident", "weak identifier", eof()),
+            accept("push_paa_byte_array", "byte array", eof()),
+            accept("push_paa", "push paa", eof()),
+            accept("begin_paa", "begin paa", eof()),
+            accept("end_paa", "end paa", eof())
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

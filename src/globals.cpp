@@ -833,10 +833,13 @@ void gmember_t::alloc_spans()
 // const_t //
 /////////////
 
+group_ht const_t::group() { return group_data->group.handle(); }
+
 void const_t::compile()
 {
     m_src_type.type = ::dethunkify(m_src_type, true);
     assert(init_expr);
+    if(!is_paa(m_src_type.type.name())) // TODO remove this line
     {
         spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
         m_sval = std::move(spair.value);
@@ -844,6 +847,7 @@ void const_t::compile()
     }
 
     // TODO: remove all this
+    /*
     if(ssa_value_t const* v = std::get_if<ssa_value_t>(&m_sval[0]))
         std::printf("%s = %i\n", global.name.data(), v->whole());
     else if(ct_array_t const* a = std::get_if<ct_array_t>(&m_sval[0]))
@@ -853,6 +857,7 @@ void const_t::compile()
             std::printf("%s[%u] = %i\n", global.name.data(), i, (*a)[i].whole());
 
     }
+    */
 }
 
 //////////////

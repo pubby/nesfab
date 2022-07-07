@@ -2,6 +2,7 @@
 
 #include "format.hpp"
 #include "globals.hpp"
+#include "group.hpp"
 #include "type.hpp"
 #include "ir.hpp"
 
@@ -21,8 +22,8 @@ std::string to_string(locator_t loc)
         str = fmt("gmember %", loc.gmember()->gvar.global.name); break;
     case LOC_GMEMBER_SET:
         str = fmt("gset %", loc.handle()); break;
-    case LOC_GLOBAL_CONST:
-        str = fmt("global const %", loc.const_()->global.name); break;
+    case LOC_LT_CONST_PTR:
+        str = fmt("lt const ptr %", loc.const_()->global.name); break;
     case LOC_FN:
         str = fmt("fn %", loc.fn()->global.name); break;
     case LOC_ARG:
@@ -114,4 +115,23 @@ bool locator_t::mem_zp_only() const
 {
     type_t const t = mem_type();
     return is_ptr(t.name()) && atom() == 0;
+}
+
+type_t locator_t::type() const
+{
+    switch(lclass())
+    {
+    case LOC_LT_CONST_PTR:
+        if(const_ht const c = const_())
+            return type_t::ptr(c->group(), c->group_data->once);
+        break;
+    case LOC_LT_EXPR:
+        // TODO
+        assert(0);
+        break;
+    default:
+        break;
+    }
+
+    return TYPE_VOID;
 }

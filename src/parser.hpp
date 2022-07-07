@@ -62,11 +62,12 @@ private:
     bool parse_line_ending();
 
     pstring_t parse_ident();
+    string_literal_t parse_string_literal();
     pstring_t parse_group_ident();
     expr_temp_t parse_expr();
     expr_temp_t parse_expr_then();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
-    void parse_cast(expr_temp_t&, int open_parens=0);
+    src_type_t parse_cast(expr_temp_t&, int open_parens=0);
 
     src_type_t parse_type(bool allow_void, bool allow_bank_size, group_ht group);
 

@@ -118,6 +118,8 @@ type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tok
     return type_t(TYPE_TEA_THUNK, 0, &tea_thunks.insert({ pstring, elem_type, tokens }));
 }
 
+type_t type_t::ptr(group_ht group, bool banked) { return ptr(&group, &group + 1, banked); }
+
 type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool banked)
 {
     std::size_t const n = end - begin;
@@ -258,6 +260,9 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     // Same types; no cast needed!
     if(from == to)
         return CAST_NOP;
+
+    if(!implicit && is_ptr(from.name()) && is_arithmetic(to.name()) && !is_ct(to.name()))
+        return CAST_INTIFY_PTR;
 
     /* TODO: remove
     // Buffers can convert to pointers.

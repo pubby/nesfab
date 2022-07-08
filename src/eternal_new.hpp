@@ -18,7 +18,7 @@ T const* eternal_new(T const* begin, T const* end)
 template<typename T, typename... Args>
 T const* eternal_emplace(Args&&... args)
 {
-    return eternal_new_pool<T>.emplace(std::forward<Args>(args)...);
+    return &eternal_new_pool<T>.emplace(std::forward<Args>(args)...);
 }
 
 #endif

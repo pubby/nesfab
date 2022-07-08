@@ -92,6 +92,11 @@ struct rpn_value_t
     }
 
     bool is_ct() const { return time == CT && ::is_ct(sval); }
+
+    bool is_lt() const
+    {
+        return time == LT || ::is_lt(sval);
+    }
 };
 
 class rpn_stack_t

@@ -56,7 +56,9 @@ enum locator_class_t : std::uint8_t
     LOC_MINOR_VAR,
 
     LOC_LT_CONST_PTR,
+    FIRST_LOC_LT = LOC_LT_CONST_PTR,
     LOC_LT_EXPR, // link-time expression
+    LAST_LOC_LT = LOC_LT_EXPR,
 };
 
 constexpr bool is_label(locator_class_t lclass)
@@ -98,6 +100,11 @@ constexpr bool has_fn(locator_class_t lclass)
     default:
         return false;
     }
+}
+
+constexpr bool is_lt(locator_class_t lclass)
+{
+    return lclass >= FIRST_LOC_LT && lclass <= LAST_LOC_LT;
 }
 
 // what we need:

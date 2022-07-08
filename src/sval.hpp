@@ -1,5 +1,5 @@
-#ifndef CVAL_HPP
-#define CVAL_HPP
+#ifndef SVAL_HPP
+#define SVAL_HPP
 
 #include <iostream> // TODO
 #include <functional>
@@ -44,6 +44,7 @@ using sval_t = bc::small_vector<ct_variant_t, 1>;
 inline sval_t make_sval(ssa_value_t v) { return { v }; }
 
 bool is_ct(sval_t const& sval);
+bool is_lt(sval_t const& sval);
 
 struct spair_t
 {

@@ -482,6 +482,8 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
             {
                 spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_U, env);
                 assert(result.value.size());
+                if(std::holds_alternative<expr_vec_t>(result.value[0]))
+                    compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
                 unsigned size = std::get<ssa_value_t>(result.value[0]).whole();
 
                 if(has_tea(elem_type))

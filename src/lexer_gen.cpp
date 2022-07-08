@@ -725,7 +725,8 @@ int main()
             accept("push_paa_byte_array", "byte array", eof()),
             accept("push_paa", "push paa", eof()),
             accept("begin_paa", "begin paa", eof()),
-            accept("end_paa", "end paa", eof())
+            accept("end_paa", "end paa", eof()),
+            accept("spair", "spair", eof())
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

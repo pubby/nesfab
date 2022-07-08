@@ -18,3 +18,11 @@ bool is_ct(sval_t const& sval)
     return true;
 }
 
+bool is_lt(sval_t const& sval)
+{
+    for(auto const& v : sval)
+        if(std::holds_alternative<expr_vec_t>(v))
+            return true;
+
+    return false;
+}

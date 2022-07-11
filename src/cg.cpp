@@ -59,7 +59,11 @@ locator_t cset_locator(ssa_ht h)
     h = cset_head(h);
     auto& d = cg_data(h);
     if(d.cset_head.is_locator())
-        return d.cset_head.locator();
+    {
+        locator_t const loc = d.cset_head.locator();
+        assert(loc.mem_head() == loc);
+        return loc;
+    }
     return locator_t::none();
 }
 
@@ -538,7 +542,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         if(op == SSA_read_global)
         {
             // Consider 'SSA_read_global' to be a copy in its own right.
-            locator_t const loc = ssa_it->input(1).locator();
+            locator_t const loc = ssa_it->input(1).locator().mem_head();
             global_loc_map[loc].copies.push_back({ ssa_it });
         }
         else if(ssa_flags(op) & SSAF_WRITE_GLOBALS)
@@ -550,7 +554,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             unsigned const input_size = ssa_it->input_size();
             for(unsigned i = write_globals_begin(op); i < input_size; i += 2)
             {
-                locator_t const loc = ssa_it->input(i + 1).locator();
+                locator_t const loc = ssa_it->input(i + 1).locator().mem_head();
                 ssa_fwd_edge_t ie = ssa_it->input_edge(i);
 
                 if(ie.is_const())
@@ -1147,7 +1151,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     {
         if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LOC_GMEMBER_SET)
         {
-            assert(ssa_it->input(1).locator() == cset_locator(ssa_it));
+            assert(ssa_it->input(1).locator().mem_head() == cset_locator(ssa_it));
             // TODO
             //assert(ssa_it->test_flags(FLAG_COALESCED));
             //assert(ssa_it->input(0)->op() == SSA_early_store || ssa_it->input(0)->op() == SSA_aliased_store);

@@ -441,7 +441,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                 assert(!fn_like(ssa_it->op()));
                 break;
             }
-
         }
     }
 
@@ -568,6 +567,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 assert(ssa_node->input_size() == 2);
                 ssa_ht link = ssa_node->input(0).handle();
                 locator_t loc = ssa_node->input(1).locator();
+                loc.set_byteified(true);
 
                 unsigned const start = begin_byte(t);
                 unsigned const end = end_byte(t);
@@ -577,7 +577,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                     assert(split.holds_ref());
 
                     loc.set_atom(i - start);
-                    loc.set_byteified(true);
 
                     split->alloc_input(2);
                     split->build_set_input(0, link);

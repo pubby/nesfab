@@ -1781,7 +1781,7 @@ namespace isel
             break;
 
         case SSA_read_global:
-            if(h->input(1).locator() != cset_locator(h))
+            if(h->input(1).locator().mem_head() != cset_locator(h))
             {
                 p_arg<0>::set(h->input(1));
                 load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);

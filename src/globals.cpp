@@ -211,7 +211,10 @@ void global_t::init()
 bool global_t::has_dep(global_t& other)
 {
     assert(compiler_phase() > PHASE_PARSE);
-    assert(this != &other);
+
+    // Every global depends on itself.
+    if(this == &other)
+        return true;
     
     if(ideps().count(&other))
         return true;

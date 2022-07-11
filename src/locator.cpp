@@ -54,8 +54,6 @@ std::string to_string(locator_t loc)
     else
         str += fmt(" [%] (%)", (int)loc.data(), (int)loc.offset());
 
-    str += fmt(" %", loc.byteified() ? "true" : "false");
-
     return str;
 }
 
@@ -79,16 +77,15 @@ locator_t locator_t::from_ssa_value(ssa_value_t v)
 
 std::size_t locator_t::mem_size() const
 {
-    if(byteified())
-        return 1;
-
     type_t const t = type();
 
     switch(t.name())
     {
+    case TYPE_PAA: 
     case TYPE_TEA: 
         return t.size();
     case TYPE_PTR:
+        return 2;
     case TYPE_BANKED_PTR:
         return atom() == 0 ? 2 : 1;
     default:
@@ -105,31 +102,55 @@ bool locator_t::mem_zp_only() const
 
 type_t locator_t::type() const
 {
-    if(byteified())
-        return TYPE_U;
+    auto const byteify = [&](type_t type) -> type_t
+    {
+        if(byteified())
+        {
+            if(type.name() == TYPE_TEA)
+            {
+                if(type.elem_type().size_of() > 1)
+                    return type_t::tea(TYPE_U, type.array_length());
+            }
+            else
+            {
+                assert(is_scalar(type.name()));
+                if(type.size_of() > 1)
+                    return TYPE_U;
+            }
+        }
+        return type;
+    };
 
     switch(lclass())
     {
     case LOC_LT_CONST_PTR:
         if(const_ht const c = const_())
+        {
+            if(byteified())
+            {
+                if(atom() == 0)
+                    return type_t::ptr(c->group(), false);
+                return TYPE_U;
+            }
             return type_t::ptr(c->group(), c->group_data->once);
+        }
         break;
     case LOC_LT_EXPR:
         assert(lt());
-        return lt().safe().type;
+        return byteify(lt().safe().type);
     case LOC_IOTA:
         return type_t::tea(TYPE_U, 256);
     case LOC_GMEMBER: 
-        return gmember()->type();
+        return byteify(gmember()->type());
     case LOC_ARG:
-        return fn().safe().type().type(arg());
+        return byteify(fn().safe().type().type(arg()));
     case LOC_RETURN:
-        return fn().safe().type().return_type();
+        return byteify(fn().safe().type().return_type());
     case LOC_CONST_BYTE:
         return TYPE_U;
     case LOC_SSA:
         assert(compiler_phase() == PHASE_COMPILE);
-        return ssa_node()->type();
+        return byteify(ssa_node()->type());
     default:
         break;
     }

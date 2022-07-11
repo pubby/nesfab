@@ -156,7 +156,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
         rh::batman_map<locator_t, unsigned> gmember_count;
         for(gvar_t const& gvar : impl_deque<gvar_t>)
-            gvar.for_each_locator([&](locator_t loc){ gmember_count.insert({ loc, 0 }); });
+            gvar.for_each_locator([&](locator_t loc){ gmember_count.insert({ loc.mem_head(), 0 }); });
 
         for(fn_t const& fn : impl_deque<fn_t>)
         {

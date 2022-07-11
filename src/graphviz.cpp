@@ -48,7 +48,7 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             o << " (EXIT)";
         o << "\"";
 
-        if(ssa_it->op() == SSA_fn_call)
+        if(fn_like(ssa_it->op()))
             o << " shape=invhouse";
 
         o << "];\n"; 
@@ -79,7 +79,7 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             ssa_value_t input = ssa_it->input(i);
             if(input.is_const())
             {
-                if(ssa_it->op() == SSA_fn_call && i == 0)
+                if(fn_like(ssa_it->op()) && i == 0)
                 {
                     o << "const_" << gv_id(ssa_it) << '_' << i;
                     o << " [label=\"{";

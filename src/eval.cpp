@@ -404,12 +404,12 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
         for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
         {
             assert(var_i < vars.size());
-            assert(m->index < vars[var_i].size());
+            assert(m->member() < vars[var_i].size());
 
-            std::cout << "inserting " << var_i << ' ' << m->index << std::endl;
+            std::cout << "inserting " << var_i << ' ' << m->member() << std::endl;
 
-            vars[var_i][m->index] = ir->root->emplace_ssa(
-                SSA_read_global, member_type(var_types[var_i], m->index), entry, locator_t::gmember(m, 0));
+            vars[var_i][m->member()] = ir->root->emplace_ssa(
+                SSA_read_global, member_type(var_types[var_i], m->member()), entry, locator_t::gmember(m, 0));
         }
     });
 
@@ -461,7 +461,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
 
         for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
         {
-            return_inputs.push_back(var_lookup(ir->exit, var_i, m->index));
+            return_inputs.push_back(var_lookup(ir->exit, var_i, m->member()));
             return_inputs.push_back(locator_t::gmember(m, 0));
         }
     });
@@ -995,12 +995,12 @@ void eval_t::compile_block()
             assert(stmt->expr);
 
             cfg_ht const branch = builder.cfg;
+            cfg_ht const dead = compile_goto();
             cfg_ht const mode = builder.cfg = insert_cfg(true);
+            branch->build_set_output(0, mode);
             do_expr<COMPILE>(rpn_stack, stmt->expr);
             ++stmt;
-            builder.cfg = branch;
-            builder.cfg = compile_goto();
-            branch->build_set_output(0, mode);
+            builder.cfg = dead;
         }
         break;
     }
@@ -1364,7 +1364,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 // Prepare the input globals
 
                 bool const is_idep = fn->global.ideps().count(&call->global) > 0;
-                assert(is_idep || fn->fclass == FN_MODE);
+                assert(is_idep || call->fclass == FN_MODE);
 
                 std::size_t const gmember_bs_size = gmanager_t::bitset_size();
                 bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
@@ -1443,11 +1443,6 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     for(unsigned j = 0; j < num_param_members; ++j)
                     {
                         locator_t const loc = locator_t::arg(call, i, j, 0);
-
-                        // If the arg isn't used in the function, ignore it.
-                        // TODO
-                        //if(is_idep && call->lvars().index(loc) < 0)
-                            //continue;
 
                         type_t const member_type = ::member_type(param_type, j);
 

@@ -214,6 +214,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             switch(ssa_it->op())
             {
             case SSA_fn_call:
+            case SSA_goto_mode:
                 // Because SSA constants lack types, it's necessary
                 // to look up the function's global definition first:
                 called_fn = &*get_fn(*ssa_it);
@@ -254,6 +255,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                         {
                             locator_t new_loc = loc;
                             new_loc.set_atom(j - start);
+                            new_loc.set_byteified(true);
 
                             new_input.push_back(bm[j]);
                             new_input.push_back(std::move(new_loc));
@@ -436,6 +438,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 break;
 
             default:
+                assert(!fn_like(ssa_it->op()));
                 break;
             }
 
@@ -522,7 +525,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_ht split = ssa_data.bm[i].handle();
 
                     locator_t loc = ssa_node->input(1).locator();
-                    loc.set_atom(i - start);
+                    //loc.set_atom(i - start);
 
                     assert(ssa_argn(SSA_read_array) == 3);
                     split->alloc_input(3);
@@ -546,7 +549,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_ht split = ssa_data.bm[i].handle();
 
                     locator_t loc = ssa_node->input(1).locator();
-                    loc.set_atom(i - start);
+                    //loc.set_atom(i - start);
 
                     assert(ssa_argn(SSA_write_array) == 4);
                     split->alloc_input(4);
@@ -574,6 +577,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     assert(split.holds_ref());
 
                     loc.set_atom(i - start);
+                    loc.set_byteified(true);
 
                     split->alloc_input(2);
                     split->build_set_input(0, link);

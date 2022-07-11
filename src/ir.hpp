@@ -488,7 +488,7 @@ inline bool carry_used(ssa_node_t const& node)
 
 inline fn_ht get_fn(ssa_node_t const& node)
 {
-    assert(node.op() == SSA_fn_call);
+    assert(fn_like(node.op()));
     assert(node.input_size() >= 1);
     return node.input(0).locator().fn();
 }
@@ -507,18 +507,6 @@ inline ssa_value_t get_condition(ssa_node_t& node)
 }
 
 // The first input index of a write globals array.
-inline unsigned write_globals_begin(ssa_op_t op)
-{
-    SSA_VERSION(1);
-    assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
-    if(op == SSA_fn_call || op == SSA_goto_mode)
-        return 1;
-    if(op == SSA_return)
-        return 0;
-    assert(false);
-    return 0;
-}
-
 inline bool is_locator_write(ssa_bck_edge_t e)
 {
     ssa_op_t const op = e.handle->op();

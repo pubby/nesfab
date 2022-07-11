@@ -269,7 +269,7 @@ void calc_asm_liveness(ir_t const& ir, lvars_manager_t const& lvars)
     }
 }
 
-void build_lvar_interferences(ir_t const& ir, lvars_manager_t& lvars)
+void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& lvars)
 {
     using namespace liveness_impl;
 
@@ -291,27 +291,28 @@ void build_lvar_interferences(ir_t const& ir, lvars_manager_t& lvars)
 
             if(inst.op == JSR_ABSOLUTE)
             {
-                fn_ht const fn_h = inst.arg.fn();
-                fn_t const& fn = *fn_h;
+                fn_ht const call_h = inst.arg.fn();
+                fn_t const& call = *call_h;
+
+                assert(call.global.compiled());
+
+                bool const is_idep = fn.global.ideps().count(&call.global) > 0;
+                assert(is_idep);
 
                 // Every live var will interfere with this fn:
                 bitset_for_each(set_size, live, [&](unsigned i)
                 {
-                    lvars.add_fn_interference(i, fn_h);
+                    lvars.add_fn_interference(i, call_h);
                 });
 
                 // The fn's arguments are now live:
-                for(unsigned argn = 0; argn < fn.type().num_params(); ++argn)
+                call.lvars().for_each_locator(true, [&](locator_t loc, unsigned lvar_i)
                 {
-                    unsigned const num_atoms = ::num_atoms(fn.type().type(argn));
-                    for(unsigned atom = 0; atom < num_atoms; ++atom)
-                    {
-                        assert(0); // TODO! Fix line below
-                        int const lvar_i = 0;//lvars.index(locator_t::arg(fn_h, argn, atom));
-                        if(lvar_i >= 0)
-                            bitset_set(live, lvar_i);
-                    }
-                }
+                    if(loc.lclass() != LOC_ARG)
+                        return;
+                    assert(loc.fn() == call_h);
+                    bitset_set(live, lvar_i);
+                });
 
                 // TODO handle fn returns?
             }

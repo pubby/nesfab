@@ -7,6 +7,8 @@
 #include "bitset.hpp"
 #include "ir_decl.hpp"
 
+class fn_t;
+
 namespace liveness_impl
 {
     inline thread_local array_pool_t<bitset_uint_t> bitset_pool;
@@ -37,6 +39,6 @@ std::size_t live_range_busyness(ir_t& ir, ssa_ht h);
 class lvars_manager_t;
 
 void calc_asm_liveness(ir_t const& ir, lvars_manager_t const& var_map);
-void build_lvar_interferences(ir_t const& ir, lvars_manager_t& lvars);
+void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& lvars);
 
 #endif

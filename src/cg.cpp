@@ -1287,7 +1287,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         lvars_manager_t lvars(fn.handle(), ir);
 
         calc_asm_liveness(ir, lvars);
-        build_lvar_interferences(ir, lvars);
+        build_lvar_interferences(fn, ir, lvars);
 
         // Add the lvars to the fn
         fn.assign_lvars(std::move(lvars));

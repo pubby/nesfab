@@ -42,7 +42,6 @@ int main(int argc, char** argv)
                 ("input-file,i", po::value<std::vector<std::string>>(), 
                  "input file")
                 ("graphviz,g", "output graphviz files")
-                ("optimize,O", "optimize code")
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("timelimit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
             ;
@@ -77,9 +76,6 @@ int main(int argc, char** argv)
 
             if(source_file_names.empty())
                 throw std::runtime_error("No input files.");
-
-            if(vm.count("optimize"))
-                _options.optimize = true;
 
             if(vm.count("graphviz"))
                 _options.graphviz = true;

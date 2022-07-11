@@ -699,7 +699,6 @@ void fn_t::compile()
 
     ir.assert_valid();
 
-    if(compiler_options().optimize)
     {
         bool changed;
         do
@@ -707,6 +706,7 @@ void fn_t::compile()
             changed = false;
             changed |= o_phis(ir);
             changed |= o_merge_basic_blocks(ir);
+            changed |= o_remove_unused_arguments(ir, *this, false);
             changed |= o_abstract_interpret(ir);
             changed |= o_remove_unused_ssa(ir);
             changed |= o_global_value_numbering(ir);
@@ -726,7 +726,6 @@ void fn_t::compile()
     if(compiler_options().graphviz)
         save_graph(ir, "byteify");
 
-    if(compiler_options().optimize)
     {
         bool changed;
         do
@@ -734,6 +733,7 @@ void fn_t::compile()
             changed = false;
             changed |= o_phis(ir);
             changed |= o_merge_basic_blocks(ir);
+            changed |= o_remove_unused_arguments(ir, *this, true);
             changed |= o_abstract_interpret(ir);
             changed |= o_remove_unused_ssa(ir);
             changed |= o_global_value_numbering(ir);
@@ -778,6 +778,36 @@ void fn_t::compile()
     }
     */
 }
+
+/* TODO: remove?
+void fn_t::for_each_param_member(bool atoms, std::function<void(type_t, locator_t)> const& fn) const
+{
+    assert(global.compiled());
+
+    fn_ht const h = handle();
+
+    unsigned const num_params = type().num_params();
+    for(unsigned arg = 0; arg < num_params; ++arg)
+    {
+        type_t const param_type = fn.type().type(argn);
+        unsigned const num_param_members = ::num_members(param_type);
+
+        for(unsigned m = 0; m < num_param_members; ++m)
+        {
+            type_t const mt = ::member_type(param_type, m);
+
+            if(atoms)
+            {
+                unsigned const num_atoms = ::num_atoms(mt);
+                for(unsigned atom = 0; atom < num_atoms; ++atom)
+                    fn(mt, locator_t::arg(h, m, atom));
+            }
+            else
+                fn(mt, locator_t::arg(h, m));
+        }
+    }
+}
+*/
 
 ////////////
 // gvar_t //

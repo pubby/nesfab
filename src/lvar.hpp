@@ -18,11 +18,16 @@ class lvars_manager_t
 public:
     lvars_manager_t() = default;
     lvars_manager_t(fn_ht fn, ir_t const& ir);
+    
+    bool seen_arg(unsigned argn) const { return m_seen_args & (1ull << argn); }
 
     int index(locator_t var) const
     {
         if(auto result = m_map.lookup(var.mem_head()))
+        {
+            assert(result - m_map.begin() >= 0);
             return result - m_map.begin();
+        }
         return -1;
     }
 
@@ -77,6 +82,18 @@ public:
     static bool is_call_lvar(fn_ht fn, locator_t arg);
     static bool is_lvar(fn_ht fn, locator_t arg) { return is_this_lvar(fn, arg) || is_call_lvar(fn, arg); }
 
+    template<typename Fn>
+    void for_each_locator(bool this_lvars_only, Fn const& fn) const
+    {
+        unsigned i = 0;
+        for(locator_t const& loc : m_map)
+        {
+            if(this_lvars_only && i == m_num_this_lvars)
+                return;
+            fn(loc, i);
+        }
+    }
+
 private:
     bitset_uint_t* lvar_interferences(unsigned i) 
     { 
@@ -91,6 +108,7 @@ private:
         return m_fn_interferences[i]; 
     }
 
+    std::uint64_t m_seen_args = 0;
     rh::batman_set<locator_t> m_map;
     std::vector<unsigned> m_sizes_and_zp_only;
     std::vector<bitset_uint_t> m_lvar_interferences;

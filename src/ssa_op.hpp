@@ -2,6 +2,7 @@
 #define SSA_OP_HPP
 
 #include <array>
+#include <cassert>
 #include <ostream>
 #include <string_view>
 
@@ -67,5 +68,19 @@ constexpr unsigned ssa_flags(ssa_op_t op)
 
 std::string_view to_string(ssa_op_t node_type);
 std::ostream& operator<<(std::ostream& o, ssa_op_t node_type);
+
+inline bool fn_like(ssa_op_t op) { return op == SSA_fn_call || op == SSA_goto_mode; }
+
+inline unsigned write_globals_begin(ssa_op_t op)
+{
+    SSA_VERSION(1);
+    assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
+    if(op == SSA_fn_call || op == SSA_goto_mode)
+        return 1;
+    if(op == SSA_return)
+        return 0;
+    assert(false);
+    return 0;
+}
 
 #endif

@@ -282,6 +282,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
         build_order(mode_rank);
 
+        std::puts("poopy butt");
         for(fn_ht fn : fn_order)
             std::cout << "building " << fn->global.name << std::endl;
 

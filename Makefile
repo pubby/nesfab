@@ -101,7 +101,9 @@ type_name.cpp \
 cg_isel_cpu.cpp \
 cg_array.cpp \
 convert_file.cpp \
-lt.cpp
+lt.cpp \
+o_arg.cpp
+
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

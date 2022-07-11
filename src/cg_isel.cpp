@@ -1837,7 +1837,21 @@ namespace isel
             }
             break;
 
+        case SSA_aliased_store:
+            // Aliased stores normally produce no code, however, 
+            // we must implement an input 'cg_read_array_direct' as a store:
+            if(h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array_direct)
+            {
+                h = h->input(0).handle();
+                goto do_read_array_direct;
+            }
+            else
+                cont->call(cpu, prev);
+                break;
+
+
         case SSA_read_array:
+            do_read_array_direct:
             {
                 using p_array = p_arg<0>;
                 using p_index = p_arg<1>;
@@ -1916,7 +1930,6 @@ namespace isel
         case SSA_branch_lt:
         case SSA_branch_lte:
         case SSA_entry:
-        case SSA_aliased_store:
         case SSA_uninitialized:
         case SSA_cg_read_array_direct:
             cont->call(cpu, prev);

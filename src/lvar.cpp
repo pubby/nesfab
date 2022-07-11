@@ -14,6 +14,14 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
 
             if(result.second)
                 m_sizes_and_zp_only.push_back((inst.arg.mem_size() << 1) | inst.arg.mem_zp_only());
+
+            if(inst.arg.lclass() == LOC_ARG)
+            {
+                assert(inst.arg.fn() == fn);
+                assert(inst.arg.arg() < sizeof_bits<decltype(m_seen_args)>);
+
+                m_seen_args |= 1ull << inst.arg.arg();
+            }
         }
     }
 

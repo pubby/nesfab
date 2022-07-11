@@ -323,6 +323,9 @@ public:
 
     bool emits_code() const { return true; } // TODO: implement
 
+    // TODO: remove?
+    //void for_each_param_member(bool atoms, std::function<void(type_t, locator_t)> const& fn) const;
+
 public:
     global_t& global;
     fclass_t const fclass;

@@ -263,14 +263,16 @@ public:
     {
         locator_t ret = *this;
         ret.set_offset(0);
+        ret.set_byteified(true);
         return ret;
     }
 
-    type_t mem_type() const;
-    bool mem_zp_only() const;
 
     // Number of bytes this locator represents
     std::size_t mem_size() const;
+
+    // If this must go in ZP
+    bool mem_zp_only() const;
 
     constexpr std::uint64_t to_uint() const { return impl; }
     constexpr static locator_t from_uint(std::uint64_t i) 

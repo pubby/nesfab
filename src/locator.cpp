@@ -20,7 +20,7 @@ std::string to_string(locator_t loc)
     case LOC_IOTA:
         str = "offset"; break;
     case LOC_GMEMBER:
-        str = fmt("gmember %", loc.gmember()->gvar.global.name); break;
+        str = fmt("gmember % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_GMEMBER_SET:
         str = fmt("gset %", loc.handle()); break;
     case LOC_FN:
@@ -54,6 +54,8 @@ std::string to_string(locator_t loc)
     else
         str += fmt(" [%] (%)", (int)loc.data(), (int)loc.offset());
 
+    str += fmt(" %", loc.byteified() ? "true" : "false");
+
     return str;
 }
 
@@ -75,31 +77,12 @@ locator_t locator_t::from_ssa_value(ssa_value_t v)
         return none();
 }
 
-type_t locator_t::mem_type() const
-{
-    switch(lclass())
-    {
-    case LOC_IOTA:
-        return type_t::tea(TYPE_U, 256);
-    case LOC_GMEMBER: 
-        return gmember()->type();
-    case LOC_ARG:
-        return fn()->type().type(arg());
-    case LOC_RETURN:
-        return fn()->type().return_type();
-    case LOC_CONST_BYTE:
-        return TYPE_U;
-    case LOC_SSA:
-        assert(compiler_phase() == PHASE_COMPILE);
-        return ssa_node()->type();
-    default:
-        return TYPE_VOID;
-    }
-}
-
 std::size_t locator_t::mem_size() const
 {
-    type_t const t = mem_type();
+    if(byteified())
+        return 1;
+
+    type_t const t = type();
 
     switch(t.name())
     {
@@ -116,7 +99,7 @@ std::size_t locator_t::mem_size() const
 
 bool locator_t::mem_zp_only() const
 {
-    type_t const t = mem_type();
+    type_t const t = type();
     return is_ptr(t.name()) && atom() == 0;
 }
 
@@ -134,9 +117,21 @@ type_t locator_t::type() const
     case LOC_LT_EXPR:
         assert(lt());
         return lt().safe().type;
+    case LOC_IOTA:
+        return type_t::tea(TYPE_U, 256);
+    case LOC_GMEMBER: 
+        return gmember()->type();
+    case LOC_ARG:
+        return fn().safe().type().type(arg());
+    case LOC_RETURN:
+        return fn().safe().type().return_type();
+    case LOC_CONST_BYTE:
+        return TYPE_U;
+    case LOC_SSA:
+        assert(compiler_phase() == PHASE_COMPILE);
+        return ssa_node()->type();
     default:
         break;
     }
-
     return TYPE_VOID;
 }

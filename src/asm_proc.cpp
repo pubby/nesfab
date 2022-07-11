@@ -192,7 +192,7 @@ void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
             os << "fn " << inst.arg.fn()->global.name;
             break;
         case LOC_GMEMBER:
-            os << "gmember " << inst.arg.gmember()->gvar.global.name << " " << inst.arg.gmember()->span(inst.arg.atom());
+            os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() << " " << inst.arg.gmember()->span(inst.arg.atom());
             break;
         case LOC_ARG:
         case LOC_PHI:

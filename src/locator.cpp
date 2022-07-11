@@ -5,6 +5,7 @@
 #include "group.hpp"
 #include "type.hpp"
 #include "ir.hpp"
+#include "lt.hpp"
 
 std::string to_string(locator_t loc)
 {
@@ -22,8 +23,6 @@ std::string to_string(locator_t loc)
         str = fmt("gmember %", loc.gmember()->gvar.global.name); break;
     case LOC_GMEMBER_SET:
         str = fmt("gset %", loc.handle()); break;
-    case LOC_LT_CONST_PTR:
-        str = fmt("lt const ptr %", loc.const_()->global.name); break;
     case LOC_FN:
         str = fmt("fn %", loc.fn()->global.name); break;
     case LOC_ARG:
@@ -44,6 +43,10 @@ std::string to_string(locator_t loc)
         str = fmt("minor var %", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:
         str = "rom_array"; break;
+    case LOC_LT_CONST_PTR:
+        str = fmt("lt const ptr %", loc.const_()->global.name); break;
+    case LOC_LT_EXPR:
+        str = fmt("lt expr % %", loc.handle(), loc.lt().safe().type); break;
     }
 
     if(has_arg_member_atom(loc.lclass()))
@@ -119,6 +122,9 @@ bool locator_t::mem_zp_only() const
 
 type_t locator_t::type() const
 {
+    if(byteified())
+        return TYPE_U;
+
     switch(lclass())
     {
     case LOC_LT_CONST_PTR:
@@ -126,9 +132,8 @@ type_t locator_t::type() const
             return type_t::ptr(c->group(), c->group_data->once);
         break;
     case LOC_LT_EXPR:
-        // TODO
-        assert(0);
-        break;
+        assert(lt());
+        return lt().safe().type;
     default:
         break;
     }

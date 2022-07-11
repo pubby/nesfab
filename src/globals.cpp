@@ -803,7 +803,12 @@ void gvar_t::compile()
     dethunkify(true);
 
     if(init_expr)
-        m_sval = std::move(interpret_expr(global.pstring(), init_expr, m_src_type.type).value);
+    {
+        assert(!is_paa(m_src_type.type.name()));
+        spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
+        m_sval = std::move(spair.value);
+        m_src_type.type = std::move(spair.type); // Handles unsized arrays
+    }
 }
 
 void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
@@ -833,13 +838,30 @@ void gmember_t::alloc_spans()
 // const_t //
 /////////////
 
-group_ht const_t::group() { return group_data->group.handle(); }
+group_ht const_t::group() const { return group_data->group.handle(); }
 
 void const_t::compile()
 {
+    std::puts("start");
     m_src_type.type = ::dethunkify(m_src_type, true);
+    std::puts("ok");
     assert(init_expr);
-    if(!is_paa(m_src_type.type.name())) // TODO remove this line
+
+    if(m_src_type.type.name() == TYPE_PAA)
+    {
+        std::puts("PAA");
+        // TODO
+        auto paa = interpret_paa(global.pstring(), init_expr);
+
+        unsigned const def_length = m_src_type.type.array_length();
+        if(def_length && def_length != paa.size())
+             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.size(), m_src_type.type));
+
+        m_src_type.type.set_array_length(paa.size());
+
+        std::printf("paa size = %i\n", paa.size());
+    }
+    else
     {
         spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
         m_sval = std::move(spair.value);

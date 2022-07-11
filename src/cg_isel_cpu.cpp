@@ -102,6 +102,7 @@ struct set_defs_for_impl<CLC_IMPLIED>
     {
         cpu.set_output_defs_impl<CLC_IMPLIED>(opt, def);
         cpu.set_known(REG_C, 0u);
+        std::printf("clc known = %i\n", cpu.known_mask);
     }
 };
 

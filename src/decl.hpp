@@ -103,25 +103,28 @@ template<typename T>
 struct impl_ht : handle_t<unsigned, T, ~0>
 {
     T* operator->() const { return &operator*(); }
-    T& operator*() const
-    { 
+    T& operator*() const { return unsafe(); }
+
+    T& unsafe_impl() const { return impl_deque<T>[this->value]; }
+
+    // This isn't thread safe without synchronization like impl_deque_mutex.
+    T& unsafe() const { 
         assert(compiler_phase() > T::impl_deque_phase);
 #ifndef NDEBUG
         if(this->value >= impl_deque<T>.size())
             std::fprintf(stderr, "Bad handle index = %i\n", this->value);
         assert(this->value < impl_deque<T>.size());
 #endif
-        return impl_deque<T>[this->value];
+        return unsafe_impl();
     }
-
-    // This isn't thread safe without synchronization like impl_deque_mutex.
-    T& unsafe() const { return impl_deque<T>[this->value]; }
 
     // 'safe' meaning it's safe for the impl_deque.
     T& safe() const 
     { 
+        if(compiler_phase() > T::impl_deque_phase)
+            return unsafe_impl();
         std::lock_guard<std::mutex> lock(impl_deque_mutex<T>);
-        return impl_deque<T>[this->value]; 
+        return unsafe_impl(); 
     }
 };
 

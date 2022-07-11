@@ -1208,7 +1208,8 @@ void code_gen(ir_t& ir, fn_t& fn)
                     case MAYBE_STORE_C: 
                         temp_code.push_back({ PHP_IMPLIED, inst.ssa_op });
                         temp_code.push_back({ PHA_IMPLIED, inst.ssa_op });
-                        temp_code.push_back({ ARR_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
+                        temp_code.push_back({ LDA_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
+                        temp_code.push_back({ ROL_IMPLIED, inst.ssa_op });
                         inst.op = STA_ABSOLUTE;
                         temp_code.push_back(std::move(inst));
                         temp_code.push_back({ PLA_IMPLIED, inst.ssa_op });

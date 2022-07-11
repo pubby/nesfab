@@ -19,6 +19,8 @@ struct fixed_t
     constexpr auto operator<=>(fixed_t const& o) const = default;
     constexpr bool operator!() const { return !value; }
 
+    constexpr fixed_sint_t signed_() const { return static_cast<fixed_sint_t>(value); }
+
     static constexpr fixed_t whole(fixed_uint_t i) { return { i << shift }; }
     constexpr fixed_uint_t whole() const { return value >> shift; }
 };

@@ -54,6 +54,13 @@ static bm_t _get_bm(ssa_value_t value)
         bm_t bm = zero_bm;
 
         locator_t const loc = value.locator();
+
+        if(loc.byteified())
+        {
+            bm[max_frac_bytes] = loc;
+            return bm;
+        }
+
         type_t const t = loc.type();
         assert(is_scalar(t.name()));
 
@@ -64,6 +71,7 @@ static bm_t _get_bm(ssa_value_t value)
         {
             locator_t new_loc = loc;
             new_loc.set_atom(j - start);
+            new_loc.set_byteified(true);
             bm[j] = new_loc;
         }
 

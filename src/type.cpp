@@ -15,6 +15,7 @@
 #include "group.hpp"
 #include "pstring.hpp"
 #include "eval.hpp"
+#include "eternal_new.hpp"
 
 using namespace std::literals;
 
@@ -76,8 +77,6 @@ namespace  // Anonymous
 
     thread_local tails_manager_t<type_t> type_tails;
     thread_local tails_manager_t<group_ht> group_tails;
-    thread_local array_pool_t<tea_thunk_t> tea_thunks;
-    thread_local array_pool_t<paa_thunk_t> paa_thunks;
 } // end anonymous namespace
 
 type_t const* type_t::new_type(type_t const& type) { return type_tails.get(type); }
@@ -102,9 +101,16 @@ type_t type_t::paa(unsigned size, group_ht group)
     return type_t(TYPE_PAA, size, group_tails.get(group)); 
 }
 
-type_t type_t::paa_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens, group_ht group)
+type_t type_t::paa(std::int64_t size, group_ht group, pstring_t pstring)
+{ 
+    type_t ret = type_t::paa(0, group);
+    ret.set_array_length(size, pstring);
+    return ret;
+}
+
+type_t type_t::paa_thunk(pstring_t pstring, token_t const* tokens, group_ht group)
 {
-    return type_t(TYPE_PAA_THUNK, 0, &paa_thunks.insert({ pstring, elem_type, tokens, group }));
+    return type_t(TYPE_PAA_THUNK, 0, eternal_emplace<paa_thunk_t>(pstring, tokens, group));
 }
 
 type_t type_t::tea(type_t elem_type, unsigned size)
@@ -113,9 +119,16 @@ type_t type_t::tea(type_t elem_type, unsigned size)
     return type_t(TYPE_TEA, size, type_tails.get(elem_type));
 }
 
+type_t type_t::tea(type_t elem_type, std::int64_t size, pstring_t pstring)
+{ 
+    type_t ret = type_t::tea(elem_type, 0);
+    ret.set_array_length(size, pstring);
+    return ret;
+}
+
 type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens)
 {
-    return type_t(TYPE_TEA_THUNK, 0, &tea_thunks.insert({ pstring, elem_type, tokens }));
+    return type_t(TYPE_TEA_THUNK, 0, eternal_emplace<tea_thunk_t>(pstring, elem_type, tokens));
 }
 
 type_t type_t::ptr(group_ht group, bool banked) { return ptr(&group, &group + 1, banked); }
@@ -158,6 +171,7 @@ std::size_t type_t::size_of() const
     case TYPE_PTR:          return 2;
     case TYPE_BANKED_PTR:   return 3;
     case TYPE_TEA:          return size() * types()[0].size_of();
+    case TYPE_PAA:          return size();
     case TYPE_STRUCT:
         std::size_t size = 0;
         for(unsigned i = 0; i < struct_().fields().size(); ++i)
@@ -177,6 +191,18 @@ void type_t::set_array_length(std::size_t size)
 {
     assert(name() == TYPE_TEA || name() == TYPE_PAA);
     m_size = size;
+}
+
+void type_t::set_array_length(std::int64_t size, pstring_t pstring)
+{
+    assert(name() == TYPE_TEA || name() == TYPE_PAA);
+    if(size <= 0 
+       || (name() == TYPE_TEA && size > 256)
+       || (name() == TYPE_PAA && size > 65535))
+    {
+        compiler_error(pstring, fmt("Invalid array length of %.", size));
+    }
+    set_array_length(size);
 }
 
 std::size_t type_t::hash() const
@@ -246,8 +272,7 @@ bool can_size_unsized_array(type_t const& sized, type_t const& unsized)
 {
     return (unsized.is_unsized_array()
             && sized.name() == unsized.name()
-            && sized.elem_type() == unsized.elem_type()
-            && sized.array_length() > 0);
+            && sized.elem_type() == unsized.elem_type());
 }
 
 cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
@@ -404,10 +429,37 @@ unsigned num_atoms(type_t type)
     switch(type.name())
     {
     case TYPE_STRUCT: assert(false); // TODO
-    case TYPE_TEA: return 1;
+    case TYPE_TEA: return num_atoms(type.elem_type());
+    case TYPE_PAA: return 1;
     case TYPE_PTR: return 1;
     case TYPE_BANKED_PTR: return 2;
-    default: return type.size_of();
+    default: 
+        assert(is_scalar(type.name()));
+        return type.size_of();
+    }
+}
+
+unsigned num_offsets(type_t type, unsigned atom)
+{
+    assert(!is_thunk(type.name()));
+
+    switch(type.name())
+    {
+    case TYPE_TEA: 
+    case TYPE_PAA: 
+        assert(atom == 0);
+        return type.array_length();
+    case TYPE_BANKED_PTR:
+        if(atom == 1)
+            return 1;
+        // fall through
+    case TYPE_PTR:
+        if(atom == 0)
+            return 2;
+        assert(false); // Invalid atom.
+        // fall through
+    default:
+        return 1;
     }
 }
 
@@ -476,25 +528,41 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
     case TYPE_TEA_THUNK:
         {
             tea_thunk_t const& thunk = t.tea_thunk();
-            type_t const elem_type = dethunkify({ thunk.elem_type, src_type.pstring }, full,  env);
+            type_t const elem_type = dethunkify({ thunk.elem_type, src_type.pstring }, full, env);
 
             if(full)
             {
-                spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_U, env);
+                spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
                 assert(result.value.size());
                 if(std::holds_alternative<expr_vec_t>(result.value[0]))
                     compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
-                unsigned size = std::get<ssa_value_t>(result.value[0]).whole();
+                auto size = std::get<ssa_value_t>(result.value[0]).signed_whole();
 
                 if(has_tea(elem_type))
                     compiler_error(thunk.pstring, "Arrays cannot be multidimensional.");
-                if(size <= 0 || size > 256)
-                    compiler_error(thunk.pstring, "Invalid array size.");
 
-                return type_t::tea(elem_type, size);
+                return type_t::tea(elem_type, size, src_type.pstring);
             }
             else
                 return type_t::tea_thunk(thunk.pstring, elem_type, thunk.expr);
+        }
+
+    case TYPE_PAA_THUNK:
+        {
+            paa_thunk_t const& thunk = t.paa_thunk();
+
+            if(full)
+            {
+                spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
+                assert(result.value.size());
+                if(std::holds_alternative<expr_vec_t>(result.value[0]))
+                    compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
+                auto size = std::get<ssa_value_t>(result.value[0]).signed_whole();
+
+                return type_t::paa(size, thunk.group, src_type.pstring);
+            }
+            else
+                return t;
         }
 
     case TYPE_TEA:

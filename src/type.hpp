@@ -14,6 +14,7 @@
 
 struct token_t;
 struct tea_thunk_t;
+struct paa_thunk_t;
 struct src_type_t;
 class eval_t;
 
@@ -56,6 +57,8 @@ public:
     struct_t const& struct_() const { assert(name() == TYPE_STRUCT); return *static_cast<struct_t const*>(m_tail); }
     tea_thunk_t const& tea_thunk() const
         { assert(name() == TYPE_TEA_THUNK || name() == TYPE_PAA_THUNK); return *static_cast<tea_thunk_t const*>(m_tail); }
+    paa_thunk_t const& paa_thunk() const
+        { assert(name() == TYPE_PAA_THUNK || name() == TYPE_PAA_THUNK); return *static_cast<paa_thunk_t const*>(m_tail); }
 
     std::size_t num_params() const { assert(name() == TYPE_FN); return size() - 1; }
     type_t return_type() const { assert(name() == TYPE_FN); return types()[size() - 1]; }
@@ -66,14 +69,17 @@ public:
     std::size_t size_of() const;
     std::size_t array_length() const;
     void set_array_length(std::size_t size);
+    void set_array_length(std::int64_t size, pstring_t pstring);
     bool is_unsized_array() const { return is_array(name()) && !is_thunk(name()) && m_size == 0; }
 
     std::size_t hash() const;
 
     // Type creation functions.
     static type_t paa(unsigned size, group_ht group);
-    static type_t paa_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens, group_ht group);
+    static type_t paa(std::int64_t size, group_ht group, pstring_t);
+    static type_t paa_thunk(pstring_t pstring, token_t const* tokens, group_ht group);
     static type_t tea(type_t elem_type, unsigned size);
+    static type_t tea(type_t elem_type, std::int64_t size, pstring_t);
     static type_t tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens);
     static type_t ptr(group_ht group, bool banked);
     static type_t ptr(group_ht const* begin, group_ht const* end, bool banked);
@@ -119,7 +125,6 @@ struct tea_thunk_t
 struct paa_thunk_t
 {
     pstring_t pstring;
-    type_t elem_type;
     token_t const* expr;
     group_ht group;
 };
@@ -195,6 +200,7 @@ bool is_ct(type_t type);
 // unsigned calc_num_members(type_t type); // TODO: remove?
 unsigned num_members(type_t type);
 unsigned num_atoms(type_t type);
+unsigned num_offsets(type_t type, unsigned atom);
 
 unsigned member_index(type_t const& type, unsigned i);
 type_t member_type(type_t const& type, unsigned i);

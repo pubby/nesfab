@@ -21,8 +21,15 @@ bool is_ct(sval_t const& sval)
 bool is_lt(sval_t const& sval)
 {
     for(auto const& v : sval)
+    {
         if(std::holds_alternative<expr_vec_t>(v))
             return true;
+        else if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
+        {
+            if(ssa->is_locator() && ssa->locator().lclass() == LOC_LT_EXPR)
+                return true;
+        }
+    }
 
     return false;
 }

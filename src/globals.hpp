@@ -420,7 +420,7 @@ public:
     gvar_t& gvar;
     unsigned const index;
 
-    unsigned member() const { return gvar.begin_gmember().value - index; }
+    unsigned member() const { return index - gvar.begin_gmember().value; }
     type_t type() const { return member_type(gvar.type(), member()); }
 
     void alloc_spans();
@@ -444,6 +444,7 @@ public:
     : global(global)
     , group_data(group_data)
     , init_expr(expr)
+    , is_paa(::is_paa(src_type.type.name()))
     , m_src_type(src_type)
     {
         assert(init_expr);
@@ -452,9 +453,10 @@ public:
     global_t& global;
     group_data_ht const group_data;
     token_t const* const init_expr = nullptr;
+    bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
 
     type_t type() const { assert(global.compiled()); return m_src_type.type; }
-    group_ht group();
+    group_ht group() const;
 
     void compile();
     sval_t const& sval() const { assert(global.compiled()); return m_sval; }

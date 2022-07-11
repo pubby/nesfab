@@ -657,6 +657,9 @@ ABSTRACT(SSA_xor) = ABSTRACT_FN
 
 ABSTRACT(SSA_add) = ABSTRACT_FN
 {
+    std::cout << "add masks:\n";
+    std::cout << result.cm.mask << ' ' << result.cm.signed_ << std::endl;
+    std::cout << cv[1].cm.mask << ' ' << cv[1].cm.signed_ << std::endl;
     assert(argn == 3);
     assert(result.cm == cv[0].cm);
     assert(result.cm == cv[1].cm);

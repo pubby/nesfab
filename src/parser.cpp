@@ -297,8 +297,9 @@ string_literal_t parser_t<P>::parse_string_literal()
 template<typename P>
 pstring_t parser_t<P>::parse_group_ident()
 {
+    parse_token(TOK_fslash);
     pstring_t ident = token.pstring;
-    parse_token(TOK_group_ident);
+    parse_token(TOK_ident);
     return ident;
 }
 
@@ -439,6 +440,16 @@ inapplicable:
         type_info_impl(TOK_len_expr, &type_t::array_length);
         goto applicable;
 
+    case TOK_at:
+        {
+            parse_token();
+            token_t t = token;
+            t.type = TOK_at;
+            parse_token(TOK_ident);
+            shunting_yard.push_back(t);
+        }
+        goto applicable;
+
     default:
         if(is_type_prefix(token.type))
         {
@@ -575,7 +586,7 @@ src_type_t parser_t<P>::parse_cast(expr_temp_t& expr_temp, int open_parens)
     pstring_t pstring = { begin - source(), end - begin, file_i() };
 
     if(src_type.type.is_unsized_array())
-        src_type.type.set_array_length(argument_count);
+        src_type.type.set_array_length(argument_count, src_type.pstring);
 
     // Casts are implemented as a pair of two tokens:
     // - a TOK_cast_argn first, counting how many arguments the cast parsed
@@ -632,11 +643,8 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             
             bc::small_vector<group_ht, 8> groups;
 
-            while(token.type == TOK_group_ident)
-            {
-                groups.push_back(group_t::lookup(source(), token.pstring).handle());
-                parse_token();
-            }
+            while(token.type == TOK_fslash)
+                groups.push_back(group_t::lookup(source(), parse_group_ident()).handle());
 
             result.type = type_t::ptr(&*groups.begin(), &*groups.end(), token.type == TOK_PPP);
             break;
@@ -665,16 +673,11 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
                 parse_expr(expr_temp, array_indent, 1);
 
                 if(expr_temp.size() == 1 && expr_temp[0].type == TOK_int)
-                {
-                    unsigned const size = expr_temp[0].value >> fixed_t::shift;
-                    if(size <= 0 || size > 1 << 16)
-                        compiler_error(expr_temp[0].pstring, "Invalid array size.");
-                    result.type = type_t::paa(size, group);
-                }
+                    result.type = type_t::paa(expr_temp[0].signed_() >> fixed_t::shift, group, expr_temp[0].pstring);
                 else
                 {
                     expr_temp.push_back({});
-                    result.type = type_t::paa_thunk(fast_concat(start_pstring, token.pstring), result.type, 
+                    result.type = type_t::paa_thunk(fast_concat(start_pstring, token.pstring), 
                         policy().convert_expr(expr_temp), group);
                 }
             }
@@ -718,12 +721,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             parse_expr(expr_temp, array_indent, 1);
 
             if(expr_temp.size() == 1 && expr_temp[0].type == TOK_int)
-            {
-                unsigned const size = expr_temp[0].value >> fixed_t::shift;
-                if(size <= 0 || size > 256)
-                    compiler_error(expr_temp[0].pstring, "Invalid array length.");
-                result.type = type_t::tea(result.type, size);
-            }
+                result.type = type_t::tea(result.type, expr_temp[0].signed_() >> fixed_t::shift, expr_temp[0].pstring);
             else
             {
                 expr_temp.push_back({});
@@ -763,7 +761,6 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool b
     {
         parse_line_ending();
 
-        unsigned size = 0;
         maybe_parse_block(var_indent, [&]
         { 
             if(token.type == TOK_file)
@@ -775,7 +772,6 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool b
                 expr.push_back(token_t::make_ptr(TOK_push_paa_byte_array, filename.pstring, 
                                                  eternal_new<locator_t>(&*data.begin(), &*data.end())));
                 expr.push_back({ TOK_push_paa, filename.pstring, data.size() });
-                size += data.size();
             }
             else
             {
@@ -784,28 +780,12 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool b
                 if(cast_size == 0)
                     compiler_error(cast_type.pstring, fmt("Type % cannot appear in pointer-addressable array.", cast_type.type));
                 expr.push_back({ TOK_push_paa });
-                size += cast_size;
             }
 
             parse_line_ending();
         });
 
-        auto& type = var_decl.src_type.type;
-        if(!is_thunk(type.name()))
-        {
-            if(type.array_length() == 0)
-                type.set_array_length(size);
-            else if(type.array_length() != size)
-                compiler_error(var_decl.name, fmt("Length of array (%) does not match its type (%).", size, type));
-        }
-
-        if(type.array_length() == 0)
-            compiler_error(var_decl.name, "Pointer-addressable array of size 0.");
-
-        expr.push_back({ TOK_cast_argn, var_decl.name, size });
-        expr.push_back(token_t::make_ptr(TOK_cast_type, var_decl.src_type.pstring, type_t::new_type(var_decl.src_type.type)));
-
-        return true;
+        return !expr.empty();
     }
     else if(block_init)
         parse_line_ending();
@@ -880,8 +860,7 @@ void parser_t<P>::parse_group_vars()
 
     // Parse the declaration
     parse_token(TOK_vars);
-    pstring_t const group_name = token.pstring;
-    parse_token(TOK_group_ident);
+    pstring_t const group_name = parse_group_ident();
     parse_line_ending();
 
     auto group = policy().begin_group_vars(group_name);
@@ -908,8 +887,7 @@ void parser_t<P>::parse_group_data(bool once)
 
     // Parse the declaration
     parse_token(once ? TOK_once : TOK_many);
-    pstring_t const group_name = token.pstring;
-    parse_token(TOK_group_ident);
+    pstring_t const group_name = parse_group_ident();
     parse_line_ending();
 
     auto group = policy().begin_group_data(group_name, once);
@@ -919,7 +897,7 @@ void parser_t<P>::parse_group_data(bool once)
         var_decl_t var_decl;
         expr_temp_t expr;
         if(!parse_var_init(var_decl, expr, true, group.first->group.handle()))
-            compiler_error("Constants must be assigned a value.");
+            compiler_error(var_decl.name, "Constants must be assigned a value.");
         policy().global_const(group, var_decl, expr);
     });
 

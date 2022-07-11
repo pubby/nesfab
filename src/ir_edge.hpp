@@ -11,6 +11,7 @@
 #include "ssa_op.hpp"
 #include "fixed.hpp"
 #include "type_name.hpp"
+#include "type_mask.hpp"
 
 namespace bc = boost::container;
 
@@ -63,6 +64,8 @@ public:
         { assert(is_num()); return { value & MAX_FIXED_MASK }; }
     std::uint32_t whole() const 
         { assert(is_num()); return fixed().whole(); }
+    std::int64_t signed_whole() const 
+        { assert(is_num()); return to_signed(fixed().value, num_type_name()) >> fixed_t::shift ; }
     std::uint32_t carry() const 
         { assert(is_num()); assert(whole() < 2); return fixed().whole(); }
     locator_t locator() const

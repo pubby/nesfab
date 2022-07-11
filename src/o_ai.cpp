@@ -134,6 +134,8 @@ void copy_constraints(ssa_value_t value, constraints_def_t& def)
         locator_t const loc = value.locator();
         type_t const type = loc.type();
 
+        std::cout << "copy type = " << type <<  ' ' << is_scalar(type.name()) << std::endl;
+
         if(is_scalar(type.name()))
             def = { type_constraints_mask(type.name()), { constraints_t::bottom(type_constraints_mask(type.name())) }};
         else

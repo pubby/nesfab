@@ -20,6 +20,8 @@ struct token_t
     pstring_t pstring;
     int_type value;
 
+    std::int64_t signed_() const { return static_cast<std::int64_t>(value); }
+
     void set_ptr(void const* ptr) { value = reinterpret_cast<int_type>(ptr); }
 
     template<typename T>

@@ -567,7 +567,7 @@ rptr idchar() { return pred(is_idchar); }
 rptr upper() { return pred(&isupper); }
 rptr lower() { return pred(&islower); }
 rptr newline() { return uor(word("\n"), word("\r"), word("\n\r"), word("\r\n")); }
-rptr comchar() { return pred([](unsigned char c) { return c != '\n' && c != 'r' && c; }); }
+rptr comchar() { return pred([](unsigned char c) { return c != '\n' && c != '\r' && c; }); }
 rptr eof() { return pred([](unsigned char c) { return c == '\0'; }); }
 rptr whitespace() { return pred([](unsigned char c) { return c == ' ' || c == '\t'; }); }
 rptr type() { return many1(cat(upper(), many1(pred(is_lower_or_digit)))); }
@@ -625,6 +625,7 @@ int main()
 
 
 
+            keyword(4, "at", "@"),
             keyword(5, "period", "."),
             keyword(7, "sizeof", "sizeof"),
             accept(7, "sizeof_expr", "sizeof", eof()), // dummy
@@ -712,7 +713,7 @@ int main()
             accept("Int", "Int type", word("Int")),
             accept("Real", "Real type", word("Real")),
             accept("Bool", "Bool type", word("Bool")), // Last type
-            accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
+            //accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
             accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
             accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),

@@ -11,6 +11,7 @@ class ir_t;
 class fn_t;
 class eval_t;
 class type_t;
+class locator_t;
 struct spair_t;
 struct pstring_t;
 struct token_t;
@@ -40,6 +41,8 @@ struct fn_not_rt_t : public std::exception
 
 spair_t interpret_expr(pstring_t pstring, token_t const* expr, 
                        type_t expected_type, eval_t* env = nullptr);
+
+std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr);
 
 void build_ir(ir_t& ir, fn_t const& fn);
 

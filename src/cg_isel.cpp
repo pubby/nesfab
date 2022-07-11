@@ -282,7 +282,7 @@ namespace isel
             cont->call(cpu_copy, prev);
     };
 
-    template<typename Opt, op_t Op, typename Def, typename Arg> [[gnu::noinline]]
+    template<typename Opt, op_t Op, typename Def, typename Arg = null_> [[gnu::noinline]]
     void set_defs_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
@@ -818,6 +818,40 @@ namespace isel
             exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
     }
 
+    template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
+    void carry_label_clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        using C = typename Opt::add_flags<OPT_CONDITIONAL>;
+        using NC = typename Opt::remove_flags<OPT_CONDITIONAL>;
+
+        if(Sec)
+        {
+            chain
+            < load_C<C, const_<1>>
+            , label<Label>
+            , clear_conditional
+            , set_defs_for<NC, SEC_IMPLIED, null_>
+            >(cpu, prev, cont);
+        }
+        else
+        {
+            chain
+            < load_C<C, const_<0>>
+            , label<Label>
+            , clear_conditional
+            , set_defs_for<NC, CLC_IMPLIED, null_>
+            >(cpu, prev, cont);
+        }
+
+        /*
+        chain
+        < label<Label>
+        , clear_conditional
+        >(cpu, prev, cont);
+        */
+    };
+
+
     // Adds a store operation.
     // 'Maybe' means the store may not be required in the final code;
     // such instructions can be pruned later.
@@ -1204,7 +1238,7 @@ namespace isel
                     , pick_op<OptC, CMP, null_, p_rhs>
                     , exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                          exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                                           exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
@@ -1213,7 +1247,7 @@ namespace isel
                     , pick_op<OptC, CPX, null_, p_rhs>
                     , exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                          exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                                           exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
@@ -1222,7 +1256,7 @@ namespace isel
                     , pick_op<OptC, CPY, null_, p_rhs>
                     , exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                          exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                                           exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
                 });
             }
@@ -1482,8 +1516,7 @@ namespace isel
                 < load_X<Opt, const_<0>>
                 , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                 , exact_op<OptC, INX_IMPLIED>
-                , label<p_label<0>>
-                , clear_conditional
+                , carry_label_clear_conditional<Opt, p_label<0>, false>
                 , set_defs<Opt, REGF_X | REGF_C, p_def>
                 , store<Opt, STX, p_def, false>
                 >(cpu, prev, cont);
@@ -1492,8 +1525,7 @@ namespace isel
                 < load_Y<Opt, const_<0>>
                 , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                 , exact_op<OptC, INY_IMPLIED>
-                , label<p_label<0>>
-                , clear_conditional
+                , carry_label_clear_conditional<Opt, p_label<0>, false>
                 , set_defs<Opt, REGF_Y | REGF_C, p_def>
                 , store<Opt, STY, p_def, false>
                 >(cpu, prev, cont);
@@ -1501,7 +1533,7 @@ namespace isel
             else
             {
                 cpu_t new_cpu = cpu;
-                if(new_cpu.set_def<REG_C>(Opt::to_struct, p_def::value()))
+                if(new_cpu.set_def<REG_C>(Opt::to_struct, p_def::value(), true))
                     cont->call(new_cpu, &alloc_sel<MAYBE_STORE_C>(Opt::to_struct, prev, p_def::trans()));
             }
             break;
@@ -1561,8 +1593,7 @@ namespace isel
                         , load_X<Opt, p_lhs>
                         , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                         , exact_op<OptC, INX_IMPLIED>
-                        , label<p_label<0>>
-                        , clear_conditional
+                        , carry_label_clear_conditional<Opt, p_label<0>, false>
                         , set_defs<Opt, REGF_X, p_def>
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
@@ -1572,8 +1603,7 @@ namespace isel
                         , load_Y<Opt, p_lhs>
                         , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                         , exact_op<OptC, INY_IMPLIED>
-                        , label<p_label<0>>
-                        , clear_conditional
+                        , carry_label_clear_conditional<Opt, p_label<0>, false>
                         , set_defs<Opt, REGF_Y, p_def>
                         , store<Opt, STY, p_def>
                         >(cpu, prev, cont);
@@ -1583,8 +1613,7 @@ namespace isel
                             chain
                             < exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                             , pick_op<OptC, INC, p_def, p_def>
-                            , label<p_label<0>>
-                            , clear_conditional
+                            , carry_label_clear_conditional<Opt, p_label<0>, false>
                             >(cpu, prev, cont);
                         }
                     }

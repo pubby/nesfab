@@ -63,8 +63,7 @@ int main(int argc, char** argv)
 
             if(vm.count("version")) 
             {
-                std::cout << "MOSBOL version " << VERSION << '\n';
-                std::cout << "commit " << GIT_COMMIT << '\n';
+                std::cout << "NesFab " << VERSION << " (" << GIT_COMMIT << ", " << __DATE__ << ")\n";
                 std::cout << 
                     "Copyright (C) 2022, Pubby\n"
                     "This is free software. "

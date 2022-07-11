@@ -66,22 +66,22 @@ struct options
 // An approximation of the CPU's state at a given position.
 struct cpu_t
 {
-    std::array<locator_t, NUM_CPU_REGS> defs;
+    std::array<locator_t, NUM_CPU_REGS> defs = {};
 
     // Sometimes the register will known to hold a specific constant value.
     // These vars track that:
-    std::array<std::uint8_t, NUM_CPU_REGS> known;
+    std::array<std::uint8_t, NUM_CPU_REGS> known = {};
     regs_t known_mask = 0; // If bit is set, known_values holds constant.
 
     // When implementing minor branches (such as in multi-byte comparisons),
     // some registers will be conditionally set.
     // These flags track which registers are conditional:
-    regs_t conditional_regs;
+    regs_t conditional_regs = 0;
 
     // This bitset keeps track of which variables must be stored.
     // To shrink the size down to 64 bits, a rolling window is used
     // based around the live ranges occuring within a single CFG node.
-    std::uint64_t req_store;
+    std::uint64_t req_store = 0;
 
     // Determines if two cpus are reasonably equivalent.
     // (Does not check known_mask or conditional_regs)
@@ -120,18 +120,18 @@ struct cpu_t
     }
 
     template<regs_t Reg> [[gnu::noinline]]
-    bool set_def(options_t opt, locator_t value)
+    bool set_def(options_t opt, locator_t value, bool keep_value = false)
     {
         if(!(opt.can_set & (1 << Reg)))
             return false;
         if(opt.flags & OPT_CONDITIONAL)
             conditional_regs |= 1 << Reg;
-        set_def_impl<Reg>(opt, value);
+        set_def_impl<Reg>(opt, value, keep_value);
         return true;
     }
 
     template<regs_t Reg> [[gnu::always_inline]]
-    void set_def_impl(options_t opt, locator_t value)
+    void set_def_impl(options_t opt, locator_t value, bool keep_value = false)
     {
         if(!(opt.set_mask & (1 << Reg)))
         {
@@ -156,35 +156,36 @@ struct cpu_t
         else
         {
             defs[Reg] = value;
-            known_mask &= ~(1 << Reg);
+            if(!keep_value)
+                known_mask &= ~(1 << Reg);
         }
     }
 
     template<regs_t Regs> [[gnu::noinline]]
-    void set_defs_impl(options_t opt, locator_t value)
+    void set_defs_impl(options_t opt, locator_t value, bool keep_value = false)
     {
         if(Regs & REGF_A)
-            set_def_impl<REG_A>(opt, value);
+            set_def_impl<REG_A>(opt, value, keep_value);
         if(Regs & REGF_X)
-            set_def_impl<REG_X>(opt, value);
+            set_def_impl<REG_X>(opt, value, keep_value);
         if(Regs & REGF_Y)
-            set_def_impl<REG_Y>(opt, value);
+            set_def_impl<REG_Y>(opt, value, keep_value);
         if(Regs & REGF_C)
-            set_def_impl<REG_C>(opt, value);
+            set_def_impl<REG_C>(opt, value, keep_value);
         if(Regs & REGF_Z)
-            set_def_impl<REG_Z>(opt, value);
+            set_def_impl<REG_Z>(opt, value, keep_value);
         if(Regs & REGF_N)
-            set_def_impl<REG_N>(opt, value);
+            set_def_impl<REG_N>(opt, value, keep_value);
     }
 
     template<regs_t Regs> [[gnu::noinline]]
-    bool set_defs(options_t opt, locator_t value)
+    bool set_defs(options_t opt, locator_t value, bool keep_value = false)
     {
         if((Regs & opt.can_set) != Regs)
             return false;
         if(opt.flags & OPT_CONDITIONAL)
             conditional_regs |= Regs;
-        set_defs_impl<Regs>(opt, value);
+        set_defs_impl<Regs>(opt, value, keep_value);
         return true;
     }
 

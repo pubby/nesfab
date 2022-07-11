@@ -59,7 +59,12 @@ enum locator_class_t : std::uint8_t
     FIRST_LOC_LT = LOC_LT_CONST_PTR,
     LOC_LT_EXPR, // link-time expression
     LAST_LOC_LT = LOC_LT_EXPR,
+
+    NUM_LCLASS,
 };
+
+// We have a limited number of bits to use.
+static_assert(NUM_LCLASS < 1 << 5);
 
 constexpr bool is_label(locator_class_t lclass)
 {
@@ -140,7 +145,8 @@ public:
     locator_t(locator_t const&) = default;
     locator_t& operator=(locator_t const&) = default;
 
-    constexpr locator_class_t lclass() const { return static_cast<locator_class_t>(impl >> 56ull); }
+    constexpr bool byteified() const { return impl & (1ull << 56ull); }
+    constexpr locator_class_t lclass() const { return static_cast<locator_class_t>(impl >> 57ull); }
     constexpr std::uint32_t handle() const { return (impl >> 32ull) & 0xFFFFFF; }
     constexpr std::uint16_t data() const { assert(!has_arg_member_atom(lclass())); return impl >> 16ull; }
     constexpr std::int16_t signed_offset() const { return static_cast<std::make_signed_t<std::int16_t>>(impl); }
@@ -148,13 +154,22 @@ public:
 
     // 'arg', 'member', and 'atom' overlap with 'data'; use one or the other.
     constexpr std::uint8_t member() const { assert(has_arg_member_atom(lclass())); return impl >> 24ull; }
+    constexpr std::uint8_t maybe_member() const { return has_arg_member_atom(lclass()) ? member() : 0; }
     constexpr std::uint8_t arg() const { assert(has_arg_member_atom(lclass())); return (impl >> 19ull) & 0b11111; }
+    constexpr std::uint8_t maybe_arg() const { return has_arg_member_atom(lclass()) ? arg() : 0; }
     constexpr std::uint8_t atom() const { assert(has_arg_member_atom(lclass())); return (impl >> 16ull) & 0b111; }
+    constexpr std::uint8_t maybe_atom() const { return has_arg_member_atom(lclass()) ? atom() : 0; }
+
+    constexpr void set_byteified(bool b)
+    {
+        impl &= ~(1ull << 56ull);
+        impl |= std::uint64_t(b) << 56ull;
+    }
 
     constexpr void set_lclass(locator_class_t lclass) 
     { 
         impl &= 0x00FFFFFFFFFFFFFFull; 
-        impl |= ((std::uint64_t)lclass << 56ull); 
+        impl |= ((std::uint64_t)lclass << 57ull); 
         assert(lclass == this->lclass());
     }
 
@@ -237,6 +252,12 @@ public:
         return { data() }; 
     }
 
+    lt_ht lt() const
+    {
+        assert(lclass() == LOC_LT_EXPR);
+        return { handle() };
+    }
+
     // Strips offset info from this locator.
     locator_t mem_head() const 
     {
@@ -292,7 +313,7 @@ public:
         { return locator_t(LOC_MINOR_LABEL, fn.value, id, 0); }
 
     constexpr static locator_t const_byte(std::uint8_t value)
-        { return locator_t(LOC_CONST_BYTE, 0, value, 0); }
+        { locator_t loc = locator_t(LOC_CONST_BYTE, 0, value, 0); loc.set_byteified(true); return loc; }
 
     constexpr static locator_t relocation_addr(addr16_t addr)
         { return locator_t(LOC_RELOCATION_ADDR, 0, addr, 0); }

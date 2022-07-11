@@ -18,6 +18,6 @@ struct lt_value_t
     expr_vec_t expr;
 };
 
-lt_ht alloc_lt_value(lt_value_t&& lt);
+lt_ht alloc_lt_value(type_t type, expr_vec_t const& expr);
 
 #endif

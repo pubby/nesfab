@@ -10,5 +10,6 @@
 #include "o_merge_bb.hpp"
 #include "o_gvn.hpp"
 #include "o_arg.hpp"
+#include "o_id.hpp"
 
 #endif

@@ -1768,6 +1768,32 @@ namespace isel
             });
             break;
 
+        case SSA_xor:
+            commutative(h, [&]()
+            {
+                chain
+                < load_A<Opt, p_lhs>
+                , pick_op<Opt, EOR, p_def, p_rhs>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+
+                chain
+                < load_AX<Opt, p_lhs, p_rhs>
+                , iota_op<Opt, EOR_ABSOLUTE_X, p_def>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+
+                chain
+                < load_AY<Opt, p_lhs, p_rhs>
+                , iota_op<Opt, EOR_ABSOLUTE_Y, p_def>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+
+                // TODO: consider using add instructions, 
+                // checking constraints when it's applicable.
+            });
+            break;
+
         case SSA_sign_extend:
             {
                 p_arg<0>::set(h->input(0));

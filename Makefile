@@ -102,7 +102,8 @@ cg_isel_cpu.cpp \
 cg_array.cpp \
 convert_file.cpp \
 lt.cpp \
-o_arg.cpp
+o_arg.cpp \
+o_id.cpp
 
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))

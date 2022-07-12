@@ -2066,7 +2066,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         struct lshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift) { return lhs << shift; }
-            static ssa_op_t op() { return SSA_shl; }
+            static ssa_op_t op() { return SSA_rol; }
         };
         do_shift<lshift_p>(rpn_stack, *token);
         break;
@@ -2082,7 +2082,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         struct rshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift) { return lhs >> shift; }
-            static ssa_op_t op() { return SSA_shr; }
+            static ssa_op_t op() { return SSA_ror; }
         };
         do_shift<rshift_p>(rpn_stack, *token);
         break;

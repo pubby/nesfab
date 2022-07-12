@@ -710,6 +710,7 @@ void fn_t::compile()
             changed |= o_phis(ir);
             changed |= o_merge_basic_blocks(ir);
             changed |= o_remove_unused_arguments(ir, *this, false);
+            changed |= o_identities(ir);
             changed |= o_abstract_interpret(ir);
             changed |= o_remove_unused_ssa(ir);
             changed |= o_global_value_numbering(ir);
@@ -737,6 +738,7 @@ void fn_t::compile()
             changed |= o_phis(ir);
             changed |= o_merge_basic_blocks(ir);
             changed |= o_remove_unused_arguments(ir, *this, true);
+            changed |= o_identities(ir);
             changed |= o_abstract_interpret(ir);
             changed |= o_remove_unused_ssa(ir);
             changed |= o_global_value_numbering(ir);

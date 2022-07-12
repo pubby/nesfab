@@ -1,7 +1,5 @@
 #include "cg_isel_cpu.hpp"
 
-#include <iostream> // TODO: remove
-
 namespace isel
 {
 
@@ -102,7 +100,6 @@ struct set_defs_for_impl<CLC_IMPLIED>
     {
         cpu.set_output_defs_impl<CLC_IMPLIED>(opt, def);
         cpu.set_known(REG_C, 0u);
-        std::printf("clc known = %i\n", cpu.known_mask);
     }
 };
 
@@ -324,6 +321,7 @@ struct set_defs_for_impl<LDX_IMMEDIATE>
 
         if(arg.is_const_num())
         {
+            std::printf("LDX CONST\n");
             cpu.set_known(REG_X, arg.data());
             cpu.set_known(REG_Z, !arg.data());
             cpu.set_known(REG_N, !!(arg.data() & 0x80));
@@ -786,7 +784,6 @@ struct set_defs_for_impl<ARR_IMMEDIATE>
 template<op_t Op> [[gnu::noinline]]
 bool cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)
 {
-    std::cout << "setting for " << to_string(Op) << std::endl;
     constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
     if((Regs & opt.can_set) != Regs)
         return false;

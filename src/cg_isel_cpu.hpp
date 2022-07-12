@@ -83,16 +83,26 @@ struct cpu_t
     // based around the live ranges occuring within a single CFG node.
     std::uint64_t req_store = 0;
 
+    // Debug function used to ensure 'known' holds zeroes for unknown values.
+    bool known_array_valid() const
+    {
+        for(unsigned i = 0; i < known.size(); ++i)
+            if(!(known_mask & (1 << i)) && known[i] != 0)
+                return false;
+        return true;
+    }
+
     // Determines if two cpus are reasonably equivalent.
-    // (Does not check known_mask or conditional_regs)
-    bool operator==(cpu_t const& o) const { return (req_store == o.req_store && defs == o.defs); }
+    bool operator==(cpu_t const& o) const 
+    { 
+        assert(known_array_valid() && o.known_array_valid());
+        return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask); 
+    }
 
     // If we know the value of a register:
     bool is_known(regs_t reg) const { return known_mask & (1 << reg); }
     bool is_known(regs_t reg, std::uint8_t value) const { return is_known(reg) && known[reg] == value; }
     bool are_known(regs_t regs) const { return (regs & known_mask) == regs; }
-
-    void clear_known(regs_t reg) { known_mask &= ~(1 << reg); }
 
     void set_known(regs_t reg, std::uint8_t value)
     {
@@ -100,6 +110,12 @@ struct cpu_t
             assert(!!value == value);
         known[reg] = value;
         known_mask |= 1 << reg;
+    }
+
+    void clear_known(regs_t reg)
+    {
+        known_mask &= ~(1 << reg);
+        known[reg] = 0; // Must do this to ensure operator== works.
     }
 
     bool def_eq(regs_t reg, locator_t v) const
@@ -136,7 +152,7 @@ struct cpu_t
         if(!(opt.set_mask & (1 << Reg)))
         {
             defs[Reg] = locator_t{};
-            known_mask &= ~(1 << Reg);
+            clear_known(Reg);
             return;
         }
 
@@ -157,7 +173,7 @@ struct cpu_t
         {
             defs[Reg] = value;
             if(!keep_value)
-                known_mask &= ~(1 << Reg);
+                clear_known(Reg);
         }
     }
 
@@ -226,8 +242,11 @@ struct std::hash<isel::cpu_t>
     std::size_t operator()(isel::cpu_t const& cpu) const noexcept
     {
         std::size_t h = rh::hash_finalize(cpu.req_store);
+        h = rh::hash_combine(h, cpu.known_mask);
         for(locator_t const& v : cpu.defs)
-            h = rh::hash_combine(h, v.to_uint());
+            h ^= v.to_uint();
+        for(std::uint8_t k : cpu.known)
+            h ^= k;
         return h;
     }
 };

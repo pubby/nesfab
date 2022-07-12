@@ -194,6 +194,35 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
     return h;
 }
 
+// Checks if 'loc' is used inside 'fn_node'.
+bool fn_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
+{
+    fn_t const& called = *get_fn(*fn_node);
+
+    switch(loc.lclass())
+    {
+    case LOC_GMEMBER:
+        return called.ir_writes(loc.gmember());
+    case LOC_GMEMBER_SET:
+        {
+            std::size_t const size = gmanager_t::bitset_size();
+            assert(size == called.ir_reads().size());
+
+            bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
+            bitset_copy(size, bs, called.ir_writes().data());
+            bitset_and(size, bs, ir.gmanager.get_set(loc));
+
+            return !bitset_all_clear(size, bs);
+        }
+    case LOC_ARG:
+        return loc.fn() != fn; // TODO: this could be made more accurate
+    case LOC_RETURN:
+        return true; // TODO: this could be made more accurate, as some fns don't clobber these
+    default: 
+        return false;
+    }
+}
+
 // If theres no interference, returns a handle to the last node of 'a's cset.
 ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
 {
@@ -208,44 +237,16 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::v
         return a;
     }
 
-    auto const fn_interferes = [&ir, fn](locator_t loc, ssa_ht fn_node)
-    {
-        fn_t const& called = *get_fn(*fn_node);
-
-        switch(loc.lclass())
-        {
-        case LOC_GMEMBER:
-            return called.ir_writes(loc.gmember());
-        case LOC_GMEMBER_SET:
-            {
-                std::size_t const size = gmanager_t::bitset_size();
-                assert(size == called.ir_reads().size());
-
-                bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
-                bitset_copy(size, bs, called.ir_writes().data());
-                bitset_and(size, bs, ir.gmanager.get_set(loc));
-
-                return !bitset_all_clear(size, bs);
-            }
-        case LOC_ARG:
-            return loc.fn() != fn; // TODO: this could be made more accurate
-        case LOC_RETURN:
-            return true; // TODO: this could be made more accurate, as some fns don't clobber these
-        default: 
-            return false;
-        }
-    };
-
     for(ssa_ht fn_node : fn_nodes)
     {
         assert(fn_node->op() == SSA_fn_call);
 
-        if(fn_interferes(cset_locator(a), fn_node))
+        if(fn_interferes(fn, ir, cset_locator(a), fn_node))
             for(ssa_ht bi = b; bi; bi = cset_next(bi))
                 if(live_at_def(bi, fn_node))
                     return {};
 
-        if(fn_interferes(cset_locator(b), fn_node))
+        if(fn_interferes(fn, ir, cset_locator(b), fn_node))
             for(ssa_ht ai = a; ai; ai = cset_next(ai))
                 if(live_at_def(ai, fn_node))
                     return {};
@@ -726,6 +727,11 @@ void code_gen(ir_t& ir, fn_t& fn)
         }
         else
         {
+            for(ssa_ht fn_node : fn_nodes)
+                if(fn_interferes(fn.handle(), ir, loc, fn_node))
+                    if(live_at_def(node, fn_node))
+                        return false;
+
             // It can be coalesced; create a new set out of it;
             ld.cset = node;
             // Also tag it to a locator:

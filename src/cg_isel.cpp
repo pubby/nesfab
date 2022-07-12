@@ -14,7 +14,6 @@
 #include "globals.hpp"
 #include "cg_isel_cpu.hpp"
 
-#define CONT_TEMPLATE 
 #define CONT cont_fn_t cont
 
 namespace isel
@@ -22,6 +21,9 @@ namespace isel
     // Backbone state of the instruction selection algorithm.
     struct state_t
     {
+        //rh::batman_map<cpu_t, sel_t const*> map;
+        //rh::batman_map<cpu_t, sel_t const*> next_map;
+
         rh::batman_map<cpu_t, sel_t const*> map;
         rh::batman_map<cpu_t, sel_t const*> next_map;
 
@@ -253,6 +255,14 @@ namespace isel
             state.best_sel = sel;
         }
     }
+
+    // Used for debugging
+#ifndef NDEBUG
+    void debug_kill(cpu_t const& cpu, sel_t const* sel, cons_t const*)
+    {
+        assert(0);
+    }
+#endif
 
     // Runs the function and adds the results to the state map.
     template<typename Fn>
@@ -890,11 +900,13 @@ namespace isel
     template<typename Opt, typename Def, typename Load, typename Store> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
+        cpu_t cpu_copy = cpu;
         chain
         < load_A<Opt, Load>
         , set_defs<Opt, REGF_A, Def>
         , store<Opt, STA, Store>
         >(cpu, prev, cont);
+        assert(cpu_copy == cpu);
 
         chain
         < load_X<Opt, Load>
@@ -1873,7 +1885,7 @@ namespace isel
             }
             else
                 cont->call(cpu, prev);
-                break;
+            break;
 
 
         case SSA_read_array:

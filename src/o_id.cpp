@@ -106,11 +106,8 @@ static bool o_simple_identity(ir_t& ir)
     return updated;
 }
 
-// What do we want to do?
-
-// IDEA: 
-// First, determine a set of nodes.
-// Second, calculate the sums.
+namespace // anonymous
+{
 
 struct ssa_monoid_d
 {
@@ -420,6 +417,8 @@ void run_monoid_t::build(ssa_ht h)
             leafs[input] += 1;
     }
 }
+
+} // end anonymous namespace
 
 bool o_identities(ir_t& ir)
 {

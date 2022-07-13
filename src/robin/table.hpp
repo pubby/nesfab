@@ -6,6 +6,7 @@
 // These aren't really general-use containers; see collection.hpp,
 // set.hpp, and map.hpp for those.
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdlib>
@@ -90,6 +91,7 @@ public:
     using value_type = T;
     using hash_type = UIntType;
     using value_storage = std::array<unsigned char, sizeof(value_type)>;
+    static_assert(sizeof(value_storage) == sizeof(value_type));
 
     robin_table() 
     : values()
@@ -141,10 +143,10 @@ public:
     [[gnu::always_inline]] inline apair<value_type*, bool> 
     emplace_unique(hash_type hash, C const& construct)
     {
-        return emplace<unique_t>(hash, {}, construct);
+        return emplace<unique_t, false>(hash, {}, construct);
     }
 
-    template<typename Eq, typename Construct>
+    template<typename Eq, bool Grow = true, typename Construct>
     inline apair<value_type*, bool> 
     emplace(hash_type hash, Eq const& equals, Construct const& construct)
     {
@@ -161,6 +163,8 @@ public:
             }
             else if((*hash_ptr & mask_) < i)
             {
+                apair<value_type*, bool> ret;
+
                 hash |= i;
                 value_type* value_ptr = get_value(hash_ptr);
                 if(*hash_ptr == 0)
@@ -169,18 +173,28 @@ public:
                      // Set the hash after constructing, otherwise the 
                      // destructor is unsafe.
                     *hash_ptr = hash;
-                    return { value_ptr, true };
+                    ret = { value_ptr, true };
                 }
                 else
                 {
+                    assert(hash_ptr >= hashes);
+                    assert(hash_ptr < hashes_end_);
+                    assert(*hashes_end_ == 0);
+
                     // Shift hashes right.
                     do 
                         std::swap(hash, *(hash_ptr++)), ++hash;
                     while(*hash_ptr);
 
+                    assert(hash_ptr >= hashes);
+                    assert(hash_ptr < hashes_end_);
+
                     // Shift values right.
                     value_type* copy_to = get_value(hash_ptr);
                     value_type* value_last = copy_to - 1;
+
+                    assert((void*)copy_to >= (void*)values.get());
+                    assert((void*)copy_to < (void*)(values.get() + allocated_size()));
 
                     // Construct a new value on the far right.
                     new((void*)copy_to--) value_type(std::move(*value_last--));
@@ -193,8 +207,19 @@ public:
 
                     // Value are shifted, now we can move-assign the hole.
                     *value_ptr = value_type(construct());
-                    return { value_ptr, true };
+
+                    ret = { value_ptr, true };
                 }
+
+                // We may need to expand:
+                if(Grow && UNLIKELY(hash_ptr + 1 >= hashes_end_))
+                {
+                    std::size_t const offset = hash_ptr - hashes;
+                    grow_realloc();
+                    return { get_value(offset + hashes), true };
+                }
+
+                return ret;
             }
         }
     }
@@ -436,17 +461,13 @@ protected:
 
     robin_table const* const_this() const { return this; }
 
-    static hash_type null_hash;
+    inline static hash_type null_hash = 0;
 
     std::unique_ptr<value_storage, c_delete> values;
     hash_type* hashes;
     hash_type* hashes_end_;
     hash_type mask_;
 };
-
-template<typename T, typename UIntType>
-UIntType robin_table<T, UIntType>::null_hash = 0;
-
 
 // Small wrapper around robin_table which tracks the number of elements 
 // inserted and automatically enlarges the table as new elements are inserted.
@@ -457,7 +478,7 @@ public:
     static_assert(std::is_unsigned<UIntType>::value);
     using value_type = T;
     using hash_type = UIntType;
-    using ratio_type = std::ratio<1, 2>;
+    using ratio_type = std::ratio<1, 3>;
 
     robin_auto_table() = default;
     robin_auto_table(robin_auto_table const&) = default;
@@ -492,11 +513,7 @@ public:
         }
         auto ret = table.emplace(hash, equals, construct);
         if(ret.second)
-        {
             ++used_size;
-            if(UNLIKELY(table.get_hash(ret.first) + 2 > table.hashes_end()))
-                table.grow_realloc();
-        }
         return ret; 
     }
 

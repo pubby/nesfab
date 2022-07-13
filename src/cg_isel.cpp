@@ -284,11 +284,11 @@ namespace isel
         state.best_cost = state.next_best_cost;
     }
 
-    template<typename Opt, regs_t Regs, typename Param> [[gnu::noinline]]
+    template<typename Opt, regs_t Regs, bool KeepValue, typename Param> [[gnu::noinline]]
     void set_defs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
-        if(cpu_copy.set_defs<Regs>(Opt::to_struct, Param::value()))
+        if(cpu_copy.set_defs<Regs>(Opt::to_struct, Param::value(), KeepValue))
             cont->call(cpu_copy, prev);
     };
 
@@ -635,11 +635,11 @@ namespace isel
             cpu_t cpu_copy;
 
             cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
+            if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
                 cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(opt, prev));
 
             cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
+            if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
                 cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(opt, prev));
         }
     }
@@ -900,23 +900,21 @@ namespace isel
     template<typename Opt, typename Def, typename Load, typename Store> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        cpu_t cpu_copy = cpu;
         chain
         < load_A<Opt, Load>
-        , set_defs<Opt, REGF_A, Def>
+        , set_defs<Opt, REGF_A, true, Def>
         , store<Opt, STA, Store>
         >(cpu, prev, cont);
-        assert(cpu_copy == cpu);
 
         chain
         < load_X<Opt, Load>
-        , set_defs<Opt, REGF_X, Def>
+        , set_defs<Opt, REGF_X, true, Def>
         , store<Opt, STX, Store>
         >(cpu, prev, cont);
 
         chain
         < load_Y<Opt, Load>
-        , set_defs<Opt, REGF_Y, Def>
+        , set_defs<Opt, REGF_Y, true, Def>
         , store<Opt, STY, Store>
         >(cpu, prev, cont);
     };
@@ -977,7 +975,7 @@ namespace isel
         , exact_op<Opt, BMI_RELATIVE, null_, label>
         , exact_op<OptC, LDA_IMMEDIATE, null_, const_<0xFF>>
         , clear_conditional
-        , set_defs<Opt, REGF_A, Def>
+        , set_defs<Opt, REGF_A, true, Def>
         , store<Opt, STA, Def>
         >(cpu, prev, cont);
 
@@ -987,7 +985,7 @@ namespace isel
         , exact_op<Opt, BMI_RELATIVE, null_, label>
         , exact_op<OptC, DEX_IMPLIED, null_, null_>
         , clear_conditional
-        , set_defs<Opt, REGF_X, Def>
+        , set_defs<Opt, REGF_X, true, Def>
         , store<Opt, STX, Def>
         >(cpu, prev, cont);
 
@@ -997,7 +995,7 @@ namespace isel
         , exact_op<Opt, BMI_RELATIVE, null_, label>
         , exact_op<OptC, DEY_IMPLIED, null_, null_>
         , clear_conditional
-        , set_defs<Opt, REGF_Y, Def>
+        , set_defs<Opt, REGF_Y, true, Def>
         , store<Opt, STY, Def>
         >(cpu, prev, cont);
     }
@@ -1115,7 +1113,7 @@ namespace isel
             , exact_op<OC, INX_IMPLIED>
             , clear_conditional
             , label<fail>
-            , set_defs<O, REGF_X, p_def>
+            , set_defs<O, REGF_X, true, p_def>
             , store<O, STX, p_def>
             >(cpu, prev, cont);
         });
@@ -1471,7 +1469,7 @@ namespace isel
             , exact_op<OC, INX_IMPLIED>
             , clear_conditional
             , label<std::conditional_t<LTE, success, fail>>
-            , set_defs<O, REGF_X, p_def>
+            , set_defs<O, REGF_X, true, p_def>
             , store<O, STX, p_def>
             >(cpu, prev, cont);
         });
@@ -1529,7 +1527,7 @@ namespace isel
                 , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                 , exact_op<OptC, INX_IMPLIED>
                 , carry_label_clear_conditional<Opt, p_label<0>, false>
-                , set_defs<Opt, REGF_X | REGF_C, p_def>
+                , set_defs<Opt, REGF_X | REGF_C, true, p_def>
                 , store<Opt, STX, p_def, false>
                 >(cpu, prev, cont);
 
@@ -1538,7 +1536,7 @@ namespace isel
                 , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                 , exact_op<OptC, INY_IMPLIED>
                 , carry_label_clear_conditional<Opt, p_label<0>, false>
-                , set_defs<Opt, REGF_Y | REGF_C, p_def>
+                , set_defs<Opt, REGF_Y | REGF_C, true, p_def>
                 , store<Opt, STY, p_def, false>
                 >(cpu, prev, cont);
             }
@@ -1606,7 +1604,7 @@ namespace isel
                         , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                         , exact_op<OptC, INX_IMPLIED>
                         , carry_label_clear_conditional<Opt, p_label<0>, false>
-                        , set_defs<Opt, REGF_X, p_def>
+                        , set_defs<Opt, REGF_X, true, p_def>
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
 
@@ -1616,7 +1614,7 @@ namespace isel
                         , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                         , exact_op<OptC, INY_IMPLIED>
                         , carry_label_clear_conditional<Opt, p_label<0>, false>
-                        , set_defs<Opt, REGF_Y, p_def>
+                        , set_defs<Opt, REGF_Y, true, p_def>
                         , store<Opt, STY, p_def>
                         >(cpu, prev, cont);
 
@@ -1641,7 +1639,7 @@ namespace isel
                         , exact_op<OptC, DEX_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_defs<Opt, REGF_X, p_def>
+                        , set_defs<Opt, REGF_X, true, p_def>
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
 
@@ -1652,7 +1650,7 @@ namespace isel
                         , exact_op<OptC, DEY_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_defs<Opt, REGF_Y, p_def>
+                        , set_defs<Opt, REGF_Y, true, p_def>
                         , store<Opt, STY, p_def>
                         >(cpu, prev, cont);
 
@@ -1928,7 +1926,7 @@ namespace isel
             p_arg<0>::set(h->input(0));
             chain
             < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
-            , set_defs<Opt, REGF_CPU, null_>
+            , set_defs<Opt, REGF_CPU, false, null_>
             >(cpu, prev, cont);
             break;
 
@@ -1936,7 +1934,7 @@ namespace isel
             p_arg<0>::set(h->input(0));
             chain
             < exact_op<Opt, JMP_ABSOLUTE, null_, p_arg<0>>
-            , set_defs<Opt, REGF_CPU, null_>
+            , set_defs<Opt, REGF_CPU, false, null_>
             >(cpu, prev, cont);
             break;
 
@@ -1959,14 +1957,6 @@ namespace isel
             break;
             */
 
-        case SSA_multi_eq:
-        case SSA_multi_not_eq:
-        case SSA_multi_lt:
-        case SSA_multi_lte:
-        case SSA_branch_eq:
-        case SSA_branch_not_eq:
-        case SSA_branch_lt:
-        case SSA_branch_lte:
         case SSA_entry:
         case SSA_uninitialized:
         case SSA_cg_read_array_direct:
@@ -1982,7 +1972,10 @@ namespace isel
         state.ssa_op = h->op();
         std::cout << "doing op " << state.ssa_op << std::endl;
 
+        p_def::set(h);
+
         using Opt = options<>;
+        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
 
         cfg_ht const cfg_node = h->cfg_node();
 
@@ -2032,7 +2025,7 @@ namespace isel
         case SSA_fn_call:
         case SSA_goto_mode:
             write_globals<Opt>(h);
-            break;
+            goto simple;
 
         case SSA_init_array:
             // TODO
@@ -2055,14 +2048,68 @@ namespace isel
             }
             break;
 
+        case SSA_shl:
+            p_lhs::set(h->input(0));
+            p_rhs::set(h->input(1));
+
+            if(h->input(1).is_num())
+            {
+                unsigned const shift = h->input(1).whole();
+                select_step(load_A<Opt, p_lhs>);
+                for(unsigned i = 0; i < shift; ++i)
+                    select_step(exact_op<Opt, ASL_IMPLIED, p_def>);
+                select_step(
+                    chain
+                    < set_defs<Opt, REGF_A, true, p_def>
+                    , store<Opt, STA, p_def>
+                    >);
+            }
+            else
+            {
+                p_label<0>::set(state.minor_label());
+                p_label<1>::set(state.minor_label());
+
+                select_step([h](cpu_t cpu, sel_t const* prev, cons_t const* cont)
+                {
+                    chain
+                    < load_AX<Opt, p_lhs, p_rhs>
+                    , load_NZ_for<typename Opt::restrict_to<~REGF_AX>, p_rhs>
+                    , exact_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
+                    , label<p_label<0>>
+                    , exact_op<OptC, ASL_IMPLIED>
+                    , exact_op<OptC, DEX_IMPLIED>
+                    , exact_op<OptC, BNE_RELATIVE, null_, p_label<0>>
+                    , label<p_label<1>>
+                    , clear_conditional
+                    , set_defs<Opt, REGF_A, true, p_def>
+                    , store<Opt, STA, p_def>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_AY<Opt, p_lhs, p_rhs>
+                    , load_NZ_for<typename Opt::restrict_to<~REGF_AY>, p_rhs>
+                    , exact_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
+                    , label<p_label<0>>
+                    , exact_op<OptC, ASL_IMPLIED>
+                    , exact_op<OptC, DEY_IMPLIED>
+                    , exact_op<OptC, BNE_RELATIVE, null_, p_label<0>>
+                    , label<p_label<1>>
+                    , clear_conditional
+                    , set_defs<Opt, REGF_A, true, p_def>
+                    , store<Opt, STA, p_def>
+                    >(cpu, prev, cont);
+                });
+            }
+            break;
+
         default: 
+        simple:
+            select_step([h](cpu_t cpu, sel_t const* prev, cons_t const* cont)
+            {
+                isel_node_simple(h, cpu, prev, cont);
+            });
             break;
         }
-
-        select_step([h](cpu_t cpu, sel_t const* prev, cons_t const* cont)
-        {
-            isel_node_simple(h, cpu, prev, cont);
-        });
     }
 
 } // namespace isel

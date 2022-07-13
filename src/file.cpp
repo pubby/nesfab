@@ -19,9 +19,10 @@ file_contents_t::file_contents_t(unsigned file_i)
     struct stat sb;
     if(fstat(fd, &sb) == -1)
         throw std::runtime_error("Unable to stat file: " + name);
-    m_source.reset(new char[sb.st_size + 1]);
+    m_source.reset(new char[sb.st_size + 2]);
     if(read(fd, reinterpret_cast<void*>(m_source.get()), sb.st_size) == -1)
         throw std::runtime_error("Unable to read file: " + name);
-    m_source[sb.st_size] = '\0';
+    m_source[sb.st_size] = m_source[sb.st_size - 1] = '\0';
+    m_size = sb.st_size + 2;
 }
 

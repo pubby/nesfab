@@ -632,6 +632,10 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
         }
 
         // Call the ai op:
+#ifndef NDEBUG
+        if(!abstract_fn(ssa_node->op()))
+            std::cerr << to_string(ssa_node->op()) << std::endl;
+#endif
         assert(abstract_fn(ssa_node->op()));
         d.set_active_constraints(exec_i);
         abstract_fn(ssa_node->op())(c.data(), input_size, d.constraints());

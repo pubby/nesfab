@@ -20,8 +20,10 @@ public:
     std::string const& name() const { return source_file_names[m_file_i]; }
     unsigned index() const { return m_file_i; }
     char const* source() const { return m_source.get(); }
+    std::size_t size() const { return m_size; }
 private:
     unsigned m_file_i;
+    unsigned m_size;
     std::unique_ptr<char[]> m_source;
 };
 

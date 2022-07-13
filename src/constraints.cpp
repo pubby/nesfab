@@ -1028,6 +1028,65 @@ ABSTRACT(SSA_write_array) = ABSTRACT_FN
     }
 };
 
+ABSTRACT(SSA_shl) = ABSTRACT_FN
+{
+    assert(argn == 2);
+    assert(result.cm.mask == cv[0].cm.mask);
+    assert((cv[1].cm.mask & numeric_bitmask(TYPE_U)) == cv[1].cm.mask);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    // Inputs:
+    fixed_uint_t const mask = result.cm.mask;
+    constraints_t const L = cv[0][0];
+    constraints_t const R = cv[1][0];
+
+    assert(L.is_normalized(cv[0].cm));
+    assert(R.is_normalized(cv[1].cm));
+
+    // Convert R to whole
+    fixed_uint_t const R_min = R.bounds.min >> fixed_t::shift;
+    fixed_uint_t const R_max = R.bounds.max >> fixed_t::shift;
+    assert(R_min < 256 && R_max < 256);
+    assert(R_min <= R_max);
+
+    // Calc known bits
+    known_bits_t bits = L.bits;
+    bits.known0 <<= R_min;
+    bits.known0 |= ~(mask << R_min);
+    bits.known1 <<= R_min;
+
+    for(unsigned i = R_min; i < R_max; ++i)
+    {
+        bits.known0 &= (bits.known0 << 1ull);
+        bits.known1 &= (bits.known1 << 1ull);
+    }
+
+    bits.known0 |= ~mask;
+    bits.known1 &= mask;
+
+    // Calc bounds
+    bounds_t bounds;
+    if(L.bounds.min && (builtin::clz(std::uint64_t(L.bounds.min)) + R_min) >= builtin::clz(mask))
+        bounds = from_bits(bits, result.cm);
+    else if(L.bounds.max && (builtin::clz(std::uint64_t(L.bounds.max)) + R_max) >= builtin::clz(mask))
+    {
+        bounds.min = L.bounds.min << R_min;
+        bounds.max = from_bits(bits, result.cm).max;
+        assert((bounds.min & mask) == std::uint64_t(bounds.min));
+    }
+    else
+    {
+        bounds.min = L.bounds.min << R_min;
+        bounds.max = L.bounds.max << R_max;
+        assert((bounds.max & mask) == std::uint64_t(bounds.max));
+    }
+
+    result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
+};
+
+
 #if 0
 
 /*
@@ -1088,68 +1147,6 @@ ABSTRACT(SSA_mul) = ABSTRACT_FN
     }
 
     assert(result[0].bounds.max <= result.mask && result[0].is_normalized());
-    */
-};
-
-ABSTRACT(SSA_shl) = ABSTRACT_FN
-{
-    assert(0);
-    /*
-    assert(argn == 2);
-    assert(result.mask == cv[0].mask);
-    assert((cv[1].mask & numeric_bitmask(TYPE_U)) == cv[1].mask);
-
-    if(handle_top(cv, argn, result))
-        return;
-
-    // Inputs:
-    fixed_uint_t const mask = result.mask;
-    constraints_t const L = cv[0][0];
-    constraints_t const R = cv[1][0];
-
-    assert(L.is_normalized());
-    assert(R.is_normalized());
-
-    // Convert R to whole
-    fixed_uint_t const R_min = R.bounds.min >> fixed_t::shift;
-    fixed_uint_t const R_max = R.bounds.max >> fixed_t::shift;
-    assert(R_min < 256 && R_max < 256);
-    assert(R_min <= R_max);
-
-    // Calc known bits
-
-    known_bits_t bits = L.bits;
-    bits.known0 <<= R_min;
-    bits.known0 |= ~(mask << R_min);
-    bits.known1 <<= R_min;
-
-    for(unsigned i = R_min; i < R_max; ++i)
-    {
-        bits.known0 &= (bits.known0 << 1ull);
-        bits.known1 &= (bits.known1 << 1ull);
-    }
-
-    bits.known0 |= ~mask;
-    bits.known1 &= mask;
-
-    // Calc bounds
-    bounds_t bounds;
-    if(L.bounds.min && (builtin::clz(L.bounds.min) + R_min) >= builtin::clz(mask))
-        bounds = from_bits(bits);
-    else if(L.bounds.max && (builtin::clz(L.bounds.max) + R_max) >= builtin::clz(mask))
-    {
-        bounds.min = L.bounds.min << R_min;
-        bounds.max = from_bits(bits).max;
-        assert((bounds.min & mask) == bounds.min);
-    }
-    else
-    {
-        bounds.min = L.bounds.min << R_min;
-        bounds.max = L.bounds.max << R_max;
-        assert((bounds.max & mask) == bounds.max);
-    }
-
-    result[0] = apply_mask(mask, normalize({ bounds, bits }));
     */
 };
 

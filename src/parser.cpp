@@ -127,9 +127,14 @@ bool parser_t<P>::parse_token()
 restart:
     // Lex 1 token
     token_source = next_char;
+    assert(next_char);
     token_type_t lexed = TOK_START;
     while(lexed > TOK_LAST_STATE)
     {
+#if 0 // Enable to debug
+        assert(next_char < source() + file.size());
+        assert(next_char >= source());
+#endif
         unsigned char const c = *next_char;
         lexed = lexer_transition_table[lexed + lexer_ec_table[c]];
         ++next_char;

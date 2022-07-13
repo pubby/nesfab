@@ -2066,7 +2066,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         struct lshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift) { return lhs << shift; }
-            static ssa_op_t op() { return SSA_rol; }
+            static ssa_op_t op() { return SSA_shl; }
         };
         do_shift<lshift_p>(rpn_stack, *token);
         break;
@@ -2082,7 +2082,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         struct rshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift) { return lhs >> shift; }
-            static ssa_op_t op() { return SSA_ror; }
+            static ssa_op_t op() { return SSA_shr; }
         };
         do_shift<rshift_p>(rpn_stack, *token);
         break;
@@ -2295,7 +2295,8 @@ void eval_t::compile_binary_operator(rpn_stack_t& rpn_stack, ssa_op_t op, type_t
     // Result will remain in 'lhs'.
     ssa_value_t result;
     if(carry)
-        result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa(), ssa_value_t(0u, TYPE_BOOL));
+        result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa(), 
+                                          ssa_value_t(op == SSA_sub, TYPE_BOOL));
     else
         result = builder.cfg->emplace_ssa(op, result_type, lhs.ssa(), rhs.ssa());
 

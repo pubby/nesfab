@@ -321,7 +321,6 @@ struct set_defs_for_impl<LDX_IMMEDIATE>
 
         if(arg.is_const_num())
         {
-            std::printf("LDX CONST\n");
             cpu.set_known(REG_X, arg.data());
             cpu.set_known(REG_Z, !arg.data());
             cpu.set_known(REG_N, !!(arg.data() & 0x80));

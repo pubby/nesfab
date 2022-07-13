@@ -540,7 +540,7 @@ inline int locator_output(ssa_ht h, locator_t loc)
     unsigned const output_size = h->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
-        ssa_ht output = h->output(i);
+        ssa_ht const output = h->output(i);
         if(output->op() != SSA_read_global)
             continue;
         if(output->input(1).locator() == loc)
@@ -550,7 +550,7 @@ inline int locator_output(ssa_ht h, locator_t loc)
 }
 
 template<typename Fn>
-void for_each_written_global(ssa_ht h, Fn fn)
+void for_each_written_global(ssa_ht h, Fn const& fn)
 {
     assert(ssa_flags(h->op()) & SSAF_WRITE_GLOBALS);
     unsigned const begin = write_globals_begin(h->op());
@@ -561,19 +561,19 @@ void for_each_written_global(ssa_ht h, Fn fn)
 }
 
 template<typename Fn>
-void for_each_node_input(ssa_ht h, Fn fn)
+void for_each_node_input(ssa_ht h, Fn const& fn)
 {
     unsigned const input_size = h->input_size();
     for(unsigned i = 0; i < input_size; ++i)
     {
-        ssa_value_t input = h->input(i);
+        ssa_value_t const input = h->input(i);
         if(input.holds_ref())
             fn(input.handle());
     }
 }
 
 template<typename Fn>
-void for_each_input_matching(ssa_ht h, ssa_op_t match, Fn fn)
+void for_each_input_matching(ssa_ht h, ssa_op_t match, Fn const& fn)
 {
     unsigned const input_size = h->input_size();
     for(unsigned i = 0; i < input_size; ++i)
@@ -585,7 +585,7 @@ void for_each_input_matching(ssa_ht h, ssa_op_t match, Fn fn)
 }
 
 template<typename Fn>
-void for_each_output(ssa_ht h, Fn fn)
+void for_each_output(ssa_ht h, Fn const& fn)
 {
     unsigned const output_size = h->output_size();
     for(unsigned i = 0; i < output_size; ++i)
@@ -596,12 +596,26 @@ void for_each_output(ssa_ht h, Fn fn)
 }
 
 template<typename Fn>
-void for_each_output_matching(ssa_ht h, input_class_t match, Fn fn)
+void for_each_output_with_links(ssa_ht const h, Fn const& fn)
 {
     unsigned const output_size = h->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
-        auto oe = h->output_edge(i);
+        auto const oe = h->output_edge(i);
+        if(oe.input_class() == INPUT_LINK)
+            for_each_output_with_links(oe.handle, fn);
+        else
+            fn(h, oe.handle);
+    }
+}
+
+template<typename Fn>
+void for_each_output_matching(ssa_ht h, input_class_t match, Fn const& fn)
+{
+    unsigned const output_size = h->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+    {
+        auto const oe = h->output_edge(i);
         if(oe.input_class() == match)
             fn(oe.handle);
     }
@@ -617,7 +631,7 @@ inline bool has_output_matching(ssa_ht h, input_class_t match)
 }
 
 template<typename Fn>
-void for_each_read_global(ssa_ht h, Fn fn)
+void for_each_read_global(ssa_ht h, Fn const& fn)
 {
     unsigned const output_size = h->output_size();
     for(unsigned i = 0; i < output_size; ++i)

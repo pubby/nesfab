@@ -104,6 +104,10 @@ private:
 
         // Like above, but includes called fns too.
         ram_bitset_t recursive_lvar_ram = {};
+
+        // Normal "ir_group_vars()" only looks up the call graph,
+        // but this set also looks down.
+        bitset_t maximal_group_vars;
     };
 
     group_vars_d& data(group_vars_ht h) { return group_vars_data[h.value]; }
@@ -126,19 +130,47 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
     ///////////////////
 
     {
+        // Alloc spans
         for(gmember_t& gm : impl_vector<gmember_t>)
             gm.alloc_spans();
 
-        // Init data
+        // Init 'maximal_group_vars'
+        unsigned const group_vars_bs_size = impl_bitset_size<group_vars_t>();
+        for(unsigned i = 0; i < impl_deque<fn_t>.size(); ++i)
+        {
+            fn_t const& fn = *fn_ht{i};
+
+            if(fn.fclass == FN_CT)
+                continue;
+
+            fn_data[i].maximal_group_vars = fn.ir_group_vars();
+            assert(fn_data[i].maximal_group_vars.size() == impl_bitset_size<group_vars_t>());
+        }
+
+        // Build 'maximal_group_vars'
+        for(fn_t* mode : global_t::modes())
+        {
+            assert(mode);
+            assert(mode->fclass == FN_MODE);
+            assert(mode->ir_group_vars());
+
+            mode->ir_calls().for_each([&](unsigned j)
+            {
+                fn_data[j].maximal_group_vars |= mode->ir_group_vars();
+            });
+        }
+
+        // Init 'group_vars_data'
+        unsigned const interferences_size = impl_bitset_size<group_vars_t>();
         for(unsigned i = 0; i < impl_deque<group_vars_t>.size(); ++i)
         {
             auto& d = group_vars_data[i];
-            d.interferences.reset(impl_bitset_size<group_vars_t>());
+            d.interferences.reset(interferences_size);
             d.interferences.set(i); // always interfere with itself
             d.usable_ram = initial_usable_ram;
         }
 
-        // Build interference graph among 'group vars':
+        // Build interference graph among group vars:
         for(fn_t* mode : global_t::modes())
         {
             assert(mode);
@@ -247,14 +279,27 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         for(unsigned i = 0; i < impl_deque<fn_t>.size(); ++i)
         {
             fn_t const& fn = *fn_ht{i};
+            std::cout << "allocing " << fn.global.name << std::endl;
 
             if(fn.fclass == FN_CT)
                 continue;
 
+            fn.ir_calls().for_each([&](unsigned j)
+            {
+                fn_data[i].maximal_group_vars.for_each([&](unsigned k)
+                {
+                    std::cout << "allocing - ram " << k << std::endl;
+                    fn_data[j].usable_ram &= group_vars_data[k].usable_ram;
+                });
+            });
+
+            /*
             fn.ir_group_vars().for_each([&](unsigned j)
             {
+                std::cout << "allocing - ram " << j << std::endl;
                 fn_data[i].usable_ram &= group_vars_data[j].usable_ram;
             });
+            */
         }
 
         // Build an order to allocate fn lvars:
@@ -282,7 +327,6 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
         build_order(mode_rank);
 
-        std::puts("poopy butt");
         for(fn_ht fn : fn_order)
             std::cout << "building " << fn->global.name << std::endl;
 
@@ -334,7 +378,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     assert(d.step < Step);
     assert((data(h).usable_ram & data(h).lvar_ram).all_clear());
 
-    std::cout << "lvars =  " << fn.lvars().num_all_lvars() << std::endl;
+    std::cout << h->global.name << " lvars =  " << fn.lvars().num_this_lvars() << ' ' << fn.lvars().num_all_lvars() << std::endl;
 
     // Setup lvar usable ram:
     std::vector<ram_bitset_t> lvar_usable_ram;
@@ -420,6 +464,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     for(rank_t const& rank : ordered_lvars)
     {
         unsigned const lvar_i = rank.lvar_i;
+        std::cout << "allocating lvar " << fn.lvars().locator(lvar_i) << std::endl;
         assert(lvar_i < lvar_usable_ram.size());
 
         // First try to allocate in 'freebie_ram'.
@@ -480,6 +525,8 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     d.recursive_lvar_ram = d.lvar_ram | freebie_ram;
 
     d.step = Step;
+
+    std::puts("done");
 }
 
 } // end anonymous namespace

@@ -1395,7 +1395,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                         {
                             if(call->ir_reads().test(m.value))
                             {
-                                fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m.value));
+                                fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                                 fn_inputs.push_back(locator_t::gmember(m, 0));
                             }
                         }
@@ -1415,7 +1415,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                             if(!call->lang_gvars().test(gmember->gvar.handle().value))
                                 return;
 
-                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), gmember.value));
+                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), gmember->member()));
                             fn_inputs.push_back(locator_t::gmember(gmember, 0));
                         });
                     });
@@ -2953,8 +2953,9 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
     block_d& block_data = cfg_node.data<block_d>();
 
     assert(var_i < block_data.vars.size());
+    assert(block_data.vars.size() == var_types.size());
     std::cout << fn->global.name << std::endl;
-    std::cout << member << ' ' << block_data.vars[var_i].size() << std::endl;
+    std::cout << member << ' ' << block_data.vars[var_i].size() << ' ' << var_types.size() << std::endl;
     assert(member < block_data.vars[var_i].size());
 
     if(ssa_value_t lookup = from_variant(block_data.vars[var_i][member], member_type(var_types[var_i], member)))

@@ -35,6 +35,10 @@ static bool o_simple_identity(ir_t& ir)
 
         switch(node.op())
         {
+        case SSA_cast:
+            if(node.input(0).type() == node.type())
+                goto replaceWith0;
+            break;
         case SSA_add:
             {
                 if(!node.input(2).is_num())

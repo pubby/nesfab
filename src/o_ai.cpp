@@ -93,6 +93,8 @@ std::size_t constraints_size(ssa_node_t const& node)
     {
     case SSA_add:
     case SSA_sub:
+    case SSA_rol:
+    case SSA_ror:
         return 2; // Second constraint is for the carry.
     case SSA_trace:
         return constraints_size(*node.input(0));
@@ -134,7 +136,7 @@ void copy_constraints(ssa_value_t value, constraints_def_t& def)
         locator_t const loc = value.locator();
         type_t const type = loc.type();
 
-        std::cout << "copy type = " << type <<  ' ' << is_scalar(type.name()) << std::endl;
+        //std::cout << "copy type = " << type <<  ' ' << is_scalar(type.name()) << std::endl;
 
         if(is_scalar(type.name()))
             def = { type_constraints_mask(type.name()), { constraints_t::bottom(type_constraints_mask(type.name())) }};
@@ -713,9 +715,9 @@ void ai_t::visit(ssa_ht ssa_node)
     assert(all_normalized(d.constraints()));
     if(!bit_eq(d.constraints().vec, old_constraints.vec))
     {
-        std::cout << std::endl;
-        std::cout << old_constraints.cm << std::endl;
-        std::cout << d.constraints().cm << std::endl;
+        //std::cout << std::endl;
+        //std::cout << old_constraints.cm << std::endl;
+        //std::cout << d.constraints().cm << std::endl;
         assert(old_constraints.cm == d.constraints().cm);
         assert(all_subset(old_constraints.vec, d.constraints().vec, d.constraints().cm));
 

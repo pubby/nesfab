@@ -373,66 +373,91 @@ TEST_CASE("random_subset", "[constraints]")
     }
 }
 
-template<int Argn, typename Fn>
+struct int_cm_t
+{
+    static constraints_mask_t cm(bool signed_) { return { 0xF << 24, signed_ }; }
+};
+
+struct uint_cm_t
+{
+    static constraints_mask_t cm(bool signed_) { return { 0xF << 24, false }; }
+};
+
+struct bool_cm_t
+{
+    static constraints_mask_t cm(bool signed_) { return CARRY_MASK; }
+};
+
+//template<int Argn, bool SignRhs = true, typename Fn>
+template<typename Result, typename... Args, typename Fn>
 void test_op(ssa_op_t op, Fn fn, bool debug = false)
 {
+    constexpr int Argn = sizeof...(Args);
+
     for(unsigned signed_ = 0; signed_ < 2; ++signed_)
     {
-        constraints_mask_t const cm = { 0xF << 24, signed_ };
-
-        static_assert(Argn <= 3 && Argn > 0);
-        std::array<constraints_def_t, 3> cv;
-        cv[0] = { cm, { random_constraint(cm) }};
-        cv[1] = { cm, { random_constraint(cm) }};
-        cv[2] = { CARRY_MASK, { random_constraint(CARRY_MASK) }}; // Carry
+        std::array<constraints_def_t, Argn> cv = {{ constraints_def_t{ Args::cm(signed_) }... }};
+        for(auto& cd : cv)
+        {
+            cd.vec = { random_constraint(cd.cm) };
+            assert(!cd[0].is_top(cd.cm));
+        }
 
         constraints_def_t result;
-        result.cm = cm;
+        result.cm = Result::cm(signed_);
         result.vec.resize(2);
 
-        assert(!cv[0][0].is_top(result.cm));
-        assert(!cv[1][0].is_top(result.cm));
+        if(!!signed_ != !!result.cm.signed_)
+            continue;
 
+        REQUIRE(abstract_fn_table[op]);
         abstract_fn_table[op](cv.data(), Argn, result);
         constraints_t r = result[0];
         constraints_t rc = result[1];
-        REQUIRE(!r.is_top(cm));
+        REQUIRE(!r.is_top(result.cm));
 
         if(debug)
         {
-            std::cout << std::endl;
-            std::cout << cv[0][0] << std::endl;
-            std::cout << cv[1][0] << std::endl;
-            std::cout << cv[2][0] << std::endl;
+            std::cout << "args:" << std::endl;
+            for(auto& cd : cv)
+                std::cout << cd[0] << std::endl;
             std::cout << "result:\n" << r << std::endl;
         }
 
-        for(unsigned i = 0; i < 16; ++i)
-        for(unsigned j = 0; j < 16; ++j)
+        for(int i = 0; i < 16; ++i)
+        for(int j = 0; j < 16; ++j)
         {
-            fixed_uint_t a[2] = { i, j };
-            fixed_uint_t o;
+            fixed_sint_t a[2] = { i, j };
+            if(signed_)
+            {
+                a[0] -= 8;
+                a[1] -= 8;
+            }
             for(int i = 0; i < Argn; ++i)
-                if(!cv[i][0](a[i] << 24, cm))
+                if(!cv[i][0](a[i] << 24, result.cm))
                     goto next_iter;
+            fixed_uint_t o;
             o = fn(a);
             o &= 0xF;
+            if(signed_ && (o & 0b1000))
+                o |= ~0xF;
             o <<= 24;
-            if(debug && (!r.bounds(o, cm) || !r.bits(o, cm)))
+            if(debug)// && (!r.bounds(o, result.cm) || !r.bits(o, result.cm)))
             {
-                std::cout << std::endl;
-                std::cout << cv[0][0] << std::endl;
-                std::cout << cv[1][0] << std::endl;
-                std::cout << cv[2][0] << std::endl;
+                std::cout << "signed: " << signed_ << std::endl;
+                std::cout << "i j o: " << a[0] << ' ' << a[1] << ' ' << (fixed_sint_t(o) >> fixed_t::shift) << std::endl;
+                std::cout << "args:" << std::endl;
+                for(auto& cd : cv)
+                    std::cout << cd[0] << std::endl;
                 std::cout << "result:\n" << r << std::endl;
                 std::cout << (a[0]) << std::endl;
                 std::cout << (a[1]) << std::endl;
                 std::cout << (o >> 24) << std::endl;
             }
-            REQUIRE(r.bounds(o, cm));
-            REQUIRE(r.bits(o, cm));
-            REQUIRE(r.in_mask(cm));
-            REQUIRE(r.is_normalized(cm));
+            REQUIRE(r.bounds(o, result.cm));
+            REQUIRE(r.bits(o, result.cm));
+            REQUIRE(r.in_mask(result.cm));
+            REQUIRE(r.is_normalized(result.cm));
 
             // If the inputs are const, the output should be as well.
             for(int i = 0; i < Argn; ++i)
@@ -449,14 +474,15 @@ void test_op(ssa_op_t op, Fn fn, bool debug = false)
         for(int i = 0; i < Argn; ++i)
         {
             cvn[i] = cv[i];
-            REQUIRE(!cvn[i][0].is_top(cm));
+            REQUIRE(!cvn[i][0].is_top(cvn[i].cm));
         }
 
         // First check to make sure it preserves the original inputs:
+        REQUIRE(narrow_fn_table[op]);
         narrow_fn_table[op](cvn.data(), Argn, result);
 
         for(int i = 0; i < Argn; ++i)
-            REQUIRE(!cvn[i][0].is_top(cm));
+            REQUIRE(!cvn[i][0].is_top(cvn[i].cm));
 
         for(int i = 0; i < Argn; ++i)
         {
@@ -464,11 +490,11 @@ void test_op(ssa_op_t op, Fn fn, bool debug = false)
             //std::cout << cvn[i][0] << std::endl;
             //std::cout << cv[i][0] << std::endl;
             REQUIRE(cvn[i][0].bit_eq(cv[i][0]));
-            REQUIRE(!cvn[i][0].is_top(cm));
+            REQUIRE(!cvn[i][0].is_top(cvn[i].cm));
         }
 
         constraints_def_t result2;
-        result2.cm = cm;
+        result2.cm = result.cm;
         result2.vec.resize(2);
 
         abstract_fn_table[op](cvn.data(), Argn, result2);
@@ -477,30 +503,30 @@ void test_op(ssa_op_t op, Fn fn, bool debug = false)
         REQUIRE(rc.bit_eq(result2[1]));
 
         // Then check with a subset result:
-        constraints_t n = random_subset(r, cm);
+        constraints_t n = random_subset(r, result.cm);
         //std::cout << std::endl;
         //std::cout << r << std::endl;
         //std::cout << n << std::endl;
-        REQUIRE(is_subset(n, r, cm));
-        REQUIRE(!n.is_top(cm));
+        REQUIRE(is_subset(n, r, result.cm));
+        REQUIRE(!n.is_top(result.cm));
         result2.vec = {{ n, result[1] }};
 
         narrow_fn_table[op](cvn.data(), Argn, result2);
 
         for(int i = 0; i < Argn; ++i)
         {
-            cvn[i][0].normalize(cm);
-            if(cvn[i][0].is_top(cm))
+            cvn[i][0].normalize(cvn[i].cm);
+            if(cvn[i][0].is_top(cvn[i].cm))
                 goto next_iter2;
-            REQUIRE(!cvn[i][0].is_top(cm));
+            REQUIRE(!cvn[i][0].is_top(cvn[i].cm));
         }
 
         for(int i = 0; i < Argn; ++i)
-            REQUIRE(is_subset(cvn[i][0], cv[i][0], cm));
+            REQUIRE(is_subset(cvn[i][0], cv[i][0], cvn[i].cm));
 
         abstract_fn_table[op](cvn.data(), Argn, result2);
 
-        REQUIRE(is_subset(result2[0], r, cm));
+        REQUIRE(is_subset(result2[0], r, result.cm));
     next_iter2:;
     }
 }
@@ -509,14 +535,14 @@ TEST_CASE("abstract_cast", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<1>(SSA_cast, [](fixed_uint_t* c){ return c[0]; });
+        test_op<int_cm_t, int_cm_t>(SSA_cast, [](fixed_sint_t* c){ return c[0]; });
 }
 
 TEST_CASE("abstract_and", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_and, [](fixed_uint_t* c)
+        test_op<int_cm_t, int_cm_t, int_cm_t>(SSA_and, [](fixed_sint_t* c)
             { return c[0] & c[1]; });
 }
 
@@ -524,7 +550,7 @@ TEST_CASE("abstract_or", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_or, [](fixed_uint_t* c)
+        test_op<int_cm_t, int_cm_t, int_cm_t>(SSA_or, [](fixed_sint_t* c)
             { return c[0] | c[1]; });
 }
 
@@ -532,7 +558,7 @@ TEST_CASE("abstract_xor", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_xor, [](fixed_uint_t* c)
+        test_op<int_cm_t, int_cm_t, int_cm_t>(SSA_xor, [](fixed_sint_t* c)
             { return c[0] ^ c[1]; });
 }
 
@@ -540,21 +566,21 @@ TEST_CASE("abstract_add", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<3>(SSA_add, [](fixed_uint_t* c) { return c[0] + c[1]; });
+        test_op<int_cm_t, int_cm_t, int_cm_t, bool_cm_t>(SSA_add, [](fixed_sint_t* c) { return c[0] + c[1]; });
 }
 
 TEST_CASE("abstract_eq", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_eq, [](fixed_uint_t* c) { return c[0] == c[1]; });
+        test_op<bool_cm_t, int_cm_t, int_cm_t>(SSA_eq, [](fixed_sint_t* c) { return c[0] == c[1]; });
 }
 
 TEST_CASE("abstract_not_eq", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_not_eq, [](fixed_uint_t* c) { return c[0] != c[1]; });
+        test_op<bool_cm_t, int_cm_t, int_cm_t>(SSA_not_eq, [](fixed_sint_t* c) { return c[0] != c[1]; });
 }
 
 
@@ -562,24 +588,47 @@ TEST_CASE("abstract_lt", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_lt, [](fixed_uint_t* c) { return c[0] < c[1]; });
+        test_op<bool_cm_t, int_cm_t, int_cm_t>(SSA_lt, [](fixed_sint_t* c) { return c[0] < c[1]; });
 }
 
 TEST_CASE("abstract_lte", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_lte, [](fixed_uint_t* c) { return c[0] <= c[1]; });
+        test_op<bool_cm_t, int_cm_t, int_cm_t>(SSA_lte, [](fixed_sint_t* c) { return c[0] <= c[1]; });
 }
 
-/*
 TEST_CASE("abstract_shl", "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<2>(SSA_shl, [](fixed_uint_t* c) { return c[0] << c[1]; });
+        test_op<int_cm_t, int_cm_t, uint_cm_t>(SSA_shl, [](fixed_sint_t* c) { return c[0] << c[1]; });
 }
 
+TEST_CASE("abstract_rol", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<uint_cm_t, uint_cm_t, bool_cm_t>(SSA_rol, [](fixed_sint_t* c) { return (c[0] << 1) | c[1]; });
+}
+
+TEST_CASE("abstract_ror", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<uint_cm_t, uint_cm_t, bool_cm_t>(SSA_ror, [](fixed_sint_t* c) { return (c[0] >> 1) | (c[1] << 3); });
+}
+
+/*
+TEST_CASE("abstract_rol", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<2, false>(SSA_shl, [](fixed_sint_t* c) { return c[0] << c[1]; }, true);
+}
+*/
+
+/*
 TEST_CASE("abstract_shr", "[constraints]")
 {
     std::srand(std::time(nullptr));

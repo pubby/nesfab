@@ -29,7 +29,6 @@ enum locator_class_t : std::uint8_t
 
     LOC_FN, // A function.
     LOC_GMEMBER, // A global member.
-    //LOC_CONST,
 
     // When a function calls another function, 
     // the IR tracks which gmembers are used in that function.
@@ -130,6 +129,7 @@ public:
         set_handle(h);
         set_data(d);
         set_offset(o);
+        assert(!byteified());
     }
 
     constexpr locator_t(locator_class_t lc, std::uint32_t h, std::uint8_t arg, std::uint8_t m, std::uint8_t atom, std::int16_t o)
@@ -140,6 +140,7 @@ public:
         set_member(m);
         set_atom(atom);
         set_offset(o);
+        assert(!byteified());
     }
 
     locator_t(locator_t const&) = default;
@@ -263,7 +264,13 @@ public:
     {
         locator_t ret = *this;
         ret.set_offset(0);
-        ret.set_byteified(true);
+        return ret.strip_byteify();
+    }
+
+    locator_t strip_byteify() const 
+    {
+        locator_t ret = *this;
+        ret.set_byteified(false);
         return ret;
     }
 

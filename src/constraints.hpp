@@ -221,7 +221,8 @@ struct constraints_t
     static constraints_t shifted_carry(carry_t cr, fixed_uint_t mask = 1)
     {
         assert(mask);
-        fixed_uint_t const i = ~(mask << 1ull) & mask;
+        fixed_uint_t const i = low_bit_only(mask);
+        assert(i == (~(mask << 1ull) & mask));
         switch(cr)
         {
         case CARRY_BOTTOM: return {{ 0, i }, {    ~i, 0 }};

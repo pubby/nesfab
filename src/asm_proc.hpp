@@ -50,6 +50,9 @@ private:
 
     // Converts invalid relative branches into long branches.
     void expand_branch_ops();
+
+    // Removes NOP instructions
+    void prune_nops();
 };
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst);

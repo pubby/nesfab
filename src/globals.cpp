@@ -507,6 +507,8 @@ void fn_t::calc_lang_gvars_groups()
             m_lang_group_vars |= fn.m_lang_group_vars;
         }
     }
+
+    // TODO: add pointers to group_vars?
 }
 
 void fn_t::calc_ir_bitsets(ir_t const& ir)
@@ -514,7 +516,6 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     bitset_t  reads(impl_bitset_size<gmember_t>());
     bitset_t writes(impl_bitset_size<gmember_t>());
     bitset_t group_vars(impl_bitset_size<group_vars_t>());
-    bitset_t immediate_group_data(impl_bitset_size<group_data_t>()); // TODO: unused
     bitset_t calls(impl_bitset_size<fn_t>());
     bool io_pure = true;
 
@@ -584,12 +585,13 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                 }
             }
         }
+
+        // TODO: add pointers to ir_group_vars?
     }
 
     m_ir_writes = std::move(writes);
     m_ir_reads  = std::move(reads);
     m_ir_group_vars = std::move(group_vars);
-    m_ir_immediate_group_data = std::move(immediate_group_data);
     m_ir_calls = std::move(calls);
     m_ir_io_pure = io_pure;
 }
@@ -620,15 +622,17 @@ void fn_t::assign_lvar_span(unsigned lvar_i, span_t span)
 
 span_t fn_t::lvar_span(unsigned lvar_i) const
 {
+    assert(lvar_i < m_lvars.num_all_lvars());
+
     if(lvar_i < m_lvars.num_this_lvars())
         return m_lvar_spans[lvar_i];
 
     locator_t const loc = m_lvars.locator(lvar_i);
-    if(loc.lclass() == LOC_ARG && loc.fn() != handle())
+    if(lvars_manager_t::is_call_lvar(handle(), loc))
     {
         int index = loc.fn()->m_lvars.index(loc);
 
-        if(index < 0)
+        if(!loc.fn()->m_lvars.is_lvar(index))
             return {};
 
         return loc.fn()->lvar_span(index);

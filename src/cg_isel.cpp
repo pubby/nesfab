@@ -71,8 +71,8 @@ namespace isel
         static void set(ssa_value_t v)
         {
             _node = v;
-            _value = locator_t::from_ssa_value(orig_def(v));
-            _trans = locator_t::from_ssa_value(asm_arg(v));
+            _value = locator_t::from_ssa_value(orig_def(v)).strip_byteify();
+            _trans = locator_t::from_ssa_value(asm_arg(v)).strip_byteify();
         }
 
         [[gnu::always_inline]]
@@ -869,7 +869,7 @@ namespace isel
     void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         // Store the node, locally:
-        if(Maybe && Param::trans().lclass() == LOC_SSA)
+        if(Maybe/* && Param::trans().lclass() == LOC_SSA*/)
         {
             switch(StoreOp)
             {
@@ -900,6 +900,12 @@ namespace isel
     template<typename Opt, typename Def, typename Load, typename Store> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
+        if(Load::trans() == Store::trans())
+        {
+            cont->call(cpu, prev);
+            return;
+        }
+
         chain
         < load_A<Opt, Load>
         , set_defs<Opt, REGF_A, true, Def>
@@ -1554,6 +1560,7 @@ namespace isel
             p_carry::set(h->input(2));
 
             // TODO: This should be a math identity, right?
+            /* TODO: remove
             if(p_lhs::value() == p_rhs::value())
             {
                 chain
@@ -1569,6 +1576,7 @@ namespace isel
                     , store<Opt, STA, p_def>
                     >(cpu, prev, cont);
             }
+            */
 
             commutative(h, [&]()
             {
@@ -1804,6 +1812,38 @@ namespace isel
             });
             break;
 
+        case SSA_rol:
+            p_lhs::set(h->input(0));
+            p_rhs::set(h->input(1));
+            if(h->input(1).eq_whole(0u))
+            {
+                chain
+                < load_A<Opt, p_lhs>
+                , exact_op<Opt, ASL_IMPLIED, p_def>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+
+                if(p_def::trans() == p_lhs::trans())
+                    pick_op<Opt, ASL, p_def, p_def>(cpu, prev, cont);
+            }
+            else
+            {
+                chain
+                < load_AC<Opt, p_lhs, p_rhs>
+                , exact_op<Opt, ROL_IMPLIED, p_def>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+
+                if(p_def::trans() == p_lhs::trans())
+                {
+                    chain
+                    < load_C<Opt, p_rhs>
+                    , pick_op<Opt, ROL, p_def, p_def>
+                    >(cpu, prev, cont);
+                }
+            }
+            break;
+            
         case SSA_sign_extend:
             {
                 p_arg<0>::set(h->input(0));
@@ -2048,6 +2088,7 @@ namespace isel
             }
             break;
 
+            /* TODO: remove?
         case SSA_shl:
             p_lhs::set(h->input(0));
             p_rhs::set(h->input(1));
@@ -2101,6 +2142,7 @@ namespace isel
                 });
             }
             break;
+            */
 
         default: 
         simple:

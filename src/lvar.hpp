@@ -31,6 +31,9 @@ public:
         return -1;
     }
 
+    bool is_lvar(locator_t loc) const { return is_lvar(index(loc)); }
+    bool is_lvar(int i) const { return i >= 0 && unsigned(i) < num_all_lvars(); }
+
     locator_t locator(unsigned i) const 
     { 
         assert(i < m_map.size());
@@ -49,7 +52,8 @@ public:
     }
 
     std::size_t num_this_lvars() const { return m_num_this_lvars; }
-    std::size_t num_all_lvars() const { return m_map.size(); }
+    std::size_t num_all_lvars() const { return m_num_lvars; }
+    std::size_t num_locators() const { return m_map.size(); }
     std::size_t bitset_size() const { return m_bitset_size; }
 
     bitset_uint_t const* lvar_interferences(unsigned i) const 
@@ -80,17 +84,46 @@ public:
 
     static bool is_this_lvar(fn_ht fn, locator_t arg);
     static bool is_call_lvar(fn_ht fn, locator_t arg);
+    static bool is_tracked_non_lvar(fn_ht fn, locator_t arg);
+    static bool is_tracked(fn_ht fn, locator_t arg);
     static bool is_lvar(fn_ht fn, locator_t arg) { return is_this_lvar(fn, arg) || is_call_lvar(fn, arg); }
 
     template<typename Fn>
-    void for_each_locator(bool this_lvars_only, Fn const& fn) const
+    void for_each_lvar(bool this_lvars_only, Fn const& fn) const
     {
         unsigned i = 0;
         for(locator_t const& loc : m_map)
         {
-            if(this_lvars_only && i == m_num_this_lvars)
+            if(this_lvars_only && i >= num_this_lvars())
                 return;
+            if(i >= num_all_lvars())
+                return;
+            assert(i == index(loc));
             fn(loc, i);
+            ++i;
+        }
+    }
+
+    template<typename Fn>
+    void for_each_locator(Fn const& fn) const
+    {
+        unsigned i = 0;
+        for(locator_t const& loc : m_map)
+        {
+            assert(i == index(loc));
+            fn(loc, i);
+            ++i;
+        }
+    }
+
+    template<typename Fn>
+    void for_each_non_lvar(Fn const& fn) const
+    {
+        unsigned i = num_all_lvars();
+        for(auto it = m_map.begin() + i; it != m_map.end(); ++it, ++i)
+        {
+            assert(i == index(*it));
+            fn(*it, i);
         }
     }
 
@@ -114,6 +147,7 @@ private:
     std::vector<bitset_uint_t> m_lvar_interferences;
     std::vector<fc::vector_set<fn_ht>> m_fn_interferences;
     unsigned m_num_this_lvars = 0;
+    unsigned m_num_lvars = 0;
     unsigned m_bitset_size = 0;
 };
 

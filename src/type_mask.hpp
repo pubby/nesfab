@@ -6,6 +6,7 @@
 #include "builtin.hpp"
 #include "fixed.hpp"
 #include "type_name.hpp"
+#include "sizeof_bits.hpp"
 
 constexpr fixed_uint_t fixed_mask = (1ull << (max_total_bytes * 8ull)) - 1ull;
 constexpr fixed_uint_t frac_mask = (1ull << fixed_t::shift) - 1ull;
@@ -89,6 +90,21 @@ constexpr fixed_sint_t to_signed(fixed_uint_t i, type_name_t tn)
     if(is_signed(tn))
         return sign_extend(i, numeric_bitmask(tn));
     return static_cast<fixed_sint_t>(i);
+}
+
+constexpr bool in_mask(fixed_uint_t i, fixed_uint_t mask, bool signed_) 
+{
+    if(signed_)
+        return i == fixed_uint_t(sign_extend(i & mask, mask));
+    return i == (i & mask);
+}
+
+inline unsigned signed_clz(fixed_sint_t i)
+{
+    fixed_uint_t u = i;
+    if(i < 0)
+        u = ~u;
+    return u ? builtin::clz(u) : sizeof_bits<fixed_sint_t>;
 }
 
 /* TODO: remove?

@@ -242,11 +242,11 @@ struct std::hash<isel::cpu_t>
     std::size_t operator()(isel::cpu_t const& cpu) const noexcept
     {
         std::size_t h = rh::hash_finalize(cpu.req_store);
-        h = rh::hash_combine(h, cpu.known_mask);
         for(locator_t const& v : cpu.defs)
             h ^= v.to_uint();
         for(std::uint8_t k : cpu.known)
             h ^= k;
+        h = rh::hash_combine(h, cpu.known_mask);
         return h;
     }
 };

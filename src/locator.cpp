@@ -54,6 +54,8 @@ std::string to_string(locator_t loc)
     else
         str += fmt(" [%] (%)", (int)loc.data(), (int)loc.offset());
 
+    str += fmt(" {%}", (int)loc.byteified());
+
     return str;
 }
 

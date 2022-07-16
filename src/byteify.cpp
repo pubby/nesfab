@@ -155,11 +155,11 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
             {
-                auto& ssa_data = ssa_it.data<ssa_byteify_d>(); 
-                ssa_data.bm = zero_bm;
-                ssa_data.bm[max_frac_bytes] = ssa_it;
+                auto& d = ssa_it.data<ssa_byteify_d>(); 
+                d.bm = zero_bm;
+                d.bm[max_frac_bytes] = ssa_it;
 #ifndef NDEBUG
-                for(ssa_value_t v : ssa_data.bm)
+                for(ssa_value_t v : d.bm)
                     assert(v);
 #endif
                 continue;
@@ -174,6 +174,10 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(ssa_node.type().name() == TYPE_TEA)
                 split_type = type_t::tea(TYPE_U, ssa_node.type().size());
 
+            //ssa_op_t op = ssa_node.op();
+            //if(op == SSA_shl || op == SSA_shr)
+                //op = SSA_cast;
+
             bm_t bm = zero_bm;
             unsigned const end = end_byte(type.name());
             for(unsigned i = begin_byte(type.name()); i < end; ++i)
@@ -183,11 +187,11 @@ void byteify(ir_t& ir, fn_t const& fn)
             // We created nodes, so we have to resize:
             ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
 
-            auto& ssa_data = ssa_it.data<ssa_byteify_d>();
-            ssa_data.bm = std::move(bm);
+            auto& d = ssa_it.data<ssa_byteify_d>();
+            d.bm = std::move(bm);
 
 #ifndef NDEBUG
-            for(ssa_value_t v : ssa_data.bm)
+            for(ssa_value_t v : d.bm)
                 assert(v);
 #endif
 
@@ -292,8 +296,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                     bm_t sbm = _get_bm(is_signed(lt) ? l : r);
                     bm_t ubm = _get_bm(is_signed(lt) ? r : l);
 
-                    int begin = begin_byte(lt);
-                    int end = end_byte(lt);
+                    int const begin = begin_byte(lt);
+                    int const end = end_byte(lt);
 
                     assert((unsigned)begin == begin_byte(rt));
                     assert((unsigned)end == end_byte(rt));
@@ -336,7 +340,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                             }
                         }
                     }
-
 
                     for(int i = begin; i < end; ++i)
                     {
@@ -448,7 +451,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     bc::small_vector<bm_t, 16> bms;
     for(ssa_ht ssa_node : ssa_workvec)
     {
-        auto& ssa_data = ssa_node.data<ssa_byteify_d>(); 
+        auto& d = ssa_node.data<ssa_byteify_d>(); 
         type_name_t const t = _bm_type(ssa_node->type()).name();
         assert(is_arithmetic(t));
 
@@ -458,6 +461,45 @@ void byteify(ir_t& ir, fn_t const& fn)
         SSA_VERSION(1);
         switch(ssa_node->op())
         {
+        case SSA_shl:
+            if(ssa_node->input(1).whole())
+            {
+                unsigned const shifts = ssa_node->input(1).whole();
+                unsigned const byte_shifts = shifts / 8;
+                unsigned const bit_shifts = shifts % 8;
+
+                bm_t values = _get_bm(ssa_node->input(0));
+
+                unsigned const end = end_byte(t);
+
+                for(unsigned s = 0; s < bit_shifts; ++s)
+                {
+                    ssa_value_t prev_carry(0u, TYPE_BOOL);
+                    for(unsigned i = begin_byte(t) + byte_shifts; i < end; ++i)
+                    {
+                        values[i] = ssa_node->cfg_node()->emplace_ssa(
+                            SSA_rol, TYPE_U, values[i], prev_carry);
+                        prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                            SSA_carry, TYPE_BOOL, values[i]);
+                    }
+                }
+
+                for(unsigned i = begin_byte(t), j = 0; i < end; ++i, ++j)
+                {
+                    ssa_ht const split = d.bm[i].handle();
+                    split->alloc_input(1);
+                    split->build_set_input(0, byte_shifts > j ? ssa_value_t(0u, TYPE_U) : values[i]);
+                    split->unsafe_set_op(SSA_cast);
+                    //split->replace_with(byte_shifts > j ? ssa_value_t(0u, TYPE_U) : values[i]);
+                    //prune_nodes.push_back(split);
+                }
+
+                prune_nodes.push_back(ssa_node);
+            }
+            else
+                assert(false); // TODO
+            break;
+
         // These replace the original node with N parallel ops,
         // each with the same amount of arguments as the original.
         case SSA_phi:
@@ -475,7 +517,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 unsigned const end = end_byte(t);
                 for(unsigned i = begin_byte(t); i < end; ++i)
                 {
-                    ssa_ht split = ssa_data.bm[i].handle();
+                    ssa_ht split = d.bm[i].handle();
                     split->alloc_input(input_size);
                     for(unsigned j = 0; j < input_size; ++j)
                         split->build_set_input(j, bms[j][i]);
@@ -497,7 +539,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 unsigned const end = end_byte(t);
                 for(unsigned i = begin_byte(t); i < end; ++i)
                 {
-                    ssa_ht split = ssa_data.bm[i].handle();
+                    ssa_ht split = d.bm[i].handle();
 
                     split->alloc_input(3);
                     split->build_set_input(0, lhs_bm[i]);
@@ -521,7 +563,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 unsigned const end = end_byte(t);
                 for(unsigned i = start; i < end; ++i)
                 {
-                    ssa_ht split = ssa_data.bm[i].handle();
+                    ssa_ht split = d.bm[i].handle();
 
                     locator_t loc = ssa_node->input(1).locator();
                     //loc.set_atom(i - start);
@@ -545,7 +587,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 unsigned const end = end_byte(t);
                 for(unsigned i = start; i < end; ++i)
                 {
-                    ssa_ht split = ssa_data.bm[i].handle();
+                    ssa_ht split = d.bm[i].handle();
 
                     locator_t loc = ssa_node->input(1).locator();
                     //loc.set_atom(i - start);
@@ -573,7 +615,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 unsigned const end = end_byte(t);
                 for(unsigned i = start; i < end; ++i)
                 {
-                    ssa_value_t split = ssa_data.bm[i];
+                    ssa_value_t split = d.bm[i];
                     assert(split.holds_ref());
 
                     loc.set_atom(i - start);

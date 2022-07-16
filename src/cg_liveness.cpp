@@ -168,12 +168,28 @@ std::size_t live_range_busyness(ir_t& ir, ssa_ht h)
 // a second set of liveness checks is run to build an interference graph
 // and then allocate memory.
 
-void calc_asm_liveness(ir_t const& ir, lvars_manager_t const& lvars)
+void calc_asm_liveness(fn_t const& fn, ir_t const& ir, lvars_manager_t const& lvars)
 {
     using namespace liveness_impl;
     cg_data_resize();
     bitset_pool.clear();
     set_size = lvars.bitset_size();
+
+    // Call this before 'do_read'.
+    auto const do_read = [](cfg_liveness_d& d, unsigned i)
+    {
+        if(bitset_test(d.out, i))
+            bitset_set(d.in, i);
+    };
+
+    auto const do_write = [](cfg_liveness_d& d, unsigned i) { bitset_clear(d.out, i); };
+
+    // Every arg will be "written" at root:
+    lvars.for_each_lvar(true, [&](locator_t loc, unsigned i)
+    {
+        if(loc.lclass() == LOC_ARG)
+            do_read(live(ir.root), i);
+    });
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -193,21 +209,74 @@ void calc_asm_liveness(ir_t const& ir, lvars_manager_t const& lvars)
         // (This set is sometimes called 'KILL')
         for(asm_inst_t const& inst : cg_data(cfg_it).code)
         {
-            int const store_i = lvars.index(inst.arg);
+            switch(inst.op)
+            {
+            case JSR_ABSOLUTE:
+                {
+                    fn_ht const call_h = inst.arg.fn();
+                    fn_t const& call = *call_h;
 
-            if(store_i < 0)
-                continue;
+                    // Handle args and returns:
+                    call.lvars().for_each_lvar(true, [&](locator_t loc, unsigned)
+                    {
+                        assert(!has_fn(loc.lclass()) || loc.fn() == call_h);
+                        if(loc.lclass() == LOC_ARG)
+                            do_read(d, lvars.index(loc));
+                        if(loc.lclass() == LOC_RETURN)
+                            do_write(d, lvars.index(loc));
+                    });
 
-            if((op_input_regs(inst.op) & REGF_M) && bitset_test(d.out, store_i))
-                bitset_set(d.in, store_i);
+                    // Handle gmembers:
+                    lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
+                    {
+                        if(loc.lclass() == LOC_GMEMBER)
+                        {
+                            if(call.ir_reads().test(loc.gmember().value))
+                                do_read(d, i);
+                            if(call.ir_writes().test(loc.gmember().value))
+                                do_write(d, i);
+                        }
+                    });
+                }
+                break;
 
-            if(op_output_regs(inst.op) & REGF_M)
-                bitset_clear(d.out, store_i);
+            case RTS_IMPLIED:
+                // Every return will be "read" by the rts:
+                lvars.for_each_lvar(true, [&](locator_t loc, unsigned i)
+                {
+                    if(loc.lclass() == LOC_RETURN)
+                        do_read(d, i);
+                });
+
+                // Handle gmembers:
+                lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
+                {
+                    if(loc.lclass() == LOC_GMEMBER)
+                    {
+                        if(fn.ir_writes().test(loc.gmember().value))
+                            do_read(d, i);
+                    }
+                });
+                break;
+
+            default:
+                assert(inst.arg.lclass() != LOC_FN);
+
+                int const i = lvars.index(inst.arg);
+                if(i >= 0)
+                {
+                    if((op_input_regs(inst.op) & REGF_M))
+                        do_read(d, i);
+
+                    if(op_output_regs(inst.op) & REGF_M)
+                        do_write(d, i);
+                }
+                break;
+            }
         }
     }
 
-    // temp_set will hold a node's actual out-set while the algorithm
-    // is running.
+    // temp_set will hold a node's actual out-set while the algorithm is running.
     auto* temp_set = ALLOCA_T(bitset_uint_t, set_size);
 
     cfg_worklist.clear();
@@ -229,6 +298,7 @@ void calc_asm_liveness(ir_t const& ir, lvars_manager_t const& lvars)
         for(unsigned i = 0; i < output_size; ++i)
             bitset_or(set_size, temp_set, live(cfg_node->output(i)).in);
 
+        // Now use that to calculate a new live-in set:
         bitset_and(set_size, temp_set, d.out); // (d.out holds KILL)
         bitset_or(set_size, temp_set, d.in);
 
@@ -287,7 +357,7 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
 
         for(auto it = d.code.rbegin(); it != d.code.rend(); ++it)
         {
-            asm_inst_t const& inst = *it;
+            asm_inst_t& inst = *it;
 
             if(inst.op == JSR_ABSOLUTE)
             {
@@ -299,22 +369,53 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
                 bool const is_idep = fn.global.ideps().count(&call.global) > 0;
                 assert(is_idep);
 
-                // Every live var will interfere with this fn:
+                // Every live lvar will interfere with this fn:
                 bitset_for_each(set_size, live, [&](unsigned i)
                 {
-                    lvars.add_fn_interference(i, call_h);
+                    if(lvars.is_lvar(i))
+                        lvars.add_fn_interference(i, call_h);
                 });
 
-                // The fn's arguments are now live:
-                call.lvars().for_each_locator(true, [&](locator_t loc, unsigned lvar_i)
+                // Handle args and returns:
+                call.lvars().for_each_lvar(true, [&](locator_t loc, unsigned)
                 {
-                    if(loc.lclass() != LOC_ARG)
-                        return;
-                    assert(loc.fn() == call_h);
-                    bitset_set(live, lvar_i);
+                    assert(!has_fn(loc.lclass()) || loc.fn() == call_h);
+                    if(loc.lclass() == LOC_ARG)
+                        bitset_set(live, lvars.index(loc));
+                    else if(loc.lclass() == LOC_RETURN)
+                        bitset_clear(live, lvars.index(loc));
                 });
 
-                // TODO handle fn returns?
+                // Handle gmembers:
+                lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
+                {
+                    if(loc.lclass() == LOC_GMEMBER)
+                    {
+                        if(call.ir_reads().test(loc.gmember().value))
+                            bitset_set(live, i);
+                        if(call.ir_writes().test(loc.gmember().value))
+                            bitset_clear(live, i);
+                    }
+                });
+            }
+            else if(inst.op == RTS_IMPLIED)
+            {
+                // Handle returns:
+                lvars.for_each_lvar(true, [&](locator_t loc, unsigned i)
+                {
+                    if(loc.lclass() == LOC_RETURN)
+                        bitset_set(live, i);
+                });
+
+                // Handle gmembers:
+                lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
+                {
+                    if(loc.lclass() == LOC_GMEMBER)
+                    {
+                        if(fn.ir_writes().test(loc.gmember().value))
+                            bitset_set(live, i);
+                    }
+                });
             }
             else
             {
@@ -322,10 +423,49 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
                 if(lvar_i < 0)
                     continue;
 
+                std::cout << "SEEN LOC " << inst.arg <<  ' ' << lvar_i << std::endl;
+
+                if(op_flags(inst.op) & ASMF_MAYBE_STORE)
+                {
+                    assert(op_output_regs(inst.op) & REGF_M);
+                    if(bitset_test(live, lvar_i))
+                    {
+                        switch(inst.op)
+                        {
+                        case MAYBE_STA: inst.op = STA_ABSOLUTE; break;
+                        case MAYBE_STX: inst.op = STX_ABSOLUTE; break;
+                        case MAYBE_STY: inst.op = STY_ABSOLUTE; break;
+                        case MAYBE_SAX: inst.op = SAX_ABSOLUTE; break;
+                        case MAYBE_STORE_C: 
+                                        assert(false); // TODO
+                                        /*
+                            temp_code.push_back({ PHP_IMPLIED, inst.ssa_op });
+                            temp_code.push_back({ PHA_IMPLIED, inst.ssa_op });
+                            temp_code.push_back({ LDA_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
+                            temp_code.push_back({ ROL_IMPLIED, inst.ssa_op });
+                            inst.op = STA_ABSOLUTE;
+                            temp_code.push_back(std::move(inst));
+                            temp_code.push_back({ PLA_IMPLIED, inst.ssa_op });
+                            temp_code.push_back({ PLP_IMPLIED, inst.ssa_op });
+                            continue;
+                            */
+                        default: assert(false);
+                        }
+                    }
+                    else
+                    {
+                        std::cout << "PRUNE " << inst.arg << std::endl;
+                        inst.op = ASM_PRUNED;
+                    }
+                }
+
                 if(op_input_regs(inst.op) & REGF_M)
                     bitset_set(live, lvar_i);
                 else if(op_output_regs(inst.op) & REGF_M)
+                {
+                    std::cout << "KILL " << inst.arg << std::endl;
                     bitset_clear(live, lvar_i);
+                }
                 else 
                     continue; // No change to 'live' this iteration.
             }

@@ -295,7 +295,6 @@ public:
     bitset_t const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
     bitset_t const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
     bitset_t const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
-    bitset_t const& ir_immediate_group_data() const { assert(m_ir_immediate_group_data); return m_ir_immediate_group_data; }
     bitset_t const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
 
@@ -350,7 +349,6 @@ private:
     bitset_t m_ir_reads;
     bitset_t m_ir_writes;
     bitset_t m_ir_group_vars;
-    bitset_t m_ir_immediate_group_data;
     bitset_t m_ir_calls;
 
     // If the function doesn't do I/O.

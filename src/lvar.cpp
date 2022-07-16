@@ -2,6 +2,7 @@
 
 #include "ir.hpp"
 #include "cg.hpp"
+#include "globals.hpp"
 
 lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
 {
@@ -32,6 +33,13 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
         if(is_call_lvar(fn, inst.arg))
             m_map.insert(inst.arg.mem_head());
 
+    m_num_lvars = m_map.size();
+
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(asm_inst_t inst : cg_data(cfg_it).code)
+        if(is_tracked_non_lvar(fn, inst.arg))
+            m_map.insert(inst.arg.mem_head());
+
     m_bitset_size = ::bitset_size<>(m_map.size());
 
     m_lvar_interferences.resize(m_map.size() * m_bitset_size, 0);
@@ -41,12 +49,26 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
 bool lvars_manager_t::is_this_lvar(fn_ht fn, locator_t arg)
 {
     auto const l = arg.lclass();
-    return (l == LOC_ARG && fn == arg.fn()) || l == LOC_PHI || l == LOC_SSA;
+    return ((l == LOC_ARG && fn == arg.fn()) 
+            || (l == LOC_RETURN && fn == arg.fn()) 
+            || l == LOC_PHI 
+            || l == LOC_SSA);
 }
 
 bool lvars_manager_t::is_call_lvar(fn_ht fn, locator_t arg)
 {
     auto const l = arg.lclass();
-    return (l == LOC_ARG && arg.fn() != fn);
+    return ((l == LOC_ARG && arg.fn() != fn) 
+            || (l == LOC_RETURN && arg.fn() != fn));
 }
 
+bool lvars_manager_t::is_tracked_non_lvar(fn_ht fn, locator_t arg)
+{
+    auto const l = arg.lclass();
+    return l == LOC_GMEMBER;
+}
+
+bool lvars_manager_t::is_tracked(fn_ht fn, locator_t arg)
+{
+    return is_lvar(fn, arg) || is_tracked_non_lvar(fn, arg);
+}

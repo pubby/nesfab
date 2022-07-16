@@ -61,6 +61,8 @@ locator_t cset_locator(ssa_ht h)
     if(d.cset_head.is_locator())
     {
         locator_t const loc = d.cset_head.locator();
+        //if(loc.mem_head() != loc)
+            //std::cout << loc << ' ' << loc.mem_head() << std::endl;
         assert(loc.mem_head() == loc);
         return loc;
     }
@@ -123,7 +125,7 @@ void cset_remove(ssa_ht h)
         }
 
         assert(next != head);
-        std::cout << next.index << " : " << cg_data(head).cset_head << '\n';
+        //std::cout << next.index << " : " << cg_data(head).cset_head << '\n';
         for(ssa_ht it = next; it; it = cset_next(it))
             cg_data(it).cset_head = next;
         cg_data(next).cset_head = cg_data(head).cset_head;
@@ -1093,14 +1095,14 @@ void code_gen(ir_t& ir, fn_t& fn)
     fc::small_set<ssa_ht, 32> unique_csets;
     for(auto& pair : global_loc_map)
     {
-        std::puts("x");
+        //std::puts("x");
         if(pair.second.cset)
         {
             assert(pair.second.cset->op() != SSA_null);
-            std::cout << pair.second.cset->op() << '\n';
+            //std::cout << pair.second.cset->op() << '\n';
             unique_csets.insert(cset_head(pair.second.cset));
         }
-        std::puts("xx");
+        //std::puts("xx");
     }
     for(ssa_ht h : phi_csets)
     {
@@ -1149,6 +1151,48 @@ void code_gen(ir_t& ir, fn_t& fn)
     }
     std::puts("coalesce phis 6");
 
+    // TODO
+    // Merge some csets
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+    {
+        if(ssa_it->op() != SSA_rol)
+            continue;
+        if(!ssa_it->input(0).holds_ref())
+            continue;
+        ssa_ht input = ssa_it->input(0).handle();
+
+        ssa_ht head_a = cset_head(ssa_it);
+        ssa_ht head_b = cset_head(input);
+
+        ssa_ht last = csets_dont_interfere(fn.handle(), ir, head_a, head_b, fn_nodes);
+        if(!last) // If they interfere
+            continue;
+
+
+        //std::cout << "loc lhs = " << cset_locator(ssa_it) << std::endl;
+        //std::cout << "loc rhs = " << cset_locator(input) << std::endl;
+
+        /*
+        auto& d = cg_data(head_a);
+        if(!d.cset_head)
+        {
+            locator_t loc = locator_t::ssa(head_a);
+            d.cset_head = loc;
+        }
+        */
+
+        if(!csets_mergable(head_a, head_b))
+            continue;
+
+        // It can be coalesced; add it to the cset.
+        cset_append(last, head_b);
+
+        assert(cset_locator(ssa_it) == cset_locator(input));
+
+        //std::cout << " MERGED ROL\n";
+    }
+
     // All gsets must be coalesced.
     // (otherwise something went wrong in an earlier optimization pass)
 #ifndef NDEBUG
@@ -1177,7 +1221,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         {
             auto& d = cg_data(cfg_it);
 
-            std::cout << "\n\n";
+            //std::cout << "\n\n";
 
 //#ifndef DEBUG_PRINT
             for(ssa_ht h : d.schedule)
@@ -1193,7 +1237,9 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         // Replace used MAYBE stores with real stores, 
         // and prune unused MAYBE stores:
-#if 1 // Changing to #if 0 can be useful for debugging.
+        // TODO: we need a more accurate way to do this.
+        // i.e. some liveness check
+#if 0 // Changing to #if 0 can be useful for debugging.
         std::vector<asm_inst_t> temp_code;
         for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
         {
@@ -1253,8 +1299,11 @@ void code_gen(ir_t& ir, fn_t& fn)
     // PEEP-HOLE //
     ///////////////
 
+    // TODO: this has been moved in asm_proc, right?
+
     // Remove unnecessary branch/jump ops that pointlessly jump over nothing.
 
+    /*
     for(int i = 0; i < (int)order.size() - 1;)
     {
         auto& code = cg_data(order[i]).code;
@@ -1288,6 +1337,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         else
             ++i;
     }
+    */
 
     /////////////////////
     // BUILD LVAR INFO //
@@ -1296,7 +1346,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     {
         lvars_manager_t lvars(fn.handle(), ir);
 
-        calc_asm_liveness(ir, lvars);
+        calc_asm_liveness(fn, ir, lvars);
         build_lvar_interferences(fn, ir, lvars);
 
         // Add the lvars to the fn
@@ -1326,9 +1376,9 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         proc.make_relocatable();
 
-        std::cout << "RELOC\n";
+        //std::cout << "RELOC\n";
         // proc.write_assembly(std::cout, fn); TODO: remove
-        std::cout << "DONE RELOC\n";
+        //std::cout << "DONE RELOC\n";
         //for(asm_inst_t inst : proc.code)
             //std::cout << inst << '\n';
 

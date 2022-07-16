@@ -178,6 +178,9 @@ void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
                 os << "LABEL " << pair.first << ":\n";
         }
 
+        if(inst.op == ASM_PRUNED)
+            continue;
+
         os << to_string(inst.op) << ' ';
 
         switch(inst.arg.lclass())
@@ -195,6 +198,7 @@ void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
             os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() << " " << inst.arg.gmember()->span(inst.arg.atom());
             break;
         case LOC_ARG:
+        case LOC_RETURN:
         case LOC_PHI:
         case LOC_SSA:
             os << "lvar " << fn.lvar_span(fn.lvars().index(inst.arg)) << "   " << inst.arg;

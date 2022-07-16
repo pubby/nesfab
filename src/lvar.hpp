@@ -98,7 +98,7 @@ public:
                 return;
             if(i >= num_all_lvars())
                 return;
-            assert(i == index(loc));
+            assert(i == unsigned(index(loc)));
             fn(loc, i);
             ++i;
         }
@@ -122,7 +122,7 @@ public:
         unsigned i = num_all_lvars();
         for(auto it = m_map.begin() + i; it != m_map.end(); ++it, ++i)
         {
-            assert(i == index(*it));
+            assert(i == unsigned(index(*it)));
             fn(*it, i);
         }
     }

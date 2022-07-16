@@ -522,7 +522,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_flags(ssa_it->op()) & SSAF_IMPURE)
+        if(ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE)
             io_pure = false;
 
         if(ssa_it->op() == SSA_fn_call)

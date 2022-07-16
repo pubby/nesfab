@@ -21,7 +21,7 @@ static bool _can_prune(ssa_node_t& node)
     switch(node.op())
     {
     default: 
-        return !(ssa_flags(node.op()) & SSAF_IMPURE);
+        return !(ssa_flags(node.op()) & SSAF_IO_IMPURE);
     case SSA_if:
     case SSA_return:
         return false;
@@ -124,7 +124,7 @@ bool o_remove_no_effect(ir_t& ir)
     {
         if(ssa_it->op() == SSA_if
            || (ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
-           || (ssa_flags(ssa_it->op()) & SSAF_IMPURE)
+           || (ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE)
            || ssa_input0_class(ssa_it->op()) == INPUT_LINK) // links are handled in other function
         {
             ssa_it->clear_flags(FLAG_PRUNED);

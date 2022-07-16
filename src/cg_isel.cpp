@@ -868,6 +868,7 @@ namespace isel
     template<typename Opt, op_name_t StoreOp, typename Param, bool Maybe = true> [[gnu::noinline]]
     void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
+        static_assert(!(Opt::flags & OPT_CONDITIONAL), "Conditional stores likely break cg_liveness"); 
         // Store the node, locally:
         if(Maybe/* && Param::trans().lclass() == LOC_SSA*/)
         {

@@ -3,6 +3,8 @@
 #include <iostream> // TODO
 #include <vector>
 
+#include "flat/small_set.hpp"
+
 #include "alloca.hpp"
 #include "cg.hpp"
 #include "ir.hpp"
@@ -25,6 +27,7 @@ private:
     unsigned set_size = 0;
 
     ssa_ht carry_input_waiting;
+    fc::small_set<ssa_ht, 16> unused_global_reads;
     std::array<ssa_value_t, 2> array_indexers = {};
 
     // Each SSA node in the CFG node that has been scheduled.
@@ -44,16 +47,14 @@ private:
     void append_schedule(ssa_ht h);
     void run();
     
-    template<bool Relax>
-    bool ready(ssa_ht h, bitset_uint_t const* scheduled) const;
+    bool ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const;
 
-    template<bool Relax>
-    int path_length(ssa_ht h, bitset_uint_t const* scheduled) const;
+    int path_length(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const;
+    int indexer_score(ssa_ht h) const;
 
     ssa_ht successor_search(ssa_ht last_scheduled) const;
 
-    template<bool Relax>
-    ssa_ht full_search() const;
+    ssa_ht full_search(unsigned relax) const;
 
     void calc_exit_distance(ssa_ht ssa, int exit_distance=0) const;
 
@@ -371,6 +372,36 @@ void scheduler_t::append_schedule(ssa_ht h)
     bitset_set(scheduled, index(h));
     schedule.push_back(h);
 
+    // Handle array indexes
+    if(ssa_flags(h->op()) & SSAF_INDEXES_ARRAY)
+        add_array_index(h->input(2));
+
+    // If this is a global read, add it to our set:
+    std::cout << "unused_glob op " << to_string(h->op()) << std::endl;
+    if(h->op() == SSA_read_global)
+    {
+        std::cout << "unused_glob insert " << h.index << std::endl;
+        unused_global_reads.insert(h);
+    }
+    if(fn_like(h->op()))
+    {
+        std::puts("unused_glob clear");
+        // When calling a function, clear our set:
+        unused_global_reads.clear();
+    }
+    else 
+    {
+        // When using a read, remove it from the set:
+        for_each_node_input(h, [&](ssa_ht input)
+        {
+            if(input->op() == SSA_read_global)
+            {
+                std::cout << "unused_glob erase " << input.index << std::endl;
+                unused_global_reads.erase(input);
+            }
+        });
+    }
+
     // Recursively schedule any linked, too:
     for_each_output_matching(h, INPUT_LINK,
     [this](ssa_ht link)
@@ -378,15 +409,12 @@ void scheduler_t::append_schedule(ssa_ht h)
         //assert(ready<true>(link, scheduled));
         append_schedule(link);
     });
-
-    // Handle array indexes
-    if(ssa_flags(h->op()) & SSAF_INDEXES_ARRAY)
-        add_array_index(h->input(2));
 }
 
 void scheduler_t::run()
 {
     assert(bitset_all_clear(set_size, scheduled));
+    assert(unused_global_reads.empty());
 
     carry_input_waiting = {};
     ssa_ht candidate = {};
@@ -397,17 +425,17 @@ void scheduler_t::run()
         if(candidate)
             candidate = successor_search(candidate);
 
-        // Second priority: try to find *any* node that's ready:
-        if(!candidate)
-            candidate = full_search<false>();
-
-        // Third priority: relax constraints
-        if(!candidate)
-            candidate = full_search<true>();
+        // Second priority: try to find *any* node that's ready,
+        // expanding the search until we succeed.
+        for(unsigned relax = 0; !candidate; ++relax)
+        {
+            candidate = full_search(relax);
+            assert(relax < 100);
+        }
 
         // OK, we should definitely have a candidate_h now.
         assert(candidate);
-        assert(ready<false>(candidate, scheduled));
+        assert(ready(~0, candidate, scheduled));
         auto& d = data(candidate);
 
         // Schedule it:
@@ -434,8 +462,7 @@ void scheduler_t::run()
     }
 }
 
-template<bool Relax>
-bool scheduler_t::ready(ssa_ht h, bitset_uint_t const* scheduled) const
+bool scheduler_t::ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const
 {
     assert(h->cfg_node() == cfg_node);
 
@@ -449,7 +476,7 @@ bool scheduler_t::ready(ssa_ht h, bitset_uint_t const* scheduled) const
         if(d.deps[i] & ~scheduled[i])
             return false;
 
-    if(Relax)
+    if(relax >= 2)
         return true;
 
     // If a carry is live, we can't schedule any carry-clobbering ops.
@@ -457,11 +484,19 @@ bool scheduler_t::ready(ssa_ht h, bitset_uint_t const* scheduled) const
        && bitset_test(carry_clobberers, index(h)))
         return false;
 
+    if(relax >= 1)
+        return true;
+
+    std::cout << " unused_glob " << unused_global_reads.size() << '\n';
+    if(!unused_global_reads.empty() && fn_like(h->op()))
+        return false;
+
     return true;
 }
 
-template<bool Relax>
-int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
+// Estimates how many operations can be chained together.
+// The score is used to weight different nodes for scheduling.
+int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const
 {
     auto* new_bitset = ALLOCA_T(bitset_uint_t, set_size);
     bitset_copy(set_size, new_bitset, scheduled);
@@ -478,8 +513,9 @@ int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
         if(oe.handle->cfg_node() != cfg_node)
             continue;
 
-        if(!ready<Relax>(oe.handle, new_bitset))
+        if(!ready(relax, oe.handle, new_bitset))
         {
+            // TODO
             //if((ssa_flags(oe.handle->op()) & SSAF_INDEXES_ARRAY) && oe.index == 2)
                 //return -1;
             continue;
@@ -488,7 +524,7 @@ int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
         if(oe.input_class() == INPUT_VALUE)
             ++outputs_in_cfg_node;
 
-        int const l = path_length<Relax>(oe.handle, new_bitset);
+        int const l = path_length(relax, oe.handle, new_bitset);
 
         if(l < 0)
             return l;
@@ -500,6 +536,20 @@ int scheduler_t::path_length(ssa_ht h, bitset_uint_t const* scheduled) const
     return (max_length + std::max<int>(0, outputs_in_cfg_node - 1));
 }
 
+// Estimates if an array operation should be scheduled.
+// The score is used to weight different nodes for scheduling.
+int scheduler_t::indexer_score(ssa_ht h) const
+{
+    if(ssa_flags(h->op()) & SSAF_INDEXES_ARRAY)
+    {
+        ssa_value_t index = h->input(2);
+        if(index == array_indexers[0])
+            return 32; // Fairly arbitrary numbers
+        else if(index == array_indexers[1])
+            return 16; // Fairly arbitrary numbers
+    }
+    return 0;
+}
 ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
 {
     int best_score = -1;
@@ -513,14 +563,15 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
         if(succ->cfg_node() != cfg_node)
             continue;
 
-        if(ready<false>(succ, scheduled))
+        if(ready(0, succ, scheduled))
         {
             // Copies are so trivial we might as well schedule them next:
             if(ssa_flags(succ->op()) & SSAF_COPY)
                 return succ;
 
             // Otherwise find the best successor node by comparing path lengths:
-            int score = path_length<false>(succ, this->scheduled);
+            int score = path_length(0, succ, this->scheduled);
+            score += indexer_score(succ);
 
             if(score > best_score)
             {
@@ -533,42 +584,25 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
     return best;
 }
 
-template<bool Relax>
-ssa_ht scheduler_t::full_search() const
+ssa_ht scheduler_t::full_search(unsigned relax) const
 {
-    int best_weight = INT_MIN;
+    int best_score = INT_MIN;
     ssa_ht best = {};
 
     for(ssa_ht ssa_it = cfg_node->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(!ready<Relax>(ssa_it, scheduled))
+        if(!ready(relax, ssa_it, scheduled))
             continue;
 
         // Fairly arbitrary formula.
-        int w = path_length<Relax>(ssa_it, scheduled) * 8 + data(ssa_it).exit_distance;
+        int score = path_length(relax, ssa_it, scheduled);
+        score += indexer_score(ssa_it);
+        // Full searches also care about exit distance:
+        score = (score * 8) + data(ssa_it).exit_distance;
 
-        if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_ARRAY)
+        if(score > best_score)
         {
-            ssa_value_t index = ssa_it->input(2);
-            if(index == array_indexers[0])
-                w += 32 * 8; // Fairly arbitrary numbers
-            else if(index == array_indexers[1])
-                w += 16 * 8; // Fairly arbitrary numbers
-        }
-
-        // Slightly penalize nodes that introduce branches.
-        // (This isn't necessary per se, but such nodes are harder to
-        // track in code gen, so we might as well.)
-        if(ssa_flags(ssa_it->op()) & SSAF_BRANCHY_CG)
-        {
-            // Arbitrary numbers
-            w *= 7;
-            w /= 8;
-        }
-
-        if(w > best_weight)
-        {
-            best_weight = w;
+            best_score = score;
             best = ssa_it;
         }
     }

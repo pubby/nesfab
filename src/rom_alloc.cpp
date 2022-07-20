@@ -2,6 +2,7 @@
 
 #include "span_allocator.hpp"
 
+/*
 enum rom_alloc_class_t : char
 {
     ROM_ONCE,
@@ -11,7 +12,7 @@ enum rom_alloc_class_t : char
 
 struct rom_alloc_ht
 {
-    roma_class_t rclass;
+    rom_alloc_class_t rclass;
     unsigned value;
 };
 
@@ -28,16 +29,17 @@ struct rom_static_t : public rom_alloc_t
 
 struct rom_many_t : public rom_alloc_t
 {
-    bool require_static_addr;
-    dynamic_bitset_t required_manys;
-    dynamic_bitset_t interfering_static_manys;
-
 };
+*/
 
-struct rom_once_t : public rom_alloc_t
+struct rom_alloc_t
 {
-    dynamic_bitset_t required_manys;
-    dynamic_bitset_t related_onces;
+    std::uint16_t required_size = 0;
+    std::uint16_t desired_alignment = 0;
+    span_t span = {};
+    static_bitset_t<256> in_banks = {};
+    bitset_t required_manys; // Manys in same bank
+    bitset_t related_onces; // Onces ideally in same bank
 };
 
 
@@ -52,62 +54,180 @@ struct rom_once_t : public rom_alloc_t
     std::deque<rom_many_t> manys;
 }
 
+
 {
+    // 1. Collect all locators used, by all functions
 
-    // Buffers are tagged by the programmer either ONCE or MANY
+    // 2.
+}
 
-    // Functions are not tagged.
-    // If a function uses a ONCE buffer, it must be MANY
-    // If a function uses a MANY buffer, 
+
+// Call from single-thread only
+{
+    // Pre-allocate memory:
+    {
+        unsigned const upper_bound = impl_deque<fn_t>.size() + rom_array_map.size();
+        alloc_vector.reserve(upper_bound);
+        //once_vector.reserve(upper_bound);
+    }
+
+    // Tracks all functions that must be 'many'
+    bitset_t many_fns(impl_bitset_size<fn_t>());
+
+    struct set_t
+    {
+        std::deque<once_ht> onces;
+        std::deque<many_ht> manys;
+    };
+
+    std::vector<set_t> fn_map(impl_deque<fn_t>.size());
+    std::vector<set_t> group_data_map(impl_deque<group_data_t>.size());
 
     for(auto it = rom_array_map.begin(); it != rom_array_map.end(); ++it)
     {
         auto const& pair = *it;
+        rom_array_t const& array = pair.first;
+        rom_array_meta_t const& meta = pair.second;
 
-        std::size_t summed_fn_sizes = 0;
-        for(fn_ht fn : pair.second.used_by)
-            summed_fn_sizes += fn->proc().size_in_bytes();
+        bool once = false;
+        bool many = false;
 
-        std::size_t const array_size = pair.first.data.size();
-        if(pair.second.used_by.empty() || summed_fn_sizes / pair.second.used_by.size() > array_size)
+        if(meta.used_by_group_data.all_clear())
         {
-            // The array should be a 'many'
+            std::size_t summed_fn_sizes = 0;
+            std::size_t pair.second.used_by_fns.pop_count();
+            // NOTE: Not locking mutex, as we're in single thread.
+            meta.used_by_fns.for_each([&](unsigned bit)
+            {
+                fn_ht fn = { bit };
+                if(emit_rom(fn))
+                {
+                    summed_fn_sizes += fn->proc().size_in_bytes();
+                    ++fn_count;
+                }
+            });
 
-            rom_deque<rom_many_t>.push_back(
-            { 
-                .require_static_addr = false,
-                .required_manys =  ,
-                .interfering_static_manys =  ,
+            if(fn_count == 0)
+                continue;
+
+            once = summed_fn_sizes / fn_count < array.data.size();
+            many = !once;
+        }
+        else
+        {
+            // NOTE: Not locking mutex, as we're in single thread.
+            meta.used_by_group_data.for_each([&](unsigned bit)
+            {
+                group_data_ht group_data = { bit };
+                once |= group_data->once;
+                many |= group_data->many;
             });
         }
-        else
+
+        if(once)
         {
-            // The array should be a 'once'
+            many_fns |= meta.used_by_fns;
+
+            unsigned const alignment = 0; // TODO
+            rom_alloc_ht const once = alloc_once(array.data.size(), alignment);
+
+            meta.used_by_group_data.for_each([&](unsigned bit)
+            {
+                group_data_map[bit].push_back(once);
+            });
+
+            meta.used_by_fns.for_each([&](unsigned bit)
+            {
+                assert(bit < fn_map.size());
+                fn_map[bit].onces.push_back(once);
+            });
         }
 
+        if(many)
+        {
+            unsigned const alignment = 0; // TODO
+            many_ht const many = alloc_many(array-data.size(), alignment);
 
+            meta.used_by_group_data.for_each([&](unsigned bit)
+            {
+                group_data_map[bit].push_back(many);
+            });
+
+            meta.used_by_fns.for_each([&](unsigned bit)
+            {
+                assert(bit < fn_map.size());
+                fn_map[bit].manys.push_back(many);
+            });
+        }
     }
 
-    for(const_t const& const_ : impl_deque<const_t>)
-    {
-        if(!emit_rom(const_))
-            continue;
-
-        if(const_.group_data)
-        {
-            rom_once_t once = {};
-        }
-        else
-        {
-            rom_many_t many = {};
-        }
-    }
-
+    std::vector<many_ht> fn_manys;
+    std::vector<once_ht> fn_onces;
+    fn_manys.reserve(impl_deque<fn_t>.size());
+    fn_onces.reserve(impl_deque<fn_t>.size());
 
     for(fn_t const& fn : impl_deque<fn_t>)
     {
         if(!emit_rom(fn))
             continue;
+
+        if(many_fns.test(fn.handle().value))
+            fn_manys.push_back(alloc_many());
+        else
+            fn_onces.push_back(alloc_once());
+    }
+
+    // OK! All our 'many's and 'once's are created.
+
+    unsigned const many_bs_size = bitset_size<>(many_vector.size());
+    unsigned const once_bs_size = bitset_size<>(once_vector.size());
+
+    for(many_t& many : many_vector)
+    {
+        many.required_manys.reset(many_bs_size);
+        many.interfering_static_manys.reset(many_bs_size);
+    }
+
+    for(once_t& once : once_vector)
+    {
+        once.required_manys.reset(many_bs_size);
+        once.related_onces(once_bs_size);
+    }
+
+    bitset_uint_t* const many_temp = ALLOCA_T(bitset_uint_t, many_bs_size);
+    bitset_uint_t* const once_temp = ALLOCA_T(bitset_uint_t, once_bs_size);
+
+    for(unsigned i = 0; i < fn_map.size(); ++i)
+    {
+        set_t const& set = fn_map[i];
+        fn_ht fn = { i };
+
+        if(!emit_rom(fn))
+            continue;
+
+        bitset_clear_all(many_bs_size, many_temp);
+        for(many_ht many : needs.manys)
+            bitset_set(many_temp, many.value);
+
+        bitset_clear_all(once_bs_size, once_temp);
+        for(once_ht once : needs.onces)
+            bitset_set(once_temp, once.value);
+
+        //for(once_ht once : needs.onces)
+            //bitset_or(once_bs_size, once->related_onces.data(), once_temp);
+
+
+
+
+
+
+    }
+
+
+    rh::robin_map<fn_ht, fn_needs_t> fn_needs_map;
+    rh::robin_map<group_data_ht, std::deque<once_ht>> group_data_onces;
+
+        
 
         // When is a fn once vs many?
         // - MANY WHEN: it uses some 'once' data
@@ -202,7 +322,7 @@ public:
 
         struct once_rank_t
         {
-            float score;c/thread/2142448
+            float score;
             rom_once_t* once;
 
             constexpr auto operator<=>(once_rank_t const&) const = default;
@@ -303,7 +423,7 @@ private:
         {
             bank_t& bank = banks[r.bank_index];
 
-            // 1. try to allocate manys
+            // 1. try to allocate manys required by 'once'
             // 2. then try to allocate 'once'
 
             many_spans.clear();

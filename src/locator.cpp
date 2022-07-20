@@ -45,6 +45,8 @@ std::string to_string(locator_t loc)
         str = "rom_array"; break;
     case LOC_LT_CONST_PTR:
         str = fmt("lt const ptr %", loc.const_()->global.name); break;
+    case LOC_LT_CONST_PTR_BANK:
+        str = fmt("lt const ptr bank %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
         str = fmt("lt expr % %", loc.handle(), loc.lt().safe().type); break;
     }
@@ -79,21 +81,7 @@ locator_t locator_t::from_ssa_value(ssa_value_t v)
 
 std::size_t locator_t::mem_size() const
 {
-    type_t const t = type();
-
-    switch(t.name())
-    {
-    case TYPE_PAA: 
-    case TYPE_TEA: 
-        return t.size();
-    case TYPE_PTR:
-        return 2;
-    case TYPE_BANKED_PTR:
-        return atom() == 0 ? 2 : 1;
-    default:
-        assert(!is_ptr(t.name()));
-        return 1;
-    }
+    return type().size_of();
 }
 
 bool locator_t::mem_zp_only() const
@@ -127,16 +115,10 @@ type_t locator_t::type() const
     {
     case LOC_LT_CONST_PTR:
         if(const_ht const c = const_())
-        {
-            if(byteified())
-            {
-                if(atom() == 0)
-                    return type_t::ptr(c->group(), false);
-                return TYPE_U;
-            }
-            return type_t::ptr(c->group(), c->group_data->once);
-        }
+            return byteify(type_t::ptr(c->group(), false));
         break;
+    case LOC_LT_CONST_PTR_BANK:
+        return TYPE_U;
     case LOC_LT_EXPR:
         assert(lt());
         return byteify(lt().safe().type);

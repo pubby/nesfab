@@ -1497,6 +1497,49 @@ namespace isel
         });
     }
 
+    template<typename Opt, typename Def>
+    void store_carry(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+
+        ssa_value_t v = Def::node();
+
+        if(v.holds_ref() && (v->output_size() > 1 || (v->output_size() == 1 && v->output(0)->cfg_node() != v->cfg_node())))
+        {
+            p_label<0>::set(state.minor_label());
+
+            chain
+            < exact_op<Opt, AND_IMMEDIATE, null_, const_<0>>
+            , exact_op<typename Opt::valid_for<REGF_A>, ROL_IMPLIED, p_def>
+            , store<Opt, STA, p_def, false>
+            >(cpu, prev, cont);
+
+            chain
+            < load_X<Opt, const_<0>>
+            , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+            , exact_op<OptC, INX_IMPLIED>
+            , carry_label_clear_conditional<Opt, p_label<0>, false>
+            , set_defs<Opt, REGF_X | REGF_C, true, p_def>
+            , store<Opt, STX, p_def, false>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, const_<0>>
+            , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+            , exact_op<OptC, INY_IMPLIED>
+            , carry_label_clear_conditional<Opt, p_label<0>, false>
+            , set_defs<Opt, REGF_Y | REGF_C, true, p_def>
+            , store<Opt, STY, p_def, false>
+            >(cpu, prev, cont);
+        }
+        else
+        {
+            cpu_t new_cpu = cpu;
+            if(new_cpu.set_def<REG_C>(Opt::to_struct, Def::value(), true))
+                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_C>(Opt::to_struct, prev, Def::trans()));
+        }
+    }
+
     void isel_node_simple(ssa_ht h, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         auto const commutative = [](ssa_ht h, auto fn)
@@ -1519,40 +1562,7 @@ namespace isel
         switch(h->op())
         {
         case SSA_carry:
-            if(h->output_size() > 1 || (h->output_size() == 1 && h->output(0)->cfg_node() != h->cfg_node()))
-            {
-                p_label<0>::set(state.minor_label());
-
-                chain
-                < exact_op<Opt, AND_IMMEDIATE, null_, const_<0>>
-                , exact_op<Opt::valid_for<REGF_A>, ROL_IMPLIED, p_def>
-                , store<Opt, STA, p_def, false>
-                >(cpu, prev, cont);
-
-                chain
-                < load_X<Opt, const_<0>>
-                , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                , exact_op<OptC, INX_IMPLIED>
-                , carry_label_clear_conditional<Opt, p_label<0>, false>
-                , set_defs<Opt, REGF_X | REGF_C, true, p_def>
-                , store<Opt, STX, p_def, false>
-                >(cpu, prev, cont);
-
-                chain
-                < load_Y<Opt, const_<0>>
-                , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                , exact_op<OptC, INY_IMPLIED>
-                , carry_label_clear_conditional<Opt, p_label<0>, false>
-                , set_defs<Opt, REGF_Y | REGF_C, true, p_def>
-                , store<Opt, STY, p_def, false>
-                >(cpu, prev, cont);
-            }
-            else
-            {
-                cpu_t new_cpu = cpu;
-                if(new_cpu.set_def<REG_C>(Opt::to_struct, p_def::value(), true))
-                    cont->call(new_cpu, &alloc_sel<MAYBE_STORE_C>(Opt::to_struct, prev, p_def::trans()));
-            }
+            store_carry<Opt, p_def>(cpu, prev, cont);
             break;
 
         case SSA_add:
@@ -1844,11 +1854,54 @@ namespace isel
                 }
             }
             break;
+
+        case SSA_ror:
+            p_lhs::set(h->input(0));
+            p_rhs::set(h->input(1));
+            if(h->input(1).eq_whole(0u))
+            {
+                chain
+                < load_A<Opt, p_lhs>
+                , exact_op<Opt, LSR_IMPLIED, p_def>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+
+                if(p_def::trans() == p_lhs::trans())
+                    pick_op<Opt, LSR, p_def, p_def>(cpu, prev, cont);
+            }
+            else
+            {
+                chain
+                < load_AC<Opt, p_lhs, p_rhs>
+                , exact_op<Opt, ROR_IMPLIED, p_def>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+
+                if(p_def::trans() == p_lhs::trans())
+                {
+                    chain
+                    < load_C<Opt, p_rhs>
+                    , pick_op<Opt, ROR, p_def, p_def>
+                    >(cpu, prev, cont);
+                }
+            }
+            break;
             
         case SSA_sign_extend:
             {
                 p_arg<0>::set(h->input(0));
                 sign_extend<Opt, p_def, p_arg<0>>(cpu, prev, cont);
+            }
+            break;
+
+        case SSA_sign_to_carry:
+            {
+                p_arg<0>::set(h->input(0));
+                chain
+                < load_A<Opt, p_lhs>
+                , exact_op<Opt, CMP_IMMEDIATE, p_def, const_<0x80>>
+                , store_carry<Opt, p_def>
+                >(cpu, prev, cont);
             }
             break;
 
@@ -1888,6 +1941,18 @@ namespace isel
                 cont->call(cpu, prev);
             break;
 
+        case SSA_aliased_store:
+            // Aliased stores normally produce no code, however, 
+            // we must implement an input 'cg_read_array_direct' as a store:
+            if(h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array_direct)
+            {
+                h = h->input(0).handle();
+                goto do_read_array_direct;
+            }
+            else
+                cont->call(cpu, prev);
+            break;
+
         case SSA_write_array:
             if(h->input(0).holds_ref() && cset_head(h->input(0).handle()) != cset_head(h))
             {
@@ -1913,19 +1978,6 @@ namespace isel
                 >(cpu, prev, cont);
             }
             break;
-
-        case SSA_aliased_store:
-            // Aliased stores normally produce no code, however, 
-            // we must implement an input 'cg_read_array_direct' as a store:
-            if(h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array_direct)
-            {
-                h = h->input(0).handle();
-                goto do_read_array_direct;
-            }
-            else
-                cont->call(cpu, prev);
-            break;
-
 
         case SSA_read_array:
             do_read_array_direct:
@@ -1961,6 +2013,23 @@ namespace isel
                 >(cpu, prev, cont);
             }
 
+            break;
+
+        case SSA_write_ptr:
+            {
+                using p_ptr = p_arg<0>;
+                using p_index = p_arg<1>;
+                using p_assignment = p_arg<2>;
+
+                p_ptr::set(h->input(0));
+                p_index::set(h->input(2));
+                p_assignment::set(h->input(3));
+
+                chain
+                < load_AY<Opt, p_assignment, p_index>
+                , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_ptr>
+                >(cpu, prev, cont);
+            }
             break;
 
         case SSA_fn_call:

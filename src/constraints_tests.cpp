@@ -414,7 +414,6 @@ void test_op(ssa_op_t op, Fn fn, bool debug = false)
         abstract_fn_table[op](cv.data(), Argn, result);
         constraints_t r = result[0];
         constraints_t rc = result[1];
-        REQUIRE(!r.is_top(result.cm));
 
         if(debug)
         {
@@ -423,6 +422,8 @@ void test_op(ssa_op_t op, Fn fn, bool debug = false)
                 std::cout << cd[0] << std::endl;
             std::cout << "result:\n" << r << std::endl;
         }
+
+        REQUIRE(!r.is_top(result.cm));
 
         for(int i = 0; i < 16; ++i)
         for(int j = 0; j < 16; ++j)
@@ -605,6 +606,13 @@ TEST_CASE("abstract_shl", "[constraints]")
         test_op<int_cm_t, int_cm_t, uint_cm_t>(SSA_shl, [](fixed_sint_t* c) { return c[0] << c[1]; });
 }
 
+TEST_CASE("abstract_shr", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<int_cm_t, int_cm_t, uint_cm_t>(SSA_shr, [](fixed_sint_t* c) { return c[0] >> c[1]; });
+}
+
 TEST_CASE("abstract_rol", "[constraints]")
 {
     std::srand(std::time(nullptr));
@@ -617,6 +625,20 @@ TEST_CASE("abstract_ror", "[constraints]")
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
         test_op<uint_cm_t, uint_cm_t, bool_cm_t>(SSA_ror, [](fixed_sint_t* c) { return (c[0] >> 1) | (c[1] << 3); });
+}
+
+TEST_CASE("abstract_sign_extend", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<int_cm_t, int_cm_t>(SSA_sign_extend, [](fixed_sint_t* c) { return c[0] & 0b1000 ? 0xFF : 0; });
+}
+
+TEST_CASE("abstract_sign_to_carry", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<bool_cm_t, int_cm_t>(SSA_sign_to_carry, [](fixed_sint_t* c) { return !!(c[0] & 0b1000); });
 }
 
 /*

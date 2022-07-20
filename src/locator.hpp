@@ -17,6 +17,7 @@
 #include "addr16.hpp"
 #include "decl.hpp"
 #include "ir_decl.hpp"
+#include "rom_array_decl.hpp"
 
 class type_t;
 struct ssa_value_t;
@@ -56,6 +57,7 @@ enum locator_class_t : std::uint8_t
 
     LOC_LT_CONST_PTR,
     FIRST_LOC_LT = LOC_LT_CONST_PTR,
+    LOC_LT_CONST_PTR_BANK,
     LOC_LT_EXPR, // link-time expression
     LAST_LOC_LT = LOC_LT_EXPR,
 
@@ -83,6 +85,7 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_LT_CONST_PTR:
+    case LOC_LT_CONST_PTR_BANK:
     case LOC_LT_EXPR:
         return true;
     default:
@@ -231,7 +234,7 @@ public:
 
     const_ht const_() const 
     { 
-        assert(lclass() == LOC_LT_CONST_PTR);
+        assert(lclass() == LOC_LT_CONST_PTR || lclass() == LOC_LT_CONST_PTR_BANK);
         return { handle() }; 
     }
 
@@ -257,6 +260,12 @@ public:
     {
         assert(lclass() == LOC_LT_EXPR);
         return { handle() };
+    }
+
+    rom_array_ht rom_array() const 
+    { 
+        assert(lclass() == LOC_ROM_ARRAY);
+        return { handle() }; 
     }
 
     // Strips offset info from this locator.
@@ -306,8 +315,8 @@ public:
     constexpr static locator_t gmember_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GMEMBER_SET, fn.value, id, 0); }
 
-    constexpr static locator_t rom_array(std::uint16_t id, std::uint16_t offset=0)
-        { return locator_t(LOC_ROM_ARRAY, 0, id, offset); }
+    constexpr static locator_t rom_array(rom_array_ht h, std::uint16_t offset=0)
+        { return locator_t(LOC_ROM_ARRAY, h.value, 0, offset); }
 
     constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
         { return locator_t(LOC_RETURN, fn.value, 0, member, atom, offset); }
@@ -333,8 +342,11 @@ public:
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_MINOR_VAR, fn.value, id, 0); }
 
-    constexpr static locator_t lt_const_ptr(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_CONST_PTR, c.value, 0, member, atom, offset); }
+    constexpr static locator_t lt_const_ptr(const_ht c, std::uint16_t offset=0)
+        { return locator_t(LOC_LT_CONST_PTR, c.value, 0, 0, 0, offset); }
+
+    constexpr static locator_t lt_const_ptr_bank(const_ht c, std::uint16_t offset=0)
+        { return locator_t(LOC_LT_CONST_PTR_BANK, c.value, 0, 0, 0, offset); }
 
     constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_LT_EXPR, lt.value, 0, member, atom, offset); }

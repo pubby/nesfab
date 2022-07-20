@@ -357,6 +357,9 @@ struct aggregate_bitset_t
     static aggregate_bitset_t filled(std::size_t size, std::size_t n = 0);
 };
 
+template<std::size_t Bits>
+using static_bitset_t = aggregate_bitset_t<bitset_uint_t, (Bits + sizeof_bits<Bits> - 1) / sizeof_bits<Bits>>;
+
 template<typename UInt, std::size_t N> [[gnu::flatten]]
 aggregate_bitset_t<UInt, N>& operator&=(aggregate_bitset_t<UInt, N>& lhs,
                                         aggregate_bitset_t<UInt, N> const& rhs)

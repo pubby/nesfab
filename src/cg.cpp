@@ -12,11 +12,11 @@
 #include "cg_liveness.hpp"
 #include "cg_order.hpp"
 #include "cg_schedule.hpp"
-#include "cg_array.hpp"
 #include "globals.hpp"
 #include "ir_util.hpp"
 #include "ir.hpp"
 #include "locator.hpp"
+#include "rom_array.hpp"
 
 #include <iostream> // TODO
 
@@ -1151,16 +1151,41 @@ void code_gen(ir_t& ir, fn_t& fn)
     }
     std::puts("coalesce phis 6");
 
-    // TODO
-    // Merge some csets
+    // Merge additional csets to aid memory reuse:
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->op() != SSA_rol)
+        ssa_ht input;
+
+        switch(ssa_it->op())
+        {
+        case SSA_rol:
+        case SSA_ror:
+            if(!ssa_it->input(0).holds_ref())
+                continue;
+            input = ssa_it->input(0).handle();
+            break;
+
+        case SSA_add:
+        case SSA_sub:
+        case SSA_and:
+        case SSA_or:
+        case SSA_xor:
+            if(ssa_it->input(1).is_num() && ssa_it->input(0).holds_ref())
+            {
+                input = ssa_it->input(0).handle();
+                break;
+            }
+            else if(ssa_it->input(0).is_num() && ssa_it->input(1).holds_ref())
+            {
+                input = ssa_it->input(1).handle();
+                break;
+            }
             continue;
-        if(!ssa_it->input(0).holds_ref())
+
+        default:
             continue;
-        ssa_ht input = ssa_it->input(0).handle();
+        }
 
         ssa_ht head_a = cset_head(ssa_it);
         ssa_ht head_b = cset_head(input);
@@ -1169,18 +1194,11 @@ void code_gen(ir_t& ir, fn_t& fn)
         if(!last) // If they interfere
             continue;
 
-
-        //std::cout << "loc lhs = " << cset_locator(ssa_it) << std::endl;
-        //std::cout << "loc rhs = " << cset_locator(input) << std::endl;
-
-        /*
-        auto& d = cg_data(head_a);
-        if(!d.cset_head)
+        if(!cset_locator(head_a) && !cset_locator(head_b))
         {
             locator_t loc = locator_t::ssa(head_a);
-            d.cset_head = loc;
+            cg_data(head_a).cset_head = loc;
         }
-        */
 
         if(!csets_mergable(head_a, head_b))
             continue;
@@ -1189,8 +1207,6 @@ void code_gen(ir_t& ir, fn_t& fn)
         cset_append(last, head_b);
 
         assert(cset_locator(ssa_it) == cset_locator(input));
-
-        //std::cout << " MERGED ROL\n";
     }
 
     // All gsets must be coalesced.

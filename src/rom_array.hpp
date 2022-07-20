@@ -1,5 +1,5 @@
-#ifndef CG_ARRAY_HPP
-#define CG_ARRAY_HPP
+#ifndef ROM_ARRAY_HPP
+#define ROM_ARRAY_HPP
 
 #include <cstdint>
 #include <functional>
@@ -8,10 +8,12 @@
 
 #include "robin/map.hpp"
 
-#include "flat/small_set.hpp"
+#include "rom_array_decl.hpp"
+#include "bitset.hpp"
+#include "decl.hpp"
+#include "ir_decl.hpp"
+#include "locator.hpp"
 
-#include "globals.hpp"
-#include "ir.hpp"
 
 struct rom_array_t
 {
@@ -22,8 +24,16 @@ struct rom_array_t
 
 struct rom_array_meta_t
 {
+    rom_array_meta_t();
+
+    void mark_used_by(fn_ht fn);
+    void mark_used_by(group_data_ht group_data);
+
+    static rom_array_meta_t& get(rom_array_ht);
+
     std::mutex mutex; // Protects the members below
-    fc::small_set<fn_ht, 4> used_by;
+    bitset_t used_by_fns;
+    bitset_t used_by_group_data;
 };
 
 template<>
@@ -51,6 +61,9 @@ struct std::hash<rom_array_t>
 using rom_array_map_t = rh::joker_map<rom_array_t, rom_array_meta_t>;
 extern std::mutex rom_array_map_mutex;
 extern rom_array_map_t rom_array_map;
+
+// Creates a new rom_array, or returns an existing one matching 'rom_array'.
+locator_t lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom_array, std::uint16_t offset=0);
 
 // Orders CFG basic blocks, trying to find an optimal layout for branches.
 void build_rom_arrays(fn_ht fn, ir_t& ir);

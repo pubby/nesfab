@@ -454,6 +454,8 @@ run_monoid_t::run_monoid_t(ir_t& ir)
         skip_num:;
         }
 
+        std::cout << "accum = " << accum.value << std::endl;
+
         // Now use 'operands' to build a replacement for 'h':
 
         assert(!operands.empty());

@@ -517,6 +517,8 @@ static constexpr auto abstract_bottom = ABSTRACT_FN
 ABSTRACT(SSA_read_global) = abstract_bottom;
 ABSTRACT(SSA_fn_call) = abstract_bottom;
 ABSTRACT(SSA_uninitialized) = abstract_bottom;
+ABSTRACT(SSA_read_ptr) = abstract_bottom;
+ABSTRACT(SSA_make_ptr) = abstract_bottom;
 
 ABSTRACT(SSA_carry) = ABSTRACT_FN
 {
@@ -564,6 +566,24 @@ ABSTRACT(SSA_sign_extend) = ABSTRACT_FN
         result[0] = constraints_t::const_(0, cm);
     else
         result[0] = constraints_t::bottom(cm);
+};
+
+ABSTRACT(SSA_sign_to_carry) = ABSTRACT_FN
+{
+    assert(argn == 1);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    constraints_mask_t const cm = cv[0].cm;
+    fixed_uint_t const sign_bit = high_bit_only(cm.mask);
+
+    if(cv[0][0].bits.known1 & sign_bit)
+        result[0] = constraints_t::bool_(true);
+    else if(cv[0][0].bits.known0 & sign_bit)
+        result[0] = constraints_t::bool_(false);
+    else
+        result[0] = constraints_t::any_bool();
 };
 
 ABSTRACT(SSA_phi) = ABSTRACT_FN
@@ -1037,8 +1057,6 @@ ABSTRACT(SSA_shl) = ABSTRACT_FN
     if(handle_top(cv, argn, result))
         return;
 
-    result[0] = constraints_t::bottom(result.cm);
-
     // Inputs:
     fixed_uint_t const mask = result.cm.mask;
     constraints_t const L = cv[0][0];
@@ -1078,6 +1096,61 @@ ABSTRACT(SSA_shl) = ABSTRACT_FN
         bounds = from_bits(bits, result.cm);
     else if(signed_clz(L.bounds.max) + R_max + result.cm.signed_ >= builtin::clz(mask))
         bounds.max = from_bits(bits, result.cm).max;
+
+    result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
+};
+
+ABSTRACT(SSA_shr) = ABSTRACT_FN
+{
+    assert(argn == 2);
+    assert(result.cm.mask == cv[0].cm.mask);
+    assert((cv[1].cm.mask & numeric_bitmask(TYPE_U)) == cv[1].cm.mask);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    // Inputs:
+    fixed_uint_t const mask = result.cm.mask;
+    constraints_t const L = cv[0][0];
+    constraints_t const R = cv[1][0];
+
+    assert(L.is_normalized(cv[0].cm));
+    assert(R.is_normalized(cv[1].cm));
+
+    // Convert R to whole
+    assert(R.bounds.min >= 0 && R.bounds.max >= 0);
+    fixed_uint_t const R_min = R.bounds.min >> fixed_t::shift;
+    fixed_uint_t const R_max = R.bounds.max >> fixed_t::shift;
+    assert(R_min < 256 && R_max < 256);
+    assert(R_min <= R_max);
+
+    // Calc known bits
+
+    known_bits_t bits = L.bits;
+    bits.known0 = (bits.known0 & mask) >> R_min;
+    bits.known1 = (bits.known1 & mask) >> R_min;
+
+    if(L.bounds.min >= 0)
+        bits.known0 |= ~(mask >> R_min) & mask;
+    else if(L.bounds.max < 0)
+        bits.known1 |= ~(mask >> R_min) & mask;
+
+    for(unsigned i = R_min; i < R_max; ++i)
+    {
+        bits.known0 &= (bits.known0 >> 1ull);
+        bits.known1 &= (bits.known1 >> 1ull);
+    }
+
+    bits.known0 |= ~mask;
+    bits.known1 &= mask;
+
+    // Calc bounds
+    bounds_t bounds;
+    bounds.min = std::min(L.bounds.min >> R_min, L.bounds.min >> R_max);
+    bounds.max = std::max(L.bounds.max >> R_max, L.bounds.max >> R_min);
+    bounds.min &= supermask(mask);
+    bounds.max &= supermask(mask);
+    assert(bounds.min <= bounds.max);
 
     result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
 };
@@ -1334,6 +1407,21 @@ NARROW(SSA_sign_extend) = NARROW_FN
         cv[0][0].bits.known0 |= sign_bit;
     else if((result[0].get_const() & cv[0].cm.mask) == cv[0].cm.mask)
         cv[0][0].bits.known1 |= sign_bit;
+};
+
+NARROW(SSA_sign_to_carry) = NARROW_FN
+{
+    assert(argn == 1);
+
+    if(!result[0].is_const())
+        return;
+    
+    fixed_uint_t const sign_bit = high_bit_only(cv[0].cm.mask);
+
+    if(result[0].get_const())
+        cv[0][0].bits.known1 |= sign_bit;
+    else
+        cv[0][0].bits.known0 |= sign_bit;
 };
 
 NARROW(SSA_carry) = NARROW_FN
@@ -1724,6 +1812,54 @@ NARROW(SSA_shl) = NARROW_FN
     }
 };
 
+NARROW(SSA_shr) = NARROW_FN
+{
+    assert(argn == 2 && result.vec.size() >= 1);
+    assert(result.cm.mask == cv[0].cm.mask);
+    assert((cv[1].cm.mask & numeric_bitmask(TYPE_U)) == cv[1].cm.mask);
+
+    if(result[0].is_top(result.cm))
+        return;
+
+    constraints_t& L = cv[0][0];
+    constraints_t& R = cv[1][0];
+    fixed_uint_t const mask = result.cm.mask;
+
+    // We can narrow L if 'R' is constant
+    if(R.is_const())
+    {
+        unsigned const Rc = R.get_const() >> fixed_t::shift;
+
+        L.bits.known0 |= (result[0].bits.known0 << Rc) & mask & (mask << Rc);
+        L.bits.known1 |= (result[0].bits.known1 << Rc) & mask & (mask << Rc);
+    }
+    else if(!result.cm.signed_)
+    {
+        // Narrow 'R' by comparing leading bits.
+
+        if(~L.bits.known0)
+        {
+            int r;
+            if(~result[0].bits.known0)
+                r = builtin::clz(~result[0].bits.known0);
+            else
+                r = builtin::rctz(mask);
+
+            int const diff = r - (int)builtin::clz(~L.bits.known0);
+            
+            if(diff > 0)
+                R.bounds.min = std::max<fixed_uint_t>(R.bounds.min, (fixed_uint_t)diff << fixed_t::shift);
+        }
+
+        if(result[0].bits.known1)
+        {
+            int const r = builtin::clz(result[0].bits.known1);
+            int const diff = r - (int)builtin::clz(mask);
+            R.bounds.max = std::min<fixed_uint_t>(R.bounds.max, (fixed_uint_t)diff << fixed_t::shift);
+        }
+    }
+};
+
 NARROW(SSA_rol) = NARROW_FN
 {
     // We can use abtract 'ror' to implement this.
@@ -1759,57 +1895,6 @@ NARROW(SSA_ror) = NARROW_FN
     cv[0][0] = intersect(cv[0][0], rol_result[0]);
     cv[1][0] = intersect(cv[1][0], rol_result[1]);
 };
-
-#if 0
-NARROW(SSA_shr) = NARROW_FN
-{
-    assert(argn == 2 && result.vec.size() >= 1);
-    assert(result.mask == cv[0].mask);
-    assert((cv[1].mask & numeric_bitmask(TYPE_U)) == cv[1].mask);
-
-    if(result[0].is_top())
-        return;
-
-    constraints_t& L = cv[0][0];
-    constraints_t& R = cv[1][0];
-    fixed_uint_t const mask = result.mask;
-
-    // We can narrow L if 'R' is constant
-    if(R.is_const())
-    {
-        unsigned const Rc = R.get_const() >> fixed_t::shift;
-
-        L.bits.known0 |= (result[0].bits.known0 << Rc) & (mask & (mask << Rc));
-        L.bits.known1 |= (result[0].bits.known1 << Rc) & (mask & (mask << Rc));
-    }
-    else
-    {
-        // Narrow 'R' by comparing leading bits.
-
-        if(~L.bits.known0)
-        {
-            int r;
-            if(~result[0].bits.known0)
-                r = builtin::clz(~result[0].bits.known0);
-            else
-                r = builtin::rctz(mask);
-
-            int const diff = r - (int)builtin::clz(~L.bits.known0);
-            
-            if(diff > 0)
-                R.bounds.min = std::max<fixed_uint_t>(R.bounds.min, (fixed_uint_t)diff << fixed_t::shift);
-        }
-
-        if(result[0].bits.known1)
-        {
-            int const r = builtin::clz(result[0].bits.known1);
-            int const diff = r - (int)builtin::clz(mask);
-            R.bounds.max = std::min<fixed_uint_t>(R.bounds.max, (fixed_uint_t)diff << fixed_t::shift);
-        }
-    }
-};
-
-#endif
 
 #undef ABSTRACT_FN
 #undef NARROW_FN

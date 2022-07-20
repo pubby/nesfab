@@ -89,12 +89,12 @@ constexpr bool is_scalar(type_name_t type_name)
     { return type_name >= TYPE_FIRST_SCALAR && type_name <= TYPE_LAST_SCALAR; }
 constexpr bool is_frac(type_name_t type_name)
     { return type_name >= TYPE_FIRST_F && type_name <= TYPE_LAST_F; }
-constexpr bool is_unsigned(type_name_t type_name)
-    { return type_name >= TYPE_FIRST_U && type_name <= TYPE_LAST_U; }
-constexpr bool is_signed(type_name_t type_name)
-    { return type_name >= TYPE_FIRST_S && type_name <= TYPE_LAST_S; }
 constexpr bool is_ptr(type_name_t type_name)
     { return type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR; }
+constexpr bool is_unsigned(type_name_t type_name)
+    { return is_ptr(type_name) || (type_name >= TYPE_FIRST_U && type_name <= TYPE_LAST_U); }
+constexpr bool is_signed(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_S && type_name <= TYPE_LAST_S; }
 constexpr bool is_summable(type_name_t type_name)
     { return is_quantity(type_name) || is_ptr(type_name); }
 constexpr bool is_thunk(type_name_t type_name)
@@ -136,7 +136,7 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     default: return 0;
     case TYPE_BOOL:  return 1;
     case TYPE_PTR:   return 2;
-    case TYPE_BANKED_PTR:  return 3;
+    case TYPE_BANKED_PTR:  return 2; // Bank isn't counted.
     case TYPE_INT:
     case TYPE_REAL: return 4;
 #define FIXED(whole, frac) case TYPE_F##frac: return 0;

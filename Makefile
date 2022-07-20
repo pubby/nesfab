@@ -99,7 +99,7 @@ eval.cpp \
 sval.cpp \
 type_name.cpp \
 cg_isel_cpu.cpp \
-cg_array.cpp \
+rom_array.cpp \
 convert_file.cpp \
 lt.cpp \
 o_arg.cpp \

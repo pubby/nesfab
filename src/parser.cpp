@@ -451,7 +451,7 @@ inapplicable:
             token_t t = token;
             t.type = TOK_at;
             parse_token(TOK_ident);
-            shunting_yard.push_back(t);
+            expr_temp.push_back(std::move(t));
         }
         goto applicable;
 
@@ -606,7 +606,6 @@ template<typename P>
 src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group_ht group)
 {
     src_type_t result = { TYPE_VOID, token.pstring };
-
     switch(token.type)
     {
     case TOK_Void:   parse_token(); result.type = TYPE_VOID; break;
@@ -641,9 +640,10 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
     case TOK_SSFFF:  parse_token(); result.type = TYPE_S23; break;
     case TOK_SSSFFF: parse_token(); result.type = TYPE_S33; break;
 
-    case TOK_PP:
     case TOK_PPP:
+    case TOK_PP:
         {
+            bool const banked = token.type == TOK_PPP;
             parse_token();
             
             bc::small_vector<group_ht, 8> groups;
@@ -651,7 +651,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             while(token.type == TOK_fslash)
                 groups.push_back(group_t::lookup(source(), parse_group_ident()).handle());
 
-            result.type = type_t::ptr(&*groups.begin(), &*groups.end(), token.type == TOK_PPP);
+            result.type = type_t::ptr(&*groups.begin(), &*groups.end(), banked);
             break;
         }
 

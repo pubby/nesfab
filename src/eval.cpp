@@ -192,6 +192,9 @@ public:
     void force_intify_ptr(rpn_value_t& rpn_value, type_t to_type, pstring_t pstring = {});
 
     template<do_t D>
+    void force_ptrify_int(rpn_value_t& rpn_value, rpn_value_t const* bank, type_t to_type, pstring_t pstring = {});
+
+    template<do_t D>
     void force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool implicit, pstring_t pstring = {});
 
     template<do_t D>
@@ -1160,12 +1163,18 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
             if(c.is_paa)
             {
+                bool const banked = c.group_data->once;
+
+                sval_t sval = make_sval(locator_t::lt_const_ptr(c.handle()));
+                if(banked)
+                    sval.push_back(locator_t::lt_const_ptr_bank(c.handle()));
+
                 // Convert to a pointer.
                 rpn_value_t new_top =
                 {
-                    .sval = make_sval(locator_t::lt_const_ptr(c.handle())),
+                    .sval = std::move(sval),
                     .category = RVAL, 
-                    .type = type_t::ptr(c.group(), c.group_data->once),
+                    .type = type_t::ptr(c.group(), banked),
                     .pstring = token->pstring,
                 };
                 rpn_stack.push(std::move(new_top));
@@ -1808,10 +1817,12 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             // Right beneath it contains the array.
             rpn_value_t& array_val = rpn_stack.peek(1);
 
-            if(array_val.type.name() != TYPE_TEA)
+            bool const is_ptr = ::is_ptr(array_val.type.name());
+
+            if(array_val.type.name() != TYPE_TEA && !is_ptr)
             {
                 compiler_error(array_val.pstring, fmt(
-                    "Expecting array type. Got %.", array_val.type));
+                    "Expecting array or pointer type. Got %.", array_val.type));
             }
 
             rpn_value_t& array_index = rpn_stack.peek(0);
@@ -1824,6 +1835,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
             if(is_interpret(D))
             {
+                assert(0); // TODO: implement
                 unsigned const index = array_index.whole();
                 array_val.index.set(index, TYPE_U);
                 
@@ -1841,19 +1853,47 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             {
                 array_val.index = array_index.ssa();
 
-                for(unsigned i = 0; i < array_val.sval.size(); ++i)
+                if(is_ptr)
                 {
-                    type_t const etype = ::member_type(array_val.type, i);
-                    assert(etype.name() == TYPE_TEA);
+                    bool const is_banked = array_val.type.name() == TYPE_BANKED_PTR;
+                    assert(array_val.sval.size() == is_banked ? 2 : 1);
 
-                    array_val.sval[i] = builder.cfg->emplace_ssa(
-                        SSA_read_array, etype.elem_type(), 
-                        from_variant(array_val.sval[i], etype), locator_t::none(), 
+                    ssa_ht const h = builder.cfg->emplace_ssa(
+                        SSA_read_ptr, TYPE_U, 
+                        from_variant(array_val.sval[0], array_val.type), 
+                        is_banked ? from_variant(array_val.sval[1], array_val.type)
+                                  : ssa_value_t(), 
                         std::get<ssa_value_t>(array_index.sval[0]));
+                    h->append_daisy();
+                    array_val.sval[0] = h;
+                    array_val.sval.resize(1);
+                }
+                else
+                {
+                    for(unsigned i = 0; i < array_val.sval.size(); ++i)
+                    {
+                        type_t const etype = ::member_type(array_val.type, i);
+                        assert(etype.name() == TYPE_TEA);
+
+                        array_val.sval[i] = builder.cfg->emplace_ssa(
+                            SSA_read_array, etype.elem_type(), 
+                            from_variant(array_val.sval[i], etype), locator_t::none(), 
+                            std::get<ssa_value_t>(array_index.sval[0]));
+                    }
                 }
             }
 
-            array_val.type = array_val.type.elem_type();
+            if(is_ptr)
+            {
+                array_val.type = TYPE_U;
+                array_val.category = LVAL_PTR;
+            }
+            else
+            {
+                array_val.type = array_val.type.elem_type();
+                array_val.category = LVAL_ARRAY;
+            }
+
             rpn_stack.pop(1);
             break;
         }
@@ -2176,10 +2216,40 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
 
     pstring_t const pstring = concat(assignee.pstring, assignee.pstring);
 
+    if(assignee.category == LVAL_PTR)
+    {
+        assert(assignee.index);
+
+        if(D == INTERPRET)
+        {
+            assert(false); // TODO: implement
+        }
+        else if(D == COMPILE)
+        {
+            throwing_cast<D>(assignment, TYPE_U, true);
+
+            ssa_ht const read = assignee.ssa(0).handle();
+            assert(read->op() == SSA_read_ptr);
+
+            ssa_ht const write = builder.cfg->emplace_ssa(
+                SSA_write_ptr, TYPE_VOID,
+                read->input(0), read->input(1), read->input(2), 
+                std::get<ssa_value_t>(assignment.sval[0]));
+            write->append_daisy();
+
+            assignee.sval = std::move(assignment.sval);
+
+            goto finish;
+        }
+    }
+
+    if(assignee.type.name() == TYPE_PAA)
+        compiler_error(pstring, "Cannot assign pointer-addressible arrays.");
+
     if(assignee.is_lt())
         compiler_error(pstring, "Expression cannot be evaluated at link-time.");
 
-    if(assignee.category == RVAL)
+    if(!is_lval(assignee.category))
         compiler_error(pstring, "Expecting lvalue on left side of assignment.");
 
     throwing_cast<D>(assignment, assignee.type, true);
@@ -2193,14 +2263,17 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
         assert(assignee.var_i < interpret_locals.size());
         sval_t& local = interpret_locals[assignee.var_i];
 
-        if(assignee.index)
+        if(assignee.category == LVAL_ARRAY)
         {
+            assert(assignee.index);
+
             type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
             assert(mt.name() == TYPE_TEA);
             assert(mt.elem_type() == assignee.type);
 
             unsigned const array_size = mt.array_length();
             unsigned const index = assignee.index.whole();
+            assert(index <= array_size);
 
             for(unsigned i = 0; i < assignment.sval.size(); ++i)
             {
@@ -2214,24 +2287,26 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
                     shared = std::move(new_shared);
                 }
 
-                shared[index] = assignment.ssa(i);
+                shared[index] = std::get<ssa_value_t>(assignment.sval[i]);
             }
         }
         else
         {
+            assert(!assignee.index);
             for(unsigned i = 0; i < assignment.sval.size(); ++i)
                 local[i + assignee.member] = assignment.sval[i];
         }
 
         assignee.sval = std::move(assignment.sval);
-        assignee.category = RVAL;
     }
     else if(D == COMPILE)
     {
         ssa_value_array_t& local = builder.cfg.data<block_d>().vars[assignee.var_i];
 
-        if(assignee.index)
+        if(assignee.category == LVAL_ARRAY)
         {
+            assert(assignee.index);
+
             type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
             assert(mt.name() == TYPE_TEA);
             assert(mt.elem_type() == assignee.type);
@@ -2254,15 +2329,16 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
         }
         else
         {
+            assert(!assignee.index);
             for(unsigned i = 0; i < assignment.sval.size(); ++i)
                 local[i + assignee.member] = from_variant(assignment.sval[i], member_type(assignment.type, i));
         }
 
         assignee.sval = std::move(assignment.sval);
-        assignee.category = RVAL;
     }
 
     // Leave the assignee on the stack, slightly modified.
+finish:
     assignee.category = RVAL;
     rpn_stack.pop();
 }
@@ -2369,7 +2445,7 @@ void eval_t::do_compare(rpn_stack_t& rpn_stack, token_t const& token)
 
 static locator_t _loc_const(sval_t const& sval)
 {
-    if(sval.size() != 1)
+    if(sval.size() < 1)
         return {};
     if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&sval[0]))
         if(ssa->is_locator() && ssa->locator().lclass() == LOC_LT_CONST_PTR)
@@ -2453,6 +2529,10 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
             {
             ptr_int:
                 new_top.type = lhs.type;
+                assert(is_ptr(new_top.type.name()));
+                assert(!is_ptr(rhs.type.name()));
+
+                bool const banked = new_top.type.name() == TYPE_BANKED_PTR;
 
                 throwing_cast<Policy::D>(rhs, TYPE_S20, true);
 
@@ -2463,7 +2543,10 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
                     if(l && l.const_() && rhs.is_ct())
                     {
                         std::uint16_t const sum = std::uint16_t(l.offset()) + rhs.whole();
-                        new_top.sval = make_sval(locator_t::lt_const_ptr(l.const_(), 0, 0, sum));
+                        new_top.sval = make_sval(locator_t::lt_const_ptr(l.const_(), sum));
+
+                        if(banked)
+                            new_top.sval.push_back(locator_t::lt_const_ptr_bank(l.const_()));
                     }
                     else
                     {
@@ -2475,9 +2558,28 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
                         }
                         else if(Policy::D == COMPILE)
                         {
-                            throwing_cast<Policy::D>(lhs, new_top.type, false);
-                            throwing_cast<Policy::D>(rhs, new_top.type, false);
-                            return compile_binary_operator(rpn_stack, Policy::op(), new_top.type, ssa_argn(Policy::op()) > 2);
+                            ct_variant_t bank;
+                            if(banked)
+                            {
+                                assert(lhs.sval.size() == 2);
+                                bank = lhs.sval[1];
+                            }
+
+                            throwing_cast<Policy::D>(lhs, TYPE_U20, false);
+                            throwing_cast<Policy::D>(rhs, TYPE_U20, false);
+
+                            ssa_ht const sum = builder.cfg->emplace_ssa(
+                                Policy::op(), TYPE_U20, 
+                                lhs.ssa(0), rhs.ssa(0), 
+                                ssa_value_t(Policy::op() == SSA_sub, TYPE_BOOL));
+
+                            ssa_ht const cast = builder.cfg->emplace_ssa(
+                                SSA_cast, new_top.type.set_banked(false), sum);
+
+                            new_top.sval.push_back(cast);
+
+                            if(banked)
+                                new_top.sval.push_back(bank);
                         }
                     }
                 }
@@ -2730,13 +2832,60 @@ void eval_t::force_intify_ptr(rpn_value_t& rpn_value, type_t to_type, pstring_t 
     }
     else if(D == COMPILE)
     {
-
-        ssa_value_t first_cast = rpn_value.ssa();
+        ssa_value_t first_cast = rpn_value.ssa(0);
 
         if(to_type.name() != TYPE_U20)
             first_cast = builder.cfg->emplace_ssa(SSA_cast, TYPE_U20, first_cast);
 
         new_rpn.sval = make_sval(builder.cfg->emplace_ssa(SSA_cast, to_type, first_cast));
+    }
+
+    rpn_value = std::move(new_rpn);
+}
+
+template<eval_t::do_t D>
+void eval_t::force_ptrify_int(rpn_value_t& rpn_value, rpn_value_t const* bank, type_t to_type, pstring_t cast_pstring)
+{
+    assert(!is_ct(rpn_value.type));
+    assert(!is_ct(to_type));
+    assert(is_ptr(to_type.name()) && is_arithmetic(rpn_value.type.name()));
+
+    assert((to_type.name() == TYPE_BANKED_PTR) == !!bank);
+
+    throwing_cast<D>(rpn_value, TYPE_U20, true, pstring);
+    if(bank)
+        throwing_cast<D>(rpn_value, TYPE_U, true, pstring);
+
+    rpn_value_t new_rpn =
+    {
+        .category = RVAL, 
+        .type = to_type, 
+        .pstring = cast_pstring ? concat(rpn_value.pstring, cast_pstring) : rpn_value.pstring,
+    };
+
+    if(is_interpret(D))
+    {
+        assert(rpn_value.sval.size() == 1);
+        new_rpn.sval.push_back(rpn_value.sval[0]);
+
+        if(bank)
+        {
+            assert(bank->sval.size() == 1);
+            new_rpn.sval.push_back(bank->sval[0]);
+        }
+    }
+    else if(D == COMPILE)
+    {
+        ssa_value_t first_cast = rpn_value.ssa();
+
+        type_t unbanked_type = to_type.set_banked(false);
+        new_rpn.sval = make_sval(builder.cfg->emplace_ssa(SSA_cast, unbanked_type, first_cast));
+
+        if(bank)
+        {
+            assert(bank->sval.size() == 1);
+            new_rpn.sval.push_back(bank->sval[0]);
+        }
     }
 
     rpn_value = std::move(new_rpn);
@@ -3202,6 +3351,7 @@ bool eval_t::handle_lt(rpn_stack_t& rpn_stack, unsigned argn,
 
     // Every arg must either be a LT value, or a CT value,
     // and we need to find at least one LT value.
+    assert(rpn_stack.size() >= argn);
     for(unsigned i = 0; i < argn; ++i)
     {
         if(rpn_stack.peek(i).is_lt())

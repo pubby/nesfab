@@ -18,6 +18,7 @@
 #include "group.hpp"
 #include "ram_alloc.hpp"
 #include "eval.hpp"
+#include "rom_array.hpp"
 
 // global_t statics:
 std::deque<global_t> global_t::global_pool;
@@ -516,6 +517,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     bitset_t  reads(impl_bitset_size<gmember_t>());
     bitset_t writes(impl_bitset_size<gmember_t>());
     bitset_t group_vars(impl_bitset_size<group_vars_t>());
+    bitset_t immediate_groups(impl_bitset_size<group_t>());
     bitset_t calls(impl_bitset_size<fn_t>());
     bool io_pure = true;
 
@@ -541,7 +543,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
         if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
         {
             for_each_written_global(ssa_it,
-            [this, &writes, &group_vars](ssa_value_t def, locator_t loc)
+            [&](ssa_value_t def, locator_t loc)
             {
                 if(loc.lclass() == LOC_GMEMBER)
                 {
@@ -557,6 +559,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                     {
                         writes.set(written.index);
                         group_vars.set(written.gvar.group_vars.value);
+                        immediate_groups.set(written.gvar.group_vars->group.handle().value);
                     }
                 }
             });
@@ -580,19 +583,21 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                     {
                         reads.set(read.index);
                         group_vars.set(read.gvar.group_vars.value);
+                        immediate_groups.set(read.gvar.group_vars->group.handle().value);
                         break;
                     }
                 }
             }
         }
 
-        // TODO: add pointers to ir_group_vars?
+        // TODO: add pointers to ir_group_vars and ir_immediate_groups?
     }
 
     m_ir_writes = std::move(writes);
     m_ir_reads  = std::move(reads);
     m_ir_group_vars = std::move(group_vars);
     m_ir_calls = std::move(calls);
+    m_ir_immediate_groups = std::move(immediate_groups);
     m_ir_io_pure = io_pure;
 }
 
@@ -888,17 +893,15 @@ void const_t::compile()
 
     if(m_src_type.type.name() == TYPE_PAA)
     {
-        std::puts("PAA");
-        // TODO
-        auto paa = interpret_paa(global.pstring(), init_expr);
+        rom_array_t paa = { interpret_paa(global.pstring(), init_expr) };
 
         unsigned const def_length = m_src_type.type.array_length();
-        if(def_length && def_length != paa.size())
-             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.size(), m_src_type.type));
+        if(def_length && def_length != paa.data.size())
+             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.data.size(), m_src_type.type));
 
-        m_src_type.type.set_array_length(paa.size());
-
-        std::printf("paa size = %i\n", paa.size());
+        m_src_type.type.set_array_length(paa.data.size());
+        // TODO : remove?
+        //m_sval = { lookup_rom_array({}, group_data, std::move(paa)) };
     }
     else
     {

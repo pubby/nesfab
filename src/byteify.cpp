@@ -80,7 +80,7 @@ static bm_t _get_bm(ssa_value_t value)
     else
     {
         assert(value.holds_ref());
-        assert(is_arithmetic(_bm_type(value->type()).name()));
+        assert(is_scalar(_bm_type(value->type()).name()));
         return value.handle().data<ssa_byteify_d>().bm;
     }
 }
@@ -148,10 +148,25 @@ void byteify(ir_t& ir, fn_t const& fn)
                 // and will be removed entirely.
                 // The forwarding will happen after all other nodes that
                 // need splitting have been split.
-                assert(is_arithmetic(type.name()));
+                assert(is_scalar(type.name()));
                 prune_nodes.push_back(ssa_it);
                 continue;
             }
+
+            if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_PTR)
+            {
+                // Pointer accesses may create an 'SSA_make_ptr' node.
+                if(ssa_it->input(0).holds_ref())
+                {
+                    ssa_ht const h = cfg_node.emplace_ssa(
+                        SSA_make_ptr, ssa_it->input(0)->type(), ssa_it->input(0));
+                    ssa_it->link_change_input(0, h);
+                }
+                continue;
+            }
+
+            if(ssa_node.op() == SSA_make_ptr)
+                continue;
 
             if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
             {
@@ -165,7 +180,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 continue;
             }
 
-            if(!is_arithmetic(type.name()))
+            if(!is_scalar(type.name()))
                 continue;
             
             SSA_VERSION(1);
@@ -173,10 +188,6 @@ void byteify(ir_t& ir, fn_t const& fn)
             type_t split_type = TYPE_U;
             if(ssa_node.type().name() == TYPE_TEA)
                 split_type = type_t::tea(TYPE_U, ssa_node.type().size());
-
-            //ssa_op_t op = ssa_node.op();
-            //if(op == SSA_shl || op == SSA_shr)
-                //op = SSA_cast;
 
             bm_t bm = zero_bm;
             unsigned const end = end_byte(type.name());
@@ -440,6 +451,23 @@ void byteify(ir_t& ir, fn_t const& fn)
                 }
                 break;
 
+            case SSA_make_ptr:
+                {
+                    // Convert 'SSA_make_ptr' nodes created earlier,
+                    // expanding their single argument into 2.
+
+                    assert(ssa_it->input_size() == 1);
+                    ssa_value_t const input = ssa_it->input(0);
+                    assert(is_ptr(input.type().name()));
+
+                    bm_t bm = _get_bm(input);
+                    unsigned const begin = begin_byte(input.type().name());
+
+                    ssa_it->link_change_input(0, bm[begin]);
+                    ssa_it->link_append_input(bm[begin+1]);
+                }
+                break;
+
             default:
                 assert(!fn_like(ssa_it->op()));
                 break;
@@ -453,7 +481,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     {
         auto& d = ssa_node.data<ssa_byteify_d>(); 
         type_name_t const t = _bm_type(ssa_node->type()).name();
-        assert(is_arithmetic(t));
+        assert(is_scalar(t));
 
         if(ssa_node->type() == TYPE_S)
             ssa_node->set_type(TYPE_U);
@@ -461,37 +489,77 @@ void byteify(ir_t& ir, fn_t const& fn)
         SSA_VERSION(1);
         switch(ssa_node->op())
         {
+        // Shifts convert to multiple rotations (rol/ror)
         case SSA_shl:
+        case SSA_shr:
             if(ssa_node->input(1).whole())
             {
-                unsigned const shifts = ssa_node->input(1).whole();
-                unsigned const byte_shifts = shifts / 8;
-                unsigned const bit_shifts = shifts % 8;
+                int const shifts = ssa_node->input(1).whole();
+                int const byte_shifts = shifts / 8;
+                int const bit_shifts = shifts % 8;
 
                 bm_t values = _get_bm(ssa_node->input(0));
 
-                unsigned const end = end_byte(t);
+                int const begin = begin_byte(t);
+                int const end = end_byte(t);
 
-                for(unsigned s = 0; s < bit_shifts; ++s)
+                if(ssa_node->op() == SSA_shl)
                 {
-                    ssa_value_t prev_carry(0u, TYPE_BOOL);
-                    for(unsigned i = begin_byte(t) + byte_shifts; i < end; ++i)
+                    for(int i = end - 1; i >= begin; --i)
                     {
-                        values[i] = ssa_node->cfg_node()->emplace_ssa(
-                            SSA_rol, TYPE_U, values[i], prev_carry);
-                        prev_carry = ssa_node->cfg_node()->emplace_ssa(
-                            SSA_carry, TYPE_BOOL, values[i]);
+                        if(i - byte_shifts >= 0)
+                            values[i] = values[i - byte_shifts];
+                        else
+                            values[i] = ssa_value_t(0u, TYPE_U);;
+                    }
+
+                    for(int s = 0; s < bit_shifts; ++s)
+                    {
+                        ssa_value_t prev_carry(0u, TYPE_BOOL);
+                        for(int i = begin + byte_shifts; i < end; ++i)
+                        {
+                            values[i] = ssa_node->cfg_node()->emplace_ssa(
+                                SSA_rol, TYPE_U, values[i], prev_carry);
+                            prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                                SSA_carry, TYPE_BOOL, values[i]);
+                        }
+                    }
+                }
+                else
+                {
+                    assert(ssa_node->op() == SSA_shr);
+
+                    for(int i = begin; i < end; ++i)
+                    {
+                        if(i + byte_shifts < end)
+                            values[i] = values[i + byte_shifts];
+                        else
+                            values[i] = ssa_value_t(0u, TYPE_U);;
+                    }
+
+                    for(int s = 0; s < bit_shifts; ++s)
+                    {
+                        ssa_value_t prev_carry(0u, TYPE_BOOL);
+                        if(is_signed(t))
+                           prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                               SSA_sign_to_carry, TYPE_BOOL, values[end - 1]);
+
+                        for(int i = end - 1 - byte_shifts; i >= int(begin); --i)
+                        {
+                            values[i] = ssa_node->cfg_node()->emplace_ssa(
+                                SSA_ror, TYPE_U, values[i], prev_carry);
+                            prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                                SSA_carry, TYPE_BOOL, values[i]);
+                        }
                     }
                 }
 
-                for(unsigned i = begin_byte(t), j = 0; i < end; ++i, ++j)
+                for(int i = begin; i < end; ++i)
                 {
                     ssa_ht const split = d.bm[i].handle();
                     split->alloc_input(1);
-                    split->build_set_input(0, byte_shifts > j ? ssa_value_t(0u, TYPE_U) : values[i]);
+                    split->build_set_input(0, values[i]);
                     split->unsafe_set_op(SSA_cast);
-                    //split->replace_with(byte_shifts > j ? ssa_value_t(0u, TYPE_U) : values[i]);
-                    //prune_nodes.push_back(split);
                 }
 
                 prune_nodes.push_back(ssa_node);

@@ -21,8 +21,14 @@ namespace bc = boost::container;
 enum value_category_t : char
 {
     RVAL, 
+    LVAL_PTR, 
+    FIRST_LVAL = LVAL_PTR,
+    LVAL_ARRAY, 
     LVAL,
+    LAST_LVAL = LVAL,
 };
+
+constexpr bool is_lval(value_category_t vc) { return vc >= FIRST_LVAL && vc <= LAST_LVAL; }
 
 enum value_time_t : char
 {

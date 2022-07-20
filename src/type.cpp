@@ -160,6 +160,14 @@ type_t type_t::struct_(struct_t const& s)
     return type_t(TYPE_STRUCT, 0, &s);
 }
 
+type_t type_t::set_banked(bool banked) const
+{
+    assert(is_ptr(name()));
+    type_t copy = *this;
+    copy.unsafe_set_name(banked ? TYPE_BANKED_PTR : TYPE_PTR);
+    return copy;
+}
+
 std::size_t type_t::size_of() const
 {
     if(is_arithmetic(name()))
@@ -235,15 +243,16 @@ std::string to_string(type_t type)
         str = fmt("%[%]", to_string(type.elem_type()), type.size() ? std::to_string(type.size()) : "");
         break;
     case TYPE_PAA:
-        str = fmt("[%]", type.size() ? std::to_string(type.size()) : "");
+        str = fmt("[%]/%", type.size() ? std::to_string(type.size()) : "",
+                  type.group()->name);
         break;
     case TYPE_BANKED_PTR:
-        str = "P";
+        str += "P";
         // fall-through
     case TYPE_PTR:
-        str = "PP";
+        str += "PP";
         for(unsigned i = 0; i < type.size(); ++i)
-            str += type.group(i)->name;
+            str += fmt("/%", type.group(i)->name);
         break;
     case TYPE_FN:
         assert(type.size() > 0);
@@ -279,12 +288,13 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
 {
     assert(!is_thunk(from.name()) && !is_thunk(to.name()));
 
-    // Buffers should be converted to ptrs, prior.
-    assert(from.name() != TYPE_PAA && to.name() != TYPE_PAA);
-
     // Same types; no cast needed!
     if(from == to)
         return CAST_NOP;
+
+    // Buffers should be converted to ptrs, prior.
+    if(from.name() == TYPE_PAA || to.name() == TYPE_PAA)
+        return CAST_FAIL;
 
     if(!implicit && is_ptr(from.name()) && is_arithmetic(to.name()) && !is_ct(to.name()))
         return CAST_INTIFY_PTR;
@@ -419,6 +429,8 @@ unsigned num_members(type_t type)
         return type.struct_().num_members();
     else if(is_tea(type.name()))
         return num_members(type.elem_type());
+    else if(type.name() == TYPE_BANKED_PTR)
+        return 2;
     return 1;
 }
 
@@ -474,7 +486,11 @@ unsigned member_index(type_t const& type, unsigned i)
     case TYPE_TEA: 
     case TYPE_TEA_THUNK: 
         return member_index(type.elem_type(), i);
+    case TYPE_BANKED_PTR:
+        assert(i < 2);
+        return i;
     default: 
+        assert(i == 0);
         return 0;
     }
 }
@@ -489,6 +505,20 @@ type_t member_type(type_t const& type, unsigned i)
         type_t mt = member_type(type.elem_type(), i);
         assert(!is_aggregate(mt.name()));
         return type_t::tea(mt, type.size());
+    }
+    else if(type.name() == TYPE_BANKED_PTR)
+    {
+        if(i == 0)
+        {
+            type_t ptr = type;
+            ptr.unsafe_set_name(TYPE_PTR);
+            return ptr;
+        }
+        else
+        {
+            assert(i == 1);
+            return TYPE_U;
+        }
     }
     return type;
 }

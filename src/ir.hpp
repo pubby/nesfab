@@ -452,6 +452,7 @@ void cfg_node_t::link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn)
 // Utility functions                  //
 ////////////////////////////////////////
 
+// Recurses through copies until finding the original definition.
 inline ssa_value_t orig_def(ssa_value_t v)
 {
     if(v.holds_ref() && ssa_flags(v->op()) & SSAF_COPY)

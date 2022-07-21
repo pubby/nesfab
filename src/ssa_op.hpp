@@ -24,6 +24,7 @@ constexpr unsigned SSAF_CG_NEVER_STORE = 1 << 9; // The op has no associated mem
 constexpr unsigned SSAF_NO_GVN         = 1 << 10; // Won't be optimized in GVN pass
 constexpr unsigned SSAF_COMMUTATIVE    = 1 << 11; // First two args can be swapped
 constexpr unsigned SSAF_BRANCHY_CG     = 1 << 12; // Potentially uses a conditional in code gen
+constexpr unsigned SSAF_NULL_INPUT_VALID = 1 << 13; // Can use nulls as input
 
 enum input_class_t
 {
@@ -32,6 +33,17 @@ enum input_class_t
     INPUT_LINK,  // Used when multiple nodes behave like one node
     INPUT_TRACE,
 };
+
+constexpr bool provides_ordering(input_class_t ic)
+{
+    switch(ic)
+    {
+    case INPUT_NONE:
+        return false;
+    default:
+        return true;
+    }
+}
 
 enum ssa_op_t : short
 {
@@ -70,7 +82,9 @@ constexpr unsigned ssa_flags(ssa_op_t op)
 std::string_view to_string(ssa_op_t node_type);
 std::ostream& operator<<(std::ostream& o, ssa_op_t node_type);
 
-inline bool fn_like(ssa_op_t op) { return op == SSA_fn_call || op == SSA_goto_mode; }
+constexpr bool fn_like(ssa_op_t op) { return op == SSA_fn_call || op == SSA_goto_mode; }
+
+constexpr bool is_make_ptr(ssa_op_t op) { return op == SSA_make_ptr_lo || op == SSA_make_ptr_hi; }
 
 inline unsigned write_globals_begin(ssa_op_t op)
 {

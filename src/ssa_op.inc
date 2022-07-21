@@ -102,14 +102,16 @@ SSA_DEF(init_array, -1, INPUT_VALUE, 0)
 // POINTERS //
 //////////////
 
+// (hi, lo) - combines two bytes into a pointer
+SSA_DEF(make_ptr_lo, 2, INPUT_NONE, 0)
 // (lo, hi) - combines two bytes into a pointer
-SSA_DEF(make_ptr, 2, INPUT_VALUE, 0)
+SSA_DEF(make_ptr_hi, 2, INPUT_NONE, 0)
 
-// (ptr, bank, index)
-SSA_DEF(read_ptr, 3, INPUT_VALUE, SSAF_INDEXES_PTR)
+// (ptr, ptr_hi, bank, index)
+SSA_DEF(read_ptr, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
 
-// (ptr, bank, index, value)
-SSA_DEF(write_ptr, 4, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_INDEXES_PTR)
+// (ptr, ptr_hi, bank, index, value)
+SSA_DEF(write_ptr, 5, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
 
 /////////////
 // GLOBALS //

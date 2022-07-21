@@ -518,7 +518,8 @@ ABSTRACT(SSA_read_global) = abstract_bottom;
 ABSTRACT(SSA_fn_call) = abstract_bottom;
 ABSTRACT(SSA_uninitialized) = abstract_bottom;
 ABSTRACT(SSA_read_ptr) = abstract_bottom;
-ABSTRACT(SSA_make_ptr) = abstract_bottom;
+ABSTRACT(SSA_make_ptr_lo) = abstract_bottom;
+ABSTRACT(SSA_make_ptr_hi) = abstract_bottom;
 
 ABSTRACT(SSA_carry) = ABSTRACT_FN
 {

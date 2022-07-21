@@ -4,7 +4,7 @@
 #include <functional>
 #include <utility>
 
-// Always calls the stored function on scope exit.
+// Calls the stored function on scope exit, unless released.
 template<typename OnThrow = std::function<void()>>
 class scope_guard_t
 {
@@ -31,11 +31,15 @@ public:
 
     ~scope_guard_t()
     {
-        on_exit();
+        if(live)
+            on_exit();
     }
+
+    void release() { live = false; }
     
 public:
     OnThrow on_exit;
+    bool live = true;
 };
 
 template<typename T>

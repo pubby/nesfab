@@ -132,14 +132,25 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
         auto& d = data(ssa_node);
 
         // Assign deps based on all inputs:
-        for_each_node_input(ssa_node, [this, &d, ssa_node](ssa_ht input)
+        unsigned const input_size = ssa_node->input_size();
+        for(unsigned i = 0; i < input_size; ++i)
         {
+            // We only care about inputs that order.
+            if(i == 0 && !provides_ordering(ssa_input0_class(ssa_node->op())))
+                continue;
+
+            if(!ssa_node->input(i).holds_ref())
+                continue;
+
+            ssa_ht const input = ssa_node->input(i).handle();
+
             if(input->cfg_node() != this->cfg_node)
-                return;
+                continue;
+
             assert(index(ssa_node) > index(input));
             bitset_set(d.deps, index(input));
             bitset_or(set_size, d.deps, data(input).deps);
-        });
+        }
 
         // Daisy inputs are deps too:
         if(ssa_ht prev = ssa_node->prev_daisy())

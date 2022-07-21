@@ -1320,7 +1320,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .op_code = 129,
         .size = 2,
         .cycles = 6,
-        .input_regs = REGF_A | REGF_X,
+        .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_M,
     },
     {
@@ -1328,7 +1328,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .op_code = 145,
         .size = 2,
         .cycles = 6,
-        .input_regs = REGF_A | REGF_Y,
+        .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_M,
     },
 
@@ -1568,7 +1568,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .op_code = 0x83,
         .size = 2,
         .cycles = 6,
-        .input_regs = REGF_A | REGF_X,
+        .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_M,
     },
     // SKB

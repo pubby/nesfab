@@ -404,24 +404,6 @@ bool is_ct(type_t type)
     }
 }
 
-/* TODO: remove?
-unsigned calc_num_members(type_t type)
-{
-    assert(!is_thunk(type.name()));
-
-    if(type.name() == TYPE_STRUCT)
-    {
-        unsigned count = 0; 
-        for(auto const& pair : type.struct_().record().fields())
-            count += num_members(pair.second.type());
-        return count;
-    }
-    else if(type.name() == TYPE_TEA)
-        return calc_num_members(type.elem_type());
-    return 1;
-}
-*/
-
 unsigned num_members(type_t type)
 {
     assert(type.name() != TYPE_STRUCT_THUNK);
@@ -443,7 +425,7 @@ unsigned num_atoms(type_t type)
     case TYPE_STRUCT: assert(false); // TODO
     case TYPE_TEA: return num_atoms(type.elem_type());
     case TYPE_PAA: return 1;
-    case TYPE_PTR: return 1;
+    case TYPE_PTR: return 2;
     case TYPE_BANKED_PTR: return 2;
     default: 
         assert(is_scalar(type.name()));
@@ -461,15 +443,6 @@ unsigned num_offsets(type_t type, unsigned atom)
     case TYPE_PAA: 
         assert(atom == 0);
         return type.array_length();
-    case TYPE_BANKED_PTR:
-        if(atom == 1)
-            return 1;
-        // fall through
-    case TYPE_PTR:
-        if(atom == 0)
-            return 2;
-        assert(false); // Invalid atom.
-        // fall through
     default:
         return 1;
     }

@@ -1860,7 +1860,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
                     ssa_ht const h = builder.cfg->emplace_ssa(
                         SSA_read_ptr, TYPE_U, 
-                        from_variant(array_val.sval[0], array_val.type), 
+                        from_variant(array_val.sval[0], array_val.type), ssa_value_t(),
                         is_banked ? from_variant(array_val.sval[1], array_val.type)
                                   : ssa_value_t(), 
                         std::get<ssa_value_t>(array_index.sval[0]));
@@ -2233,7 +2233,8 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
 
             ssa_ht const write = builder.cfg->emplace_ssa(
                 SSA_write_ptr, TYPE_VOID,
-                read->input(0), read->input(1), read->input(2), 
+                read->input(0), read->input(1), 
+                read->input(2), read->input(3), 
                 std::get<ssa_value_t>(assignment.sval[0]));
             write->append_daisy();
 

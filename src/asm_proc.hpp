@@ -18,6 +18,7 @@ struct asm_inst_t
     op_t op;
     ssa_op_t ssa_op; // Which op generated this instruction. (Useful for debugging)
     locator_t arg;
+    locator_t ptr_hi; // Always used for indirect addressing modes. Absolute X/Y modes can use if desired.
 };
 
 // A relocatable sequence of assembly instructions, 

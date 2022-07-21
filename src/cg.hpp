@@ -60,8 +60,17 @@ struct ssa_cg_d
     ssa_value_t cset_head = {}; // Basically a union-find pointer.
     ssa_ht cset_next = {}; // A linked-list to the next node
 
+    // These are used to implement/coalesce indirect pointers.
+    // 'ptr_pair' points to the other byte in the zero-page address of a pointer.
+    // 'is_ptr_lo' determines if this is the lo or hi byte of said pointer.
+    // (These values are defined for cset heads)
+    ssa_ht ptr_alt = {}; 
+    bool is_ptr_hi = false;
+    bool has_ptr(bool is_ptr_hi) const { return ptr_alt && this->is_ptr_hi == is_ptr_hi; }
+
     ssa_schedule_d schedule;
     ssa_isel_d isel;
+
 };
 
 //
@@ -76,9 +85,5 @@ inline void cg_data_resize()
 }
 
 void code_gen(ir_t& ir, fn_t& fn);
-
-// cset functions: (declare as needed)
-ssa_ht cset_head(ssa_ht h);
-locator_t cset_locator(ssa_ht h);
 
 #endif

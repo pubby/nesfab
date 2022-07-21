@@ -44,6 +44,10 @@ void calc_ssa_liveness(ssa_ht node)
         auto const oe = node->output_edge(i);
         cfg_ht const ocfg = oe.handle->cfg_node();
 
+        // We only care about values
+        if(oe.input_class() != INPUT_VALUE)
+            continue;
+
         if(oe.handle->op() == SSA_phi)
         {
             assert(node->op() == SSA_phi_copy);
@@ -117,7 +121,13 @@ bool live_at_def(ssa_ht range, ssa_ht def)
         // Test to see if a use occurs after def:
         for(unsigned i = 0; i < range->output_size(); ++i)
         {
-            ssa_ht output = range->output(i);
+            auto const oe = range->output_edge(i);
+
+            // We only care about values
+            if(oe.input_class() != INPUT_VALUE)
+                continue;
+
+            ssa_ht const output = oe.handle;
             if(output->cfg_node() == def->cfg_node() && cg_data(def).schedule.index < cg_data(output).schedule.index)
                 return true;
         }
@@ -229,10 +239,19 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
     }
     else
     {
-        int const i = lvars.index(inst.arg);
-        if(i >= 0)
-            rw(i, op_input_regs(inst.op) & REGF_M,
-                  op_output_regs(inst.op) & REGF_M);
+        auto test_loc = [&](locator_t loc)
+        {
+            int const i = lvars.index(loc);
+            if(i >= 0)
+                rw(i, op_input_regs(inst.op) & REGF_M,
+                      op_output_regs(inst.op) & REGF_M);
+        };
+
+        test_loc(inst.arg);
+
+        // For indirect modes, also test the hi byte.
+        if(indirect_addr_mode(op_addr_mode(inst.op)) && inst.ptr_hi)
+            test_loc(inst.ptr_hi);
     }
 }
 
@@ -429,6 +448,7 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
 
             do_inst_rw(fn, lvars, inst, [&](unsigned i, bool read, bool write)
             {
+                std::cout << " POOP " << inst.arg << ' ' << read << ' ' << write << ' ' << i << std::endl;
                 if(read)
                     bitset_set(live, i);
                 else if(write) // Only occurs if 'read' is false.

@@ -14,7 +14,11 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
             auto result = m_map.insert(inst.arg.mem_head());
 
             if(result.second)
+            {
+                std::cout << inst.arg << std::endl;
+                assert(has_arg_member_atom(inst.arg.lclass()));
                 m_sizes_and_zp_only.push_back((inst.arg.mem_size() << 1) | inst.arg.mem_zp_only());
+            }
 
             if(inst.arg.lclass() == LOC_ARG)
             {

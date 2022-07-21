@@ -886,6 +886,8 @@ void ir_t::assert_valid() const
 
             for(unsigned i = 0; i < ssa_node.input_size(); ++i)
             {
+                if((ssa_flags(ssa_node.op()) & SSAF_NULL_INPUT_VALID) && !ssa_node.input(i))
+                    continue;
                 assert(ssa_node.input(i));
                 if(!ssa_node.input(i).holds_ref())
                     continue;

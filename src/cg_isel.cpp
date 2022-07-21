@@ -13,6 +13,7 @@
 #include "format.hpp"
 #include "globals.hpp"
 #include "cg_isel_cpu.hpp"
+#include "cg_cset.hpp"
 
 #define CONT cont_fn_t cont
 
@@ -49,18 +50,6 @@ namespace isel
     // Main global state of the instruction selection algorithm.
     static thread_local state_t state;
 
-    ssa_value_t asm_arg(ssa_value_t v)
-    {
-        if(v.holds_ref())
-        {
-            if(locator_t loc = cset_locator(v.handle()))
-                return loc;
-            if(ssa_flags(v->op()) & SSAF_CG_NEVER_STORE)
-                return {};
-        }
-        return v;
-    }
-
     template<typename Tag>
     struct param
     {
@@ -72,7 +61,7 @@ namespace isel
         {
             _node = v;
             _value = locator_t::from_ssa_value(orig_def(v)).strip_byteify();
-            _trans = locator_t::from_ssa_value(asm_arg(v)).strip_byteify();
+            _trans = asm_arg(v).strip_byteify();
         }
 
         [[gnu::always_inline]]
@@ -83,6 +72,9 @@ namespace isel
 
         [[gnu::always_inline]]
         static locator_t trans() { return _trans; }
+
+        [[gnu::always_inline]]
+        static locator_t trans_hi() { return {}; }
     };
 
     template<typename Param>
@@ -95,7 +87,10 @@ namespace isel
         static locator_t value() { return locator_t::from_ssa_value(orig_def(node())); }
 
         [[gnu::always_inline]]
-        static locator_t trans() { return locator_t::from_ssa_value(asm_arg(node())); }
+        static locator_t trans() { return asm_arg(node()); }
+
+        [[gnu::always_inline]]
+        static locator_t trans_hi() { return {}; }
     };
 
     template<typename Param>
@@ -108,7 +103,10 @@ namespace isel
         static locator_t value() { return locator_t::from_ssa_value(orig_def(node())); }
 
         [[gnu::always_inline]]
-        static locator_t trans() { return locator_t::from_ssa_value(asm_arg(node())); }
+        static locator_t trans() { return asm_arg(node()); }
+
+        [[gnu::always_inline]]
+        static locator_t trans_hi() { return {}; }
     };
 
     struct null_
@@ -121,6 +119,9 @@ namespace isel
 
         [[gnu::always_inline]]
         static locator_t trans() { return {}; }
+
+        [[gnu::always_inline]]
+        static locator_t trans_hi() { return {}; }
 
         // Pass-thru
         template<typename Cont>
@@ -141,6 +142,25 @@ namespace isel
 
         [[gnu::always_inline]]
         static locator_t trans() { return locator_t::const_byte(I); }
+
+        [[gnu::always_inline]]
+        static locator_t trans_hi() { return {}; }
+    };
+
+    template<typename Param, typename PtrHi>
+    struct set_ptr_hi
+    {
+        [[gnu::always_inline]]
+        static ssa_value_t node() { return Param::node(); }
+
+        [[gnu::always_inline]]
+        static locator_t value() { return Param::value(); }
+
+        [[gnu::always_inline]]
+        static locator_t trans() { return Param::trans(); }
+
+        [[gnu::always_inline]]
+        static locator_t trans_hi() { return PtrHi::trans(); }
     };
 
     unsigned get_cost(sel_t const* sel)
@@ -173,14 +193,14 @@ namespace isel
     constexpr unsigned COST_CUTOFF = cost_fn<LDA_ABSOLUTE> * 3;
 
     template<op_t Op>
-    sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg = {}, unsigned extra_cost = 0)
+    sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg = {}, locator_t ptr_hi = {}, unsigned extra_cost = 0)
     {
         unsigned total_cost = cost_fn<Op>;
         if(opt.flags & OPT_CONDITIONAL)
             total_cost = (total_cost * 3) / 4; // Conditional ops are cheaper.
         total_cost += get_cost(prev) + extra_cost;
 
-        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_op, arg });
+        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_op, arg, ptr_hi });
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
@@ -373,7 +393,7 @@ namespace isel
     // a memory argument, as that argument can't be a SSA_cg_read_array_direct.
     // Thus, prefer pick_op.
     template<op_t Op> [[gnu::noinline]]
-    void exact_op(options_t opt, locator_t def, locator_t arg,
+    void exact_op(options_t opt, locator_t def, locator_t arg, locator_t ptr_hi,
                   cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
 #ifndef NDEBUG 
@@ -410,13 +430,13 @@ namespace isel
         if(ssa_addr_mode(op_addr_mode(Op)))
             penalty = handle_req_store_penalty(cpu_copy, arg);
         if(cpu_copy.set_defs_for<Op>(opt, def, arg))
-            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, penalty));
+            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, ptr_hi, penalty));
     }
 
     template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
     void exact_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        exact_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
+        exact_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), cpu, prev, cont);
     }
 
     // Generates an op using the 0..255 table.
@@ -443,12 +463,12 @@ namespace isel
         {
             exact_op<EOR_IMMEDIATE>(
                 Opt::template unrestrict<REGF_A>::to_struct, 
-                v, locator_t::const_byte(0),
+                v, locator_t::const_byte(0), {},
                 cpu, prev, cont);
 
-            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
 
-            exact_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TAY_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         }
         else if(cpu.def_eq(REG_X, v))
         {
@@ -459,10 +479,10 @@ namespace isel
 
             exact_op<CPX_IMMEDIATE>(
                 Opt::template valid_for<REGF_NZ>::to_struct, 
-                v, locator_t::const_byte(0),
+                v, locator_t::const_byte(0), {},
                 cpu, prev, cont);
 
-            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         }
         else if(cpu.def_eq(REG_Y, v))
         {
@@ -473,24 +493,13 @@ namespace isel
 
             exact_op<CPY_IMMEDIATE>(
                 Opt::template valid_for<REGF_NZ>::to_struct, 
-                v, locator_t::const_byte(0),
+                v, locator_t::const_byte(0), {},
                 cpu, prev, cont);
 
-            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         }
         else
         {
-            std::cout << v.data() << std::endl;
-            std::cout << !v.data() << std::endl;
-            std::cout << !!(v.data() & 0x80) << std::endl;
-            std::cout << cpu.defs[REG_A] << std::endl;
-            std::cout << 'a' << (int)cpu.is_known(REG_A) << std::endl;
-            std::cout << 'n' << (int)cpu.is_known(REG_N) << std::endl;
-            std::cout << 'z' << (int)cpu.is_known(REG_Z) << std::endl;
-            std::cout << (int)cpu.known[REG_A] << std::endl;
-            std::cout << (int)cpu.known[REG_N] << std::endl;
-            std::cout << (int)cpu.known[REG_Z] << std::endl;
-            std::cout << v << std::endl;
             pick_op<Opt, LDA, Def, Def>(cpu, prev, cont);
 
             pick_op<Opt, LDX, Def, Def>(cpu, prev, cont);
@@ -564,9 +573,9 @@ namespace isel
         else if(!(Opt::can_set & REGF_A))
             return;
         else if(cpu.value_eq(REG_X, v))
-            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         else if(cpu.value_eq(REG_Y, Def::value()))
-            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         else
         {
             pick_op<Opt, LDA, Def, Def>(cpu, prev, cont);
@@ -606,7 +615,7 @@ namespace isel
         else if(!(Opt::can_set & REGF_X))
             return;
         else if(cpu.value_eq(REG_A, v))
-            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         else
         {
             if(cpu.value_eq(REG_Y, v))
@@ -654,7 +663,7 @@ namespace isel
         else if(!(Opt::can_set & REGF_Y))
             return;
         else if(cpu.value_eq(REG_A, v))
-            exact_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            exact_op<TAY_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         else
         {
             if(cpu.value_eq(REG_X, v))
@@ -683,9 +692,9 @@ namespace isel
         else if(v.is_const_num())
         {
             if(v.data())
-                exact_op<SEC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+                exact_op<SEC_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
             else
-                exact_op<CLC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+                exact_op<CLC_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
         }
         /* TODO: this may not be valid.
         else if(cpu.reg_eq(REG_NZ, Def::value()))
@@ -817,15 +826,26 @@ namespace isel
         bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array_direct;
 
         if(implied && !Arg::trans())
-            exact_op<implied>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+            exact_op<implied>(Opt::to_struct, Def::value(), {}, {}, cpu, prev, cont);
         else if(relative)
-            exact_op<relative>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
+            exact_op<relative>(Opt::to_struct, Def::value(), Arg::trans(), {}, cpu, prev, cont);
         else if(immediate && Arg::trans().is_const_num())
-            exact_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
+            exact_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), {}, cpu, prev, cont);
         else if((absolute_X || absolute_Y) && read_direct)
             pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y>::call(cpu, prev, cont);
         else if(absolute && !Arg::trans().is_const_num() && !read_direct)
-            exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
+            exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), cpu, prev, cont);
+    }
+
+    template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
+    void maybe_carry_label_clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        carry_label_clear_conditional<Opt, Label, Sec>(cpu, prev, cont);
+
+        chain
+        < label<Label>
+        , clear_conditional
+        >(cpu, prev, cont);
     }
 
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
@@ -1622,7 +1642,7 @@ namespace isel
                         , load_X<Opt, p_lhs>
                         , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                         , exact_op<OptC, INX_IMPLIED>
-                        , carry_label_clear_conditional<Opt, p_label<0>, false>
+                        , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                         , set_defs<Opt, REGF_X, true, p_def>
                         , store<Opt, STX, p_def>
                         >(cpu, prev, cont);
@@ -1632,7 +1652,7 @@ namespace isel
                         , load_Y<Opt, p_lhs>
                         , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                         , exact_op<OptC, INY_IMPLIED>
-                        , carry_label_clear_conditional<Opt, p_label<0>, false>
+                        , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                         , set_defs<Opt, REGF_Y, true, p_def>
                         , store<Opt, STY, p_def>
                         >(cpu, prev, cont);
@@ -1642,7 +1662,7 @@ namespace isel
                             chain
                             < exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                             , pick_op<OptC, INC, p_def, p_def>
-                            , carry_label_clear_conditional<Opt, p_label<0>, false>
+                            , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                             >(cpu, prev, cont);
                         }
                     }
@@ -2008,7 +2028,7 @@ namespace isel
 
                 chain
                 < load_Y<Opt, p_index>
-                , exact_op<Opt, LDX_ABSOLUTE_Y, p_def, p_def>
+                , exact_op<Opt, LDX_ABSOLUTE_Y, p_def, p_array>
                 , store<Opt, STX, p_def>
                 >(cpu, prev, cont);
             }
@@ -2017,19 +2037,51 @@ namespace isel
 
         case SSA_write_ptr:
             {
-                using p_ptr = p_arg<0>;
-                using p_index = p_arg<1>;
-                using p_assignment = p_arg<2>;
+                using p_ptr_lo = p_arg<0>;
+                using p_ptr_hi = p_arg<1>;
+                using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
+                using p_index = p_arg<2>;
+                using p_assignment = p_arg<3>;
 
-                p_ptr::set(h->input(0));
-                p_index::set(h->input(2));
-                p_assignment::set(h->input(3));
+                p_ptr_lo::set(h->input(0));
+                p_ptr_hi::set(h->input(1));
+                p_index::set(h->input(3));
+                p_assignment::set(h->input(4));
 
-                chain
-                < load_AY<Opt, p_assignment, p_index>
-                , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_ptr>
-                >(cpu, prev, cont);
+                if(h->input(0).is_const())
+                {
+                    chain
+                    < load_AX<Opt, p_assignment, p_index>
+                    , exact_op<Opt, STA_ABSOLUTE_X, null_, p_ptr>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_AY<Opt, p_assignment, p_index>
+                    , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_ptr>
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    if(h->input(3).eq_whole(0))
+                    {
+                        chain
+                        < load_AX<Opt, p_assignment, const_<0>>
+                        , exact_op<Opt, STA_INDIRECT_X, null_, p_ptr>
+                        >(cpu, prev, cont);
+                    }
+
+                    chain
+                    < load_AY<Opt, p_assignment, p_index>
+                    , exact_op<Opt, STA_INDIRECT_Y, null_, p_ptr>
+                    >(cpu, prev, cont);
+                }
             }
+            break;
+
+        case SSA_make_ptr_lo:
+        case SSA_make_ptr_hi:
+            p_arg<0>::set(h->input(1));
+            load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
             break;
 
         case SSA_fn_call:

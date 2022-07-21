@@ -155,17 +155,20 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_PTR)
             {
-                // Pointer accesses may create an 'SSA_make_ptr' node.
+                // Pointer accesses may create 'SSA_make_ptr' nodes.
                 if(ssa_it->input(0).holds_ref())
                 {
-                    ssa_ht const h = cfg_node.emplace_ssa(
-                        SSA_make_ptr, ssa_it->input(0)->type(), ssa_it->input(0));
-                    ssa_it->link_change_input(0, h);
+                    ssa_ht const lo = cfg_node.emplace_ssa(
+                        SSA_make_ptr_lo, TYPE_U, ssa_it->input(0));
+                    ssa_ht const hi = cfg_node.emplace_ssa(
+                        SSA_make_ptr_hi, TYPE_U, ssa_it->input(0));
+                    ssa_it->link_change_input(0, lo);
+                    ssa_it->link_change_input(1, hi);
                 }
                 continue;
             }
 
-            if(ssa_node.op() == SSA_make_ptr)
+            if(is_make_ptr(ssa_node.op()))
                 continue;
 
             if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
@@ -451,7 +454,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                 }
                 break;
 
-            case SSA_make_ptr:
+            case SSA_make_ptr_lo:
+            case SSA_make_ptr_hi:
                 {
                     // Convert 'SSA_make_ptr' nodes created earlier,
                     // expanding their single argument into 2.
@@ -463,8 +467,19 @@ void byteify(ir_t& ir, fn_t const& fn)
                     bm_t bm = _get_bm(input);
                     unsigned const begin = begin_byte(input.type().name());
 
-                    ssa_it->link_change_input(0, bm[begin]);
-                    ssa_it->link_append_input(bm[begin+1]);
+                    // The relevant input is held in [1],
+                    // while a dummy input representing the other half 
+                    // of the pointer is held in [0].
+                    if(ssa_it->op() == SSA_make_ptr_lo)
+                    {
+                        ssa_it->link_change_input(0, bm[begin+1]);
+                        ssa_it->link_append_input(bm[begin]);
+                    }
+                    else
+                    {
+                        ssa_it->link_change_input(0, bm[begin]);
+                        ssa_it->link_append_input(bm[begin+1]);
+                    }
                 }
                 break;
 

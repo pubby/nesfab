@@ -84,6 +84,7 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_GMEMBER:
     case LOC_ARG:
     case LOC_RETURN:
+    case LOC_SSA:
     case LOC_LT_CONST_PTR:
     case LOC_LT_CONST_PTR_BANK:
     case LOC_LT_EXPR:
@@ -226,6 +227,8 @@ public:
         assert(offset == this->offset()); 
     }
 
+    constexpr void advance_offset(std::uint16_t amount) { set_offset(offset() + amount); }
+
     gmember_ht gmember() const 
     { 
         assert(lclass() == LOC_GMEMBER);
@@ -337,7 +340,7 @@ public:
         { return locator_t(LOC_RELOCATION_ADDR, 0, addr, 0); }
 
     constexpr static locator_t ssa(ssa_ht node)
-        { return locator_t(LOC_SSA, node.index, 0, 0); }
+        { return locator_t(LOC_SSA, node.index, 0, 0, 0, 0); }
 
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_MINOR_VAR, fn.value, id, 0); }

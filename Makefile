@@ -103,7 +103,8 @@ rom_array.cpp \
 convert_file.cpp \
 lt.cpp \
 o_arg.cpp \
-o_id.cpp
+o_id.cpp \
+cg_cset.cpp
 
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))

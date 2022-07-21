@@ -245,6 +245,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             gmember_t& gmember = *loc.gmember();
             group_vars_d& d = data(gmember.gvar.group_vars);
 
+            std::cout << loc << std::endl;
             std::printf("allocing %i %i\n", loc.mem_size(), loc.mem_zp_only());
 
             span_t const span = alloc_ram(
@@ -468,6 +469,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         assert(lvar_i < lvar_usable_ram.size());
 
         // First try to allocate in 'freebie_ram'.
+        std::cout << fn.lvars().locator(lvar_i) << std::endl;
         span_t span = alloc_ram(
             lvar_usable_ram[lvar_i] & freebie_ram,
             fn.lvars().mem_size(lvar_i), fn.lvars().mem_zp_only(lvar_i));

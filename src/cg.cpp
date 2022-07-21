@@ -12,6 +12,7 @@
 #include "cg_liveness.hpp"
 #include "cg_order.hpp"
 #include "cg_schedule.hpp"
+#include "cg_cset.hpp"
 #include "globals.hpp"
 #include "ir_util.hpp"
 #include "ir.hpp"
@@ -20,269 +21,8 @@
 
 #include <iostream> // TODO
 
-// Nodes will be partitioned into congruence classes for coalescing
-// purposes, dubbed "cset" for brevity.
-// These are implemented as union-find on top of a singly-linked list.
-// Below are some helper functions.
-
-bool cset_is_head(ssa_ht h) 
-    { assert(h); return !cg_data(h).cset_head.holds_ref(); }
-bool cset_is_last(ssa_ht h) 
-    { assert(h); return !cg_data(h).cset_next; }
-ssa_ht cset_next(ssa_ht h) 
-    { assert(h); return cg_data(h).cset_next; }
-
-ssa_ht cset_head(ssa_ht h)
-{
-    assert(h);
-    assert(h->op());
-    while(true)
-    {
-        auto& d = cg_data(h);
-        if(d.cset_head.holds_ref())
-        {
-            assert(d.cset_head->op());
-            assert(d.cset_head.is_handle());
-            assert(h != d.cset_head.handle());
-            h = d.cset_head.handle();
-        }
-        else
-        {
-            assert(h->op());
-            return h;
-        }
-    }
-}
-
-locator_t cset_locator(ssa_ht h)
-{
-    h = cset_head(h);
-    auto& d = cg_data(h);
-    if(d.cset_head.is_locator())
-    {
-        locator_t const loc = d.cset_head.locator();
-        //if(loc.mem_head() != loc)
-            //std::cout << loc << ' ' << loc.mem_head() << std::endl;
-        assert(loc.mem_head() == loc);
-        return loc;
-    }
-    return locator_t::none();
-}
-
-bool csets_mergable(ssa_ht a, ssa_ht b)
-{
-    locator_t const loc_a = cset_locator(a);
-    locator_t const loc_b = cset_locator(b);
-    //if(loc_a.lclass() == LOC_CALL_ARG || loc_b.lclass() == LOC_CALL_ARG)
-        //return false;
-    return (!loc_a || !loc_b 
-            || loc_a.lclass() == LOC_PHI || loc_b.lclass() == LOC_PHI
-            || loc_a == loc_b);
-}
-
-// Mostly an implementation detail used inside 'cset_append'.
-void cset_merge_locators(ssa_ht head_a, ssa_ht head_b)
-{
-    assert(cset_is_head(head_a));
-    assert(cset_is_head(head_b));
-
-    auto& ad = cg_data(head_a);
-    auto& bd = cg_data(head_b);
-
-    locator_t const loc_a = cset_locator(head_a);
-    locator_t const loc_b = cset_locator(head_b);
-
-    assert(csets_mergable(head_a, head_b));
-
-    if(loc_a == loc_b)
-        ad.cset_head = bd.cset_head;
-    else if(!loc_b || (loc_a && loc_b.lclass() == LOC_PHI))
-        bd.cset_head = ad.cset_head;
-    else if(!loc_a || (loc_b && loc_a.lclass() == LOC_PHI))
-        ad.cset_head = bd.cset_head;
-    else
-        assert(false);
-}
-
-void cset_remove(ssa_ht h)
-{
-    assert(h);
-    assert(h->op());
-
-    ssa_ht const head = cset_head(h);
-
-    assert(head);
-    assert(head->op());
-
-    if(h == head)
-    {
-        ssa_ht const next = cset_next(head);
-
-        if(!next)
-        {
-            cg_data(head).cset_head = {};
-            return;
-        }
-
-        assert(next != head);
-        //std::cout << next.index << " : " << cg_data(head).cset_head << '\n';
-        for(ssa_ht it = next; it; it = cset_next(it))
-            cg_data(it).cset_head = next;
-        cg_data(next).cset_head = cg_data(head).cset_head;
-        assert(cg_data(next).cset_head != next);
-    }
-    else
-    {
-        // Re-write the head pointers in case 'h' is a head.
-        assert(cset_next(head));
-        for(ssa_ht it = cset_next(head); it; it = cset_next(it))
-            cg_data(it).cset_head = head;
-
-        // Find the node prior to 'h'
-        ssa_ht prev = {};
-        for(ssa_ht it = head; it != h; it = cset_next(it))
-            prev = it;
-        assert(prev); // 'h' would be head otherwise.
-
-        cg_data(prev).cset_next = cg_data(h).cset_next;
-    }
-
-    // Clear 'h' data:
-    cg_data(h).cset_head = {};
-    cg_data(h).cset_next = {};
-}
-
-// Appends 'h' onto the set of 'last'.
-// Returns the new last.
-ssa_ht cset_append(ssa_value_t last, ssa_ht h)
-{
-    assert(h);
-    assert(cset_is_head(h));
-
-    if(!last.holds_ref())
-    {
-        cg_data(h).cset_head = last;
-        return h;
-    }
-
-    ssa_ht last_h = last.handle();
-
-    assert(last_h != h);
-    assert(!last_h || cset_is_last(last_h));
-    assert(csets_mergable(last_h, h));
-
-    if(cset_is_head(last_h))
-    {
-        if(last_h == h)
-            return last_h;
-        cset_merge_locators(last_h, h);
-        cg_data(h).cset_head = last_h;
-    }
-    else
-    {
-        ssa_ht const head = cset_head(last_h);
-        if(head == h)
-            return last_h;
-        cset_merge_locators(head, h);
-        cg_data(h).cset_head = head;
-    }
-
-    cg_data(last_h).cset_next = h;
-
-    while(ssa_ht next = cg_data(h).cset_next)
-        h = next;
-
-    assert(cset_is_last(h));
-    return h;
-}
-
-// Checks if 'loc' is used inside 'fn_node'.
-bool fn_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
-{
-    fn_t const& called = *get_fn(*fn_node);
-
-    switch(loc.lclass())
-    {
-    case LOC_GMEMBER:
-        return called.ir_writes(loc.gmember());
-    case LOC_GMEMBER_SET:
-        {
-            std::size_t const size = gmanager_t::bitset_size();
-            assert(size == called.ir_reads().size());
-
-            bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
-            bitset_copy(size, bs, called.ir_writes().data());
-            bitset_and(size, bs, ir.gmanager.get_set(loc));
-
-            return !bitset_all_clear(size, bs);
-        }
-    case LOC_ARG:
-        return loc.fn() != fn; // TODO: this could be made more accurate
-    case LOC_RETURN:
-        return true; // TODO: this could be made more accurate, as some fns don't clobber these
-    default: 
-        return false;
-    }
-}
-
-// If theres no interference, returns a handle to the last node of 'a's cset.
-ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
-{
-    assert(a && b);
-    assert(cset_is_head(a));
-    assert(cset_is_head(b));
-
-    if(a == b)
-    {
-        while(!cset_is_last(a))
-            a = cset_next(a);
-        return a;
-    }
-
-    for(ssa_ht fn_node : fn_nodes)
-    {
-        assert(fn_node->op() == SSA_fn_call);
-
-        if(fn_interferes(fn, ir, cset_locator(a), fn_node))
-            for(ssa_ht bi = b; bi; bi = cset_next(bi))
-                if(live_at_def(bi, fn_node))
-                    return {};
-
-        if(fn_interferes(fn, ir, cset_locator(b), fn_node))
-            for(ssa_ht ai = a; ai; ai = cset_next(ai))
-                if(live_at_def(ai, fn_node))
-                    return {};
-    }
-
-    ssa_ht last_a = {};
-    for(ssa_ht ai = a; ai; ai = cset_next(ai))
-    {
-        for(ssa_ht bi = b; bi; bi = cset_next(bi))
-        {
-            assert(ai != bi);
-            if(orig_def(ai) != orig_def(bi) && live_range_overlap(ai, bi))
-                return {};
-        }
-        last_a = ai;
-    }
-
-    assert(cset_is_last(last_a));
-    return last_a;
-}
-
-bool cset_live_at_any_def(ssa_ht a, ssa_ht const* b_begin, ssa_ht const* b_end)
-{
-    assert(a);
-    assert(cset_is_head(a));
-
-    for(ssa_ht ai = a; ai; ai = cset_next(ai))
-        if(live_at_any_def(ai, b_begin, b_end))
-            return true;
-
-    return false;
-}
-
 // TODO: make this way more efficient
+/*
 static bool _reaching(ssa_ht def, cfg_ht cfg, ssa_ht use, fc::vector_set<cfg_ht>& visited)
 {
     if(visited.count(cfg))
@@ -325,6 +65,7 @@ static bool _reaching(ssa_ht def, ssa_ht use)
     fc::vector_set<cfg_ht> visited;
     return _reaching(def, use->cfg_node(), use, visited);
 }
+*/
 
 namespace
 {
@@ -535,6 +276,28 @@ void code_gen(ir_t& ir, fn_t& fn)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
         ssa_op_t const op = ssa_it->op();
+
+        // Setup 'ptr_alt's for ptr inputs.
+        if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
+        {
+            assert(ssa_it->input(0).holds_ref() == ssa_it->input(1).holds_ref());
+
+            if(ssa_it->input(0).holds_ref())
+            {
+                ssa_ht const lo = ssa_it->input(0).handle();
+                ssa_ht const hi = ssa_it->input(1).handle();
+                auto& lo_d = cg_data(lo);
+                auto& hi_d = cg_data(hi);
+
+                assert(!lo_d.ptr_alt || (lo_d.ptr_alt == hi && lo_d.is_ptr_hi == false));
+                assert(!hi_d.ptr_alt || (hi_d.ptr_alt == lo && hi_d.is_ptr_hi == true));
+
+                lo_d.ptr_alt = hi;
+                lo_d.is_ptr_hi = false;
+                hi_d.ptr_alt = lo;
+                hi_d.is_ptr_hi = true;
+            }
+        }
 
         // Use copies when going into or out of global variables.
         // This is needed to correctly implement the loads and stores
@@ -917,7 +680,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         ssa_ht copy_cset      = cset_head(copy.node);
         ssa_ht candidate_cset = cset_head(candidate);
 
-        assert(csets_mergable(copy_cset, candidate_cset));
+        assert(cset_locators_mergable(cset_locator(copy_cset), cset_locator(candidate_cset)));
 
         if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, copy_cset, candidate_cset, fn_nodes))
             cset_append(last, candidate_cset);
@@ -951,10 +714,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             ssa_ht last;
 
-            if(!csets_mergable(store_cset, parent_cset))
-                goto fail;
-
-            last = csets_dont_interfere(fn.handle(), ir, store_cset, parent_cset, fn_nodes);
+            last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, fn_nodes);
 
             if(last)
             {
@@ -1008,10 +768,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             ssa_ht this_cset = cset_head(h);
             ssa_ht parent_cset = cset_head(parent);
 
-            if(!csets_mergable(this_cset, parent_cset))
-                continue;
-
-            if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, this_cset, parent_cset, fn_nodes))
+            if(ssa_ht last = csets_appendable(fn.handle(), ir, this_cset, parent_cset, fn_nodes))
             {
                 cset_append(last, parent_cset);
                 assert(cset_head(h) == cset_head(parent));
@@ -1190,24 +947,93 @@ void code_gen(ir_t& ir, fn_t& fn)
         ssa_ht head_a = cset_head(ssa_it);
         ssa_ht head_b = cset_head(input);
 
-        ssa_ht last = csets_dont_interfere(fn.handle(), ir, head_a, head_b, fn_nodes);
+        ssa_ht last = csets_appendable(fn.handle(), ir, head_a, head_b, fn_nodes);
         if(!last) // If they interfere
             continue;
 
+        /* TODO
         if(!cset_locator(head_a) && !cset_locator(head_b))
         {
             locator_t loc = locator_t::ssa(head_a);
             cg_data(head_a).cset_head = loc;
         }
-
-        if(!csets_mergable(head_a, head_b))
-            continue;
+        */
 
         // It can be coalesced; add it to the cset.
         cset_append(last, head_b);
 
         assert(cset_locator(ssa_it) == cset_locator(input));
     }
+
+    // Coalesce indirect pointers
+
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+    {
+        if(!is_make_ptr(ssa_it->op()))
+            continue;
+
+        bool const hi = ssa_it->op() == SSA_make_ptr_hi;
+
+        if(!ssa_it->input(1).holds_ref())
+            continue;
+
+        ssa_ht const head_input = cset_head(ssa_it->input(1).handle());
+
+        if(!ssa_it->input(0).holds_ref())
+        {
+            // TODO
+            assert(0);
+            continue;
+        }
+
+        assert(cg_data(ssa_it).ptr_alt);
+
+        ssa_ht const head_opposite = cset_head(ssa_it->input(1).handle());
+
+        // If either is defined with the opposite parity, we can't coalesce.
+        if(cg_data(head_opposite).has_ptr(hi) || cg_data(head_input).has_ptr(!hi))
+            continue;
+
+        ssa_ht const head_ssa = cset_head(ssa_it);
+        assert(cg_data(head_ssa).ptr_alt);
+        assert(cg_data(head_ssa).is_ptr_hi == hi);
+
+        // First, make sure we can coalesce the ssa node with its relevant input.
+        ssa_ht const last = csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes);
+        if(!last) // If they interfere
+            continue;
+
+        ssa_ht const head_ssa_alt = cset_head(cg_data(head_ssa).ptr_alt);
+        assert(cg_data(head_ssa_alt).ptr_alt);
+        //assert(is_make_ptr(head_ssa_alt->op()));
+        assert(cg_data(head_ssa_alt).is_ptr_hi == !hi);
+
+        // Second, make sure both inputs are not part of separate pointers
+        // by checking that their alts can be coalesced.
+        // If they can, coalesce them.
+        if(ssa_ht const input_alt = cg_data(head_input).ptr_alt)
+        {
+            if(ssa_ht const alt_last = csets_appendable(fn.handle(), ir, cset_head(input_alt), head_ssa_alt, fn_nodes))
+                cset_append(alt_last, head_ssa_alt);
+            else
+                continue;
+        }
+        else
+
+        // Coalesce the main input.
+        assert(csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes));
+        cset_append(last, head_ssa);
+
+        assert(head_input == cset_head(head_input));
+        assert(head_opposite == cset_head(head_opposite));
+        assert(cg_data(head_input).ptr_alt);
+        //assert(cg_data(cg_data(head_input).ptr_alt).ptr_alt);
+        //assert(cg_data(cg_data(head_input).ptr_alt).ptr_alt == head_input);
+
+        std::cout << "coal ptr " << ssa_it.index << std::endl;
+    }
+
 
     // All gsets must be coalesced.
     // (otherwise something went wrong in an earlier optimization pass)
@@ -1225,6 +1051,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         }
     }
 #endif
+
 
     ///////////////////////////
     // INSTRUCTION SELECTION //

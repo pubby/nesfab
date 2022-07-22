@@ -8,9 +8,8 @@ std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
     o << "{ " << to_string(inst.op) << ", " << inst.arg;
     if(inst.ptr_hi)
         o << " hi: " << inst.ptr_hi;
-    else
-        o << " no hi";
     o << "   (" << inst.ssa_op << ") }";
+    o << "   (" << (float(inst.cost) / 256.0f) << ") }";
     return o;
 }
 

@@ -18,6 +18,7 @@
 #include "decl.hpp"
 #include "ir_decl.hpp"
 #include "rom_array_decl.hpp"
+#include "phase.hpp"
 
 class type_t;
 struct ssa_value_t;
@@ -250,6 +251,7 @@ public:
     ssa_ht ssa_node() const
     {
         assert(lclass() == LOC_SSA);
+        assert(compiler_phase() == PHASE_COMPILE);
         return { handle() };
     }
 

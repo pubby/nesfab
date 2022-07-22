@@ -35,11 +35,10 @@ namespace isel
         sel_t const* best_sel = nullptr;
 
         cfg_ht cfg_node;
+        ssa_ht ssa_node;
 
         unsigned next_label = 0;
         unsigned next_var = 0;
-
-        ssa_op_t ssa_op;
 
         fn_ht fn;
 
@@ -200,7 +199,7 @@ namespace isel
             total_cost = (total_cost * 3) / 4; // Conditional ops are cheaper.
         total_cost += get_cost(prev) + extra_cost;
 
-        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_op, arg, ptr_hi });
+        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, ptr_hi, total_cost });
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
@@ -259,10 +258,34 @@ namespace isel
         cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
     };
 
+    // Marks the node as stored without any cost.
+    // This is used when a node has been aliased and doesn't need a MAYBE_STORE at all.
+    template<typename Def>
+    void ignore_req_store(cpu_t const& cpu, sel_t const* sel, cons_t const* cont)
+    {
+        cpu_t cpu_copy = cpu;
+
+        ssa_value_t const n = Def::node();
+        if(n.holds_ref())
+        {
+            cpu_copy.req_store |= cg_data(n.handle()).isel.store_mask;
+            std::cout << "IGNORING " << cg_data(n.handle()).isel.store_mask << '\n';
+        }
+
+        cont->call(cpu_copy, sel);
+    }
+
     // Finishes the selection.
+    template<bool FinishNode>
     void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
     {
-        auto result = state.next_map.insert({ cpu, sel });
+        rh::apair<cpu_t, sel_t const*> insertion = { cpu, sel };
+
+        // If this completes a node's operations, we'll release 'req_store'.
+        if(FinishNode)
+            insertion.first.req_store &= ~cg_data(state.ssa_node).isel.last_use;
+
+        auto result = state.next_map.insert(std::move(insertion));
 
         unsigned const sel_cost = get_cost(sel);
 
@@ -285,13 +308,13 @@ namespace isel
 #endif
 
     // Runs the function and adds the results to the state map.
-    template<typename Fn>
+    template<bool FinishNode, typename Fn>
     void select_step(Fn fn)
     {
         state.next_map.clear();
         state.next_best_cost = ~0 - COST_CUTOFF;
 
-        cons_t const cont = { finish };
+        cons_t const cont = { finish<FinishNode> };
 
         for(auto const& pair : state.map)
             if(get_cost(pair.second) < state.best_cost + COST_CUTOFF)
@@ -367,48 +390,55 @@ namespace isel
         }
     }
 
-    [[gnu::noinline]]
-    unsigned handle_req_store_penalty(cpu_t& cpu, locator_t loc)
+    template<op_t Op>
+    unsigned handle_req_store_penalty(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
     {
-        if(loc.lclass() != LOC_SSA)
+        if(!arg.holds_ref())
             return 0;
 
-        ssa_ht h = loc.ssa_node();
-        auto& d = cg_data(h);
-
-        if(h->cfg_node() != state.cfg_node && d.isel.store_mask)
-            return 0; 
+        ssa_ht const arg_h = arg.handle();
+        auto& d = cg_data(arg_h);
 
         // Nodes that belong to this CFG node are tracked more
         // precisely using the 'req_store' part of 'cpu_t'.
+        if(arg_h->cfg_node() != state.cfg_node)
+            return 0; 
 
+        // Determine if this node has been stored yet.
+        // If it has, there won't be a penalty.
+        unsigned const new_stores = builtin::popcount(~cpu.req_store & d.isel.store_mask);
+
+        // Mark the node as stored.
         cpu.req_store |= d.isel.store_mask;
+        assert(!(~cpu.req_store & d.isel.store_mask));
 
-        unsigned const stores = builtin::popcount(~cpu.req_store & d.isel.store_mask);
-        return cost_fn<STA_ABSOLUTE> * stores;
+        // If this is a store, mark it immediately without cost.
+        if(!xy_addr_mode(op_addr_mode(Op)) && (op_output_regs(Op) & REGF_M) 
+           && !(op_flags(Op) & ASMF_MAYBE) && def.holds_ref() && def.handle() == state.ssa_node)
+        {
+            assert(def.handle() != arg_h);
+            cpu.req_store |= cg_data(def.handle()).isel.store_mask;
+        }
+
+        std::printf("req penalty %i\n", cost_fn<STA_ABSOLUTE> * new_stores);
+        return cost_fn<STA_ABSOLUTE> * new_stores;
     }
 
-    // Spits out the op specified.
-    // NOTE: You generally shouldn't use this for any op that uses
-    // a memory argument, as that argument can't be a SSA_cg_read_array_direct.
-    // Thus, prefer pick_op.
-    template<op_t Op> [[gnu::noinline]]
-    void exact_op(options_t opt, locator_t def, locator_t arg, locator_t ptr_hi,
-                  cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    template<op_t Op>
+    bool valid_arg(locator_t arg)
     {
-#ifndef NDEBUG 
+#ifdef NDEBUG
+        return true;
+#else
         switch(op_addr_mode(Op))
         {
-        case MODE_IMPLIED:
-            assert(!arg);
-            break;
+        case MODE_IMPLIED: 
+            return !arg;
         case MODE_RELATIVE:
         case MODE_LONG:
-            assert(is_label(arg.lclass()));
-            break;
+            return is_label(arg.lclass());
         case MODE_IMMEDIATE:
-            assert(arg.is_const_num());
-            break;
+            return arg.is_const_num();
         case MODE_ZERO_PAGE:
         case MODE_ZERO_PAGE_X:
         case MODE_ZERO_PAGE_Y:
@@ -418,25 +448,59 @@ namespace isel
         case MODE_INDIRECT:
         case MODE_INDIRECT_X:
         case MODE_INDIRECT_Y:
-            assert(arg);
-            break;
+            return bool(arg);
         default:
-            break;
-        }
+            return true;
 #endif
+        }
+    }
+
+    // Spits out the op specified.
+    // NOTE: You generally shouldn't use this for any op that uses
+    // a memory argument, as that argument can't be a SSA_cg_read_array_direct.
+    // Thus, prefer pick_op.
+    template<op_t Op> [[gnu::noinline]]
+    void exact_op(options_t opt, locator_t def, locator_t arg, locator_t ptr_hi, ssa_value_t ssa_def, ssa_value_t ssa_arg,
+                  cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        constexpr auto mode = op_addr_mode(Op);
+
+        assert(valid_arg<Op>(arg));
+
         cpu_t cpu_copy = cpu;
 
-        unsigned penalty = 0;
-        if(ssa_addr_mode(op_addr_mode(Op)))
-            penalty = handle_req_store_penalty(cpu_copy, arg);
         if(cpu_copy.set_defs_for<Op>(opt, def, arg))
+        {
+            unsigned penalty = 0;
+            if((op_input_regs(Op) & REGF_M)
+               && (mode == MODE_ZERO_PAGE 
+                   || mode == MODE_ABSOLUTE 
+                   || indirect_addr_mode(mode)))
+            {
+                penalty = handle_req_store_penalty<Op>(cpu_copy, ssa_def, ssa_arg);
+            }
+
             cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, ptr_hi, penalty));
+        }
     }
 
     template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
     void exact_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        exact_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), cpu, prev, cont);
+        exact_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node(), cpu, prev, cont);
+    }
+
+    // Like exact_op, but with a simplified set of parameters.
+    // Only supports a few addressing modes.
+    template<op_t Op>
+    void simple_op(options_t opt, locator_t def, locator_t arg, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        constexpr auto mode = op_addr_mode(Op);
+        assert(mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE);
+        assert(valid_arg<Op>(arg));
+        cpu_t cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<Op>(opt, def, arg))
+            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, {}, 0));
     }
 
     // Generates an op using the 0..255 table.
@@ -461,14 +525,14 @@ namespace isel
             return;
         else if(cpu.def_eq(REG_A, v))
         {
-            exact_op<EOR_IMMEDIATE>(
+            simple_op<EOR_IMMEDIATE>(
                 Opt::template unrestrict<REGF_A>::to_struct, 
-                v, locator_t::const_byte(0), {},
+                v, locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
 
-            exact_op<TAY_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
         else if(cpu.def_eq(REG_X, v))
         {
@@ -477,12 +541,12 @@ namespace isel
             , exact_op<typename Opt::unrestrict<REGF_X>, DEX_IMPLIED, Def>
             >(cpu, prev, cont);
 
-            exact_op<CPX_IMMEDIATE>(
+            simple_op<CPX_IMMEDIATE>(
                 Opt::template valid_for<REGF_NZ>::to_struct, 
-                v, locator_t::const_byte(0), {},
+                v, locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
         else if(cpu.def_eq(REG_Y, v))
         {
@@ -491,12 +555,12 @@ namespace isel
             , exact_op<typename Opt::template unrestrict<REGF_Y>, DEY_IMPLIED, Def>
             >(cpu, prev, cont);
 
-            exact_op<CPY_IMMEDIATE>(
+            simple_op<CPY_IMMEDIATE>(
                 Opt::template valid_for<REGF_NZ>::to_struct, 
-                v, locator_t::const_byte(0), {},
+                v, locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
         else
         {
@@ -573,9 +637,9 @@ namespace isel
         else if(!(Opt::can_set & REGF_A))
             return;
         else if(cpu.value_eq(REG_X, v))
-            exact_op<TXA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         else if(cpu.value_eq(REG_Y, Def::value()))
-            exact_op<TYA_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         else
         {
             pick_op<Opt, LDA, Def, Def>(cpu, prev, cont);
@@ -615,7 +679,7 @@ namespace isel
         else if(!(Opt::can_set & REGF_X))
             return;
         else if(cpu.value_eq(REG_A, v))
-            exact_op<TAX_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         else
         {
             if(cpu.value_eq(REG_Y, v))
@@ -663,7 +727,7 @@ namespace isel
         else if(!(Opt::can_set & REGF_Y))
             return;
         else if(cpu.value_eq(REG_A, v))
-            exact_op<TAY_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+            simple_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         else
         {
             if(cpu.value_eq(REG_X, v))
@@ -692,9 +756,9 @@ namespace isel
         else if(v.is_const_num())
         {
             if(v.data())
-                exact_op<SEC_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+                simple_op<SEC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
             else
-                exact_op<CLC_IMPLIED>(Opt::to_struct, v, {}, {}, cpu, prev, cont);
+                simple_op<CLC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
         /* TODO: this may not be valid.
         else if(cpu.reg_eq(REG_NZ, Def::value()))
@@ -826,15 +890,15 @@ namespace isel
         bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array_direct;
 
         if(implied && !Arg::trans())
-            exact_op<implied>(Opt::to_struct, Def::value(), {}, {}, cpu, prev, cont);
+            simple_op<implied>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
         else if(relative)
-            exact_op<relative>(Opt::to_struct, Def::value(), Arg::trans(), {}, cpu, prev, cont);
+            simple_op<relative>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
         else if(immediate && Arg::trans().is_const_num())
-            exact_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), {}, cpu, prev, cont);
+            simple_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
         else if((absolute_X || absolute_Y) && read_direct)
             pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y>::call(cpu, prev, cont);
         else if(absolute && !Arg::trans().is_const_num() && !read_direct)
-            exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), cpu, prev, cont);
+            exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node(), cpu, prev, cont);
     }
 
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
@@ -892,12 +956,26 @@ namespace isel
         // Store the node, locally:
         if(Maybe/* && Param::trans().lclass() == LOC_SSA*/)
         {
+            int penalty = 0;
+            ssa_value_t const n = Param::node();
+            if(n.holds_ref() && n->cfg_node() == state.cfg_node)
+            {
+                static_assert(cost_fn<LDA_ABSOLUTE> >= cost_fn<MAYBE_STA>);
+
+                if(cg_data(n.handle()).isel.likely_store)
+                {
+                    penalty = cost_fn<LDA_ABSOLUTE> - cost_fn<MAYBE_STA>;
+                    //penalty *= 4;
+                    std::cout << "penalty " << penalty << ' ' << n.handle().index << std::endl;
+                }
+            }
+
             switch(StoreOp)
             {
-            case STA: cont->call(cpu, &alloc_sel<MAYBE_STA>(Opt::to_struct, prev, Param::trans())); break;
-            case STX: cont->call(cpu, &alloc_sel<MAYBE_STX>(Opt::to_struct, prev, Param::trans())); break;
-            case STY: cont->call(cpu, &alloc_sel<MAYBE_STY>(Opt::to_struct, prev, Param::trans())); break;
-            case SAX: cont->call(cpu, &alloc_sel<MAYBE_SAX>(Opt::to_struct, prev, Param::trans())); break;
+            case STA: cont->call(cpu, &alloc_sel<MAYBE_STA>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
+            case STX: cont->call(cpu, &alloc_sel<MAYBE_STX>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
+            case STY: cont->call(cpu, &alloc_sel<MAYBE_STY>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
+            case SAX: cont->call(cpu, &alloc_sel<MAYBE_SAX>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
             default: assert(false); break;
             }
         }
@@ -918,12 +996,12 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename Def, typename Load, typename Store> [[gnu::noinline]]
+    template<typename Opt, typename Def, typename Load, typename Store, bool Maybe = true> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(Load::trans() == Store::trans())
         {
-            cont->call(cpu, prev);
+            ignore_req_store<Def>(cpu, prev, cont);
             return;
         }
 
@@ -1042,7 +1120,7 @@ namespace isel
             // The last comparison cares about sign.
             sign_check::set(i + 2 == h->input_size());
 
-            select_step([&, i](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+            select_step<false>([&, i](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
             {
                 last_iter::set(i + 2 >= h->input_size());
 
@@ -1102,7 +1180,7 @@ namespace isel
             });
         }
 
-        select_step(
+        select_step<false>(
             chain
             < exact_op<OptC, Op, null_, SuccessLabel>
             , clear_conditional
@@ -1117,7 +1195,7 @@ namespace isel
         using O = options<>;
 
         // For now, this implementation only loads the result in register X.
-        select_step(load_X<O, const_<0>>);
+        select_step<false>(load_X<O, const_<0>>);
 
         fail::set(state.minor_label());
         success::set(state.minor_label());
@@ -1128,7 +1206,7 @@ namespace isel
 
         using OC = O::add_flags<OPT_CONDITIONAL>;
         
-        select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+        select_step<true>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
         {
             // Explicitly instantiate the labels.
             // (For some reason, GCC can't link without these lines. Could be a compiler bug.)
@@ -1200,7 +1278,7 @@ namespace isel
                     {
                         assert(!lsigned);
 
-                        select_step(
+                        select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_rhs>
                             , exact_op<OptC, BMI_RELATIVE, null_, FailLabel>
@@ -1210,7 +1288,7 @@ namespace isel
                     }
                     else
                     {
-                        select_step(
+                        select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_rhs>
                             , exact_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
@@ -1231,7 +1309,7 @@ namespace isel
                     {
                         assert(!rsigned);
 
-                        select_step(
+                        select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_lhs>
                             , exact_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
@@ -1241,7 +1319,7 @@ namespace isel
                     }
                     else
                     {
-                        select_step(
+                        select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_lhs>
                             , exact_op<OptC, BNE_RELATIVE, null_, FailLabel>
@@ -1267,7 +1345,7 @@ namespace isel
 
             if(lsigned)
             {
-                select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
                     < load_A<OptC, p_lhs>
@@ -1301,7 +1379,7 @@ namespace isel
             {
                 assert(rsigned);
 
-                select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
                     < load_A<OptC, p_rhs>
@@ -1364,7 +1442,7 @@ namespace isel
             {
                 if(i + 1 == maxwhole) // If this is the only iteration
                 {
-                    select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                    select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                     {
                         chain
                         < load_AC<OptC, p_lhs, const_<1>>
@@ -1387,7 +1465,7 @@ namespace isel
                 else
                 {
                     // We can use CMP for the first iteration:
-                    select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                    select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                     {
                         chain
                         < load_A<OptC, p_lhs>
@@ -1408,7 +1486,7 @@ namespace isel
             }
             else // This isn't the first iteration
             {
-                select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
                     < load_A<OptC, p_lhs>
@@ -1440,7 +1518,7 @@ namespace isel
 
             if(lsigned && rsigned)
             {
-                select_step(
+                select_step<false>(
                     chain
                     < exact_op<OptC, BVC_RELATIVE, null_, p_overflow_label>
                     , exact_op<OptC, EOR_ABSOLUTE, null_, const_<0x80>>
@@ -1452,7 +1530,7 @@ namespace isel
             }
             else
             {
-                select_step(
+                select_step<false>(
                     chain
                     < exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
                     , exact_op<OptC, BCS_RELATIVE, null_, FailLabel>
@@ -1462,7 +1540,7 @@ namespace isel
         else
             assert(iteration == 0);
 
-        select_step(clear_conditional);
+        select_step<false>(clear_conditional);
     }
 
     template<bool LTE = false>
@@ -1473,7 +1551,7 @@ namespace isel
         using O = options<>;
 
         // For now, this implementation only loads the result in register X.
-        select_step(load_X<O, const_<0>>);
+        select_step<false>(load_X<O, const_<0>>);
 
         fail::set(state.minor_label());
         success::set(state.minor_label());
@@ -1484,7 +1562,7 @@ namespace isel
 
         using OC = O::add_flags<OPT_CONDITIONAL>;
         
-        select_step([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+        select_step<true>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
         {
             // Explicitly instantiate the labels.
             // (For some reason, GCC can't link without these lines. Could be a compiler bug.)
@@ -1513,8 +1591,36 @@ namespace isel
             p_def::set(def);
             p_arg<0>::set(loc);
 
-            select_step(load_then_store<Opt, p_def, p_def, p_arg<0>>);
+            select_step<true>(load_then_store<Opt, p_def, p_def, p_arg<0>, false>);
         });
+    }
+
+    template<typename Opt, typename Def, typename Array, typename Index>
+    void read_array(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        chain
+        < load_X<Opt, Index>
+        , exact_op<Opt, LDA_ABSOLUTE_X, Def, Array>
+        , store<Opt, STA, Def>
+        >(cpu, prev, cont);
+
+        chain
+        < load_X<Opt, Index>
+        , exact_op<Opt, LDY_ABSOLUTE_X, Def, Array>
+        , store<Opt, STY, Def>
+        >(cpu, prev, cont);
+
+        chain
+        < load_Y<Opt, Index>
+        , exact_op<Opt, LDA_ABSOLUTE_Y, Def, Array>
+        , store<Opt, STA, Def>
+        >(cpu, prev, cont);
+
+        chain
+        < load_Y<Opt, Index>
+        , exact_op<Opt, LDX_ABSOLUTE_Y, Def, Array>
+        , store<Opt, STX, Def>
+        >(cpu, prev, cont);
     }
 
     template<typename Opt, typename Def>
@@ -1586,8 +1692,8 @@ namespace isel
             break;
 
         case SSA_add:
-            p_lhs::set(h->input(0));
-            p_rhs::set(h->input(1));
+            //p_lhs::set(h->input(0));
+            //p_rhs::set(h->input(1));
             p_carry::set(h->input(2));
 
             // TODO: This should be a math identity, right?
@@ -1661,7 +1767,7 @@ namespace isel
                         {
                             chain
                             < exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                            , pick_op<OptC, INC, p_def, p_def>
+                            , pick_op<OptC, INC, p_def, p_lhs>
                             , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                             >(cpu, prev, cont);
                         }
@@ -1729,7 +1835,7 @@ namespace isel
                             >(cpu, prev, cont);
 
                             if(p_def::trans() == p_lhs::trans())
-                                pick_op<Opt, INC, p_def, p_def>(cpu, prev, cont);
+                                pick_op<Opt, INC, p_def, p_lhs>(cpu, prev, cont);
                         }
 
                         if(((p_rhs::value().data() + !!p_carry::value().data()) & 0xFF) == 0xFF && !carry_used(*h))
@@ -1855,7 +1961,7 @@ namespace isel
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
-                    pick_op<Opt, ASL, p_def, p_def>(cpu, prev, cont);
+                    pick_op<Opt, ASL, p_def, p_lhs>(cpu, prev, cont);
             }
             else
             {
@@ -1869,7 +1975,7 @@ namespace isel
                 {
                     chain
                     < load_C<Opt, p_rhs>
-                    , pick_op<Opt, ROL, p_def, p_def>
+                    , pick_op<Opt, ROL, p_def, p_lhs>
                     >(cpu, prev, cont);
                 }
             }
@@ -1887,13 +1993,13 @@ namespace isel
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
-                    pick_op<Opt, LSR, p_def, p_def>(cpu, prev, cont);
+                    pick_op<Opt, LSR, p_def, p_lhs>(cpu, prev, cont);
             }
             else
             {
                 chain
                 < load_AC<Opt, p_lhs, p_rhs>
-                , exact_op<Opt, ROR_IMPLIED, p_def>
+                , exact_op<Opt, ROR_IMPLIED, p_lhs>
                 , store<Opt, STA, p_def>
                 >(cpu, prev, cont);
 
@@ -1901,7 +2007,7 @@ namespace isel
                 {
                     chain
                     < load_C<Opt, p_rhs>
-                    , pick_op<Opt, ROR, p_def, p_def>
+                    , pick_op<Opt, ROR, p_def, p_lhs>
                     >(cpu, prev, cont);
                 }
             }
@@ -1937,7 +2043,7 @@ namespace isel
                 load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
             }
             else
-                cont->call(cpu, prev);
+                ignore_req_store<p_def>(cpu, prev, cont);
             break;
 
         case SSA_phi_copy:
@@ -1947,7 +2053,7 @@ namespace isel
                 load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
             }
             else
-                cont->call(cpu, prev);
+                ignore_req_store<p_def>(cpu, prev, cont);
             break;
 
         case SSA_phi:
@@ -1958,7 +2064,7 @@ namespace isel
                 load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
             }
             else
-                cont->call(cpu, prev);
+                ignore_req_store<p_def>(cpu, prev, cont);
             break;
 
         case SSA_aliased_store:
@@ -1970,7 +2076,7 @@ namespace isel
                 goto do_read_array_direct;
             }
             else
-                cont->call(cpu, prev);
+                ignore_req_store<p_def>(cpu, prev, cont);
             break;
 
         case SSA_write_array:
@@ -2000,7 +2106,7 @@ namespace isel
             break;
 
         case SSA_read_array:
-            do_read_array_direct:
+        do_read_array_direct:
             {
                 using p_array = p_arg<0>;
                 using p_index = p_arg<1>;
@@ -2008,31 +2114,52 @@ namespace isel
                 p_array::set(h->input(0));
                 p_index::set(h->input(2));
 
-                chain
-                < load_X<Opt, p_index>
-                , exact_op<Opt, LDA_ABSOLUTE_X, p_def, p_array>
-                , store<Opt, STA, p_def>
-                >(cpu, prev, cont);
-
-                chain
-                < load_X<Opt, p_index>
-                , exact_op<Opt, LDY_ABSOLUTE_X, p_def, p_array>
-                , store<Opt, STY, p_def>
-                >(cpu, prev, cont);
-
-                chain
-                < load_Y<Opt, p_index>
-                , exact_op<Opt, LDA_ABSOLUTE_Y, p_def, p_array>
-                , store<Opt, STA, p_def>
-                >(cpu, prev, cont);
-
-                chain
-                < load_Y<Opt, p_index>
-                , exact_op<Opt, LDX_ABSOLUTE_Y, p_def, p_array>
-                , store<Opt, STX, p_def>
-                >(cpu, prev, cont);
+                read_array<Opt, p_def, p_array, p_index>(cpu, prev, cont);
             }
 
+            break;
+
+        case SSA_read_ptr:
+            {
+                using p_ptr_lo = p_arg<0>;
+                using p_ptr_hi = p_arg<1>;
+                using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
+                using p_index = p_arg<2>;
+
+                p_ptr_lo::set(h->input(0));
+                p_ptr_hi::set(h->input(1));
+                p_index::set(h->input(3));
+
+                if(h->input(0).is_const())
+                {
+                    assert(!h->input(1) || h->input(1).is_const());
+
+                    read_array<Opt, p_def, p_ptr, p_index>(cpu, prev, cont);
+                }
+                else
+                {
+                    if(h->input(3).eq_whole(0))
+                    {
+                        chain
+                        < load_X<Opt, const_<0>>
+                        , exact_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
+                        , store<Opt, STA, p_def>
+                        >(cpu, prev, cont);
+                    }
+
+                    chain
+                    < load_Y<Opt, p_index>
+                    , exact_op<Opt, LDA_INDIRECT_Y, p_def, p_ptr>
+                    , store<Opt, STA, p_def>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_Y<Opt, p_index>
+                    , exact_op<Opt, LAX_INDIRECT_Y, p_def, p_ptr>
+                    , store<Opt, STA, p_def>
+                    >(cpu, prev, cont);
+                }
+            }
             break;
 
         case SSA_write_ptr:
@@ -2050,6 +2177,8 @@ namespace isel
 
                 if(h->input(0).is_const())
                 {
+                    assert(!h->input(1) || h->input(1).is_const());
+
                     chain
                     < load_AX<Opt, p_assignment, p_index>
                     , exact_op<Opt, STA_ABSOLUTE_X, null_, p_ptr>
@@ -2122,7 +2251,7 @@ namespace isel
         case SSA_entry:
         case SSA_uninitialized:
         case SSA_cg_read_array_direct:
-            cont->call(cpu, prev);
+            ignore_req_store<p_def>(cpu, prev, cont);
             break;
         default:
             throw std::runtime_error(fmt("Unhandled SSA op in code gen: %", h->op()));
@@ -2131,8 +2260,7 @@ namespace isel
 
     void isel_node(ssa_ht h)
     {
-        state.ssa_op = h->op();
-        std::cout << "doing op " << state.ssa_op << std::endl;
+        std::cout << "doing op " << state.ssa_node->op() << std::endl;
 
         p_def::set(h);
 
@@ -2268,7 +2396,7 @@ namespace isel
 
         default: 
         simple:
-            select_step([h](cpu_t cpu, sel_t const* prev, cons_t const* cont)
+            select_step<true>([h](cpu_t cpu, sel_t const* prev, cons_t const* cont)
             {
                 isel_node_simple(h, cpu, prev, cont);
             });
@@ -2283,11 +2411,15 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
     using namespace isel;
 
     state.fn = fn.handle();
+    state.cfg_node = cfg_node;
     auto& cd = cg_data(cfg_node);
 
     //////////////////////////////
     // SETUP THE ROLLING WINDOW //
     //////////////////////////////
+
+    for(ssa_ht h : cd.schedule)
+        cg_data(h).isel = {};
 
     // A bitset is used to track which variables have been stored.
     // To shrink the bitset size down to 64 bits, a rolling window is used
@@ -2299,32 +2431,56 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
     {
         if(free)
         {
+            // Allocate a single bit.
             std::uint64_t const allocated = 1ull << builtin::ctz(free);
             assert((free & allocated) == allocated);
+
+            // Remove the allocated bit from 'free'.
             free ^= allocated;
 
+            // Track the bit with this node:
+            cg_data(h).isel.store_mask = allocated;
+
+            // Determine which use occurs latest in the CFG node.
+            // If a use
             ssa_ht last_use = h;
             for(unsigned j = 0; j < h->output_size(); ++j)
             {
-                ssa_ht const output = h->output(j);
+                auto const oe = h->output_edge(j);
+
+                if(oe.input_class() != INPUT_VALUE)
+                    continue;
+
+                if(((ssa_flags(oe.handle->op()) & SSAF_WRITE_GLOBALS) 
+                    && oe.index >= write_globals_begin(oe.handle->op()))
+                   || oe.handle->op() == SSA_aliased_store)
+                {
+                    cg_data(h).isel.likely_store = true;
+                }
+
                 // Assume that all stores used across basic block
                 // boundaries must be stored. 
                 // (They may not be in the final generated code.)
                 // This is highly pessimistic, but simplifies the code gen.
-                if(output->cfg_node() != h->cfg_node())
+                if(oe.handle->cfg_node() != h->cfg_node())
+                {
+                    cg_data(h).isel.likely_store = true;
                     goto skip;
+                }
 
-                if(cg_data(output).schedule.index > cg_data(last_use).schedule.index)
-                    last_use = output;
+                if(cg_data(oe.handle).schedule.index > cg_data(last_use).schedule.index)
+                    last_use = oe.handle;
             }
 
-            cg_data(last_use).isel.last_use |= allocated;
-            cg_data(h).isel.store_mask = allocated;
+            std::cout << "STORE MASK " << h.index << ' ' << allocated << std::endl;
+            std::cout << "LAST USE " << h.index << ' ' << last_use.index  << ' ' << allocated<< std::endl;
+
+            //cg_data(last_use).isel.last_use |= allocated; // TODO
         }
     skip:
         // Reclaim bits after the last use has been seen:
         assert((free & cg_data(h).isel.last_use) == 0);
-        free |= cg_data(h).isel.last_use;
+        //free |= cg_data(h).isel.last_use; // TODO
     }
 
     ///////////////////////
@@ -2332,8 +2488,6 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
     ///////////////////////
 
 do_selections:
-    for(ssa_ht h : cd.schedule)
-        cg_data(h).isel = {}; // Reset isel data.
     state.sel_pool.clear();
     state.map.clear();
     assert(state.map.empty());
@@ -2347,7 +2501,15 @@ do_selections:
     {
         try
         {
+            state.ssa_node = h;
             isel_node(h);
+            std::cout << "MAP SIZE = " << state.map.size() << std::endl;
+
+#ifndef NDEBUG
+            // TODO: reenable
+            //for(auto const& pair : state.map)
+                //assert(!(pair.first.req_store & cg_data(state.ssa_node).isel.last_use));
+#endif
         }
         catch(isel_no_progress_error_t const&)
         {

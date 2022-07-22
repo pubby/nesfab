@@ -173,6 +173,22 @@ constexpr bool indirect_addr_mode(addr_mode_t mode)
     }
 }
 
+constexpr bool xy_addr_mode(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    case MODE_ZERO_PAGE_X:
+    case MODE_ZERO_PAGE_Y:
+    case MODE_ABSOLUTE_X:
+    case MODE_ABSOLUTE_Y:
+    case MODE_INDIRECT_X:
+    case MODE_INDIRECT_Y:
+        return true;
+    default: 
+        return false;
+    }
+}
+
 constexpr bool is_relative_branch(op_t op)
 {
     return (op_flags(op) & ASMF_BRANCH) && op_addr_mode(op) == MODE_RELATIVE;

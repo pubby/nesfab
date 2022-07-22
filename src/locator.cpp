@@ -87,7 +87,7 @@ std::size_t locator_t::mem_size() const
 bool locator_t::mem_zp_only() const
 {
     type_t const t = type();
-    return is_ptr(t.name()) && atom() == 0;
+    return is_ptr(t.name()) && member() == 0;
 }
 
 type_t locator_t::type() const

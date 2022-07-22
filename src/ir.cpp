@@ -516,10 +516,8 @@ ssa_ht cfg_node_t::list_erase(ssa_node_t& node)
         m_first_phi = node.next;
 
     if(node.test_flags(FLAG_DAISY) && node.handle() == m_last_daisy)
-    {
         m_last_daisy = node.prev;
-        node.clear_flags(FLAG_DAISY);
-    }
+    node.clear_flags(FLAG_DAISY);
 
     ssa_ht ret = node.next;
 
@@ -635,6 +633,7 @@ void cfg_node_t::steal_ssa_nodes(cfg_ht cfg)
         assert(node.op() != SSA_phi);
 
         cfg->list_erase(node);
+        assert(!node.in_daisy());
         node.m_cfg_h = handle();
         list_insert(node);
         if(in_daisy)

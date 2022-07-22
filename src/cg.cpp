@@ -967,6 +967,11 @@ void code_gen(ir_t& ir, fn_t& fn)
 
     // Coalesce indirect pointers
 
+    auto const valid_ptr_loc = [&](locator_t loc) -> bool
+    {
+        return !loc || lvars_manager_t::is_this_lvar(fn.handle(), loc);
+    };
+
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
@@ -980,6 +985,10 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         ssa_ht const head_input = cset_head(ssa_it->input(1).handle());
 
+        // Can't coalesce with every locator:
+        if(!valid_ptr_loc(cset_locator(head_input)))
+            continue;
+
         if(!ssa_it->input(0).holds_ref())
         {
             // TODO
@@ -991,6 +1000,10 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         ssa_ht const head_opposite = cset_head(ssa_it->input(1).handle());
 
+        // Can't coalesce with every locator:
+        if(!valid_ptr_loc(cset_locator(head_opposite)))
+            continue;
+
         // If either is defined with the opposite parity, we can't coalesce.
         if(cg_data(head_opposite).has_ptr(hi) || cg_data(head_input).has_ptr(!hi))
             continue;
@@ -998,6 +1011,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         ssa_ht const head_ssa = cset_head(ssa_it);
         assert(cg_data(head_ssa).ptr_alt);
         assert(cg_data(head_ssa).is_ptr_hi == hi);
+        assert(valid_ptr_loc(cset_locator(head_ssa)));
 
         // First, make sure we can coalesce the ssa node with its relevant input.
         ssa_ht const last = csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes);
@@ -1006,8 +1020,8 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         ssa_ht const head_ssa_alt = cset_head(cg_data(head_ssa).ptr_alt);
         assert(cg_data(head_ssa_alt).ptr_alt);
-        //assert(is_make_ptr(head_ssa_alt->op()));
         assert(cg_data(head_ssa_alt).is_ptr_hi == !hi);
+        assert(valid_ptr_loc(cset_locator(head_ssa_alt)));
 
         // Second, make sure both inputs are not part of separate pointers
         // by checking that their alts can be coalesced.
@@ -1028,8 +1042,6 @@ void code_gen(ir_t& ir, fn_t& fn)
         assert(head_input == cset_head(head_input));
         assert(head_opposite == cset_head(head_opposite));
         assert(cg_data(head_input).ptr_alt);
-        //assert(cg_data(cg_data(head_input).ptr_alt).ptr_alt);
-        //assert(cg_data(cg_data(head_input).ptr_alt).ptr_alt == head_input);
 
         std::cout << "coal ptr " << ssa_it.index << std::endl;
     }

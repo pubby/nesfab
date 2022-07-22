@@ -42,6 +42,7 @@ struct ssa_isel_d
 {
     std::uint64_t store_mask = 0;
     std::uint64_t last_use = 0;
+    bool likely_store = false;
 };
 
 //
@@ -70,7 +71,6 @@ struct ssa_cg_d
 
     ssa_schedule_d schedule;
     ssa_isel_d isel;
-
 };
 
 //

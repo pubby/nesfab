@@ -40,17 +40,6 @@ public:
         return m_map.begin()[i];
     }
 
-    unsigned mem_size(unsigned i) const
-    { 
-        assert(i < m_sizes_and_zp_only.size());
-        return m_sizes_and_zp_only[i] >> 1;
-    }
-    bool mem_zp_only(unsigned i) const
-    { 
-        assert(i < m_sizes_and_zp_only.size());
-        return m_sizes_and_zp_only[i] & 1;
-    }
-
     std::size_t num_this_lvars() const { return m_num_this_lvars; }
     std::size_t num_all_lvars() const { return m_num_lvars; }
     std::size_t num_locators() const { return m_map.size(); }
@@ -127,6 +116,20 @@ public:
         }
     }
 
+    struct loc_info_t
+    {
+        std::uint16_t size;
+        bool zp_only;
+        bool ptr_hi;
+        int ptr_alt = -1;
+    };
+
+    loc_info_t const& this_lvar_info(unsigned index) const 
+    { 
+        assert(index < m_this_lvar_info.size());
+        return m_this_lvar_info[index]; 
+    }
+
 private:
     bitset_uint_t* lvar_interferences(unsigned i) 
     { 
@@ -143,9 +146,14 @@ private:
 
     std::uint64_t m_seen_args = 0;
     rh::batman_set<locator_t> m_map;
-    std::vector<unsigned> m_sizes_and_zp_only;
+
+    // We'll have to cache the size of each locator, as this information
+    // must persist after the 'ir_t' destructs.
+    std::vector<loc_info_t> m_this_lvar_info;
+
     std::vector<bitset_uint_t> m_lvar_interferences;
     std::vector<fc::vector_set<fn_ht>> m_fn_interferences;
+
     unsigned m_num_this_lvars = 0;
     unsigned m_num_lvars = 0;
     unsigned m_bitset_size = 0;

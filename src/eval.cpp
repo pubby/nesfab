@@ -1465,7 +1465,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
                 assert(fn_inputs.size() % 2 == 1);
                 fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
-                if(call->fclass == FN_MODE || !call->ir_io_pure())
+                if(call->fclass == FN_MODE || !call->ir_io_pure() || ir->gmanager.num_locators() > 0)
                     fn_node->append_daisy();
 
                 if(call->fclass != FN_MODE)

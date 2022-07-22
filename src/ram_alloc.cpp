@@ -29,7 +29,7 @@ span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, bool zp_only)
 {
     assert(size > 0);
 
-    if(size == 1) // Fast path when 'size' == 0
+    if(size == 1) // Fast path when 'size' == 1
     {
         int const addr = usable_ram.lowest_bit_set();
 
@@ -280,7 +280,6 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         for(unsigned i = 0; i < impl_deque<fn_t>.size(); ++i)
         {
             fn_t const& fn = *fn_ht{i};
-            std::cout << "allocing " << fn.global.name << std::endl;
 
             if(fn.fclass == FN_CT)
                 continue;
@@ -289,18 +288,9 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             {
                 fn_data[i].maximal_group_vars.for_each([&](unsigned k)
                 {
-                    std::cout << "allocing - ram " << k << std::endl;
                     fn_data[j].usable_ram &= group_vars_data[k].usable_ram;
                 });
             });
-
-            /*
-            fn.ir_group_vars().for_each([&](unsigned j)
-            {
-                std::cout << "allocing - ram " << j << std::endl;
-                fn_data[i].usable_ram &= group_vars_data[j].usable_ram;
-            });
-            */
         }
 
         // Build an order to allocate fn lvars:
@@ -436,17 +426,20 @@ void ram_allocator_t::alloc_locals(fn_ht h)
 
     for(unsigned i = 0; i < fn.lvars().num_this_lvars(); ++i)
     {
-        if(Step == ZP_ONLY_ALLOC && !fn.lvars().mem_zp_only(i))
+        auto const& info = fn.lvars().this_lvar_info(i);
+
+        if(Step == ZP_ONLY_ALLOC && !info.zp_only)
+            continue;
+
+        if(info.ptr_hi) // We'll allocate lo only, then assign to hi.
             continue;
 
         if(fn.lvar_span(i))
             continue;
 
-        unsigned const lvar_size = fn.lvars().mem_size(i);
-        unsigned const usable = lvar_usable_ram[i].popcount();
-        unsigned const interferences = bitset_popcount(fn.lvars().bitset_size(), 
-                                                       fn.lvars().lvar_interferences(i));
-        float const score = float(usable - lvar_size) / interferences;
+        int const usable = lvar_usable_ram[i].popcount();
+        int const interferences = bitset_popcount(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(i));
+        float const score = float(usable - int(info.size)) / interferences;
 
         ordered_lvars.push_back({ score, i });
     }
@@ -465,22 +458,18 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     for(rank_t const& rank : ordered_lvars)
     {
         unsigned const lvar_i = rank.lvar_i;
+        auto const& info = fn.lvars().this_lvar_info(lvar_i);
+        assert(!info.ptr_hi);
+
         std::cout << "allocating lvar " << fn.lvars().locator(lvar_i) << std::endl;
         assert(lvar_i < lvar_usable_ram.size());
 
         // First try to allocate in 'freebie_ram'.
-        std::cout << fn.lvars().locator(lvar_i) << std::endl;
-        span_t span = alloc_ram(
-            lvar_usable_ram[lvar_i] & freebie_ram,
-            fn.lvars().mem_size(lvar_i), fn.lvars().mem_zp_only(lvar_i));
+        span_t span = alloc_ram(lvar_usable_ram[lvar_i] & freebie_ram, info.size, info.zp_only);
 
         // If that fails, try to allocate anywhere.
         if(!span)
-        {
-            span = alloc_ram(
-                lvar_usable_ram[lvar_i],
-                fn.lvars().mem_size(lvar_i), fn.lvars().mem_zp_only(lvar_i));
-        }
+            span = alloc_ram(lvar_usable_ram[lvar_i], info.size, info.zp_only);
 
         // If that fails, we're fucked.
         if(!span)
@@ -488,7 +477,15 @@ void ram_allocator_t::alloc_locals(fn_ht h)
 
         // Record the allocation.
 
-        fn.assign_lvar_span(lvar_i, span); 
+        if(info.ptr_alt >= 0)
+        {
+            assert(span.size == 2);
+            fn.assign_lvar_span(lvar_i,       { .addr = span.addr,     .size = 1 }); 
+            fn.assign_lvar_span(info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 
+        }
+        else
+            fn.assign_lvar_span(lvar_i, span); 
+
         d.lvar_ram |= ram_bitset_t::filled(span.size, span.addr);
         d.usable_ram -= d.lvar_ram;
 
@@ -502,9 +499,13 @@ void ram_allocator_t::alloc_locals(fn_ht h)
                 lvar_usable_ram[i] &= mask;
             else if(Step < FULL_ALLOC)
             {
-                fn_ht h = fn.lvars().locator(i).fn();
-                propagate_calls.set(h.value);
-                propagate_calls |= h->ir_calls();
+                locator_t const loc = fn.lvars().locator(i);
+                if(has_fn(loc.lclass()))
+                {
+                    fn_ht h = loc.fn();
+                    propagate_calls.set(h.value);
+                    propagate_calls |= h->ir_calls();
+                }
             }
         });
 

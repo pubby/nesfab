@@ -964,7 +964,7 @@ void parser_t<P>::parse_mode()
     parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
 
     // Parse the body of the function
-    auto state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
+    var_decl_t state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
     parse_line_ending();
     parse_block_statement(mode_indent);
     policy().end_mode(std::move(state));

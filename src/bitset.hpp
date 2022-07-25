@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <memory>
 
+#include "alloca.hpp"
 #include "builtin.hpp"
 #include "sizeof_bits.hpp"
 
@@ -249,6 +250,15 @@ int bitset_lowest_bit_set(std::size_t size, UInt* bitset)
 }
 
 template<typename UInt>
+int bitset_highest_bit_set(std::size_t size, UInt* bitset)
+{
+    for(int i = size-1; i >= 0; --i)
+        if(bitset[i])
+            return i * sizeof_bits<UInt> + builtin::rclz(bitset[i]) - 1;
+    return -1;
+}
+
+template<typename UInt>
 void bitset_rshift(std::size_t size, UInt* bitset, std::size_t amount = 1)
 {
     if(amount == 0)
@@ -298,11 +308,35 @@ void bitset_lshift(std::size_t size, UInt* bitset, std::size_t amount = 1)
         bitset[i] = 0;
 }
 
+// Used to find consecutive 1 bits set in the bitset of length 'consec_len'.
+// The result will have a 1 set at the start of every span.
+// (This can be used to track allocations using a bitset)
+template<typename UInt>
+void bitset_mark_consecutive(std::size_t size, UInt* bitset, std::size_t consec_len)
+{
+    if(consec_len <= 1)
+        return;
+
+    UInt* temp = ALLOCA_T(UInt, size);
+
+    unsigned shift_by = 1;
+    for(consec_len  -= 1; shift_by <= consec_len ; shift_by <<= 1)
+    {
+        bitset_copy(size, temp, bitset);
+        bitset_rshift(size, temp, shift_by);
+        bitset_and(size, bitset, temp);
+    }
+
+    bitset_copy(size, temp, bitset);
+    bitset_rshift(size, temp, consec_len  - (shift_by >> 1));
+    bitset_and(size, bitset, temp);
+}
+
 // A shitty bitset class that exists because std::bitset abstracts too much.
 // 'aggregate_bitset_t' is an aggregate class and can use
 // any unsigned integer type.
 template<typename UInt, std::size_t N>
-struct aggregate_bitset_t
+struct alignas(128) aggregate_bitset_t
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
 
@@ -317,6 +351,8 @@ struct aggregate_bitset_t
 
     UInt const* data() const { return array.data(); }
     UInt* data() { return array.data(); }
+
+    constexpr std::size_t size() const { return num_ints; }
 
     [[gnu::flatten]]
     void clear(UInt bit) { bitset_clear(data(), bit); }
@@ -355,10 +391,13 @@ struct aggregate_bitset_t
 
     static constexpr aggregate_bitset_t filled();
     static aggregate_bitset_t filled(std::size_t size, std::size_t n = 0);
+
+    template<typename Fn>
+    void for_each(Fn const& fn) const { bitset_for_each(size(), data(), fn); }
 };
 
 template<std::size_t Bits>
-using static_bitset_t = aggregate_bitset_t<bitset_uint_t, (Bits + sizeof_bits<Bits> - 1) / sizeof_bits<Bits>>;
+using static_bitset_t = aggregate_bitset_t<bitset_uint_t, (Bits + sizeof_bits<bitset_uint_t> - 1) / sizeof_bits<bitset_uint_t>>;
 
 template<typename UInt, std::size_t N> [[gnu::flatten]]
 aggregate_bitset_t<UInt, N>& operator&=(aggregate_bitset_t<UInt, N>& lhs,
@@ -567,6 +606,9 @@ public:
 
     template<typename Fn>
     void for_each(Fn const& fn) const { bitset_for_each(size(), data(), fn); }
+
+    template<typename Fn>
+    bool for_each_test(Fn const& fn) const { return bitset_for_each_test(size(), data(), fn); }
 
 private:
     std::unique_ptr<value_type[]> m_ptr;

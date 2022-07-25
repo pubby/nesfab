@@ -12,6 +12,8 @@
 #include "locator.hpp"
 #include "ssa_op.hpp"
 
+struct span_t;
+
 // A single assembly instruction.
 struct asm_inst_t
 {
@@ -26,32 +28,47 @@ struct asm_inst_t
 // used after code generation but still amenable to code optimizations.
 struct asm_proc_t
 {
+    fn_ht fn = {};
     std::vector<asm_inst_t> code;
-    rh::robin_map<locator_t, unsigned> mem_usage; // Counts how many times locators are mentioned.
+    //rh::robin_map<locator_t, unsigned> mem_usage; // Counts how many times locators are mentioned.
     rh::batman_map<locator_t, unsigned> labels; // Maps from locators to code indices
 
     // Adds 'inst' to 'code':
     void push_inst(asm_inst_t inst);
+    void push_inst(op_t op, locator_t arg = {}) { assert(op); push_inst({ .op = op, .arg = arg }); }
+    void push_inst(op_name_t op_name) { push_inst(get_op(op_name, MODE_IMPLIED)); }
+    void push_inst(op_name_t op_name, std::uint8_t i) { push_inst(get_op(op_name, MODE_IMMEDIATE), locator_t::const_byte(i)); }
+    locator_t push_label(unsigned id) { auto l = locator_t::minor_label(id); push_inst(ASM_LABEL, l); return l; }
 
-    void optimize();
+    void initial_optimize();
 
     // Converts identifier-based labels to relocatable ones.
-    void make_relocatable();
+    //void make_relocatable();
 
     // Number of bytes between two instruction indexes.
     int bytes_between(unsigned ai, unsigned bi) const;
 
-    std::size_t size_in_bytes() const { return bytes_between(0, code.size()); }
+    std::size_t size() const { return bytes_between(0, code.size()); }
 
     void write_assembly(std::ostream& os, fn_t const& fn) const;
-    void write_binary(std::uint8_t* rom, addr16_t start_addr) const;
+    void write_bytes(std::uint8_t* const start, int bank) const;
 
+    // Replaces some locators with linked ones, then optimizes.
+    void link(int bank = -1);
+
+    // Replaces labels with constant addresses.
+    void relocate(std::uint16_t addr);
 private:
+    void optimize(bool initial);
+
+    // Converts absolute instructions to zp, when appropriate
+    void absolute_to_zp();
+
     // Converts very short jumps to SKB or IGN ops.
-    void nopify_short_jumps();
+    void optimize_short_jumps(bool initial);
 
     // Converts invalid relative branches into long branches.
-    void expand_branch_ops();
+    void convert_long_branch_ops();
 
     // Removes NOP instructions
     void prune_nops();

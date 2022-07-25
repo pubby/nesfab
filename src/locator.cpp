@@ -6,6 +6,8 @@
 #include "type.hpp"
 #include "ir.hpp"
 #include "lt.hpp"
+#include "rom.hpp"
+#include "rom_array.hpp"
 
 std::string to_string(locator_t loc)
 {
@@ -14,7 +16,7 @@ std::string to_string(locator_t loc)
     switch(loc.lclass())
     {
     default: 
-        return "unknown locator";
+        return fmt("unknown locator %", (int)loc.lclass());
     case LOC_NONE:
         return "none";
     case LOC_IOTA:
@@ -30,13 +32,15 @@ std::string to_string(locator_t loc)
     case LOC_RETURN:
         str = fmt("ret %", loc.fn()->global.name); break;
     case LOC_PHI:
-        str = fmt("phi %", loc.fn()->global.name); break;
+        str = fmt("phi"); break;
     case LOC_CFG_LABEL:
-        str = fmt("cfg label %", loc.fn()->global.name); break;
+        str = fmt("cfg label"); break;
     case LOC_MINOR_LABEL:
-        str = fmt("minor label %", loc.fn()->global.name); break;
+        str = fmt("minor label"); break;
     case LOC_CONST_BYTE:
         str = "const byte"; break;
+    case LOC_ADDR:
+        str = "addr"; break;
     case LOC_SSA:
         str = fmt("ssa %", loc.handle()); break;
     case LOC_MINOR_VAR:
@@ -49,6 +53,12 @@ std::string to_string(locator_t loc)
         str = fmt("lt const ptr bank %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
         str = fmt("lt expr % %", loc.handle(), loc.lt().safe().type); break;
+    case LOC_THIS_BANK:
+        str = "this bank"; break;
+    case LOC_MAIN_ENTRY:
+        str = "main entry"; break;
+    case LOC_MAIN_ENTRY_BANK:
+        str = "main entry bank"; break;
     }
 
     if(has_arg_member_atom(loc.lclass()))
@@ -56,7 +66,7 @@ std::string to_string(locator_t loc)
     else
         str += fmt(" [%] (%)", (int)loc.data(), (int)loc.offset());
 
-    str += fmt(" {%}", (int)loc.byteified());
+    str += fmt(" {% %}", (int)loc.byteified(), (int)loc.high());
 
     return str;
 }
@@ -76,7 +86,7 @@ locator_t locator_t::from_ssa_value(ssa_value_t v)
     else if(v.is_locator())
         return v.locator();
     else
-        return none();
+        return LOC_NONE;
 }
 
 std::size_t locator_t::mem_size() const
@@ -139,4 +149,72 @@ type_t locator_t::type() const
         break;
     }
     return TYPE_VOID;
+}
+
+locator_t locator_t::link(fn_ht fn_h, int bank) const
+{
+    assert(compiler_phase() == PHASE_LINK);
+
+    auto const from_span = [&](span_t span) -> locator_t
+    { 
+        if(!span)
+            return *this;
+        return addr(span.addr, offset()).with_high(high()); 
+    };
+
+    auto const from_alloc = [&](rom_alloc_ht h) -> locator_t
+    {
+        if(rom_alloc_t* alloc = h.get())
+            return from_span(alloc->span);
+        return *this;
+    };
+
+    auto const from_alloc_bank = [&](rom_alloc_ht h) -> locator_t
+    {
+        int const bank = h.first_bank();
+        if(bank < 0 || bank >= 256)
+            return *this;
+        return locator_t::const_byte(bank);
+    };
+
+    switch(lclass())
+    {
+    default:
+        return *this;
+
+    case LOC_FN:
+        return from_alloc(fn()->rom_alloc());
+
+    case LOC_GMEMBER:
+        return from_span(gmember()->span(atom()));
+
+    case LOC_ARG:
+    case LOC_RETURN:
+    case LOC_PHI:
+    case LOC_MINOR_VAR:
+        return from_span(fn()->lvar_span(mem_head()));
+
+    case LOC_SSA:
+        if(!fn_h)
+            return *this;
+        return from_span(fn_h->lvar_span(mem_head()));
+
+    case LOC_ROM_ARRAY:
+        return from_alloc(get_meta(rom_array()).alloc);
+
+    case LOC_MAIN_ENTRY:
+        return from_alloc(get_main_entry().rom_alloc());
+    case LOC_MAIN_ENTRY_BANK:
+        return from_alloc_bank(get_main_entry().rom_alloc());
+
+    case LOC_THIS_BANK:
+        if(bank >= 0 && bank < 256)
+            return locator_t::const_byte(bank);
+        return *this;
+
+    case LOC_LT_CONST_PTR:
+        return from_alloc(get_meta(const_()->rom_array()).alloc);
+    case LOC_LT_CONST_PTR_BANK:
+        return from_alloc_bank(get_meta(const_()->rom_array()).alloc);
+    };
 }

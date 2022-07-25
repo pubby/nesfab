@@ -29,6 +29,12 @@ private:
 public:
     group_class_t gclass() const { return m_gclass; }
 
+    unsigned index() const
+    { 
+        assert(compiler_phase() > PHASE_PARSE);
+        return m_impl_index; 
+    }
+
     group_ht handle() const { return m_handle; }
 
     template<typename T>
@@ -73,7 +79,7 @@ class group_vars_t
 public:
     static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     using group_impl_tag = void;
-    static constexpr group_class_t gclass = GROUP_DATA;
+    static constexpr group_class_t gclass = GROUP_VARS;
 
     group_t& group;
 
@@ -102,6 +108,8 @@ class group_data_t
 {
 public:
     static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
+    using group_impl_tag = void;
+    static constexpr group_class_t gclass = GROUP_DATA;
 
     group_t& group;
     bool const once;

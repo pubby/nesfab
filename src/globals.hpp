@@ -22,6 +22,7 @@
 #include "type.hpp"
 #include "lvar.hpp"
 #include "sval.hpp"
+#include "rom_decl.hpp"
 
 namespace bc = boost::container;
 
@@ -73,14 +74,14 @@ private:
 
     std::atomic<bool> m_compiled = false; // Use for debugging only.
 public:
-    explicit global_t(std::string_view name)
-    : name(name)
-    {}
+    global_t() = delete;
 
     global_t(pstring_t pstring, char const* source)
     : name(pstring.view(source))
     , m_pstring(pstring)
-    {}
+    {
+        assert(m_pstring.size);
+    }
 
     global_class_t gclass() const 
     { 
@@ -144,8 +145,7 @@ public:
     // otherwise returns the existing global with name.
     static global_t& lookup(char const* source, pstring_t name);
 
-    // TODO
-    //static global_t& lookup_sourceless(std::string_view view);
+    static global_t const* lookup_sourceless(std::string_view view);
     //static group_ht universal_group() { return {0}; }
 
     // Call after parsing
@@ -296,7 +296,7 @@ public:
     bitset_t const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
     bitset_t const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
     bitset_t const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
-    bitset_t const& ir_immediate_groups() const { assert(m_ir_immediate_groups); return m_ir_immediate_groups; }
+    bitset_t const& ir_ptr_groups() const { assert(m_ir_ptr_groups); return m_ir_ptr_groups; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
 
     bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.value); }
@@ -310,18 +310,30 @@ public:
     }
 
     asm_proc_t const& proc() const { assert(compiler_phase() > PHASE_COMPILE); return m_proc; }
+    asm_proc_t& proc() { assert(compiler_phase() > PHASE_COMPILE); return m_proc; }
 
     void assign_lvars(lvars_manager_t&& lvars);
     lvars_manager_t const& lvars() const { assert(compiler_phase() >= PHASE_COMPILE); return m_lvars; }
     
-    void mask_usable_ram(ram_bitset_t const& mask);
-    ram_bitset_t const& usable_ram() const { return m_usable_ram; }
+    //void mask_usable_ram(ram_bitset_t const& mask);
+    //ram_bitset_t const& usable_ram() const { return m_usable_ram; }
 
-    ram_bitset_t const& lvar_ram() const { return m_lvar_ram; }
+    //ram_bitset_t const& lvar_ram() const { return m_lvar_ram; }
     void assign_lvar_span(unsigned lvar_i, span_t span);
-    span_t lvar_span(unsigned lvar_i) const;
+    span_t lvar_span(int lvar_i) const;
+    span_t lvar_span(locator_t loc) const;
 
     bool emits_code() const { return true; } // TODO: implement
+
+    void assign_rom_alloc(rom_alloc_ht h) 
+    { 
+        assert(compiler_phase() == PHASE_ALLOC_ROM);
+        assert(!m_rom_alloc);
+        m_rom_alloc = h;
+    }
+
+    rom_alloc_ht rom_alloc() const { assert(compiler_phase() >= PHASE_ALLOC_ROM); return m_rom_alloc; }
+
 
     // TODO: remove?
     //void for_each_param_member(bool atoms, std::function<void(type_t, locator_t)> const& fn) const;
@@ -350,7 +362,7 @@ private:
     bitset_t m_ir_reads;
     bitset_t m_ir_writes;
     bitset_t m_ir_group_vars;
-    bitset_t m_ir_immediate_groups;
+    bitset_t m_ir_ptr_groups;
     bitset_t m_ir_calls;
 
     // If the function doesn't do I/O.
@@ -361,12 +373,14 @@ private:
     // Holds the assembly code generated.
     asm_proc_t m_proc;
 
-    ram_bitset_t m_usable_ram = ram_bitset_t::filled(); // Tracks unallocated RAM addresses this fn can use
-    ram_bitset_t m_lvar_ram = ram_bitset_t::filled();// Tracks which addresses are used by this fn's lvars.
+    //ram_bitset_t m_usable_ram = ram_bitset_t::filled(); // Tracks unallocated RAM addresses this fn can use
+    //ram_bitset_t m_lvar_ram = ram_bitset_t::filled();// Tracks which addresses are used by this fn's lvars.
 
     // Aids in allocating RAM for local variables:
     lvars_manager_t m_lvars;
     std::vector<span_t> m_lvar_spans;
+
+    rom_alloc_ht m_rom_alloc;
 };
  
 class gvar_t
@@ -463,12 +477,16 @@ public:
 
     void compile();
     sval_t const& sval() const { assert(global.compiled()); return m_sval; }
+    rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
 
 private:
     src_type_t m_src_type = {};
     sval_t m_sval;
+    rom_array_ht m_rom_array = {};
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }
+
+fn_t const& get_main_entry();
 
 #endif

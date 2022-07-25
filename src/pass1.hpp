@@ -149,6 +149,7 @@ public:
         assert(weak_ideps.empty());
         assert(label_map.empty());
         assert(unlinked_gotos.empty());
+        assert(mode_name);
 
         // Reset the fn_def:
         fn_def = fn_def_t();
@@ -181,12 +182,14 @@ public:
         // Create a scope for the fn body.
         symbol_table.push_scope();
 
-        return { fn_type, mode_name };
+        assert(mode_name);
+        return { .src_type = { fn_type, mode_name }, .name = mode_name };
     }
 
     [[gnu::always_inline]]
     void end_mode(var_decl_t decl)
     {
+        assert(decl.name);
         symbol_table.pop_scope(); // mode body scope
         symbol_table.pop_scope(); // param scope
         label_map.clear();
@@ -200,6 +203,7 @@ public:
         }
 
         // Create the global:
+        assert(decl.name);
         active_global->define_fn(decl.name, 
                                  std::move(ideps), std::move(weak_ideps),
                                  decl.src_type.type, std::move(fn_def), FN_MODE);

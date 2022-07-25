@@ -48,25 +48,19 @@ global_t& global_t::lookup(char const* source, pstring_t name)
     return **result.first;
 }
 
-/* TODO
-global_t& global_t::lookup_sourceless(std::string_view view)
+global_t const* global_t::lookup_sourceless(std::string_view view)
 {
     auto hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
     std::lock_guard<std::mutex> lock(global_pool_mutex);
-    rh::apair<global_t**, bool> result = global_pool_map.emplace(hash,
+    auto result = global_pool_map.lookup(hash,
         [view](global_t* ptr) -> bool
         {
             return std::equal(view.begin(), view.end(), ptr->name.begin());
-        },
-        [view]() -> global_t*
-        { 
-            return &global_pool.emplace_back(view);
         });
 
-    return **result.first;
+    return result.second ? *result.second : nullptr;
 }
-*/
 
 // Changes a global from UNDEFINED to some specified 'gclass'.
 // This gets called whenever a global is parsed.
@@ -96,6 +90,7 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
         }
 
         m_gclass = gclass;
+        assert(pstring);
         m_pstring = pstring; // Not necessary but useful for error reporting.
         m_impl_index = ret = create_impl(*this);
         m_ideps = std::move(ideps);
@@ -466,7 +461,7 @@ void global_t::compile_all()
 
 void global_t::alloc_ram()
 {
-    ::alloc_ram(ram_bitset_t::filled());
+    ::alloc_ram();
 
     // TODO: remove
     for(fn_t const& fn : impl_deque<fn_t>)
@@ -517,7 +512,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     bitset_t  reads(impl_bitset_size<gmember_t>());
     bitset_t writes(impl_bitset_size<gmember_t>());
     bitset_t group_vars(impl_bitset_size<group_vars_t>());
-    bitset_t immediate_groups(impl_bitset_size<group_t>());
+    bitset_t ptr_groups(impl_bitset_size<group_t>());
     bitset_t calls(impl_bitset_size<fn_t>());
     bool io_pure = true;
 
@@ -559,7 +554,6 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                     {
                         writes.set(written.index);
                         group_vars.set(written.gvar.group_vars.value);
-                        immediate_groups.set(written.gvar.group_vars->group.handle().value);
                     }
                 }
             });
@@ -583,21 +577,37 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                     {
                         reads.set(read.index);
                         group_vars.set(read.gvar.group_vars.value);
-                        immediate_groups.set(read.gvar.group_vars->group.handle().value);
                         break;
                     }
                 }
             }
         }
 
-        // TODO: add pointers to ir_group_vars and ir_immediate_groups?
+        if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
+        {
+            io_pure = false;
+
+            type_t const ptr_type = ssa_it->input(0).type();
+            assert(is_ptr(ptr_type.name()));
+
+            unsigned const size = ptr_type.group_tail_size();
+            for(unsigned i = 0; i < size; ++i)
+            {
+                group_ht const h = ptr_type.group(i);
+                ptr_groups.set(h.value);
+
+                group_t const& group = *h;
+                if(group.gclass() == GROUP_VARS)
+                    group_vars.set(group.handle<group_vars_ht>().value);
+            }
+        }
     }
 
     m_ir_writes = std::move(writes);
     m_ir_reads  = std::move(reads);
     m_ir_group_vars = std::move(group_vars);
     m_ir_calls = std::move(calls);
-    m_ir_immediate_groups = std::move(immediate_groups);
+    m_ir_ptr_groups = std::move(ptr_groups);
     m_ir_io_pure = io_pure;
 }
 
@@ -609,11 +619,13 @@ void fn_t::assign_lvars(lvars_manager_t&& lvars)
     m_lvar_spans.resize(m_lvars.num_this_lvars());
 }
 
+/*
 void fn_t::mask_usable_ram(ram_bitset_t const& mask)
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
     m_usable_ram &= mask;
 }
+*/
 
 void fn_t::assign_lvar_span(unsigned lvar_i, span_t span)
 {
@@ -621,15 +633,15 @@ void fn_t::assign_lvar_span(unsigned lvar_i, span_t span)
     assert(!m_lvar_spans[lvar_i]);
 
     m_lvar_spans[lvar_i] = span;
-    m_lvar_ram |= ram_bitset_t::filled(span.size, span.addr);
-    m_usable_ram -= m_lvar_ram;
+    //m_lvar_ram |= ram_bitset_t::filled(span.size, span.addr);
+    //m_usable_ram -= m_lvar_ram;
 }
 
-span_t fn_t::lvar_span(unsigned lvar_i) const
+span_t fn_t::lvar_span(int lvar_i) const
 {
-    assert(lvar_i < m_lvars.num_all_lvars());
+    assert(lvar_i < int(m_lvars.num_all_lvars()));
 
-    if(lvar_i < m_lvars.num_this_lvars())
+    if(lvar_i < int(m_lvars.num_this_lvars()))
         return m_lvar_spans[lvar_i];
 
     locator_t const loc = m_lvars.locator(lvar_i);
@@ -644,6 +656,11 @@ span_t fn_t::lvar_span(unsigned lvar_i) const
     }
 
     throw std::runtime_error("Unknown lvar span");
+}
+
+span_t fn_t::lvar_span(locator_t loc) const
+{
+    return lvar_span(m_lvars.index(loc));
 }
 
 /* TODO: remove
@@ -900,8 +917,10 @@ void const_t::compile()
              compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.data.size(), m_src_type.type));
 
         m_src_type.type.set_array_length(paa.data.size());
+        m_rom_array = lookup_rom_array({}, group_data, std::move(paa));
+
         // TODO : remove?
-        //m_sval = { lookup_rom_array({}, group_data, std::move(paa)) };
+        //m_sval = { m_paa };
     }
     else
     {
@@ -1021,4 +1040,21 @@ std::string to_string(global_class_t gclass)
     GLOBAL_CLASS_XENUM
 #undef X
     }
+}
+
+fn_t const& get_main_entry()
+{
+    assert(compiler_phase() > PHASE_PARSE);
+
+    using namespace std::literals;
+    global_t const* main_entry = global_t::lookup_sourceless("main"sv);
+
+    if(!main_entry || main_entry->gclass() != GLOBAL_FN || main_entry->impl<fn_t>().fclass != FN_MODE)
+        throw compiler_error_t("Missing definition of mode main. Program has no entry point.");
+
+    fn_t const& main_fn = main_entry->impl<fn_t>();
+    if(main_fn.def().num_params > 0)
+        compiler_error(main_fn.def().local_vars[0].name, "Mode main cannot have parameters.");
+
+    return main_fn;
 }

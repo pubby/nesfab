@@ -140,6 +140,6 @@ SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY)
 // Used in out-of-SSA as an optimization.
 // (node)
 SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY)
-SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY)
+SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY) // TODO: is this really necessary?
 
 #undef SSA_DEF

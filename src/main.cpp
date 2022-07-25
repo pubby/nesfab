@@ -12,6 +12,10 @@
 #include "parser.hpp"
 #include "pass1.hpp"
 #include "thread.hpp"
+#include "ram_alloc.hpp"
+#include "rom_alloc.hpp"
+#include "static_addr.hpp"
+#include "rom_link.hpp"
 
 #include "eval.hpp" // TODO: remove?
 
@@ -21,15 +25,9 @@ namespace po = boost::program_options;
 
 int main(int argc, char** argv)
 {
-    // TODO: remove
-    /*
-    std::cout << "type_t size = " << sizeof(type_t) << '\n';
-    std::cout << "ssa_op_t size = " << sizeof(ssa_op_t) << '\n';
-    std::cout << "ssa_node_t size = " << sizeof(ssa_node_t) << '\n';
-    std::cout << "cfg_node_t size = " << sizeof(cfg_node_t) << '\n';
-    */
-
-    //try
+#ifdef NDEBUG
+    try
+#endif
     {
         /////////////////////////////
         // Handle program options: //
@@ -39,19 +37,18 @@ int main(int argc, char** argv)
             desc.add_options()
                 ("help,h", "produce help message")
                 ("version,v", "version")
-                ("input-file,i", po::value<std::vector<std::string>>(), 
-                 "input file")
+                ("input-file,i", po::value<std::vector<std::string>>(), "input file")
                 ("graphviz,g", "output graphviz files")
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("timelimit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
+                ("output-file,o", po::value<std::string>(), "output file")
             ;
 
             po::positional_options_description p;
             p.add("input-file", -1);
 
             po::variables_map vm;        
-            po::store(po::command_line_parser(argc, argv)
-                      .options(desc).positional(p).run(), vm);
+            po::store(po::command_line_parser(argc, argv) .options(desc).positional(p).run(), vm);
             po::notify(vm);
 
             if(vm.count("help")) 
@@ -71,22 +68,22 @@ int main(int argc, char** argv)
             }
 
             if(vm.count("input-file"))
-                source_file_names = 
-                    vm["input-file"].as<std::vector<std::string>>();
+                source_file_names = vm["input-file"].as<std::vector<std::string>>();
 
             if(source_file_names.empty())
                 throw std::runtime_error("No input files.");
+
+            if(vm.count("output-file"))
+                _options.output_file = vm["output-file"].as<std::string>();
 
             if(vm.count("graphviz"))
                 _options.graphviz = true;
 
             if(vm.count("threads"))
-                _options.num_threads = 
-                    std::clamp(vm["threads"].as<int>(), 1, 64);
+                _options.num_threads = std::clamp(vm["threads"].as<int>(), 1, 1024); // Clamp to some sufficiently high value
 
             if(vm.count("timelimit"))
-                _options.time_limit = 
-                    std::max(vm["timelimit"].as<int>(), 0);
+                _options.time_limit = std::max(vm["timelimit"].as<int>(), 0);
         }
 
         ////////////////////////////////////
@@ -104,7 +101,13 @@ int main(int argc, char** argv)
         };
 
         global_t::init();
-        output_time("init:    ");
+        output_time("init:     ");
+
+        set_compiler_phase(PHASE_STD);
+        alloc_static_ram();
+        auto rom_allocator = alloc_static_rom();
+
+        output_time("std:      ");
 
         // Parse the files, loading everything into globals:
         set_compiler_phase(PHASE_PARSE);
@@ -125,8 +128,9 @@ int main(int argc, char** argv)
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);
+        get_main_entry(); // This throws an error if 'main' isn't proper.
         global_t::parse_cleanup();
-        output_time("parse:   ");
+        output_time("parse:    ");
 
         // Count and arrange struct members:
         set_compiler_phase(PHASE_COUNT_MEMBERS);
@@ -145,19 +149,38 @@ int main(int argc, char** argv)
         global_t::alloc_ram();
         output_time("alloc ram:");
 
+        set_compiler_phase(PHASE_ALLOC_ROM);
+        alloc_rom(rom_allocator, mapper().num_32k_banks);
+        output_time("alloc rom:");
+
+        set_compiler_phase(PHASE_LINK);
+        auto rom = write_rom();
+        FILE* of = std::fopen(compiler_options().output_file.c_str(), "wb");
+        if(!of)
+            throw std::runtime_error(fmt("Unable to open file %", compiler_options().output_file));
+        if(!std::fwrite(rom.data(), rom.size(), 1, of))
+        {
+            std::fclose(of);
+            throw std::runtime_error(fmt("Unable to write to file %", compiler_options().output_file));
+        }
+        std::fclose(of);
+        output_time("link:     ");
+
+        std::cout << "init at " << static_span(SROM_reset).addr << std::endl;
+
         //for(unsigned i = 0; i < 1; ++i)
         //{
             //globals.debug_print();
             //globals.finish();
         //}
     }
-    /*
+#ifdef NDEBUG // In debug mode, we get better stack traces without catching.
     catch(std::exception& e)
     {
         std::fprintf(stderr, "%s\n", e.what());
         return EXIT_FAILURE;
     }
-    */
+#endif
 
     return EXIT_SUCCESS;
 }

@@ -36,11 +36,13 @@ rom_array_meta_t& rom_array_meta_t::get(rom_array_ht h)
     return rom_array_map.begin()[h.value].second;
 }
 
-locator_t lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom_array, std::uint16_t offset)
+rom_array_ht lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom_array, std::uint16_t offset)
 {
+    assert(compiler_phase() < PHASE_ALLOC_ROM);
+
     // Just to be safe, we'll strip byteify information:
     for(locator_t& loc : rom_array.data)
-        loc = loc.strip_byteify();
+        loc.set_byteified(false);
 
     rom_array_ht h;
     rom_array_meta_t* meta;
@@ -61,11 +63,13 @@ locator_t lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom
     if(group_data)
         meta->mark_used_by(group_data);
 
-    return locator_t::rom_array(h);
+    return h;
 }
 
 void build_rom_arrays(fn_ht fn, ir_t& ir)
 {
+    assert(compiler_phase() < PHASE_ALLOC_ROM);
+
     // Handle existing 'LOC_ROM_ARRAY's, marking them as used by 'fn':
     fc::small_set<rom_array_ht, 16> used;
     for(cfg_node_t const& cfg : ir)
@@ -122,7 +126,7 @@ void build_rom_arrays(fn_ht fn, ir_t& ir)
                     assert(false);
             }
 
-            ssa_it->replace_with(lookup_rom_array(fn, {}, std::move(rom_array)));
+            ssa_it->replace_with(locator_t::rom_array(lookup_rom_array(fn, {}, std::move(rom_array))));
             ssa_it = ssa_it->prune();
             continue;
         }
@@ -130,4 +134,12 @@ void build_rom_arrays(fn_ht fn, ir_t& ir)
         ++ssa_it;
     }
 
+}
+
+rom_array_meta_t& get_meta(rom_array_ht h)
+{
+    assert(compiler_phase() >= PHASE_ALLOC_ROM);
+    assert(h);
+    // Don't have to lock mutex at this phase.
+    return (rom_array_map.begin() + h.value)->second;
 }

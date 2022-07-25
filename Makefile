@@ -91,7 +91,6 @@ gmanager.cpp \
 span.cpp \
 span_allocator.cpp \
 group.cpp \
-ram.cpp \
 ram_alloc.cpp \
 lvar.cpp \
 o_gvn.cpp \
@@ -104,7 +103,12 @@ convert_file.cpp \
 lt.cpp \
 o_arg.cpp \
 o_id.cpp \
-cg_cset.cpp
+cg_cset.cpp \
+rom_alloc.cpp \
+mapper.cpp \
+rom.cpp \
+static_addr.cpp \
+rom_link.cpp
 
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))

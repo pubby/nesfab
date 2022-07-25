@@ -189,9 +189,19 @@ constexpr bool xy_addr_mode(addr_mode_t mode)
     }
 }
 
+constexpr bool is_branch(op_t op) 
+{ 
+    return op_flags(op) & ASMF_BRANCH; 
+}
+
 constexpr bool is_relative_branch(op_t op)
 {
-    return (op_flags(op) & ASMF_BRANCH) && op_addr_mode(op) == MODE_RELATIVE;
+    return is_branch(op) && op_addr_mode(op) == MODE_RELATIVE;
+}
+
+constexpr bool is_long_branch(op_t op)
+{
+    return is_branch(op) && op_addr_mode(op) == MODE_LONG;
 }
 
 #endif

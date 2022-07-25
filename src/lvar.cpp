@@ -44,7 +44,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
     };
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(asm_inst_t inst : cg_data(cfg_it).code)
+    for(asm_inst_t const& inst : cg_data(cfg_it).code)
     {
         int arg_index = -1;
         if(is_this_lvar(fn, inst.arg))
@@ -66,7 +66,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
     assert(m_this_lvar_info.size() == m_map.size());
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(asm_inst_t inst : cg_data(cfg_it).code)
+    for(asm_inst_t const& inst : cg_data(cfg_it).code)
     {
         if(is_call_lvar(fn, inst.arg))
             m_map.insert(inst.arg.mem_head());
@@ -75,7 +75,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
     m_num_lvars = m_map.size();
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(asm_inst_t inst : cg_data(cfg_it).code)
+    for(asm_inst_t const& inst : cg_data(cfg_it).code)
         if(is_tracked_non_lvar(fn, inst.arg))
             m_map.insert(inst.arg.mem_head());
 
@@ -91,7 +91,8 @@ bool lvars_manager_t::is_this_lvar(fn_ht fn, locator_t arg)
     return ((l == LOC_ARG && fn == arg.fn()) 
             || (l == LOC_RETURN && fn == arg.fn()) 
             || l == LOC_PHI 
-            || l == LOC_SSA);
+            || l == LOC_SSA
+            || l == LOC_MINOR_VAR);
 }
 
 bool lvars_manager_t::is_call_lvar(fn_ht fn, locator_t arg)

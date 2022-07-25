@@ -8,12 +8,15 @@
 enum compiler_phase_t
 {
     PHASE_INIT,
+    PHASE_STD, 
     PHASE_PARSE,
     PHASE_PARSE_CLEANUP,
     PHASE_COUNT_MEMBERS,
     PHASE_ORDER_GLOBALS,
     PHASE_COMPILE, // threaded
     PHASE_ALLOC_RAM,
+    PHASE_ALLOC_ROM,
+    PHASE_LINK,
 };
 
 #ifndef NDEBUG

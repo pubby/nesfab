@@ -10,8 +10,9 @@ std::ostream& operator<<(std::ostream& o, span_t span)
 
 span_t aligned(span_t span, std::uint16_t size, std::uint16_t alignment)
 {
+    if(!alignment)
+        return {};
     // Must be power of 2.
-    assert(alignment);
     assert((alignment & (alignment - 1)) == 0);
 
     std::uint16_t const add = (alignment - span.addr) & (alignment - 1);
@@ -21,8 +22,9 @@ span_t aligned(span_t span, std::uint16_t size, std::uint16_t alignment)
 
 span_t aligned_reverse(span_t span, std::uint16_t size, std::uint16_t alignment)
 {
+    if(!alignment)
+        return {};
     // Must be power of 2.
-    assert(alignment);
     assert((alignment & (alignment - 1)) == 0);
 
     std::uint16_t const addr = span.end() - size;

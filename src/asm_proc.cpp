@@ -24,13 +24,37 @@ void asm_proc_t::push_inst(asm_inst_t inst)
     {
         code.push_back(inst);
 
-        if(!is_label(inst.arg.lclass()))
-            mem_usage[inst.arg.mem_head()] += 1;
+        //if(!is_label(inst.arg.lclass()))
+            //mem_usage[inst.arg.mem_head()] += 1;
     }
 
 }
 
-void asm_proc_t::expand_branch_ops()
+void asm_proc_t::absolute_to_zp()
+{
+    for(asm_inst_t& inst : code)
+    {
+        if(inst.ptr_hi || inst.arg.lclass() != LOC_ADDR || inst.arg.data() >= 0x100)
+            continue;
+
+        switch(op_addr_mode(inst.op))
+        {
+        case MODE_ABSOLUTE:
+            inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE); 
+            break;
+        case MODE_ABSOLUTE_X:
+            inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE_X); 
+            break;
+        case MODE_ABSOLUTE_Y: 
+            inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE_Y); 
+            break;
+        default: 
+            continue;
+        }
+    }
+}
+
+void asm_proc_t::convert_long_branch_ops()
 {
     // Loop until we can do no more work.
     bool progress; 
@@ -42,24 +66,44 @@ void asm_proc_t::expand_branch_ops()
         {
             asm_inst_t& inst = code[i];
 
-            if(!is_relative_branch(inst.op))
+            if(!is_branch(inst.op))
                 continue;
 
             unsigned const label_i = labels[inst.arg];
-            int const dist = bytes_between(i+1, label_i);
+            int dist = bytes_between(i+1, label_i);
 
-            // Change to long pseudo instruction when out of range
-            if(dist > 127 || dist < -128)
+            if(is_relative_branch(inst.op))
             {
-                inst.op = get_op(op_name(inst.op), MODE_LONG);
-                progress = true;
+                // Change to long pseudo instruction when out of range
+                if(dist > 127 || dist < -128)
+                {
+                    inst.op = get_op(op_name(inst.op), MODE_LONG);
+                    progress = true;
+                }
+            }
+            else if(is_long_branch(inst.op))
+            {
+                op_t const new_op = get_op(op_name(inst.op), MODE_RELATIVE);
+                int const size_diff = int(op_size(inst.op)) - int(op_size(new_op));
+
+                dist -= size_diff;
+
+                // Change to short instruction when in range
+                if(dist <= 127 || dist >= -128)
+                {
+                    inst.op = new_op;
+                    progress = true;
+                    
+                    assert(bytes_between(i+1, label_i) <= 127);
+                    assert(bytes_between(i+1, label_i) >= -128);
+                }
             }
         }
     }
     while(progress);
 }
 
-void asm_proc_t::nopify_short_jumps()
+void asm_proc_t::optimize_short_jumps(bool initial)
 {
     for(unsigned i = 0; i < code.size(); ++i)
     {
@@ -76,12 +120,12 @@ void asm_proc_t::nopify_short_jumps()
                 inst.op = ASM_PRUNED;
                 inst.arg = {};
             }
-            else if(dist == 1)
+            else if(!initial && dist == 1)
             {
                 inst.op = SKB_IMPLIED;
                 inst.arg = {};
             }
-            else if(dist == 2 && op_code(code[i+1].op) != 0x20) // Check for 0x20 to avoid reading a PPU register
+            else if(!initial && dist == 2 && op_code(code[i+1].op) != 0x20) // Check for 0x20 to avoid reading a PPU register
             {
                 inst.op = IGN_IMPLIED;
                 inst.arg = {};
@@ -125,34 +169,15 @@ void asm_proc_t::nopify_short_jumps()
     }
 }
 
-void asm_proc_t::optimize()
+void asm_proc_t::optimize(bool initial)
 {
-    nopify_short_jumps();
-    expand_branch_ops(); // Call after 'nopify_short_jumps'
+    // Order matters here.
+    absolute_to_zp();
+    optimize_short_jumps(true);
+    convert_long_branch_ops();
 }
 
-void asm_proc_t::make_relocatable()
-{
-    for(unsigned i = 0; i < code.size(); ++i)
-    {
-        asm_inst_t& inst = code[i];
-
-        if(is_label(inst.arg.lclass()))
-        {
-            assert(labels.count(inst.arg));
-            unsigned const label_i = labels[inst.arg];
-
-            if(op_addr_mode(inst.op) == MODE_RELATIVE)
-            {
-                int const dist = bytes_between(i+1, label_i);
-                assert(dist <= 127 && dist >= -128);
-                inst.arg = locator_t::const_byte(dist);
-            }
-            else 
-                inst.arg = locator_t::relocation_addr(bytes_between(0, label_i));
-        }
-    }
-}
+void asm_proc_t::initial_optimize() { optimize(true); }
 
 int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
 {
@@ -220,43 +245,54 @@ void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
     }
 }
 
-void asm_proc_t::write_binary(std::uint8_t* rom, addr16_t start_addr) const
+void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
 {
-    /*
-    rom += start_addr;
+    std::uint8_t* at = start;
+
+    auto const write = [&](std::uint8_t data) { *at++ = data; };
+
+    auto const from_locator = [&](locator_t loc) -> std::uint8_t
+    {
+        loc = loc.link(fn, bank);
+        if(!is_const(loc.lclass()))
+            throw std::runtime_error(fmt("Unable to link %", loc));
+        std::uint16_t data = loc.data() + loc.offset();
+        if(loc.high())
+            return data >>= 8;
+        return data;
+    };
 
     for(asm_inst_t const& inst : code)
     {
+        if(inst.op == ASM_PRUNED)
+            continue;
+
+        std::uint8_t const op = op_code(inst.op);
+
         switch(op_addr_mode(inst.op))
         {
         case MODE_IMPLIED:
-            *rom++ = op_code(inst.op);
+            write(op);
             break;
 
         case MODE_IMMEDIATE:
         case MODE_RELATIVE:
-            assert(inst.arg.lclass() == LOC_CONST_BYTE);
-            *rom++ = op_code(inst.op);
-            *rom++ = inst.arg.data();
-            break;
-
         case MODE_ZERO_PAGE:
         case MODE_ZERO_PAGE_X:
         case MODE_ZERO_PAGE_Y:
         case MODE_INDIRECT_X:
         case MODE_INDIRECT_Y:
-            {
-                addr16_t const addr = lmm.get_addr(inst.arg, start_addr);
-                assert(addr < 0x100);
-                *rom++ = op_code(inst.op);
-                *rom++ = addr;
-            }
+            write(op);
+            write(from_locator(inst.arg));
             break;
 
         case MODE_LONG:
-            *rom++ = op_code(get_op(invert_branch(op_name(inst.op)), MODE_RELATIVE));
-            *rom++ = 3; // branch over upcoming jmp
-            *rom++ = op_code(JMP_ABSOLUTE);
+            {
+                std::uint8_t const inverted_op = op_code(get_op(invert_branch(op_name(inst.op)), MODE_RELATIVE));
+                write(inverted_op);
+                write(3); // Branch over upcoming jmp
+                write(op_code(JMP_ABSOLUTE));
+            }
             goto absolute_addr;
 
         case MODE_ABSOLUTE:
@@ -264,11 +300,20 @@ void asm_proc_t::write_binary(std::uint8_t* rom, addr16_t start_addr) const
         case MODE_ABSOLUTE_Y:
         case MODE_INDIRECT:
             {
-                *rom++ = op_code(inst.op);
+                write(op);
             absolute_addr:
-                addr16_t const addr = lmm.get_addr(inst.arg, start_addr);
-                *rom++ = addr & 0xFF;
-                *rom++ = addr >> 8;
+                locator_t lo = inst.arg;
+                locator_t hi = inst.ptr_hi;
+
+                if(!hi)
+                {
+                    hi = lo;
+                    lo.set_high(false);
+                    hi.set_high(true);
+                }
+
+                write(from_locator(lo));
+                write(from_locator(hi));
             }
             break;
 
@@ -276,5 +321,45 @@ void asm_proc_t::write_binary(std::uint8_t* rom, addr16_t start_addr) const
             throw std::runtime_error("Invalid addressing mode.");
         }
     }
-    */
 }
+
+void asm_proc_t::link(int bank)
+{
+#ifndef NDEBUG
+    std::size_t const pre_size = size();
+#endif
+
+    for(asm_inst_t& inst : code)
+    {
+        inst.arg = inst.arg.link(fn, bank);
+        inst.ptr_hi = inst.ptr_hi.link(fn, bank);
+    }
+
+    optimize(false);
+
+    assert(pre_size >= size());
+}
+
+void asm_proc_t::relocate(std::uint16_t addr)
+{
+    for(unsigned i = 0; i < code.size(); ++i)
+    {
+        asm_inst_t& inst = code[i];
+
+        if(!is_label(inst.arg.lclass()))
+            continue;
+
+        assert(labels.count(inst.arg));
+        unsigned const label_i = labels[inst.arg];
+
+        if(op_addr_mode(inst.op) == MODE_RELATIVE)
+        {
+            int const dist = bytes_between(i+1, label_i);
+            assert(dist <= 127 && dist >= -128);
+            inst.arg = locator_t::const_byte(dist);
+        }
+        else 
+            inst.arg = locator_t::addr(addr + bytes_between(0, label_i));
+    }
+}
+

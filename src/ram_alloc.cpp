@@ -6,23 +6,85 @@
 #include "globals.hpp"
 #include "group.hpp"
 #include "compiler_error.hpp"
+#include "options.hpp"
 #include "ram.hpp"
+
+/*
+static ram_bitset_t non_static_ram;
+
+namespace std_ram
+{
+    bool did_init = false;
+    std::array<span_t, NUM_VARS> array;
+
+    class static_ram_allocator_t
+    {
+    public:
+        static_ram_allocator_t()
+        : m_non_zp(span_t{ 0x200, 0x600 })
+        {}
+
+        span_t alloc_zp(std::uint16_t size)
+        {
+            if(m_next_zp + size >= 256)
+                return {};
+            span_t const ret = { .addr = m_next_zp, .size = size };
+            m_next_zp += size;
+            return ret;
+        }
+
+        span_t alloc_non_zp(std::uint16_t size, unsigned alignment = 0)
+        {
+            return m_non_zp.alloc(size, alignment);
+        }
+
+    private:
+        span_allocator_t m_non_zp;
+        unsigned m_next_zp = 0;
+    };
+
+    std::array<span_t, NUM_VARS> const& vars_array() { return array; }
+
+    span_t ram_span(var_t v) { return array[v]; }
+
+    locator_t ram_locator(var_t v, std::uint16_t offset) { return locator_t::addr(span(v).addr, offset); }
+
+} // end namespace std_ram
+
+void alloc_std_ram()
+{
+    using namespace std_ram;
+
+    assert(!did_init);
+
+    static_ram_allocator_t allocator;
+
+    auto const alloc = [&allocator](var_t name, unsigned size, unsigned alignment, bool zp)
+    {
+        if(size == 0)
+            return;
+        array[name] = zp ? allocator.alloc_zp(size) : allocator.alloc_non_zp(size, alignment);
+    };
+
+#define STD_RAM(name, size, alignment, zp) alloc(STD_RAM_##name, size, alignment, zp);
+#include "std_ram.inc"
+#undef STD_RAM
+    
+    alloc(STD_RAM_mapper_state, state_size(compiler_options().mapper.type), 0, true);
+
+    // Build bitset:
+    non_static_ram = {};
+    for(span_t span : array)
+        if(span)
+            non_static_ram |= ram_bitset_t::filled(span.size, span.addr);
+    non_static_ram.flip_all();
+
+    did_init = true;
+}
+*/
 
 namespace  // anonymous namespace
 {
-
-// Modifies 'ram' to only include addresses that can hold a contiguous span of 'size' bytes
-// (This is useful for allocating multi-byte regions like arrays and pointers)
-void ram_for_size(ram_bitset_t& ram, std::size_t size)
-{
-    if(size <= 1)
-        return;
-
-    unsigned shift_by = 1;
-    for(size -= 1; shift_by <= size; shift_by <<= 1)
-        ram &= ram >> shift_by;
-    ram &= ram >> (size - (shift_by >> 1));
-}
 
 // Allocates a span inside 'usable_ram'.
 span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, bool zp_only)
@@ -47,7 +109,7 @@ span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, bool zp_only)
         else if(size > 1)
             usable_copy &= ~zp_bitset; // Don't put arrays in ZP
 
-        ram_for_size(usable_copy, size);
+        bitset_mark_consecutive(usable_copy.size(), usable_copy.data(), size);
 
         int const addr = usable_copy.lowest_bit_set();
 
@@ -534,7 +596,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
 
 } // end anonymous namespace
 
-void alloc_ram(ram_bitset_t const& initial_usable_ram)
+void alloc_ram()
 {
-    ram_allocator_t a(initial_usable_ram);
+    ram_allocator_t a(ram_bitset_t::filled());
 }

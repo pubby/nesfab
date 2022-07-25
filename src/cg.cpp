@@ -951,14 +951,6 @@ void code_gen(ir_t& ir, fn_t& fn)
         if(!last) // If they interfere
             continue;
 
-        /* TODO
-        if(!cset_locator(head_a) && !cset_locator(head_b))
-        {
-            locator_t loc = locator_t::ssa(head_a);
-            cg_data(head_a).cset_head = loc;
-        }
-        */
-
         // It can be coalesced; add it to the cset.
         cset_append(last, head_b);
 
@@ -1033,7 +1025,6 @@ void code_gen(ir_t& ir, fn_t& fn)
             else
                 continue;
         }
-        else
 
         // Coalesce the main input.
         assert(csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes));
@@ -1215,6 +1206,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
     {
         asm_proc_t proc;
+        proc.fn = fn.handle();
 
         std::size_t size_upper_bound = 0;
         for(cfg_ht h : order)
@@ -1225,11 +1217,9 @@ void code_gen(ir_t& ir, fn_t& fn)
             for(asm_inst_t inst : cg_data(h).code)
                 proc.push_inst(inst);
 
-        proc.optimize();
+        proc.initial_optimize();
 
         //proc.write_assembly(std::cout, fn); TODO: remove
-
-        proc.make_relocatable();
 
         //std::cout << "RELOC\n";
         // proc.write_assembly(std::cout, fn); TODO: remove

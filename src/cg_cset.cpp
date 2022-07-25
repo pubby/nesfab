@@ -61,7 +61,7 @@ locator_t cset_locator(ssa_ht const h, bool convert_ssa)
     }
     if(convert_ssa)
         return locator_t::ssa(head);
-    return locator_t::none();
+    return LOC_NONE;
 }
 
 bool cset_locators_mergable(locator_t loc_a, locator_t loc_b)

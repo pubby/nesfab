@@ -8,12 +8,11 @@
 
 #include "robin/map.hpp"
 
-#include "rom_array_decl.hpp"
+#include "rom_decl.hpp"
 #include "bitset.hpp"
 #include "decl.hpp"
 #include "ir_decl.hpp"
 #include "locator.hpp"
-
 
 struct rom_array_t
 {
@@ -34,6 +33,9 @@ struct rom_array_meta_t
     std::mutex mutex; // Protects the members below
     bitset_t used_by_fns;
     bitset_t used_by_group_data;
+
+    // These are used later on, when the rom is actually allocated.
+    rom_alloc_ht alloc;
 };
 
 template<>
@@ -52,7 +54,8 @@ struct std::hash<rom_array_t>
             h = rh::hash_combine(h, lh(a.data[i]));
 
         // Also hash the last locator:
-        h = rh::hash_combine(h, lh(a.data.back()));
+        if(!a.data.empty())
+            h = rh::hash_combine(h, lh(a.data.back()));
 
         return h;
     }
@@ -63,9 +66,11 @@ extern std::mutex rom_array_map_mutex;
 extern rom_array_map_t rom_array_map;
 
 // Creates a new rom_array, or returns an existing one matching 'rom_array'.
-locator_t lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom_array, std::uint16_t offset=0);
+rom_array_ht lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom_array, std::uint16_t offset=0);
 
 // Orders CFG basic blocks, trying to find an optimal layout for branches.
 void build_rom_arrays(fn_ht fn, ir_t& ir);
+
+rom_array_meta_t& get_meta(rom_array_ht h);
 
 #endif

@@ -17,7 +17,7 @@
 #include "addr16.hpp"
 #include "decl.hpp"
 #include "ir_decl.hpp"
-#include "rom_array_decl.hpp"
+#include "rom_decl.hpp"
 #include "phase.hpp"
 
 class type_t;
@@ -27,7 +27,7 @@ enum locator_class_t : std::uint8_t
 {
     LOC_NONE,
 
-    LOC_IOTA, 
+    LOC_IOTA, // TODO: remove?
 
     LOC_FN, // A function.
     LOC_GMEMBER, // A global member.
@@ -41,20 +41,19 @@ enum locator_class_t : std::uint8_t
 
     LOC_ARG,
     LOC_RETURN,
-
     LOC_PHI, // TODO?
+    LOC_SSA,
+    LOC_MINOR_VAR,
+    LOC_LVAR,
 
     // Labels are used during code gen. They map to assembly terms.
     LOC_CFG_LABEL,
     LOC_MINOR_LABEL,
 
     LOC_CONST_BYTE,
-    LOC_RELOCATION_ADDR,
+    LOC_ADDR,
 
     LOC_ROM_ARRAY,
-
-    LOC_SSA,
-    LOC_MINOR_VAR,
 
     LOC_LT_CONST_PTR,
     FIRST_LOC_LT = LOC_LT_CONST_PTR,
@@ -62,11 +61,15 @@ enum locator_class_t : std::uint8_t
     LOC_LT_EXPR, // link-time expression
     LAST_LOC_LT = LOC_LT_EXPR,
 
+    LOC_THIS_BANK, // Resolves to the bank its in
+    LOC_MAIN_ENTRY,
+    LOC_MAIN_ENTRY_BANK,
+
     NUM_LCLASS,
 };
 
 // We have a limited number of bits to use.
-static_assert(NUM_LCLASS < 1 << 5);
+static_assert(NUM_LCLASS < 1 << 6);
 
 constexpr bool is_label(locator_class_t lclass)
 {
@@ -75,7 +78,7 @@ constexpr bool is_label(locator_class_t lclass)
 
 constexpr bool is_const(locator_class_t lclass)
 {
-    return lclass == LOC_CONST_BYTE;
+    return lclass == LOC_CONST_BYTE || lclass == LOC_ADDR;
 }
 
 constexpr bool has_arg_member_atom(locator_class_t lclass)
@@ -103,8 +106,8 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_PHI:
-    case LOC_CFG_LABEL:
-    case LOC_MINOR_LABEL:
+    case LOC_MINOR_VAR:
+    case LOC_LVAR:
         return true;
     default:
         return false;
@@ -126,7 +129,7 @@ class locator_t
 {
 friend class gmember_locator_manager_t;
 public:
-    constexpr locator_t() : locator_t(LOC_NONE, 0, 0, 0) {}
+    constexpr locator_t(locator_class_t lc = LOC_NONE) : locator_t(lc, 0, 0, 0) {}
 
     constexpr locator_t(locator_class_t lc, std::uint32_t h, std::uint16_t d, std::int16_t o)
     {
@@ -135,6 +138,7 @@ public:
         set_data(d);
         set_offset(o);
         assert(!byteified());
+        assert(!high());
     }
 
     constexpr locator_t(locator_class_t lc, std::uint32_t h, std::uint8_t arg, std::uint8_t m, std::uint8_t atom, std::int16_t o)
@@ -146,17 +150,20 @@ public:
         set_atom(atom);
         set_offset(o);
         assert(!byteified());
+        assert(!high());
     }
 
     locator_t(locator_t const&) = default;
     locator_t& operator=(locator_t const&) = default;
 
-    constexpr bool byteified() const { return impl & (1ull << 56ull); }
-    constexpr locator_class_t lclass() const { return static_cast<locator_class_t>(impl >> 57ull); }
-    constexpr std::uint32_t handle() const { return (impl >> 32ull) & 0xFFFFFF; }
+    constexpr locator_class_t lclass() const { return static_cast<locator_class_t>(impl >> 56ull); }
+    constexpr std::uint32_t handle() const { return (impl >> 32ull) & 0x3FFFFF; }
     constexpr std::uint16_t data() const { assert(!has_arg_member_atom(lclass())); return impl >> 16ull; }
     constexpr std::int16_t signed_offset() const { return static_cast<std::make_signed_t<std::int16_t>>(impl); }
     constexpr std::uint16_t offset() const { return impl; }
+
+    constexpr bool byteified() const { return impl & (1ull << 55); }
+    constexpr bool high() const { return impl & (1ull << 54); }
 
     // 'arg', 'member', and 'atom' overlap with 'data'; use one or the other.
     constexpr std::uint8_t member() const { assert(has_arg_member_atom(lclass())); return impl >> 24ull; }
@@ -168,21 +175,27 @@ public:
 
     constexpr void set_byteified(bool b)
     {
-        impl &= ~(1ull << 56ull);
-        impl |= std::uint64_t(b) << 56ull;
+        impl &= ~(1ull << 55ull);
+        impl |= std::uint64_t(b) << 55ull;
+    }
+
+    constexpr void set_high(bool b)
+    {
+        impl &= ~(1ull << 54ull);
+        impl |= std::uint64_t(b) << 54ull;
     }
 
     constexpr void set_lclass(locator_class_t lclass) 
     { 
         impl &= 0x00FFFFFFFFFFFFFFull; 
-        impl |= ((std::uint64_t)lclass << 57ull); 
+        impl |= ((std::uint64_t)lclass << 56ull); 
         assert(lclass == this->lclass());
     }
 
     constexpr void set_handle(std::uint32_t handle) 
     { 
-        impl &= 0xFF000000FFFFFFFFull; 
-        impl |= ((std::uint64_t)handle & 0xFFFFFFull) << 32ull; 
+        impl &= 0xFF0000003FFFFFFFull; 
+        impl |= ((std::uint64_t)handle & 0x3FFFFFull) << 32ull; 
         assert(handle == this->handle());
     }
 
@@ -258,7 +271,7 @@ public:
     cfg_ht cfg_node() const 
     { 
         assert(lclass() == LOC_CFG_LABEL);
-        return { data() }; 
+        return { handle() }; 
     }
 
     lt_ht lt() const
@@ -278,16 +291,24 @@ public:
     {
         locator_t ret = *this;
         ret.set_offset(0);
-        return ret.strip_byteify();
-    }
-
-    locator_t strip_byteify() const 
-    {
-        locator_t ret = *this;
         ret.set_byteified(false);
+        ret.set_high(false);
         return ret;
     }
 
+    constexpr locator_t with_byteified(bool flag) const 
+    {
+        locator_t ret = *this;
+        ret.set_byteified(flag);
+        return ret;
+    }
+
+    constexpr locator_t with_high(bool flag) const 
+    {
+        locator_t ret = *this;
+        ret.set_high(flag);
+        return ret;
+    }
 
     // Number of bytes this locator represents
     std::size_t mem_size() const;
@@ -302,8 +323,6 @@ public:
         ret.impl = i; 
         return ret;
     }
-
-    constexpr static locator_t none() { return locator_t(); }
 
     constexpr static locator_t iota(std::int16_t offset = 0) 
         { return locator_t(LOC_IOTA, 0, 0, offset); }
@@ -327,22 +346,25 @@ public:
         { return locator_t(LOC_RETURN, fn.value, 0, member, atom, offset); }
 
     constexpr static locator_t phi(fn_ht fn, std::uint16_t id)
-        { return locator_t(LOC_PHI, fn.value, 0, 0); }
+        { return locator_t(LOC_PHI, fn.value, id, 0); }
 
-    constexpr static locator_t cfg_label(fn_ht fn, cfg_ht cfg_node)
-        { return locator_t(LOC_CFG_LABEL, fn.value, cfg_node.index, 0); }
+    constexpr static locator_t cfg_label(cfg_ht cfg_node)
+        { return locator_t(LOC_CFG_LABEL, cfg_node.index, 0, 0); }
 
-    constexpr static locator_t minor_label(fn_ht fn, std::uint16_t id)
-        { return locator_t(LOC_MINOR_LABEL, fn.value, id, 0); }
+    constexpr static locator_t minor_label(std::uint16_t id)
+        { return locator_t(LOC_MINOR_LABEL, 0, id, 0); }
 
     constexpr static locator_t const_byte(std::uint8_t value)
-        { locator_t loc = locator_t(LOC_CONST_BYTE, 0, value, 0); loc.set_byteified(true); return loc; }
+        { return locator_t(LOC_CONST_BYTE, 0, value, 0).with_byteified(true); }
 
-    constexpr static locator_t relocation_addr(addr16_t addr)
-        { return locator_t(LOC_RELOCATION_ADDR, 0, addr, 0); }
+    constexpr static locator_t addr(addr16_t addr, std::uint16_t offset = 0)
+        { return locator_t(LOC_ADDR, 0, addr, offset); }
 
     constexpr static locator_t ssa(ssa_ht node)
         { return locator_t(LOC_SSA, node.index, 0, 0, 0, 0); }
+
+    constexpr static locator_t lvar(fn_ht fn, unsigned lvar)
+        { return locator_t(LOC_LVAR, fn.value, lvar, 0); }
 
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_MINOR_VAR, fn.value, id, 0); }
@@ -372,6 +394,8 @@ public:
     constexpr bool eq_const_byte(std::uint8_t i) const { return is_const_num() && data() == i; }
 
     type_t type() const;
+
+    locator_t link(fn_ht fn = {}, int bank = -1) const;
 
 private:
 

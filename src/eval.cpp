@@ -1877,7 +1877,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
                         array_val.sval[i] = builder.cfg->emplace_ssa(
                             SSA_read_array, etype.elem_type(), 
-                            from_variant(array_val.sval[i], etype), locator_t::none(), 
+                            from_variant(array_val.sval[i], etype), locator_t(), 
                             std::get<ssa_value_t>(array_index.sval[0]));
                     }
                 }
@@ -2323,7 +2323,7 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
 
                 ssa_ht write = builder.cfg->emplace_ssa(
                     SSA_write_array, type,
-                    read->input(0), locator_t::none(), read->input(2), std::get<ssa_value_t>(assignment.sval[i]));
+                    read->input(0), locator_t(), read->input(2), std::get<ssa_value_t>(assignment.sval[i]));
 
                 local[i + assignee.member] = write;
             }

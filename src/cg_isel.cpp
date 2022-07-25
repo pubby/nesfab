@@ -42,7 +42,7 @@ namespace isel
 
         fn_ht fn;
 
-        locator_t minor_label() { return locator_t::minor_label(fn, next_label++); }
+        locator_t minor_label() { return locator_t::minor_label(next_label++); }
         locator_t minor_var() { return locator_t::minor_var(fn, next_var++); }
     };
 
@@ -59,8 +59,8 @@ namespace isel
         static void set(ssa_value_t v)
         {
             _node = v;
-            _value = locator_t::from_ssa_value(orig_def(v)).strip_byteify();
-            _trans = asm_arg(v).strip_byteify();
+            _value = locator_t::from_ssa_value(orig_def(v)).with_byteified(false);
+            _trans = asm_arg(v).with_byteified(false);
         }
 
         [[gnu::always_inline]]
@@ -267,10 +267,7 @@ namespace isel
 
         ssa_value_t const n = Def::node();
         if(n.holds_ref())
-        {
             cpu_copy.req_store |= cg_data(n.handle()).isel.store_mask;
-            std::cout << "IGNORING " << cg_data(n.handle()).isel.store_mask << '\n';
-        }
 
         cont->call(cpu_copy, sel);
     }
@@ -965,8 +962,6 @@ namespace isel
                 if(cg_data(n.handle()).isel.likely_store)
                 {
                     penalty = cost_fn<LDA_ABSOLUTE> - cost_fn<MAYBE_STA>;
-                    //penalty *= 4;
-                    std::cout << "penalty " << penalty << ' ' << n.handle().index << std::endl;
                 }
             }
 
@@ -2235,7 +2230,7 @@ namespace isel
 
         case SSA_jump:
             assert(cfg_node->output_size() == 1);
-            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
+            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
             exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
             break;
 
@@ -2260,8 +2255,6 @@ namespace isel
 
     void isel_node(ssa_ht h)
     {
-        std::cout << "doing op " << state.ssa_node->op() << std::endl;
-
         p_def::set(h);
 
         using Opt = options<>;
@@ -2289,25 +2282,25 @@ namespace isel
 
         // Branch ops jump directly:
         case SSA_branch_eq:
-            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
             eq_branch<Opt, BEQ, p_label<0>, p_label<1>>(h);
             break;
         case SSA_branch_not_eq:
-            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
             eq_branch<Opt, BNE, p_label<0>, p_label<1>>(h);
             break;
 
         case SSA_branch_lt:
-            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
+            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
             lt_branch<Opt, p_label<0>, p_label<1>, false>(h);
             break;
 
         case SSA_branch_lte:
-            p_label<0>::set(locator_t::cfg_label(state.fn, cfg_node->output(1)));
-            p_label<1>::set(locator_t::cfg_label(state.fn, cfg_node->output(0)));
+            p_label<0>::set(locator_t::cfg_label(cfg_node->output(1)));
+            p_label<1>::set(locator_t::cfg_label(cfg_node->output(0)));
             lt_branch<Opt, p_label<0>, p_label<1>, true>(h);
             break;
 
@@ -2472,15 +2465,12 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
                     last_use = oe.handle;
             }
 
-            std::cout << "STORE MASK " << h.index << ' ' << allocated << std::endl;
-            std::cout << "LAST USE " << h.index << ' ' << last_use.index  << ' ' << allocated<< std::endl;
-
-            //cg_data(last_use).isel.last_use |= allocated; // TODO
+            cg_data(last_use).isel.last_use |= allocated; // TODO
         }
     skip:
         // Reclaim bits after the last use has been seen:
         assert((free & cg_data(h).isel.last_use) == 0);
-        //free |= cg_data(h).isel.last_use; // TODO
+        free |= cg_data(h).isel.last_use; // TODO
     }
 
     ///////////////////////
@@ -2541,7 +2531,7 @@ do_selections:
     std::vector<asm_inst_t> code;
     for(sel_t const* sel = state.best_sel; sel; sel = sel->prev)
         code.push_back(sel->inst);
-    code.push_back({ ASM_LABEL, SSA_null, locator_t::cfg_label(state.fn, cfg_node) });
+    code.push_back({ ASM_LABEL, SSA_null, locator_t::cfg_label(cfg_node) });
     std::reverse(code.begin(), code.end());
 
     return code;

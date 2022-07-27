@@ -22,37 +22,56 @@ enum zp_request_t
 // Allocates a span inside 'usable_ram'.
 span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp)
 {
-    // TODO: Align, when possible
-
-    assert(size > 0);
-
-    if(zp != ZP_NEVER && size == 1) // Fast path when 'size' == 1
+    auto const try_alloc = [](ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
     {
-        int const addr = usable_ram.lowest_bit_set();
+        assert(size > 0);
 
-        if(addr < 0 || (zp == ZP_ONLY && addr > 0xFF ))
-            return {};
+        if(zp != ZP_NEVER && size == 1) // Fast path when 'size' == 1
+        {
+            int const addr = usable_ram.lowest_bit_set();
 
-        return { .addr = addr, .size = 1 };
-    }
-    else
+            if(addr < 0 || (zp == ZP_ONLY && addr > 0xFF ))
+                return {};
+
+            return { .addr = addr, .size = 1 };
+        }
+        else
+        {
+            ram_bitset_t usable_copy = usable_ram;
+
+            if(zp == ZP_ONLY)
+                usable_copy &= zp_bitset;
+            else if(zp == ZP_NEVER || size > 1)
+                usable_copy &= ~zp_bitset; // Don't put arrays in ZP
+
+            bitset_mark_consecutive(usable_copy.size(), usable_copy.data(), size);
+
+            int const addr = usable_copy.lowest_bit_set();
+
+            if(addr < 0)
+                return {};
+
+            return { .addr = addr, .size = size };
+        }
+    };
+
+    // Align, when possible
+    if(size > 1 && size <= 256)
     {
-        ram_bitset_t usable_copy = usable_ram;
+        page_bitset_t page = page_bitset_t::filled(257 - size);
+        ram_bitset_t aligned = usable_ram;
 
-        if(zp == ZP_ONLY)
-            usable_copy &= zp_bitset;
-        else if(zp == ZP_NEVER || size > 1)
-            usable_copy &= ~zp_bitset; // Don't put arrays in ZP
+        static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
 
-        bitset_mark_consecutive(usable_copy.size(), usable_copy.data(), size);
+        for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
+            bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
 
-        int const addr = usable_copy.lowest_bit_set();
-
-        if(addr < 0)
-            return {};
-
-        return { .addr = addr, .size = size };
+        if(span_t span = try_alloc(aligned, size, zp))
+            return span;
     }
+
+    return try_alloc(usable_ram, size, zp);
+
 }
 
 class ram_allocator_t
@@ -319,7 +338,8 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         {
             group_vars_t const& g = impl_deque<group_vars_t>[i];
 
-            group_inits_t inits = { group_vars_ht{i} };
+            group_inits_t zero_inits  = { group_vars_ht{i} };
+            group_inits_t value_inits = { group_vars_ht{i} };
 
             for(gvar_ht v : g.gvars())
             {
@@ -327,16 +347,23 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
                 {
                     v->for_each_locator([&](locator_t loc)
                     { 
+                        group_inits_t* inits = &value_inits;
+                        if(loc.gmember()->zero_init(loc.atom()))
+                            inits = &zero_inits;
+
                         assert(gmember_count.count(loc));
 
                         // Score is the largest gmember_count
-                        inits.score = std::max(inits.score, gmember_count[loc]);
-                        inits.init.push_back(loc);
+                        inits->score = std::max(inits->score, gmember_count[loc]);
+                        inits->init.push_back(loc);
                     });
                 }
             }
 
-            ordered_inits.push_back(std::move(inits));
+            if(!zero_inits.init.empty())
+                ordered_inits.push_back(std::move(zero_inits));
+            if(!value_inits.init.empty())
+                ordered_inits.push_back(std::move(value_inits));
         }
 
         std::sort(ordered_inits.begin(), ordered_inits.end(), 

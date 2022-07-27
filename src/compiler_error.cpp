@@ -53,11 +53,13 @@ namespace
 
     char const* get_line_end(char const* src, pstring_t pstring)
     {
-        while(pstring.offset && (src[pstring.offset] == '\n' || src[pstring.offset] == '\r'))
+        auto const is_nl = [](char c) { return c == '\n' || c == '\r' || c == '\0'; };
+
+        while(pstring.offset && is_nl(src[pstring.offset]))
             --pstring.offset;
 
-        for(std::size_t i = pstring.offset + pstring.size;;++i)
-            if(src[i] == '\n' || src[i] == '\r' || src[i] == '\0')
+        for(std::size_t i = pstring.offset + pstring.size;; ++i)
+            if(is_nl(src[i]))
                 return src + i;
     }
 } // end anon namespace
@@ -101,6 +103,11 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
     str += pre;
     str.insert(str.end(), line_begin, line_end);
     str.push_back('\n');
+
+#ifndef NDEBUG
+    for(char c : str)
+        assert(c);
+#endif
 
     // If the source line contains a newline, don't bother drawing a
     // caret underneath it.

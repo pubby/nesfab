@@ -483,48 +483,70 @@ unsigned num_offsets(type_t type)
     }
 }
 
-unsigned member_index(type_t const& type, unsigned i)
+unsigned member_offset(type_t type, unsigned member)
 {
     assert(type.name() != TYPE_STRUCT_THUNK);
 
     switch(type.name())
     {
     case TYPE_STRUCT: 
-        return type.struct_().member(i);
+        return type.struct_().member_offset(member);
     case TYPE_TEA: 
     case TYPE_TEA_THUNK: 
-        return member_index(type.elem_type(), i);
+        return member_offset(type.elem_type(), member);
     case TYPE_BANKED_PTR:
-        assert(i < 2);
-        return i;
+    case TYPE_BANKED_MPTR:
+        assert(member <= 1);
+        return member == 1 ? 2 : 0;
     default: 
-        assert(i == 0);
+        assert(member == 0);
         return 0;
     }
 }
 
-type_t member_type(type_t const& type, unsigned i)
+unsigned member_index(type_t const& type, unsigned member)
 {
-    assert(i < num_members(type));
+    assert(type.name() != TYPE_STRUCT_THUNK);
+
+    switch(type.name())
+    {
+    case TYPE_STRUCT: 
+        return type.struct_().member(member);
+    case TYPE_TEA: 
+    case TYPE_TEA_THUNK: 
+        return member_index(type.elem_type(), member);
+    case TYPE_BANKED_PTR:
+    case TYPE_BANKED_MPTR:
+        assert(member < 2);
+        return member;
+    default: 
+        assert(member == 0);
+        return 0;
+    }
+}
+
+type_t member_type(type_t const& type, unsigned member)
+{
+    assert(member < ::num_members(type));
     if(type.name() == TYPE_STRUCT)
-        return type.struct_().member_type(i);
+        return type.struct_().member_type(member);
     else if(type.name() == TYPE_TEA)
     {
-        type_t mt = member_type(type.elem_type(), i);
+        type_t mt = member_type(type.elem_type(), member);
         assert(!is_aggregate(mt.name()));
         return type_t::tea(mt, type.size());
     }
-    else if(type.name() == TYPE_BANKED_PTR)
+    else if(is_banked_ptr(type.name()))
     {
-        if(i == 0)
+        if(member == 0)
         {
             type_t ptr = type;
-            ptr.unsafe_set_name(TYPE_PTR);
+            ptr.unsafe_set_name(remove_bank(type.name()));
             return ptr;
         }
         else
         {
-            assert(i == 1);
+            assert(member == 1);
             return TYPE_U;
         }
     }
@@ -623,66 +645,4 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
         return t;
     }
 }
-
-/////////////
-// STRUCTS //
-/////////////
-
-/* TODO
-type_t arg_struct(type_t fn_type)
-{
-    assert(fn_type.name() == TYPE_FN);
-    assert(fn_type.size() >= 1);
-    fn_type.m_name = TYPE_STRUCT;
-    fn_type.m_size -= 1;
-    return fn_type;
-}
-
-std::size_t struct_size(type_t type)
-{
-    if(type.name() != TYPE_STRUCT)
-        return 1;
-    std::size_t size = 0;
-    for(type_t const& sub : type)
-        size += struct_size(sub);
-    return size;
-}
-
-static type_t const* _struct_index(type_t const& type, unsigned& i)
-{
-    if(type.name() != TYPE_STRUCT)
-    {
-        if(i == 0)
-            return &type;
-        --i;
-        return nullptr;
-    }
-
-    for(type_t const& sub : type)
-        if(type_t const* found = _struct_index(sub, i))
-            return found;
-
-    return nullptr;
-}
-
-type_t struct_index(type_t type, unsigned i)
-{
-    type_t const* result = _struct_index(type, i);
-    assert(result);
-    return *result;
-}
-
-static void _struct_fill(type_t type, type_t*& vec)
-{
-    if(type.name() != TYPE_STRUCT)
-        *(vec++) = type;
-    else for(type_t const& sub : type)
-        _struct_fill(sub, vec);
-}
-
-void struct_fill(type_t type, type_t* vec)
-{
-    struct_fill(type, vec);
-}
-*/
 

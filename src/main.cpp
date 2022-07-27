@@ -16,6 +16,7 @@
 #include "rom_alloc.hpp"
 #include "static_addr.hpp"
 #include "rom_link.hpp"
+#include "ram_init.hpp"
 
 #include "eval.hpp" // TODO: remove?
 
@@ -150,11 +151,11 @@ int main(int argc, char** argv)
         alloc_ram(static_used_ram);
         // TODO: remove
         for(fn_t const& fn : impl_deque<fn_t>)
-            fn.proc().write_assembly(std::cout, fn);
+            fn.proc().write_assembly(std::cout, fn.handle());
         output_time("alloc ram:");
 
         set_compiler_phase(PHASE_INITIAL_VALUES);
-        //global_t::TODO
+        gen_group_var_inits();
         output_time("init vals:");
 
         set_compiler_phase(PHASE_ALLOC_ROM);

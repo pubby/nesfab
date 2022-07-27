@@ -24,6 +24,8 @@
 #include "sval.hpp"
 #include "rom_decl.hpp"
 
+struct rom_array_t;
+
 namespace bc = boost::container;
 
 std::string to_string(global_class_t gclass);
@@ -211,7 +213,7 @@ public:
     global_t& global;
 
     field_map_t const& fields() const { return m_fields; }
-    field_t const& field(unsigned i) const { return m_fields.begin()[i].second; }
+    field_t const& field(unsigned field_i) const { return m_fields.begin()[field_i].second; }
 
     unsigned num_members() const { assert(m_num_members != UNCOUNTED); return m_num_members; }
 
@@ -224,11 +226,18 @@ public:
         return m;
     }
 
-    type_t member_type(unsigned i) const 
+    type_t member_type(unsigned member_i) const 
     {
         assert(global.compiled());
-        assert(i < m_member_types.size());
-        return m_member_types[i];
+        assert(member_i < m_member_types.size());
+        return m_member_types[member_i];
+    }
+
+    std::uint16_t member_offset(unsigned member_i) const
+    {
+        assert(global.compiled());
+        assert(member_i < m_member_offsets.size());
+        return m_member_offsets[member_i];
     }
 
     bool has_tea_member() const { return m_has_tea_member; }
@@ -245,6 +254,7 @@ private:
 
     // Cached vectors, tracking expanded members
     std::vector<type_t> m_member_types;
+    std::vector<std::uint16_t> m_member_offsets;
     bool m_has_tea_member = false;
 };
 
@@ -396,7 +406,6 @@ public:
 
     type_t type() const { assert(!is_thunk(m_src_type.type.name())); return m_src_type.type; }
     sval_t const& sval() const { assert(global.compiled()); return m_sval; }
-    rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
 
     void dethunkify(bool full);
     void compile();
@@ -404,9 +413,11 @@ public:
     virtual group_ht group() const = 0;
 
 protected:
+    virtual void paa_init(rom_array_t&& paa) = 0;
+    virtual void sval_init(sval_t&& sval) = 0;
+
     src_type_t m_src_type = {};
     sval_t m_sval;
-    rom_array_ht m_rom_array = {};
 };
  
 class gvar_t : public global_datum_t
@@ -431,13 +442,15 @@ public:
     gmember_ht end_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_end_gmember; }
     void set_gmember_range(gmember_ht begin, gmember_ht end);
 
-    //group_bitset_t group_bitset() const { return 1ull << group.value; }
+    std::vector<locator_t> const& init_data() const { assert(compiler_phase() > PHASE_COMPILE); return m_init_data; }
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
 private:
-    src_type_t m_src_type = {};
-    sval_t m_sval; // TODO?
+    virtual void paa_init(rom_array_t&& paa);
+    virtual void sval_init(sval_t&& sval);
+
+    std::vector<locator_t> m_init_data;
 
     gmember_ht m_begin_gmember = {};
     gmember_ht m_end_gmember = {};
@@ -459,11 +472,14 @@ public:
     unsigned member() const { return index - gvar.begin_gmember().value; }
     type_t type() const { return member_type(gvar.type(), member()); }
 
+    locator_t const* init_data(unsigned atom) const;
+    std::size_t init_size() const;
+
     void alloc_spans();
     span_t span(unsigned atom) const { assert(compiler_phase() >= PHASE_ALLOC_RAM); return m_spans[atom]; }
     void assign_span(unsigned atom, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[atom] = span; }
 
-    bool zero_init(unsigned atom) const; // TODO: implement
+    bool zero_init(unsigned atom) const;
 
 private:
     bc::small_vector<span_t, 2> m_spans = {};
@@ -487,9 +503,12 @@ public:
 
     virtual group_ht group() const;
 
+    rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
+
 private:
-    src_type_t m_src_type = {};
-    sval_t m_sval;
+    virtual void paa_init(rom_array_t&& paa);
+    virtual void sval_init(sval_t&& sval);
+
     rom_array_ht m_rom_array = {};
 };
 

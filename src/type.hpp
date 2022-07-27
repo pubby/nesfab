@@ -150,65 +150,18 @@ inline type_t type_t::elem_type() const
     return tea_thunk().elem_type;
 }
 
-/* TODO: remove
-inline bool operator==(type_t lhs, type_name_t rhs)
-    { return (lhs.name() == rhs && lhs.size() == 0); }
-inline bool operator==(type_name_t lhs, type_t rhs)
-    { return operator==(rhs, lhs); }
-
-inline bool operator!=(type_t lhs, type_name_t rhs)
-    { return !operator==(lhs, rhs); }
-inline bool operator!=(type_name_t lhs, type_t rhs)
-    { return !operator==(lhs, rhs); }
-
-// TODO: remove these
-constexpr bool is_arithmetic(type_t type)
-    { return type.size() == 0 && is_arithmetic(type.name()); }
-
-constexpr bool is_numeric(type_t type)
-    { return type.size() == 0 && is_numeric(type.name()); }
-
-constexpr bool is_ptr(type_t type)
-    { return is_ptr(type.name()); }
-
-inline type_name_t promote_arithmetic(type_name_t a, type_name_t b)
-{
-    assert(false);
-    return TYPE_VOID; // TODO
-    //assert(is_arithmetic(a));
-    //assert(is_arithmetic(b));
-
-    //return TYPE_arithmetic(std::max(whole_bytes(a), whole_bytes(b)), 
-                           //std::max(frac_bytes(a), frac_bytes(b)));
-}
-constexpr bool valid_array_member(type_t type)
-{
-    return type.name() == TYPE_STRUCT || is_numeric(type);
-}
-
-    */
-
-/* TODO
-constexpr bool valid_struct_member(type_t type)
-{
-    return type.name() == TYPE_STRUCT || is_numeric(type);
-}
-*/
-
-//type_name_t smallest_representable(struct fixed_t fixed);
-
 std::string to_string(type_t type);
 std::ostream& operator<<(std::ostream& ostr, type_t const& type);
 
 bool is_ct(type_t type);
 
-// unsigned calc_num_members(type_t type); // TODO: remove?
 unsigned num_members(type_t type);
 unsigned num_atoms(type_t type, unsigned member);
 unsigned num_offsets(type_t type);
 
-unsigned member_index(type_t const& type, unsigned i);
-type_t member_type(type_t const& type, unsigned i);
+unsigned member_offset(type_t type, unsigned member);
+unsigned member_index(type_t const& type, unsigned member);
+type_t member_type(type_t const& type, unsigned member);
 type_t strip_array(type_t const& type);
 bool has_tea(type_t const& type);
 
@@ -231,12 +184,5 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit);
 // If 'full' is true, the type will be fully stripped of thunks.
 // Otherwise, only thunks necessary for counting members will be changed.
 type_t dethunkify(src_type_t src_type, bool full, eval_t* env = nullptr);
-
-/* TODO
-type_t arg_struct(type_t fn_type);
-std::size_t struct_size(type_t type);
-type_t struct_index(type_t type, unsigned i);
-void struct_fill(type_t type, type_t* vec);
-*/
 
 #endif

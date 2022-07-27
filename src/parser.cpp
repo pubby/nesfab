@@ -104,6 +104,38 @@ void parser_t<P>::parse_block(int const parent_indent, Func func)
 }
 
 template<typename P>
+template<typename HGV, typename HI>
+void parser_t<P>::parse_using_mods(int base_indent, 
+    HGV const& handle_group_vars, HI const& handle_ident)
+{
+    while(token.type == TOK_using && indent == base_indent)
+    {
+        parse_token();
+        switch(token.type)
+        {
+        case TOK_vars:
+            parse_token();
+            while(token.type == TOK_fslash)
+            {
+                pstring_t const pstring = parse_group_ident();
+                if(!handle_group_vars(pstring))
+                    ::compiler_error(pstring, "Invalid modifier in this context.");
+            }
+            break;
+        default:
+            if(token.type == TOK_ident)
+            {
+                pstring_t const pstring = parse_ident();
+                if(!handle_ident(pstring))
+                    ::compiler_error(pstring, "Invalid modifier in this context.");
+            }
+            break;
+        }
+        parse_line_ending();
+    }
+}
+
+template<typename P>
 void parser_t<P>::expect_token(token_type_t expecting) const
 {
     if(token.type != expecting)
@@ -964,9 +996,19 @@ void parser_t<P>::parse_mode()
     bc::small_vector<var_decl_t, 8> params;
     parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
 
-    // Parse the body of the function
     var_decl_t state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
     parse_line_ending();
+
+    // Parse the using mods
+    parse_using_mods(mode_indent,
+        [this](pstring_t group) -> bool
+        {
+            std::puts("MOD!");
+            // TODO
+            return true;
+        });
+
+    // Parse the body of the function
     parse_block_statement(mode_indent);
     policy().end_mode(std::move(state));
 }
@@ -1195,7 +1237,7 @@ void parser_t<P>::parse_goto()
 
         // Then parse groups:
         bc::small_vector<group_ht, 16> groups;
-        pstring_t group_pstring = token.pstring;
+        pstring_t group_pstring = token.pstring; // TODO
         parse_token(TOK_lparen);
         while(true)
         {

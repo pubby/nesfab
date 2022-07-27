@@ -10,6 +10,7 @@
 #include "group.hpp"
 #include "rom_array.hpp"
 #include "eternal_new.hpp"
+#include "span_allocator.hpp"
 
 namespace // anonymous
 { 

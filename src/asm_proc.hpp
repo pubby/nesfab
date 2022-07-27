@@ -38,7 +38,8 @@ struct asm_proc_t
     void push_inst(op_t op, locator_t arg = {}) { assert(op); push_inst({ .op = op, .arg = arg }); }
     void push_inst(op_name_t op_name) { push_inst(get_op(op_name, MODE_IMPLIED)); }
     void push_inst(op_name_t op_name, std::uint8_t i) { push_inst(get_op(op_name, MODE_IMMEDIATE), locator_t::const_byte(i)); }
-    locator_t push_label(unsigned id) { auto l = locator_t::minor_label(id); push_inst(ASM_LABEL, l); return l; }
+    locator_t push_label(unsigned id) { auto l = make_label(id); push_inst(ASM_LABEL, l); return l; }
+    locator_t make_label(unsigned id) const { return locator_t::minor_label(id); }
 
     void initial_optimize();
 
@@ -50,7 +51,7 @@ struct asm_proc_t
 
     std::size_t size() const { return bytes_between(0, code.size()); }
 
-    void write_assembly(std::ostream& os, fn_t const& fn) const;
+    void write_assembly(std::ostream& os, fn_ht fn = {}) const;
     void write_bytes(std::uint8_t* const start, int bank) const;
 
     // Replaces some locators with linked ones, then optimizes.

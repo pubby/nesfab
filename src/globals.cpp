@@ -859,7 +859,8 @@ void global_datum_t::compile()
              compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.data.size(), m_src_type.type));
 
         m_src_type.type.set_array_length(paa.data.size());
-        m_rom_array = lookup_rom_array({}, group(), std::move(paa));
+        paa_init(std::move(paa));
+        //m_rom_array = lookup_rom_array({}, group(), std::move(paa));
 
         // TODO : remove?
         //m_sval = { m_paa };
@@ -867,8 +868,8 @@ void global_datum_t::compile()
     else
     {
         spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
-        m_sval = std::move(spair.value);
         m_src_type.type = std::move(spair.type); // Handles unsized arrays
+        sval_init(std::move(spair.value));
     }
 }
 
@@ -877,6 +878,19 @@ void global_datum_t::compile()
 ////////////
 
 group_ht gvar_t::group() const { return group_vars->group.handle(); }
+
+void gvar_t::paa_init(rom_array_t&& paa)
+{
+    m_init_data = std::move(paa.data);
+}
+
+void gvar_t::sval_init(sval_t&& sval)
+{
+    m_sval = std::move(sval);
+
+    m_init_data.clear();
+    append_locator_bytes(m_init_data, m_sval, m_src_type.type, global.pstring());
+}
 
 void gvar_t::set_gmember_range(gmember_ht begin, gmember_ht end)
 {
@@ -908,11 +922,63 @@ void gmember_t::alloc_spans()
     m_spans.resize(num_atoms(type(), 0));
 }
 
+locator_t const* gmember_t::init_data(unsigned atom) const
+{
+    unsigned const size = init_size();
+
+    if(is_ptr(type().name()))
+    {
+        assert(atom <= 1);
+        assert(size == 2);
+        atom = 0;
+    }
+
+    unsigned const offset = ::member_offset(gvar.type(), member());
+    return gvar.init_data().data() + offset + (atom * size);
+}
+
+std::size_t gmember_t::init_size() const
+{
+    if(is_ptr(type().name()))
+    {
+        assert(!is_banked_ptr(type().name()));
+        return 2;
+    }
+    return ::num_offsets(type());
+}
+
+bool gmember_t::zero_init(unsigned atom) const
+{
+    if(!gvar.init_expr)
+        return false;
+
+    std::size_t const size = init_size();
+    locator_t const* data = init_data(atom);
+
+    for(unsigned i = 0; i < size; ++i)
+        if(!data[i].eq_const(0))
+            return false;
+
+    return true;
+
+}
+
 /////////////
 // const_t //
 /////////////
 
 group_ht const_t::group() const { return group_data->group.handle(); }
+
+void const_t::paa_init(rom_array_t&& paa)
+{
+    m_rom_array = lookup_rom_array({}, group(), std::move(paa));
+    assert(m_rom_array);
+}
+
+void const_t::sval_init(sval_t&& sval)
+{
+    m_sval = std::move(sval);
+}
 
 //////////////
 // struct_t //
@@ -965,6 +1031,8 @@ void struct_t::compile()
 // Builds 'm_member_types', sets 'm_has_array_member', and dethunkifies the struct.
 void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
 {
+    std::uint16_t offset = 0;
+    
     for(unsigned i = 0; i < fields().size(); ++i)
     {
         type_t type = s.field(i).type();
@@ -989,11 +1057,14 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
 
             if(tea_size)
             {
-                m_member_types.push_back(type_t::tea(type, tea_size));
+                type = type_t::tea(type, tea_size);
                 m_has_tea_member = true;
             }
-            else
-                m_member_types.push_back(type);
+
+            m_member_types.push_back(type);
+            m_member_offsets.push_back(offset);
+
+            offset += type.size_of();
         }
     }
 }

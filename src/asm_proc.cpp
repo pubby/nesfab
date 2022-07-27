@@ -42,12 +42,16 @@ void asm_proc_t::absolute_to_zp()
         case MODE_ABSOLUTE:
             inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE); 
             break;
+
+        // These are *generally* safe, but aren't if arrays can start in ZP but end outside of it.
+        // TODO: Better specify this by possibly adding new pseudo asm ops.
         case MODE_ABSOLUTE_X:
             inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE_X); 
             break;
         case MODE_ABSOLUTE_Y: 
             inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE_Y); 
             break;
+
         default: 
             continue;
         }
@@ -173,7 +177,7 @@ void asm_proc_t::optimize(bool initial)
 {
     // Order matters here.
     absolute_to_zp();
-    optimize_short_jumps(true);
+    optimize_short_jumps(initial);
     convert_long_branch_ops();
 }
 
@@ -194,9 +198,10 @@ int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
     return bytes;
 }
 
-void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
+void asm_proc_t::write_assembly(std::ostream& os, fn_ht fn) const
 {
-    os << fn.global.name << ":\n";
+    if(fn)
+        os << fn->global.name << ":\n";
     for(unsigned i = 0; i < code.size(); ++i)
     {
         asm_inst_t const& inst = code[i];
@@ -230,7 +235,9 @@ void asm_proc_t::write_assembly(std::ostream& os, fn_t const& fn) const
         case LOC_RETURN:
         case LOC_PHI:
         case LOC_SSA:
-            os << "lvar " << fn.lvar_span(fn.lvars().index(inst.arg)) << "   " << inst.arg;
+            if(!fn)
+                throw std::runtime_error("Unable to write assembly. Missing function.");
+            os << "lvar " << fn->lvar_span(fn->lvars().index(inst.arg)) << "   " << inst.arg;
             break;
 
         case LOC_NONE:

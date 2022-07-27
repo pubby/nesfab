@@ -71,7 +71,7 @@ locator_t static_locator(static_rom_name_t name, std::uint16_t offset)
     return locator_t::addr(static_span(name).addr, offset);
 }
 
-void alloc_static_ram()
+ram_bitset_t alloc_static_ram()
 {
     static_ram_allocator_t a;
 
@@ -90,6 +90,12 @@ void alloc_static_ram()
     _sram_spans[SRAM_mapper_state] = a.alloc_zp(state_size(mapper().type));
 
     _sram_spans[SRAM_oam] = a.alloc_non_zp(256, 256);
+
+    ram_bitset_t ret = stack_bitset;
+    for(span_t span : _sram_spans)
+        ret |= ram_bitset_t::filled(span.size, span.addr);
+
+    return ret;
 }
 
 static void _push_addr(std::vector<locator_t>& vec, locator_t addr)

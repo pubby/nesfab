@@ -71,4 +71,7 @@ struct std::hash<ct_pair_t>
     }
 };
 
+// Appends 'sval' onto 'vec'
+void append_locator_bytes(std::vector<locator_t>& vec, sval_t const& sval, type_t type, pstring_t pstring);
+
 #endif

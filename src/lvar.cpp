@@ -43,6 +43,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
         m_this_lvar_info[index].ptr_alt = ptr_alt;
     };
 
+    // Add 'this_lvar's
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(asm_inst_t const& inst : cg_data(cfg_it).code)
     {
@@ -50,7 +51,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
         if(is_this_lvar(fn, inst.arg))
             arg_index = insert_this_lvar(inst.arg);
 
-        if(inst.ptr_hi)
+        if(inst.ptr_hi && is_this_lvar(fn, inst.ptr_hi))
         {
             int const ptr_hi_index = insert_this_lvar(inst.ptr_hi);
             assert(arg_index != ptr_hi_index);
@@ -65,6 +66,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
     m_num_this_lvars = m_map.size();
     assert(m_this_lvar_info.size() == m_map.size());
 
+    // Add 'call_lvar's
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(asm_inst_t const& inst : cg_data(cfg_it).code)
     {
@@ -74,6 +76,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
 
     m_num_lvars = m_map.size();
 
+    // Add other locators
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(asm_inst_t const& inst : cg_data(cfg_it).code)
         if(is_tracked_non_lvar(fn, inst.arg))

@@ -137,12 +137,11 @@ void byteify(ir_t& ir, fn_t const& fn)
         cfg_node_t& cfg_node = *cfg_it;
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
         {
-            ssa_node_t& ssa_node = *ssa_it;
-            ssa_node.clear_flags(FLAG_PROCESSED); // For '_split_cast'.
+            ssa_it->clear_flags(FLAG_PROCESSED); // For '_split_cast'.
 
-            type_t const type = _bm_type(ssa_node.type());
+            type_t const type = _bm_type(ssa_it->type());
 
-            if(ssa_node.op() == SSA_cast)
+            if(ssa_it->op() == SSA_cast)
             {
                 // Casts will just forward their input(s) to their output(s),
                 // and will be removed entirely.
@@ -153,7 +152,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 continue;
             }
 
-            if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_PTR)
+            if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
             {
                 // Pointer accesses may create 'SSA_make_ptr' nodes.
                 if(ssa_it->input(0).holds_ref())
@@ -168,7 +167,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 continue;
             }
 
-            if(is_make_ptr(ssa_node.op()))
+            if(is_make_ptr(ssa_it->op()))
                 continue;
 
             if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
@@ -189,14 +188,13 @@ void byteify(ir_t& ir, fn_t const& fn)
             SSA_VERSION(1);
 
             type_t split_type = TYPE_U;
-            if(ssa_node.type().name() == TYPE_TEA)
-                split_type = type_t::tea(TYPE_U, ssa_node.type().size());
+            if(ssa_it->type().name() == TYPE_TEA)
+                split_type = type_t::tea(TYPE_U, ssa_it->type().size());
 
             bm_t bm = zero_bm;
             unsigned const end = end_byte(type.name());
             for(unsigned i = begin_byte(type.name()); i < end; ++i)
-                bm[i] = cfg_node.emplace_ssa(ssa_node.op(), split_type);
-            // !!IMPORTANT: 'ssa_node' is invalidated after this!!
+                bm[i] = cfg_node.emplace_ssa(ssa_it->op(), split_type);
 
             // We created nodes, so we have to resize:
             ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());

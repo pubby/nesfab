@@ -55,8 +55,9 @@ enum locator_class_t : std::uint8_t
 
     LOC_ROM_ARRAY,
 
+    LOC_LT_GMEMBER_PTR,
+    FIRST_LOC_LT = LOC_LT_GMEMBER_PTR,
     LOC_LT_CONST_PTR,
-    FIRST_LOC_LT = LOC_LT_CONST_PTR,
     LOC_LT_CONST_PTR_BANK,
     LOC_LT_EXPR, // link-time expression
     LAST_LOC_LT = LOC_LT_EXPR,
@@ -89,6 +90,7 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_SSA:
+    case LOC_LT_GMEMBER_PTR:
     case LOC_LT_CONST_PTR:
     case LOC_LT_CONST_PTR_BANK:
     case LOC_LT_EXPR:
@@ -245,7 +247,7 @@ public:
 
     gmember_ht gmember() const 
     { 
-        assert(lclass() == LOC_GMEMBER);
+        assert(lclass() == LOC_GMEMBER || lclass() == LOC_LT_GMEMBER_PTR);
         return { handle() }; 
     }
 
@@ -368,6 +370,9 @@ public:
 
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_MINOR_VAR, fn.value, id, 0); }
+
+    constexpr static locator_t lt_gmember_ptr(gmember_ht m, std::uint16_t offset=0)
+        { return locator_t(LOC_LT_GMEMBER_PTR, m.value, 0, 0, 0, offset); }
 
     constexpr static locator_t lt_const_ptr(const_ht c, std::uint16_t offset=0)
         { return locator_t(LOC_LT_CONST_PTR, c.value, 0, 0, 0, offset); }

@@ -15,6 +15,7 @@ enum compiler_phase_t
     PHASE_ORDER_GLOBALS,
     PHASE_COMPILE, // threaded
     PHASE_ALLOC_RAM,
+    PHASE_INITIAL_VALUES,
     PHASE_ALLOC_ROM,
     PHASE_LINK,
 };

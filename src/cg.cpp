@@ -959,9 +959,23 @@ void code_gen(ir_t& ir, fn_t& fn)
 
     // Coalesce indirect pointers
 
-    auto const valid_ptr_loc = [&](locator_t loc) -> bool
+    auto const valid_ptr_loc = [&](locator_t loc, bool hi) -> bool
     {
-        return !loc || lvars_manager_t::is_this_lvar(fn.handle(), loc);
+        return (!loc 
+                || lvars_manager_t::is_this_lvar(fn.handle(), loc)
+                || (loc.lclass() == LOC_GMEMBER 
+                    && is_ptr(loc.gmember()->type().name())
+                    && loc.atom() == hi
+                    && loc.offset() == 0));
+    };
+
+    auto const valid_ptr_locs = [&](locator_t a, locator_t b) -> bool
+    {
+        if((a.lclass() == LOC_GMEMBER) != (b.lclass() == LOC_GMEMBER))
+            return false;
+        if(a.lclass() == LOC_GMEMBER)
+            return a.gmember() == b.gmember();
+        return true;
     };
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -976,9 +990,10 @@ void code_gen(ir_t& ir, fn_t& fn)
             continue;
 
         ssa_ht const head_input = cset_head(ssa_it->input(1).handle());
+        locator_t const head_input_loc = cset_locator(head_input);
 
         // Can't coalesce with every locator:
-        if(!valid_ptr_loc(cset_locator(head_input)))
+        if(!valid_ptr_loc(head_input_loc, hi))
             continue;
 
         if(!ssa_it->input(0).holds_ref())
@@ -988,32 +1003,44 @@ void code_gen(ir_t& ir, fn_t& fn)
             continue;
         }
 
+        std::cout << "try coal ptr " << ssa_it.index << std::endl;
+
         assert(cg_data(ssa_it).ptr_alt);
 
-        ssa_ht const head_opposite = cset_head(ssa_it->input(1).handle());
+        ssa_ht const head_opposite = cset_head(ssa_it->input(0).handle());
+        locator_t const head_opposite_loc = cset_locator(head_opposite);
 
         // Can't coalesce with every locator:
-        if(!valid_ptr_loc(cset_locator(head_opposite)))
+        if(!valid_ptr_loc(head_opposite_loc, !hi))
             continue;
+
+        if(!valid_ptr_locs(head_input_loc, head_opposite_loc))
+            continue;
+
+        std::puts("coal ptr 1");
 
         // If either is defined with the opposite parity, we can't coalesce.
         if(cg_data(head_opposite).has_ptr(hi) || cg_data(head_input).has_ptr(!hi))
             continue;
 
+        std::puts("coal ptr 2");
+
         ssa_ht const head_ssa = cset_head(ssa_it);
         assert(cg_data(head_ssa).ptr_alt);
         assert(cg_data(head_ssa).is_ptr_hi == hi);
-        assert(valid_ptr_loc(cset_locator(head_ssa)));
+        assert(valid_ptr_loc(cset_locator(head_ssa), hi));
 
         // First, make sure we can coalesce the ssa node with its relevant input.
         ssa_ht const last = csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes);
         if(!last) // If they interfere
             continue;
 
+        std::puts("coal ptr 3");
+
         ssa_ht const head_ssa_alt = cset_head(cg_data(head_ssa).ptr_alt);
         assert(cg_data(head_ssa_alt).ptr_alt);
         assert(cg_data(head_ssa_alt).is_ptr_hi == !hi);
-        assert(valid_ptr_loc(cset_locator(head_ssa_alt)));
+        assert(valid_ptr_loc(cset_locator(head_ssa_alt), !hi));
 
         // Second, make sure both inputs are not part of separate pointers
         // by checking that their alts can be coalesced.
@@ -1025,6 +1052,8 @@ void code_gen(ir_t& ir, fn_t& fn)
             else
                 continue;
         }
+
+        std::puts("coal ptr 4");
 
         // Coalesce the main input.
         assert(csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes));

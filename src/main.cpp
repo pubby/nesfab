@@ -104,7 +104,7 @@ int main(int argc, char** argv)
         output_time("init:     ");
 
         set_compiler_phase(PHASE_STD);
-        alloc_static_ram();
+        auto static_used_ram = alloc_static_ram();
         auto rom_allocator = alloc_static_rom();
 
         output_time("std:      ");
@@ -130,6 +130,7 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_PARSE_CLEANUP);
         get_main_entry(); // This throws an error if 'main' isn't proper.
         global_t::parse_cleanup();
+        group_t::parse_cleanup();
         output_time("parse:    ");
 
         // Count and arrange struct members:
@@ -146,8 +147,15 @@ int main(int argc, char** argv)
         output_time("compile:  ");
 
         set_compiler_phase(PHASE_ALLOC_RAM);
-        global_t::alloc_ram();
+        alloc_ram(static_used_ram);
+        // TODO: remove
+        for(fn_t const& fn : impl_deque<fn_t>)
+            fn.proc().write_assembly(std::cout, fn);
         output_time("alloc ram:");
+
+        set_compiler_phase(PHASE_INITIAL_VALUES);
+        //global_t::TODO
+        output_time("init vals:");
 
         set_compiler_phase(PHASE_ALLOC_ROM);
         alloc_rom(rom_allocator, mapper().num_32k_banks);
@@ -173,6 +181,7 @@ int main(int argc, char** argv)
             //globals.debug_print();
             //globals.finish();
         //}
+        print_ram(std::cout);
     }
 #ifdef NDEBUG // In debug mode, we get better stack traces without catching.
     catch(std::exception& e)
@@ -184,5 +193,4 @@ int main(int argc, char** argv)
 
     return EXIT_SUCCESS;
 }
-
 

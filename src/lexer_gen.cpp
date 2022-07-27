@@ -710,6 +710,8 @@ int main()
             accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
             accept("PP", "PP type", word("PP")),
             accept("PPP", "PPP type", word("PPP")),
+            accept("MM", "MM type", word("MM")),
+            accept("MMM", "MMM type", word("MMM")),
             accept("Int", "Int type", word("Int")),
             accept("Real", "Real type", word("Real")),
             accept("Bool", "Bool type", word("Bool")), // Last type
@@ -727,6 +729,7 @@ int main()
             accept("push_paa", "push paa", eof()),
             accept("begin_paa", "begin paa", eof()),
             accept("end_paa", "end paa", eof()),
+            accept("group_set", "group set", eof()),
             accept("spair", "spair", eof())
             ),
         nfa_nodes);

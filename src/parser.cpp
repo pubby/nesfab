@@ -642,8 +642,11 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
 
     case TOK_PPP:
     case TOK_PP:
+    case TOK_MMM:
+    case TOK_MM:
         {
-            bool const banked = token.type == TOK_PPP;
+            bool const muta = token.type == TOK_MMM || token.type == TOK_MM;
+            bool const banked = token.type == TOK_PPP || token.type == TOK_MMM;
             parse_token();
             
             bc::small_vector<group_ht, 8> groups;
@@ -651,7 +654,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             while(token.type == TOK_fslash)
                 groups.push_back(group_t::lookup(source(), parse_group_ident()).handle());
 
-            result.type = type_t::ptr(&*groups.begin(), &*groups.end(), banked);
+            result.type = type_t::ptr(&*groups.begin(), &*groups.end(), muta, banked);
             break;
         }
 
@@ -875,10 +878,8 @@ void parser_t<P>::parse_group_vars()
         policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
-        if(parse_var_init(var_decl, expr, true, group.first->group.handle()))
-            compiler_error(var_decl.name, "Variables in vars block cannot have an initial value.");
-        else
-            policy().global_var(group, var_decl, nullptr);
+        bool const has_expr = parse_var_init(var_decl, expr, true, group.first->group.handle());
+        policy().global_var(group, var_decl, has_expr ? &expr : nullptr);
     });
 
     policy().end_group();
@@ -1191,6 +1192,27 @@ void parser_t<P>::parse_goto()
         char const* end = token_source;
         pstring_t pstring = { begin - source(), end - begin, file_i() };
         expr_temp.push_back({ TOK_apply, pstring, argument_count });
+
+        // Then parse groups:
+        bc::small_vector<group_ht, 16> groups;
+        pstring_t group_pstring = token.pstring;
+        parse_token(TOK_lparen);
+        while(true)
+        {
+            while(token.type == TOK_eol)
+                parse_line_ending();
+
+            if(token.type == TOK_rparen)
+                break;
+
+            pstring_t group_pstring = concat(group_pstring, token.pstring);
+            groups.push_back(group_t::lookup(source(), parse_group_ident()).handle());
+        }
+        parse_token(TOK_rparen);
+
+        // TODO
+        //type_t const group_set = type_t::group_set(&*groups.begin(), &*groups.end());
+        //expr_temp.push_back(token_t::make_ptr(TOK_group_set, group_pstring, eternal_emplace<type_t>(group_set)));
 
         policy().goto_mode_statement(mode, expr_temp);
     }

@@ -83,11 +83,12 @@ public:
     static type_t tea(type_t elem_type, unsigned size);
     static type_t tea(type_t elem_type, std::int64_t size, pstring_t);
     static type_t tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens);
-    static type_t ptr(group_ht group, bool banked);
-    static type_t ptr(group_ht const* begin, group_ht const* end, bool banked);
+    static type_t ptr(group_ht group, bool muta, bool banked);
+    static type_t ptr(group_ht const* begin, group_ht const* end, bool muta, bool banked);
     static type_t fn(type_t* begin, type_t* end);
     static type_t struct_thunk(global_t const& global);
     static type_t struct_(struct_t const& s);
+    static type_t group_set(group_ht const* begin, group_ht const* end);
 
     type_t set_banked(bool banked) const;
 
@@ -203,8 +204,8 @@ bool is_ct(type_t type);
 
 // unsigned calc_num_members(type_t type); // TODO: remove?
 unsigned num_members(type_t type);
-unsigned num_atoms(type_t type);
-unsigned num_offsets(type_t type, unsigned atom);
+unsigned num_atoms(type_t type, unsigned member);
+unsigned num_offsets(type_t type);
 
 unsigned member_index(type_t const& type, unsigned i);
 type_t member_type(type_t const& type, unsigned i);

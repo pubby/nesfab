@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 
+#include "ram.hpp"
 #include "rom.hpp"
 #include "span.hpp"
 #include "span_allocator.hpp"
@@ -38,7 +39,7 @@ enum static_rom_name_t : std::uint16_t
     NUM_SROM,
 };
 
-void alloc_static_ram();
+ram_bitset_t alloc_static_ram();
 span_allocator_t alloc_static_rom();
 
 std::array<span_t, NUM_SRAM> const& sram_spans();

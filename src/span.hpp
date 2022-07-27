@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <ostream>
+#include <vector>
 
 // Spans are intrevals representing memory regions.
 

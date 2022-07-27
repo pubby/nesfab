@@ -456,7 +456,7 @@ void cfg_node_t::link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn)
 inline ssa_value_t orig_def(ssa_value_t v)
 {
     if(v.holds_ref() && ssa_flags(v->op()) & SSAF_COPY)
-        return orig_def(v->input(0));
+        return orig_def(v->input(ssa_copy_input(v->op())));
     return v;
 }
 

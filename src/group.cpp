@@ -93,3 +93,11 @@ std::pair<group_data_t*, group_data_ht> group_t::define_data(pstring_t pstring, 
 
     return std::make_pair(ptr ? ptr : &h.safe(), h);
 }
+
+void group_t::parse_cleanup()
+{
+    assert(compiler_phase() > PHASE_PARSE);
+    for(group_t const& group : impl_deque<group_t>)
+        if(group.gclass() == GROUP_UNDEFINED)
+            compiler_error(group.pstring(), "Group name not in scope.");
+}

@@ -1156,13 +1156,12 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         {
             global_t const* global = token->ptr<global_t>();
 
-            if(global->gclass() != GLOBAL_CONST)
-                compiler_error(token->pstring, "Cannot get address.");
-
-            const_t const& c = global->impl<const_t>();
-
-            if(c.is_paa)
+            if(global->gclass() == GLOBAL_CONST)
             {
+                const_t const& c = global->impl<const_t>();
+                if(!c.is_paa)
+                    compiler_error(token->pstring, "Cannot get address.");
+
                 bool const banked = c.group_data->once;
 
                 sval_t sval = make_sval(locator_t::lt_const_ptr(c.handle()));
@@ -1174,13 +1173,35 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 {
                     .sval = std::move(sval),
                     .category = RVAL, 
-                    .type = type_t::ptr(c.group(), banked),
+                    .type = type_t::ptr(c.group(), false, banked),
                     .pstring = token->pstring,
                 };
                 rpn_stack.push(std::move(new_top));
             }
+            else if(global->gclass() == GLOBAL_VAR)
+            {
+                gvar_t const& v = global->impl<gvar_t>();
+                if(!v.is_paa)
+                    compiler_error(token->pstring, "Cannot get address.");
+
+                assert(v.begin_gmember() != v.end_gmember());
+
+                // Convert to a pointer.
+                rpn_value_t new_top =
+                {
+                    .sval = make_sval(locator_t::lt_gmember_ptr(v.begin_gmember())),
+                    .category = RVAL, 
+                    .type = type_t::ptr(v.group(), true, false),
+                    .pstring = token->pstring,
+                };
+                assert(is_mptr(new_top.type.name()));
+                rpn_stack.push(std::move(new_top));
+
+            }
             else
                 compiler_error(token->pstring, "Cannot get address.");
+
+
         }
         break;
 
@@ -1378,6 +1399,14 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 std::size_t const gmember_bs_size = gmanager_t::bitset_size();
                 bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
 
+                // TODO
+
+                //if(call->fclass == FN_MODE)
+                //{
+                    // Insert calls to reset memory 
+                    //assert(0);
+                //}
+
                 // Prepare global inputs:
 
                 if(is_idep)
@@ -1567,93 +1596,8 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
     case TOK_push_paa:
         {
-            assert(rpn_stack.size() == 1);
-            rpn_value_t const& rpn = rpn_stack.only1();
-            std::size_t const total_size_of = rpn.type.size_of();
-
-            if(total_size_of == 0)
-                compiler_error(rpn.pstring, "Invalid type in pointer-addressable array.");
-
-            paa.reserve(paa.size() + total_size_of);
-
-            assert(rpn.sval.size());
-            for(unsigned i = 0; i < rpn.sval.size(); ++i)
-            {
-                type_t const mt = ::member_type(rpn.type, i);
-
-                if(!is_scalar(mt.name()))
-                    compiler_error(rpn.pstring, "Invalid type in pointer-addressable array.");
-
-                auto const push_bytes = [&](ssa_value_t v, type_t type)
-                {
-                    assert(type == v.type());
-
-                    if(!is_scalar(type.name()))
-                        compiler_error(rpn.pstring, "Invalid type in pointer-addressable array.");
-
-                    unsigned const size_of = type.size_of();
-                    assert(size_of);
-                    unsigned const frac_shift = max_frac_bytes - frac_bytes(type.name());
-
-                    if(v.is_num())
-                    {
-                        for(unsigned i = 0; i < size_of; ++i)
-                            paa.push_back(locator_t::const_byte(v.fixed().value >> ((i + frac_shift) * 8)));
-                    }
-                    else if(v.is_locator())
-                    {
-                        locator_t const loc = v.locator();
-
-                        if(loc.byteified())
-                            paa.push_back(loc);
-
-                        type_t const mt = ::member_type(type, loc.maybe_member());
-                        unsigned const num_atoms = ::num_atoms(mt);
-                        assert(num_atoms);
-                        for(unsigned j = 0; j < num_atoms; ++j)
-                        {
-                            unsigned const num_offsets = ::num_offsets(type, j);
-                            assert(num_offsets);
-                            for(unsigned k = 0; k < num_offsets; ++k)
-                            {
-                                locator_t loc = v.locator();
-                                
-                                if(!loc.byteified())
-                                {
-                                    assert(loc.atom() == 0);
-                                    assert(loc.offset() == 0);
-
-                                    loc.set_byteified(true);
-                                    if(has_arg_member_atom(loc.lclass()))
-                                        loc.set_atom(j);
-                                    loc.set_offset(k);
-                                }
-
-                                paa.push_back(loc);
-                            }
-                        }
-                    }
-                    else
-                        compiler_error(rpn.pstring, "Invalid value in pointer-addressable array.");
-                };
-
-                // Convert the scalar into bytes.
-                ct_variant_t const& v = rpn.sval[i];
-
-                if(ssa_value_t const* value = std::get_if<ssa_value_t>(&v))
-                    push_bytes(*value, mt);
-                else if(ct_array_t const* array = std::get_if<ct_array_t>(&v))
-                {
-                    type_t const elem_type = mt.elem_type();
-                    unsigned const length = mt.array_length();
-                    for(unsigned i = 0; i < length; ++i)
-                        push_bytes((*array)[i], elem_type);
-                }
-                else if(expr_vec_t const* vec = std::get_if<expr_vec_t>(&v))
-                    push_bytes(locator_t::lt_expr(alloc_lt_value(mt, *vec)), mt);
-            }
-
-            assert(rpn_stack.size() == 1);
+            rpn_value_t const& v = rpn_stack.only1();
+            ::append_locator_bytes(paa, v.sval, v.type, v.pstring);
             rpn_stack.pop(1);
         }
         break;
@@ -1818,6 +1762,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             rpn_value_t& array_val = rpn_stack.peek(1);
 
             bool const is_ptr = ::is_ptr(array_val.type.name());
+            bool const is_mptr = ::is_mptr(array_val.type.name());
 
             if(array_val.type.name() != TYPE_TEA && !is_ptr)
             {
@@ -1886,7 +1831,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             if(is_ptr)
             {
                 array_val.type = TYPE_U;
-                array_val.category = LVAL_PTR;
+                array_val.category = is_mptr ? LVAL_PTR : RVAL;
             }
             else
             {

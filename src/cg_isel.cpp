@@ -417,7 +417,6 @@ namespace isel
             cpu.req_store |= cg_data(def.handle()).isel.store_mask;
         }
 
-        std::printf("req penalty %i\n", cost_fn<STA_ABSOLUTE> * new_stores);
         return cost_fn<STA_ABSOLUTE> * new_stores;
     }
 
@@ -2217,6 +2216,9 @@ namespace isel
             break;
 
         case SSA_goto_mode:
+            // TODO: Insert code to reset variables
+            //assert(0);
+
             p_arg<0>::set(h->input(0));
             chain
             < exact_op<Opt, JMP_ABSOLUTE, null_, p_arg<0>>

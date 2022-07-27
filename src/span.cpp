@@ -1,5 +1,6 @@
 #include "span.hpp"
 
+#include <algorithm>
 #include <cassert>
 
 std::ostream& operator<<(std::ostream& o, span_t span)
@@ -32,3 +33,4 @@ span_t aligned_reverse(span_t span, std::uint16_t size, std::uint16_t alignment)
     span_t const ret = { .addr = addr - sub, .size = size };
     return span.contains(ret) ? ret : span_t{};
 }
+

@@ -459,15 +459,6 @@ void global_t::compile_all()
     */
 }
 
-void global_t::alloc_ram()
-{
-    ::alloc_ram();
-
-    // TODO: remove
-    for(fn_t const& fn : impl_deque<fn_t>)
-        fn.proc().write_assembly(std::cout, fn);
-}
-
 //////////
 // fn_t //
 ///////////
@@ -840,9 +831,52 @@ void fn_t::for_each_param_member(bool atoms, std::function<void(type_t, locator_
 }
 */
 
+////////////////////
+// global_datum_t //
+////////////////////
+
+void global_datum_t::dethunkify(bool full)
+{
+    assert(compiler_phase() == PHASE_COMPILE || compiler_phase() == PHASE_COUNT_MEMBERS);
+    m_src_type.type = ::dethunkify(m_src_type, full);
+}
+
+void global_datum_t::compile()
+{
+    assert(compiler_phase() == PHASE_COMPILE);
+
+    dethunkify(true);
+
+    if(!init_expr)
+        return;
+
+    if(m_src_type.type.name() == TYPE_PAA)
+    {
+        rom_array_t paa = { interpret_paa(global.pstring(), init_expr) };
+
+        unsigned const def_length = m_src_type.type.array_length();
+        if(def_length && def_length != paa.data.size())
+             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.data.size(), m_src_type.type));
+
+        m_src_type.type.set_array_length(paa.data.size());
+        m_rom_array = lookup_rom_array({}, group(), std::move(paa));
+
+        // TODO : remove?
+        //m_sval = { m_paa };
+    }
+    else
+    {
+        spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
+        m_sval = std::move(spair.value);
+        m_src_type.type = std::move(spair.type); // Handles unsized arrays
+    }
+}
+
 ////////////
 // gvar_t //
 ////////////
+
+group_ht gvar_t::group() const { return group_vars->group.handle(); }
 
 void gvar_t::set_gmember_range(gmember_ht begin, gmember_ht end)
 {
@@ -851,34 +885,13 @@ void gvar_t::set_gmember_range(gmember_ht begin, gmember_ht end)
     m_end_gmember = end;
 }
 
-void gvar_t::dethunkify(bool full)
-{
-    assert(compiler_phase() == PHASE_COMPILE || compiler_phase() == PHASE_COUNT_MEMBERS);
-    m_src_type.type = ::dethunkify(m_src_type, full);
-}
-
-void gvar_t::compile()
-{
-    assert(compiler_phase() == PHASE_COMPILE);
-
-    dethunkify(true);
-
-    if(init_expr)
-    {
-        assert(!is_paa(m_src_type.type.name()));
-        spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
-        m_sval = std::move(spair.value);
-        m_src_type.type = std::move(spair.type); // Handles unsized arrays
-    }
-}
-
 void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
 {
     assert(compiler_phase() > PHASE_COMPILE);
 
     for(gmember_ht h = begin_gmember(); h != end_gmember(); ++h)
     {
-        unsigned const num = num_atoms(h->type());
+        unsigned const num = num_atoms(h->type(), 0);
         for(unsigned atom = 0; atom < num; ++atom)
             fn(locator_t::gmember(h, atom));
     }
@@ -892,7 +905,7 @@ void gmember_t::alloc_spans()
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
     assert(m_spans.empty());
-    m_spans.resize(num_atoms(type()));
+    m_spans.resize(num_atoms(type(), 0));
 }
 
 /////////////
@@ -900,48 +913,6 @@ void gmember_t::alloc_spans()
 /////////////
 
 group_ht const_t::group() const { return group_data->group.handle(); }
-
-void const_t::compile()
-{
-    std::puts("start");
-    m_src_type.type = ::dethunkify(m_src_type, true);
-    std::puts("ok");
-    assert(init_expr);
-
-    if(m_src_type.type.name() == TYPE_PAA)
-    {
-        rom_array_t paa = { interpret_paa(global.pstring(), init_expr) };
-
-        unsigned const def_length = m_src_type.type.array_length();
-        if(def_length && def_length != paa.data.size())
-             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.data.size(), m_src_type.type));
-
-        m_src_type.type.set_array_length(paa.data.size());
-        m_rom_array = lookup_rom_array({}, group_data, std::move(paa));
-
-        // TODO : remove?
-        //m_sval = { m_paa };
-    }
-    else
-    {
-        spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
-        m_sval = std::move(spair.value);
-        m_src_type.type = std::move(spair.type); // Handles unsized arrays
-    }
-
-    // TODO: remove all this
-    /*
-    if(ssa_value_t const* v = std::get_if<ssa_value_t>(&m_sval[0]))
-        std::printf("%s = %i\n", global.name.data(), v->whole());
-    else if(ct_array_t const* a = std::get_if<ct_array_t>(&m_sval[0]))
-    {
-        unsigned tea_size = m_src_type.type.array_length();
-        for(unsigned i = 0; i < tea_size; ++i)
-            std::printf("%s[%u] = %i\n", global.name.data(), i, (*a)[i].whole());
-
-    }
-    */
-}
 
 //////////////
 // struct_t //

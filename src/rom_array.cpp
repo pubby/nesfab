@@ -21,11 +21,17 @@ void rom_array_meta_t::mark_used_by(fn_ht fn)
     used_by_fns.set(fn.value);
 }
 
-void rom_array_meta_t::mark_used_by(group_data_ht group_data)
+void rom_array_meta_t::mark_used_by(group_ht group)
 {
-    assert(group_data);
+    assert(group);
+    
+    if(group->gclass() != GROUP_DATA)
+        return;
+
+    unsigned const bit = group->index();
+
     std::lock_guard<std::mutex> lock(mutex);
-    used_by_group_data.set(group_data.value);
+    used_by_group_data.set(bit);
 }
 
 rom_array_meta_t& rom_array_meta_t::get(rom_array_ht h)
@@ -36,7 +42,7 @@ rom_array_meta_t& rom_array_meta_t::get(rom_array_ht h)
     return rom_array_map.begin()[h.value].second;
 }
 
-rom_array_ht lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom_array, std::uint16_t offset)
+rom_array_ht lookup_rom_array(fn_ht fn, group_ht group, rom_array_t&& rom_array, std::uint16_t offset)
 {
     assert(compiler_phase() < PHASE_ALLOC_ROM);
 
@@ -60,8 +66,8 @@ rom_array_ht lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& 
     if(fn)
         meta->mark_used_by(fn);
 
-    if(group_data)
-        meta->mark_used_by(group_data);
+    if(group)
+        meta->mark_used_by(group);
 
     return h;
 }

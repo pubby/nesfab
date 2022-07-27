@@ -47,6 +47,8 @@ std::string to_string(locator_t loc)
         str = fmt("minor var %", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:
         str = "rom_array"; break;
+    case LOC_LT_GMEMBER_PTR:
+        str = fmt("gmember ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_LT_CONST_PTR:
         str = fmt("lt const ptr %", loc.const_()->global.name); break;
     case LOC_LT_CONST_PTR_BANK:
@@ -91,12 +93,12 @@ locator_t locator_t::from_ssa_value(ssa_value_t v)
 
 std::size_t locator_t::mem_size() const
 {
-    return type().size_of();
+    return with_byteified(true).type().size_of();
 }
 
 bool locator_t::mem_zp_only() const
 {
-    type_t const t = type();
+    type_t const t = with_byteified(false).type();
     return is_ptr(t.name()) && member() == 0;
 }
 
@@ -104,6 +106,17 @@ type_t locator_t::type() const
 {
     auto const byteify = [&](type_t type) -> type_t
     {
+        if(is_banked_ptr(type.name()))
+        {
+            if(member() == 1)
+                type = TYPE_U;
+            else
+            {
+                assert(member() == 0);
+                type.unsafe_set_name(remove_bank(type.name()));
+            }
+        }
+
         if(byteified())
         {
             if(type.name() == TYPE_TEA)
@@ -111,21 +124,25 @@ type_t locator_t::type() const
                 if(type.elem_type().size_of() > 1)
                     return type_t::tea(TYPE_U, type.array_length());
             }
-            else
+            else if(is_scalar(type.name()))
             {
-                assert(is_scalar(type.name()));
                 if(type.size_of() > 1)
                     return TYPE_U;
             }
         }
+
         return type;
     };
 
     switch(lclass())
     {
+    case LOC_LT_GMEMBER_PTR:
+        if(gmember_ht const m = gmember())
+            return byteify(type_t::ptr(m->gvar.group(), true, false));
+        break;
     case LOC_LT_CONST_PTR:
         if(const_ht const c = const_())
-            return byteify(type_t::ptr(c->group(), false));
+            return byteify(type_t::ptr(c->group(), false, false));
         break;
     case LOC_LT_CONST_PTR_BANK:
         return TYPE_U;
@@ -212,6 +229,8 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
             return locator_t::const_byte(bank);
         return *this;
 
+    case LOC_LT_GMEMBER_PTR:
+        return from_span(gmember()->span(0));
     case LOC_LT_CONST_PTR:
         return from_alloc(get_meta(const_()->rom_array()).alloc);
     case LOC_LT_CONST_PTR_BANK:

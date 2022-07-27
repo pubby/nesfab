@@ -29,16 +29,18 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_LAST_THUNK = TYPE_PAA_THUNK,
 
     TYPE_STRUCT,
+    TYPE_FN,
 
     TYPE_TEA,  // typed-element array
     TYPE_PAA, // pointer-addressable array
 
+    TYPE_BANKED_PTR,
+    TYPE_FIRST_PTR = TYPE_BANKED_PTR,
+    TYPE_BANKED_MPTR, // banked pointer to mutable data
     TYPE_PTR,
     TYPE_FIRST_SCALAR = TYPE_PTR,
-    TYPE_FIRST_PTR = TYPE_PTR,
-    TYPE_BANKED_PTR,
-    TYPE_FN, // should be named FN_PTR, but whatever
-    TYPE_LAST_PTR = TYPE_FN,
+    TYPE_MPTR, // pointer to mutable data
+    TYPE_LAST_PTR = TYPE_MPTR,
 
     // Bools are considered arithmetic.
     TYPE_BOOL,
@@ -77,6 +79,10 @@ enum type_name_t : std::uint8_t // Keep unsigned.
 
     TYPE_LARGEST_U = TYPE_U33,
     TYPE_LARGEST_S = TYPE_S33,
+
+    // Dummy types below
+
+    TYPE_GROUP_SET, // Just holds a group tail, nothing else
 };
 
 static_assert(NUM_TYPE_NAMES < 64);
@@ -91,6 +97,10 @@ constexpr bool is_frac(type_name_t type_name)
     { return type_name >= TYPE_FIRST_F && type_name <= TYPE_LAST_F; }
 constexpr bool is_ptr(type_name_t type_name)
     { return type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR; }
+constexpr bool is_mptr(type_name_t type_name)
+    { return type_name == TYPE_MPTR || type_name == TYPE_BANKED_MPTR; }
+constexpr bool is_banked_ptr(type_name_t type_name)
+    { return type_name == TYPE_BANKED_PTR || type_name == TYPE_BANKED_MPTR; }
 constexpr bool is_unsigned(type_name_t type_name)
     { return is_ptr(type_name) || (type_name >= TYPE_FIRST_U && type_name <= TYPE_LAST_U); }
 constexpr bool is_signed(type_name_t type_name)
@@ -115,13 +125,26 @@ constexpr bool is_aggregate(type_name_t type_name)
 constexpr bool has_type_tail(type_name_t name)
     { return name == TYPE_TEA || name == TYPE_FN; }
 constexpr bool has_group_tail(type_name_t name)
-    { return is_ptr(name) || name == TYPE_PAA; }
+    { return is_ptr(name) || name == TYPE_PAA || name == TYPE_GROUP_SET; }
 constexpr bool has_tail(type_name_t name)
 { 
     return (has_type_tail(name) 
             || has_group_tail(name)
             || is_thunk(name)
             || name == TYPE_STRUCT); 
+}
+
+constexpr type_name_t remove_bank(type_name_t type_name)
+{
+    switch(type_name)
+    {
+    case TYPE_BANKED_PTR:
+        return TYPE_PTR;
+    case TYPE_BANKED_MPTR:
+        return TYPE_MPTR;
+    default:
+        return type_name;
+    }
 }
 
 constexpr bool is_simple(type_name_t type_name)
@@ -134,11 +157,17 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     switch(type_name)
     {
     default: return 0;
-    case TYPE_BOOL:  return 1;
-    case TYPE_PTR:   return 2;
-    case TYPE_BANKED_PTR:  return 2; // Bank isn't counted.
+    case TYPE_BOOL: 
+        return 1;
+    case TYPE_PTR:
+    case TYPE_MPTR:
+        return 2;
+    case TYPE_BANKED_PTR:
+    case TYPE_BANKED_MPTR:
+        return 2; // Bank isn't counted.
     case TYPE_INT:
-    case TYPE_REAL: return 4;
+    case TYPE_REAL:
+        return 4;
 #define FIXED(whole, frac) case TYPE_F##frac: return 0;
     FRAC_X
 #undef FIXED
@@ -152,8 +181,10 @@ constexpr unsigned frac_bytes(type_name_t type_name)
 {
     switch(type_name)
     {
-    default: return 0;
-    case TYPE_REAL: return 3;
+    default:
+        return 0;
+    case TYPE_REAL: 
+        return 3;
 #define FIXED(whole, frac) case TYPE_F##frac: return frac;
     FRAC_X
 #undef FIXED
@@ -225,6 +256,14 @@ constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)
         return false;
 
     return true;
+}
+
+constexpr bool same_scalar_layout(type_name_t a, type_name_t b)
+{
+    return (is_scalar(a) 
+            && is_scalar(b) 
+            && whole_bytes(a) == whole_bytes(b)
+            && frac_bytes(a) == frac_bytes(b));
 }
 
 std::string to_string(type_name_t type_name);

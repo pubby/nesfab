@@ -36,8 +36,23 @@ static bool o_simple_identity(ir_t& ir)
         switch(node.op())
         {
         case SSA_cast:
-            if(node.input(0).type() == node.type())
-                goto replaceWith0;
+            {
+                ssa_value_t const input = node.input(0);
+
+                type_t const from = input.type();
+                type_t const to = node.type();
+
+                // Prune casts from A -> A
+                if(from == to)
+                    goto replaceWith0;
+
+                // Simplify chains of casts from similar types A -> B
+                if(input.holds_ref() && input->op() == SSA_cast
+                   && same_scalar_layout(from.name(), to.name()))
+                {
+                    node.link_change_input(0, input->input(0));
+                }
+            }
             break;
         case SSA_add:
             {

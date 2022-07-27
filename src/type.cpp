@@ -131,18 +131,26 @@ type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tok
     return type_t(TYPE_TEA_THUNK, 0, eternal_emplace<tea_thunk_t>(pstring, elem_type, tokens));
 }
 
-type_t type_t::ptr(group_ht group, bool banked) { return ptr(&group, &group + 1, banked); }
+type_t type_t::ptr(group_ht group, bool muta, bool banked) { return ptr(&group, &group + 1, muta, banked); }
 
-type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool banked)
+type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool muta, bool banked)
+{
+    type_t t = group_set(begin, end);
+    if(muta)
+        t.unsafe_set_name(banked ? TYPE_BANKED_MPTR : TYPE_MPTR);
+    else
+        t.unsafe_set_name(banked ? TYPE_BANKED_PTR : TYPE_PTR);
+    return t;
+}
+
+type_t type_t::group_set(group_ht const* begin, group_ht const* end)
 {
     std::size_t const n = end - begin;
     group_ht* groups = ALLOCA_T(group_ht, n);
     std::copy(begin, end, groups);
     std::sort(groups, groups + n);
     group_ht* groups_end = std::unique(groups, groups + n);
-    return type_t(banked ? TYPE_BANKED_PTR : TYPE_PTR, 
-                  groups_end - groups, 
-                  group_tails.get(groups, groups_end));
+    return type_t(TYPE_GROUP_SET, groups_end - groups, group_tails.get(groups, groups_end));
 }
 
 type_t type_t::fn(type_t* begin, type_t* end)
@@ -175,11 +183,18 @@ std::size_t type_t::size_of() const
 
     switch(name())
     {
-    default:                return 0; // Error!
-    case TYPE_PTR:          return 2;
-    case TYPE_BANKED_PTR:   return 3;
-    case TYPE_TEA:          return size() * types()[0].size_of();
-    case TYPE_PAA:          return size();
+    default: 
+        return 0; // Error!
+    case TYPE_PTR:
+    case TYPE_MPTR:
+        return 2;
+    case TYPE_BANKED_PTR:
+    case TYPE_BANKED_MPTR:
+        return 3;
+    case TYPE_TEA: 
+        return size() * types()[0].size_of();
+    case TYPE_PAA: 
+        return size();
     case TYPE_STRUCT:
         std::size_t size = 0;
         for(unsigned i = 0; i < struct_().fields().size(); ++i)
@@ -246,11 +261,18 @@ std::string to_string(type_t type)
         str = fmt("[%]/%", type.size() ? std::to_string(type.size()) : "",
                   type.group()->name);
         break;
+    case TYPE_BANKED_MPTR:
+        str = "MMM";
+        goto ptr_groups;
+    case TYPE_MPTR:
+        str = "MM";
+        goto ptr_groups;
     case TYPE_BANKED_PTR:
-        str += "P";
-        // fall-through
+        str = "PPP";
+        goto ptr_groups;
     case TYPE_PTR:
-        str += "PP";
+        str = "PP";
+    ptr_groups:
         for(unsigned i = 0; i < type.size(); ++i)
             str += fmt("/%", type.group(i)->name);
         break;
@@ -284,6 +306,31 @@ bool can_size_unsized_array(type_t const& sized, type_t const& unsized)
             && sized.elem_type() == unsized.elem_type());
 }
 
+static bool can_cast_groups(type_t const& from, type_t const& to)
+{
+    assert(is_ptr(from.name()));
+    assert(is_ptr(to.name()));
+    assert(from.size() == from.group_tail_size());
+    assert(to.size() == to.group_tail_size());
+
+    unsigned from_i = 0;
+    unsigned to_i = 0;
+
+    while(from_i < from.size())
+    {
+        while(true)
+        {
+            if(to_i == to.size())
+                return false;
+            if(from.group(from_i) == to.group(to_i))
+                break;
+            ++to_i;
+        }
+        ++from_i;
+    }
+    return true;
+}
+
 cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
 {
     assert(!is_thunk(from.name()) && !is_thunk(to.name()));
@@ -292,44 +339,23 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(from == to)
         return CAST_NOP;
 
-    // Buffers should be converted to ptrs, prior.
+    // PAAs should be converted to ptrs, prior.
     if(from.name() == TYPE_PAA || to.name() == TYPE_PAA)
         return CAST_FAIL;
 
     if(!implicit && is_ptr(from.name()) && is_arithmetic(to.name()) && !is_ct(to.name()))
         return CAST_INTIFY_PTR;
 
-    /* TODO: remove
-    // Buffers can convert to pointers.
-    // TODO: buffers should convert earlier, not as cast
-    if(from.name() == TYPE_BUFFER)
-    {
-        if(from_ram && to.name() == TYPE_RAM_PTR)
-        {
-            if((1ull << ramb.value)  & to.ramb_bitset())
-                return CAST_ADDROF;
-            return CAST_FAIL;
-        }
-        else if(!from_ram && to.name() == TYPE_RAM_PTR)
-        {
-            if(bank == to.bank())
-                return CAST_ADDROF;
-            return CAST_FAIL;
-        }
-        return CAST_FAIL;
-    }
-    */
-
-    // RAM pointers can generalize
+    // Pointers can generalize
     // i.e. ram{foo} can convert to ram{foo, bar}
-    /* TODO
-    if(from.name() == TYPE_RAM_PTR && to.name() == TYPE_RAM_PTR)
+    // Likewise, mptrs convert to ptrs
+    if(is_ptr(from.name()) && is_ptr(to.name()) 
+       && is_banked_ptr(from.name()) == is_banked_ptr(to.name())
+       && (is_mptr(from.name()) || !is_mptr(to.name()))
+       && can_cast_groups(from, to))
     {
-        if((from.group_bitset() & to.group_bitset()) == from.group_bitset())
-            return CAST_NOP;
-        return CAST_FAIL;
+        return CAST_NOP;
     }
-    */
 
     // Otherwise you can't cast different pointers.
     if(is_ptr(from.name()) || is_ptr(to.name()))
@@ -411,29 +437,39 @@ unsigned num_members(type_t type)
         return type.struct_().num_members();
     else if(is_tea(type.name()))
         return num_members(type.elem_type());
-    else if(type.name() == TYPE_BANKED_PTR)
-        return 2;
+    else if(is_banked_ptr(type.name()))
+        return 2; // The bank is a member
     return 1;
 }
 
-unsigned num_atoms(type_t type)
+unsigned num_atoms(type_t type, unsigned member)
 {
     assert(!is_thunk(type.name()));
 
     switch(type.name())
     {
-    case TYPE_STRUCT: assert(false); // TODO
-    case TYPE_TEA: return num_atoms(type.elem_type());
-    case TYPE_PAA: return 1;
-    case TYPE_PTR: return 2;
-    case TYPE_BANKED_PTR: return 2;
+    case TYPE_STRUCT: 
+        assert(false); // TODO
+        return 0;
+    case TYPE_TEA:
+        return num_atoms(type.elem_type(), member);
+    case TYPE_PAA: 
+        assert(member == 0);
+        return 1;
+    case TYPE_BANKED_PTR: 
+    case TYPE_BANKED_MPTR: 
+        return member == 0 ? 2 : 1;
+    case TYPE_PTR: 
+    case TYPE_MPTR: 
+        return 2;
     default: 
         assert(is_scalar(type.name()));
+        assert(member == 0);
         return type.size_of();
     }
 }
 
-unsigned num_offsets(type_t type, unsigned atom)
+unsigned num_offsets(type_t type)
 {
     assert(!is_thunk(type.name()));
 
@@ -441,7 +477,6 @@ unsigned num_offsets(type_t type, unsigned atom)
     {
     case TYPE_TEA: 
     case TYPE_PAA: 
-        assert(atom == 0);
         return type.array_length();
     default:
         return 1;

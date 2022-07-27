@@ -109,22 +109,25 @@ constexpr token_type_t TOK_SSFFF = 104;
 constexpr token_type_t TOK_SSSFFF = 105;
 constexpr token_type_t TOK_PP = 106;
 constexpr token_type_t TOK_PPP = 107;
-constexpr token_type_t TOK_Int = 108;
-constexpr token_type_t TOK_Real = 109;
-constexpr token_type_t TOK_Bool = 110;
-constexpr token_type_t TOK_ident = 111;
-constexpr token_type_t TOK_type_ident = 112;
-constexpr token_type_t TOK_decimal = 113;
-constexpr token_type_t TOK_int = 114;
-constexpr token_type_t TOK_real = 115;
-constexpr token_type_t TOK_global_ident = 116;
-constexpr token_type_t TOK_weak_ident = 117;
-constexpr token_type_t TOK_push_paa_byte_array = 118;
-constexpr token_type_t TOK_push_paa = 119;
-constexpr token_type_t TOK_begin_paa = 120;
-constexpr token_type_t TOK_end_paa = 121;
-constexpr token_type_t TOK_spair = 122;
-constexpr token_type_t TOK_END = 123;
+constexpr token_type_t TOK_MM = 108;
+constexpr token_type_t TOK_MMM = 109;
+constexpr token_type_t TOK_Int = 110;
+constexpr token_type_t TOK_Real = 111;
+constexpr token_type_t TOK_Bool = 112;
+constexpr token_type_t TOK_ident = 113;
+constexpr token_type_t TOK_type_ident = 114;
+constexpr token_type_t TOK_decimal = 115;
+constexpr token_type_t TOK_int = 116;
+constexpr token_type_t TOK_real = 117;
+constexpr token_type_t TOK_global_ident = 118;
+constexpr token_type_t TOK_weak_ident = 119;
+constexpr token_type_t TOK_push_paa_byte_array = 120;
+constexpr token_type_t TOK_push_paa = 121;
+constexpr token_type_t TOK_begin_paa = 122;
+constexpr token_type_t TOK_end_paa = 123;
+constexpr token_type_t TOK_group_set = 124;
+constexpr token_type_t TOK_spair = 125;
+constexpr token_type_t TOK_END = 126;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -238,6 +241,8 @@ inline std::string_view token_name(token_type_t type)
     case TOK_SSSFFF: return "SSSFFF"sv;
     case TOK_PP: return "PP"sv;
     case TOK_PPP: return "PPP"sv;
+    case TOK_MM: return "MM"sv;
+    case TOK_MMM: return "MMM"sv;
     case TOK_Int: return "Int"sv;
     case TOK_Real: return "Real"sv;
     case TOK_Bool: return "Bool"sv;
@@ -252,6 +257,7 @@ inline std::string_view token_name(token_type_t type)
     case TOK_push_paa: return "push_paa"sv;
     case TOK_begin_paa: return "begin_paa"sv;
     case TOK_end_paa: return "end_paa"sv;
+    case TOK_group_set: return "group_set"sv;
     case TOK_spair: return "spair"sv;
     }
 }
@@ -368,6 +374,8 @@ inline std::string_view token_string(token_type_t type)
     case TOK_SSSFFF: return "SSSFFF type"sv;
     case TOK_PP: return "PP type"sv;
     case TOK_PPP: return "PPP type"sv;
+    case TOK_MM: return "MM type"sv;
+    case TOK_MMM: return "MMM type"sv;
     case TOK_Int: return "Int type"sv;
     case TOK_Real: return "Real type"sv;
     case TOK_Bool: return "Bool type"sv;
@@ -382,6 +390,7 @@ inline std::string_view token_string(token_type_t type)
     case TOK_push_paa: return "push paa"sv;
     case TOK_begin_paa: return "begin paa"sv;
     case TOK_end_paa: return "end paa"sv;
+    case TOK_group_set: return "group set"sv;
     case TOK_spair: return "spair"sv;
     }
 }
@@ -510,6 +519,9 @@ constexpr unsigned char token_precedence_table[] =
     0,
     0,
     0,
+    0,
+    0,
+    0,
 };
 #define TOK_KEY_CASES \
     case TOK_if:\
@@ -586,7 +598,7 @@ constexpr unsigned char token_precedence_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 122;
-constexpr token_type_t TOK_START = 125;
+constexpr token_type_t TOK_LAST_STATE = 125;
+constexpr token_type_t TOK_START = 126;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[19648];
+extern token_type_t const lexer_transition_table[20345];

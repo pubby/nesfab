@@ -394,6 +394,9 @@ struct alignas(128) aggregate_bitset_t
 
     template<typename Fn>
     void for_each(Fn const& fn) const { bitset_for_each(size(), data(), fn); }
+
+    template<typename Fn>
+    bool for_each_test(Fn const& fn) const { return bitset_for_each_test(size(), data(), fn); }
 };
 
 template<std::size_t Bits>

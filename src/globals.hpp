@@ -167,10 +167,6 @@ public:
     // Call after 'build_order' to well... compile everything!
     static void compile_all();
 
-    // Call after 'compile_all'.
-    // Assigns variables to ram addresses.
-    static void alloc_ram();
-
     static std::vector<fn_t*> modes() { assert(compiler_phase() > PHASE_PARSE); return modes_vec; }
 private:
     // Sets the variables of the global:
@@ -382,8 +378,38 @@ private:
 
     rom_alloc_ht m_rom_alloc;
 };
+
+// Base class for vars and consts.
+class global_datum_t
+{
+public:
+    global_datum_t(global_t& global, src_type_t src_type, token_t const* expr)
+    : global(global)
+    , init_expr(expr)
+    , is_paa(::is_paa(src_type.type.name()))
+    , m_src_type(src_type)
+    {}
+    
+    global_t& global;
+    token_t const* const init_expr = nullptr;
+    bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
+
+    type_t type() const { assert(!is_thunk(m_src_type.type.name())); return m_src_type.type; }
+    sval_t const& sval() const { assert(global.compiled()); return m_sval; }
+    rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
+
+    void dethunkify(bool full);
+    void compile();
+
+    virtual group_ht group() const = 0;
+
+protected:
+    src_type_t m_src_type = {};
+    sval_t m_sval;
+    rom_array_ht m_rom_array = {};
+};
  
-class gvar_t
+class gvar_t : public global_datum_t
 {
 public:
     static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
@@ -393,26 +419,19 @@ public:
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
     gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, token_t const* expr)
-    : global(global)
+    : global_datum_t(global, src_type, expr)
     , group_vars(group_vars)
-    , init_expr(expr)
-    , m_src_type(src_type)
     {}
 
-    global_t& global;
     group_vars_ht const group_vars = {};
-    token_t const* const init_expr = nullptr;
 
-    type_t type() const { assert(!is_thunk(m_src_type.type.name())); return m_src_type.type; }
+    virtual group_ht group() const;
 
     gmember_ht begin_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_begin_gmember; }
     gmember_ht end_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_end_gmember; }
     void set_gmember_range(gmember_ht begin, gmember_ht end);
 
     //group_bitset_t group_bitset() const { return 1ull << group.value; }
-
-    void dethunkify(bool full);
-    void compile();
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
@@ -444,11 +463,13 @@ public:
     span_t span(unsigned atom) const { assert(compiler_phase() >= PHASE_ALLOC_RAM); return m_spans[atom]; }
     void assign_span(unsigned atom, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[atom] = span; }
 
+    bool zero_init(unsigned atom) const; // TODO: implement
+
 private:
     bc::small_vector<span_t, 2> m_spans = {};
 };
 
-class const_t
+class const_t : public global_datum_t
 {
 public:
     static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
@@ -458,26 +479,13 @@ public:
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
     const_t(global_t& global, src_type_t src_type, group_data_ht group_data, token_t const* expr)
-    : global(global)
+    : global_datum_t(global, src_type, expr)
     , group_data(group_data)
-    , init_expr(expr)
-    , is_paa(::is_paa(src_type.type.name()))
-    , m_src_type(src_type)
-    {
-        assert(init_expr);
-    }
+    { assert(init_expr); }
 
-    global_t& global;
     group_data_ht const group_data;
-    token_t const* const init_expr = nullptr;
-    bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
 
-    type_t type() const { assert(global.compiled()); return m_src_type.type; }
-    group_ht group() const;
-
-    void compile();
-    sval_t const& sval() const { assert(global.compiled()); return m_sval; }
-    rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
+    virtual group_ht group() const;
 
 private:
     src_type_t m_src_type = {};

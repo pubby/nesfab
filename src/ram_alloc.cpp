@@ -9,93 +9,28 @@
 #include "options.hpp"
 #include "ram.hpp"
 
-/*
-static ram_bitset_t non_static_ram;
-
-namespace std_ram
-{
-    bool did_init = false;
-    std::array<span_t, NUM_VARS> array;
-
-    class static_ram_allocator_t
-    {
-    public:
-        static_ram_allocator_t()
-        : m_non_zp(span_t{ 0x200, 0x600 })
-        {}
-
-        span_t alloc_zp(std::uint16_t size)
-        {
-            if(m_next_zp + size >= 256)
-                return {};
-            span_t const ret = { .addr = m_next_zp, .size = size };
-            m_next_zp += size;
-            return ret;
-        }
-
-        span_t alloc_non_zp(std::uint16_t size, unsigned alignment = 0)
-        {
-            return m_non_zp.alloc(size, alignment);
-        }
-
-    private:
-        span_allocator_t m_non_zp;
-        unsigned m_next_zp = 0;
-    };
-
-    std::array<span_t, NUM_VARS> const& vars_array() { return array; }
-
-    span_t ram_span(var_t v) { return array[v]; }
-
-    locator_t ram_locator(var_t v, std::uint16_t offset) { return locator_t::addr(span(v).addr, offset); }
-
-} // end namespace std_ram
-
-void alloc_std_ram()
-{
-    using namespace std_ram;
-
-    assert(!did_init);
-
-    static_ram_allocator_t allocator;
-
-    auto const alloc = [&allocator](var_t name, unsigned size, unsigned alignment, bool zp)
-    {
-        if(size == 0)
-            return;
-        array[name] = zp ? allocator.alloc_zp(size) : allocator.alloc_non_zp(size, alignment);
-    };
-
-#define STD_RAM(name, size, alignment, zp) alloc(STD_RAM_##name, size, alignment, zp);
-#include "std_ram.inc"
-#undef STD_RAM
-    
-    alloc(STD_RAM_mapper_state, state_size(compiler_options().mapper.type), 0, true);
-
-    // Build bitset:
-    non_static_ram = {};
-    for(span_t span : array)
-        if(span)
-            non_static_ram |= ram_bitset_t::filled(span.size, span.addr);
-    non_static_ram.flip_all();
-
-    did_init = true;
-}
-*/
-
 namespace  // anonymous namespace
 {
 
-// Allocates a span inside 'usable_ram'.
-span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, bool zp_only)
+enum zp_request_t
 {
+    ZP_NEVER,
+    ZP_MAYBE,
+    ZP_ONLY,
+};
+
+// Allocates a span inside 'usable_ram'.
+span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp)
+{
+    // TODO: Align, when possible
+
     assert(size > 0);
 
-    if(size == 1) // Fast path when 'size' == 1
+    if(zp != ZP_NEVER && size == 1) // Fast path when 'size' == 1
     {
         int const addr = usable_ram.lowest_bit_set();
 
-        if(addr < 0 || (zp_only && addr > 0xFF ))
+        if(addr < 0 || (zp == ZP_ONLY && addr > 0xFF ))
             return {};
 
         return { .addr = addr, .size = 1 };
@@ -104,9 +39,9 @@ span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, bool zp_only)
     {
         ram_bitset_t usable_copy = usable_ram;
 
-        if(zp_only)
+        if(zp == ZP_ONLY)
             usable_copy &= zp_bitset;
-        else if(size > 1)
+        else if(zp == ZP_NEVER || size > 1)
             usable_copy &= ~zp_bitset; // Don't put arrays in ZP
 
         bitset_mark_consecutive(usable_copy.size(), usable_copy.data(), size);
@@ -147,6 +82,9 @@ private:
 
         // Tracks how it interferes with other group_vars
         bitset_t interferences;
+
+        // Used to estimate how many bytes of ZP are left
+        unsigned zp_estimate;
     };
 
     struct fn_d
@@ -183,6 +121,15 @@ private:
 ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
+
+    // Amount of bytes free in zero page
+    int const zp_free = 256 - (initial_usable_ram & zp_bitset).popcount();
+
+    // Amount of bytes in zp dedicated to locals
+    int const max_local_zp = 32;
+
+    // Amount of bytes in zp dedicated to gvars
+    int const max_gvar_zp = std::max(zp_free - max_local_zp, zp_free / 2);
 
     group_vars_data.resize(impl_deque<group_vars_t>.size());
     fn_data.resize(impl_deque<fn_t>.size());
@@ -230,6 +177,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             d.interferences.reset(interferences_size);
             d.interferences.set(i); // always interfere with itself
             d.usable_ram = initial_usable_ram;
+            d.zp_estimate = max_gvar_zp;
         }
 
         // Build interference graph among group vars:
@@ -246,7 +194,8 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             });
         }
 
-        // Count how often gmembers appears in emitted code...
+        // Count how often gmembers appears in emitted code.
+        // We'll eventually allocate using the use count as a heuristic
 
         rh::batman_map<locator_t, unsigned> gmember_count;
         for(gvar_t const& gvar : impl_deque<gvar_t>)
@@ -263,7 +212,23 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
                         *count += 1;
         }
 
-        // Then allocate, using the use count as a heuristic
+        // Find unused variables and issue a warning
+
+        for(gvar_t const& gvar : impl_deque<gvar_t>)
+        {
+            // PAAs won't appear in code, so we can't detect unused PAAs here.
+            // TODO: detect them some other way
+            if(is_paa(gvar.type().name()))
+                continue;
+
+            unsigned count = 0;
+            gvar.for_each_locator([&](locator_t loc) { count += gmember_count[loc]; });
+
+            if(count == 0)
+                compiler_warning(gvar.global.pstring(), "Global variable is unused.");
+        }
+
+        // Order based on count.
 
         struct rank_t
         {
@@ -279,44 +244,149 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
         for(auto const& pair : gmember_count)
         {
-            if(pair.second == 0)
-            {
-                unused_gvars.insert(&pair.first.gmember()->gvar);
-                continue;
-            }
-
             // Priority 1: gvar size
             // Priority 2: frequency in code
 
-            if(pair.first.mem_zp_only())
+            constexpr unsigned size_scale = 256; // arbitrary constant
+
+            if(is_paa(pair.first.gmember()->type().name()))
+            {
+                // PAAs are handled separately, as they won't appear in the code.
+                assert(pair.second == 0);
+                ordered_gmembers.push_back({ pair.first.mem_size() * size_scale, pair.first });
+            }
+            else if(pair.first.mem_zp_only())
                 ordered_gmembers_zp.push_back({ pair.first.mem_size(), pair.first });
             else
-                ordered_gmembers.push_back({ (pair.first.mem_size() * 256) + pair.second, pair.first });
+                ordered_gmembers.push_back({ (pair.first.mem_size() * size_scale) + pair.second, pair.first });
         }
-
-        for(gvar_t const* gvar : unused_gvars)
-            compiler_warning(gvar->global.pstring(), "Not every byte of global variable is used.");
 
         std::sort(ordered_gmembers_zp.begin(), ordered_gmembers_zp.end(), 
                   [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
         std::sort(ordered_gmembers.begin(), ordered_gmembers.end(), 
                   [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
 
-        auto const alloc_gmember_loc = [&](locator_t loc)
+        // Estimate which locators will go into ZP.
+
+        rh::batman_set<locator_t> estimated_in_zp;
+
+        auto const estimate_gmember_loc = [&](locator_t loc)
         {
             gmember_t& gmember = *loc.gmember();
             group_vars_d& d = data(gmember.gvar.group_vars);
 
-            std::cout << loc << std::endl;
-            std::printf("allocing %i %i\n", loc.mem_size(), loc.mem_zp_only());
+            unsigned const size = loc.mem_size();
 
-            span_t const span = alloc_ram(
-                d.usable_ram, loc.mem_size(), loc.mem_zp_only());
+            if(!d.interferences.for_each_test([&](unsigned i) -> bool
+                { return group_vars_data[i].zp_estimate >= size; }))
+            {
+                std::cout << "alloc failed estimate " << loc << std::endl;
+                return;
+            }
+
+            std::cout << "alloc estimated " << loc << std::endl;
+            estimated_in_zp.insert(loc);
+
+            d.interferences.for_each([&](unsigned i)
+            {
+                group_vars_data[i].zp_estimate -= size;
+            });
+        };
+
+        for(rank_t const& rank : ordered_gmembers_zp)
+            estimate_gmember_loc(rank.loc);
+
+        for(rank_t const& rank : ordered_gmembers)
+            estimate_gmember_loc(rank.loc);
+
+        // For global vars that have init expressions,
+        // we want to allocate their group to be contigious,
+        // as this means we can more efficiently init them.
+        //
+        // To do this, we'll bundle init'd locators into structs.
+
+        struct group_inits_t
+        {
+            group_vars_ht group_vars = {};
+            unsigned score = 0;
+            std::vector<locator_t> init;
+        };
+
+        std::vector<group_inits_t> ordered_inits;
+        ordered_inits.reserve(impl_deque<group_vars_t>.size());
+
+        for(unsigned i = 0; i < impl_deque<group_vars_t>.size(); ++i)
+        {
+            group_vars_t const& g = impl_deque<group_vars_t>[i];
+
+            group_inits_t inits = { group_vars_ht{i} };
+
+            for(gvar_ht v : g.gvars())
+            {
+                if(v->init_expr)
+                {
+                    v->for_each_locator([&](locator_t loc)
+                    { 
+                        assert(gmember_count.count(loc));
+
+                        // Score is the largest gmember_count
+                        inits.score = std::max(inits.score, gmember_count[loc]);
+                        inits.init.push_back(loc);
+                    });
+                }
+            }
+
+            ordered_inits.push_back(std::move(inits));
+        }
+
+        std::sort(ordered_inits.begin(), ordered_inits.end(), 
+                  [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
+
+        auto const alloc_gmember_loc = [&](locator_t loc)
+        {
+            gmember_t& gmember = *loc.gmember();
+
+            if(gmember.span(loc.atom())) // Abort if we've already allocated.
+                return;
+
+            unsigned size = loc.mem_size();
+
+            bool const is_ptr = ::is_ptr(gmember.type().name());
+
+            if(is_ptr)
+            {
+                assert(!gmember.span(!loc.atom()));
+                size = 2;
+            }
+
+            group_vars_d& d = data(gmember.gvar.group_vars);
+
+            std::cout << "allocing loc " << loc << std::endl;
+
+            zp_request_t zp;
+            if(loc.mem_zp_only())
+                zp = ZP_ONLY;
+            else if(estimated_in_zp.count(loc))
+                zp = ZP_MAYBE;
+            else
+                zp = ZP_NEVER;
+
+            span_t const span = alloc_ram(d.usable_ram, size, zp);
 
             if(!span)
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
 
-            gmember.assign_span(loc.atom(), span);
+            std::printf("allocing %i %i %i\n", loc.mem_size(), loc.mem_zp_only(), zp);
+            std::cout << "allocating at " << span << std::endl;
+
+            if(is_ptr)
+            {
+                assert(span.size == 2);
+                gmember.assign_span(0, { .addr = span.addr, .size = 1 });
+                gmember.assign_span(1, { .addr = span.addr+1, .size = 1 });
+            }
+            else
+                gmember.assign_span(loc.atom(), span);
 
             ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
 
@@ -325,6 +395,14 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
                 group_vars_data[i].usable_ram &= mask;
             });
         };
+
+        // Allocate
+
+        for(group_inits_t const& inits : ordered_inits)
+            for(locator_t loc : inits.init)
+                alloc_gmember_loc(loc);
+
+        std::cout << "allocing UNINIT\n";
 
         for(rank_t const& rank : ordered_gmembers_zp)
             alloc_gmember_loc(rank.loc);
@@ -523,19 +601,21 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         auto const& info = fn.lvars().this_lvar_info(lvar_i);
         assert(!info.ptr_hi);
 
-        std::cout << "allocating lvar " << fn.lvars().locator(lvar_i) << std::endl;
+        std::cout << "allocating lvar " << fn.lvars().locator(lvar_i) << ' ' << info.size << std::endl;
         assert(lvar_i < lvar_usable_ram.size());
 
         // First try to allocate in 'freebie_ram'.
-        span_t span = alloc_ram(lvar_usable_ram[lvar_i] & freebie_ram, info.size, info.zp_only);
+        span_t span = alloc_ram(lvar_usable_ram[lvar_i] & freebie_ram, info.size, info.zp_only ? ZP_ONLY : ZP_MAYBE);
 
         // If that fails, try to allocate anywhere.
         if(!span)
-            span = alloc_ram(lvar_usable_ram[lvar_i], info.size, info.zp_only);
+            span = alloc_ram(lvar_usable_ram[lvar_i], info.size, info.zp_only ? ZP_ONLY : ZP_MAYBE);
 
         // If that fails, we're fucked.
         if(!span)
             throw std::runtime_error("Unable to allocate local variable (out of RAM).");
+
+        std::cout << "allocating at " << span << std::endl;
 
         // Record the allocation.
 
@@ -590,13 +670,36 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     d.recursive_lvar_ram = d.lvar_ram | freebie_ram;
 
     d.step = Step;
-
-    std::puts("done");
 }
 
 } // end anonymous namespace
 
-void alloc_ram()
+void alloc_ram(ram_bitset_t const& initial)
 {
-    ram_allocator_t a(ram_bitset_t::filled());
+    ram_allocator_t a(initial);
+}
+
+void print_ram(std::ostream& o)
+{
+    o << "Global variable RAM:\n\n";
+
+    for(unsigned i = 0; i < impl_deque<group_vars_t>.size(); ++i)
+    {
+        group_vars_t const& g = impl_deque<group_vars_t>[i];
+        o << fmt("  /%:\n", g.group.name);
+
+        for(gvar_ht v : g.gvars())
+        {
+            o << fmt("    %: (%)\n", v->global.name, v->type());
+
+            v->for_each_locator([&](locator_t loc)
+            { 
+                o << fmt("      % = %\n", loc, loc.gmember()->span(loc.atom()));
+            });
+
+            o << '\n';
+        }
+
+        o << '\n';
+    }
 }

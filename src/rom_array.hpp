@@ -26,7 +26,7 @@ struct rom_array_meta_t
     rom_array_meta_t();
 
     void mark_used_by(fn_ht fn);
-    void mark_used_by(group_data_ht group_data);
+    void mark_used_by(group_ht group);
 
     static rom_array_meta_t& get(rom_array_ht);
 
@@ -66,7 +66,7 @@ extern std::mutex rom_array_map_mutex;
 extern rom_array_map_t rom_array_map;
 
 // Creates a new rom_array, or returns an existing one matching 'rom_array'.
-rom_array_ht lookup_rom_array(fn_ht fn, group_data_ht group_data, rom_array_t&& rom_array, std::uint16_t offset=0);
+rom_array_ht lookup_rom_array(fn_ht fn, group_ht group, rom_array_t&& rom_array, std::uint16_t offset=0);
 
 // Orders CFG basic blocks, trying to find an optimal layout for branches.
 void build_rom_arrays(fn_ht fn, ir_t& ir);

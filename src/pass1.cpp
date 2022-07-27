@@ -23,7 +23,10 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
         if(token.type == TOK_ident || token.type == TOK_weak_ident)
         {
             if(unsigned const* handle = symbol_table.find(token.pstring.view(source())))
+            {
                 token.value = *handle;
+                token.type = TOK_ident;
+            }
             else
             {
                 global_t& g = global_t::lookup(file.source(), token.pstring);
@@ -58,6 +61,11 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
             uses_type(*token.ptr<type_t>());
         }
     }
+
+#ifndef NDEBUG
+    for(token_t& token : expr)
+        assert(token.type != TOK_weak_ident);
+#endif
 
     // Null-like terminator
     expr.push_back({});

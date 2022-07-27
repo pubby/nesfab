@@ -40,8 +40,7 @@ private:
     // TODO
     //bitset_uint_t* array_indexers = nullptr;
 
-    ssa_schedule_d& data(ssa_ht h) const
-        { return cg_data(h).schedule; }
+    ssa_schedule_d& data(ssa_ht h) const { return cg_data(h).schedule; }
     unsigned& index(ssa_ht h) const { return data(h).index; }
 
     void append_schedule(ssa_ht h);
@@ -338,20 +337,20 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
     // scheduling other nodes that use them afterwards.
     for(ssa_ht ssa_node : toposorted)
     {
-        if(!(ssa_flags(ssa_node->op()) & SSAF_INDEXES_ARRAY))
+        if(!ssa_indexes(ssa_node->op()))
             continue;
 
-        if(!ssa_node->input(2).holds_ref())
+        if(!ssa_node->input(ssa_index_input(ssa_node->op())).holds_ref())
             continue;
 
-        ssa_ht const indexer = ssa_node->input(2).handle();
+        ssa_ht const indexer = ssa_node->input(ssa_index_input(ssa_node->op())).handle();
 
         unsigned const size = indexer->output_size();
         for(unsigned i = 0; i < size; ++i)
         {
             auto oe = indexer->output_edge(i);
 
-            if((ssa_flags(oe.handle->op()) & SSAF_INDEXES_ARRAY) && oe.index == 2)
+            if(ssa_indexes(oe.handle->op()) && oe.index == ssa_index_input(oe.handle->op()))
                 continue;
 
             if(oe.handle == ssa_node)
@@ -384,8 +383,8 @@ void scheduler_t::append_schedule(ssa_ht h)
     schedule.push_back(h);
 
     // Handle array indexes
-    if(ssa_flags(h->op()) & SSAF_INDEXES_ARRAY)
-        add_array_index(h->input(2));
+    if(ssa_indexes(h->op()))
+        add_array_index(h->input(ssa_index_input(h->op())));
 
     // If this is a global read, add it to our set:
     std::cout << "unused_glob op " << to_string(h->op()) << std::endl;
@@ -551,13 +550,14 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
 // The score is used to weight different nodes for scheduling.
 int scheduler_t::indexer_score(ssa_ht h) const
 {
-    if(ssa_flags(h->op()) & SSAF_INDEXES_ARRAY)
+    if(ssa_indexes(h->op()))
     {
-        ssa_value_t index = h->input(2);
+        ssa_value_t index = h->input(ssa_index_input(h->op()));
         if(index == array_indexers[0])
             return 32; // Fairly arbitrary numbers
         else if(index == array_indexers[1])
             return 16; // Fairly arbitrary numbers
+        return -8; // Delay indexers.
     }
     return 0;
 }
@@ -617,6 +617,9 @@ ssa_ht scheduler_t::full_search(unsigned relax) const
             best = ssa_it;
         }
     }
+
+    assert(best_score != INT_MIN);
+    assert(ready(relax, best, scheduled));
 
     return best;
 }

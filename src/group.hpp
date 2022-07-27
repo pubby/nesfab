@@ -29,6 +29,8 @@ private:
 public:
     group_class_t gclass() const { return m_gclass; }
 
+    pstring_t pstring() const { return m_pstring; }
+
     unsigned index() const
     { 
         assert(compiler_phase() > PHASE_PARSE);
@@ -65,6 +67,10 @@ public:
     , m_pstring(pstring)
     , m_handle{ handle }
     {}
+
+    // Call after parsing
+    static void parse_cleanup();
+
 private:
 
     unsigned define(pstring_t pstring, group_class_t gclass, 
@@ -92,13 +98,15 @@ public:
     void add_gvar(gvar_ht v)
     {
         assert(compiler_phase() <= PHASE_PARSE);
-        std::lock_guard<std::mutex> lock(gvars_mutex);
-        gvars.push_back(v);
+        std::lock_guard<std::mutex> lock(m_gvars_mutex);
+        m_gvars.push_back(v);
     }
 
+    std::vector<gvar_ht> const& gvars() const { assert(compiler_phase() > PHASE_PARSE); return m_gvars; }
+
 private:
-    std::mutex gvars_mutex; // Used during parsing only.
-    std::vector<gvar_ht> gvars;
+    std::mutex m_gvars_mutex; // Used during parsing only.
+    std::vector<gvar_ht> m_gvars;
 
     //std::mutex m_interfering_groups_mutex;
     //bitset_t m_interfering_groups;

@@ -215,7 +215,7 @@ rom_allocator_t::rom_allocator_t(span_allocator_t& allocator, unsigned num_banks
             group_data_t const& gd = group.impl<group_data_t>();
             for(const_ht c : gd.consts())
             {
-                std::puts("GD CONST");
+                //std::puts("GD CONST");
                 auto const& meta = get_meta(c->rom_array());
                 if(meta.alloc.rclass() == ROM_ONCE)
                     return false;
@@ -439,7 +439,7 @@ float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
     int unrelated = 0;
     if(once.related_onces)
     {
-        std::puts("RELATED ONCES");
+        //std::puts("RELATED ONCES");
         bitset_uint_t* const onces = ALLOCA_T(bitset_uint_t, once_bs_size);
         bitset_copy(once_bs_size, onces, once.related_onces);
         bitset_and(once_bs_size, onces, bank.allocated_onces.data());
@@ -448,10 +448,10 @@ float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
         unrelated = bitset_popcount(once_bs_size, onces);
     }
 
-    std::printf("related %i %i\n", related, unrelated);
+    //std::printf("related %i %i\n", related, unrelated);
 
     float const r = bank.allocator.initial_bytes_free() * std::sqrt((float)bank.allocator.spans_free());
-    std::printf("bank rank %i %i %f\n", unallocated_many_size, related, (bank.allocator.bytes_free() / r));
+    //std::printf("bank rank %i %i %f\n", unallocated_many_size, related, (bank.allocator.bytes_free() / r));
     return -unallocated_many_size + related - (unrelated * 0.125f) + (bank.allocator.bytes_free() / r);
 }
 
@@ -509,7 +509,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
             return false;
         });
         
-        std::cout << " alloc rom " << once.desired_size << std::endl;
+        //std::cout << " alloc rom " << once.desired_size << std::endl;
 
         // If we succeeded in allocating manys, try to allocate 'once's span:
         // (conditional has side effect assignment)
@@ -603,9 +603,9 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
 
     in_banks.for_each([&](unsigned bank_i)
     {
-        std::cout << "free addr " << free_addr << std::endl;
+        //std::cout << "free addr " << free_addr << std::endl;
         span_t const span = banks[bank_i].allocator.unallocated_span_at(free_addr);
-        std::cout << "free span " << span << std::endl;
+        //std::cout << "free span " << span << std::endl;
         assert(span.size >= many.desired_size);
         min_end = std::min<unsigned>(min_end, span.end());
     });
@@ -638,12 +638,14 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
 void alloc_rom(span_allocator_t allocator, unsigned num_banks)
 {
     rom_allocator_t alloc(allocator, num_banks);
+    /*
     for(auto const& many : rom_vector<rom_many_t>)
     {
-        std::cout << "MANY " << many.span;
+        //std::cout << "MANY " << many.span;
         many.in_banks.for_each([](unsigned bank_i) { std::cout << ' ' << bank_i; });
         std::cout << std::endl;
     }
     for(auto const& once : rom_vector<rom_once_t>)
         std::cout << "ONCE " << once.span << ' ' << once.bank << std::endl;
+        */
 }

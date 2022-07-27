@@ -65,7 +65,9 @@ void span_allocator_t::free(span_t span)
     // Update the bitset
 
     unsigned const start = ((span.addr - m_initial.addr) * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
-    unsigned const size = (span.size * bitset_t::num_bits) / m_initial.size;
+    unsigned const end = ((span.end() - m_initial.addr) * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
+    unsigned const size = end - start;
+    assert(size > 0);
     assert(span.contains(span_t{ start * m_initial.size / bitset_t::num_bits + m_initial.addr, 
                                  size * m_initial.size / bitset_t::num_bits }));
     m_allocated_bs -= bitset_t::filled(size, start);
@@ -80,7 +82,8 @@ span_t span_allocator_t::did_alloc(treap_t::iterator it, span_t alloc)
     // Update the bitset
 
     unsigned const start = (alloc.addr - m_initial.addr) * bitset_t::num_bits / m_initial.size;
-    unsigned const size = (alloc.size * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
+    unsigned const end = ((alloc.end() - m_initial.addr) * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
+    unsigned const size = end - start;
     assert(size > 0);
     assert((span_t{ start * m_initial.size / bitset_t::num_bits + m_initial.addr ,
                     size * m_initial.size / bitset_t::num_bits }.contains(alloc)));

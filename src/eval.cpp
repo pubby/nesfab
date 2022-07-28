@@ -745,10 +745,13 @@ void eval_t::compile_block()
         break;
 
     case STMT_END_IF:
-    case STMT_END_DO:
     case STMT_END_WHILE:
     case STMT_END_FN:
+    case STMT_END_FOR:
         ++stmt;
+        // fall-through
+    case STMT_END_DO:
+    case STMT_FOR_EFFECT:
         return;
 
     case STMT_EXPR:
@@ -826,12 +829,18 @@ void eval_t::compile_block()
                 // Compile the 'for' expr in its own block:
                 assert(stmt->name == STMT_FOR_EFFECT);
                 begin_for_expr = builder.cfg = insert_cfg(true);
+                end_body->build_set_output(0, begin_for_expr);
+
                 do_expr<COMPILE>(rpn_stack, stmt->expr);
                 ++stmt;
+                assert(stmt->name == STMT_END_FOR);
+                ++stmt;
                 cfg_ht const end_for_expr = builder.cfg;
+                cfg_exits_with_jump();
                 end_for_expr->build_set_output(0, begin_branch);
             }
-            end_body->build_set_output(0, begin_for_expr);
+            else
+                end_body->build_set_output(0, begin_for_expr);
 
             // All continue statements jump to the 'begin_for_expr'.
             for(cfg_ht node : builder.continue_stack.back())
@@ -1614,7 +1623,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             // Advance the token to get the TOK_cast_type.
             ++token;
             assert(token->type == TOK_cast_type);
-            type_t const type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, true, this);
+            type_t const type = dethunkify({ token->pstring, *token->ptr<type_t const>() }, true, this);
 
             // Only handle LT for non-aggregates.
             if(!is_aggregate(type.name()) && handle_lt<D>(rpn_stack, argn, token-1, token+1))
@@ -1853,7 +1862,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
     case TOK_sizeof:
         {
-            common_type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, true, this);
+            common_type = dethunkify({ token->pstring, *token->ptr<type_t const>() }, true, this);
         do_sizeof:
             unsigned const size = common_type.size_of();
 
@@ -1874,7 +1883,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
     case TOK_len:
         {
-            common_type = dethunkify({ *token->ptr<type_t const>(), token->pstring }, true, this);
+            common_type = dethunkify({ token->pstring, *token->ptr<type_t const>() }, true, this);
         do_len:
             unsigned const size = common_type.array_length();
 
@@ -3026,7 +3035,10 @@ cfg_ht eval_t::insert_cfg(bool seal, pstring_t label_name)
 
     init_vector(block_data.vars);
     if(!seal)
+    {
         init_vector(block_data.unsealed_phis);
+        assert(block_data.unsealed_phis.size() == block_data.vars.size());
+    }
 
     return new_node;
 }
@@ -3040,6 +3052,7 @@ void eval_t::seal_block(block_d& block_data)
             if((v = block_data.unsealed_phis[i][member]) && v.holds_ref())
                 fill_phi_args(v->handle(), i, member);
     block_data.unsealed_phis.clear();
+    block_data.sealed = true;
 }
 
 // Relevant paper:

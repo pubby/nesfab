@@ -20,7 +20,7 @@ std::string to_string(locator_t loc)
     case LOC_NONE:
         return "none";
     case LOC_IOTA:
-        str = "offset"; break;
+        str = "iota offset"; break;
     case LOC_GMEMBER:
         str = fmt("gmember % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_GMEMBER_SET:
@@ -31,8 +31,6 @@ std::string to_string(locator_t loc)
         str = fmt("arg %", loc.fn()->global.name); break;
     case LOC_RETURN:
         str = fmt("ret %", loc.fn()->global.name); break;
-    case LOC_PHI:
-        str = fmt("phi"); break;
     case LOC_CFG_LABEL:
         str = fmt("cfg label"); break;
     case LOC_MINOR_LABEL:
@@ -42,6 +40,8 @@ std::string to_string(locator_t loc)
     case LOC_ADDR:
         str = "addr"; break;
     case LOC_SSA:
+        str = fmt("ssa %", loc.handle()); break;
+    case LOC_PHI:
         str = fmt("ssa %", loc.handle()); break;
     case LOC_MINOR_VAR:
         str = fmt("minor var %", loc.fn()->global.name); break;
@@ -160,6 +160,7 @@ type_t locator_t::type() const
     case LOC_CONST_BYTE:
         return TYPE_U;
     case LOC_SSA:
+    case LOC_PHI:
         assert(compiler_phase() == PHASE_COMPILE);
         return byteify(ssa_node()->type());
     default:
@@ -207,11 +208,11 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
 
     case LOC_ARG:
     case LOC_RETURN:
-    case LOC_PHI:
     case LOC_MINOR_VAR:
         return from_span(fn()->lvar_span(mem_head()));
 
     case LOC_SSA:
+    case LOC_PHI:
         if(!fn_h)
             return *this;
         return from_span(fn_h->lvar_span(mem_head()));

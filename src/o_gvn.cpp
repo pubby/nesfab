@@ -9,6 +9,8 @@
 #include "ir.hpp"
 #include "ir_util.hpp"
 
+#include <iostream> // TODO
+
 using gvn_t = std::uint64_t;
 
 struct ssa_gvn_d
@@ -126,6 +128,7 @@ public:
         // Now replace the old nodes with the defining one:
         for(unsigned i = 1; i < set.size(); ++i)
         {
+            std::cout << "GVN replacing " << set[i].index << " with " << set[0].index << std::endl;
             set[i]->replace_with(set[0]);
             set[i]->prune();
         }

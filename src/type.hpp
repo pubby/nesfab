@@ -137,8 +137,8 @@ struct paa_thunk_t
 // Pairs a pstring with a type.
 struct src_type_t
 {
-    type_t type;
     pstring_t pstring;
+    type_t type;
 };
 
 inline type_t type_t::elem_type() const

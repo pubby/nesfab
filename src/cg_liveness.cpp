@@ -78,11 +78,12 @@ unsigned calc_ssa_liveness(ir_t const& ir, unsigned pool_size)
     set_size = ::bitset_size<>(pool_size);
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
         auto& d = live(cfg_it);
         d.in  = bitset_pool.alloc(set_size);
         d.out = bitset_pool.alloc(set_size);
+        assert(d.in);
+        assert(d.out);
     }
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -159,6 +160,9 @@ std::size_t live_range_busyness(ir_t& ir, ssa_ht h)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         auto& ld = live(cfg_it);
+
+        assert(ld.in);
+        assert(ld.out);
 
         if(bitset_test(ld.in, h.index))
             total_size += bitset_popcount(set_size, ld.in);

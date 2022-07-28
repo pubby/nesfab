@@ -29,6 +29,8 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                 ssa_value_t input = ssa_it->input(i);
                 if(input.is_const())
                     o << "  const_" << gv_id(ssa_it) << '_' << i << ";\n";
+                else if(input.holds_ref() && input->cfg_node() != cfg_it)
+                    o << "  ssa_long_" << gv_id(ssa_it) << '_' << gv_id(input.handle()) << ";\n";
             }
         }
         o << "  " << gv_id(cfg_it) << ";\n"; 
@@ -104,9 +106,17 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                 o << " -> " << gv_id(ssa_it) << "[";
 
             }
-            else
+            else if(input.holds_ref() && input->cfg_node() == cfg_it)
             {
                 o << gv_id(input.handle()) << " -> " << gv_id(ssa_it) << "[";
+            }
+            else
+            {
+                o << "ssa_long_" << gv_id(ssa_it) << '_' << gv_id(input.handle());
+                o << " [label=\"(" << input.handle().index;
+                o << ")\" shape=diamond];\n";
+
+                o << "ssa_long_" << gv_id(ssa_it) << "_" << gv_id(input.handle()) << " -> " << gv_id(ssa_it) << "[";
             }
             o << " fontcolor=lime fontsize=10 ";
             o << " headlabel=\"" << i << "\"];\n";
@@ -146,7 +156,24 @@ void graphviz_cfg(std::ostream& o, ir_t const& ir)
         for(unsigned i = 0; i < cfg_it->output_size(); ++i)
         {
             cfg_ht succ = cfg_it->output(i);
-            o << gv_id(cfg_it) << " -> " << gv_id(succ) << ";\n";
+            o << gv_id(cfg_it) << " -> " << gv_id(succ) << "[";
+            switch(i)
+            {
+            case 0: o << " color=blue "; break;
+            case 1: o << " color=red "; break;
+            default: break;
+            }
+
+            switch(cfg_it->output_edge(i).index)
+            {
+            case 0: o << " arrowhead=empty "; break;
+            case 1: o << " arrowhead=open "; break;
+            case 3: o << " arrowhead=dot"; break;
+            case 4: o << " arrowhead=box "; break;
+            default: break;
+            }
+
+            o << "]\n";
         }
     }
 

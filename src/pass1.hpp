@@ -114,11 +114,11 @@ public:
         // Create a scope for the fn body.
         symbol_table.push_scope();
 
-        return { { fn_type, pstring }, fn_name };
+        return { { pstring, fn_type }, fn_name };
     }
 
     [[gnu::always_inline]]
-    void end_fn(var_decl_t decl, fclass_t fclass)
+    void end_fn(var_decl_t decl, fclass_t fclass, type_t using_vars)
     {
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
@@ -135,7 +135,8 @@ public:
         // Create the global:
         active_global->define_fn(decl.name, 
                                  std::move(ideps), std::move(weak_ideps),
-                                 decl.src_type.type, std::move(fn_def), fclass);
+                                 decl.src_type.type, std::move(fn_def), fclass);//,
+                                 //using_vars);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -183,11 +184,11 @@ public:
         symbol_table.push_scope();
 
         assert(mode_name);
-        return { .src_type = { fn_type, mode_name }, .name = mode_name };
+        return { .src_type = { mode_name, fn_type }, .name = mode_name };
     }
 
     [[gnu::always_inline]]
-    void end_mode(var_decl_t decl)
+    void end_mode(var_decl_t decl, type_t using_vars)
     {
         assert(decl.name);
         symbol_table.pop_scope(); // mode body scope
@@ -206,7 +207,8 @@ public:
         assert(decl.name);
         active_global->define_fn(decl.name, 
                                  std::move(ideps), std::move(weak_ideps),
-                                 decl.src_type.type, std::move(fn_def), FN_MODE);
+                                 decl.src_type.type, std::move(fn_def), FN_MODE);//,
+                                 //using_vars);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -456,8 +458,8 @@ public:
     [[gnu::always_inline]]
     void end_for(for_d d)
     {
-        symbol_table.pop_scope();
         stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, {}, {}, d.effect ? convert_expr(*d.effect) : nullptr });
+        symbol_table.pop_scope();
         stmt_ht const exit = fn_def.push_stmt({ STMT_END_FOR, d.begin_for });
         fn_def[d.begin_for].link = exit + 1;
 

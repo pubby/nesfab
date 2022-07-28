@@ -108,6 +108,7 @@ SSA_DEF(make_ptr_lo, 2, INPUT_NONE, SSAF_COPY)
 SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY)
 
 // (ptr, ptr_hi, bank, index)
+// TODO: should this be impure, because of bankswitches?
 SSA_DEF(read_ptr, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
 
 // (ptr, ptr_hi, bank, index, value)

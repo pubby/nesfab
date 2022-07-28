@@ -2,6 +2,8 @@
 
 #include "builtin.hpp"
 
+#include <iostream> // TODO
+
 // Allocates the specified amount, using small buffer optimization 
 // whenever possible.
 template<typename T, std::size_t StorageSize> 
@@ -330,6 +332,9 @@ bool ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
         new_value.set_index(append_i);
     }
     m_io.input(i) = new_value;
+
+    assert(i < input_size());
+    assert(input(i) == new_value);
 
     return true;
 }
@@ -905,6 +910,13 @@ void ir_t::assert_valid() const
                 assert(daisy->cfg_node() == cfg_it);
             for(ssa_ht daisy = ssa_node.next_daisy(); daisy; ++daisy)
                 assert(daisy->cfg_node() == cfg_it);
+
+            if(ssa_it->op() == SSA_if)
+            {
+                assert(ssa_it == cfg_node.last_daisy());
+                std::cout << ssa_it.index << std::endl;
+                assert(cfg_node.output_size() == 2);
+            }
 
             // Array checks.
 

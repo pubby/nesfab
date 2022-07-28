@@ -41,7 +41,7 @@ enum locator_class_t : std::uint8_t
 
     LOC_ARG,
     LOC_RETURN,
-    LOC_PHI, // TODO?
+    LOC_PHI, // TODO: remove?
     LOC_SSA,
     LOC_MINOR_VAR,
     LOC_LVAR,
@@ -90,6 +90,7 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_SSA:
+    case LOC_PHI:
     case LOC_LT_GMEMBER_PTR:
     case LOC_LT_CONST_PTR:
     case LOC_LT_CONST_PTR_BANK:
@@ -107,7 +108,6 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_FN:
     case LOC_ARG:
     case LOC_RETURN:
-    case LOC_PHI:
     case LOC_MINOR_VAR:
     case LOC_LVAR:
         return true;
@@ -265,7 +265,7 @@ public:
 
     ssa_ht ssa_node() const
     {
-        assert(lclass() == LOC_SSA);
+        assert(lclass() == LOC_SSA || lclass() == LOC_PHI);
         assert(compiler_phase() == PHASE_COMPILE);
         return { handle() };
     }
@@ -347,9 +347,6 @@ public:
     constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
         { return locator_t(LOC_RETURN, fn.value, 0, member, atom, offset); }
 
-    constexpr static locator_t phi(fn_ht fn, std::uint16_t id)
-        { return locator_t(LOC_PHI, fn.value, id, 0); }
-
     constexpr static locator_t cfg_label(cfg_ht cfg_node)
         { return locator_t(LOC_CFG_LABEL, cfg_node.index, 0, 0); }
 
@@ -361,6 +358,9 @@ public:
 
     constexpr static locator_t addr(addr16_t addr, std::uint16_t offset = 0)
         { return locator_t(LOC_ADDR, 0, addr, offset); }
+
+    constexpr static locator_t phi(ssa_ht node)
+        { return locator_t(LOC_PHI, node.index, 0, 0, 0, 0); }
 
     constexpr static locator_t ssa(ssa_ht node)
         { return locator_t(LOC_SSA, node.index, 0, 0, 0, 0); }

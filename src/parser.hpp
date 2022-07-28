@@ -55,14 +55,20 @@ private:
     template<typename Func>
     void parse_block(int const parent_indent, Func func);
 
-    static bool fail_using(pstring_t pstring) { return false; }
+    static bool fail_using() { return false; }
 
     // Parses lines of 'using' mods
-    template<typename HGV = decltype(&fail_using), typename HI = decltype(&fail_using)>
-    void parse_using_mods(
-        int base_indent, 
-        HGV const& handle_group_vars = &fail_using, 
-        HI const& handle_ident = &fail_using);
+    template<typename Func = decltype(&fail_using)>
+    void parse_using_mods(int base_indent, Func const& func = &fail_using);
+
+    template<typename Func = decltype(&fail_using)>
+    src_type_t parse_using_vars(int base_indent, Func const& func = &fail_using);
+
+    template<typename First>
+    int parse_then(First const& first);
+
+    template<typename First, typename Second>
+    int parse_then(First const& first, Second const& second);
 
     void expect_token(token_type_t expecting) const;
     bool parse_token(token_type_t expecting);

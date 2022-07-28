@@ -21,6 +21,9 @@
 namespace bc = ::boost::container;
 
 #include <iostream> // TODO
+#include <fstream> // TODO
+#include "graphviz.hpp"
+#include "format.hpp"
 
 namespace {
 
@@ -74,8 +77,7 @@ struct ssa_ai_d
     // If any of the value's inputs were modified by the jump threading pass.
     bool touched = false;
 
-    constraints_def_t& constraints() 
-        { return constraints_array[constraints_i]; } 
+    constraints_def_t& constraints() { return constraints_array[constraints_i]; } 
     void set_active_constraints(executable_index_t e) { constraints_i = e; }
 };
 
@@ -202,6 +204,9 @@ public:
 
 ai_t::ai_t(ir_t& ir_) : ir(ir_)
 {
+    static int count = 0;
+    ++count;
+
     // Currently, the AI implementation has a limit on the number of
     // output edges a node can have. This could be worked around, but 
     // it's rare in practice and simpler to code this way.
@@ -211,33 +216,115 @@ ai_t::ai_t(ir_t& ir_) : ir(ir_)
 
     ir.assert_valid();
 
-    debug_printf("TRACE");
+    {
+        std::ofstream ossa(fmt("graphs/start_ssa_%.gv", count));
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+    {
+        std::ofstream ossa(fmt("graphs/start_cfg_%.gv", count));
+        if(ossa.is_open())
+            graphviz_cfg(ossa, ir);
+    }
+
+    debug_printf("\nTRACE\n");
     insert_traces();
     ir.assert_valid();
 
-    debug_printf("PROPAGATE");
+    {
+        std::ofstream ossa(fmt("graphs/trace_ssa_%.gv", count));
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+    {
+        std::ofstream ossa(fmt("graphs/trace_cfg_%.gv", count));
+        if(ossa.is_open())
+            graphviz_cfg(ossa, ir);
+    }
+
+    debug_printf("\nPROPAGATE\n");
     range_propagate();
     ir.assert_valid();
 
-    debug_printf("PRUNE");
+    {
+        std::cout << "WUMBO\n";
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        {
+            std::cout << " CFG " << cfg_it.index << '\n';
+            std::cout << "  executable: " << ai_data(cfg_it).executable[0] << ' ' << ai_data(cfg_it).executable[1] << '\n';
+            std::cout << "  executable out: " << ai_data(cfg_it).output_executable[0] << ' ' << ai_data(cfg_it).output_executable[1] << '\n';
+            for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+            {
+                std::cout << "   ssa " << ssa_it.index << '\n';
+                if(ai_data(ssa_it).constraints().vec.size())
+                    std::cout << "    constraints:" << ai_data(ssa_it).constraints()[0] << '\n';
+            }
+        }
+    }
+
+    debug_printf("\nPRUNE\n");
     prune_unreachable_code();
     ir.assert_valid();
 
-    debug_printf("MARK SKIP");
+    debug_printf("\nMARK SKIP\n");
     mark_skippable();
     ir.assert_valid();
 
-    debug_printf("THREAD");
+    {
+        std::ofstream ossa(fmt("graphs/pre_ssa_%.gv", count));
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+    {
+        std::ofstream ossa(fmt("graphs/pre_cfg_%.gv", count));
+        if(ossa.is_open())
+            graphviz_cfg(ossa, ir);
+    }
+
+    std::cout << "JUMP PRE " << count << std::endl;
+
+    debug_printf("\nTHREAD\n");
     thread_jumps();
     ir.assert_valid();
+
+    {
+        std::ofstream ossa(fmt("graphs/post_ssa_%.gv", count));
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+    {
+        std::ofstream ossa(fmt("graphs/post_cfg_%.gv", count));
+        if(ossa.is_open())
+            graphviz_cfg(ossa, ir);
+    }
+
+
+
+    //if(count == 2)
+        //return;
     
-    debug_printf("FOLD");
+    debug_printf("\nFOLD\n");
     fold_consts();
     ir.assert_valid();
 
-    debug_printf("REMOVE SKIP");
+    debug_printf("\nREMOVE SKIP\n");
     remove_skippable();
     ir.assert_valid();
+
+    {
+        std::ofstream ossa(fmt("graphs/end_ssa_%.gv", count));
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+    {
+        std::ofstream ossa(fmt("graphs/end_cfg_%.gv", count));
+        if(ossa.is_open())
+            graphviz_cfg(ossa, ir);
+    }
+
+    //if(count == 2)
+        //assert(0);
+
 }
 
 ////////////////////////////////////////
@@ -267,6 +354,9 @@ void ai_t::queue_node(executable_index_t exec_i, ssa_ht h)
 
 static bool _search_not_skippable(cfg_ht cfg_h, ssa_ht ssa_h)
 {
+    if(ssa_flags(ssa_h->op()) & SSAF_IO_IMPURE)
+        return true;
+
     unsigned const output_size = ssa_h->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
@@ -284,6 +374,11 @@ static bool _search_not_skippable(cfg_ht cfg_h, ssa_ht ssa_h)
 
 void ai_t::mark_skippable()
 {
+#ifndef NDEBUG
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        assert(ai_data(cfg_it).skippable == false);
+#endif
+
     // A skippable CFG is one where every SSA node is either:
     // - A node inserted during SSA reconstruction
     // - A node that is used in its own CFG node but not anywhere else
@@ -323,6 +418,8 @@ void ai_t::remove_skippable()
             // pruned too.
             while(ssa_ht ssa_it = cfg_it->ssa_begin())
             {
+                assert(!(ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE));
+
                 // Nodes inserted during the SSA rebuild can simply be
                 // replaced with their original value.
                 if(ssa_ht mapping = ai_data(ssa_it).rebuild_mapping)
@@ -332,6 +429,7 @@ void ai_t::remove_skippable()
             }
 
             // Prune the skippable node.
+            std::cout << "PRUNE SKIPPABLE " << cfg_it.index << std::endl;
             cfg_it = ir.merge_edge(cfg_it);
         }
         else
@@ -350,6 +448,11 @@ void ai_t::remove_skippable()
 //   Simple and Efficient Construction of Static Single Assignment Form
 ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
 {
+    assert(cfg_node);
+    assert(ssa_node);
+
+    std::cout << "lookup " << cfg_node.index << ' ' << ssa_node.index << std::endl;
+
     if(ssa_node->cfg_node() == cfg_node)
         return ssa_node;
 
@@ -357,7 +460,10 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
     auto lookup = cd.rebuild_map.find(ssa_node);
 
     if(lookup != cd.rebuild_map.end())
+    {
+        assert(lookup->second);
         return lookup->second;
+    }
     else
     {
         // If 'cfg_node' doesn't contain a definition for 'ssa_node',
@@ -381,9 +487,13 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
             unsigned const input_size = cfg_node->input_size();
             phi->alloc_input(input_size);
             for(unsigned i = 0; i < input_size; ++i)
-                phi->build_set_input(
-                    i, local_lookup(cfg_node->input(i), ssa_node));
+            {
+                // Keep this as two lines. Reference invalidation lurks!
+                ssa_ht input = local_lookup(cfg_node->input(i), ssa_node);
+                phi->build_set_input(i, input);
+            }
 
+            assert(phi);
             return phi;
         }
     }
@@ -392,6 +502,10 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
 void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original, 
                         ssa_value_t parent_trace, unsigned arg_i)
 {
+    assert(cfg_trace);
+    assert(original);
+    assert(parent_trace);
+
     auto& cfg_trace_d = ai_data(cfg_trace);
     auto& rebuild_map = cfg_trace_d.rebuild_map;
 
@@ -432,9 +546,11 @@ void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original,
 
         // The remaining arguments come in pairs.
         // - First comes the parent trace.
-        // - Second comes the argument index into the parent trace.
+        // - Second comes the argument index into the parent trace's original node.
         trace->build_set_input(1, parent_trace);
         trace->build_set_input(2, ssa_value_t(arg_i, TYPE_VOID));
+        assert(parent_trace->input(0)->op() != SSA_trace);
+        assert(arg_i < parent_trace->input(0)->input_size());
     }
     else
     {
@@ -457,6 +573,16 @@ void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original,
                 insert_trace(cfg_trace, input.handle(), trace, i);
         }
     }
+
+    /*
+#ifndef NDEBUG
+    ssa_ht parent_trace = trace->input(i).handle();
+    ssa_ht parent_original = parent_trace->input(0).handle();
+    unsigned const arg_i = trace->input(i+1).whole();
+    unsigned const num_args = parent_original->input_size();
+    assert(d.arg_i < num_args);
+#endif
+*/
 
     // All outputs of the original node will need rebuilding.
     needs_rebuild.push_back(original);
@@ -496,6 +622,36 @@ void ai_t::insert_traces()
 
     ir.assert_valid();
 
+#ifndef NDEBUG
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht trace = cfg_node.ssa_begin(); trace; ++trace)
+    {
+        if(trace->op() != SSA_trace)
+            continue;
+
+        unsigned const input_size = trace->input_size();
+
+        if(input_size % 2 == 0)
+            continue;
+
+        for(unsigned i = 1; i < input_size; i += 2)
+        {
+            ssa_ht parent_trace = trace->input(i).handle();
+            ssa_ht parent_original = parent_trace->input(0).handle();
+
+            unsigned const arg_i = trace->input(i+1).whole();
+            unsigned const num_args = parent_original->input_size();
+            assert(arg_i < num_args);
+        }
+        // TODO: remove
+        //ssa_ht parent_original = parent_trace;
+        //while(parent_original->op() == SSA_trace)
+            //parent_original = parent_original->input(0).handle();
+    }
+#endif
+
+    ir.assert_valid();
+
     // For all the nodes that spawned a trace,
     // modify the inputs of their outputs to use the trace.
     for(ssa_ht h : needs_rebuild)
@@ -508,21 +664,67 @@ void ai_t::insert_traces()
             ssa_bck_edge_t edge = h->output_edge(i);
             assert(edge.handle->op() != SSA_trace || edge.index == 0);
 
-            ssa_ht lookup = local_lookup(edge.handle->input_cfg(edge.index), 
-                                         look_for);
+            std::puts("start lookup");
+            ssa_ht lookup = local_lookup(edge.handle->input_cfg(edge.index), look_for);
 
-            if(!edge.handle->link_change_input(edge.index, lookup))
+            assert(lookup);
+            std::cout << "LOOKUP = " << lookup.index << std::endl;
+
+            if(edge.handle->link_change_input(edge.index, lookup))
+            {
+                std::cout << "NEW INPUT = " << edge.handle->input(edge.index) << std::endl;
+
+                if(edge.handle->op() == SSA_trace)
+                {
+                    // TODO
+                }
+            }
+            else
                ++i;
         }
     }
 
     needs_rebuild.clear();
+
+    ir.assert_valid();
+
+    /*
+#ifndef NDEBUG
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht trace = cfg_node.ssa_begin(); trace; ++trace)
+    {
+        if(trace->op() != SSA_trace)
+            continue;
+
+        unsigned const input_size = trace->input_size();
+
+        if(input_size % 2 == 0)
+            continue;
+
+        for(unsigned i = 1; i < input_size; i += 2)
+        {
+            ssa_ht parent_trace = trace->input(i).handle();
+            ssa_ht parent_original = parent_trace->input(0).handle();
+
+            unsigned const arg_i = trace->input(i+1).whole();
+            unsigned const num_args = parent_original->input_size();
+            assert(arg_i < num_args);
+        }
+        // TODO: remove
+        //ssa_ht parent_original = parent_trace;
+        //while(parent_original->op() == SSA_trace)
+            //parent_original = parent_original->input(0).handle();
+    }
+#endif
+*/
+
 }
 
 // Doesn't normalize (to handle widening more efficiently).
 // You must normalize at call site.
 void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
 {
+    assert(trace->op() == SSA_trace);
     auto& trace_d = ai_data(trace);
 
     // If there's only two arguments that means we have a 'root' trace.
@@ -530,13 +732,18 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     // The constraints of this is always constant.
     if(trace->input_size() == 2)
     {
+        assert(trace->type().name() == TYPE_BOOL);
         assert(trace->input(1).is_num());
         constraints_mask_t const cm = type_constraints_mask(trace->input(1).num_type_name());
+        assert(trace_d.constraints().cm == cm);
         trace_d.constraints() =
         { 
             cm,
             { constraints_t::const_(trace->input(1).fixed().value, cm) } 
         };
+        assert(trace_d.constraints()[0].is_const());
+        assert(trace_d.constraints().cm == get_constraints(trace->input(0)).cm);
+        assert(is_subset(trace_d.constraints()[0], get_constraints(trace->input(0))[0], trace_d.constraints().cm));
         return;
     }
 
@@ -561,23 +768,62 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         constraints_t::bottom(trace_d.constraints().cm));
     for(unsigned i = 1; i < input_size; i += 2)
     {
-        ssa_ht parent_trace = trace->input(i).handle();
-        ssa_ht parent_original = parent_trace->input(0).handle();
+        ssa_ht const parent_trace = trace->input(i).handle();
+        assert(parent_trace->op() == SSA_trace);
+        //ssa_ht parent_original = parent_trace->input(0).handle();
+        // TODO: remove
+        ssa_ht const parent_original = parent_trace->input(0).handle();
+        ssa_ht parent_head = parent_original;
+        while(parent_head->op() == SSA_trace)
+            parent_head = parent_head->input(0).handle();
+
+        assert(trace->type() == trace->input(0)->type());
+
+        /*
+        if(parent_original->op() == SSA_trace)
+        {
+            std::cout << trace->type() << std::endl;
+            std::cout << trace->input(0)->type() << std::endl;
+            std::cout << trace_d.constraints().cm << std::endl;
+            std::cout << get_constraints(trace->input(0)).cm << std::endl;
+            assert(trace_d.constraints().cm == get_constraints(trace->input(0)).cm);
+
+            trace_d.constraints() = ai_data(trace->input(0).handle()).constraints();
+            assert(is_subset(trace_d.constraints()[0], get_constraints(trace->input(0))[0], trace_d.constraints().cm));
+            return;
+        }
+        */
+
+        std::cout << "op = " << parent_original->op() << ' ' << parent_original.index << ' ' << trace.index << std::endl;
 
         unsigned const arg_i = trace->input(i+1).whole();
-        unsigned const num_args = parent_original->input_size();
+        unsigned const num_args = parent_head->input_size();
+        assert(arg_i < num_args);
+
+        /*
+        // The first argument is the original expression it represents.
+        trace->build_set_input(0, original);
+
+        // The remaining arguments come in pairs.
+        // - First comes the parent trace.
+        // - Second comes the argument index into the parent trace.
+        trace->build_set_input(1, parent_trace);
+        trace->build_set_input(2, ssa_value_t(arg_i, TYPE_VOID));
+        assert(arg_i < parent_trace->input(0)->input_size());
+        */
 
         // The narrow function expects a mutable array of constraints
         // that it modifies. Create that array here.
         c.resize(num_args);
         for(unsigned j = 0; j < num_args; ++j)
-            copy_constraints(parent_original->input(j), c[j]);
+            copy_constraints(parent_head->input(j), c[j]);
 
         auto& parent_trace_d = ai_data(parent_trace);
         assert(parent_trace_d.rebuild_mapping);
-        ssa_op_t const op = parent_original->op();
+        ssa_op_t const op = parent_head->op();
         assert(narrow_fn(op));
         // Call the narrowing op:
+        // BIG TODO
         narrow_fn(op)(c.data(), num_args, parent_trace_d.constraints());
 
         assert(c[arg_i].vec.size() == narrowed.size());
@@ -586,8 +832,17 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     }
 
     trace_d.set_active_constraints(exec_i);
+    std::cout << trace_d.constraints()[0] << std::endl;
     for(unsigned i = 0; i < narrowed.size(); ++i)
-        trace_d.constraints()[i] = union_(trace_d.constraints()[i], narrowed[i]);
+        //trace_d.constraints()[i] = constraints_t::top(); // BIG TODO
+        //trace_d.constraints() = get_constraints(trace->input(0));
+        trace_d.constraints()[i] = intersect(union_(trace_d.constraints()[i], narrowed[i]), get_constraints(trace->input(0))[i]);
+
+    std::cout << narrowed[0] << std::endl;
+    std::cout << trace_d.constraints()[0] << std::endl;
+    std::cout << get_constraints(trace->input(0))[0] << std::endl;
+    assert(trace_d.constraints().cm == get_constraints(trace->input(0)).cm);
+    assert(is_subset(trace_d.constraints()[0], get_constraints(trace->input(0))[0], trace_d.constraints().cm));
 }
 
 ////////////////////////////////////////
@@ -604,6 +859,8 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
         compute_trace_constraints(exec_i, ssa_node);
     else
     {
+        assert(d.constraints().vec.size());
+
         // Build an array holding all the argument's constraints.
         unsigned const input_size = ssa_node->input_size();
         bc::small_vector<constraints_def_t, 16> c;
@@ -642,7 +899,9 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
 #endif
         assert(abstract_fn(ssa_node->op()));
         d.set_active_constraints(exec_i);
+        assert(d.constraints().vec.size());
         abstract_fn(ssa_node->op())(c.data(), input_size, d.constraints());
+        assert(d.constraints_i == exec_i);
     }
 }
 
@@ -650,7 +909,7 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
 void ai_t::visit(ssa_ht ssa_node)
 {
 #ifdef DEBUG_PRINT
-    std::cout << "visit " << to_string(ssa_node->op()) << '\n';
+    std::cout << "visit " << to_string(ssa_node->op()) << ' ' << ssa_node.index << std::endl;
 #endif
 
     if(ssa_node->op() == SSA_if)
@@ -710,8 +969,8 @@ void ai_t::visit(ssa_ht ssa_node)
     }
 
 #ifdef DEBUG_PRINT
-    std::cout << "C = " << d.constraints()[0] << '\n';
-    std::cout << "O = " << old_constraints[0] << '\n';
+    //std::cout << "C = " << d.constraints()[0] << '\n';
+    //std::cout << "O = " << old_constraints[0] << '\n';
 #endif
 
     assert(all_normalized(d.constraints()));
@@ -756,23 +1015,38 @@ void ai_t::range_propagate()
             assert(sd.visited_count == 0);
             assert(sd.constraints_i == EXEC_PROPAGATE);
 
-            constraints_def_t& constraints = sd.constraints();
+            //constraints_def_t& constraints = sd.constraints();
             type_t const type = ssa_it->type();
 
-            constraints.vec.clear();
-            constraints.vec.resize(constraints_size(*ssa_it), constraints_t::top());
+            // TODO: remove?
+            for(auto& constraints : sd.constraints_array)
+            {
+                constraints.vec.clear();
+                constraints.vec.resize(constraints_size(*ssa_it), constraints_t::top());
 
-            if(constraints.vec.empty())
-                continue;
+                if(constraints.vec.empty())
+                    continue;
 
-            if(type.name() == TYPE_TEA)
-                constraints.cm = type_constraints_mask(type.elem_type().name());
-            else if(type.name() == TYPE_PAA)
-                constraints.cm = type_constraints_mask(TYPE_U);
-            else
-                constraints.cm = type_constraints_mask(type.name());
+                if(type.name() == TYPE_TEA)
+                    constraints.cm = type_constraints_mask(type.elem_type().name());
+                else if(type.name() == TYPE_PAA)
+                    constraints.cm = type_constraints_mask(TYPE_U);
+                else
+                    constraints.cm = type_constraints_mask(type.name());
+
+                assert(constraints.cm.mask && ~constraints.cm.mask);
+            }
         }
     }
+
+#ifndef NDEBUG
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+    {
+        if(is_scalar(ssa_it->type().name()))
+            assert(ai_data(ssa_it).constraints().cm == type_constraints_mask(ssa_it->type().name()));
+    }
+#endif
 
     cfg_worklist.push(ir.root);
 
@@ -826,16 +1100,31 @@ void ai_t::prune_unreachable_code()
         ssa_ht branch = cfg_node.last_daisy();
         assert(branch && branch->op() == SSA_if);
 
+        assert(ai_data(branch).constraints_i == EXEC_PROPAGATE);
+
         constraints_def_t def = get_constraints(get_condition(*branch));
         assert(def.vec.size() == 1);
         assert(def.cm == BOOL_MASK);
         constraints_t const& c = def[0];
 
         if(!c.is_const())
+        {
+#ifndef NDEBUG
+            //if(!def.is_top() && ai_data(cfg_node.handle()).executable[EXEC_PROPAGATE])
+            if(ai_data(cfg_node.handle()).output_executable[EXEC_PROPAGATE])
+            {
+                //assert((ai_data(cfg_node.handle()).output_executable[EXEC_PROPAGATE] & 0b11) == 0b11);
+                for(unsigned i = 0; i < cfg_node.output_size(); ++i)
+                    assert(ai_data(cfg_node.output(i)).executable[EXEC_PROPAGATE]);
+            }
+#endif
             continue;
+        }
 
         // First calculate the branch index to remove.
         bool const prune_i = !(c.get_const() >> fixed_t::shift);
+
+        std::cout << "PRUNE BRANCH " << branch.index << ' ' << get_condition(*branch)->op() << ' ' << c << std::endl;
 
         // Then remove the conditional.
         branch->prune();
@@ -862,11 +1151,29 @@ void ai_t::prune_unreachable_code()
         }
     }
 
+    {
+        std::ofstream ossa(fmt("graphs/fail_ssa_%.gv", 0));
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+    {
+        std::ofstream ossa(fmt("graphs/fail_cfg_%.gv", 0));
+        if(ossa.is_open())
+            graphviz_cfg(ossa, ir);
+    }
+
     ir.assert_valid();
 }
 
 void ai_t::fold_consts()
 {
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+    {
+        auto& d = ai_data(ssa_it);
+        d.constraints_i = EXEC_PROPAGATE;
+    }
+
     // Replace nodes determined to be constant with a constant ssa_value_t.
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
@@ -879,6 +1186,8 @@ void ai_t::fold_consts()
 
         ssa_op_t const op = ssa_it->op();
         auto& d = ai_data(ssa_it);
+
+        assert(d.constraints_i == EXEC_PROPAGATE);
 
         if(is_scalar(ssa_it->type().name()) && d.constraints()[0].is_const())
         {
@@ -968,6 +1277,7 @@ void ai_t::jump_thread_visit(ssa_ht ssa_node)
     assert(all_normalized(old_constraints));
 
     compute_constraints(EXEC_JUMP_THREAD, ssa_node);
+    //assert(ai_data(ssa_node).constraints_i == EXEC_JUMP_THREAD);
     for(constraints_t& c : d.constraints().vec)
         c.normalize(d.constraints().cm);
 
@@ -984,8 +1294,11 @@ void ai_t::jump_thread_visit(ssa_ht ssa_node)
     }
 }
 
-void ai_t::run_jump_thread(cfg_ht start, unsigned start_branch_i)
+void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
 {
+    //if(threaded_jumps.size())
+        //return;
+    std::puts("JUMP START ====");
     // Reset the state.
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -1001,6 +1314,28 @@ void ai_t::run_jump_thread(cfg_ht start, unsigned start_branch_i)
             sd.set_active_constraints(EXEC_PROPAGATE);
             sd.touched = false;
             assert(ssa_it->test_flags(FLAG_IN_WORKLIST) == false);
+
+            // TODO:
+
+            // TODO: is this correct?
+            type_t const type = ssa_it->type();
+            for(auto& constraints : sd.constraints_array)
+            {
+                constraints.vec.clear();
+                constraints.vec.resize(constraints_size(*ssa_it), constraints_t::top());
+
+                if(constraints.vec.empty())
+                    continue;
+
+                if(type.name() == TYPE_TEA)
+                    constraints.cm = type_constraints_mask(type.elem_type().name());
+                else if(type.name() == TYPE_PAA)
+                    constraints.cm = type_constraints_mask(TYPE_U);
+                else
+                    constraints.cm = type_constraints_mask(type.name());
+
+                assert(constraints.cm.mask && ~constraints.cm.mask);
+            }
         }
     }
 
@@ -1014,13 +1349,16 @@ void ai_t::run_jump_thread(cfg_ht start, unsigned start_branch_i)
     unsigned branches_skipped = 0;
     while(true)
     {
+        std::cout << "JUMP SKIPPING " << h.index << std::endl;
         cfg_node_t& prior_node = *h;
         auto& prior_d = ai_data(h);
 
         // Take the branch.
         prior_d.output_executable[EXEC_JUMP_THREAD] |= 1ull << branch_i;
+        assert(branch_i < prior_node.output_size());
         unsigned const input_i = prior_node.output_edge(branch_i).index;
         h = prior_node.output(branch_i);
+        std::cout << "JUMP PROGRESS TO " << h.index << std::endl;
 
         cfg_node_t& cfg_node = *h;
         auto& cfg_data = ai_data(h);
@@ -1029,17 +1367,26 @@ void ai_t::run_jump_thread(cfg_ht start, unsigned start_branch_i)
 
         // If we've ended up in a loop, abort!
         if(cfg_data.executable[EXEC_JUMP_THREAD])
+        {
+            std::puts("JUMP LOOP");
             break;
+        }
 
         cfg_data.executable[EXEC_JUMP_THREAD] = true;
 
         // If we've reached an unskippable, abort!
         if(!cfg_data.skippable)
+        {
+            std::puts("JUMP UNSKIPPABLE");
             break;
+        }
 
         // If we've reached an endpoint node, abort!
         if(cfg_node.output_size() == 0)
+        {
+            std::puts("JUMP ENDPOINT");
             break;
+        }
 
         // Queue and then update all relevant SSA nodes in this CFG node.
         for(auto ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
@@ -1057,24 +1404,50 @@ void ai_t::run_jump_thread(cfg_ht start, unsigned start_branch_i)
             assert(cfg_node.output_size() == 2); // TODO: handle switch
 
             ssa_ht branch = cfg_node.last_daisy();
-            assert(branch && branch->op() == SSA_if);
+            std::cout << "cfg = " << cfg_node.handle().index << std::endl;
+
+            for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+            {
+                std::cout << ssa_it->op() << std::endl;
+                if(ssa_it->op() == SSA_if)
+                    std::puts("FOUND IF");
+            }
+
+            assert(&cfg_node == &*h);
+            assert(branch);
+            assert(branch->op() == SSA_if);
 
             constraints_def_t const def = get_constraints(get_condition(*branch));
+            std::cout << "condition = " << get_condition(*branch) << std::endl;
+            std::cout << "cfg = " << h.index << std::endl;
+            assert(def.vec.size() != 0);
             assert(def.vec.size() == 1);
             constraints_t const& c = def[0];
 
             if(!c.is_const())
+            {
+                std::puts("JUMP NOT CONST");
                 break;
+            }
 
             branch_i = c.get_const() >> fixed_t::shift;
             ++branches_skipped;
         }
         else // Non-conditional nodes are always forced
             branch_i = 0;
+
+        std::puts("JUMP STEP");
     }
 
+    std::cout << " JUMP BRANCHES SKIPPED " << branches_skipped << std::endl;
+
     if(branches_skipped == 0)
+    {
+        std::puts("JUMP ABORT");
         return;
+    }
+
+    std::cout << "JUMP END AT " << h.index << std::endl;
 
     cfg_ht end = h;
 
@@ -1113,14 +1486,25 @@ void ai_t::run_jump_thread(cfg_ht start, unsigned start_branch_i)
                || !(ai_data(v->cfg_node()).executable[EXEC_JUMP_THREAD]));
         return v;
     });
+    assert(trace->output_size() == 2);
+
+
+    assert(ai_data(trace->output(0)).skippable);
+    cfg_worklist.push(trace->output(0));
+
+    // Remove the previous output
+    trace->link_remove_output(0);
 
     threaded_jumps.push_back(trace);
+
+    std::puts("THREADING JUMP");
 }
 
 void ai_t::thread_jumps()
 {
     // Find all jump threads, creating new edges and storing the endpoints in
     // 'threaded_jumps'.
+    //threaded_jumps.clear();
     threaded_jumps.clear();
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -1131,10 +1515,13 @@ void ai_t::thread_jumps()
             continue;
 
         // Ok! 'cfg_node' is a jump thread target.
+        std::cout << "TARGET " << cfg_it.index << std::endl;
 
         unsigned const input_size = cfg_it->input_size();
         for(unsigned i = 0; i < input_size; ++i)
         {
+            assert(cfg_it->input_size() == input_size);
+
             // Traverse until finding a non-forced node.
             cfg_fwd_edge_t input = cfg_it->input_edge(i);
             while(true)
@@ -1155,8 +1542,26 @@ void ai_t::thread_jumps()
             if(input.handle->output_size() != 2)
                 continue;
 
+            std::cout << "START " << input.handle.index << ' ' << input.index << std::endl;
+
+            for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+            for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+                assert(ai_data(ssa_it).constraints_i == EXEC_PROPAGATE);
+
             std::puts("running jump thread");
             run_jump_thread(input.handle, input.index);
+            //if(threaded_jumps.size() != 0)
+                //break; // TODO
+
+            // Cleanup
+            for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+            {
+                for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+                {
+                    auto& sd = ai_data(ssa_it);
+                    sd.set_active_constraints(EXEC_PROPAGATE);
+                }
+            }
         }
     }
 
@@ -1166,16 +1571,27 @@ void ai_t::thread_jumps()
 
     if(threaded_jumps.size() == 0)
         return;
+    //if(cfg_worklist.empty())
+        //return;
     updated = __LINE__;
 
     // Remove prior edges that are no longer used.
+    //cfg_worklist.clear();
+    /*
     assert(cfg_worklist.empty());
     for(cfg_ht jump : threaded_jumps)
     {
         assert(jump->output_size() == 2);
         cfg_worklist.push(jump); // For the next step.
         jump->link_remove_output(0);
+        assert(jump->output_size() == 1);
     }
+    */
+
+    //return;
+    //for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    //for(cfg_ht cfg_it : threaded_jumps)
+        //cfg_worklist.push(cfg_it);
 
     // Prune unreachable nodes with no inputs here.
     // (Jump threading can create such nodes)
@@ -1185,14 +1601,35 @@ void ai_t::thread_jumps()
 
         if(cfg_node->input_size() == 0)
         {
+            std::cout << "JUMP PRUNING " << cfg_node.index << std::endl;
+            assert(ai_data(cfg_node).skippable);
+
             unsigned const output_size = cfg_node->output_size();
             for(unsigned i = 0; i < output_size; ++i)
             {
                 assert(cfg_node->output(i) != cfg_node);
                 cfg_worklist.push(cfg_node->output(i));
             }
-            ir.prune_cfg(cfg_node);
+
+            for(ssa_ht ssa_it = cfg_node->ssa_begin(); ssa_it; ++ssa_it)
+            {
+                //assert(ssa_it->op() != SSA_phi);
+                assert(ssa_it->cfg_node() == cfg_node);
+                std::cout << "SSA PRUNING " << ssa_it.index << ' ' << ssa_it->output_size() << std::endl;
+                for(unsigned i = 0; i < ssa_it->output_size(); ++i)
+                {
+                    assert(ssa_it->output_edge(i).input().handle() == ssa_it);
+                    std::cout << "SSA PRUNING OUT " << ssa_it->output_edge(i).handle.index << std::endl;
+                }
+                if(ai_data(ssa_it).rebuild_mapping)
+                    ssa_it->replace_with(ai_data(ssa_it).rebuild_mapping);
+            }
+
+            cfg_node->prune_ssa();
+            cfg_node->link_clear_outputs();
+            //ir.prune_cfg(cfg_node);
         }
+            std::cout << "JUMP PRUNING FAIL " << cfg_node.index << std::endl;
     }
 }
 

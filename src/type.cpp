@@ -184,6 +184,8 @@ std::size_t type_t::size_of() const
     switch(name())
     {
     default: 
+        //std::cout << *this << std::endl;
+        assert(false);
         return 0; // Error!
     case TYPE_PTR:
     case TYPE_MPTR:
@@ -588,7 +590,7 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
     case TYPE_TEA_THUNK:
         {
             tea_thunk_t const& thunk = t.tea_thunk();
-            type_t const elem_type = dethunkify({ thunk.elem_type, src_type.pstring }, full, env);
+            type_t const elem_type = dethunkify({ src_type.pstring, thunk.elem_type }, full, env);
 
             if(full)
             {
@@ -627,7 +629,7 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 
     case TYPE_TEA:
         {
-            type_t const elem = dethunkify({ t.elem_type(), src_type.pstring }, full, env);
+            type_t const elem = dethunkify({ src_type.pstring, t.elem_type() }, full, env);
             if(has_tea(elem))
                 compiler_error(src_type.pstring, "Arrays cannot be multi-dimensional.");
             return type_t::tea(elem, t.size());
@@ -637,7 +639,7 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
         {
             type_t* args = ALLOCA_T(type_t, t.size());
             for(unsigned i = 0; i < t.size(); ++i)
-                args[i] = dethunkify({ t.type(i), src_type.pstring }, full, env);
+                args[i] = dethunkify({ src_type.pstring, t.type(i) }, full, env);
             return type_t::fn(args, args + t.size());
         }
 

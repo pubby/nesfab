@@ -176,7 +176,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         ssa_value_t condition = if_h->input(0);
 
-        if(!condition.holds_ref() ||condition->cfg_node() != cfg_it 
+        if(!condition.holds_ref() || condition->cfg_node() != cfg_it 
            || condition->output_size() != 1 || condition->in_daisy())
         {
             continue;
@@ -368,7 +368,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             // The cset of the phi copies will have a unique locator.
             // (These locators may be merged)
-            locator_t const loc = locator_t::phi(fn.handle(), phi_loc_index++);
+            locator_t const loc = locator_t::phi(ssa_it);
             ssa_value_t last = loc;
 
             unsigned const input_size = ssa_it->input_size();
@@ -515,7 +515,10 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         // Prioritize less busy ranges over larger ones.
         for(copy_t& copy : ld.copies)
+        {
+            std::cout << "copy = " << copy.node.index << std::endl;
             copy.cost = live_range_busyness(ir, copy.node);
+        }
         std::sort(ld.copies.begin(), ld.copies.end(),
             [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
 
@@ -529,6 +532,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     // Now insert early_stores for constants, trying to minimize the amount of stores needed.
     build_loops_and_order(ir); // We'll need loop information eventually.
     build_dominators_from_order(ir);
+    if(false) // TODO
     for(auto& pair : global_loc_map)
     {
         locator_t const loc = pair.first;

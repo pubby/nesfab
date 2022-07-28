@@ -600,7 +600,6 @@ int main()
             keyword("label"),
             keyword("using"),
             keyword("file"),
-
             keyword("struct"),
             keyword("vars"),
             keyword("once"),

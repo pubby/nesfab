@@ -104,35 +104,85 @@ void parser_t<P>::parse_block(int const parent_indent, Func func)
 }
 
 template<typename P>
-template<typename HGV, typename HI>
-void parser_t<P>::parse_using_mods(int base_indent, 
-    HGV const& handle_group_vars, HI const& handle_ident)
+template<typename Func>
+void parser_t<P>::parse_using_mods(int base_indent, Func const& func)
 {
-    while(token.type == TOK_using && indent == base_indent)
+    while(token.type == TOK_bitwise_or && indent == base_indent)
     {
         parse_token();
-        switch(token.type)
-        {
-        case TOK_vars:
-            parse_token();
-            while(token.type == TOK_fslash)
-            {
-                pstring_t const pstring = parse_group_ident();
-                if(!handle_group_vars(pstring))
-                    ::compiler_error(pstring, "Invalid modifier in this context.");
-            }
-            break;
-        default:
-            if(token.type == TOK_ident)
-            {
-                pstring_t const pstring = parse_ident();
-                if(!handle_ident(pstring))
-                    ::compiler_error(pstring, "Invalid modifier in this context.");
-            }
-            break;
-        }
+        pstring_t const pstring = token.pstring;
+        if(!func())
+            ::compiler_error(pstring, "Invalid modifier in this context.");
         parse_line_ending();
     }
+}
+
+template<typename P>
+template<typename Func>
+src_type_t parser_t<P>::parse_using_vars(int base_indent, Func const& func)
+{
+    bool seen = false;
+    pstring_t group_pstring = {};
+    bc::small_vector<group_ht, 16> groups;
+    parse_using_mods(base_indent,
+        [&]() -> bool
+        {
+            if(token.type == TOK_vars)
+            {
+                seen = true;
+                if(!group_pstring)
+                    group_pstring = token.pstring;
+                parse_token();
+
+                while(token.type == TOK_fslash)
+                {
+                    pstring_t const pstring = parse_group_ident();
+                    group_pstring = concat(group_pstring, pstring);
+                    groups.push_back(group_t::lookup(source(), pstring).handle());
+                }
+                return true;
+            }
+            else
+                return func();
+        });
+
+    if(seen)
+        return { group_pstring, type_t::group_set(&*groups.begin(), &*groups.end()) };
+    else
+        return { {}, TYPE_VOID };
+}
+
+template<typename P>
+template<typename First, typename Second>
+int parser_t<P>::parse_then(First const& first, Second const& second)
+{
+    int const base_indent = indent;
+    unsigned pre_line_number = line_number;
+
+    first();
+
+    bool const args_line_break = line_number != pre_line_number && indent != base_indent;
+    parse_line_ending();
+    pre_line_number = line_number;
+
+    second(base_indent);
+
+    if(args_line_break && pre_line_number == line_number)
+    {
+        parse_token(TOK_then);
+        parse_line_ending();
+    }
+    else if(token.type == TOK_then)
+        compiler_error("Unnecessary use of then.");
+
+    return base_indent;
+}
+
+template<typename P>
+template<typename First>
+int parser_t<P>::parse_then(First const& first)
+{
+    return parse_then(first, [](int){});
 }
 
 template<typename P>
@@ -352,17 +402,8 @@ expr_temp_t parser_t<P>::parse_expr()
 template<typename P>
 expr_temp_t parser_t<P>::parse_expr_then()
 {
-    int const pre_indent = indent;
-    unsigned const pre_line_number = line_number;
-    expr_temp_t expr = parse_expr();
-    if(pre_line_number != line_number)
-    {
-        parse_line_ending();
-        parse_token(TOK_then);
-    }
-    if(pre_indent != indent)
-        compiler_error("Unexpected indentation.");
-    parse_line_ending();
+    expr_temp_t expr;
+    parse_then([&]{ expr = parse_expr(); });
     return expr;
 }
 
@@ -637,7 +678,7 @@ src_type_t parser_t<P>::parse_cast(expr_temp_t& expr_temp, int open_parens)
 template<typename P>
 src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group_ht group)
 {
-    src_type_t result = { TYPE_VOID, token.pstring };
+    src_type_t result = { token.pstring, TYPE_VOID };
     switch(token.type)
     {
     case TOK_Void:   parse_token(); result.type = TYPE_VOID; break;
@@ -975,18 +1016,22 @@ void parser_t<P>::parse_fn(bool ct)
     // Parse the return type
     src_type_t return_type = parse_type(true, false, {});
 
+    // Parse the using mods
+    src_type_t using_vars = parse_using_vars(fn_indent);
+
     auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type);
 
     // Parse the body of the function
     parse_line_ending();
     parse_block_statement(fn_indent);
-    policy().end_fn(std::move(state), ct ? FN_CT : FN_FN);
+    policy().end_fn(std::move(state), ct ? FN_CT : FN_FN, using_vars.type);
 }
 
 template<typename P>
 void parser_t<P>::parse_mode()
 {
     int const mode_indent = indent;
+    unsigned pre_line_number = line_number;
 
     // Parse the declaration
     parse_token(TOK_mode);
@@ -996,21 +1041,27 @@ void parser_t<P>::parse_mode()
     bc::small_vector<var_decl_t, 8> params;
     parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
 
-    var_decl_t state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
+    bool const args_line_break = line_number != pre_line_number;
+
     parse_line_ending();
 
     // Parse the using mods
-    parse_using_mods(mode_indent,
-        [this](pstring_t group) -> bool
-        {
-            std::puts("MOD!");
-            // TODO
-            return true;
-        });
+    pre_line_number = line_number;
+    src_type_t using_vars = parse_using_vars(mode_indent);
+
+    if(args_line_break && pre_line_number == line_number)
+    {
+        parse_token(TOK_then);
+        parse_line_ending();
+    }
+    else if(token.type == TOK_then)
+        compiler_error("Unnecessary use of then.");
+
+    var_decl_t state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
 
     // Parse the body of the function
     parse_block_statement(mode_indent);
-    policy().end_mode(std::move(state));
+    policy().end_mode(std::move(state), using_vars.type);
 }
 
 template<typename P>
@@ -1139,41 +1190,42 @@ void parser_t<P>::parse_for()
     auto parse_statement_separator = [&]()
     {
         if(token.type == TOK_eol)
-            parse_token();
+            parse_line_ending();
         parse_token(TOK_semicolon);
         if(indent != for_indent)
-            compiler_error("Multi-line for loop statements must "
-                           "use same indentation.");
+            compiler_error("Multi-line for loop statements must use same indentation.");
     };
 
-    parse_token(TOK_for);
     expr_temp_t init_expr, *maybe_init_expr = nullptr;
     var_decl_t var_init, *maybe_var_init = nullptr;
-    if(token.type != TOK_semicolon && token.type != TOK_eol)
-    {
-        if(is_type_prefix(token.type))
-        {
-            if(parse_var_init(var_init, init_expr, false, {}))
-                maybe_init_expr = &init_expr;
-            maybe_var_init = &var_init;
-        }
-        else
-            maybe_init_expr = &(init_expr = parse_expr());
-    }
-    parse_statement_separator();
     expr_temp_t condition, *maybe_condition = nullptr;
-    if(token.type != TOK_semicolon && token.type != TOK_eol)
-        maybe_condition = &(condition = parse_expr());
-    parse_statement_separator();
     expr_temp_t effect, *maybe_effect = nullptr;
-    if(token.type != TOK_semicolon && token.type != TOK_eol)
-        maybe_effect = &(effect = parse_expr());
-    if(line_number != pre_line_number) 
+
+    parse_then([&]
     {
-        parse_line_ending();
-        parse_token(TOK_then);
-    }
-    parse_line_ending();
+        parse_token(TOK_for);
+        if(token.type != TOK_semicolon && token.type != TOK_eol)
+        {
+            if(is_type_prefix(token.type))
+            {
+                if(parse_var_init(var_init, init_expr, false, {}))
+                    maybe_init_expr = &init_expr;
+                maybe_var_init = &var_init;
+            }
+            else
+                maybe_init_expr = &(init_expr = parse_expr());
+        }
+
+        parse_statement_separator();
+
+        if(token.type != TOK_semicolon && token.type != TOK_eol)
+            maybe_condition = &(condition = parse_expr());
+
+        parse_statement_separator();
+
+        if(token.type != TOK_semicolon && token.type != TOK_eol)
+            maybe_effect = &(effect = parse_expr());
+    });
 
     auto for_state = policy().begin_for(pstring, 
                                         maybe_var_init, maybe_init_expr, 

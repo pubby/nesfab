@@ -719,6 +719,30 @@ void fn_t::compile()
 
     ir.assert_valid();
 
+    /*
+    o_abstract_interpret(ir);
+    save_graph(ir, "ai");
+    o_abstract_interpret(ir);
+    save_graph(ir, "ai2");
+    o_abstract_interpret(ir);
+    save_graph(ir, "ai3");
+    o_abstract_interpret(ir);
+    save_graph(ir, "ai4");
+    o_abstract_interpret(ir);
+    save_graph(ir, "ai5");
+    o_abstract_interpret(ir);
+    save_graph(ir, "ai6");
+    o_abstract_interpret(ir);
+    save_graph(ir, "ai7");
+    assert(0);
+    */
+    //return;
+
+    save_graph(ir, "pre_gvn");
+    o_global_value_numbering(ir);
+    save_graph(ir, "post_gvn");
+
+
     {
         bool changed;
         do
@@ -727,13 +751,15 @@ void fn_t::compile()
             changed |= o_phis(ir);
             changed |= o_merge_basic_blocks(ir);
             changed |= o_remove_unused_arguments(ir, *this, false);
-            changed |= o_identities(ir);
+            //changed |= o_identities(ir);
             changed |= o_abstract_interpret(ir);
             changed |= o_remove_unused_ssa(ir);
-            changed |= o_global_value_numbering(ir);
+            //changed |= o_global_value_numbering(ir);
         }
         while(changed);
     }
+
+    assert(0);
 
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(ir);

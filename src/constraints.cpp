@@ -14,7 +14,7 @@ extern std::uint8_t const add_constraints_table[1024];
 
 std::string to_string(constraints_mask_t const& cm)
 {
-    return fmt("{ %, % }", cm.mask, cm.signed_);
+    return fmt("{ %, % } (%)", cm.mask, cm.signed_, cm.mask >> fixed_t::shift);
 }
 
 // For debugging mostly
@@ -205,6 +205,7 @@ bounds_t from_bits(known_bits_t bits, constraints_mask_t cm)
 known_bits_t from_bounds(bounds_t bounds, constraints_mask_t cm)
 {
     assert(is_mask(cm.mask));
+    assert(~cm.mask);
 
     if(bounds.is_top())
         return known_bits_t::top();
@@ -216,6 +217,9 @@ known_bits_t from_bounds(bounds_t bounds, constraints_mask_t cm)
 
     if(x)
         low_mask = ~((1ull << (fixed_uint_t)builtin::rclz(x)) - 1ull);
+    //std::cout << x << std::endl;
+    //std::cout << low_mask << std::endl;
+    //std::cout << (x & low_mask) << std::endl;
     assert((x & low_mask) == 0ull);
 
     known_bits_t ret;
@@ -590,9 +594,13 @@ ABSTRACT(SSA_sign_to_carry) = ABSTRACT_FN
 ABSTRACT(SSA_phi) = ABSTRACT_FN
 {
     assert(argn >= 1);
+    assert(result.vec.size() > 0);
 
     std::cout << "START PHI\n";
     std::cout << constraints_t::bottom(type_constraints_mask(TYPE_F2)) << std::endl;
+
+    assert(result.vec.size());
+    assert(argn);
 
     for(unsigned i = 0; i < result.vec.size(); ++i)
     {
@@ -602,8 +610,8 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
             assert(cv[j].vec.size());
             assert(cv[j].vec.size() >= result.vec.size());
             result[i] = union_(result[i], cv[j][i]);
-            std::cout << "UNION " << cv[j][i] << std::endl;
-            std::cout << "PHI   " << result[i] << std::endl;
+            std::cout << "PHI UNION " << cv[j][i] << std::endl;
+            std::cout << "PHI       " << result[i] << std::endl;
         }
     }
 };
@@ -800,7 +808,12 @@ ABSTRACT(SSA_add) = ABSTRACT_FN
     assert(!value.bounds.is_top());
     assert(!value.bits.is_top());
     assert(apply_mask(value.bits, cm).bit_eq(value.bits));
-    normalize(value, cm);
+    value.normalize(cm);
+
+    std::cout << "ADD\n";
+    std::cout << "ADD L " << L << std::endl;
+    std::cout << "ADD R " << R << std::endl;
+    std::cout << "ADD = " << value << std::endl;
 };
 
 constraints_t abstract_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
@@ -947,6 +960,8 @@ ABSTRACT(SSA_lt) = ABSTRACT_FN
         return;
     
     result[0] = abstract_lt(cv[0][0], cv[0].cm, cv[1][0], cv[1].cm);
+    // TODO:
+    //result[0] = constraints_t::any_bool();
 };
 
 ABSTRACT(SSA_multi_lt) = ABSTRACT_FN
@@ -1690,6 +1705,8 @@ static void narrow_eq(constraints_def_t* cv, unsigned argn, constraints_def_t co
         }
     }
 }
+
+NARROW(SSA_trace) = NARROW_FN {};
 
 NARROW(SSA_eq) = narrow_eq<true>;
 NARROW(SSA_not_eq) = narrow_eq<false>;

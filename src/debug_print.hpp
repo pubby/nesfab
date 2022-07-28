@@ -3,6 +3,8 @@
 
 #include <cstdio>
 
+#define DEBUG_PRINT
+
 #ifdef DEBUG_PRINT
 #define debug_printf(...) std::printf(__VA_ARGS__)
 #else

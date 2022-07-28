@@ -72,7 +72,7 @@ constexpr constraints_mask_t CARRY_MASK = BOOL_MASK;
 constexpr constraints_mask_t REAL_MASK = { numeric_bitmask(TYPE_REAL), true };
 
 inline constraints_mask_t type_constraints_mask(type_name_t type) 
-    { assert(is_scalar(type)); return { numeric_bitmask(type), is_signed(type) }; }
+    { assert(is_scalar(type)); assert(~numeric_bitmask(type)); return { numeric_bitmask(type), is_signed(type) }; }
 
 struct bounds_t
 {

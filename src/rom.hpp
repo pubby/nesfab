@@ -26,8 +26,8 @@ struct rom_impl_ht : handle_t<unsigned, T, ~0>
     T& operator*() const
     { 
         assert(compiler_phase() >= PHASE_ALLOC_ROM);
-        assert(this->value < rom_vector<T>.size());
-        return rom_vector<T>[this->value];
+        assert(this->id < rom_vector<T>.size());
+        return rom_vector<T>[this->id];
     }
 };
 

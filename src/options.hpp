@@ -10,6 +10,7 @@ struct options_t
     int num_threads = 1;
     int time_limit = 1000;
     bool graphviz = false;
+    bool build_time = false;
     mapper_t mapper = mapper_t::bnrom(MIRROR_H, 4);
     std::string output_file = "a.nes";
 };

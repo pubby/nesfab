@@ -305,8 +305,8 @@ public:
     bitset_t const& ir_ptr_groups() const { assert(m_ir_ptr_groups); return m_ir_ptr_groups; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
 
-    bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.value); }
-    bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.value); }
+    bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
+    bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
 
     // Be careful to call this from a single thread only.
     void assign_proc(asm_proc_t&& proc)
@@ -469,7 +469,7 @@ public:
     gvar_t& gvar;
     unsigned const index;
 
-    unsigned member() const { return index - gvar.begin_gmember().value; }
+    unsigned member() const { return index - gvar.begin_gmember().id; }
     type_t type() const { return member_type(gvar.type(), member()); }
 
     locator_t const* init_data(unsigned atom) const;

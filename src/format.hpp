@@ -49,22 +49,22 @@ int ffmt(FILE* fp, char const* str, Ts const&... ts)
 }
 
 
-template<char F>
-void ezcat_impl(std::ostringstream& ss) {}
+template<typename P>
+void ezcat_impl(std::ostringstream& ss, P const& postfix) {}
 
-template<char F, typename T, typename... Ts>
-void ezcat_impl(std::ostringstream& ss, T const& t, Ts const&... ts)
+template<typename P, typename T, typename... Ts>
+void ezcat_impl(std::ostringstream& ss, P const& postfix, T const& t, Ts const&... ts)
 {
-    ss << t;
-    fmt_impl<F>(ss, str, ts...);
+    ss << t << postfix;
+    ezcat_impl(ss, postfix, ts...);
 }
 
 // Just combines the string representations together.
-template<typename... Ts>
-std::string ezcat(Ts const&... ts)
+template<typename P, typename... Ts>
+std::string ezcat(P const& postfix, Ts const&... ts)
 {
     std::ostringstream ss;
-    ezcat_impl<F>(ss, ts...);
+    ezcat_impl(ss, postfix, ts...);
     return ss.str();
 }
 

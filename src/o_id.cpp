@@ -12,13 +12,15 @@
 #include "type_mask.hpp"
 #include "alloca.hpp"
 #include "worklist.hpp"
+#include "debug_print.hpp"
 
 namespace bc = ::boost::container;
 
 // Replaces single nodes with one of their inputs.
 // (e.g. X + 0 becomes X, or Y & ~0 becomes Y)
-static bool o_simple_identity(ir_t& ir)
+static bool o_simple_identity(ir_t& ir, std::ostream* os)
 {
+    dprint(os, "SIMPLE_IDENTITY");
     bool updated = false;
 
     for(cfg_node_t const& cfg_node : ir)
@@ -29,6 +31,8 @@ static bool o_simple_identity(ir_t& ir)
             ++ssa_it;
             continue;
         }
+
+        dprint(os, "-SIMPLE_IDENTITY_OP", ssa_it, ssa_it->op());
 
         ssa_node_t& node = *ssa_it;
         fixed_t const all_set = { numeric_bitmask(node.type().name()) };
@@ -50,6 +54,7 @@ static bool o_simple_identity(ir_t& ir)
                 if(input.holds_ref() && input->op() == SSA_cast
                    && same_scalar_layout(from.name(), to.name()))
                 {
+                    dprint(os, "--SIMPLE_IDENTITY_SIMPLIFY_CAST");
                     node.link_change_input(0, input->input(0));
                 }
             }
@@ -103,10 +108,12 @@ static bool o_simple_identity(ir_t& ir)
         continue;
 
     replaceWith0:
+        dprint(os, "--SIMPLE_IDENTITY_REPLACE 0");
         node.replace_with(node.input(0));
         goto prune;
 
     replaceWith1:
+        dprint(os, "--SIMPLE_IDENTITY_REPLACE 1");
         node.replace_with(node.input(1));
         goto prune;
 
@@ -128,10 +135,13 @@ struct ssa_monoid_d
     bool sealed_singleton = false;
 };
 
+// 'run_monoid_t' searches for connected nodes of similar ops, where the op forms a monoid.
+// For example, it searches for expressions like (1 | X | Y | 5 | X) or (X + 10 - Y - 3).
+// Then, it optimizes these nodes, pulling out constants and merging duplicated operands.
 class run_monoid_t
 {
 public:
-    run_monoid_t(ir_t& ir);
+    run_monoid_t(ir_t& ir, std::ostream* log);
 
     static ssa_op_t defining_op(ssa_op_t op);
 
@@ -157,17 +167,35 @@ private:
         int diff() const { return pos - neg; }
     };
 
+    //////////////////////////
+    // Used before 'build': //
+    //////////////////////////
+
+    // Bitsets track post dominance in 'ssa_ht's
     std::size_t bs_size = 0;
     array_pool_t<bitset_uint_t> bs_pool;
+
+    // Singletons aren't post-dominated, meaning they're a root of the expression.
     bc::small_vector<ssa_ht, 32> singletons;
 
-    // These are used inside 'build':
+    //////////////////////////
+    // Used inside 'build': //
+    //////////////////////////
+
+    // The root of the expression (a singleton)
     ssa_ht root;
+
+    // Counts leaf nodes of our expression.
     fc::small_map<ssa_value_t, leaf_count_t, 16> leafs;
+
+    // Counts how often a node appears during 'build'.
     using internals_map_t = fc::vector_map<ssa_ht, unsigned>;
     internals_map_t internals;
+
+    std::ostream* log;
 };
 
+// Whatever op defines the monoid, or SSA_null if the op isn't supported.
 ssa_op_t run_monoid_t::defining_op(ssa_op_t op)
 {
     switch(op)
@@ -184,9 +212,11 @@ ssa_op_t run_monoid_t::defining_op(ssa_op_t op)
     }
 }
 
-run_monoid_t::run_monoid_t(ir_t& ir)
+run_monoid_t::run_monoid_t(ir_t& ir, std::ostream* log)
+: log(log)
 {
-    std::puts("RUN MONOID");
+    dprint(log, "MONOID");
+
     bs_size = bitset_size<>(ssa_pool::array_size());
     bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, bs_size);
 
@@ -217,8 +247,7 @@ run_monoid_t::run_monoid_t(ir_t& ir)
 
         type_t const type = ssa_it->type();
 
-        // If a node has an output that isn't compatible,
-        // set its post-dom set to only itself.
+        // Count this node's outputs
         d.total_outputs = 0;
         unsigned compatible_outputs = 0;
         for_each_output_with_links(ssa_it, [&](ssa_ht from, ssa_ht output)
@@ -227,13 +256,14 @@ run_monoid_t::run_monoid_t(ir_t& ir)
             if(from == ssa_it && def_op == defining_op(output->op()) && type == output->type())
                 ++compatible_outputs;
         });
-
         assert(compatible_outputs <= d.total_outputs);
 
+        // If a node has an output that isn't compatible (or no outputs), 
+        // set its post-dom set to only itself.
         if(d.total_outputs == 0 || d.total_outputs != compatible_outputs)
         {
             // Treat the node as a singleton.
-            bitset_set(d.post_dom, ssa_it.index);
+            bitset_set(d.post_dom, ssa_it.id);
             mark_singleton(ssa_it);
 
             unsigned const input_size = ssa_it->input_size();
@@ -258,49 +288,43 @@ run_monoid_t::run_monoid_t(ir_t& ir)
 
         if(d.sealed_singleton || !d.post_dom)
             continue;
+        assert(d.total_outputs > 0);
 
         // Calculate post-dominance by intersecting the sets of this node's outputs.
-        if(d.total_outputs > 0)
+
+        bitset_set_all(bs_size, temp_bs);
+
+        unsigned const output_size = h->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
         {
-            bitset_set_all(bs_size, temp_bs);
+            auto const oe = h->output_edge(i);
 
-            unsigned const output_size = h->output_size();
-            for(unsigned i = 0; i < output_size; ++i)
-            {
-                auto const oe = h->output_edge(i);
+            if(oe.input_class() == INPUT_LINK)
+                continue;
 
-                if(oe.input_class() == INPUT_LINK)
-                    continue;
+            auto const& output_d = data(oe.handle);
 
-                auto const& output_d = data(oe.handle);
+            assert(defining_op(h->op()) == defining_op(oe.handle->op()));
+            assert(output_d.post_dom);
+            assert(h->type() == oe.handle->type());
 
-                assert(defining_op(h->op()) == defining_op(oe.handle->op()));
-                assert(output_d.post_dom);
-                assert(h->type() == oe.handle->type());
-
-                bitset_and(bs_size, temp_bs, output_d.post_dom);
-            }
-
-            if(bitset_all_clear(bs_size, temp_bs))
-                mark_singleton(h);
-            else
-                assert(bitset_popcount(bs_size, temp_bs) != 1 || !bitset_test(temp_bs, h.index));
+            bitset_and(bs_size, temp_bs, output_d.post_dom);
         }
-        else
-        {
-            bitset_clear_all(bs_size, temp_bs);
+
+        if(bitset_all_clear(bs_size, temp_bs))
             mark_singleton(h);
-        }
+        else
+            assert(bitset_popcount(bs_size, temp_bs) != 1 || !bitset_test(temp_bs, h.id));
 
         // Then set the node's own bit:
-        bitset_set(temp_bs, h.index);
+        bitset_set(temp_bs, h.id);
 
+        // Continue if 'd.post_dom' isn't changing.
         if(bitset_eq(bs_size, d.post_dom, temp_bs))
             continue;
-
         bitset_copy(bs_size, d.post_dom, temp_bs);
 
-        // Now consider inputs:
+        // Next, consider inputs, pushing them onto the worklist:
         unsigned const input_size = h->input_size();
         for(unsigned i = 0; i < input_size; ++i)
             if(h->input(i).holds_ref())
@@ -331,14 +355,20 @@ run_monoid_t::run_monoid_t(ir_t& ir)
     }
 #endif
 
+    // 'operands' tracks the operands of our new expression.
     struct operand_t { ssa_value_t v; bool negative; };
     std::vector<operand_t> operands;
 
+    // These are used at the end to replace the expression's old nodes with the new ones:
     std::vector<ssa_value_t> replacements;
     std::vector<internals_map_t> to_prune;
 
     for(ssa_ht h : singletons)
     {
+        dprint(log, "-MONOID_BUILD", h);
+
+        // Build the monoid
+
         root = h;
         leafs.clear();
         internals.clear();
@@ -352,8 +382,9 @@ run_monoid_t::run_monoid_t(ir_t& ir)
 
         operands.clear();
 
-        unsigned num_nums = 0;
-        fixed_t accum = { (def_op == SSA_and) ? ~0ull : 0ull };
+        unsigned num_nums = 0; // Counts how many constant numbers are in leafs.
+        fixed_t accum = { (def_op == SSA_and) ? ~0ull : 0ull }; // Combination of constant numbers in leafs
+
         for(auto const& p : leafs)
         {
             ssa_value_t const v = p.first;
@@ -362,11 +393,13 @@ run_monoid_t::run_monoid_t(ir_t& ir)
 
             if(v.is_num())
             {
+                // Update 'accum':
+
                 fixed_t const f = v.fixed();
 
                 switch(def_op)
                 {
-                case SSA_add: std::printf("%i %i\n", count.pos, count.neg); accum.value += f.value * count.pos - f.value * count.neg; break;
+                case SSA_add: accum.value += f.value * count.pos - f.value * count.neg; break;
                 case SSA_and: accum.value &= f.value; break;
                 case SSA_or:  accum.value |= f.value; break;
                 case SSA_xor: accum.value ^= f.value; break;
@@ -409,7 +442,7 @@ run_monoid_t::run_monoid_t(ir_t& ir)
                     break;
 
                 case SSA_xor:
-                    // An even number cancels out.
+                    // An even number of XORs cancels out.
                     if(count.pos % 2)
                         operands.push_back({ p.first });
                     else
@@ -423,13 +456,12 @@ run_monoid_t::run_monoid_t(ir_t& ir)
             }
         }
 
-        std::cout << "num nums = " << num_nums << std::endl;
-        std::cout << "accum = " << accum.value << std::endl;
-
-        int carry_req = 0;
-
-        if(num_nums > 0)
+        int carry_req = 0; // Tracks if we need a carry.
+        if(num_nums)
         {
+            // Check 'accum', seeing if it's necessary.
+            // Also set 'carry_req' when needed.
+
             fixed_uint_t const mask = numeric_bitmask(type.name());
 
             accum.value &= mask;
@@ -456,7 +488,7 @@ run_monoid_t::run_monoid_t(ir_t& ir)
                         goto skip_num;
                     break;
                 case SSA_and:
-                    if(accum.value == numeric_bitmask(type.name()))
+                    if(accum.value == mask)
                         goto skip_num;
                     break;
                 default:
@@ -465,11 +497,12 @@ run_monoid_t::run_monoid_t(ir_t& ir)
                 }
             }
 
+            // It's needed; add it to 'operands'.
             operands.push_back({ ssa_value_t(accum, type.name()) });
         skip_num:;
         }
 
-        std::cout << "accum = " << accum.value << std::endl;
+        dprint(log, "--MONOID_ACCUM", accum.value, num_nums);
 
         // Now use 'operands' to build a replacement for 'h':
 
@@ -536,13 +569,11 @@ run_monoid_t::run_monoid_t(ir_t& ir)
                 goto loop;
             }
         }
-        else
+        else // Not 'SSA_add':
         {
             while(operands.size() > 1)
             {
                 ssa_ht const ssa = cfg->emplace_ssa(def_op, type, operands.rbegin()[0].v, operands.rbegin()[1].v);
-                if(def_op == SSA_add)
-                    ssa->link_append_input(ssa_value_t(0u, TYPE_BOOL));
                 operands.pop_back();
                 operands.back().v = ssa;
             }
@@ -570,8 +601,10 @@ run_monoid_t::run_monoid_t(ir_t& ir)
     }
 }
 
+// Builds a monoid
 void run_monoid_t::build(ssa_ht h, bool negative)
 {
+    dprint(log, "---MONOID_BUILD_STEP", h);
     internals[h] += 1;
 
     unsigned const input_size = h->input_size();
@@ -579,15 +612,15 @@ void run_monoid_t::build(ssa_ht h, bool negative)
     {
         ssa_value_t input = h->input(i);
 
-        bool const n = (h->op() == SSA_sub && i >= 1) ? !negative : negative;
+        bool const next_negative = (h->op() == SSA_sub && i >= 1) ? !negative : negative;
 
-        if(input.holds_ref() && data(input.handle()).post_dom && bitset_test(data(input.handle()).post_dom, root.index))
+        if(input.holds_ref() && data(input.handle()).post_dom && bitset_test(data(input.handle()).post_dom, root.id))
         {
             assert(i != 2);
             assert(defining_op(input->op()) == defining_op(h->op()));
             assert(input->type() == h->type());
 
-            build(h->input(i).handle(), n);
+            build(h->input(i).handle(), next_negative);
         }
         else
         {
@@ -609,7 +642,7 @@ void run_monoid_t::build(ssa_ht h, bool negative)
                     input = ssa_value_t(0, type_name);
             }
 
-            if(n)
+            if(next_negative)
                 leafs[input].neg += 1;
             else
                 leafs[input].pos += 1;
@@ -619,13 +652,13 @@ void run_monoid_t::build(ssa_ht h, bool negative)
 
 } // end anonymous namespace
 
-bool o_identities(ir_t& ir)
+bool o_identities(ir_t& ir, std::ostream* os)
 {
-    bool updated = o_simple_identity(ir);
+    bool updated = o_simple_identity(ir, os);
 
     {
         ssa_data_pool::scope_guard_t<ssa_monoid_d> sg(ssa_pool::array_size());
-        run_monoid_t run(ir);
+        run_monoid_t run(ir, os);
         updated |= run.updated;
     }
 

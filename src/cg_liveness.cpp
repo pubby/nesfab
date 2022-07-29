@@ -21,17 +21,17 @@ static void _live_visit(ssa_ht def, cfg_ht cfg_node)
     if(def->cfg_node() == cfg_node)
         return;
 
-    if(bitset_test(live(cfg_node).in, def.index))
+    if(bitset_test(live(cfg_node).in, def.id))
         return;
 
-    bitset_set(live(cfg_node).in, def.index);
+    bitset_set(live(cfg_node).in, def.id);
 
     unsigned const input_size = cfg_node->input_size();
     assert(input_size > 0);
     for(unsigned i = 0; i < input_size; ++i)
     {
         cfg_ht input = cfg_node->input(i);
-        bitset_set(live(input).out, def.index);
+        bitset_set(live(input).out, def.id);
         _live_visit(def, input);
     }
 }
@@ -54,7 +54,7 @@ void calc_ssa_liveness(ssa_ht node)
             assert(node->cfg_node() == ocfg->input(oe.index));
 
             //bitset_set(live(ocfg).in, node.index);
-            bitset_set(live(node->cfg_node()).out, node.index);
+            bitset_set(live(node->cfg_node()).out, node.id);
             //_live_visit(node, node->cfg_node());
         }
         else
@@ -98,8 +98,8 @@ void clear_liveness_for(ir_t const& ir, ssa_ht node)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         auto& d = live(cfg_it);
-        bitset_clear(d.in, node.index);
-        bitset_clear(d.out, node.index);
+        bitset_clear(d.in, node.id);
+        bitset_clear(d.out, node.id);
     }
 }
 
@@ -113,10 +113,10 @@ bool live_at_def(ssa_ht range, ssa_ht def)
 
     // If 'range' begins before 'def':
     if((same_cfg && cg_data(range).schedule.index < cg_data(def).schedule.index)
-       || bitset_test(def_live.in, range.index))
+       || bitset_test(def_live.in, range.id))
     {
         // Interfere if range is also live-out at def.
-        if(bitset_test(def_live.out, range.index))
+        if(bitset_test(def_live.out, range.id))
             return true;
 
         // Test to see if a use occurs after def:
@@ -164,10 +164,10 @@ std::size_t live_range_busyness(ir_t& ir, ssa_ht h)
         assert(ld.in);
         assert(ld.out);
 
-        if(bitset_test(ld.in, h.index))
+        if(bitset_test(ld.in, h.id))
             total_size += bitset_popcount(set_size, ld.in);
 
-        if(bitset_test(ld.out, h.index))
+        if(bitset_test(ld.out, h.id))
             total_size += bitset_popcount(set_size, ld.out);
     }
 
@@ -206,8 +206,8 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
             lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
             {
                 if(loc.lclass() == LOC_GMEMBER)
-                    rw(i, call.ir_reads().test(loc.gmember().value),
-                          call.ir_writes().test(loc.gmember().value));
+                    rw(i, call.ir_reads().test(loc.gmember().id),
+                          call.ir_writes().test(loc.gmember().id));
             });
         }
         else
@@ -222,7 +222,7 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
             lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
             {
                 if(loc.lclass() == LOC_GMEMBER)
-                    rw(i, call.lang_gvars().test(loc.gmember()->gvar.handle().value), false);
+                    rw(i, call.lang_gvars().test(loc.gmember()->gvar.handle().id), false);
             });
         }
     }
@@ -238,7 +238,7 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
         lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
         {
             if(loc.lclass() == LOC_GMEMBER)
-                rw(i, fn.ir_writes().test(loc.gmember().value), false);
+                rw(i, fn.ir_writes().test(loc.gmember().id), false);
         });
     }
     else

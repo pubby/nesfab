@@ -27,8 +27,8 @@ extern thread_local std::vector<cfg_ht> loop_headers;
 
 inline cfg_util_d& util(cfg_ht h)
 { 
-    assert(h.index <= cfg_util_pool.size());
-    return cfg_util_pool[h.index];
+    assert(h.id <= cfg_util_pool.size());
+    return cfg_util_pool[h.id];
 }
 
 // Fills 'postorder' and 'preorder' and sets 'postorder_i' and 'preorder_i'.

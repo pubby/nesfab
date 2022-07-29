@@ -476,7 +476,7 @@ void fn_t::calc_lang_gvars_groups()
         if(idep->gclass() == GLOBAL_VAR)
         {
             m_lang_gvars.set(idep->index());
-            m_lang_group_vars.set(idep->impl<gvar_t>().group_vars.value);
+            m_lang_group_vars.set(idep->impl<gvar_t>().group_vars.id);
         }
         else if(idep->gclass() == GLOBAL_FN)
         {
@@ -522,7 +522,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
             reads      |= callee.ir_reads();
             group_vars |= callee.ir_group_vars();
             calls      |= callee.ir_calls();
-            calls.set(callee_h.value);
+            calls.set(callee_h.id);
             io_pure &= callee.ir_io_pure();
         }
 
@@ -544,7 +544,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                        || def->input(1).locator() != loc)
                     {
                         writes.set(written.index);
-                        group_vars.set(written.gvar.group_vars.value);
+                        group_vars.set(written.gvar.group_vars.id);
                     }
                 }
             });
@@ -567,7 +567,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                     if(!is_locator_write(oe) || oe.handle->input(oe.index + 1) != loc)
                     {
                         reads.set(read.index);
-                        group_vars.set(read.gvar.group_vars.value);
+                        group_vars.set(read.gvar.group_vars.id);
                         break;
                     }
                 }
@@ -585,11 +585,11 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
             for(unsigned i = 0; i < size; ++i)
             {
                 group_ht const h = ptr_type.group(i);
-                ptr_groups.set(h.value);
+                ptr_groups.set(h.id);
 
                 group_t const& group = *h;
                 if(group.gclass() == GROUP_VARS)
-                    group_vars.set(group.handle<group_vars_ht>().value);
+                    group_vars.set(group.handle<group_vars_ht>().id);
             }
         }
     }
@@ -704,127 +704,57 @@ void fn_t::compile()
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {
-        std::ofstream ocfg(fmt("graphs/cfg/%_cfg_%.gv", global.name, suffix));
+        if(!compiler_options().graphviz)
+            return;
+
+        std::ofstream ocfg(fmt("graphs/cfg__%__%.gv", global.name, suffix));
         if(ocfg.is_open())
             graphviz_cfg(ocfg, ir);
 
-        std::ofstream ossa(fmt("graphs/%_ssa_%.gv", global.name, suffix));
+        std::ofstream ossa(fmt("graphs/ssa__%__%.gv", global.name, suffix));
         if(ossa.is_open())
             graphviz_ssa(ossa, ir);
     };
 
-
-    if(compiler_options().graphviz)
-        save_graph(ir, "initial");
-
-    ir.assert_valid();
-
-    /*
-    o_abstract_interpret(ir);
-    save_graph(ir, "ai");
-    o_abstract_interpret(ir);
-    save_graph(ir, "ai2");
-    o_abstract_interpret(ir);
-    save_graph(ir, "ai3");
-    o_abstract_interpret(ir);
-    save_graph(ir, "ai4");
-    o_abstract_interpret(ir);
-    save_graph(ir, "ai5");
-    o_abstract_interpret(ir);
-    save_graph(ir, "ai6");
-    o_abstract_interpret(ir);
-    save_graph(ir, "ai7");
-    assert(0);
-    */
-    //return;
-
-    save_graph(ir, "pre_gvn");
-    o_global_value_numbering(ir);
-    save_graph(ir, "post_gvn");
-
-
+    auto const optimize_suite = [&](bool byteified)
     {
+        unsigned iter = 0;
         bool changed;
         do
         {
             changed = false;
             changed |= o_phis(ir);
             changed |= o_merge_basic_blocks(ir);
-            changed |= o_remove_unused_arguments(ir, *this, false);
-            //changed |= o_identities(ir);
-            changed |= o_abstract_interpret(ir);
+            changed |= o_remove_unused_arguments(ir, *this, byteified);
+            changed |= o_identities(ir, nullptr);
+            changed |= o_abstract_interpret(ir, nullptr);
             changed |= o_remove_unused_ssa(ir);
-            //changed |= o_global_value_numbering(ir);
+            changed |= o_global_value_numbering(ir);
+
+            // Enable this to debug:
+            //save_graph(ir, fmt("during_o_%", iter).c_str());
+            ++iter;
         }
         while(changed);
-    }
+    };
 
-    assert(0);
+    save_graph(ir, "initial");
+    ir.assert_valid();
+
+    optimize_suite(false);
+    save_graph(ir, "o1");
 
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(ir);
 
-    if(compiler_options().graphviz)
-        save_graph(ir, "o1");
-
     byteify(ir, *this);
-    //make_conventional(ir);
+    save_graph(ir, "byteify");
 
-    if(compiler_options().graphviz)
-        save_graph(ir, "byteify");
-
-    {
-        bool changed;
-        do
-        {
-            changed = false;
-            changed |= o_phis(ir);
-            changed |= o_merge_basic_blocks(ir);
-            changed |= o_remove_unused_arguments(ir, *this, true);
-            changed |= o_identities(ir);
-            changed |= o_abstract_interpret(ir);
-            changed |= o_remove_unused_ssa(ir);
-            changed |= o_global_value_numbering(ir);
-
-        }
-        while(changed);
-    }
-
-    if(compiler_options().graphviz)
-        save_graph(ir, "o2");
+    optimize_suite(true);
+    save_graph(ir, "o2");
 
     code_gen(ir, *this);
-
-    if(compiler_options().graphviz)
-        save_graph(ir, "cg");
-
-    return;
-
-    /*
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        std::cout << "\n\nCFG:";
-
-        for(ssa_node_t& n : *cfg_it)
-            std::cout << n.op() << '\n';
-    }
-    */
-
-    //TODO
-    /*
-    if(compile)
-    {
-        // Test scheduling
-        cfg_data_pool::scope_guard_t<cfg_cg_d> c(cfg_pool::array_size());
-        ssa_data_pool::scope_guard_t<ssa_cg_d> s(ssa_pool::array_size());
-        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-        {
-            std::cout << " - \n";
-         tinglerz bar   for(ssa_ht h : schedule_cfg_node(cfg_it))
-                std::cout << h.index << ' ' << h->op() << '\n';
-        }
-    }
-    */
+    save_graph(ir, "cg");
 }
 
 /* TODO: remove?

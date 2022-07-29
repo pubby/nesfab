@@ -105,15 +105,15 @@ struct impl_ht : handle_t<unsigned, T, ~0>
     T* operator->() const { return &operator*(); }
     T& operator*() const { return unsafe(); }
 
-    T& unsafe_impl() const { return impl_deque<T>[this->value]; }
+    T& unsafe_impl() const { return impl_deque<T>[this->id]; }
 
     // This isn't thread safe without synchronization like impl_deque_mutex.
     T& unsafe() const { 
         assert(compiler_phase() > T::impl_deque_phase);
 #ifndef NDEBUG
-        if(this->value >= impl_deque<T>.size())
-            std::fprintf(stderr, "Bad handle index = %i\n", this->value);
-        assert(this->value < impl_deque<T>.size());
+        if(this->id >= impl_deque<T>.size())
+            std::fprintf(stderr, "Bad handle index = %i\n", this->id);
+        assert(this->id < impl_deque<T>.size());
 #endif
         return unsafe_impl();
     }
@@ -130,7 +130,7 @@ struct impl_ht : handle_t<unsigned, T, ~0>
 
 struct lt_ht : impl_ht<lt_value_t> {};
 
-// Handles reference globals, with their '.value' indexing into 
+// Handles reference globals, with their '.id' indexing into 
 // the corresponding 'imple_deque'.
 template<typename T, global_class_t GCLASS>
 struct global_impl_ht : impl_ht<T>
@@ -141,7 +141,7 @@ struct global_impl_ht : impl_ht<T>
     global_t& global() const { return this->operator*().global; }
 };
 
-// Handles reference groups with their '.value' indexing into 
+// Handles reference groups with their '.id' indexing into 
 // the corresponding 'impl_deque'.
 template<typename T, group_class_t GCLASS>
 struct group_impl_ht : impl_ht<T>
@@ -160,11 +160,11 @@ struct vector_impl_ht : handle_t<unsigned, T, ~0>
     { 
         assert(compiler_phase() > PastPhase);
 #ifndef NDEBUG
-        if(this->value >= impl_vector<T>.size())
-            std::fprintf(stderr, "Bad handle index = %i\n", this->value);
-        assert(this->value < impl_vector<T>.size());
+        if(this->id >= impl_vector<T>.size())
+            std::fprintf(stderr, "Bad handle index = %i\n", this->id);
+        assert(this->id < impl_vector<T>.size());
 #endif
-        return impl_vector<T>[this->value];
+        return impl_vector<T>[this->id];
     }
 };
 

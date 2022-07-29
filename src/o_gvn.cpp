@@ -128,7 +128,7 @@ public:
         // Now replace the old nodes with the defining one:
         for(unsigned i = 1; i < set.size(); ++i)
         {
-            std::cout << "GVN replacing " << set[i].index << " with " << set[0].index << std::endl;
+            std::cout << "GVN replacing " << set[i].id << " with " << set[0].id << std::endl;
             set[i]->replace_with(set[0]);
             set[i]->prune();
         }

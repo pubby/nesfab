@@ -129,8 +129,8 @@ private:
         bitset_t maximal_group_vars;
     };
 
-    group_vars_d& data(group_vars_ht h) { return group_vars_data[h.value]; }
-    fn_d& data(fn_ht h) { return fn_data[h.value]; }
+    group_vars_d& data(group_vars_ht h) { return group_vars_data[h.id]; }
+    fn_d& data(fn_ht h) { return fn_data[h.id]; }
 
     std::vector<group_vars_d> group_vars_data;
     std::vector<fn_d> fn_data;
@@ -672,7 +672,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
                 if(has_fn(loc.lclass()))
                 {
                     fn_ht h = loc.fn();
-                    propagate_calls.set(h.value);
+                    propagate_calls.set(h.id);
                     propagate_calls |= h->ir_calls();
                 }
             }
@@ -682,7 +682,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         {
             for(fn_ht fn : fn.lvars().fn_interferences(lvar_i))
             {
-                propagate_calls.set(fn.value);
+                propagate_calls.set(fn.id);
                 propagate_calls |= fn->ir_calls();
             }
 

@@ -516,7 +516,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         // Prioritize less busy ranges over larger ones.
         for(copy_t& copy : ld.copies)
         {
-            std::cout << "copy = " << copy.node.index << std::endl;
+            std::cout << "copy = " << copy.node.id << std::endl;
             copy.cost = live_range_busyness(ir, copy.node);
         }
         std::sort(ld.copies.begin(), ld.copies.end(),
@@ -700,7 +700,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     {
         if(store->op() == SSA_early_store)
         {
-            std::printf("try alias %i\n", store.index);
+            std::printf("try alias %i\n", store.id);
 
             if(!store->input(0).holds_ref())
             {
@@ -733,7 +733,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             else
             {
             fail:
-                std::printf("can't alias %i\n", store.index);
+                std::printf("can't alias %i\n", store.id);
 
                 assert(store->output_size() == 1);
                 ssa_ht use = store->output(0);
@@ -742,7 +742,7 @@ void code_gen(ir_t& ir, fn_t& fn)
                 unsigned const def_depth = loop_depth(store->cfg_node());
                 if(def_depth > use_depth)
                 {
-                    std::printf("depth diff! %i\n", store.index);
+                    std::printf("depth diff! %i\n", store.id);
                     // The early store is inside a loop, 
                     // meaning it will likely slow the code down.
                     // Thus, let's remove it.
@@ -796,7 +796,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             if(h->op() != SSA_read_array || !h->input(0).holds_ref())
                 continue;
 
-            std::printf("trying read %i\n", h.index);
+            std::printf("trying read %i\n", h.id);
 
             ssa_ht const array = h->input(0).handle();
 
@@ -813,7 +813,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
                 if(!live_at_def(array, output))
                 {
-                    std::printf("failed liveness %i %i\n", array.index, output.index);
+                    std::printf("failed liveness %i %i\n", array.id, output.id);
                     goto next_read_array_iter;
                 }
 
@@ -1007,7 +1007,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             continue;
         }
 
-        std::cout << "try coal ptr " << ssa_it.index << std::endl;
+        std::cout << "try coal ptr " << ssa_it.id << std::endl;
 
         assert(cg_data(ssa_it).ptr_alt);
 
@@ -1067,7 +1067,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         assert(head_opposite == cset_head(head_opposite));
         assert(cg_data(head_input).ptr_alt);
 
-        std::cout << "coal ptr " << ssa_it.index << std::endl;
+        std::cout << "coal ptr " << ssa_it.id << std::endl;
     }
 
 
@@ -1104,7 +1104,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
 //#ifndef DEBUG_PRINT
             for(ssa_ht h : d.schedule)
-                std::cout << "sched " << h->op() << ' ' << h.index << '\n';
+                std::cout << "sched " << h->op() << ' ' << h.id << '\n';
 //#endif
 
             d.code = select_instructions(fn, cfg_it);
@@ -1169,7 +1169,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
     for(cfg_ht h : order)
     {
-        std::cout << "CFG = " << h.index << '\n';
+        std::cout << "CFG = " << h.id << '\n';
         for(asm_inst_t inst : cg_data(h).code)
             std::cout << inst << '\n';
     }

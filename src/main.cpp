@@ -20,6 +20,8 @@
 
 #include "eval.hpp" // TODO: remove?
 
+#include "assert.hpp" // TODO: remove?
+
 extern char __GIT_COMMIT;
 
 namespace po = boost::program_options;
@@ -42,6 +44,7 @@ int main(int argc, char** argv)
                 ("graphviz,g", "output graphviz files")
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("timelimit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
+                ("build-time,B", "print compiler execution time")
                 ("output-file,o", po::value<std::string>(), "output file")
             ;
 
@@ -80,6 +83,9 @@ int main(int argc, char** argv)
             if(vm.count("graphviz"))
                 _options.graphviz = true;
 
+            if(vm.count("build-time"))
+                _options.build_time = true;
+
             if(vm.count("threads"))
                 _options.num_threads = std::clamp(vm["threads"].as<int>(), 1, 1024); // Clamp to some sufficiently high value
 
@@ -97,7 +103,8 @@ int main(int argc, char** argv)
         {
             auto now = std::chrono::system_clock::now();
             unsigned long long const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - time).count();
-            std::printf("time %s %lli ms\n", desc, ms);
+            if(compiler_options().build_time)
+                std::printf("time %s %lli ms\n", desc, ms);
             time = std::chrono::system_clock::now();
         };
 

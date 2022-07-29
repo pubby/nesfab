@@ -91,8 +91,8 @@ public:
     std::vector<var_decl_t> local_vars;
     std::vector<stmt_t> stmts;
 
-    stmt_t const& operator[](stmt_ht h) const { return stmts[h.value]; }
-    stmt_t& operator[](stmt_ht h) { return stmts[h.value]; }
+    stmt_t const& operator[](stmt_ht h) const { return stmts[h.id]; }
+    stmt_t& operator[](stmt_ht h) { return stmts[h.id]; }
 
     stmt_ht next_stmt() const { return { stmts.size() }; }
 

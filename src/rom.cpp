@@ -7,9 +7,9 @@ rom_alloc_ht::rom_alloc_ht(rom_static_ht h) { assign(h); }
 rom_alloc_ht::rom_alloc_ht(rom_many_ht h) { assign(h); }
 rom_alloc_ht::rom_alloc_ht(rom_once_ht h) { assign(h); }
 
-void rom_alloc_ht::assign(rom_static_ht h) { assign(ROM_STATIC, h.value); }
-void rom_alloc_ht::assign(rom_many_ht h) { assign(ROM_MANY, h.value); }
-void rom_alloc_ht::assign(rom_once_ht h) { assign(ROM_ONCE, h.value); }
+void rom_alloc_ht::assign(rom_static_ht h) { assign(ROM_STATIC, h.id); }
+void rom_alloc_ht::assign(rom_many_ht h) { assign(ROM_MANY, h.id); }
+void rom_alloc_ht::assign(rom_once_ht h) { assign(ROM_ONCE, h.id); }
 
 rom_alloc_t* rom_alloc_ht::get() const
 {

@@ -390,7 +390,7 @@ void scheduler_t::append_schedule(ssa_ht h)
     std::cout << "unused_glob op " << to_string(h->op()) << std::endl;
     if(h->op() == SSA_read_global)
     {
-        std::cout << "unused_glob insert " << h.index << std::endl;
+        std::cout << "unused_glob insert " << h.id << std::endl;
         unused_global_reads.insert(h);
     }
     if(fn_like(h->op()))
@@ -406,7 +406,7 @@ void scheduler_t::append_schedule(ssa_ht h)
         {
             if(input->op() == SSA_read_global)
             {
-                std::cout << "unused_glob erase " << input.index << std::endl;
+                std::cout << "unused_glob erase " << input.id << std::endl;
                 unused_global_reads.erase(input);
             }
         });

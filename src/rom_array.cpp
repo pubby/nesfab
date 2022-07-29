@@ -18,7 +18,7 @@ void rom_array_meta_t::mark_used_by(fn_ht fn)
 {
     assert(fn);
     std::lock_guard<std::mutex> lock(mutex);
-    used_by_fns.set(fn.value);
+    used_by_fns.set(fn.id);
 }
 
 void rom_array_meta_t::mark_used_by(group_ht group)
@@ -38,8 +38,8 @@ rom_array_meta_t& rom_array_meta_t::get(rom_array_ht h)
 {
     assert(h);
     std::lock_guard<std::mutex> lock(rom_array_map_mutex);
-    assert(h.value < rom_array_map.size());
-    return rom_array_map.begin()[h.value].second;
+    assert(h.id < rom_array_map.size());
+    return rom_array_map.begin()[h.id].second;
 }
 
 rom_array_ht lookup_rom_array(fn_ht fn, group_ht group, rom_array_t&& rom_array, std::uint16_t offset)
@@ -147,5 +147,5 @@ rom_array_meta_t& get_meta(rom_array_ht h)
     assert(compiler_phase() >= PHASE_ALLOC_ROM);
     assert(h);
     // Don't have to lock mutex at this phase.
-    return (rom_array_map.begin() + h.value)->second;
+    return (rom_array_map.begin() + h.id)->second;
 }

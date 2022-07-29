@@ -32,8 +32,6 @@ inline ssa_node_t* ssa_value_t::operator->() const
 template<typename I, typename O, std::size_t ISize, std::size_t OSize>
 class node_io_buffers_t 
 {
-static_assert(std::is_trivially_constructible<I>::value);
-static_assert(std::is_trivially_constructible<O>::value);
 static_assert(std::is_trivially_copyable<I>::value);
 static_assert(std::is_trivially_copyable<O>::value);
 static_assert(std::is_trivially_destructible<I>::value);

@@ -167,7 +167,7 @@ rom_allocator_t::rom_allocator_t(span_allocator_t& allocator, unsigned num_banks
             meta.used_by_fns.for_each([&](unsigned fn)
             { 
                 assert(fn < fn_directly_uses.size());
-                fn_directly_uses[fn].push_back({ ROM_ONCE, once.value }); 
+                fn_directly_uses[fn].push_back({ ROM_ONCE, once.id }); 
             });
         }
         else
@@ -178,7 +178,7 @@ rom_allocator_t::rom_allocator_t(span_allocator_t& allocator, unsigned num_banks
             meta.used_by_fns.for_each([&](unsigned fn)
             { 
                 assert(fn < fn_directly_uses.size());
-                fn_directly_uses[fn].push_back({ ROM_MANY, many.value }); 
+                fn_directly_uses[fn].push_back({ ROM_MANY, many.id }); 
             });
         }
     }
@@ -228,13 +228,13 @@ rom_allocator_t::rom_allocator_t(span_allocator_t& allocator, unsigned num_banks
         if(once)
         {
             rom_once_ht const once = make_once(&fn.proc(), alignment);
-            fn.assign_rom_alloc({ ROM_ONCE, once.value });
+            fn.assign_rom_alloc({ ROM_ONCE, once.id });
         }
         else
         {
         is_many:
             rom_many_ht const many = make_many(&fn.proc(), alignment);
-            fn.assign_rom_alloc({ ROM_MANY, many.value });
+            fn.assign_rom_alloc({ ROM_MANY, many.id });
         }
     }
 
@@ -319,7 +319,7 @@ rom_allocator_t::rom_allocator_t(span_allocator_t& allocator, unsigned num_banks
             bitset_or(many_bs_size, use_many.data(), gd_many_bs(group.index()));
         });
 
-        for(rom_alloc_ht const& use : fn_directly_uses[fn.handle().value])
+        for(rom_alloc_ht const& use : fn_directly_uses[fn.handle().id])
         {
             if(use.rclass() == ROM_ONCE)
                 use_once.set(use.handle());
@@ -524,7 +524,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
 
         // If we succeed, update and we're done
         once.bank = bank_i;
-        bank.allocated_onces.set(once_h.value);
+        bank.allocated_onces.set(once_h.id);
         return;
     }
 
@@ -548,7 +548,7 @@ bool rom_allocator_t::try_include_many(rom_many_ht many_h, unsigned bank_i)
     assert(result.second);
 
     many.in_banks.set(bank_i);
-    banks[bank_i].allocated_manys.set(many_h.value);
+    banks[bank_i].allocated_manys.set(many_h.id);
 
     return true;
 }
@@ -569,7 +569,7 @@ void rom_allocator_t::free_many(rom_many_ht many_h, unsigned bank_i)
     assert(allocated_span->contains(many.span));
 
     bank.allocator.free(*allocated_span);
-    bank.allocated_manys.clear(many_h.value);
+    bank.allocated_manys.clear(many_h.id);
 
     many.in_banks.clear(bank_i);
 }
@@ -623,7 +623,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
         assert(allocated_span.contains(alloc_at));
 
         auto result = banks[bank_i].many_spans.insert({ many_h, allocated_span });
-        banks[bank_i].allocated_manys.set(many_h.value);
+        banks[bank_i].allocated_manys.set(many_h.id);
         assert(result.second);
     });
 

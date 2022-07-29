@@ -101,7 +101,7 @@ aco_t::aco_t(ir_t& ir) : ir(ir), gen(0xDEADBEEF)
 
         // Weight successor nodes highly:
         for(unsigned i = 0; i < cfg_it->output_size(); ++i)
-            d.pheramones[cfg_it->output(i).index] = 256;
+            d.pheramones[cfg_it->output(i).id] = 256;
     }
 
     constexpr unsigned TRIPS = 64;
@@ -120,7 +120,7 @@ aco_t::aco_t(ir_t& ir) : ir(ir), gen(0xDEADBEEF)
 
             std::cout << '\n';
             for(cfg_ht h : best_ant.path)
-                std::cout << "REMAINING = " << h.index << '\n';
+                std::cout << "REMAINING = " << h.id << '\n';
 
             std::cout << "COSTS: " << ant.cost << ' ' << best_ant.cost << '\n';
         }
@@ -135,7 +135,7 @@ aco_t::aco_t(ir_t& ir) : ir(ir), gen(0xDEADBEEF)
         std::vector<unsigned>* prev_pheramones = &starting_pheramones;
         for(cfg_ht& h : best_ant.path)
         {
-            (*prev_pheramones)[h.index] += amount;
+            (*prev_pheramones)[h.id] += amount;
             prev_pheramones = &cg_data(h).order.pheramones;
         }
     }
@@ -160,7 +160,7 @@ void aco_t::run_ant()
         for(unsigned i = 0; i < remaining.size(); ++i)
         {
             cfg_ht h = remaining[i];
-            unsigned const weight = (*prev_pheramones)[h.index] + 1;
+            unsigned const weight = (*prev_pheramones)[h.id] + 1;
             total_weight += weight;
             candidates.push_back({ i, weight });
         }
@@ -185,8 +185,8 @@ void aco_t::run_ant()
         cfg_ht h = remaining[chosen.i];
 
         // reduce the pheramones along this path.
-        (*prev_pheramones)[h.index] *= 7;
-        (*prev_pheramones)[h.index] /= 8;
+        (*prev_pheramones)[h.id] *= 7;
+        (*prev_pheramones)[h.id] /= 8;
 
         // update the ant's path:
         ant.path.push_back(h);

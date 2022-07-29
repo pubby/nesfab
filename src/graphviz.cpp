@@ -5,9 +5,25 @@
 
 #include "globals.hpp"
 #include "ir.hpp"
+#include "format.hpp"
 
-static std::string gv_id(ssa_ht h) { return "ssa_" + std::to_string(h.index); }
-static std::string gv_id(cfg_ht h) { return "cfg_" + std::to_string(h.index); }
+static std::string gv_id(ssa_ht h) { return "ssa_" + std::to_string(h.id); }
+static std::string gv_id(cfg_ht h) { return "cfg_" + std::to_string(h.id); }
+
+static std::string gv_input_id(ssa_ht owner, unsigned input_i) 
+{ 
+    ssa_value_t input = owner->input(input_i);
+    if(input.is_const())
+        return fmt("const_%_%", gv_id(owner), input_i);
+    else if(input.holds_ref())
+    {
+        if(input->cfg_node() == owner->cfg_node())
+            return gv_id(input.handle());
+        else
+            return fmt("input_%_%", gv_id(owner), gv_id(input.handle()));
+    }
+    return gv_id(input.handle());
+}
 
 void graphviz_ssa(std::ostream& o, ir_t const& ir)
 {
@@ -25,25 +41,19 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             o << "  " << gv_id(ssa_it) << ";\n";
 
             for(unsigned i = 0; i < ssa_it->input_size(); ++i)
-            {
-                ssa_value_t input = ssa_it->input(i);
-                if(input.is_const())
-                    o << "  const_" << gv_id(ssa_it) << '_' << i << ";\n";
-                else if(input.holds_ref() && input->cfg_node() != cfg_it)
-                    o << "  ssa_long_" << gv_id(ssa_it) << '_' << gv_id(input.handle()) << ";\n";
-            }
+                o << gv_input_id(ssa_it, i) << ";\n";
         }
         o << "  " << gv_id(cfg_it) << ";\n"; 
         o << "}\n";
     }
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-        o << gv_id(cfg_it) << " [label=\"" << cfg_it.index << " (ENTRY)\"];\n";
+        o << gv_id(cfg_it) << " [label=\"" << cfg_it.id << " (ENTRY)\"];\n";
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        o << gv_id(ssa_it) << " [label=\"(" << ssa_it.index << ") ";
+        o << gv_id(ssa_it) << " [label=\"(" << ssa_it.id << ") ";
         o << to_string(ssa_it->op());
         o << " " << ssa_it->type();
         if(ssa_it == ssa_it->cfg_node()->last_daisy())
@@ -83,41 +93,34 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             {
                 if(fn_like(ssa_it->op()) && i == 0)
                 {
-                    o << "const_" << gv_id(ssa_it) << '_' << i;
+                    o << gv_input_id(ssa_it, i);
                     o << " [label=\"{";
                     o << input.locator().fn()->global.name;
                     o << "}\" shape=box];\n";
                 }
                 else if(input.is_locator())
                 {
-                    o << "const_" << gv_id(ssa_it) << '_' << i;
+                    o << gv_input_id(ssa_it, i);
                     o << " [label=\"{";
                     o << input.locator();
                     o << "}\" shape=box];\n";
                 }
                 else
                 {
-                    o << "const_" << gv_id(ssa_it) << '_' << i;
+                    o << gv_input_id(ssa_it, i);
                     o << " [label=\"" << to_double(input.fixed()) << " " << to_string(input.num_type_name());
                     o << "\" shape=box];\n";
                 }
 
-                o << "const_" << gv_id(ssa_it) << '_' << i;
-                o << " -> " << gv_id(ssa_it) << "[";
-
             }
-            else if(input.holds_ref() && input->cfg_node() == cfg_it)
+            else if(input.holds_ref() && input->cfg_node() != cfg_it)
             {
-                o << gv_id(input.handle()) << " -> " << gv_id(ssa_it) << "[";
-            }
-            else
-            {
-                o << "ssa_long_" << gv_id(ssa_it) << '_' << gv_id(input.handle());
-                o << " [label=\"(" << input.handle().index;
+                o << gv_input_id(ssa_it, i);
+                o << " [label=\"(" << input.handle().id;
                 o << ")\" shape=diamond];\n";
-
-                o << "ssa_long_" << gv_id(ssa_it) << "_" << gv_id(input.handle()) << " -> " << gv_id(ssa_it) << "[";
             }
+
+            o << gv_input_id(ssa_it, i) << " -> " << gv_id(ssa_it) << "[";
             o << " fontcolor=lime fontsize=10 ";
             o << " headlabel=\"" << i << "\"];\n";
         }
@@ -145,7 +148,7 @@ void graphviz_cfg(std::ostream& o, ir_t const& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         o << gv_id(cfg_it);
-        o << " [label=\"" << cfg_it.index;
+        o << " [label=\"" << cfg_it.id;
         if(cfg_it == ir.root)
             o << " (ROOT)";
         o << "\"];\n"; 

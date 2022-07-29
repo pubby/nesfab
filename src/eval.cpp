@@ -226,7 +226,7 @@ public:
 
     std::size_t num_vars() const { assert(ir); return num_locals() + ir->gmanager.num_locators(); }
 
-    unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.value + num_locals(); }
+    unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.id + num_locals(); }
     template<typename T>
     unsigned to_var_i(T gvar) const { return to_var_i(ir->gmanager.var_i(gvar)); }
 
@@ -396,10 +396,8 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
     }
 
     // Insert nodes for gmember reads
-    std::puts("begin each gvar");
     ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t i)
     {
-        std::puts("each gvar");
         unsigned const var_i = to_var_i(i);
         auto& vars = ir->root.data<block_d>().vars;
         assert(vars.size() == var_types.size());
@@ -408,8 +406,6 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
         {
             assert(var_i < vars.size());
             assert(m->member() < vars[var_i].size());
-
-            std::cout << "inserting " << var_i << ' ' << m->member() << std::endl;
 
             vars[var_i][m->member()] = ir->root->emplace_ssa(
                 SSA_read_global, member_type(var_types[var_i], m->member()), entry, locator_t::gmember(m, 0));
@@ -736,7 +732,6 @@ void eval_t::compile_block()
                 }
             }
 
-            std::cout << "sval = " << value.size() << std::endl;
             builder.cfg.data<block_d>().vars[var_i] = std::move(value);
             ++stmt;
         }
@@ -1070,8 +1065,6 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 new_top.sval = interpret_locals[token->value];
             }
 
-            std::cout << "d = " << D << std::endl;
-            std::cout << new_top.sval.size() << ' ' << new_top.type << std::endl;
             if(D != CHECK)
                 assert(new_top.sval.size() == num_members(new_top.type));
             rpn_stack.push(std::move(new_top));
@@ -1440,7 +1433,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     {
                         for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
                         {
-                            if(call->ir_reads().test(m.value))
+                            if(call->ir_reads().test(m.id))
                             {
                                 fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                                 fn_inputs.push_back(locator_t::gmember(m, 0));
@@ -1459,7 +1452,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                         bitset_for_each(gmember_bs_size, gmember_set, [&](unsigned bit)
                         {
                             gmember_ht const gmember = { bit };
-                            if(!call->lang_gvars().test(gmember->gvar.handle().value))
+                            if(!call->lang_gvars().test(gmember->gvar.handle().id))
                                 return;
 
                             fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), gmember->member()));
@@ -1470,7 +1463,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     ir->gmanager.for_each_gvar(
                     [&](gvar_ht gvar, gmanager_t::index_t index)
                     {
-                        if(!call->lang_gvars().test(gvar.value))
+                        if(!call->lang_gvars().test(gvar.id))
                             return;
 
                         for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
@@ -1516,7 +1509,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     {
                         for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
                         {
-                            if(call->ir_writes().test(m.value))
+                            if(call->ir_writes().test(m.id))
                             {
                                 ssa_ht read = builder.cfg->emplace_ssa(
                                     SSA_read_global, m->type(), fn_node, locator_t::gmember(m, 0));
@@ -3063,8 +3056,6 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
 
     assert(var_i < block_data.vars.size());
     assert(block_data.vars.size() == var_types.size());
-    std::cout << fn->global.name << std::endl;
-    std::cout << member << ' ' << block_data.vars[var_i].size() << ' ' << var_types.size() << std::endl;
     assert(member < block_data.vars[var_i].size());
 
     if(ssa_value_t lookup = from_variant(block_data.vars[var_i][member], member_type(var_types[var_i], member)))

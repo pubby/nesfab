@@ -240,7 +240,7 @@ std::size_t type_t::hash() const
             hash = rh::hash_combine(hash, type(i).hash());
     else if(has_group_tail(name()))
         for(unsigned i = 0; i < group_tail_size(); ++i)
-            hash = rh::hash_combine(hash, group(i).value);
+            hash = rh::hash_combine(hash, group(i).id);
 
     return hash;
 }

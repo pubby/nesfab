@@ -6,8 +6,10 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <type_traits>
 
 #include "c_delete.hpp"
+#include "handle.hpp"
 
 template<typename T, typename Tag = T>
 class static_intrusive_pool_t;
@@ -97,38 +99,23 @@ template<typename T, typename Tag>
 class static_intrusive_pool_t
 {
 public:
-    struct handle_t
+    struct handle_t : public ::handle_t<std::uint32_t, struct static_pool_tag, 0u>
     {
-        using value_type = T;
-        using int_type = std::uint32_t;
-
-        int_type index;
-
-        bool operator==(handle_t o) const { return index == o.index; }
-        bool operator!=(handle_t o) const { return index != o.index; }
-        bool operator< (handle_t o) const { return index <  o.index; }
-        bool operator<=(handle_t o) const { return index <= o.index; }
-        bool operator> (handle_t o) const { return index >  o.index; }
-        bool operator>=(handle_t o) const { return index >= o.index; }
-
-        bool operator!() const { return !index; }
-        explicit operator bool() const { return index; }
         T& operator*() const 
-            { assert(index < storage.size()); return storage[index]; }
+            { assert(this->id < storage.size()); return storage[this->id]; }
         T* operator->() const 
-            { assert(index < storage.size()); return storage.data() + index; }
+            { assert(this->id < storage.size()); return storage.data() + this->id; }
 
-        handle_t& operator++() { *this = storage[index].next; return *this; }
+        handle_t& operator++() { *this = storage[this->id].next; return *this; }
         handle_t operator++(int) { auto x = *this; operator++(); return x; }
-        handle_t& operator--() { *this = storage[index].prev; return *this; }
+        handle_t& operator--() { *this = storage[this->id].prev; return *this; }
         handle_t operator--(int) { auto x = *this; operator--(); return x; }
 
-        handle_t next() const { return storage[index].next; }
-        handle_t prev() const { return storage[index].prev; }
+        handle_t next() const { return storage[this->id].next; }
+        handle_t prev() const { return storage[this->id].prev; }
 
         template<typename U>
-        U& data() const 
-            { return static_any_pool_t<Tag>::template get<U>(index); }
+        U& data() const { return static_any_pool_t<Tag>::template get<U>(this->id); }
     };
 private:
     inline static thread_local std::vector<T> storage = std::vector<T>(1);
@@ -151,7 +138,7 @@ public:
         }
         ++used_size;
         assert(ret);
-        assert(ret.index < storage.size());
+        assert(ret.id < storage.size());
         return ret;
     }
 

@@ -543,7 +543,7 @@ ABSTRACT(SSA_cast) = ABSTRACT_FN
         fixed_uint_t const sign_bit = high_bit_only(cv[0].cm.mask);
         fixed_uint_t const extended = result.cm.mask & ~submask(cv[0].cm.mask);
 
-        std::cout << extended << std::endl;
+        //std::cout << extended << std::endl;
 
         result[0].bits.known0 &= ~extended;
         result[0].bits.known1 &= ~extended;
@@ -596,8 +596,8 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
     assert(argn >= 1);
     assert(result.vec.size() > 0);
 
-    std::cout << "START PHI\n";
-    std::cout << constraints_t::bottom(type_constraints_mask(TYPE_F2)) << std::endl;
+    //std::cout << "START PHI\n";
+    //std::cout << constraints_t::bottom(type_constraints_mask(TYPE_F2)) << std::endl;
 
     assert(result.vec.size());
     assert(argn);
@@ -610,8 +610,8 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
             assert(cv[j].vec.size());
             assert(cv[j].vec.size() >= result.vec.size());
             result[i] = union_(result[i], cv[j][i]);
-            std::cout << "PHI UNION " << cv[j][i] << std::endl;
-            std::cout << "PHI       " << result[i] << std::endl;
+            //std::cout << "PHI UNION " << cv[j][i] << std::endl;
+            //std::cout << "PHI       " << result[i] << std::endl;
         }
     }
 };
@@ -809,11 +809,6 @@ ABSTRACT(SSA_add) = ABSTRACT_FN
     assert(!value.bits.is_top());
     assert(apply_mask(value.bits, cm).bit_eq(value.bits));
     value.normalize(cm);
-
-    std::cout << "ADD\n";
-    std::cout << "ADD L " << L << std::endl;
-    std::cout << "ADD R " << R << std::endl;
-    std::cout << "ADD = " << value << std::endl;
 };
 
 constraints_t abstract_eq(constraints_t lhs, constraints_mask_t lhs_cm, 

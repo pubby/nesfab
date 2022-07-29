@@ -16,13 +16,15 @@
 // At the end of the pass, these temporary nodes are deleted.
 
 #include <cstdint>
+#include <ostream>
 
 #include "constraints.hpp"
 #include "ir_decl.hpp"
 
-bool o_abstract_interpret(ir_t& ir);
+bool o_abstract_interpret(ir_t& ir, std::ostream* os);
 
-std::size_t ai_constraints_size(ssa_value_t value);
-constraints_t ai_get_constraints(ssa_value_t value, unsigned i = 0);
+// TODO: one day we may implement this
+//std::size_t ai_constraints_size(ssa_value_t value);
+//constraints_t ai_get_constraints(ssa_value_t value, unsigned i = 0);
 
 #endif

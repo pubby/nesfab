@@ -53,5 +53,4 @@ constexpr std::uint16_t FLAG_PROCESSED      = 1ull << 5;
 constexpr std::uint16_t FLAG_IRREDUCIBLE    = 1ull << 6;
 constexpr std::uint16_t FLAG_COALESCED      = 1ull << 7;
 
-
 #endif

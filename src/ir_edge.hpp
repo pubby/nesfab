@@ -110,7 +110,7 @@ public:
 
     constexpr void set(ssa_ht ht, std::uint32_t index) 
     {
-        value = ht.index;
+        value = ht.id;
         value |= (uint_t)index << 32ull;
     }
 
@@ -118,7 +118,7 @@ public:
     { 
         assert(is_handle());
         value &= ~0xFFFFFFFFull;
-        value |= ht.index;
+        value |= ht.id;
         assert(this->handle() == ht);
     }
 
@@ -138,7 +138,7 @@ public:
     std::uint64_t target() const 
     { 
         if(is_handle())
-            return handle().index;
+            return handle().id;
         return value;
     }
 

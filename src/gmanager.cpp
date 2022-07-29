@@ -37,7 +37,7 @@ void gmanager_t::init(fn_ht fn)
             // Setup 'named_set':
             gvar_t const& gvar = idep->impl<gvar_t>();
             for(gmember_ht m = gvar.begin_gmember(); m != gvar.end_gmember(); ++m)
-                bitset_set(named_set, m.value);
+                bitset_set(named_set, m.id);
         }
         else if(idep->gclass() == GLOBAL_FN)
         {

@@ -914,7 +914,6 @@ void ir_t::assert_valid() const
             if(ssa_it->op() == SSA_if)
             {
                 assert(ssa_it == cfg_node.last_daisy());
-                std::cout << ssa_it.index << std::endl;
                 assert(cfg_node.output_size() == 2);
             }
 

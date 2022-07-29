@@ -21,7 +21,7 @@
 
 namespace bc = ::boost::container;
 
-struct constraints_mask_t ;
+struct constraints_mask_t;
 struct bounds_t;
 struct known_bits_t;
 struct constraints_t;

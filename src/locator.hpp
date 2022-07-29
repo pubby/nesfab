@@ -330,25 +330,25 @@ public:
         { return locator_t(LOC_IOTA, 0, 0, offset); }
 
     constexpr static locator_t fn(fn_ht fn)
-        { return locator_t(LOC_FN, fn.value, 0, 0); }
+        { return locator_t(LOC_FN, fn.id, 0, 0); }
 
     constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
-        { return locator_t(LOC_ARG, fn.value, arg, member, atom, offset); }
+        { return locator_t(LOC_ARG, fn.id, arg, member, atom, offset); }
 
     constexpr static locator_t gmember(gmember_ht gmember, std::uint8_t atom, std::uint16_t offset=0)
-        { return locator_t(LOC_GMEMBER, gmember.value, 0, 0, atom, offset); }
+        { return locator_t(LOC_GMEMBER, gmember.id, 0, 0, atom, offset); }
 
     constexpr static locator_t gmember_set(fn_ht fn, std::uint16_t id)
-        { return locator_t(LOC_GMEMBER_SET, fn.value, id, 0); }
+        { return locator_t(LOC_GMEMBER_SET, fn.id, id, 0); }
 
     constexpr static locator_t rom_array(rom_array_ht h, std::uint16_t offset=0)
-        { return locator_t(LOC_ROM_ARRAY, h.value, 0, offset); }
+        { return locator_t(LOC_ROM_ARRAY, h.id, 0, offset); }
 
     constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
-        { return locator_t(LOC_RETURN, fn.value, 0, member, atom, offset); }
+        { return locator_t(LOC_RETURN, fn.id, 0, member, atom, offset); }
 
     constexpr static locator_t cfg_label(cfg_ht cfg_node)
-        { return locator_t(LOC_CFG_LABEL, cfg_node.index, 0, 0); }
+        { return locator_t(LOC_CFG_LABEL, cfg_node.id, 0, 0); }
 
     constexpr static locator_t minor_label(std::uint16_t id)
         { return locator_t(LOC_MINOR_LABEL, 0, id, 0); }
@@ -360,28 +360,28 @@ public:
         { return locator_t(LOC_ADDR, 0, addr, offset); }
 
     constexpr static locator_t phi(ssa_ht node)
-        { return locator_t(LOC_PHI, node.index, 0, 0, 0, 0); }
+        { return locator_t(LOC_PHI, node.id, 0, 0, 0, 0); }
 
     constexpr static locator_t ssa(ssa_ht node)
-        { return locator_t(LOC_SSA, node.index, 0, 0, 0, 0); }
+        { return locator_t(LOC_SSA, node.id, 0, 0, 0, 0); }
 
     constexpr static locator_t lvar(fn_ht fn, unsigned lvar)
-        { return locator_t(LOC_LVAR, fn.value, lvar, 0); }
+        { return locator_t(LOC_LVAR, fn.id, lvar, 0); }
 
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
-        { return locator_t(LOC_MINOR_VAR, fn.value, id, 0); }
+        { return locator_t(LOC_MINOR_VAR, fn.id, id, 0); }
 
     constexpr static locator_t lt_gmember_ptr(gmember_ht m, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_GMEMBER_PTR, m.value, 0, 0, 0, offset); }
+        { return locator_t(LOC_LT_GMEMBER_PTR, m.id, 0, 0, 0, offset); }
 
     constexpr static locator_t lt_const_ptr(const_ht c, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_CONST_PTR, c.value, 0, 0, 0, offset); }
+        { return locator_t(LOC_LT_CONST_PTR, c.id, 0, 0, 0, offset); }
 
     constexpr static locator_t lt_const_ptr_bank(const_ht c, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_CONST_PTR_BANK, c.value, 0, 0, 0, offset); }
+        { return locator_t(LOC_LT_CONST_PTR_BANK, c.id, 0, 0, 0, offset); }
 
     constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_EXPR, lt.value, 0, member, atom, offset); }
+        { return locator_t(LOC_LT_EXPR, lt.id, 0, member, atom, offset); }
 
     static locator_t from_ssa_value(ssa_value_t v);
 

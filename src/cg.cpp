@@ -176,9 +176,26 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         ssa_value_t condition = if_h->input(0);
 
-        if(!condition.holds_ref() || condition->cfg_node() != cfg_it 
-           || condition->output_size() != 1 || condition->in_daisy())
+        std::cout << "CONDITION = " << condition << std::endl;
+
+        if(!condition.holds_ref() || condition->cfg_node() != cfg_it)
         {
+            std::puts("FAIL 1");
+            assert(0);
+            continue;
+        }
+
+        if(condition->output_size() != 1)
+        {
+            std::puts("FAIL e");
+            assert(0);
+            continue;
+        }
+
+        if(condition->in_daisy())
+        {
+            std::puts("FAIL 3");
+            assert(0);
             continue;
         }
 

@@ -450,14 +450,17 @@ void cfg_node_t::destroy()
 void cfg_node_t::alloc_input(unsigned size) { m_io.alloc_input(size); }
 void cfg_node_t::alloc_output(unsigned size) { m_io.alloc_output(size); }
 
-void cfg_node_t::build_set_output(unsigned i, cfg_ht new_node_h)
+// Returns the input index.
+unsigned cfg_node_t::build_set_output(unsigned i, cfg_ht new_node_h)
 {
     assert(i < output_size());
     assert(!output(i));
 
     cfg_node_t& new_node = *new_node_h;
-    m_io.output(i) = { new_node_h, new_node.input_size() };
+    unsigned const input_i = new_node.input_size();
+    m_io.output(i) = { new_node_h, input_i };
     new_node.append_input({ handle(), i });
+    return input_i;
 }
 
 unsigned cfg_node_t::append_input(cfg_fwd_edge_t edge)
@@ -649,13 +652,15 @@ void cfg_node_t::steal_ssa_nodes(cfg_ht cfg)
     cfg->m_ssa_size = 0;
 }
 
-void cfg_node_t::steal_ssa(ssa_ht ssa)
+ssa_ht cfg_node_t::steal_ssa(ssa_ht ssa, bool steal_linked)
 {
+    ssa_ht const ret = ssa.next();
+
     assert(ssa->op() != SSA_phi);
     cfg_node_t& old_cfg = *ssa->cfg_node();
 
     if(&old_cfg == this)
-        return;
+        return ret;
 
     bool const in_daisy = ssa->in_daisy();
 
@@ -667,6 +672,18 @@ void cfg_node_t::steal_ssa(ssa_ht ssa)
     if(in_daisy)
         list_append_daisy(*ssa);
     m_ssa_size += 1;
+
+    if(steal_linked)
+    {
+        for_each_output_matching(ssa, INPUT_LINK, [&](ssa_ht linked)
+        {
+            // Currently unimplemented: links with daisy.
+            assert(!linked->in_daisy());
+            steal_ssa(linked, true);
+        });
+    }
+
+    return ret;
 }
 
 void cfg_node_t::link_remove_output(unsigned i)
@@ -915,6 +932,12 @@ void ir_t::assert_valid() const
             {
                 assert(ssa_it == cfg_node.last_daisy());
                 assert(cfg_node.output_size() == 2);
+            }
+
+            if(ssa_it->in_daisy())
+            {
+                // Currently unimplemented: links with daisy.
+                assert(ssa_input0_class(ssa_it->op()) != INPUT_LINK);
             }
 
             // Array checks.

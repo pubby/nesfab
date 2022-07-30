@@ -6,6 +6,7 @@
 #include "ir.hpp"
 #include "lvar.hpp"
 #include "worklist.hpp"
+#include "assert.hpp"
 
 //////////////////
 // cfg liveness //
@@ -18,6 +19,8 @@ static inline cfg_liveness_d& live(cfg_ht h)
 
 static void _live_visit(ssa_ht def, cfg_ht cfg_node)
 {
+    std::cout << "visit " << def << ' ' << def->cfg_node() << ' ' << cfg_node << std::endl;
+
     if(def->cfg_node() == cfg_node)
         return;
 
@@ -27,7 +30,7 @@ static void _live_visit(ssa_ht def, cfg_ht cfg_node)
     bitset_set(live(cfg_node).in, def.id);
 
     unsigned const input_size = cfg_node->input_size();
-    assert(input_size > 0);
+    passert(input_size > 0, cfg_node, input_size);
     for(unsigned i = 0; i < input_size; ++i)
     {
         cfg_ht input = cfg_node->input(i);
@@ -60,6 +63,7 @@ void calc_ssa_liveness(ssa_ht node)
         else
         {
             assert(node->op() != SSA_phi_copy);
+            std::cout << "start " << node << ' ' << node->cfg_node() << ' ' << ocfg << std::endl;
             _live_visit(node, ocfg);
         }
     }

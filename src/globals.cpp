@@ -716,7 +716,7 @@ void fn_t::compile()
             graphviz_ssa(ossa, ir);
     };
 
-    auto const optimize_suite = [&](bool byteified)
+    auto const optimize_suite = [&](bool post_byteified)
     {
         unsigned iter = 0;
         bool changed;
@@ -725,11 +725,17 @@ void fn_t::compile()
             changed = false;
             changed |= o_phis(ir);
             changed |= o_merge_basic_blocks(ir);
-            changed |= o_remove_unused_arguments(ir, *this, byteified);
+            changed |= o_remove_unused_arguments(ir, *this, post_byteified);
             changed |= o_identities(ir, nullptr);
             changed |= o_abstract_interpret(ir, nullptr);
             changed |= o_remove_unused_ssa(ir);
-            changed |= o_global_value_numbering(ir);
+            changed |= o_global_value_numbering(ir, nullptr);
+
+            if(post_byteified)
+            {
+                // Once byteified, keep shifts out of the IR and only use rotates.
+                changed |= shifts_to_rotates(ir);
+            }
 
             // Enable this to debug:
             //save_graph(ir, fmt("during_o_%", iter).c_str());
@@ -738,23 +744,23 @@ void fn_t::compile()
         while(changed);
     };
 
-    save_graph(ir, "initial");
+    save_graph(ir, "1_initial");
     ir.assert_valid();
 
     optimize_suite(false);
-    save_graph(ir, "o1");
+    save_graph(ir, "2_o1");
 
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(ir);
 
     byteify(ir, *this);
-    save_graph(ir, "byteify");
+    save_graph(ir, "3_byteify");
 
     optimize_suite(true);
-    save_graph(ir, "o2");
+    save_graph(ir, "4_o2");
 
     code_gen(ir, *this);
-    save_graph(ir, "cg");
+    save_graph(ir, "5_cg");
 }
 
 /* TODO: remove?

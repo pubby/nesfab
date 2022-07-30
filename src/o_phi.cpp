@@ -267,8 +267,7 @@ bool o_remove_redundant_phis(ir_t& ir)
 
     bool changed = false;
     unsigned subgraph_i = 0;
-    o_remove_redundant_phis(ir, changed, subgraph_i, 
-                            ssa_workvec.data(), ssa_workvec.size());
+    o_remove_redundant_phis(ir, changed, subgraph_i, ssa_workvec.data(), ssa_workvec.size());
     return changed;
 }
 

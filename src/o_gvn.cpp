@@ -8,8 +8,7 @@
 
 #include "ir.hpp"
 #include "ir_util.hpp"
-
-#include <iostream> // TODO
+#include "debug_print.hpp"
 
 using gvn_t = std::uint64_t;
 
@@ -53,7 +52,8 @@ namespace std
 class run_gvn_t
 {
 public:
-    run_gvn_t(ir_t& ir)
+    run_gvn_t(ir_t& ir, std::ostream* log)
+    : log(log)
     {
         m_key_map.reserve(ssa_pool::array_size());
         m_gvn_sets.reserve(ssa_pool::array_size());
@@ -123,12 +123,12 @@ public:
         for(unsigned i = 1; i < set.size(); ++i)
             dom = dom_intersect(dom, set[i]->cfg_node());
 
-        dom->steal_ssa(set[0]);
+        dom->steal_ssa(set[0], true);
 
         // Now replace the old nodes with the defining one:
         for(unsigned i = 1; i < set.size(); ++i)
         {
-            std::cout << "GVN replacing " << set[i].id << " with " << set[0].id << std::endl;
+            dprint(log, "GVN_REPLACE", set[i], "with", set[0]);
             set[i]->replace_with(set[0]);
             set[i]->prune();
         }
@@ -145,11 +145,13 @@ private:
     rh::robin_map<gvn_key_t, gvn_t> m_key_map;
     rh::batman_map<gvn_t, std::vector<ssa_ht>> m_gvn_sets;
     gvn_t m_next_gvn = 1ull;
+
+    std::ostream* log = nullptr;
 };
 
-bool o_global_value_numbering(ir_t& ir)
+bool o_global_value_numbering(ir_t& ir, std::ostream* log)
 {
     ssa_data_pool::scope_guard_t<ssa_gvn_d> sg(ssa_pool::array_size());
-    run_gvn_t runner(ir);
+    run_gvn_t runner(ir, log);
     return runner.updated;
 }

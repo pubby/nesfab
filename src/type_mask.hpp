@@ -107,13 +107,19 @@ inline unsigned signed_clz(fixed_sint_t i)
     return u ? builtin::clz(u) : sizeof_bits<fixed_sint_t>;
 }
 
-/* TODO: remove?
+[[gnu::pure]]
+inline fixed_sint_t type_unit(type_name_t type_name)
+{
+    assert(is_scalar(type_name));
+    return low_bit_only(numeric_bitmask(type_name));
+}
+
 [[gnu::pure]]
 inline fixed_sint_t type_min(type_name_t type_name)
 {
     assert(is_scalar(type_name));
     if(is_signed(type_name))
-        return -fixed_sint_t(high_bit_only(mask));
+        return -fixed_sint_t(high_bit_only(numeric_bitmask(type_name)));
     else
         return 0;
 }
@@ -129,6 +135,5 @@ inline fixed_sint_t type_max(type_name_t type_name)
     else
         return numeric_bitmask(type_name);
 }
-*/
 
 #endif

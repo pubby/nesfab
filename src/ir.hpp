@@ -256,13 +256,13 @@ public:
     void alloc_input(unsigned size);
     void alloc_output(unsigned size);
     // Used after 'alloc_output' to assign to the output array.
-    void build_set_output(unsigned i, cfg_ht new_node_h);
+    unsigned build_set_output(unsigned i, cfg_ht new_node_h);
 
     void link_clear_inputs();
 
     void link_remove_output(unsigned i);
     template<typename PhiFn>
-    void link_append_output(cfg_ht new_h, PhiFn phi_fn);
+    unsigned link_append_output(cfg_ht new_h, PhiFn phi_fn);
     template<typename PhiFn>
     void link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn);
     void link_clear_outputs();
@@ -301,8 +301,8 @@ public:
     void steal_ssa_nodes(cfg_ht cfg);
 
     // Same, but only 1 node.
-    void steal_ssa(ssa_ht ssa);
-
+    // Returns the node after 'ssa', previously.
+    ssa_ht steal_ssa(ssa_ht ssa, bool steal_linked);
 private:
     cfg_node_t(cfg_node_t const& o) = default;
     cfg_node_t& operator=(cfg_node_t const& o) = default;
@@ -403,8 +403,9 @@ inline void ssa_node_t::erase_daisy()
 // cfg_node_t functions               //
 ////////////////////////////////////////
 
+// Returns the input index.
 template<typename PhiFn>
-void cfg_node_t::link_append_output(cfg_ht new_h, PhiFn phi_fn)
+unsigned cfg_node_t::link_append_output(cfg_ht new_h, PhiFn phi_fn)
 {
     cfg_node_t& node = *new_h;
 
@@ -416,9 +417,11 @@ void cfg_node_t::link_append_output(cfg_ht new_h, PhiFn phi_fn)
         phi.link_append_input(phi_fn(phi_it));
     }
 
-    unsigned const i = output_size();
-    m_io.resize_output(i + 1);
-    m_io.output(i) = { new_h, node.append_input({ handle(), i }) };
+    unsigned const output_i = output_size();
+    m_io.resize_output(output_i + 1);
+    unsigned const input_i = node.append_input({ handle(), output_i });
+    m_io.output(output_i) = { new_h, input_i };
+    return input_i;
 }
 
 template<typename PhiFn>

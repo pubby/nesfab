@@ -32,7 +32,7 @@ std::string to_string(locator_t loc)
     case LOC_RETURN:
         str = fmt("ret %", loc.fn()->global.name); break;
     case LOC_CFG_LABEL:
-        str = fmt("cfg label"); break;
+        str = fmt("cfg label %", loc.cfg_node()); break;
     case LOC_MINOR_LABEL:
         str = fmt("minor label"); break;
     case LOC_CONST_BYTE:

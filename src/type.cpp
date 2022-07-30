@@ -205,6 +205,13 @@ std::size_t type_t::size_of() const
     }
 }
 
+std::size_t type_t::size_of_bits() const
+{
+    if(name() == TYPE_BOOL)
+        return 1;
+    return size_of() * 8;
+}
+
 std::size_t type_t::array_length() const
 {
     if(name() == TYPE_TEA || name() == TYPE_PAA)

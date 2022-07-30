@@ -75,6 +75,7 @@ public:
     }
 
     ssa_ht handle() const { assert(is_handle()); return { (std::uint32_t)value }; }
+    ssa_ht maybe_handle() const { return is_handle() ? handle() : ssa_ht{}; }
     std::uint32_t index() const 
         { assert(is_handle()); return value >> 32ull; };
 

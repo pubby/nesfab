@@ -406,7 +406,6 @@ void ai_t::remove_skippable()
             }
 
             // Prune the skippable node.
-            std::cout << cfg_it;
             dprint(log, "- PRUNE SKIPPABLE ", cfg_it);
             cfg_it = ir.merge_edge(cfg_it);
         }

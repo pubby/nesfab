@@ -387,15 +387,15 @@ void scheduler_t::append_schedule(ssa_ht h)
         add_array_index(h->input(ssa_index_input(h->op())));
 
     // If this is a global read, add it to our set:
-    std::cout << "unused_glob op " << to_string(h->op()) << std::endl;
+    //std::cout << "unused_glob op " << to_string(h->op()) << std::endl;
     if(h->op() == SSA_read_global)
     {
-        std::cout << "unused_glob insert " << h.id << std::endl;
+        //std::cout << "unused_glob insert " << h.id << std::endl;
         unused_global_reads.insert(h);
     }
     if(fn_like(h->op()))
     {
-        std::puts("unused_glob clear");
+        //std::puts("unused_glob clear");
         // When calling a function, clear our set:
         unused_global_reads.clear();
     }
@@ -406,7 +406,7 @@ void scheduler_t::append_schedule(ssa_ht h)
         {
             if(input->op() == SSA_read_global)
             {
-                std::cout << "unused_glob erase " << input.id << std::endl;
+                //std::cout << "unused_glob erase " << input.id << std::endl;
                 unused_global_reads.erase(input);
             }
         });
@@ -497,7 +497,7 @@ bool scheduler_t::ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled
     if(relax >= 1)
         return true;
 
-    std::cout << " unused_glob " << unused_global_reads.size() << '\n';
+    //std::cout << " unused_glob " << unused_global_reads.size() << '\n';
     if(!unused_global_reads.empty() && fn_like(h->op()))
         return false;
 

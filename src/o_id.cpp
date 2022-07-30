@@ -59,6 +59,56 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
                 }
             }
             break;
+        case SSA_lt:
+        case SSA_not_eq:
+            if(node.input(0) == node.input(1))
+            {
+                node.replace_with(ssa_value_t(0u, TYPE_BOOL));
+                goto prune;
+            }
+            else if(node.op() == SSA_lt)
+            {
+                // Replace expressions like (X < 1) with (X == 0).
+                // This aids code generation.
+
+                type_name_t const lt = node.input(0).type().name();
+                type_name_t const rt = node.input(1).type().name();
+
+                if(!same_scalar_layout(lt, rt))
+                    break;
+
+                if(node.input(1).eq_fixed({ type_min(lt) + type_unit(lt) }))
+                {
+                    node.link_change_input(1, ssa_value_t(type_min(rt), rt));
+                    node.unsafe_set_op(SSA_eq);
+                }
+            }
+            break;
+        case SSA_lte:
+        case SSA_eq:
+            if(node.input(0) == node.input(1))
+            {
+                node.replace_with(ssa_value_t(1u, TYPE_BOOL));
+                goto prune;
+            }
+            else if(node.op() == SSA_lte)
+            {
+                // Replace expressions like (1 <= x) with (X != 0).
+                // This aids code generation.
+
+                type_name_t const lt = node.input(0).type().name();
+                type_name_t const rt = node.input(1).type().name();
+
+                if(!same_scalar_layout(lt, rt))
+                    break;
+
+                if(node.input(0).eq_fixed({ type_min(rt) + type_unit(rt) }))
+                {
+                    node.link_change_input(0, ssa_value_t(type_min(lt), lt));
+                    node.unsafe_set_op(SSA_not_eq);
+                }
+            }
+            break;
         case SSA_add:
             {
                 if(!node.input(2).is_num())
@@ -80,24 +130,24 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
             }
             break;
         case SSA_or:
-            if(ssa_it->input(0) == ssa_it->input(1))
+            if(node.input(0) == node.input(1))
                 goto replaceWith0;
             // fall through
         case SSA_xor:
-            if(ssa_it->input(0).eq_fixed({0}))
+            if(node.input(0).eq_fixed({0}))
                 goto replaceWith1;
             // fall through
         case SSA_shl:
         case SSA_shr:
-            if(ssa_it->input(1).eq_fixed({0}))
+            if(node.input(1).eq_fixed({0}))
                 goto replaceWith0;
             break;
         case SSA_and:
-            if(ssa_it->input(0).eq_fixed(all_set))
+            if(node.input(0).eq_fixed(all_set))
                 goto replaceWith1;
-            if(ssa_it->input(1).eq_fixed(all_set))
+            if(node.input(1).eq_fixed(all_set))
                 goto replaceWith0;
-            if(ssa_it->input(0) == ssa_it->input(1))
+            if(node.input(0) == ssa_it->input(1))
                 goto replaceWith0;
             break;
         default:

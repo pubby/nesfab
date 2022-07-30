@@ -260,8 +260,7 @@ constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)
 
 constexpr bool same_scalar_layout(type_name_t a, type_name_t b)
 {
-    return (is_scalar(a) 
-            && is_scalar(b) 
+    return (is_scalar(a) && is_scalar(b) 
             && whole_bytes(a) == whole_bytes(b)
             && frac_bytes(a) == frac_bytes(b));
 }

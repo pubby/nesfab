@@ -69,6 +69,7 @@ public:
     bool operator!=(type_t o) const { return !operator==(o); }
 
     std::size_t size_of() const;
+    std::size_t size_of_bits() const;
     std::size_t array_length() const;
     void set_array_length(std::size_t size);
     void set_array_length(std::int64_t size, pstring_t pstring);

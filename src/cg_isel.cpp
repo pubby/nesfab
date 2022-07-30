@@ -1227,6 +1227,8 @@ namespace isel
         type_name_t const lt = type_name_t(h->input(0 ^ Flip).whole());
         type_name_t const rt = type_name_t(h->input(1 ^ Flip).whole());
 
+        std::cout << "LT " << type_t(lt) << ' ' << type_t(rt) << std::endl;
+
         int const lwhole = whole_bytes(lt);
         int const rwhole = whole_bytes(rt);
         int const minwhole = std::min(lwhole, rwhole);
@@ -1434,7 +1436,7 @@ namespace isel
 
             if(iteration == 0) // If this is the first iteration
             {
-                if(i + 1 == maxwhole) // If this is the only iteration
+                if(i + 1 == maxwhole && lsigned && rsigned) // If this is the only iteration, and we're signed
                 {
                     select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                     {

@@ -2375,13 +2375,16 @@ void eval_t::do_compare(rpn_stack_t& rpn_stack, token_t const& token)
     else if(Policy::D == COMPILE)
     {
         // The implementation is kept simpler if both types being compared have the same size.
-        if((Policy::op() == SSA_eq || Policy::op() == SSA_not_eq) && lhs.type != rhs.type)
+        if((Policy::op() == SSA_eq || Policy::op() == SSA_not_eq) 
+           && !same_scalar_layout(lhs.type.name(), rhs.type.name()))
         {
             unsigned const w = std::max(whole_bytes(lhs.type.name()), whole_bytes(rhs.type.name()));
             unsigned const f = std::max(frac_bytes(lhs.type.name()), frac_bytes(rhs.type.name()));
 
             throwing_cast<Policy::D>(lhs, type_s_or_u(w, f, is_signed(lhs.type.name())), true, lhs.pstring);
             throwing_cast<Policy::D>(rhs, type_s_or_u(w, f, is_signed(rhs.type.name())), true, rhs.pstring);
+
+            assert(same_scalar_layout(lhs.type.name(), rhs.type.name()));
         }
 
         return compile_binary_operator(rpn_stack, Policy::op(), TYPE_BOOL);

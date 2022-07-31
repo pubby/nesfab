@@ -265,21 +265,7 @@ public:
     using global_impl_tag = void;
     static constexpr global_class_t gclass = GLOBAL_FN;
 
-    fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass) 
-    : global(global)
-    , fclass(fclass)
-    , m_type(std::move(type))
-    , m_def(std::move(fn_def)) 
-    /* TODO
-    , m_param_record([this]()
-    {
-        field_vector_t fields;
-        for(unsigned i = 0; i < m_def.num_params; ++i)
-            fields.push_back({field_t{ .decl = m_def.local_vars[i] }});
-        return fields;
-    }())
-    */
-    {}
+    fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass);
 
     fn_ht handle() const;
 
@@ -308,15 +294,7 @@ public:
     bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
     bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
 
-    // Be careful to call this from a single thread only.
-    void assign_proc(asm_proc_t&& proc)
-    {
-        assert(compiler_phase() == PHASE_COMPILE);
-        m_proc = std::move(proc);
-    }
-
-    asm_proc_t const& proc() const { assert(compiler_phase() > PHASE_COMPILE); return m_proc; }
-    asm_proc_t& proc() { assert(compiler_phase() > PHASE_COMPILE); return m_proc; }
+    rom_proc_ht rom_proc() const { assert(compiler_phase() > PHASE_COMPILE); return m_rom_proc; }
 
     void assign_lvars(lvars_manager_t&& lvars);
     lvars_manager_t const& lvars() const { assert(compiler_phase() >= PHASE_COMPILE); return m_lvars; }
@@ -329,8 +307,9 @@ public:
     span_t lvar_span(int lvar_i) const;
     span_t lvar_span(locator_t loc) const;
 
-    bool emits_code() const { return true; } // TODO: implement
 
+    /* TODO: remove?
+    bool emits_code() const { return true; } // TODO: implement
     void assign_rom_alloc(rom_alloc_ht h) 
     { 
         assert(compiler_phase() == PHASE_ALLOC_ROM);
@@ -339,6 +318,7 @@ public:
     }
 
     rom_alloc_ht rom_alloc() const { assert(compiler_phase() >= PHASE_ALLOC_ROM); return m_rom_alloc; }
+    */
 
 
     // TODO: remove?
@@ -348,7 +328,6 @@ public:
     global_t& global;
     fclass_t const fclass;
 
-    //rom_alloc_ht rom_alloc; TODO
 private:
     type_t m_type;
     fn_def_t m_def;
@@ -377,7 +356,7 @@ private:
     bool m_ir_io_pure = false;
 
     // Holds the assembly code generated.
-    asm_proc_t m_proc;
+    rom_proc_ht m_rom_proc;
 
     //ram_bitset_t m_usable_ram = ram_bitset_t::filled(); // Tracks unallocated RAM addresses this fn can use
     //ram_bitset_t m_lvar_ram = ram_bitset_t::filled();// Tracks which addresses are used by this fn's lvars.
@@ -386,7 +365,7 @@ private:
     lvars_manager_t m_lvars;
     std::vector<span_t> m_lvar_spans;
 
-    rom_alloc_ht m_rom_alloc;
+    //rom_alloc_ht m_rom_alloc;
 };
 
 // Base class for vars and consts.

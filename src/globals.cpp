@@ -463,6 +463,14 @@ void global_t::compile_all()
 // fn_t //
 ///////////
 
+fn_t::fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass) 
+: global(global)
+, fclass(fclass)
+, m_type(std::move(type))
+, m_def(std::move(fn_def)) 
+, m_rom_proc(rom_proc_t::make())
+{}
+
 void fn_t::calc_lang_gvars_groups()
 {
     if(m_lang_gvars)
@@ -933,7 +941,7 @@ group_ht const_t::group() const { return group_data->group.handle(); }
 
 void const_t::paa_init(rom_array_t&& paa)
 {
-    m_rom_array = lookup_rom_array({}, group(), std::move(paa));
+    m_rom_array = lookup_rom_array(std::move(paa), {}, group_data);
     assert(m_rom_array);
 }
 

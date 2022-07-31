@@ -8,6 +8,7 @@
 #include "compiler_error.hpp"
 #include "options.hpp"
 #include "ram.hpp"
+#include "rom_array.hpp"
 
 namespace  // anonymous namespace
 {
@@ -222,10 +223,10 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
         for(fn_t const& fn : impl_deque<fn_t>)
         {
-            if(!fn.emits_code())
+            if(!fn.rom_proc()->emits())
                 continue;
 
-            for(asm_inst_t const& inst : fn.proc().code)
+            for(asm_inst_t const& inst : fn.rom_proc()->asm_proc().code)
                 if(inst.arg.lclass() == LOC_GMEMBER)
                     if(unsigned* count = gmember_count.mapped(inst.arg.mem_head()))
                         *count += 1;

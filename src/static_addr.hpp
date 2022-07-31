@@ -51,6 +51,6 @@ span_t static_span(static_rom_name_t name);
 locator_t static_locator(static_ram_name_t name, std::uint16_t offset = 0);
 locator_t static_locator(static_rom_name_t name, std::uint16_t offset = 0);
 
-rom_data_t static_data(static_rom_name_t name);
+rom_data_ht static_data(static_rom_name_t name);
 
 #endif

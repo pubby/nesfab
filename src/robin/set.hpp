@@ -167,13 +167,13 @@ public:
     joker_set& operator=(joker_set const&) = default;
     joker_set& operator=(joker_set&&) = default;
 
-    apair<value_type const*, bool> insert(key_type const& k)
+    apair<const_iterator, bool> insert(key_type const& k)
     { 
-        apair<value_type*, bool> pair = collection.insert(k); 
+        apair<iterator, bool> pair = collection.insert(k); 
         return { pair.first, pair.second };
     }
 
-    apair<value_type const*, bool> insert(key_type&& k)
+    apair<const_iterator, bool> insert(key_type&& k)
     { 
         apair<value_type*, bool> pair = collection.insert(std::move(k)); 
         return { pair.first, pair.second };

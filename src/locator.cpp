@@ -201,7 +201,7 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
         return *this;
 
     case LOC_FN:
-        return from_alloc(fn()->rom_alloc());
+        return from_alloc(fn()->rom_proc()->alloc());
 
     case LOC_GMEMBER:
         return from_span(gmember()->span(atom()));
@@ -218,12 +218,12 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
         return from_span(fn_h->lvar_span(mem_head()));
 
     case LOC_ROM_ARRAY:
-        return from_alloc(get_meta(rom_array()).alloc);
+        return from_alloc(get_meta(rom_array()).alloc());
 
     case LOC_MAIN_ENTRY:
-        return from_alloc(get_main_entry().rom_alloc());
+        return from_alloc(get_main_entry().rom_proc()->alloc());
     case LOC_MAIN_ENTRY_BANK:
-        return from_alloc_bank(get_main_entry().rom_alloc());
+        return from_alloc_bank(get_main_entry().rom_proc()->alloc());
 
     case LOC_THIS_BANK:
         if(bank >= 0 && bank < 256)
@@ -233,8 +233,8 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
     case LOC_LT_GMEMBER_PTR:
         return from_span(gmember()->span(0));
     case LOC_LT_CONST_PTR:
-        return from_alloc(get_meta(const_()->rom_array()).alloc);
+        return from_alloc(get_meta(const_()->rom_array()).alloc());
     case LOC_LT_CONST_PTR_BANK:
-        return from_alloc_bank(get_meta(const_()->rom_array()).alloc);
+        return from_alloc_bank(get_meta(const_()->rom_array()).alloc());
     };
 }

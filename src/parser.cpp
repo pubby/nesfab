@@ -1183,7 +1183,6 @@ void parser_t<P>::parse_while()
 template<typename P>
 void parser_t<P>::parse_for()
 {
-    unsigned const pre_line_number = line_number;
     int const for_indent = indent;
     pstring_t pstring = token.pstring;
 

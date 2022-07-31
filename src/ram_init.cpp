@@ -171,7 +171,7 @@ void gen_group_var_inits()
                     rom_array.data.insert(rom_array.data.end(), data, data + (256 - rom_array.data.size()));
                     assert(rom_array.data.size() == 256);
 
-                    value_combined.push_back({ span_t{ span_left.addr, 256 }, lookup_rom_array({}, {}, std::move(rom_array)) });
+                    value_combined.push_back({ span_t{ span_left.addr, 256 }, lookup_rom_array(std::move(rom_array)) });
                     reset_rom_array();
 
                     span_left.addr += 256;
@@ -185,7 +185,7 @@ void gen_group_var_inits()
             assert(rom_array.data.size() == span_left.size);
 
             if(rom_array.data.size() > 0)
-                value_combined.push_back({ span_left, lookup_rom_array({}, {}, std::move(rom_array)) });
+                value_combined.push_back({ span_left, lookup_rom_array(std::move(rom_array)) });
         }
 
         assert(!zero_combined.empty() || !value_combined.empty());
@@ -284,7 +284,7 @@ void gen_group_var_inits()
         // TODO
         proc.initial_optimize();
 
-        std::cout << "\n" << group.group.name << ":\n";
+        std::cout << "MODE ASM:\n" << group.group.name << ":\n";
         proc.write_assembly(std::cout);
         std::cout << "\n";
     }

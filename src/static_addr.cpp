@@ -1,11 +1,11 @@
 #include "static_addr.hpp"
 
-#include <variant>
 #include <vector>
 
 #include "options.hpp"
 #include "locator.hpp"
 #include "asm_proc.hpp"
+#include "rom_array.hpp"
 
 namespace // anonymous
 {
@@ -47,11 +47,9 @@ namespace // anonymous
     };
 }
 
-using srom_variant_t = std::variant<std::monostate, asm_proc_t, std::vector<locator_t>>;
-
 static std::array<span_t, NUM_SRAM> _sram_spans = {};
 static std::array<span_t, NUM_SROM> _srom_spans = {};
-static std::array<srom_variant_t, NUM_SROM> _srom_data = {};
+static std::array<rom_data_ht, NUM_SROM> _srom_data = {};
 
 std::array<span_t, NUM_SRAM> const& sram_spans() { return _sram_spans; }
 std::array<span_t, NUM_SROM> const& srom_spans() { return _srom_spans; }
@@ -98,16 +96,16 @@ ram_bitset_t alloc_static_ram()
     return ret;
 }
 
-static void _push_addr(std::vector<locator_t>& vec, locator_t addr)
+static void _push_addr(rom_array_t& rom_array, locator_t addr)
 {
     assert(!addr.high());
-    vec.push_back(addr.with_high(false));
-    vec.push_back(addr.with_high(true));
+    rom_array.data.push_back(addr.with_high(false));
+    rom_array.data.push_back(addr.with_high(true));
 }
 
-static std::vector<locator_t> make_vectors()
+static rom_array_t make_vectors()
 {
-    std::vector<locator_t> ret;
+    rom_array_t ret;
     _push_addr(ret, static_locator(SROM_nmi));
     _push_addr(ret, static_locator(SROM_reset));
     _push_addr(ret, static_locator(SROM_irq));
@@ -279,12 +277,12 @@ asm_proc_t make_bnrom_trampoline()
     return proc;
 }
 
-static std::vector<locator_t> make_iota()
+static rom_array_t make_iota()
 {
-    std::vector<locator_t> ret;
-    ret.reserve(256);
+    rom_array_t ret;
+    ret.data.reserve(256);
     for(unsigned i = 0; i < 256; ++i)
-        ret.push_back(locator_t::const_byte(i));
+        ret.data.push_back(locator_t::const_byte(i));
     return ret;
 }
 
@@ -292,19 +290,14 @@ span_allocator_t alloc_static_rom()
 {
     span_allocator_t a(mapper().rom_span());
 
-    auto const alloc = [&](static_rom_name_t name, srom_variant_t&& variant)
+    auto const alloc = [&](static_rom_name_t name, auto&& data)
     {
-        _srom_data[name] = std::move(variant);
+        _srom_data[name] = to_rom_data(std::move(data));
 
         if(_srom_spans[name])
             return;
 
-        auto const& v = _srom_data[name];
-
-        if(auto const* vec = std::get_if<std::vector<locator_t>>(&v))
-            _srom_spans[name] = a.alloc(vec->size(), 0);
-        else if(auto const* proc = std::get_if<asm_proc_t>(&v))
-            _srom_spans[name] = a.alloc(proc->size(), 0);
+        _srom_spans[name] = a.alloc(_srom_data[name].max_size(), 0);
     };
 
     // Pre-allocate.
@@ -322,12 +315,7 @@ span_allocator_t alloc_static_rom()
     return a;
 }
 
-rom_data_t static_data(static_rom_name_t name)
+rom_data_ht static_data(static_rom_name_t name)
 {
-    auto& v = _srom_data[name];
-    if(auto const* vec = std::get_if<std::vector<locator_t>>(&v))
-        return vec;
-    else if(auto* proc = std::get_if<asm_proc_t>(&v))
-        return proc;
-    return {};
+    return _srom_data[name];
 }

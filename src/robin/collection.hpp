@@ -303,19 +303,59 @@ struct ptr_policy
 };
 
 template<typename T>
+class joker_ptr
+{
+public:
+    using element_type = T;
+
+    joker_ptr() = default;
+
+    joker_ptr(element_type* p)
+    : ptr(p)
+    {}
+
+    joker_ptr(joker_ptr const& o)
+    : ptr(new element_type(*o))
+    {}
+
+    joker_ptr(joker_ptr&& o) noexcept = default;
+
+    joker_ptr& operator=(joker_ptr const& o)
+    {
+        ptr.reset(new element_type(*o));
+        return *this;
+    }
+
+    joker_ptr& operator=(joker_ptr&& o) noexcept = default;
+
+    element_type& operator*() const { return *ptr; }
+    element_type* operator->() const { return &operator*(); }
+
+    element_type* get() const { return ptr.get(); }
+
+    void swap(joker_ptr& o) noexcept { ptr.swap(o.ptr); }
+private:
+    std::unique_ptr<element_type> ptr;
+};
+
+template<typename T>
 class joker_iterator
 {
 public:
+    template<typename U>
+    friend class joker_iterator;
+
     using difference_type = std::ptrdiff_t;
     using value_type = T;
     using pointer = value_type*;
     using reference = value_type&;
     using iterator_category = std::random_access_iterator_tag;
 
-    using unique_ptr_type = std::unique_ptr<std::remove_const_t<value_type>>;
+    using unique_ptr_type = joker_ptr<std::remove_const_t<value_type>>;
 
     joker_iterator() : ptr(nullptr) {}
     explicit joker_iterator(unique_ptr_type* ptr) : ptr(ptr) {}
+    joker_iterator(joker_iterator<std::remove_const_t<T>> const& o) : ptr(o.ptr) {}
 
     joker_iterator& operator+=(difference_type i) { ptr += i; return *this; }
     joker_iterator& operator-=(difference_type i) { ptr -= i; return *this; }
@@ -357,10 +397,10 @@ public:
     using value_type = typename Policy::value_type;
     using index_type = std::uint32_t;
     using collection_type = 
-        batman_collection<ptr_policy<Policy, std::unique_ptr<value_type>>>;
+        batman_collection<ptr_policy<Policy, joker_ptr<value_type>>>;
     using hash_type = typename collection_type::hash_type;
     using policy_type = Policy;
-    using unique_ptr_t = std::unique_ptr<value_type>;
+    using unique_ptr_t = joker_ptr<value_type>;
 
     using iterator = joker_iterator<value_type>;
     using const_iterator = joker_iterator<value_type const>;
@@ -377,7 +417,7 @@ public:
         apair<unique_ptr_t*, bool> pair = collection.emplace(
             t, 
             [&]() { return unique_ptr_t(new value_type(t)); }); 
-        return { pair.first->get(), pair.second };
+        return apair<iterator, bool>{ iterator(pair.first), pair.second };
     }
 
     apair<iterator, bool> insert(value_type&& t)

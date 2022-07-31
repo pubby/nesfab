@@ -198,7 +198,7 @@ int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
     return bytes;
 }
 
-void asm_proc_t::write_assembly(std::ostream& os, fn_ht fn) const
+void asm_proc_t::write_assembly(std::ostream& os) const
 {
     if(fn)
         os << fn->global.name << ":\n";

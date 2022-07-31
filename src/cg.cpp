@@ -225,7 +225,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     // ROM ARRAYS //
     ////////////////
 
-    build_rom_arrays(fn.handle(), ir);
+    locate_rom_arrays(fn.handle(), ir);
 
     ///////////////////
     // DUPLICATE RTS //
@@ -1255,19 +1255,19 @@ void code_gen(ir_t& ir, fn_t& fn)
     /////////////////////////
 
     {
-        asm_proc_t proc;
-        proc.fn = fn.handle();
+        asm_proc_t asm_proc;
+        asm_proc.fn = fn.handle();
 
         std::size_t size_upper_bound = 0;
         for(cfg_ht h : order)
             size_upper_bound += cg_data(h).code.size();
-        proc.code.reserve(size_upper_bound);
+        asm_proc.code.reserve(size_upper_bound);
 
         for(cfg_ht h : order)
             for(asm_inst_t inst : cg_data(h).code)
-                proc.push_inst(inst);
+                asm_proc.push_inst(inst);
 
-        proc.initial_optimize();
+        asm_proc.initial_optimize();
 
         //proc.write_assembly(std::cout, fn); TODO: remove
 
@@ -1278,7 +1278,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             //std::cout << inst << '\n';
 
         // Add the proc to the fn
-        fn.assign_proc(std::move(proc));
+        fn.rom_proc()->assign(std::move(asm_proc));
     }
 
     ///////////////////////

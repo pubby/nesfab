@@ -8,6 +8,7 @@
 #include "options.hpp"
 #include "asm_proc.hpp"
 #include "static_addr.hpp"
+#include "rom_array.hpp"
 
 static void write_linked(std::vector<locator_t> const& vec, int bank, 
                          std::uint8_t* const start)
@@ -53,6 +54,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         return rom.data() + prg_rom_start + bank * 0x8000 + span.addr - mapper().rom_span().addr;
     };
 
+    /* TODO
     for(unsigned i = 0; i < NUM_SROM; ++i)
     {
         auto const srom = static_rom_name_t(i);
@@ -77,22 +79,33 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
                 proc.write_bytes(write_ptr(static_span(srom), bank), bank);
         }
     }
+    */
+    assert(false);
+
+    asm_proc_t asm_proc;
 
     for(rom_once_t const& once : rom_vector<rom_once_t>)
     {
         assert(once.span);
 
-        if(auto const* v = std::get_if<std::vector<locator_t> const*>(&once.data))
-            write_linked(**v, once.bank, write_ptr(once.span, once.bank));
-        else if(auto const* p = std::get_if<asm_proc_t*>(&once.data))
+        if(once.data.rclass() == ROMD_ARRAY)
         {
-            asm_proc_t& proc = **p;
-            proc.link(once.bank);
-            proc.relocate(once.span.addr);
-            proc.write_bytes(write_ptr(once.span, once.bank), once.bank);
+            auto const& rom_array = rom_array_t::get({ once.data.handle() });
+            write_linked(rom_array.data, once.bank, write_ptr(once.span, once.bank));
+        }
+        else if(once.data.rclass() == ROMD_PROC)
+        {
+            // We're copying the proc here.
+            // This is slower than necessary, but safer to code.
+            asm_proc = rom_proc_ht{ once.data.handle() }->asm_proc();
+
+            asm_proc.link(once.bank);
+            asm_proc.relocate(once.span.addr);
+            asm_proc.write_bytes(write_ptr(once.span, once.bank), once.bank);
         }
     }
 
+    /* TODO
     for(rom_many_t const& many : rom_vector<rom_many_t>)
     {
         assert(many.span);
@@ -116,6 +129,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             });
         }
     }
+    */
 
     return rom;
 }

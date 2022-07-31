@@ -20,7 +20,7 @@ template<typename T>
 inline std::vector<T> rom_vector;
 
 template<typename T>
-struct rom_impl_ht : handle_t<unsigned, T, ~0>
+struct rom_alloc_handle_t : handle_t<unsigned, T, ~0>
 {
     T* operator->() const { return &operator*(); }
     T& operator*() const
@@ -31,9 +31,9 @@ struct rom_impl_ht : handle_t<unsigned, T, ~0>
     }
 };
 
-struct rom_static_ht : rom_impl_ht<rom_static_t> {};
-struct rom_many_ht : rom_impl_ht<rom_many_t> {};
-struct rom_once_ht : rom_impl_ht<rom_once_t> {};
+struct rom_static_ht : rom_alloc_handle_t<rom_static_t> {};
+struct rom_many_ht : rom_alloc_handle_t<rom_many_t> {};
+struct rom_once_ht : rom_alloc_handle_t<rom_once_t> {};
 
 namespace std
 {
@@ -45,13 +45,13 @@ namespace std
 static constexpr unsigned max_banks = 256;
 using bank_bitset_t = static_bitset_t<max_banks>;
 
+/* TODO: delete?
 using rom_data_t = std::variant
     < std::monostate
     , std::vector<locator_t> const*
     , asm_proc_t*
     >;
-
-std::size_t rom_data_size(rom_data_t const& data);
+    */
 
 struct rom_alloc_t
 {
@@ -59,7 +59,7 @@ struct rom_alloc_t
     std::uint16_t desired_size = 0;
 
     span_t span = {};
-    rom_data_t data;
+    rom_data_ht data;
 }; 
 
 struct rom_static_t : public rom_alloc_t
@@ -69,7 +69,6 @@ struct rom_static_t : public rom_alloc_t
 
 struct rom_many_t : public rom_alloc_t
 {
-
     bank_bitset_t in_banks;
 };
 

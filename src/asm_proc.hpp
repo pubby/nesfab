@@ -51,7 +51,7 @@ struct asm_proc_t
 
     std::size_t size() const { return bytes_between(0, code.size()); }
 
-    void write_assembly(std::ostream& os, fn_ht fn = {}) const;
+    void write_assembly(std::ostream& os) const;
     void write_bytes(std::uint8_t* const start, int bank) const;
 
     // Replaces some locators with linked ones, then optimizes.

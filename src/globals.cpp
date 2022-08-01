@@ -18,48 +18,46 @@
 #include "group.hpp"
 #include "ram_alloc.hpp"
 #include "eval.hpp"
-#include "rom_array.hpp"
-
-// global_t statics:
-std::deque<global_t> global_t::global_pool;
-std::vector<global_t*> global_t::ready;
-
-///////////////////////////////////////
-
-///////////////////////////////////////
+#include "rom.hpp"
 
 global_t& global_t::lookup(char const* source, pstring_t name)
 {
     std::string_view view = name.view(source);
 
-    auto hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
+    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
-    std::lock_guard<std::mutex> lock(global_pool_mutex);
-    rh::apair<global_t**, bool> result = global_pool_map.emplace(hash,
-        [view](global_t* ptr) -> bool
-        {
-            return std::equal(view.begin(), view.end(), ptr->name.begin());
-        },
-        [name, source]() -> global_t*
-        { 
-            return &global_pool.emplace_back(name, source);
-        });
+    return *global_ht::with_pool([&, hash, view, source](auto& pool)
+    {
+        rh::apair<global_t**, bool> result = global_pool_map.emplace(hash,
+            [view](global_t* ptr) -> bool
+            {
+                return std::equal(view.begin(), view.end(), 
+                                  ptr->name.begin(), ptr->name.end());
+            },
+            [&pool, name, source]() -> global_t*
+            { 
+                return &pool.emplace_back(name, source);
+            });
 
-    return **result.first;
+        return *result.first;
+    });
 }
 
 global_t const* global_t::lookup_sourceless(std::string_view view)
 {
-    auto hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
+    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
-    std::lock_guard<std::mutex> lock(global_pool_mutex);
-    auto result = global_pool_map.lookup(hash,
-        [view](global_t* ptr) -> bool
-        {
-            return std::equal(view.begin(), view.end(), ptr->name.begin());
-        });
+    return global_ht::with_const_pool([&, hash, view](auto const&)
+    {
+        auto result = global_pool_map.lookup(hash,
+            [view](global_t* ptr) -> bool
+            {
+                return std::equal(view.begin(), view.end(), 
+                                  ptr->name.begin(), ptr->name.end());
+            });
 
-    return result.second ? *result.second : nullptr;
+        return result.second ? *result.second : nullptr;
+    });
 }
 
 // Changes a global from UNDEFINED to some specified 'gclass'.
@@ -92,7 +90,7 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
         m_gclass = gclass;
         assert(pstring);
         m_pstring = pstring; // Not necessary but useful for error reporting.
-        m_impl_index = ret = create_impl(*this);
+        m_impl_id = ret = create_impl(*this);
         m_ideps = std::move(ideps);
         m_weak_ideps = std::move(weak_ideps);
     }
@@ -119,7 +117,7 @@ fn_t& global_t::define_fn(pstring_t pstring,
     // Create the fn
     define(pstring, GLOBAL_FN, std::move(ideps), std::move(weak_ideps), [&](global_t& g)
     { 
-        return impl_deque_alloc<fn_t>(ret, g, type, std::move(fn_def), fclass); 
+        return fn_ht::pool_emplace(ret, g, type, std::move(fn_def), fclass).id; 
     });
 
     if(fclass == FN_MODE)
@@ -140,7 +138,7 @@ gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps,
     // Create the var
     gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), {}, [&](global_t& g)
     { 
-        return impl_deque_alloc<gvar_t>(ret, g, src_type, group.second, expr);
+        return gvar_ht::pool_emplace(ret, g, src_type, group.second, expr).id;
     })};
 
     // Add it to the group
@@ -159,7 +157,7 @@ const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps
     // Create the const
     const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), {}, [&](global_t& g)
     { 
-        return impl_deque_alloc<const_t>(ret, g, src_type, group.second, expr);
+        return const_ht::pool_emplace(ret, g, src_type, group.second, expr).id;
     })};
 
     // Add it to the group
@@ -178,7 +176,7 @@ struct_t& global_t::define_struct(pstring_t pstring, global_t::ideps_set_t&& ide
     // Create the struct
     struct_ht h = { define(pstring, GLOBAL_STRUCT, std::move(ideps), {}, [&](global_t& g)
     { 
-        return impl_deque_alloc<struct_t>(ret, g, std::move(fields));
+        return struct_ht::pool_emplace(ret, g, std::move(fields)).id;
     })};
     
     return *ret;
@@ -229,7 +227,7 @@ void global_t::parse_cleanup()
     assert(compiler_phase() == PHASE_PARSE_CLEANUP);
 
     // Handle weak ideps:
-    for(global_t& global : global_pool)
+    for(global_t& global : global_ht::values())
     {
         for(global_t* idep : global.m_weak_ideps)
         {
@@ -249,7 +247,7 @@ void global_t::parse_cleanup()
     }
 
     // Calculate language gvars and groups:
-    for(fn_t& fn : impl_deque<fn_t>)
+    for(fn_t& fn : fn_ht::values())
         fn.calc_lang_gvars_groups();
 }
 
@@ -295,22 +293,24 @@ global_t* global_t::detect_cycle(global_t& global, std::vector<std::string>& err
 void global_t::count_members()
 {
     unsigned total_members = 0;
-    for(struct_t& s : impl_deque<struct_t>)
+    for(struct_t& s : struct_ht::values())
         total_members += s.count_members();
 
-    impl_vector<gmember_t>.reserve(total_members);
+    gmember_ht::with_pool([total_members](auto& pool){ pool.reserve(total_members); });
 
-    for(gvar_t& gvar : impl_deque<gvar_t>)
+    for(gvar_t& gvar : gvar_ht::values())
     {
         gvar.dethunkify(false);
 
-        unsigned const begin = impl_vector<gmember_t>.size();
+        gmember_ht const begin = { gmember_ht::with_pool([](auto& pool){ return pool.size(); }) };
 
         unsigned const num = ::num_members(gvar.type());
         for(unsigned i = 0; i < num; ++i)
-            impl_vector<gmember_t>.emplace_back(gvar, impl_vector<gmember_t>.size());
+            gmember_ht::with_pool([&](auto& pool){ pool.emplace_back(gvar, pool.size()); });
 
-        gvar.set_gmember_range({begin}, {impl_vector<gmember_t>.size()});
+        gmember_ht const end = { gmember_ht::with_pool([](auto& pool){ return pool.size(); }) };
+
+        gvar.set_gmember_range(begin, end);
     }
 }
 
@@ -321,13 +321,13 @@ void global_t::build_order()
     assert(compiler_phase() == PHASE_ORDER_GLOBALS);
 
     // Detect cycles
-    for(global_t& global : global_pool)
+    for(global_t& global : global_ht::values())
     {
         std::vector<std::string> error_msgs;
         detect_cycle(global, error_msgs);
     }
 
-    for(global_t& global : global_pool)
+    for(global_t& global : global_ht::values())
     {
         // Check to make sure every global was defined:
         if(global.gclass() == GLOBAL_UNDEFINED)
@@ -416,7 +416,7 @@ void global_t::compile_all()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    globals_left = global_pool.size();
+    globals_left = global_ht::pool().size();
 
     // Spawn threads to compile in parallel:
     parallelize(compiler_options().num_threads,
@@ -468,7 +468,7 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass)
 , fclass(fclass)
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
-, m_rom_proc(rom_proc_t::make())
+, m_rom_proc(rom_proc_ht::pool_make())
 {}
 
 void fn_t::calc_lang_gvars_groups()
@@ -476,14 +476,14 @@ void fn_t::calc_lang_gvars_groups()
     if(m_lang_gvars)
         return;
 
-    m_lang_gvars.reset(impl_bitset_size<gvar_t>());
-    m_lang_group_vars.reset(impl_bitset_size<group_vars_t>());
+    m_lang_gvars.reset(gvar_ht::bitset_size());
+    m_lang_group_vars.reset(group_vars_ht::bitset_size());
 
     for(global_t* idep : global.ideps())
     {
         if(idep->gclass() == GLOBAL_VAR)
         {
-            m_lang_gvars.set(idep->index());
+            m_lang_gvars.set(idep->impl_id());
             m_lang_group_vars.set(idep->impl<gvar_t>().group_vars.id);
         }
         else if(idep->gclass() == GLOBAL_FN)
@@ -508,11 +508,11 @@ void fn_t::calc_lang_gvars_groups()
 
 void fn_t::calc_ir_bitsets(ir_t const& ir)
 {
-    bitset_t  reads(impl_bitset_size<gmember_t>());
-    bitset_t writes(impl_bitset_size<gmember_t>());
-    bitset_t group_vars(impl_bitset_size<group_vars_t>());
-    bitset_t ptr_groups(impl_bitset_size<group_t>());
-    bitset_t calls(impl_bitset_size<fn_t>());
+    bitset_t  reads(gmember_ht::bitset_size());
+    bitset_t writes(gmember_ht::bitset_size());
+    bitset_t group_vars(group_vars_ht::bitset_size());
+    bitset_t ptr_groups(group_ht::bitset_size());
+    bitset_t calls(fn_ht::bitset_size());
     bool io_pure = true;
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -822,13 +822,13 @@ void global_datum_t::compile()
 
     if(m_src_type.type.name() == TYPE_PAA)
     {
-        rom_array_t paa = { interpret_paa(global.pstring(), init_expr) };
+        loc_vec_t paa = interpret_paa(global.pstring(), init_expr);
 
         unsigned const def_length = m_src_type.type.array_length();
-        if(def_length && def_length != paa.data.size())
-             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.data.size(), m_src_type.type));
+        if(def_length && def_length != paa.size())
+             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.size(), m_src_type.type));
 
-        m_src_type.type.set_array_length(paa.data.size());
+        m_src_type.type.set_array_length(paa.size());
         paa_init(std::move(paa));
         //m_rom_array = lookup_rom_array({}, group(), std::move(paa));
 
@@ -849,9 +849,9 @@ void global_datum_t::compile()
 
 group_ht gvar_t::group() const { return group_vars->group.handle(); }
 
-void gvar_t::paa_init(rom_array_t&& paa)
+void gvar_t::paa_init(loc_vec_t&& paa)
 {
-    m_init_data = std::move(paa.data);
+    m_init_data = std::move(paa);
 }
 
 void gvar_t::sval_init(sval_t&& sval)
@@ -939,9 +939,9 @@ bool gmember_t::zero_init(unsigned atom) const
 
 group_ht const_t::group() const { return group_data->group.handle(); }
 
-void const_t::paa_init(rom_array_t&& paa)
+void const_t::paa_init(loc_vec_t&& paa)
 {
-    m_rom_array = lookup_rom_array(std::move(paa), {}, group_data);
+    m_rom_array = rom_array_t::make(std::move(paa), group_data);
     assert(m_rom_array);
 }
 

@@ -8,7 +8,6 @@
 #include "options.hpp"
 #include "asm_proc.hpp"
 #include "static_addr.hpp"
-#include "rom_array.hpp"
 
 static void write_linked(std::vector<locator_t> const& vec, int bank, 
                          std::uint8_t* const start)
@@ -49,87 +48,45 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
     // TODO: write chr_rom
     assert(chr_rom_size == 0);
 
-    auto const write_ptr = [&](span_t span, unsigned bank) -> std::uint8_t*
+    // Scratch pad proc used in 'write':
+    asm_proc_t asm_proc;
+
+    auto const calc_addr = [&](span_t span, unsigned bank) -> std::uint8_t*
     {
         return rom.data() + prg_rom_start + bank * 0x8000 + span.addr - mapper().rom_span().addr;
     };
 
-    /* TODO
-    for(unsigned i = 0; i < NUM_SROM; ++i)
+    auto const write = [&](auto const& alloc)
     {
-        auto const srom = static_rom_name_t(i);
-        if(!static_span(srom))
-            continue;
-
-        auto data = static_data(srom);
-        if(auto const* v = std::get_if<std::vector<locator_t> const*>(&data))
+        alloc.data.visit([&](rom_array_ht rom_array)
         {
-            assert(*v);
-            for(unsigned bank = 0; bank < mapper().num_32k_banks; ++bank)
-                write_linked(**v, bank, write_ptr(static_span(srom), bank));
-        }
-        else if(auto const* p = std::get_if<asm_proc_t*>(&data))
-        {
-            assert(*p);
-            asm_proc_t& proc = **p;
-            proc.link(); // Link without specifying bank
-            proc.relocate(static_span(srom).addr);
-
-            for(unsigned bank = 0; bank < mapper().num_32k_banks; ++bank)
-                proc.write_bytes(write_ptr(static_span(srom), bank), bank);
-        }
-    }
-    */
-    assert(false);
-
-    asm_proc_t asm_proc;
-
-    for(rom_once_t const& once : rom_vector<rom_once_t>)
-    {
-        assert(once.span);
-
-        if(once.data.rclass() == ROMD_ARRAY)
-        {
-            auto const& rom_array = rom_array_t::get({ once.data.handle() });
-            write_linked(rom_array.data, once.bank, write_ptr(once.span, once.bank));
-        }
-        else if(once.data.rclass() == ROMD_PROC)
+            alloc.for_each_bank([&](unsigned bank)
+            {
+                write_linked(rom_array->data(), bank, calc_addr(alloc.span, bank));
+            });
+        }, 
+        [&](rom_proc_ht rom_proc)
         {
             // We're copying the proc here.
             // This is slower than necessary, but safer to code.
-            asm_proc = rom_proc_ht{ once.data.handle() }->asm_proc();
+            asm_proc = rom_proc->asm_proc();
 
-            asm_proc.link(once.bank);
-            asm_proc.relocate(once.span.addr);
-            asm_proc.write_bytes(write_ptr(once.span, once.bank), once.bank);
-        }
-    }
+            asm_proc.link(alloc.only_bank());
+            asm_proc.relocate(alloc.span.addr);
 
-    /* TODO
-    for(rom_many_t const& many : rom_vector<rom_many_t>)
-    {
-        assert(many.span);
-
-        if(auto const* v = std::get_if<std::vector<locator_t> const*>(&many.data))
-        {
-            many.in_banks.for_each([&](unsigned bank)
+            alloc.for_each_bank([&](unsigned bank)
             {
-                write_linked(**v, bank, write_ptr(many.span, bank));
+                asm_proc.write_bytes(calc_addr(alloc.span, bank), bank);
             });
-        }
-        else if(auto const* p = std::get_if<asm_proc_t*>(&many.data))
-        {
-            asm_proc_t& proc = **p;
-            proc.link(); // Link without specifying bank
-            proc.relocate(many.span.addr);
+        });
+    };
 
-            many.in_banks.for_each([&](unsigned bank)
-            {
-                proc.write_bytes(write_ptr(many.span, bank), bank);
-            });
-        }
-    }
-    */
+    for(rom_static_t const& static_ : rom_static_ht::values())
+        write(static_);
+    for(rom_once_t const& once : rom_once_ht::values())
+        write(once);
+    for(rom_many_t const& many : rom_many_ht::values())
+        write(many);
 
     return rom;
 }

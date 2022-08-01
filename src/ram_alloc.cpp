@@ -8,7 +8,7 @@
 #include "compiler_error.hpp"
 #include "options.hpp"
 #include "ram.hpp"
-#include "rom_array.hpp"
+#include "rom.hpp"
 
 namespace  // anonymous namespace
 {
@@ -151,8 +151,8 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
     // Amount of bytes in zp dedicated to gvars
     int const max_gvar_zp = std::max(zp_free - max_local_zp, zp_free / 2);
 
-    group_vars_data.resize(impl_deque<group_vars_t>.size());
-    fn_data.resize(impl_deque<fn_t>.size());
+    group_vars_data.resize(group_vars_ht::pool().size());
+    fn_data.resize(fn_ht::pool().size());
 
     ///////////////////
     // ALLOC GLOBALS //
@@ -160,20 +160,18 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
     {
         // Alloc spans
-        for(gmember_t& gm : impl_vector<gmember_t>)
+        for(gmember_t& gm : gmember_ht::values())
             gm.alloc_spans();
 
         // Init 'maximal_group_vars'
-        unsigned const group_vars_bs_size = impl_bitset_size<group_vars_t>();
-        for(unsigned i = 0; i < impl_deque<fn_t>.size(); ++i)
+        unsigned const group_vars_bs_size = group_vars_ht::bitset_size();
+        for(fn_ht fn : fn_ht::handles())
         {
-            fn_t const& fn = *fn_ht{i};
-
-            if(fn.fclass == FN_CT)
+            if(fn->fclass == FN_CT)
                 continue;
 
-            fn_data[i].maximal_group_vars = fn.ir_group_vars();
-            assert(fn_data[i].maximal_group_vars.size() == impl_bitset_size<group_vars_t>());
+            fn_data[fn.id].maximal_group_vars = fn->ir_group_vars();
+            assert(fn_data[fn.id].maximal_group_vars.size() == group_vars_ht::bitset_size());
         }
 
         // Build 'maximal_group_vars'
@@ -190,8 +188,8 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         }
 
         // Init 'group_vars_data'
-        unsigned const interferences_size = impl_bitset_size<group_vars_t>();
-        for(unsigned i = 0; i < impl_deque<group_vars_t>.size(); ++i)
+        unsigned const interferences_size = group_vars_ht::bitset_size();
+        for(unsigned i = 0; i < group_vars_ht::pool().size(); ++i)
         {
             auto& d = group_vars_data[i];
             d.interferences.reset(interferences_size);
@@ -218,15 +216,17 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         // We'll eventually allocate using the use count as a heuristic
 
         rh::batman_map<locator_t, unsigned> gmember_count;
-        for(gvar_t const& gvar : impl_deque<gvar_t>)
+        for(gvar_t const& gvar : gvar_ht::values())
             gvar.for_each_locator([&](locator_t loc){ gmember_count.insert({ loc.mem_head(), 0 }); });
 
-        for(fn_t const& fn : impl_deque<fn_t>)
+        for(fn_t const& fn : fn_ht::values())
         {
-            if(!fn.rom_proc()->emits())
+            rom_proc_t const& rom_proc = fn.rom_proc().safe();
+
+            if(!rom_proc.emits())
                 continue;
 
-            for(asm_inst_t const& inst : fn.rom_proc()->asm_proc().code)
+            for(asm_inst_t const& inst : rom_proc.asm_proc().code)
                 if(inst.arg.lclass() == LOC_GMEMBER)
                     if(unsigned* count = gmember_count.mapped(inst.arg.mem_head()))
                         *count += 1;
@@ -234,7 +234,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
         // Find unused variables and issue a warning
 
-        for(gvar_t const& gvar : impl_deque<gvar_t>)
+        for(gvar_t const& gvar : gvar_ht::values())
         {
             // PAAs won't appear in code, so we can't detect unused PAAs here.
             // TODO: detect them some other way
@@ -333,16 +333,14 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         };
 
         std::vector<group_inits_t> ordered_inits;
-        ordered_inits.reserve(impl_deque<group_vars_t>.size());
+        ordered_inits.reserve(group_vars_ht::pool().size());
 
-        for(unsigned i = 0; i < impl_deque<group_vars_t>.size(); ++i)
+        for(group_vars_ht g : group_vars_ht::handles())
         {
-            group_vars_t const& g = impl_deque<group_vars_t>[i];
+            group_inits_t zero_inits  = { g };
+            group_inits_t value_inits = { g };
 
-            group_inits_t zero_inits  = { group_vars_ht{i} };
-            group_inits_t value_inits = { group_vars_ht{i} };
-
-            for(gvar_ht v : g.gvars())
+            for(gvar_ht v : g->gvars())
             {
                 if(v->init_expr)
                 {
@@ -445,16 +443,14 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
     {
         // Use group_vars usable_ram to build fn usable_ram.
-        for(unsigned i = 0; i < impl_deque<fn_t>.size(); ++i)
+        for(fn_ht fn : fn_ht::handles())
         {
-            fn_t const& fn = *fn_ht{i};
-
-            if(fn.fclass == FN_CT)
+            if(fn->fclass == FN_CT)
                 continue;
 
-            fn.ir_calls().for_each([&](unsigned j)
+            fn->ir_calls().for_each([&](unsigned j)
             {
-                fn_data[i].maximal_group_vars.for_each([&](unsigned k)
+                fn_data[fn.id].maximal_group_vars.for_each([&](unsigned k)
                 {
                     fn_data[j].usable_ram &= group_vars_data[k].usable_ram;
                 });
@@ -462,22 +458,20 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         }
 
         // Build an order to allocate fn lvars:
-        for(unsigned i = 0; i < impl_deque<fn_t>.size(); ++i)
+        for(fn_ht fn : fn_ht::handles())
         {
-            fn_t const& fn = *fn_ht{i};
-
-            if(fn.fclass == FN_CT)
+            if(fn->fclass == FN_CT)
                 continue;
 
-            fn_data[i].lvar_count += fn.lvars().num_this_lvars();
+            fn_data[fn.id].lvar_count += fn->lvars().num_this_lvars();
 
-            fn.ir_calls().for_each([&](unsigned i)
+            fn->ir_calls().for_each([&](unsigned i)
             {
-                fn_data[i].lvar_count += fn.lvars().num_this_lvars();
+                fn_data[i].lvar_count += fn->lvars().num_this_lvars();
             });
         }
 
-        fn_order.reserve(impl_deque<fn_t>.size());
+        fn_order.reserve(fn_ht::pool().size());
 
         std::vector<fn_ht> mode_rank;
         mode_rank.reserve(global_t::modes().size());
@@ -621,7 +615,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     // (We always propagate downwards, to fns that call this)
     bitset_t propagate_calls;
     if(Step < FULL_ALLOC)
-        propagate_calls.reset(impl_bitset_size<fn_t>());
+        propagate_calls.reset(fn_ht::bitset_size());
 
     for(rank_t const& rank : ordered_lvars)
     {
@@ -711,12 +705,11 @@ void print_ram(std::ostream& o)
 {
     o << "Global variable RAM:\n\n";
 
-    for(unsigned i = 0; i < impl_deque<group_vars_t>.size(); ++i)
+    for(group_vars_ht g : group_vars_ht::handles())
     {
-        group_vars_t const& g = impl_deque<group_vars_t>[i];
-        o << fmt("  /%:\n", g.group.name);
+        o << fmt("  /%:\n", g->group.name);
 
-        for(gvar_ht v : g.gvars())
+        for(gvar_ht v : g->gvars())
         {
             o << fmt("    %: (%)\n", v->global.name, v->type());
 

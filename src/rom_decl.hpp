@@ -3,31 +3,29 @@
 
 #include <cassert>
 #include <cstdint>
+#include <deque>
 
 #include "handle.hpp"
+#include "phase.hpp"
 
 struct rom_alloc_t;
 struct rom_static_t;
 struct rom_many_t;
 struct rom_once_t;
-class rom_bank_t;
-struct rom_alloc_t;
-class rom_alloc_meta_t;
+class rom_array_t;
 class rom_proc_t;
 class rom_data_t;
+class rom_bank_t;
 
 struct rom_static_ht;
 struct rom_many_ht;
 struct rom_once_ht;
 
-using rom_array_ht = handle_t<std::uint32_t, struct rom_array_tag, ~0>;
-struct rom_proc_ht : public handle_t<std::uint32_t, struct rom_proc_tag, ~0>
-{
-    rom_proc_t* operator->() const { return &operator*(); }
-    rom_proc_t& operator*() const;
-};
+struct rom_array_ht : public pool_handle_t<rom_array_ht, std::deque<rom_array_t>, PHASE_INITIAL_VALUES> {};
+struct rom_proc_ht : public pool_handle_t<rom_proc_ht, std::deque<rom_proc_t>, PHASE_INITIAL_VALUES> {};
 
-template<> struct std::hash<rom_proc_ht> : handle_hash_t<rom_proc_ht> {};
+DEF_HANDLE_HASH(rom_array_ht);
+DEF_HANDLE_HASH(rom_proc_ht);
 
 enum rom_data_class_t : std::uint8_t
 {
@@ -44,6 +42,7 @@ enum rom_alloc_class_t : std::uint8_t
     ROMA_ONCE,
 };
 
+// Base of 'rom_data_ht' and 'rom_alloc_ht', used to reduce code duplication.
 template<typename E>
 class rom_handle_t
 {
@@ -83,6 +82,9 @@ public:
     rom_data_t* get() const;
 
     unsigned max_size() const;
+
+    void visit(std::function<void(rom_array_ht)> const& array_fn, 
+               std::function<void(rom_proc_ht)> const& proc_fn) const;
 };
 
 class rom_alloc_ht : public rom_handle_t<rom_alloc_class_t>

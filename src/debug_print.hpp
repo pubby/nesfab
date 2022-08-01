@@ -10,7 +10,7 @@
 
 #ifdef DEBUG_PRINT
 #define debug_printf(...) std::printf(__VA_ARGS__)
-#define dprint(stream, ...) ((void)((stream) ? ((*(stream) << ::ezcat(__VA_ARGS__) << std::endl), 0) : 0))
+#define dprint(stream, ...) ((void)((stream) ? ((*(stream) << ::ezcat(" ",__VA_ARGS__) << std::endl), 0) : 0))
 #else
 #define debug_printf(...) ((void)0)
 #define dprint(...) ((void)0)

@@ -17,7 +17,7 @@
 #include "ir_util.hpp"
 #include "ir.hpp"
 #include "locator.hpp"
-#include "rom_array.hpp"
+#include "rom.hpp"
 
 #include <iostream> // TODO
 
@@ -176,28 +176,14 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         ssa_value_t condition = if_h->input(0);
 
-        std::cout << "CONDITION = " << condition << std::endl;
-
         if(!condition.holds_ref() || condition->cfg_node() != cfg_it)
-        {
-            std::puts("FAIL 1");
-            assert(0);
             continue;
-        }
 
         if(condition->output_size() != 1)
-        {
-            std::puts("FAIL e");
-            assert(0);
             continue;
-        }
 
         if(condition->in_daisy())
-        {
-            std::puts("FAIL 3");
-            assert(0);
             continue;
-        }
 
         switch(condition->op())
         {
@@ -225,7 +211,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     // ROM ARRAYS //
     ////////////////
 
-    locate_rom_arrays(fn.handle(), ir);
+    locate_rom_arrays(ir, fn.rom_proc());
 
     ///////////////////
     // DUPLICATE RTS //
@@ -1278,7 +1264,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             //std::cout << inst << '\n';
 
         // Add the proc to the fn
-        fn.rom_proc()->assign(std::move(asm_proc));
+        fn.rom_proc().safe().assign(std::move(asm_proc));
     }
 
     ///////////////////////

@@ -7,15 +7,17 @@
 
 enum compiler_phase_t
 {
+    PHASE_NONE = 0,
     PHASE_INIT,
-    PHASE_STD, 
     PHASE_PARSE,
     PHASE_PARSE_CLEANUP,
     PHASE_COUNT_MEMBERS,
+    PHASE_STD, 
     PHASE_ORDER_GLOBALS,
     PHASE_COMPILE, // threaded
     PHASE_ALLOC_RAM,
     PHASE_INITIAL_VALUES,
+    PHASE_PREPARE_ALLOC_ROM,
     PHASE_ALLOC_ROM,
     PHASE_LINK,
 };
@@ -30,6 +32,9 @@ inline void set_compiler_phase(compiler_phase_t p)
 #ifndef NDEBUG
     assert(p > _compiler_phase);
     _compiler_phase = p; 
+#else
+    // Preserve memory order, just in case.
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 #endif
 }
 

@@ -18,7 +18,7 @@
 
 namespace bc = ::boost::container;
 
-using stmt_ht = handle_t<unsigned, struct stmt_ht_tag, ~0>;
+struct stmt_ht : handle_t<stmt_ht, unsigned, ~0> {};
 
 #define STMT_XENUM \
     X(STMT_END_FN,     0)\

@@ -20,7 +20,7 @@ class type_t;
 class gmanager_t
 {
 public:
-    using index_t = handle_t<unsigned, struct gvar_loc_tag, ~0>;
+    struct index_t : public handle_t<index_t, unsigned, ~0> {};
 
     void init(fn_ht fn);
 

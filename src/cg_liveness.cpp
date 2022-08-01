@@ -19,8 +19,6 @@ static inline cfg_liveness_d& live(cfg_ht h)
 
 static void _live_visit(ssa_ht def, cfg_ht cfg_node)
 {
-    std::cout << "visit " << def << ' ' << def->cfg_node() << ' ' << cfg_node << std::endl;
-
     if(def->cfg_node() == cfg_node)
         return;
 
@@ -63,7 +61,6 @@ void calc_ssa_liveness(ssa_ht node)
         else
         {
             assert(node->op() != SSA_phi_copy);
-            std::cout << "start " << node << ' ' << node->cfg_node() << ' ' << ocfg << std::endl;
             _live_visit(node, ocfg);
         }
     }
@@ -447,7 +444,7 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
                         }
                         else
                         {
-                            std::cout << "PRUNE " << inst.arg << std::endl;
+                            //std::cout << "PRUNE " << inst.arg << std::endl;
                             inst.op = ASM_PRUNED;
                         }
                     }
@@ -456,7 +453,7 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
 
             do_inst_rw(fn, lvars, inst, [&](unsigned i, bool read, bool write)
             {
-                std::cout << " POOP " << inst.arg << ' ' << read << ' ' << write << ' ' << i << std::endl;
+                //std::cout << " POOP " << inst.arg << ' ' << read << ' ' << write << ' ' << i << std::endl;
                 if(read)
                     bitset_set(live, i);
                 else if(write) // Only occurs if 'read' is false.

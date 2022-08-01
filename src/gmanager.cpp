@@ -5,7 +5,7 @@
 #include "globals.hpp"
 #include "type.hpp"
 
-std::size_t gmanager_t::bitset_size() { return impl_bitset_size<gmember_t>(); }
+std::size_t gmanager_t::bitset_size() { return gmember_ht::bitset_size(); }
 
 void gmanager_t::init(fn_ht fn)
 {

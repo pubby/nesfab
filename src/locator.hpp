@@ -424,4 +424,29 @@ struct std::hash<locator_t>
 std::string to_string(locator_t loc);
 std::ostream& operator<<(std::ostream& o, locator_t loc);
 
+using loc_vec_t = std::vector<locator_t>;
+
+template<>
+struct std::hash<loc_vec_t>
+{
+    std::size_t operator()(loc_vec_t const& vec) const noexcept
+    {
+        std::hash<locator_t> lh;
+
+        // Include array size in the hash:
+        std::size_t h = vec.size();
+
+        // Only hash the first 4 locators, for speed:
+        unsigned const n = std::min<unsigned>(vec.size(), 4);
+        for(unsigned i = 0; i < n; ++i)
+            h = rh::hash_combine(h, lh(vec[i]));
+
+        // Also hash the last locator:
+        if(!vec.empty())
+            h = rh::hash_combine(h, lh(vec.back()));
+
+        return h;
+    }
+};
+
 #endif

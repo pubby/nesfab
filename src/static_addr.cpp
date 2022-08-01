@@ -5,7 +5,7 @@
 #include "options.hpp"
 #include "locator.hpp"
 #include "asm_proc.hpp"
-#include "rom_array.hpp"
+#include "rom.hpp"
 
 namespace // anonymous
 {
@@ -96,16 +96,16 @@ ram_bitset_t alloc_static_ram()
     return ret;
 }
 
-static void _push_addr(rom_array_t& rom_array, locator_t addr)
+static void _push_addr(loc_vec_t& vec, locator_t addr)
 {
     assert(!addr.high());
-    rom_array.data.push_back(addr.with_high(false));
-    rom_array.data.push_back(addr.with_high(true));
+    vec.push_back(addr.with_high(false));
+    vec.push_back(addr.with_high(true));
 }
 
-static rom_array_t make_vectors()
+static loc_vec_t make_vectors()
 {
-    rom_array_t ret;
+    loc_vec_t ret;
     _push_addr(ret, static_locator(SROM_nmi));
     _push_addr(ret, static_locator(SROM_reset));
     _push_addr(ret, static_locator(SROM_irq));
@@ -277,12 +277,12 @@ asm_proc_t make_bnrom_trampoline()
     return proc;
 }
 
-static rom_array_t make_iota()
+static loc_vec_t make_iota()
 {
-    rom_array_t ret;
-    ret.data.reserve(256);
+    loc_vec_t ret;
+    ret.reserve(256);
     for(unsigned i = 0; i < 256; ++i)
-        ret.data.push_back(locator_t::const_byte(i));
+        ret.push_back(locator_t::const_byte(i));
     return ret;
 }
 
@@ -292,19 +292,23 @@ span_allocator_t alloc_static_rom()
 
     auto const alloc = [&](static_rom_name_t name, auto&& data)
     {
-        _srom_data[name] = to_rom_data(std::move(data));
+        std::size_t const max_size = data.size();
 
-        if(_srom_spans[name])
-            return;
+        if(!_srom_spans[name])
+            _srom_spans[name] = a.alloc(max_size, 0);
 
-        _srom_spans[name] = a.alloc(_srom_data[name].max_size(), 0);
+        rom_static_t* rom_static;
+        auto const rom_static_h = rom_static_ht::pool_emplace(rom_static, _srom_spans[name]);
+
+        rom_data_ht const d = _srom_data[name] = to_rom_data(std::move(data), rom_static_h);
+        rom_static->data = d;
     };
 
     // Pre-allocate.
     _srom_spans[SROM_iota] = a.alloc(256, 256);
     _srom_spans[SROM_vectors] = a.alloc_at({ 0xFFFA, 6 });
 
-    // This have to be defined in a toposorted order.
+    // These have to be defined in a toposorted order.
     alloc(SROM_iota, make_iota());
     alloc(SROM_nmi, make_nmi());
     alloc(SROM_nmi_exit, make_nmi_exit());

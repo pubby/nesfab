@@ -14,7 +14,6 @@
 class group_t
 {
 public:
-    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
     std::string const name;
 private:
     std::mutex m_define_mutex;
@@ -24,17 +23,17 @@ private:
     group_ht m_handle = {};
 
     // An index into some storage that holds the group's implementation data
-    unsigned m_impl_index = ~0;
+    unsigned m_impl_id = ~0;
 
 public:
     group_class_t gclass() const { return m_gclass; }
 
     pstring_t pstring() const { return m_pstring; }
 
-    unsigned index() const
+    unsigned impl_id() const
     { 
         assert(compiler_phase() > PHASE_PARSE);
-        return m_impl_index; 
+        return m_impl_id; 
     }
 
     group_ht handle() const { return m_handle; }
@@ -42,19 +41,18 @@ public:
     template<typename T>
     T handle() const
     {
-        static_assert(is_group_handle<T>::value);
-        assert(gclass() == T::gclass);
+        static_assert(is_handle<T>::value);
+        assert(gclass() == T::value_type::group_class);
         assert(compiler_phase() > PHASE_PARSE);
-        return { m_impl_index };
+        return { m_impl_id };
     }
 
     template<typename T>
     T& impl() const
     {
-        static_assert(is_group_impl<T>::value);
-        assert(gclass() == T::gclass);
+        assert(gclass() == T::group_class);
         assert(compiler_phase() > PHASE_PARSE);
-        return impl_deque<T>[m_impl_index];
+        return *handle<typename T::handle_t>();
     }
 
     std::pair<group_vars_t*, group_vars_ht> define_vars(pstring_t pstring);
@@ -83,9 +81,8 @@ private:
 class group_vars_t
 {
 public:
-    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
-    using group_impl_tag = void;
-    static constexpr group_class_t gclass = GROUP_VARS;
+    static constexpr group_class_t group_class = GROUP_VARS;
+    using handle_t = group_vars_ht;
 
     group_t& group;
 
@@ -115,9 +112,8 @@ private:
 class group_data_t
 {
 public:
-    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
-    using group_impl_tag = void;
-    static constexpr group_class_t gclass = GROUP_DATA;
+    static constexpr group_class_t group_class = GROUP_DATA;
+    using handle_t = group_data_ht;
 
     group_t& group;
     bool const once;

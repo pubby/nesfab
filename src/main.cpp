@@ -111,12 +111,6 @@ int main(int argc, char** argv)
         global_t::init();
         output_time("init:     ");
 
-        set_compiler_phase(PHASE_STD);
-        auto static_used_ram = alloc_static_ram();
-        auto rom_allocator = alloc_static_rom();
-
-        output_time("std:      ");
-
         // Parse the files, loading everything into globals:
         set_compiler_phase(PHASE_PARSE);
         std::atomic<unsigned> next_file_i = 0;
@@ -145,6 +139,12 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_COUNT_MEMBERS);
         global_t::count_members();
 
+        // Load standard data:
+        set_compiler_phase(PHASE_STD);
+        auto static_used_ram = alloc_static_ram();
+        auto rom_allocator = alloc_static_rom();
+        output_time("std:      ");
+
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);
         global_t::build_order();
@@ -165,8 +165,8 @@ int main(int argc, char** argv)
         gen_group_var_inits();
         output_time("init vals:");
 
-        set_compiler_phase(PHASE_ALLOC_ROM);
-        alloc_rom(rom_allocator, mapper().num_32k_banks);
+        set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
+        alloc_rom(&std::cout, rom_allocator, mapper().num_32k_banks);
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);

@@ -23,6 +23,7 @@
 #include "lvar.hpp"
 #include "sval.hpp"
 #include "rom_decl.hpp"
+#include "locator.hpp"
 
 struct rom_array_t;
 
@@ -57,7 +58,7 @@ private:
     pstring_t m_pstring = {};
 
     // An index into some storage that holds the global's implementation data
-    unsigned m_impl_index = ~0;
+    unsigned m_impl_id = ~0;
 
     // 'ideps' means "immediate dependencies".
     // AKA any global name that appears in the definition of this global.
@@ -85,61 +86,44 @@ public:
         assert(m_pstring.size);
     }
 
-    global_class_t gclass() const 
-    { 
-        assert(compiler_phase() > PHASE_PARSE);
-        return m_gclass;
-    }
-
-    ideps_set_t const& ideps() const
-    {
-        assert(compiler_phase() > PHASE_PARSE);
-        return m_ideps;
-    }
-
+    global_class_t gclass() const { assert(compiler_phase() > PHASE_PARSE); return m_gclass; }
+    ideps_set_t const& ideps() const { assert(compiler_phase() > PHASE_PARSE); return m_ideps; }
     pstring_t pstring() const { return m_pstring; }
-
-    unsigned index() const
-    { 
-        assert(compiler_phase() > PHASE_PARSE);
-        return m_impl_index; 
-    }
+    unsigned impl_id() const { assert(compiler_phase() > PHASE_PARSE); return m_impl_id; }
+    bool compiled() const { return m_compiled; }
 
     template<typename T>
     T handle() const
     {
-        static_assert(is_global_handle<T>::value);
-        assert(gclass() == T::gclass);
+        static_assert(is_handle<T>::value);
+        assert(gclass() == T::value_type::global_class);
         assert(compiler_phase() > PHASE_PARSE);
-        return { m_impl_index };
+        return { m_impl_id };
     }
 
     template<typename T>
     T& impl() const
     {
-        static_assert(is_global_impl<T>::value);
-        assert(gclass() == T::gclass);
+        assert(gclass() == T::global_class);
         assert(compiler_phase() > PHASE_PARSE);
-        return impl_deque<T>[m_impl_index];
+        return *handle<typename T::handle_t>();
     }
-
-    bool compiled() const { return m_compiled; }
 
     // If this global has a dependency to 'other'
     bool has_dep(global_t& other);
 
     // Helpers that delegate to 'define':
-    fn_t& define_fn(pstring_t pstring, 
-                    global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-                    type_t type, fn_def_t&& fn_def, fclass_t fclass);
-    gvar_t& define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                      src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
-                      token_t const* expr);
-    const_t& define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                          src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
-                          token_t const* expr);
-    struct_t& define_struct(pstring_t pstring, global_t::ideps_set_t&& ideps, 
-                            field_map_t&& map);
+    fn_t& define_fn(
+        pstring_t pstring, global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
+        type_t type, fn_def_t&& fn_def, fclass_t fclass);
+    gvar_t& define_var(
+        pstring_t pstring, global_t::ideps_set_t&& ideps, 
+        src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, token_t const* expr);
+    const_t& define_const(
+        pstring_t pstring, global_t::ideps_set_t&& ideps, 
+        src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, token_t const* expr);
+    struct_t& define_struct(
+        pstring_t pstring, global_t::ideps_set_t&& ideps, field_map_t&& map);
 
     static void init();
 
@@ -183,9 +167,7 @@ private:
 
 private:
     // Globals get allocated in these:
-    inline static std::mutex global_pool_mutex;
     inline static rh::robin_auto_table<global_t*> global_pool_map;
-    static std::deque<global_t> global_pool;
 
     // Tracks modes: 
     inline static std::mutex modes_vec_mutex;
@@ -194,16 +176,15 @@ private:
     // These represent a queue of globals ready to be compiled.
     inline static std::condition_variable ready_cv;
     inline static std::mutex ready_mutex;
-    static std::vector<global_t*> ready;
+    inline static std::vector<global_t*> ready;
     inline static unsigned globals_left;
 };
 
 class struct_t
 {
 public:
-    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
-    using global_impl_tag = void;
-    static constexpr global_class_t gclass = GLOBAL_STRUCT;
+    static constexpr global_class_t global_class = GLOBAL_STRUCT;
+    using handle_t = struct_ht;
 
     struct_t(global_t& global, field_map_t&& fields)
     : global(global)
@@ -261,9 +242,8 @@ private:
 class fn_t
 {
 public:
-    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
-    using global_impl_tag = void;
-    static constexpr global_class_t gclass = GLOBAL_FN;
+    static constexpr global_class_t global_class = GLOBAL_FN;
+    using handle_t = fn_ht;
 
     fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass);
 
@@ -271,9 +251,6 @@ public:
 
     type_t type() const { return m_type; }
     fn_def_t const& def() const { return m_def; }
-
-    // TODO
-    //record_t<field_vector_t> const& param_record() const { return m_param_record; }
 
     void compile();
 
@@ -294,35 +271,14 @@ public:
     bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
     bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
 
-    rom_proc_ht rom_proc() const { assert(compiler_phase() > PHASE_COMPILE); return m_rom_proc; }
+    rom_proc_ht rom_proc() const { return m_rom_proc; }
 
     void assign_lvars(lvars_manager_t&& lvars);
     lvars_manager_t const& lvars() const { assert(compiler_phase() >= PHASE_COMPILE); return m_lvars; }
     
-    //void mask_usable_ram(ram_bitset_t const& mask);
-    //ram_bitset_t const& usable_ram() const { return m_usable_ram; }
-
-    //ram_bitset_t const& lvar_ram() const { return m_lvar_ram; }
     void assign_lvar_span(unsigned lvar_i, span_t span);
     span_t lvar_span(int lvar_i) const;
     span_t lvar_span(locator_t loc) const;
-
-
-    /* TODO: remove?
-    bool emits_code() const { return true; } // TODO: implement
-    void assign_rom_alloc(rom_alloc_ht h) 
-    { 
-        assert(compiler_phase() == PHASE_ALLOC_ROM);
-        assert(!m_rom_alloc);
-        m_rom_alloc = h;
-    }
-
-    rom_alloc_ht rom_alloc() const { assert(compiler_phase() >= PHASE_ALLOC_ROM); return m_rom_alloc; }
-    */
-
-
-    // TODO: remove?
-    //void for_each_param_member(bool atoms, std::function<void(type_t, locator_t)> const& fn) const;
 
 public:
     global_t& global;
@@ -331,12 +287,6 @@ public:
 private:
     type_t m_type;
     fn_def_t m_def;
-
-    // TODO
-    //ct_manager_t m_ct_manager;
-
-    // TODO
-    //record_t<field_vector_t> m_param_record;
 
     bitset_t m_lang_gvars;
     bitset_t m_lang_group_vars;
@@ -358,14 +308,9 @@ private:
     // Holds the assembly code generated.
     rom_proc_ht m_rom_proc;
 
-    //ram_bitset_t m_usable_ram = ram_bitset_t::filled(); // Tracks unallocated RAM addresses this fn can use
-    //ram_bitset_t m_lvar_ram = ram_bitset_t::filled();// Tracks which addresses are used by this fn's lvars.
-
     // Aids in allocating RAM for local variables:
     lvars_manager_t m_lvars;
     std::vector<span_t> m_lvar_spans;
-
-    //rom_alloc_ht m_rom_alloc;
 };
 
 // Base class for vars and consts.
@@ -392,7 +337,7 @@ public:
     virtual group_ht group() const = 0;
 
 protected:
-    virtual void paa_init(rom_array_t&& paa) = 0;
+    virtual void paa_init(loc_vec_t&& paa) = 0;
     virtual void sval_init(sval_t&& sval) = 0;
 
     src_type_t m_src_type = {};
@@ -402,9 +347,8 @@ protected:
 class gvar_t : public global_datum_t
 {
 public:
-    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
-    using global_impl_tag = void;
-    static constexpr global_class_t gclass = GLOBAL_VAR;
+    static constexpr global_class_t global_class = GLOBAL_VAR;
+    using handle_t = gvar_ht;
 
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
@@ -421,15 +365,15 @@ public:
     gmember_ht end_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_end_gmember; }
     void set_gmember_range(gmember_ht begin, gmember_ht end);
 
-    std::vector<locator_t> const& init_data() const { assert(compiler_phase() > PHASE_COMPILE); return m_init_data; }
+    loc_vec_t const& init_data() const { assert(compiler_phase() > PHASE_COMPILE); return m_init_data; }
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
 private:
-    virtual void paa_init(rom_array_t&& paa);
+    virtual void paa_init(loc_vec_t&& paa);
     virtual void sval_init(sval_t&& sval);
 
-    std::vector<locator_t> m_init_data;
+    loc_vec_t m_init_data;
 
     gmember_ht m_begin_gmember = {};
     gmember_ht m_end_gmember = {};
@@ -438,7 +382,7 @@ private:
 class gmember_t
 {
 public:
-    static constexpr compiler_phase_t impl_vector_phase = PHASE_COUNT_MEMBERS;
+    using handle_t = gmember_ht;
 
     gmember_t(gvar_t& parent, unsigned index)
     : gvar(parent)
@@ -467,9 +411,8 @@ private:
 class const_t : public global_datum_t
 {
 public:
-    static constexpr compiler_phase_t impl_deque_phase = PHASE_PARSE;
-    using global_impl_tag = void;
-    static constexpr global_class_t gclass = GLOBAL_CONST;
+    static constexpr global_class_t global_class = GLOBAL_CONST;
+    using handle_t = const_ht;
 
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
@@ -485,7 +428,7 @@ public:
     rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
 
 private:
-    virtual void paa_init(rom_array_t&& paa);
+    virtual void paa_init(loc_vec_t&& paa);
     virtual void sval_init(sval_t&& sval);
 
     rom_array_ht m_rom_array = {};

@@ -99,7 +99,7 @@ template<typename T, typename Tag>
 class static_intrusive_pool_t
 {
 public:
-    struct handle_t : public ::handle_t<std::uint32_t, struct static_pool_tag, 0u>
+    struct handle_t : public ::handle_t<handle_t, std::uint32_t, 0u>
     {
         T& operator*() const 
             { assert(this->id < storage.size()); return storage[this->id]; }

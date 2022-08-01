@@ -1,10 +1,11 @@
 #ifndef ROM_HPP
 #define ROM_HPP
 
-#include <variant>
+#include <ranges>
 #include <vector>
 
 #include "robin/map.hpp"
+#include "robin/set.hpp"
 
 #include "rom_decl.hpp"
 #include "handle.hpp"
@@ -12,70 +13,150 @@
 #include "phase.hpp"
 #include "span_allocator.hpp"
 #include "decl.hpp"
+#include "locator.hpp"
+#include "asm_proc.hpp"
+#include "options.hpp"
 
 class locator_t;
 class asm_proc_t;
 
-template<typename T> 
-inline std::vector<T> rom_vector;
+//////////////
+// ROM data //
+//////////////
 
-template<typename T>
-struct rom_alloc_handle_t : handle_t<unsigned, T, ~0>
+// Passkey pattern
+class rom_key_t
 {
-    T* operator->() const { return &operator*(); }
-    T& operator*() const
-    { 
-        assert(compiler_phase() >= PHASE_ALLOC_ROM);
-        assert(this->id < rom_vector<T>.size());
-        return rom_vector<T>[this->id];
-    }
+    friend class rom_allocator_t;
+    friend class rom_array_t;
+    rom_key_t() {}
+    rom_key_t(rom_key_t const&) {}
 };
 
-struct rom_static_ht : rom_alloc_handle_t<rom_static_t> {};
-struct rom_many_ht : rom_alloc_handle_t<rom_many_t> {};
-struct rom_once_ht : rom_alloc_handle_t<rom_once_t> {};
-
-namespace std
+class rom_data_t
 {
-    template<> struct hash<rom_static_ht> : handle_hash_t<rom_static_ht> {};
-    template<> struct hash<rom_many_ht> : handle_hash_t<rom_many_ht> {};
-    template<> struct hash<rom_once_ht> : handle_hash_t<rom_once_ht> {};
-}
+public:
+    explicit rom_data_t(rom_alloc_ht alloc = {}) : m_alloc() {}
+
+    rom_alloc_ht alloc() const { return m_alloc; }
+    void set_alloc(rom_alloc_ht alloc, rom_key_t) { m_alloc = alloc; }
+
+    bool emits() const { return true; } // TODO: implement
+protected:
+    // These are used later on, when the rom is actually allocated.
+    rom_alloc_ht m_alloc;
+};
+
+// Tracks a non-code segment of data that is represented as a loc_vec_t,
+// which will end up in ROM.
+class rom_array_t : public rom_data_t
+{
+public:
+    rom_array_t(loc_vec_t&& vec, rom_alloc_ht alloc, rom_key_t const&);
+
+    void mark_used_by(group_data_ht group);
+
+    auto const& data() const { return m_data; } // 'data' is immutable.
+
+    // Don't have to lock the mutex if we're in PHASE_ALLOC_ROM.
+    auto const& used_in_group_data() const { assert(compiler_phase() > rom_array_ht::phase); return m_used_in_group_data; }
+
+    // Use this to construct globally:
+    static rom_array_ht make(loc_vec_t&& vec, group_data_ht={}, rom_alloc_ht alloc={});
+private:
+    std::vector<locator_t> m_data;
+
+    std::mutex m_mutex; // Protects the members below
+    bitset_t m_used_in_group_data;
+    // End mutex protected
+
+    inline static rh::robin_auto_table<rom_array_ht> m_pool_map;
+};
+
+// Converts SSA_make_arrays into rom_array locators.
+void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc);
+
+// Tracks a code segment of data that will end up in ROM.
+class rom_proc_t : public rom_data_t
+{
+public:
+    explicit rom_proc_t(rom_alloc_ht alloc = {}) : rom_data_t(alloc) {}
+    rom_proc_t(asm_proc_t&& asm_proc, rom_alloc_ht alloc = {}) 
+    : rom_data_t(alloc)
+    { assign(std::move(asm_proc)); }
+
+    // Sets the proc's state.
+    // BE CAREFUL. NO SYNCHRONIZATION!
+    void assign(asm_proc_t&& asm_proc);
+    
+    // BE CAREFUL. NO SYNCHRONIZATION!
+    asm_proc_t const& asm_proc() const { return m_asm_proc; }
+    std::size_t max_size() const { return m_max_size; }
+
+    bitset_t const* uses_groups() const;
+    bool for_each_group_test(std::function<bool(group_ht)> const& fn);
+private:
+    // BE CAREFUL. NO SYNCHRONIZATION!
+    asm_proc_t m_asm_proc;
+    std::size_t m_max_size = 0; // Upper-bound on allocation size
+};
+
+// Generic construction functions:
+rom_data_ht to_rom_data(loc_vec_t&& rom_array, rom_alloc_ht alloc={});
+rom_data_ht to_rom_data(asm_proc_t&& asm_proc, rom_alloc_ht alloc={});
+
+///////////////
+// ROM alloc //
+///////////////
 
 static constexpr unsigned max_banks = 256;
 using bank_bitset_t = static_bitset_t<max_banks>;
 
-/* TODO: delete?
-using rom_data_t = std::variant
-    < std::monostate
-    , std::vector<locator_t> const*
-    , asm_proc_t*
-    >;
-    */
+struct rom_static_ht : pool_handle_t<rom_static_ht, std::deque<rom_static_t>, PHASE_PREPARE_ALLOC_ROM> {};
+struct rom_many_ht : pool_handle_t<rom_many_ht, std::deque<rom_many_t>, PHASE_PREPARE_ALLOC_ROM> {};
+struct rom_once_ht : pool_handle_t<rom_once_ht, std::deque<rom_once_t>, PHASE_PREPARE_ALLOC_ROM> {};
+
+DEF_HANDLE_HASH(rom_static_ht);
+DEF_HANDLE_HASH(rom_many_ht);
+DEF_HANDLE_HASH(rom_once_ht);
 
 struct rom_alloc_t
 {
     std::uint16_t desired_alignment = 0;
     std::uint16_t desired_size = 0;
-
     span_t span = {};
-    rom_data_ht data;
+    rom_data_ht data = {};
 }; 
 
 struct rom_static_t : public rom_alloc_t
 {
-    // TODO
+    explicit rom_static_t(span_t span) { this->span = span; }
+
+    int only_bank() const { return mapper().num_32k_banks == 1 ? 0 : -1; }
+
+    template<typename Fn>
+    void for_each_bank(Fn const& fn) const
+    {
+        for(unsigned bank = 0; bank < mapper().num_32k_banks; ++bank)
+            fn(bank);
+    }
 };
 
 struct rom_many_t : public rom_alloc_t
 {
-    bank_bitset_t in_banks;
+    rom_many_t(rom_data_ht data, std::uint16_t desired_alignment);
+
+    bank_bitset_t in_banks = {};
+
+    int only_bank() const { return in_banks.popcount() == 1 ? in_banks.lowest_bit_set() : -1; }
+
+    template<typename Fn>
+    void for_each_bank(Fn const& fn) const { in_banks.for_each(fn); }
 };
 
 struct rom_once_t : public rom_alloc_t
 {
-    std::uint16_t desired_alignment = 0;
-    std::uint16_t desired_size = 0;
+    rom_once_t(rom_data_ht data, std::uint16_t desired_alignment);
 
     // Set of MANYs that this node depends upon.
     bitset_uint_t* required_manys;
@@ -86,6 +167,11 @@ struct rom_once_t : public rom_alloc_t
 
     // Which bank we're allocated in
     unsigned bank;
+
+    int only_bank() const { return bank; }
+
+    template<typename Fn>
+    void for_each_bank(Fn const& fn) const { fn(bank); }
 };
 
 class rom_bank_t
@@ -98,7 +184,6 @@ public:
     {}
 
     span_allocator_t allocator;
-    //std::vector<span_t> many_spans;
     rh::robin_map<rom_many_ht, span_t> many_spans;
     bitset_t allocated_manys;
     bitset_t allocated_onces;

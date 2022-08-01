@@ -8,18 +8,26 @@
 //   Instead of doing:
 //     using my_value_type = int;
 //   Do:
-//     using my_value_type = handle_t<int, struct some_unique_tag>;
+//     struct my_value_type : handle_t<my_value_type, int> {};
 
 #include <functional>
 #include <ostream>
+#include <ranges>
+#include <mutex>
+#include <type_traits>
 
 #include "robin/hash.hpp"
 
-template<typename Int, typename Tag, Int Null = 0, bool GT = false>
+#include "assert.hpp"
+#include "bitset.hpp"
+#include "phase.hpp"
+
+// Handles are wrappers around an int type.
+template<typename Derived, typename Int, Int Null = 0, bool GT = false>
 struct handle_t
 {
+    using is_handle_tag = void;
     using int_type = Int;
-    using tag_type = Tag;
     int_type id = Null;
 
     static constexpr Int null = Null;
@@ -28,31 +36,34 @@ struct handle_t
     constexpr auto operator<=>(handle_t const&) const = default;
     constexpr bool operator!() const { return !operator bool(); }
 
-    handle_t& operator++() { ++id; return *this; }
-    handle_t operator++(int) { handle_t h = *this; ++id; return h; }
-    handle_t& operator--() { --id; return *this; }
-    handle_t operator--(int) { handle_t h = *this; --id; return h; }
+    Derived& operator++() { ++id; return as_derived(); }
+    Derived operator++(int) { handle_t h = as_derived(); ++id; return h; }
+    Derived& operator--() { --id; return as_derived(); }
+    Derived operator--(int) { handle_t h = as_derived(); --id; return h; }
 
-    handle_t& operator+=(int_type b) { id += b; return *this; }
-    handle_t& operator-=(int_type b) { id -= b; return *this; }
+    Derived& operator+=(int_type b) { id += b; return as_derived(); }
+    Derived& operator-=(int_type b) { id -= b; return as_derived(); }
 
-    friend constexpr handle_t operator+(handle_t a, int_type b) 
+    friend constexpr Derived operator+(Derived a, int_type b) 
         { return { a.id + b }; }
-    friend constexpr handle_t operator+(int_type a, handle_t b) 
+    friend constexpr Derived operator+(int_type a, Derived b) 
         { return { a + b.id }; }
 
-    friend constexpr handle_t operator-(handle_t a, int_type b) 
+    friend constexpr Derived operator-(Derived a, int_type b) 
         { return { a.id - b }; }
-    friend constexpr handle_t operator-(int_type a, handle_t b)
+    friend constexpr Derived operator-(int_type a, Derived b)
         { return { a - b.id }; }
-    friend constexpr int_type operator-(handle_t a, handle_t b) 
+    friend constexpr int_type operator-(Derived a, Derived b) 
         { return { a.id - b.id }; }
 
-    std::size_t hash() const { return rh::hash_finalize(id); }
+    std::size_t hash() const { return id; }
+
+    constexpr Derived const& as_derived() const { return static_cast<Derived const&>(*this); }
+    constexpr Derived& as_derived() { return static_cast<Derived&>(*this); }
 };
 
-template<typename Int, typename Tag, Int Null, bool GT>
-std::ostream& operator<<(std::ostream& os, handle_t<Int, Tag, Null, GT> const& handle)
+template<typename Derived, typename Int, Int Null, bool GT>
+std::ostream& operator<<(std::ostream& os, handle_t<Derived, Int, Null, GT> const& handle)
 {
     os << "{" << handle.id << "}";
     return os;
@@ -66,12 +77,90 @@ struct handle_hash_t
     result_type operator()(argument_type const& handle) const noexcept { return handle.hash(); }
 };
 
-namespace std
+#define DEF_HANDLE_HASH(name) template<> struct std::hash<name> : handle_hash_t<name> {};
+
+template<typename, typename = void>
+struct is_handle : std::false_type {};
+
+template<typename t>
+struct is_handle<t, std::void_t<typename t::is_handle_tag>> : std::true_type {};
+
+// A handle type that indexes into a vector-like pool.
+template<typename Derived, typename Pool, compiler_phase_t Phase>
+struct pool_handle_t : public handle_t<Derived, std::uint32_t, ~0u>
 {
-    template<typename Int, typename Tag, Int Null, bool GT>
-    struct hash<handle_t<Int, Tag, Null, GT>> 
-    : public handle_hash_t<handle_t<Int, Tag, Null, GT>>
-    {};
-}
+    using pool_type = Pool;
+    using value_type = typename Pool::value_type;
+    static constexpr compiler_phase_t phase = Phase;
+
+    value_type* operator->() const { return &operator*(); }
+    value_type& operator*() const { return unsafe(); }
+
+    value_type& unsafe() const
+    {
+        assert(compiler_phase() > Phase);
+        return unsafe_impl();
+    }
+
+    value_type& safe() const
+    { 
+        if(compiler_phase() > Phase)
+            return unsafe_impl();
+        std::lock_guard<std::mutex> lock(m_pool_mutex);
+        return unsafe_impl(); 
+    }
+
+    // Sets 'ptr' to the address of the new value.
+    template<typename... Args>
+    static Derived pool_emplace(value_type*& ptr, Args&&... args)
+    {
+        assert(compiler_phase() <= Phase);
+        std::lock_guard<std::mutex> lock(m_pool_mutex);
+        Derived const ret = { m_pool.size() };
+        ptr = &m_pool.emplace_back(std::forward<Args>(args)...);
+        return ret;
+    }
+
+    template<typename... Args>
+    static Derived pool_make(Args&&... args)
+    {
+        assert(compiler_phase() <= Phase);
+        value_type* ptr;
+        return pool_emplace(ptr, std::forward<Args>(args)...);
+    }
+
+    static std::size_t bitset_size() { assert(compiler_phase() > Phase); return ::bitset_size<>(pool().size()); }
+
+    static Derived begin() { assert(compiler_phase() > Phase); return {0}; }
+    static Derived end() { assert(compiler_phase() > Phase); return {pool().size()}; }
+    static auto handles() { assert(compiler_phase() > Phase); return std::ranges::iota_view(begin(), end()); }
+    static auto values() { assert(compiler_phase() > Phase); return std::ranges::subrange(m_pool.begin(), m_pool.end()); }
+    static Pool const& pool() { assert(compiler_phase() > Phase); return m_pool; }
+
+    template<typename Fn>
+    static auto with_pool(Fn const& fn)
+    {
+        assert(compiler_phase() <= Phase);
+        std::lock_guard<std::mutex> lock(m_pool_mutex);
+        return fn(m_pool);
+    }
+
+    template<typename Fn>
+    static auto with_const_pool(Fn const& fn)
+    {
+        std::lock_guard<std::mutex> lock(m_pool_mutex);
+        return fn(static_cast<Pool const&>(m_pool));
+    }
+
+private:
+    value_type& unsafe_impl() const 
+    { 
+        passert(this->id < m_pool.size(), "Bad handle index", this->id);
+        return m_pool[this->id]; 
+    }
+
+    inline static std::mutex m_pool_mutex;
+    inline static Pool m_pool;
+};
 
 #endif

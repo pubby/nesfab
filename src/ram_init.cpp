@@ -7,7 +7,7 @@
 #include "globals.hpp"
 #include "span.hpp"
 #include "asm_proc.hpp"
-#include "rom_array.hpp"
+#include "rom.hpp"
 
 namespace  // anonymous
 {
@@ -65,7 +65,7 @@ std::vector<merged_span_t> reduce_spans(std::vector<init_span_t>& vec)
 
 void gen_group_var_inits()
 {
-    for(group_vars_t& group : impl_deque<group_vars_t>)
+    for(group_vars_t& group : group_vars_ht::values())
     {
         std::cout << "group " << group.group.name << std::endl;
 
@@ -144,15 +144,15 @@ void gen_group_var_inits()
         {
             span_t span_left = ms.span;
 
-            rom_array_t rom_array;
+            loc_vec_t vec;
 
-            auto const reset_rom_array = [&]()
+            auto const reset_vec = [&]()
             {
-                rom_array.data.clear();
-                rom_array.data.reserve(std::min<unsigned>(256, span_left.size));
+                vec.clear();
+                vec.reserve(std::min<unsigned>(256, span_left.size));
             };
 
-            reset_rom_array();
+            reset_vec();
 
             for(init_span_t const* is = ms.head; is; is = is->merged_with)
             {
@@ -162,30 +162,30 @@ void gen_group_var_inits()
                 unsigned const size = gmember.init_size();
                 locator_t const* data = gmember.init_data(is->atom);
 
-                assert(rom_array.data.size() < 256);
+                assert(vec.size() < 256);
 
-                if(rom_array.data.size() + size >= 256)
+                if(vec.size() + size >= 256)
                 {
                     assert(span_left.size >= 256);
 
-                    rom_array.data.insert(rom_array.data.end(), data, data + (256 - rom_array.data.size()));
-                    assert(rom_array.data.size() == 256);
+                    vec.insert(vec.end(), data, data + (256 - vec.size()));
+                    assert(vec.size() == 256);
 
-                    value_combined.push_back({ span_t{ span_left.addr, 256 }, lookup_rom_array(std::move(rom_array)) });
-                    reset_rom_array();
+                    value_combined.push_back({ span_t{ span_left.addr, 256 }, rom_array_t::make(std::move(vec)) });
+                    reset_vec();
 
                     span_left.addr += 256;
                     span_left.size -= 256;
                 }
                 else
-                    rom_array.data.insert(rom_array.data.end(), data, data + size);
+                    vec.insert(vec.end(), data, data + size);
             }
 
             assert(span_left.size <= 256);
-            assert(rom_array.data.size() == span_left.size);
+            assert(vec.size() == span_left.size);
 
-            if(rom_array.data.size() > 0)
-                value_combined.push_back({ span_left, lookup_rom_array(std::move(rom_array)) });
+            if(vec.size() > 0)
+                value_combined.push_back({ span_left, rom_array_t::make(std::move(vec)) });
         }
 
         assert(!zero_combined.empty() || !value_combined.empty());

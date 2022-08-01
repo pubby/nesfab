@@ -7,7 +7,6 @@
 #include "ir.hpp"
 #include "lt.hpp"
 #include "rom.hpp"
-#include "rom_array.hpp"
 
 std::string to_string(locator_t loc)
 {
@@ -218,7 +217,7 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
         return from_span(fn_h->lvar_span(mem_head()));
 
     case LOC_ROM_ARRAY:
-        return from_alloc(get_meta(rom_array()).alloc());
+        return from_alloc(rom_array()->alloc());
 
     case LOC_MAIN_ENTRY:
         return from_alloc(get_main_entry().rom_proc()->alloc());
@@ -233,8 +232,8 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
     case LOC_LT_GMEMBER_PTR:
         return from_span(gmember()->span(0));
     case LOC_LT_CONST_PTR:
-        return from_alloc(get_meta(const_()->rom_array()).alloc());
+        return from_alloc(const_()->rom_array()->alloc());
     case LOC_LT_CONST_PTR_BANK:
-        return from_alloc_bank(get_meta(const_()->rom_array()).alloc());
+        return from_alloc_bank(const_()->rom_array()->alloc());
     };
 }

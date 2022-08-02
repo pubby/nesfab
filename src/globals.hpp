@@ -8,6 +8,7 @@
 #include "robin/set.hpp"
 #include "robin/map.hpp"
 
+#include "flat/flat_map.hpp"
 #include "flat/flat_set.hpp"
 
 #include "asm_proc.hpp"
@@ -24,6 +25,7 @@
 #include "sval.hpp"
 #include "rom_decl.hpp"
 #include "locator.hpp"
+#include "mods.hpp"
 
 struct rom_array_t;
 
@@ -115,7 +117,7 @@ public:
     // Helpers that delegate to 'define':
     fn_t& define_fn(
         pstring_t pstring, global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-        type_t type, fn_def_t&& fn_def, fclass_t fclass);
+        type_t type, fn_def_t&& fn_def, mods_t&& mods, fclass_t fclass);
     gvar_t& define_var(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, token_t const* expr);
@@ -140,7 +142,6 @@ public:
     // Implementation detail used in 'build_order'.
     static global_t* detect_cycle(global_t& global, std::vector<std::string>& error_msgs);
 
-    // Call after 'parse_cleanup' to properly handle struct members.
     // This allocates 'gmember_t's.
     static void count_members(); 
 
@@ -239,13 +240,15 @@ private:
     bool m_has_tea_member = false;
 };
 
+using deref_groups_t = fc::vector_map<group_ht, src_type_t>;
+
 class fn_t
 {
 public:
     static constexpr global_class_t global_class = GLOBAL_FN;
     using handle_t = fn_ht;
 
-    fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass);
+    fn_t(global_t& global, type_t type, fn_def_t&& fn_def, mods_t&& mods, fclass_t fclass);
 
     fn_ht handle() const;
 
@@ -254,11 +257,11 @@ public:
 
     void compile();
 
-    void calc_lang_gvars_groups();
-    void calc_ir_bitsets(ir_t const& ir);
+    void calc_lang_gvars();
 
     bitset_t const& lang_gvars()  const { assert(m_lang_gvars);  return m_lang_gvars; }
-    bitset_t const& lang_group_vars() const { assert(m_lang_group_vars); return m_lang_group_vars; }
+    bitset_t const& lang_group_vars() const { assert(global.compiled()); assert(m_lang_group_vars); return m_lang_group_vars; }
+    //bitset_t const& lang_ptr_groups() const { assert(global.compiled()); assert(m_lang_ptr_groups); return m_lang_ptr_groups; }
 
     // These are only valid after 'calc_ir_reads_writes_purity' has ran.
     bitset_t const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
@@ -283,13 +286,20 @@ public:
 public:
     global_t& global;
     fclass_t const fclass;
+    mods_t const mods;
 
 private:
+    void calc_lang_groups();
+    void calc_ir_bitsets(ir_t const& ir);
+
     type_t m_type;
     fn_def_t m_def;
 
+    // 'lang_gvars' is calculated shortly after parsing.
     bitset_t m_lang_gvars;
+    // Groups are calculated later on, in 'compile'.
     bitset_t m_lang_group_vars;
+    deref_groups_t m_lang_deref_groups;
 
     // Bitsets of all global vars read/written in fn (deep)
     // These get assigned by 'calc_reads_writes_purity'.

@@ -8,6 +8,7 @@
 #include "fnv1a.hpp"
 #include "convert_file.hpp"
 #include "eternal_new.hpp"
+#include "mods.hpp"
 
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
@@ -101,55 +102,6 @@ void parser_t<P>::parse_block(int const parent_indent, Func func)
     if(indent <= parent_indent)
         compiler_error("Expecting indented block.");
     maybe_parse_block(parent_indent, func);
-}
-
-template<typename P>
-template<typename Func>
-void parser_t<P>::parse_using_mods(int base_indent, Func const& func)
-{
-    while(token.type == TOK_bitwise_or && indent == base_indent)
-    {
-        parse_token();
-        pstring_t const pstring = token.pstring;
-        if(!func())
-            ::compiler_error(pstring, "Invalid modifier in this context.");
-        parse_line_ending();
-    }
-}
-
-template<typename P>
-template<typename Func>
-src_type_t parser_t<P>::parse_using_vars(int base_indent, Func const& func)
-{
-    bool seen = false;
-    pstring_t group_pstring = {};
-    bc::small_vector<group_ht, 16> groups;
-    parse_using_mods(base_indent,
-        [&]() -> bool
-        {
-            if(token.type == TOK_vars)
-            {
-                seen = true;
-                if(!group_pstring)
-                    group_pstring = token.pstring;
-                parse_token();
-
-                while(token.type == TOK_fslash)
-                {
-                    pstring_t const pstring = parse_group_ident();
-                    group_pstring = concat(group_pstring, pstring);
-                    groups.push_back(group_t::lookup(source(), pstring).handle());
-                }
-                return true;
-            }
-            else
-                return func();
-        });
-
-    if(seen)
-        return { group_pstring, type_t::group_set(&*groups.begin(), &*groups.end()) };
-    else
-        return { {}, TYPE_VOID };
 }
 
 template<typename P>
@@ -384,10 +336,13 @@ string_literal_t parser_t<P>::parse_string_literal()
 template<typename P>
 pstring_t parser_t<P>::parse_group_ident()
 {
+    pstring_t const slash = token.pstring;
     parse_token(TOK_fslash);
-    pstring_t ident = token.pstring;
+    if(slash.end() != token.pstring.offset)
+        return slash;
+    pstring_t const ident = token.pstring;
     parse_token(TOK_ident);
-    return ident;
+    return fast_concat(slash, ident);
 }
 
 template<typename P>
@@ -874,6 +829,87 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool b
 }
 
 template<typename P>
+mods_t parser_t<P>::parse_mods(int base_indent, bool required)
+{
+    mods_t mods;
+    auto const pre_line_number = line_number;
+
+    auto const handle_groups = [this](bool& explicit_group, auto& map)
+    {
+        parse_token();
+        explicit_group = true;
+        while(token.type == TOK_fslash)
+        {
+            pstring_t const group_ident = parse_group_ident();
+            auto result = map.emplace(group_t::lookup(source(), group_ident).handle(), group_ident);
+            if(!result.second)
+                compiler_warning("Duplicate group modifier.");
+        }
+    };
+
+    while(token.type == TOK_bitwise_or && indent == base_indent)
+    {
+        parse_token();
+
+        while(token.type != TOK_eol)
+        {
+            switch(token.type)
+            {
+            case TOK_vars:
+                handle_groups(mods.explicit_group_vars, mods.group_vars);
+                break;
+
+            case TOK_data:
+                handle_groups(mods.explicit_group_data, mods.group_data);
+                break;
+
+            case TOK_plus:
+            case TOK_minus:
+                while(token.type == TOK_plus || token.type == TOK_minus)
+                {
+                    bool const is_plus = token.type == TOK_plus;
+                    parse_token();
+                    std::string_view const view = token.pstring.view(source());
+                    mod_flags_t const flag = ::parse_mod_flag(token.pstring.view(source()));
+                    parse_token(TOK_ident);
+                    if(flag)
+                    {
+                        if(is_plus)
+                        {
+                            if(mods.disable & flag)
+                                compiler_warning(fmt("Ignoring conflicting flags: ", view));
+                            if(mods.enable & flag)
+                                compiler_warning(fmt("Duplicate flag: +", view));
+                            mods.enable |= flag;
+                        }
+                        else
+                        {
+                            if(mods.enable & flag)
+                                compiler_warning(fmt("Ignoring conflicting flags: ", view));
+                            if(mods.disable & flag)
+                                compiler_warning(fmt("Duplicate flag: ", view));
+                            mods.disable |= flag;
+                        }
+                    }
+                    else
+                        compiler_warning(fmt("Unknown flag: %", view));
+                }
+                break;
+            default:
+                compiler_error("Unknown modifier.");
+            }
+        }
+        parse_line_ending();
+    }
+
+    if(required && line_number == pre_line_number)
+        compiler_error("Expecting modifiers line starting with |");
+
+    mods.remove_conflicting_flags();
+    return mods;
+}
+
+template<typename P>
 void parser_t<P>::parse_top_level()
 {
     parse_block(-1, [this]{ parse_top_level_def(); });
@@ -1016,15 +1052,16 @@ void parser_t<P>::parse_fn(bool ct)
     // Parse the return type
     src_type_t return_type = parse_type(true, false, {});
 
-    // Parse the using mods
-    src_type_t using_vars = parse_using_vars(fn_indent);
+    parse_line_ending();
+
+    // Parse the mods
+    mods_t mods = parse_mods(fn_indent);
 
     auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type);
 
     // Parse the body of the function
-    parse_line_ending();
     parse_block_statement(fn_indent);
-    policy().end_fn(std::move(state), ct ? FN_CT : FN_FN, using_vars.type);
+    policy().end_fn(std::move(state), ct ? FN_CT : FN_FN, std::move(mods));
 }
 
 template<typename P>
@@ -1045,23 +1082,14 @@ void parser_t<P>::parse_mode()
 
     parse_line_ending();
 
-    // Parse the using mods
-    pre_line_number = line_number;
-    src_type_t using_vars = parse_using_vars(mode_indent);
-
-    if(args_line_break && pre_line_number == line_number)
-    {
-        parse_token(TOK_then);
-        parse_line_ending();
-    }
-    else if(token.type == TOK_then)
-        compiler_error("Unnecessary use of then.");
+    // Parse the mods
+    mods_t mods = parse_mods(mode_indent, args_line_break);
 
     var_decl_t state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
 
     // Parse the body of the function
     parse_block_statement(mode_indent);
-    policy().end_mode(std::move(state), using_vars.type);
+    policy().end_mode(std::move(state), std::move(mods));
 }
 
 template<typename P>

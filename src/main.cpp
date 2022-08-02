@@ -127,17 +127,18 @@ int main(int argc, char** argv)
                 parse<pass1_t>(file);
             }
         });
+        output_time("parse:    ");
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);
         get_main_entry(); // This throws an error if 'main' isn't proper.
         global_t::parse_cleanup();
-        group_t::parse_cleanup();
-        output_time("parse:    ");
+        output_time("cleanup:  ");
 
         // Count and arrange struct members:
         set_compiler_phase(PHASE_COUNT_MEMBERS);
         global_t::count_members();
+        output_time("members:  ");
 
         // Load standard data:
         set_compiler_phase(PHASE_STD);
@@ -148,6 +149,7 @@ int main(int argc, char** argv)
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);
         global_t::build_order();
+        output_time("order:    ");
 
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);
@@ -155,7 +157,7 @@ int main(int argc, char** argv)
         output_time("compile:  ");
 
         set_compiler_phase(PHASE_ALLOC_RAM);
-        alloc_ram(static_used_ram);
+        alloc_ram(static_used_ram, nullptr);
         // TODO: remove
         //for(fn_t const& fn : impl_deque<fn_t>)
             //fn.proc().write_assembly(std::cout, fn.handle());

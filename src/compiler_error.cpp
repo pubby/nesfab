@@ -64,41 +64,31 @@ namespace
     }
 } // end anon namespace
 
-// Console colors:
-#define RED   "\x1B[31m"
-#define GRN   "\x1B[32m"
-#define YEL   "\x1B[33m"
-#define BLU   "\x1B[34m"
-#define MAG   "\x1B[35m"
-#define CYN   "\x1B[36m"
-#define WHT   "\x1B[37m"
-#define RESET "\x1B[0m"
-#define BOLD  "\x1B[1m"
-#define UNDERLINE "\x1B[4m"
-
 std::string fmt_source_pos(file_contents_t const& file, pstring_t pstring)
 {
     line_col_t line_col = get_line_col(file.source(), pstring);
-    return fmt(BOLD "%:%:%" RESET, file.name(), line_col.line, line_col.col);
+    return fmt(CONSOLE_BOLD "%:%:%" CONSOLE_RESET, file.name(), line_col.line, line_col.col);
 }
 
-std::string fmt_error(file_contents_t const& file, pstring_t pstring, 
-                      std::string const& what)
+std::string fmt_error(
+    pstring_t pstring, std::string const& what, file_contents_t const* file,
+    char const* color, char const* prefix)
 {
-    return fmt_error(file, pstring, what, RED BOLD, "error");
-}
+    file_contents_t pstring_file;
+    if(!file)
+    {
+        pstring_file.reset(pstring.file_i);
+        file = &pstring_file;
+    }
 
-std::string fmt_error(file_contents_t const& file, pstring_t pstring, 
-                      std::string const& what, char const* color, char const* prefix)
-{
+    assert(file->index() == pstring.file_i);
 
-    std::string str(fmt("%: %%:" RESET " %\n", 
-                        fmt_source_pos(file, pstring), color, prefix, what));
+    std::string str(fmt("%: %%:" CONSOLE_RESET " %\n", fmt_source_pos(*file, pstring), color, prefix, what));
 
-    char const* line_begin = get_line_begin(file.source(), pstring);
-    char const* line_end = get_line_end(file.source(), pstring);
+    char const* line_begin = get_line_begin(file->source(), pstring);
+    char const* line_end = get_line_end(file->source(), pstring);
 
-    std::string pre = fmt(" % | ", get_line_col(file.source(), pstring).line);
+    std::string pre = fmt(" % | ", get_line_col(file->source(), pstring).line);
 
     str += pre;
     str.insert(str.end(), line_begin, line_end);
@@ -116,14 +106,14 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
             return str;
 
     unsigned const caret_position = 
-        pre.size() + (file.source() + pstring.offset) - line_begin;
+        pre.size() + (file->source() + pstring.offset) - line_begin;
 
     str.resize(str.size() + caret_position, ' ');
 
     str += color;
 
     // Remove trailing whitespace
-    while(pstring.size && std::isspace(file.source()[pstring.offset + pstring.size - 1]))
+    while(pstring.size && std::isspace(file->source()[pstring.offset + pstring.size - 1]))
         --pstring.size;
 
     unsigned i = 0;
@@ -131,48 +121,39 @@ std::string fmt_error(file_contents_t const& file, pstring_t pstring,
         str.push_back('^');
     while(++i < pstring.size);
 
-    str += RESET;
+    str += CONSOLE_RESET;
 
     str.push_back('\n');
     return str;
 }
 
-std::string fmt_note(file_contents_t const& file, pstring_t pstring, std::string const& what)
+std::string fmt_note(pstring_t pstring, std::string const& what,
+                     file_contents_t const* file)
 {
-    return fmt_error(file, pstring, what, CYN BOLD, "note");
+    return fmt_error(pstring, what, file, CONSOLE_CYN CONSOLE_BOLD, "note");
 }
 
 std::string fmt_note(std::string const& what)
 {
-    return fmt(BOLD CYN "note: " RESET "%\n", what);
+    return fmt(CONSOLE_BOLD CONSOLE_CYN "note: " CONSOLE_RESET "%\n", what);
 }
 
-void compiler_error(file_contents_t const& file, pstring_t pstring, 
-                    std::string const& what)
+void compiler_error(pstring_t pstring, std::string const& what, 
+                    file_contents_t const* file)
 {
-    throw compiler_error_t(fmt_error(file, pstring, what));
+    throw compiler_error_t(fmt_error(pstring, what, file));
 }
 
-void compiler_error(pstring_t pstring, std::string const& what)
+void compiler_warning(pstring_t pstring, std::string const& what, 
+                      file_contents_t const* file)
 {
-    file_contents_t file(pstring.file_i);
-    compiler_error(file, pstring, what);
-}
-
-void compiler_warning(file_contents_t const& file, pstring_t pstring, std::string const& what)
-{
-    std::string msg = fmt_error(file, pstring, what, YEL BOLD, "warning");
-    std::fputs(msg.data(), stderr);
-}
-
-void compiler_warning(pstring_t pstring, std::string const& what)
-{
-    file_contents_t file(pstring.file_i);
-    compiler_warning(file, pstring, what);
+    std::string msg = fmt_error(pstring, what, file, CONSOLE_YEL CONSOLE_BOLD, "warning");
+    std::fputs(msg.c_str(), stderr);
+    std::fflush(stderr);
 }
 
 void compiler_warning(std::string const& what)
 {
-    std::fprintf(stderr, YEL BOLD "warning: " RESET "%s\n", what.data());
+    std::fprintf(stderr, CONSOLE_YEL CONSOLE_BOLD "warning: " CONSOLE_RESET "%s\n", what.data());
     std::fflush(stderr);
 }

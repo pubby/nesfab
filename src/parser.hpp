@@ -15,6 +15,8 @@
 #include "token.hpp"
 #include "pstring.hpp"
 
+struct mods_t;
+
 template<typename Policy>
 class parser_t
 {
@@ -57,13 +59,6 @@ private:
 
     static bool fail_using() { return false; }
 
-    // Parses lines of 'using' mods
-    template<typename Func = decltype(&fail_using)>
-    void parse_using_mods(int base_indent, Func const& func = &fail_using);
-
-    template<typename Func = decltype(&fail_using)>
-    src_type_t parse_using_vars(int base_indent, Func const& func = &fail_using);
-
     template<typename First>
     int parse_then(First const& first);
 
@@ -88,6 +83,8 @@ private:
 
     var_decl_t parse_var_decl(bool block_init, group_ht group);
     bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool block_init, group_ht group);
+
+    mods_t parse_mods(int base_indent, bool required = false);
 
     void parse_top_level();
     void parse_top_level_def();
@@ -117,9 +114,14 @@ private:
     void parse_label();
 
     [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const
-        { ::compiler_error(file, pstring, what); }
+        { ::compiler_error(pstring, what, &file); }
     [[gnu::noreturn]] void compiler_error(std::string const& what) const
-        { ::compiler_error(file, token.pstring, what); }
+        { ::compiler_error(token.pstring, what, &file); }
+
+    void compiler_warning(pstring_t pstring, std::string const& what) const
+        { ::compiler_warning(pstring, what, &file); }
+    void compiler_warning(std::string const& what) const
+        { ::compiler_warning(token.pstring, what, &file); }
 };
 
 template<typename Policy>

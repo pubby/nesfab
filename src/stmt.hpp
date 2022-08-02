@@ -109,6 +109,10 @@ public:
         stmts.push_back({ static_cast<stmt_name_t>(~name), {}, pstring, expr }); 
         return handle;
     }
+
+    // Returns the first pstring matching 'global'.
+    // Intended to be used for error messages.
+    pstring_t find_global(global_t const* global) const;
 };
 
 #endif

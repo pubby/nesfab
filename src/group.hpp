@@ -10,6 +10,7 @@
 #include "bitset.hpp"
 #include "decl.hpp"
 #include "pstring.hpp"
+#include "rom_decl.hpp"
 
 class group_t
 {
@@ -66,9 +67,6 @@ public:
     , m_handle{ handle }
     {}
 
-    // Call after parsing
-    static void parse_cleanup();
-
 private:
 
     unsigned define(pstring_t pstring, group_class_t gclass, 
@@ -101,12 +99,14 @@ public:
 
     std::vector<gvar_ht> const& gvars() const { assert(compiler_phase() > PHASE_PARSE); return m_gvars; }
 
+    rom_proc_ht init_proc() const { assert(compiler_phase() > PHASE_INITIAL_VALUES); return m_init_proc; }
+    void assign_init_proc(rom_proc_ht h) { assert(compiler_phase() == PHASE_INITIAL_VALUES); m_init_proc = h; }
+
 private:
     std::mutex m_gvars_mutex; // Used during parsing only.
     std::vector<gvar_ht> m_gvars;
 
-    //std::mutex m_interfering_groups_mutex;
-    //bitset_t m_interfering_groups;
+    rom_proc_ht m_init_proc = {};
 };
 
 class group_data_t

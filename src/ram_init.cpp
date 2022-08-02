@@ -67,8 +67,6 @@ void gen_group_var_inits()
 {
     for(group_vars_t& group : group_vars_ht::values())
     {
-        std::cout << "group " << group.group.name << std::endl;
-
         // Gather lists of gmembers that need inits
 
         std::vector<init_span_t> zero_init;
@@ -279,14 +277,10 @@ void gen_group_var_inits()
         });
 
         proc.push_inst(RTS);
-
-        // Tag the proc
-        // TODO
         proc.initial_optimize();
 
-        std::cout << "MODE ASM:\n" << group.group.name << ":\n";
-        proc.write_assembly(std::cout);
-        std::cout << "\n";
+        // Attach it to the group as a ROM proc:
+        group.assign_init_proc(rom_proc_ht::pool_make(std::move(proc)));
     }
 }
 

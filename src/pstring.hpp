@@ -19,7 +19,7 @@ struct pstring_t
     std::string_view view(char const* buffer) const 
         { return std::string_view(buffer + offset, size); }
 
-    constexpr std::uint32_t end() { return offset + size; }
+    constexpr std::uint32_t end() const { return offset + size; }
 
     constexpr explicit operator bool() const { return size; }
 };

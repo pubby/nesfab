@@ -267,7 +267,7 @@ std::string to_string(type_t type)
         str = fmt("%[%]", to_string(type.elem_type()), type.size() ? std::to_string(type.size()) : "");
         break;
     case TYPE_PAA:
-        str = fmt("[%]/%", type.size() ? std::to_string(type.size()) : "",
+        str = fmt("[%]%", type.size() ? std::to_string(type.size()) : "",
                   type.group()->name);
         break;
     case TYPE_BANKED_MPTR:
@@ -283,7 +283,7 @@ std::string to_string(type_t type)
         str = "PP";
     ptr_groups:
         for(unsigned i = 0; i < type.size(); ++i)
-            str += fmt("/%", type.group(i)->name);
+            str += type.group(i)->name;
         break;
     case TYPE_FN:
         assert(type.size() > 0);

@@ -40,6 +40,14 @@ void bitset_difference(std::size_t size, UInt* lhs, UInt const* rhs)
 }
 
 template<typename UInt>
+void bitset_flipped_difference(std::size_t size, UInt* lhs, UInt const* rhs)
+{
+    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
+    for(std::size_t i = 0; i < size; ++i)
+        lhs[i] = rhs[i] & ~lhs[i];
+}
+
+template<typename UInt>
 void bitset_or(std::size_t size, UInt* lhs, UInt const* rhs)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
@@ -574,7 +582,7 @@ public:
 
     void reset(std::size_t num_ints)
     {
-        m_ptr.reset(new value_type[num_ints]());
+        m_ptr.reset(num_ints ? new value_type[num_ints]() : nullptr);
         m_size = num_ints;
     }
 

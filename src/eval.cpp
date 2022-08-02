@@ -105,6 +105,7 @@ private:
 public:
     spair_t final_result;
     std::vector<locator_t> paa; // Only used when defining PAA inits
+    deref_groups_t* deref_groups = nullptr; // All 'group_t's dereferenced by a pointer.
 
     enum do_t
     {
@@ -126,7 +127,7 @@ public:
     template<do_t D>
     eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn, sval_t const* args, unsigned num_args);
 
-    eval_t(ir_t& ir, fn_t const& fn);
+    eval_t(ir_t& ir, fn_t const& fn, deref_groups_t& deref_groups);
 
     struct access_t
     {
@@ -292,13 +293,13 @@ std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr)
     return std::move(i.paa);
 }
 
-void build_ir(ir_t& ir, fn_t const& fn)
+void build_ir(ir_t& ir, deref_groups_t& deref_groups, fn_t const& fn)
 {
     assert(cfg_data_pool::array_size() == 0);
     assert(ssa_data_pool::array_size() == 0);
     cfg_data_pool::scope_guard_t<block_d> cg(0);
 
-    eval_t eval(ir, fn);
+    eval_t eval(ir, fn, deref_groups);
 }
 
 template<eval_t::do_t D>
@@ -349,11 +350,12 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, sval_t co
     }
 }
 
-eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
+eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, deref_groups_t& deref_groups_ref)
 : fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , ir(&ir_ref)
 , start_time(clock::now())
+, deref_groups(&deref_groups_ref)
 {
     // Reset the static thread-local state:
     builder.clear(); // TODO: make sure this isn't called in recursion
@@ -523,12 +525,10 @@ void eval_t::check_time()
     {
         if(elapsed > sc::milliseconds(compiler_options().time_limit))
         {
-            file_contents_t file(this->pstring.file_i);
             throw out_of_time_t(
-                fmt_error(file, this->pstring, "Ran out of time executing expression.")
+                fmt_error(this->pstring, "Ran out of time executing expression.")
                 + fmt_note("Computation is likely divergent.\n")
-                + fmt_note(fmt("Use compiler flag --timelimit 0 to ignore this error.\n", compiler_options().time_limit))
-                );
+                + fmt_note(fmt("Use compiler flag --timelimit 0 to ignore this error.\n", compiler_options().time_limit)));
         }
     }
 }
@@ -1246,9 +1246,9 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             if(!ptr)
             {
                 file_contents_t file(token->pstring.file_i);
-                compiler_error(file, token->pstring, fmt(
+                compiler_error(token->pstring, fmt(
                     "% isn't a member of %.", 
-                    token->pstring.view(file.source()), s.global.name));
+                    token->pstring.view(file.source()), s.global.name), &file);
             }
 
             unsigned const field_i = ptr - s.fields().begin();
@@ -1377,8 +1377,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 }
                 catch(out_of_time_t& e)
                 {
-                    file_contents_t file(this->pstring.file_i);
-                    e.msg += fmt_note(file, this->pstring, "Backtrace:");
+                    e.msg += fmt_note(this->pstring, "Backtrace:");
                     throw;
                 }
             }
@@ -1770,6 +1769,14 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             {
                 compiler_error(array_val.pstring, fmt(
                     "Expecting array or pointer type. Got %.", array_val.type));
+            }
+
+            if(is_ptr && deref_groups)
+            {
+                // TODO: Update this when inlining is added.
+                unsigned const size = array_val.type.group_tail_size();
+                for(unsigned i = 0; i < size; ++i)
+                    deref_groups->emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
             }
 
             rpn_value_t& array_index = rpn_stack.peek(0);
@@ -2861,9 +2868,8 @@ void eval_t::force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool impl
 
         if(implicit && to_signed(masked.value, to_type.name()) != rpn_value.s())
         {
-            file_contents_t file(rpn_value.pstring.file_i);
             throw compiler_error_t(
-                fmt_error(file, rpn_value.pstring, fmt(
+                fmt_error(rpn_value.pstring, fmt(
                     "Int value of % cannot be represented in type %. (Implicit type conversion)", 
                     to_double(fixed_t{ rpn_value.s() }), to_type))
                 + fmt_note("Add an explicit cast operator to override.")
@@ -2903,9 +2909,8 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
             fixed_uint_t const supermask = ::supermask(numeric_bitmask(to_type.name()));
             if(static_cast<fixed_sint_t>(original & supermask) != to_signed(original & mask, to_type.name()))
             {
-                file_contents_t file(rpn_value.pstring.file_i);
                 throw compiler_error_t(
-                    fmt_error(file, rpn_value.pstring, fmt(
+                    fmt_error(rpn_value.pstring, fmt(
                         "Num value of % doesn't fit in type %. (Implicit type conversion)", 
                         to_double(fixed_t{original}), to_type))
                     + fmt_note("Add an explicit cast operator to override.")
@@ -3095,11 +3100,10 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
                 pstring_t var_name = fn->def().local_vars[var_i].name;
                 file_contents_t file(var_name.file_i);
                 throw compiler_error_t(
-                    fmt_error(file, block_data.label_name, fmt(
+                    fmt_error(block_data.label_name, fmt(
                         "Jump to label crosses initialization "
-                        "of variable %.", var_name.view(file.source())))
-                    + fmt_note(file, var_name, fmt(
-                        "Variable is defined here:")));
+                        "of variable %.", var_name.view(file.source())), &file)
+                    + fmt_note(var_name, "Variable is defined here:", &file));
             }
             throw;
         }

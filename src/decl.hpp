@@ -10,11 +10,8 @@
 #include <deque>
 #include <type_traits>
 
-#include "robin/map.hpp"
-
 #include "phase.hpp"
 #include "handle.hpp"
-#include "bitset.hpp"
 
 constexpr unsigned MAX_FN_ARGS = 32;
 constexpr unsigned MAX_MEMBERS = 256;
@@ -46,12 +43,28 @@ enum global_class_t : std::uint8_t
 #undef X
 };
 
+#define GROUP_CLASS_XENUM \
+    X(GROUP_UNDEFINED, undefined) \
+    X(GROUP_VARS, vars) \
+    X(GROUP_DATA, data)
+
 enum group_class_t : std::uint8_t
 {
-    GROUP_UNDEFINED = 0,
-    GROUP_VARS,
-    GROUP_DATA,
+#define X(e, s) e,
+    GROUP_CLASS_XENUM
+#undef X
 };
+
+constexpr char const* group_class_keyword(group_class_t gc)
+{
+    switch(gc)
+    {
+    default: return "undefined";
+#define X(e, s) case e: return #s;
+    GROUP_CLASS_XENUM
+#undef X
+    }
+}
 
 struct lt_ht : pool_handle_t<lt_ht, std::deque<lt_value_t>, PHASE_COMPILE> {};
 

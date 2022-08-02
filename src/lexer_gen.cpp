@@ -602,8 +602,9 @@ int main()
             keyword("file"),
             keyword("struct"),
             keyword("vars"),
-            keyword("once"),
-            keyword("many"),
+            keyword("once"), // TODO: replace with 'data'
+            keyword("many"), // TODO: replace with 'data'
+            keyword("data"),
 
             // Symbols
             keyword(1, "lbrace", "{"),

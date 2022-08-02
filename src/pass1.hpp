@@ -18,6 +18,7 @@
 #include "parser_decl.hpp"
 #include "symbol_table.hpp"
 #include "type.hpp"
+#include "mods.hpp"
 
 namespace bc = boost::container;
 
@@ -118,7 +119,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    void end_fn(var_decl_t decl, fclass_t fclass, type_t using_vars)
+    void end_fn(var_decl_t decl, fclass_t fclass, mods_t&& mods)
     {
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
@@ -129,14 +130,13 @@ public:
         if(!unlinked_gotos.empty())
         {
             auto it = unlinked_gotos.begin();
-            compiler_error(file, it->first, "Label not in scope.");
+            compiler_error(it->first, "Label not in scope.", &file);
         }
 
         // Create the global:
-        active_global->define_fn(decl.name, 
-                                 std::move(ideps), std::move(weak_ideps),
-                                 decl.src_type.type, std::move(fn_def), fclass);//,
-                                 //using_vars);
+        active_global->define_fn(
+            decl.name, std::move(ideps), std::move(weak_ideps),
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -188,7 +188,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    void end_mode(var_decl_t decl, type_t using_vars)
+    void end_mode(var_decl_t decl, mods_t&& mods)
     {
         assert(decl.name);
         symbol_table.pop_scope(); // mode body scope
@@ -200,15 +200,14 @@ public:
         if(!unlinked_gotos.empty())
         {
             auto it = unlinked_gotos.begin();
-            compiler_error(file, it->first, "Label not in scope.");
+            compiler_error(it->first, "Label not in scope.", &file);
         }
 
         // Create the global:
         assert(decl.name);
-        active_global->define_fn(decl.name, 
-                                 std::move(ideps), std::move(weak_ideps),
-                                 decl.src_type.type, std::move(fn_def), FN_MODE);//,
-                                 //using_vars);
+        active_global->define_fn(
+            decl.name, std::move(ideps), std::move(weak_ideps),
+            decl.src_type.type, std::move(fn_def), std::move(mods), FN_MODE);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -252,22 +251,20 @@ public:
             {
                 // Already have a field with that name.
                 throw compiler_error_t(
-                    fmt_error(file, var_decl.name, 
+                    fmt_error(var_decl.name, 
                               fmt("Multiple definitions of % in %.", 
                                   var_decl.name.view(source()),
-                                  struct_name.view(source())))
-                    + fmt_error(file, map_pstring, 
-                                "Previous definition here:"));
+                                  struct_name.view(source())), &file)
+                    + fmt_error(map_pstring, "Previous definition here:", &file));
             }
             else
             {
                 throw compiler_error_t(
-                    fmt_error(file, var_decl.name, 
+                    fmt_error(var_decl.name, 
                               fmt("Hash collisision! % in %...", 
                                   var_decl.name.view(source()),
-                                  struct_name.view(source())))
-                    + fmt_error(file, map_pstring, 
-                                "...has the same fnv1a hash as:")
+                                  struct_name.view(source())), &file)
+                    + fmt_error(map_pstring, "...has the same fnv1a hash as:", &file)
                     + fmt_note("Rename one to avoid this issue."));
             }
         }
@@ -333,11 +330,11 @@ public:
         {
             // Already have a variable defined in this scope.
             throw compiler_error_t(
-                fmt_error(file, var_decl.name, 
+                fmt_error(var_decl.name, 
                           fmt("Identifier % already in use.", 
-                              var_decl.name.view(source())))
-                + fmt_error(file, fn_def.local_vars[*existing].name, 
-                            "Previous definition here:"));
+                              var_decl.name.view(source())), &file)
+                + fmt_error(fn_def.local_vars[*existing].name, 
+                            "Previous definition here:", &file));
         }
         fn_def.local_vars.push_back(var_decl);
         fn_def.push_var_init(handle, expr ? convert_expr(*expr) : nullptr, var_decl.src_type.pstring);
@@ -505,8 +502,8 @@ public:
         if(!pair.second)
         {
             throw compiler_error_t(
-                fmt_error(file, pstring, "Label name already in use.")
-                + fmt_error(file, pair.first->first, "Previous definition here:"));
+                fmt_error(pstring, "Label name already in use.", &file)
+                + fmt_error(pair.first->first, "Previous definition here:", &file));
         }
 
         // Link up the unlinked gotos that jump to this label.

@@ -108,7 +108,8 @@ mapper.cpp \
 rom.cpp \
 static_addr.cpp \
 rom_link.cpp \
-ram_init.cpp
+ram_init.cpp \
+mods.cpp
 
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))

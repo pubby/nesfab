@@ -74,14 +74,11 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
         {
             if(pstring && m_pstring)
             {
-                file_contents_t file1(pstring.file_i);
-                file_contents_t file2(m_pstring.file_i);
+                file_contents_t file(pstring.file_i);
                 throw compiler_error_t(
-                    fmt_error(file1, pstring, 
-                              fmt("Global identifier % already in use.", 
-                                  pstring.view(file1.source())))
-                    + fmt_error(file2, m_pstring, 
-                                "Previous definition here:"));
+                    fmt_error(pstring, fmt("Global identifier % already in use.", 
+                                           pstring.view(file.source())), &file)
+                    + fmt_error(m_pstring, "Previous definition here:"));
             }
             else
                 throw compiler_error_t(fmt("Global identifier % already in use.", name));
@@ -110,14 +107,15 @@ static unsigned _append_to_vec(Args&&... args)
 
 fn_t& global_t::define_fn(pstring_t pstring,
                           global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-                          type_t type, fn_def_t&& fn_def, fclass_t fclass)
+                          type_t type, fn_def_t&& fn_def, mods_t&& mods, fclass_t fclass)
 {
     fn_t* ret;
 
     // Create the fn
     define(pstring, GLOBAL_FN, std::move(ideps), std::move(weak_ideps), [&](global_t& g)
     { 
-        return fn_ht::pool_emplace(ret, g, type, std::move(fn_def), fclass).id; 
+        return fn_ht::pool_emplace(
+            ret, g, type, std::move(fn_def), std::move(mods), fclass).id; 
     });
 
     if(fclass == FN_MODE)
@@ -226,6 +224,11 @@ void global_t::parse_cleanup()
 {
     assert(compiler_phase() == PHASE_PARSE_CLEANUP);
 
+    // Verify groups are created:
+    for(group_t const& group : group_ht::values())
+        if(group.gclass() == GROUP_UNDEFINED)
+            compiler_error(group.pstring(), "Group name not in scope.");
+
     // Handle weak ideps:
     for(global_t& global : global_ht::values())
     {
@@ -248,7 +251,30 @@ void global_t::parse_cleanup()
 
     // Calculate language gvars and groups:
     for(fn_t& fn : fn_ht::values())
-        fn.calc_lang_gvars_groups();
+        fn.calc_lang_gvars();
+
+    // Assert mods
+    auto const assert_mod = [&](group_class_t gclass, auto const& pair)
+    {
+        if(pair.first->gclass() == gclass)
+            return;
+
+        pstring_t const mod_pstring = pair.second;
+        pstring_t const def_pstring = pair.first->pstring();
+
+        throw compiler_error_t(
+            fmt_error(mod_pstring, fmt("% is not a % group.", pair.first->name, group_class_keyword(gclass)))
+            + fmt_note(def_pstring, fmt("% was declared here.", pair.first->name)));
+    };
+
+    for(fn_t const& fn : fn_ht::values())
+    {
+        for(auto const& pair : fn.mods.group_vars)
+            assert_mod(GROUP_VARS, pair);
+        for(auto const& pair : fn.mods.group_data)
+            assert_mod(GROUP_DATA, pair);
+    }
+
 }
 
 global_t* global_t::detect_cycle(global_t& global, std::vector<std::string>& error_msgs)
@@ -267,14 +293,11 @@ global_t* global_t::detect_cycle(global_t& global, std::vector<std::string>& err
         {
             if(error != &global)
             {
-                file_contents_t file(global.m_pstring.file_i);
-                error_msgs.push_back(fmt_error(file, global.m_pstring, 
-                    "Mutually recursive with:"));
+                error_msgs.push_back(fmt_error(global.m_pstring, "Mutually recursive with:"));
                 return error;
             }
 
-            file_contents_t file(global.m_pstring.file_i);
-            std::string msg = fmt_error(file, global.m_pstring,
+            std::string msg = fmt_error(global.m_pstring,
                 fmt("% has a recursive definition.", global.name));
             for(std::string const& str : error_msgs)
                 msg += str;
@@ -430,61 +453,154 @@ void global_t::compile_all()
             global->compile();
         }
     });
-
-    // 1. allocate gvar memory
-    // 2. allocate local memory
-    // 3. layout vbanks in rom 
-    // 4. layout fns in rom 
-
-
-    // LAYOUT:
-    // - vbank is broken into segments
-    // - 
-
-    /* TODO
-    // Now allocate memory.
-    for(gvar_ht i = {0}; i.value < global_impl_vec<gvar_t>.size(); ++i.value)
-    {
-        gvar_t& gvar = global_impl_vec<gvar_t>[i];
-
-        // TODO
-        throw 0;
-
-    }
-
-    for(fn_t& fn : global_impl_vec<fn_t>)
-    {
-
-    }
-    */
 }
 
 //////////
 // fn_t //
 ///////////
 
-fn_t::fn_t(global_t& global, type_t type, fn_def_t fn_def, fclass_t fclass) 
+fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, mods_t&& mods, fclass_t fclass) 
 : global(global)
 , fclass(fclass)
+, mods(std::move(mods))
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
 , m_rom_proc(rom_proc_ht::pool_make())
 {}
 
-void fn_t::calc_lang_gvars_groups()
+void fn_t::calc_lang_gvars()
 {
+    assert(compiler_phase() < PHASE_COMPILE);
+
     if(m_lang_gvars)
         return;
 
     m_lang_gvars.reset(gvar_ht::bitset_size());
-    m_lang_group_vars.reset(group_vars_ht::bitset_size());
 
     for(global_t* idep : global.ideps())
     {
         if(idep->gclass() == GLOBAL_VAR)
-        {
             m_lang_gvars.set(idep->impl_id());
-            m_lang_group_vars.set(idep->impl<gvar_t>().group_vars.id);
+        else if(idep->gclass() == GLOBAL_FN)
+        {
+            fn_t& fn = idep->impl<fn_t>();
+
+            if(fn.fclass == FN_MODE)
+                continue;
+
+            // Recurse to ensure the called fn is calculated:
+            fn.calc_lang_gvars();
+            assert(fn.m_lang_gvars);
+
+            m_lang_gvars |= fn.m_lang_gvars;
+        }
+    }
+}
+
+
+void fn_t::calc_lang_groups()
+{
+    assert(compiler_phase() == PHASE_COMPILE);
+    assert(!m_lang_group_vars);
+
+    unsigned const bs_size = group_vars_ht::bitset_size();
+
+    m_lang_group_vars.reset(bs_size);
+
+    // For efficiency, we'll convert the mod groups into a bitset.
+    bitset_uint_t* temp_bs = ALLOCA_T(bitset_uint_t, bs_size);
+    bitset_uint_t* mod_group_vars = ALLOCA_T(bitset_uint_t, bs_size);
+
+    bitset_clear_all(bs_size, mod_group_vars);
+    if(mods.explicit_group_vars)
+    {
+        for(auto const& pair : mods.group_vars)
+            bitset_set(mod_group_vars, pair.first->impl_id());
+        bitset_or(bs_size, m_lang_group_vars.data(), mod_group_vars);
+    }
+
+    auto const group_vars_to_string = [bs_size](bitset_uint_t const* bs)
+    {
+        std::string str;
+        bitset_for_each(bs_size, bs, [&str](unsigned bit)
+            { str += group_vars_ht{bit}->group.name; });
+        return str;
+    };
+
+    auto const group_map_to_string = [](auto const& map)
+    {
+        std::string str;
+        for(auto const& pair : map)
+            str += pair.first->name;
+        return str;
+    };
+
+    // Handle accesses through pointers:
+    for(auto const& pair : m_lang_deref_groups)
+    {
+        auto const error = [&](group_class_t gclass, auto& groups)
+        {
+            type_t const type = pair.second.type;
+
+            char const* const keyword = group_class_keyword(gclass);
+
+            std::string const msg = fmt(
+                "% access requires groups that are excluded from % (% %).",
+                type, global.name, keyword, group_map_to_string(groups));
+
+            std::string missing = "";
+            for(unsigned i = 0; i < type.group_tail_size(); ++i)
+            {
+                group_ht const group = type.group(i);
+                if(group->gclass() == gclass && !groups.count(group))
+                    missing += group->name;
+            }
+
+            throw compiler_error_t(
+                fmt_error(pair.second.pstring, msg)
+                + fmt_note(fmt("Excluded groups: % %", keyword, missing)));
+        };
+
+        if(pair.first->gclass() == GROUP_VARS)
+        {
+            if(mods.explicit_group_vars && !mods.group_vars.count(pair.first))
+                error(GROUP_VARS, mods.group_vars);
+
+            m_lang_group_vars.set(pair.first->impl_id());
+        }
+        else if(pair.first->gclass() == GROUP_DATA)
+        {
+            if(mods.explicit_group_data && !mods.group_data.count(pair.first))
+                error(GROUP_DATA, mods.group_data);
+        }
+    }
+
+    // Handle direct dependencies:
+    for(global_t const* idep : global.ideps())
+    {
+        auto const error = [&](std::string const& dep_group_string, std::string const& missing)
+        {
+            std::string const msg = fmt(
+                "% (vars %) requires groups that are excluded from % (vars %).",
+                idep->name, dep_group_string, global.name, 
+                group_vars_to_string(mod_group_vars));
+
+            if(pstring_t const pstring = def().find_global(idep))
+                throw compiler_error_t(
+                    fmt_error(pstring, msg)
+                    + fmt_note(fmt("Excluded groups: vars %", missing)));
+            else // This shouldn't occur, but just in case...
+                compiler_error(global.pstring(), msg);
+        };
+
+        if(idep->gclass() == GLOBAL_VAR)
+        {
+            group_ht const group = idep->impl<gvar_t>().group();
+
+            if(mods.explicit_group_vars && !mods.group_vars.count(group))
+                error(group->name, group->name);
+
+            m_lang_group_vars.set(idep->impl_id());
         }
         else if(idep->gclass() == GLOBAL_FN)
         {
@@ -493,17 +609,35 @@ void fn_t::calc_lang_gvars_groups()
             if(fn.fclass == FN_MODE)
                 continue;
 
-            fn.calc_lang_gvars_groups();
-
-            assert(fn.m_lang_gvars);
             assert(fn.m_lang_group_vars);
 
-            m_lang_gvars |= fn.m_lang_gvars;
+            bitset_copy(bs_size, temp_bs, fn.m_lang_group_vars.data());
+            bitset_difference(bs_size, temp_bs, mod_group_vars);
+
+            if(mods.explicit_group_vars && !bitset_all_clear(bs_size, temp_bs))
+                error(group_vars_to_string(fn.lang_group_vars().data()),
+                      group_vars_to_string(temp_bs));
+
             m_lang_group_vars |= fn.m_lang_group_vars;
         }
     }
 
-    // TODO: add pointers to group_vars?
+    /*
+    bitset_flipped_difference(bs_size, mod_group_vars, m_lang_groups.data());
+
+    if(!bitset_all_clear(bs_size, mod_group_vars))
+    {
+        throw 0; // TODO
+
+        // How can we track this?
+        // - idea: track local uses with a map
+        // - on failure, iterate upwards until finding
+
+        //group_ht const group = { bitset_lowest_bit_set(bs_size, mod_group_vars) };
+        //assert(mods.groups.count(group));
+        //compiler_error(mods.groups[group], fmt("% declared to use group, "));
+    }
+    */
 }
 
 void fn_t::calc_ir_bitsets(ir_t const& ir)
@@ -592,9 +726,11 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
             unsigned const size = ptr_type.group_tail_size();
             for(unsigned i = 0; i < size; ++i)
             {
+                // Set 'ptr_groups':
                 group_ht const h = ptr_type.group(i);
                 ptr_groups.set(h.id);
 
+                // Also update 'ir_group_vars':
                 group_t const& group = *h;
                 if(group.gclass() == GROUP_VARS)
                     group_vars.set(group.handle<group_vars_ht>().id);
@@ -708,7 +844,8 @@ void fn_t::compile()
     ssa_pool::clear();
     cfg_pool::clear();
     ir_t ir;
-    build_ir(ir, *this);
+    build_ir(ir, m_lang_deref_groups, *this);
+    calc_lang_groups();
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {

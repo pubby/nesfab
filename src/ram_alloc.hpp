@@ -5,7 +5,7 @@
 
 #include "ram.hpp"
 
-void alloc_ram(ram_bitset_t const& initial);
+void alloc_ram(ram_bitset_t const& initial, std::ostream* log);
 
 void print_ram(std::ostream& o);
 

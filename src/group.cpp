@@ -44,14 +44,11 @@ unsigned group_t::define(pstring_t pstring, group_class_t gclass,
         {
             if(pstring && m_pstring)
             {
-                file_contents_t file1(pstring.file_i);
-                file_contents_t file2(m_pstring.file_i);
+                file_contents_t file(pstring.file_i);
                 throw compiler_error_t(
-                    fmt_error(file1, pstring, 
-                              fmt("Group identifier % already in use.", 
-                                  pstring.view(file1.source())))
-                    + fmt_error(file2, m_pstring, 
-                                "Previous definition here:"));
+                    fmt_error(pstring, fmt("Group identifier % already in use.", 
+                                           pstring.view(file.source())), &file)
+                    + fmt_error(m_pstring, "Previous definition here:"));
             }
             else
                 throw compiler_error_t(fmt("Group identifier % already in use.", name));
@@ -96,10 +93,3 @@ std::pair<group_data_t*, group_data_ht> group_t::define_data(pstring_t pstring, 
     return std::make_pair(ptr ? ptr : &h.safe(), h);
 }
 
-void group_t::parse_cleanup()
-{
-    assert(compiler_phase() > PHASE_PARSE);
-    for(group_t const& group : group_ht::values())
-        if(group.gclass() == GROUP_UNDEFINED)
-            compiler_error(group.pstring(), "Group name not in scope.");
-}

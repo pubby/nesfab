@@ -9,6 +9,7 @@
 #include "options.hpp"
 #include "ram.hpp"
 #include "rom.hpp"
+#include "debug_print.hpp"
 
 namespace  // anonymous namespace
 {
@@ -78,7 +79,7 @@ span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t 
 class ram_allocator_t
 {
 public:
-    explicit ram_allocator_t(ram_bitset_t const& initial_usable_ram);
+    ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::ostream* log);
 
 private:
     enum step_t
@@ -136,9 +137,12 @@ private:
     std::vector<group_vars_d> group_vars_data;
     std::vector<fn_d> fn_data;
     std::vector<fn_ht> fn_order;
+
+    std::ostream* log = nullptr;
 };
 
-ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
+ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::ostream* log)
+: log(log)
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
 
@@ -164,7 +168,6 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             gm.alloc_spans();
 
         // Init 'maximal_group_vars'
-        unsigned const group_vars_bs_size = group_vars_ht::bitset_size();
         for(fn_ht fn : fn_ht::handles())
         {
             if(fn->fclass == FN_CT)
@@ -183,6 +186,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
             mode->ir_calls().for_each([&](unsigned j)
             {
+                // Propagate down call graph, not up
                 fn_data[j].maximal_group_vars |= mode->ir_group_vars();
             });
         }
@@ -297,14 +301,16 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
             unsigned const size = loc.mem_size();
 
+            dprint(log, "-ALLOC_RAM_ESTIMATE", loc);
+
             if(!d.interferences.for_each_test([&](unsigned i) -> bool
                 { return group_vars_data[i].zp_estimate >= size; }))
             {
-                std::cout << "alloc failed estimate " << loc << std::endl;
+                dprint(log, "--FAILED_ESTIMATE");
                 return;
             }
 
-            std::cout << "alloc estimated " << loc << std::endl;
+            dprint(log, "--SUCCEEDED_ESTIMATE");
             estimated_in_zp.insert(loc);
 
             d.interferences.for_each([&](unsigned i)
@@ -387,7 +393,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
 
             group_vars_d& d = data(gmember.gvar.group_vars);
 
-            std::cout << "allocing loc " << loc << std::endl;
+            dprint(log, "-RAM_GMEMBER_ALLOCATION", loc, loc.mem_size(), loc.mem_zp_only());
 
             zp_request_t zp;
             if(loc.mem_zp_only())
@@ -402,8 +408,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
             if(!span)
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
 
-            std::printf("allocing %i %i %i\n", loc.mem_size(), loc.mem_zp_only(), zp);
-            std::cout << "allocating at " << span << std::endl;
+            dprint(log, "--RESULT", span);
 
             if(is_ptr)
             {
@@ -427,8 +432,6 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         for(group_inits_t const& inits : ordered_inits)
             for(locator_t loc : inits.init)
                 alloc_gmember_loc(loc);
-
-        std::cout << "allocing UNINIT\n";
 
         for(rank_t const& rank : ordered_gmembers_zp)
             alloc_gmember_loc(rank.loc);
@@ -481,7 +484,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram)
         build_order(mode_rank);
 
         for(fn_ht fn : fn_order)
-            std::cout << "building " << fn->global.name << std::endl;
+            dprint(log, "-RAM_ALLOC_BUILD_ORDER", fn->global.name);
 
         for(fn_ht fn : fn_order)
             alloc_locals<ZP_ONLY_ALLOC>(fn);
@@ -514,7 +517,6 @@ void ram_allocator_t::build_order(fn_ht fn)
         std::vector<fn_ht> fn_rank;
         fn_rank.reserve(fn->ir_calls().popcount());
         fn->ir_calls().for_each([&fn_rank](unsigned i){ fn_rank.push_back(fn_ht{i}); });
-        std::cout << "fn rank size = " << fn_rank.size() << std::endl;
         build_order(fn_rank);
     }
 
@@ -530,8 +532,6 @@ void ram_allocator_t::alloc_locals(fn_ht h)
 
     assert(d.step < Step);
     assert((data(h).usable_ram & data(h).lvar_ram).all_clear());
-
-    std::cout << h->global.name << " lvars =  " << fn.lvars().num_this_lvars() << ' ' << fn.lvars().num_all_lvars() << std::endl;
 
     // Setup lvar usable ram:
     std::vector<ram_bitset_t> lvar_usable_ram;
@@ -623,7 +623,8 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         auto const& info = fn.lvars().this_lvar_info(lvar_i);
         assert(!info.ptr_hi);
 
-        std::cout << "allocating lvar " << fn.lvars().locator(lvar_i) << ' ' << info.size << std::endl;
+        dprint(log, "-RAM_ALLOC_LOCALS", fn.lvars().locator(lvar_i), info.size);
+
         assert(lvar_i < lvar_usable_ram.size());
 
         // First try to allocate in 'freebie_ram'.
@@ -637,7 +638,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         if(!span)
             throw std::runtime_error("Unable to allocate local variable (out of RAM).");
 
-        std::cout << "allocating at " << span << std::endl;
+        dprint(log, "--RESULT", span);
 
         // Record the allocation.
 
@@ -696,9 +697,10 @@ void ram_allocator_t::alloc_locals(fn_ht h)
 
 } // end anonymous namespace
 
-void alloc_ram(ram_bitset_t const& initial)
+void alloc_ram(ram_bitset_t const& initial, std::ostream* log)
 {
-    ram_allocator_t a(initial);
+    dprint(log, "ALLOCATING_RAM");
+    ram_allocator_t a(initial, log);
 }
 
 void print_ram(std::ostream& o)

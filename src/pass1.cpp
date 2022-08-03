@@ -40,7 +40,7 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
         }
         else if(token.type == TOK_at)
         {
-            if(unsigned const* handle = symbol_table.find(token.pstring.view(source())))
+            if(symbol_table.find(token.pstring.view(source())))
                 compiler_error(token.pstring, "Cannot get addresses of local variables.");
             else
             {

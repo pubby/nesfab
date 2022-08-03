@@ -11,8 +11,17 @@
 class compiler_error_t : public std::runtime_error
 {
 public:
-    explicit compiler_error_t(char const* what) : std::runtime_error(what) {}
-    explicit compiler_error_t(std::string const& what) : std::runtime_error(what) {}
+    explicit compiler_error_t(char const* what, bool warning = false) 
+    : std::runtime_error(what)
+    , warning(warning)
+    {}
+
+    explicit compiler_error_t(std::string const& what, bool warning = false) 
+    : std::runtime_error(what)
+    , warning(warning)
+    {}
+
+    bool warning = false;
 };
 
 std::string fmt_source_pos(file_contents_t const& file, pstring_t pstring);

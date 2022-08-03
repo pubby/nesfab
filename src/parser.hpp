@@ -57,10 +57,15 @@ private:
     template<typename Func>
     void parse_block(int const parent_indent, Func func);
 
+    // Parses 'fn' as the start of a block, then parses and returns a mods.
+    // This properly handles split lines!
+    template<typename Fn>
+    mods_t parse_mods_after(Fn const& fn);
+
     static bool fail_using() { return false; }
 
-    template<typename First>
-    int parse_then(First const& first);
+    template<typename Fn>
+    int parse_then(Fn const& fn);
 
     template<typename First, typename Second>
     int parse_then(First const& first, Second const& second);
@@ -84,7 +89,7 @@ private:
     var_decl_t parse_var_decl(bool block_init, group_ht group);
     bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool block_init, group_ht group);
 
-    mods_t parse_mods(int base_indent, bool required = false);
+    mods_t parse_mods(int base_indent);
 
     void parse_top_level();
     void parse_top_level_def();

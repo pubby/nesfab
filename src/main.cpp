@@ -45,6 +45,7 @@ int main(int argc, char** argv)
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("timelimit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
                 ("build-time,B", "print compiler execution time")
+                ("error-on-warning,W", "turn warnings into errors")
                 ("output-file,o", po::value<std::string>(), "output file")
             ;
 
@@ -85,6 +86,9 @@ int main(int argc, char** argv)
 
             if(vm.count("build-time"))
                 _options.build_time = true;
+
+            if(vm.count("error-on-warning"))
+                _options.werror = true;
 
             if(vm.count("threads"))
                 _options.num_threads = std::clamp(vm["threads"].as<int>(), 1, 1024); // Clamp to some sufficiently high value

@@ -40,6 +40,49 @@ private:
     bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> continue_stack;
 
     struct nothing_t {};
+
+    void validate_mods(
+        char const* keyword, pstring_t pstring, mods_t const& mods, 
+        mod_flags_t accepts_flags = 0, bool accepts_vars = false, bool accepts_data = false)
+    {
+        if(!mods)
+            return;
+
+        char const* const in = keyword ? " attached to " : "";
+
+        if(!accepts_vars && mods.explicit_group_vars)
+        {
+            compiler_warning(pstring, 
+                fmt("Ignoring vars modifier%%.", in, keyword), &file);
+        }
+
+        if(!accepts_data && mods.explicit_group_data)
+        {
+            compiler_warning(pstring, 
+                fmt("Ignoring data modifier%%.", in, keyword), &file);
+        }
+
+        mod_flags_t const bad_enable = mods.enable & ~accepts_flags;
+        mod_flags_t const bad_disable = mods.disable & ~accepts_flags;
+
+        if((bad_enable | bad_disable) && mods.explicit_flags)
+        {
+            bitset_for_each(bad_enable, [&](unsigned bit)
+            {
+                compiler_warning(pstring, 
+                    fmt("Ignoring modifier +%%%.", 
+                        to_string(mod_flags_t(1ull << bit)), in, keyword), &file);
+            });
+
+            bitset_for_each(bad_disable, [&](unsigned bit)
+            {
+                compiler_warning(pstring, 
+                    fmt("Ignoring modifier -%%%.", 
+                        to_string(mod_flags_t(1ull << bit)), in, keyword), &file);
+            });
+        }
+    }
+
 public:
     explicit pass1_t(file_contents_t const& file) 
     : file(file)
@@ -125,7 +168,7 @@ public:
         symbol_table.pop_scope(); // param scope
         label_map.clear();
         assert(symbol_table.empty());
-        fn_def.push_stmt({ STMT_END_FN, {}, decl.name });
+        fn_def.push_stmt({ STMT_END_FN, {}, {}, decl.name });
 
         if(!unlinked_gotos.empty())
         {
@@ -317,7 +360,7 @@ public:
     [[gnu::always_inline]]
     void expr_statement(expr_temp_t& expr)
     {
-        fn_def.push_stmt({ STMT_EXPR, {}, {}, convert_expr(expr) });
+        fn_def.push_stmt({ STMT_EXPR, {}, {}, {}, convert_expr(expr) });
     }
 
     [[gnu::always_inline]]
@@ -341,50 +384,77 @@ public:
         uses_type(var_decl.src_type.type);
     }
 
+    struct flow_d
+    {
+        stmt_ht begin;
+        stmt_mods_ht mods;
+    };
+
+    struct if_d : flow_d {};
+
     [[gnu::always_inline]]
-    stmt_ht begin_if(pstring_t pstring, expr_temp_t& condition)
+    if_d begin_if(pstring_t pstring, expr_temp_t& condition, mods_t&& mods)
     {
         symbol_table.push_scope();
-        return fn_def.push_stmt({ STMT_IF, {}, pstring, convert_expr(condition) });
+
+        validate_mods("if", pstring, mods);
+
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+        stmt_ht const begin_if = fn_def.push_stmt({ STMT_IF, mods_h, {}, pstring, convert_expr(condition) });
+        return { begin_if, mods_h };
     }
 
     [[gnu::always_inline]]
-    void end_if(stmt_ht if_begin) 
+    void end_if(if_d d) 
     { 
-        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_IF, if_begin }) + 1;
+        fn_def[d.begin].link = fn_def.push_stmt({ STMT_END_IF, d.mods, d.begin }) + 1;
         symbol_table.pop_scope();
     }
 
+    struct else_d : flow_d {};
+
     [[gnu::always_inline]]
-    stmt_ht end_if_begin_else(stmt_ht if_begin, pstring_t pstring)
+    else_d end_if_begin_else(if_d d, pstring_t pstring, mods_t&& mods)
     {
-        fn_def[if_begin].link = fn_def.push_stmt({ STMT_END_IF, if_begin }) + 1;
+        fn_def[d.begin].link = fn_def.push_stmt({ STMT_END_IF, d.mods, d.begin }) + 1;
         symbol_table.pop_scope();
         symbol_table.push_scope();
-        return fn_def.push_stmt({ STMT_ELSE, {}, pstring });
+
+        validate_mods("else", pstring, mods);
+
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+        stmt_ht const begin_else = fn_def.push_stmt({ STMT_ELSE, mods_h, {}, pstring });
+        return { begin_else, mods_h };
     }
 
     [[gnu::always_inline]]
-    void end_else(stmt_ht else_begin) 
+    void end_else(else_d d) 
     { 
-        fn_def[else_begin].link = fn_def.push_stmt({ STMT_END_IF, else_begin }) + 1;
+        fn_def[d.begin].link = fn_def.push_stmt({ STMT_END_IF, d.mods, d.begin }) + 1;
         symbol_table.pop_scope();
     }
 
+    struct do_d : flow_d {};
+
     [[gnu::always_inline]]
-    stmt_ht begin_do_while(pstring_t pstring) 
+    do_d begin_do_while(pstring_t pstring, mods_t&& mods) 
     { 
         symbol_table.push_scope();
         break_stack.emplace_back();
         continue_stack.emplace_back();
-        return fn_def.push_stmt({ STMT_DO, {}, pstring });
+
+        validate_mods("do", pstring, mods);
+
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+        stmt_ht const begin_while = fn_def.push_stmt({ STMT_DO, mods_h, {}, pstring });
+        return { begin_while, mods_h };
     }
 
     [[gnu::always_inline]]
-    void end_do_while(stmt_ht begin_do, pstring_t pstring, expr_temp_t& condition)
+    void end_do_while(do_d d, pstring_t pstring, expr_temp_t& condition)
     {
-        stmt_ht const cond = fn_def.push_stmt({ STMT_END_DO, begin_do, pstring, convert_expr(condition) });
-        fn_def[begin_do].link = cond;
+        stmt_ht const cond = fn_def.push_stmt({ STMT_END_DO, d.mods, d.begin, pstring, convert_expr(condition) });
+        fn_def[d.begin].link = cond;
 
         for(stmt_ht h : break_stack.back())
             fn_def[h].link = cond + 1;
@@ -396,40 +466,47 @@ public:
         symbol_table.pop_scope();
     }
 
+    struct while_d : flow_d {};
+
     [[gnu::always_inline]]
-    stmt_ht begin_while(pstring_t pstring, expr_temp_t& condition)
+    while_d begin_while(pstring_t pstring, expr_temp_t& condition, mods_t&& mods)
     {
         symbol_table.push_scope();
         break_stack.emplace_back();
         continue_stack.emplace_back();
-        return fn_def.push_stmt({ STMT_WHILE, {}, pstring, convert_expr(condition) });
+
+        validate_mods("while", pstring, mods);
+
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+        stmt_ht const begin_while = fn_def.push_stmt({ STMT_WHILE, mods_h, {}, pstring, convert_expr(condition) });
+
+        return { begin_while, mods_h};
     }
 
     [[gnu::always_inline]]
-    void end_while(stmt_ht begin_while)
+    void end_while(while_d d)
     {
-        stmt_ht const exit = fn_def.push_stmt({ STMT_END_WHILE, begin_while });
-        fn_def[begin_while].link = exit + 1;
+        stmt_ht const exit = fn_def.push_stmt({ STMT_END_WHILE, d.mods, d.begin });
+        fn_def[d.begin].link = exit + 1;
 
         for(stmt_ht h : break_stack.back())
             fn_def[h].link = exit + 1;
         for(stmt_ht h : continue_stack.back())
-            fn_def[h].link = begin_while;
+            fn_def[h].link = d.begin;
 
         break_stack.pop_back();
         continue_stack.pop_back();
         symbol_table.pop_scope();
     }
 
-    struct for_d
+    struct for_d : flow_d
     {
-        stmt_ht begin_for;
         expr_temp_t* effect;
     };
 
     [[gnu::always_inline]]
     for_d begin_for(pstring_t pstring, var_decl_t* var_decl, expr_temp_t* init, 
-                    expr_temp_t* condition, expr_temp_t* effect)
+                    expr_temp_t* condition, expr_temp_t* effect, mods_t&& mods)
     {
         symbol_table.push_scope();
 
@@ -438,27 +515,30 @@ public:
         else if(init)
             expr_statement(*init);
 
+        validate_mods("for", pstring, mods);
+
         stmt_ht begin_for;
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
 
         if(condition)
-            begin_for = fn_def.push_stmt({ STMT_FOR, {}, pstring, convert_expr(*condition) });
+            begin_for = fn_def.push_stmt({ STMT_FOR, mods_h, {}, pstring, convert_expr(*condition) });
         else
-            begin_for = fn_def.push_stmt({ STMT_FOR, {}, pstring, nullptr });
+            begin_for = fn_def.push_stmt({ STMT_FOR, mods_h, {}, pstring, nullptr });
 
         symbol_table.push_scope();
         break_stack.emplace_back();
         continue_stack.emplace_back();
         
-        return { begin_for, effect };
+        return { begin_for, mods_h, effect };
     }
 
     [[gnu::always_inline]]
     void end_for(for_d d)
     {
-        stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, {}, {}, d.effect ? convert_expr(*d.effect) : nullptr });
+        stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, d.mods, d.begin, {}, d.effect ? convert_expr(*d.effect) : nullptr });
         symbol_table.pop_scope();
-        stmt_ht const exit = fn_def.push_stmt({ STMT_END_FOR, d.begin_for });
-        fn_def[d.begin_for].link = exit + 1;
+        stmt_ht const exit = fn_def.push_stmt({ STMT_END_FOR, d.mods, d.begin });
+        fn_def[d.begin].link = exit + 1;
 
         for(stmt_ht h : break_stack.back())
             fn_def[h].link = exit + 1;
@@ -471,31 +551,41 @@ public:
     }
 
     [[gnu::always_inline]]
-    void return_statement(pstring_t pstring, expr_temp_t* expr)
+    void return_statement(pstring_t pstring, expr_temp_t* expr, mods_t&& mods)
     {
+        validate_mods("return", pstring, mods);
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+
         if(expr)
-            fn_def.push_stmt({ STMT_RETURN, {}, pstring, convert_expr(*expr) });
+            fn_def.push_stmt({ STMT_RETURN, mods_h, {}, pstring, convert_expr(*expr) });
         else
-            fn_def.push_stmt({ STMT_RETURN, {}, pstring, nullptr });
+            fn_def.push_stmt({ STMT_RETURN, mods_h, {}, pstring, nullptr });
     }
 
     [[gnu::always_inline]]
-    void break_statement(pstring_t pstring)
+    void break_statement(pstring_t pstring, mods_t&& mods)
     {
-        break_stack.back().push_back(fn_def.push_stmt({ STMT_BREAK, {}, pstring }));
+        validate_mods("break", pstring, mods);
+        break_stack.back().push_back(fn_def.push_stmt(
+            { STMT_BREAK, fn_def.push_mods(std::move(mods)), {}, pstring }));
     }
 
     [[gnu::always_inline]]
-    void continue_statement(pstring_t pstring)
+    void continue_statement(pstring_t pstring, mods_t&& mods)
     {
-        break_stack.back().push_back(fn_def.push_stmt({ STMT_CONTINUE, {}, pstring }));
+        validate_mods("continue", pstring, mods);
+        break_stack.back().push_back(fn_def.push_stmt(
+            { STMT_CONTINUE, fn_def.push_mods(std::move(mods)), {}, pstring }));
     }
 
     [[gnu::always_inline]]
-    void label_statement(pstring_t pstring)
+    void label_statement(pstring_t pstring, mods_t&& mods)
     {
+        validate_mods("label", pstring, mods);
+
         // Create a new label
-        stmt_ht label = fn_def.push_stmt({ STMT_LABEL, {}, pstring, { .use_count = 0 } });
+        stmt_ht label = fn_def.push_stmt(
+            { STMT_LABEL, fn_def.push_mods(std::move(mods)), {}, pstring, { .use_count = 0 } });
 
         // Add it to the label map
         auto pair = label_map.emplace(pstring, label);
@@ -516,9 +606,11 @@ public:
     }
 
     [[gnu::always_inline]]
-    void goto_statement(pstring_t pstring)
+    void goto_statement(pstring_t pstring, mods_t&& mods)
     {
-        stmt_ht goto_h = fn_def.push_stmt({ STMT_GOTO, {}, pstring });
+        validate_mods("goto", pstring, mods);
+        stmt_ht const goto_h = fn_def.push_stmt(
+            { STMT_GOTO, fn_def.push_mods(std::move(mods)), {}, pstring });
 
         auto it = label_map.find(pstring);
         if(it == label_map.end())
@@ -535,9 +627,11 @@ public:
     }
 
     [[gnu::always_inline]]
-    void goto_mode_statement(pstring_t mode, expr_temp_t& expr)
+    void goto_mode_statement(pstring_t mode, expr_temp_t& expr, mods_t&& mods)
     {
-        fn_def.push_stmt({ STMT_GOTO_MODE, {}, mode, convert_expr(expr) });
+        validate_mods("goto mode", mode, mods, 0, true, false);
+        fn_def.push_stmt(
+            { STMT_GOTO_MODE, fn_def.push_mods(std::move(mods)), {}, mode, convert_expr(expr) });
     }
 };
 

@@ -261,14 +261,14 @@ public:
 
     bitset_t const& lang_gvars()  const { assert(m_lang_gvars);  return m_lang_gvars; }
     bitset_t const& lang_group_vars() const { assert(global.compiled()); assert(m_lang_group_vars); return m_lang_group_vars; }
-    //bitset_t const& lang_ptr_groups() const { assert(global.compiled()); assert(m_lang_ptr_groups); return m_lang_ptr_groups; }
+    //bitset_t const& lang_deref_groups() const { assert(global.compiled()); assert(m_lang_deref_groups); return m_lang_deref_groups; }
 
     // These are only valid after 'calc_ir_reads_writes_purity' has ran.
     bitset_t const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
     bitset_t const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
     bitset_t const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
     bitset_t const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
-    bitset_t const& ir_ptr_groups() const { assert(m_ir_ptr_groups); return m_ir_ptr_groups; }
+    bitset_t const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
 
     bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
@@ -307,7 +307,7 @@ private:
     bitset_t m_ir_reads;
     bitset_t m_ir_writes;
     bitset_t m_ir_group_vars;
-    bitset_t m_ir_ptr_groups;
+    bitset_t m_ir_deref_groups;
     bitset_t m_ir_calls;
 
     // If the function doesn't do I/O.

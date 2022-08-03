@@ -645,7 +645,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     bitset_t  reads(gmember_ht::bitset_size());
     bitset_t writes(gmember_ht::bitset_size());
     bitset_t group_vars(group_vars_ht::bitset_size());
-    bitset_t ptr_groups(group_ht::bitset_size());
+    bitset_t deref_groups(group_ht::bitset_size());
     bitset_t calls(fn_ht::bitset_size());
     bool io_pure = true;
 
@@ -726,9 +726,9 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
             unsigned const size = ptr_type.group_tail_size();
             for(unsigned i = 0; i < size; ++i)
             {
-                // Set 'ptr_groups':
+                // Set 'deref_groups':
                 group_ht const h = ptr_type.group(i);
-                ptr_groups.set(h.id);
+                deref_groups.set(h.id);
 
                 // Also update 'ir_group_vars':
                 group_t const& group = *h;
@@ -742,7 +742,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     m_ir_reads  = std::move(reads);
     m_ir_group_vars = std::move(group_vars);
     m_ir_calls = std::move(calls);
-    m_ir_ptr_groups = std::move(ptr_groups);
+    m_ir_deref_groups = std::move(deref_groups);
     m_ir_io_pure = io_pure;
 }
 

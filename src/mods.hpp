@@ -12,7 +12,7 @@
 
 struct pstring_t;
 
-using mod_flags_t = std::uint64_t;
+using mod_flags_t = std::uint32_t;
 
 #define MOD(name, bit) constexpr mod_flags_t MOD_##name = 1 << (bit);
 #include "mods.inc"
@@ -26,14 +26,19 @@ struct src_group_t
 
 struct mods_t
 {
+    bool defined = false;
+    bool explicit_group_vars = false;
+    bool explicit_group_data = false;
+    bool explicit_flags = false;
+
     fc::vector_map<group_ht, pstring_t> group_vars;
     fc::vector_map<group_ht, pstring_t> group_data;
 
-    bool explicit_group_vars = false;
-    bool explicit_group_data = false;
-
     mod_flags_t enable = 0;
     mod_flags_t disable = 0;
+
+    constexpr explicit operator bool() const { return defined; }
+    constexpr bool operator!() const { return !defined; }
 
     void remove_conflicting_flags()
     {

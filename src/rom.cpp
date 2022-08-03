@@ -127,7 +127,7 @@ void rom_proc_t::assign(asm_proc_t&& asm_proc)
 bitset_t const* rom_proc_t::uses_groups() const 
 { 
     assert(compiler_phase() > rom_proc_ht::phase);
-    return m_asm_proc.fn ? &m_asm_proc.fn->ir_ptr_groups() : nullptr; 
+    return m_asm_proc.fn ? &m_asm_proc.fn->ir_deref_groups() : nullptr; 
 }
 
 bool rom_proc_t::for_each_group_test(std::function<bool(group_ht)> const& fn)

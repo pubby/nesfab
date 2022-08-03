@@ -11,6 +11,7 @@ struct options_t
     int time_limit = 1000;
     bool graphviz = false;
     bool build_time = false;
+    bool werror = false;
     mapper_t mapper = mapper_t::bnrom(MIRROR_H, 4);
     std::string output_file = "a.nes";
 };

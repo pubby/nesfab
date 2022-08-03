@@ -1,6 +1,7 @@
 #include "compiler_error.hpp"
 
 #include "format.hpp"
+#include "options.hpp"
 
 namespace
 {
@@ -113,8 +114,9 @@ std::string fmt_error(
     str += color;
 
     // Remove trailing whitespace
-    while(pstring.size && std::isspace(file->source()[pstring.offset + pstring.size - 1]))
-        --pstring.size;
+    if(!std::isspace(file->source()[pstring.offset]))
+        while(pstring.size && std::isspace(file->source()[pstring.offset + pstring.size - 1]))
+            --pstring.size;
 
     unsigned i = 0;
     do
@@ -148,12 +150,31 @@ void compiler_warning(pstring_t pstring, std::string const& what,
                       file_contents_t const* file)
 {
     std::string msg = fmt_error(pstring, what, file, CONSOLE_YEL CONSOLE_BOLD, "warning");
-    std::fputs(msg.c_str(), stderr);
-    std::fflush(stderr);
+
+    if(compiler_options().werror)
+    {
+        msg += fmt_note("This is an error because --error-on-warning is enabled.");
+        throw compiler_error_t(std::move(msg));
+    }
+    else
+    {
+        std::fputs(msg.c_str(), stderr);
+        std::fflush(stderr);
+    }
 }
 
 void compiler_warning(std::string const& what)
 {
-    std::fprintf(stderr, CONSOLE_YEL CONSOLE_BOLD "warning: " CONSOLE_RESET "%s\n", what.data());
-    std::fflush(stderr);
+    std::string msg = fmt(CONSOLE_YEL CONSOLE_BOLD "warning: " CONSOLE_RESET "%s", what);
+
+    if(compiler_options().werror)
+    {
+        msg += fmt_note("This is an error because --error-on-warning is enabled.");
+        throw compiler_error_t(std::move(msg));
+    }
+    else
+    {
+        std::fputs(msg.c_str(), stderr);
+        std::fflush(stderr);
+    }
 }

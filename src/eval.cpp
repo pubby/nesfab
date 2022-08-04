@@ -105,7 +105,7 @@ private:
 public:
     spair_t final_result;
     std::vector<locator_t> paa; // Only used when defining PAA inits
-    deref_groups_t* deref_groups = nullptr; // All 'group_t's dereferenced by a pointer.
+    eval_tracked_t* eval_tracked = nullptr; // Various things callers of 'eval_t' may want.
 
     enum do_t
     {
@@ -125,9 +125,10 @@ public:
     eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, type_t expected_type = TYPE_VOID);
 
     template<do_t D>
-    eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn, sval_t const* args, unsigned num_args);
+    eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
+           eval_tracked_t* tracked, sval_t const* args, unsigned num_args);
 
-    eval_t(ir_t& ir, fn_t const& fn, deref_groups_t& deref_groups);
+    eval_t(ir_t& ir, fn_t const& fn);
 
     struct access_t
     {
@@ -293,13 +294,20 @@ std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr)
     return std::move(i.paa);
 }
 
-void build_ir(ir_t& ir, deref_groups_t& deref_groups, fn_t const& fn)
+eval_tracked_t build_tracked(fn_t const& fn)
+{
+    eval_tracked_t tracked;
+    eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK>{}, {}, fn, &tracked, nullptr, 0);
+    return tracked;
+}
+
+void build_ir(ir_t& ir, fn_t const& fn)
 {
     assert(cfg_data_pool::array_size() == 0);
     assert(ssa_data_pool::array_size() == 0);
     cfg_data_pool::scope_guard_t<block_d> cg(0);
 
-    eval_t eval(ir, fn, deref_groups);
+    eval_t eval(ir, fn);
 }
 
 template<eval_t::do_t D>
@@ -311,11 +319,13 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, type_t e
 }
 
 template<eval_t::do_t D>
-eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, sval_t const* args, unsigned num_args)
+eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
+               eval_tracked_t* tracked, sval_t const* args, unsigned num_args)
 : pstring(pstring)
 , fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , start_time(clock::now())
+, eval_tracked(tracked)
 {
     unsigned const nlocals = num_locals();
 
@@ -336,26 +346,28 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, sval_t co
     }
     else
     {
-        assert(args);
-        assert(num_args <= nlocals);
-
-        interpret_locals.resize(nlocals);
-        for(unsigned i = 0; i < num_args; ++i)
+        if(D != CHECK)
         {
-            assert(args[i].size() == num_members(var_types[i]));
-            interpret_locals[i] = args[i];
+            interpret_locals.resize(nlocals);
+
+            assert(args);
+            assert(num_args <= nlocals);
+            for(unsigned i = 0; i < num_args; ++i)
+            {
+                assert(args[i].size() == num_members(var_types[i]));
+                interpret_locals[i] = args[i];
+            }
         }
 
         interpret_stmts<D>();
     }
 }
 
-eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, deref_groups_t& deref_groups_ref)
+eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
 : fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , ir(&ir_ref)
 , start_time(clock::now())
-, deref_groups(&deref_groups_ref)
 {
     // Reset the static thread-local state:
     builder.clear(); // TODO: make sure this isn't called in recursion
@@ -404,7 +416,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, deref_groups_t& deref_groups_re
         auto& vars = ir->root.data<block_d>().vars;
         assert(vars.size() == var_types.size());
 
-        for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+        for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
         {
             assert(var_i < vars.size());
             assert(m->member() < vars[var_i].size());
@@ -460,7 +472,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, deref_groups_t& deref_groups_re
     {
         unsigned const var_i = to_var_i(i);
 
-        for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+        for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
         {
             return_inputs.push_back(var_lookup(ir->exit, var_i, m->member()));
             return_inputs.push_back(locator_t::gmember(m, 0));
@@ -602,6 +614,10 @@ void eval_t::interpret_stmts()
                 compiler_error(stmt->pstring, "Statement cannot appear in constant evaluation.");
             break;
 
+        case STMT_GOTO_MODE:
+            if(D != CHECK)
+                compiler_error(stmt->pstring, "Statement cannot appear in constant evaluation.");
+            // fall-through
         case STMT_EXPR:
         case STMT_FOR_EFFECT:
             do_expr<D>(rpn_stack, stmt->expr);
@@ -977,8 +993,12 @@ void eval_t::compile_block()
     case STMT_GOTO:
         {
             label_t& label = builder.label_map[&fn->def()[stmt->link]];
-            unsigned const use_count = fn->def()[stmt->link].use_count;
-            assert(use_count > 0);
+
+            stmt_t const& label_stmt = fn->def()[stmt->link];
+            assert(label_stmt.name == STMT_LABEL);
+            unsigned const label_use_count = label_stmt.use_count;
+            assert(label_use_count > 0);
+
             ++stmt;
 
             // Add the jump to the label.
@@ -986,7 +1006,7 @@ void eval_t::compile_block()
             builder.cfg = compile_goto();
 
             // If this is the last goto, finish and seal the node.
-            if(use_count + 1 == label.inputs.size())
+            if(label_use_count + 1 == label.inputs.size())
             {
                 assert(label.node);
                 for(cfg_ht node : label.inputs)
@@ -1087,6 +1107,9 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             case GLOBAL_VAR:
                 if(D == COMPILE || D == CHECK)
                 {
+                    if(eval_tracked)
+                        eval_tracked->gvars_used.emplace(global->handle<gvar_ht>(), token->pstring);
+
                     rpn_value_t new_top =
                     {
                         .category = LVAL, 
@@ -1186,12 +1209,12 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 if(!v.is_paa)
                     compiler_error(token->pstring, "Cannot get address.");
 
-                assert(v.begin_gmember() != v.end_gmember());
+                assert(v.begin() != v.end());
 
                 // Convert to a pointer.
                 rpn_value_t new_top =
                 {
-                    .sval = make_sval(locator_t::lt_gmember_ptr(v.begin_gmember())),
+                    .sval = make_sval(locator_t::lt_gmember_ptr(v.begin())),
                     .category = RVAL, 
                     .type = type_t::ptr(v.group(), true, false),
                     .pstring = token->pstring,
@@ -1329,8 +1352,21 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
             pstring_t const call_pstring = concat(fn_rpn.pstring, token->pstring);
 
-            if(call->fclass == FN_MODE && D != COMPILE)
+            if(call->fclass == FN_MODE && is_interpret(D))
                 compiler_error(call_pstring, "Cannot goto mode at compile-time.");
+
+            if(eval_tracked)
+            {
+                assert(fn);
+                if(fn->fclass == FN_MODE)
+                {
+                    // Track that we're going to a mode here:
+                    eval_tracked->goto_modes.push_back(std::make_pair(
+                        call, stmt_ht{ stmt - fn->def().stmts.data() }));
+                }
+                else
+                    eval_tracked->calls.emplace(call, call_pstring);
+            }
 
             // Now do the call!
 
@@ -1361,7 +1397,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 try
                 {
                     // NOTE: call as INTERPRET, not D.
-                    eval_t sub(do_wrapper_t<INTERPRET>{}, call_pstring, *call, sval_args.data(), sval_args.size());
+                    eval_t sub(do_wrapper_t<INTERPRET>{}, call_pstring, *call, nullptr, sval_args.data(), sval_args.size());
 
                     // Update the eval stack.
                     rpn_value_t new_top =
@@ -1392,6 +1428,10 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 // The [0] argument holds the fn_t ptr.
                 fn_inputs.push_back(ssa_value_t(locator_t::fn(call)));
                 
+                // For modes, the [1] argument references the stmt:
+                if(call->fclass == FN_MODE)
+                    fn_inputs.push_back(locator_t::stmt(stmt_ht{ stmt - fn->def().stmts.data() }));
+
                 // Prepare the input globals
 
                 bool const is_idep = fn->global.ideps().count(&call->global) > 0;
@@ -1400,17 +1440,48 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 std::size_t const gmember_bs_size = gmanager_t::bitset_size();
                 bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
 
-                // TODO
-
-                //if(call->fclass == FN_MODE)
-                //{
-                    // Insert calls to reset memory 
-                    //assert(0);
-                //}
-
                 // Prepare global inputs:
 
-                if(is_idep)
+                if(call->fclass == FN_MODE)
+                {
+                    // 'goto mode's use their modifiers to determine inputs.
+
+                    assert(stmt->name == STMT_GOTO_MODE);
+                    mods_t const& mods = fn->def()[stmt->mods];
+
+                    bitset_uint_t* const preserved_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
+                    bitset_clear_all(gmember_bs_size, preserved_bs);
+                    mods.for_each_group_vars([&](group_vars_ht gv)
+                    {
+                        assert(gmember_bs_size == gv->gmembers().size());
+                        bitset_or(gmember_bs_size, preserved_bs, gv->gmembers().data());
+                    });
+
+                    ir->gmanager.for_each_gmember_set(fn->handle(),
+                    [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+                    {
+                        bitset_copy(gmember_bs_size, temp_bs, preserved_bs);
+                        bitset_and(gmember_bs_size, temp_bs, gmember_set);
+                        if(bitset_all_clear(gmember_bs_size, temp_bs))
+                            return;
+                        fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
+                        fn_inputs.push_back(locator);
+                    });
+
+                    ir->gmanager.for_each_gvar(
+                    [&](gvar_ht gvar, gmanager_t::index_t index)
+                    {
+                        if(!mods.group_vars.count(gvar->group()))
+                            return;
+
+                        for(gmember_ht m : gvar->handles())
+                        {
+                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
+                            fn_inputs.push_back(locator_t::gmember(m, 0));
+                        }
+                    });
+                }
+                else
                 {
                     assert(call->ir_reads().size() == gmember_bs_size);
 
@@ -1430,45 +1501,13 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     ir->gmanager.for_each_gvar(
                     [&](gvar_ht gvar, gmanager_t::index_t index)
                     {
-                        for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+                        for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                         {
                             if(call->ir_reads().test(m.id))
                             {
                                 fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                                 fn_inputs.push_back(locator_t::gmember(m, 0));
                             }
-                        }
-                    });
-                }
-                else
-                {
-                    // 'call' may not be compiled yet, thus we can't rely on 'ir_reads'.
-                    // Instead, we'll check 'lang_gvars'.
-
-                    ir->gmanager.for_each_gmember_set(fn->handle(),
-                    [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
-                    {
-                        bitset_for_each(gmember_bs_size, gmember_set, [&](unsigned bit)
-                        {
-                            gmember_ht const gmember = { bit };
-                            if(!call->lang_gvars().test(gmember->gvar.handle().id))
-                                return;
-
-                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), gmember->member()));
-                            fn_inputs.push_back(locator_t::gmember(gmember, 0));
-                        });
-                    });
-
-                    ir->gmanager.for_each_gvar(
-                    [&](gvar_ht gvar, gmanager_t::index_t index)
-                    {
-                        if(!call->lang_gvars().test(gvar.id))
-                            return;
-
-                        for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
-                        {
-                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
-                            fn_inputs.push_back(locator_t::gmember(m, 0));
                         }
                     });
                 }
@@ -1493,8 +1532,8 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 // Create the dependent node.
                 ssa_op_t const op = (call->fclass == FN_MODE) ? SSA_goto_mode : SSA_fn_call;
                 ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
-                assert(fn_inputs.size() % 2 == 1);
                 fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
+
                 if(call->fclass == FN_MODE || !call->ir_io_pure() || ir->gmanager.num_locators() > 0)
                     fn_node->append_daisy();
 
@@ -1506,7 +1545,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
                     ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
                     {
-                        for(gmember_ht m = gvar->begin_gmember(); m != gvar->end_gmember(); ++m)
+                        for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                         {
                             if(call->ir_writes().test(m.id))
                             {
@@ -1771,12 +1810,12 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     "Expecting array or pointer type. Got %.", array_val.type));
             }
 
-            if(is_ptr && deref_groups)
+            if(is_ptr && eval_tracked)
             {
                 // TODO: Update this when inlining is added.
                 unsigned const size = array_val.type.group_tail_size();
                 for(unsigned i = 0; i < size; ++i)
-                    deref_groups->emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
+                    eval_tracked->deref_groups.emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
             }
 
             rpn_value_t& array_index = rpn_stack.peek(0);
@@ -2208,6 +2247,9 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
         compiler_error(pstring, "Expecting lvalue on left side of assignment.");
 
     throwing_cast<D>(assignment, assignee.type, true);
+
+    if(D == CHECK)
+        goto finish;
 
     assert(assignee.sval.size() == assignment.sval.size());
     assert(assignee.var_i < var_types.size());

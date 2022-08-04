@@ -60,7 +60,7 @@ span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t 
     // Align, when possible
     if(size > 1 && size <= 256)
     {
-        page_bitset_t page = page_bitset_t::filled(257 - size);
+        page_bitset_t page = page_bitset_t::filled(0, 257 - size);
         ram_bitset_t aligned = usable_ram;
 
         static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
@@ -419,7 +419,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             else
                 gmember.assign_span(loc.atom(), span);
 
-            ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
+            ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
 
             d.interferences.for_each([&](unsigned i)
             {
@@ -556,7 +556,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         if(!span) // It might not have been allocated yet, or it might not exist in the generated assembly.
             continue;
 
-        ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
+        ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
 
         bitset_for_each(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(i), [&](unsigned j)
         {
@@ -651,13 +651,13 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         else
             fn.assign_lvar_span(lvar_i, span); 
 
-        d.lvar_ram |= ram_bitset_t::filled(span.size, span.addr);
+        d.lvar_ram |= ram_bitset_t::filled(span.addr, span.size);
         d.usable_ram -= d.lvar_ram;
 
         if(Step < FULL_ALLOC)
             propagate_calls.clear_all();
 
-        ram_bitset_t const mask = ~ram_bitset_t::filled(span.size, span.addr);
+        ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
         bitset_for_each(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(lvar_i), [&](unsigned i)
         {
             if(i < lvar_usable_ram.size())

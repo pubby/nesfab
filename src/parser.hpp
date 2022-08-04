@@ -64,12 +64,6 @@ private:
 
     static bool fail_using() { return false; }
 
-    template<typename Fn>
-    int parse_then(Fn const& fn);
-
-    template<typename First, typename Second>
-    int parse_then(First const& first, Second const& second);
-
     void expect_token(token_type_t expecting) const;
     bool parse_token(token_type_t expecting);
     bool parse_token();
@@ -80,7 +74,6 @@ private:
     string_literal_t parse_string_literal();
     pstring_t parse_group_ident();
     expr_temp_t parse_expr();
-    expr_temp_t parse_expr_then();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
     src_type_t parse_cast(expr_temp_t&, int open_parens=0);
 
@@ -96,7 +89,7 @@ private:
 
     void parse_const();
     void parse_group_vars();
-    void parse_group_data(bool once);
+    void parse_group_data();
     void parse_top_level_const();
     void parse_fn(bool ct);
     void parse_mode();

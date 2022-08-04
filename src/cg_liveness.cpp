@@ -197,9 +197,16 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
                   loc.lclass() == LOC_RETURN);
         });
 
-        bool const is_idep = fn.global.ideps().count(&call.global) > 0;
-
-        if(is_idep)
+        if(call.fclass == FN_MODE)
+        {
+            // Handle gmembers:
+            lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
+            {
+                if(loc.lclass() == LOC_GMEMBER)
+                    rw(i, call.precheck_group_vars().test(loc.gmember()->gvar.group_vars.id), false);
+            });
+        }
+        else
         {
             assert(call.global.compiled());
 
@@ -209,21 +216,6 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
                 if(loc.lclass() == LOC_GMEMBER)
                     rw(i, call.ir_reads().test(loc.gmember().id),
                           call.ir_writes().test(loc.gmember().id));
-            });
-        }
-        else
-        {
-            // The fn may not be compiled yet.
-            // We'll use 'lang_gvars' to implement this instead.
-
-            assert(inst.op == JMP_ABSOLUTE);
-            assert(call.fclass == FN_MODE);
-
-            // Handle gmembers:
-            lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
-            {
-                if(loc.lclass() == LOC_GMEMBER)
-                    rw(i, call.lang_gvars().test(loc.gmember()->gvar.handle().id), false);
             });
         }
     }
@@ -401,14 +393,17 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
 
             if(inst.op == JSR_ABSOLUTE)
             {
-                fn_ht const call_h = inst.arg.fn();
-
-                // Every live lvar will interfere with this fn:
-                bitset_for_each(set_size, live, [&](unsigned i)
+                if(inst.arg.lclass() == LOC_FN)
                 {
-                    if(lvars.is_lvar(i))
-                        lvars.add_fn_interference(i, call_h);
-                });
+                    fn_ht const call_h = inst.arg.fn();
+
+                    // Every live lvar will interfere with this fn:
+                    bitset_for_each(set_size, live, [&](unsigned i)
+                    {
+                        if(lvars.is_lvar(i))
+                            lvars.add_fn_interference(i, call_h);
+                    });
+                }
             }
             else if(inst.arg)
             {

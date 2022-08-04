@@ -91,7 +91,7 @@ ram_bitset_t alloc_static_ram()
 
     ram_bitset_t ret = stack_bitset;
     for(span_t span : _sram_spans)
-        ret |= ram_bitset_t::filled(span.size, span.addr);
+        ret |= ram_bitset_t::filled(span.addr, span.size);
 
     return ret;
 }

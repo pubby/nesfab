@@ -140,6 +140,10 @@ mods_t parser_t<P>::parse_mods(int base_indent)
                 handle_groups(mods.explicit_group_data, mods.group_data);
                 break;
 
+            case TOK_omni:
+                compiler_error("Unknown modifier. Did you mean 'data'?");
+                break;
+
             case TOK_plus:
             case TOK_minus:
                 while(token.type == TOK_plus || token.type == TOK_minus)
@@ -208,44 +212,11 @@ mods_t parser_t<P>::parse_mods_after(Fn const& fn)
     if(line_break && line_number == pre_line_number)
     {
         throw compiler_error_t(
-            fmt_error(token.pstring, "Expecting modifiers line (starting with |).", &file)
-            + fmt_note(line_break, "This is required because of the previous line's indentation.", &file));
+            fmt_error(token.pstring, "Expecting modifiers line (starting with |) to restore indentation.", &file)
+            + fmt_note(line_break, "Modifier line is required because the previous line was awkwardly indented.", &file));
     }
 
     return mods;
-}
-
-template<typename P>
-template<typename First, typename Second>
-int parser_t<P>::parse_then(First const& first, Second const& second)
-{
-    int const base_indent = indent;
-    unsigned pre_line_number = line_number;
-
-    first();
-
-    bool const args_line_break = line_number != pre_line_number && indent != base_indent;
-    parse_line_ending();
-    pre_line_number = line_number;
-
-    second(base_indent);
-
-    if(args_line_break && pre_line_number == line_number)
-    {
-        parse_token(TOK_then);
-        parse_line_ending();
-    }
-    else if(token.type == TOK_then)
-        compiler_error("Unnecessary use of then.");
-
-    return base_indent;
-}
-
-template<typename P>
-template<typename First>
-int parser_t<P>::parse_then(First const& first)
-{
-    return parse_then(first, [](int){});
 }
 
 template<typename P>
@@ -462,15 +433,6 @@ expr_temp_t parser_t<P>::parse_expr()
     expr_temp_t expr_temp;
     parse_expr(expr_temp, indent, 0);
     return expr_temp;
-}
-
-// Unlike parse_expr, this function ends with parse_line_ending();
-template<typename P>
-expr_temp_t parser_t<P>::parse_expr_then()
-{
-    expr_temp_t expr;
-    parse_then([&]{ expr = parse_expr(); });
-    return expr;
 }
 
 template<typename P>
@@ -958,10 +920,9 @@ void parser_t<P>::parse_top_level_def()
         return parse_mode();
     case TOK_vars: 
         return parse_group_vars();
-    case TOK_once: 
-        return parse_group_data(true);
-    case TOK_many: 
-        return parse_group_data(false);
+    case TOK_omni: 
+    case TOK_data: 
+        return parse_group_data();
     case TOK_struct: 
         return parse_struct();
     default: 
@@ -1025,19 +986,27 @@ void parser_t<P>::parse_group_vars()
 }
 
 template<typename P>
-void parser_t<P>::parse_group_data(bool once)
+void parser_t<P>::parse_group_data()
 {
     policy().prepare_global();
     int const group_indent = indent;
 
+    bool once = true;
+    if(token.type == TOK_omni)
+    {
+        once = false;
+        parse_token();
+    }
+
     // Parse the declaration
-    parse_token(once ? TOK_once : TOK_many);
+    parse_token(TOK_data);
     pstring_t const group_name = parse_group_ident();
     parse_line_ending();
 
     auto group = policy().begin_group_data(group_name, once);
 
-    maybe_parse_block(group_indent, [&]{ 
+    maybe_parse_block(group_indent, [&]
+    { 
         policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
@@ -1372,7 +1341,6 @@ void parser_t<P>::parse_goto()
             expr_temp.push_back({ TOK_apply, pstring, argument_count });
         });
 
-        parse_line_ending();
         policy().goto_mode_statement(mode, expr_temp, std::move(mods));
     }
     else

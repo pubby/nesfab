@@ -77,7 +77,7 @@ void gen_group_var_inits()
             if(!v->init_expr)
                 continue;
 
-            for(gmember_ht m = v->begin_gmember(); m != v->end_gmember(); ++m)
+            for(gmember_ht m = v->begin(); m != v->end(); ++m)
             {
                 unsigned const num_atoms = ::num_atoms(m->type(), 0);
                 assert(num_atoms > 0);

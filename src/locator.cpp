@@ -26,6 +26,8 @@ std::string to_string(locator_t loc)
         str = fmt("gset %", loc.handle()); break;
     case LOC_FN:
         str = fmt("fn %", loc.fn()->global.name); break;
+    case LOC_STMT:
+        str = fmt("stmt %", loc.handle()); break;
     case LOC_ARG:
         str = fmt("arg %", loc.fn()->global.name); break;
     case LOC_RETURN:
@@ -60,6 +62,8 @@ std::string to_string(locator_t loc)
         str = "main entry"; break;
     case LOC_MAIN_ENTRY_BANK:
         str = "main entry bank"; break;
+    case LOC_RESET_GROUP_VARS:
+        str = fmt("reset group vars %", loc.group_vars()->group.name); break;
     }
 
     if(has_arg_member_atom(loc.lclass()))

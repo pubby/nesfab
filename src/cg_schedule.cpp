@@ -618,8 +618,11 @@ ssa_ht scheduler_t::full_search(unsigned relax) const
         }
     }
 
-    assert(best_score != INT_MIN);
-    assert(ready(relax, best, scheduled));
+    if(best)
+    {
+        assert(best_score != INT_MIN);
+        assert(ready(relax, best, scheduled));
+    }
 
     return best;
 }

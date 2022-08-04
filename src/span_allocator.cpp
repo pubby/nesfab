@@ -70,7 +70,7 @@ void span_allocator_t::free(span_t span)
     assert(size > 0);
     assert(span.contains(span_t{ start * m_initial.size / bitset_t::num_bits + m_initial.addr, 
                                  size * m_initial.size / bitset_t::num_bits }));
-    m_allocated_bs -= bitset_t::filled(size, start);
+    m_allocated_bs -= bitset_t::filled(start, size);
 
     assert_valid();
 }
@@ -87,7 +87,7 @@ span_t span_allocator_t::did_alloc(treap_t::iterator it, span_t alloc)
     assert(size > 0);
     assert((span_t{ start * m_initial.size / bitset_t::num_bits + m_initial.addr ,
                     size * m_initial.size / bitset_t::num_bits }.contains(alloc)));
-    m_allocated_bs |= bitset_t::filled(size, start);
+    m_allocated_bs |= bitset_t::filled(start, size);
 
     // Update the treap
 

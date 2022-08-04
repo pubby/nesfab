@@ -12,6 +12,7 @@
 #include "array_pool.hpp"
 #include "format.hpp"
 #include "globals.hpp"
+#include "group.hpp"
 #include "cg_isel_cpu.hpp"
 #include "cg_cset.hpp"
 
@@ -2218,9 +2219,6 @@ namespace isel
             break;
 
         case SSA_goto_mode:
-            // TODO: Insert code to reset variables
-            //assert(0);
-
             p_arg<0>::set(h->input(0));
             chain
             < exact_op<Opt, JMP_ABSOLUTE, null_, p_arg<0>>
@@ -2310,8 +2308,34 @@ namespace isel
 
         case SSA_return:
         case SSA_fn_call:
-        case SSA_goto_mode:
             write_globals<Opt>(h);
+            goto simple;
+
+        case SSA_goto_mode:
+            {
+                write_globals<Opt>(h);
+
+                assert(h->input(0).is_locator());
+                assert(h->input(0).locator().lclass() == LOC_FN);
+
+                fn_t const& call = *h->input(0).locator().fn();
+
+                assert(h->input(1).is_locator());
+                assert(h->input(1).locator().lclass() == LOC_STMT);
+
+                mods_t const* mods = state.fn->def().mods_of(h->input(1).locator().stmt());
+                assert(mods);
+
+                call.precheck_group_vars().for_each<group_vars_ht>([&](auto gv)
+                {
+                    if(!mods->group_vars.count(gv->group.handle()))
+                    {
+                        p_arg<0>::set(locator_t::reset_group_vars(gv));
+                        select_step<false>(exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>);
+                    }
+
+                });
+            }
             goto simple;
 
         case SSA_init_array:
@@ -2390,6 +2414,8 @@ namespace isel
             }
             break;
             */
+
+
 
         default: 
         simple:

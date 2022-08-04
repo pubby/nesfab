@@ -131,17 +131,19 @@ int main(int argc, char** argv)
                 parse<pass1_t>(file);
             }
         });
-        output_time("parse:    ");
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);
         get_main_entry(); // This throws an error if 'main' isn't proper.
         global_t::parse_cleanup();
-        output_time("cleanup:  ");
+        output_time("parse:  ");
 
         // Count and arrange struct members:
         set_compiler_phase(PHASE_COUNT_MEMBERS);
         global_t::count_members();
+
+        set_compiler_phase(PHASE_GROUP_MEMBERS);
+        group_t::group_members();
         output_time("members:  ");
 
         // Load standard data:
@@ -149,6 +151,10 @@ int main(int argc, char** argv)
         auto static_used_ram = alloc_static_ram();
         auto rom_allocator = alloc_static_rom();
         output_time("std:      ");
+
+        set_compiler_phase(PHASE_PRECHECK);
+        global_t::precheck();
+        output_time("precheck: ");
 
         // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_GLOBALS);
@@ -158,7 +164,6 @@ int main(int argc, char** argv)
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);
         global_t::compile_all();
-        output_time("compile:  ");
 
         set_compiler_phase(PHASE_ALLOC_RAM);
         alloc_ram(static_used_ram, nullptr);

@@ -591,7 +591,6 @@ int main()
             keyword("do"),
             keyword("break"),
             keyword("continue"),
-            keyword("then"),
             keyword("return"),
             keyword("fn"),
             keyword("ct"),
@@ -602,9 +601,8 @@ int main()
             keyword("file"),
             keyword("struct"),
             keyword("vars"),
-            keyword("once"), // TODO: replace with 'data'
-            keyword("many"), // TODO: replace with 'data'
             keyword("data"),
+            keyword("omni"),
 
             // Symbols
             keyword(1, "lbrace", "{"),

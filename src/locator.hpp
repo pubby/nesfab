@@ -19,6 +19,7 @@
 #include "ir_decl.hpp"
 #include "rom_decl.hpp"
 #include "phase.hpp"
+#include "stmt.hpp"
 
 class type_t;
 struct ssa_value_t;
@@ -38,6 +39,8 @@ enum locator_class_t : std::uint8_t
     // which combines several gmembers into a single locator.
     // (This is a size optimization)
     LOC_GMEMBER_SET,
+
+    LOC_STMT,
 
     LOC_ARG,
     LOC_RETURN,
@@ -65,6 +68,8 @@ enum locator_class_t : std::uint8_t
     LOC_THIS_BANK, // Resolves to the bank its in
     LOC_MAIN_ENTRY,
     LOC_MAIN_ENTRY_BANK,
+
+    LOC_RESET_GROUP_VARS,
 
     NUM_LCLASS,
 };
@@ -288,6 +293,18 @@ public:
         return { handle() }; 
     }
 
+    stmt_ht stmt() const 
+    { 
+        assert(lclass() == LOC_STMT);
+        return { handle() }; 
+    }
+
+    group_vars_ht group_vars() const 
+    { 
+        assert(lclass() == LOC_RESET_GROUP_VARS);
+        return { handle() }; 
+    }
+
     // Strips offset info from this locator.
     locator_t mem_head() const 
     {
@@ -331,6 +348,9 @@ public:
 
     constexpr static locator_t fn(fn_ht fn)
         { return locator_t(LOC_FN, fn.id, 0, 0); }
+
+    constexpr static locator_t stmt(stmt_ht stmt)
+        { return locator_t(LOC_STMT, stmt.id, 0, 0); }
 
     constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
         { return locator_t(LOC_ARG, fn.id, arg, member, atom, offset); }
@@ -382,6 +402,9 @@ public:
 
     constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_LT_EXPR, lt.id, 0, member, atom, offset); }
+
+    constexpr static locator_t reset_group_vars(group_vars_ht gv)
+        { return locator_t(LOC_RESET_GROUP_VARS, gv.id, 0, 0); }
 
     static locator_t from_ssa_value(ssa_value_t v);
 

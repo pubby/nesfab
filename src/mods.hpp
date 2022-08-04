@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string_view>
 #include <vector>
+#include <functional>
 
 #include "flat/flat_map.hpp"
 
@@ -40,12 +41,18 @@ struct mods_t
     constexpr explicit operator bool() const { return defined; }
     constexpr bool operator!() const { return !defined; }
 
+    // Ensures groups match their group_class.
+    void validate_groups() const;
+
     void remove_conflicting_flags()
     {
         mod_flags_t const conflicting = enable & disable;
         enable ^= conflicting;
         disable ^= conflicting;
     }
+
+    void for_each_group_vars(std::function<void(group_vars_ht)> const& fn) const;
+    void for_each_group_data(std::function<void(group_data_ht)> const& fn) const;
 };
 
 mod_flags_t parse_mod_flag(std::string_view sv);

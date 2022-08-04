@@ -3,6 +3,7 @@
 #include "fnv1a.hpp"
 #include "format.hpp"
 #include "compiler_error.hpp"
+#include "globals.hpp"
 
 group_t& group_t::lookup(char const* source, pstring_t name)
 {
@@ -93,3 +94,25 @@ std::pair<group_data_t*, group_data_ht> group_t::define_data(pstring_t pstring, 
     return std::make_pair(ptr ? ptr : &h.safe(), h);
 }
 
+void group_t::group_members()
+{
+    assert(compiler_phase() == PHASE_GROUP_MEMBERS);
+
+    for(group_vars_t& gv : group_vars_ht::values())
+        gv.group_members();
+}
+
+///////////////////
+// group_gvars_t //
+///////////////////
+
+void group_vars_t::group_members()
+{
+    assert(compiler_phase() == PHASE_GROUP_MEMBERS);
+
+    // Init the gmembers bitset
+    m_gmembers.reset(gmember_ht::bitset_size());
+    for(gvar_ht gv : gvars())
+        bitset_set_n(m_gmembers.size(), m_gmembers.data(), 
+                     gv->begin().id, gv->end().id - gv->begin().id);
+}

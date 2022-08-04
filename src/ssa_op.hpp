@@ -96,12 +96,13 @@ inline unsigned write_globals_begin(ssa_op_t op)
 {
     SSA_VERSION(1);
     assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
-    if(op == SSA_fn_call || op == SSA_goto_mode)
-        return 1;
-    if(op == SSA_return)
-        return 0;
-    assert(false);
-    return 0;
+    switch(op)
+    {
+    case SSA_return: return 0;
+    case SSA_fn_call: return 1;
+    case SSA_goto_mode: return 2;
+    default: assert(false); return 0;
+    }
 }
 
 inline unsigned ssa_copy_input(ssa_op_t op)

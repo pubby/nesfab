@@ -42,28 +42,30 @@ private:
     struct nothing_t {};
 
     void validate_mods(
-        char const* keyword, pstring_t pstring, mods_t const& mods, 
+        char const* keyword, pstring_t pstring, mods_t& mods, 
         mod_flags_t accepts_flags = 0, bool accepts_vars = false, bool accepts_data = false)
     {
         if(!mods)
             return;
 
-        char const* const in = keyword ? " attached to " : "";
+        char const* const title = keyword ? keyword : "Construct";
 
         if(!accepts_vars && mods.explicit_group_vars)
         {
-            compiler_warning(pstring, 
-                fmt("Ignoring vars modifier%%.", in, keyword), &file);
+            compiler_error(pstring, 
+                fmt("% does not support vars modifiers.", title), &file);
         }
 
         if(!accepts_data && mods.explicit_group_data)
         {
-            compiler_warning(pstring, 
-                fmt("Ignoring data modifier%%.", in, keyword), &file);
+            compiler_error(pstring, 
+                fmt("% does not support data modifiers.", title), &file);
         }
 
         mod_flags_t const bad_enable = mods.enable & ~accepts_flags;
         mod_flags_t const bad_disable = mods.disable & ~accepts_flags;
+
+        char const* const in = keyword ? " attached to " : "";
 
         if((bad_enable | bad_disable) && mods.explicit_flags)
         {
@@ -162,7 +164,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    void end_fn(var_decl_t decl, fclass_t fclass, mods_t&& mods)
+    void end_fn(var_decl_t decl, fn_class_t fclass, mods_t&& mods)
     {
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
@@ -175,6 +177,8 @@ public:
             auto it = unlinked_gotos.begin();
             compiler_error(it->first, "Label not in scope.", &file);
         }
+
+        validate_mods(fn_class_keyword(fclass), decl.name, mods, 0, true, true);
 
         // Create the global:
         active_global->define_fn(
@@ -245,6 +249,11 @@ public:
             auto it = unlinked_gotos.begin();
             compiler_error(it->first, "Label not in scope.", &file);
         }
+
+        validate_mods("mode", decl.name, mods, 0, true, true);
+
+        if(!mods.explicit_group_vars)
+            compiler_error(decl.name, "Missing vars modifier.");
 
         // Create the global:
         assert(decl.name);
@@ -581,6 +590,7 @@ public:
     [[gnu::always_inline]]
     void label_statement(pstring_t pstring, mods_t&& mods)
     {
+        std::cout << "LABEL = " << pstring.view(source()) <<  '"'<<std::endl;
         validate_mods("label", pstring, mods);
 
         // Create a new label
@@ -600,7 +610,10 @@ public:
         auto lower = unlinked_gotos.lower_bound(pstring);
         auto upper = unlinked_gotos.upper_bound(pstring);
         for(auto it = lower; it < upper; ++it)
-            fn_def[it->second].link = label + 1;
+        {
+            assert(fn_def[it->second].name == STMT_GOTO);
+            fn_def[it->second].link = label;
+        }
         fn_def[label].use_count = std::distance(lower, upper);
         unlinked_gotos.erase(lower, upper);
     }
@@ -608,6 +621,7 @@ public:
     [[gnu::always_inline]]
     void goto_statement(pstring_t pstring, mods_t&& mods)
     {
+        std::cout << "GOTO LABEL = " << pstring.view(source()) << '"'<< std::endl;
         validate_mods("goto", pstring, mods);
         stmt_ht const goto_h = fn_def.push_stmt(
             { STMT_GOTO, fn_def.push_mods(std::move(mods)), {}, pstring });
@@ -621,7 +635,10 @@ public:
         }
         else
         {
-            fn_def[goto_h].link = it->second + 1;
+            assert(fn_def[goto_h].name == STMT_GOTO);
+            assert(fn_def[it->second].name == STMT_GOTO);
+
+            fn_def[goto_h].link = it->second;
             fn_def[it->second].use_count += 1;
         }
     }
@@ -630,6 +647,10 @@ public:
     void goto_mode_statement(pstring_t mode, expr_temp_t& expr, mods_t&& mods)
     {
         validate_mods("goto mode", mode, mods, 0, true, false);
+
+        if(!mods.explicit_group_vars)
+            compiler_error(mode, "Missing vars modifier.");
+
         fn_def.push_stmt(
             { STMT_GOTO_MODE, fn_def.push_mods(std::move(mods)), {}, mode, convert_expr(expr) });
     }

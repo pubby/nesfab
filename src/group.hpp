@@ -67,6 +67,8 @@ public:
     , m_handle{ handle }
     {}
 
+    static void group_members();
+
 private:
 
     unsigned define(pstring_t pstring, group_class_t gclass, 
@@ -98,15 +100,20 @@ public:
     }
 
     std::vector<gvar_ht> const& gvars() const { assert(compiler_phase() > PHASE_PARSE); return m_gvars; }
+    bitset_t const& gmembers() const { assert(compiler_phase() > PHASE_GROUP_MEMBERS); return m_gmembers; }
 
     rom_proc_ht init_proc() const { assert(compiler_phase() > PHASE_INITIAL_VALUES); return m_init_proc; }
     void assign_init_proc(rom_proc_ht h) { assert(compiler_phase() == PHASE_INITIAL_VALUES); m_init_proc = h; }
+
+    void group_members();
 
 private:
     std::mutex m_gvars_mutex; // Used during parsing only.
     std::vector<gvar_ht> m_gvars;
 
     rom_proc_ht m_init_proc = {};
+
+    bitset_t m_gmembers;
 };
 
 class group_data_t

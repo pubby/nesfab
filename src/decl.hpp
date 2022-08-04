@@ -125,11 +125,22 @@ struct is_group_impl<t, std::void_t<typename t::group_impl_tag>>
 : std::true_type {};
 */
 
-enum fclass_t : char
+enum fn_class_t : char
 {
     FN_FN,
     FN_CT,
     FN_MODE,
 };
+
+constexpr char const* fn_class_keyword(fn_class_t fc)
+{
+    switch(fc)
+    {
+    default: return "undefined";
+    case FN_FN: return "fn";
+    case FN_CT: return "ct";
+    case FN_MODE: return "mode";
+    }
+}
 
 #endif

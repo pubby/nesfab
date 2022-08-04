@@ -5,9 +5,15 @@
 #include <exception>
 #include <vector>
 
+#include <boost/container/small_vector.hpp>
+
+#include "flat/small_map.hpp"
+
 #include "bitset.hpp"
 #include "pstring.hpp"
 #include "globals.hpp"
+
+namespace bc = ::boost::container;
 
 class ir_t;
 class fn_t;
@@ -46,6 +52,8 @@ spair_t interpret_expr(pstring_t pstring, token_t const* expr,
 
 std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr);
 
-void build_ir(ir_t& ir, deref_groups_t& deref_groups, fn_t const& fn);
+eval_tracked_t build_tracked(fn_t const& fn);
+
+void build_ir(ir_t& ir, fn_t const& fn);
 
 #endif

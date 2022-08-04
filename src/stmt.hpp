@@ -97,11 +97,20 @@ public:
     std::vector<stmt_t> stmts;
     std::vector<mods_t> mods;
 
-    stmt_t const& operator[](stmt_ht h) const { return stmts[h.id]; }
-    stmt_t& operator[](stmt_ht h) { return stmts[h.id]; }
+    stmt_t const& operator[](stmt_ht h) const { assert(h.id < stmts.size()); return stmts[h.id]; }
+    stmt_t& operator[](stmt_ht h) { assert(h.id < stmts.size()); return stmts[h.id]; }
 
-    mods_t const& operator[](stmt_mods_ht h) const { return mods[h.id]; }
-    mods_t& operator[](stmt_mods_ht h) { return mods[h.id]; }
+    mods_t const& operator[](stmt_mods_ht h) const { assert(h.id < mods.size()); return mods[h.id]; }
+    mods_t& operator[](stmt_mods_ht h) { assert(h.id < mods.size()); return mods[h.id]; }
+
+    mods_t const* mods_of(stmt_ht h) const 
+    { 
+        if(stmt_mods_ht m = operator[](h).mods)
+            return &operator[](m);
+        return nullptr;
+    }
+
+    mods_t const* maybe_mods(stmt_mods_ht h) const { return h ? &operator[](h) : nullptr; }
 
     stmt_ht next_stmt() const { return { stmts.size() }; }
 

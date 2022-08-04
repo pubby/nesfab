@@ -123,26 +123,61 @@ void bitset_set_all(std::size_t size, UInt* bitset)
     std::fill_n(bitset, size, ~(UInt)0);
 }
 
+template<typename UInt, typename Fn>
+void _bitset_do_n(std::size_t size, UInt* bitset, std::size_t start, std::size_t n, Fn const& fn)
+{
+    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
+    assert(n <= size * sizeof_bits<UInt>);
+
+    std::size_t const start_i = (start + sizeof_bits<UInt> - 1) / sizeof_bits<UInt>;
+    std::size_t const end_i = (start + n) / sizeof_bits<UInt>;
+
+    if(start_i <= end_i)
+    {
+        assert((end_i - start_i) <= size);
+        std::fill_n(bitset + start_i, end_i - start_i, ~(UInt)0);
+
+        if(UInt const rem = start % sizeof_bits<UInt>)
+        {
+            assert((end_i - start_i) < size);
+            assert(start_i-1 == start / sizeof_bits<UInt>);
+            fn(bitset[start_i-1], ~0ull << rem);
+        }
+
+        if(UInt const rem = (start + n) % sizeof_bits<UInt>)
+        {
+            assert((end_i - start_i) < size);
+            fn(bitset[end_i], ((1ull << rem) - 1ull));
+        }
+    }
+    else
+        fn(bitset[end_i], ((1ull << n) - 1ull) << (start % sizeof_bits<UInt>));
+}
+
 template<typename UInt>
 void bitset_set_n(std::size_t size, UInt* bitset, std::size_t n)
 {
-    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
-    assert(n <= size * sizeof_bits<UInt>);
-    std::fill_n(bitset, n / sizeof_bits<UInt>, ~(UInt)0);
-    if(UInt rem = n % sizeof_bits<UInt>)
-    {
-        assert(n / sizeof_bits<UInt> < size);
-        bitset[n / sizeof_bits<UInt>] |= ((1ull << rem) - 1ull);
-    }
+    bitset_set_n(size, bitset, 0, n);
 }
+
+template<typename UInt>
+void bitset_set_n(std::size_t size, UInt* bitset, std::size_t start, std::size_t n)
+{
+    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
+    _bitset_do_n(size, bitset, start, n, [](UInt& v, UInt m) { v |= m; });
+}
+
 template<typename UInt>
 void bitset_clear_n(std::size_t size, UInt* bitset, std::size_t n)
 {
+    bitset_clear_n(size, bitset, 0, n);
+}
+
+template<typename UInt>
+void bitset_clear_n(std::size_t size, UInt* bitset, std::size_t start, std::size_t n)
+{
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
-    assert(n <= size * sizeof_bits<UInt>);
-    std::fill_n(bitset, n / sizeof_bits<UInt>, 0);
-    if(UInt rem = n % sizeof_bits<UInt>)
-        bitset[n / sizeof_bits<UInt>] &= ((1 << (sizeof_bits<UInt> - rem)) - 1);
+    _bitset_do_n(size, bitset, start, n, [](UInt& v, UInt m) { v &= ~m; });
 }
 
 template<typename UInt>
@@ -198,50 +233,50 @@ void bitset_copy(std::size_t size, UInt* lhs, UInt const* rhs)
 }
 
 // Calls 'fn' for each set bit of the bitset.
-template<typename UInt, typename Fn>
+template<typename Bit = unsigned, typename UInt, typename Fn>
 void bitset_for_each(UInt bitset, Fn fn, unsigned span = 0)
 {
     while(bitset)
     {
-        unsigned bit = builtin::ctz(bitset);
-        bitset ^= (UInt)1 << bit;
-        fn(bit + span);
+        std::size_t bit = builtin::ctz(bitset);
+        bitset ^= 1 << bit;
+        fn(Bit{bit + span});
     }
 }
 
 // Calls 'fn' for each set bit of the bitset.
-template<typename UInt, typename Fn>
+template<typename Bit = unsigned, typename UInt, typename Fn>
 void bitset_for_each(std::size_t size, UInt const* bitset, Fn fn)
 {
     unsigned span = 0;
     for(std::size_t i = 0; i < size; ++i)
     {
-        bitset_for_each(bitset[i], fn, span);
+        bitset_for_each<Bit>(bitset[i], fn, span);
         span += sizeof_bits<UInt>;
     }
 }
 
 // Calls 'fn' for each set bit of the bitset.
-template<typename UInt, typename Fn>
+template<typename Bit = unsigned, typename UInt, typename Fn>
 bool bitset_for_each_test(UInt bitset, Fn fn, unsigned span = 0)
 {
     while(bitset)
     {
         unsigned bit = builtin::ctz(bitset);
         bitset ^= (UInt)1 << bit;
-        if(!fn(bit + span))
+        if(!fn(Bit{bit + span}))
             return false;
     }
     return true;
 }
 
-template<typename UInt, typename Fn>
+template<typename Bit = unsigned, typename UInt, typename Fn>
 bool bitset_for_each_test(std::size_t size, UInt* bitset, Fn fn)
 {
     unsigned span = 0;
     for(std::size_t i = 0; i < size; ++i)
     {
-        if(!bitset_for_each_test(bitset[i], fn, span))
+        if(!bitset_for_each_test<Bit>(bitset[i], fn, span))
             return false;
         span += sizeof_bits<UInt>;
     }
@@ -398,13 +433,13 @@ struct alignas(128) aggregate_bitset_t
     int lowest_bit_set() const { return bitset_lowest_bit_set(N, data()); }
 
     static constexpr aggregate_bitset_t filled();
-    static aggregate_bitset_t filled(std::size_t size, std::size_t n = 0);
+    static aggregate_bitset_t filled(std::size_t start, std::size_t size);
 
-    template<typename Fn>
-    void for_each(Fn const& fn) const { bitset_for_each(size(), data(), fn); }
+    template<typename Bit = unsigned, typename Fn>
+    void for_each(Fn const& fn) const { bitset_for_each<Bit>(size(), data(), fn); }
 
-    template<typename Fn>
-    bool for_each_test(Fn const& fn) const { return bitset_for_each_test(size(), data(), fn); }
+    template<typename Bit = unsigned, typename Fn>
+    bool for_each_test(Fn const& fn) const { return bitset_for_each_test<Bit>(size(), data(), fn); }
 };
 
 template<std::size_t Bits>
@@ -522,17 +557,10 @@ aggregate_bitset_t<UInt, N>::filled()
 
 template<typename UInt, std::size_t N>
 aggregate_bitset_t<UInt, N> 
-aggregate_bitset_t<UInt, N>::filled(std::size_t size, std::size_t n)
+aggregate_bitset_t<UInt, N>::filled(std::size_t start, std::size_t size)
 {
     aggregate_bitset_t bs = {};
-    bitset_set_n(num_ints, bs.data(), size);
-    assert(bs.popcount() == size);
-    bs <<= n;
-#ifndef NDEBUG
-    for(unsigned i = 0; i < size; ++i)
-        assert(bs.test(i + n));
-#endif
-    assert(bs.popcount() == size);
+    bitset_set_n(num_ints, bs.data(), start, size);
     return bs;
 }
 
@@ -615,11 +643,11 @@ public:
     [[gnu::flatten]]
     std::size_t popcount() const { return bitset_popcount(size(), data()); }
 
-    template<typename Fn>
-    void for_each(Fn const& fn) const { bitset_for_each(size(), data(), fn); }
+    template<typename Bit = unsigned, typename Fn>
+    void for_each(Fn const& fn) const { bitset_for_each<Bit>(size(), data(), fn); }
 
-    template<typename Fn>
-    bool for_each_test(Fn const& fn) const { return bitset_for_each_test(size(), data(), fn); }
+    template<typename Bit = unsigned, typename Fn>
+    bool for_each_test(Fn const& fn) const { return bitset_for_each_test<Bit>(size(), data(), fn); }
 
 private:
     std::unique_ptr<value_type[]> m_ptr;

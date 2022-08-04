@@ -8,6 +8,7 @@
 #include "robin/set.hpp"
 #include "robin/map.hpp"
 
+#include "flat/small_map.hpp"
 #include "flat/flat_map.hpp"
 #include "flat/flat_set.hpp"
 
@@ -28,6 +29,7 @@
 #include "mods.hpp"
 
 struct rom_array_t;
+struct eval_tracked_t;
 
 namespace bc = boost::container;
 
@@ -117,7 +119,7 @@ public:
     // Helpers that delegate to 'define':
     fn_t& define_fn(
         pstring_t pstring, global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-        type_t type, fn_def_t&& fn_def, mods_t&& mods, fclass_t fclass);
+        type_t type, fn_def_t&& fn_def, mods_t&& mods, fn_class_t fclass);
     gvar_t& define_var(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, token_t const* expr);
@@ -138,6 +140,9 @@ public:
 
     // Call after parsing
     static void parse_cleanup();
+
+    // Checks the code and gathers information with a pre-pass evaluation.
+    static void precheck();
 
     // Implementation detail used in 'build_order'.
     static global_t* detect_cycle(global_t& global, std::vector<std::string>& error_msgs);
@@ -242,13 +247,46 @@ private:
 
 using deref_groups_t = fc::vector_map<group_ht, src_type_t>;
 
+struct fn_impl_base_t
+{
+    virtual ~fn_impl_base_t() {}
+};
+
+struct mode_impl_t : public fn_impl_base_t
+{
+    static constexpr fn_class_t fclass = FN_MODE;
+
+    // This map is only used for modes.
+    // It tracks which group are preserved in 'goto mode' statements to this mode. 
+    // (This will be used to verify that all preserved groups are valid.)
+    std::mutex incoming_preserved_groups_mutex;
+    fc::small_map<group_ht, pstring_t, 16> incoming_preserved_groups;
+};
+
+struct eval_tracked_t
+{
+    fc::vector_map<group_ht, src_type_t> deref_groups;
+    std::vector<std::pair<fn_ht, stmt_ht>> goto_modes;
+    fc::vector_map<fn_ht, pstring_t> calls;
+    fc::vector_map<gvar_ht, pstring_t> gvars_used;
+
+    //bitset_t non_inlined_calls = bitset_t(fn_ht::bitset_size());
+    //bitset_t group_vars_used = bitset_t(group_vars_ht::bitset_size());
+    //bitset_t gmembers_used = bitset_t(gmember_ht::bitset_size());
+    // TODO
+    //bitset_t gvars_required = bitset_t(gvars_ht::bitset_size());
+
+    //bool propagated = false;
+};
+
+
 class fn_t
 {
 public:
     static constexpr global_class_t global_class = GLOBAL_FN;
     using handle_t = fn_ht;
 
-    fn_t(global_t& global, type_t type, fn_def_t&& fn_def, mods_t&& mods, fclass_t fclass);
+    fn_t(global_t& global, type_t type, fn_def_t&& fn_def, mods_t&& mods, fn_class_t fclass);
 
     fn_ht handle() const;
 
@@ -257,11 +295,15 @@ public:
 
     void compile();
 
-    void calc_lang_gvars();
-
-    bitset_t const& lang_gvars()  const { assert(m_lang_gvars);  return m_lang_gvars; }
-    bitset_t const& lang_group_vars() const { assert(global.compiled()); assert(m_lang_group_vars); return m_lang_group_vars; }
-    //bitset_t const& lang_deref_groups() const { assert(global.compiled()); assert(m_lang_deref_groups); return m_lang_deref_groups; }
+    eval_tracked_t const& precheck_tracked() const { assert(m_eval_tracked); return *m_eval_tracked; }
+    bitset_t const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
+    /*
+    bitset_t const& lang_preserves_group_vars() const 
+    { 
+        assert(m_lang_gvars); // as it's lazily allocated, check this instead.
+        return m_lang_preserves_group_vars; 
+    }
+    */
 
     // These are only valid after 'calc_ir_reads_writes_purity' has ran.
     bitset_t const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
@@ -283,23 +325,38 @@ public:
     span_t lvar_span(int lvar_i) const;
     span_t lvar_span(locator_t loc) const;
 
+    void precheck_eval();
+    void precheck_propagate();
+    void precheck_verify() const;
+
 public:
     global_t& global;
-    fclass_t const fclass;
+    fn_class_t const fclass;
     mods_t const mods;
 
 private:
-    void calc_lang_groups();
     void calc_ir_bitsets(ir_t const& ir);
+
+    template<typename P>
+    P& pimpl() const { assert(P::fclass == fclass); return *static_cast<P*>(m_pimpl.get()); }
 
     type_t m_type;
     fn_def_t m_def;
+
+    // This enables different fclasses to store different data.
+    std::unique_ptr<fn_impl_base_t> m_pimpl;
+
+    // TODO
+    std::unique_ptr<eval_tracked_t> m_eval_tracked;
+    bitset_t m_precheck_group_vars;
 
     // 'lang_gvars' is calculated shortly after parsing.
     bitset_t m_lang_gvars;
     // Groups are calculated later on, in 'compile'.
     bitset_t m_lang_group_vars;
-    deref_groups_t m_lang_deref_groups;
+    // Subset of above. Group vars preserved in goto mode statements.
+    // Calculated shortly after parsing.
+    bitset_t m_lang_preserves_group_vars; // Lazily allocated. Can be null.
 
     // Bitsets of all global vars read/written in fn (deep)
     // These get assigned by 'calc_reads_writes_purity'.
@@ -371,8 +428,11 @@ public:
 
     virtual group_ht group() const;
 
-    gmember_ht begin_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_begin_gmember; }
-    gmember_ht end_gmember() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_end_gmember; }
+    auto handles() const { return std::ranges::iota_view(begin(), end()); }
+    gmember_ht begin() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_begin_gmember; }
+    gmember_ht end() const { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_end_gmember; }
+    std::size_t num_members() { return end() - begin(); }
+
     void set_gmember_range(gmember_ht begin, gmember_ht end);
 
     loc_vec_t const& init_data() const { assert(compiler_phase() > PHASE_COMPILE); return m_init_data; }
@@ -402,7 +462,7 @@ public:
     gvar_t& gvar;
     unsigned const index;
 
-    unsigned member() const { return index - gvar.begin_gmember().id; }
+    unsigned member() const { return index - gvar.begin().id; }
     type_t type() const { return member_type(gvar.type(), member()); }
 
     locator_t const* init_data(unsigned atom) const;

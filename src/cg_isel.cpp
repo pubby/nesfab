@@ -435,7 +435,7 @@ namespace isel
         case MODE_LONG:
             return is_label(arg.lclass());
         case MODE_IMMEDIATE:
-            return arg.is_const_num();
+            return arg.is_immediate();
         case MODE_ZERO_PAGE:
         case MODE_ZERO_PAGE_X:
         case MODE_ZERO_PAGE_Y:
@@ -890,11 +890,11 @@ namespace isel
             simple_op<implied>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
         else if(relative)
             simple_op<relative>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
-        else if(immediate && Arg::trans().is_const_num())
+        else if(immediate && Arg::trans().is_immediate())
             simple_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
         else if((absolute_X || absolute_Y) && read_direct)
             pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y>::call(cpu, prev, cont);
-        else if(absolute && !Arg::trans().is_const_num() && !read_direct)
+        else if(absolute && !Arg::trans().is_immediate() && !read_direct)
             exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node(), cpu, prev, cont);
     }
 
@@ -2211,17 +2211,12 @@ namespace isel
             break;
 
         case SSA_fn_call:
+            assert(h->input(0).is_locator());
             p_arg<0>::set(h->input(0));
+            p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
             chain
-            < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
-            , set_defs<Opt, REGF_CPU, false, null_>
-            >(cpu, prev, cont);
-            break;
-
-        case SSA_goto_mode:
-            p_arg<0>::set(h->input(0));
-            chain
-            < exact_op<Opt, JMP_ABSOLUTE, null_, p_arg<0>>
+            < load_Y<Opt, p_arg<1>>
+            , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
             , set_defs<Opt, REGF_CPU, false, null_>
             >(cpu, prev, cont);
             break;
@@ -2331,11 +2326,30 @@ namespace isel
                     if(!mods->group_vars.count(gv->group.handle()))
                     {
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
-                        select_step<false>(exact_op<Opt, BANKED_JSR, null_, p_arg<0>>);
+                        p_arg<1>::set(locator_t::reset_group_vars(gv).with_is(IS_BANK));
+
+                        select_step<false>(
+                            chain
+                            < load_Y<Opt, p_arg<1>>
+                            , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
+                            , set_defs<Opt, REGF_CPU, false, null_>
+                            >);
                     }
 
                 });
+
+                p_arg<0>::set(h->input(0));
+                p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
+
+                select_step<true>(
+                    chain
+                    < load_Y<Opt, p_arg<1>>
+                    , exact_op<Opt, BANKED_Y_JMP, null_, p_arg<0>>
+                    , set_defs<Opt, REGF_CPU, false, null_>
+                    >);
             }
+            break;
+
             goto simple;
 
         case SSA_init_array:

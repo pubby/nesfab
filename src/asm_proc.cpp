@@ -2,6 +2,7 @@
 
 #include "format.hpp"
 #include "globals.hpp"
+#include "static_addr.hpp"
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
@@ -264,19 +265,36 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
         loc = loc.link(fn, bank);
         if(!is_const(loc.lclass()))
             throw std::runtime_error(fmt("Unable to link %", loc));
-        std::uint16_t data = loc.data() + loc.offset();
-        if(loc.high())
-            return data >>= 8;
+        assert(loc.offset() == 0);
+
+        std::uint16_t data = loc.data(); // TODO
+
+        if(loc.is() == IS_HI)
+            data >>= 8;
+
         return data;
     };
 
-    for(asm_inst_t const& inst : code)
+    auto const absolute_locs = [](asm_inst_t const& inst)
     {
-        if(inst.op == ASM_PRUNED)
-            continue;
+        locator_t lo = inst.arg;
+        locator_t hi = inst.ptr_hi;
 
+        if(!hi)
+        {
+            assert(lo.is() == IS_ADDR);
+            hi = lo;
+        }
+
+        lo.set_is(IS_LO);
+        hi.set_is(IS_HI);
+
+        return std::make_pair(lo, hi);
+    };
+
+    auto const write_inst = [&](asm_inst_t const& inst)
+    {
         assert(!(op_flags(inst.op) & ASMF_FAKE));
-
         std::uint8_t const op = op_code(inst.op);
 
         switch(op_addr_mode(inst.op))
@@ -312,24 +330,40 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
             {
                 write(op);
             absolute_addr:
-                locator_t lo = inst.arg;
-                locator_t hi = inst.ptr_hi;
-
-                if(!hi)
-                {
-                    hi = lo;
-                    lo.set_high(false);
-                    hi.set_high(true);
-                }
-
-                write(from_locator(lo));
-                write(from_locator(hi));
+                auto locs = absolute_locs(inst);
+                write(from_locator(locs.first));
+                write(from_locator(locs.second));
             }
             break;
 
         default:
             throw std::runtime_error("Invalid addressing mode.");
         }
+    };
+
+    for(asm_inst_t const& inst : code)
+    {
+        if(inst.op == ASM_PRUNED)
+            continue;
+
+        if(inst.op == BANKED_Y_JSR || inst.op == BANKED_Y_JMP)
+        {
+            assert(!inst.ptr_hi);
+            auto locs = absolute_locs(inst);
+
+            write_inst({ .op = LDA_IMMEDIATE, .arg = locs.first });
+            write_inst({ .op = LDX_IMMEDIATE, .arg = locs.second });
+            if(inst.op == BANKED_Y_JSR)
+                write_inst({ .op = JSR_ABSOLUTE, .arg = static_locator(SROM_jsr_y_trampoline) });
+            else 
+            {
+                assert(inst.op == BANKED_Y_JMP);
+                write_inst({ .op = JMP_ABSOLUTE, .arg = static_locator(SROM_jmp_y_trampoline) });
+            }
+        }
+        else
+            write_inst(inst);
+
     }
 }
 

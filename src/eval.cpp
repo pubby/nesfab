@@ -1191,7 +1191,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
                 sval_t sval = make_sval(locator_t::lt_const_ptr(c.handle()));
                 if(banked)
-                    sval.push_back(locator_t::lt_const_ptr_bank(c.handle()));
+                    sval.push_back(locator_t::lt_const_ptr(c.handle()).with_is(IS_BANK));
 
                 // Convert to a pointer.
                 rpn_value_t new_top =
@@ -2546,7 +2546,7 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
                         new_top.sval = make_sval(locator_t::lt_const_ptr(l.const_(), sum));
 
                         if(banked)
-                            new_top.sval.push_back(locator_t::lt_const_ptr_bank(l.const_()));
+                            new_top.sval.push_back(locator_t::lt_const_ptr(l.const_()).with_is(IS_BANK));
                     }
                     else
                     {

@@ -635,4 +635,12 @@ void print_rom(std::ostream& o)
         std::cout << fn.global.name << ": " << fn.rom_proc()->alloc().get()->span << std::endl;
         fn.rom_proc()->asm_proc().write_assembly(o);
     }
+
+    for(group_vars_t const& gv : group_vars_ht::values())
+    {
+        if(!gv.init_proc())
+            continue;
+        std::cout << gv.group.name << ": " << gv.init_proc()->alloc().get()->span << ' ' << gv.init_proc()->alloc().first_bank() << std::endl;
+        gv.init_proc()->asm_proc().write_assembly(o);
+    }
 }

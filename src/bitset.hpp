@@ -392,6 +392,8 @@ struct alignas(128) aggregate_bitset_t
 
     array_type array;
 
+    constexpr auto operator<=>(aggregate_bitset_t const&) const = default;
+
     UInt const* data() const { return array.data(); }
     UInt* data() { return array.data(); }
 

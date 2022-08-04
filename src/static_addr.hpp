@@ -34,7 +34,8 @@ enum static_rom_name_t : std::uint16_t
     SROM_nmi_exit,
     SROM_irq,
     SROM_reset,
-    SROM_trampoline,
+    SROM_jmp_y_trampoline,
+    SROM_jsr_y_trampoline,
     SROM_iota,
     NUM_SROM,
 };

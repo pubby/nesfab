@@ -98,9 +98,9 @@ ram_bitset_t alloc_static_ram()
 
 static void _push_addr(loc_vec_t& vec, locator_t addr)
 {
-    assert(!addr.high());
-    vec.push_back(addr.with_high(false));
-    vec.push_back(addr.with_high(true));
+    assert(addr.is() == IS_ADDR);
+    vec.push_back(addr.with_is(IS_LO));
+    vec.push_back(addr.with_is(IS_HI));
 }
 
 static loc_vec_t make_vectors()
@@ -118,7 +118,7 @@ static void _bankswitch_ax(asm_proc_t& proc, locator_t load)
     {
         if(load)
         {
-            if(load.byteified())
+            if(load.is_immediate())
             {
                 proc.push_inst(LDA_IMMEDIATE, load);
                 if(has_bus_conflicts(mapper().type))
@@ -147,7 +147,7 @@ static asm_proc_t make_nmi()
     if(auto const addr = bankswitch_addr(mapper().type))
     {
         // Save current bank
-        proc.push_inst(LDA_IMMEDIATE, LOC_THIS_BANK);
+        proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
         proc.push_inst(STA_ABSOLUTE, static_locator(SRAM_nmi_saved_bank));
 
         proc.push_inst(LAX_ABSOLUTE, static_locator(SRAM_nmi_call_bank));
@@ -237,9 +237,9 @@ static asm_proc_t make_reset()
     proc.push_inst(BPL_RELATIVE, wait_frame_2);
 
     // Init the NMI pointer
-    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit));
+    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit).with_is(IS_LO));
     proc.push_inst(STA_ABSOLUTE, static_locator(SRAM_nmi_call_ptr, 0));
-    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit).with_high(true));
+    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit).with_is(IS_HI));
     proc.push_inst(STA_ABSOLUTE, static_locator(SRAM_nmi_call_ptr, 1));
     if(bankswitch_addr(mapper().type))
     {
@@ -248,20 +248,20 @@ static asm_proc_t make_reset()
     }
 
     // Jump to our entry point.
-    _bankswitch_ax(proc, locator_t(LOC_MAIN_ENTRY_BANK).with_byteified(true));
+    _bankswitch_ax(proc, locator_t(LOC_MAIN_ENTRY).with_is(IS_BANK));
     proc.push_inst(JMP_ABSOLUTE, LOC_MAIN_ENTRY);
 
     proc.initial_optimize();
     return proc;
 }
 
-asm_proc_t make_bnrom_trampoline()
+asm_proc_t make_bnrom_jsr_y_trampoline()
 {
     asm_proc_t proc;
 
     proc.push_inst(STA_ABSOLUTE, static_locator(SRAM_ptr_temp, 0));
     proc.push_inst(STX_ABSOLUTE, static_locator(SRAM_ptr_temp, 1));
-    proc.push_inst(LDA_IMMEDIATE, LOC_THIS_BANK);
+    proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
     proc.push_inst(PHA);
     proc.push_inst(TYA);
     proc.push_inst(STA_ABSOLUTE_Y, static_locator(SROM_iota));
@@ -271,6 +271,20 @@ asm_proc_t make_bnrom_trampoline()
     proc.push_inst(STA_ABSOLUTE_Y, static_locator(SROM_iota));
     proc.push_inst(RTS);
     proc.push_label(0);
+    proc.push_inst(JMP_INDIRECT, static_locator(SRAM_ptr_temp));
+
+    proc.initial_optimize();
+    return proc;
+}
+
+asm_proc_t make_bnrom_jmp_y_trampoline()
+{
+    asm_proc_t proc;
+
+    proc.push_inst(STA_ABSOLUTE, static_locator(SRAM_ptr_temp, 0));
+    proc.push_inst(STX_ABSOLUTE, static_locator(SRAM_ptr_temp, 1));
+    proc.push_inst(TYA);
+    proc.push_inst(STA_ABSOLUTE_Y, static_locator(SROM_iota));
     proc.push_inst(JMP_INDIRECT, static_locator(SRAM_ptr_temp));
 
     proc.initial_optimize();
@@ -315,6 +329,9 @@ span_allocator_t alloc_static_rom()
     alloc(SROM_irq, make_irq());
     alloc(SROM_reset, make_reset());
     alloc(SROM_vectors, make_vectors());
+
+    alloc(SROM_jsr_y_trampoline, make_bnrom_jsr_y_trampoline());
+    alloc(SROM_jmp_y_trampoline, make_bnrom_jmp_y_trampoline());
 
     return a;
 }

@@ -21,10 +21,13 @@ static void write_linked(std::vector<locator_t> const& vec, int bank,
 
         if(!is_const(loc.lclass()))
             throw std::runtime_error(fmt("Unable to link locator %", loc));
+        std::cout << loc << std::endl;
+        assert(loc.is_immediate());
+        assert(!loc.offset());
 
-        std::uint16_t data = loc.data() + loc.offset();
+        std::uint16_t data = loc.data();
 
-        if(loc.high())
+        if(loc.is() == IS_HI)
             data >>= 8;
 
         *at++ = data;
@@ -84,8 +87,8 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         });
     };
 
-    //for(rom_static_t const& static_ : rom_static_ht::values())
-        //write(static_);
+    for(rom_static_t const& static_ : rom_static_ht::values())
+        write(static_);
     for(rom_once_t const& once : rom_once_ht::values())
         write(once);
     for(rom_many_t const& many : rom_many_ht::values())

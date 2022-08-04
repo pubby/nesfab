@@ -166,7 +166,7 @@ int main(int argc, char** argv)
         global_t::compile_all();
 
         set_compiler_phase(PHASE_ALLOC_RAM);
-        alloc_ram(static_used_ram, nullptr);
+        alloc_ram(~static_used_ram, nullptr);
         // TODO: remove
         //for(fn_t const& fn : impl_deque<fn_t>)
             //fn.proc().write_assembly(std::cout, fn.handle());
@@ -201,7 +201,7 @@ int main(int argc, char** argv)
             //globals.finish();
         //}
 
-        //print_ram(std::cout);
+        print_ram(std::cout);
         print_rom(std::cout);
     }
 #ifdef NDEBUG // In debug mode, we get better stack traces without catching.

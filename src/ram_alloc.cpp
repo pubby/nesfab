@@ -131,8 +131,8 @@ private:
         bitset_t maximal_group_vars;
     };
 
-    group_vars_d& data(group_vars_ht h) { return group_vars_data[h.id]; }
-    fn_d& data(fn_ht h) { return fn_data[h.id]; }
+    group_vars_d& data(group_vars_ht h) { assert(h.id < group_vars_data.size()); return group_vars_data[h.id]; }
+    fn_d& data(fn_ht h) { assert(h.id < fn_data.size()); return fn_data[h.id]; }
 
     std::vector<group_vars_d> group_vars_data;
     std::vector<fn_d> fn_data;
@@ -403,6 +403,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             else
                 zp = ZP_NEVER;
 
+            assert((d.usable_ram & initial_usable_ram) == d.usable_ram);
             span_t const span = alloc_ram(d.usable_ram, size, zp);
 
             if(!span)

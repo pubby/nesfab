@@ -52,16 +52,12 @@ std::string to_string(locator_t loc)
         str = fmt("gmember ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_LT_CONST_PTR:
         str = fmt("lt const ptr %", loc.const_()->global.name); break;
-    case LOC_LT_CONST_PTR_BANK:
-        str = fmt("lt const ptr bank %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
         str = fmt("lt expr % %", loc.handle(), loc.lt().safe().type); break;
     case LOC_THIS_BANK:
         str = "this bank"; break;
     case LOC_MAIN_ENTRY:
         str = "main entry"; break;
-    case LOC_MAIN_ENTRY_BANK:
-        str = "main entry bank"; break;
     case LOC_RESET_GROUP_VARS:
         str = fmt("reset group vars %", loc.group_vars()->group.name); break;
     }
@@ -71,7 +67,7 @@ std::string to_string(locator_t loc)
     else
         str += fmt(" [%] (%)", (int)loc.data(), (int)loc.offset());
 
-    str += fmt(" {% %}", (int)loc.byteified(), (int)loc.high());
+    str += fmt(" {% %}", (int)loc.byteified(), (int)loc.is());
 
     return str;
 }
@@ -147,8 +143,6 @@ type_t locator_t::type() const
         if(const_ht const c = const_())
             return byteify(type_t::ptr(c->group(), false, false));
         break;
-    case LOC_LT_CONST_PTR_BANK:
-        return TYPE_U;
     case LOC_LT_EXPR:
         assert(lt());
         return byteify(lt().safe().type);
@@ -180,28 +174,40 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
     { 
         if(!span)
             return *this;
-        return addr(span.addr, offset()).with_high(high()); 
+
+        span.addr += offset();
+
+        if(is() == IS_ADDR)
+            return addr(span.addr); 
+        else if(is() == IS_LO)
+            return const_byte(span.addr & 0xFF);
+        else if(is() == IS_HI)
+            return const_byte((span.addr >> 8) & 0xFF);
+
+        return *this;
     };
 
     auto const from_alloc = [&](rom_alloc_ht h) -> locator_t
     {
-        if(rom_alloc_t* alloc = h.get())
+        if(is() == IS_BANK)
+        {
+            int const bank = h.first_bank();
+            if(bank < 0 || bank >= 256)
+                return *this;
+            return locator_t::const_byte(bank);
+        }
+        else if(rom_alloc_t* alloc = h.get())
             return from_span(alloc->span);
         return *this;
-    };
-
-    auto const from_alloc_bank = [&](rom_alloc_ht h) -> locator_t
-    {
-        int const bank = h.first_bank();
-        if(bank < 0 || bank >= 256)
-            return *this;
-        return locator_t::const_byte(bank);
     };
 
     switch(lclass())
     {
     default:
         return *this;
+
+    case LOC_ADDR: // Remove the offset.
+        return locator_t::addr(data() + offset()).with_is(is());
 
     case LOC_FN:
         return from_alloc(fn()->rom_proc()->alloc());
@@ -225,8 +231,6 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
 
     case LOC_MAIN_ENTRY:
         return from_alloc(get_main_entry().rom_proc()->alloc());
-    case LOC_MAIN_ENTRY_BANK:
-        return from_alloc_bank(get_main_entry().rom_proc()->alloc());
 
     case LOC_THIS_BANK:
         if(bank >= 0 && bank < 256)
@@ -237,7 +241,8 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
         return from_span(gmember()->span(0));
     case LOC_LT_CONST_PTR:
         return from_alloc(const_()->rom_array()->alloc());
-    case LOC_LT_CONST_PTR_BANK:
-        return from_alloc_bank(const_()->rom_array()->alloc());
+
+    case LOC_RESET_GROUP_VARS:
+        return from_alloc(group_vars()->init_proc()->alloc());
     };
 }

@@ -91,40 +91,6 @@ DEF_HANDLE_HASH(group_ht);
 DEF_HANDLE_HASH(group_vars_ht);
 DEF_HANDLE_HASH(group_data_ht);
 
-/* TODO: remove?
-template<typename, typename = void>
-struct is_global_handle 
-: std::false_type {};
-
-template<typename t>
-struct is_global_handle<t, std::void_t<typename t::global_handle_tag>>
-: std::true_type {};
-
-template<typename, typename = void>
-struct is_global_impl 
-: std::false_type {};
-
-template<typename t>
-struct is_global_impl<t, std::void_t<typename t::global_impl_tag>>
-: std::true_type {};
-
-template<typename, typename = void>
-struct is_group_handle 
-: std::false_type {};
-
-template<typename t>
-struct is_group_handle<t, std::void_t<typename t::group_handle_tag>>
-: std::true_type {};
-
-template<typename, typename = void>
-struct is_group_impl 
-: std::false_type {};
-
-template<typename t>
-struct is_group_impl<t, std::void_t<typename t::group_impl_tag>>
-: std::true_type {};
-*/
-
 enum fn_class_t : char
 {
     FN_FN,

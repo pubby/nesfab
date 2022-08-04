@@ -2,52 +2,76 @@
 
 constexpr op_def_t op_defs_table[NUM_OPS] =
 {
-    { .op = BAD_OP },
-    { .op = ASM_LABEL },
-    { .op = ASM_PRUNED },
+    { .op = BAD_OP, .flags = ASMF_FAKE },
+    { .op = ASM_LABEL, .flags = ASMF_FAKE },
+    { .op = ASM_PRUNED, .flags = ASMF_FAKE },
     { 
         .op = ASM_DELAY,
         .cycles = 255,
+        .flags = ASMF_FAKE,
     },
     { 
         .op = MAYBE_STA,
+        .addr_mode = MODE_ABSOLUTE,
         .size = 3,
         .cycles = 2, // Arbitrary
         .input_regs = REGF_A,
         .output_regs = REGF_M,
-        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_STX,
+        .addr_mode = MODE_ABSOLUTE,
         .size = 3,
         .cycles = 2, // Arbitrary
         .input_regs = REGF_X,
         .output_regs = REGF_M,
-        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_STY,
+        .addr_mode = MODE_ABSOLUTE,
         .size = 3,
         .cycles = 2, // Arbitrary
         .input_regs = REGF_Y,
         .output_regs = REGF_M,
-        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_SAX,
+        .addr_mode = MODE_ABSOLUTE,
         .size = 3,
         .cycles = 2, // Arbitrary
         .input_regs = REGF_AX,
         .output_regs = REGF_M,
-        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_STORE_C,
+        .addr_mode = MODE_ABSOLUTE,
         .size = 9,
         .cycles = 13, // Arbitrary
         .input_regs = REGF_C,
         .output_regs = REGF_M,
-        .flags = ASMF_MAYBE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    {
+        .op = BANKED_JSR,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 3 + (2 * 3),
+        .cycles = 6 + (2 * 3),
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_FAKE,
+    },
+    {
+        .op = BANKED_JMP,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 3 + (2 * 3),
+        .cycles = 3 + (2 * 3),
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_FAKE | ASMF_JUMP,
     },
 
     // ADC

@@ -235,9 +235,10 @@ int rom_alloc_ht::first_bank() const
 
 rom_many_t::rom_many_t(rom_data_ht data, std::uint16_t desired_alignment)
 {
-    desired_alignment = desired_alignment;
+    assert(data.rclass());
+    this->desired_alignment = desired_alignment;
     desired_size = data.max_size();
-    data = data;
+    this->data = data;
 }
 
 ////////////////
@@ -246,7 +247,8 @@ rom_many_t::rom_many_t(rom_data_ht data, std::uint16_t desired_alignment)
 
 rom_once_t::rom_once_t(rom_data_ht data, std::uint16_t desired_alignment)
 {
-    desired_alignment = desired_alignment;
+    assert(data.rclass());
+    this->desired_alignment = desired_alignment;
     desired_size = data.max_size();
-    data = data;
+    this->data = data;
 }

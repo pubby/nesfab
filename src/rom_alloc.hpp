@@ -9,4 +9,6 @@ class span_allocator_t;
 
 void alloc_rom(std::ostream* log, span_allocator_t allocator, unsigned num_banks);
 
+void print_rom(std::ostream& o);
+
 #endif

@@ -6,7 +6,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword nesfabKeyword if else for while do break continue then return fn ct mode goto label using file struct vars once many
+syn keyword nesfabKeyword if else for while do break continue then return fn ct mode goto label using file struct vars data omni
 
 syntax match nesfabId "\l\k*"
 syntax match nesfabType "\u\k*"

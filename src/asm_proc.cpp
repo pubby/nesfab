@@ -175,6 +175,7 @@ void asm_proc_t::optimize_short_jumps(bool initial)
 
 void asm_proc_t::optimize(bool initial)
 {
+    return; // TODO
     // Order matters here.
     absolute_to_zp();
     optimize_short_jumps(initial);
@@ -273,6 +274,8 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
     {
         if(inst.op == ASM_PRUNED)
             continue;
+
+        assert(!(op_flags(inst.op) & ASMF_FAKE));
 
         std::uint8_t const op = op_code(inst.op);
 

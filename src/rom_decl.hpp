@@ -58,6 +58,7 @@ public:
         impl = handle & 0xFFFFFF;
         assert(handle == impl);
         impl |= unsigned(rclass) << 24;
+        assert(this->rclass() == rclass);
     }
 
     constexpr E rclass() const { return E(impl >> 24); }

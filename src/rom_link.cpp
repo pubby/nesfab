@@ -1,6 +1,7 @@
 #include "rom_link.hpp"
 
 #include <stdexcept>
+#include <iostream> // TODO
 
 #include "rom.hpp"
 #include "format.hpp"
@@ -74,6 +75,8 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             asm_proc.link(alloc.only_bank());
             asm_proc.relocate(alloc.span.addr);
 
+            asm_proc.write_assembly(std::cerr);
+
             alloc.for_each_bank([&](unsigned bank)
             {
                 asm_proc.write_bytes(calc_addr(alloc.span, bank), bank);
@@ -81,8 +84,8 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         });
     };
 
-    for(rom_static_t const& static_ : rom_static_ht::values())
-        write(static_);
+    //for(rom_static_t const& static_ : rom_static_ht::values())
+        //write(static_);
     for(rom_once_t const& once : rom_once_ht::values())
         write(once);
     for(rom_many_t const& many : rom_many_ht::values())

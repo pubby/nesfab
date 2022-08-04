@@ -200,7 +200,9 @@ int main(int argc, char** argv)
             //globals.debug_print();
             //globals.finish();
         //}
-        print_ram(std::cout);
+
+        //print_ram(std::cout);
+        print_rom(std::cout);
     }
 #ifdef NDEBUG // In debug mode, we get better stack traces without catching.
     catch(std::exception& e)

@@ -412,7 +412,7 @@ namespace isel
 
         // If this is a store, mark it immediately without cost.
         if(!xy_addr_mode(op_addr_mode(Op)) && (op_output_regs(Op) & REGF_M) 
-           && !(op_flags(Op) & ASMF_MAYBE) && def.holds_ref() && def.handle() == state.ssa_node)
+           && !(op_flags(Op) & ASMF_MAYBE_STORE) && def.holds_ref() && def.handle() == state.ssa_node)
         {
             assert(def.handle() != arg_h);
             cpu.req_store |= cg_data(def.handle()).isel.store_mask;
@@ -2331,7 +2331,7 @@ namespace isel
                     if(!mods->group_vars.count(gv->group.handle()))
                     {
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
-                        select_step<false>(exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>);
+                        select_step<false>(exact_op<Opt, BANKED_JSR, null_, p_arg<0>>);
                     }
 
                 });

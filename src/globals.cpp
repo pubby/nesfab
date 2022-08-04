@@ -7,7 +7,6 @@
 #include "bitset.hpp"
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
-#include "ir_builder.hpp"
 #include "o.hpp"
 #include "options.hpp"
 #include "byteify.hpp"
@@ -229,9 +228,17 @@ void global_t::parse_cleanup()
         if(group.gclass() == GROUP_UNDEFINED)
             compiler_error(group.pstring(), "Group name not in scope.");
 
-    // Handle weak ideps:
+    // Handle weak ideps and verify globals are created:
     for(global_t& global : global_ht::values())
     {
+        if(global.gclass() == GLOBAL_UNDEFINED)
+        {
+            if(global.m_pstring)
+                compiler_error(global.m_pstring, "Name not in scope.");
+            else
+                throw compiler_error_t(fmt("Name not in scope: %.", global.name));
+        }
+        
         for(global_t* idep : global.m_weak_ideps)
         {
             // No point if we already have the idep.
@@ -351,15 +358,6 @@ void global_t::build_order()
 
     for(global_t& global : global_ht::values())
     {
-        // Check to make sure every global was defined:
-        if(global.gclass() == GLOBAL_UNDEFINED)
-        {
-            if(global.m_pstring)
-                compiler_error(global.m_pstring, "Name not in scope.");
-            else
-                throw compiler_error_t(fmt("Name not in scope: %.", global.name));
-        }
-
         global.m_ideps_left.store(global.m_ideps.size(), std::memory_order_relaxed);
         for(global_t* idep : global.m_ideps)
             idep->m_iuses.insert(&global);

@@ -613,14 +613,26 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
 void alloc_rom(std::ostream* log, span_allocator_t allocator, unsigned num_banks)
 {
     rom_allocator_t alloc(log, allocator, num_banks);
+}
+
+void print_rom(std::ostream& o)
+{
+    o << "ROM:\n\n";
+
     for(auto const& st : rom_static_ht::values())
         std::cout << "STATIC " << st.span << '\n';
     for(auto const& many : rom_many_ht::values())
     {
-        std::cout << "MANY " << many.span;
+        std::cout << "MANY " << many.span << ' ' << many.data.rclass();
         many.in_banks.for_each([](unsigned bank_i) { std::cout << ' ' << bank_i; });
         std::cout << std::endl;
     }
     for(auto const& once : rom_once_ht::values())
-        std::cout << "ONCE " << once.span << ' ' << once.bank << std::endl;
+        std::cout << "ONCE " << once.span << ' ' << once.bank << ' ' << once.data.rclass() << std::endl;
+
+    for(fn_t const& fn : fn_ht::values())
+    {
+        std::cout << fn.global.name << ": " << fn.rom_proc()->alloc().get()->span << std::endl;
+        fn.rom_proc()->asm_proc().write_assembly(o);
+    }
 }

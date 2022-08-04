@@ -59,7 +59,6 @@ symbol_table.cpp \
 ir.cpp \
 ir_edge.cpp \
 ir_util.cpp \
-ir_builder.cpp \
 type.cpp \
 compiler_error.cpp \
 file.cpp \
@@ -71,7 +70,6 @@ lex_tables.cpp \
 add_constraints_table.cpp \
 graphviz.cpp \
 carry.cpp \
-o.cpp \
 o_phi.cpp \
 o_ai.cpp \
 o_unused.cpp \
@@ -121,6 +119,7 @@ robin_tests.cpp \
 fixed_tests.cpp \
 constraints.cpp \
 constraints_tests.cpp \
+bitset_tests.cpp \
 carry.cpp \
 ssa_op.cpp \
 add_constraints_table.cpp \

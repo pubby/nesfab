@@ -65,7 +65,7 @@ constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_NZ;
 
 using asm_flags_t = std::uint32_t;
 
-constexpr asm_flags_t ASMF_MAYBE       = 1 << 0;
+constexpr asm_flags_t ASMF_FAKE        = 1 << 0;
 constexpr asm_flags_t ASMF_MAYBE_STORE = 1 << 1;
 constexpr asm_flags_t ASMF_BRANCH      = 1 << 2;
 constexpr asm_flags_t ASMF_JUMP        = 1 << 3;

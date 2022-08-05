@@ -111,6 +111,7 @@ class alignas(32) ssa_node_t : public intrusive_t<ssa_ht>
     friend class ssa_bck_edge_t;
     friend class cfg_node_t;
     friend class ir_t;
+    friend ssa_ht split_output_edge(ssa_ht ssa_node, bool this_cfg, unsigned output_i, ssa_op_t op);
 
     // The following data members have been carefully aligned based on 
     // 64-byte cache lines. Don't mess with it unless you understand it!
@@ -174,8 +175,6 @@ public:
     bool link_change_input(unsigned i, ssa_value_t new_value);
     void link_clear_inputs();
     void link_shrink_inputs(unsigned new_size);
-
-    ssa_ht split_output_edge(bool this_cfg, unsigned output_i, ssa_op_t op);
 
     bool in_daisy() const { return test_flags(FLAG_DAISY); }
     void insert_daisy(ssa_ht it);
@@ -453,6 +452,8 @@ void cfg_node_t::link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn)
 // Utility functions                  //
 ////////////////////////////////////////
 
+ssa_ht split_output_edge(ssa_ht ssa_node, bool this_cfg, unsigned output_i, ssa_op_t op);
+
 // Recurses through copies until finding the original definition.
 inline ssa_value_t orig_def(ssa_value_t v)
 {
@@ -490,9 +491,9 @@ inline bool carry_used(ssa_node_t const& node)
 
 inline fn_ht get_fn(ssa_node_t const& node)
 {
-    assert(fn_like(node.op()));
-    assert(node.input_size() >= 1);
-    return node.input(0).locator().fn();
+    if(fn_like(node.op()) && has_fn(node.input(0).locator().lclass()))
+        return node.input(0).locator().fn();
+    return {};
 }
 
 inline unsigned get_condition_i(ssa_op_t op)

@@ -524,6 +524,8 @@ ABSTRACT(SSA_uninitialized) = abstract_bottom;
 ABSTRACT(SSA_read_ptr) = abstract_bottom;
 ABSTRACT(SSA_make_ptr_lo) = abstract_bottom;
 ABSTRACT(SSA_make_ptr_hi) = abstract_bottom;
+ABSTRACT(SSA_read_hw) = abstract_bottom;
+ABSTRACT(SSA_write_hw) = abstract_bottom;
 
 ABSTRACT(SSA_carry) = ABSTRACT_FN
 {

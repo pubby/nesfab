@@ -14,6 +14,7 @@
 #include "thread.hpp"
 #include "ram_alloc.hpp"
 #include "rom_alloc.hpp"
+#include "rom_prune.hpp"
 #include "static_addr.hpp"
 #include "rom_link.hpp"
 #include "ram_init.hpp"
@@ -166,10 +167,11 @@ int main(int argc, char** argv)
         global_t::compile_all();
 
         set_compiler_phase(PHASE_ALLOC_RAM);
-        alloc_ram(~static_used_ram, nullptr);
+        alloc_ram(~static_used_ram, &std::cout);
         // TODO: remove
         //for(fn_t const& fn : impl_deque<fn_t>)
             //fn.proc().write_assembly(std::cout, fn.handle());
+        print_ram(std::cout);
         output_time("alloc ram:");
 
         set_compiler_phase(PHASE_INITIAL_VALUES);
@@ -177,7 +179,9 @@ int main(int argc, char** argv)
         output_time("init vals:");
 
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
-        alloc_rom(&std::cout, rom_allocator, mapper().num_32k_banks);
+        prune_rom_data();
+        alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
+        print_rom(std::cout);
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);
@@ -201,8 +205,6 @@ int main(int argc, char** argv)
             //globals.finish();
         //}
 
-        print_ram(std::cout);
-        print_rom(std::cout);
     }
 #ifdef NDEBUG // In debug mode, we get better stack traces without catching.
     catch(std::exception& e)

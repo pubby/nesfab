@@ -113,10 +113,20 @@ SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY)
 
 // (ptr, ptr_hi, bank, index)
 // TODO: should this be impure, because of bankswitches?
-SSA_DEF(read_ptr, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
+SSA_DEF(read_ptr, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_NULL_INPUT_VALID)
 
 // (ptr, ptr_hi, bank, index, value)
 SSA_DEF(write_ptr, 5, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
+
+//////////////
+// HARDWARE //
+//////////////
+
+// (addr, value)
+SSA_DEF(write_hw, 2, INPUT_VALUE, SSAF_IO_IMPURE)
+
+// (addr)
+SSA_DEF(read_hw, 1, INPUT_VALUE, SSAF_IO_IMPURE)
 
 /////////////
 // GLOBALS //

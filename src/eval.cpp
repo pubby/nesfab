@@ -1358,7 +1358,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             if(eval_tracked)
             {
                 assert(fn);
-                if(fn->fclass == FN_MODE)
+                if(call->fclass == FN_MODE)
                 {
                     // Track that we're going to a mode here:
                     eval_tracked->goto_modes.push_back(std::make_pair(
@@ -1634,6 +1634,50 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         break;
         */
 
+    case TOK_read_hw:
+        {
+            rpn_value_t new_top = 
+            {
+                .category = RVAL, 
+                .type = TYPE_U, 
+                .pstring = token->pstring,
+            };
+
+            if(is_interpret(D))
+                compiler_error(stmt->pstring, "Hardware-related expressions cannot be evaluated at compile-time.");
+            else if(D == COMPILE)
+            {
+                ssa_ht h = builder.cfg->emplace_ssa(SSA_read_hw, TYPE_U, locator_t::addr(token->value));
+                h->append_daisy();
+                new_top.sval = { h };
+        }
+
+            rpn_stack.push(std::move(new_top));
+        }
+        break;
+
+    case TOK_write_hw:
+        {
+            throwing_cast<D>(rpn_stack.peek(0), TYPE_U, true);
+
+            // Modify the top RPN value instead of pushing/popping:
+            auto& top = rpn_stack.peek(0);
+            assert(top.type == TYPE_U);
+            top.category = RVAL;
+            top.pstring = concat(top.pstring, token->pstring);
+
+            if(is_interpret(D))
+                compiler_error(stmt->pstring, "Hardware-related expressions cannot be evaluated at compile-time.");
+            else if(D == COMPILE)
+            {
+                ssa_ht h = builder.cfg->emplace_ssa(
+                    SSA_write_hw, TYPE_VOID, 
+                    locator_t::addr(token->value), top.ssa());
+                h->append_daisy();
+            }
+        }
+        break;
+
     case TOK_push_paa:
         {
             rpn_value_t const& v = rpn_stack.only1();
@@ -1819,7 +1863,8 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             }
 
             rpn_value_t& array_index = rpn_stack.peek(0);
-            assert(array_val.sval.size() > 0);
+            if(D != CHECK)
+                assert(array_val.sval.size() > 0);
 
             // Array indexes are always bytes.
             throwing_cast<D>(array_index, TYPE_U, true);

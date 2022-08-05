@@ -1,6 +1,7 @@
 #include "ir.hpp"
 
 #include "builtin.hpp"
+#include "globals.hpp"
 
 #include <iostream> // TODO
 
@@ -399,27 +400,6 @@ unsigned ssa_node_t::replace_with(input_class_t input_class, ssa_value_t value)
             ++i;
     }
     return changed;
-}
-
-ssa_ht ssa_node_t::split_output_edge(bool this_cfg, unsigned output_i,
-                                     ssa_op_t op)
-{
-    ssa_bck_edge_t& oe = m_io.output(output_i);
-
-    // Create a copy and set its input to this.
-    cfg_ht cfg = this_cfg ? cfg_node() : oe.handle->cfg_node();
-    ssa_ht copy = cfg->emplace_ssa(op, type());
-    copy->alloc_input(1); 
-    copy->m_io.input(0) = ssa_fwd_edge_t(handle(), output_i);
-
-    // Update our (original) output's input to be copy,
-    // and also update copy's output.
-    oe.input() = ssa_fwd_edge_t(copy, copy->append_output(oe));
-
-    // Finally, update our own output:
-    oe = { copy, 0 };
-
-    return copy;
 }
 
 ssa_ht ssa_node_t::prune()
@@ -909,6 +889,7 @@ void ir_t::assert_valid() const
             {
                 if((ssa_flags(ssa_node.op()) & SSAF_NULL_INPUT_VALID) && !ssa_node.input(i))
                     continue;
+                std::cout << ssa_it << std::endl;
                 assert(ssa_node.input(i));
                 if(!ssa_node.input(i).holds_ref())
                     continue;
@@ -957,6 +938,32 @@ void ir_t::assert_valid() const
     }
 }
 #endif
+
+////////////////////////////////////////
+// Utility functions                  //
+////////////////////////////////////////
+
+ssa_ht split_output_edge(ssa_ht ssa_node, bool this_cfg, unsigned output_i, ssa_op_t op)
+{
+    // Create a copy and set its input to this.
+    cfg_ht const cfg = this_cfg ? ssa_node->cfg_node() : ssa_node->output(output_i)->cfg_node();
+    ssa_ht const copy = cfg->emplace_ssa(op, ssa_node->type());
+
+    copy->alloc_input(1); 
+    copy->m_io.input(0) = ssa_fwd_edge_t(ssa_node, output_i);
+
+    // Create this reference after emplace_ssa.
+    ssa_bck_edge_t& oe = ssa_node->m_io.output(output_i);
+
+    // Update our (original) output's input to be copy,
+    // and also update copy's output.
+    oe.input() = ssa_fwd_edge_t(copy, copy->append_output(oe));
+
+    // Finally, update our own output:
+    oe = { copy, 0 };
+
+    return copy;
+}
 
 template class node_io_buffers_t<ssa_fwd_edge_t, ssa_bck_edge_t, 3, 1>;
 template class node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 2, 2>;

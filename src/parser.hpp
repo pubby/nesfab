@@ -73,6 +73,10 @@ private:
     pstring_t parse_ident();
     string_literal_t parse_string_literal();
     pstring_t parse_group_ident();
+
+    static std::uint16_t get_hw_reg(token_type_t token_type);
+    std::uint16_t parse_hw_reg();
+
     expr_temp_t parse_expr();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
     src_type_t parse_cast(expr_temp_t&, int open_parens=0);

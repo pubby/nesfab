@@ -324,7 +324,7 @@ public:
             hash_type* const old_hashes = hashes.release();
             hash_type* const new_hashes = reinterpret_cast<hash_type*>(
                 std::realloc(old_hashes, (new_size+1) * sizeof(hash_type)));
-            if(LIKELY(hashes))
+            if(LIKELY(new_hashes))
                 hashes.reset(new_hashes);
             else
             {

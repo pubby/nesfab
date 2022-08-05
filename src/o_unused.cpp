@@ -4,6 +4,7 @@
 
 #include "globals.hpp"
 #include "ir.hpp"
+#include "ir_util.hpp"
 #include "worklist.hpp"
 
 namespace bc = ::boost::container;
@@ -21,7 +22,7 @@ static bool _can_prune(ssa_node_t& node)
     switch(node.op())
     {
     default: 
-        return !(ssa_flags(node.op()) & SSAF_IO_IMPURE);
+        return io_pure(node);
     case SSA_if:
     case SSA_return:
         return false;

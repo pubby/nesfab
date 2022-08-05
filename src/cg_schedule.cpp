@@ -8,7 +8,7 @@
 #include "alloca.hpp"
 #include "cg.hpp"
 #include "ir.hpp"
-#include "ir_util.hpp"
+#include "ir_algo.hpp"
 
 namespace { // anon namespace
 
@@ -23,7 +23,7 @@ private:
     static inline thread_local array_pool_t<bitset_uint_t> bitset_pool;
 
     ir_t& ir;
-    cfg_ht cfg_node;
+    cfg_ht const cfg_node;
     unsigned set_size = 0;
 
     ssa_ht carry_input_waiting;
@@ -87,9 +87,9 @@ void scheduler_t::calc_exit_distance(ssa_ht ssa, int exit_distance) const
         for_each_node_input(ssa, [&](ssa_ht input){ calc_exit_distance(input, exit_distance); });
 }
 
-scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
+scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 : ir(ir)
-, cfg_node(cfg_node)
+, cfg_node(cfg_node_)
 {
     bitset_pool.clear();
     set_size = bitset_size<>(cfg_node->ssa_size());
@@ -358,13 +358,13 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
 
             // We can only do this when the read is in the same CFG node
             if(oe.handle->cfg_node() != cfg_node)
-                return;
+                continue;
 
             auto& d = data(oe.handle);
 
             // Can't add a dep if a cycle would be created:
             if(bitset_test(data(ssa_node).deps, index(oe.handle)))
-                return;
+                continue;
 
             // Add a dep!
             bitset_set(d.deps, index(ssa_node));
@@ -375,6 +375,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node)
 
     // OK! Everything was initialized. Now to run the greedy algorithm.
     run();
+    assert(schedule.size() == cfg_node->ssa_size());
 }
 
 void scheduler_t::append_schedule(ssa_ht h)
@@ -462,6 +463,8 @@ void scheduler_t::run()
         if(d.carry_user)
             carry_input_waiting = d.carry_user;
     }
+
+    assert(schedule.size() == cfg_node->ssa_size());
 
     // Finally, re-assign 'index' to hold the position in the schedule:
 
@@ -636,6 +639,7 @@ void schedule_ir(ir_t& ir)
     {
         scheduler_t s(ir, h);
         cg_data(h).schedule = std::move(s.schedule);
+        assert(cg_data(h).schedule.size() == h->ssa_size());
     }
 }
 

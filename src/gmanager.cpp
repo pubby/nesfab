@@ -45,7 +45,7 @@ void gmanager_t::init(fn_ht fn)
             continue;
         assert(call.fclass != FN_MODE);
 
-        assert(set_size == fn->ir_reads().size());
+        assert(set_size == call.ir_reads().size());
         bitset_or(set_size, initial_set, call.ir_reads().data());
         bitset_or(set_size, initial_set, call.ir_writes().data());
     }

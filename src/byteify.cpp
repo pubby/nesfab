@@ -62,18 +62,32 @@ static bm_t _get_bm(ssa_value_t value)
             return bm;
         }
 
-        type_t const t = loc.type();
-        assert(is_scalar(t.name()));
-
-        unsigned const start = begin_byte(t.name());
-        unsigned const end = end_byte(t.name());
-
-        for(unsigned j = start; j < end; ++j)
+        switch(loc.is())
         {
-            locator_t new_loc = loc;
-            new_loc.set_atom(j - start);
-            new_loc.set_byteified(true);
-            bm[j] = new_loc;
+        case IS_DEREF:
+            {
+                type_t const t = loc.type();
+                assert(is_scalar(t.name()));
+
+                unsigned const start = begin_byte(t.name());
+                unsigned const end = end_byte(t.name());
+
+                for(unsigned j = start; j < end; ++j)
+                {
+                    locator_t new_loc = loc;
+                    new_loc.set_atom(j - start);
+                    new_loc.set_byteified(true);
+                    bm[j] = new_loc;
+                }
+            }
+            break;
+
+        case IS_PTR:
+            bm[max_frac_bytes+1] = loc.with_is(IS_PTR_HI).with_byteified(true);
+            // fall-through
+        case IS_PTR_HI:
+        case IS_BANK:
+            bm[max_frac_bytes] = loc.with_byteified(true);
         }
 
         return bm;
@@ -169,7 +183,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_it->link_change_input(0, lo);
                     ssa_it->link_change_input(1, hi);
                 }
-                continue;
             }
 
             if(is_make_ptr(ssa_it->op()))

@@ -7,6 +7,7 @@
 #include "robin/hash.hpp"
 
 #include "ir.hpp"
+#include "ir_algo.hpp"
 #include "ir_util.hpp"
 #include "debug_print.hpp"
 
@@ -61,8 +62,12 @@ public:
         // Assign unique GVNs to ops not valid for GVN:
         for(cfg_node_t const& cfg_node : ir)
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
-            if(ssa_it->in_daisy() || ssa_flags(ssa_it->op()) & (SSAF_IO_IMPURE | SSAF_NO_GVN | SSAF_WRITE_ARRAY))
+            if(ssa_it->in_daisy() 
+               || ssa_flags(ssa_it->op()) & (SSAF_NO_GVN | SSAF_WRITE_ARRAY) 
+               || !io_pure(*ssa_it))
+            {
                 data(ssa_it).gvn = m_next_gvn++;
+            }
 
         // Build GVNs for the rest of the IR:
         for(cfg_node_t const& cfg_node : ir)

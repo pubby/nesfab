@@ -572,6 +572,8 @@ rptr eof() { return pred([](unsigned char c) { return c == '\0'; }); }
 rptr whitespace() { return pred([](unsigned char c) { return c == ' ' || c == '\t'; }); }
 rptr type() { return many1(cat(upper(), many1(pred(is_lower_or_digit)))); }
 rptr digit() { return pred(isdigit); }
+rptr hex_digit() { return pred(isxdigit); }
+rptr bin_digit() { return pred([](unsigned char c) { return c == '0' || c == '1'; }); }
 
 int main()
 {
@@ -603,6 +605,13 @@ int main()
             keyword("vars"),
             keyword("data"),
             keyword("omni"),
+
+            keyword("PPUCTRL"),
+            keyword("PPUMASK"),
+            keyword("PPUSTATUS"),
+            keyword("PPUSCROLL"),
+            keyword("PPUADDR"),
+            keyword("PPUDATA"),
 
             // Symbols
             keyword(1, "lbrace", "{"),
@@ -718,12 +727,16 @@ int main()
             accept("ident", "identifier", cat(lower(), kleene(idchar()))),
             accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
             accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
+            accept("hex", "number", cat(word("$"), uor(many1(hex_digit()), cat(many1(hex_digit()), word("."), many1(hex_digit()))))),
+            accept("binary", "number", cat(word("%"), uor(many1(bin_digit()), cat(many1(bin_digit()), word("."), many1(bin_digit()))))),
 
             // dummy:
             accept("int", "int", eof()),
             accept("real", "real", eof()),
             accept("global_ident", "global identifier", eof()),
             accept("weak_ident", "weak identifier", eof()),
+            accept("read_hw", "read hardware", eof()),
+            accept("write_hw", "write hardware", eof()),
             accept("push_paa_byte_array", "byte array", eof()),
             accept("push_paa", "push paa", eof()),
             accept("begin_paa", "begin paa", eof()),

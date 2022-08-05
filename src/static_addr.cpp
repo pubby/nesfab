@@ -9,6 +9,7 @@
 
 namespace // anonymous
 {
+    // TODO: replace with hw_reg
     constexpr locator_t PPUCTRL   = locator_t::addr(0x2000);
     constexpr locator_t PPUMASK   = locator_t::addr(0x2001);
     constexpr locator_t PPUSTATUS = locator_t::addr(0x2002);
@@ -98,9 +99,9 @@ ram_bitset_t alloc_static_ram()
 
 static void _push_addr(loc_vec_t& vec, locator_t addr)
 {
-    assert(addr.is() == IS_ADDR);
-    vec.push_back(addr.with_is(IS_LO));
-    vec.push_back(addr.with_is(IS_HI));
+    assert(addr.is() == IS_DEREF);
+    vec.push_back(addr.with_is(IS_PTR));
+    vec.push_back(addr.with_is(IS_PTR_HI));
 }
 
 static loc_vec_t make_vectors()
@@ -237,9 +238,9 @@ static asm_proc_t make_reset()
     proc.push_inst(BPL_RELATIVE, wait_frame_2);
 
     // Init the NMI pointer
-    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit).with_is(IS_LO));
+    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit).with_is(IS_PTR));
     proc.push_inst(STA_ABSOLUTE, static_locator(SRAM_nmi_call_ptr, 0));
-    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit).with_is(IS_HI));
+    proc.push_inst(LDA_IMMEDIATE, static_locator(SROM_nmi_exit).with_is(IS_PTR_HI));
     proc.push_inst(STA_ABSOLUTE, static_locator(SRAM_nmi_call_ptr, 1));
     if(bankswitch_addr(mapper().type))
     {

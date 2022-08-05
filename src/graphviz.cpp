@@ -128,7 +128,7 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); 
-        ssa_it->test_flags(FLAG_DAISY); ++ssa_it)
+        ssa_it && ssa_it->test_flags(FLAG_DAISY); ++ssa_it)
     {
         ssa_ht next = ssa_it.next();
         if(!next || !next->test_flags(FLAG_DAISY))

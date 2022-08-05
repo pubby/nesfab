@@ -102,9 +102,9 @@ public:
     struct handle_t : public ::handle_t<handle_t, std::uint32_t, 0u>
     {
         T& operator*() const 
-            { assert(this->id < storage.size()); return storage[this->id]; }
+            { assert(this->operator bool()); assert(this->id < storage.size()); return storage[this->id]; }
         T* operator->() const 
-            { assert(this->id < storage.size()); return storage.data() + this->id; }
+            { assert(this->operator bool()); assert(this->id < storage.size()); return storage.data() + this->id; }
 
         handle_t& operator++() { *this = storage[this->id].next; return *this; }
         handle_t operator++(int) { auto x = *this; operator++(); return x; }
@@ -115,7 +115,7 @@ public:
         handle_t prev() const { return storage[this->id].prev; }
 
         template<typename U>
-        U& data() const { return static_any_pool_t<Tag>::template get<U>(this->id); }
+        U& data() const { assert(this->id < storage.size()); return static_any_pool_t<Tag>::template get<U>(this->id); }
     };
 private:
     inline static thread_local std::vector<T> storage = std::vector<T>(1);

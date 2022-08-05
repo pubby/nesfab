@@ -13,7 +13,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
 
         if(result.second)
         {
-            std::cout << loc << std::endl;
+            //std::cout << loc << std::endl;
             assert(loc.mem_size());
             m_this_lvar_info.push_back({ .size = loc.mem_size(), .zp_only = loc.mem_zp_only() });
 

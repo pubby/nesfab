@@ -18,6 +18,7 @@
 #include "ram_alloc.hpp"
 #include "eval.hpp"
 #include "rom.hpp"
+#include "ir_util.hpp"
 
 global_t& global_t::lookup(char const* source, pstring_t name)
 {
@@ -259,14 +260,15 @@ void global_t::parse_cleanup()
     // Validate groups:
     for(fn_t const& fn : fn_ht::values())
     {
-        if(fn.fclass == FN_MODE && !fn.mods.explicit_group_vars)
-            compiler_error(fn.global.pstring(), "Missing vars modifier.");
-
         fn.mods.validate_groups();
 
         for(mods_t const& mods : fn.def().mods)
             mods.validate_groups();
     }
+
+    // Determine group vars inits:
+    for(group_vars_t& gv : group_vars_ht::values())
+        gv.determine_has_init();
 }
 
 // This function isn't thread-safe.
@@ -370,8 +372,15 @@ void global_t::build_order()
 void global_t::compile()
 {
 //#ifdef DEBUG_PRINT
-    std::cout << "COMPILING " << name << std::endl;
+    std::cout << "COMPILING " << name << " ideps = " << ideps().size() << std::endl;
+    for(global_t const* idep : ideps())
+        std::cout << " IDEP " << idep->name << std::endl;
 //#endif
+
+#ifndef NDEBUG
+    for(global_t const* idep : ideps())
+        assert(idep->compiled());
+#endif
 
     // Compile it!
     switch(gclass())
@@ -741,7 +750,9 @@ void fn_t::compile()
     save_graph(ir, "2_o1");
 
     // Set the global's 'read' and 'write' bitsets:
+    std::cout << "CALC IR BS " << global.name << std::endl;
     calc_ir_bitsets(ir);
+    assert(ir_reads());
 
     byteify(ir, *this);
     save_graph(ir, "3_byteify");
@@ -885,8 +896,11 @@ void fn_t::precheck_propagate()
         stmt_t const& stmt = def()[fn_stmt.second];
         mods_t const* goto_mods = def().mods_of(fn_stmt.second);
 
+        assert(stmt.name == STMT_GOTO_MODE);
+
         if(!goto_mods || !goto_mods->explicit_group_vars)
-            compiler_error(stmt.pstring, "Missing vars modifier.");
+            compiler_error(stmt.pstring ? stmt.pstring : global.pstring(), 
+                           "Missing vars modifier.");
 
         if(!goto_mods)
             continue;
@@ -954,7 +968,7 @@ void fn_t::precheck_propagate()
             if(mods.explicit_group_vars && !mods.group_vars.count(group))
                 error(pair.first->global, group->name, group->name);
 
-            m_precheck_group_vars.set(group.id);
+            m_precheck_group_vars.set(group->impl_id());
         }
 
         for(auto const& pair : m_eval_tracked->calls)

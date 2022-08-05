@@ -147,7 +147,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
     assert(compiler_phase() == PHASE_ALLOC_RAM);
 
     // Amount of bytes free in zero page
-    int const zp_free = 256 - (initial_usable_ram & zp_bitset).popcount();
+    int const zp_free = (initial_usable_ram & zp_bitset).popcount();
 
     // Amount of bytes in zp dedicated to locals
     int const max_local_zp = 32;
@@ -531,6 +531,8 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     fn_t& fn = *h;
     fn_d& d = data(h);
 
+    dprint(log, "RAM_ALLOC_LOCALS", fn.global.name);
+
     assert(d.step < Step);
     assert((data(h).usable_ram & data(h).lvar_ram).all_clear());
 
@@ -646,6 +648,8 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         if(info.ptr_alt >= 0)
         {
             assert(span.size == 2);
+            assert(lvar_i != info.ptr_alt);
+            std::cout << "PTR ALT " << span << std::endl;
             fn.assign_lvar_span(lvar_i,       { .addr = span.addr,     .size = 1 }); 
             fn.assign_lvar_span(info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 
         }

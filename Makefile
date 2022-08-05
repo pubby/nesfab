@@ -59,6 +59,7 @@ symbol_table.cpp \
 ir.cpp \
 ir_edge.cpp \
 ir_util.cpp \
+ir_algo.cpp \
 type.cpp \
 compiler_error.cpp \
 file.cpp \
@@ -107,8 +108,8 @@ rom.cpp \
 static_addr.cpp \
 rom_link.cpp \
 ram_init.cpp \
-mods.cpp
-
+mods.cpp \
+rom_prune.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

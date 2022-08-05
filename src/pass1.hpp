@@ -252,8 +252,9 @@ public:
 
         validate_mods("mode", decl.name, mods, 0, true, true);
 
-        if(!mods.explicit_group_vars)
-            compiler_error(decl.name, "Missing vars modifier.");
+        // TODO: remove?
+        //if(!mods.explicit_group_vars)
+            //compiler_error(decl.name, "Missing vars modifier.");
 
         // Create the global:
         assert(decl.name);

@@ -2028,6 +2028,52 @@ namespace isel
             }
             break;
 
+        case SSA_read_hw:
+            p_arg<0>::set(h->input(0));
+
+            chain
+            < exact_op<Opt, LDA_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STA, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < exact_op<Opt, LDX_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STX, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < exact_op<Opt, LDY_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STY, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < exact_op<Opt, LAX_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STA, p_def>
+            >(cpu, prev, cont);
+
+            break;
+
+        case SSA_write_hw:
+            p_arg<0>::set(h->input(0));
+            p_arg<1>::set(h->input(1));
+
+            chain
+            < load_A<Opt, p_arg<1>>
+            , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+            >(cpu, prev, cont);
+
+            chain
+            < load_X<Opt, p_arg<1>>
+            , exact_op<Opt, STX_ABSOLUTE, null_, p_arg<0>>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, p_arg<1>>
+            , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<0>>
+            >(cpu, prev, cont);
+
+            break;
+
         case SSA_early_store:
             p_arg<0>::set(h->input(0));
             load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
@@ -2323,6 +2369,9 @@ namespace isel
 
                 call.precheck_group_vars().for_each<group_vars_ht>([&](auto gv)
                 {
+                    if(!gv->has_init())
+                        return;
+
                     if(!mods->group_vars.count(gv->group.handle()))
                     {
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
@@ -2335,7 +2384,6 @@ namespace isel
                             , set_defs<Opt, REGF_CPU, false, null_>
                             >);
                     }
-
                 });
 
                 p_arg<0>::set(h->input(0));

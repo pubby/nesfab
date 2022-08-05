@@ -8,6 +8,14 @@
 #include <string>
 #include <string_view>
 
+template<typename T>
+std::string to_hex_string(T const& t)
+{
+    std::stringstream ss;
+    ss << std::hex << t;
+    return ss.str();
+}
+
 template<char F>
 void fmt_impl(std::ostringstream& ss, char const* str)
 {

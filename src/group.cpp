@@ -116,3 +116,17 @@ void group_vars_t::group_members()
         bitset_set_n(m_gmembers.size(), m_gmembers.data(), 
                      gv->begin().id, gv->end().id - gv->begin().id);
 }
+
+void group_vars_t::determine_has_init()
+{
+    assert(compiler_phase() == PHASE_PARSE_CLEANUP);
+    m_has_init = false;
+    for(gvar_ht gvar : gvars())
+    {
+        if(gvar->init_expr)
+        {
+            m_has_init = true;
+            break;
+        }
+    }
+}

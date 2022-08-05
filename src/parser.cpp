@@ -9,6 +9,7 @@
 #include "convert_file.hpp"
 #include "eternal_new.hpp"
 #include "mods.hpp"
+#include "hw_reg.hpp"
 
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
@@ -238,8 +239,65 @@ bool parser_t<P>::parse_token(token_type_t expecting)
 template<typename P>
 bool parser_t<P>::parse_token()
 {
-    token_t::int_type value, frac;
-    unsigned frac_scale = 0;
+    auto const parse_int = [this](int base)
+    {
+        static constexpr auto char_to_int = []
+        {
+            std::array<std::uint8_t, 256> table = {};
+
+            for(unsigned i = 0; i < 10; ++i)
+                table['0'+i] = i;
+
+            table['a'] = table['A'] = 10;
+            table['b'] = table['B'] = 11;
+            table['c'] = table['C'] = 12;
+            table['d'] = table['D'] = 13;
+            table['e'] = table['E'] = 14;
+            table['f'] = table['F'] = 15;
+
+            return table;
+        }();
+
+        token_t::int_type value = 0;
+        token_t::int_type frac = 0;
+        unsigned frac_scale = 1;
+
+        for(char const* it = token_source; it != next_char; ++it)
+        {
+            if(*it == '.')
+            {
+                for(++it; it != next_char; ++it)
+                {
+                    if(frac_scale <= (1ull << fixed_t::shift))
+                    {
+                        frac_scale *= base;
+                        frac *= base;
+                        frac += *it - '0';
+                    }
+                }
+
+                frac *= 1ull << fixed_t::shift;
+                frac /= frac_scale;
+                assert(frac < 1ull << fixed_t::shift);
+
+                token.type = TOK_real;
+                goto not_int;
+            }
+            else
+            {
+                value *= base;
+                value += char_to_int[*it];
+                if(value >= (1ull << 31))
+                    compiler_error("Integer literal is too large.");
+            }
+        }
+        token.type = TOK_int;
+    not_int:
+        value <<= fixed_t::shift;
+        value |= frac;
+        return value;
+    };
+
 restart:
     // Lex 1 token
     token_source = next_char;
@@ -282,46 +340,17 @@ restart:
         goto restart;
 
     case TOK_decimal:
-        value = frac = 0;
-        frac_scale = 1;
+        token.value = parse_int(10);
+        return false;
 
-        for(char const* it = token_source; it != next_char; ++it)
-        {
-            if(*it == '.')
-            {
-                for(++it; it != next_char; ++it)
-                {
-                    if(frac_scale <= (1ull << fixed_t::shift))
-                    {
-                        frac_scale *= 10;
-                        frac *= 10;
-                        frac += *it - '0';
-                    }
-                }
+    case TOK_hex:
+        token.value = parse_int(16);
+        return false;
 
-                frac *= 1ull << fixed_t::shift;
-                frac /= frac_scale;
-                assert(frac < 1ull << fixed_t::shift);
+    case TOK_binary:
+        token.value = parse_int(2);
+        return false;
 
-                token.type = TOK_real;
-                goto not_int;
-            }
-            else
-            {
-                value *= 10;
-                value += *it - '0';
-                if(value >= (1ull << 31))
-                    compiler_error("Integer literal is too large.");
-            }
-        }
-        token.type = TOK_int;
-    not_int:
-
-        value <<= fixed_t::shift;
-        value |= frac;
-
-        token.value = value;
-        // fall-through
     default: 
         return false;
     }
@@ -425,6 +454,32 @@ pstring_t parser_t<P>::parse_group_ident()
     pstring_t const ident = token.pstring;
     parse_token(TOK_ident);
     return fast_concat(slash, ident);
+}
+
+template<typename P>
+std::uint16_t parser_t<P>::get_hw_reg(token_type_t token_type)
+{
+    switch(token_type)
+    {
+    case TOK_PPUCTRL:   return PPUCTRL;
+    case TOK_PPUMASK:   return PPUMASK;
+    case TOK_PPUSTATUS: return PPUSTATUS;
+    case TOK_PPUSCROLL: return PPUSCROLL;
+    case TOK_PPUADDR:   return PPUADDR;
+    case TOK_PPUDATA:   return PPUDATA;
+    default: return 0;
+    }
+}
+
+template<typename P>
+std::uint16_t parser_t<P>::parse_hw_reg()
+{
+    if(std::uint16_t hw_reg = get_hw_reg(token.type))
+    {
+        parse_token();
+        return hw_reg;
+    }
+    compiler_error("Expecting hardware register.");
 }
 
 template<typename P>
@@ -560,6 +615,25 @@ inapplicable:
         if(is_type_prefix(token.type))
         {
             parse_cast(expr_temp, open_parens+1);
+            goto applicable;
+        }
+        else if(std::uint16_t hw_reg = get_hw_reg(token.type))
+        {
+            pstring_t const pstring = token.pstring;
+
+            parse_token();
+            parse_token(TOK_lparen);
+
+            if(token.type == TOK_rparen)
+                expr_temp.push_back({ TOK_read_hw, pstring, hw_reg });
+            else
+            {
+                parse_expr(expr_temp, indent, open_parens+1);
+                expr_temp.push_back({ TOK_write_hw, pstring, hw_reg });
+            }
+
+            parse_token(TOK_rparen);
+
             goto applicable;
         }
         else

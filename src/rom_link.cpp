@@ -21,13 +21,13 @@ static void write_linked(std::vector<locator_t> const& vec, int bank,
 
         if(!is_const(loc.lclass()))
             throw std::runtime_error(fmt("Unable to link locator %", loc));
-        std::cout << loc << std::endl;
+        //std::cout << loc << std::endl;
         assert(loc.is_immediate());
         assert(!loc.offset());
 
         std::uint16_t data = loc.data();
 
-        if(loc.is() == IS_HI)
+        if(loc.is() == IS_PTR_HI)
             data >>= 8;
 
         *at++ = data;
@@ -78,7 +78,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             asm_proc.link(alloc.only_bank());
             asm_proc.relocate(alloc.span.addr);
 
-            asm_proc.write_assembly(std::cerr);
+            //asm_proc.write_assembly(std::cerr);
 
             alloc.for_each_bank([&](unsigned bank)
             {

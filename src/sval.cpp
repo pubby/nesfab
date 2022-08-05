@@ -41,7 +41,7 @@ void append_locator_bytes(std::vector<locator_t>& vec, sval_t const& sval, type_
     std::size_t const total_size_of = type.size_of();
 
     if(total_size_of == 0)
-        compiler_error(pstring, "Invalid type in pointer-addressable array.");
+        compiler_error(pstring, "Invalid type in pointer-addressable array. (Size of 0.)");
 
     vec.reserve(vec.size() + total_size_of);
 
@@ -50,15 +50,15 @@ void append_locator_bytes(std::vector<locator_t>& vec, sval_t const& sval, type_
     {
         type_t const mt = ::member_type(type, i);
 
-        if(!is_scalar(mt.name()))
-            compiler_error(pstring, "Invalid type in pointer-addressable array.");
+        //if(!is_scalar(mt.name()))
+            //compiler_error(pstring, "Invalid type in pointer-addressable array. (Not scalar.)");
 
         auto const push_bytes = [&](ssa_value_t v, type_t subtype)
         {
             assert(subtype == v.type());
 
             if(!is_scalar(subtype.name()))
-                compiler_error(pstring, "Invalid type in pointer-addressable array.");
+                compiler_error(pstring, "Invalid type in pointer-addressable array. (Not scalar subtype.)");
 
             unsigned const size_of = subtype.size_of();
             assert(size_of);

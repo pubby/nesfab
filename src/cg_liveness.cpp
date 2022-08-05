@@ -247,8 +247,11 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
         test_loc(inst.arg);
 
         // For indirect modes, also test the hi byte.
-        if(indirect_addr_mode(op_addr_mode(inst.op)) && inst.ptr_hi)
+        if(indirect_addr_mode(op_addr_mode(inst.op)))
+        {
+            assert(inst.ptr_hi && inst.ptr_hi != inst.arg);
             test_loc(inst.ptr_hi);
+        }
     }
 }
 
@@ -270,7 +273,10 @@ void calc_asm_liveness(fn_t const& fn, ir_t const& ir, lvars_manager_t const& lv
             bitset_set(d.in, i);
     };
 
-    auto const do_write = [](cfg_liveness_d& d, unsigned i) { bitset_clear(d.out, i); };
+    auto const do_write = [](cfg_liveness_d& d, unsigned i)
+    { 
+        bitset_clear(d.out, i); 
+    };
 
     // Every arg will be "written" at root:
     lvars.for_each_lvar(true, [&](locator_t loc, unsigned i)
@@ -286,7 +292,6 @@ void calc_asm_liveness(fn_t const& fn, ir_t const& ir, lvars_manager_t const& lv
         auto& d = live(cfg_it);
         d.in  = bitset_pool.alloc(set_size);
         d.out = bitset_pool.alloc(set_size);
-        bitset_set_all(set_size, d.out);
 
         // Set 'd.in's initial value to be the set of variables used in
         // this cfg node before an assignment.
@@ -295,6 +300,9 @@ void calc_asm_liveness(fn_t const& fn, ir_t const& ir, lvars_manager_t const& lv
         // Also set 'd.out' to temporarily hold all variables *NOT* defined
         // in this node.
         // (This set is sometimes called 'KILL')
+
+        bitset_set_all(set_size, d.out);
+
         for(asm_inst_t const& inst : cg_data(cfg_it).code)
         {
             do_inst_rw(fn, lvars, inst, [&](unsigned i, bool read, bool write)

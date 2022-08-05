@@ -231,7 +231,8 @@ void asm_proc_t::write_assembly(std::ostream& os) const
             os << "fn " << inst.arg.fn()->global.name;
             break;
         case LOC_GMEMBER:
-            os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() << " " << inst.arg.gmember()->span(inst.arg.atom());
+            os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() 
+               << " " << inst.arg.gmember()->span(inst.arg.atom());
             break;
         case LOC_ARG:
         case LOC_RETURN:
@@ -269,7 +270,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
 
         std::uint16_t data = loc.data(); // TODO
 
-        if(loc.is() == IS_HI)
+        if(loc.is() == IS_PTR_HI)
             data >>= 8;
 
         return data;
@@ -281,13 +282,10 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
         locator_t hi = inst.ptr_hi;
 
         if(!hi)
-        {
-            assert(lo.is() == IS_ADDR);
             hi = lo;
-        }
 
-        lo.set_is(IS_LO);
-        hi.set_is(IS_HI);
+        lo.set_is(IS_PTR);
+        hi.set_is(IS_PTR_HI);
 
         return std::make_pair(lo, hi);
     };

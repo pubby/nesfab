@@ -41,10 +41,14 @@ public:
     rom_alloc_ht alloc() const { return m_alloc; }
     void set_alloc(rom_alloc_ht alloc, rom_key_t) { m_alloc = alloc; }
 
-    bool emits() const { return true; } // TODO: implement
+    bool emits() const { return m_emits; }
+    void mark_emits() { m_emits.store(true); }
+
 protected:
     // These are used later on, when the rom is actually allocated.
     rom_alloc_ht m_alloc;
+
+    std::atomic<bool> m_emits = false;
 };
 
 // Tracks a non-code segment of data that is represented as a loc_vec_t,
@@ -63,6 +67,8 @@ public:
 
     // Use this to construct globally:
     static rom_array_ht make(loc_vec_t&& vec, group_data_ht={}, rom_alloc_ht alloc={});
+
+    void for_each_locator(std::function<void(locator_t)> const& fn) const;
 private:
     std::vector<locator_t> m_data;
 
@@ -95,6 +101,8 @@ public:
 
     bitset_t const* uses_groups() const;
     bool for_each_group_test(std::function<bool(group_ht)> const& fn);
+
+    void for_each_locator(std::function<void(locator_t)> const& fn) const;
 private:
     // BE CAREFUL. NO SYNCHRONIZATION!
     asm_proc_t m_asm_proc;
@@ -159,14 +167,14 @@ struct rom_once_t : public rom_alloc_t
     rom_once_t(rom_data_ht data, std::uint16_t desired_alignment);
 
     // Set of MANYs that this node depends upon.
-    bitset_uint_t* required_manys;
+    bitset_uint_t* required_manys = nullptr;
 
     // Points to a set of ONCEs that ideally belong in the same bank(s)
     // It's a pointer because it's duplicated across all related onces.
-    bitset_uint_t const* related_onces;
+    bitset_uint_t const* related_onces = nullptr;
 
     // Which bank we're allocated in
-    unsigned bank;
+    unsigned bank = ~0;
 
     int only_bank() const { return bank; }
 

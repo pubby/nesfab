@@ -13,6 +13,7 @@
 #include "debug_print.hpp"
 #include "fixed.hpp"
 #include "ir.hpp"
+#include "ir_util.hpp"
 #include "o_phi.hpp"
 #include "sizeof_bits.hpp"
 #include "worklist.hpp"
@@ -330,7 +331,7 @@ void ai_t::init_constraints()
 
 static bool _search_not_skippable(cfg_ht cfg_h, ssa_ht ssa_h)
 {
-    if(ssa_flags(ssa_h->op()) & SSAF_IO_IMPURE)
+    if(!io_pure(*ssa_h))
         return true;
 
     unsigned const output_size = ssa_h->output_size();

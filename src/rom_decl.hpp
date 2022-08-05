@@ -24,6 +24,8 @@ struct rom_once_ht;
 struct rom_array_ht : public pool_handle_t<rom_array_ht, std::deque<rom_array_t>, PHASE_INITIAL_VALUES> {};
 struct rom_proc_ht : public pool_handle_t<rom_proc_ht, std::deque<rom_proc_t>, PHASE_INITIAL_VALUES> {};
 
+class locator_t;
+
 DEF_HANDLE_HASH(rom_array_ht);
 DEF_HANDLE_HASH(rom_proc_ht);
 
@@ -56,9 +58,13 @@ public:
     void assign(E rclass, std::uint32_t handle)
     {
         impl = handle & 0xFFFFFF;
-        assert(handle == impl);
-        impl |= unsigned(rclass) << 24;
-        assert(this->rclass() == rclass);
+        if(handle != impl)
+            impl = 0;
+        else
+        {
+            impl |= unsigned(rclass) << 24;
+            assert(this->rclass() == rclass);
+        }
     }
 
     constexpr E rclass() const { return E(impl >> 24); }
@@ -86,6 +92,8 @@ public:
 
     void visit(std::function<void(rom_array_ht)> const& array_fn, 
                std::function<void(rom_proc_ht)> const& proc_fn) const;
+
+    void for_each_locator(std::function<void(locator_t)> const& fn) const;
 };
 
 class rom_alloc_ht : public rom_handle_t<rom_alloc_class_t>

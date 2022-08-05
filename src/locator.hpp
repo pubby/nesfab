@@ -14,7 +14,6 @@
 
 #include "robin/hash.hpp"
 
-#include "addr16.hpp"
 #include "decl.hpp"
 #include "ir_decl.hpp"
 #include "rom_decl.hpp"
@@ -131,9 +130,9 @@ constexpr bool is_lt(locator_class_t lclass)
 
 enum locator_is_t: std::uint8_t
 {
-    IS_ADDR = 0,
-    IS_LO,
-    IS_HI,
+    IS_DEREF = 0,
+    IS_PTR,
+    IS_PTR_HI,
     IS_BANK,
 };
 
@@ -150,7 +149,7 @@ public:
         set_data(d);
         set_offset(o);
         assert(!byteified());
-        assert(is() == IS_ADDR);
+        assert(is() == IS_DEREF);
     }
 
     constexpr locator_t(locator_class_t lc, std::uint32_t h, std::uint8_t arg, std::uint8_t m, std::uint8_t atom, std::int16_t o)
@@ -162,7 +161,7 @@ public:
         set_atom(atom);
         set_offset(o);
         assert(!byteified());
-        assert(is() == IS_ADDR);
+        assert(is() == IS_DEREF);
     }
 
     locator_t(locator_t const&) = default;
@@ -326,13 +325,16 @@ public:
         return { handle() }; 
     }
 
+    rom_data_ht rom_data() const;
+    rom_alloc_ht rom_alloc() const;
+
     // Strips offset info from this locator.
     locator_t mem_head() const 
     {
         locator_t ret = *this;
         ret.set_offset(0);
         ret.set_byteified(false);
-        ret.set_is(IS_ADDR);
+        ret.set_is(IS_DEREF);
         return ret;
     }
 
@@ -381,9 +383,9 @@ public:
         { return locator_t(LOC_MINOR_LABEL, 0, id, 0); }
 
     constexpr static locator_t const_byte(std::uint8_t value)
-        { return locator_t(LOC_CONST_BYTE, 0, value, 0).with_byteified(true).with_is(IS_LO); }
+        { return locator_t(LOC_CONST_BYTE, 0, value, 0).with_byteified(true).with_is(IS_PTR); }
 
-    constexpr static locator_t addr(addr16_t addr, std::uint16_t offset = 0)
+    constexpr static locator_t addr(std::uint16_t addr, std::uint16_t offset = 0)
         { return locator_t(LOC_ADDR, 0, addr, offset); }
 
     constexpr static locator_t phi(ssa_ht node)
@@ -402,7 +404,7 @@ public:
         { return locator_t(LOC_LT_GMEMBER_PTR, m.id, 0, 0, 0, offset); }
 
     constexpr static locator_t lt_const_ptr(const_ht c, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_CONST_PTR, c.id, 0, 0, 0, offset); }
+        { return locator_t(LOC_LT_CONST_PTR, c.id, 0, 0, 0, offset).with_is(IS_PTR); }
 
     constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_LT_EXPR, lt.id, 0, member, atom, offset); }
@@ -425,7 +427,7 @@ public:
     explicit operator bool() const { return impl; }
 
     constexpr bool is_const_num() const { return lclass() == LOC_CONST_BYTE; }
-    constexpr bool is_immediate() const { return is() != IS_ADDR; }
+    constexpr bool is_immediate() const { return is() != IS_DEREF; }
     constexpr bool eq_const(unsigned i) const { return is_const_num() && data() == i; }
     constexpr bool eq_const_byte(std::uint8_t i) const { return is_const_num() && data() == i; }
 

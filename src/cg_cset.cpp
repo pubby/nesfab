@@ -2,6 +2,7 @@
 
 #include "globals.hpp"
 #include "ir.hpp"
+#include "ir_util.hpp"
 #include "alloca.hpp"
 #include "cg_liveness.hpp"
 

@@ -39,7 +39,7 @@ std::string to_string(locator_t loc)
     case LOC_CONST_BYTE:
         str = "const byte"; break;
     case LOC_ADDR:
-        str = "addr"; break;
+        str = "addr $" + to_hex_string(loc.data() + loc.offset()); break;
     case LOC_SSA:
         str = fmt("ssa %", loc.handle()); break;
     case LOC_PHI:
@@ -177,11 +177,11 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
 
         span.addr += offset();
 
-        if(is() == IS_ADDR)
+        if(is() == IS_DEREF)
             return addr(span.addr); 
-        else if(is() == IS_LO)
+        else if(is() == IS_PTR)
             return const_byte(span.addr & 0xFF);
-        else if(is() == IS_HI)
+        else if(is() == IS_PTR_HI)
             return const_byte((span.addr >> 8) & 0xFF);
 
         return *this;
@@ -204,13 +204,12 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
     switch(lclass())
     {
     default:
+        if(rom_alloc_ht a = rom_alloc())
+            return from_alloc(a);
         return *this;
 
     case LOC_ADDR: // Remove the offset.
         return locator_t::addr(data() + offset()).with_is(is());
-
-    case LOC_FN:
-        return from_alloc(fn()->rom_proc()->alloc());
 
     case LOC_GMEMBER:
         return from_span(gmember()->span(atom()));
@@ -226,12 +225,6 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
             return *this;
         return from_span(fn_h->lvar_span(mem_head()));
 
-    case LOC_ROM_ARRAY:
-        return from_alloc(rom_array()->alloc());
-
-    case LOC_MAIN_ENTRY:
-        return from_alloc(get_main_entry().rom_proc()->alloc());
-
     case LOC_THIS_BANK:
         if(bank >= 0 && bank < 256)
             return locator_t::const_byte(bank);
@@ -239,10 +232,31 @@ locator_t locator_t::link(fn_ht fn_h, int bank) const
 
     case LOC_LT_GMEMBER_PTR:
         return from_span(gmember()->span(0));
-    case LOC_LT_CONST_PTR:
-        return from_alloc(const_()->rom_array()->alloc());
-
-    case LOC_RESET_GROUP_VARS:
-        return from_alloc(group_vars()->init_proc()->alloc());
     };
+}
+
+rom_data_ht locator_t::rom_data() const
+{
+    switch(lclass())
+    {
+    default:
+        return {};
+    case LOC_FN:
+        return fn()->rom_proc();
+    case LOC_ROM_ARRAY:
+        return rom_array();
+    case LOC_MAIN_ENTRY:
+        return get_main_entry().rom_proc();
+    case LOC_LT_CONST_PTR:
+        return const_()->rom_array();
+    case LOC_RESET_GROUP_VARS:
+        return group_vars()->init_proc();
+    };
+}
+
+rom_alloc_ht locator_t::rom_alloc() const
+{
+    if(rom_data_ht d = rom_data())
+        return d.get()->alloc();
+    return {};
 }

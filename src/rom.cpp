@@ -36,6 +36,12 @@ void rom_array_t::mark_used_by(group_data_ht gd)
     m_used_in_group_data.set(gd.id);
 }
 
+void rom_array_t::for_each_locator(std::function<void(locator_t)> const& fn) const
+{
+    for(locator_t loc : data())
+        fn(loc);
+}
+
 rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, rom_alloc_ht alloc)
 {
     std::hash<loc_vec_t> hasher;
@@ -137,6 +143,17 @@ bool rom_proc_t::for_each_group_test(std::function<bool(group_ht)> const& fn)
     return true;
 }
 
+void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) const
+{
+    for(asm_inst_t const& inst : asm_proc().code)
+    {
+        if(inst.arg)
+            fn(inst.arg);
+        if(inst.ptr_hi)
+            fn(inst.ptr_hi);
+    }
+}
+
 //////////////////////
 // rom data generic //
 //////////////////////
@@ -190,6 +207,21 @@ void rom_data_ht::visit(std::function<void(rom_array_ht)> const& array_fn,
     default: return;
     case ROMD_ARRAY: return array_fn(rom_array_ht{ handle() });
     case ROMD_PROC: return proc_fn(rom_proc_ht{ handle() });
+    }
+}
+
+void rom_data_ht::for_each_locator(std::function<void(locator_t)> const& fn) const
+{
+    switch(rclass())
+    {
+    default: 
+        return;
+    case ROMD_ARRAY:
+        rom_array_ht{ handle() }->for_each_locator(fn);
+        return;
+    case ROMD_PROC:
+        rom_proc_ht{ handle() }->for_each_locator(fn);
+        return;
     }
 }
 

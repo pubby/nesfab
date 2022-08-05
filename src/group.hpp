@@ -102,6 +102,8 @@ public:
     std::vector<gvar_ht> const& gvars() const { assert(compiler_phase() > PHASE_PARSE); return m_gvars; }
     bitset_t const& gmembers() const { assert(compiler_phase() > PHASE_GROUP_MEMBERS); return m_gmembers; }
 
+    bool has_init() const { assert(compiler_phase() > PHASE_PARSE_CLEANUP); return m_has_init; }
+    void determine_has_init();
     rom_proc_ht init_proc() const { assert(compiler_phase() > PHASE_INITIAL_VALUES); return m_init_proc; }
     void assign_init_proc(rom_proc_ht h) { assert(compiler_phase() == PHASE_INITIAL_VALUES); m_init_proc = h; }
 
@@ -111,6 +113,7 @@ private:
     std::mutex m_gvars_mutex; // Used during parsing only.
     std::vector<gvar_ht> m_gvars;
 
+    bool m_has_init = false;
     rom_proc_ht m_init_proc = {};
 
     bitset_t m_gmembers;

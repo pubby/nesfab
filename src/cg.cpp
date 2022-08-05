@@ -14,7 +14,7 @@
 #include "cg_schedule.hpp"
 #include "cg_cset.hpp"
 #include "globals.hpp"
-#include "ir_util.hpp"
+#include "ir_algo.hpp"
 #include "ir.hpp"
 #include "locator.hpp"
 #include "rom.hpp"
@@ -243,6 +243,8 @@ void code_gen(ir_t& ir, fn_t& fn)
     // COPY INSERTION //
     ////////////////////
 
+    ir.assert_valid();
+
     // Copies will be inserted to convert out of SSA form.
     // Additionally, copies will be used to pin locators to memory.
 
@@ -313,6 +315,8 @@ void code_gen(ir_t& ir, fn_t& fn)
             // Consider 'SSA_read_global' to be a copy in its own right.
             locator_t const loc = ssa_it->input(1).locator().mem_head();
             global_loc_map[loc].copies.push_back({ ssa_it });
+
+            ir.assert_valid();
         }
         else if(ssa_flags(op) & SSAF_WRITE_GLOBALS)
         {
@@ -351,7 +355,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
                     // Create a new SSA_early_store node here.
 
-                    ssa_ht store = ie.handle()->split_output_edge(true, ie.index(), SSA_early_store);
+                    ssa_ht store = split_output_edge(ie.handle(), true, ie.index(), SSA_early_store);
                     store->link_append_input(loc);
                     ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
 
@@ -362,6 +366,8 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             if(op == SSA_fn_call)
                 fn_nodes.push_back(ssa_it);
+
+            ir.assert_valid();
         }
         else if(op == SSA_phi)
         {
@@ -375,22 +381,32 @@ void code_gen(ir_t& ir, fn_t& fn)
             ssa_value_t last = loc;
 
             unsigned const input_size = ssa_it->input_size();
-            assert(input_size == cfg_it->input_size());
             for(unsigned i = 0; i < input_size; ++i)
             {
+                assert(input_size == ssa_it->input_size());
+                assert(input_size == cfg_it->input_size());
+
                 cfg_ht cfg_pred = cfg_it->input(i);
                 ssa_fwd_edge_t ie = ssa_it->input_edge(i);
+
+                ir.assert_valid();
                 
                 ssa_ht copy;
                 if(ie.holds_ref())
                 {
+                    ir.assert_valid();
                     ssa_value_t input = ie.handle();
-                    ssa_ht store = input->split_output_edge(true, ie.index(), SSA_early_store);
+                    ssa_ht store = split_output_edge(input.handle(), true, ie.index(), SSA_early_store);
+                    ir.assert_valid();
                     copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), store);
                     phi_copies.push_back({ copy });
+                    ir.assert_valid();
                 }
                 else
+                {
                     copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), ie);
+                    ir.assert_valid();
+                }
 
                 ssa_it->link_change_input(i, copy);
                 ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
@@ -408,6 +424,8 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             if(last.holds_ref())
                 phi_csets.push_back(last.handle());
+
+            ir.assert_valid();
         }
     }
 
@@ -431,6 +449,14 @@ void code_gen(ir_t& ir, fn_t& fn)
 
     ir.assert_valid();
     schedule_ir(ir);
+
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    {
+        std::cout << cfg_it << std::endl;
+        auto& d = cg_data(cfg_it);
+        for(ssa_ht h : d.schedule)
+            std::cout << "sched " << h->op() << ' ' << h.id << '\n';
+    }
 
     ///////////////////////////
     // LIVENESS SET CREATION //
@@ -462,6 +488,9 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         unsigned const index = cg_data(store).schedule.index;
         auto& schedule = cg_data(store->cfg_node()).schedule;
+        std::cout << store << ' ' << parent << ' ' << index << ' ' << schedule.size() << std::endl;
+        assert(schedule.begin() + index < schedule.end());
+        assert(schedule[index] == store);
         for(unsigned i = index+1; i < schedule.size(); ++i)
             cg_data(schedule[i]).schedule.index -= 1;
         schedule.erase(schedule.begin() + index);

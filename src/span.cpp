@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cassert>
+#include <sstream>
+
+#include "format.hpp"
 
 std::ostream& operator<<(std::ostream& o, span_t span)
 {
-    o << "span_t{ " << span.addr << ", " << span.size << " }";
+    o << "span_t{ $" << to_hex_string(span.addr) << ", " << span.size << " }";
     return o;
 }
 

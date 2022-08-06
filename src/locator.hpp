@@ -269,6 +269,12 @@ public:
     }
 
     constexpr void advance_offset(std::uint16_t amount) { set_offset(offset() + amount); }
+    constexpr locator_t with_advance_offset(std::uint16_t amount) const
+    { 
+        locator_t loc = *this; 
+        loc.advance_offset(amount);
+        return loc;
+    }
 
     gmember_ht gmember() const 
     { 
@@ -468,9 +474,9 @@ struct std::hash<loc_vec_t>
         for(unsigned i = 0; i < n; ++i)
             h = rh::hash_combine(h, lh(vec[i]));
 
-        // Also hash the last locator:
-        if(!vec.empty())
-            h = rh::hash_combine(h, lh(vec.back()));
+        // Also hash the last 4 locators:
+        for(unsigned i = 0; i < n; ++i)
+            h = rh::hash_combine(h, lh(vec.rbegin()[i]));
 
         return h;
     }

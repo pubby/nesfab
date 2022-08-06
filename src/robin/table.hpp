@@ -109,8 +109,6 @@ public:
         // One extra element was allocated.
         // It will be set to zero so that 
         // fast find becomes possible.
-        if(size)
-            *hashes_end_ = 0;
 
         assert(*hashes_end_ == 0);
         assert(allocated_size() == size);
@@ -166,7 +164,8 @@ public:
         assert(hash_data());
         hash_type* hash_ptr = hash_data() + (hash & mask_);
         hash &= ~mask_;
-        for(hash_type i = 1;; ++i, ++hash_ptr)
+        unsigned iter = 0;
+        for(hash_type i = 1;; ++i, ++hash_ptr, ++iter)
         {
             if(!std::is_same<Eq, unique_t>::value && *hash_ptr == (hash | i))
             {
@@ -382,9 +381,9 @@ public:
                size - 1);
     }
 
-    void grow_rehash()
+    void grow_rehash(unsigned shift = 1)
     {
-        hash_type new_mask = (mask_ << 1) | (starting_size - 1);
+        hash_type new_mask = (mask_ << shift) | (starting_size - 1);
         hash_type new_size = new_mask + 1;
         new_size += std::max<hash_type>(overhang(), starting_overhang);
         rehash(new_size, new_mask);
@@ -395,6 +394,27 @@ public:
         hash_type const new_size = 
            mask_ + 1 + std::max<hash_type>(overhang() * 4, starting_overhang);
         realloc(new_size);
+    }
+
+    // Lets you redefine a table using a new 'equals'.
+    template<typename Eq>
+    void reduce(Eq const& equals)
+    {
+        std::size_t const size = allocated_size();
+        robin_table new_table(size, mask_);
+        for(hash_type i = 0; i != size; ++i)
+        {
+            if(hash_data()[i] == 0)
+                continue;
+            hash_type hash = i - ((hash_data()[i] & mask_) - 1);
+            hash |= (hash_data()[i] & ~mask_);
+            value_type& data = value_data()[i];
+            new_table.emplace(hash, 
+                [&](auto const& a) -> bool { return equals(a, data); },
+                [&]() -> value_type&& { return std::move(data); });
+            hash_data()[i] = 0;
+        }
+        *this = std::move(new_table);
     }
 
     hash_type const* hash_data() const { return hashes.get(); }
@@ -498,7 +518,7 @@ public:
     static_assert(std::is_unsigned<UIntType>::value);
     using value_type = T;
     using hash_type = UIntType;
-    using ratio_type = std::ratio<1, 3>;
+    using ratio_type = std::ratio<1, 4>;
 
     robin_auto_table() = default;
 
@@ -530,7 +550,7 @@ public:
     {
         if(UNLIKELY(used_size+1 > rehash_size))
         {
-            table.grow_rehash();
+            table.grow_rehash(2);
             rehash_size = calc_rehash_size();
         }
         auto ret = table.emplace(hash, equals, construct);
@@ -585,6 +605,9 @@ public:
         table.template reserve<ratio_type>(size, used_size);
         rehash_size = calc_rehash_size();
     }
+
+    template<typename Eq>
+    void reduce(Eq const& equals) { return table.reduce(equals); }
 
     std::size_t size() const { return used_size; }
 private:

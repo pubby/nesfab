@@ -109,6 +109,9 @@ public:
     bool empty() const { return size() == 0; }
     void reserve(hash_type size) { table.reserve(size); }
 
+    template<typename Eq>
+    void reduce(Eq const& equals) { table.reduce(equals); }
+
 private:
     robin_collection const* const_this() const { return this; }
 
@@ -230,6 +233,16 @@ public:
     bool empty() const { return size() == 0; }
 
     void reserve(hash_type size) { table.reserve(size); }
+
+    template<typename Eq>
+    void reduce(Eq const& equals) 
+    { 
+        table.reduce([&](index_type l, index_type r)
+        { 
+            return equals(static_cast<value_type const&>(m_data[l]), 
+                          static_cast<value_type const&>(m_data[r]));
+        });
+    }
 
     const_iterator cbegin() const noexcept { return data(); }
     const_iterator begin() const noexcept { return data(); }
@@ -400,7 +413,7 @@ public:
         batman_collection<ptr_policy<Policy, joker_ptr<value_type>>>;
     using hash_type = typename collection_type::hash_type;
     using policy_type = Policy;
-    using unique_ptr_t = joker_ptr<value_type>;
+    using unique_ptr_type = joker_ptr<value_type>;
 
     using iterator = joker_iterator<value_type>;
     using const_iterator = joker_iterator<value_type const>;
@@ -414,35 +427,35 @@ public:
 
     apair<iterator, bool> insert(value_type const& t) 
     {
-        apair<unique_ptr_t*, bool> pair = collection.emplace(
+        apair<unique_ptr_type*, bool> pair = collection.emplace(
             t, 
-            [&]() { return unique_ptr_t(new value_type(t)); }); 
+            [&]() { return unique_ptr_type(new value_type(t)); }); 
         return apair<iterator, bool>{ iterator(pair.first), pair.second };
     }
 
     apair<iterator, bool> insert(value_type&& t)
     { 
-        apair<unique_ptr_t*, bool> pair = collection.emplace(
+        apair<unique_ptr_type*, bool> pair = collection.emplace(
             t, 
-            [&]() { return unique_ptr_t(new value_type(std::move(t))); }); 
+            [&]() { return unique_ptr_type(new value_type(std::move(t))); }); 
         return { iterator(pair.first), pair.second };
     }
 
     template<typename K>
     apair<iterator, bool> emplace(K&& key)
     {
-        apair<unique_ptr_t*, bool> pair = collection.emplace(
+        apair<unique_ptr_type*, bool> pair = collection.emplace(
             key, 
-            [&](){ return unique_ptr_t(new value_type()); });
+            [&](){ return unique_ptr_type(new value_type()); });
         return { iterator(pair.first), pair.second };
     }
 
     template<typename K, typename C>
     apair<iterator, bool> emplace(K&& key, C construct)
     { 
-        apair<unique_ptr_t*, bool> pair = collection.emplace(
+        apair<unique_ptr_type*, bool> pair = collection.emplace(
             key, 
-            [&](){ return unique_ptr_t(new value_type(construct())); });
+            [&](){ return unique_ptr_type(new value_type(construct())); });
         return { iterator(pair.first), pair.second };
     }
 
@@ -450,7 +463,7 @@ public:
     template<typename K>
     value_type const* lookup(K const& k) const
     { 
-        unique_ptr_t* ptr = collection.lookup(k);
+        unique_ptr_type* ptr = collection.lookup(k);
         return ptr ? ptr->get() : nullptr;
     }
 
@@ -475,6 +488,15 @@ public:
     std::size_t size() const { return collection.size(); }
     bool empty() const { return size() == 0; }
     void reserve(hash_type size) { collection.reserve(size); }
+
+    template<typename Eq>
+    void reduce(Eq const& equals) 
+    { 
+        collection.reduce([&](unique_ptr_type const& l, unique_ptr_type const& r)
+        { 
+            return equals(*l, *r);
+        });
+    }
 
     const_iterator cbegin() const noexcept 
         { return const_iterator(collection.cbegin()); }

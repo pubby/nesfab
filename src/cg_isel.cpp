@@ -5,6 +5,8 @@
 #include <functional>
 #include <type_traits>
 #include <vector>
+#include <unordered_map> // TODO
+#include "robin_hood.h" // TODO
 
 #include "robin/hash.hpp"
 #include "robin/map.hpp"
@@ -26,8 +28,15 @@ namespace isel
         //rh::batman_map<cpu_t, sel_t const*> map;
         //rh::batman_map<cpu_t, sel_t const*> next_map;
 
-        rh::batman_map<cpu_t, sel_t const*> map;
-        rh::batman_map<cpu_t, sel_t const*> next_map;
+        template<typename... T>
+        using map_t = rh::batman_map<cpu_t, sel_t const*, T...>;
+        //using map_t = robin_hood::unordered_map<cpu_t, sel_t const*>;
+        //using map_t = std::unordered_map<cpu_t, sel_t const*, T...>;
+        //using map_t = std::unordered_map<cpu_t, sel_t const*>;
+
+        map_t<> map;
+        map_t<> next_map;
+        map_t<isel::approximate_hash_t, isel::approximate_eq_t> approx_map;
 
         array_pool_t<sel_t> sel_pool;
 
@@ -165,7 +174,8 @@ namespace isel
 
     unsigned get_cost(sel_t const* sel)
     {
-        return sel ? sel->cost : 0;
+        assert(sel);
+        return sel->cost;
     }
 
     template<op_t Op>
@@ -188,9 +198,6 @@ namespace isel
 
     template<op_t Op>
     constexpr unsigned cost_fn = (op_cycles(Op) * 256) + op_size(Op) + op_penalty<Op>();
-
-    // THIS DETERMINES HOW BIG THE MAP GETS, AND HOW WIDE THE SEARCH IS:
-    constexpr unsigned COST_CUTOFF = cost_fn<LDA_ABSOLUTE> * 3;
 
     template<op_t Op>
     sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg = {}, locator_t ptr_hi = {}, unsigned extra_cost = 0)
@@ -277,11 +284,11 @@ namespace isel
     template<bool FinishNode>
     void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
     {
-        rh::apair<cpu_t, sel_t const*> insertion = { cpu, sel };
+        state_t::map_t<>::value_type insertion = { cpu, sel };
 
         // If this completes a node's operations, we'll release 'req_store'.
-        if(FinishNode)
-            insertion.first.req_store &= ~cg_data(state.ssa_node).isel.last_use;
+        if(FinishNode) // TODO: remove cast
+            (std::uint64_t&)insertion.first.req_store &= ~cg_data(state.ssa_node).isel.last_use;
 
         auto result = state.next_map.insert(std::move(insertion));
 
@@ -305,6 +312,10 @@ namespace isel
     }
 #endif
 
+    // These determine how extensive the search is.
+    constexpr unsigned COST_CUTOFF = cost_fn<LDA_ABSOLUTE> * 3;
+    constexpr unsigned MAX_MAP_SIZE = 512;
+
     // Runs the function and adds the results to the state map.
     template<bool FinishNode, typename Fn>
     void select_step(Fn fn)
@@ -314,12 +325,34 @@ namespace isel
 
         cons_t const cont = { finish<FinishNode> };
 
+        //std::cout << "BEST COST = " << state.best_cost << std::endl;
+
         for(auto const& pair : state.map)
             if(get_cost(pair.second) < state.best_cost + COST_CUTOFF)
                 fn(pair.first, pair.second, &cont);
 
         if(state.next_map.empty())
             throw isel_no_progress_error_t{};
+
+        if(state.next_map.size() > MAX_MAP_SIZE)
+        {
+            //std::cout << "OLD SIZE = " << state.next_map.size() << std::endl;
+
+            state.approx_map.clear();
+            for(auto const& pair : state.next_map)
+            {
+                auto result = state.approx_map.insert(pair);
+
+                if(!result.second && get_cost(pair.second) < get_cost(result.first->second))
+                    result.first->second = pair.second;
+            }
+
+            state.next_map.clear();
+            for(auto const& pair : state.approx_map)
+                state.next_map.insert(pair);
+
+            //std::cout << "NEW SIZE = " << state.next_map.size() << std::endl;
+        }
 
         state.map.swap(state.next_map);
         state.best_cost = state.next_best_cost;
@@ -448,8 +481,8 @@ namespace isel
             return bool(arg);
         default:
             return true;
-#endif
         }
+#endif
     }
 
     // Spits out the op specified.
@@ -458,7 +491,7 @@ namespace isel
     // Thus, prefer pick_op.
     template<op_t Op> [[gnu::noinline]]
     void exact_op(options_t opt, locator_t def, locator_t arg, locator_t ptr_hi, ssa_value_t ssa_def, ssa_value_t ssa_arg,
-                  cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+                  cpu_t const& cpu, sel_t const* prev, cons_t const* cont, unsigned extra_penalty = 0)
     {
         constexpr auto mode = op_addr_mode(Op);
 
@@ -477,7 +510,7 @@ namespace isel
                 penalty = handle_req_store_penalty<Op>(cpu_copy, ssa_def, ssa_arg);
             }
 
-            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, ptr_hi, penalty));
+            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, ptr_hi, penalty + extra_penalty));
         }
     }
 
@@ -492,9 +525,11 @@ namespace isel
     template<op_t Op>
     void simple_op(options_t opt, locator_t def, locator_t arg, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
+#ifndef NDEBUG
         constexpr auto mode = op_addr_mode(Op);
         assert(mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE);
         assert(valid_arg<Op>(arg));
+#endif
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs_for<Op>(opt, def, arg))
             cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, {}, 0));
@@ -846,6 +881,37 @@ namespace isel
         static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
         {
             using OptN = typename Opt::inc_no_direct;
+
+            locator_t const index = array_index<Arg>::value();
+
+            if(index.is_const_num())
+            {
+                if(AbsoluteX != BAD_OP && cpu.is_known(REG_X))
+                {
+                    locator_t mem = array_mem<Arg>::trans();
+                    int const offset = int(index.data()) - int(cpu.known[REG_X]);
+                    mem.advance_offset(offset);
+
+                    exact_op<AbsoluteX>(
+                        OptN::to_struct, Def::value(),  mem, locator_t{}, 
+                        Def::node(), array_mem<Arg>::node(), cpu, prev, cont,
+                        std::abs(offset));
+
+                    return;
+                }
+
+                if(AbsoluteY != BAD_OP && cpu.is_known(REG_Y))
+                {
+                    locator_t mem = array_mem<Arg>::trans();
+                    mem.advance_offset(int(index.data()) - int(cpu.known[REG_Y]));
+
+                    exact_op<AbsoluteY>(
+                        OptN::to_struct, Def::value(), mem, locator_t{}, 
+                        Def::node(), array_mem<Arg>::node(), cpu, prev, cont);
+
+                    return;
+                }
+            }
 
             if(AbsoluteX != BAD_OP)
             {
@@ -1228,7 +1294,7 @@ namespace isel
         type_name_t const lt = type_name_t(h->input(0 ^ Flip).whole());
         type_name_t const rt = type_name_t(h->input(1 ^ Flip).whole());
 
-        std::cout << "LT " << type_t(lt) << ' ' << type_t(rt) << std::endl;
+        //std::cout << "LT " << type_t(lt) << ' ' << type_t(rt) << std::endl;
 
         int const lwhole = whole_bytes(lt);
         int const rwhole = whole_bytes(rt);
@@ -2576,8 +2642,11 @@ do_selections:
     state.best_cost = ~0 - COST_CUTOFF;
     state.best_sel = nullptr;
 
-    // Starting state:
-    state.map.insert({ cpu_t{}, nullptr });
+    //state.map.reserve(1000000);
+    //state.next_map.reserve(1000000);
+
+    state.map.insert({ cpu_t{}, &state.sel_pool.emplace(nullptr, 0, asm_inst_t{ ASM_PRUNED }) });
+
 
     for(ssa_ht h : cd.schedule)
     {
@@ -2585,7 +2654,20 @@ do_selections:
         {
             state.ssa_node = h;
             isel_node(h);
-            std::cout << "MAP SIZE = " << state.map.size() << std::endl;
+            //std::cout << "MAP SIZE = " << state.map.size() << std::endl;
+
+            /*
+            if(state.map.size() > 10000)
+            {
+                for(auto const& pair : state.map)
+                {
+                    std::cout << "\n\n\n";
+                    for(sel_t const* sel = pair.second; sel; sel = sel->prev)
+                        std::cout << sel->inst << std::endl;
+                }
+                throw 0;
+            }
+            */
 
 #ifndef NDEBUG
             // TODO: reenable

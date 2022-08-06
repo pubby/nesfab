@@ -104,8 +104,9 @@ struct pool_handle_t : public handle_t<Derived, std::uint32_t, ~0u>
 
     value_type& safe() const
     { 
-        if(compiler_phase() > Phase)
-            return unsafe_impl();
+        // TODO
+        //if(compiler_phase() > Phase)
+            //return unsafe_impl();
         std::lock_guard<std::mutex> lock(m_pool_mutex);
         return unsafe_impl(); 
     }

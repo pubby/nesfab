@@ -165,6 +165,7 @@ int main(int argc, char** argv)
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);
         global_t::compile_all();
+        output_time("compile:  ");
 
         set_compiler_phase(PHASE_ALLOC_RAM);
         alloc_ram(~static_used_ram, &std::cout);

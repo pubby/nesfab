@@ -31,7 +31,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++20 \
-  -O0 \
+  -O3 \
   -pthread \
   -g \
   -Wall \
@@ -45,7 +45,7 @@ override CXXFLAGS+= \
   $(INCS) \
   -DVERSION=\"$(VERSION)\" \
   -DGIT_COMMIT=\"$(GIT_COMMIT)\" \
-  #-DNDEBUG
+  -DNDEBUG
 
 VPATH=$(SRCDIR)
 

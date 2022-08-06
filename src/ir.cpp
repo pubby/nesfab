@@ -889,7 +889,6 @@ void ir_t::assert_valid() const
             {
                 if((ssa_flags(ssa_node.op()) & SSAF_NULL_INPUT_VALID) && !ssa_node.input(i))
                     continue;
-                std::cout << ssa_it << std::endl;
                 assert(ssa_node.input(i));
                 if(!ssa_node.input(i).holds_ref())
                     continue;

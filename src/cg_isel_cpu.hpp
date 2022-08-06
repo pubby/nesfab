@@ -96,7 +96,40 @@ struct cpu_t
     bool operator==(cpu_t const& o) const 
     { 
         assert(known_array_valid() && o.known_array_valid());
-        return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask); 
+        return accurate_eq(o);
+        //return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask); 
+    }
+
+    bool accurate_eq(cpu_t const& o) const 
+    { 
+        assert(known_array_valid() && o.known_array_valid());
+        return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask && known == o.known); 
+    }
+
+    bool approximate_eq(cpu_t const& o) const
+    {
+        return ((known_mask & REGF_AC) == (o.known_mask & REGF_AC)
+                && defs[REG_A] == o.defs[REG_A]);
+    }
+
+    std::size_t accurate_hash() const
+    {
+        std::size_t h = req_store;
+        for(locator_t const& v : defs)
+            h = rh::hash_combine(h, v.to_uint());
+        for(unsigned i = 0; i < known.size(); ++i)
+            h ^= known[i] << i * 8;
+        for(std::uint8_t k : known)
+            h = rh::hash_combine(h, k);
+        h = rh::hash_combine(h, known_mask);
+        return h;
+    }
+
+    std::size_t approximate_hash() const
+    {
+        std::size_t h = known_mask & REGF_AC;
+        h = rh::hash_combine(h, defs[REG_A].to_uint());
+        return h;
     }
 
     // If we know the value of a register:
@@ -233,6 +266,22 @@ struct cpu_t
     bool set_defs_for(options_t opt, locator_t def, locator_t arg);
 };
 
+struct approximate_hash_t
+{
+    std::size_t operator()(isel::cpu_t const& cpu) const noexcept
+    {
+        return cpu.approximate_hash();
+    }
+};
+
+struct approximate_eq_t
+{
+    std::size_t operator()(isel::cpu_t const& l, isel::cpu_t const& r) const noexcept
+    {
+        return l.approximate_eq(r);
+    }
+};
+
 } // end namespace isel
 
 
@@ -241,15 +290,8 @@ struct std::hash<isel::cpu_t>
 {
     std::size_t operator()(isel::cpu_t const& cpu) const noexcept
     {
-        std::size_t h = rh::hash_finalize(cpu.req_store);
-        for(locator_t const& v : cpu.defs)
-            h ^= v.to_uint();
-        for(std::uint8_t k : cpu.known)
-            h ^= k;
-        h = rh::hash_combine(h, cpu.known_mask);
-        return h;
+        return cpu.accurate_hash();
     }
 };
-
 
 #endif

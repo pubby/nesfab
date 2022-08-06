@@ -251,7 +251,7 @@ void asm_proc_t::write_assembly(std::ostream& os) const
             break;
         }
 
-        os << '\n';
+        os << inst.arg << '\n';
     }
 }
 

@@ -52,7 +52,7 @@ spair_t interpret_expr(pstring_t pstring, token_t const* expr,
 
 std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr);
 
-eval_tracked_t build_tracked(fn_t const& fn);
+precheck_tracked_t build_tracked(fn_t const& fn);
 
 void build_ir(ir_t& ir, fn_t const& fn);
 

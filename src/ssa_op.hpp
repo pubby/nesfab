@@ -6,10 +6,6 @@
 #include <ostream>
 #include <string_view>
 
-#define SSA_VERSION_NUMBER 1
-#define SSA_VERSION(V) \
-    static_assert(SSA_VERSION_NUMBER == (V), "SSA version mismatch.")
-
 // SSA flags:
 constexpr unsigned SSAF_TRACE_INPUTS   = 1 << 0;
 constexpr unsigned SSAF_COPY           = 1 << 1;
@@ -25,6 +21,20 @@ constexpr unsigned SSAF_NO_GVN         = 1 << 10; // Won't be optimized in GVN p
 constexpr unsigned SSAF_COMMUTATIVE    = 1 << 11; // First two args can be swapped
 constexpr unsigned SSAF_BRANCHY_CG     = 1 << 12; // Potentially uses a conditional in code gen
 constexpr unsigned SSAF_NULL_INPUT_VALID = 1 << 13; // Can use nulls as input
+
+// Parameter indexes for SSA ops
+namespace ssai
+{
+    namespace rw_ptr
+    {
+        constexpr unsigned ORDER_AFTER = 0;
+        constexpr unsigned PTR         = 1;
+        constexpr unsigned PTR_HI      = 2;
+        constexpr unsigned BANK        = 3;
+        constexpr unsigned INDEX       = 4;
+        constexpr unsigned ASSIGNMENT  = 5;
+    }
+}
 
 enum input_class_t
 {
@@ -94,7 +104,6 @@ constexpr bool ssa_indexes(ssa_op_t op)
 
 inline unsigned write_globals_begin(ssa_op_t op)
 {
-    SSA_VERSION(1);
     assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
     switch(op)
     {

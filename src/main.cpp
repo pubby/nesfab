@@ -18,6 +18,7 @@
 #include "static_addr.hpp"
 #include "rom_link.hpp"
 #include "ram_init.hpp"
+#include "eternal_new.hpp" // TODO: remove?
 
 #include "eval.hpp" // TODO: remove?
 
@@ -128,10 +129,14 @@ int main(int argc, char** argv)
                 if(file_i >= source_file_names.size())
                     return;
 
+                std::cout << "PARSING " << file_i << std::endl;
+
                 file_contents_t file(file_i);
                 parse<pass1_t>(file);
+                std::cout << "DONE PARSING " << file_i << std::endl;
             }
         });
+        std::cout << "MERGE" << std::endl;
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);

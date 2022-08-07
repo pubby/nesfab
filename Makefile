@@ -1,4 +1,4 @@
-.PHONY: all tests deps cleandeps clean run
+.PHONY: all debug release tests deps cleandeps clean run
 all: compiler tests
 run: compiler
 	./compiler
@@ -31,9 +31,7 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 
 override CXXFLAGS+= \
   -std=c++20 \
-  -O3 \
   -pthread \
-  -g \
   -Wall \
   -Wextra \
   -Wno-unused-parameter \
@@ -44,8 +42,13 @@ override CXXFLAGS+= \
   -pipe \
   $(INCS) \
   -DVERSION=\"$(VERSION)\" \
-  -DGIT_COMMIT=\"$(GIT_COMMIT)\" \
-  -DNDEBUG
+  -DGIT_COMMIT=\"$(GIT_COMMIT)\"
+
+debug: CXXFLAGS += -O0 -g
+debug: compiler
+
+release: CXXFLAGS += -O3 -DNDEBUG
+release: compiler
 
 VPATH=$(SRCDIR)
 

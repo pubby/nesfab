@@ -57,7 +57,7 @@ namespace isel
     };
 
     // Main global state of the instruction selection algorithm.
-    static thread_local state_t state;
+    thread_local state_t state;
 
     template<typename Tag>
     struct param
@@ -280,19 +280,31 @@ namespace isel
         cont->call(cpu_copy, sel);
     }
 
+    // These determine how extensive the search is.
+    constexpr unsigned MAX_MAP_SIZE = 128;
+    //constexpr unsigned SHRINK_MAP_SIZE = MAX_MAP_SIZE / 2;
+    constexpr unsigned cost_cutoff(unsigned size)
+    {
+        constexpr unsigned BASE = cost_fn<LDA_ABSOLUTE> * 3;
+        return BASE >> (size >> 4);
+    }
+
     // Finishes the selection.
     template<bool FinishNode>
     void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
     {
         state_t::map_t<>::value_type insertion = { cpu, sel };
 
+        unsigned const sel_cost = get_cost(sel);
+
+        if(sel_cost > state.next_best_cost + cost_cutoff(state.next_map.size()))
+            return;
+
         // If this completes a node's operations, we'll release 'req_store'.
         if(FinishNode) // TODO: remove cast
             (std::uint64_t&)insertion.first.req_store &= ~cg_data(state.ssa_node).isel.last_use;
 
         auto result = state.next_map.insert(std::move(insertion));
-
-        unsigned const sel_cost = get_cost(sel);
 
         if(!result.second && sel_cost < get_cost(result.first->second))
             result.first->second = sel;
@@ -312,32 +324,76 @@ namespace isel
     }
 #endif
 
-    // These determine how extensive the search is.
-    constexpr unsigned COST_CUTOFF = cost_fn<LDA_ABSOLUTE> * 3;
-    constexpr unsigned MAX_MAP_SIZE = 512;
-
     // Runs the function and adds the results to the state map.
     template<bool FinishNode, typename Fn>
     void select_step(Fn fn)
     {
+        //std::cout << state.sel_pool.size() << std::endl;
         state.next_map.clear();
-        state.next_best_cost = ~0 - COST_CUTOFF;
+        state.next_best_cost = ~0 - cost_cutoff(0);
 
         cons_t const cont = { finish<FinishNode> };
 
         //std::cout << "BEST COST = " << state.best_cost << std::endl;
 
+        unsigned const cutoff = cost_cutoff(state.map.size());
+        unsigned count = 0;
+
         for(auto const& pair : state.map)
-            if(get_cost(pair.second) < state.best_cost + COST_CUTOFF)
+            if(get_cost(pair.second) <= state.best_cost + cutoff)
+            {
                 fn(pair.first, pair.second, &cont);
+                count += 1;
+            }
 
         if(state.next_map.empty())
             throw isel_no_progress_error_t{};
 
+        //std::cout << "FINISH count = " << count << ' ' << state.map.size() << ' ' << state.ssa_node->op() << std::endl;
+
         if(state.next_map.size() > MAX_MAP_SIZE)
         {
-            //std::cout << "OLD SIZE = " << state.next_map.size() << std::endl;
+            std::cout << "OLD SIZE = " << state.next_map.size() << std::endl;
 
+#if 0
+            state.map.clear();
+
+            auto it = state.next_map.begin();
+            auto const end = state.next_map.end() - 1;
+            for(; it < end; it += 2)
+            {
+                auto const next = std::next(it);
+                if(get_cost(it->second) < get_cost(next->second))
+                    state.map.insert(*it);
+                else
+                    state.map.insert(*next);
+            }
+
+            if(it < state.next_map.end())
+                state.map.insert(*it);
+#else
+
+            auto const rank = [&](auto const& a) -> int
+            {
+                return (int(get_cost(a.second)) 
+                        + int(builtin::popcount(a.first.req_store))
+                        - int(builtin::popcount(unsigned(a.first.known_mask))));
+            };
+
+            std::sort(state.next_map.begin(), state.next_map.end(), [&](auto const& a, auto const& b)
+            {
+                return rank(a) < rank(b);
+            });
+
+            assert(get_cost(state.next_map.begin()->second) == state.next_best_cost);
+
+            state.map.clear();
+            for(unsigned i = 0; i < MAX_MAP_SIZE; ++i)
+                state.map.insert(state.next_map.begin()[i]);
+#endif
+
+
+            /*
             state.approx_map.clear();
             for(auto const& pair : state.next_map)
             {
@@ -350,11 +406,12 @@ namespace isel
             state.next_map.clear();
             for(auto const& pair : state.approx_map)
                 state.next_map.insert(pair);
+                */
 
-            //std::cout << "NEW SIZE = " << state.next_map.size() << std::endl;
+            std::cout << "NEW SIZE = " << state.map.size() << std::endl;
         }
-
-        state.map.swap(state.next_map);
+        else
+            state.map.swap(state.next_map);
         state.best_cost = state.next_best_cost;
     }
 
@@ -491,7 +548,7 @@ namespace isel
     // Thus, prefer pick_op.
     template<op_t Op> [[gnu::noinline]]
     void exact_op(options_t opt, locator_t def, locator_t arg, locator_t ptr_hi, ssa_value_t ssa_def, ssa_value_t ssa_arg,
-                  cpu_t const& cpu, sel_t const* prev, cons_t const* cont, unsigned extra_penalty = 0)
+                  cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         constexpr auto mode = op_addr_mode(Op);
 
@@ -510,7 +567,7 @@ namespace isel
                 penalty = handle_req_store_penalty<Op>(cpu_copy, ssa_def, ssa_arg);
             }
 
-            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, ptr_hi, penalty + extra_penalty));
+            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, ptr_hi, penalty));
         }
     }
 
@@ -873,7 +930,7 @@ namespace isel
         >(cpu, prev, cont);
     }
 
-    template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY
+    template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY, op_t Absolute
             , bool Enable = (AbsoluteX || AbsoluteY) && (Opt::flags & OPT_NO_DIRECT) < OPT_NO_DIRECT>
     struct pick_op_xy
     {
@@ -884,55 +941,38 @@ namespace isel
 
             locator_t const index = array_index<Arg>::value();
 
-            if(index.is_const_num())
+            if(Absolute != BAD_OP && index.is_const_num())
             {
-                if(AbsoluteX != BAD_OP && cpu.is_known(REG_X))
+                locator_t mem = array_mem<Arg>::trans();
+                mem.advance_offset(index.data());
+
+                exact_op<Absolute>(
+                    OptN::to_struct, Def::value(),  mem, locator_t{}, 
+                    Def::node(), array_mem<Arg>::node(), cpu, prev, cont);
+            }
+            else
+            {
+                if(AbsoluteX != BAD_OP)
                 {
-                    locator_t mem = array_mem<Arg>::trans();
-                    int const offset = int(index.data()) - int(cpu.known[REG_X]);
-                    mem.advance_offset(offset);
-
-                    exact_op<AbsoluteX>(
-                        OptN::to_struct, Def::value(),  mem, locator_t{}, 
-                        Def::node(), array_mem<Arg>::node(), cpu, prev, cont,
-                        std::abs(offset));
-
-                    return;
+                    chain
+                    < load_X<OptN, array_index<Arg>>
+                    , exact_op<Opt, AbsoluteX, Def, array_mem<Arg>>
+                    >(cpu, prev, cont);
                 }
 
-                if(AbsoluteY != BAD_OP && cpu.is_known(REG_Y))
+                if(AbsoluteY != BAD_OP)
                 {
-                    locator_t mem = array_mem<Arg>::trans();
-                    mem.advance_offset(int(index.data()) - int(cpu.known[REG_Y]));
-
-                    exact_op<AbsoluteY>(
-                        OptN::to_struct, Def::value(), mem, locator_t{}, 
-                        Def::node(), array_mem<Arg>::node(), cpu, prev, cont);
-
-                    return;
+                    chain
+                    < load_Y<OptN, array_index<Arg>>
+                    , exact_op<Opt, AbsoluteY, Def, array_mem<Arg>>
+                    >(cpu, prev, cont);
                 }
-            }
-
-            if(AbsoluteX != BAD_OP)
-            {
-                chain
-                < load_X<OptN, array_index<Arg>>
-                , exact_op<Opt, AbsoluteX, Def, array_mem<Arg>>
-                >(cpu, prev, cont);
-            }
-
-            if(AbsoluteY != BAD_OP)
-            {
-                chain
-                < load_Y<OptN, array_index<Arg>>
-                , exact_op<Opt, AbsoluteY, Def, array_mem<Arg>>
-                >(cpu, prev, cont);
             }
         }
     };
 
-    template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY>
-    struct pick_op_xy<Opt, Def, Arg, AbsoluteX, AbsoluteY, false>
+    template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY, op_t Absolute>
+    struct pick_op_xy<Opt, Def, Arg, AbsoluteX, AbsoluteY, Absolute, false>
     {
         [[gnu::noinline]]
         static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont) {}
@@ -959,7 +999,7 @@ namespace isel
         else if(immediate && Arg::trans().is_immediate())
             simple_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
         else if((absolute_X || absolute_Y) && read_direct)
-            pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y>::call(cpu, prev, cont);
+            pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y, absolute>::call(cpu, prev, cont);
         else if(absolute && !Arg::trans().is_immediate() && !read_direct)
             exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node(), cpu, prev, cont);
     }
@@ -1069,19 +1109,19 @@ namespace isel
         chain
         < load_A<Opt, Load>
         , set_defs<Opt, REGF_A, true, Def>
-        , store<Opt, STA, Store>
+        , store<Opt, STA, Store, Maybe>
         >(cpu, prev, cont);
 
         chain
         < load_X<Opt, Load>
         , set_defs<Opt, REGF_X, true, Def>
-        , store<Opt, STX, Store>
+        , store<Opt, STX, Store, Maybe>
         >(cpu, prev, cont);
 
         chain
         < load_Y<Opt, Load>
         , set_defs<Opt, REGF_Y, true, Def>
-        , store<Opt, STY, Store>
+        , store<Opt, STY, Store, Maybe>
         >(cpu, prev, cont);
     };
 
@@ -1661,29 +1701,75 @@ namespace isel
     template<typename Opt, typename Def, typename Array, typename Index>
     void read_array(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        chain
-        < load_X<Opt, Index>
-        , exact_op<Opt, LDA_ABSOLUTE_X, Def, Array>
-        , store<Opt, STA, Def>
-        >(cpu, prev, cont);
+        locator_t const index = Index::value();
 
-        chain
-        < load_X<Opt, Index>
-        , exact_op<Opt, LDY_ABSOLUTE_X, Def, Array>
-        , store<Opt, STY, Def>
-        >(cpu, prev, cont);
+        if(index.is_const_num())
+        {
+            using temp = param<struct read_array_tag>;
 
-        chain
-        < load_Y<Opt, Index>
-        , exact_op<Opt, LDA_ABSOLUTE_Y, Def, Array>
-        , store<Opt, STA, Def>
-        >(cpu, prev, cont);
+            locator_t mem = Array::trans();
+            mem.advance_offset(index.data());
+            mem.set_is(IS_DEREF);
+            temp::set(mem);
 
-        chain
-        < load_Y<Opt, Index>
-        , exact_op<Opt, LDX_ABSOLUTE_Y, Def, Array>
-        , store<Opt, STX, Def>
-        >(cpu, prev, cont);
+            load_then_store<Opt, Def, temp, Def>(cpu, prev, cont);
+        }
+        else
+        {
+            chain
+            < load_X<Opt, Index>
+            , exact_op<Opt, LDA_ABSOLUTE_X, Def, Array>
+            , store<Opt, STA, Def>
+            >(cpu, prev, cont);
+
+            chain
+            < load_X<Opt, Index>
+            , exact_op<Opt, LDY_ABSOLUTE_X, Def, Array>
+            , store<Opt, STY, Def>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, Index>
+            , exact_op<Opt, LDA_ABSOLUTE_Y, Def, Array>
+            , store<Opt, STA, Def>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, Index>
+            , exact_op<Opt, LDX_ABSOLUTE_Y, Def, Array>
+            , store<Opt, STX, Def>
+            >(cpu, prev, cont);
+        }
+    }
+
+    template<typename Opt, typename Def, typename Array, typename Index, typename Assignment>
+    void write_array(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        locator_t const index = Index::value();
+
+        if(index.is_const_num())
+        {
+            using temp = param<struct write_array_tag>;
+
+            locator_t mem = Array::trans();
+            mem.advance_offset(index.data());
+            mem.set_is(IS_DEREF);
+            temp::set(mem);
+
+            load_then_store<Opt, Def, Assignment, temp, false>(cpu, prev, cont);
+        }
+        else
+        {
+            chain
+            < load_AX<Opt, Assignment, Index>
+            , exact_op<Opt, STA_ABSOLUTE_X, null_, Array>
+            >(cpu, prev, cont);
+
+            chain
+            < load_AY<Opt, Assignment, Index>
+            , exact_op<Opt, STA_ABSOLUTE_Y, null_, Array>
+            >(cpu, prev, cont);
+        }
     }
 
     template<typename Opt, typename Def>
@@ -2196,21 +2282,15 @@ namespace isel
             }
             else
             {
-                using p_index = p_arg<0>;
-                using p_assignment = p_arg<1>;
+                using p_array = p_arg<0>;
+                using p_index = p_arg<1>;
+                using p_assignment = p_arg<2>;
 
+                p_array::set(h->input(0));
                 p_index::set(h->input(2));
                 p_assignment::set(h->input(3));
 
-                chain
-                < load_AX<Opt, p_assignment, p_index>
-                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_def>
-                >(cpu, prev, cont);
-
-                chain
-                < load_AY<Opt, p_assignment, p_index>
-                , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_def>
-                >(cpu, prev, cont);
+                write_array<Opt, p_def, p_array, p_index, p_assignment>(cpu, prev, cont);
             }
             break;
 
@@ -2235,19 +2315,20 @@ namespace isel
                 using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
                 using p_index = p_arg<2>;
 
-                p_ptr_lo::set(h->input(0));
-                p_ptr_hi::set(h->input(1));
-                p_index::set(h->input(3));
+                using namespace ssai::rw_ptr;
 
-                if(h->input(0).is_const())
+                p_ptr_lo::set(h->input(PTR));
+                p_ptr_hi::set(h->input(PTR_HI));
+                p_index::set(h->input(INDEX));
+
+                if(h->input(PTR).is_const()) // TODO
                 {
-                    assert(!h->input(1) || h->input(1).is_const());
-
+                    assert(!h->input(PTR_HI) || h->input(PTR_HI).is_const());
                     read_array<Opt, p_def, p_ptr, p_index>(cpu, prev, cont);
                 }
                 else
                 {
-                    if(h->input(3).eq_whole(0))
+                    if(h->input(INDEX).eq_whole(0))
                     {
                         chain
                         < load_X<Opt, const_<0>>
@@ -2279,28 +2360,21 @@ namespace isel
                 using p_index = p_arg<2>;
                 using p_assignment = p_arg<3>;
 
-                p_ptr_lo::set(h->input(0));
-                p_ptr_hi::set(h->input(1));
-                p_index::set(h->input(3));
-                p_assignment::set(h->input(4));
+                using namespace ssai::rw_ptr;
 
-                if(h->input(0).is_const())
+                p_ptr_lo::set(h->input(PTR));
+                p_ptr_hi::set(h->input(PTR_HI));
+                p_index::set(h->input(INDEX));
+                p_assignment::set(h->input(ASSIGNMENT));
+
+                if(h->input(PTR).is_const()) // TODO
                 {
-                    assert(!h->input(1) || h->input(1).is_const());
-
-                    chain
-                    < load_AX<Opt, p_assignment, p_index>
-                    , exact_op<Opt, STA_ABSOLUTE_X, null_, p_ptr>
-                    >(cpu, prev, cont);
-
-                    chain
-                    < load_AY<Opt, p_assignment, p_index>
-                    , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_ptr>
-                    >(cpu, prev, cont);
+                    assert(!h->input(PTR_HI) || h->input(PTR_HI).is_const());
+                    write_array<Opt, p_def, p_ptr_lo, p_index, p_assignment>(cpu, prev, cont);
                 }
                 else
                 {
-                    if(h->input(3).eq_whole(0))
+                    if(h->input(INDEX).eq_whole(0))
                     {
                         chain
                         < load_AX<Opt, p_assignment, const_<0>>
@@ -2639,7 +2713,7 @@ do_selections:
     state.sel_pool.clear();
     state.map.clear();
     assert(state.map.empty());
-    state.best_cost = ~0 - COST_CUTOFF;
+    state.best_cost = ~0 - cost_cutoff(0);
     state.best_sel = nullptr;
 
     //state.map.reserve(1000000);

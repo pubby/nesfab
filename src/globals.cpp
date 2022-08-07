@@ -493,7 +493,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     bool io_pure = true;
 
     // Handle preserved groups
-    for(auto const& fn_stmt : m_eval_tracked->goto_modes)
+    for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
     {
         if(mods_t const* goto_mods = def().mods_of(fn_stmt.second))
         {
@@ -575,9 +575,11 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
 
         if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
         {
+            using namespace ssai::rw_ptr;
+
             io_pure = false;
 
-            type_t const ptr_type = ssa_it->input(0).type();
+            type_t const ptr_type = ssa_it->input(PTR).type();
             assert(is_ptr(ptr_type.name()));
 
             unsigned const size = ptr_type.group_tail_size();
@@ -801,13 +803,13 @@ void fn_t::precheck_verify() const
 void fn_t::precheck_eval()
 {
     assert(compiler_phase() == PHASE_PRECHECK);
-    assert(!m_eval_tracked);
+    assert(!m_precheck_tracked);
 
-    // Run the evaluator to generate 'm_eval_tracked':
-    m_eval_tracked.reset(new eval_tracked_t(build_tracked(*this)));
+    // Run the evaluator to generate 'm_precheck_tracked':
+    m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
 
     std::cout << "PRECHECK\n";
-    for(auto const& pair : m_eval_tracked->gvars_used)
+    for(auto const& pair : m_precheck_tracked->gvars_used)
         std::cout << "GVAR USED " << pair.first->global.name << std::endl;
 }
 
@@ -851,7 +853,7 @@ void fn_t::precheck_propagate()
     };
 
     // Handle accesses through pointers:
-    for(auto const& pair : m_eval_tracked->deref_groups)
+    for(auto const& pair : m_precheck_tracked->deref_groups)
     {
         auto const error = [&](group_class_t gclass, auto& groups)
         {
@@ -891,7 +893,7 @@ void fn_t::precheck_propagate()
     }
 
     // Handle accesses through goto modes:
-    for(auto const& fn_stmt : m_eval_tracked->goto_modes)
+    for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
     {
         stmt_t const& stmt = def()[fn_stmt.second];
         mods_t const* goto_mods = def().mods_of(fn_stmt.second);
@@ -961,7 +963,7 @@ void fn_t::precheck_propagate()
                 compiler_error(global.pstring(), msg);
         };
 
-        for(auto const& pair : m_eval_tracked->gvars_used)
+        for(auto const& pair : m_precheck_tracked->gvars_used)
         {
             group_ht const group = pair.first->group();
 
@@ -971,7 +973,7 @@ void fn_t::precheck_propagate()
             m_precheck_group_vars.set(group->impl_id());
         }
 
-        for(auto const& pair : m_eval_tracked->calls)
+        for(auto const& pair : m_precheck_tracked->calls)
         {
             fn_t& call = *pair.first;
 

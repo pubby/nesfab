@@ -239,7 +239,7 @@ void bitset_for_each(UInt bitset, Fn fn, unsigned span = 0)
     while(bitset)
     {
         std::size_t bit = builtin::ctz(bitset);
-        bitset ^= 1 << bit;
+        bitset ^= 1ull << bit;
         fn(Bit{bit + span});
     }
 }

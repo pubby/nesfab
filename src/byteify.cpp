@@ -9,8 +9,6 @@
 #include "worklist.hpp"
 #include "format.hpp"
 
-SSA_VERSION(1);
-
 namespace bc = ::boost::container;
 
 namespace // anonymous
@@ -173,15 +171,20 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
             {
+                using namespace ssai::rw_ptr;
+
                 // Pointer accesses may create 'SSA_make_ptr' nodes.
-                if(ssa_it->input(0).holds_ref())
+                if(ssa_it->input(PTR).holds_ref())
                 {
+                    assert(!ssa_it->input(PTR_HI).holds_ref());
+
                     ssa_ht const lo = cfg_node.emplace_ssa(
-                        SSA_make_ptr_lo, TYPE_U, ssa_it->input(0));
+                        SSA_make_ptr_lo, TYPE_U, ssa_it->input(PTR));
                     ssa_ht const hi = cfg_node.emplace_ssa(
-                        SSA_make_ptr_hi, TYPE_U, ssa_it->input(0));
-                    ssa_it->link_change_input(0, lo);
-                    ssa_it->link_change_input(1, hi);
+                        SSA_make_ptr_hi, TYPE_U, ssa_it->input(PTR));
+
+                    ssa_it->link_change_input(PTR, lo);
+                    ssa_it->link_change_input(PTR_HI, hi);
                 }
             }
 
@@ -205,8 +208,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             if(!is_scalar(type.name()))
                 continue;
-            
-            SSA_VERSION(1);
 
             type_t split_type = TYPE_U;
             if(ssa_it->type().name() == TYPE_TEA)
@@ -245,8 +246,6 @@ void byteify(ir_t& ir, fn_t const& fn)
         cfg_node_t& cfg_node = *cfg_it;
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
         {
-            SSA_VERSION(1);
-
             switch(ssa_it->op())
             {
             case SSA_fn_call:
@@ -515,7 +514,6 @@ void byteify(ir_t& ir, fn_t const& fn)
         if(ssa_node->type() == TYPE_S)
             ssa_node->set_type(TYPE_U);
 
-        SSA_VERSION(1);
         switch(ssa_node->op())
         {
         case SSA_rol:

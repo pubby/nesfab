@@ -11,8 +11,6 @@ namespace bc = ::boost::container;
 
 static bool _can_prune(ssa_node_t& node)
 {
-    SSA_VERSION(1);
-
     // Linked nodes will all be pruned at once.
     // The pruning only happens at the root of the links,
     // so skip any non-roots:

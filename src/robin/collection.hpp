@@ -109,9 +109,6 @@ public:
     bool empty() const { return size() == 0; }
     void reserve(hash_type size) { table.reserve(size); }
 
-    template<typename Eq>
-    void reduce(Eq const& equals) { table.reduce(equals); }
-
 private:
     robin_collection const* const_this() const { return this; }
 
@@ -233,16 +230,6 @@ public:
     bool empty() const { return size() == 0; }
 
     void reserve(hash_type size) { table.reserve(size); }
-
-    template<typename Eq>
-    void reduce(Eq const& equals) 
-    { 
-        table.reduce([&](index_type l, index_type r)
-        { 
-            return equals(static_cast<value_type const&>(m_data[l]), 
-                          static_cast<value_type const&>(m_data[r]));
-        });
-    }
 
     const_iterator cbegin() const noexcept { return data(); }
     const_iterator begin() const noexcept { return data(); }
@@ -488,15 +475,6 @@ public:
     std::size_t size() const { return collection.size(); }
     bool empty() const { return size() == 0; }
     void reserve(hash_type size) { collection.reserve(size); }
-
-    template<typename Eq>
-    void reduce(Eq const& equals) 
-    { 
-        collection.reduce([&](unique_ptr_type const& l, unique_ptr_type const& r)
-        { 
-            return equals(*l, *r);
-        });
-    }
 
     const_iterator cbegin() const noexcept 
         { return const_iterator(collection.cbegin()); }

@@ -105,7 +105,7 @@ private:
 public:
     spair_t final_result;
     std::vector<locator_t> paa; // Only used when defining PAA inits
-    eval_tracked_t* eval_tracked = nullptr; // Various things callers of 'eval_t' may want.
+    precheck_tracked_t* precheck_tracked = nullptr; // Various things callers of 'eval_t' may want.
 
     enum do_t
     {
@@ -126,7 +126,7 @@ public:
 
     template<do_t D>
     eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
-           eval_tracked_t* tracked, sval_t const* args, unsigned num_args);
+           precheck_tracked_t* tracked, sval_t const* args, unsigned num_args);
 
     eval_t(ir_t& ir, fn_t const& fn);
 
@@ -226,7 +226,7 @@ public:
     // compiler-specific //
     ///////////////////////
 
-    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gmanager.num_locators(); }
+    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gmanager.num_slots(); }
 
     unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.id + num_locals(); }
     template<typename T>
@@ -294,9 +294,9 @@ std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr)
     return std::move(i.paa);
 }
 
-eval_tracked_t build_tracked(fn_t const& fn)
+precheck_tracked_t build_tracked(fn_t const& fn)
 {
-    eval_tracked_t tracked;
+    precheck_tracked_t tracked;
     eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK>{}, {}, fn, &tracked, nullptr, 0);
     return tracked;
 }
@@ -320,12 +320,12 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, type_t e
 
 template<eval_t::do_t D>
 eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
-               eval_tracked_t* tracked, sval_t const* args, unsigned num_args)
+               precheck_tracked_t* tracked, sval_t const* args, unsigned num_args)
 : pstring(pstring)
 , fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , start_time(clock::now())
-, eval_tracked(tracked)
+, precheck_tracked(tracked)
 {
     unsigned const nlocals = num_locals();
 
@@ -380,7 +380,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
         var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
 
     // Add global vars to 'var_types':
-    var_types.reserve(var_types.size() + ir->gmanager.num_gvar_locators());
+    var_types.reserve(num_vars());
     ir->gmanager.for_each_gvar([&](gvar_ht gvar, auto) { var_types.push_back(gvar->type()); });
     assert(num_vars() >= var_types.size());
     var_types.resize(num_vars(), TYPE_VOID);
@@ -1107,8 +1107,8 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             case GLOBAL_VAR:
                 if(D == COMPILE || D == CHECK)
                 {
-                    if(eval_tracked)
-                        eval_tracked->gvars_used.emplace(global->handle<gvar_ht>(), token->pstring);
+                    if(precheck_tracked)
+                        precheck_tracked->gvars_used.emplace(global->handle<gvar_ht>(), token->pstring);
 
                     rpn_value_t new_top =
                     {
@@ -1355,17 +1355,17 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             if(call->fclass == FN_MODE && is_interpret(D))
                 compiler_error(call_pstring, "Cannot goto mode at compile-time.");
 
-            if(eval_tracked)
+            if(precheck_tracked)
             {
                 assert(fn);
                 if(call->fclass == FN_MODE)
                 {
                     // Track that we're going to a mode here:
-                    eval_tracked->goto_modes.push_back(std::make_pair(
+                    precheck_tracked->goto_modes.push_back(std::make_pair(
                         call, stmt_ht{ stmt - fn->def().stmts.data() }));
                 }
                 else
-                    eval_tracked->calls.emplace(call, call_pstring);
+                    precheck_tracked->calls.emplace(call, call_pstring);
             }
 
             // Now do the call!
@@ -1854,12 +1854,13 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     "Expecting array or pointer type. Got %.", array_val.type));
             }
 
-            if(is_ptr && eval_tracked)
+            if(is_ptr && precheck_tracked)
             {
                 // TODO: Update this when inlining is added.
                 unsigned const size = array_val.type.group_tail_size();
+                precheck_tracked->deref_types.insert(array_val.type);
                 for(unsigned i = 0; i < size; ++i)
-                    eval_tracked->deref_groups.emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
+                    precheck_tracked->deref_groups.emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
             }
 
             rpn_value_t& array_index = rpn_stack.peek(0);
@@ -1896,8 +1897,13 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     bool const is_banked = array_val.type.name() == TYPE_BANKED_PTR;
                     assert(array_val.sval.size() == is_banked ? 2 : 1);
 
+                    ssa_value_t prev_in_order = {};
+                    if(auto ptr_i = ir->gmanager.ptr_i(array_val.type))
+                        prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
+
                     ssa_ht const h = builder.cfg->emplace_ssa(
                         SSA_read_ptr, TYPE_U, 
+                        prev_in_order,
                         from_variant(array_val.sval[0], array_val.type), ssa_value_t(),
                         is_banked ? from_variant(array_val.sval[1], array_val.type)
                                   : ssa_value_t(), 
@@ -1923,6 +1929,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
             if(is_ptr)
             {
+                array_val.derefed_from = array_val.type;
                 array_val.type = TYPE_U;
                 array_val.category = is_mptr ? LVAL_PTR : RVAL;
             }
@@ -2256,23 +2263,29 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
 
     if(assignee.category == LVAL_PTR)
     {
-        assert(assignee.index);
-
         if(D == INTERPRET)
         {
+            assert(assignee.index);
             assert(false); // TODO: implement
         }
         else if(D == COMPILE)
         {
+            assert(assignee.index);
+
             throwing_cast<D>(assignment, TYPE_U, true);
 
             ssa_ht const read = assignee.ssa(0).handle();
             assert(read->op() == SSA_read_ptr);
 
+            ssa_value_t prev_in_order = {};
+            if(auto ptr_i = ir->gmanager.ptr_i(assignee.derefed_from))
+                prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
+
             ssa_ht const write = builder.cfg->emplace_ssa(
                 SSA_write_ptr, TYPE_VOID,
-                read->input(0), read->input(1), 
-                read->input(2), read->input(3), 
+                prev_in_order,
+                read->input(1), read->input(2), 
+                read->input(3), read->input(4), 
                 std::get<ssa_value_t>(assignment.sval[0]));
             write->append_daisy();
 
@@ -2362,9 +2375,11 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
                 type_t const type = type_t::tea(member_type(assignment.type, i), mt.size(), assignment.pstring);
                 assert(type.name() == TYPE_TEA);
 
+                ssa_value_t const prev_array = var_lookup(builder.cfg, assignee.var_i, i);
+
                 ssa_ht write = builder.cfg->emplace_ssa(
                     SSA_write_array, type,
-                    read->input(0), locator_t(), read->input(2), std::get<ssa_value_t>(assignment.sval[i]));
+                    prev_array, locator_t(), read->input(2), std::get<ssa_value_t>(assignment.sval[i]));
 
                 local[i + assignee.member] = write;
             }
@@ -3118,7 +3133,7 @@ cfg_ht eval_t::insert_cfg(bool seal, pstring_t label_name)
         assert(num_vars() == var_types.size());
         vec.resize(var_types.size());
         for(unsigned i = 0; i < var_types.size(); ++i)
-            vec[i].resize(::num_members(var_types[i]));
+            vec[i].resize(std::max<unsigned>(1, ::num_members(var_types[i])));
     };
 
     init_vector(block_data.vars);

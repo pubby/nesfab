@@ -285,12 +285,14 @@ void code_gen(ir_t& ir, fn_t& fn)
         // Setup 'ptr_alt's for ptr inputs.
         if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
         {
-            assert(ssa_it->input(0).holds_ref() == ssa_it->input(1).holds_ref());
+            using namespace ssai::rw_ptr;
 
-            if(ssa_it->input(0).holds_ref())
+            assert(ssa_it->input(PTR).holds_ref() == ssa_it->input(PTR_HI).holds_ref());
+
+            if(ssa_it->input(PTR).holds_ref())
             {
-                ssa_ht const lo = ssa_it->input(0).handle();
-                ssa_ht const hi = ssa_it->input(1).handle();
+                ssa_ht const lo = ssa_it->input(PTR).handle();
+                ssa_ht const hi = ssa_it->input(PTR_HI).handle();
                 auto& lo_d = cg_data(lo);
                 auto& hi_d = cg_data(hi);
 

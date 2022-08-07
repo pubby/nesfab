@@ -3,8 +3,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <memory>
 #include <vector>
+#include <list>
 
 // A simple allocator that only supports allocation, not free.
 // Memory is still cleared on pool destruction or the calling of 'clear()'.
@@ -44,6 +46,7 @@ public:
     {
         used_size += 1;
         reserve(1);
+        assert(used);
         storage_t* storage = used->data + used->size;
         new(storage) T(std::forward<Args>(args)...);
         ++used->size;
@@ -106,11 +109,17 @@ public:
         oversized.clear();
         used_size = 0;
 
+        if(used)
+            used->free();
+
         // Move the used list onto the free list.
-        std::unique_ptr<buffer_t>* last = &free;
-        while(*last)
-            last = &(*last)->prev;
-        *last = std::move(used);
+        if(first_free)
+            first_free->set_prev(used.release());
+        else
+            free = std::move(used);
+
+        first_free = first_used;
+        first_used = nullptr;
     }
 
     void shrink_to_fit()
@@ -119,7 +128,6 @@ public:
     }
 
     // Calls Func on every allocated value.
-
     template<typename Func>
     void for_each(Func func)
     {
@@ -133,6 +141,27 @@ public:
     }
 
     std::size_t size() const { return used_size; }
+
+    // Steals all the allocations from 'other'.
+    // (Does not steal the free list)
+    void splice(array_pool_t& other)
+    {
+        if(!other.first_used)
+            return;
+
+        if(first_used)
+            first_used->set_prev(other.used.release());
+        else
+            used = std::move(other.used);
+
+        first_used = other.first_used;
+        other.first_used = nullptr;
+
+        oversized.splice(oversized.begin(), other.oversized);
+
+        used_size += other.used_size;
+        other.used_size = 0;
+    }
 
 private:
     using storage_t = 
@@ -148,17 +177,25 @@ private:
             if(free)
             {
                 used = std::move(free);
-                free = std::move(used->prev);
+                free.reset(used->release_prev());
+                if(!free)
+                    first_free = nullptr;
             }
             else
                 used.reset(new buffer_t());
 
+            assert(!used->prev);
+
             // Zero the size.
             used->size = 0;
 
-            // Update the pointer
-            used->prev = std::move(old_buffer);
+            // Update the pointers
+            used->set_prev(old_buffer.release());
+            if(!first_used)
+                first_used = used.get();
         }
+
+        assert(used && used->size + size <= ChunkSize);
     }
 
     bool use_oversized(std::size_t size) const
@@ -181,19 +218,45 @@ private:
     public:
         ~buffer_t()
         {
-            for(unsigned i = 0; i < size; ++i)
-                reinterpret_cast<T&>(data[i]).~T();
+            free();
+        }
+
+        void free()
+        {
+            // Implement non-recursively, to avoid stack overflows
+            for(buffer_t* buf = this; buf; buf = buf->prev)
+            {
+                for(unsigned i = 0; i < buf->size; ++i)
+                    reinterpret_cast<T&>(buf->data[i]).~T();
+                buf->size = 0;
+            }
+        }
+
+        void set_prev(buffer_t* new_prev)
+        {
+            if(prev)
+                delete prev;
+            prev = new_prev;
+        }
+
+        buffer_t* release_prev()
+        {
+            buffer_t* ret = prev;
+            prev = nullptr;
+            return ret;
         }
 
         storage_t data[ChunkSize];
-        std::size_t size;
-        std::unique_ptr<buffer_t> prev;
+        std::size_t size = 0;
+        buffer_t* prev = nullptr;
     };
 
     std::unique_ptr<buffer_t> used;
     std::unique_ptr<buffer_t> free;
-    std::vector<std::vector<T>> oversized;
+    std::list<std::vector<T>> oversized;
     std::size_t used_size = 0;
+    buffer_t* first_used = nullptr;
+    buffer_t* first_free = nullptr;
 };
 
 #endif

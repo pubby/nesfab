@@ -305,7 +305,7 @@ restart:
     token_type_t lexed = TOK_START;
     while(lexed > TOK_LAST_STATE)
     {
-#if 0 // Enable to debug
+#if 1 // Enable to debug
         assert(next_char < source() + file.size());
         assert(next_char >= source());
 #endif

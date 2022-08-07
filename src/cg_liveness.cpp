@@ -249,6 +249,8 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
         // For indirect modes, also test the hi byte.
         if(indirect_addr_mode(op_addr_mode(inst.op)))
         {
+            std::cout << inst.arg << ' ' << inst.ptr_hi << std::endl;
+            assert(inst.arg);
             assert(inst.ptr_hi && inst.ptr_hi != inst.arg);
             test_loc(inst.ptr_hi);
         }
@@ -421,7 +423,7 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
                     if(op_flags(inst.op) & ASMF_MAYBE_STORE)
                     {
                         assert(op_output_regs(inst.op) & REGF_M);
-                        if(bitset_test(live, lvar_i))
+                        if(lvar_i < 0 || bitset_test(live, lvar_i))
                         {
                             switch(inst.op)
                             {
@@ -452,6 +454,8 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
                         }
                     }
                 }
+                else
+                    passert(!(op_flags(inst.op) & ASMF_MAYBE_STORE), to_string(inst.op), inst.arg);
             }
 
             do_inst_rw(fn, lvars, inst, [&](unsigned i, bool read, bool write)

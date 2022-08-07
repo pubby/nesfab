@@ -47,6 +47,7 @@ struct rpn_value_t
     value_category_t category = RVAL;
     value_time_t time = CT; // When the value is computed
     type_t type = TYPE_VOID;
+    type_t derefed_from = TYPE_VOID;
     pstring_t pstring = {};
     unsigned var_i = ~0u;
 

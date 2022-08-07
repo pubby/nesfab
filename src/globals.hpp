@@ -29,7 +29,7 @@
 #include "mods.hpp"
 
 struct rom_array_t;
-struct eval_tracked_t;
+struct precheck_tracked_t;
 
 namespace bc = boost::container;
 
@@ -245,8 +245,6 @@ private:
     bool m_has_tea_member = false;
 };
 
-using deref_groups_t = fc::vector_map<group_ht, src_type_t>;
-
 struct fn_impl_base_t
 {
     virtual ~fn_impl_base_t() {}
@@ -263,9 +261,10 @@ struct mode_impl_t : public fn_impl_base_t
     fc::small_map<group_ht, pstring_t, 16> incoming_preserved_groups;
 };
 
-struct eval_tracked_t
+struct precheck_tracked_t
 {
     fc::vector_map<group_ht, src_type_t> deref_groups;
+    rh::batman_set<type_t> deref_types;
     std::vector<std::pair<fn_ht, stmt_ht>> goto_modes;
     fc::vector_map<fn_ht, pstring_t> calls;
     fc::vector_map<gvar_ht, pstring_t> gvars_used;
@@ -295,7 +294,7 @@ public:
 
     void compile();
 
-    eval_tracked_t const& precheck_tracked() const { assert(m_eval_tracked); return *m_eval_tracked; }
+    precheck_tracked_t const& precheck_tracked() const { assert(m_precheck_tracked); return *m_precheck_tracked; }
     bitset_t const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
     /*
     bitset_t const& lang_preserves_group_vars() const 
@@ -347,7 +346,7 @@ private:
     std::unique_ptr<fn_impl_base_t> m_pimpl;
 
     // TODO
-    std::unique_ptr<eval_tracked_t> m_eval_tracked;
+    std::unique_ptr<precheck_tracked_t> m_precheck_tracked;
     bitset_t m_precheck_group_vars;
 
     // 'lang_gvars' is calculated shortly after parsing.

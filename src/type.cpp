@@ -35,7 +35,6 @@ namespace  // Anonymous
         };
 
         rh::robin_auto_table<map_elem_t> map;
-        array_pool_t<T> tails;
 
     public:
         T const* get(T const* begin, T const* end)
@@ -64,7 +63,7 @@ namespace  // Anonymous
                 },
                 [this, begin, end, size]() -> map_elem_t
                 { 
-                    return { size, tails.insert(begin, end) };
+                    return { size, eternal_new<T>(begin, end) };
                 });
 
             assert(std::equal(begin, end, result.first->tail));
@@ -442,13 +441,18 @@ bool is_ct(type_t type)
 unsigned num_members(type_t type)
 {
     assert(type.name() != TYPE_STRUCT_THUNK);
+    unsigned ret = 0;
     if(type.name() == TYPE_STRUCT)
-        return type.struct_().num_members();
+        ret = type.struct_().num_members();
     else if(is_tea(type.name()))
-        return num_members(type.elem_type());
+        ret = num_members(type.elem_type());
     else if(is_banked_ptr(type.name()))
-        return 2; // The bank is a member
-    return 1;
+        ret = 2; // The bank is a member
+    else
+        ret = 1;
+
+    assert(ret > 0);
+    return ret;
 }
 
 unsigned num_atoms(type_t type, unsigned member)

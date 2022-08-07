@@ -396,27 +396,6 @@ public:
         realloc(new_size);
     }
 
-    // Lets you redefine a table using a new 'equals'.
-    template<typename Eq>
-    void reduce(Eq const& equals)
-    {
-        std::size_t const size = allocated_size();
-        robin_table new_table(size, mask_);
-        for(hash_type i = 0; i != size; ++i)
-        {
-            if(hash_data()[i] == 0)
-                continue;
-            hash_type hash = i - ((hash_data()[i] & mask_) - 1);
-            hash |= (hash_data()[i] & ~mask_);
-            value_type& data = value_data()[i];
-            new_table.emplace(hash, 
-                [&](auto const& a) -> bool { return equals(a, data); },
-                [&]() -> value_type&& { return std::move(data); });
-            hash_data()[i] = 0;
-        }
-        *this = std::move(new_table);
-    }
-
     hash_type const* hash_data() const { return hashes.get(); }
     hash_type* hash_data() { return hashes.get(); }
 
@@ -605,9 +584,6 @@ public:
         table.template reserve<ratio_type>(size, used_size);
         rehash_size = calc_rehash_size();
     }
-
-    template<typename Eq>
-    void reduce(Eq const& equals) { return table.reduce(equals); }
 
     std::size_t size() const { return used_size; }
 private:

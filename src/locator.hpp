@@ -441,6 +441,7 @@ public:
 
     locator_t link(fn_ht fn = {}, int bank = -1) const;
 
+
 private:
     std::uint64_t impl = 0;
 };
@@ -481,5 +482,6 @@ struct std::hash<loc_vec_t>
         return h;
     }
 };
+
 
 #endif

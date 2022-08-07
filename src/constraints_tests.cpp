@@ -15,8 +15,6 @@ namespace bc = ::boost::container;
 
 constexpr unsigned TEST_ITER = 1000;
 
-SSA_VERSION(1);
-
 known_bits_t random_bits(constraints_mask_t cm, bool allow_top = false)
 {
     known_bits_t bits;

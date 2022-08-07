@@ -94,11 +94,11 @@ void asm_proc_t::convert_long_branch_ops()
                 dist -= size_diff;
 
                 // Change to short instruction when in range
-                if(dist <= 127 || dist >= -128)
+                if(dist <= 127 && dist >= -128)
                 {
                     inst.op = new_op;
                     progress = true;
-                    
+
                     assert(bytes_between(i+1, label_i) <= 127);
                     assert(bytes_between(i+1, label_i) >= -128);
                 }
@@ -176,7 +176,6 @@ void asm_proc_t::optimize_short_jumps(bool initial)
 
 void asm_proc_t::optimize(bool initial)
 {
-    return; // TODO
     // Order matters here.
     absolute_to_zp();
     optimize_short_jumps(initial);
@@ -292,7 +291,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
 
     auto const write_inst = [&](asm_inst_t const& inst)
     {
-        assert(!(op_flags(inst.op) & ASMF_FAKE));
+        passert(!(op_flags(inst.op) & ASMF_FAKE), to_string(inst.op), inst.arg);
         std::uint8_t const op = op_code(inst.op);
 
         switch(op_addr_mode(inst.op))

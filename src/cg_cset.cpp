@@ -32,6 +32,7 @@ ssa_ht cset_head(ssa_ht h)
     assert(h->op());
     while(true)
     {
+        // TODO: update pointers to point to head.
         auto& d = cg_data(h);
         if(d.cset_head.holds_ref())
         {

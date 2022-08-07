@@ -28,7 +28,7 @@ void file_contents_t::reset(unsigned file_i)
     if(read(fd, reinterpret_cast<void*>(m_source.get()), sb.st_size) == -1)
         throw std::runtime_error("Unable to read file: " + name);
 
-    m_source[sb.st_size] = m_source[sb.st_size - 1] = '\0';
+    m_source[sb.st_size] = m_source[sb.st_size + 1] = '\0';
     m_size = sb.st_size + 2;
     m_file_i = file_i;
 }

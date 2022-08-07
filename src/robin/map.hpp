@@ -125,14 +125,6 @@ public:
     bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
 
-    template<typename Eq>
-    void reduce(Eq const& equals)
-    { 
-        collection.reduce([&](value_type const& l, value_type const& r)
-        {
-            return equals(l.first, r.first);
-        });
-    }
 private:
     collection_type collection;
 };
@@ -216,15 +208,6 @@ public:
     std::size_t size() const { return collection.size(); }
     bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
-
-    template<typename Eq>
-    void reduce(Eq const& equals)
-    { 
-        collection.reduce([&](value_type const& l, value_type const& r)
-        {
-            return equals(l.first, r.first);
-        });
-    }
 
     const_iterator cbegin() const { return collection.cbegin(); }
     const_iterator begin() const { return collection.cbegin(); }
@@ -315,15 +298,6 @@ public:
     std::size_t size() const { return collection.size(); }
     bool empty() const { return collection.empty(); }
     void reserve(hash_type size) { collection.reserve(size); }
-
-    template<typename Eq>
-    void reduce(Eq const& equals)
-    { 
-        collection.reduce([&](value_type const& l, value_type const& r)
-        {
-            return equals(l.first, r.first);
-        });
-    }
 
     const_iterator cbegin() const { return collection.cbegin(); }
     const_iterator begin() const { return collection.cbegin(); }

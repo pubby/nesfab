@@ -69,6 +69,8 @@ constexpr asm_flags_t ASMF_FAKE        = 1 << 0;
 constexpr asm_flags_t ASMF_MAYBE_STORE = 1 << 1;
 constexpr asm_flags_t ASMF_BRANCH      = 1 << 2;
 constexpr asm_flags_t ASMF_JUMP        = 1 << 3;
+constexpr asm_flags_t ASMF_CALL        = 1 << 4;
+constexpr asm_flags_t ASMF_RETURN      = 1 << 5;
 
 struct op_def_t
 {

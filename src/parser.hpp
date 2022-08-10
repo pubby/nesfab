@@ -95,8 +95,8 @@ private:
     void parse_group_vars();
     void parse_group_data();
     void parse_top_level_const();
-    void parse_fn(bool ct);
-    void parse_mode();
+    void parse_fn();
+    //void parse_mode();
     void parse_with();
     void parse_struct();
 
@@ -114,6 +114,8 @@ private:
     void parse_continue();
     void parse_goto();
     void parse_label();
+    void parse_nmi_statement();
+    void parse_fence();
 
     [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const
         { ::compiler_error(pstring, what, &file); }

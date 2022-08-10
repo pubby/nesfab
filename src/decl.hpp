@@ -95,6 +95,7 @@ enum fn_class_t : char
 {
     FN_FN,
     FN_CT,
+    FN_NMI,
     FN_MODE,
 };
 
@@ -106,6 +107,7 @@ constexpr char const* fn_class_keyword(fn_class_t fc)
     case FN_FN: return "fn";
     case FN_CT: return "ct";
     case FN_MODE: return "mode";
+    case FN_NMI: return "nmi";
     }
 }
 

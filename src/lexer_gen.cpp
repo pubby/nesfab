@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <cstdio>
+#include <cstdint>
 #include <deque>
 #include <map>
 #include <memory>
@@ -21,6 +22,8 @@ constexpr unsigned CONCAT = 258;
 constexpr unsigned UNION = 259;
 constexpr unsigned KLEENE = 260;
 
+constexpr std::uint8_t RIGHT_ASSOC = 0x80;
+
 struct regex_t
 {
     unsigned type;
@@ -28,7 +31,7 @@ struct regex_t
     std::unique_ptr<regex_t> r;
     char const* name = nullptr;
     char const* string = nullptr;
-    int precedence = 0;
+    std::uint8_t precedence = 0;
 };
 
 struct nfa_edge_t { unsigned chr; struct nfa_node_t* ptr; };
@@ -38,7 +41,7 @@ struct nfa_node_t
     std::vector<nfa_edge_t> edges;
     char const* name = nullptr;
     char const* string = nullptr;
-    int precedence = 0;
+    std::uint8_t precedence = 0;
     unsigned prio = 0;
 };
 
@@ -98,21 +101,21 @@ rptr uor(rptr a, rptr b, rptr c, T... t)
     { return rptr(new regex_t{ UNION, std::move(a), uor(std::move(b), std::move(c), std::move(t)...) }); }
 rptr uor(rptr a, rptr b) 
     { return rptr(new regex_t{ UNION, std::move(a), std::move(b) }); }
-rptr accept(char const* name, char const* str, rptr a, int precedence = 0) 
+rptr accept(char const* name, char const* str, rptr a, std::uint8_t precedence = 0) 
     { return cat(std::move(a), rptr(new regex_t{ ACCEPT, nullptr, nullptr, name, str, precedence })); }
-rptr accept(int precedence, char const* name, char const* str, rptr a) 
+rptr accept(std::uint8_t precedence, char const* name, char const* str, rptr a) 
     { return cat(std::move(a), rptr(new regex_t{ ACCEPT, nullptr, nullptr, name, str, precedence })); }
 rptr kleene(rptr a) 
     { return rptr(new regex_t{ KLEENE, std::move(a), nullptr }); }
 rptr word(char const* a, std::string w)
     { return accept(a, a, word(std::move(w))); }
-rptr keyword(char const* str, int precedence = 1)
+rptr keyword(char const* str, std::uint8_t precedence = 1)
     { return accept(str, str, word(str), precedence); }
-rptr keyword(int precedence, char const* a, std::string w)
+rptr keyword(std::uint8_t precedence, char const* a, std::string w)
     { return accept(a, a, word(std::move(w)), precedence); }
 rptr keyword(char const* a, std::string w)
     { return accept(a, a, word(std::move(w)), 1); }
-rptr op(int precedence, char const* a, char const* w)
+rptr op(std::uint8_t precedence, char const* a, char const* w)
     { return accept(a, w, word(w), precedence); }
 rptr op(char const* a, char const* w)
     { return accept(a, w, word(w), 1); }
@@ -419,7 +422,13 @@ void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
     std::fprintf(hpp, "constexpr unsigned char token_precedence_table[] =\n{\n");
         std::fprintf(hpp, "    0,\n"); // TOK_ERROR
     for(auto const& p : names)
-        std::fprintf(hpp, "    %i,\n", p.second.second->precedence);
+        std::fprintf(hpp, "    %i,\n", p.second.second->precedence & 0xFF);
+    std::fprintf(hpp, "};\n");
+
+    std::fprintf(hpp, "constexpr bool token_right_assoc_table[] =\n{\n");
+        std::fprintf(hpp, "    0,\n"); // TOK_ERROR
+    for(auto const& p : names)
+        std::fprintf(hpp, "    %i,\n", p.second.second->precedence & RIGHT_ASSOC);
     std::fprintf(hpp, "};\n");
 
     std::fprintf(hpp, "#define TOK_KEY_CASES \\\n");
@@ -597,6 +606,7 @@ int main()
             keyword("fn"),
             keyword("ct"),
             keyword("mode"),
+            keyword("nmi"),
             keyword("goto"),
             keyword("label"),
             keyword("using"),
@@ -605,6 +615,8 @@ int main()
             keyword("vars"),
             keyword("data"),
             keyword("omni"),
+            keyword("ready"),
+            keyword("fence"),
 
             keyword("PPUCTRL"),
             keyword("PPUMASK"),
@@ -612,18 +624,22 @@ int main()
             keyword("PPUSCROLL"),
             keyword("PPUADDR"),
             keyword("PPUDATA"),
+            keyword("OAMADDR"),
+            keyword("OAMDATA"),
+            keyword("OAMDMA"),
 
             // Symbols
-            keyword(1, "lbrace", "{"),
-            keyword(1, "rbrace", "}"),
+            keyword("lbrace", "{"),
+            keyword("rbrace", "}"),
 
-            keyword(1, "lbracket", "["),
-            keyword(1, "rbracket", "]"),
+            keyword("lbracket", "["),
+            keyword("rbracket", "]"),
+
+            keyword("colon", ":"),
 
             keyword(1, "dquote", "\""),
             keyword(1, "quote", "'"),
 
-            //keyword(3, "colon", ":"),
             //keyword(3, "double_colon", "::"),
             //keyword(4, "pointer", "%"),
             //keyword(4, "rarrow", "->"),
@@ -673,18 +689,18 @@ int main()
             op(19, "logical_or", "||"),
             accept(19, "end_logical_or", "end_logical_or", eof()),
 
-            op(30, "assign", "="),
-            op(30, "plus_assign", "+="),
-            op(30, "minus_assign", "-="),
-            op(30, "times_assign", "*="),
-            op(30, "div_assign", "/="),
-            op(30, "bitwise_and_assign", "&="),
-            op(30, "logical_and_assign", "&&="),
-            op(30, "bitwise_or_assign", "|="),
-            op(30, "logical_or_assign", "||="),
-            op(30, "bitwise_xor_assign", "^="),
-            op(30, "lshift_assign", "<<="),
-            op(30, "rshift_assign", ">>="),
+            op(30 | RIGHT_ASSOC, "assign", "="),
+            op(30 | RIGHT_ASSOC, "plus_assign", "+="),
+            op(30 | RIGHT_ASSOC, "minus_assign", "-="),
+            op(30 | RIGHT_ASSOC, "times_assign", "*="),
+            op(30 | RIGHT_ASSOC, "div_assign", "/="),
+            op(30 | RIGHT_ASSOC, "bitwise_and_assign", "&="),
+            op(30 | RIGHT_ASSOC, "logical_and_assign", "&&="),
+            op(30 | RIGHT_ASSOC, "bitwise_or_assign", "|="),
+            op(30 | RIGHT_ASSOC, "logical_or_assign", "||="),
+            op(30 | RIGHT_ASSOC, "bitwise_xor_assign", "^="),
+            op(30 | RIGHT_ASSOC, "lshift_assign", "<<="),
+            op(30 | RIGHT_ASSOC, "rshift_assign", ">>="),
 
             keyword(1, "rparen", ")"),
 
@@ -735,6 +751,8 @@ int main()
             accept("real", "real", eof()),
             accept("global_ident", "global identifier", eof()),
             accept("weak_ident", "weak identifier", eof()),
+            accept("hw_expr", "hardware expression", eof()),
+            accept("hw_addr", "hardware address", eof()),
             accept("read_hw", "read hardware", eof()),
             accept("write_hw", "write hardware", eof()),
             accept("push_paa_byte_array", "byte array", eof()),

@@ -2,6 +2,8 @@
 
 #include <iostream> // TODO
 
+#include "flat/small_set.hpp"
+
 #include "decl.hpp"
 #include "globals.hpp"
 #include "group.hpp"
@@ -90,11 +92,11 @@ private:
         FULL_ALLOC,
     };
 
-    void build_order(std::vector<fn_ht>& fns);
-    void build_order(fn_ht fn);
+    void build_order(unsigned romv, std::vector<fn_ht>& fn_order, std::vector<fn_ht>& input_fns);
+    void build_order(unsigned romv, std::vector<fn_ht>& fn_order, fn_ht fn);
 
     template<step_t Step>
-    void alloc_locals(fn_ht h);
+    void alloc_locals(unsigned romv, fn_ht h);
 
     struct group_vars_d
     {
@@ -102,7 +104,7 @@ private:
         ram_bitset_t usable_ram;
 
         // Tracks how it interferes with other group_vars
-        bitset_t interferences;
+        xbitset_t<group_vars_ht> interferences;
 
         // Used to estimate how many bytes of ZP are left
         unsigned zp_estimate;
@@ -110,7 +112,7 @@ private:
 
     struct fn_d
     {
-        step_t step = UNALLOCATED;
+        std::array<step_t, NUM_ROMV> step = {};
 
         // A recursive count of the amount of lvars a fn uses.
         // (The actual RAM required is typically less)
@@ -118,17 +120,30 @@ private:
         unsigned lvar_count = 0;
 
         // Addresses that can be used to allocate lvars.
-        ram_bitset_t usable_ram = ram_bitset_t::filled();
+        std::array<ram_bitset_t, NUM_ROMV> usable_ram = []
+            {
+                std::array<ram_bitset_t, NUM_ROMV> ret;
+                ret.fill(ram_bitset_t::filled());
+                return ret;
+            }();
 
         // Ram allocated by lvars in this fn.
-        ram_bitset_t lvar_ram = {};
+        std::array<ram_bitset_t, NUM_ROMV> lvar_ram = {};
 
         // Like above, but includes called fns too.
-        ram_bitset_t recursive_lvar_ram = {};
+        std::array<ram_bitset_t, NUM_ROMV> recursive_lvar_ram = {};
+
+        // Bitset of functions.
+        // Propagates the allocations to these, as other romvs.
+        //bitset_t romv_propagate; TODO
+
+        // Stores indexes into 'romv_allocated'.
+        std::array<fc::small_set<unsigned, 2>, NUM_ROMV> romv_self;
+        std::array<fc::small_set<unsigned, 2>, NUM_ROMV> romv_interferes;
 
         // Normal "ir_group_vars()" only looks up the call graph,
         // but this set also looks down.
-        bitset_t maximal_group_vars;
+        xbitset_t<group_vars_ht> maximal_group_vars;
     };
 
     group_vars_d& data(group_vars_ht h) { assert(h.id < group_vars_data.size()); return group_vars_data[h.id]; }
@@ -136,7 +151,10 @@ private:
 
     std::vector<group_vars_d> group_vars_data;
     std::vector<fn_d> fn_data;
-    std::vector<fn_ht> fn_order;
+
+    // Tracks allocations for an entire mode / nmi.
+    // This is used to implement romv.
+    std::array<std::vector<ram_bitset_t>, NUM_ROMV> romv_allocated;
 
     std::ostream* log = nullptr;
 };
@@ -167,6 +185,49 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
         for(gmember_t& gm : gmember_ht::values())
             gm.alloc_spans();
 
+        // Init romv stuff:
+        {
+            assert(NUM_ROMV == 2);
+            romv_allocated[ROMV_MODE].resize(global_t::modes().size());
+            romv_allocated[ROMV_NMI].resize(global_t::nmis().size());
+
+            rh::batman_map<fn_ht, std::vector<unsigned>> nmi_to_modes;
+
+            for(unsigned i = 0; i < global_t::modes().size(); ++i)
+            {
+                fn_t const* mode = global_t::modes()[i];
+
+                mode->ir_calls().for_each([&](fn_ht call)
+                {
+                    fn_data[call.id].romv_self[ROMV_MODE].insert(i);
+                });
+                fn_data[mode->handle().id].romv_self[ROMV_MODE].insert(i);
+
+                mode->mode_nmi()->ir_calls().for_each([&](fn_ht call)
+                {
+                    fn_data[call.id].romv_interferes[ROMV_NMI].insert(i);
+                });
+                fn_data[mode->mode_nmi().id].romv_interferes[ROMV_NMI].insert(i);
+
+                nmi_to_modes[mode->mode_nmi()].push_back(i);
+            }
+
+            for(unsigned i = 0; i < global_t::nmis().size(); ++i)
+            {
+                fn_t const* nmi = global_t::nmis()[i];
+                auto const& vec = nmi_to_modes[nmi->handle()];
+
+                nmi->ir_calls().for_each([&](fn_ht call)
+                {
+                    fn_data[call.id].romv_self[ROMV_NMI].insert(i);
+                    fn_data[call.id].romv_interferes[ROMV_MODE].insert(vec.begin(), vec.end());
+                });
+
+                fn_data[nmi->handle().id].romv_self[ROMV_NMI].insert(i);
+                fn_data[nmi->handle().id].romv_interferes[ROMV_MODE].insert(vec.begin(), vec.end());
+            }
+        }
+
         // Init 'maximal_group_vars'
         for(fn_ht fn : fn_ht::handles())
         {
@@ -174,46 +235,73 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
                 continue;
 
             fn_data[fn.id].maximal_group_vars = fn->ir_group_vars();
-            assert(fn_data[fn.id].maximal_group_vars.size() == group_vars_ht::bitset_size());
+            assert(fn_data[fn.id].maximal_group_vars);
         }
 
         // Build 'maximal_group_vars'
-        for(fn_t* mode : global_t::modes())
+        auto const propagate = [&](fn_t const* fn, auto const& additional)
         {
-            assert(mode);
-            assert(mode->fclass == FN_MODE);
-            assert(mode->ir_group_vars());
-
-            mode->ir_calls().for_each([&](unsigned j)
+            assert(fn->ir_calls() && fn->ir_group_vars());
+            fn->ir_calls().for_each([&](fn_ht call)
             {
                 // Propagate down call graph, not up
-                fn_data[j].maximal_group_vars |= mode->ir_group_vars();
+                fn_data[call.id].maximal_group_vars |= fn->ir_group_vars();
+                fn_data[call.id].maximal_group_vars |= additional;
             });
+            fn_data[fn->handle().id].maximal_group_vars |= additional;
+        };
+
+        for(fn_t const* mode : global_t::modes())
+            propagate(mode, mode->mode_nmi()->ir_group_vars());
+
+        xbitset_t<group_vars_ht> nmi_additional(0);
+        for(fn_t const* nmi : global_t::nmis())
+        {
+            nmi_additional.clear_all();
+            nmi->nmi_used_in_modes().for_each([&](fn_ht mode)
+            {
+                nmi_additional |= mode->ir_group_vars();
+            });
+            propagate(nmi, nmi_additional);
         }
 
         // Init 'group_vars_data'
-        unsigned const interferences_size = group_vars_ht::bitset_size();
         for(unsigned i = 0; i < group_vars_ht::pool().size(); ++i)
         {
             auto& d = group_vars_data[i];
-            d.interferences.reset(interferences_size);
+            d.interferences.alloc();
             d.interferences.set(i); // always interfere with itself
             d.usable_ram = initial_usable_ram;
             d.zp_estimate = max_gvar_zp;
         }
 
         // Build interference graph among group vars:
-        for(fn_t* mode : global_t::modes())
+        xbitset_t<group_vars_ht> nmi_group_vars(0);
         {
-            assert(mode);
-            assert(mode->fclass == FN_MODE);
-
-            assert(mode->ir_group_vars());
-            mode->ir_group_vars().for_each([&](unsigned i)
+            xbitset_t<group_vars_ht> group_vars;
+            for(fn_t const* mode : global_t::modes())
             {
-                auto& d = group_vars_data[i];
-                d.interferences |= mode->ir_group_vars();
-            });
+                group_vars = mode->ir_group_vars();
+                group_vars |= mode->mode_nmi()->ir_group_vars();
+
+                group_vars.for_each([&](group_vars_ht gv)
+                {
+                    auto& d = group_vars_data[gv.id];
+                    d.interferences |= group_vars;
+                });
+            }
+
+            for(fn_t const* nmi : global_t::nmis())
+            {
+                nmi->ir_group_vars().for_each([&](group_vars_ht gv)
+                {
+                    auto& d = group_vars_data[gv.id];
+                    d.interferences |= nmi->ir_group_vars();
+                });
+
+                // Also build 'nmi_group_vars':
+                nmi_group_vars |= nmi->ir_group_vars();
+            }
         }
 
         // Count how often gmembers appears in emitted code.
@@ -226,9 +314,6 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
         for(fn_t const& fn : fn_ht::values())
         {
             rom_proc_t const& rom_proc = fn.rom_proc().safe();
-
-            if(!rom_proc.emits())
-                continue;
 
             for(asm_inst_t const& inst : rom_proc.asm_proc().code)
                 if(inst.arg.lclass() == LOC_GMEMBER)
@@ -303,8 +388,8 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
 
             dprint(log, "-ALLOC_RAM_ESTIMATE", loc);
 
-            if(!d.interferences.for_each_test([&](unsigned i) -> bool
-                { return group_vars_data[i].zp_estimate >= size; }))
+            if(!d.interferences.for_each_test([&](group_vars_ht gv) -> bool
+                { return group_vars_data[gv.id].zp_estimate >= size; }))
             {
                 dprint(log, "--FAILED_ESTIMATE");
                 return;
@@ -313,9 +398,9 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             dprint(log, "--SUCCEEDED_ESTIMATE");
             estimated_in_zp.insert(loc);
 
-            d.interferences.for_each([&](unsigned i)
+            d.interferences.for_each([&](group_vars_ht gv)
             {
-                group_vars_data[i].zp_estimate -= size;
+                group_vars_data[gv.id].zp_estimate -= size;
             });
         };
 
@@ -392,6 +477,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             }
 
             group_vars_d& d = data(gmember.gvar.group_vars);
+            assert((d.usable_ram & initial_usable_ram) == d.usable_ram);
 
             dprint(log, "-RAM_GMEMBER_ALLOCATION", loc, loc.mem_size(), loc.mem_zp_only());
 
@@ -403,8 +489,31 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             else
                 zp = ZP_NEVER;
 
-            assert((d.usable_ram & initial_usable_ram) == d.usable_ram);
-            span_t const span = alloc_ram(d.usable_ram, size, zp);
+            // Try to allocate in a position that minimizes the amount of 
+            // 'usable_ram' changed in interfering group vars bitsets.
+            //
+            // To approximate this, we'll calculate two sets: 'all' and 'any'.
+            // 'all' represents ram locations that do not modify interfering bitsets.
+            // 'any' represents ram locations that does not modify at least 1 interfering bitset.
+
+            ram_bitset_t all;
+            ram_bitset_t any;
+            all.clear_all();
+            any.set_all();
+            d.interferences.for_each([&](group_vars_ht gv)
+            {
+                all |= group_vars_data[gv.id].usable_ram;
+                any &= group_vars_data[gv.id].usable_ram;
+            });
+            all.flip_all();
+            any.flip_all();
+
+            // Allocate, prioritizing 'all', then 'any', then just 'd.usable_ram'.
+            span_t span = alloc_ram(d.usable_ram & all, size, zp);
+            if(!span)
+                span = alloc_ram(d.usable_ram & any, size, zp);
+            if(!span)
+                span = alloc_ram(d.usable_ram, size, zp);
 
             if(!span)
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
@@ -422,9 +531,9 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
 
             ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
 
-            d.interferences.for_each([&](unsigned i)
+            d.interferences.for_each([&](group_vars_ht gv)
             {
-                group_vars_data[i].usable_ram &= mask;
+                group_vars_data[gv.id].usable_ram &= mask;
             });
         };
 
@@ -452,11 +561,12 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             if(fn->fclass == FN_CT)
                 continue;
 
-            fn->ir_calls().for_each([&](unsigned j)
+            fn->ir_calls().for_each([&](fn_ht call)
             {
-                fn_data[fn.id].maximal_group_vars.for_each([&](unsigned k)
+                fn_data[fn.id].maximal_group_vars.for_each([&](group_vars_ht gv)
                 {
-                    fn_data[j].usable_ram &= group_vars_data[k].usable_ram;
+                    for(auto& bs : fn_data[call.id].usable_ram)
+                        bs &= group_vars_data[gv.id].usable_ram;
                 });
             });
         }
@@ -469,84 +579,112 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
 
             fn_data[fn.id].lvar_count += fn->lvars().num_this_lvars();
 
-            fn->ir_calls().for_each([&](unsigned i)
+            fn->ir_calls().for_each([&](fn_ht call)
             {
-                fn_data[i].lvar_count += fn->lvars().num_this_lvars();
+                fn_data[call.id].lvar_count += fn->lvars().num_this_lvars();
             });
         }
 
-        fn_order.reserve(fn_ht::pool().size());
+        std::array<std::vector<ram_bitset_t>, NUM_ROMV> total;
+        total[ROMV_MODE].resize(global_t::modes().size());
+        total[ROMV_NMI].resize(global_t::nmis().size());
 
-        std::vector<fn_ht> mode_rank;
-        mode_rank.reserve(global_t::modes().size());
+        std::array<std::vector<fn_ht>, NUM_ROMV> fn_orders;
+        for(auto& order : fn_orders)
+            order.reserve(fn_ht::pool().size());
+
+        std::array<std::vector<fn_ht>, NUM_ROMV> ranks;
+        for(auto& rank : ranks)
+            rank.reserve(global_t::modes().size());
         for(fn_t* mode : global_t::modes())
-            mode_rank.push_back(mode->handle());
+            ranks[ROMV_MODE].push_back(mode->handle());
+        for(fn_t* nmi : global_t::nmis())
+            ranks[ROMV_NMI].push_back(nmi->handle());
 
-        build_order(mode_rank);
+        for(unsigned i = 0; i < ranks.size(); ++i)
+            build_order(i, fn_orders[i], ranks[i]);
 
-        for(fn_ht fn : fn_order)
-            dprint(log, "-RAM_ALLOC_BUILD_ORDER", fn->global.name);
+        for(unsigned i = 0; i < ranks.size(); ++i)
+            for(fn_ht fn : fn_orders[i])
+                dprint(log, "-RAM_ALLOC_BUILD_ORDER", i, fn->global.name);
 
-        for(fn_ht fn : fn_order)
-            alloc_locals<ZP_ONLY_ALLOC>(fn);
+        for(int romv = NUM_ROMV - 1; romv >= 0; --romv)
+            for(fn_ht fn : fn_orders[romv])
+                alloc_locals<ZP_ONLY_ALLOC>(romv, fn);
 
-        for(fn_ht fn : fn_order)
-            alloc_locals<FULL_ALLOC>(fn);
+        for(int romv = NUM_ROMV - 1; romv >= 0; --romv)
+            for(fn_ht fn : fn_orders[romv])
+                alloc_locals<FULL_ALLOC>(romv, fn);
     }
 }
 
-void ram_allocator_t::build_order(std::vector<fn_ht>& fns)
+void ram_allocator_t::build_order(unsigned romv, std::vector<fn_ht>& fn_order, std::vector<fn_ht>& input_fns)
 {
-    std::sort(fns.begin(), fns.end(), [&](fn_ht a, fn_ht b)
+    std::sort(input_fns.begin(), input_fns.end(), [&](fn_ht a, fn_ht b)
     {
         return data(a).lvar_count > data(b).lvar_count;
     });
 
-    for(fn_ht fn : fns)
-        build_order(fn);
+    for(fn_ht input_fn : input_fns)
+        build_order(romv, fn_order, input_fn);
 }
 
-void ram_allocator_t::build_order(fn_ht fn)
+void ram_allocator_t::build_order(unsigned romv, std::vector<fn_ht>& fn_order, fn_ht fn)
 {
     fn_d& d = data(fn);
 
-    if(d.step == BUILD_ORDER)
+    dprint(log, "-RAM_ALLOC_BUILD_ORDER_STEP", romv, fn->global.name);
+
+    if(d.step[romv] == BUILD_ORDER)
         return;
+
+    dprint(log, "-RAM_ALLOC_BUILD_ORDER_CONTINUE", romv, fn->global.name, fn->ir_calls().popcount());
 
     // Make sure all called fns are ordered first:
     {
         std::vector<fn_ht> fn_rank;
         fn_rank.reserve(fn->ir_calls().popcount());
-        fn->ir_calls().for_each([&fn_rank](unsigned i){ fn_rank.push_back(fn_ht{i}); });
-        build_order(fn_rank);
+        fn->ir_calls().for_each([&fn_rank](fn_ht call){ fn_rank.push_back(call); });
+        build_order(romv, fn_order, fn_rank);
     }
 
     fn_order.push_back(fn);
-    d.step = BUILD_ORDER;
+    d.step[romv] = BUILD_ORDER;
 }
 
 template<ram_allocator_t::step_t Step>
-void ram_allocator_t::alloc_locals(fn_ht h)
+void ram_allocator_t::alloc_locals(unsigned const romv, fn_ht h)
 {
     fn_t& fn = *h;
     fn_d& d = data(h);
 
-    dprint(log, "RAM_ALLOC_LOCALS", fn.global.name);
+    dprint(log, "RAM_ALLOC_LOCALS", Step, romv, fn.global.name, (unsigned)fn.precheck_romv());
 
-    assert(d.step < Step);
-    assert((data(h).usable_ram & data(h).lvar_ram).all_clear());
+    assert(d.step[romv] < Step);
+    assert(h->precheck_romv() & (1 << romv));
+    assert((data(h).usable_ram[romv] & data(h).lvar_ram[romv]).all_clear());
+
+    // Refine 'usable_ram', adding in romv interferences:
+    for(unsigned i = 0; i < NUM_ROMV; ++i)
+        if(i != romv)
+            for(unsigned j : d.romv_interferes[i])
+            {
+                dprint(log, "-INTERFERE", fn.global.name, i, j);
+                d.usable_ram[romv] -= romv_allocated[i][j];
+            }
 
     // Setup lvar usable ram:
     std::vector<ram_bitset_t> lvar_usable_ram;
-    lvar_usable_ram.resize(fn.lvars().num_this_lvars(), d.usable_ram);
+    lvar_usable_ram.resize(fn.lvars().num_this_lvars(), d.usable_ram[romv]);
 
     for(unsigned i = 0; i < fn.lvars().num_this_lvars(); ++i)
     {
         for(fn_ht interfering_fn : fn.lvars().fn_interferences(i))
         {
-            assert(data(interfering_fn).step == Step);
-            lvar_usable_ram[i] &= data(interfering_fn).usable_ram;
-            lvar_usable_ram[i] -= data(interfering_fn).recursive_lvar_ram;
+            assert(data(interfering_fn).step[romv] == Step);
+
+            lvar_usable_ram[i] &= data(interfering_fn).usable_ram[romv];
+            lvar_usable_ram[i] -= data(interfering_fn).recursive_lvar_ram[romv];
         }
     }
 
@@ -554,7 +692,7 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     // Handle these interferences here:
     for(unsigned i = fn.lvars().num_this_lvars(); i < fn.lvars().num_all_lvars(); ++i)
     {
-        span_t const span = fn.lvar_span(i);
+        span_t const span = fn.lvar_span(romv, i);
 
         if(!span) // It might not have been allocated yet, or it might not exist in the generated assembly.
             continue;
@@ -571,10 +709,10 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     // Prefer to use the same RAM addresses that called fns use.
     // We'll call this set 'freebie_ram'.
     ram_bitset_t freebie_ram = {};
-    fn.ir_calls().for_each([&](unsigned i)
+    fn.ir_calls().for_each([&](fn_ht call)
     {
-        assert(fn_data[i].step == Step);
-        freebie_ram |= fn_data[i].recursive_lvar_ram;
+        assert(fn_data[call.id].step[romv] == Step);
+        freebie_ram |= fn_data[call.id].recursive_lvar_ram[romv];
     });
 
     // Sort the lvars before allocating.
@@ -594,13 +732,22 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         auto const& info = fn.lvars().this_lvar_info(i);
 
         if(Step == ZP_ONLY_ALLOC && !info.zp_only)
+        {
+            dprint(log, "-SKIP LVAR 1", fn.global.name, i);
             continue;
+        }
 
         if(info.ptr_hi) // We'll allocate lo only, then assign to hi.
+        {
+            dprint(log, "-SKIP LVAR 2", fn.global.name, i);
             continue;
+        }
 
-        if(fn.lvar_span(i))
+        if(fn.lvar_span(romv, i))
+        {
+            dprint(log, "-SKIP LVAR 3", fn.global.name, i);
             continue;
+        }
 
         int const usable = lvar_usable_ram[i].popcount();
         int const interferences = bitset_popcount(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(i));
@@ -616,9 +763,9 @@ void ram_allocator_t::alloc_locals(fn_ht h)
     // If we're not allocating everything, we'll have to propagate
     // our allocations upwards to fns we call.
     // (We always propagate downwards, to fns that call this)
-    bitset_t propagate_calls;
+    xbitset_t<fn_ht> propagate_calls;
     if(Step < FULL_ALLOC)
-        propagate_calls.reset(fn_ht::bitset_size());
+        propagate_calls.alloc();
 
     for(rank_t const& rank : ordered_lvars)
     {
@@ -649,20 +796,21 @@ void ram_allocator_t::alloc_locals(fn_ht h)
         {
             assert(span.size == 2);
             assert(lvar_i != info.ptr_alt);
-            std::cout << "PTR ALT " << span << std::endl;
-            fn.assign_lvar_span(lvar_i,       { .addr = span.addr,     .size = 1 }); 
-            fn.assign_lvar_span(info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 
+            dprint(log, "---PTR_ALT");
+            fn.assign_lvar_span(romv, lvar_i,       { .addr = span.addr,     .size = 1 }); 
+            fn.assign_lvar_span(romv, info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 
         }
         else
-            fn.assign_lvar_span(lvar_i, span); 
+            fn.assign_lvar_span(romv, lvar_i, span); 
 
-        d.lvar_ram |= ram_bitset_t::filled(span.addr, span.size);
-        d.usable_ram -= d.lvar_ram;
+        ram_bitset_t const filled = ram_bitset_t::filled(span.addr, span.size);
+        d.lvar_ram[romv] |= filled;
+        d.usable_ram[romv] -= d.lvar_ram[romv];
 
         if(Step < FULL_ALLOC)
             propagate_calls.clear_all();
 
-        ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
+        ram_bitset_t const mask = ~filled;
         bitset_for_each(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(lvar_i), [&](unsigned i)
         {
             if(i < lvar_usable_ram.size())
@@ -687,17 +835,24 @@ void ram_allocator_t::alloc_locals(fn_ht h)
                 propagate_calls |= fn->ir_calls();
             }
 
-            propagate_calls.for_each([&](unsigned j)
+            propagate_calls.for_each([&](fn_ht fn)
             {
-                fn_data[j].usable_ram &= mask;
+                fn_data[fn.id].usable_ram[romv] &= mask;
             });
         }
     }
 
     // Update bitsets for fns that call this fn.
-    d.recursive_lvar_ram = d.lvar_ram | freebie_ram;
+    d.recursive_lvar_ram[romv] = d.lvar_ram[romv] | freebie_ram;
 
-    d.step = Step;
+    // Propagate romv interferences:
+    for(unsigned i : d.romv_self[romv])
+    {
+        dprint(log, "-PROPAGATE", fn.global.name, romv, i);
+        romv_allocated[romv][i] |= d.recursive_lvar_ram[romv];
+    }
+
+    d.step[romv] = Step;
 }
 
 } // end anonymous namespace

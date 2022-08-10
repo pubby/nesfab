@@ -8,8 +8,14 @@ bool io_pure(ssa_node_t const& ssa_node)
         return false;
     if(ssa_node.op() == SSA_fn_call)
         return get_fn(ssa_node)->ir_io_pure();
-    return false;
+    return true;
 }
 
-
-
+bool pure(ssa_node_t const& ssa_node)
+{
+    if(!io_pure(ssa_node))
+       return false;
+    if(ssa_node.op() == SSA_fn_call)
+        return get_fn(ssa_node)->ir_writes().all_clear();
+    return true;
+}

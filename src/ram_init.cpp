@@ -280,7 +280,7 @@ void gen_group_var_inits()
         proc.initial_optimize();
 
         // Attach it to the group as a ROM proc:
-        group.assign_init_proc(rom_proc_ht::pool_make(std::move(proc)));
+        group.assign_init_proc(rom_proc_ht::pool_make(std::move(proc), romv_allocs_t{}, ROMVF_IN_MODE));
     }
 }
 

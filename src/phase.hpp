@@ -4,6 +4,8 @@
 // Tracks which phase the compiler is on, to mostly be used for debugging.
 
 #include <atomic>
+#include <mutex>
+#include <list>
 
 enum compiler_phase_t
 {
@@ -14,7 +16,7 @@ enum compiler_phase_t
     PHASE_COUNT_MEMBERS,
     PHASE_GROUP_MEMBERS,
     PHASE_FINISH_MEMBERS,
-    PHASE_STD, 
+    PHASE_RUNTIME, 
     PHASE_PRECHECK,
     PHASE_ORDER_GLOBALS,
     PHASE_COMPILE, // threaded
@@ -25,20 +27,48 @@ enum compiler_phase_t
     PHASE_LINK,
 };
 
-#ifndef NDEBUG
 inline std::atomic<compiler_phase_t> _compiler_phase = PHASE_INIT;
 inline compiler_phase_t compiler_phase() { return _compiler_phase; }
-#endif
 
-inline void set_compiler_phase(compiler_phase_t p) 
+// This class listens for phase changes, letting you run code when it happens.
+// Derive from it!
+class on_phase_change_t
+{
+friend void set_compiler_phase(compiler_phase_t to);
+public:
+    on_phase_change_t() 
+    { 
+        std::lock_guard<std::mutex> lock(mutex);
+        iter = list.insert(list.end(), this); 
+    }
+
+    virtual ~on_phase_change_t()
+    {
+        list.erase(iter);
+    }
+
+    virtual void on_change(compiler_phase_t from, compiler_phase_t to) = 0;
+
+private:
+    static void change(compiler_phase_t from, compiler_phase_t to)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        for(on_phase_change_t* ptr : list)
+            ptr->on_change(from, to);
+    }
+
+    inline static std::mutex mutex;
+    inline static std::list<on_phase_change_t*> list;
+
+    std::list<on_phase_change_t*>::iterator iter;
+};
+
+inline void set_compiler_phase(compiler_phase_t to) 
 { 
-#ifndef NDEBUG
-    assert(p > _compiler_phase);
-    _compiler_phase = p; 
-#else
-    // Preserve memory order, just in case.
-    std::atomic_thread_fence(std::memory_order_seq_cst);
-#endif
+    assert(to > _compiler_phase);
+    compiler_phase_t from = _compiler_phase;
+    _compiler_phase = to; 
+    on_phase_change_t::change(from, to);
 }
 
 #endif

@@ -20,12 +20,10 @@ static bool _can_prune(ssa_node_t& node)
     switch(node.op())
     {
     default: 
-        return io_pure(node);
+        return pure(node);
     case SSA_if:
     case SSA_return:
         return false;
-    case SSA_fn_call:
-        return get_fn(node)->ir_io_pure();
     }
 }
 

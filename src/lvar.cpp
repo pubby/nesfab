@@ -88,6 +88,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
 
     m_lvar_interferences.resize(m_map.size() * m_bitset_size, 0);
     m_fn_interferences.resize(m_map.size());
+    //m_nmi_interferences.reset(m_bitset_size); TODO
 }
 
 bool lvars_manager_t::is_this_lvar(fn_ht fn, locator_t arg)

@@ -14,8 +14,8 @@
 // rom_array_t //
 /////////////////
 
-rom_array_t::rom_array_t(loc_vec_t&& vec, rom_alloc_ht alloc, rom_key_t const&)
-: rom_data_t(alloc)
+rom_array_t::rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t const&)
+: rom_data_t(a, ROMVF_IN_MODE)
 , m_used_in_group_data(group_data_ht::bitset_size())
 {
     assert(compiler_phase() <= rom_array_ht::phase);
@@ -42,7 +42,7 @@ void rom_array_t::for_each_locator(std::function<void(locator_t)> const& fn) con
         fn(loc);
 }
 
-rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, rom_alloc_ht alloc)
+rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, romv_allocs_t const& a)
 {
     std::hash<loc_vec_t> hasher;
     auto const hash = hasher(vec);
@@ -56,10 +56,10 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, rom_alloc_ht a
                 return std::equal(pool[h.id].m_data.begin(), pool[h.id].m_data.end(), 
                                   vec.begin(), vec.end());
             },
-            [&, alloc]()
+            [&]()
             { 
                 rom_array_ht const ret = { pool.size() };
-                rom_array = &pool.emplace_back(std::move(vec), alloc, rom_key_t());
+                rom_array = &pool.emplace_back(std::move(vec), a, rom_key_t());
                 return ret;
             });
 
@@ -130,7 +130,7 @@ void rom_proc_t::assign(asm_proc_t&& asm_proc)
     m_max_size = m_asm_proc.size();
 }
 
-bitset_t const* rom_proc_t::uses_groups() const 
+xbitset_t<group_ht> const* rom_proc_t::uses_groups() const 
 { 
     assert(compiler_phase() > rom_proc_ht::phase);
     return m_asm_proc.fn ? &m_asm_proc.fn->ir_deref_groups() : nullptr; 
@@ -138,8 +138,8 @@ bitset_t const* rom_proc_t::uses_groups() const
 
 bool rom_proc_t::for_each_group_test(std::function<bool(group_ht)> const& fn)
 {
-    if(bitset_t const* bs = uses_groups())
-        return bs->for_each_test([&](unsigned i){ return fn(group_ht{i}); });
+    if(auto const* bs = uses_groups())
+        return bs->for_each_test([&](group_ht group){ return fn(group); });
     return true;
 }
 
@@ -158,14 +158,14 @@ void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) cons
 // rom data generic //
 //////////////////////
 
-rom_data_ht to_rom_data(loc_vec_t&& data, rom_alloc_ht alloc)
+rom_data_ht to_rom_data(loc_vec_t&& data, romv_allocs_t const& a)
 {
-    return rom_array_t::make(std::move(data), {}, alloc);
+    return rom_array_t::make(std::move(data), {}, a);
 }
 
-rom_data_ht to_rom_data(asm_proc_t&& asm_proc, rom_alloc_ht alloc)
+rom_data_ht to_rom_data(asm_proc_t&& asm_proc, romv_allocs_t const& a, romv_flags_t desired_romv)
 {
-    return rom_proc_ht::pool_make(std::move(asm_proc), alloc);
+    return rom_proc_ht::pool_make(std::move(asm_proc), a, desired_romv);
 }
 
 /////////////////
@@ -238,9 +238,9 @@ rom_alloc_t* rom_alloc_ht::get() const
     switch(rclass())
     {
     default: return nullptr;
-    case ROMA_STATIC: return rom_static_ht{handle()}.operator->();
-    case ROMA_MANY: return rom_many_ht{handle()}.operator->();
-    case ROMA_ONCE: return rom_once_ht{handle()}.operator->();
+    case ROMA_STATIC: return &rom_static_ht{handle()}.safe();
+    case ROMA_MANY: return &rom_many_ht{handle()}.safe();
+    case ROMA_ONCE: return &rom_once_ht{handle()}.safe();
     }
 }
 
@@ -265,11 +265,11 @@ int rom_alloc_ht::first_bank() const
 // rom_many_t //
 ////////////////
 
-rom_many_t::rom_many_t(rom_data_ht data, std::uint16_t desired_alignment)
+rom_many_t::rom_many_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment)
 {
     assert(data.rclass());
     this->desired_alignment = desired_alignment;
-    desired_size = data.max_size();
+    this->romv = romv;
     this->data = data;
 }
 
@@ -277,10 +277,10 @@ rom_many_t::rom_many_t(rom_data_ht data, std::uint16_t desired_alignment)
 // rom_once_t //
 ////////////////
 
-rom_once_t::rom_once_t(rom_data_ht data, std::uint16_t desired_alignment)
+rom_once_t::rom_once_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment)
 {
     assert(data.rclass());
     this->desired_alignment = desired_alignment;
-    desired_size = data.max_size();
+    this->romv = romv;
     this->data = data;
 }

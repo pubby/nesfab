@@ -101,6 +101,7 @@ static bm_t _get_bm(ssa_value_t value)
 // Used in 'byteify' to remove casts.
 static void _split_cast(ssa_ht ssa_node)
 {
+    assert(ssa_node);
     assert(ssa_node->op() == SSA_cast);
 
     // Check if the input is a cast that wasn't split yet:
@@ -139,8 +140,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     shifts_to_rotates(ir);
     // OK! IR prepared.
 
-    ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(
-        ssa_pool::array_size());
+    ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(ssa_pool::array_size());
 
     ssa_workvec.clear();
     bc::small_vector<ssa_ht, 32> prune_nodes;
@@ -155,6 +155,7 @@ void byteify(ir_t& ir, fn_t const& fn)
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
         {
             ssa_it->clear_flags(FLAG_PROCESSED); // For '_split_cast'.
+            std::cout << "byteify op " << ssa_it->op() << std::endl;
 
             type_t const type = _bm_type(ssa_it->type());
 
@@ -168,6 +169,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                 prune_nodes.push_back(ssa_it);
                 continue;
             }
+
+            std::puts("byteify 1");
 
             if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
             {
@@ -185,29 +188,44 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     ssa_it->link_change_input(PTR, lo);
                     ssa_it->link_change_input(PTR_HI, hi);
+
+                    // We created nodes, so we have to resize:
+                    ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
                 }
             }
 
             if(is_make_ptr(ssa_it->op()))
                 continue;
 
-            if(type == TYPE_U || type == TYPE_BOOL)
+            std::puts("byteify 2");
+
+            if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
             {
                 auto& d = ssa_it.data<ssa_byteify_d>(); 
                 d.bm = zero_bm;
                 d.bm[max_frac_bytes] = ssa_it;
                 continue;
             } 
+            /* TODO
             else if(type == TYPE_S)
             {
                 auto& d = ssa_it.data<ssa_byteify_d>(); 
                 d.bm = zero_bm;
                 d.bm[max_frac_bytes] = cfg_node.emplace_ssa(SSA_cast, TYPE_U, ssa_it);
+
+                // We created nodes, so we have to resize:
+                ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
+
                 continue;
             }
+            */
+
+            std::puts("byteify 3");
 
             if(!is_scalar(type.name()))
                 continue;
+
+            std::puts("byteify 4");
 
             type_t split_type = TYPE_U;
             if(ssa_it->type().name() == TYPE_TEA)
@@ -231,8 +249,11 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             // workvec will hold nodes that have been split:
             ssa_workvec.push_back(ssa_it);
+            std::cout << "push byteify op " << ssa_it->op() << std::endl;
         }
     }
+
+    assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
 
     // Split cast operations now.
     // 'prune_nodes' should hold all the casts at the moment and nothing else.
@@ -251,6 +272,8 @@ void byteify(ir_t& ir, fn_t const& fn)
             case SSA_fn_call:
             case SSA_goto_mode:
             case SSA_return:
+            case SSA_fence:
+            case SSA_wait_nmi:
                 {
                     new_input.clear();
 
@@ -497,6 +520,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 break;
 
             default:
+                assert(!(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS));
                 assert(!fn_like(ssa_it->op()));
                 break;
             }

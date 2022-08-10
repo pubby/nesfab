@@ -165,6 +165,7 @@ unsigned member_index(type_t const& type, unsigned member);
 type_t member_type(type_t const& type, unsigned member);
 type_t strip_array(type_t const& type);
 bool has_tea(type_t const& type);
+bool ptr_to_vars(type_t const& type);
 
 enum cast_result_t : char
 {

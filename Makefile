@@ -1,4 +1,6 @@
 .PHONY: all debug release tests deps cleandeps clean run
+debug: compiler
+release: compiler
 all: compiler tests
 run: compiler
 	./compiler
@@ -30,6 +32,10 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 #override CXX:=clang++
 
 override CXXFLAGS+= \
+  -mpopcnt \
+  -msse4 \
+  -mcx16 \
+  -mmovbe \
   -std=c++20 \
   -pthread \
   -Wall \
@@ -45,10 +51,7 @@ override CXXFLAGS+= \
   -DGIT_COMMIT=\"$(GIT_COMMIT)\"
 
 debug: CXXFLAGS += -O0 -g
-debug: compiler
-
 release: CXXFLAGS += -O3 -DNDEBUG
-release: compiler
 
 VPATH=$(SRCDIR)
 
@@ -108,7 +111,7 @@ cg_cset.cpp \
 rom_alloc.cpp \
 mapper.cpp \
 rom.cpp \
-static_addr.cpp \
+runtime.cpp \
 rom_link.cpp \
 ram_init.cpp \
 mods.cpp \
@@ -173,8 +176,10 @@ add_constraints_table_gen: $(SRCDIR)/add_constraints_table_gen.cpp
 	#$(CXX) $(CXXFLAGS) -o $@ $<
 
 
+ifneq ($(MAKECMDGOALS), clean)
 -include $(DEPS)
 -include $(TESTS_DEPS)
+endif
 
 ##########################################################################	
 

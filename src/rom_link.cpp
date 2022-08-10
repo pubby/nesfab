@@ -8,16 +8,17 @@
 #include "locator.hpp"
 #include "options.hpp"
 #include "asm_proc.hpp"
-#include "static_addr.hpp"
+#include "runtime.hpp"
 
-static void write_linked(std::vector<locator_t> const& vec, int bank, 
+static void write_linked(std::vector<locator_t> const& vec, 
+                         unsigned romv, int bank, 
                          std::uint8_t* const start)
 {
     std::uint8_t* at = start;
 
     for(locator_t loc : vec)
     {
-        loc = loc.link({}, bank);
+        loc = loc.link(romv, {}, bank);
 
         if(!is_const(loc.lclass()))
             throw std::runtime_error(fmt("Unable to link locator %", loc));
@@ -66,7 +67,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         {
             alloc.for_each_bank([&](unsigned bank)
             {
-                write_linked(rom_array->data(), bank, calc_addr(alloc.span, bank));
+                write_linked(rom_array->data(), alloc.romv, bank, calc_addr(alloc.span, bank));
             });
         }, 
         [&](rom_proc_ht rom_proc)
@@ -82,7 +83,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 
             alloc.for_each_bank([&](unsigned bank)
             {
-                asm_proc.write_bytes(calc_addr(alloc.span, bank), bank);
+                asm_proc.write_bytes(calc_addr(alloc.span, bank), alloc.romv, bank);
             });
         });
     };

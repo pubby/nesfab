@@ -17,13 +17,16 @@ using uint128 = unsigned __int128;
 [[gnu::unused]] static uint128 umul128(uint128 lhs, uint128 rhs)
     { return lhs * rhs; }
 
-
 [[gnu::always_inline]] inline auto clz(unsigned i) 
     { assert(i); return __builtin_clz(i); }
 [[gnu::always_inline]] inline unsigned long clz(unsigned long i) 
     { assert(i); return __builtin_clzl(i); }
 [[gnu::always_inline]] inline unsigned long long clz(unsigned long long i) 
     { assert(i); return __builtin_clzll(i); }
+[[gnu::always_inline]] inline auto clz(unsigned char i) 
+    { assert(i); return clz(unsigned(i)); }
+[[gnu::always_inline]] inline auto clz(unsigned short i) 
+    { assert(i); return clz(unsigned(i)); }
 
 [[gnu::always_inline]] inline auto rclz(unsigned i) 
     { assert(i); return ((unsigned)sizeof_bits<unsigned> - (unsigned)__builtin_clz(i)); }
@@ -33,6 +36,10 @@ using uint128 = unsigned __int128;
 [[gnu::always_inline]] inline unsigned long long rclz(unsigned long long i) 
     { assert(i); return ((unsigned long long)sizeof_bits<unsigned long long>
                          - (unsigned long long)__builtin_clzll(i)); }
+[[gnu::always_inline]] inline auto rclz(unsigned char i) 
+    { assert(i); return rclz(unsigned(i)); }
+[[gnu::always_inline]] inline auto rclz(unsigned short i) 
+    { assert(i); return rclz(unsigned(i)); }
 
 [[gnu::always_inline]] inline auto ctz(unsigned i) 
     { assert(i); return __builtin_ctz(i); }
@@ -40,6 +47,10 @@ using uint128 = unsigned __int128;
     { assert(i); return __builtin_ctzl(i); }
 [[gnu::always_inline]] inline unsigned long long ctz(unsigned long long i) 
     { assert(i); return __builtin_ctzll(i); }
+[[gnu::always_inline]] inline auto ctz(unsigned char i) 
+    { assert(i); return ctz(unsigned(i)); }
+[[gnu::always_inline]] inline auto ctz(unsigned short i) 
+    { assert(i); return ctz(unsigned(i)); }
 
 [[gnu::always_inline]] inline auto rctz(unsigned i) 
     { assert(i); return ((unsigned)sizeof_bits<unsigned> - (unsigned)__builtin_ctz(i)); }
@@ -49,6 +60,10 @@ using uint128 = unsigned __int128;
 [[gnu::always_inline]] inline unsigned long long rctz(unsigned long long i) 
     { assert(i); return ((unsigned long long)sizeof_bits<unsigned long long>
                          - (unsigned long long)__builtin_ctzll(i)); }
+[[gnu::always_inline]] inline auto rctz(unsigned char i) 
+    { assert(i); return rctz(unsigned(i)); }
+[[gnu::always_inline]] inline auto rctz(unsigned short i) 
+    { assert(i); return rctz(unsigned(i)); }
 
 [[gnu::always_inline]] inline auto popcount(unsigned i) 
     { return __builtin_popcount(i); }
@@ -56,6 +71,10 @@ using uint128 = unsigned __int128;
     { return __builtin_popcountl(i); }
 [[gnu::always_inline]] inline auto popcount(unsigned long long i) 
     { return __builtin_popcountll(i); }
+[[gnu::always_inline]] inline auto popcount(unsigned char i) 
+    { return popcount(unsigned(i)); }
+[[gnu::always_inline]] inline auto popcount(unsigned short i) 
+    { return popcount(unsigned(i)); }
 
 template<typename T> [[gnu::always_inline]]
 inline bool add_overflow(T l, T r, T& o)

@@ -226,7 +226,7 @@ public:
     // compiler-specific //
     ///////////////////////
 
-    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gmanager.num_slots(); }
+    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gmanager.num_locators(); }
 
     unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.id + num_locals(); }
     template<typename T>
@@ -695,13 +695,29 @@ void eval_t::interpret_stmts()
             return;
 
         case STMT_END_FN:
-            type_t return_type = fn->type().return_type();
-            if(return_type.name() != TYPE_VOID)
             {
-                compiler_error(stmt->pstring, fmt(
-                    "Interpreter reached end of function without returning %.", return_type));
+                type_t return_type = fn->type().return_type();
+                if(return_type.name() != TYPE_VOID)
+                {
+                    compiler_error(stmt->pstring, fmt(
+                        "Interpreter reached end of function without returning %.", return_type));
+                }
             }
             return;
+
+        case STMT_NMI:
+            if(D != CHECK)
+                compiler_error(stmt->pstring, "Cannot wait for nmi at compile-time.");
+            if(precheck_tracked)
+                precheck_tracked->wait_nmis.push_back(stmt_ht{ stmt - fn->def().stmts.data() });
+            ++stmt;
+            break;
+
+        case STMT_FENCE:
+            if(precheck_tracked)
+                precheck_tracked->fences.push_back(stmt_ht{ stmt - fn->def().stmts.data() });
+            ++stmt;
+            break;
         }
     }
     assert(false);
@@ -1030,6 +1046,79 @@ void eval_t::compile_block()
             builder.cfg = dead;
         }
         break;
+
+    case STMT_NMI:
+        if(fn->fclass == FN_NMI)
+            compiler_error(stmt->pstring, "Cannot wait for nmi inside nmi.");
+        if(precheck_tracked)
+            precheck_tracked->wait_nmis.push_back(stmt_ht{ stmt - fn->def().stmts.data() });
+        goto do_fence;
+    case STMT_FENCE:
+        if(precheck_tracked)
+            precheck_tracked->fences.push_back(stmt_ht{ stmt - fn->def().stmts.data() });
+        // fall-through
+    do_fence:
+        {
+            bc::small_vector<ssa_value_t, 32> inputs;
+
+            block_d& block_data = builder.cfg.data<block_d>();
+            ssa_ht const fenced = builder.cfg->emplace_ssa(
+                stmt->name == STMT_NMI ? SSA_wait_nmi : SSA_fence, TYPE_VOID);
+            fenced->append_daisy();
+
+            //assert(fn->precheck_wait_nmi());
+
+            ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
+            {
+                for(gmember_ht m : gvar->handles())
+                {
+                    if(fn->fence_reads().test(m.id))
+                    {
+                        inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
+                        inputs.push_back(locator_t::gmember(m, 0));
+                    }
+
+                    // Create writes after reads:
+                    if(fn->fence_writes().test(m.id))
+                    {
+                        ssa_ht const read = builder.cfg->emplace_ssa(
+                            SSA_read_global, m->type(), fenced, locator_t::gmember(m, 0));
+                        block_data.vars[to_var_i(index)][m->member()] = read;
+                    }
+                }
+            });
+
+            xbitset_t<gmember_ht> reads(0);
+            xbitset_t<gmember_ht> writes(0);
+
+            ir->gmanager.for_each_gmember_set(fn->handle(),
+            [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+            {
+                reads = fn->fence_reads();
+                writes = fn->fence_writes();
+
+                bitset_and(reads.size(), reads.data(), gmember_set);
+                bitset_and(writes.size(), writes.data(), gmember_set);
+
+                if(!reads.all_clear())
+                {
+                    inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
+                    inputs.push_back(locator);
+                }
+
+                // Create writes after reads:
+                if(!writes.all_clear())
+                {
+                    ssa_ht const read = builder.cfg->emplace_ssa(
+                        SSA_read_global, TYPE_VOID, fenced, locator);
+                    block_data.vars[to_var_i(index)][0] = read;
+                }
+            });
+
+            fenced->link_append_input(&*inputs.begin(), &*inputs.end());
+        }
+        ++stmt;
+        break;
     }
     assert(false);
 }
@@ -1043,6 +1132,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
     // Declare cross-label vars before switch.
     ssa_value_t common_value;
     type_t common_type;
+    ssa_value_t hw_addr;
 
     switch(token->type)
     {
@@ -1156,11 +1246,14 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
                         rpn_value_t new_top =
                         {
-                            .sval = c.sval(),
                             .category = RVAL, 
                             .type = c.type(),
                             .pstring = token->pstring,
                         };
+
+                        if(D != CHECK)
+                            new_top.sval = c.sval();
+
                         rpn_stack.push(std::move(new_top));
                     }
                 }
@@ -1315,6 +1408,19 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     "Expecting function type. Got %.", fn_rpn.type));
             }
 
+            assert(fn_rpn.sval.size() == 1);
+            ssa_value_t const fn_value = fn_rpn.ssa();
+            assert(fn_value.is_locator());
+            fn_ht const call = fn_value.locator().fn();
+
+            pstring_t const call_pstring = concat(fn_rpn.pstring, token->pstring);
+
+            if(call->fclass == FN_NMI)
+                compiler_error(call_pstring, "Cannot call nmi function.");
+
+            if(call->fclass == FN_MODE && is_interpret(D))
+                compiler_error(call_pstring, "Cannot goto mode at compile-time.");
+
             std::size_t const num_params = fn_rpn.type.num_params();
             type_t const* const params = fn_rpn.type.types();
 
@@ -1342,18 +1448,6 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     "Expected signature: % ",
                     args[cast_result].type, params[cast_result], fn_rpn.type));
             }
-
-            // For now, only const fns are allowed.
-            // In the future, fn pointers may be supported.
-            assert(fn_rpn.sval.size() == 1);
-            ssa_value_t const fn_value = fn_rpn.ssa();
-            assert(fn_value.is_locator());
-            fn_ht const call = fn_value.locator().fn();
-
-            pstring_t const call_pstring = concat(fn_rpn.pstring, token->pstring);
-
-            if(call->fclass == FN_MODE && is_interpret(D))
-                compiler_error(call_pstring, "Cannot goto mode at compile-time.");
 
             if(precheck_tracked)
             {
@@ -1634,7 +1728,27 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         break;
         */
 
-    case TOK_read_hw:
+    case TOK_hw_expr:
+        {
+            if(is_interpret(D))
+                compiler_error(stmt->pstring, "Hardware expression cannot be evaluated at compile-time.");
+            spair_t result = interpret_expr(token->pstring, token->ptr<token_t const>(), TYPE_U20, this);
+            assert(result.type == TYPE_U20);
+
+            hw_addr = from_variant(result.value[0], TYPE_U20);
+            if(hw_addr.is_num())
+                hw_addr = locator_t::addr(hw_addr.whole());
+            else if(hw_addr.is_locator())
+                hw_addr = hw_addr.locator().with_is(IS_DEREF);
+
+            goto rw_hw;
+        }
+
+    case TOK_hw_addr:
+        hw_addr = locator_t::addr(token->value);
+    rw_hw:
+        ++token;
+        if(token->type == TOK_read_hw)
         {
             rpn_value_t new_top = 
             {
@@ -1647,16 +1761,14 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 compiler_error(stmt->pstring, "Hardware-related expressions cannot be evaluated at compile-time.");
             else if(D == COMPILE)
             {
-                ssa_ht h = builder.cfg->emplace_ssa(SSA_read_hw, TYPE_U, locator_t::addr(token->value));
+                ssa_ht h = builder.cfg->emplace_ssa(SSA_read_hw, TYPE_U, hw_addr);
                 h->append_daisy();
                 new_top.sval = { h };
-        }
+            }
 
             rpn_stack.push(std::move(new_top));
         }
-        break;
-
-    case TOK_write_hw:
+        else if(token->type == TOK_write_hw)
         {
             throwing_cast<D>(rpn_stack.peek(0), TYPE_U, true);
 
@@ -1672,10 +1784,12 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             {
                 ssa_ht h = builder.cfg->emplace_ssa(
                     SSA_write_hw, TYPE_VOID, 
-                    locator_t::addr(token->value), top.ssa());
+                    hw_addr, top.ssa());
                 h->append_daisy();
             }
         }
+        else
+            passert(false, token_string(token->type));
         break;
 
     case TOK_push_paa:
@@ -1897,18 +2011,21 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     bool const is_banked = array_val.type.name() == TYPE_BANKED_PTR;
                     assert(array_val.sval.size() == is_banked ? 2 : 1);
 
-                    ssa_value_t prev_in_order = {};
-                    if(auto ptr_i = ir->gmanager.ptr_i(array_val.type))
-                        prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
+                    // TODO
+                    //ssa_value_t prev_in_order = {};
+                    //if(auto ptr_i = ir->gmanager.ptr_i(array_val.type))
+                        //prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
 
                     ssa_ht const h = builder.cfg->emplace_ssa(
                         SSA_read_ptr, TYPE_U, 
-                        prev_in_order,
                         from_variant(array_val.sval[0], array_val.type), ssa_value_t(),
                         is_banked ? from_variant(array_val.sval[1], array_val.type)
                                   : ssa_value_t(), 
                         std::get<ssa_value_t>(array_index.sval[0]));
-                    h->append_daisy();
+
+                    if(ptr_to_vars(array_val.type))
+                        h->append_daisy();
+
                     array_val.sval[0] = h;
                     array_val.sval.resize(1);
                 }
@@ -1929,14 +2046,16 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
             if(is_ptr)
             {
-                array_val.derefed_from = array_val.type;
+                //array_val.derefed_from = array_val.type;
                 array_val.type = TYPE_U;
-                array_val.category = is_mptr ? LVAL_PTR : RVAL;
+                if(array_val.category != RVAL)
+                    array_val.category = is_mptr ? LVAL_PTR : RVAL;
             }
             else
             {
                 array_val.type = array_val.type.elem_type();
-                array_val.category = LVAL_ARRAY;
+                if(array_val.category != RVAL)
+                    array_val.category = LVAL_ARRAY;
             }
 
             rpn_stack.pop(1);
@@ -2277,15 +2396,15 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
             ssa_ht const read = assignee.ssa(0).handle();
             assert(read->op() == SSA_read_ptr);
 
-            ssa_value_t prev_in_order = {};
-            if(auto ptr_i = ir->gmanager.ptr_i(assignee.derefed_from))
-                prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
+            // TODO
+            //ssa_value_t prev_in_order = {};
+            //if(auto ptr_i = ir->gmanager.ptr_i(assignee.derefed_from))
+                //prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
 
             ssa_ht const write = builder.cfg->emplace_ssa(
                 SSA_write_ptr, TYPE_VOID,
-                prev_in_order,
-                read->input(1), read->input(2), 
-                read->input(3), read->input(4), 
+                read->input(0), read->input(1), 
+                read->input(2), read->input(3), 
                 std::get<ssa_value_t>(assignment.sval[0]));
             write->append_daisy();
 

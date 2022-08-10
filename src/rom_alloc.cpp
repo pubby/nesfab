@@ -107,10 +107,11 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
     {
         dprint(log, "-PREP_ALLOC_ROM_ARRAY", rom_array_h);
         rom_array_t& rom_array = *rom_array_h;
+        assert(rom_array.desired_romv() == ROMVF_IN_MODE);
 
-        if(!rom_array.emits() || rom_array.alloc())
+        if(!rom_array.emits())
         {
-            dprint(log, "--SKIPPING", rom_array_h);
+            dprint(log, "--SKIPPING (no emit)", rom_array_h);
             continue;
         }
 
@@ -153,12 +154,18 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
             });
         }
 
+        if(rom_array.get_alloc(ROMVF_IN_MODE))
+        {
+            dprint(log, "--SKIPPING (already allocated)", rom_array_h);
+            continue;
+        }
+
         unsigned const alignment = 0; // TODO
 
         if(once)
-            rom_array.set_alloc(rom_once_ht::pool_make(rom_array_h, alignment), rom_key_t());
+            rom_array.set_alloc(ROMV_MODE, rom_once_ht::pool_make(ROMV_MODE, rom_array_h, alignment), rom_key_t());
         else
-            rom_array.set_alloc(rom_many_ht::pool_make(rom_array_h, alignment), rom_key_t());
+            rom_array.set_alloc(ROMV_MODE, rom_many_ht::pool_make(ROMV_MODE, rom_array_h, alignment), rom_key_t());
     }
 
     ///////////////////////////
@@ -170,9 +177,9 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
         dprint(log, "-PREP_ALLOC_ROM_PROC", rom_proc_h);
         rom_proc_t& rom_proc = *rom_proc_h;
 
-        if(!rom_proc.emits() || rom_proc.alloc())
+        if(!rom_proc.emits())
         {
-            dprint(log, "--SKIPPING", rom_proc_h);
+            dprint(log, "--SKIPPING (no emit)", rom_proc_h);
             continue;
         }
 
@@ -181,12 +188,16 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
 
         unsigned const alignment = 0; // TODO
         bitset_t const* groups;
+        bool once = true;
 
         for(rom_array_ht use : rom_proc_directly_uses[rom_proc_h.id])
-            if(use->alloc().rclass() == ROMA_ONCE)
+            if(use->get_alloc(ROMVF_IN_MODE).rclass() == ROMA_ONCE)
+            {
+                once = false;
                 goto is_many;
+            }
 
-        if(rom_proc.for_each_group_test([&](group_ht group_h) -> bool
+        once &= rom_proc.for_each_group_test([&](group_ht group_h) -> bool
             {
                 group_t const& group = *group_h;
 
@@ -195,19 +206,27 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
 
                 group_data_t const& gd = group.impl<group_data_t>();
                 for(const_ht c : gd.consts())
-                    if(c->rom_array()->alloc().rclass() == ROMA_ONCE)
+                    if(c->rom_array()->get_alloc(ROMVF_IN_MODE).rclass() == ROMA_ONCE)
                         return false;
 
                 return true;
-            }))
-        { // if once
-            rom_proc.set_alloc(rom_once_ht::pool_make(rom_proc_h, alignment), rom_key_t());
-        }
-        else
+            });
+
+    is_many:
+
+        romv_for_each(rom_proc.desired_romv(), [&](unsigned romv)
         {
-        is_many:
-            rom_proc.set_alloc(rom_many_ht::pool_make(rom_proc_h, alignment), rom_key_t());
-        }
+            if(rom_proc.get_alloc(romv))
+            {
+                dprint(log, "--SKIPPING (already allocated)", rom_proc_h);
+                return;
+            }
+
+            if(once)
+                rom_proc.set_alloc(romv, rom_once_ht::pool_make(romv, rom_proc_h, alignment), rom_key_t());
+            else
+                rom_proc.set_alloc(romv, rom_many_ht::pool_make(romv, rom_proc_h, alignment), rom_key_t());
+        });
     }
 
     // OK! All the MANYs and ONCEs have been created.
@@ -244,25 +263,23 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
     auto const gd_many_bs = [this](unsigned i) { return &group_data_many_bitsets[i * many_bs_size]; };
 
     for(group_data_ht gd : group_data_ht::handles())
+    for(const_ht c : gd->consts())
     {
-        for(const_ht c : gd->consts())
-        {
-            auto const& rom_array = *c->rom_array();
+        auto const& rom_array = *c->rom_array();
 
-            if(rom_array.alloc().rclass() == ROMA_ONCE)
-            {
-                unsigned const once_i = rom_array.alloc().handle();
-                assert(once_i < num_onces);
-                bitset_set(gd_once_bs(gd.id), once_i);
-                // Set the pointer to 'related_onces' now:
-                rom_once_ht{once_i}->related_onces = gd_once_bs(gd.id);
-            }
-            else if(rom_array.alloc().rclass() == ROMA_MANY)
-            {
-                unsigned const many_i = rom_array.alloc().handle();
-                assert(many_i < num_onces);
-                bitset_set(gd_many_bs(gd.id), many_i);
-            }
+        if(rom_array.get_alloc(ROMVF_IN_MODE).rclass() == ROMA_ONCE)
+        {
+            unsigned const once_i = rom_array.get_alloc(ROMVF_IN_MODE).handle();
+            assert(once_i < num_onces);
+            bitset_set(gd_once_bs(gd.id), once_i);
+            // Set the pointer to 'related_onces' now:
+            rom_once_ht{once_i}->related_onces = gd_once_bs(gd.id);
+        }
+        else if(rom_array.get_alloc(ROMVF_IN_MODE).rclass() == ROMA_MANY)
+        {
+            unsigned const many_i = rom_array.get_alloc(ROMVF_IN_MODE).handle();
+            assert(many_i < num_onces);
+            bitset_set(gd_many_bs(gd.id), many_i);
         }
     }
 
@@ -276,9 +293,6 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
     for(rom_proc_ht rom_proc_h : rom_proc_ht::handles())
     {
         rom_proc_t& rom_proc = *rom_proc_h;
-
-        if(!rom_proc.alloc())
-            continue;
 
         // Build the 'use_many' and 'use_once' bitsets for this function.
 
@@ -297,34 +311,42 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
 
         for(rom_array_ht use : rom_proc_directly_uses[rom_proc_h.id])
         {
-            if(use->alloc().rclass() == ROMA_ONCE)
-                use_once.set(use->alloc().handle());
-            else if(use->alloc().rclass() == ROMA_MANY)
-                use_many.set(use->alloc().handle());
+            auto const alloc = use->get_alloc(ROMVF_IN_MODE);
+
+            if(alloc.rclass() == ROMA_ONCE)
+                use_once.set(alloc.handle());
+            else if(alloc.rclass() == ROMA_MANY)
+                use_many.set(alloc.handle());
         }
 
         // OK! The bitsets are built.
 
-        if(rom_proc.alloc().rclass() == ROMA_MANY)
+        for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
-            assert(!use_once.all_clear());
+            if(!rom_proc.get_alloc(romv))
+                continue;
 
-            // Add our own allocation to 'use_many':
-            use_many.set(rom_proc.alloc().handle());
-
-            // For each ONCE we use, make all MANYs we've built requirements
-            use_once.for_each([&](unsigned once_i)
+            if(rom_proc.get_alloc(romv).rclass() == ROMA_MANY)
             {
-                bitset_or(many_bs_size, rom_once_ht{once_i}->required_manys, use_many.data());
-            });
-        }
-        else if(rom_proc.alloc().rclass() == ROMA_ONCE)
-        {
-            assert(use_once.all_clear());
+                assert(!use_once.all_clear());
 
-            // Set our own requirements to include the many set we built
-            unsigned const once_i = rom_proc.alloc().handle();
-            bitset_or(many_bs_size, rom_once_ht{once_i}->required_manys, use_many.data());
+                // Add our own allocation to 'use_many':
+                use_many.set(rom_proc.get_alloc(romv).handle());
+
+                // For each ONCE we use, make all MANYs we've built requirements
+                use_once.for_each([&](unsigned once_i)
+                {
+                    bitset_or(many_bs_size, rom_once_ht{once_i}->required_manys, use_many.data());
+                });
+            }
+            else if(rom_proc.get_alloc(romv).rclass() == ROMA_ONCE)
+            {
+                assert(use_once.all_clear());
+
+                // Set our own requirements to include the many set we built
+                unsigned const once_i = rom_proc.get_alloc(romv).handle();
+                bitset_or(many_bs_size, rom_once_ht{once_i}->required_manys, use_many.data());
+            }
         }
     }
 
@@ -387,14 +409,14 @@ float rom_allocator_t::once_rank(rom_once_t const& once)
     bitset_for_each(many_bs_size, once.required_manys, [&](unsigned i)
     {
         rom_many_t const& many = *rom_many_ht{i};
-        many_size += many.desired_size;
+        many_size += many.data.max_size();
     });
 
     int related = 0;
     if(once.related_onces)
         related = bitset_popcount(once_bs_size, once.related_onces);
 
-    return many_size + once.desired_size + related;
+    return many_size + once.data.max_size() + related;
 }
 
 float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
@@ -408,7 +430,7 @@ float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
     bitset_for_each(many_bs_size, unallocated_manys, [&](unsigned i)
     {
         rom_many_t const& many = *rom_many_ht{ i };
-        unallocated_many_size += many.desired_size;
+        unallocated_many_size += many.data.max_size();
     });
 
     // Count related / unrelated onces
@@ -490,7 +512,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
 
         // If we succeeded in allocating manys, try to allocate 'once's span:
         // (conditional has side effect assignment)
-        if(!allocated_manys || !(once.span = bank.allocator.alloc(once.desired_size, once.desired_alignment)))
+        if(!allocated_manys || !(once.span = bank.allocator.alloc(once.data.max_size(), once.desired_alignment)))
         {
             // If we fail, free allocated 'many' memory.
             for(rom_many_ht many_h : realloced_manys)
@@ -566,7 +588,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     span_allocator_t::bitset_t free = {};
     in_banks.for_each([&](unsigned bank_i){ free |= banks[bank_i].allocator.allocated_bitset(); });
     bitset_flip_all(free.size(), free.data());
-    bitset_mark_consecutive(free.size(), free.data(), many.desired_size / span_allocator_t::bytes_per_bit(initial_span));
+    bitset_mark_consecutive(free.size(), free.data(), many.data.max_size() / span_allocator_t::bytes_per_bit(initial_span));
 
     int const highest_bit = bitset_highest_bit_set(free.size(), free.data());
     if(highest_bit < 0)
@@ -583,13 +605,13 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
         //std::cout << "free addr " << free_addr << std::endl;
         span_t const span = banks[bank_i].allocator.unallocated_span_at(free_addr);
         //std::cout << "free span " << span << std::endl;
-        assert(span.size >= many.desired_size);
+        assert(span.size >= many.data.max_size());
         min_end = std::min<unsigned>(min_end, span.end());
     });
     assert(min_end != ~0u);
 
     // Here's where our many will be stored:
-    span_t const alloc_at = { min_end - many.desired_size, many.desired_size };
+    span_t const alloc_at = { min_end - many.data.max_size(), many.data.max_size() };
 
     // Now allocate in each bank:
     in_banks.for_each([&](unsigned bank_i)
@@ -632,27 +654,33 @@ void print_rom(std::ostream& o)
 
     for(fn_t const& fn : fn_ht::values())
     {
-        o << fn.global.name << ": ";
-        if(fn.rom_proc()->alloc())
+        o << "\n\n" << fn.global.name << ": \n";
+        for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
-            o << fn.rom_proc()->alloc().get()->span << std::endl;
-            fn.rom_proc()->asm_proc().write_assembly(o);
+            if(auto a = fn.rom_proc()->get_alloc(romv))
+            {
+                o << romv << ' ' << a.get()->span << std::endl;
+                fn.rom_proc()->asm_proc().write_assembly(o, romv);
+            }
+            else
+                o << romv << " PRUNED\n";
         }
-        else
-            o << "PRUNED\n";
     }
 
     for(group_vars_t const& gv : group_vars_ht::values())
     {
         if(!gv.init_proc())
             continue;
-        o << gv.group.name << ": ";
-        if(gv.init_proc()->alloc())
+        o << "\n\n" << gv.group.name << ": \n";
+        for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
-            o << gv.init_proc()->alloc().get()->span << ' ' << gv.init_proc()->alloc().first_bank() << std::endl;
-            gv.init_proc()->asm_proc().write_assembly(o);
+            if(auto a = gv.init_proc()->get_alloc(romv))
+            {
+                o << romv << ' ' << a.get()->span << ' ' << a.first_bank() << std::endl;
+                gv.init_proc()->asm_proc().write_assembly(o, romv);
+            }
+            else
+                o << romv << " PRUNED\n";
         }
-        else
-            o << "PRUNED\n";
     }
 }

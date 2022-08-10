@@ -14,6 +14,7 @@ struct span_t
     
     constexpr std::uint32_t end() const { return addr + size; }
     constexpr explicit operator bool() const { return size; }
+    constexpr auto operator<=>(span_t const&) const = default;
 
     constexpr bool contains(std::uint16_t addr) const { return addr >= this->addr && end() > addr; }
     constexpr bool contains(span_t const& o) const { return o.addr >= addr && o.end() <= end(); }

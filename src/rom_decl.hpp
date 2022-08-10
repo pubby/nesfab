@@ -112,5 +112,34 @@ public:
     int first_bank() const;
 };
 
+// These are for different (duplicated) versions of the same data.
+// i.e. one for code called from modes, another for code called from nmis
+constexpr unsigned ROMV_MODE = 0;
+constexpr unsigned ROMV_NMI  = 1;
+constexpr unsigned NUM_ROMV = 2;
+
+using romv_flags_t = std::uint8_t;
+constexpr romv_flags_t ROMVF_IN_MODE = 1 << ROMV_MODE;
+constexpr romv_flags_t ROMVF_IN_NMI  = 1 << ROMV_NMI;
+constexpr romv_flags_t ROMVF_ALL = ROMVF_IN_MODE | ROMVF_IN_NMI;
+using romv_allocs_t = std::array<rom_alloc_ht, NUM_ROMV>;
+
+constexpr int next_romv(romv_flags_t flags, unsigned romv)
+{
+    if(flags & romv)
+        return romv;
+    for(unsigned i = 0; i < NUM_ROMV; ++i)
+        if(flags & (1 << i))
+            return i;
+    return -1;
+}
+
+template<typename Fn>
+void romv_for_each(romv_flags_t flags, Fn const& fn)
+{
+    for(unsigned i = 0; i < NUM_ROMV; ++i)
+        if(flags & (1 << i))
+            fn(i);
+}
 
 #endif

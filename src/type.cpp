@@ -586,6 +586,15 @@ bool has_tea(type_t const& type)
     }
 }
 
+bool ptr_to_vars(type_t const& type)
+{
+    unsigned const size = type.group_tail_size();
+    for(unsigned i = 0; i < size; ++i)
+        if(type.group(i)->gclass() == GROUP_VARS)
+            return true;
+    return false;
+}
+
 type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 {
     type_t& t = src_type.type;

@@ -19,6 +19,7 @@
 #include "rom_decl.hpp"
 #include "phase.hpp"
 #include "stmt.hpp"
+#include "runtime.hpp"
 
 class type_t;
 struct ssa_value_t;
@@ -38,6 +39,9 @@ enum locator_class_t : std::uint8_t
     // which combines several gmembers into a single locator.
     // (This is a size optimization)
     LOC_GMEMBER_SET,
+
+    // This behaves like LOC_GMEMBER_SET, but for pointer group vars.
+    LOC_PTR_SET,
 
     LOC_STMT,
 
@@ -67,6 +71,11 @@ enum locator_class_t : std::uint8_t
     LOC_MAIN_ENTRY,
 
     LOC_RESET_GROUP_VARS,
+
+    LOC_RUNTIME_RAM,
+    LOC_RUNTIME_ROM,
+
+    LOC_NMI_INDEX,
 
     NUM_LCLASS,
 };
@@ -111,6 +120,9 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_RETURN:
     case LOC_MINOR_VAR:
     case LOC_LVAR:
+    case LOC_GMEMBER_SET:
+    case LOC_PTR_SET:
+    case LOC_NMI_INDEX:
         return true;
     default:
         return false;
@@ -331,8 +343,20 @@ public:
         return { handle() }; 
     }
 
+    runtime_ram_name_t runtime_ram() const 
+    { 
+        assert(lclass() == LOC_RUNTIME_RAM);
+        return runtime_ram_name_t(data());
+    }
+
+    runtime_rom_name_t runtime_rom() const 
+    { 
+        assert(lclass() == LOC_RUNTIME_ROM);
+        return runtime_rom_name_t(data());
+    }
+
     rom_data_ht rom_data() const;
-    rom_alloc_ht rom_alloc() const;
+    rom_alloc_ht rom_alloc(unsigned romv) const;
 
     // Strips offset info from this locator.
     locator_t mem_head() const 
@@ -375,6 +399,9 @@ public:
 
     constexpr static locator_t gmember_set(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_GMEMBER_SET, fn.id, id, 0); }
+
+    constexpr static locator_t ptr_set(fn_ht fn, std::uint16_t id)
+        { return locator_t(LOC_PTR_SET, fn.id, id, 0); }
 
     constexpr static locator_t rom_array(rom_array_ht h, std::uint16_t offset=0)
         { return locator_t(LOC_ROM_ARRAY, h.id, 0, offset); }
@@ -421,6 +448,15 @@ public:
     constexpr static locator_t this_bank()
         { return locator_t(LOC_THIS_BANK).with_is(IS_BANK); }
 
+    constexpr static locator_t runtime_ram(runtime_ram_name_t name, std::uint16_t offset=0)
+        { return locator_t(LOC_RUNTIME_RAM, 0, name, offset); }
+
+    constexpr static locator_t runtime_rom(runtime_rom_name_t name, std::uint16_t offset=0)
+        { return locator_t(LOC_RUNTIME_ROM, 0, name, offset); }
+
+    constexpr static locator_t nmi_index(fn_ht fn)
+        { return locator_t(LOC_NMI_INDEX, fn.id, 0, 0).with_is(IS_PTR); }
+
     static locator_t from_ssa_value(ssa_value_t v);
 
     bool operator==(locator_t const& o) const 
@@ -439,7 +475,7 @@ public:
 
     type_t type() const;
 
-    locator_t link(fn_ht fn = {}, int bank = -1) const;
+    locator_t link(unsigned romv, fn_ht fn = {}, int bank = -1) const;
 
 
 private:

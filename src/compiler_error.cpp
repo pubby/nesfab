@@ -140,6 +140,12 @@ std::string fmt_note(std::string const& what)
     return fmt(CONSOLE_BOLD CONSOLE_CYN "note: " CONSOLE_RESET "%\n", what);
 }
 
+std::string fmt_warning(pstring_t pstring, std::string const& what,
+                     file_contents_t const* file)
+{
+    return fmt_error(pstring, what, file, CONSOLE_YEL CONSOLE_BOLD, "warning");
+}
+
 void compiler_error(pstring_t pstring, std::string const& what, 
                     file_contents_t const* file)
 {
@@ -149,7 +155,7 @@ void compiler_error(pstring_t pstring, std::string const& what,
 void compiler_warning(pstring_t pstring, std::string const& what, 
                       file_contents_t const* file)
 {
-    std::string msg = fmt_error(pstring, what, file, CONSOLE_YEL CONSOLE_BOLD, "warning");
+    std::string msg = fmt_warning(pstring, what, file);
 
     if(compiler_options().werror)
     {
@@ -163,9 +169,9 @@ void compiler_warning(pstring_t pstring, std::string const& what,
     }
 }
 
-void compiler_warning(std::string const& what)
+void compiler_warning(std::string const& what, bool formatted)
 {
-    std::string msg = fmt(CONSOLE_YEL CONSOLE_BOLD "warning: " CONSOLE_RESET "%s", what);
+    std::string msg = formatted ? what : fmt(CONSOLE_YEL CONSOLE_BOLD "warning: " CONSOLE_RESET "%", what);
 
     if(compiler_options().werror)
     {

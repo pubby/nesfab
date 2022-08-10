@@ -100,7 +100,7 @@ public:
     }
 
     std::vector<gvar_ht> const& gvars() const { assert(compiler_phase() > PHASE_PARSE); return m_gvars; }
-    bitset_t const& gmembers() const { assert(compiler_phase() > PHASE_GROUP_MEMBERS); return m_gmembers; }
+    auto const& gmembers() const { assert(compiler_phase() > PHASE_GROUP_MEMBERS); return m_gmembers; }
 
     bool has_init() const { assert(compiler_phase() > PHASE_PARSE_CLEANUP); return m_has_init; }
     void determine_has_init();
@@ -116,7 +116,7 @@ private:
     bool m_has_init = false;
     rom_proc_ht m_init_proc = {};
 
-    bitset_t m_gmembers;
+    xbitset_t<gmember_ht> m_gmembers;
 };
 
 class group_data_t

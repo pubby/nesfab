@@ -111,10 +111,9 @@ void group_vars_t::group_members()
     assert(compiler_phase() == PHASE_GROUP_MEMBERS);
 
     // Init the gmembers bitset
-    m_gmembers.reset(gmember_ht::bitset_size());
+    m_gmembers.alloc();
     for(gvar_ht gv : gvars())
-        bitset_set_n(m_gmembers.size(), m_gmembers.data(), 
-                     gv->begin().id, gv->end().id - gv->begin().id);
+        m_gmembers.set_n(gv->begin().id, gv->num_members());
 }
 
 void group_vars_t::determine_has_init()

@@ -1742,7 +1742,7 @@ namespace isel
         }
     }
 
-    template<typename Opt, typename Def, typename Array, typename Index, typename Assignment>
+    template<typename Opt, typename Array, typename Index, typename Assignment>
     void write_array(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         locator_t const index = Index::value();
@@ -1756,7 +1756,7 @@ namespace isel
             mem.set_is(IS_DEREF);
             temp::set(mem);
 
-            load_then_store<Opt, Def, Assignment, temp, false>(cpu, prev, cont);
+            load_then_store<Opt, Assignment, Assignment, temp, false>(cpu, prev, cont);
         }
         else
         {
@@ -2183,25 +2183,30 @@ namespace isel
         case SSA_read_hw:
             p_arg<0>::set(h->input(0));
 
-            chain
-            < exact_op<Opt, LDA_ABSOLUTE, p_def, p_arg<0>>
-            , store<Opt, STA, p_def>
-            >(cpu, prev, cont);
+            if(h->output_size() == 0) // TODO: handle linked?
+                exact_op<Opt, IGN_ABSOLUTE, p_def, p_arg<0>>(cpu, prev, cont);
+            else
+            {
+                chain
+                < exact_op<Opt, LDA_ABSOLUTE, p_def, p_arg<0>>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
 
-            chain
-            < exact_op<Opt, LDX_ABSOLUTE, p_def, p_arg<0>>
-            , store<Opt, STX, p_def>
-            >(cpu, prev, cont);
+                chain
+                < exact_op<Opt, LDX_ABSOLUTE, p_def, p_arg<0>>
+                , store<Opt, STX, p_def>
+                >(cpu, prev, cont);
 
-            chain
-            < exact_op<Opt, LDY_ABSOLUTE, p_def, p_arg<0>>
-            , store<Opt, STY, p_def>
-            >(cpu, prev, cont);
+                chain
+                < exact_op<Opt, LDY_ABSOLUTE, p_def, p_arg<0>>
+                , store<Opt, STY, p_def>
+                >(cpu, prev, cont);
 
-            chain
-            < exact_op<Opt, LAX_ABSOLUTE, p_def, p_arg<0>>
-            , store<Opt, STA, p_def>
-            >(cpu, prev, cont);
+                chain
+                < exact_op<Opt, LAX_ABSOLUTE, p_def, p_arg<0>>
+                , store<Opt, STA, p_def>
+                >(cpu, prev, cont);
+            }
 
             break;
 
@@ -2290,7 +2295,7 @@ namespace isel
                 p_index::set(h->input(2));
                 p_assignment::set(h->input(3));
 
-                write_array<Opt, p_def, p_array, p_index, p_assignment>(cpu, prev, cont);
+                write_array<Opt, p_array, p_index, p_assignment>(cpu, prev, cont);
             }
             break;
 
@@ -2370,7 +2375,7 @@ namespace isel
                 if(h->input(PTR).is_const()) // TODO
                 {
                     assert(!h->input(PTR_HI) || h->input(PTR_HI).is_const());
-                    write_array<Opt, p_def, p_ptr_lo, p_index, p_assignment>(cpu, prev, cont);
+                    write_array<Opt, p_ptr_lo, p_index, p_assignment>(cpu, prev, cont);
                 }
                 else
                 {
@@ -2408,7 +2413,20 @@ namespace isel
             break;
 
         case SSA_return:
-            exact_op<Opt, RTS_IMPLIED>(cpu, prev, cont);
+            switch(state.fn->fclass)
+            {
+            case FN_MODE:
+                p_label<0>::set(locator_t::runtime_rom(RTROM_reset));
+                exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
+                break;
+            case FN_NMI:
+                p_label<0>::set(locator_t::runtime_rom(RTROM_nmi_exit));
+                exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
+                break;
+            default:
+                exact_op<Opt, RTS_IMPLIED>(cpu, prev, cont);
+                break;
+            }
             break;
 
         case SSA_jump:
@@ -2425,6 +2443,18 @@ namespace isel
             >>= finish)(cpu, prev);
             break;
             */
+
+        case SSA_wait_nmi:
+            p_arg<0>::set(locator_t::runtime_rom(RTROM_wait_nmi));
+            chain
+            < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
+            , set_defs<Opt, REGF_CPU & ~(REGF_X | REGF_Y), false, null_>
+            >(cpu, prev, cont);
+            break;
+
+        case SSA_fence:
+            cont->call(cpu, prev);
+            break;
 
         case SSA_entry:
         case SSA_uninitialized:
@@ -2489,6 +2519,8 @@ namespace isel
 
         case SSA_return:
         case SSA_fn_call:
+        case SSA_fence:
+        case SSA_wait_nmi:
             write_globals<Opt>(h);
             goto simple;
 
@@ -2500,6 +2532,7 @@ namespace isel
                 assert(h->input(0).locator().lclass() == LOC_FN);
 
                 fn_t const& call = *h->input(0).locator().fn();
+                assert(call.fclass == FN_MODE);
 
                 assert(h->input(1).is_locator());
                 assert(h->input(1).locator().lclass() == LOC_STMT);
@@ -2507,13 +2540,23 @@ namespace isel
                 mods_t const* mods = state.fn->def().mods_of(h->input(1).locator().stmt());
                 assert(mods);
 
-                call.precheck_group_vars().for_each<group_vars_ht>([&](auto gv)
+                bool did_reset_nmi = false;
+
+                call.precheck_group_vars().for_each([&](group_vars_ht gv)
                 {
                     if(!gv->has_init())
                         return;
 
                     if(!mods->group_vars.count(gv->group.handle()))
                     {
+                        if(!did_reset_nmi)
+                        {
+                            // Reset the nmi handler until we've reset all group vars.
+                            p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
+                            select_step<false>(load_then_store<Opt, null_, const_<0>, p_arg<0>, false>);
+                            did_reset_nmi = true;
+                        }
+
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
                         p_arg<1>::set(locator_t::reset_group_vars(gv).with_is(IS_BANK));
 
@@ -2525,10 +2568,15 @@ namespace isel
                             >);
                     }
                 });
+                
+                // Set the nmi handler to its proper value
+                p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
+                p_arg<1>::set(locator_t::nmi_index(call.mode_nmi()));
+                select_step<false>(load_then_store<Opt, null_, p_arg<1>, p_arg<0>, false>);
 
+                // Do the jump:
                 p_arg<0>::set(h->input(0));
                 p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
-
                 select_step<true>(
                     chain
                     < load_Y<Opt, p_arg<1>>

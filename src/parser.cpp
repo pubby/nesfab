@@ -14,11 +14,11 @@
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
 
-static constexpr bool operator_left_assoc(token_type_t type)
-    { return type != TOK_lparen; }
+static constexpr bool operator_right_assoc(token_type_t type)
+    { return token_right_assoc_table[type] & 0x80; }
 
 static constexpr int operator_precedence(token_type_t type)
-    { return token_precedence_table[type]; }
+    { return token_precedence_table[type] & 0x7F; }
 
 static constexpr bool is_type_prefix(token_type_t type)
 {
@@ -123,7 +123,7 @@ mods_t parser_t<P>::parse_mods(int base_indent)
         }
     };
 
-    while(token.type == TOK_bitwise_or && indent == base_indent)
+    while(token.type == TOK_colon && indent == base_indent)
     {
         parse_token();
 
@@ -143,6 +143,17 @@ mods_t parser_t<P>::parse_mods(int base_indent)
 
             case TOK_omni:
                 compiler_error("Unknown modifier. Did you mean 'data'?");
+                break;
+
+            case TOK_nmi:
+                {
+                    if(mods.nmi)
+                        compiler_error("Multiple nmi modifiers.");
+
+                    parse_token();
+                    pstring_t const pstring = parse_ident();
+                    mods.nmi = &global_t::lookup(source(), pstring);
+                }
                 break;
 
             case TOK_plus:
@@ -467,6 +478,10 @@ std::uint16_t parser_t<P>::get_hw_reg(token_type_t token_type)
     case TOK_PPUSCROLL: return PPUSCROLL;
     case TOK_PPUADDR:   return PPUADDR;
     case TOK_PPUDATA:   return PPUDATA;
+    case TOK_OAMADDR:   return OAMADDR;
+    case TOK_OAMDATA:   return OAMDATA;
+    case TOK_OAMDMA:    return OAMDMA;
+
     default: return 0;
     }
 }
@@ -499,6 +514,8 @@ void parser_t<P>::parse_expr(expr_temp_t& expr_temp,
 
     using shunting_yard_t = bc::small_vector<token_t, 16>;
     shunting_yard_t shunting_yard;
+
+    token_t saved_token; // Used in switch cases
 
     auto const type_info_impl = [&](token_type_t expr_token, std::size_t(type_t::*fn)() const)
     {
@@ -611,33 +628,59 @@ inapplicable:
         }
         goto applicable;
 
+    case TOK_lbrace:
+        {
+            // lbrackets define a register value
+            pstring_t const pstring = token.pstring;
+            parse_token();
+            expr_temp_t hw_temp;
+            parse_expr(hw_temp, indent, open_parens+1);
+            parse_token(TOK_rbrace);
+
+            saved_token = token_t::make_ptr(
+                TOK_hw_expr, concat(pstring, token.pstring), 
+                policy().convert_expr(hw_temp));
+
+            goto rw_hardware;
+        }
+
     default:
         if(is_type_prefix(token.type))
         {
             parse_cast(expr_temp, open_parens+1);
             goto applicable;
         }
-        else if(std::uint16_t hw_reg = get_hw_reg(token.type))
+        else 
         {
+            if(std::uint16_t hw_reg = get_hw_reg(token.type))
+            {
+                saved_token = { TOK_hw_addr, token.pstring, hw_reg };
+                parse_token();
+            }
+            else
+            {
+                compiler_error("Unexpected token while parsing expression.");
+            }
+        rw_hardware:
             pstring_t const pstring = token.pstring;
-
-            parse_token();
             parse_token(TOK_lparen);
 
             if(token.type == TOK_rparen)
-                expr_temp.push_back({ TOK_read_hw, pstring, hw_reg });
+            {
+                expr_temp.push_back(saved_token);
+                expr_temp.push_back({ TOK_read_hw, concat(pstring, token.pstring) });
+            }
             else
             {
                 parse_expr(expr_temp, indent, open_parens+1);
-                expr_temp.push_back({ TOK_write_hw, pstring, hw_reg });
+                expr_temp.push_back(saved_token);
+                expr_temp.push_back({ TOK_write_hw, concat(pstring, token.pstring) });
             }
 
             parse_token(TOK_rparen);
 
             goto applicable;
         }
-        else
-            compiler_error("Unexpected token while parsing expression.");
     }
 
 applicable_advance:
@@ -712,10 +755,12 @@ applicable:
         if(is_operator(token.type))
         {
             auto const token_precedence = operator_precedence(token.type);
+            auto const token_right_assoc = operator_right_assoc(token.type);
+            
             while(shunting_yard.size()
-                  && operator_left_assoc(shunting_yard.back().type)
-                  && (operator_precedence(shunting_yard.back().type) 
-                      <= token_precedence))
+                  && shunting_yard.back().type != TOK_lparen
+                  && ((operator_precedence(shunting_yard.back().type) < token_precedence)
+                      || (token_right_assoc && operator_precedence(shunting_yard.back().type) == token_precedence)))
             {
                 expr_temp.push_back(shunting_yard.back());
                 shunting_yard.pop_back();
@@ -987,11 +1032,10 @@ void parser_t<P>::parse_top_level_def()
     switch(token.type)
     {
     case TOK_fn: 
-        return parse_fn(false);
     case TOK_ct: 
-        return parse_fn(true);
+    case TOK_nmi: 
     case TOK_mode: 
-        return parse_mode();
+        return parse_fn();
     case TOK_vars: 
         return parse_group_vars();
     case TOK_omni: 
@@ -1108,35 +1152,53 @@ void parser_t<P>::parse_const()
 }
 
 template<typename P>
-void parser_t<P>::parse_fn(bool ct)
+void parser_t<P>::parse_fn()
 {
+    fn_class_t fclass;
+    switch(token.type)
+    {
+    case TOK_fn:   fclass = FN_FN; break;
+    case TOK_ct:   fclass = FN_CT; break;
+    case TOK_nmi:  fclass = FN_NMI; break;
+    case TOK_mode: fclass = FN_MODE; break;
+    default: compiler_error("Unknown function prefix.");
+    }
+
     int const fn_indent = indent;
 
     pstring_t fn_name;
     bc::small_vector<var_decl_t, 8> params;
-    src_type_t return_type;
+    src_type_t return_type = {};
 
     mods_t mods = parse_mods_after([&]
     {
         // Parse the declaration
-        parse_token(ct ? TOK_ct : TOK_fn);
+        parse_token();
         fn_name = parse_ident();
         policy().prepare_fn(fn_name);
 
         // Parse the arguments
-        parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
+        if(fclass == FN_NMI)
+        {
+            parse_token(TOK_lparen);
+            parse_token(TOK_rparen);
+        }
+        else
+            parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
 
         // Parse the return type
-        return_type = parse_type(true, false, {});
+        if(fclass == FN_FN || fclass == FN_CT)
+            return_type = parse_type(true, false, {});
     });
 
     auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type);
 
     // Parse the body of the function
     parse_block_statement(fn_indent);
-    policy().end_fn(std::move(state), ct ? FN_CT : FN_FN, std::move(mods));
+    policy().end_fn(std::move(state), fclass, std::move(mods));
 }
 
+/* TODO remove
 template<typename P>
 void parser_t<P>::parse_mode()
 {
@@ -1161,6 +1223,7 @@ void parser_t<P>::parse_mode()
     parse_block_statement(mode_indent);
     policy().end_mode(std::move(state), std::move(mods));
 }
+*/
 
 template<typename P>
 void parser_t<P>::parse_statement()
@@ -1176,6 +1239,8 @@ void parser_t<P>::parse_statement()
     case TOK_continue: return parse_continue();
     case TOK_goto:     return parse_goto();
     case TOK_label:    return parse_label();
+    case TOK_nmi:      return parse_nmi_statement();
+    case TOK_fence:    return parse_fence();
     default: 
         if(is_type_prefix(token.type))
             return parse_var_init_statement();
@@ -1432,6 +1497,22 @@ void parser_t<P>::parse_label()
     pstring_t label;
     mods_t mods = parse_mods_after([&]{ label = parse_ident(); });
     policy().label_statement(label, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_nmi_statement()
+{
+    pstring_t pstring = token.pstring;
+    mods_t mods = parse_mods_after([&]{ parse_token(TOK_nmi); });
+    policy().nmi_statement(pstring, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_fence()
+{
+    pstring_t pstring = token.pstring;
+    mods_t mods = parse_mods_after([&]{ parse_token(TOK_fence); });
+    policy().fence_statement(pstring, std::move(mods));
 }
 
 // The policies for the parser:

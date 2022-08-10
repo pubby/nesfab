@@ -1,7 +1,7 @@
 #include "rom_prune.hpp"
 
 #include "rom.hpp"
-#include "static_addr.hpp"
+#include "runtime.hpp"
 
 static void rom_mark_emits(rom_data_ht data)
 {
@@ -19,8 +19,8 @@ static void rom_mark_emits(rom_data_ht data)
 
 void prune_rom_data()
 {
-    // Recursively mark rom_data as being emitted, starting from the static rom.
-    for(static_rom_name_t srom = {}; srom < NUM_SROM; srom = static_rom_name_t(srom + 1))
-        if(rom_data_ht data = static_data(srom))
+    // Recursively mark rom_data as being emitted, starting from the runtime rom.
+    for(runtime_rom_name_t rtrom = {}; rtrom < NUM_RTROM; rtrom = runtime_rom_name_t(rtrom + 1))
+        if(rom_data_ht data = runtime_data(rtrom))
             rom_mark_emits(data);
 }

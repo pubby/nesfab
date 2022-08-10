@@ -82,7 +82,7 @@ public:
 
     span_t alloc_at(span_t span);
 
-    span_t alloc(std::uint16_t size, std::uint16_t prefer_alignment = 1);
+    span_t alloc(std::uint16_t size, std::uint16_t alignment = 1, bool insist_alignment = false);
 
     void free(span_t span);
 

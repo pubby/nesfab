@@ -2,7 +2,7 @@
 
 #include "format.hpp"
 #include "globals.hpp"
-#include "static_addr.hpp"
+#include "runtime.hpp"
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
@@ -35,6 +35,7 @@ void asm_proc_t::absolute_to_zp()
 {
     for(asm_inst_t& inst : code)
     {
+        // TODO: implement this
         if(inst.ptr_hi || inst.arg.lclass() != LOC_ADDR || inst.arg.data() >= 0x100)
             continue;
 
@@ -199,7 +200,7 @@ int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
     return bytes;
 }
 
-void asm_proc_t::write_assembly(std::ostream& os) const
+void asm_proc_t::write_assembly(std::ostream& os, unsigned romv) const
 {
     if(fn)
         os << fn->global.name << ":\n";
@@ -239,7 +240,7 @@ void asm_proc_t::write_assembly(std::ostream& os) const
         case LOC_SSA:
             if(!fn)
                 throw std::runtime_error("Unable to write assembly. Missing function.");
-            os << "lvar " << fn->lvar_span(fn->lvars().index(inst.arg)) << "   " << inst.arg;
+            os << "lvar " << fn->lvar_span(romv, fn->lvars().index(inst.arg)) << "   " << inst.arg;
             break;
 
         case LOC_NONE:
@@ -254,7 +255,7 @@ void asm_proc_t::write_assembly(std::ostream& os) const
     }
 }
 
-void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
+void asm_proc_t::write_bytes(std::uint8_t* const start, unsigned romv, int bank) const
 {
     std::uint8_t* at = start;
 
@@ -262,7 +263,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
 
     auto const from_locator = [&](locator_t loc) -> std::uint8_t
     {
-        loc = loc.link(fn, bank);
+        loc = loc.link(romv, fn, bank);
         if(!is_const(loc.lclass()))
             throw std::runtime_error(fmt("Unable to link %", loc));
         assert(loc.offset() == 0);
@@ -351,11 +352,11 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
             write_inst({ .op = LDA_IMMEDIATE, .arg = locs.first });
             write_inst({ .op = LDX_IMMEDIATE, .arg = locs.second });
             if(inst.op == BANKED_Y_JSR)
-                write_inst({ .op = JSR_ABSOLUTE, .arg = static_locator(SROM_jsr_y_trampoline) });
+                write_inst({ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_y_trampoline) });
             else 
             {
                 assert(inst.op == BANKED_Y_JMP);
-                write_inst({ .op = JMP_ABSOLUTE, .arg = static_locator(SROM_jmp_y_trampoline) });
+                write_inst({ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_y_trampoline) });
             }
         }
         else
@@ -364,7 +365,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, int bank) const
     }
 }
 
-void asm_proc_t::link(int bank)
+void asm_proc_t::link(unsigned romv, int bank)
 {
 #ifndef NDEBUG
     std::size_t const pre_size = size();
@@ -372,8 +373,8 @@ void asm_proc_t::link(int bank)
 
     for(asm_inst_t& inst : code)
     {
-        inst.arg = inst.arg.link(fn, bank);
-        inst.ptr_hi = inst.ptr_hi.link(fn, bank);
+        inst.arg = inst.arg.link(romv, fn, bank);
+        inst.ptr_hi = inst.ptr_hi.link(romv, fn, bank);
     }
 
     optimize(false);

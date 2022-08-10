@@ -21,18 +21,19 @@ constexpr unsigned SSAF_NO_GVN         = 1 << 10; // Won't be optimized in GVN p
 constexpr unsigned SSAF_COMMUTATIVE    = 1 << 11; // First two args can be swapped
 constexpr unsigned SSAF_BRANCHY_CG     = 1 << 12; // Potentially uses a conditional in code gen
 constexpr unsigned SSAF_NULL_INPUT_VALID = 1 << 13; // Can use nulls as input
+constexpr unsigned SSAF_FENCE          = 1 << 14; 
 
 // Parameter indexes for SSA ops
 namespace ssai
 {
     namespace rw_ptr
     {
-        constexpr unsigned ORDER_AFTER = 0;
-        constexpr unsigned PTR         = 1;
-        constexpr unsigned PTR_HI      = 2;
-        constexpr unsigned BANK        = 3;
-        constexpr unsigned INDEX       = 4;
-        constexpr unsigned ASSIGNMENT  = 5;
+        //constexpr unsigned ORDER_AFTER = 0;
+        constexpr unsigned PTR         = 0;
+        constexpr unsigned PTR_HI      = 1;
+        constexpr unsigned BANK        = 2;
+        constexpr unsigned INDEX       = 3;
+        constexpr unsigned ASSIGNMENT  = 4;
     }
 }
 
@@ -107,7 +108,10 @@ inline unsigned write_globals_begin(ssa_op_t op)
     assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
     switch(op)
     {
-    case SSA_return: return 0;
+    case SSA_wait_nmi:
+    case SSA_fence:
+    case SSA_return: 
+        return 0;
     case SSA_fn_call: return 1;
     case SSA_goto_mode: return 2;
     default: assert(false); return 0;

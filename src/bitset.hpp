@@ -375,11 +375,130 @@ void bitset_mark_consecutive(std::size_t size, UInt* bitset, std::size_t consec_
     bitset_and(size, bitset, temp);
 }
 
+template<typename Derived, typename value_type = bitset_uint_t>
+struct bitset_base_t
+{
+    std::size_t size_in_bits() const { return d().size() * sizeof(value_type) * CHAR_BIT; }
+
+    [[gnu::flatten]]
+    void clear(value_type bit) { bitset_clear(d().data(), bit); }
+
+    [[gnu::flatten]]
+    void set(value_type bit) { bitset_set(d().data(), bit); }
+
+    [[gnu::flatten]]
+    void set(value_type bit, bool b) { bitset_set(d().data(), bit, b); }
+
+    [[gnu::flatten]]
+    void flip(value_type bit) { bitset_flip(d().data(), bit); }
+
+    [[gnu::flatten]]
+    bool test(value_type bit) const { return bitset_test(d().data(), bit); }
+
+    [[gnu::flatten]]
+    void set_n(std::size_t n) { bitset_set_n(d().size(), d().data(), n); }
+
+    [[gnu::flatten]]
+    void set_n(std::size_t start, std::size_t n) { bitset_set_n(d().size(), d().data(), start, n); }
+
+    [[gnu::flatten]]
+    void clear_all() { bitset_clear_all(d().size(), d().data()); }
+
+    [[gnu::flatten]]
+    void set_all() { bitset_set_all(d().size(), d().data()); }
+
+    [[gnu::flatten]]
+    bool all_clear() const { return bitset_all_clear(d().size(), d().data()); }
+
+    [[gnu::flatten]]
+    constexpr void flip_all() { bitset_flip_all(d().size(), d().data()); }
+
+    [[gnu::flatten]]
+    std::size_t popcount() const { return bitset_popcount(d().size(), d().data()); }
+
+    [[gnu::flatten]]
+    int lowest_bit_set() const { return bitset_lowest_bit_set(d().size(), d().data()); }
+
+    template<typename Bit = unsigned, typename Fn>
+    void for_each(Fn const& fn) const { bitset_for_each<Bit>(d().size(), d().data(), fn); }
+
+    template<typename Bit = unsigned, typename Fn>
+    bool for_each_test(Fn const& fn) const { return bitset_for_each_test<Bit>(d().size(), d().data(), fn); }
+
+    [[gnu::flatten]]
+    value_type const& operator[](std::size_t i) const { return d().data()[i]; }
+
+    [[gnu::flatten]]
+    value_type& operator[](std::size_t i) { return d().data()[i]; }
+
+    [[gnu::flatten]]
+    Derived& operator&=(Derived const& rhs)
+    {
+        assert(d().size() == rhs.size());
+        bitset_and(d().size(), d().data(), rhs.data());
+        return d();
+    }
+
+    [[gnu::flatten]]
+    Derived& operator|=(Derived const& rhs)
+    {
+        assert(d().size() == rhs.size());
+        bitset_or(d().size(), d().data(), rhs.data());
+        return d();
+    }
+
+    [[gnu::flatten]]
+    Derived& operator^=(Derived const& rhs)
+    {
+        assert(d().size() == rhs.size());
+        bitset_xor(d().size(), d().data(), rhs.data());
+        return d();
+    }
+
+    [[gnu::flatten]]
+    Derived& operator-=(Derived const& rhs)
+    {
+        assert(d().size() == rhs.size());
+        bitset_difference(d().size(), d().data(), rhs.data());
+        return d();
+    }
+
+    [[gnu::flatten]]
+    Derived& operator<<=(value_type rhs)
+    {
+        bitset_lshift(d().size(), d().data(), rhs);
+        return d();
+    }
+
+    [[gnu::flatten]]
+    Derived& operator>>=(value_type rhs)
+    {
+        bitset_rshift(d().size(), d().data(), rhs);
+        return d();
+    }
+
+    auto begin() const { return d().data(); }
+    auto end() const { return d().data() + d().size(); }
+    auto begin() { return d().data(); }
+    auto end() { return d().data() + d().size(); }
+
+    auto operator<=>(bitset_base_t const& o) const = default;
+    auto operator<=>(Derived const& o) const
+    {
+        return std::lexicographical_compare_three_way(
+            begin(), end(), o.begin(), o.end());
+    }
+        
+private:
+    Derived const& d() const { return *static_cast<Derived const*>(this); }
+    Derived& d() { return *static_cast<Derived*>(this); }
+};
+
 // A shitty bitset class that exists because std::bitset abstracts too much.
 // 'aggregate_bitset_t' is an aggregate class and can use
 // any unsigned integer type.
 template<typename UInt, std::size_t N>
-struct alignas(128) aggregate_bitset_t
+struct alignas(128) aggregate_bitset_t : public bitset_base_t<aggregate_bitset_t<UInt, N>, UInt>
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
 
@@ -392,108 +511,18 @@ struct alignas(128) aggregate_bitset_t
 
     array_type array;
 
-    constexpr auto operator<=>(aggregate_bitset_t const&) const = default;
-
     UInt const* data() const { return array.data(); }
     UInt* data() { return array.data(); }
-
     constexpr std::size_t size() const { return num_ints; }
 
-    [[gnu::flatten]]
-    void clear(UInt bit) { bitset_clear(data(), bit); }
-
-    [[gnu::flatten]]
-    void set(UInt bit) { bitset_set(data(), bit); }
-
-    [[gnu::flatten]]
-    void set(UInt bit, bool b) { bitset_set(data(), bit, b); }
-
-    [[gnu::flatten]]
-    void flip(UInt bit) { bitset_flip(data(), bit); }
-
-    [[gnu::flatten]]
-    bool test(UInt bit) const { return bitset_test(data(), bit); }
-
-    [[gnu::flatten]]
-    void clear_all() { bitset_clear_all(N, data()); }
-
-    [[gnu::flatten]]
-    void set_all() { bitset_set_all(N, data()); }
-
-    bool all_clear() const { return bitset_all_clear(N, data()); }
-
-    [[gnu::flatten]]
-    constexpr void flip_all()
-    { 
-        for(UInt& i : array)
-            i = ~i;
-    }
-
-    [[gnu::flatten]]
-    std::size_t popcount() const { return bitset_popcount(N, data()); }
-
-    int lowest_bit_set() const { return bitset_lowest_bit_set(N, data()); }
+    constexpr auto operator<=>(aggregate_bitset_t const& o) const = default;
 
     static constexpr aggregate_bitset_t filled();
     static aggregate_bitset_t filled(std::size_t start, std::size_t size);
-
-    template<typename Bit = unsigned, typename Fn>
-    void for_each(Fn const& fn) const { bitset_for_each<Bit>(size(), data(), fn); }
-
-    template<typename Bit = unsigned, typename Fn>
-    bool for_each_test(Fn const& fn) const { return bitset_for_each_test<Bit>(size(), data(), fn); }
 };
 
 template<std::size_t Bits>
 using static_bitset_t = aggregate_bitset_t<bitset_uint_t, (Bits + sizeof_bits<bitset_uint_t> - 1) / sizeof_bits<bitset_uint_t>>;
-
-template<typename UInt, std::size_t N> [[gnu::flatten]]
-aggregate_bitset_t<UInt, N>& operator&=(aggregate_bitset_t<UInt, N>& lhs,
-                                        aggregate_bitset_t<UInt, N> const& rhs)
-{
-    bitset_and(N, lhs.data(), rhs.data());
-    return lhs;
-}
-
-template<typename UInt, std::size_t N> [[gnu::flatten]]
-aggregate_bitset_t<UInt, N>& operator|=(aggregate_bitset_t<UInt, N>& lhs,
-                                        aggregate_bitset_t<UInt, N> const& rhs)
-{
-    bitset_or(N, lhs.data(), rhs.data());
-    return lhs;
-}
-
-template<typename UInt, std::size_t N> [[gnu::flatten]]
-aggregate_bitset_t<UInt, N>& operator^=(aggregate_bitset_t<UInt, N>& lhs,
-                                      aggregate_bitset_t<UInt, N> const& rhs)
-{
-    bitset_xor(N, lhs.data(), rhs.data());
-    return lhs;
-}
-
-template<typename UInt, std::size_t N> [[gnu::flatten]]
-aggregate_bitset_t<UInt, N>& operator-=(aggregate_bitset_t<UInt, N>& lhs,
-                                        aggregate_bitset_t<UInt, N> const& rhs)
-{
-    bitset_difference(N, lhs.data(), rhs.data());
-    return lhs;
-}
-
-template<typename UInt, std::size_t N> [[gnu::flatten]]
-aggregate_bitset_t<UInt, N>& operator<<=(aggregate_bitset_t<UInt, N>& lhs,
-                                         std::size_t amount)
-{
-    bitset_lshift(N, lhs.data(), amount);
-    return lhs;
-}
-
-template<typename UInt, std::size_t N> [[gnu::flatten]]
-aggregate_bitset_t<UInt, N>& operator>>=(aggregate_bitset_t<UInt, N>& lhs,
-                                         std::size_t amount)
-{
-    bitset_rshift(N, lhs.data(), amount);
-    return lhs;
-}
 
 template<typename UInt, std::size_t N>
 aggregate_bitset_t<UInt, N> operator&(aggregate_bitset_t<UInt, N> lhs,
@@ -567,7 +596,7 @@ aggregate_bitset_t<UInt, N>::filled(std::size_t start, std::size_t size)
 }
 
 // Dynamically allocates its memory.
-class bitset_t
+class bitset_t : public bitset_base_t<bitset_t>
 {
 public:
     using value_type = bitset_uint_t;
@@ -585,7 +614,7 @@ public:
     bitset_t(bitset_t&& o) = default;
 
     explicit bitset_t(std::size_t num_ints)
-    : m_ptr(new value_type[num_ints]())
+    : m_ptr(num_ints ? new value_type[num_ints]() : nullptr)
     , m_size(num_ints)
     {}
 
@@ -599,100 +628,82 @@ public:
 
     bitset_t& operator=(bitset_t&& o) = default;
 
-    bitset_uint_t const& operator[](std::size_t i) const { return data()[i]; }
-    bitset_uint_t& operator[](std::size_t i) { return data()[i]; }
-
     value_type const* data() const { return m_ptr.get(); }
     value_type* data() { return m_ptr.get(); }
-
     constexpr std::size_t size() const { return m_size; }
-    constexpr std::size_t num_bits() const { return m_size * bits_per_int; }
 
-    constexpr explicit operator bool() const { return size(); }
+    explicit operator bool() const { return m_ptr.get(); }
 
     void reset(std::size_t num_ints)
     {
+        if(m_size == num_ints)
+        {
+            clear_all();
+            return;
+        }
         m_ptr.reset(num_ints ? new value_type[num_ints]() : nullptr);
         m_size = num_ints;
     }
-
-    [[gnu::flatten]]
-    void clear(value_type bit) { assert(bit < num_bits()); bitset_clear(data(), bit); }
-
-    [[gnu::flatten]]
-    void set(value_type bit) { assert(bit < num_bits()); bitset_set(data(), bit); }
-
-    [[gnu::flatten]]
-    void set(value_type bit, bool b) { assert(bit < num_bits()); bitset_set(data(), bit, b); }
-
-    [[gnu::flatten]]
-    void flip(value_type bit) { assert(bit < num_bits()); bitset_flip(data(), bit); }
-
-    [[gnu::flatten]]
-    bool test(value_type bit) const { assert(bit < num_bits()); return bitset_test(data(), bit); }
-
-    [[gnu::flatten]]
-    void clear_all() { bitset_clear_all(size(), data()); }
-
-    [[gnu::flatten]]
-    void set_all() { bitset_set_all(size(), data()); }
-
-    [[gnu::flatten]]
-    void flip_all() { bitset_flip_all(size(), data()); }
-
-    bool all_clear() const { return bitset_all_clear(size(), data()); }
-
-    [[gnu::flatten]]
-    std::size_t popcount() const { return bitset_popcount(size(), data()); }
-
-    template<typename Bit = unsigned, typename Fn>
-    void for_each(Fn const& fn) const { bitset_for_each<Bit>(size(), data(), fn); }
-
-    template<typename Bit = unsigned, typename Fn>
-    bool for_each_test(Fn const& fn) const { return bitset_for_each_test<Bit>(size(), data(), fn); }
 
 private:
     std::unique_ptr<value_type[]> m_ptr;
     std::size_t m_size = 0; // in ints, NOT bits
 };
 
-[[gnu::flatten]]
-inline bitset_t& operator&=(bitset_t& lhs, bitset_t const& rhs)
+// Dynamically allocates its memory.
+template<typename SizeBase>
+class xbitset_t : public bitset_base_t<xbitset_t<SizeBase>>
 {
-    assert(lhs.size() == rhs.size());
-    bitset_and(lhs.size(), lhs.data(), rhs.data());
-    return lhs;
-}
+public:
+    using size_base = SizeBase;
+    using value_type = bitset_uint_t;
+    static constexpr std::size_t bits_per_int = sizeof(value_type) * CHAR_BIT;
 
-[[gnu::flatten]]
-inline bitset_t& operator|=(bitset_t& lhs, bitset_t const& rhs)
-{
-    assert(lhs.size() == rhs.size());
-    bitset_or(lhs.size(), lhs.data(), rhs.data());
-    return lhs;
-}
+    xbitset_t() = default;
+    explicit xbitset_t(std::nullptr_t) { alloc(); }
 
-[[gnu::flatten]]
-inline bitset_t& operator^=(bitset_t& lhs, bitset_t const& rhs)
-{
-    assert(lhs.size() == rhs.size());
-    bitset_xor(lhs.size(), lhs.data(), rhs.data());
-    return lhs;
-}
+    xbitset_t(xbitset_t const& o)
+    {
+        if(o.data())
+            alloc();
+        assert(size() == o.size());
+        std::copy(o.data(), o.data() + o.size(), data());
+    }
 
-[[gnu::flatten]]
-inline bitset_t& operator<<=(bitset_t& lhs, std::size_t amount)
-{
-    bitset_lshift(lhs.size(), lhs.data(), amount);
-    return lhs;
-}
+    xbitset_t(xbitset_t&& o) = default;
 
-[[gnu::flatten]]
-inline bitset_t& operator>>=(bitset_t& lhs, std::size_t amount)
-{
-    bitset_rshift(lhs.size(), lhs.data(), amount);
-    return lhs;
-}
+    xbitset_t& operator=(xbitset_t const& o)
+    {
+        if(o.data())
+            alloc();
+        assert(!!data() == !!o.data());
+        std::copy(o.data(), o.data() + o.size(), data());
+        return *this;
+    }
+
+    xbitset_t& operator=(xbitset_t&& o) = default;
+
+    value_type const* data() const { assert(m_ptr.get()); return m_ptr.get(); }
+    value_type* data() { assert(m_ptr.get()); return m_ptr.get(); }
+
+    constexpr std::size_t size() const { return SizeBase::bitset_size(); }
+    constexpr std::size_t num_bits() const { return size() * bits_per_int; }
+
+    explicit operator bool() const { return m_ptr.get(); }
+
+    void alloc() { if(!m_ptr.get()) m_ptr.reset(new value_type[size()]()); }
+    void free() { m_ptr.reset(nullptr); }
+
+    template<typename Fn>
+    void for_each(Fn const& fn) const { ::bitset_for_each<SizeBase>(size(), data(), fn); }
+
+    template<typename Fn>
+    bool for_each_test(Fn const& fn) const { return ::bitset_for_each_test<SizeBase>(size(), data(), fn); }
+
+
+private:
+    std::unique_ptr<value_type[]> m_ptr;
+};
 
 #endif
 

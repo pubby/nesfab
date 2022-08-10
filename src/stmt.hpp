@@ -42,7 +42,9 @@ struct stmt_mods_ht : handle_t<stmt_mods_ht, std::uint16_t, ~0> {};
     X(STMT_CONTINUE,   0)\
     X(STMT_LABEL,      0)\
     X(STMT_GOTO,       0) \
-    X(STMT_GOTO_MODE,  true)
+    X(STMT_GOTO_MODE,  true) \
+    X(STMT_NMI,        0) \
+    X(STMT_FENCE,      0)
 
 // Negative values represent var inits, where the negated value 
 // holds the bitwise negated index of the fn variable.

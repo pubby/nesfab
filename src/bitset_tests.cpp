@@ -10,7 +10,7 @@ void test_fill(bitset_t& bs, unsigned start, unsigned size)
     REQUIRE(bs.all_clear());
     bitset_set_n(bs.size(), bs.data(), start, size);
 
-    for(unsigned bit = 0; bit < bs.num_bits(); ++bit)
+    for(unsigned bit = 0; bit < bs.size_in_bits(); ++bit)
     {
         INFO("bit = " << bit);
         REQUIRE(bs.test(bit) == (bit >= start && bit < start + size));

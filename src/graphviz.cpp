@@ -89,6 +89,8 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
         for(unsigned i = 0; i < ssa_it->input_size(); ++i)
         {
             ssa_value_t input = ssa_it->input(i);
+            if(!input)
+                continue;
             if(input.is_const())
             {
                 if(fn_like(ssa_it->op()) && i == 0)

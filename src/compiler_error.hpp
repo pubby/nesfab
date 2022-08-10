@@ -34,6 +34,9 @@ std::string fmt_note(std::string const& what);
 std::string fmt_note(pstring_t pstring, std::string const& what,
                      file_contents_t const* file = nullptr);
 
+std::string fmt_warning(pstring_t pstring, std::string const& what,
+                     file_contents_t const* file = nullptr);
+
 [[gnu::noreturn]] 
 void compiler_error(pstring_t pstring, std::string const& what, 
                     file_contents_t const* file = nullptr);
@@ -41,6 +44,6 @@ void compiler_error(pstring_t pstring, std::string const& what,
 void compiler_warning(pstring_t pstring, std::string const& what, 
                       file_contents_t const* file = nullptr);
 
-void compiler_warning(std::string const& what);
+void compiler_warning(std::string const& what, bool formatted = false);
 
 #endif

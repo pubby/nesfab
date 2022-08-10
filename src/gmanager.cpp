@@ -116,6 +116,7 @@ void gmanager_t::init(fn_ht fn)
         };
 
         // Split calls.
+        bitset_uint_t* const temp = ALLOCA_T(bitset_uint_t, set_size);
         for(auto const& pair : fn->precheck_tracked().calls)
         {
             fn_t const& call = *pair.first;
@@ -125,6 +126,14 @@ void gmanager_t::init(fn_ht fn)
             assert(call.fclass != FN_MODE);
 
             split(set_size, call.ir_reads().data(), call.ir_writes().data());
+
+            // If it waits on an NMI, split using the NMI's reads and writes.
+            if(call.precheck_fences())
+            {
+                bitset_copy(bitset_size(), temp, call.fence_reads().data());
+                bitset_or(bitset_size(), temp, call.fence_writes().data());
+                split(set_size, temp, temp);
+            }
         }
 
         // Split goto modes.
@@ -162,6 +171,7 @@ void gmanager_t::init(fn_ht fn)
     // DEREF GROUPS //
     //////////////////
 
+    /* TODO
     {
         rh::batman_map<group_vars_ht, group_vars_ht> union_map;
 
@@ -211,6 +221,7 @@ void gmanager_t::init(fn_ht fn)
             group_vars_map.insert({ pair.first, index_t{ result.first->second + offset }});
         }
     }
+    */
 }
 
 auto gmanager_t::var_i(gvar_ht gvar) const -> index_t
@@ -231,6 +242,7 @@ auto gmanager_t::var_i(gmember_ht gmember) const -> index_t
     return {};
 }
 
+/*
 auto gmanager_t::ptr_i(group_vars_ht group_vars) const -> index_t
 {
     if(auto const* pair = group_vars_map.lookup(group_vars))

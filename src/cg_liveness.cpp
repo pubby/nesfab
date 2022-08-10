@@ -219,7 +219,10 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
             });
         }
     }
-    else if(inst.op == RTS_IMPLIED)
+
+    if((op_flags(inst.op) & ASMF_RETURN) 
+       || ((op_flags(inst.op) & (ASMF_JUMP | ASMF_BRANCH)) 
+           && !is_label(inst.arg.lclass()))) // This can include jumps to fns
     {
         // Every return will be "read" by the rts:
         lvars.for_each_lvar(true, [&](locator_t loc, unsigned i)
@@ -234,7 +237,7 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
                 rw(i, fn.ir_writes().test(loc.gmember().id), false);
         });
     }
-    else
+    else if(inst.arg.lclass() != LOC_FN) // fns handled earlier.
     {
         auto test_loc = [&](locator_t loc)
         {
@@ -401,7 +404,7 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
         {
             asm_inst_t& inst = *it;
 
-            if(inst.op == JSR_ABSOLUTE)
+            if(op_flags(inst.op) & ASMF_CALL)
             {
                 if(inst.arg.lclass() == LOC_FN)
                 {
@@ -414,6 +417,13 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
                             lvars.add_fn_interference(i, call_h);
                     });
                 }
+                /* TODO
+                else if(inst.arg.lclass() == LOC_RUNTIME_ROM 
+                        && inst.arg.runtime_rom() == RTROM_wait_nmi)
+                {
+                    lvars.add_nmi_interference(live);
+                }
+                */
             }
             else if(inst.arg)
             {

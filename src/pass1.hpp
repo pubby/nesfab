@@ -43,7 +43,9 @@ private:
 
     void validate_mods(
         char const* keyword, pstring_t pstring, mods_t& mods, 
-        mod_flags_t accepts_flags = 0, bool accepts_vars = false, bool accepts_data = false)
+        mod_flags_t accepts_flags = 0, 
+        bool accepts_vars = false, bool accepts_data = false, 
+        bool accepts_nmi = false)
     {
         if(!mods)
             return;
@@ -60,6 +62,12 @@ private:
         {
             compiler_error(pstring, 
                 fmt("% does not support data modifiers.", title), &file);
+        }
+
+        if(!accepts_nmi && mods.nmi)
+        {
+            compiler_error(pstring, 
+                fmt("% does not support nmi modifier.", title), &file);
         }
 
         mod_flags_t const bad_enable = mods.enable & ~accepts_flags;
@@ -178,7 +186,12 @@ public:
             compiler_error(it->first, "Label not in scope.", &file);
         }
 
-        validate_mods(fn_class_keyword(fclass), decl.name, mods, 0, true, true);
+        validate_mods(fn_class_keyword(fclass), decl.name, mods, 
+            0, // flags
+            fclass != FN_CT, // vars
+            fclass != FN_CT, // data
+            fclass == FN_MODE // nmi
+            );
 
         // Create the global:
         active_global->define_fn(
@@ -189,6 +202,7 @@ public:
     }
 
     // Functions
+    /* TODO: remove
     [[gnu::always_inline]]
     var_decl_t begin_mode(pstring_t mode_name, 
                           var_decl_t const* params_begin, var_decl_t const* params_end)
@@ -264,6 +278,7 @@ public:
         ideps.clear();
         weak_ideps.clear();
     }
+*/
 
     [[gnu::always_inline]]
     pstring_t begin_struct(pstring_t struct_name)
@@ -654,6 +669,20 @@ public:
 
         fn_def.push_stmt(
             { STMT_GOTO_MODE, fn_def.push_mods(std::move(mods)), {}, mode, convert_expr(expr) });
+    }
+
+    [[gnu::always_inline]]
+    void nmi_statement(pstring_t pstring, mods_t&& mods)
+    {
+        validate_mods("nmi", pstring, mods);
+        fn_def.push_stmt({ STMT_NMI, fn_def.push_mods(std::move(mods)), {}, pstring });
+    }
+
+    [[gnu::always_inline]]
+    void fence_statement(pstring_t pstring, mods_t&& mods)
+    {
+        validate_mods("fence", pstring, mods);
+        fn_def.push_stmt({ STMT_FENCE, fn_def.push_mods(std::move(mods)), {}, pstring });
     }
 };
 

@@ -36,19 +36,39 @@ class rom_key_t
 class rom_data_t
 {
 public:
-    explicit rom_data_t(rom_alloc_ht alloc = {}) : m_alloc() {}
+    rom_data_t(romv_allocs_t const& a, romv_flags_t desired_romv) 
+    : m_allocs(a)
+    , m_desired_romv(desired_romv)
+    {}
 
-    rom_alloc_ht alloc() const { return m_alloc; }
-    void set_alloc(rom_alloc_ht alloc, rom_key_t) { m_alloc = alloc; }
+    rom_alloc_ht get_alloc(unsigned romv) const 
+    {
+        assert(romv < m_allocs.size()); 
+        return m_allocs[romv];
+    }
 
-    bool emits() const { return m_emits; }
-    void mark_emits() { m_emits.store(true); }
+    rom_alloc_ht find_alloc(unsigned romv) const 
+    { 
+        assert(romv < m_allocs.size()); 
+        rom_alloc_ht h = m_allocs[romv]; 
+        for(unsigned i = 0; !h && i < NUM_ROMV; ++i)
+            h = m_allocs[i];
+        return h;
+    }
+
+    void set_alloc(unsigned romv, rom_alloc_ht alloc, rom_key_t) 
+        { assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM); m_allocs[romv] = alloc; }
+
+    romv_flags_t desired_romv() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_desired_romv; }
+    bool emits() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_emits; }
+    void mark_emits() { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); m_emits.store(true); }
 
 protected:
     // These are used later on, when the rom is actually allocated.
-    rom_alloc_ht m_alloc;
+    romv_allocs_t m_allocs = {};
 
     std::atomic<bool> m_emits = false;
+    std::atomic<romv_flags_t> m_desired_romv = 0;
 };
 
 // Tracks a non-code segment of data that is represented as a loc_vec_t,
@@ -56,7 +76,7 @@ protected:
 class rom_array_t : public rom_data_t
 {
 public:
-    rom_array_t(loc_vec_t&& vec, rom_alloc_ht alloc, rom_key_t const&);
+    rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t const&);
 
     void mark_used_by(group_data_ht group);
 
@@ -66,7 +86,7 @@ public:
     auto const& used_in_group_data() const { assert(compiler_phase() > rom_array_ht::phase); return m_used_in_group_data; }
 
     // Use this to construct globally:
-    static rom_array_ht make(loc_vec_t&& vec, group_data_ht={}, rom_alloc_ht alloc={});
+    static rom_array_ht make(loc_vec_t&& vec, group_data_ht={}, romv_allocs_t const& a={});
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 private:
@@ -86,32 +106,35 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc);
 class rom_proc_t : public rom_data_t
 {
 public:
-    explicit rom_proc_t(rom_alloc_ht alloc = {}) : rom_data_t(alloc) {}
-    rom_proc_t(asm_proc_t&& asm_proc, rom_alloc_ht alloc = {}) 
-    : rom_data_t(alloc)
+    rom_proc_t(romv_allocs_t const& a, romv_flags_t desired_romv) 
+    : rom_data_t(a, desired_romv) 
+    {}
+
+    rom_proc_t(asm_proc_t&& asm_proc, romv_allocs_t const& a, romv_flags_t desired_romv)
+    : rom_data_t(a, desired_romv)
     { assign(std::move(asm_proc)); }
 
     // Sets the proc's state.
     // BE CAREFUL. NO SYNCHRONIZATION!
     void assign(asm_proc_t&& asm_proc);
-    
+
     // BE CAREFUL. NO SYNCHRONIZATION!
     asm_proc_t const& asm_proc() const { return m_asm_proc; }
-    std::size_t max_size() const { return m_max_size; }
+    unsigned max_size() const { return m_max_size; }
 
-    bitset_t const* uses_groups() const;
+    xbitset_t<group_ht> const* uses_groups() const;
     bool for_each_group_test(std::function<bool(group_ht)> const& fn);
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 private:
     // BE CAREFUL. NO SYNCHRONIZATION!
     asm_proc_t m_asm_proc;
-    std::size_t m_max_size = 0; // Upper-bound on allocation size
+    unsigned m_max_size = 0; // Upper-bound on allocation size
 };
 
 // Generic construction functions:
-rom_data_ht to_rom_data(loc_vec_t&& rom_array, rom_alloc_ht alloc={});
-rom_data_ht to_rom_data(asm_proc_t&& asm_proc, rom_alloc_ht alloc={});
+rom_data_ht to_rom_data(loc_vec_t&& rom_array, romv_allocs_t const& a={});
+rom_data_ht to_rom_data(asm_proc_t&& asm_proc, romv_allocs_t const& a={}, romv_flags_t desired_romv = 0);
 
 ///////////////
 // ROM alloc //
@@ -131,14 +154,14 @@ DEF_HANDLE_HASH(rom_once_ht);
 struct rom_alloc_t
 {
     std::uint16_t desired_alignment = 0;
-    std::uint16_t desired_size = 0;
+    unsigned romv = 0;
     span_t span = {};
     rom_data_ht data = {};
 }; 
 
 struct rom_static_t : public rom_alloc_t
 {
-    explicit rom_static_t(span_t span) { this->span = span; }
+    rom_static_t(unsigned romv, span_t span) { this->romv = romv; this->span = span; }
 
     int only_bank() const { return mapper().num_32k_banks == 1 ? 0 : -1; }
 
@@ -152,7 +175,7 @@ struct rom_static_t : public rom_alloc_t
 
 struct rom_many_t : public rom_alloc_t
 {
-    rom_many_t(rom_data_ht data, std::uint16_t desired_alignment);
+    rom_many_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment);
 
     bank_bitset_t in_banks = {};
 
@@ -164,7 +187,7 @@ struct rom_many_t : public rom_alloc_t
 
 struct rom_once_t : public rom_alloc_t
 {
-    rom_once_t(rom_data_ht data, std::uint16_t desired_alignment);
+    rom_once_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment);
 
     // Set of MANYs that this node depends upon.
     bitset_uint_t* required_manys = nullptr;

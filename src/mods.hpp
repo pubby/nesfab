@@ -38,6 +38,9 @@ struct mods_t
     mod_flags_t enable = 0;
     mod_flags_t disable = 0;
 
+    global_t const* nmi = nullptr;
+    pstring_t nmi_pstring = {};
+
     constexpr explicit operator bool() const { return defined; }
     constexpr bool operator!() const { return !defined; }
 

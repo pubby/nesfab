@@ -71,6 +71,9 @@ SSA_DEF(branch_not_eq, -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 SSA_DEF(branch_lt,     -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 SSA_DEF(branch_lte,    -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 
+SSA_DEF(wait_nmi,      -1, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_WRITE_GLOBALS | SSAF_FENCE)
+SSA_DEF(fence,         -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_FENCE)
+
 ///////////////
 // FUNCTIONS //
 ///////////////
@@ -113,10 +116,10 @@ SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY)
 
 // (order_after, ptr, ptr_hi, bank, index)
 // TODO: should this be impure, because of bankswitches?
-SSA_DEF(read_ptr, 5, INPUT_NONE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_NULL_INPUT_VALID)
+SSA_DEF(read_ptr, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
 
 // (order_after, ptr, ptr_hi, bank, index, value)
-SSA_DEF(write_ptr, 6, INPUT_NONE, SSAF_IO_IMPURE | SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
+SSA_DEF(write_ptr, 5, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
 
 //////////////
 // HARDWARE //

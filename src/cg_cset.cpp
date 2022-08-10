@@ -19,6 +19,20 @@ locator_t asm_arg(ssa_value_t v)
     return locator_t::from_ssa_value(v);
 }
 
+cset_ir_cache_t cset_build_cache(ir_t const& ir)
+{
+    cset_ir_cache_t cache;
+
+    for(cfg_node_t const& cfg : ir)
+    for(ssa_ht ssa = cfg.ssa_begin(); ssa; ++ssa)
+    {
+        if(ssa->op() == SSA_fn_call || (ssa_flags(ssa->op()) & SSAF_FENCE))
+            cache.special.push_back(ssa);
+    }
+
+    return cache;
+}
+
 bool cset_is_head(ssa_ht h) 
     { assert(h); return !cg_data(h).cset_head.holds_ref(); }
 bool cset_is_last(ssa_ht h) 
@@ -190,37 +204,59 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
     return h;
 }
 
-// Checks if 'loc' is used inside 'fn_node'.
-bool fn_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
+// Handles 'loc' interfering with fns and fences.
+bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
 {
-    fn_t const& called = *get_fn(*fn_node);
-
-    switch(loc.lclass())
+    if(fn_node->op() == SSA_fn_call)
     {
-    case LOC_GMEMBER:
-        return called.ir_writes(loc.gmember());
-    case LOC_GMEMBER_SET:
+        // Checks if 'loc' is used inside 'fn_node'.
+        fn_ht const called = get_fn(*fn_node);
+
+        switch(loc.lclass())
         {
-            std::size_t const size = gmanager_t::bitset_size();
-            assert(size == called.ir_reads().size());
+        case LOC_GMEMBER:
+            return called->ir_writes().test(loc.gmember().id);
+        case LOC_GMEMBER_SET:
+            {
+                std::size_t const size = gmanager_t::bitset_size();
+                assert(size == called->ir_reads().size());
 
-            bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
-            bitset_copy(size, bs, called.ir_writes().data());
-            bitset_and(size, bs, ir.gmanager.get_set(loc));
+                bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
+                bitset_copy(size, bs, called->ir_writes().data());
+                bitset_and(size, bs, ir.gmanager.get_set(loc));
 
-            return !bitset_all_clear(size, bs);
+                return !bitset_all_clear(size, bs);
+            }
+        case LOC_ARG:
+        case LOC_RETURN:
+            return loc.fn() == called || called->ir_calls().test(loc.fn().id);
+        default: 
+            return false;
         }
-    case LOC_ARG:
-        return loc.fn() != fn; // TODO: this could be made more accurate
-    case LOC_RETURN:
-        return true; // TODO: this could be made more accurate, as some fns don't clobber these
-    default: 
-        return false;
     }
+    else if(ssa_flags(fn_node->op()) & SSAF_FENCE)
+    {
+        // Checks if 'loc' is stored / read by the fence.
+        switch(loc.lclass())
+        {
+        default: 
+            return false;
+        case LOC_GMEMBER:
+            return fn->fence_writes().test(loc.gmember().id);
+        case LOC_GMEMBER_SET:
+            std::size_t const bs_size = gmember_ht::bitset_size();
+            bitset_uint_t* writes = ALLOCA_T(bitset_uint_t, bs_size);
+            bitset_copy(bs_size, writes, fn->fence_writes().data());
+            bitset_and(bs_size, writes, ir.gmanager.get_set(loc));
+            return !bitset_all_clear(bs_size, writes);
+        }
+    }
+
+    return false;
 }
 
 // If theres no interference, returns a handle to the last node of 'a's cset.
-ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
+ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_ir_cache_t const& cache)
 {
     assert(a && b);
     assert(cset_is_head(a));
@@ -233,18 +269,16 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::v
         return a;
     }
 
-    for(ssa_ht fn_node : fn_nodes)
+    for(ssa_ht node : cache.special)
     {
-        assert(fn_node->op() == SSA_fn_call);
-
-        if(fn_interferes(fn, ir, cset_locator(a), fn_node))
+        if(special_interferes(fn, ir, cset_locator(a), node))
             for(ssa_ht bi = b; bi; bi = cset_next(bi))
-                if(live_at_def(bi, fn_node))
+                if(live_at_def(bi, node))
                     return {};
 
-        if(fn_interferes(fn, ir, cset_locator(b), fn_node))
+        if(special_interferes(fn, ir, cset_locator(b), node))
             for(ssa_ht ai = a; ai; ai = cset_next(ai))
-                if(live_at_def(ai, fn_node))
+                if(live_at_def(ai, node))
                     return {};
     }
 
@@ -265,7 +299,7 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::v
 }
 
 // Returns a handle to the last node of 'a's cset if cset_append can be called with these parameters.
-ssa_ht csets_appendable(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::vector<ssa_ht> const& fn_nodes)
+ssa_ht csets_appendable(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_ir_cache_t const& cache)
 {
     assert(a && b);
     assert(cset_is_head(a));
@@ -274,7 +308,7 @@ ssa_ht csets_appendable(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, std::vecto
     if(!cset_locators_mergable(cset_locator(a), cset_locator(b)))
         return {};
 
-    return csets_dont_interfere(fn, ir, a, b, fn_nodes);
+    return csets_dont_interfere(fn, ir, a, b, cache);
 }
 
 bool cset_live_at_any_def(ssa_ht a, ssa_ht const* b_begin, ssa_ht const* b_end)

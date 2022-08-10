@@ -114,7 +114,7 @@ public:
     }
 
     // If this global has a dependency to 'other'
-    bool has_dep(global_t& other);
+    bool has_dep(global_t const& other) const;
 
     // Helpers that delegate to 'define':
     fn_t& define_fn(
@@ -160,6 +160,7 @@ public:
     static void compile_all();
 
     static std::vector<fn_t*> modes() { assert(compiler_phase() > PHASE_PARSE); return modes_vec; }
+    static std::vector<fn_t*> nmis() { assert(compiler_phase() > PHASE_PARSE); return nmi_vec; }
 private:
     // Sets the variables of the global:
     unsigned define(pstring_t pstring, global_class_t gclass, 
@@ -178,6 +179,10 @@ private:
     // Tracks modes: 
     inline static std::mutex modes_vec_mutex;
     inline static std::vector<fn_t*> modes_vec;
+
+    // Tracks nmis: 
+    inline static std::mutex nmi_vec_mutex;
+    inline static std::vector<fn_t*> nmi_vec;
 
     // These represent a queue of globals ready to be compiled.
     inline static std::condition_variable ready_cv;
@@ -261,10 +266,19 @@ struct mode_impl_t : public fn_impl_base_t
     fc::small_map<group_ht, pstring_t, 16> incoming_preserved_groups;
 };
 
+struct nmi_impl_t : public fn_impl_base_t
+{
+    static constexpr fn_class_t fclass = FN_NMI;
+    unsigned index = ~0;
+    xbitset_t<fn_ht> used_in_modes;
+};
+
 struct precheck_tracked_t
 {
     fc::vector_map<group_ht, src_type_t> deref_groups;
     rh::batman_set<type_t> deref_types;
+    std::vector<stmt_ht> wait_nmis;
+    std::vector<stmt_ht> fences;
     std::vector<std::pair<fn_ht, stmt_ht>> goto_modes;
     fc::vector_map<fn_ht, pstring_t> calls;
     fc::vector_map<gvar_ht, pstring_t> gvars_used;
@@ -281,6 +295,7 @@ struct precheck_tracked_t
 
 class fn_t
 {
+friend class global_t;
 public:
     static constexpr global_class_t global_class = GLOBAL_FN;
     using handle_t = fn_ht;
@@ -294,8 +309,28 @@ public:
 
     void compile();
 
+    fn_ht mode_nmi() const; // Returns the NMI of this mode.
+    unsigned nmi_index() const;
+    xbitset_t<fn_ht> const& nmi_used_in_modes() const; 
+
     precheck_tracked_t const& precheck_tracked() const { assert(m_precheck_tracked); return *m_precheck_tracked; }
-    bitset_t const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
+    auto const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
+    auto const& precheck_parent_modes() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_parent_modes; }
+    auto const& precheck_rw() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_rw; }
+    auto precheck_romv() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_romv; }
+    bool precheck_fences() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_fences; }
+
+    /* TODO
+    template<typename Fn>
+    void precheck_for_each_fenced_nmi(Fn const& fn)
+    {
+        if(!precheck_fences())
+            return;
+        for(fn_ht mode : precheck_called_from_modes())
+            fn(mode->mode_nmi());
+    }
+    */
+
     /*
     bitset_t const& lang_preserves_group_vars() const 
     { 
@@ -305,28 +340,36 @@ public:
     */
 
     // These are only valid after 'calc_ir_reads_writes_purity' has ran.
-    bitset_t const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
-    bitset_t const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
-    bitset_t const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
-    bitset_t const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
-    bitset_t const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
+    auto const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
+    auto const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
+    auto const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
+    auto const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
+    auto const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
+    bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
 
-    bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
-    bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
+    auto const& avail_reads(bool known_compiled) const { return known_compiled ? ir_reads() : precheck_rw(); }
+    auto const& avail_writes(bool known_compiled) const { return known_compiled ? ir_writes() : precheck_rw(); }
+
+    auto const& fence_reads() const { assert(m_fence_reads); return m_fence_reads; }
+    auto const& fence_writes() const { assert(m_fence_writes); return m_fence_writes; }
+
+    //bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
+    //bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
 
     rom_proc_ht rom_proc() const { return m_rom_proc; }
 
     void assign_lvars(lvars_manager_t&& lvars);
     lvars_manager_t const& lvars() const { assert(compiler_phase() >= PHASE_COMPILE); return m_lvars; }
     
-    void assign_lvar_span(unsigned lvar_i, span_t span);
-    span_t lvar_span(int lvar_i) const;
-    span_t lvar_span(locator_t loc) const;
+    void assign_lvar_span(unsigned romv, unsigned lvar_i, span_t span);
+    span_t lvar_span(unsigned romv, int lvar_i) const;
+    span_t lvar_span(unsigned romv, locator_t loc) const;
 
     void precheck_eval();
     void precheck_propagate();
-    void precheck_verify() const;
+    void precheck_finish_mode() const;
+    void precheck_finish_nmi() const;
 
 public:
     global_t& global;
@@ -347,36 +390,42 @@ private:
 
     // TODO
     std::unique_ptr<precheck_tracked_t> m_precheck_tracked;
-    bitset_t m_precheck_group_vars;
+    xbitset_t<group_vars_ht> m_precheck_group_vars;
+    xbitset_t<gmember_ht> m_precheck_rw; // TODO: replace with more accurate reads and writes
+    xbitset_t<fn_ht> m_precheck_calls; // TODO: remove?
+    fc::vector_set<fn_ht> m_precheck_parent_modes;
+    romv_flags_t m_precheck_romv = 0;
+    // If the function (or a called fn) waits on NMI
+    bool m_precheck_wait_nmi = false; // TODO: remove?
+    bool m_precheck_fences = false; // TODO: remove?
 
-    // 'lang_gvars' is calculated shortly after parsing.
-    bitset_t m_lang_gvars;
-    // Groups are calculated later on, in 'compile'.
-    bitset_t m_lang_group_vars;
-    // Subset of above. Group vars preserved in goto mode statements.
-    // Calculated shortly after parsing.
-    bitset_t m_lang_preserves_group_vars; // Lazily allocated. Can be null.
+    // TODO: describe
+    xbitset_t<gmember_ht> m_fence_reads;
+    xbitset_t<gmember_ht> m_fence_writes;
 
     // Bitsets of all global vars read/written in fn (deep)
     // These get assigned by 'calc_reads_writes_purity'.
     // The thread synchronization is implicit in the order of compilation.
-    bitset_t m_ir_reads;
-    bitset_t m_ir_writes;
-    bitset_t m_ir_group_vars;
-    bitset_t m_ir_deref_groups;
-    bitset_t m_ir_calls;
+    xbitset_t<gmember_ht> m_ir_reads;
+    xbitset_t<gmember_ht> m_ir_writes;
+    xbitset_t<group_vars_ht> m_ir_group_vars;
+    xbitset_t<group_ht> m_ir_deref_groups;
+    xbitset_t<fn_ht> m_ir_calls;
 
-    // If the function doesn't do I/O.
+    // If the function (and called fns) doesn't do I/O.
     // (Using mutable memory state is OK.)
     // Gets set by 'calc_reads_writes_purity'.
     bool m_ir_io_pure = false;
+
+    // If the function (or a called fn) waits on NMI
+    bool m_ir_fences = false;
 
     // Holds the assembly code generated.
     rom_proc_ht m_rom_proc;
 
     // Aids in allocating RAM for local variables:
     lvars_manager_t m_lvars;
-    std::vector<span_t> m_lvar_spans;
+    std::array<std::vector<span_t>, NUM_ROMV> m_lvar_spans;
 };
 
 // Base class for vars and consts.

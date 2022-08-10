@@ -6,6 +6,7 @@
 #include <cassert>
 #include <memory>
 #include <vector>
+#include <deque>
 #include <list>
 
 // A simple allocator that only supports allocation, not free.
@@ -110,7 +111,7 @@ public:
         used_size = 0;
 
         if(used)
-            used->free();
+            used->destruct_owned();
 
         // Move the used list onto the free list.
         if(first_free)
@@ -171,7 +172,7 @@ private:
     {
         if(!used || (used->size + size) > ChunkSize)
         {
-            std::unique_ptr<buffer_t> old_buffer = std::move(used);
+            std::unique_ptr<buffer_t, deleter_t> old_buffer = std::move(used);
 
             // Allocate the memory
             if(free)
@@ -213,15 +214,14 @@ private:
         return false;
     }
 
-    class buffer_t
+    struct buffer_t
     {
-    public:
         ~buffer_t()
         {
-            free();
+            destruct_owned();
         }
 
-        void free()
+        void destruct_owned()
         {
             // Implement non-recursively, to avoid stack overflows
             for(buffer_t* buf = this; buf; buf = buf->prev)
@@ -251,8 +251,22 @@ private:
         buffer_t* prev = nullptr;
     };
 
-    std::unique_ptr<buffer_t> used;
-    std::unique_ptr<buffer_t> free;
+    struct deleter_t
+    {
+        void operator()(buffer_t* buf)
+        {
+            // Implement non-recursively, to avoid stack overflows
+            while(buf)
+            {
+                buffer_t* prev = buf->prev;
+                delete buf;
+                buf = prev;
+            }
+        }
+    };
+
+    std::unique_ptr<buffer_t, deleter_t> used;
+    std::unique_ptr<buffer_t, deleter_t> free;
     std::list<std::vector<T>> oversized;
     std::size_t used_size = 0;
     buffer_t* first_used = nullptr;

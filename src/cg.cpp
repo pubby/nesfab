@@ -267,8 +267,8 @@ void code_gen(ir_t& ir, fn_t& fn)
         std::map<locator_t, bc::small_vector<ssa_bck_edge_t, 1>> const_stores; 
     };
 
-    // A list of all SSA_fn_call nodes
-    std::vector<ssa_ht> fn_nodes;
+    // Build a cache of the IR to be used by various cset functions:
+    auto const cache = cset_build_cache(ir);
 
     // Maps specific locators - global reads and writes - to their copies.
     rh::batman_map<locator_t, global_loc_data_t> global_loc_map;
@@ -365,9 +365,6 @@ void code_gen(ir_t& ir, fn_t& fn)
                     ld.copies.push_back({ store });
                 }
             }
-
-            if(op == SSA_fn_call)
-                fn_nodes.push_back(ssa_it);
 
             ir.assert_valid();
         }
@@ -517,7 +514,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         if(ld.cset)
         {
             assert(cset_is_head(node));
-            ssa_ht last = csets_dont_interfere(fn.handle(), ir, ld.cset, node, fn_nodes);
+            ssa_ht last = csets_dont_interfere(fn.handle(), ir, ld.cset, node, cache);
             if(!last) // If they interfere
                 return false;
             // It can be coalesced; add it to the cset.
@@ -526,9 +523,9 @@ void code_gen(ir_t& ir, fn_t& fn)
         }
         else
         {
-            for(ssa_ht fn_node : fn_nodes)
-                if(fn_interferes(fn.handle(), ir, loc, fn_node))
-                    if(live_at_def(node, fn_node))
+            for(ssa_ht node : cache.special)
+                if(special_interferes(fn.handle(), ir, loc, node))
+                    if(live_at_def(node, node))
                         return false;
 
             // It can be coalesced; create a new set out of it;
@@ -689,7 +686,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             ssa_ht cset = cset_head(phi_it->input(i).handle());
             ssa_ht phi_cset = cset_head(phi_it);
 
-            if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, cset, phi_cset, fn_nodes))
+            if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, cset, phi_cset, cache))
                 cset_append(last, phi_cset);
 
             break;
@@ -720,7 +717,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         assert(cset_locators_mergable(cset_locator(copy_cset), cset_locator(candidate_cset)));
 
-        if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, copy_cset, candidate_cset, fn_nodes))
+        if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, copy_cset, candidate_cset, cache))
             cset_append(last, candidate_cset);
         else
             prune_early_store(candidate);
@@ -752,7 +749,7 @@ void code_gen(ir_t& ir, fn_t& fn)
 
             ssa_ht last;
 
-            last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, fn_nodes);
+            last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, cache);
 
             if(last)
             {
@@ -806,7 +803,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             ssa_ht this_cset = cset_head(h);
             ssa_ht parent_cset = cset_head(parent);
 
-            if(ssa_ht last = csets_appendable(fn.handle(), ir, this_cset, parent_cset, fn_nodes))
+            if(ssa_ht last = csets_appendable(fn.handle(), ir, this_cset, parent_cset, cache))
             {
                 cset_append(last, parent_cset);
                 assert(cset_head(h) == cset_head(parent));
@@ -985,7 +982,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         ssa_ht head_a = cset_head(ssa_it);
         ssa_ht head_b = cset_head(input);
 
-        ssa_ht last = csets_appendable(fn.handle(), ir, head_a, head_b, fn_nodes);
+        ssa_ht last = csets_appendable(fn.handle(), ir, head_a, head_b, cache);
         if(!last) // If they interfere
             continue;
 
@@ -1069,7 +1066,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         assert(valid_ptr_loc(cset_locator(head_ssa), hi));
 
         // First, make sure we can coalesce the ssa node with its relevant input.
-        ssa_ht const last = csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes);
+        ssa_ht const last = csets_appendable(fn.handle(), ir, head_input, head_ssa, cache);
         if(!last) // If they interfere
             continue;
 
@@ -1085,7 +1082,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         // If they can, coalesce them.
         if(ssa_ht const input_alt = cg_data(head_input).ptr_alt)
         {
-            if(ssa_ht const alt_last = csets_appendable(fn.handle(), ir, cset_head(input_alt), head_ssa_alt, fn_nodes))
+            if(ssa_ht const alt_last = csets_appendable(fn.handle(), ir, cset_head(input_alt), head_ssa_alt, cache))
                 cset_append(alt_last, head_ssa_alt);
             else
                 continue;
@@ -1094,7 +1091,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         std::puts("coal ptr 4");
 
         // Coalesce the main input.
-        assert(csets_appendable(fn.handle(), ir, head_input, head_ssa, fn_nodes));
+        assert(csets_appendable(fn.handle(), ir, head_input, head_ssa, cache));
         cset_append(last, head_ssa);
 
         assert(head_input == cset_head(head_input));
@@ -1278,7 +1275,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         std::size_t size_upper_bound = 0;
         for(cfg_ht h : order)
             size_upper_bound += cg_data(h).code.size();
-        asm_proc.code.reserve(size_upper_bound);
+        asm_proc.code.reserve(asm_proc.code.size() + size_upper_bound);
 
         for(cfg_ht h : order)
             for(asm_inst_t inst : cg_data(h).code)

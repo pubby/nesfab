@@ -15,10 +15,11 @@
 #include "ram_alloc.hpp"
 #include "rom_alloc.hpp"
 #include "rom_prune.hpp"
-#include "static_addr.hpp"
+#include "runtime.hpp"
 #include "rom_link.hpp"
 #include "ram_init.hpp"
 #include "eternal_new.hpp" // TODO: remove?
+#include "ir.hpp" // TODO: remove?
 
 #include "eval.hpp" // TODO: remove?
 
@@ -49,6 +50,7 @@ int main(int argc, char** argv)
                 ("build-time,B", "print compiler execution time")
                 ("error-on-warning,W", "turn warnings into errors")
                 ("output-file,o", po::value<std::string>(), "output file")
+                ("print-size", "print size of C++ objects")
             ;
 
             po::positional_options_description p;
@@ -77,9 +79,6 @@ int main(int argc, char** argv)
             if(vm.count("input-file"))
                 source_file_names = vm["input-file"].as<std::vector<std::string>>();
 
-            if(source_file_names.empty())
-                throw std::runtime_error("No input files.");
-
             if(vm.count("output-file"))
                 _options.output_file = vm["output-file"].as<std::string>();
 
@@ -97,6 +96,22 @@ int main(int argc, char** argv)
 
             if(vm.count("timelimit"))
                 _options.time_limit = std::max(vm["timelimit"].as<int>(), 0);
+
+            if(vm.count("print-size"))
+            {
+#define PRINT_SIZE(x) std::printf(#x ": %u\n", unsigned(sizeof(x)));
+                PRINT_SIZE(cfg_node_t);
+                PRINT_SIZE(ssa_node_t);
+                PRINT_SIZE(global_t);
+                PRINT_SIZE(fn_t);
+                PRINT_SIZE(const_t);
+                PRINT_SIZE(type_t);
+#undef PRINT_SIZE
+                return EXIT_SUCCESS;
+            }
+
+            if(source_file_names.empty())
+                throw std::runtime_error("No input files.");
         }
 
         ////////////////////////////////////
@@ -153,10 +168,10 @@ int main(int argc, char** argv)
         output_time("members:  ");
 
         // Load standard data:
-        set_compiler_phase(PHASE_STD);
-        auto static_used_ram = alloc_static_ram();
-        auto rom_allocator = alloc_static_rom();
-        output_time("std:      ");
+        set_compiler_phase(PHASE_RUNTIME);
+        auto static_used_ram = alloc_runtime_ram();
+        auto rom_allocator = alloc_runtime_rom();
+        output_time("runtime:  ");
 
         set_compiler_phase(PHASE_PRECHECK);
         global_t::precheck();
@@ -203,7 +218,7 @@ int main(int argc, char** argv)
         std::fclose(of);
         output_time("link:     ");
 
-        std::cout << "init at " << static_span(SROM_reset).addr << std::endl;
+        //std::cout << "init at " << static_span(RTROM_reset).addr << std::endl;
 
         //for(unsigned i = 0; i < 1; ++i)
         //{

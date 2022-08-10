@@ -15,7 +15,7 @@ span_t span_allocator_t::alloc_at(span_t span)
     return {};
 }
 
-span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t prefer_alignment)
+span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t alignment, bool insist_alignment)
 {
     if(!size || treap.empty())
         return {};
@@ -25,8 +25,12 @@ span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t prefer_alignmen
         return {};
 
     span_t alloc;
-    if(!(alloc = aligned(it->span, size, prefer_alignment)))
+    if(!(alloc = aligned(it->span, size, alignment)))
+    {
+        if(insist_alignment)
+            return {};
         alloc = { .addr = it->span.addr, .size = size };
+    }
     return did_alloc(it, alloc);
 }
 

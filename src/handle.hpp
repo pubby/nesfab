@@ -130,7 +130,7 @@ struct pool_handle_t : public handle_t<Derived, std::uint32_t, ~0u>
         return pool_emplace(ptr, std::forward<Args>(args)...);
     }
 
-    static std::size_t bitset_size() { assert(compiler_phase() > Phase); return ::bitset_size<>(pool().size()); }
+    static std::size_t bitset_size() { assert(compiler_phase() > Phase); return m_listener.cached_bitset_size; }
 
     static Derived begin() { assert(compiler_phase() > Phase); return {0}; }
     static Derived end() { assert(compiler_phase() > Phase); return {pool().size()}; }
@@ -160,8 +160,20 @@ private:
         return m_pool[this->id]; 
     }
 
+    struct listener_t : public on_phase_change_t
+    {
+        virtual void on_change(compiler_phase_t from, compiler_phase_t to)
+        {
+            if(from <= Phase && to > Phase)
+                cached_bitset_size = ::bitset_size<>(pool().size());
+        }
+
+        unsigned cached_bitset_size = 0;
+    };
+
     inline static std::mutex m_pool_mutex;
     inline static Pool m_pool;
+    inline static listener_t m_listener;
 };
 
 #endif

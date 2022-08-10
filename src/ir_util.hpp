@@ -4,5 +4,6 @@
 #include "ir.hpp"
 
 bool io_pure(ssa_node_t const& ssa_node);
+bool pure(ssa_node_t const& ssa_node);
 
 #endif

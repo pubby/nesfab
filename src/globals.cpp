@@ -123,6 +123,11 @@ fn_t& global_t::define_fn(pstring_t pstring,
         std::lock_guard<std::mutex> lock(modes_vec_mutex);
         modes_vec.push_back(ret);
     }
+    else if(fclass == FN_NMI)
+    {
+        std::lock_guard<std::mutex> lock(nmi_vec_mutex);
+        nmi_vec.push_back(ret);
+    }
 
     return *ret;
 }
@@ -200,7 +205,7 @@ void global_t::init()
     */
 }
 
-bool global_t::has_dep(global_t& other)
+bool global_t::has_dep(global_t const& other) const
 {
     assert(compiler_phase() > PHASE_PARSE);
 
@@ -208,12 +213,15 @@ bool global_t::has_dep(global_t& other)
     if(this == &other)
         return true;
     
-    if(ideps().count(&other))
+    if(ideps().count(const_cast<global_t*>(&other)))
         return true;
 
     for(global_t* idep : ideps())
+    {
+        assert(this != idep);
         if(idep->has_dep(other))
             return true;
+    }
 
     return false;
 }
@@ -229,46 +237,46 @@ void global_t::parse_cleanup()
         if(group.gclass() == GROUP_UNDEFINED)
             compiler_error(group.pstring(), "Group name not in scope.");
 
-    // Handle weak ideps and verify globals are created:
+    // Verify globals are created:
     for(global_t& global : global_ht::values())
     {
         if(global.gclass() == GLOBAL_UNDEFINED)
         {
             if(global.m_pstring)
-                compiler_error(global.m_pstring, "Name not in scope.");
+                compiler_error(global.pstring(), "Name not in scope.");
             else
                 throw compiler_error_t(fmt("Name not in scope: %.", global.name));
         }
-        
-        for(global_t* idep : global.m_weak_ideps)
-        {
-            // No point if we already have the idep.
-            if(global.ideps().count(idep))
-                continue;
-
-            // Avoid loops.
-            if(idep->has_dep(global))
-                continue;
-
-            global.m_ideps.insert(idep);
-        }
-
-        global.m_weak_ideps.clear();
-        global.m_weak_ideps.container.shrink_to_fit();
     }
 
-    // Validate groups:
+    // Validate groups and mods:
     for(fn_t const& fn : fn_ht::values())
     {
         fn.mods.validate_groups();
 
         for(mods_t const& mods : fn.def().mods)
             mods.validate_groups();
+
+        if(global_t const* nmi = fn.mods.nmi)
+        {
+            if(nmi->gclass() != GLOBAL_FN || nmi->impl<fn_t>().fclass != FN_NMI)
+            {
+                throw compiler_error_t(
+                    fmt_error(fn.global.pstring(), fmt("% is not a nmi function.", nmi->name))
+                    + fmt_note(nmi->pstring(), "Declared here."));
+            }
+        }
+        else if(fn.fclass == FN_MODE)
+            compiler_error(fn.global.pstring(), "Missing nmi modifier.");
     }
 
     // Determine group vars inits:
     for(group_vars_t& gv : group_vars_ht::values())
         gv.determine_has_init();
+
+    // Setup NMI indexes:
+    for(unsigned i = 0; i < nmis().size(); ++i)
+        nmis()[i]->pimpl<nmi_impl_t>().index = i;
 }
 
 // This function isn't thread-safe.
@@ -282,7 +290,68 @@ void global_t::precheck()
     for(fn_t& fn : fn_ht::values())
         fn.precheck_propagate();
     for(fn_t const* fn : modes())
-        fn->precheck_verify();
+        fn->precheck_finish_mode();
+    for(fn_t const* fn : nmis())
+        fn->precheck_finish_nmi();
+
+    // Verify fences:
+    for(fn_t const* nmi : nmis())
+        if(nmi->m_precheck_wait_nmi)
+            compiler_error(nmi->global.pstring(), "Fence error."); // TODO
+
+    // Define 'm_precheck_parent_modes'
+    for(fn_t* mode : modes())
+    {
+        fn_ht const mode_h = mode->handle();
+
+        mode->m_precheck_calls.for_each([&](fn_ht call)
+        {
+            call->m_precheck_parent_modes.insert(mode_h);
+        });
+
+        mode->m_precheck_parent_modes.insert(mode_h);
+    }
+
+    // Allocate 'used_in_modes' for NMIs:
+    for(fn_t* nmi : nmis())
+        nmi->pimpl<nmi_impl_t>().used_in_modes.alloc();
+
+    // Then populate 'used_in_modes':
+    for(fn_t* mode : modes())
+        mode->mode_nmi()->pimpl<nmi_impl_t>().used_in_modes.set(mode->handle().id);
+
+    // Determine which rom procs each fn should have:
+
+    for(fn_t* mode : modes())
+    {
+        assert(mode->fclass == FN_MODE);
+
+        mode->m_precheck_calls.for_each([&](fn_ht call)
+        {
+            call->m_precheck_romv |= ROMVF_IN_MODE;
+        });
+
+        mode->m_precheck_romv |= ROMVF_IN_MODE;
+    }
+
+    for(fn_t* nmi : nmis())
+    {
+        assert(nmi->fclass == FN_NMI);
+
+        nmi->m_precheck_calls.for_each([&](fn_ht call)
+        {
+            call->m_precheck_romv |= ROMVF_IN_NMI;
+        });
+
+        nmi->m_precheck_romv |= ROMVF_IN_NMI;
+    }
+
+    // Allocate rom procs:
+    for(fn_t& fn : fn_ht::values())
+    {
+        assert(!fn.m_rom_proc);
+        fn.m_rom_proc = rom_proc_ht::pool_make(romv_allocs_t{}, fn.m_precheck_romv);
+    }
 }
 
 global_t* global_t::detect_cycle(global_t& global, std::vector<std::string>& error_msgs)
@@ -350,6 +419,44 @@ void global_t::count_members()
 void global_t::build_order()
 {
     assert(compiler_phase() == PHASE_ORDER_GLOBALS);
+
+    // Add additional ideps
+    for(fn_t& fn : fn_ht::values())
+    {
+        // fns that fence for nmis should depend on said nmis
+        if(fn.precheck_tracked().wait_nmis.size() > 0)
+        {
+            for(fn_ht mode : fn.precheck_parent_modes())
+            {
+                global_t* new_dep = &mode->mode_nmi()->global;
+                assert(!new_dep->has_dep(fn.global));
+                fn.global.m_ideps.insert(new_dep); // ideps
+            }
+        }
+        else if(fn.precheck_tracked().fences.size() > 0)
+            for(fn_ht mode : fn.precheck_parent_modes())
+                fn.global.m_weak_ideps.insert(&mode->mode_nmi()->global); // weak ideps
+    }
+
+    // Convert weak ideps
+    for(global_t& global : global_ht::values())
+    {
+        for(global_t* idep : global.m_weak_ideps)
+        {
+            // No point if we already have the idep.
+            if(global.ideps().count(idep))
+                continue;
+
+            // Avoid loops.
+            if(idep->has_dep(global))
+                continue;
+
+            global.m_ideps.insert(idep);
+        }
+
+        global.m_weak_ideps.clear();
+        global.m_weak_ideps.container.shrink_to_fit();
+    }
 
     // Detect cycles
     for(global_t& global : global_ht::values())
@@ -471,7 +578,6 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, mods_t&& mods, fn_c
 , mods(std::move(mods))
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
-, m_rom_proc(rom_proc_ht::pool_make())
 {
     switch(fclass)
     {
@@ -480,17 +586,42 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, mods_t&& mods, fn_c
     case FN_MODE:
         m_pimpl.reset(new mode_impl_t());
         break;
+    case FN_NMI:
+        m_pimpl.reset(new nmi_impl_t());
+        break;
     }
+}
+
+fn_ht fn_t::mode_nmi() const
+{ 
+    assert(fclass == FN_MODE); 
+    assert(compiler_phase() > PHASE_PARSE_CLEANUP);
+    return mods.nmi->handle<fn_ht>();
+}
+
+unsigned fn_t::nmi_index() const
+{
+    assert(fclass == FN_NMI);
+    assert(compiler_phase() > PHASE_PARSE_CLEANUP);
+    return pimpl<nmi_impl_t>().index;
+}
+
+xbitset_t<fn_ht> const& fn_t::nmi_used_in_modes() const
+{
+    assert(fclass == FN_NMI);
+    assert(compiler_phase() > PHASE_PRECHECK);
+    return pimpl<nmi_impl_t>().used_in_modes;
 }
 
 void fn_t::calc_ir_bitsets(ir_t const& ir)
 {
-    bitset_t  reads(gmember_ht::bitset_size());
-    bitset_t writes(gmember_ht::bitset_size());
-    bitset_t group_vars(group_vars_ht::bitset_size());
-    bitset_t deref_groups(group_ht::bitset_size());
-    bitset_t calls(fn_ht::bitset_size());
+    xbitset_t<gmember_ht>  reads(0);
+    xbitset_t<gmember_ht> writes(0);
+    xbitset_t<group_vars_ht> group_vars(0);
+    xbitset_t<group_ht> deref_groups(0);
+    xbitset_t<fn_ht> calls(0);
     bool io_pure = true;
+    bool fences = false;
 
     // Handle preserved groups
     for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
@@ -523,6 +654,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
             calls      |= callee.ir_calls();
             calls.set(callee_h.id);
             io_pure &= callee.ir_io_pure();
+            fences |= callee.ir_fences();
         }
 
         if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
@@ -595,6 +727,9 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
                     group_vars.set(group.handle<group_vars_ht>().id);
             }
         }
+
+        if(ssa_flags(ssa_it->op()) & SSAF_FENCE)
+            fences = true;
     }
 
     m_ir_writes = std::move(writes);
@@ -603,14 +738,18 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
     m_ir_calls = std::move(calls);
     m_ir_deref_groups = std::move(deref_groups);
     m_ir_io_pure = io_pure;
+    m_ir_fences = fences;
 }
 
 void fn_t::assign_lvars(lvars_manager_t&& lvars)
 {
     assert(compiler_phase() == PHASE_COMPILE);
     m_lvars = std::move(lvars);
-    m_lvar_spans.clear();
-    m_lvar_spans.resize(m_lvars.num_this_lvars());
+    for(auto& vec : m_lvar_spans)
+    {
+        vec.clear();
+        vec.resize(m_lvars.num_this_lvars());
+    }
 }
 
 /*
@@ -621,20 +760,22 @@ void fn_t::mask_usable_ram(ram_bitset_t const& mask)
 }
 */
 
-void fn_t::assign_lvar_span(unsigned lvar_i, span_t span)
+void fn_t::assign_lvar_span(unsigned romv, unsigned lvar_i, span_t span)
 {
-    assert(lvar_i < m_lvar_spans.size()); 
-    assert(!m_lvar_spans[lvar_i]);
+    assert(lvar_i < m_lvar_spans[romv].size()); 
+    assert(!m_lvar_spans[romv][lvar_i]);
+    assert(precheck_romv() & (1 << romv));
 
-    m_lvar_spans[lvar_i] = span;
+    m_lvar_spans[romv][lvar_i] = span;
+    assert(lvar_span(romv, lvar_i) == span);
 }
 
-span_t fn_t::lvar_span(int lvar_i) const
+span_t fn_t::lvar_span(unsigned romv, int lvar_i) const
 {
     assert(lvar_i < int(m_lvars.num_all_lvars()));
 
     if(lvar_i < int(m_lvars.num_this_lvars()))
-        return m_lvar_spans[lvar_i];
+        return m_lvar_spans[romv][lvar_i];
 
     locator_t const loc = m_lvars.locator(lvar_i);
     if(lvars_manager_t::is_call_lvar(handle(), loc))
@@ -644,15 +785,15 @@ span_t fn_t::lvar_span(int lvar_i) const
         if(!loc.fn()->m_lvars.is_lvar(index))
             return {};
 
-        return loc.fn()->lvar_span(index);
+        return loc.fn()->lvar_span(romv, index);
     }
 
     throw std::runtime_error("Unknown lvar span");
 }
 
-span_t fn_t::lvar_span(locator_t loc) const
+span_t fn_t::lvar_span(unsigned romv, locator_t loc) const
 {
-    return lvar_span(m_lvars.index(loc));
+    return lvar_span(romv, m_lvars.index(loc));
 }
 
 /* TODO: remove
@@ -697,6 +838,21 @@ void fn_t::compile()
     if(is_ct(def().return_type.type))
         compiler_error(def().return_type.pstring, fmt("Function must be declared as ct to use type %.", def().return_type.type));
 
+    // Init 'fence_reads' and 'fence_writes':
+    if(precheck_fences())
+    {
+        m_fence_reads.alloc();
+        m_fence_writes.alloc();
+
+        for(fn_ht mode : precheck_parent_modes())
+        {
+            fn_ht const nmi = mode->mode_nmi();
+            bool const has_dep = global.has_dep(nmi->global);
+            m_fence_reads  |= nmi->avail_reads(has_dep);
+            m_fence_writes |= nmi->avail_writes(has_dep);
+        }
+    }
+
     // Compile the FN.
     ssa_pool::clear();
     cfg_pool::clear();
@@ -729,7 +885,7 @@ void fn_t::compile()
             changed |= o_remove_unused_arguments(ir, *this, post_byteified);
             changed |= o_identities(ir, nullptr);
             changed |= o_abstract_interpret(ir, nullptr);
-            changed |= o_remove_unused_ssa(ir);
+            //changed |= o_remove_unused_ssa(ir);
             changed |= o_global_value_numbering(ir, nullptr);
 
             if(post_byteified)
@@ -766,7 +922,7 @@ void fn_t::compile()
     save_graph(ir, "5_cg");
 }
 
-void fn_t::precheck_verify() const
+void fn_t::precheck_finish_mode() const
 {
     assert(fclass == FN_MODE);
 
@@ -780,7 +936,7 @@ void fn_t::precheck_verify() const
         if(!precheck_group_vars().test(pair.first->impl_id()))
         {
             std::string groups = "";
-            precheck_group_vars().for_each<group_vars_ht>([&groups](auto gv)
+            precheck_group_vars().for_each([&groups](group_vars_ht gv)
             {
                 groups += gv->group.name;
             });
@@ -789,15 +945,40 @@ void fn_t::precheck_verify() const
             else
                 groups = "vars " + groups;
 
-            throw compiler_error_t(
-                fmt_error(pair.second, 
-                    fmt("Unable to preserve % as mode % is % excluding it.", 
+            compiler_warning(
+                fmt_warning(pair.second, 
+                    fmt("Preserving % has no effect as mode % is % excluding it.", 
                         pair.first->name, global.name,
                         mods.explicit_group_vars ? "explictly" : "implicitly"))
                 + fmt_note(global.pstring(), fmt("% includes: %", 
-                                                 global.name, groups)));
+                                                 global.name, groups)), false);
         }
     }
+}
+
+void fn_t::precheck_finish_nmi() const
+{
+    assert(fclass == FN_NMI);
+
+    auto const first_goto_mode = [](fn_t const& fn) -> pstring_t
+    {
+        if(fn.precheck_tracked().goto_modes.empty())
+            return {};
+        return fn.def()[fn.precheck_tracked().goto_modes.begin()->second].pstring;
+    };
+
+    if(pstring_t pstring = first_goto_mode(*this))
+        compiler_error(pstring, "goto mode inside nmi.");
+
+    m_precheck_calls.for_each([&](fn_ht call)
+    {
+        if(pstring_t pstring = first_goto_mode(*call))
+        {
+            throw compiler_error_t(
+                fmt_error(pstring, fmt("goto mode reachable from nmi %", global.name))
+                + fmt_note(global.pstring(), fmt("% declared here.", global.name)));
+        }
+    });
 }
 
 void fn_t::precheck_eval()
@@ -807,10 +988,6 @@ void fn_t::precheck_eval()
 
     // Run the evaluator to generate 'm_precheck_tracked':
     m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
-
-    std::cout << "PRECHECK\n";
-    for(auto const& pair : m_precheck_tracked->gvars_used)
-        std::cout << "GVAR USED " << pair.first->global.name << std::endl;
 }
 
 void fn_t::precheck_propagate()
@@ -818,28 +995,38 @@ void fn_t::precheck_propagate()
     assert(compiler_phase() == PHASE_PRECHECK);
 
     if(m_precheck_group_vars)
+    {
+        assert(m_precheck_calls);
         return;
+    }
 
-    unsigned const bs_size = group_vars_ht::bitset_size();
+    // Set 'wait_nmi' and 'fences':
+    m_precheck_wait_nmi |= m_precheck_tracked->wait_nmis.size() > 0;
+    m_precheck_fences |= m_precheck_tracked->fences.size() > 0;
+    m_precheck_fences |= m_precheck_wait_nmi;
 
-    m_precheck_group_vars.reset(bs_size);
+    unsigned const gv_bs_size = group_vars_ht::bitset_size();
+
+    m_precheck_group_vars.alloc();
+    m_precheck_rw.alloc();
+    m_precheck_calls.alloc();
 
     // For efficiency, we'll convert the mod groups into a bitset.
-    bitset_uint_t* temp_bs = ALLOCA_T(bitset_uint_t, bs_size);
-    bitset_uint_t* mod_group_vars = ALLOCA_T(bitset_uint_t, bs_size);
+    bitset_uint_t* temp_bs = ALLOCA_T(bitset_uint_t, gv_bs_size);
+    bitset_uint_t* mod_group_vars = ALLOCA_T(bitset_uint_t, gv_bs_size);
 
-    bitset_clear_all(bs_size, mod_group_vars);
+    bitset_clear_all(gv_bs_size, mod_group_vars);
     if(mods.explicit_group_vars)
     {
         for(auto const& pair : mods.group_vars)
             bitset_set(mod_group_vars, pair.first->impl_id());
-        bitset_or(bs_size, m_precheck_group_vars.data(), mod_group_vars);
+        bitset_or(gv_bs_size, m_precheck_group_vars.data(), mod_group_vars);
     }
 
-    auto const group_vars_to_string = [bs_size](bitset_uint_t const* bs)
+    auto const group_vars_to_string = [gv_bs_size](bitset_uint_t const* bs)
     {
         std::string str;
-        bitset_for_each<group_vars_ht>(bs_size, bs, [&str](auto gv)
+        bitset_for_each<group_vars_ht>(gv_bs_size, bs, [&str](auto gv)
             { str += gv->group.name; });
         return str;
     };
@@ -965,12 +1152,14 @@ void fn_t::precheck_propagate()
 
         for(auto const& pair : m_precheck_tracked->gvars_used)
         {
-            group_ht const group = pair.first->group();
+            gvar_ht const gvar = pair.first;
+            group_ht const group = gvar->group();
 
             if(mods.explicit_group_vars && !mods.group_vars.count(group))
                 error(pair.first->global, group->name, group->name);
 
             m_precheck_group_vars.set(group->impl_id());
+            m_precheck_rw.set_n(gvar->begin().id, gvar->num_members());
         }
 
         for(auto const& pair : m_precheck_tracked->calls)
@@ -982,10 +1171,10 @@ void fn_t::precheck_propagate()
             assert(call.fclass != FN_MODE);
             assert(call.m_precheck_group_vars);
 
-            bitset_copy(bs_size, temp_bs, call.m_precheck_group_vars.data());
-            bitset_difference(bs_size, temp_bs, mod_group_vars);
+            bitset_copy(gv_bs_size, temp_bs, call.m_precheck_group_vars.data());
+            bitset_difference(gv_bs_size, temp_bs, mod_group_vars);
 
-            if(mods.explicit_group_vars && !bitset_all_clear(bs_size, temp_bs))
+            if(mods.explicit_group_vars && !bitset_all_clear(gv_bs_size, temp_bs))
             {
                 error(call.global,
                       group_vars_to_string(call.precheck_group_vars().data()),
@@ -993,6 +1182,15 @@ void fn_t::precheck_propagate()
             }
 
             m_precheck_group_vars |= call.m_precheck_group_vars;
+            m_precheck_rw |= call.m_precheck_rw;
+
+            // Calls
+            m_precheck_calls.set(pair.first.id);
+            m_precheck_calls |= call.m_precheck_calls;
+
+            // 'wait_nmi' and 'fences'
+            m_precheck_fences |= call.m_precheck_fences;
+            m_precheck_wait_nmi |= call.m_precheck_wait_nmi;
         }
     }
 }

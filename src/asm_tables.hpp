@@ -62,7 +62,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 6 + (2 * 2),
         .input_regs = REGF_Y,
         .output_regs = 0,
-        .flags = ASMF_FAKE,
+        .flags = ASMF_FAKE | ASMF_CALL,
     },
     {
         .op = BANKED_Y_JMP,
@@ -256,7 +256,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = REGF_C,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH
     },
     {
         OP(BCC, LONG),
@@ -264,7 +264,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = REGF_C,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH
     },
 
     // BCS
@@ -275,7 +275,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = REGF_C,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH
     },
     {
         OP(BCS, LONG),
@@ -283,7 +283,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = REGF_C,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH
     },
 
     // BEQ
@@ -294,7 +294,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = REGF_NZ,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH
     },
     {
         OP(BEQ, LONG),
@@ -302,7 +302,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = REGF_NZ,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH
     },
 
     // BIT
@@ -331,7 +331,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
     {
         OP(BMI, LONG),
@@ -339,7 +339,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
 
     // BNE
@@ -350,7 +350,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = REGF_NZ,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
     {
         OP(BNE, LONG),
@@ -358,7 +358,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = REGF_NZ,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
 
     // BPL
@@ -369,7 +369,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
     {
         OP(BPL, LONG),
@@ -377,7 +377,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
 
     // BRK
@@ -398,7 +398,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
     {
         OP(BVC, LONG),
@@ -406,7 +406,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
 
     // BVS
@@ -417,7 +417,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 3,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
     {
         OP(BVS, LONG),
@@ -425,7 +425,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 5,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_BRANCH | ASMF_JUMP,
+        .flags = ASMF_BRANCH,
     },
 
     // CLC
@@ -788,6 +788,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 6,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_CALL,
     },
 
     // LDA
@@ -1190,6 +1191,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 6,
         .input_regs = 0,
         .output_regs = REGF_C | REGF_NZ,
+        .flags = ASMF_RETURN,
     },
 
     // RTS
@@ -1200,6 +1202,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 6,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_RETURN,
     },
 
     // SBC
@@ -1610,6 +1613,20 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 1,
         .cycles = 4,
         .flags = ASMF_JUMP,
+    },
+    { 
+        OP(IGN, ZERO_PAGE),
+        .op_code = 0x04,
+        .size = 2,
+        .cycles = 3,
+        .input_regs = REGF_M,
+    },
+    { 
+        OP(IGN, ABSOLUTE),
+        .op_code = 0x0C,
+        .size = 3,
+        .cycles = 4,
+        .input_regs = REGF_M,
     },
 };
 

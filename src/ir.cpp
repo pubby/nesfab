@@ -889,7 +889,7 @@ void ir_t::assert_valid() const
             {
                 if((ssa_flags(ssa_node.op()) & SSAF_NULL_INPUT_VALID) && !ssa_node.input(i))
                     continue;
-                assert(ssa_node.input(i));
+                passert(ssa_node.input(i), ssa_node.op(), ssa_it, i);
                 if(!ssa_node.input(i).holds_ref())
                     continue;
                 assert(ssa_node.input_edge(i).output()->input().handle()

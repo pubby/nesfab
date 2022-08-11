@@ -60,7 +60,7 @@ private:
     // Parses 'fn' as the start of a block, then parses and returns a mods.
     // This properly handles split lines!
     template<typename Fn>
-    mods_t parse_mods_after(Fn const& fn);
+    std::unique_ptr<mods_t> parse_mods_after(Fn const& fn);
 
     static bool fail_using() { return false; }
 
@@ -86,7 +86,7 @@ private:
     var_decl_t parse_var_decl(bool block_init, group_ht group);
     bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool block_init, group_ht group);
 
-    mods_t parse_mods(int base_indent);
+    std::unique_ptr<mods_t> parse_mods(int base_indent);
 
     void parse_top_level();
     void parse_top_level_def();
@@ -94,7 +94,7 @@ private:
     void parse_const();
     void parse_group_vars();
     void parse_group_data();
-    void parse_top_level_const();
+    //void parse_top_level_const();
     void parse_fn();
     //void parse_mode();
     void parse_with();

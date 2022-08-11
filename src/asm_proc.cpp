@@ -200,7 +200,7 @@ int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
     return bytes;
 }
 
-void asm_proc_t::write_assembly(std::ostream& os, unsigned romv) const
+void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
 {
     if(fn)
         os << fn->global.name << ":\n";
@@ -255,7 +255,7 @@ void asm_proc_t::write_assembly(std::ostream& os, unsigned romv) const
     }
 }
 
-void asm_proc_t::write_bytes(std::uint8_t* const start, unsigned romv, int bank) const
+void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) const
 {
     std::uint8_t* at = start;
 
@@ -365,7 +365,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, unsigned romv, int bank)
     }
 }
 
-void asm_proc_t::link(unsigned romv, int bank)
+void asm_proc_t::link(romv_t romv, int bank)
 {
 #ifndef NDEBUG
     std::size_t const pre_size = size();

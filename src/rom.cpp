@@ -265,7 +265,7 @@ int rom_alloc_ht::first_bank() const
 // rom_many_t //
 ////////////////
 
-rom_many_t::rom_many_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment)
+rom_many_t::rom_many_t(romv_t romv, rom_data_ht data, std::uint16_t desired_alignment)
 {
     assert(data.rclass());
     this->desired_alignment = desired_alignment;
@@ -277,7 +277,7 @@ rom_many_t::rom_many_t(unsigned romv, rom_data_ht data, std::uint16_t desired_al
 // rom_once_t //
 ////////////////
 
-rom_once_t::rom_once_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment)
+rom_once_t::rom_once_t(romv_t romv, rom_data_ht data, std::uint16_t desired_alignment)
 {
     assert(data.rclass());
     this->desired_alignment = desired_alignment;

@@ -617,6 +617,9 @@ int main()
             keyword("omni"),
             keyword("ready"),
             keyword("fence"),
+            keyword("switch"), // TODO
+            keyword("case"), // TODO
+            keyword("default"), // TODO
 
             keyword("PPUCTRL"),
             keyword("PPUMASK"),
@@ -760,7 +763,8 @@ int main()
             accept("begin_paa", "begin paa", eof()),
             accept("end_paa", "end paa", eof()),
             accept("group_set", "group set", eof()),
-            accept("spair", "spair", eof())
+            accept("spair", "spair", eof()),
+            accept("local_default", "local default", eof())
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

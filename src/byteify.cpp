@@ -155,7 +155,6 @@ void byteify(ir_t& ir, fn_t const& fn)
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
         {
             ssa_it->clear_flags(FLAG_PROCESSED); // For '_split_cast'.
-            std::cout << "byteify op " << ssa_it->op() << std::endl;
 
             type_t const type = _bm_type(ssa_it->type());
 
@@ -169,8 +168,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                 prune_nodes.push_back(ssa_it);
                 continue;
             }
-
-            std::puts("byteify 1");
 
             if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
             {
@@ -197,8 +194,6 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(is_make_ptr(ssa_it->op()))
                 continue;
 
-            std::puts("byteify 2");
-
             if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
             {
                 auto& d = ssa_it.data<ssa_byteify_d>(); 
@@ -220,12 +215,8 @@ void byteify(ir_t& ir, fn_t const& fn)
             }
             */
 
-            std::puts("byteify 3");
-
             if(!is_scalar(type.name()))
                 continue;
-
-            std::puts("byteify 4");
 
             type_t split_type = TYPE_U;
             if(ssa_it->type().name() == TYPE_TEA)
@@ -249,7 +240,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             // workvec will hold nodes that have been split:
             ssa_workvec.push_back(ssa_it);
-            std::cout << "push byteify op " << ssa_it->op() << std::endl;
         }
     }
 

@@ -50,7 +50,7 @@ int main(int argc, char** argv)
                 ("build-time,B", "print compiler execution time")
                 ("error-on-warning,W", "turn warnings into errors")
                 ("output-file,o", po::value<std::string>(), "output file")
-                ("print-size", "print size of C++ objects")
+                ("print-cpp-sizes", "print size of C++ objects")
             ;
 
             po::positional_options_description p;
@@ -97,7 +97,7 @@ int main(int argc, char** argv)
             if(vm.count("timelimit"))
                 _options.time_limit = std::max(vm["timelimit"].as<int>(), 0);
 
-            if(vm.count("print-size"))
+            if(vm.count("print-cpp-sizes"))
             {
 #define PRINT_SIZE(x) std::printf(#x ": %u\n", unsigned(sizeof(x)));
                 PRINT_SIZE(cfg_node_t);
@@ -106,6 +106,7 @@ int main(int argc, char** argv)
                 PRINT_SIZE(fn_t);
                 PRINT_SIZE(const_t);
                 PRINT_SIZE(type_t);
+                PRINT_SIZE(mods_t);
 #undef PRINT_SIZE
                 return EXIT_SUCCESS;
             }
@@ -201,7 +202,7 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
-        alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
+        alloc_rom(&std::cout, rom_allocator, mapper().num_32k_banks);
         print_rom(std::cout);
         output_time("alloc rom:");
 

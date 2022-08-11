@@ -113,19 +113,23 @@ public:
         return *handle<typename T::handle_t>();
     }
 
+    global_datum_t* datum() const;
+
     // If this global has a dependency to 'other'
     bool has_dep(global_t const& other) const;
 
     // Helpers that delegate to 'define':
     fn_t& define_fn(
         pstring_t pstring, global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-        type_t type, fn_def_t&& fn_def, mods_t&& mods, fn_class_t fclass);
+        type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass);
     gvar_t& define_var(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
-        src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, token_t const* expr);
+        src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
+        token_t const* expr, std::unique_ptr<mods_t> mods);
     const_t& define_const(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
-        src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, token_t const* expr);
+        src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, 
+        token_t const* expr, std::unique_ptr<mods_t> mods);
     struct_t& define_struct(
         pstring_t pstring, global_t::ideps_set_t&& ideps, field_map_t&& map);
 
@@ -292,15 +296,14 @@ struct precheck_tracked_t
     //bool propagated = false;
 };
 
-
-class fn_t
+class fn_t : public modded_t
 {
 friend class global_t;
 public:
     static constexpr global_class_t global_class = GLOBAL_FN;
     using handle_t = fn_ht;
 
-    fn_t(global_t& global, type_t type, fn_def_t&& fn_def, mods_t&& mods, fn_class_t fclass);
+    fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass);
 
     fn_ht handle() const;
 
@@ -362,9 +365,9 @@ public:
     void assign_lvars(lvars_manager_t&& lvars);
     lvars_manager_t const& lvars() const { assert(compiler_phase() >= PHASE_COMPILE); return m_lvars; }
     
-    void assign_lvar_span(unsigned romv, unsigned lvar_i, span_t span);
-    span_t lvar_span(unsigned romv, int lvar_i) const;
-    span_t lvar_span(unsigned romv, locator_t loc) const;
+    void assign_lvar_span(romv_t romv, unsigned lvar_i, span_t span);
+    span_t lvar_span(romv_t romv, int lvar_i) const;
+    span_t lvar_span(romv_t romv, locator_t loc) const;
 
     void precheck_eval();
     void precheck_propagate();
@@ -374,8 +377,6 @@ public:
 public:
     global_t& global;
     fn_class_t const fclass;
-    mods_t const mods;
-
 private:
     void calc_ir_bitsets(ir_t const& ir);
 
@@ -429,11 +430,12 @@ private:
 };
 
 // Base class for vars and consts.
-class global_datum_t
+class global_datum_t : public modded_t
 {
 public:
-    global_datum_t(global_t& global, src_type_t src_type, token_t const* expr)
-    : global(global)
+    global_datum_t(global_t& global, src_type_t src_type, token_t const* expr, std::unique_ptr<mods_t> mods)
+    : modded_t(std::move(mods))
+    , global(global)
     , init_expr(expr)
     , is_paa(::is_paa(src_type.type.name()))
     , m_src_type(src_type)
@@ -443,7 +445,7 @@ public:
     token_t const* const init_expr = nullptr;
     bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
 
-    type_t type() const { assert(!is_thunk(m_src_type.type.name())); return m_src_type.type; }
+    type_t type() const { return m_src_type.type; }
     sval_t const& sval() const { assert(global.compiled()); return m_sval; }
 
     void dethunkify(bool full);
@@ -467,8 +469,8 @@ public:
 
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
-    gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, token_t const* expr)
-    : global_datum_t(global, src_type, expr)
+    gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, token_t const* expr, std::unique_ptr<mods_t> mods)
+    : global_datum_t(global, src_type, expr, std::move(mods))
     , group_vars(group_vars)
     {}
 
@@ -534,8 +536,8 @@ public:
 
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
-    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, token_t const* expr)
-    : global_datum_t(global, src_type, expr)
+    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, token_t const* expr, std::unique_ptr<mods_t> mods)
+    : global_datum_t(global, src_type, expr, std::move(mods))
     , group_data(group_data)
     { assert(init_expr); }
 

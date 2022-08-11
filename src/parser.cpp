@@ -106,9 +106,9 @@ void parser_t<P>::parse_block(int const parent_indent, Func func)
 }
 
 template<typename P>
-mods_t parser_t<P>::parse_mods(int base_indent)
+std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 {
-    mods_t mods;
+     std::unique_ptr<mods_t> mods;
 
     auto const handle_groups = [this](bool& explicit_group, auto& map)
     {
@@ -129,16 +129,17 @@ mods_t parser_t<P>::parse_mods(int base_indent)
 
         while(token.type != TOK_eol)
         {
-            mods.defined = true;
+            if(!mods)
+                mods.reset(new mods_t());
 
             switch(token.type)
             {
             case TOK_vars:
-                handle_groups(mods.explicit_group_vars, mods.group_vars);
+                handle_groups(mods->explicit_group_vars, mods->group_vars);
                 break;
 
             case TOK_data:
-                handle_groups(mods.explicit_group_data, mods.group_data);
+                handle_groups(mods->explicit_group_data, mods->group_data);
                 break;
 
             case TOK_omni:
@@ -147,12 +148,12 @@ mods_t parser_t<P>::parse_mods(int base_indent)
 
             case TOK_nmi:
                 {
-                    if(mods.nmi)
+                    if(mods->nmi)
                         compiler_error("Multiple nmi modifiers.");
 
                     parse_token();
                     pstring_t const pstring = parse_ident();
-                    mods.nmi = &global_t::lookup(source(), pstring);
+                    mods->nmi = &global_t::lookup(source(), pstring);
                 }
                 break;
 
@@ -173,19 +174,19 @@ mods_t parser_t<P>::parse_mods(int base_indent)
                     {
                         if(is_plus)
                         {
-                            if(mods.disable & flag)
+                            if(mods->disable & flag)
                                 compiler_warning(pstring, fmt("Ignoring conflicting flags: ", view));
-                            if(mods.enable & flag)
+                            if(mods->enable & flag)
                                 compiler_warning(pstring, fmt("Duplicate flag: +", view));
-                            mods.enable |= flag;
+                            mods->enable |= flag;
                         }
                         else
                         {
-                            if(mods.enable & flag)
+                            if(mods->enable & flag)
                                 compiler_warning(pstring, fmt("Ignoring conflicting flags: ", view));
-                            if(mods.disable & flag)
+                            if(mods->disable & flag)
                                 compiler_warning(pstring, fmt("Duplicate flag: ", view));
-                            mods.disable |= flag;
+                            mods->disable |= flag;
                         }
                     }
                     else
@@ -199,13 +200,15 @@ mods_t parser_t<P>::parse_mods(int base_indent)
         parse_line_ending();
     }
 
-    mods.remove_conflicting_flags();
+    if(mods)
+        mods->remove_conflicting_flags();
+
     return mods;
 }
 
 template<typename P>
 template<typename Fn>
-mods_t parser_t<P>::parse_mods_after(Fn const& fn)
+std::unique_ptr<mods_t> parser_t<P>::parse_mods_after(Fn const& fn)
 {
     int const base_indent = indent;
     unsigned pre_line_number = line_number;
@@ -219,7 +222,7 @@ mods_t parser_t<P>::parse_mods_after(Fn const& fn)
     parse_line_ending();
 
     pre_line_number = line_number;
-    mods_t mods = parse_mods(base_indent);
+    auto mods = parse_mods(base_indent);
 
     if(line_break && line_number == pre_line_number)
     {
@@ -619,11 +622,11 @@ inapplicable:
         goto applicable;
 
     case TOK_at:
+    case TOK_default:
         {
-            parse_token();
             token_t t = token;
-            t.type = TOK_at;
-            parse_token(TOK_ident);
+            parse_token();
+            t.pstring = parse_ident();
             expr_temp.push_back(std::move(t));
         }
         goto applicable;
@@ -1057,11 +1060,14 @@ void parser_t<P>::parse_struct()
     policy().prepare_global();
     int const struct_indent = indent;
 
-    // Parse the declaration
-    parse_token(TOK_struct);
-    pstring_t const struct_name = token.pstring;
-    parse_token(TOK_type_ident);
-    parse_line_ending();
+    pstring_t struct_name;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    {
+        // Parse the declaration
+        parse_token(TOK_struct);
+        struct_name = token.pstring;
+        parse_token(TOK_type_ident);
+    });
 
     auto struct_ = policy().begin_struct(struct_name);
 
@@ -1085,19 +1091,27 @@ void parser_t<P>::parse_group_vars()
     int const vars_indent = indent;
 
     // Parse the declaration
-    parse_token(TOK_vars);
-    pstring_t const group_name = parse_group_ident();
-    parse_line_ending();
+    pstring_t group_name;
+    std::unique_ptr<mods_t> base_mods = parse_mods_after([&]
+    {
+        parse_token(TOK_vars);
+        group_name = parse_group_ident();
+    });
 
     auto group = policy().begin_group_vars(group_name);
 
     maybe_parse_block(vars_indent, 
     [&]{ 
+        int const decl_indent = indent;
         policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
         bool const has_expr = parse_var_init(var_decl, expr, true, group.first->group.handle());
-        policy().global_var(group, var_decl, has_expr ? &expr : nullptr);
+
+        std::unique_ptr<mods_t> mods = parse_mods(decl_indent);
+        inherit(mods, base_mods);
+
+        policy().global_var(group, var_decl, has_expr ? &expr : nullptr, std::move(mods));
     });
 
     policy().end_group();
@@ -1117,20 +1131,28 @@ void parser_t<P>::parse_group_data()
     }
 
     // Parse the declaration
-    parse_token(TOK_data);
-    pstring_t const group_name = parse_group_ident();
-    parse_line_ending();
+    pstring_t group_name;
+    std::unique_ptr<mods_t> base_mods = parse_mods_after([&]
+    {
+        parse_token(TOK_data);
+        group_name = parse_group_ident();
+    });
 
     auto group = policy().begin_group_data(group_name, once);
 
     maybe_parse_block(group_indent, [&]
     { 
+        int const decl_indent = indent;
         policy().prepare_global();
         var_decl_t var_decl;
         expr_temp_t expr;
         if(!parse_var_init(var_decl, expr, true, group.first->group.handle()))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
-        policy().global_const(group, var_decl, expr);
+
+        std::unique_ptr<mods_t> mods = parse_mods(decl_indent);
+        inherit(mods, base_mods);
+
+        policy().global_const(group, var_decl, expr, std::move(mods));
     });
 
     policy().end_group();
@@ -1142,13 +1164,16 @@ void parser_t<P>::parse_const()
     policy().prepare_global();
     var_decl_t var_decl;
     expr_temp_t expr;
+
+    int const const_indent = indent;
+
     if(!parse_var_init(var_decl, expr, true, {}))
         compiler_error(var_decl.name, "Constants must be assigned a value.");
 
     if(var_decl.src_type.type.name() == TYPE_PAA)
         compiler_error(var_decl.name, "Pointer-addressable arrays cannot be defined at top-level.");
 
-    policy().global_const({}, var_decl, expr);
+    policy().global_const({}, var_decl, expr, parse_mods(const_indent));
 }
 
 template<typename P>
@@ -1170,7 +1195,7 @@ void parser_t<P>::parse_fn()
     bc::small_vector<var_decl_t, 8> params;
     src_type_t return_type = {};
 
-    mods_t mods = parse_mods_after([&]
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
         // Parse the declaration
         parse_token();
@@ -1296,7 +1321,7 @@ void parser_t<P>::parse_if()
     parse_token(TOK_if);
 
     expr_temp_t expr;
-    mods_t mods = parse_mods_after([&]{ expr = parse_expr(); });
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ expr = parse_expr(); });
 
     auto if_state = policy().begin_if(pstring, expr, std::move(mods));
     parse_block_statement(if_indent);
@@ -1309,7 +1334,7 @@ void parser_t<P>::parse_if()
 
         if(token.type != TOK_eol)
         {
-            else_state = policy().end_if_begin_else(std::move(if_state), pstring, mods_t());
+            else_state = policy().end_if_begin_else(std::move(if_state), pstring, std::unique_ptr<mods_t>());
             parse_flow_statement();
         }
         else
@@ -1352,7 +1377,7 @@ void parser_t<P>::parse_while()
     parse_token(TOK_while);
 
     expr_temp_t expr;
-    mods_t mods = parse_mods_after([&]
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
         expr = parse_expr();
     });
@@ -1382,7 +1407,7 @@ void parser_t<P>::parse_for()
     expr_temp_t condition, *maybe_condition = nullptr;
     expr_temp_t effect, *maybe_effect = nullptr;
 
-    mods_t mods = parse_mods_after([&]
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
         parse_token(TOK_for);
         if(token.type != TOK_semicolon && token.type != TOK_eol)
@@ -1431,7 +1456,7 @@ void parser_t<P>::parse_return()
     else
     {
         expr_temp_t expr;
-        mods_t mods = parse_mods_after([&]{ expr = parse_expr(); });
+        std::unique_ptr<mods_t> mods = parse_mods_after([&]{ expr = parse_expr(); });
         policy().return_statement(pstring, &expr, std::move(mods));
     }
 }
@@ -1463,7 +1488,7 @@ void parser_t<P>::parse_goto()
         // Parse like a fn call:
         pstring_t mode;
         expr_temp_t expr_temp;
-        mods_t mods = parse_mods_after([&]
+        std::unique_ptr<mods_t> mods = parse_mods_after([&]
         {
             expr_temp.push_back({ TOK_weak_ident, token.pstring });
 
@@ -1495,7 +1520,7 @@ void parser_t<P>::parse_label()
 {
     parse_token(TOK_label);
     pstring_t label;
-    mods_t mods = parse_mods_after([&]{ label = parse_ident(); });
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ label = parse_ident(); });
     policy().label_statement(label, std::move(mods));
 }
 
@@ -1503,7 +1528,7 @@ template<typename P>
 void parser_t<P>::parse_nmi_statement()
 {
     pstring_t pstring = token.pstring;
-    mods_t mods = parse_mods_after([&]{ parse_token(TOK_nmi); });
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_nmi); });
     policy().nmi_statement(pstring, std::move(mods));
 }
 
@@ -1511,7 +1536,7 @@ template<typename P>
 void parser_t<P>::parse_fence()
 {
     pstring_t pstring = token.pstring;
-    mods_t mods = parse_mods_after([&]{ parse_token(TOK_fence); });
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_fence); });
     policy().fence_statement(pstring, std::move(mods));
 }
 

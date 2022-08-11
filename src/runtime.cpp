@@ -56,9 +56,9 @@ std::array<std::array<span_t, NUM_ROMV>, NUM_RTRAM> const& rtram_spans()
 std::array<std::array<span_t, NUM_ROMV>, NUM_RTROM> const& rtrom_spans()
     { return _rtrom_spans; }
 
-span_t runtime_span(runtime_ram_name_t name, unsigned romv) 
+span_t runtime_span(runtime_ram_name_t name, romv_t romv) 
     { return _rtram_spans[name][romv]; }
-span_t runtime_span(runtime_rom_name_t name, unsigned romv)
+span_t runtime_span(runtime_rom_name_t name, romv_t romv)
     { return _rtrom_spans[name][romv]; }
 
 ram_bitset_t alloc_runtime_ram()
@@ -377,7 +377,7 @@ span_allocator_t alloc_runtime_rom()
     {
         std::size_t const max_size = data.size();
 
-        bitset_for_each(unsigned(flags), [&](unsigned romv)
+        bitset_for_each(flags, [&](unsigned romv)
         {
             if(!_rtrom_spans[name][romv])
                 _rtrom_spans[name][romv] = a.alloc(max_size, alignment);
@@ -386,14 +386,14 @@ span_allocator_t alloc_runtime_rom()
         });
 
         romv_allocs_t allocs = {};
-        bitset_for_each(unsigned(flags), [&](unsigned romv)
+        bitset_for_each(flags, [&](unsigned romv)
         {
-            allocs[romv] = rom_static_ht::pool_make(romv, _rtrom_spans[name][romv]);
+            allocs[romv] = rom_static_ht::pool_make(romv_t(romv), _rtrom_spans[name][romv]);
         });
 
         _rtrom_data[name] = to_rom_data(std::move(data), allocs);
 
-        bitset_for_each(unsigned(flags), [&](unsigned romv)
+        bitset_for_each(flags, [&](unsigned romv)
         {
             allocs[romv].get()->data = _rtrom_data[name];
         });
@@ -421,7 +421,7 @@ span_allocator_t alloc_runtime_rom()
     alloc(RTROM_nmi_hi_table, std::move(tables.hi), ROMVF_IN_MODE, tables.alignment);
     alloc(RTROM_nmi_bank_table, std::move(tables.bank), ROMVF_IN_MODE, tables.alignment);
 
-    assert(runtime_span(RTROM_nmi_exit, 0));
+    assert(runtime_span(RTROM_nmi_exit, {}));
 
     return a;
 }

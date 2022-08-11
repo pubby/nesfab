@@ -62,8 +62,8 @@ span_allocator_t alloc_runtime_rom();
 std::array<std::array<span_t, NUM_ROMV>, NUM_RTRAM> const& rtram_spans();
 std::array<std::array<span_t, NUM_ROMV>, NUM_RTROM> const& rtrom_spans();
 
-span_t runtime_span(runtime_ram_name_t name, unsigned romv);
-span_t runtime_span(runtime_rom_name_t name, unsigned romv);
+span_t runtime_span(runtime_ram_name_t name, romv_t romv);
+span_t runtime_span(runtime_rom_name_t name, romv_t romv);
 
 rom_data_ht runtime_data(runtime_rom_name_t name);
 

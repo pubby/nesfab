@@ -2,6 +2,10 @@
 #include "o.hpp"
 
 #include <array>
+#include <iostream> // TODO: remove
+#include <fstream> // TODO: remove
+#include "graphviz.hpp" // TODO: remove
+#include "format.hpp" // TODO: remove
 
 #include <boost/container/small_vector.hpp>
 
@@ -88,6 +92,15 @@ namespace // Anonymous namespace
 
 std::size_t constraints_size(ssa_node_t const& node)
 {
+    auto const type_size = [&](type_name_t name) -> std::size_t
+    {
+        if(name == TYPE_TEA)
+            return node.type().size();
+        if(is_scalar(name))
+            return 1;
+        return 0;
+    };
+
     switch(node.op())
     {
     case SSA_add:
@@ -97,17 +110,26 @@ std::size_t constraints_size(ssa_node_t const& node)
         return 2; // Second constraint is for the carry.
     case SSA_trace:
         return constraints_size(*node.input(0));
+        /* TODO
+    case SSA_phi:
+        {
+            std::size_t min_size = std::size_t(~0ull);
+            unsigned const input_size = node.input_size();
+            for(unsigned i = 0; i < input_size; ++i)
+                if(node.input(i).holds_ref())
+                    min_size = std::min(min_size, constraints_size(*node.input(i)));
+            if(min_size != std::size_t(~0ull))
+                return min_size;
+        }
+        // fall-through
+        */
     default:
         // TODO
         //if(is_array_like(node.type()))
             //return node.type().size();
         //if(!is_numeric(node.type()))
             //std::printf("not numeric: %s\n", to_string(node.op()).data());
-        if(node.type().name() == TYPE_TEA)
-            return node.type().size();
-        if(is_scalar(node.type().name()))
-            return 1;
-        return 0;
+        return type_size(node.type().name());
     }
 }
 
@@ -588,6 +610,12 @@ void ai_t::insert_traces()
 
     ir.assert_valid();
 
+    unsigned counter = 0;
+    std::ofstream ossa(fmt("graphs/ssa__%.gv", counter++));
+    if(ossa.is_open())
+        graphviz_ssa(ossa, ir);
+
+
     // For all the nodes that spawned a trace,
     // modify the inputs of their outputs to use the trace.
     for(ssa_ht h : needs_rebuild)
@@ -810,6 +838,18 @@ void ai_t::visit(ssa_ht ssa_node)
     }
     else
     {
+        std::cout << "op " << ssa_node->op() << std::endl;
+        for(unsigned i = 0 ; i < ssa_node->input_size(); ++i)
+        {
+            std::cout << "input " << ssa_node->input(i) << std::endl;
+            if(ssa_node->input(i).holds_ref())
+            {
+                std::cout << "iop    " << ssa_node->input(i).handle()->op() << std::endl;
+                std::cout << "type  " << ssa_node->input(i).handle()->type() << std::endl;
+                std::cout << "size  " << ai_data(ssa_node->input(i).handle()).constraints().vec.size() << std::endl;
+            }
+        }
+
         compute_constraints(EXEC_PROPAGATE, ssa_node);
         if(d.visited_count > WIDEN_OP_BOUNDS)
             for(constraints_t& c : d.constraints().vec)

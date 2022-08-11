@@ -19,6 +19,7 @@ constexpr unsigned MAX_ATOMS = 8;
 
 struct group_t;
 class global_t;
+class global_datum_t;
 class fn_t;
 class gvar_t;
 class gmember_t;

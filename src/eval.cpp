@@ -53,6 +53,7 @@ private:
     stmt_t const* stmt = nullptr;
     ir_t* ir = nullptr;
     bc::small_vector<sval_t, 8> interpret_locals;
+    bc::small_vector<sval_t, 8> interpret_local_defaults;
     bc::small_vector<type_t, 8> var_types;
 
     using clock = sc::steady_clock;
@@ -109,13 +110,14 @@ public:
 
     enum do_t
     {
-        CHECK,        // Resolves types, but not values.
+        CHECK,        // Resolves types and syntax, but not values.
         INTERPRET_CE, // Like INTERPRET, but can't read/write locals.
         INTERPRET,    // Calculates values at compile-time.
         COMPILE,      // Generates the SSA IR.
         LINK
     };
 
+    static constexpr bool is_check(do_t d) { return d == CHECK_SYNTAX || d == CHECK_TYPES_SYNTAX; }
     static constexpr bool is_interpret(do_t d) { return d == INTERPRET_CE || d == INTERPRET; }
 
     template<do_t Do>
@@ -297,7 +299,7 @@ std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr)
 precheck_tracked_t build_tracked(fn_t const& fn)
 {
     precheck_tracked_t tracked;
-    eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK>{}, {}, fn, &tracked, nullptr, 0);
+    eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK_SYNTAX>{}, {}, fn, &tracked, nullptr, 0);
     return tracked;
 }
 
@@ -329,9 +331,10 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
 {
     unsigned const nlocals = num_locals();
 
+    interpret_local_defaults.resize(nlocals);
     var_types.resize(nlocals);
-    for(unsigned i = 0; i < nlocals; ++i)
-        var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
+        for(unsigned i = 0; i < nlocals; ++i)
+            var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
 
     if(D == COMPILE)
     {
@@ -346,9 +349,10 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
     }
     else
     {
-        if(D != CHECK)
+        if(!is_check(D))
         {
             interpret_locals.resize(nlocals);
+            interpret_local_defaults.resize(nlocals);
 
             assert(args);
             assert(num_args <= nlocals);
@@ -375,6 +379,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
 
     unsigned const nlocals = num_locals();
 
+    interpret_local_defaults.resize(nlocals);
     var_types.resize(nlocals);
     for(unsigned i = 0; i < nlocals; ++i)
         var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
@@ -583,6 +588,7 @@ void eval_t::interpret_stmts()
                     if(D == INTERPRET)
                     {
                         assert(interpret_locals[var_i].empty());
+                        interpret_local_defaults[var_i] = rpn_stack.only1().sval;
                         interpret_locals[var_i] = std::move(rpn_stack.only1().sval);
                         rpn_stack.pop(1);
                     }
@@ -615,7 +621,7 @@ void eval_t::interpret_stmts()
             break;
 
         case STMT_GOTO_MODE:
-            if(D != CHECK)
+            if(!is_check(D))
                 compiler_error(stmt->pstring, "Statement cannot appear in constant evaluation.");
             // fall-through
         case STMT_EXPR:
@@ -706,7 +712,7 @@ void eval_t::interpret_stmts()
             return;
 
         case STMT_NMI:
-            if(D != CHECK)
+            if(!is_check(D))
                 compiler_error(stmt->pstring, "Cannot wait for nmi at compile-time.");
             if(precheck_tracked)
                 precheck_tracked->wait_nmis.push_back(stmt_ht{ stmt - fn->def().stmts.data() });
@@ -749,6 +755,9 @@ void eval_t::compile_block()
 
                 throwing_cast<COMPILE>(rpn_stack.peek(0), var_types[var_i], true);
                 value = from_sval(rpn_stack.only1().sval, rpn_stack.only1().type);
+
+                assert(var_i < interpret_local_defaults.size());
+                interpret_local_defaults[var_i] = rpn_stack.only1().sval;
             }
             else
             {
@@ -1148,7 +1157,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             compiler_error(token->pstring, "Expression cannot be evaluated at link-time.");
         else
         {
-            assert(D == CHECK || D == INTERPRET || D == COMPILE);
+            assert(is_check(D) || D == INTERPRET || D == COMPILE);
             assert(token->value < var_types.size());
 
             rpn_value_t new_top =
@@ -1175,7 +1184,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 new_top.sval = interpret_locals[token->value];
             }
 
-            if(D != CHECK)
+            if(!is_check(D))
                 assert(new_top.sval.size() == num_members(new_top.type));
             rpn_stack.push(std::move(new_top));
         }
@@ -1195,7 +1204,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     "Unimplemented global in expression.");
 
             case GLOBAL_VAR:
-                if(D == COMPILE || D == CHECK)
+                if(D == COMPILE || is_check(D))
                 {
                     if(precheck_tracked)
                         precheck_tracked->gvars_used.emplace(global->handle<gvar_ht>(), token->pstring);
@@ -1251,7 +1260,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                             .pstring = token->pstring,
                         };
 
-                        if(D != CHECK)
+                        if(!is_check(D))
                             new_top.sval = c.sval();
 
                         rpn_stack.push(std::move(new_top));
@@ -1267,6 +1276,57 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     .pstring = token->pstring });
                 break;
             }
+        }
+        break;
+
+    case TOK_default:
+        {
+            if(D == LINK)
+                compiler_error(token->pstring, "Expression cannot be evaluated at link-time.");
+
+            global_t const* global = token->ptr<global_t>();
+            global_datum_t const* datum = global->datum();
+
+            if(!datum || !datum->init_expr)
+                compiler_error(token->pstring, fmt("% has no default value.", global->name));
+
+            rpn_value_t new_top =
+            {
+                .category = RVAL, 
+                .type = datum->type(),
+                .pstring = token->pstring,
+            };
+
+            if(!is_check(D))
+                new_top.sval = datum->sval();
+
+            rpn_stack.push(std::move(new_top));
+        }
+        break;
+
+    case TOK_local_default:
+        {
+            if(D == LINK)
+                compiler_error(token->pstring, "Expression cannot be evaluated at link-time.");
+
+            unsigned const var_i = token->value;
+            assert(var_i < interpret_local_defaults.size());
+
+            rpn_value_t new_top =
+            {
+                .category = RVAL, 
+                .type = var_types[var_i],
+                .pstring = token->pstring,
+            };
+
+            if(!is_check(D))
+            {
+                new_top.sval = interpret_local_defaults[var_i];
+                if(new_top.sval.empty())
+                    compiler_error(token->pstring, "Variable has no default value.");
+            }
+
+            rpn_stack.push(std::move(new_top));
         }
         break;
 
@@ -1326,20 +1386,36 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
     case TOK_int:
         common_value.set(mask_numeric(fixed_t{ token->value }, TYPE_INT), TYPE_INT);
     push_int:
-        rpn_stack.push({
-            .sval = { common_value },
-            .category = RVAL, 
-            .type = { TYPE_INT }, 
-            .pstring = token->pstring });
+        {
+            rpn_value_t new_top = 
+            {
+                .category = RVAL, 
+                .type = { TYPE_INT }, 
+                .pstring = token->pstring 
+            };
+
+            if(!is_check(D))
+                new_top.sval = { common_value };
+
+            rpn_stack.push(std::move(new_top));
+        }
         break;
 
     case TOK_real:
         common_value.set(mask_numeric(fixed_t{ token->value }, TYPE_REAL), TYPE_REAL);
-        rpn_stack.push({
-            .sval = { common_value },
-            .category = RVAL, 
-            .type = { TYPE_REAL }, 
-            .pstring = token->pstring });
+        {
+            rpn_value_t new_top = 
+            {
+                .category = RVAL, 
+                .type = { TYPE_REAL }, 
+                .pstring = token->pstring 
+            };
+
+            if(!is_check(D))
+                new_top.sval = { common_value };
+
+            rpn_stack.push(std::move(new_top));
+        }
         break;
 
     case TOK_period:
@@ -1370,7 +1446,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             unsigned const field_i = ptr - s.fields().begin();
             unsigned const member_i = member_index(struct_val.type, field_i);
             
-            if(D != CHECK)
+            if(!is_check(D))
             {
                 // Shrink the sval to only contain the specified field.
                 unsigned const size = num_members(ptr->second.type());
@@ -1464,7 +1540,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
             // Now do the call!
 
-            if(D == CHECK)
+            if(is_check(D))
             {
                 rpn_value_t new_top =
                 {
@@ -1793,10 +1869,22 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         break;
 
     case TOK_push_paa:
+        if(!is_check(D))
         {
             rpn_value_t const& v = rpn_stack.only1();
             ::append_locator_bytes(paa, v.sval, v.type, v.pstring);
-            rpn_stack.pop(1);
+        }
+        rpn_stack.pop(1);
+        break;
+
+    case TOK_push_paa_byte_array:
+        if(!is_check(D))
+        {
+            locator_t const* data = token->ptr<locator_t>();
+            ++token;
+            assert(token->type == TOK_push_paa);
+            std::size_t const size = token->value;
+            paa.insert(paa.end(), data, data + size);
         }
         break;
 
@@ -1858,7 +1946,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                             args[cast_result].type, types[cast_result], s.global.name));
                     }
 
-                    if(D != CHECK)
+                    if(!is_check(D))
                     {
                         // Create a new sval.
                         sval_t new_sval;
@@ -1962,7 +2050,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             bool const is_ptr = ::is_ptr(array_val.type.name());
             bool const is_mptr = ::is_mptr(array_val.type.name());
 
-            if(array_val.type.name() != TYPE_TEA && !is_ptr)
+            if(!is_tea(array_val.type.name()) && !is_ptr)
             {
                 compiler_error(array_val.pstring, fmt(
                     "Expecting array or pointer type. Got %.", array_val.type));
@@ -1978,7 +2066,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
             }
 
             rpn_value_t& array_index = rpn_stack.peek(0);
-            if(D != CHECK)
+            if(!is_check(D))
                 assert(array_val.sval.size() > 0);
 
             // Array indexes are always bytes.
@@ -2065,7 +2153,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
     case TOK_sizeof_expr:
         {
             rpn_stack_t sub_stack;
-            do_expr<CHECK>(sub_stack, token->ptr<token_t const>());
+            do_expr<CHECK_TYPES_SYNTAX>(sub_stack, token->ptr<token_t const>());
             common_type = sub_stack.peek(0).type;
             goto do_sizeof;
         }
@@ -2086,7 +2174,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
     case TOK_len_expr:
         {
             rpn_stack_t sub_stack;
-            do_expr<CHECK>(sub_stack, token->ptr<token_t const>());
+            do_expr<CHECK_TYPES_SYNTAX>(sub_stack, token->ptr<token_t const>());
             common_type = sub_stack.peek(0).type;
             goto do_len;
         }
@@ -2095,6 +2183,9 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         {
             common_type = dethunkify({ token->pstring, *token->ptr<type_t const>() }, true, this);
         do_len:
+            if(is_check(D))
+                goto push_int;
+
             unsigned const size = common_type.array_length();
 
             if(size == 0)
@@ -2425,7 +2516,7 @@ void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
 
     throwing_cast<D>(assignment, assignee.type, true);
 
-    if(D == CHECK)
+    if(is_check(D))
         goto finish;
 
     assert(assignee.sval.size() == assignment.sval.size());
@@ -2672,7 +2763,7 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
                 {
                     new_top.type = TYPE_S20;
 
-                    if(Policy::D != CHECK)
+                    if(!is_check(Policy::D))
                     {
                         // If both are locators with the same handle,
                         // we can calculate this at CT
@@ -2715,7 +2806,7 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
 
                 throwing_cast<Policy::D>(rhs, TYPE_S20, true);
 
-                if(Policy::D != CHECK)
+                if(!is_check(Policy::D))
                 {
                     locator_t const l = _loc_const(lhs.sval);
 
@@ -2882,7 +2973,7 @@ void eval_t::do_logical_begin(rpn_stack_t& rpn_stack, token_t const*& token)
     rpn_value_t& top = rpn_stack.peek(0);
     throwing_cast<Policy::D>(top, { TYPE_BOOL }, true);
 
-    if(Policy::D == CHECK)
+    if(is_check(Policy::D))
         rpn_stack.pop(1);
     else if(is_interpret(Policy::D))
     {
@@ -3083,7 +3174,7 @@ void eval_t::force_convert_int(rpn_value_t& rpn_value, type_t to_type, bool impl
         .pstring = cast_pstring ? concat(rpn_value.pstring, cast_pstring) : rpn_value.pstring,
     };
 
-    if(D != CHECK)
+    if(!is_check(D))
     {
         fixed_t const masked = mask_numeric(rpn_value.fixed(), to_type.name());
 
@@ -3116,7 +3207,7 @@ void eval_t::force_round_real(rpn_value_t& rpn_value, type_t to_type, bool impli
         .pstring = cast_pstring ? concat(rpn_value.pstring, cast_pstring) : rpn_value.pstring,
     };
 
-    if(D != CHECK)
+    if(!is_check(D))
     {
         fixed_sint_t const original = to_signed(rpn_value.u(), TYPE_REAL);
         fixed_uint_t value = rpn_value.u();
@@ -3488,8 +3579,8 @@ void eval_t::make_lt(rpn_stack_t& rpn_stack, unsigned argn,
     expr_vec_t vec = _make_expr_vec(rpn_stack, argn);
     vec.insert(vec.end(), op_begin, op_end);
 
-    // Use CHECK to update the stack:
-    token_t const* token = do_token<CHECK>(rpn_stack, op_begin);
+    // Use CHECK_TYPES_SYNTAX to update the stack:
+    token_t const* token = do_token<CHECK_TYPES_SYNTAX>(rpn_stack, op_begin);
     assert(token == op_end);
 
     // Now add our expr_vec:
@@ -3522,7 +3613,7 @@ template<eval_t::do_t D>
 bool eval_t::handle_lt(rpn_stack_t& rpn_stack, unsigned argn,
                        token_t const* op_begin, token_t const* op_end)
 {
-    if(D == CHECK || D == LINK)
+    if(is_check(D) || D == LINK)
         return false;
 
     bool has_lt_arg = false;

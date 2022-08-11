@@ -11,7 +11,7 @@
 #include "runtime.hpp"
 
 static void write_linked(std::vector<locator_t> const& vec, 
-                         unsigned romv, int bank, 
+                         romv_t romv, int bank, 
                          std::uint8_t* const start)
 {
     std::uint8_t* at = start;
@@ -76,7 +76,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             // This is slower than necessary, but safer to code.
             asm_proc = rom_proc->asm_proc();
 
-            asm_proc.link(alloc.only_bank());
+            asm_proc.link(alloc.romv, alloc.only_bank());
             asm_proc.relocate(alloc.span.addr);
 
             //asm_proc.write_assembly(std::cerr);

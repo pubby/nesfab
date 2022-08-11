@@ -41,13 +41,13 @@ public:
     , m_desired_romv(desired_romv)
     {}
 
-    rom_alloc_ht get_alloc(unsigned romv) const 
+    rom_alloc_ht get_alloc(romv_t romv) const 
     {
         assert(romv < m_allocs.size()); 
         return m_allocs[romv];
     }
 
-    rom_alloc_ht find_alloc(unsigned romv) const 
+    rom_alloc_ht find_alloc(romv_t romv) const 
     { 
         assert(romv < m_allocs.size()); 
         rom_alloc_ht h = m_allocs[romv]; 
@@ -56,7 +56,7 @@ public:
         return h;
     }
 
-    void set_alloc(unsigned romv, rom_alloc_ht alloc, rom_key_t) 
+    void set_alloc(romv_t romv, rom_alloc_ht alloc, rom_key_t) 
         { assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM); m_allocs[romv] = alloc; }
 
     romv_flags_t desired_romv() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_desired_romv; }
@@ -154,14 +154,14 @@ DEF_HANDLE_HASH(rom_once_ht);
 struct rom_alloc_t
 {
     std::uint16_t desired_alignment = 0;
-    unsigned romv = 0;
+    romv_t romv = {};
     span_t span = {};
     rom_data_ht data = {};
 }; 
 
 struct rom_static_t : public rom_alloc_t
 {
-    rom_static_t(unsigned romv, span_t span) { this->romv = romv; this->span = span; }
+    rom_static_t(romv_t romv, span_t span) { this->romv = romv; this->span = span; }
 
     int only_bank() const { return mapper().num_32k_banks == 1 ? 0 : -1; }
 
@@ -175,7 +175,7 @@ struct rom_static_t : public rom_alloc_t
 
 struct rom_many_t : public rom_alloc_t
 {
-    rom_many_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment);
+    rom_many_t(romv_t romv, rom_data_ht data, std::uint16_t desired_alignment);
 
     bank_bitset_t in_banks = {};
 
@@ -187,7 +187,7 @@ struct rom_many_t : public rom_alloc_t
 
 struct rom_once_t : public rom_alloc_t
 {
-    rom_once_t(unsigned romv, rom_data_ht data, std::uint16_t desired_alignment);
+    rom_once_t(romv_t romv, rom_data_ht data, std::uint16_t desired_alignment);
 
     // Set of MANYs that this node depends upon.
     bitset_uint_t* required_manys = nullptr;

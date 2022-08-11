@@ -37,6 +37,36 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
         ssa_node_t& node = *ssa_it;
         fixed_t const all_set = { numeric_bitmask(node.type().name()) };
 
+        ssa_value_t carry_replacement = {};
+        auto const replace_carry = [&os](ssa_node_t& node, ssa_value_t carry_replacement)
+        {
+            assert(!carry_output(node) || carry_replacement);
+            if(carry_replacement)
+            {
+                if(ssa_ht carry = carry_output(node))
+                {
+                    dprint(os, "-SIMPLE_IDENTITY_REPLACE_CARRY", node.handle(), carry_replacement);
+                    carry->replace_with(carry_replacement);
+                    carry->prune();
+                }
+            }
+        };
+
+        auto const add_sub_impl = [&all_set](ssa_value_t v, fixed_t carry, bool sub) -> ssa_value_t
+        {
+            if(!v.is_num())
+                return {};
+
+            // Put the carry in the lowest bit.
+            if(carry.value)
+                carry.value = low_bit_only(all_set.value);
+
+            if((v.fixed().value + carry.value) & all_set.value)
+                return {};
+
+            return ssa_value_t(!!(v.fixed().value + carry.value) != sub, TYPE_BOOL);
+        };
+
         switch(node.op())
         {
         case SSA_cast:
@@ -113,10 +143,10 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
             {
                 if(!node.input(2).is_num())
                     break;
-                std::uint64_t const carry = node.input(2).fixed().value;
-                if(node.input(0).is_num() && !((node.input(0).fixed().value + carry) & all_set.value))
+
+                if((carry_replacement = add_sub_impl(node.input(0), node.input(2).fixed(), false)))
                     goto replaceWith1;
-                if(node.input(1).is_num() && !((node.input(1).fixed().value + carry) & all_set.value))
+                if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), false)))
                     goto replaceWith0;
             }
             break;
@@ -124,8 +154,7 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
             {
                 if(!node.input(2).is_num())
                     break;
-                std::uint64_t const carry = node.input(2).fixed().value;
-                if(node.input(1).is_num() && !((~node.input(1).fixed().value + carry) & all_set.value))
+                if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), true)))
                     goto replaceWith0;
             }
             break;
@@ -158,16 +187,19 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
         continue;
 
     replaceWith0:
-        dprint(os, "--SIMPLE_IDENTITY_REPLACE 0");
+        dprint(os, "--SIMPLE_IDENTITY_REPLACE 0", ssa_it, node.input(0));
+        replace_carry(node, carry_replacement);
         node.replace_with(node.input(0));
         goto prune;
 
     replaceWith1:
-        dprint(os, "--SIMPLE_IDENTITY_REPLACE 1");
+        dprint(os, "--SIMPLE_IDENTITY_REPLACE 1", ssa_it, node.input(1));
+        replace_carry(node, carry_replacement);
         node.replace_with(node.input(1));
         goto prune;
 
     prune:
+        dprint(os, "--SIMPLE_IDENTITY_PRUNE", ssa_it);
         ssa_it = node.prune();
         updated = true;
     }
@@ -705,6 +737,7 @@ void run_monoid_t::build(ssa_ht h, bool negative)
 bool o_identities(ir_t& ir, std::ostream* os)
 {
     bool updated = o_simple_identity(ir, os);
+    return updated;
 
     {
         ssa_data_pool::scope_guard_t<ssa_monoid_d> sg(ssa_pool::array_size());

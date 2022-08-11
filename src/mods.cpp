@@ -58,3 +58,33 @@ void mods_t::for_each_group_data(std::function<void(group_data_ht)> const& fn) c
         if(pair.first->gclass() == GROUP_DATA)
             fn(pair.first->handle<group_data_ht>());
 }
+
+void mods_t::inherit(mods_t const& from)
+{
+    explicit_group_vars |= from.explicit_group_vars;
+    explicit_group_data |= from.explicit_group_data;
+
+    mod_flags_t const flag_mask = (from.enable | from.disable) & ~(enable | disable);
+    enable |= from.enable & flag_mask;
+    disable |= from.disable & flag_mask;
+
+    for(auto const& pair : from.group_vars)
+        group_vars.insert(pair);
+    for(auto const& pair : from.group_data)
+        group_data.insert(pair);
+
+    if(from.nmi && !nmi)
+    {
+        nmi = from.nmi;
+        nmi_pstring = from.nmi_pstring;
+    }
+}
+
+void inherit(std::unique_ptr<mods_t>& mods, std::unique_ptr<mods_t> const& from)
+{
+    if(!from)
+        return;
+    if(!mods)
+        mods.reset(new mods_t());
+    mods->inherit(*from);
+}

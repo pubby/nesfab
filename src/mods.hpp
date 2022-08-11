@@ -27,10 +27,8 @@ struct src_group_t
 
 struct mods_t
 {
-    bool defined = false;
     bool explicit_group_vars = false;
     bool explicit_group_data = false;
-    bool explicit_flags = false;
 
     fc::vector_map<group_ht, pstring_t> group_vars;
     fc::vector_map<group_ht, pstring_t> group_data;
@@ -40,9 +38,6 @@ struct mods_t
 
     global_t const* nmi = nullptr;
     pstring_t nmi_pstring = {};
-
-    constexpr explicit operator bool() const { return defined; }
-    constexpr bool operator!() const { return !defined; }
 
     // Ensures groups match their group_class.
     void validate_groups() const;
@@ -56,9 +51,37 @@ struct mods_t
 
     void for_each_group_vars(std::function<void(group_vars_ht)> const& fn) const;
     void for_each_group_data(std::function<void(group_data_ht)> const& fn) const;
+
+    void inherit(mods_t const& from);
 };
+
+void inherit(std::unique_ptr<mods_t>& mods, std::unique_ptr<mods_t> const& from);
 
 mod_flags_t parse_mod_flag(std::string_view sv);
 std::string_view to_string(mod_flags_t flag);
+
+// Base class
+class modded_t
+{
+public:
+    explicit modded_t(std::unique_ptr<mods_t> mods) 
+    : m_mods(std::move(mods))
+    {
+        assert(!m_mods || (m_mods->enable & m_mods->disable) == 0);
+        if(m_mods)
+        {
+            m_mflags = m_mods->enable & ~m_mods->disable;
+            m_mflags_known = m_mods->enable | m_mods->disable;
+        }
+    }
+
+    mods_t const* mods() const { return m_mods.get(); }
+    mod_flags_t mflags() const { return m_mflags; }
+    mod_flags_t mflags_known() const { return m_mflags_known; }
+protected:
+    std::unique_ptr<mods_t> m_mods; // Storing as a pointer saves memory
+    mod_flags_t m_mflags;
+    mod_flags_t m_mflags_known;
+};
 
 #endif

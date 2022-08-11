@@ -53,9 +53,9 @@ std::string to_string(locator_t loc)
     case LOC_LT_GMEMBER_PTR:
         str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_LT_CONST_PTR:
-        str = fmt("lt const ptr %", loc.const_()->global.name); break;
+        str = fmt("lt_const_ptr %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
-        str = fmt("lt expr % %", loc.handle(), loc.lt().safe().type); break;
+        str = fmt("lt_expr % %", loc.handle(), loc.lt().safe().type); break;
     case LOC_THIS_BANK:
         str = "this bank"; break;
     case LOC_MAIN_ENTRY:
@@ -174,7 +174,7 @@ type_t locator_t::type() const
     return TYPE_VOID;
 }
 
-locator_t locator_t::link(unsigned romv, fn_ht fn_h, int bank) const
+locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 {
     assert(compiler_phase() == PHASE_LINK);
 
@@ -229,7 +229,7 @@ locator_t locator_t::link(unsigned romv, fn_ht fn_h, int bank) const
                 return *this;
             span_t span = {};
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
-                span = fn_h->lvar_span(i, mem_head());
+                span = fn_h->lvar_span(romv_t(i), mem_head());
             return from_span(fn_h->lvar_span(romv, mem_head()));
         }
 
@@ -239,7 +239,7 @@ locator_t locator_t::link(unsigned romv, fn_ht fn_h, int bank) const
         {
             span_t span = {};
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
-                span = fn()->lvar_span(i, mem_head());
+                span = fn()->lvar_span(romv_t(i), mem_head());
             return from_span(fn()->lvar_span(romv, mem_head()));
         }
 
@@ -257,7 +257,7 @@ locator_t locator_t::link(unsigned romv, fn_ht fn_h, int bank) const
                 return locator_t::const_byte(0);
             span_t span = {};
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
-                span = runtime_span(runtime_ram(), i);
+                span = runtime_span(runtime_ram(), romv_t(i));
             return from_span(span);
         }
 
@@ -267,7 +267,7 @@ locator_t locator_t::link(unsigned romv, fn_ht fn_h, int bank) const
                 return locator_t::const_byte(0);
             span_t span = {};
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
-                span = runtime_span(runtime_rom(), i);
+                span = runtime_span(runtime_rom(), romv_t(i));
             return from_span(span);
         }
 
@@ -295,7 +295,7 @@ rom_data_ht locator_t::rom_data() const
     };
 }
 
-rom_alloc_ht locator_t::rom_alloc(unsigned romv) const
+rom_alloc_ht locator_t::rom_alloc(romv_t romv) const
 {
     if(rom_data_ht d = rom_data())
         return d.get()->find_alloc(romv);

@@ -20,8 +20,10 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
     for(token_t& token : expr)
     {
         // Lookup identifiers and replace their '.value'.
-        if(token.type == TOK_ident || token.type == TOK_weak_ident)
+        switch(token.type)
         {
+        case TOK_ident:
+        case TOK_weak_ident:
             if(unsigned const* handle = symbol_table.find(token.pstring.view(source())))
             {
                 token.value = *handle;
@@ -37,9 +39,23 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
                 token.type = TOK_global_ident;
                 token.set_ptr(&g);
             }
-        }
-        else if(token.type == TOK_at)
-        {
+            break;
+
+        case TOK_default:
+            if(unsigned const* handle = symbol_table.find(token.pstring.view(source())))
+            {
+                token.value = *handle;
+                token.type = TOK_local_default;
+            }
+            else
+            {
+                global_t& g = global_t::lookup(file.source(), token.pstring);
+                ideps.insert(&g);
+                token.set_ptr(&g);
+            }
+            break;
+
+        case TOK_at:
             if(symbol_table.find(token.pstring.view(source())))
                 compiler_error(token.pstring, "Cannot get addresses of local variables.");
             else
@@ -47,18 +63,24 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
                 global_t& g = global_t::lookup(file.source(), token.pstring);
                 token.set_ptr(&g);
             }
-        }
-        else if(token.type == TOK_type_ident)
-        {
-            global_t& g = global_t::lookup(file.source(), token.pstring);
-            ideps.insert(&g);
-            token.set_ptr(&g);
-        }
-        else if(token.type == TOK_cast_type
-                || token.type == TOK_sizeof
-                || token.type == TOK_len)
-        {
+            break;
+
+        case TOK_type_ident:
+            {
+                global_t& g = global_t::lookup(file.source(), token.pstring);
+                ideps.insert(&g);
+                token.set_ptr(&g);
+            }
+            break;
+
+        case TOK_cast_type:
+        case TOK_sizeof:
+        case TOK_len:
             uses_type(*token.ptr<type_t>());
+            break;
+
+        default:
+            break;
         }
     }
 

@@ -24,7 +24,8 @@ enum zp_request_t
 };
 
 // Allocates a span inside 'usable_ram'.
-span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp)
+span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp, 
+                 bool insist_alignment = false)
 {
     auto const try_alloc = [](ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
     {
@@ -60,9 +61,9 @@ span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t 
     };
 
     // Align, when possible
-    if(size > 1 && size <= 256)
+    if(size > 1 && (insist_alignment || size <= 256))
     {
-        page_bitset_t page = page_bitset_t::filled(0, 257 - size);
+        page_bitset_t page = page_bitset_t::filled(0, (size > 256) ? 1 : (257 - size));
         ram_bitset_t aligned = usable_ram;
 
         static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
@@ -72,6 +73,8 @@ span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t 
 
         if(span_t span = try_alloc(aligned, size, zp))
             return span;
+        else if(insist_alignment)
+            return {};
     }
 
     return try_alloc(usable_ram, size, zp);
@@ -92,11 +95,11 @@ private:
         FULL_ALLOC,
     };
 
-    void build_order(unsigned romv, std::vector<fn_ht>& fn_order, std::vector<fn_ht>& input_fns);
-    void build_order(unsigned romv, std::vector<fn_ht>& fn_order, fn_ht fn);
+    void build_order(romv_t romv, std::vector<fn_ht>& fn_order, std::vector<fn_ht>& input_fns);
+    void build_order(romv_t romv, std::vector<fn_ht>& fn_order, fn_ht fn);
 
     template<step_t Step>
-    void alloc_locals(unsigned romv, fn_ht h);
+    void alloc_locals(romv_t romv, fn_ht h);
 
     struct group_vars_d
     {
@@ -508,12 +511,14 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             all.flip_all();
             any.flip_all();
 
+            bool const insist_align = (gmember.gvar.mflags() & MOD_align);
+
             // Allocate, prioritizing 'all', then 'any', then just 'd.usable_ram'.
-            span_t span = alloc_ram(d.usable_ram & all, size, zp);
+            span_t span = alloc_ram(d.usable_ram & all, size, zp, insist_align);
             if(!span)
-                span = alloc_ram(d.usable_ram & any, size, zp);
+                span = alloc_ram(d.usable_ram & any, size, zp, insist_align);
             if(!span)
-                span = alloc_ram(d.usable_ram, size, zp);
+                span = alloc_ram(d.usable_ram, size, zp, insist_align);
 
             if(!span)
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
@@ -602,7 +607,7 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
             ranks[ROMV_NMI].push_back(nmi->handle());
 
         for(unsigned i = 0; i < ranks.size(); ++i)
-            build_order(i, fn_orders[i], ranks[i]);
+            build_order(romv_t(i), fn_orders[i], ranks[i]);
 
         for(unsigned i = 0; i < ranks.size(); ++i)
             for(fn_ht fn : fn_orders[i])
@@ -610,15 +615,15 @@ ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::os
 
         for(int romv = NUM_ROMV - 1; romv >= 0; --romv)
             for(fn_ht fn : fn_orders[romv])
-                alloc_locals<ZP_ONLY_ALLOC>(romv, fn);
+                alloc_locals<ZP_ONLY_ALLOC>(romv_t(romv), fn);
 
         for(int romv = NUM_ROMV - 1; romv >= 0; --romv)
             for(fn_ht fn : fn_orders[romv])
-                alloc_locals<FULL_ALLOC>(romv, fn);
+                alloc_locals<FULL_ALLOC>(romv_t(romv), fn);
     }
 }
 
-void ram_allocator_t::build_order(unsigned romv, std::vector<fn_ht>& fn_order, std::vector<fn_ht>& input_fns)
+void ram_allocator_t::build_order(romv_t romv, std::vector<fn_ht>& fn_order, std::vector<fn_ht>& input_fns)
 {
     std::sort(input_fns.begin(), input_fns.end(), [&](fn_ht a, fn_ht b)
     {
@@ -629,7 +634,7 @@ void ram_allocator_t::build_order(unsigned romv, std::vector<fn_ht>& fn_order, s
         build_order(romv, fn_order, input_fn);
 }
 
-void ram_allocator_t::build_order(unsigned romv, std::vector<fn_ht>& fn_order, fn_ht fn)
+void ram_allocator_t::build_order(romv_t romv, std::vector<fn_ht>& fn_order, fn_ht fn)
 {
     fn_d& d = data(fn);
 
@@ -653,7 +658,7 @@ void ram_allocator_t::build_order(unsigned romv, std::vector<fn_ht>& fn_order, f
 }
 
 template<ram_allocator_t::step_t Step>
-void ram_allocator_t::alloc_locals(unsigned const romv, fn_ht h)
+void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 {
     fn_t& fn = *h;
     fn_d& d = data(h);

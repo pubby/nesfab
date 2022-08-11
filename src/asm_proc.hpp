@@ -51,11 +51,11 @@ struct asm_proc_t
 
     std::size_t size() const { return bytes_between(0, code.size()); }
 
-    void write_assembly(std::ostream& os, unsigned romv) const;
-    void write_bytes(std::uint8_t* const start, unsigned romv, int bank) const;
+    void write_assembly(std::ostream& os, romv_t romv) const;
+    void write_bytes(std::uint8_t* const start, romv_t romv, int bank) const;
 
     // Replaces some locators with linked ones, then optimizes.
-    void link(unsigned romv, int bank = -1);
+    void link(romv_t romv, int bank = -1);
 
     // Replaces labels with constant addresses.
     void relocate(std::uint16_t addr);

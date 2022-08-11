@@ -1033,30 +1033,30 @@ void code_gen(ir_t& ir, fn_t& fn)
 
         if(!ssa_it->input(0).holds_ref())
         {
-            // TODO
-            assert(0);
-            continue;
+            // Check if the alt is an immediate constant.
+            if(!ssa_it->input(0).is_locator() || !ssa_it->input(0).locator().is_immediate())
+                continue;
+        }
+        else
+        {
+            ssa_ht const head_opposite = cset_head(ssa_it->input(0).handle());
+            locator_t const head_opposite_loc = cset_locator(head_opposite);
+
+            // Can't coalesce with every locator:
+            if(!valid_ptr_loc(head_opposite_loc, !hi))
+                continue;
+
+            if(!valid_ptr_locs(head_input_loc, head_opposite_loc))
+                continue;
+
+            std::puts("coal ptr 1");
+
+            // If either is defined with the opposite parity, we can't coalesce.
+            if(cg_data(head_opposite).has_ptr(hi) || cg_data(head_input).has_ptr(!hi))
+                continue;
         }
 
-        std::cout << "try coal ptr " << ssa_it.id << std::endl;
-
         assert(cg_data(ssa_it).ptr_alt);
-
-        ssa_ht const head_opposite = cset_head(ssa_it->input(0).handle());
-        locator_t const head_opposite_loc = cset_locator(head_opposite);
-
-        // Can't coalesce with every locator:
-        if(!valid_ptr_loc(head_opposite_loc, !hi))
-            continue;
-
-        if(!valid_ptr_locs(head_input_loc, head_opposite_loc))
-            continue;
-
-        std::puts("coal ptr 1");
-
-        // If either is defined with the opposite parity, we can't coalesce.
-        if(cg_data(head_opposite).has_ptr(hi) || cg_data(head_input).has_ptr(!hi))
-            continue;
 
         std::puts("coal ptr 2");
 
@@ -1095,7 +1095,7 @@ void code_gen(ir_t& ir, fn_t& fn)
         cset_append(last, head_ssa);
 
         assert(head_input == cset_head(head_input));
-        assert(head_opposite == cset_head(head_opposite));
+        //assert(head_opposite == cset_head(head_opposite));
         assert(cg_data(head_input).ptr_alt);
 
         std::cout << "coal ptr " << ssa_it.id << std::endl;

@@ -356,7 +356,7 @@ public:
     }
 
     rom_data_ht rom_data() const;
-    rom_alloc_ht rom_alloc(unsigned romv) const;
+    rom_alloc_ht rom_alloc(romv_t romv) const;
 
     // Strips offset info from this locator.
     locator_t mem_head() const 
@@ -475,7 +475,7 @@ public:
 
     type_t type() const;
 
-    locator_t link(unsigned romv, fn_ht fn = {}, int bank = -1) const;
+    locator_t link(romv_t romv, fn_ht fn = {}, int bank = -1) const;
 
 
 private:

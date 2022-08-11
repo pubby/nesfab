@@ -128,12 +128,12 @@ public:
         return push_stmt({ static_cast<stmt_name_t>(~name), {}, {}, pstring, expr }); 
     }
 
-    stmt_mods_ht push_mods(mods_t&& m)
+    stmt_mods_ht push_mods(std::unique_ptr<mods_t> m)
     {
         if(!m)
             return {};
         stmt_mods_ht const handle = { mods.size() };
-        mods.push_back(std::move(m));
+        mods.push_back(std::move(*m));
         return handle;
     }
 

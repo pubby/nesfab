@@ -9,6 +9,7 @@
 #include "builtin.hpp"
 #include "format.hpp"
 #include "type_mask.hpp"
+#include "assert.hpp"
 
 extern std::uint8_t const add_constraints_table[1024];
 
@@ -530,7 +531,7 @@ ABSTRACT(SSA_write_hw) = abstract_bottom;
 ABSTRACT(SSA_carry) = ABSTRACT_FN
 {
     assert(argn == 1);
-    assert(cv[0].vec.size() == 2);
+    passert(cv[0].vec.size() == 2, cv[0].vec.size());
     result[0] = cv[0][1];
 };
 

@@ -693,6 +693,8 @@ void print_rom(std::ostream& o)
         o << "\n\n" << c.global.name << " / " << c.rom_array() << ": \n";
         for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
+            if(!c.rom_array())
+                continue;
             if(auto a = c.rom_array()->get_alloc(romv_t(romv)))
                 o << romv << ' ' << a.get()->span << ' ' << a.first_bank() << std::endl;
             else

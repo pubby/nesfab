@@ -174,14 +174,18 @@ int main(int argc, char** argv)
         auto rom_allocator = alloc_runtime_rom();
         output_time("runtime:  ");
 
+        set_compiler_phase(PHASE_ORDER_PRECHECK);
+        global_t::build_order(true);
+        output_time("order1:   ");
+
         set_compiler_phase(PHASE_PRECHECK);
-        global_t::precheck();
+        global_t::precheck_all();
         output_time("precheck: ");
 
         // Create an ordering of all the globals:
-        set_compiler_phase(PHASE_ORDER_GLOBALS);
-        global_t::build_order();
-        output_time("order:    ");
+        set_compiler_phase(PHASE_ORDER_COMPILE);
+        global_t::build_order(false);
+        output_time("order2:   ");
 
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);

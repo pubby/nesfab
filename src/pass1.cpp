@@ -41,20 +41,6 @@ token_t const* pass1_t::convert_expr(expr_temp_t& expr)
             }
             break;
 
-        case TOK_default:
-            if(unsigned const* handle = symbol_table.find(token.pstring.view(source())))
-            {
-                token.value = *handle;
-                token.type = TOK_local_default;
-            }
-            else
-            {
-                global_t& g = global_t::lookup(file.source(), token.pstring);
-                ideps.insert(&g);
-                token.set_ptr(&g);
-            }
-            break;
-
         case TOK_at:
             if(symbol_table.find(token.pstring.view(source())))
                 compiler_error(token.pstring, "Cannot get addresses of local variables.");

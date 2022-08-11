@@ -149,8 +149,7 @@ constexpr token_type_t TOK_begin_paa = 144;
 constexpr token_type_t TOK_end_paa = 145;
 constexpr token_type_t TOK_group_set = 146;
 constexpr token_type_t TOK_spair = 147;
-constexpr token_type_t TOK_local_default = 148;
-constexpr token_type_t TOK_END = 149;
+constexpr token_type_t TOK_END = 148;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -304,7 +303,6 @@ inline std::string_view token_name(token_type_t type)
     case TOK_end_paa: return "end_paa"sv;
     case TOK_group_set: return "group_set"sv;
     case TOK_spair: return "spair"sv;
-    case TOK_local_default: return "local_default"sv;
     }
 }
 inline std::string_view token_string(token_type_t type)
@@ -460,7 +458,6 @@ inline std::string_view token_string(token_type_t type)
     case TOK_end_paa: return "end paa"sv;
     case TOK_group_set: return "group set"sv;
     case TOK_spair: return "spair"sv;
-    case TOK_local_default: return "local default"sv;
     }
 }
 constexpr unsigned char token_precedence_table[] =
@@ -559,7 +556,6 @@ constexpr unsigned char token_precedence_table[] =
     158,
     158,
     1,
-    0,
     0,
     0,
     0,
@@ -765,7 +761,6 @@ constexpr bool token_right_assoc_table[] =
     0,
     0,
     0,
-    0,
 };
 #define TOK_KEY_CASES \
     case TOK_if:\
@@ -858,7 +853,7 @@ constexpr bool token_right_assoc_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 148;
-constexpr token_type_t TOK_START = 149;
+constexpr token_type_t TOK_LAST_STATE = 147;
+constexpr token_type_t TOK_START = 148;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[31647];
+extern token_type_t const lexer_transition_table[31570];

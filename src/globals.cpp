@@ -284,14 +284,25 @@ void global_t::parse_cleanup()
 
 // This function isn't thread-safe.
 // Call from a single thread only.
-void global_t::precheck()
+void global_t::precheck_all()
 {
     assert(compiler_phase() == PHASE_PRECHECK);
 
-    for(fn_t& fn : fn_ht::values())
-        fn.precheck_eval();
-    for(fn_t& fn : fn_ht::values())
-        fn.precheck_propagate();
+    globals_left = global_ht::pool().size();
+
+    // Spawn threads to compile in parallel:
+    parallelize(compiler_options().num_threads,
+    [](std::atomic<bool>& exception_thrown)
+    {
+        while(!exception_thrown)
+        {
+            global_t* global = await_ready_global();
+            if(!global)
+                return;
+            global->precheck();
+        }
+    });
+
     for(fn_t const* fn : modes())
         fn->precheck_finish_mode();
     for(fn_t const* fn : nmis())
@@ -300,7 +311,7 @@ void global_t::precheck()
     // Verify fences:
     for(fn_t const* nmi : nmis())
         if(nmi->m_precheck_wait_nmi)
-            compiler_error(nmi->global.pstring(), "Fence error."); // TODO
+            compiler_error(nmi->global.pstring(), "Waiting for nmi inside nmi handler.");
 
     // Define 'm_precheck_parent_modes'
     for(fn_t* mode : modes())
@@ -419,26 +430,32 @@ void global_t::count_members()
 
 // This function isn't thread-safe.
 // Call from a single thread only.
-void global_t::build_order()
+void global_t::build_order(bool precheck)
 {
-    assert(compiler_phase() == PHASE_ORDER_GLOBALS);
+    assert(compiler_phase() == PHASE_ORDER_PRECHECK
+           || compiler_phase() == PHASE_ORDER_COMPILE);
+    assert(precheck == (compiler_phase() == PHASE_ORDER_PRECHECK));
 
-    // Add additional ideps
-    for(fn_t& fn : fn_ht::values())
+    // TODO: move this to precheck?
+    if(!precheck)
     {
-        // fns that fence for nmis should depend on said nmis
-        if(fn.precheck_tracked().wait_nmis.size() > 0)
+        // Add additional ideps
+        for(fn_t& fn : fn_ht::values())
         {
-            for(fn_ht mode : fn.precheck_parent_modes())
+            // fns that fence for nmis should depend on said nmis
+            if(fn.precheck_tracked().wait_nmis.size() > 0)
             {
-                global_t* new_dep = &mode->mode_nmi()->global;
-                assert(!new_dep->has_dep(fn.global));
-                fn.global.m_ideps.insert(new_dep); // ideps
+                for(fn_ht mode : fn.precheck_parent_modes())
+                {
+                    global_t* new_dep = &mode->mode_nmi()->global;
+                    assert(!new_dep->has_dep(fn.global));
+                    fn.global.m_ideps.insert(new_dep); // ideps
+                }
             }
+            else if(fn.precheck_tracked().fences.size() > 0)
+                for(fn_ht mode : fn.precheck_parent_modes())
+                    fn.global.m_weak_ideps.insert(&mode->mode_nmi()->global); // weak ideps
         }
-        else if(fn.precheck_tracked().fences.size() > 0)
-            for(fn_ht mode : fn.precheck_parent_modes())
-                fn.global.m_weak_ideps.insert(&mode->mode_nmi()->global); // weak ideps
     }
 
     // Convert weak ideps
@@ -466,6 +483,9 @@ void global_t::build_order()
     {
         std::vector<std::string> error_msgs;
         detect_cycle(global, error_msgs);
+
+        // Also clear m_iuses:
+        global.m_iuses.clear();
     }
 
     for(global_t& global : global_ht::values())
@@ -479,8 +499,52 @@ void global_t::build_order()
     }
 }
 
+void global_t::precheck()
+{
+    assert(compiler_phase() == PHASE_PRECHECK);
+
+//#ifdef DEBUG_PRINT
+    std::cout << "PRECHECKING " << name << " ideps = " << ideps().size() << std::endl;
+    for(global_t const* idep : ideps())
+        std::cout << " IDEP " << idep->name << std::endl;
+//#endif
+
+#ifndef NDEBUG
+    for(global_t const* idep : ideps())
+        assert(idep->prechecked());
+#endif
+
+    // Compile it!
+    switch(gclass())
+    {
+    default:
+        throw std::runtime_error("Invalid global.");
+
+    case GLOBAL_FN:
+        this->impl<fn_t>().precheck();
+        break;
+
+    case GLOBAL_CONST:
+        this->impl<const_t>().precheck();
+        break;
+
+    case GLOBAL_VAR:
+        this->impl<gvar_t>().precheck();
+        break;
+
+    case GLOBAL_STRUCT:
+        this->impl<struct_t>().precheck();
+        break;
+    }
+
+    m_prechecked = true;
+    completed();
+}
+
 void global_t::compile()
 {
+    assert(compiler_phase() == PHASE_COMPILE);
+
 //#ifdef DEBUG_PRINT
     std::cout << "COMPILING " << name << " ideps = " << ideps().size() << std::endl;
     for(global_t const* idep : ideps())
@@ -497,6 +561,7 @@ void global_t::compile()
     {
     default:
         throw std::runtime_error("Invalid global.");
+
     case GLOBAL_FN:
         this->impl<fn_t>().compile();
         break;
@@ -515,8 +580,12 @@ void global_t::compile()
     }
 
     m_compiled = true;
+    completed();
+}
 
-    // OK! The global is now compiled.
+void global_t::completed()
+{
+    // OK! The global is done.
     // Now add all its dependents onto the ready list:
 
     global_t** newly_ready = ALLOCA_T(global_t*, m_iuses.size());
@@ -827,10 +896,8 @@ void alloc_args(ir_t const& ir)
 }
 */
 
-void fn_t::compile()
+void fn_t::precheck()
 {
-    assert(compiler_phase() == PHASE_COMPILE);
-
     // Dethunkify the fn type:
     {
         type_t* types = ALLOCA_T(type_t, def().num_params + 1);
@@ -843,6 +910,7 @@ void fn_t::compile()
     if(fclass == FN_CT)
         return; // Nothing else to do!
 
+    // Finish up types:
     for(unsigned i = 0; i < def().num_params; ++i)
     {
         auto const& decl = def().local_vars[i];
@@ -851,6 +919,20 @@ void fn_t::compile()
     }
     if(is_ct(def().return_type.type))
         compiler_error(def().return_type.pstring, fmt("Function must be declared as ct to use type %.", def().return_type.type));
+
+    // Run the evaluator to generate 'm_precheck_tracked':
+    assert(!m_precheck_tracked);
+    m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
+
+    calc_precheck_bitsets();
+}
+
+void fn_t::compile()
+{
+    assert(compiler_phase() == PHASE_COMPILE);
+
+    if(fclass == FN_CT)
+        return; // Nothing to do!
 
     // Init 'fence_reads' and 'fence_writes':
     if(precheck_fences())
@@ -996,24 +1078,9 @@ void fn_t::precheck_finish_nmi() const
     });
 }
 
-void fn_t::precheck_eval()
+void fn_t::calc_precheck_bitsets()
 {
     assert(compiler_phase() == PHASE_PRECHECK);
-    assert(!m_precheck_tracked);
-
-    // Run the evaluator to generate 'm_precheck_tracked':
-    m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
-}
-
-void fn_t::precheck_propagate()
-{
-    assert(compiler_phase() == PHASE_PRECHECK);
-
-    if(m_precheck_group_vars)
-    {
-        assert(m_precheck_calls);
-        return;
-    }
 
     // Set 'wait_nmi' and 'fences':
     m_precheck_wait_nmi |= m_precheck_tracked->wait_nmis.size() > 0;
@@ -1021,6 +1088,10 @@ void fn_t::precheck_propagate()
     m_precheck_fences |= m_precheck_wait_nmi;
 
     unsigned const gv_bs_size = group_vars_ht::bitset_size();
+
+    assert(!m_precheck_group_vars);
+    assert(!m_precheck_rw);
+    assert(!m_precheck_calls);
 
     m_precheck_group_vars.alloc();
     m_precheck_rw.alloc();
@@ -1181,10 +1252,9 @@ void fn_t::precheck_propagate()
         {
             fn_t& call = *pair.first;
 
-            call.precheck_propagate(); // Recurse
-
             assert(call.fclass != FN_MODE);
             assert(call.m_precheck_group_vars);
+            assert(call.m_precheck_rw);
 
             bitset_copy(gv_bs_size, temp_bs, call.m_precheck_group_vars.data());
             bitset_difference(gv_bs_size, temp_bs, mod_group_vars);
@@ -1267,13 +1337,13 @@ void fn_t::calc_lang_gvars()
 
 void global_datum_t::dethunkify(bool full)
 {
-    assert(compiler_phase() == PHASE_COMPILE || compiler_phase() == PHASE_COUNT_MEMBERS);
+    assert(compiler_phase() == PHASE_PRECHECK || compiler_phase() == PHASE_COUNT_MEMBERS);
     m_src_type.type = ::dethunkify(m_src_type, full);
 }
 
-void global_datum_t::compile()
+void global_datum_t::precheck()
 {
-    assert(compiler_phase() == PHASE_COMPILE);
+    assert(compiler_phase() == PHASE_PRECHECK);
 
     dethunkify(true);
 
@@ -1301,6 +1371,11 @@ void global_datum_t::compile()
         m_src_type.type = std::move(spair.type); // Handles unsized arrays
         sval_init(std::move(spair.value));
     }
+}
+
+void global_datum_t::compile()
+{
+    assert(compiler_phase() == PHASE_COMPILE);
 }
 
 ////////////
@@ -1447,15 +1522,20 @@ unsigned struct_t::count_members()
     return m_num_members = count;
 }
 
-void struct_t::compile()
+void struct_t::precheck()
 {
-    assert(compiler_phase() == PHASE_COMPILE);
+    assert(compiler_phase() == PHASE_PRECHECK);
 
     // Dethunkify
     for(unsigned i = 0; i < fields().size(); ++i)
         const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, true);
 
     gen_member_types(*this, 0);
+}
+
+void struct_t::compile()
+{
+    assert(compiler_phase() == PHASE_COMPILE);
 }
 
 // Builds 'm_member_types', sets 'm_has_array_member', and dethunkifies the struct.

@@ -53,7 +53,6 @@ private:
     stmt_t const* stmt = nullptr;
     ir_t* ir = nullptr;
     bc::small_vector<sval_t, 8> interpret_locals;
-    bc::small_vector<sval_t, 8> interpret_local_defaults;
     bc::small_vector<type_t, 8> var_types;
 
     using clock = sc::steady_clock;
@@ -117,7 +116,7 @@ public:
         LINK
     };
 
-    static constexpr bool is_check(do_t d) { return d == CHECK_SYNTAX || d == CHECK_TYPES_SYNTAX; }
+    static constexpr bool is_check(do_t d) { return d == CHECK; }
     static constexpr bool is_interpret(do_t d) { return d == INTERPRET_CE || d == INTERPRET; }
 
     template<do_t Do>
@@ -299,7 +298,7 @@ std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr)
 precheck_tracked_t build_tracked(fn_t const& fn)
 {
     precheck_tracked_t tracked;
-    eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK_SYNTAX>{}, {}, fn, &tracked, nullptr, 0);
+    eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK>{}, {}, fn, &tracked, nullptr, 0);
     return tracked;
 }
 
@@ -331,7 +330,6 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
 {
     unsigned const nlocals = num_locals();
 
-    interpret_local_defaults.resize(nlocals);
     var_types.resize(nlocals);
         for(unsigned i = 0; i < nlocals; ++i)
             var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
@@ -352,7 +350,6 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
         if(!is_check(D))
         {
             interpret_locals.resize(nlocals);
-            interpret_local_defaults.resize(nlocals);
 
             assert(args);
             assert(num_args <= nlocals);
@@ -379,7 +376,6 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
 
     unsigned const nlocals = num_locals();
 
-    interpret_local_defaults.resize(nlocals);
     var_types.resize(nlocals);
     for(unsigned i = 0; i < nlocals; ++i)
         var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
@@ -588,7 +584,6 @@ void eval_t::interpret_stmts()
                     if(D == INTERPRET)
                     {
                         assert(interpret_locals[var_i].empty());
-                        interpret_local_defaults[var_i] = rpn_stack.only1().sval;
                         interpret_locals[var_i] = std::move(rpn_stack.only1().sval);
                         rpn_stack.pop(1);
                     }
@@ -755,9 +750,6 @@ void eval_t::compile_block()
 
                 throwing_cast<COMPILE>(rpn_stack.peek(0), var_types[var_i], true);
                 value = from_sval(rpn_stack.only1().sval, rpn_stack.only1().type);
-
-                assert(var_i < interpret_local_defaults.size());
-                interpret_local_defaults[var_i] = rpn_stack.only1().sval;
             }
             else
             {
@@ -1276,57 +1268,6 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                     .pstring = token->pstring });
                 break;
             }
-        }
-        break;
-
-    case TOK_default:
-        {
-            if(D == LINK)
-                compiler_error(token->pstring, "Expression cannot be evaluated at link-time.");
-
-            global_t const* global = token->ptr<global_t>();
-            global_datum_t const* datum = global->datum();
-
-            if(!datum || !datum->init_expr)
-                compiler_error(token->pstring, fmt("% has no default value.", global->name));
-
-            rpn_value_t new_top =
-            {
-                .category = RVAL, 
-                .type = datum->type(),
-                .pstring = token->pstring,
-            };
-
-            if(!is_check(D))
-                new_top.sval = datum->sval();
-
-            rpn_stack.push(std::move(new_top));
-        }
-        break;
-
-    case TOK_local_default:
-        {
-            if(D == LINK)
-                compiler_error(token->pstring, "Expression cannot be evaluated at link-time.");
-
-            unsigned const var_i = token->value;
-            assert(var_i < interpret_local_defaults.size());
-
-            rpn_value_t new_top =
-            {
-                .category = RVAL, 
-                .type = var_types[var_i],
-                .pstring = token->pstring,
-            };
-
-            if(!is_check(D))
-            {
-                new_top.sval = interpret_local_defaults[var_i];
-                if(new_top.sval.empty())
-                    compiler_error(token->pstring, "Variable has no default value.");
-            }
-
-            rpn_stack.push(std::move(new_top));
         }
         break;
 
@@ -2153,7 +2094,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
     case TOK_sizeof_expr:
         {
             rpn_stack_t sub_stack;
-            do_expr<CHECK_TYPES_SYNTAX>(sub_stack, token->ptr<token_t const>());
+            do_expr<CHECK>(sub_stack, token->ptr<token_t const>());
             common_type = sub_stack.peek(0).type;
             goto do_sizeof;
         }
@@ -2174,7 +2115,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
     case TOK_len_expr:
         {
             rpn_stack_t sub_stack;
-            do_expr<CHECK_TYPES_SYNTAX>(sub_stack, token->ptr<token_t const>());
+            do_expr<CHECK>(sub_stack, token->ptr<token_t const>());
             common_type = sub_stack.peek(0).type;
             goto do_len;
         }
@@ -3579,8 +3520,8 @@ void eval_t::make_lt(rpn_stack_t& rpn_stack, unsigned argn,
     expr_vec_t vec = _make_expr_vec(rpn_stack, argn);
     vec.insert(vec.end(), op_begin, op_end);
 
-    // Use CHECK_TYPES_SYNTAX to update the stack:
-    token_t const* token = do_token<CHECK_TYPES_SYNTAX>(rpn_stack, op_begin);
+    // Use CHECK to update the stack:
+    token_t const* token = do_token<CHECK>(rpn_stack, op_begin);
     assert(token == op_end);
 
     // Now add our expr_vec:

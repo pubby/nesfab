@@ -622,7 +622,6 @@ inapplicable:
         goto applicable;
 
     case TOK_at:
-    case TOK_default:
         {
             token_t t = token;
             parse_token();

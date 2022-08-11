@@ -79,6 +79,7 @@ private:
     ideps_set_t m_iuses;
     std::atomic<unsigned> m_ideps_left = 0;
 
+    std::atomic<bool> m_prechecked = false; // Use for debugging only.
     std::atomic<bool> m_compiled = false; // Use for debugging only.
 public:
     global_t() = delete;
@@ -94,6 +95,7 @@ public:
     ideps_set_t const& ideps() const { assert(compiler_phase() > PHASE_PARSE); return m_ideps; }
     pstring_t pstring() const { return m_pstring; }
     unsigned impl_id() const { assert(compiler_phase() > PHASE_PARSE); return m_impl_id; }
+    bool prechecked() const { return m_prechecked; }
     bool compiled() const { return m_compiled; }
 
     template<typename T>
@@ -145,9 +147,6 @@ public:
     // Call after parsing
     static void parse_cleanup();
 
-    // Checks the code and gathers information with a pre-pass evaluation.
-    static void precheck();
-
     // Implementation detail used in 'build_order'.
     static global_t* detect_cycle(global_t& global, std::vector<std::string>& error_msgs);
 
@@ -158,7 +157,10 @@ public:
     // among other things.
     // This function isn't thread-safe.
     // Call from a single thread only.
-    static void build_order();
+    static void build_order(bool precheck);
+
+    // Call after 'build_order'. Checks the code and gathers information with a pre-pass evaluation.
+    static void precheck_all();
 
     // Call after 'build_order' to well... compile everything!
     static void compile_all();
@@ -171,7 +173,12 @@ private:
                     ideps_set_t&& ideps, ideps_set_t&& weak_ideps,
                     std::function<unsigned(global_t&)> create_impl);
 
+    void precheck();
     void compile();
+
+    // Call on completion of compile or precheck.
+    // Updates the ready list.
+    void completed();
 
     // Returns and pops the next ready global from the ready list.
     static global_t* await_ready_global();
@@ -239,6 +246,8 @@ public:
     bool has_tea_member() const { return m_has_tea_member; }
 
     unsigned count_members(); 
+
+    void precheck();
     void compile();
 private:
     void gen_member_types(struct_t const& s, unsigned tea_size);
@@ -310,6 +319,7 @@ public:
     type_t type() const { return m_type; }
     fn_def_t const& def() const { return m_def; }
 
+    void precheck();
     void compile();
 
     fn_ht mode_nmi() const; // Returns the NMI of this mode.
@@ -369,15 +379,14 @@ public:
     span_t lvar_span(romv_t romv, int lvar_i) const;
     span_t lvar_span(romv_t romv, locator_t loc) const;
 
-    void precheck_eval();
-    void precheck_propagate();
-    void precheck_finish_mode() const;
-    void precheck_finish_nmi() const;
-
 public:
     global_t& global;
     fn_class_t const fclass;
 private:
+    void precheck_finish_mode() const;
+    void precheck_finish_nmi() const;
+
+    void calc_precheck_bitsets();
     void calc_ir_bitsets(ir_t const& ir);
 
     template<typename P>
@@ -446,9 +455,10 @@ public:
     bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
 
     type_t type() const { return m_src_type.type; }
-    sval_t const& sval() const { assert(global.compiled()); return m_sval; }
+    sval_t const& sval() const { assert(global.prechecked()); return m_sval; }
 
     void dethunkify(bool full);
+    void precheck();
     void compile();
 
     virtual group_ht group() const = 0;

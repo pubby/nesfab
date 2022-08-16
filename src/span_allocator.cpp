@@ -6,6 +6,7 @@ span_t span_allocator_t::alloc_at(span_t span)
 {
     if(!span)
         return {};
+    assert(span.size > 0);
 
     auto it = treap.upper_bound<std::uint16_t>(span.addr, upper_func{});
 
@@ -36,6 +37,9 @@ span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t alignment, bool
 
 void span_allocator_t::free(span_t span)
 {
+    if(!span.size)
+        return;
+
     auto const pre  = treap.upper_bound<std::uint16_t>(span.addr, upper_func{});
     auto const post = treap.lower_bound<std::uint16_t>(span.addr, lower_func{});
 

@@ -7,6 +7,8 @@
 #include <vector>
 #include <unordered_map> // TODO
 
+#include <boost/container/small_vector.hpp>
+
 #include "robin/hash.hpp"
 #include "robin/map.hpp"
 
@@ -16,8 +18,11 @@
 #include "group.hpp"
 #include "cg_isel_cpu.hpp"
 #include "cg_cset.hpp"
+#include "options.hpp"
+#include "ir_algo.hpp"
+#include "worklist.hpp"
 
-#define CONT cont_fn_t cont
+namespace bc = ::boost::container;
 
 namespace isel
 {
@@ -27,21 +32,20 @@ namespace isel
         //rh::batman_map<cpu_t, sel_t const*> map;
         //rh::batman_map<cpu_t, sel_t const*> next_map;
 
-        template<typename... T>
-        using map_t = rh::batman_map<cpu_t, sel_t const*, T...>;
+        using map_t = rh::batman_map<cpu_t, sel_t const*>;
         //using map_t = robin_hood::unordered_map<cpu_t, sel_t const*>;
         //using map_t = std::unordered_map<cpu_t, sel_t const*, T...>;
         //using map_t = std::unordered_map<cpu_t, sel_t const*>;
 
-        map_t<> map;
-        map_t<> next_map;
-        map_t<isel::approximate_hash_t, isel::approximate_eq_t> approx_map;
+        map_t map;
+        map_t next_map;
+        //map_t<isel::approximate_hash_t, isel::approximate_eq_t> approx_map;
 
         array_pool_t<sel_t> sel_pool;
 
         unsigned best_cost = ~0;
         unsigned next_best_cost = ~0;
-        sel_t const* best_sel = nullptr;
+        //sel_t const* best_sel = nullptr;
 
         cfg_ht cfg_node;
         ssa_ht ssa_node;
@@ -58,6 +62,11 @@ namespace isel
     // Main global state of the instruction selection algorithm.
     thread_local state_t state;
 
+    inline locator_t ssa_to_value(ssa_value_t v)
+    {
+        return locator_t::from_ssa_value(orig_def(v)).with_byteified(false);
+    }
+
     template<typename Tag>
     struct param
     {
@@ -68,7 +77,7 @@ namespace isel
         static void set(ssa_value_t v)
         {
             _node = v;
-            _value = locator_t::from_ssa_value(orig_def(v)).with_byteified(false);
+            _value = ssa_to_value(v);
             _trans = asm_arg(v).with_byteified(false);
         }
 
@@ -92,7 +101,7 @@ namespace isel
         static ssa_value_t node() { return Param::node()->input(2); }
 
         [[gnu::always_inline]]
-        static locator_t value() { return locator_t::from_ssa_value(orig_def(node())); }
+        static locator_t value() { return ssa_to_value(node()); }
 
         [[gnu::always_inline]]
         static locator_t trans() { return asm_arg(node()); }
@@ -108,7 +117,7 @@ namespace isel
         static ssa_value_t node() { return Param::node()->input(0); }
 
         [[gnu::always_inline]]
-        static locator_t value() { return locator_t::from_ssa_value(orig_def(node())); }
+        static locator_t value() { return ssa_to_value(node()); }
 
         [[gnu::always_inline]]
         static locator_t trans() { return asm_arg(node()); }
@@ -171,19 +180,26 @@ namespace isel
         static locator_t trans_hi() { return PtrHi::trans(); }
     };
 
+    // TODO: remove this?
+    [[gnu::always_inline]]
     unsigned get_cost(sel_t const* sel)
     {
         assert(sel);
         return sel->cost;
     }
 
-    template<op_t Op>
-    constexpr unsigned op_penalty()
+    constexpr unsigned op_penalty(op_t op)
     {
-        switch(op_name(Op))
+        unsigned penalty = 0;
+
+        // Penalize X / Y, preferring A.
+        if((op_output_regs(op) | op_input_regs(op)) & (REGF_X | REGF_Y))
+            penalty += 2;
+
+        switch(op_name(op))
         {
         default: 
-            return 0;
+            break;
         // Very slightly penalize ROL/ROR, to prefer LSR/ASL:
         case ROL:
         case ROR:
@@ -191,22 +207,26 @@ namespace isel
         case LAX: 
         // Same with SAX and AND:
         case SAX: 
-            return 1;
+            penalty += 1;
         }
+
+        return penalty;
     }
 
-    template<op_t Op>
-    constexpr unsigned cost_fn = (op_cycles(Op) * 256) + op_size(Op) + op_penalty<Op>();
+    constexpr isel_cost_t cost_fn(op_t op) 
+    { 
+        return (op_cycles(op) * 256ull) + op_size(op) + op_penalty(op);
+    }
 
     template<op_t Op>
     sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg = {}, locator_t ptr_hi = {}, unsigned extra_cost = 0)
     {
-        unsigned total_cost = cost_fn<Op>;
+        unsigned total_cost = cost_fn(Op);
         if(opt.flags & OPT_CONDITIONAL)
             total_cost = (total_cost * 3) / 4; // Conditional ops are cheaper.
         total_cost += get_cost(prev) + extra_cost;
 
-        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, ptr_hi, total_cost });
+        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, ptr_hi /*, total_cost */ });
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
@@ -284,7 +304,7 @@ namespace isel
     //constexpr unsigned SHRINK_MAP_SIZE = MAX_MAP_SIZE / 2;
     constexpr unsigned cost_cutoff(unsigned size)
     {
-        constexpr unsigned BASE = cost_fn<LDA_ABSOLUTE> * 3;
+        constexpr unsigned BASE = cost_fn(LDA_ABSOLUTE) * 3;
         return BASE >> (size >> 4);
     }
 
@@ -292,7 +312,7 @@ namespace isel
     template<bool FinishNode>
     void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
     {
-        state_t::map_t<>::value_type insertion = { cpu, sel };
+        state_t::map_t::value_type insertion = { cpu, sel };
 
         unsigned const sel_cost = get_cost(sel);
 
@@ -311,7 +331,7 @@ namespace isel
         if(sel_cost < state.next_best_cost)
         {
             state.next_best_cost = sel_cost;
-            state.best_sel = sel;
+            //state.best_sel = sel; // TODO
         }
     }
 
@@ -507,7 +527,7 @@ namespace isel
             cpu.req_store |= cg_data(def.handle()).isel.store_mask;
         }
 
-        return cost_fn<STA_ABSOLUTE> * new_stores;
+        return cost_fn(STA_ABSOLUTE) * new_stores;
     }
 
     template<op_t Op>
@@ -598,7 +618,7 @@ namespace isel
         static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_output_defs<Op>(Opt::to_struct, Def::value()))
-            cont->call(cpu_copy, &alloc_sel<Op>(Opt::to_struct, prev, locator_t::iota()));
+            cont->call(cpu_copy, &alloc_sel<Op>(Opt::to_struct, prev, locator_t::runtime_rom(RTROM_iota)));
     };
 
     template<typename Opt, typename Def> [[gnu::noinline]]
@@ -1062,11 +1082,11 @@ namespace isel
             ssa_value_t const n = Param::node();
             if(n.holds_ref() && n->cfg_node() == state.cfg_node)
             {
-                static_assert(cost_fn<LDA_ABSOLUTE> >= cost_fn<MAYBE_STA>);
+                static_assert(cost_fn(LDA_ABSOLUTE) >= cost_fn(MAYBE_STA));
 
                 if(cg_data(n.handle()).isel.likely_store)
                 {
-                    penalty = cost_fn<LDA_ABSOLUTE> - cost_fn<MAYBE_STA>;
+                    penalty = cost_fn(LDA_ABSOLUTE) - cost_fn(MAYBE_STA);
                 }
             }
 
@@ -1123,6 +1143,63 @@ namespace isel
         , store<Opt, STY, Store, Maybe>
         >(cpu, prev, cont);
     };
+
+    template<typename Opt, typename Def> [[gnu::noinline]]
+    void load_B(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        locator_t const v = Def::value();
+
+        std::uint16_t const bs_addr = bankswitch_addr(mapper().type);
+
+        if(!mapper().bankswitches() || cpu.value_eq(REG_B, v))
+            cont->call(cpu, prev);
+        else if(!(Opt::can_set & REGF_B))
+            return;
+        else
+        {
+            if(has_bus_conflicts(mapper().type))
+            {
+                chain
+                < load_AX<Opt, Def, Def>
+                , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                , set_defs<Opt, REGF_B, true, Def>
+                >(cpu, prev, cont);
+
+                chain
+                < load_AY<Opt, Def, Def>
+                , iota_op<Opt, STA_ABSOLUTE_Y, null_>
+                , set_defs<Opt, REGF_B, true, Def>
+                >(cpu, prev, cont);
+            }
+            else if(state_size(mapper().type))
+            {
+                using addr = param<struct load_B_addr_tag>;
+                addr::set(locator_t::addr(bs_addr));
+
+                using state = param<struct load_B_state_tag>;
+                state::set(locator_t::runtime_ram(RTRAM_mapper_state));
+
+                // TODO: track the mapper state as another CPU register.
+
+                chain
+                < load_A<Opt, Def>
+                , exact_op<Opt, ORA_ABSOLUTE, null_, state>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , set_defs<Opt, REGF_B, true, Def>
+                >(cpu, prev, cont);
+            }
+            else
+            {
+                using addr = param<struct load_B_addr_tag>;
+                addr::set(locator_t::addr(bs_addr));
+
+                chain
+                < load_then_store<Opt, Def, Def, addr, false>
+                , set_defs<Opt, REGF_B, true, Def>
+                >(cpu, prev, cont);
+            }
+        }
+    }
 
     static void no_effect(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
@@ -2256,14 +2333,45 @@ namespace isel
             break;
 
         case SSA_phi:
-            assert(h->input_size() > 0);
-            if(cset_head(h) != cset_head(h->input(0).handle()))
             {
-                p_arg<0>::set(h->input(0));
-                load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
+                assert(h->input_size() > 0);
+                locator_t const loc = cset_locator(h->input(0).handle());
+
+                if(cset_head(h) != cset_head(h->input(0).handle()))
+                {
+                    if(cpu.def_eq(REG_A, loc))
+                        store<Opt, STA, p_def>(cpu, prev, cont);
+                    else if(cpu.def_eq(REG_X, loc))
+                        store<Opt, STX, p_def>(cpu, prev, cont);
+                    else if(cpu.def_eq(REG_Y, loc))
+                        store<Opt, STY, p_def>(cpu, prev, cont);
+                    else
+                    {
+                        p_arg<0>::set(h->input(0));
+                        load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
+                    }
+                }
+                else
+                {
+                    if(cpu.def_eq(REG_A, loc))
+                        chain
+                        < set_defs<Opt, REGF_A, true, p_def>
+                        , ignore_req_store<p_def>
+                        >(cpu, prev, cont);
+                    else if(cpu.def_eq(REG_X, loc))
+                        chain
+                        < set_defs<Opt, REGF_X, true, p_def>
+                        , ignore_req_store<p_def>
+                        >(cpu, prev, cont);
+                    else if(cpu.def_eq(REG_Y, loc))
+                        chain
+                        < set_defs<Opt, REGF_Y, true, p_def>
+                        , ignore_req_store<p_def>
+                        >(cpu, prev, cont);
+                    else
+                        ignore_req_store<p_def>(cpu, prev, cont);
+                }
             }
-            else
-                ignore_req_store<p_def>(cpu, prev, cont);
             break;
 
         case SSA_aliased_store:
@@ -2407,7 +2515,7 @@ namespace isel
             chain
             < load_Y<Opt, p_arg<1>>
             , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-            , set_defs<Opt, REGF_CPU, false, null_>
+            , set_defs<Opt, REGF_CPU & ~REGF_B, false, null_>
             >(cpu, prev, cont);
             break;
 
@@ -2447,12 +2555,8 @@ namespace isel
             p_arg<0>::set(locator_t::runtime_rom(RTROM_wait_nmi));
             chain
             < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
-            , set_defs<Opt, REGF_CPU & ~(REGF_X | REGF_Y), false, null_>
+            , set_defs<Opt, REGF_CPU & ~(REGF_X | REGF_Y | REGF_B), false, null_>
             >(cpu, prev, cont);
-            break;
-
-        case SSA_fence:
-            cont->call(cpu, prev);
             break;
 
         case SSA_entry:
@@ -2518,10 +2622,13 @@ namespace isel
 
         case SSA_return:
         case SSA_fn_call:
-        case SSA_fence:
         case SSA_wait_nmi:
             write_globals<Opt>(h);
             goto simple;
+
+        case SSA_fence:
+            write_globals<Opt>(h);
+            break;
 
         case SSA_goto_mode:
             {
@@ -2567,11 +2674,24 @@ namespace isel
                             >);
                     }
                 });
+
+                bool same_nmi = true;
+                for(fn_ht mode : state.fn->precheck_parent_modes())
+                {
+                    if(mode->mode_nmi() != call.mode_nmi())
+                    {
+                        same_nmi = false;
+                        break;
+                    }
+                }
                 
                 // Set the nmi handler to its proper value
-                p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
-                p_arg<1>::set(locator_t::nmi_index(call.mode_nmi()));
-                select_step<false>(load_then_store<Opt, null_, p_arg<1>, p_arg<0>, false>);
+                if(did_reset_nmi || !same_nmi)
+                {
+                    p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
+                    p_arg<1>::set(locator_t::nmi_index(call.mode_nmi()));
+                    select_step<false>(load_then_store<Opt, null_, p_arg<1>, p_arg<0>, false>);
+                }
 
                 // Do the jump:
                 p_arg<0>::set(h->input(0));
@@ -2664,7 +2784,20 @@ namespace isel
             break;
             */
 
+        case SSA_read_ptr:
+        case SSA_write_ptr:
+            {
+                using namespace ssai::rw_ptr;
 
+                // Handle bankswitching here
+
+                if(h->input(BANK) && mapper().bankswitches())
+                {
+                    p_arg<0>::set(h->input(BANK));
+                    select_step<false>(load_B<Opt, p_arg<0>>);
+                }
+            }
+            goto simple;
 
         default: 
         simple:
@@ -2678,17 +2811,9 @@ namespace isel
 
 } // namespace isel
 
-std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
+static void setup_rolling_window(cfg_ht cfg_node)
 {
-    using namespace isel;
-
-    state.fn = fn.handle();
-    state.cfg_node = cfg_node;
     auto& cd = cg_data(cfg_node);
-
-    //////////////////////////////
-    // SETUP THE ROLLING WINDOW //
-    //////////////////////////////
 
     for(ssa_ht h : cd.schedule)
         cg_data(h).isel = {};
@@ -2751,6 +2876,22 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
         assert((free & cg_data(h).isel.last_use) == 0);
         free |= cg_data(h).isel.last_use; // TODO
     }
+}
+
+/* TODO: remove
+
+struct isel_t
+{
+    std::vector<asm_inst_t> code;
+    cpu_t cpu;
+    unsigned cost;
+};
+rh::batman_map<cpu_t, isel_result_t> do_isel(fn_t const& fn, cfg_ht cfg_node, map_t const& initial_states)
+{
+    using namespace isel;
+
+    state.fn = fn.handle();
+    state.cfg_node = cfg_node;
 
     ///////////////////////
     // DO THE SELECTIONS //
@@ -2758,16 +2899,8 @@ std::vector<asm_inst_t> select_instructions(fn_t const& fn, cfg_ht cfg_node)
 
 do_selections:
     state.sel_pool.clear();
-    state.map.clear();
-    assert(state.map.empty());
     state.best_cost = ~0 - cost_cutoff(0);
-    state.best_sel = nullptr;
-
-    //state.map.reserve(1000000);
-    //state.next_map.reserve(1000000);
-
-    state.map.insert({ cpu_t{}, &state.sel_pool.emplace(nullptr, 0, asm_inst_t{ ASM_PRUNED }) });
-
+    state.map = std::move(initial_states);
 
     for(ssa_ht h : cd.schedule)
     {
@@ -2776,36 +2909,16 @@ do_selections:
             state.ssa_node = h;
             isel_node(h);
             //std::cout << "MAP SIZE = " << state.map.size() << std::endl;
-
-            /*
-            if(state.map.size() > 10000)
-            {
-                for(auto const& pair : state.map)
-                {
-                    std::cout << "\n\n\n";
-                    for(sel_t const* sel = pair.second; sel; sel = sel->prev)
-                        std::cout << sel->inst << std::endl;
-                }
-                throw 0;
-            }
-            */
-
-#ifndef NDEBUG
-            // TODO: reenable
-            //for(auto const& pair : state.map)
-                //assert(!(pair.first.req_store & cg_data(state.ssa_node).isel.last_use));
-#endif
         }
         catch(isel_no_progress_error_t const&)
         {
-            // Try and repair.
+            // We'll try and fix the error.
             bool repaired = false;
+
+            // 
             for_each_node_input(h, [&](ssa_ht input)
             {
-                if(input->cfg_node() != cfg_node)
-                    return;
-
-                if(input->op() == SSA_cg_read_array_direct)
+                if(input->cfg_node() == cfg_node && input->op() == SSA_cg_read_array_direct)
                 {
                     input->unsafe_set_op(SSA_read_array);
                     repaired = true;
@@ -2814,20 +2927,668 @@ do_selections:
 
             if(repaired)
                 goto do_selections;
-            else
-                throw;
-        }
-        catch(...)
-        {
             throw;
+        }
+        catch(...) { throw; }
+    }
+
+    rh::batman_map<cpu_t, isel_result_t> sels;
+
+    for(auto const& pair : state.map)
+    {
+        sels.emplace(pair.first, [&] -> isel_result_t
+        {
+            isel_result_t result;
+            result.cost = pair.second->cost;
+
+            // Create the 'code' vector:
+            std::size_t size = 1;
+            sel_t const* first_sel = pair.second;
+            assert(first_sel);
+            for(;first_sel->prev; first_sel = first_sel->prev)
+                ++size;
+            result.code.resize(size);
+            for(sel_t const* sel = pair.second; sel; sel = sel->prev)
+                result.code[size--] = sel->inst;
+            assert(size == 0);
+            assert(result.code[0].op == ASM_PRUNED);
+            result.code[0] = { ASM_LABEL, SSA_null, locator_t::cfg_label(cfg_node) };
+
+            // Determine the final 'in_state'.
+            // This is the in_state we started with, 
+            // ignoring any input register not actually used.
+
+            regs_t used = 0;
+            regs_t live = REGF_A | REGF_X | REGF_Y;
+            for(asm_inst_t const& inst : result.code)
+            {
+                used |= op_input_regs(inst.op)
+                live &= ~op_output_regs(inst.op);
+                if(!live)
+                    break;
+            }
+
+            assert(first_sel->inst.op == ASM_PRUNED);
+            assert(first_sel->inst.arg.lclass() == LOC_HANDLE);
+
+            unsigned const in_i = first_sel->inst.arg.handle();
+            assert(in_i < in_states.size());
+
+            result.in_state = in_states.begin()[in_i].first;
+
+            if(!(used & ASMF_A))
+                in_state.a = LOC_NONE;
+            if(!(used & ASMF_X))
+                in_state.x = LOC_NONE;
+            if(!(used & ASMF_Y))
+                in_state.y = LOC_NONE;
+
+            return result;
+        });
+    }
+
+    return sels;
+}
+*/
+
+namespace isel
+{
+
+static cpu_t to_cpu(cross_cpu_t const& cross)
+{
+    static_assert(REGF_CROSS == (REGF_A | REGF_X | REGF_Y | REGF_C));
+    cpu_t ret = {};
+    ret.set_def<REG_A>({}, cross.defs[REG_A]);
+    ret.set_def<REG_X>({}, cross.defs[REG_X]);
+    ret.set_def<REG_Y>({}, cross.defs[REG_Y]);
+    ret.set_def<REG_C>({}, cross.defs[REG_C]);
+    return ret;
+}
+
+static cross_cpu_t make_cross_cpu(cpu_t const& cpu)
+{
+    auto const convert = [](locator_t l) -> locator_t
+    {
+        if(l.lclass() == LOC_PHI)
+            return LOC_NONE;
+
+        if(l.lclass() == LOC_SSA)
+        {
+            ssa_ht const h = l.ssa_node();
+            
+
+            if(h->op() == SSA_phi_copy)
+            {
+                assert(0);
+                assert(cset_locator(h).lclass() == LOC_PHI);
+                return cset_locator(h);
+            }
+        }
+
+        return l;
+    };
+
+    cross_cpu_t cross = {};
+    cross.defs[REG_A] = convert(cpu.defs[REG_A]);
+    cross.defs[REG_X] = convert(cpu.defs[REG_X]);
+    cross.defs[REG_Y] = convert(cpu.defs[REG_Y]);
+    if(cpu.defs[REG_C].lclass() == LOC_CONST_BYTE)
+        cross.defs[REG_C] = cpu.defs[REG_C];
+    return cross;
+}
+
+static cross_cpu_t prepare_cross_cpu_for(cross_cpu_t const& cross, cfg_ht cfg)
+{
+    auto const convert = [cfg](locator_t l) -> locator_t
+    {
+        assert(l.lclass() != LOC_PHI);
+
+        if(l.lclass() == LOC_SSA)
+        {
+            ssa_ht const h = l.ssa_node();
+
+            // Setup incoming phis:
+            locator_t const cset_loc = cset_locator(h);
+            if(cset_loc.lclass() == LOC_PHI)
+            {
+                for(ssa_ht phi = cfg->phi_begin(); phi; ++phi)
+                {
+                    assert(phi->op() == SSA_phi);
+                    if(cset_loc.ssa_node() == phi)
+                        return locator_t::phi(phi);
+                }
+            }
+
+            // Values can't loop:
+            if(h->cfg_node() == cfg)
+                return LOC_NONE;
+
+            // If the node has no output used through 'cfg', ignore it.
+            if(for_each_output_matching(h, INPUT_VALUE, [&](ssa_ht output)
+            {
+                return !dominates(cfg, output->cfg_node());
+            }))
+            {
+                return LOC_NONE;
+            }
+        }
+
+        return l;
+    };
+
+    cross_cpu_t ret = {};
+    ret.defs[REG_A] = convert(cross.defs[REG_A]);
+    ret.defs[REG_X] = convert(cross.defs[REG_X]);
+    ret.defs[REG_Y] = convert(cross.defs[REG_Y]);
+    return ret;
+}
+
+}
+
+void select_instructions(fn_t const& fn, ir_t& ir)
+{
+    using namespace isel;
+
+    state.fn = fn.handle();
+
+    build_loops_and_order(ir);
+    build_dominators_from_order(ir);
+
+    _data_vec.clear();
+    _data_vec.resize(cfg_pool::array_size());
+
+    ///////////////////////////////////////////////
+    // GENERATE SELECTION LIST FOR EACH CFG NODE //
+    ///////////////////////////////////////////////
+
+    rh::batman_map<cross_cpu_t, result_t> rebuilt;
+
+    // Create the initial worklist:
+    assert(cfg_worklist.empty());
+    for(cfg_ht cfg : postorder | std::views::reverse)
+        cfg_worklist.push(cfg);
+
+    // Setup initial 'in_state's:
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+        d.in_states.insert({});
+        d.to_compute.push_back(0);
+    }
+
+    // Run until completion:
+    while(!cfg_worklist.empty())
+    {
+        cfg_ht const cfg = cfg_worklist.pop();
+        auto& d = data(cfg);
+
+        if(d.to_compute.empty())
+            continue;
+
+        state.cfg_node = cfg;
+        setup_rolling_window(cfg);
+    do_selections:
+
+        // Init the state:
+        state.sel_pool.clear();
+        state.best_cost = ~0 - cost_cutoff(0);
+        state.map.clear();
+        for(unsigned index : d.to_compute)
+        {
+            state.map.insert({ 
+                to_cpu(d.in_states.begin()[index]),
+                &state.sel_pool.emplace(nullptr, 0, 
+                    asm_inst_t{ .op = ASM_PRUNED, .arg = locator_t::index(index) }) });
+        }
+
+        // Generate every selection:
+        for(ssa_ht h : cg_data(cfg).schedule)
+        {
+            try
+            {
+                state.ssa_node = h;
+                isel_node(h); // This creates all the selections.
+            }
+            catch(isel_no_progress_error_t const&)
+            {
+                // We'll try and fix the error.
+                bool repaired = false;
+
+                // Maybe the addressing mode was impossible,
+                // so let's make it simpler.
+                for_each_node_input(h, [&](ssa_ht input)
+                {
+                    if(input->cfg_node() == cfg && input->op() == SSA_cg_read_array_direct)
+                    {
+                        input->unsafe_set_op(SSA_read_array);
+                        repaired = true;
+                    }
+                });
+
+                if(repaired)
+                    goto do_selections;
+                throw;
+            }
+            catch(...) { throw; }
+        }
+
+        // Clear after computing:
+        d.to_compute.clear();
+
+        // Assemble those selections:
+        for(auto const& pair : state.map)
+        {
+            rh::apair<cross_cpu_t, result_t> new_sel = { make_cross_cpu(pair.first) };
+            result_t& result = new_sel.second;
+            result.cost = pair.second->cost;
+
+            // Create the 'code' vector:
+            std::size_t size = 1;
+            sel_t const* first_sel = pair.second;
+            assert(first_sel);
+            for(;first_sel->prev; first_sel = first_sel->prev)
+                ++size;
+            result.code.resize(size);
+            for(sel_t const* sel = pair.second; sel; sel = sel->prev)
+                result.code[--size] = sel->inst;
+            assert(size == 0);
+            assert(result.code[0].op == ASM_PRUNED);
+            result.code[0] = { ASM_LABEL, SSA_null, locator_t::cfg_label(cfg) };
+
+            // Determine the final 'start state'.
+            // This is the cpu state we started with, 
+            // ignoring any input register not actually used.
+
+            regs_t used = 0;
+            regs_t written = 0;
+            for(asm_inst_t const& inst : result.code)
+            {
+                used |= op_input_regs(inst.op) & ~written;
+                written |= op_output_regs(inst.op);
+                if((written & REGF_CROSS) == REGF_CROSS)
+                    break;
+            }
+
+            assert(first_sel->inst.op == ASM_PRUNED);
+            assert(first_sel->inst.arg.lclass() == LOC_INDEX);
+
+            unsigned const in_i = first_sel->inst.arg.data();
+            assert(in_i < d.in_states.size());
+
+            result.in_state = d.in_states.begin()[in_i];
+
+            for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+                if(~used & written & (1 << i))
+                    result.in_state.defs[i] = LOC_NONE;
+
+            // Insert the 'new_sel' into 'd':
+            auto insert_result = d.sels.insert(new_sel);
+            if(!insert_result.second)
+            {
+                // Keep the lowest cost:
+                if(insert_result.first->second.cost > new_sel.second.cost)
+                    *insert_result.first = new_sel;
+            }
+        }
+
+        // For efficiency, cap the maximum number of selections tracked:
+        constexpr unsigned MAX_SELS_PER_CFG = 256;
+        if(d.sels.size() > MAX_SELS_PER_CFG)
+        {
+            std::sort(d.sels.begin(), d.sels.end(), [&](auto const& a, auto const& b)
+            {
+                return a.second.cost < b.second.cost;
+            });
+
+            // Reuse 'rebuilt':
+            rebuilt.clear();
+            rebuilt.reserve(MAX_SELS_PER_CFG);
+
+            for(unsigned i = 0; i < MAX_SELS_PER_CFG; ++i)
+                rebuilt.insert(d.sels.begin()[i]);
+
+            d.sels.swap(rebuilt);
+        }
+
+        // Pass our output CPU states to our output CFG nodes.
+        unsigned const depth = loop_depth(cfg);
+        unsigned const output_size = cfg->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            cfg_ht const output = cfg->output(i);
+            if(depth < loop_depth(output))
+                continue;
+            auto& od = data(output);
+
+            for(auto const& new_sel : d.sels)
+            {
+                auto result = od.in_states.insert(prepare_cross_cpu_for(new_sel.first, output));
+                if(result.second)
+                {
+                    od.to_compute.push_back(result.first - od.in_states.begin());
+                    cfg_worklist.push(output);
+                }
+            }
         }
     }
 
-    std::vector<asm_inst_t> code;
-    for(sel_t const* sel = state.best_sel; sel; sel = sel->prev)
-        code.push_back(sel->inst);
-    code.push_back({ ASM_LABEL, SSA_null, locator_t::cfg_label(cfg_node) });
-    std::reverse(code.begin(), code.end());
+#ifndef NDEBUG
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+        assert(d.sels.size() > 0);
+    }
+#endif
 
-    return code;
+    /////////////////////////////////////////
+    // PICK THE BEST SELECTION COMBINATION //
+    /////////////////////////////////////////
+
+    auto const gen_load = [&](cross_cpu_t const& cross, regs_t reg, locator_t loc) -> asm_inst_t
+    {
+        //assert(loc);
+
+        switch(reg)
+        {
+        case REG_A:
+            if(cross.defs[REG_X] == loc)
+                return { .op = TXA_IMPLIED };
+            else if(cross.defs[REG_Y] == loc)
+                return { .op = TYA_IMPLIED };
+            else if(loc.is_immediate())
+                return { .op = LDA_IMMEDIATE, .arg = loc };
+            else
+                return { .op = LDA_ABSOLUTE, .arg = loc };
+
+        case REG_X:
+            if(cross.defs[REG_A] == loc)
+                return { .op = TAX_IMPLIED };
+            else if(loc.is_immediate())
+                return { .op = LDX_IMMEDIATE, .arg = loc };
+            else
+                return { .op = LDX_ABSOLUTE, .arg = loc };
+
+        case REG_Y:
+            if(cross.defs[REG_A] == loc)
+                return { .op = TAY_IMPLIED };
+            else if(loc.is_immediate())
+                return { .op = LDY_IMMEDIATE, .arg = loc };
+            else
+                return { .op = LDY_ABSOLUTE, .arg = loc };
+
+        case REG_C:
+            assert(loc.lclass() == LOC_CONST_BYTE);
+            return { .op = loc.data() ? SEC_IMPLIED : CLC_IMPLIED };
+
+        default:
+            return { .op = ASM_PRUNED };
+        }
+    };
+
+    {
+        pbqp_t pbqp;
+
+        for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+        {
+            auto& d = data(cfg);
+
+            isel_cost_t const multiplier = loop_depth_exp(cfg, 4);
+
+            for(auto const& pair : d.sels)
+                d.cost_vector.push_back(pair.second.cost * multiplier);
+        }
+
+        for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+        {
+            auto& d = data(cfg);
+
+            isel_cost_t const multiplier = loop_depth_exp(cfg, 4);
+
+            unsigned const output_size = cfg->output_size();
+            for(unsigned i = 0; i < output_size; ++i)
+            {
+                cfg_ht const output = cfg->output(i);
+                auto& od = data(output);
+
+                std::vector<pbqp_cost_t> cost_matrix(d.sels.size() * od.sels.size());
+                for(unsigned y = 0; y < od.sels.size(); ++y)
+                for(unsigned x = 0; x < d.sels.size(); ++x)
+                {
+                    cross_cpu_t const& out = prepare_cross_cpu_for(d.sels.begin()[x].first, output);
+                    cross_cpu_t const& in  = od.sels.begin()[y].second.in_state;
+
+                    pbqp_cost_t cost = 0;
+
+                    for(regs_t reg = 0; reg < NUM_CROSS_REGS; ++reg)
+                    {
+                        if(!in.defs[reg])
+                            continue;
+                        if(in.defs[reg] == out.defs[reg])
+                            continue;
+                        op_t const op = gen_load(out, reg, LOC_NONE).op;
+                        cost += cost_fn(op);
+                    }
+
+                    cost_matrix[x + y * d.sels.size()] = cost * multiplier;
+                }
+
+                pbqp.add_edge(d, od, std::move(cost_matrix));
+            }
+        }
+
+        std::vector<pbqp_node_t*> pbqp_order;
+        for(cfg_ht cfg : postorder)
+            pbqp_order.push_back(&data(cfg));
+        pbqp.solve(std::move(pbqp_order));
+    }
+
+#ifndef NDEBUG
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+        assert(d.sel >= 0 && d.sel < d.sels.size());
+    }
+#endif
+
+    ////////////////////////////////////
+    // INSERT ADDITIONAL INSTRUCTIONS //
+    ////////////////////////////////////
+
+    bc::small_vector<regs_t, 16> input_loads;
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+
+        regs_t to_load = 0;
+        unsigned const input_size = cfg->input_size();
+        input_loads.resize(input_size);
+
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            cfg_ht input = cfg->input(i);
+            auto const& id = data(input);
+
+            cross_cpu_t const out_state = prepare_cross_cpu_for(id.final_out_state(), cfg);
+
+            regs_t input_load = 0;
+            for(unsigned reg = 0; reg < NUM_CROSS_REGS; ++reg)
+            {
+                if(!d.final_in_state().defs[reg])
+                    continue;
+                if(out_state.defs[reg] == d.final_in_state().defs[reg])
+                    continue;
+                to_load |= 1 << reg;
+                input_load |= 1 << reg;
+            }
+            input_loads[i] = input_load;
+        }
+
+        auto const initial_cross = [&](regs_t loads)
+        {
+            cross_cpu_t cross = d.final_in_state();
+            bitset_for_each(loads, [&](regs_t reg){ cross.defs[reg] = {}; });
+            return cross;
+        };
+
+        auto const replace_labels = [&](regs_t loads, locator_t label)
+        {
+            for(unsigned i = 0; i < input_size; ++i)
+            {
+                if(!input_loads[i] || (input_loads[i] &= ~loads))
+                    continue;
+
+                cfg_ht input = cfg->input(i);
+                auto& id = data(input);
+
+                // Replace the labels of incoming jumps with the new label.
+                for(asm_inst_t& inst : id.final_code())
+                    if(inst.arg == locator_t::cfg_label(cfg))
+                        inst.arg = label;
+            }
+        };
+
+        // Find loads that all incoming paths (that need loads) will use.
+
+        regs_t always_load = to_load;
+        for(unsigned i = 0; i < input_size; ++i)
+            if(input_loads[i])
+                always_load &= input_loads[i];
+
+        bc::small_vector<asm_inst_t, NUM_CROSS_REGS * 2> always_load_code;
+        unsigned next_label_index = 1;
+
+        if(always_load)
+        {
+            locator_t const label = locator_t::cfg_label(cfg, next_label_index++);
+            always_load_code.push_back({ .op = ASM_LABEL, .arg = label });
+
+            cross_cpu_t cross = initial_cross(always_load);
+            bitset_for_each(always_load, [&](regs_t reg)
+            {
+                always_load_code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));
+                cross.defs[reg] = d.final_in_state().defs[reg];
+            });
+
+            replace_labels(always_load, label);
+        }
+
+        // Now find loads that can be appended onto an input's CFG.
+
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            cfg_ht input = cfg->input(i);
+            auto& id = data(input);
+
+            if(input->output_size() != 1)
+                continue;
+
+            regs_t const load_now = input_loads[i];
+
+            if(!load_now)
+                continue;
+
+            input_loads[i] = 0;
+
+            auto& code = id.final_code();
+            assert(code.size());
+            assert(op_flags(code.back().op) & ASMF_BRANCH);
+            asm_inst_t const jump = code.back();
+            code.pop_back();
+
+            cross_cpu_t cross = prepare_cross_cpu_for(id.final_out_state(), cfg);
+            bitset_for_each(load_now, [&](regs_t reg)
+            {
+                code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));
+                cross.defs[reg] = d.final_in_state().defs[reg];
+            });
+
+            code.push_back(jump);
+            std::cout << "ISEL CODE 1OUT " << input << std::endl;
+        }
+
+        // Now handle all the remaining loads.
+
+        regs_t remaining_load = 0;
+        for(unsigned i = 0; i < input_size; ++i)
+            remaining_load |= input_loads[i];
+
+        bc::small_vector<asm_inst_t, NUM_CROSS_REGS * 2> remaining_load_code;
+
+        if(remaining_load)
+        {
+            // We'll try various permutations, searching for an optimal one.
+
+            unsigned lowest_misses = ~0u;
+            bc::small_vector<regs_t, NUM_CROSS_REGS> order, best_order;
+            bitset_for_each(remaining_load, [&](regs_t r){ order.push_back(r); });
+
+            do
+            {
+                unsigned misses = 0;
+
+                for(unsigned i = 0; i < input_size; ++i)
+                {
+                    cfg_ht input = cfg->input(i);
+
+                    unsigned const cost = loop_depth_exp(input, 4);
+                    regs_t input_load = input_loads[i];
+
+                    for(unsigned j = 0; j < order.size(); ++j)
+                    {
+                        regs_t const regf = 1 << order[i];
+
+                        if(!(input_load & regf))
+                            misses += cost;
+
+                        input_load &= ~regf;
+
+                        if(!input_load)
+                            break;
+                    }
+                }
+
+                if(misses < lowest_misses)
+                {
+                    lowest_misses = misses;
+                    best_order = order;
+                }
+            }
+            while(std::next_permutation(order.begin(), order.end()));
+
+            // OK! 'best_order' is built. Now generate code:
+
+            cross_cpu_t const cross = initial_cross(remaining_load);
+            for(regs_t reg : best_order)
+            {
+                locator_t const label = locator_t::cfg_label(cfg, next_label_index++);
+                remaining_load_code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));
+                remaining_load_code.push_back({ .op = ASM_LABEL, .arg = label });
+
+                replace_labels(1 << reg, label);
+            }
+            std::reverse(remaining_load_code.begin(), remaining_load_code.end());
+        }
+
+        // Prepend to code:
+        std::cout << "ISEL CODE " << remaining_load_code.size() << ' ' << always_load_code.size() << std::endl;
+        std::vector<asm_inst_t> new_code(d.final_code().size() + always_load_code.size() + remaining_load_code.size());
+        std::copy(remaining_load_code.begin(), remaining_load_code.end(), 
+                  new_code.begin());
+        std::copy(always_load_code.begin(), always_load_code.end(), 
+                  new_code.begin() + remaining_load_code.size());
+        std::copy(d.final_code().begin(), d.final_code().end(), 
+                  new_code.begin() + always_load_code.size() + remaining_load_code.size());
+        d.final_code() = std::move(new_code);
+    }
+
+    // Store the code
+    std::cout << "ISEL\n";
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        cg_data(cfg).code = std::move(data(cfg).final_code());
+
+        auto const& d = data(cfg);
+        std::cout << "ISEL " << cfg << ' ' << d.in_states.size() << ' ' << d.sels.size() << std::endl;
+    }
 }
+

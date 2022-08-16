@@ -80,8 +80,8 @@ public:
     mod_flags_t mflags_known() const { return m_mflags_known; }
 protected:
     std::unique_ptr<mods_t> m_mods; // Storing as a pointer saves memory
-    mod_flags_t m_mflags;
-    mod_flags_t m_mflags_known;
+    mod_flags_t m_mflags = 0;
+    mod_flags_t m_mflags_known = 0;
 };
 
 #endif

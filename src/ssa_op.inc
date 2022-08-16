@@ -114,12 +114,12 @@ SSA_DEF(make_ptr_lo, 2, INPUT_NONE, SSAF_COPY)
 // (lo, hi) - combines two bytes into a pointer
 SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY)
 
-// (order_after, ptr, ptr_hi, bank, index)
+// (ptr, ptr_hi, bank, index)
 // TODO: should this be impure, because of bankswitches?
-SSA_DEF(read_ptr, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
+SSA_DEF(read_ptr, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT)
 
-// (order_after, ptr, ptr_hi, bank, index, value)
-SSA_DEF(write_ptr, 5, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID)
+// (ptr, ptr_hi, bank, index, value)
+SSA_DEF(write_ptr, 5, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT)
 
 //////////////
 // HARDWARE //

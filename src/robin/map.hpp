@@ -146,6 +146,8 @@ public:
     using hash_type = typename collection_type::hash_type;
     using iterator = typename collection_type::iterator;
     using const_iterator = typename collection_type::const_iterator;
+    using reverse_iterator = typename collection_type::reverse_iterator;
+    using const_reverse_iterator = typename collection_type::const_reverse_iterator;
     using insertion = apair<iterator, bool>;
 
     batman_map() = default;
@@ -215,6 +217,13 @@ public:
     const_iterator cend() const { return collection.cend(); }
     const_iterator end() const { return collection.cend(); }
     iterator end() { return collection.end(); }
+
+    const_reverse_iterator crbegin() const { return collection.crbegin(); }
+    const_reverse_iterator rbegin() const { return collection.crbegin(); }
+    reverse_iterator rbegin() { return collection.rbegin(); }
+    const_reverse_iterator crend() const { return collection.crend(); }
+    const_reverse_iterator rend() const { return collection.crend(); }
+    reverse_iterator rend() { return collection.rend(); }
 private:
     collection_type collection;
 };
@@ -236,6 +245,8 @@ public:
     using hash_type = typename collection_type::hash_type;
     using iterator = typename collection_type::iterator;
     using const_iterator = typename collection_type::const_iterator;
+    using reverse_iterator = typename collection_type::reverse_iterator;
+    using const_reverse_iterator = typename collection_type::const_reverse_iterator;
     using insertion = apair<iterator, bool>;
 
     joker_map() = default;
@@ -305,6 +316,13 @@ public:
     const_iterator cend() const { return collection.cend(); }
     const_iterator end() const { return collection.cend(); }
     iterator end() { return collection.end(); }
+
+    const_reverse_iterator crbegin() const { return collection.crbegin(); }
+    const_reverse_iterator rbegin() const { return collection.crbegin(); }
+    reverse_iterator rbegin() { return collection.rbegin(); }
+    const_reverse_iterator crend() const { return collection.crend(); }
+    const_reverse_iterator rend() const { return collection.crend(); }
+    reverse_iterator rend() { return collection.rend(); }
 private:
     collection_type collection;
 };

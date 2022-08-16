@@ -79,7 +79,7 @@ ram_bitset_t alloc_runtime_ram()
     _rtram_spans[RTRAM_oam] = {{ a.alloc_non_zp(256, 256) }};
 
     // Allocate optional stuff last, for a consistent memory layout.
-    if(bankswitch_addr(mapper().type))
+    if(mapper().bankswitches())
         _rtram_spans[RTRAM_nmi_saved_bank] = {{ a.alloc_zp(1) }};
 
     return a.allocated;
@@ -103,25 +103,27 @@ static loc_vec_t make_vectors()
 
 static void _bankswitch_ax(asm_proc_t& proc, locator_t load)
 {
-    if(auto const addr = bankswitch_addr(mapper().type))
-    {
-        if(load)
-        {
-            if(load.is_immediate())
-            {
-                proc.push_inst(LDA_IMMEDIATE, load);
-                if(has_bus_conflicts(mapper().type))
-                    proc.push_inst(TAX);
-            }
-            else
-                proc.push_inst(LAX_ABSOLUTE, load);
-        }
+    if(!mapper().bankswitches())
+        return;
 
-        if(has_bus_conflicts(mapper().type))
-            proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
+    std::uint16_t const addr = bankswitch_addr(mapper().type);
+
+    if(load)
+    {
+        if(load.is_immediate())
+        {
+            proc.push_inst(LDA_IMMEDIATE, load);
+            if(has_bus_conflicts(mapper().type))
+                proc.push_inst(TAX);
+        }
         else
-            proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
+            proc.push_inst(LAX_ABSOLUTE, load);
     }
+
+    if(has_bus_conflicts(mapper().type))
+        proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
+    else
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
 }
 
 static asm_proc_t make_nmi()
@@ -139,8 +141,10 @@ static asm_proc_t make_nmi()
     proc.push_inst(LDA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_hi_table));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 1));
 
-    if(auto const addr = bankswitch_addr(mapper().type))
+    if(mapper().bankswitches())
     {
+        std::uint16_t const addr = bankswitch_addr(mapper().type);
+
         // Save current bank
         proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
@@ -400,7 +404,10 @@ span_allocator_t alloc_runtime_rom()
     };
 
     // Pre-allocate.
-    _rtrom_spans[RTROM_iota][0] = a.alloc(256, 256);
+    if(has_bus_conflicts(mapper().type))
+        _rtrom_spans[RTROM_iota][0] = a.alloc_at({ bankswitch_addr(mapper().type), 256 });
+    else
+        _rtrom_spans[RTROM_iota][0] = a.alloc(256, 256);
     _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 });
 
     // These have to be defined in a toposorted order.

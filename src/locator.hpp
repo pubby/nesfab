@@ -28,8 +28,6 @@ enum locator_class_t : std::uint8_t
 {
     LOC_NONE,
 
-    LOC_IOTA, // TODO: remove?
-
     LOC_FN, // A function.
     LOC_GMEMBER, // A global member.
 
@@ -58,6 +56,7 @@ enum locator_class_t : std::uint8_t
 
     LOC_CONST_BYTE,
     LOC_ADDR,
+    LOC_INDEX,
 
     LOC_ROM_ARRAY,
 
@@ -382,9 +381,6 @@ public:
         return ret;
     }
 
-    constexpr static locator_t iota(std::int16_t offset = 0) 
-        { return locator_t(LOC_IOTA, 0, 0, offset); }
-
     constexpr static locator_t fn(fn_ht fn)
         { return locator_t(LOC_FN, fn.id, 0, 0); }
 
@@ -409,8 +405,8 @@ public:
     constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
         { return locator_t(LOC_RETURN, fn.id, 0, member, atom, offset); }
 
-    constexpr static locator_t cfg_label(cfg_ht cfg_node)
-        { return locator_t(LOC_CFG_LABEL, cfg_node.id, 0, 0); }
+    constexpr static locator_t cfg_label(cfg_ht cfg_node, unsigned index=0)
+        { return locator_t(LOC_CFG_LABEL, cfg_node.id, index, 0); }
 
     constexpr static locator_t minor_label(std::uint16_t id)
         { return locator_t(LOC_MINOR_LABEL, 0, id, 0); }
@@ -420,6 +416,9 @@ public:
 
     constexpr static locator_t addr(std::uint16_t addr, std::uint16_t offset = 0)
         { return locator_t(LOC_ADDR, 0, addr, offset); }
+
+    constexpr static locator_t index(std::uint32_t handle)
+        { return locator_t(LOC_INDEX, 0, handle, 0); }
 
     constexpr static locator_t phi(ssa_ht node)
         { return locator_t(LOC_PHI, node.id, 0, 0, 0, 0); }

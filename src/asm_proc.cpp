@@ -10,7 +10,7 @@ std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
     if(inst.ptr_hi)
         o << " hi: " << inst.ptr_hi;
     o << "   (" << inst.ssa_op << ") }";
-    o << "   (" << (float(inst.cost) / 256.0f) << ") }";
+    //o << "   (" << (float(inst.cost) / 256.0f) << ") }";
     return o;
 }
 
@@ -217,15 +217,12 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         if(inst.op == ASM_PRUNED)
             continue;
 
-        os << to_string(inst.op) << ' ';
+        os << "    " << to_string(inst.op) << ' ';
 
         switch(inst.arg.lclass())
         {
         case LOC_CONST_BYTE:
             os << "#" << inst.arg.data();
-            break;
-        case LOC_IOTA:
-            os << "__iota";
             break;
         case LOC_FN:
             os << "fn " << inst.arg.fn()->global.name;

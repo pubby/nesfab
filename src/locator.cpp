@@ -18,8 +18,6 @@ std::string to_string(locator_t loc)
         return fmt("unknown locator %", (int)loc.lclass());
     case LOC_NONE:
         return "none";
-    case LOC_IOTA:
-        str = "iota offset"; break;
     case LOC_GMEMBER:
         str = fmt("gmember % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_GMEMBER_SET:
@@ -42,6 +40,8 @@ std::string to_string(locator_t loc)
         str = "const byte"; break;
     case LOC_ADDR:
         str = "addr $" + to_hex_string(loc.data() + loc.offset()); break;
+    case LOC_INDEX:
+        str = "index $" + loc.data(); break;
     case LOC_SSA:
         str = fmt("ssa %", loc.handle()); break;
     case LOC_PHI:
@@ -120,7 +120,7 @@ type_t locator_t::type() const
             else
             {
                 assert(member() == 0);
-                type.unsafe_set_name(remove_bank(type.name()));
+                type = type.with_banked(false);
             }
         }
 
@@ -141,6 +141,17 @@ type_t locator_t::type() const
         return type;
     };
 
+    switch(is())
+    {
+    case IS_PTR:
+        return byteify(TYPE_U20);
+    case IS_PTR_HI:
+    case IS_BANK:
+        return TYPE_U;
+    default:
+        break;
+    }
+
     switch(lclass())
     {
     case LOC_LT_GMEMBER_PTR:
@@ -154,8 +165,6 @@ type_t locator_t::type() const
     case LOC_LT_EXPR:
         assert(lt());
         return byteify(lt().safe().type);
-    case LOC_IOTA:
-        return type_t::tea(TYPE_U, 256);
     case LOC_GMEMBER: 
         return byteify(gmember()->type());
     case LOC_ARG:
@@ -211,6 +220,11 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
     switch(lclass())
     {
+    case LOC_FN:
+        // Functions with a known first bank must be called using that bank:
+        if(is() == IS_BANK && fn()->first_bank_switch())
+            return fn()->first_bank_switch().link(romv, fn_h, bank);
+        // fall-through
     default:
         if(rom_alloc_ht a = rom_alloc(romv))
             return from_alloc(a);

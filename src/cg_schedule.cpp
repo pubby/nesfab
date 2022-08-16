@@ -29,6 +29,7 @@ private:
     ssa_ht carry_input_waiting;
     fc::small_set<ssa_ht, 16> unused_global_reads;
     std::array<ssa_value_t, 2> array_indexers = {};
+    ssa_value_t ptr_banker = {};
 
     // Each SSA node in the CFG node that has been scheduled.
     bitset_uint_t* scheduled = nullptr;
@@ -50,6 +51,7 @@ private:
 
     int path_length(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const;
     int indexer_score(ssa_ht h) const;
+    int banker_score(ssa_ht h) const;
 
     ssa_ht successor_search(ssa_ht last_scheduled) const;
 
@@ -387,6 +389,11 @@ void scheduler_t::append_schedule(ssa_ht h)
     if(ssa_indexes(h->op()))
         add_array_index(h->input(ssa_index_input(h->op())));
 
+    // Handle banks
+    if(ssa_banks(h->op()))
+        if(ssa_value_t bank = h->input(ssa_bank_input(h->op())))
+            ptr_banker = bank;
+
     // If this is a global read, add it to our set:
     //std::cout << "unused_glob op " << to_string(h->op()) << std::endl;
     if(h->op() == SSA_read_global)
@@ -534,13 +541,18 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
             continue;
         }
 
+        if(ssa_banks(oe.handle->op()))
+            if(ptr_banker && oe.handle->input(ssa_bank_input(oe.handle->op())) != ptr_banker)
+                continue;
+
         if(oe.input_class() == INPUT_VALUE)
             ++outputs_in_cfg_node;
 
         int const l = path_length(relax, oe.handle, new_bitset);
 
-        if(l < 0)
-            return l;
+        assert(l >= 0);
+        //if(l < 0) // Only enable this if -1 can be returned.
+            //return l;
 
         max_length = std::max(max_length, l);
     }
@@ -557,13 +569,28 @@ int scheduler_t::indexer_score(ssa_ht h) const
     {
         ssa_value_t index = h->input(ssa_index_input(h->op()));
         if(index == array_indexers[0])
-            return 32; // Fairly arbitrary numbers
+            return 64; // Fairly arbitrary numbers
         else if(index == array_indexers[1])
-            return 16; // Fairly arbitrary numbers
-        return -8; // Delay indexers.
+            return 32; // Fairly arbitrary numbers
+        return -16; // Delay indexers.
     }
     return 0;
 }
+
+int scheduler_t::banker_score(ssa_ht h) const
+{
+    if(ssa_banks(h->op()))
+    {
+        if(ssa_value_t bank = h->input(ssa_bank_input(h->op())))
+        {
+            if(bank == ptr_banker)
+                return 256; // Fairly arbitrary numbers
+            return -256;
+        }
+    }
+    return 0;
+}
+
 ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
 {
     int best_score = -1;
@@ -586,6 +613,7 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
             // Otherwise find the best successor node by comparing path lengths:
             int score = path_length(0, succ, this->scheduled);
             score += indexer_score(succ);
+            score += banker_score(succ);
 
             if(score > best_score)
             {
@@ -611,6 +639,7 @@ ssa_ht scheduler_t::full_search(unsigned relax) const
         // Fairly arbitrary formula.
         int score = path_length(relax, ssa_it, scheduled);
         score += indexer_score(ssa_it);
+        score += banker_score(ssa_it);
         // Full searches also care about exit distance:
         score = (score * 8) + data(ssa_it).exit_distance;
 

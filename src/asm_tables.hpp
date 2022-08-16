@@ -5,6 +5,91 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
     { .op = BAD_OP, .flags = ASMF_FAKE },
     { .op = ASM_LABEL, .flags = ASMF_FAKE },
     { .op = ASM_PRUNED, .flags = ASMF_FAKE },
+
+    // These are just for tracking purposes.
+    // Use these in cases where reads / writes are not normally tracked, like JSR.
+    { 
+        .op = ASMF_INPUT_A,
+        .input_regs = REGF_A,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_INPUT_X,
+        .input_regs = REGF_X,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_INPUT_Y,
+        .input_regs = REGF_Y,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_INPUT_C,
+        .input_regs = REGF_C,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_INPUT_Z,
+        .input_regs = REGF_Z,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_INPUT_N,
+        .input_regs = REGF_N,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_INPUT_B,
+        .input_regs = REGF_B,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_INPUT_CPU,
+        .input_regs = REGF_CPU,
+        .flags = ASMF_FAKE
+    },
+
+    { 
+        .op = ASMF_OUTPUT_A,
+        .output_regs = REGF_A,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_OUTPUT_X,
+        .output_regs = REGF_X,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_OUTPUT_Y,
+        .output_regs = REGF_Y,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_OUTPUT_C,
+        .output_regs = REGF_C,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_OUTPUT_Z,
+        .output_regs = REGF_Z,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_OUTPUT_N,
+        .output_regs = REGF_N,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_OUTPUT_B,
+        .output_regs = REGF_B,
+        .flags = ASMF_FAKE
+    },
+    { 
+        .op = ASMF_OUTPUT_CPU,
+        .output_regs = REGF_CPU,
+        .flags = ASMF_FAKE
+    },
+
     { 
         .op = ASM_DELAY,
         .cycles = 255,

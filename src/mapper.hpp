@@ -14,11 +14,11 @@ enum mapper_type_t : std::uint16_t // Values are ines mapper numbers
 
 constexpr std::uint16_t bankswitch_addr(mapper_type_t mt)
 {
+    // Try to keep this page-aligned, as the iota table will get allocated here.
     switch(mt)
     {
-    case MAPPER_NROM: return 0;
     case MAPPER_GTROM: return 0x5000;
-    default: return 0xFFFF;
+    default: return 0x8000;
     }
 }
 
@@ -66,6 +66,7 @@ struct mapper_t
 
     span_t rom_span() const { return { 0x8000, 0x8000 }; }
     std::size_t ines_header_size() const { return 16; }
+    bool bankswitches() const { return num_32k_banks > 1; }
 };
 
 void write_ines_header(std::uint8_t* at, mapper_t const& mapper);

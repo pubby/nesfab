@@ -167,11 +167,20 @@ type_t type_t::struct_(struct_t const& s)
     return type_t(TYPE_STRUCT, 0, &s);
 }
 
-type_t type_t::set_banked(bool banked) const
+void type_t::set_banked(bool banked)
 {
     assert(is_ptr(name()));
+    if(is_mptr(name()))
+        unsafe_set_name(banked ? TYPE_BANKED_MPTR : TYPE_MPTR);
+    else
+        unsafe_set_name(banked ? TYPE_BANKED_PTR : TYPE_PTR);
+    assert(is_banked_ptr(name()) == banked);
+}
+
+type_t type_t::with_banked(bool banked) const
+{
     type_t copy = *this;
-    copy.unsafe_set_name(banked ? TYPE_BANKED_PTR : TYPE_PTR);
+    copy.set_banked(banked);
     return copy;
 }
 
@@ -547,16 +556,13 @@ type_t member_type(type_t const& type, unsigned member)
     {
         type_t mt = member_type(type.elem_type(), member);
         assert(!is_aggregate(mt.name()));
+        assert(!is_banked_ptr(mt.name()));
         return type_t::tea(mt, type.size());
     }
     else if(is_banked_ptr(type.name()))
     {
         if(member == 0)
-        {
-            type_t ptr = type;
-            ptr.unsafe_set_name(remove_bank(type.name()));
-            return ptr;
-        }
+            return type.with_banked(false);
         else
         {
             assert(member == 1);

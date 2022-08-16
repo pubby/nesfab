@@ -210,6 +210,69 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
 namespace // anonymous
 {
 
+struct banks_and_indexes_t
+{
+    std::vector<ssa_value_t> banks;
+    std::vector<ssa_value_t> indexes;
+    auto operator<=>(banks_and_indexes_t const&) const = default;
+};
+
+banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
+{
+    fc::small_map<ssa_value_t, unsigned, 8> banks;
+    fc::small_map<ssa_value_t, unsigned, 8> indexes;
+
+    cfg_ht const cfg = initial->cfg_node();
+
+    ssa_worklist.push(initial);
+    
+    while(!ssa_worklist.empty())
+    {
+        ssa_ht h = ssa_worklist.pop();
+
+        bool process_inputs = true;
+
+        if(ssa_banks(h->op()))
+        {
+            banks[h->input(ssa_bank_input(h->op()))] += 1;
+            process_inputs = false;
+        }
+
+        if(ssa_indexes(h->op()))
+        {
+            indexes[h->input(ssa_index_input(h->op()))] += 1;
+            process_inputs = false;
+        }
+
+        if(h->cfg_node() != cfg || h->in_daisy() || h->op() == SSA_phi)
+            process_inputs = false;
+
+        if(process_inputs)
+            for(unsigned i = 0; i < h->input_size(); ++i)
+                if(h->input(i).holds_ref())
+                    ssa_worklist.push(h->input(i).handle());
+    }
+
+    // Sort by use count. Most used comes first.
+    std::sort(banks.container.begin(), banks.container.end(), [](auto const& l, auto const& r)
+        { return l.second > r.second; });
+    std::sort(indexes.container.begin(), indexes.container.end(), [](auto const& l, auto const& r)
+        { return l.second > r.second; });
+
+    banks_and_indexes_t ret;
+
+    ret.banks.reserve(banks.size());
+    ret.indexes.reserve(indexes.size());
+
+    for(auto const& p : banks)
+        ret.banks.push_back(p.first);
+    for(auto const& p : indexes)
+        ret.indexes.push_back(p.first);
+
+    return ret;
+}
+
+
 struct ssa_monoid_d
 {
     bitset_uint_t* post_dom = nullptr;
@@ -438,7 +501,12 @@ run_monoid_t::run_monoid_t(ir_t& ir, std::ostream* log)
 #endif
 
     // 'operands' tracks the operands of our new expression.
-    struct operand_t { ssa_value_t v; bool negative; };
+    struct operand_t 
+    { 
+        ssa_value_t v; 
+        bool negative; 
+        banks_and_indexes_t banks_and_indexes;
+    };
     std::vector<operand_t> operands;
 
     // These are used at the end to replace the expression's old nodes with the new ones:
@@ -585,6 +653,26 @@ run_monoid_t::run_monoid_t(ir_t& ir, std::ostream* log)
         }
 
         dprint(log, "--MONOID_ACCUM", accum.value, num_nums);
+
+        // Calc banks and indexes for our operands:
+        for(operand_t& operand : operands)
+        {
+            if(!operand.v.holds_ref())
+                continue;
+            operand.banks_and_indexes = calc_banks_and_indexes(operand.v.handle());
+        }
+
+        // Sort operands, ordering their bank accesses and array indexes.
+        std::sort(operands.begin(), operands.end(), [](auto const& l, auto const& r)
+            { return l.banks_and_indexes < r.banks_and_indexes; });
+
+        dprint(log, "--MONOID_SORTED_BEGIN");
+        for(operand_t const& op : operands)
+        {
+            dprint(log, "---MONOID_SORTED", op.v);
+            for(auto const& bank : op.banks_and_indexes.banks)
+                dprint(log, "----MONOID_SORTED_BANK", bank);
+        }
 
         // Now use 'operands' to build a replacement for 'h':
 
@@ -737,7 +825,6 @@ void run_monoid_t::build(ssa_ht h, bool negative)
 bool o_identities(ir_t& ir, std::ostream* os)
 {
     bool updated = o_simple_identity(ir, os);
-    return updated;
 
     {
         ssa_data_pool::scope_guard_t<ssa_monoid_d> sg(ssa_pool::array_size());

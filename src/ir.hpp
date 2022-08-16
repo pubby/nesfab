@@ -13,6 +13,7 @@
 #include "sizeof_bits.hpp"
 #include "ssa_op.hpp"
 #include "static_pool.hpp"
+#include "loop_test.hpp" // TODO: move with iter functions?
 
 //////////////////////////
 // edge implementations //
@@ -613,15 +614,17 @@ void for_each_output_with_links(ssa_ht const h, Fn const& fn)
 }
 
 template<typename Fn>
-void for_each_output_matching(ssa_ht h, input_class_t match, Fn const& fn)
+bool for_each_output_matching(ssa_ht h, input_class_t match, Fn const& fn)
 {
     unsigned const output_size = h->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
         auto const oe = h->output_edge(i);
         if(oe.input_class() == match)
-            fn(oe.handle);
+            if(!LOOP_TEST(fn, oe.handle))
+                return false;
     }
+    return true;
 }
 
 inline bool has_output_matching(ssa_ht h, input_class_t match)

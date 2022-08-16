@@ -222,9 +222,40 @@ unsigned loop_depth(cfg_ht cfg)
     return depth;
 }
 
+std::uint64_t loop_depth_exp(cfg_ht cfg, std::uint64_t scale, std::uint64_t max_shifts)
+{
+    return 1ull << std::min<std::uint64_t>(loop_depth(cfg) * scale, max_shifts);
+}
+
+bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node)
+{
+    assert(loop_header && algo(loop_header).is_loop_header);
+
+    if(!algo(node).is_loop_header)
+        node = algo(node).iloop_header;
+
+    for(; node; node = algo(node).iloop_header)
+        if(node == loop_header)
+            return true;
+
+    return false;
+}
+
 ////////////////////////////////////////
 // dominance
 ////////////////////////////////////////
+
+bool dominates(cfg_ht a, cfg_ht b)
+{
+    assert(b);
+    while(b != a && algo(b).postorder_i < algo(a).postorder_i)
+    {
+        b = algo(b).idom;
+        assert(b);
+    }
+    assert((b == a) == (dom_intersect(a, b) == a));
+    return b == a;
+}
 
 cfg_ht dom_intersect(cfg_ht a, cfg_ht b)
 {

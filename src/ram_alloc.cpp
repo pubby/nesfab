@@ -24,8 +24,8 @@ enum zp_request_t
 };
 
 // Allocates a span inside 'usable_ram'.
-span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp, 
-                 bool insist_alignment = false)
+static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp, 
+                        bool insist_alignment = false)
 {
     auto const try_alloc = [](ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
     {
@@ -104,13 +104,13 @@ private:
     struct group_vars_d
     {
         // Addresses that can be used to allocate globals.
-        ram_bitset_t usable_ram;
+        ram_bitset_t usable_ram = {};
 
         // Tracks how it interferes with other group_vars
         xbitset_t<group_vars_ht> interferences;
 
         // Used to estimate how many bytes of ZP are left
-        unsigned zp_estimate;
+        unsigned zp_estimate = 0;
     };
 
     struct fn_d

@@ -538,6 +538,8 @@ ABSTRACT(SSA_carry) = ABSTRACT_FN
 ABSTRACT(SSA_cast) = ABSTRACT_FN
 {
     assert(argn == 1);
+    assert(result.vec.size() == 1);
+    assert(cv[0].vec.size() >= 1);
     result[0] = apply_mask(cv[0][0], result.cm); // handles top itself
 
     // Sign-extend

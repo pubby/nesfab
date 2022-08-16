@@ -38,12 +38,18 @@ void build_order(ir_t const& ir);
 // Does everything 'build_order' does, but also identifies loops.
 void build_loops_and_order(ir_t& ir);
 
+bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node);
+
 // Returns how many loops a node is in.
 unsigned loop_depth(cfg_ht cfg);
+std::uint64_t loop_depth_exp(cfg_ht cfg, std::uint64_t scale = 1, std::uint64_t max_shifts = 16);
 
 // Builds the dominance tree.
 // Requires that the order was built.
 void build_dominators_from_order(ir_t& ir);
+
+// If 'a' dominates 'b'
+bool dominates(cfg_ht a, cfg_ht b); 
 
 // Returns a dominator common to both.
 cfg_ht dom_intersect(cfg_ht a, cfg_ht b);

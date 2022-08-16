@@ -22,6 +22,7 @@ constexpr unsigned SSAF_COMMUTATIVE    = 1 << 11; // First two args can be swapp
 constexpr unsigned SSAF_BRANCHY_CG     = 1 << 12; // Potentially uses a conditional in code gen
 constexpr unsigned SSAF_NULL_INPUT_VALID = 1 << 13; // Can use nulls as input
 constexpr unsigned SSAF_FENCE          = 1 << 14; 
+constexpr unsigned SSAF_BANK_INPUT     = 1 << 15; 
 
 // Parameter indexes for SSA ops
 namespace ssai
@@ -97,12 +98,6 @@ constexpr bool fn_like(ssa_op_t op) { return op == SSA_fn_call || op == SSA_goto
 
 constexpr bool is_make_ptr(ssa_op_t op) { return op == SSA_make_ptr_lo || op == SSA_make_ptr_hi; }
 
-constexpr bool ssa_indexes(ssa_op_t op)
-{
-    constexpr unsigned SSAFS_INDEXES = SSAF_INDEXES_ARRAY | SSAF_INDEXES_PTR;
-    return ssa_flags(op) & SSAFS_INDEXES;
-}
-
 inline unsigned write_globals_begin(ssa_op_t op)
 {
     assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
@@ -136,6 +131,12 @@ inline unsigned ssa_copy_input(ssa_op_t op)
     }
 }
 
+constexpr bool ssa_indexes(ssa_op_t op)
+{
+    constexpr unsigned SSAFS_INDEXES = SSAF_INDEXES_ARRAY | SSAF_INDEXES_PTR;
+    return ssa_flags(op) & SSAFS_INDEXES;
+}
+
 inline unsigned ssa_index_input(ssa_op_t op)
 {
     assert(ssa_indexes(op));
@@ -148,6 +149,25 @@ inline unsigned ssa_index_input(ssa_op_t op)
     case SSA_read_ptr:
     case SSA_write_ptr:
         return 3;
+    default:
+        assert(false);
+        return ~0;
+    }
+}
+
+constexpr bool ssa_banks(ssa_op_t op)
+{
+    return ssa_flags(op) & SSAF_BANK_INPUT;
+}
+
+inline unsigned ssa_bank_input(ssa_op_t op)
+{
+    assert(ssa_flags(op) & SSAF_BANK_INPUT);
+    switch(op)
+    {
+    case SSA_read_ptr:
+    case SSA_write_ptr:
+        return ssai::rw_ptr::BANK;
     default:
         assert(false);
         return ~0;

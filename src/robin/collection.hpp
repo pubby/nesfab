@@ -34,6 +34,8 @@ public:
 
     using iterator = value_type*;
     using const_iterator = value_type const*;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
     robin_collection() = default;
     explicit robin_collection(hash_type size) { reserve(size); }
@@ -141,6 +143,8 @@ public:
 
     using iterator = value_type*;
     using const_iterator = value_type const*;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
     batman_collection() = default;
     explicit batman_collection(hash_type size) { reserve(size); }
@@ -237,6 +241,13 @@ public:
     const_iterator cend() const noexcept { return data() + m_data.size(); }
     const_iterator end() const noexcept { return data() + m_data.size(); }
     iterator end() noexcept { return data() + m_data.size(); }
+
+    const_reverse_iterator crbegin() const { return cend(); }
+    const_reverse_iterator rbegin() const { return cend(); }
+    reverse_iterator rbegin() { return end(); }
+    const_reverse_iterator crend() const { return cbegin(); }
+    const_reverse_iterator rend() const { return cbegin(); }
+    reverse_iterator rend() { return begin(); }
 
     value_type* data() { return m_data.data(); }
     value_type const* data() const { return m_data.data(); }
@@ -404,6 +415,8 @@ public:
 
     using iterator = joker_iterator<value_type>;
     using const_iterator = joker_iterator<value_type const>;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
     joker_collection() = default;
     explicit joker_collection(hash_type size) { reserve(size); }
@@ -488,6 +501,13 @@ public:
         { return const_iterator(collection.cend()); }
     iterator end() noexcept 
         { return iterator(collection.end()); }
+
+    const_reverse_iterator crbegin() const { return cend(); }
+    const_reverse_iterator rbegin() const { return cend(); }
+    reverse_iterator rbegin() { return end(); }
+    const_reverse_iterator crend() const { return cbegin(); }
+    const_reverse_iterator rend() const { return cbegin(); }
+    reverse_iterator rend() { return begin(); }
 
     value_type* data() { return collection.data(); }
     value_type const* data() const { return collection.data(); }

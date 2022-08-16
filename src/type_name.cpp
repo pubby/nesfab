@@ -55,3 +55,8 @@ std::string to_string(type_name_t type_name)
     }
 }
 
+std::ostream& operator<<(std::ostream& o, type_name_t type_name)
+{
+    o << to_string(type_name);
+    return o;
+}

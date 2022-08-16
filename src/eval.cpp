@@ -2785,7 +2785,7 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
                                 ssa_value_t(Policy::op() == SSA_sub, TYPE_BOOL));
 
                             ssa_ht const cast = builder.cfg->emplace_ssa(
-                                SSA_cast, new_top.type.set_banked(false), sum);
+                                SSA_cast, new_top.type.with_banked(false), sum);
 
                             new_top.sval.push_back(cast);
 
@@ -3089,7 +3089,7 @@ void eval_t::force_ptrify_int(rpn_value_t& rpn_value, rpn_value_t const* bank, t
     {
         ssa_value_t first_cast = rpn_value.ssa();
 
-        type_t unbanked_type = to_type.set_banked(false);
+        type_t unbanked_type = to_type.with_banked(false);
         new_rpn.sval = make_sval(builder.cfg->emplace_ssa(SSA_cast, unbanked_type, first_cast));
 
         if(bank)
@@ -3335,7 +3335,7 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
             case 1:
                 return var_lookup(cfg_node->input(0), var_i, member);
             default:
-                ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, var_types[var_i]);
+                ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, ::member_type(var_types[var_i], member));
                 block_data.vars[var_i][member] = phi;
                 fill_phi_args(phi, var_i, member);
             #ifndef NDEBUG
@@ -3368,7 +3368,7 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
         // To work around this, an incomplete phi node can be created, which
         // will then be filled when the node is sealed.
         assert(block_data.unsealed_phis.size() == block_data.vars.size());
-        ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, var_types[var_i]);
+        ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, ::member_type(var_types[var_i], member));
         block_data.vars[var_i][member] = phi;
         block_data.unsealed_phis[var_i][member] = phi;
         assert(phi);

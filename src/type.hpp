@@ -44,7 +44,7 @@ public:
         return size();
     }
 
-    void unsafe_set_name(type_name_t name) { m_name = name; }
+    void unsafe_set_name(type_name_t name) { m_name = name; assert(m_name == name); }
 
     type_t const* types() const 
         { assert(has_type_tail(name())); return static_cast<type_t const*>(m_tail); }
@@ -91,7 +91,8 @@ public:
     static type_t struct_(struct_t const& s);
     static type_t group_set(group_ht const* begin, group_ht const* end);
 
-    type_t set_banked(bool banked) const;
+    void set_banked(bool banked);
+    type_t with_banked(bool banked) const;
 
     // Allocates 'type' in storage, until program termination.
     static type_t const* new_type(type_t const& type);

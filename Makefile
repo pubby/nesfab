@@ -53,6 +53,10 @@ override CXXFLAGS+= \
 debug: CXXFLAGS += -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG
 
+ifeq ($(MAKECMDGOALS), all)
+CXXFLAGS += -g
+endif
+
 VPATH=$(SRCDIR)
 
 LDLIBS:= -lboost_program_options
@@ -115,7 +119,9 @@ runtime.cpp \
 rom_link.cpp \
 ram_init.cpp \
 mods.cpp \
-rom_prune.cpp
+rom_prune.cpp \
+cg_ptr.cpp \
+pbqp.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

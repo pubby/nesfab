@@ -94,6 +94,7 @@ std::size_t constraints_size(ssa_node_t const& node)
 {
     auto const type_size = [&](type_name_t name) -> std::size_t
     {
+        assert(!is_banked_ptr(name));
         if(name == TYPE_TEA)
             return node.type().size();
         if(is_scalar(name))
@@ -334,6 +335,8 @@ void ai_t::init_constraints()
                 cm = type_constraints_mask(type.elem_type().name());
             else if(type.name() == TYPE_PAA)
                 cm = type_constraints_mask(TYPE_U);
+            else if(is_banked_ptr(type.name()))
+                cm = type_constraints_mask(type.with_banked(false).name());
             else
                 cm = type_constraints_mask(type.name());
         }
@@ -783,6 +786,7 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
         assert(d.constraints().vec.size());
 
         d.executable_index = exec_i;
+        dprint(log, "-COMPUTE_CONSTRAINTS", ssa_node, ssa_node->op());
         abstract_fn(ssa_node->op())(c.data(), input_size, d.constraints());
     }
 }

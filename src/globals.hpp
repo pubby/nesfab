@@ -370,6 +370,9 @@ public:
     //bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
     //bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
 
+    locator_t first_bank_switch() const { assert(global.compiled()); return m_first_bank_switch; }
+    void assign_first_bank_switch(locator_t loc) { assert(compiler_phase() == PHASE_COMPILE); m_first_bank_switch = loc; }
+
     rom_proc_ht rom_proc() const { return m_rom_proc; }
 
     void assign_lvars(lvars_manager_t&& lvars);
@@ -430,6 +433,10 @@ private:
     // If the function (or a called fn) waits on NMI
     bool m_ir_fences = false;
 
+    // The first, dominating bank switch in this function.
+    // (This is the bank the fn should be called from.)
+    locator_t m_first_bank_switch = {};
+
     // Holds the assembly code generated.
     rom_proc_ht m_rom_proc;
 
@@ -468,7 +475,7 @@ protected:
     virtual void sval_init(sval_t&& sval) = 0;
 
     src_type_t m_src_type = {};
-    sval_t m_sval;
+    sval_t m_sval = {};
 };
  
 class gvar_t : public global_datum_t
@@ -503,7 +510,7 @@ private:
     virtual void paa_init(loc_vec_t&& paa);
     virtual void sval_init(sval_t&& sval);
 
-    loc_vec_t m_init_data;
+    loc_vec_t m_init_data = {};
 
     gmember_ht m_begin_gmember = {};
     gmember_ht m_end_gmember = {};

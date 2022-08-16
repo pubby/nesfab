@@ -97,7 +97,6 @@ struct cpu_t
     { 
         assert(known_array_valid() && o.known_array_valid());
         return accurate_eq(o);
-        //return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask); 
     }
 
     bool accurate_eq(cpu_t const& o) const 
@@ -131,7 +130,7 @@ struct cpu_t
         h = rh::hash_combine(h, defs[REG_A].to_uint());
         return h;
     }
-
+    
     // If we know the value of a register:
     bool is_known(regs_t reg) const { return known_mask & (1 << reg); }
     bool is_known(regs_t reg, std::uint8_t value) const { return is_known(reg) && known[reg] == value; }
@@ -225,6 +224,8 @@ struct cpu_t
             set_def_impl<REG_Z>(opt, value, keep_value);
         if(Regs & REGF_N)
             set_def_impl<REG_N>(opt, value, keep_value);
+        if(Regs & REGF_B)
+            set_def_impl<REG_B>(opt, value, keep_value);
     }
 
     template<regs_t Regs> [[gnu::noinline]]
@@ -264,22 +265,43 @@ struct cpu_t
     // the set values may be constants too.
     template<op_t Op>
     bool set_defs_for(options_t opt, locator_t def, locator_t arg);
+
+    /* TODO: remove?
+    locator_t normalize(locator_t loc)
+    {
+        if(l.lclass() == LOC_SSA)
+        {
+            ssa_ht const h = l.ssa();
+
+            if(h->op() == SSA_phi_copy)
+            {
+                assert(cset_locator(h).lclass() == LOC_PHI);
+                return cset_locator(h);
+            }
+        }
+    }
+
+    void strip_transient() 
+    {
+        conditional_regs = 0;
+        req_store = 0;
+        for(locator_t& loc : defs)
+            loc = normalize(loc);
+    }
+    */
+
 };
 
 struct approximate_hash_t
 {
     std::size_t operator()(isel::cpu_t const& cpu) const noexcept
-    {
-        return cpu.approximate_hash();
-    }
+        { return cpu.approximate_hash(); }
 };
 
 struct approximate_eq_t
 {
     std::size_t operator()(isel::cpu_t const& l, isel::cpu_t const& r) const noexcept
-    {
-        return l.approximate_eq(r);
-    }
+        { return l.approximate_eq(r); }
 };
 
 } // end namespace isel

@@ -794,7 +794,7 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
 
             io_pure = false;
 
-            type_t const ptr_type = ssa_it->input(PTR).type();
+            type_t const ptr_type = ssa_it->input(PTR).type(true);
             assert(is_ptr(ptr_type.name()));
 
             unsigned const size = ptr_type.group_tail_size();
@@ -983,7 +983,7 @@ void fn_t::compile()
             changed |= o_identities(ir, &std::cout);
             save_graph(ir, fmt("%_post_id_o_%", post_byteified, iter).c_str());
             changed |= o_abstract_interpret(ir, nullptr);
-            //changed |= o_remove_unused_ssa(ir);
+            changed |= o_remove_unused_ssa(ir);
             changed |= o_global_value_numbering(ir, nullptr);
 
             if(post_byteified)

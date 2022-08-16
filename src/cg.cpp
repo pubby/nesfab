@@ -13,6 +13,7 @@
 #include "cg_order.hpp"
 #include "cg_schedule.hpp"
 #include "cg_cset.hpp"
+#include "cg_ptr.hpp"
 #include "globals.hpp"
 #include "ir_algo.hpp"
 #include "ir.hpp"
@@ -449,9 +450,10 @@ void code_gen(ir_t& ir, fn_t& fn)
     ir.assert_valid();
     schedule_ir(ir);
 
+    std::cout << "sched start " << std::endl;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
-        std::cout << cfg_it << std::endl;
+        std::cout << "sched cfg " << cfg_it << std::endl;
         auto& d = cg_data(cfg_it);
         for(ssa_ht h : d.schedule)
             std::cout << "sched " << h->op() << ' ' << h.id << '\n';
@@ -1119,12 +1121,21 @@ void code_gen(ir_t& ir, fn_t& fn)
     }
 #endif
 
+    /////////////////////////////
+    // FINAL SCHEDULE ANALYSIS //
+    /////////////////////////////
+
+    fn.assign_first_bank_switch(first_bank_switch(ir));
 
     ///////////////////////////
     // INSTRUCTION SELECTION //
     ///////////////////////////
 
+    select_instructions(fn, ir);
+
+
     {
+        /*
         rh::robin_map<locator_t, unsigned> store_map;
 
         for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -1190,6 +1201,7 @@ void code_gen(ir_t& ir, fn_t& fn)
             d.code.swap(temp_code);
         }
 #endif
+*/
     }
 
     ////////////////////////

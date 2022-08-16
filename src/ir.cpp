@@ -881,6 +881,8 @@ void ir_t::assert_valid() const
         {
             ssa_node_t& ssa_node = *ssa_it;
 
+            assert(!is_banked_ptr(ssa_it->type().name()));
+
             assert(ssa_node.cfg_node() == cfg_it);
             if(ssa_node.op() == SSA_phi)
                 assert(ssa_node.input_size() == cfg_node.input_size());

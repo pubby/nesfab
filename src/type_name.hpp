@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <string>
+#include <ostream>
 
 static constexpr unsigned max_frac_bytes = 3;
 static constexpr unsigned max_whole_bytes = 4;
@@ -134,6 +135,7 @@ constexpr bool has_tail(type_name_t name)
             || name == TYPE_STRUCT); 
 }
 
+/*
 constexpr type_name_t remove_bank(type_name_t type_name)
 {
     switch(type_name)
@@ -146,6 +148,7 @@ constexpr type_name_t remove_bank(type_name_t type_name)
         return type_name;
     }
 }
+*/
 
 constexpr bool is_simple(type_name_t type_name)
 {
@@ -266,5 +269,7 @@ constexpr bool same_scalar_layout(type_name_t a, type_name_t b)
 }
 
 std::string to_string(type_name_t type_name);
+
+std::ostream& operator<<(std::ostream& o, type_name_t type_name);
 
 #endif

@@ -45,7 +45,7 @@ std::string to_string(locator_t loc)
     case LOC_SSA:
         str = fmt("ssa %", loc.handle()); break;
     case LOC_PHI:
-        str = fmt("ssa %", loc.handle()); break;
+        str = fmt("phi %", loc.handle()); break;
     case LOC_MINOR_VAR:
         str = fmt("minor var %", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:

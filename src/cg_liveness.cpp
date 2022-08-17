@@ -252,10 +252,10 @@ static void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars,
         // For indirect modes, also test the hi byte.
         if(indirect_addr_mode(op_addr_mode(inst.op)))
         {
-            std::cout << inst.arg << ' ' << inst.ptr_hi << std::endl;
+            //std::cout << inst.arg << ' ' << inst.alt << std::endl;
             assert(inst.arg);
-            assert(inst.ptr_hi && inst.ptr_hi != inst.arg);
-            test_loc(inst.ptr_hi);
+            assert(inst.alt && inst.alt != inst.arg);
+            test_loc(inst.alt);
         }
     }
 }
@@ -435,26 +435,27 @@ void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& l
                         assert(op_output_regs(inst.op) & REGF_M);
                         if(lvar_i < 0 || bitset_test(live, lvar_i))
                         {
-                            switch(inst.op)
+                            if(op_t op = change_addr_mode(inst.op, MODE_ABSOLUTE))
+                                inst.op = op;
+                            else 
                             {
-                            case MAYBE_STA: inst.op = STA_ABSOLUTE; break;
-                            case MAYBE_STX: inst.op = STX_ABSOLUTE; break;
-                            case MAYBE_STY: inst.op = STY_ABSOLUTE; break;
-                            case MAYBE_SAX: inst.op = SAX_ABSOLUTE; break;
-                            case MAYBE_STORE_C: 
-                                            assert(false); // TODO
-                                            /*
-                                temp_code.push_back({ PHP_IMPLIED, inst.ssa_op });
-                                temp_code.push_back({ PHA_IMPLIED, inst.ssa_op });
-                                temp_code.push_back({ LDA_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
-                                temp_code.push_back({ ROL_IMPLIED, inst.ssa_op });
-                                inst.op = STA_ABSOLUTE;
-                                temp_code.push_back(std::move(inst));
-                                temp_code.push_back({ PLA_IMPLIED, inst.ssa_op });
-                                temp_code.push_back({ PLP_IMPLIED, inst.ssa_op });
-                                continue;
-                                */
-                            default: assert(false);
+                                switch(inst.op)
+                                {
+                                case MAYBE_STORE_C: 
+                                                assert(false); // TODO
+                                                /*
+                                    temp_code.push_back({ PHP_IMPLIED, inst.ssa_op });
+                                    temp_code.push_back({ PHA_IMPLIED, inst.ssa_op });
+                                    temp_code.push_back({ LDA_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
+                                    temp_code.push_back({ ROL_IMPLIED, inst.ssa_op });
+                                    inst.op = STA_ABSOLUTE;
+                                    temp_code.push_back(std::move(inst));
+                                    temp_code.push_back({ PLA_IMPLIED, inst.ssa_op });
+                                    temp_code.push_back({ PLP_IMPLIED, inst.ssa_op });
+                                    continue;
+                                    */
+                                default: assert(false);
+                                }
                             }
                         }
                         else

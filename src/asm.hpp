@@ -8,34 +8,6 @@
 #include <cstdint>
 #include <string>
 
-enum addr_mode_t : std::uint8_t
-{
-#define ADDR_MODE(name) MODE_##name,
-#include "addr_mode.inc"
-#undef ADDR_MODE
-    NUM_ADDR_MODES,
-};
-
-enum op_name_t : std::uint8_t
-{
-#define OP_NAME(name) name,
-#include "op_name.inc"
-#undef OP_NAME
-    NUM_OP_NAMES,
-};
-
-enum op_t : std::uint8_t
-{
-#define OP(name) name,
-#include "op.inc"
-#undef OP
-    NUM_OPS,
-};
-
-std::string to_string(addr_mode_t addr_mode);
-std::string to_string(op_name_t name);
-std::string to_string(op_t op);
-
 using regs_t = std::uint8_t;
 constexpr regs_t REG_A   = 0;
 constexpr regs_t REG_X   = 1;
@@ -47,6 +19,7 @@ constexpr regs_t REG_N   = 5;
 constexpr regs_t REG_B   = 6; // Bank
 constexpr unsigned NUM_CPU_REGS = 7;
 constexpr regs_t REG_M   = 7; // RAM
+constexpr unsigned NUM_REGS = 8;
 
 // Works like a bitset.
 constexpr regs_t REGF_A = 1 << REG_A;
@@ -66,6 +39,39 @@ constexpr regs_t REGF_ACNZ = REGF_A | REGF_C | REGF_N | REGF_Z;
 constexpr regs_t REGF_CNZ  = REGF_C | REGF_NZ;
 constexpr regs_t REGF_CROSS = REGF_A | REGF_X | REGF_Y | REGF_C;
 constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_N | REGF_Z | REGF_B;
+
+enum addr_mode_t : std::uint8_t
+{
+#define ADDR_MODE(name) MODE_##name,
+#include "addr_mode.inc"
+#undef ADDR_MODE
+    NUM_ADDR_MODES,
+};
+
+enum op_name_t : std::uint8_t
+{
+#define OP_NAME(name) name,
+#include "op_name.inc"
+#undef OP_NAME
+    NUM_OP_NAMES,
+};
+
+enum op_t : std::uint16_t
+{
+#define OP(name) name,
+#include "op.inc"
+#undef OP
+    NUM_NORMAL_OPS,
+    BEGIN_REG_READ_OP = NUM_NORMAL_OPS,
+    END_REG_READ_OP = BEGIN_REG_READ_OP + (1 << NUM_REGS),
+    BEGIN_REG_WRITE_OP = END_REG_READ_OP,
+    END_REG_WRITE_OP = BEGIN_REG_WRITE_OP + (1 << NUM_REGS),
+    NUM_OPS = END_REG_WRITE_OP,
+};
+
+std::string to_string(addr_mode_t addr_mode);
+std::string to_string(op_name_t name);
+std::string to_string(op_t op);
 
 using asm_flags_t = std::uint32_t;
 
@@ -92,25 +98,42 @@ struct op_def_t
 #include "asm_tables.hpp"
 
 constexpr op_name_t op_name(op_t op)
-    { return op_defs_table[op].op_name; }
+    { return op < NUM_NORMAL_OPS ? op_defs_table[op].op_name : BAD_OP_NAME; }
 
 constexpr std::uint8_t op_code(op_t op)
-    { return op_defs_table[op].op_code; }
+    { return op < NUM_NORMAL_OPS ? op_defs_table[op].op_code : 0; }
 
 constexpr addr_mode_t op_addr_mode(op_t op)
-    { return op_defs_table[op].addr_mode; }
+    { return op < NUM_NORMAL_OPS ? op_defs_table[op].addr_mode : addr_mode_t{}; }
 
 constexpr unsigned op_cycles(op_t op)
-    { return op_defs_table[op].cycles; }
+    { return op < NUM_NORMAL_OPS ? op_defs_table[op].cycles : 0; }
 
 constexpr unsigned op_size(op_t op)
-    { return op_defs_table[op].size; }
+    { return op < NUM_NORMAL_OPS ? op_defs_table[op].size : 0; }
 
 constexpr regs_t op_input_regs(op_t op)
-    { return op_defs_table[op].input_regs; }
+{ 
+    if(op < NUM_NORMAL_OPS)
+        return op_defs_table[op].input_regs;
+    if(op >= BEGIN_REG_READ_OP && op < END_REG_READ_OP)
+        return op - BEGIN_REG_READ_OP;
+    return 0;
+}
 
 constexpr regs_t op_output_regs(op_t op)
-    { return op_defs_table[op].output_regs; }
+{ 
+    if(op < NUM_NORMAL_OPS)
+        return op_defs_table[op].output_regs;
+    if(op >= BEGIN_REG_WRITE_OP && op < END_REG_WRITE_OP)
+        return op - BEGIN_REG_WRITE_OP;
+    return 0;
+}
+
+constexpr op_t read_reg_op(regs_t regs)
+    { return op_t(BEGIN_REG_READ_OP + regs); }
+constexpr op_t write_reg_op(regs_t regs)
+    { return op_t(BEGIN_REG_WRITE_OP + regs); }
 
 constexpr regs_t op_regs(op_t op)
     { return op_input_regs(op) | op_output_regs(op); }
@@ -135,14 +158,13 @@ constexpr op_name_mode_table_t op_name_mode_table = []() consteval
 }();
 
 constexpr op_t get_op(op_name_t name, addr_mode_t mode)
-{
-    return op_name_mode_table[name][mode];
-}
+    { return op_name_mode_table[name][mode]; }
 
 inline addr_mode_table_t const& get_addr_modes(op_name_t name)
-{
-    return op_name_mode_table[name];
-}
+    { return op_name_mode_table[name]; }
+
+constexpr op_t change_addr_mode(op_t op, addr_mode_t mode)
+    { return get_op(op_name(op), mode); }
 
 constexpr op_name_t invert_branch(op_name_t name)
 {

@@ -468,6 +468,27 @@ inline bool is_orig_def(ssa_value_t v)
     return v == orig_def(v);
 }
 
+/* TODO
+inline ssa_value_t orig_ssa(ssa_ht h)
+{
+    if(ssa_flags(h->op()) & SSAF_COPY)
+    {
+        ssa_value_t input = h->input(ssa_copy_input(h->op()));
+        if(input.holds_ref())
+            return orig_ssa(input.handle());
+        return h;
+    }
+    return v;
+}
+
+inline ssa_value_t orig_ssa(ssa_value_t v)
+{
+    if(v.holds_ref())
+        return orig_ssa(v.handle());
+    return v;
+}
+*/
+
 // Searches for this node's carry output node.
 // Returns -1 if it doesn't exist.
 inline int carry_output_i(ssa_node_t const& node)

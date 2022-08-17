@@ -104,6 +104,16 @@ struct set_defs_for_impl<CLC_IMPLIED>
 };
 
 template<>
+struct set_defs_for_impl<SEC_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        cpu.set_output_defs_impl<SEC_IMPLIED>(opt, def);
+        cpu.set_known(REG_C, 1u);
+    }
+};
+
+template<>
 struct set_defs_for_impl<CMP_IMMEDIATE>
 {
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
@@ -780,8 +790,80 @@ struct set_defs_for_impl<ARR_IMMEDIATE>
     }
 };
 
+template<>
+struct set_defs_for_impl<BEQ_RELATIVE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BEQ_RELATIVE) == 0);
+        cpu.conditional_regs |= REGF_Z;
+        cpu.set_known(REG_Z, 0);
+        assert(cpu.known_array_valid());
+    }
+};
+
+template<>
+struct set_defs_for_impl<BNE_RELATIVE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BNE_RELATIVE) == 0);
+        cpu.conditional_regs |= REGF_Z;
+        cpu.set_known(REG_Z, 1);
+        assert(cpu.known_array_valid());
+    }
+};
+
+template<>
+struct set_defs_for_impl<BMI_RELATIVE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BMI_RELATIVE) == 0);
+        cpu.conditional_regs |= REGF_N;
+        cpu.set_known(REG_N, 0);
+        assert(cpu.known_array_valid());
+    }
+};
+
+template<>
+struct set_defs_for_impl<BPL_RELATIVE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BPL_RELATIVE) == 0);
+        cpu.conditional_regs |= REGF_N;
+        cpu.set_known(REG_N, 1);
+        assert(cpu.known_array_valid());
+    }
+};
+
+template<>
+struct set_defs_for_impl<BCS_RELATIVE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BCS_RELATIVE) == 0);
+        cpu.conditional_regs |= REGF_C;
+        cpu.set_known(REG_C, 0);
+        assert(cpu.known_array_valid());
+    }
+};
+
+template<>
+struct set_defs_for_impl<BCC_RELATIVE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BCC_RELATIVE) == 0);
+        cpu.conditional_regs |= REGF_C;
+        cpu.set_known(REG_C, 1);
+        assert(cpu.known_array_valid());
+    }
+};
+
 template<op_t Op> [[gnu::noinline]]
-bool cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)
+std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)
 {
     constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
     if((Regs & opt.can_set) != Regs)
@@ -796,6 +878,40 @@ bool cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)
 #define OP(name) template bool cpu_t::set_defs_for<name>(options_t, locator_t, locator_t);
 #include "op.inc"
 #undef OP
+
+///////////
+// CROSS //
+///////////
+
+cross_cpu_t::cross_cpu_t(cpu_t const& cpu, bool strip_phi)
+{
+    auto const convert = [&](regs_t reg) -> locator_t
+    {
+        if(!cpu.defs[reg] && (cpu.known_mask & (1 << reg)))
+            return locator_t::const_byte(cpu.known[reg]);
+
+        if(strip_phi && cpu.defs[reg].lclass() == LOC_PHI)
+            return LOC_NONE;
+
+        return cpu.defs[reg];
+    };
+
+    for(regs_t reg = 0; reg < NUM_CROSS_REGS; ++reg)
+        defs[reg] = convert(reg);
+    if(defs[REG_C].lclass() != LOC_CONST_BYTE)
+        defs[REG_C] = LOC_NONE;
+}
+
+cpu_t cross_cpu_t::to_cpu() const
+{
+    static_assert(REGF_CROSS == (REGF_A | REGF_X | REGF_Y | REGF_C));
+    cpu_t ret = {};
+    ret.set_def<REG_A>({}, defs[REG_A]);
+    ret.set_def<REG_X>({}, defs[REG_X]);
+    ret.set_def<REG_Y>({}, defs[REG_Y]);
+    ret.set_def<REG_C>({}, defs[REG_C]);
+    return ret;
+}
 
 } // end namespace isel
 

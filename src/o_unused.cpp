@@ -54,7 +54,7 @@ static ssa_ht _get_link_head(ssa_ht h)
     return h;
 }
 
-bool o_remove_unused_linked(ir_t& ir)
+bool o_remove_unused_linked(log_t* log, ir_t& ir)
 {
     bool changed = false;
 
@@ -93,6 +93,7 @@ bool o_remove_unused_linked(ir_t& ir)
             });
 
             assert(!h->test_flags(FLAG_IN_WORKLIST));
+            dprint(log, "PRUNE_UNUSED", h);
             h->prune();
         }
 
@@ -103,7 +104,7 @@ bool o_remove_unused_linked(ir_t& ir)
     return changed;
 }
 
-bool o_remove_no_effect(ir_t& ir)
+bool o_remove_no_effect(log_t* log, ir_t& ir)
 {
     ssa_worklist.clear();
 
@@ -152,6 +153,7 @@ bool o_remove_no_effect(ir_t& ir)
     {
         if(ssa_it->test_flags(FLAG_PRUNED))
         {
+            dprint(log, "PRUNE_NO_EFFECT", ssa_it);
             ssa_it = ssa_it->prune();
             changed = true;
         }
@@ -162,10 +164,10 @@ bool o_remove_no_effect(ir_t& ir)
     return changed;
 }
 
-bool o_remove_unused_ssa(ir_t& ir)
+bool o_remove_unused_ssa(log_t* log, ir_t& ir)
 {
     bool changed = false;
-    changed |= o_remove_unused_linked(ir);
-    changed |= o_remove_no_effect(ir);
+    changed |= o_remove_unused_linked(log, ir);
+    changed |= o_remove_no_effect(log, ir);
     return changed;
 }

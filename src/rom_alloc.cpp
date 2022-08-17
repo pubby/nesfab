@@ -15,7 +15,7 @@
 class rom_allocator_t
 {
 public:
-    rom_allocator_t(std::ostream* log, span_allocator_t& allocator, unsigned num_banks);
+    rom_allocator_t(log_t* log, span_allocator_t& allocator, unsigned num_banks);
 
 private:
     struct bank_rank_t
@@ -42,7 +42,7 @@ private:
 
     span_t const initial_span = {};
 
-    std::ostream* log = nullptr;
+    log_t* log = nullptr;
 
     ///////////////
     // FUNCTIONS //
@@ -70,7 +70,7 @@ private:
     bool try_include_many(rom_many_ht many_h, unsigned bank_i);
 };
 
-rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator, unsigned num_banks)
+rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsigned num_banks)
 : initial_span(allocator.initial())
 , log(log)
 {
@@ -99,7 +99,7 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
         for(asm_inst_t const& inst : proc->asm_proc().code)
         {
             try_insert(proc, inst.arg);
-            try_insert(proc, inst.ptr_hi);
+            try_insert(proc, inst.alt);
         }
     }
 
@@ -319,18 +319,17 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
 
         for(rom_array_ht use : rom_proc_directly_uses[rom_proc_h.id])
         {
-            std::cout << "USES " << std::endl;;
             auto const alloc = use->get_alloc(ROMV_MODE);
-            std::cout << "USES " << rom_proc_h << ' ' << use << ' ' << (int)alloc.rclass() << std::endl;
+            dprint(log, "ALLOC_ROM_USES", rom_proc_h, use);
 
             if(alloc.rclass() == ROMA_ONCE)
             {
-                std::puts("USES ONCE");
+                dprint(log, "-ALLOC_ROM_USES ONCE");
                 use_once.set(alloc.handle());
             }
             else if(alloc.rclass() == ROMA_MANY)
             {
-                std::puts("USES MANY");
+                dprint(log, "-ALLOC_ROM_USES MANY");
                 use_many.set(alloc.handle());
             }
         }
@@ -359,7 +358,6 @@ rom_allocator_t::rom_allocator_t(std::ostream* log, span_allocator_t& allocator,
             {
                 assert(use_once.all_clear());
 
-                std::cout << "USES SET " << rom_proc_h << std::endl;
                 // Set our own requirements to include the many set we built
                 unsigned const once_i = rom_proc.get_alloc(romv_t(romv)).handle();
                 bitset_or(many_bs_size, rom_once_ht{once_i}->required_manys, use_many.data());
@@ -498,16 +496,12 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
 
         realloced_manys.clear();
 
-        std::cout << "CONSIDER ONCE " << once_h << ' ' << bitset_popcount(many_bs_size, once.required_manys) << std::endl;
-
         // TODO: Sort the manys first, instead of iterating bitset.
         bool const allocated_manys = 
         bitset_for_each_test(many_bs_size, once.required_manys, [&](unsigned i)
         {
             rom_many_ht many_h = rom_many_ht{ i };
             rom_many_t& many = *many_h;
-
-            std::cout << "CONSIDER MANY " << many_h << std::endl;
 
             if(many.in_banks.test(bank_i))
                 return true;
@@ -529,8 +523,6 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
             return false;
         });
         
-        //std::cout << " alloc rom " << once.desired_size << std::endl;
-
         // If we succeeded in allocating manys, try to allocate 'once's span:
         // (conditional has side effect assignment)
         if(!allocated_manys || !(once.span = bank.allocator.alloc(once.data.max_size(), once.desired_alignment)))
@@ -623,9 +615,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
 
     in_banks.for_each([&](unsigned bank_i)
     {
-        //std::cout << "free addr " << free_addr << std::endl;
         span_t const span = banks[bank_i].allocator.unallocated_span_at(free_addr);
-        //std::cout << "free span " << span << std::endl;
         assert(span.size >= many.data.max_size());
         min_end = std::min<unsigned>(min_end, span.end());
     });
@@ -653,7 +643,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     return true;
 }
     
-void alloc_rom(std::ostream* log, span_allocator_t allocator, unsigned num_banks)
+void alloc_rom(log_t* log, span_allocator_t allocator, unsigned num_banks)
 {
     rom_allocator_t alloc(log, allocator, num_banks);
 }

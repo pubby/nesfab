@@ -1,5 +1,7 @@
 #include "pbqp.hpp"
 
+#include "debug_print.hpp"
+
 void pbqp_t::solve(std::vector<pbqp_node_t*> order)
 {
     if(order.empty())
@@ -98,16 +100,19 @@ void pbqp_t::add_edge(pbqp_node_t& from, pbqp_node_t& to, std::vector<pbqp_cost_
 
         if(from.edges[i]->eq(from, to))
         {
+            assert(prev_matrix.size() == cost_matrix.size());
             for(unsigned j = 0; j < cost_matrix.size(); ++j)
                 prev_matrix[j] += cost_matrix[j];
             return;
         }
         else if(from.edges[i]->eq_flipped(from, to))
         {
+            assert(prev_matrix.size() == cost_matrix.size());
+
             // Transpose the cost matrix while adding:
             for(unsigned x = 0; x < from.num_sels(); ++x)
             for(unsigned y = 0; y < to.num_sels(); ++y)
-                prev_matrix[y + x * to.num_sels()] = cost_matrix[x + y * from.num_sels()];
+                prev_matrix[y + x * to.num_sels()] += cost_matrix[x + y * from.num_sels()];
             return;
         }
     }
@@ -126,6 +131,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
 {
     if(node.degree == 0) // R0
     {
+        dprint(log, "-PBQP R0", &node);
         pbqp_cost_t min_cost = ~0ull;
         for(unsigned i = 0; i < node.num_sels(); ++i)
         {
@@ -140,6 +146,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
     }
     else if(node.degree == 1) // R1
     {
+        dprint(log, "-PBQP R1", &node);
         pbqp_edge_t* edge = node.edges[0];
         bool const node_i = edge->index(node);
         pbqp_node_t& other = *edge->nodes[!node_i];
@@ -172,8 +179,10 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
     }
     else if(node.degree == 2) // R2
     {
+        dprint(log, "-PBQP R2", &node);
         pbqp_edge_t* edge_a = node.edges[0];
         pbqp_edge_t* edge_b = node.edges[1];
+        assert(edge_a != edge_b);
 
         bool const node_a = edge_a->index(node);
         bool const node_b = edge_b->index(node);
@@ -219,6 +228,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
 void pbqp_t::heuristic_reduction(pbqp_node_t& node)
 {
     assert(node.degree > 2);
+    dprint(log, "-PBQP RN", &node);
 
     pbqp_cost_t min_i_cost = ~0ull;
     unsigned best_i = ~0u;

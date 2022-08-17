@@ -608,7 +608,6 @@ public:
     [[gnu::always_inline]]
     void label_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        std::cout << "LABEL = " << pstring.view(source()) <<  '"'<<std::endl;
         validate_mods("label", pstring, mods);
 
         // Create a new label
@@ -639,7 +638,6 @@ public:
     [[gnu::always_inline]]
     void goto_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        std::cout << "GOTO LABEL = " << pstring.view(source()) << '"'<< std::endl;
         validate_mods("goto", pstring, mods);
         stmt_ht const goto_h = fn_def.push_stmt(
             { STMT_GOTO, fn_def.push_mods(std::move(mods)), {}, pstring });

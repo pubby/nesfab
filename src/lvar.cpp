@@ -53,9 +53,9 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, ir_t const& ir)
         if(is_this_lvar(fn, inst.arg))
             arg_index = insert_this_lvar(inst.arg);
 
-        if(inst.ptr_hi && is_this_lvar(fn, inst.ptr_hi))
+        if(inst.alt && is_this_lvar(fn, inst.alt))
         {
-            int const ptr_hi_index = insert_this_lvar(inst.ptr_hi);
+            int const ptr_hi_index = insert_this_lvar(inst.alt);
             assert(arg_index != ptr_hi_index);
 
             mark_ptr(ptr_hi_index, arg_index, true);

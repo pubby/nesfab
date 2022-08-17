@@ -149,8 +149,8 @@ void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) cons
     {
         if(inst.arg)
             fn(inst.arg);
-        if(inst.ptr_hi)
-            fn(inst.ptr_hi);
+        if(inst.alt)
+            fn(inst.alt);
     }
 }
 

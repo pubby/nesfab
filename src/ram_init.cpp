@@ -83,12 +83,8 @@ void gen_group_var_inits()
                 assert(num_atoms > 0);
                 for(unsigned a = 0; a < num_atoms; ++a)
                 {
-                    std::cout << m->span(a) << std::endl;
-
                     if(!m->span(a))
                         continue;
-
-                    //std::cout << m->span(a) << std::endl;
 
                     if(m->zero_init(a))
                         zero_init.push_back({ m, a });

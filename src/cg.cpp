@@ -135,7 +135,7 @@ private:
 };
 }// end anon namespace
 
-void code_gen(ir_t& ir, fn_t& fn)
+void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 {
     ////////////////////////
     // CFG EDGE SPLITTING //
@@ -1131,7 +1131,7 @@ void code_gen(ir_t& ir, fn_t& fn)
     // INSTRUCTION SELECTION //
     ///////////////////////////
 
-    select_instructions(fn, ir);
+    select_instructions(log, fn, ir);
 
 
     {

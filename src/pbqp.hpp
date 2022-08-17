@@ -15,6 +15,8 @@
 #include <vector>
 #include <deque>
 
+#include "debug_print.hpp"
+
 using pbqp_cost_t = std::uint64_t;
 
 struct pbqp_edge_t;
@@ -67,6 +69,9 @@ struct pbqp_edge_t
         if(node_i)
             std::swap(from_sel, to_sel);
 
+        assert(from_sel < nodes[FROM]->num_sels());
+        assert(to_sel < nodes[TO]->num_sels());
+            
         unsigned const index = from_sel + (to_sel * nodes[FROM]->num_sels());
         assert(index < cost_matrix.size());
 
@@ -85,6 +90,8 @@ struct pbqp_edge_t
 class pbqp_t
 {
 public:
+    explicit pbqp_t(log_t* log) : log(log) {}
+
     void add_edge(pbqp_node_t& from, pbqp_node_t& to, std::vector<pbqp_cost_t> cost_matrix);
     void solve(std::vector<pbqp_node_t*> order);
 
@@ -95,6 +102,7 @@ private:
 
     std::deque<pbqp_edge_t> edge_pool;
     std::vector<pbqp_node_t*> bp_stack; // back propagation stack
+    log_t* log;
 };
 
 #endif

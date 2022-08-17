@@ -3,9 +3,10 @@
 
 #include <ostream>
 
+#include "debug_print.hpp"
 #include "ram.hpp"
 
-void alloc_ram(ram_bitset_t const& initial, std::ostream* log);
+void alloc_ram(log_t* log, ram_bitset_t const& initial);
 
 void print_ram(std::ostream& o);
 

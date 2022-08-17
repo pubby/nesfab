@@ -11,6 +11,7 @@
 #include "asm_proc.hpp"
 #include "bitset.hpp"
 #include "ir.hpp"
+#include "debug_print.hpp"
 
 //////////
 // data //
@@ -84,6 +85,6 @@ inline void cg_data_resize()
     ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
 }
 
-void code_gen(ir_t& ir, fn_t& fn);
+void code_gen(log_t* log, ir_t& ir, fn_t& fn);
 
 #endif

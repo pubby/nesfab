@@ -1,7 +1,5 @@
 #include "ram_alloc.hpp"
 
-#include <iostream> // TODO
-
 #include "flat/small_set.hpp"
 
 #include "decl.hpp"
@@ -84,7 +82,7 @@ static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_req
 class ram_allocator_t
 {
 public:
-    ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::ostream* log);
+    ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_ram);
 
 private:
     enum step_t
@@ -159,10 +157,10 @@ private:
     // This is used to implement romv.
     std::array<std::vector<ram_bitset_t>, NUM_ROMV> romv_allocated;
 
-    std::ostream* log = nullptr;
+    log_t* log = nullptr;
 };
 
-ram_allocator_t::ram_allocator_t(ram_bitset_t const& initial_usable_ram, std::ostream* log)
+ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_ram)
 : log(log)
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
@@ -862,10 +860,10 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
 } // end anonymous namespace
 
-void alloc_ram(ram_bitset_t const& initial, std::ostream* log)
+void alloc_ram(log_t* log, ram_bitset_t const& initial)
 {
     dprint(log, "ALLOCATING_RAM");
-    ram_allocator_t a(initial, log);
+    ram_allocator_t a(log, initial);
 }
 
 void print_ram(std::ostream& o)

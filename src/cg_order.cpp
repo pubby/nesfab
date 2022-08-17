@@ -118,11 +118,13 @@ aco_t::aco_t(ir_t& ir) : ir(ir), gen(0xDEADBEEF)
             if(ant.cost < best_ant.cost)
                 best_ant.swap(ant);
 
+            /* TODO: remove
             std::cout << '\n';
             for(cfg_ht h : best_ant.path)
                 std::cout << "REMAINING = " << h.id << '\n';
 
             std::cout << "COSTS: " << ant.cost << ' ' << best_ant.cost << '\n';
+            */
         }
 
         // Evaporate pheramones:
@@ -230,7 +232,8 @@ std::vector<cfg_ht> order_ir(ir_t& ir)
         do 
         {
             unsigned cost = order_cost(order);
-            std::cout << "best cost = " << cost << '\n';
+            // TODO: remove
+            //std::cout << "best cost = " << cost << '\n';
             if(cost < best_cost)
             {
                 best_order = order;

@@ -145,14 +145,10 @@ int main(int argc, char** argv)
                 if(file_i >= source_file_names.size())
                     return;
 
-                std::cout << "PARSING " << file_i << std::endl;
-
                 file_contents_t file(file_i);
                 parse<pass1_t>(file);
-                std::cout << "DONE PARSING " << file_i << std::endl;
             }
         });
-        std::cout << "MERGE" << std::endl;
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);
@@ -193,11 +189,11 @@ int main(int argc, char** argv)
         output_time("compile:  ");
 
         set_compiler_phase(PHASE_ALLOC_RAM);
-        alloc_ram(~static_used_ram, &std::cout);
+        alloc_ram(nullptr, ~static_used_ram);
         // TODO: remove
         //for(fn_t const& fn : impl_deque<fn_t>)
             //fn.proc().write_assembly(std::cout, fn.handle());
-        print_ram(std::cout);
+        //print_ram(std::cout);
         output_time("alloc ram:");
 
         set_compiler_phase(PHASE_INITIAL_VALUES);
@@ -206,8 +202,8 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
-        alloc_rom(&std::cout, rom_allocator, mapper().num_32k_banks);
-        print_rom(std::cout);
+        alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
+        //print_rom(std::cout);
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);

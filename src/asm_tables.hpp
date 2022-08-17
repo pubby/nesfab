@@ -1,135 +1,20 @@
 #define OP(name, mode) .op=name##_##mode, .op_name=name, .addr_mode=MODE_##mode
 
-constexpr op_def_t op_defs_table[NUM_OPS] =
+constexpr unsigned MAYBE_SIZE = 3;
+constexpr unsigned MAYBE_CYCLES = 1;
+
+constexpr unsigned LIKELY_SIZE = 3;
+constexpr unsigned LIKELY_CYCLES = 4;
+
+constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
 {
     { .op = BAD_OP, .flags = ASMF_FAKE },
     { .op = ASM_LABEL, .flags = ASMF_FAKE },
     { .op = ASM_PRUNED, .flags = ASMF_FAKE },
-
-    // These are just for tracking purposes.
-    // Use these in cases where reads / writes are not normally tracked, like JSR.
-    { 
-        .op = ASMF_INPUT_A,
-        .input_regs = REGF_A,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_INPUT_X,
-        .input_regs = REGF_X,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_INPUT_Y,
-        .input_regs = REGF_Y,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_INPUT_C,
-        .input_regs = REGF_C,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_INPUT_Z,
-        .input_regs = REGF_Z,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_INPUT_N,
-        .input_regs = REGF_N,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_INPUT_B,
-        .input_regs = REGF_B,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_INPUT_CPU,
-        .input_regs = REGF_CPU,
-        .flags = ASMF_FAKE
-    },
-
-    { 
-        .op = ASMF_OUTPUT_A,
-        .output_regs = REGF_A,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_OUTPUT_X,
-        .output_regs = REGF_X,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_OUTPUT_Y,
-        .output_regs = REGF_Y,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_OUTPUT_C,
-        .output_regs = REGF_C,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_OUTPUT_Z,
-        .output_regs = REGF_Z,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_OUTPUT_N,
-        .output_regs = REGF_N,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_OUTPUT_B,
-        .output_regs = REGF_B,
-        .flags = ASMF_FAKE
-    },
-    { 
-        .op = ASMF_OUTPUT_CPU,
-        .output_regs = REGF_CPU,
-        .flags = ASMF_FAKE
-    },
-
     { 
         .op = ASM_DELAY,
         .cycles = 255,
         .flags = ASMF_FAKE,
-    },
-    { 
-        .op = MAYBE_STA,
-        .addr_mode = MODE_ABSOLUTE,
-        .size = 3,
-        .cycles = 2, // Arbitrary
-        .input_regs = REGF_A,
-        .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
-    },
-    { 
-        .op = MAYBE_STX,
-        .addr_mode = MODE_ABSOLUTE,
-        .size = 3,
-        .cycles = 2, // Arbitrary
-        .input_regs = REGF_X,
-        .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
-    },
-    { 
-        .op = MAYBE_STY,
-        .addr_mode = MODE_ABSOLUTE,
-        .size = 3,
-        .cycles = 2, // Arbitrary
-        .input_regs = REGF_Y,
-        .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
-    },
-    { 
-        .op = MAYBE_SAX,
-        .addr_mode = MODE_ABSOLUTE,
-        .size = 3,
-        .cycles = 2, // Arbitrary
-        .input_regs = REGF_AX,
-        .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
     },
     { 
         .op = MAYBE_STORE_C,
@@ -146,7 +31,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3 + (2 * 2),
         .cycles = 6 + (2 * 2),
         .input_regs = REGF_Y,
-        .output_regs = 0,
+        .output_regs = REGF_X | REGF_A, // Always clobbers these.
         .flags = ASMF_FAKE | ASMF_CALL,
     },
     {
@@ -155,7 +40,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .size = 3 + (2 * 2),
         .cycles = 3 + (2 * 2),
         .input_regs = REGF_Y,
-        .output_regs = 0,
+        .output_regs = REGF_X | REGF_A, // Always clobbers these.
         .flags = ASMF_FAKE | ASMF_JUMP,
     },
 
@@ -1443,6 +1328,22 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_M,
     },
+    {
+        OP(STA, MAYBE),
+        .size = MAYBE_SIZE,
+        .cycles = MAYBE_CYCLES,
+        .input_regs = REGF_A,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    {
+        OP(STA, LIKELY),
+        .size = LIKELY_SIZE,
+        .cycles = LIKELY_CYCLES,
+        .input_regs = REGF_A,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
 
     // STX
     {
@@ -1469,6 +1370,22 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .input_regs = REGF_X,
         .output_regs = REGF_M,
     },
+    {
+        OP(STX, MAYBE),
+        .size = MAYBE_SIZE,
+        .cycles = MAYBE_CYCLES,
+        .input_regs = REGF_X,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    {
+        OP(STX, LIKELY),
+        .size = LIKELY_SIZE,
+        .cycles = LIKELY_CYCLES,
+        .input_regs = REGF_X,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
 
     // STY
     {
@@ -1494,6 +1411,22 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y,
         .output_regs = REGF_M,
+    },
+    {
+        OP(STY, MAYBE),
+        .size = MAYBE_SIZE,
+        .cycles = MAYBE_CYCLES,
+        .input_regs = REGF_Y,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    {
+        OP(STY, LIKELY),
+        .size = LIKELY_SIZE,
+        .cycles = LIKELY_CYCLES,
+        .input_regs = REGF_Y,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
     },
 
     // TAX
@@ -1683,6 +1616,23 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_M,
     },
+    {
+        OP(SAX, MAYBE),
+        .size = MAYBE_SIZE,
+        .cycles = MAYBE_CYCLES,
+        .input_regs = REGF_A | REGF_X,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    {
+        OP(SAX, LIKELY),
+        .size = LIKELY_SIZE,
+        .cycles = LIKELY_CYCLES,
+        .input_regs = REGF_A | REGF_X,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+
     // SKB
     { 
         OP(SKB, IMPLIED), // A 1-byte jmp
@@ -1691,6 +1641,7 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .cycles = 2,
         .flags = ASMF_JUMP,
     },
+
     // IGN
     { 
         OP(IGN, IMPLIED), // A 2-byte jmp
@@ -1714,5 +1665,13 @@ constexpr op_def_t op_defs_table[NUM_OPS] =
         .input_regs = REGF_M,
     },
 };
+
+static_assert([]
+{
+    for(unsigned i = 0; i < NUM_NORMAL_OPS; ++i)
+        if(op_defs_table[i].op != op_t(i))
+            return false;
+    return true;
+}());
 
 #undef OP

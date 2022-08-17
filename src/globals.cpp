@@ -19,6 +19,7 @@
 #include "eval.hpp"
 #include "rom.hpp"
 #include "ir_util.hpp"
+#include "debug_print.hpp"
 
 global_t& global_t::lookup(char const* source, pstring_t name)
 {
@@ -299,7 +300,7 @@ void global_t::precheck_all()
             global_t* global = await_ready_global();
             if(!global)
                 return;
-            global->precheck();
+            global->precheck(nullptr);
         }
     });
 
@@ -499,15 +500,11 @@ void global_t::build_order(bool precheck)
     }
 }
 
-void global_t::precheck()
+void global_t::precheck(log_t* log)
 {
     assert(compiler_phase() == PHASE_PRECHECK);
 
-//#ifdef DEBUG_PRINT
-    std::cout << "PRECHECKING " << name << " ideps = " << ideps().size() << std::endl;
-    for(global_t const* idep : ideps())
-        std::cout << " IDEP " << idep->name << std::endl;
-//#endif
+    dprint(log, "PRECHECKING", name);
 
 #ifndef NDEBUG
     for(global_t const* idep : ideps())
@@ -541,15 +538,11 @@ void global_t::precheck()
     completed();
 }
 
-void global_t::compile()
+void global_t::compile(log_t* log)
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-//#ifdef DEBUG_PRINT
-    std::cout << "COMPILING " << name << " ideps = " << ideps().size() << std::endl;
-    for(global_t const* idep : ideps())
-        std::cout << " IDEP " << idep->name << std::endl;
-//#endif
+    dprint(log, "COMPILING", name);
 
 #ifndef NDEBUG
     for(global_t const* idep : ideps())
@@ -635,7 +628,7 @@ void global_t::compile_all()
             global_t* global = await_ready_global();
             if(!global)
                 return;
-            global->compile();
+            global->compile(nullptr);
         }
     });
 }
@@ -929,6 +922,7 @@ void fn_t::precheck()
 
 void fn_t::compile()
 {
+    log_t* log = nullptr;
     assert(compiler_phase() == PHASE_COMPILE);
 
     if(fclass == FN_CT)
@@ -976,15 +970,13 @@ void fn_t::compile()
         do
         {
             changed = false;
-            changed |= o_phis(ir);
-            changed |= o_merge_basic_blocks(ir);
-            changed |= o_remove_unused_arguments(ir, *this, post_byteified);
-            save_graph(ir, fmt("%_pre_id_o_%", post_byteified, iter).c_str());
-            changed |= o_identities(ir, &std::cout);
-            save_graph(ir, fmt("%_post_id_o_%", post_byteified, iter).c_str());
-            changed |= o_abstract_interpret(ir, nullptr);
-            changed |= o_remove_unused_ssa(ir);
-            changed |= o_global_value_numbering(ir, nullptr);
+            changed |= o_phis(log, ir);
+            changed |= o_merge_basic_blocks(log, ir);
+            changed |= o_remove_unused_arguments(log, ir, *this, post_byteified);
+            changed |= o_identities(log, ir);
+            changed |= o_abstract_interpret(log, ir);
+            changed |= o_remove_unused_ssa(log, ir);
+            changed |= o_global_value_numbering(log, ir);
 
             if(post_byteified)
             {
@@ -1006,7 +998,6 @@ void fn_t::compile()
     save_graph(ir, "2_o1");
 
     // Set the global's 'read' and 'write' bitsets:
-    std::cout << "CALC IR BS " << global.name << std::endl;
     calc_ir_bitsets(ir);
     assert(ir_reads());
 
@@ -1016,7 +1007,7 @@ void fn_t::compile()
     optimize_suite(true);
     save_graph(ir, "4_o2");
 
-    code_gen(ir, *this);
+    code_gen(log, ir, *this);
     save_graph(ir, "5_cg");
 }
 

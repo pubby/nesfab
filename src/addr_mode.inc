@@ -13,3 +13,5 @@ ADDR_MODE(RELATIVE)
 
 // "fake" addressing modes:
 ADDR_MODE(LONG)
+ADDR_MODE(MAYBE)
+ADDR_MODE(LIKELY)

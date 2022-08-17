@@ -27,6 +27,7 @@
 #include "rom_decl.hpp"
 #include "locator.hpp"
 #include "mods.hpp"
+#include "debug_print.hpp"
 
 struct rom_array_t;
 struct precheck_tracked_t;
@@ -173,8 +174,8 @@ private:
                     ideps_set_t&& ideps, ideps_set_t&& weak_ideps,
                     std::function<unsigned(global_t&)> create_impl);
 
-    void precheck();
-    void compile();
+    void precheck(log_t* log);
+    void compile(log_t* log);
 
     // Call on completion of compile or precheck.
     // Updates the ready list.

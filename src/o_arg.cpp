@@ -3,7 +3,7 @@
 #include "globals.hpp"
 #include "ir.hpp"
 
-bool o_remove_unused_arguments(ir_t& ir, fn_t const& fn, bool byteified)
+bool o_remove_unused_arguments(log_t* log, ir_t& ir, fn_t const& fn, bool byteified)
 {
     bool changed = false;
 
@@ -31,7 +31,8 @@ bool o_remove_unused_arguments(ir_t& ir, fn_t const& fn, bool byteified)
                && (!called.lvars().seen_arg(loc.arg())
                    || (byteified && called.lvars().index(loc) < 0)))
             {
-                std::cout << "pruning " << loc << std::endl;
+                dprint(log, "REMOVE_UNUSED_ARGUMENTS_PRUNE", loc);
+
                 // Prune this arg:
                 ssa_it->link_remove_input(i+1);
                 ssa_it->link_remove_input(i);

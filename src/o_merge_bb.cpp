@@ -2,7 +2,7 @@
 
 #include "ir.hpp"
 
-bool o_merge_basic_blocks(ir_t& ir)
+bool o_merge_basic_blocks(log_t* log, ir_t& ir)
 {
     bool did_work = false;
 
@@ -25,6 +25,8 @@ bool o_merge_basic_blocks(ir_t& ir)
         }
 
         // Perform the merge.
+
+        dprint(log, "MERGE_BB", cfg_it, "<-", output);
 
         cfg_it->steal_ssa_nodes(output);
         assert(output->ssa_size() == 0);

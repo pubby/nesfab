@@ -2,10 +2,6 @@
 #include "o.hpp"
 
 #include <array>
-#include <iostream> // TODO: remove
-#include <fstream> // TODO: remove
-#include "graphviz.hpp" // TODO: remove
-#include "format.hpp" // TODO: remove
 
 #include <boost/container/small_vector.hpp>
 
@@ -14,7 +10,6 @@
 
 #include "alloca.hpp"
 #include "bitset.hpp"
-#include "debug_print.hpp"
 #include "fixed.hpp"
 #include "ir.hpp"
 #include "ir_util.hpp"
@@ -23,6 +18,7 @@
 #include "worklist.hpp"
 #include "type_mask.hpp"
 #include "assert.hpp"
+#include "constraints.hpp"
 
 namespace bc = ::boost::container;
 
@@ -180,7 +176,7 @@ constraints_def_t get_constraints(ssa_value_t value)
 struct ai_t
 {
 public:
-    ai_t(ir_t& ir_, std::ostream* log);
+    ai_t(log_t* log, ir_t& ir_);
 
 private:
     // Threshold points where widening occurs.
@@ -218,13 +214,13 @@ private:
     
     std::vector<cfg_ht> threaded_jumps;
 
-    std::ostream* log = nullptr;
+    log_t* log = nullptr;
 
 public:
     int updated = false;
 };
 
-ai_t::ai_t(ir_t& ir_, std::ostream* log) 
+ai_t::ai_t(log_t* log, ir_t& ir_) 
 : ir(ir_), log(log)
 {
     static int count = 0;
@@ -613,12 +609,6 @@ void ai_t::insert_traces()
 
     ir.assert_valid();
 
-    unsigned counter = 0;
-    std::ofstream ossa(fmt("graphs/ssa__%.gv", counter++));
-    if(ossa.is_open())
-        graphviz_ssa(ossa, ir);
-
-
     // For all the nodes that spawned a trace,
     // modify the inputs of their outputs to use the trace.
     for(ssa_ht h : needs_rebuild)
@@ -842,18 +832,6 @@ void ai_t::visit(ssa_ht ssa_node)
     }
     else
     {
-        std::cout << "op " << ssa_node->op() << std::endl;
-        for(unsigned i = 0 ; i < ssa_node->input_size(); ++i)
-        {
-            std::cout << "input " << ssa_node->input(i) << std::endl;
-            if(ssa_node->input(i).holds_ref())
-            {
-                std::cout << "iop    " << ssa_node->input(i).handle()->op() << std::endl;
-                std::cout << "type  " << ssa_node->input(i).handle()->type() << std::endl;
-                std::cout << "size  " << ai_data(ssa_node->input(i).handle()).constraints().vec.size() << std::endl;
-            }
-        }
-
         compute_constraints(EXEC_PROPAGATE, ssa_node);
         if(d.visited_count > WIDEN_OP_BOUNDS)
             for(constraints_t& c : d.constraints().vec)
@@ -1397,11 +1375,11 @@ void ai_t::thread_jumps()
 
 } // End anonymous namespace
 
-bool o_abstract_interpret(ir_t& ir, std::ostream* os)
+bool o_abstract_interpret(log_t* log, ir_t& ir)
 {
     cfg_data_pool::scope_guard_t<cfg_ai_d> cg(cfg_pool::array_size());
     ssa_data_pool::scope_guard_t<ssa_ai_d> sg(ssa_pool::array_size());
-    ai_t ai(ir, os);
-    o_remove_trivial_phis(ir); // clean-up phis created by ai_t
+    ai_t ai(log, ir);
+    o_remove_trivial_phis(log, ir); // clean-up phis created by ai_t
     return ai.updated;
 }

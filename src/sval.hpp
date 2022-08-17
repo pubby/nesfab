@@ -1,7 +1,6 @@
 #ifndef SVAL_HPP
 #define SVAL_HPP
 
-#include <iostream> // TODO
 #include <functional>
 #include <memory>
 #include <variant>
@@ -24,10 +23,7 @@ using ct_variant_t = std::variant<ssa_value_t, ct_array_t, expr_vec_t /* (for LT
 inline ct_array_t make_ct_array(unsigned size)
 {
     // TODO: Change this to 'make_shared' when std library updates to c++20.
-    auto array = ct_array_t(new ssa_value_t[size]());
-    for(unsigned i = 0; i < size; ++i)
-        std::cout << "ct array = " << array[i] << std::endl; // TODO: remove
-    return array;
+    return ct_array_t(new ssa_value_t[size]());
 }
 
 inline ssa_value_t const* ct_array(ct_variant_t const& variant)

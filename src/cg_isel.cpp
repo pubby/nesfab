@@ -1,11 +1,9 @@
 #include "cg_isel.hpp"
 
 #include <cstdint>
-#include <iostream> // TODO
 #include <functional>
 #include <type_traits>
 #include <vector>
-#include <unordered_map> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -16,11 +14,11 @@
 #include "format.hpp"
 #include "globals.hpp"
 #include "group.hpp"
-#include "cg_isel_cpu.hpp"
 #include "cg_cset.hpp"
 #include "options.hpp"
 #include "ir_algo.hpp"
 #include "worklist.hpp"
+#include "debug_print.hpp"
 
 namespace bc = ::boost::container;
 
@@ -29,43 +27,47 @@ namespace isel
     // Backbone state of the instruction selection algorithm.
     struct state_t
     {
-        //rh::batman_map<cpu_t, sel_t const*> map;
-        //rh::batman_map<cpu_t, sel_t const*> next_map;
-
-        using map_t = rh::batman_map<cpu_t, sel_t const*>;
-        //using map_t = robin_hood::unordered_map<cpu_t, sel_t const*>;
-        //using map_t = std::unordered_map<cpu_t, sel_t const*, T...>;
-        //using map_t = std::unordered_map<cpu_t, sel_t const*>;
-
-        map_t map;
-        map_t next_map;
-        //map_t<isel::approximate_hash_t, isel::approximate_eq_t> approx_map;
-
+        // Holds all selection memory. 
+        // Is reset at the start of the algorithm.
         array_pool_t<sel_t> sel_pool;
 
-        unsigned best_cost = ~0;
-        unsigned next_best_cost = ~0;
-        //sel_t const* best_sel = nullptr;
+        using map_t = rh::batman_map<cpu_t, sel_t const*>;
 
-        cfg_ht cfg_node;
-        ssa_ht ssa_node;
+        // These track the in-flight selections:
+        map_t map;
+        map_t next_map;
 
+        // The current best selection has this cost:
+        isel_cost_t best_cost = ~0;
+        isel_cost_t next_best_cost = ~0;
+
+        // Tracks what we're currently compiling:
+        fn_ht fn = {};
+        cfg_ht cfg_node = {};
+        ssa_ht ssa_node = {};
+
+        // If the isel needs to generate a new label or var, 
+        // it uses these to get a unique ID:
         unsigned next_label = 0;
         unsigned next_var = 0;
-
-        fn_ht fn;
-
         locator_t minor_label() { return locator_t::minor_label(next_label++); }
         locator_t minor_var() { return locator_t::minor_var(fn, next_var++); }
+
+        // Used for debug logging.
+        log_t* log = nullptr;
     };
 
     // Main global state of the instruction selection algorithm.
     thread_local state_t state;
 
     inline locator_t ssa_to_value(ssa_value_t v)
-    {
-        return locator_t::from_ssa_value(orig_def(v)).with_byteified(false);
-    }
+        { return locator_t::from_ssa_value(orig_def(v)); }
+
+///////////////////////////////////////////////////////////////////////////////
+
+    // The selection functions take global variables as template parameters.
+    // To pass these globals through templates, they must be wrapped inside types.
+    // Those types are below:
 
     template<typename Tag>
     struct param
@@ -81,119 +83,70 @@ namespace isel
             _trans = asm_arg(v).with_byteified(false);
         }
 
-        [[gnu::always_inline]]
-        static ssa_value_t node() { return _node; }
-
-        [[gnu::always_inline]]
-        static locator_t value() { return _value; }
-
-        [[gnu::always_inline]]
-        static locator_t trans() { return _trans; }
-
-        [[gnu::always_inline]]
-        static locator_t trans_hi() { return {}; }
+        [[gnu::always_inline]] static ssa_value_t node() { return _node; }
+        [[gnu::always_inline]] static locator_t value() { return _value; }
+        [[gnu::always_inline]] static locator_t trans() { return _trans; }
+        [[gnu::always_inline]] static locator_t trans_hi() { return {}; }
     };
 
     template<typename Param>
     struct array_index
     {
-        [[gnu::always_inline]]
-        static ssa_value_t node() { return Param::node()->input(2); }
-
-        [[gnu::always_inline]]
-        static locator_t value() { return ssa_to_value(node()); }
-
-        [[gnu::always_inline]]
-        static locator_t trans() { return asm_arg(node()); }
-
-        [[gnu::always_inline]]
-        static locator_t trans_hi() { return {}; }
+        [[gnu::always_inline]] static ssa_value_t node() { return Param::node()->input(2); }
+        [[gnu::always_inline]] static locator_t value() { return ssa_to_value(node()); }
+        [[gnu::always_inline]] static locator_t trans() { return asm_arg(node()); }
+        [[gnu::always_inline]] static locator_t trans_hi() { return {}; }
     };
 
     template<typename Param>
     struct array_mem
     {
-        [[gnu::always_inline]]
-        static ssa_value_t node() { return Param::node()->input(0); }
-
-        [[gnu::always_inline]]
-        static locator_t value() { return ssa_to_value(node()); }
-
-        [[gnu::always_inline]]
-        static locator_t trans() { return asm_arg(node()); }
-
-        [[gnu::always_inline]]
-        static locator_t trans_hi() { return {}; }
+        [[gnu::always_inline]] static ssa_value_t node() { return Param::node()->input(0); }
+        [[gnu::always_inline]] static locator_t value() { return ssa_to_value(node()); }
+        [[gnu::always_inline]] static locator_t trans() { return asm_arg(node()); }
+        [[gnu::always_inline]] static locator_t trans_hi() { return {}; }
     };
 
     struct null_
     {
-        [[gnu::always_inline]]
-        static ssa_value_t node() { return {}; }
-
-        [[gnu::always_inline]]
-        static locator_t value() { return {}; }
-
-        [[gnu::always_inline]]
-        static locator_t trans() { return {}; }
-
-        [[gnu::always_inline]]
-        static locator_t trans_hi() { return {}; }
+        [[gnu::always_inline]] static ssa_value_t node() { return {}; }
+        [[gnu::always_inline]] static locator_t value() { return {}; }
+        [[gnu::always_inline]] static locator_t trans() { return {}; }
+        [[gnu::always_inline]] static locator_t trans_hi() { return {}; }
 
         // Pass-thru
         template<typename Cont>
-        static void run(cpu_t const& cpu, sel_t const* prev)
-        {
-            Cont::run(cpu, prev);
-        }
+        static void run(cpu_t const& cpu, sel_t const* prev) { Cont::run(cpu, prev); }
     };
 
     template<std::uint8_t I>
     struct const_
     {
-        [[gnu::always_inline]]
-        static ssa_value_t node() { return {}; }
-
-        [[gnu::always_inline]]
-        static locator_t value() { return locator_t::const_byte(I); }
-
-        [[gnu::always_inline]]
-        static locator_t trans() { return locator_t::const_byte(I); }
-
-        [[gnu::always_inline]]
-        static locator_t trans_hi() { return {}; }
+        [[gnu::always_inline]] static ssa_value_t node() { return {}; }
+        [[gnu::always_inline]] static locator_t value() { return locator_t::const_byte(I); }
+        [[gnu::always_inline]] static locator_t trans() { return locator_t::const_byte(I); }
+        [[gnu::always_inline]] static locator_t trans_hi() { return {}; }
     };
 
     template<typename Param, typename PtrHi>
     struct set_ptr_hi
     {
-        [[gnu::always_inline]]
-        static ssa_value_t node() { return Param::node(); }
-
-        [[gnu::always_inline]]
-        static locator_t value() { return Param::value(); }
-
-        [[gnu::always_inline]]
-        static locator_t trans() { return Param::trans(); }
-
-        [[gnu::always_inline]]
-        static locator_t trans_hi() { return PtrHi::trans(); }
+        [[gnu::always_inline]] static ssa_value_t node() { return Param::node(); }
+        [[gnu::always_inline]] static locator_t value() { return Param::value(); }
+        [[gnu::always_inline]] static locator_t trans() { return Param::trans(); }
+        [[gnu::always_inline]] static locator_t trans_hi() { return PtrHi::trans(); }
     };
 
-    // TODO: remove this?
-    [[gnu::always_inline]]
-    unsigned get_cost(sel_t const* sel)
-    {
-        assert(sel);
-        return sel->cost;
-    }
+///////////////////////////////////////////////////////////////////////////////
 
-    constexpr unsigned op_penalty(op_t op)
-    {
-        unsigned penalty = 0;
+    constexpr isel_cost_t cost_fn(op_t op) 
+    { 
+        isel_cost_t penalty = 0;
 
-        // Penalize X / Y, preferring A.
-        if((op_output_regs(op) | op_input_regs(op)) & (REGF_X | REGF_Y))
+        // Very slightly penalize the use of X / Y:
+        if(op_input_regs(op) & REGF_X)
+            penalty += 1;
+        if(op_input_regs(op) & REGF_Y)
             penalty += 2;
 
         switch(op_name(op))
@@ -210,32 +163,13 @@ namespace isel
             penalty += 1;
         }
 
-        return penalty;
+        return (op_cycles(op) * 256ull) + op_size(op) + penalty;
     }
 
-    constexpr isel_cost_t cost_fn(op_t op) 
-    { 
-        return (op_cycles(op) * 256ull) + op_size(op) + op_penalty(op);
-    }
-
-    template<op_t Op>
-    sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg = {}, locator_t ptr_hi = {}, unsigned extra_cost = 0)
-    {
-        unsigned total_cost = cost_fn(Op);
-        if(opt.flags & OPT_CONDITIONAL)
-            total_cost = (total_cost * 3) / 4; // Conditional ops are cheaper.
-        total_cost += get_cost(prev) + extra_cost;
-
-        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, ptr_hi /*, total_cost */ });
-    }
-
-    template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
-    sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg, Args... args)
-    {
-        return alloc_sel<NextOp, Ops...>(opt, alloc_sel<Op>(opt, prev, arg), args...);
-    }
+///////////////////////////////////////////////////////////////////////////////
 
     // Represents a list of functions.
+    // This is used to write code in continuation-passing style (CPS).
     struct cons_t
     {
         std::type_identity_t<void(cpu_t const&, sel_t const*, cons_t const*)>* fn;
@@ -245,6 +179,7 @@ namespace isel
         void call(cpu_t const& cpu, sel_t const* sel) const { fn(cpu, sel, next); }
     };
 
+    // The function pointer type of all our selection steps:
     using cont_t = std::type_identity_t<void(cpu_t const&, sel_t const*, cons_t const*)>*;
 
     template<cont_t Head, cont_t... Conts>
@@ -271,7 +206,7 @@ namespace isel
         cons_t cons;
     };
 
-    // Combines multiple functions into a single one.
+    // Combines multiple CPS functions into a single one.
     template<cont_t... Conts> [[gnu::noinline]]
     void chain(cpu_t const& cpu, sel_t const* sel, cons_t const* cont)
     {
@@ -279,11 +214,112 @@ namespace isel
         c.cons.call(cpu, sel);
     }
 
-    template<typename Label> [[gnu::noinline]]
-    void label(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+///////////////////////////////////////////////////////////////////////////////
+
+    // These determine how extensive the search is.
+    constexpr unsigned MAX_MAP_SIZE = 64;
+    constexpr unsigned cost_cutoff(unsigned size)
     {
-        cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
-    };
+        constexpr unsigned BASE = cost_fn(LDA_ABSOLUTE) * 3;
+        return BASE >> (size >> 4);
+    }
+
+    // Finishes the selection step.
+    // This adds it to the map and potentially updates the current best.
+    template<bool FinishNode>
+    void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
+    {
+        state_t::map_t::value_type insertion = { cpu, sel };
+
+        isel_cost_t const sel_cost = sel->cost;
+
+        if(sel_cost > state.next_best_cost + cost_cutoff(state.next_map.size()))
+            return;
+
+        // If this completes a node's operations, we'll release 'req_store'.
+        if(FinishNode)
+            insertion.first.req_store &= ~cg_data(state.ssa_node).isel.last_use;
+
+        auto result = state.next_map.insert(std::move(insertion));
+
+        if(!result.second && sel_cost < result.first->second->cost)
+            result.first->second = sel;
+
+        if(sel_cost < state.next_best_cost)
+            state.next_best_cost = sel_cost;
+    }
+
+
+    // Runs the function and adds the results to the state map.
+    template<bool FinishNode, typename Fn>
+    void select_step(Fn fn)
+    {
+        dprint(state.log, "-SELECT_STEP", state.ssa_node);
+
+        state.next_map.clear();
+        state.next_best_cost = ~0 - cost_cutoff(0);
+
+        cons_t const cont = { finish<FinishNode> };
+
+        isel_cost_t const cutoff = cost_cutoff(state.map.size());
+
+        // Run every selection step:
+        for(auto const& pair : state.map)
+            if(pair.second->cost <= state.best_cost + cutoff)
+                fn(pair.first, pair.second, &cont);
+
+        if(state.next_map.empty())
+            throw isel_no_progress_error_t{};
+
+        dprint(state.log, "--SELECT_STEP_POOL_SIZE", state.sel_pool.size());
+        dprint(state.log, "--SELECT_STEP_MAP_SIZE", state.next_map.size());
+
+        if(state.next_map.size() > MAX_MAP_SIZE)
+        {
+            // If we have too many selections, only keep the lowest cost ones.
+
+            dprint(state.log, "--SELECT_STEP_REDUCING_SIZE");
+
+            auto const rank = [&](auto const& a) -> int
+            {
+                return (256 + a.second->cost
+                        + isel_cost_t(builtin::popcount(a.first.req_store))
+                        - isel_cost_t(builtin::popcount(a.first.known_mask)));
+            };
+
+            std::sort(state.next_map.begin(), state.next_map.end(), [&](auto const& a, auto const& b)
+                { return rank(a) < rank(b); });
+
+            assert(state.next_map.begin()->second->cost == state.next_best_cost);
+
+            state.map.clear();
+            for(unsigned i = 0; i < MAX_MAP_SIZE; ++i)
+                state.map.insert(state.next_map.begin()[i]);
+        }
+        else
+            state.map.swap(state.next_map);
+
+        state.best_cost = state.next_best_cost;
+    }
+
+    template<op_t Op>
+    sel_t& alloc_sel(options_t opt, sel_t const* prev, 
+                     locator_t arg = {}, locator_t alt = {}, isel_cost_t extra_cost = 0)
+    {
+        assert(Op != BAD_OP);
+        isel_cost_t total_cost = cost_fn(Op);
+        if(opt.flags & OPT_CONDITIONAL)
+            total_cost = (total_cost * 3) / 4; // Conditional ops are arbitrarily cheaper.
+        total_cost += prev->cost + extra_cost;
+
+        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, alt , total_cost  });
+    }
+
+    template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
+    sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg, Args... args)
+    {
+        return alloc_sel<NextOp, Ops...>(opt, alloc_sel<Op>(opt, prev, arg), args...);
+    }
 
     // Marks the node as stored without any cost.
     // This is used when a node has been aliased and doesn't need a MAYBE_STORE at all.
@@ -299,147 +335,61 @@ namespace isel
         cont->call(cpu_copy, sel);
     }
 
-    // These determine how extensive the search is.
-    constexpr unsigned MAX_MAP_SIZE = 128;
-    //constexpr unsigned SHRINK_MAP_SIZE = MAX_MAP_SIZE / 2;
-    constexpr unsigned cost_cutoff(unsigned size)
+    template<op_t Op>
+    isel_cost_t handle_req_store_penalty(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
     {
-        constexpr unsigned BASE = cost_fn(LDA_ABSOLUTE) * 3;
-        return BASE >> (size >> 4);
-    }
+        if(!arg.holds_ref())
+            return 0;
 
-    // Finishes the selection.
-    template<bool FinishNode>
-    void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
-    {
-        state_t::map_t::value_type insertion = { cpu, sel };
+        ssa_ht const arg_h = arg.handle();
+        auto& d = cg_data(arg_h);
 
-        unsigned const sel_cost = get_cost(sel);
+        // Nodes that belong to this CFG node are tracked more
+        // precisely using the 'req_store' part of 'cpu_t'.
+        if(arg_h->cfg_node() != state.cfg_node)
+            return 0; 
 
-        if(sel_cost > state.next_best_cost + cost_cutoff(state.next_map.size()))
-            return;
+        // Determine if this node has been stored yet.
+        // If it has, there won't be a penalty.
+        isel_cost_t const new_stores = builtin::popcount(~cpu.req_store & d.isel.store_mask);
 
-        // If this completes a node's operations, we'll release 'req_store'.
-        if(FinishNode) // TODO: remove cast
-            (std::uint64_t&)insertion.first.req_store &= ~cg_data(state.ssa_node).isel.last_use;
+        // Mark the node as stored.
+        cpu.req_store |= d.isel.store_mask;
+        assert(!(~cpu.req_store & d.isel.store_mask));
 
-        auto result = state.next_map.insert(std::move(insertion));
-
-        if(!result.second && sel_cost < get_cost(result.first->second))
-            result.first->second = sel;
-
-        if(sel_cost < state.next_best_cost)
+        // If this is a store, mark it immediately without cost.
+        if(!xy_addr_mode(op_addr_mode(Op)) && (op_output_regs(Op) & REGF_M) 
+           && !(op_flags(Op) & ASMF_MAYBE_STORE) && def.holds_ref() && def.handle() == state.ssa_node)
         {
-            state.next_best_cost = sel_cost;
-            //state.best_sel = sel; // TODO
+            assert(def.handle() != arg_h);
+            cpu.req_store |= cg_data(def.handle()).isel.store_mask;
         }
+
+        return cost_fn(STA_ABSOLUTE) * new_stores;
     }
 
-    // Used for debugging
-#ifndef NDEBUG
-    void debug_kill(cpu_t const& cpu, sel_t const* sel, cons_t const*)
+///////////////////////////////////////////////////////////////////////////////
+
+    template<typename Label> [[gnu::noinline]]
+    void label(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        assert(0);
-    }
-#endif
+        cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
+    };
 
-    // Runs the function and adds the results to the state map.
-    template<bool FinishNode, typename Fn>
-    void select_step(Fn fn)
-    {
-        //std::cout << state.sel_pool.size() << std::endl;
-        state.next_map.clear();
-        state.next_best_cost = ~0 - cost_cutoff(0);
-
-        cons_t const cont = { finish<FinishNode> };
-
-        //std::cout << "BEST COST = " << state.best_cost << std::endl;
-
-        unsigned const cutoff = cost_cutoff(state.map.size());
-        unsigned count = 0;
-
-        for(auto const& pair : state.map)
-            if(get_cost(pair.second) <= state.best_cost + cutoff)
-            {
-                fn(pair.first, pair.second, &cont);
-                count += 1;
-            }
-
-        if(state.next_map.empty())
-            throw isel_no_progress_error_t{};
-
-        //std::cout << "FINISH count = " << count << ' ' << state.map.size() << ' ' << state.ssa_node->op() << std::endl;
-
-        if(state.next_map.size() > MAX_MAP_SIZE)
-        {
-            std::cout << "OLD SIZE = " << state.next_map.size() << std::endl;
-
-#if 0
-            state.map.clear();
-
-            auto it = state.next_map.begin();
-            auto const end = state.next_map.end() - 1;
-            for(; it < end; it += 2)
-            {
-                auto const next = std::next(it);
-                if(get_cost(it->second) < get_cost(next->second))
-                    state.map.insert(*it);
-                else
-                    state.map.insert(*next);
-            }
-
-            if(it < state.next_map.end())
-                state.map.insert(*it);
-#else
-
-            auto const rank = [&](auto const& a) -> int
-            {
-                return (int(get_cost(a.second)) 
-                        + int(builtin::popcount(a.first.req_store))
-                        - int(builtin::popcount(unsigned(a.first.known_mask))));
-            };
-
-            std::sort(state.next_map.begin(), state.next_map.end(), [&](auto const& a, auto const& b)
-            {
-                return rank(a) < rank(b);
-            });
-
-            assert(get_cost(state.next_map.begin()->second) == state.next_best_cost);
-
-            state.map.clear();
-            for(unsigned i = 0; i < MAX_MAP_SIZE; ++i)
-                state.map.insert(state.next_map.begin()[i]);
-#endif
-
-
-            /*
-            state.approx_map.clear();
-            for(auto const& pair : state.next_map)
-            {
-                auto result = state.approx_map.insert(pair);
-
-                if(!result.second && get_cost(pair.second) < get_cost(result.first->second))
-                    result.first->second = pair.second;
-            }
-
-            state.next_map.clear();
-            for(auto const& pair : state.approx_map)
-                state.next_map.insert(pair);
-                */
-
-            std::cout << "NEW SIZE = " << state.map.size() << std::endl;
-        }
-        else
-            state.map.swap(state.next_map);
-        state.best_cost = state.next_best_cost;
-    }
-
-    template<typename Opt, regs_t Regs, bool KeepValue, typename Param> [[gnu::noinline]]
+    template<typename Opt, regs_t Regs, bool KeepValue, typename Param, bool ConstsAsNode = false> [[gnu::noinline]]
     void set_defs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs<Regs>(Opt::to_struct, Param::value(), KeepValue))
+        {
+            if(ConstsAsNode && Param::value().lclass() == LOC_CONST_BYTE)
+            {
+                assert((cpu_copy.known_mask & Regs) == Regs);
+                cpu_copy.set_defs<Regs>(Opt::to_struct, locator_t::from_ssa_value(Param::node()), true);
+                assert((cpu_copy.known_mask & Regs) == Regs);
+            }
             cont->call(cpu_copy, prev);
+        }
     };
 
     template<typename Opt, op_t Op, typename Def, typename Arg = null_> [[gnu::noinline]]
@@ -459,83 +409,28 @@ namespace isel
     void clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
-        if(cpu_copy.conditional_regs & REGF_A)
-            cpu_copy.defs[REG_A] = {};
-        if(cpu_copy.conditional_regs & REGF_X)
-            cpu_copy.defs[REG_X] = {};
-        if(cpu_copy.conditional_regs & REGF_Y)
-            cpu_copy.defs[REG_Y] = {};
-        if(cpu_copy.conditional_regs & REGF_C)
-            cpu_copy.defs[REG_C] = {};
-        if(cpu_copy.conditional_regs & REGF_Z)
-            cpu_copy.defs[REG_Z] = {};
-        if(cpu_copy.conditional_regs & REGF_N)
-            cpu_copy.defs[REG_N] = {};
+        for(regs_t r = 0; r < NUM_CPU_REGS; ++r)
+        {
+            if(cpu_copy.conditional_regs & (1 << r))
+            {
+                cpu_copy.defs[r] = {};
+                cpu_copy.known[r] = 0;
+            }
+        }
         cpu_copy.known_mask &= ~cpu_copy.conditional_regs;
         cpu_copy.conditional_regs = 0;
+        assert(cpu_copy.known_array_valid());
         cont->call(cpu_copy, prev);
     };
 
-    // TODO
-    // Generates an op, picking the addressing mode based on its paramters.
+    // Generates an op, picking the addressing mode based on its parameters.
     template<typename Opt, op_name_t OpName, typename Def, typename Arg> [[gnu::noinline]]
     void pick_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont);
 
-    // Modifies 'cpu' and returns a penalty, handling 'req_store'.
-
-    constexpr bool ssa_addr_mode(addr_mode_t mode)
-    {
-        switch(mode)
-        {
-        case MODE_IMPLIED:
-        case MODE_IMMEDIATE:
-        case MODE_RELATIVE:
-        case MODE_LONG:
-            return false;
-        default:
-            return true;
-        }
-    }
-
-    template<op_t Op>
-    unsigned handle_req_store_penalty(cpu_t& cpu, ssa_value_t def, ssa_value_t arg)
-    {
-        if(!arg.holds_ref())
-            return 0;
-
-        ssa_ht const arg_h = arg.handle();
-        auto& d = cg_data(arg_h);
-
-        // Nodes that belong to this CFG node are tracked more
-        // precisely using the 'req_store' part of 'cpu_t'.
-        if(arg_h->cfg_node() != state.cfg_node)
-            return 0; 
-
-        // Determine if this node has been stored yet.
-        // If it has, there won't be a penalty.
-        unsigned const new_stores = builtin::popcount(~cpu.req_store & d.isel.store_mask);
-
-        // Mark the node as stored.
-        cpu.req_store |= d.isel.store_mask;
-        assert(!(~cpu.req_store & d.isel.store_mask));
-
-        // If this is a store, mark it immediately without cost.
-        if(!xy_addr_mode(op_addr_mode(Op)) && (op_output_regs(Op) & REGF_M) 
-           && !(op_flags(Op) & ASMF_MAYBE_STORE) && def.holds_ref() && def.handle() == state.ssa_node)
-        {
-            assert(def.handle() != arg_h);
-            cpu.req_store |= cg_data(def.handle()).isel.store_mask;
-        }
-
-        return cost_fn(STA_ABSOLUTE) * new_stores;
-    }
-
+#ifndef NDEBUG
     template<op_t Op>
     bool valid_arg(locator_t arg)
     {
-#ifdef NDEBUG
-        return true;
-#else
         switch(op_addr_mode(Op))
         {
         case MODE_IMPLIED: 
@@ -554,19 +449,21 @@ namespace isel
         case MODE_INDIRECT:
         case MODE_INDIRECT_X:
         case MODE_INDIRECT_Y:
+        case MODE_MAYBE:
+        case MODE_LIKELY:
             return bool(arg);
         default:
             return true;
         }
-#endif
     }
+#endif
 
     // Spits out the op specified.
     // NOTE: You generally shouldn't use this for any op that uses
     // a memory argument, as that argument can't be a SSA_cg_read_array_direct.
     // Thus, prefer pick_op.
     template<op_t Op> [[gnu::noinline]]
-    void exact_op(options_t opt, locator_t def, locator_t arg, locator_t ptr_hi, ssa_value_t ssa_def, ssa_value_t ssa_arg,
+    void exact_op(options_t opt, locator_t def, locator_t arg, locator_t alt, ssa_value_t ssa_def, ssa_value_t ssa_arg,
                   cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         constexpr auto mode = op_addr_mode(Op);
@@ -586,7 +483,7 @@ namespace isel
                 penalty = handle_req_store_penalty<Op>(cpu_copy, ssa_def, ssa_arg);
             }
 
-            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, ptr_hi, penalty));
+            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, alt, penalty));
         }
     }
 
@@ -609,6 +506,12 @@ namespace isel
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs_for<Op>(opt, def, arg))
             cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, {}, 0));
+    }
+
+    template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
+    void simple_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        simple_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
     }
 
     // Generates an op using the 0..255 table.
@@ -645,8 +548,8 @@ namespace isel
         else if(cpu.def_eq(REG_X, v))
         {
             chain
-            < exact_op<typename Opt::unrestrict<REGF_X>, INX_IMPLIED>
-            , exact_op<typename Opt::unrestrict<REGF_X>, DEX_IMPLIED, Def>
+            < simple_op<typename Opt::unrestrict<REGF_X>, INX_IMPLIED>
+            , simple_op<typename Opt::unrestrict<REGF_X>, DEX_IMPLIED, Def>
             >(cpu, prev, cont);
 
             simple_op<CPX_IMMEDIATE>(
@@ -659,8 +562,8 @@ namespace isel
         else if(cpu.def_eq(REG_Y, v))
         {
             chain
-            < exact_op<typename Opt::template unrestrict<REGF_Y>, INY_IMPLIED>
-            , exact_op<typename Opt::template unrestrict<REGF_Y>, DEY_IMPLIED, Def>
+            < simple_op<typename Opt::template unrestrict<REGF_Y>, INY_IMPLIED>
+            , simple_op<typename Opt::template unrestrict<REGF_Y>, DEY_IMPLIED, Def>
             >(cpu, prev, cont);
 
             simple_op<CPY_IMMEDIATE>(
@@ -793,8 +696,8 @@ namespace isel
             if(cpu.value_eq(REG_Y, v))
             {
                 chain
-                < exact_op<Opt, TYA_IMPLIED>
-                , exact_op<Opt, TAX_IMPLIED, Def>
+                < simple_op<Opt, TYA_IMPLIED>
+                , simple_op<Opt, TAX_IMPLIED, Def>
                 >(cpu, prev, cont);
             }
 
@@ -841,8 +744,8 @@ namespace isel
             if(cpu.value_eq(REG_X, v))
             {
                 chain
-                < exact_op<Opt, TXA_IMPLIED>
-                , exact_op<Opt, TAY_IMPLIED, Def>
+                < simple_op<Opt, TXA_IMPLIED>
+                , simple_op<Opt, TAY_IMPLIED, Def>
                 >(cpu, prev, cont);
             }
 
@@ -873,6 +776,7 @@ namespace isel
         {
             if(cpu.reg_eq(REG_C, locator_t::const_byte(0)))
             {
+                // definitely need to add labels / clear conditional
                 chain
                 < exact_op<Opt, BEQ_IMPLIED, none_, const_<1>>
                 , exact_op<typename Opt::add_flag<OPT_CONDITIONAL>, SEC_IMPLIED>
@@ -902,12 +806,12 @@ namespace isel
         {
             chain
             < load_A<Opt, Def>
-            , exact_op<typename Opt::valid_for<REGF_C>, LSR_IMPLIED, Def>
+            , simple_op<typename Opt::valid_for<REGF_C>, LSR_IMPLIED, Def>
             >(cpu, prev, cont);
 
             chain
             < load_A<Opt, Def>
-            , exact_op<typename Opt::valid_for<REGF_C>, ALR_IMMEDIATE, Def, const_<1>>
+            , simple_op<typename Opt::valid_for<REGF_C>, ALR_IMMEDIATE, Def, const_<1>>
             >(cpu, prev, cont);
         }
     }
@@ -1011,15 +915,15 @@ namespace isel
 
         bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array_direct;
 
-        if(implied && !Arg::trans())
+        if(implied != BAD_OP && !Arg::trans())
             simple_op<implied>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
-        else if(relative)
+        else if(relative != BAD_OP )
             simple_op<relative>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
-        else if(immediate && Arg::trans().is_immediate())
+        else if(immediate != BAD_OP && Arg::trans().is_immediate())
             simple_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
-        else if((absolute_X || absolute_Y) && read_direct)
+        else if((absolute_X != BAD_OP || absolute_Y) && read_direct)
             pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y, absolute>::call(cpu, prev, cont);
-        else if(absolute && !Arg::trans().is_immediate() && !read_direct)
+        else if(absolute != BAD_OP && !Arg::trans().is_immediate() && !read_direct)
             exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node(), cpu, prev, cont);
     }
 
@@ -1027,11 +931,7 @@ namespace isel
     void maybe_carry_label_clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         carry_label_clear_conditional<Opt, Label, Sec>(cpu, prev, cont);
-
-        chain
-        < label<Label>
-        , clear_conditional
-        >(cpu, prev, cont);
+        chain<label<Label>, clear_conditional>(cpu, prev, cont);
     }
 
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
@@ -1040,83 +940,61 @@ namespace isel
         using C = typename Opt::add_flags<OPT_CONDITIONAL>;
         using NC = typename Opt::remove_flags<OPT_CONDITIONAL>;
 
-        if(Sec)
-        {
-            chain
-            < load_C<C, const_<1>>
-            , label<Label>
-            , clear_conditional
-            , set_defs_for<NC, SEC_IMPLIED, null_>
-            >(cpu, prev, cont);
-        }
-        else
-        {
-            chain
-            < load_C<C, const_<0>>
-            , label<Label>
-            , clear_conditional
-            , set_defs_for<NC, CLC_IMPLIED, null_>
-            >(cpu, prev, cont);
-        }
-
-        /*
         chain
-        < label<Label>
+        < load_C<C, const_<Sec>>
+        , label<Label>
         , clear_conditional
+        , set_defs_for<NC, Sec ? SEC_IMPLIED : CLC_IMPLIED, null_>
         >(cpu, prev, cont);
-        */
     };
 
 
     // Adds a store operation.
     // 'Maybe' means the store may not be required in the final code;
     // such instructions can be pruned later.
-    template<typename Opt, op_name_t StoreOp, typename Param, bool Maybe = true> [[gnu::noinline]]
+    template<typename Opt, op_name_t StoreOp, typename Def, typename Param, bool Maybe = true> [[gnu::noinline]]
     void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         static_assert(!(Opt::flags & OPT_CONDITIONAL), "Conditional stores likely break cg_liveness"); 
+
+        cpu_t cpu_copy = cpu;
+        if(!cpu_copy.set_defs<op_output_regs(get_op(StoreOp, MODE_ABSOLUTE)) & REGF_CPU>(Opt::to_struct, Def::value(), true))
+            return;
+
         // Store the node, locally:
-        if(Maybe/* && Param::trans().lclass() == LOC_SSA*/)
+        if(Maybe)
         {
-            int penalty = 0;
             ssa_value_t const n = Param::node();
-            if(n.holds_ref() && n->cfg_node() == state.cfg_node)
+            if(n.holds_ref() && n->cfg_node() == state.cfg_node && cg_data(n.handle()).isel.likely_store)
             {
-                static_assert(cost_fn(LDA_ABSOLUTE) >= cost_fn(MAYBE_STA));
-
-                if(cg_data(n.handle()).isel.likely_store)
-                {
-                    penalty = cost_fn(LDA_ABSOLUTE) - cost_fn(MAYBE_STA);
-                }
+                constexpr auto LikelyOp = get_op(StoreOp, MODE_LIKELY);
+                static_assert(LikelyOp);
+                cont->call(cpu_copy, &alloc_sel<LikelyOp>(Opt::to_struct, prev, Param::trans(), Def::value()));
             }
-
-            switch(StoreOp)
+            else
             {
-            case STA: cont->call(cpu, &alloc_sel<MAYBE_STA>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
-            case STX: cont->call(cpu, &alloc_sel<MAYBE_STX>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
-            case STY: cont->call(cpu, &alloc_sel<MAYBE_STY>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
-            case SAX: cont->call(cpu, &alloc_sel<MAYBE_SAX>(Opt::to_struct, prev, Param::trans(), {}, penalty)); break;
-            default: assert(false); break;
+                constexpr auto MaybeOp = get_op(StoreOp, MODE_MAYBE);
+                static_assert(MaybeOp);
+                cont->call(cpu_copy, &alloc_sel<MaybeOp>(Opt::to_struct, prev, Param::trans(), Def::value()));
             }
         }
         else
         {
-            cpu_t new_cpu = cpu;
-
             if(Param::trans().lclass() == LOC_SSA)
             {
                 ssa_ht h = Param::trans().ssa_node();
                 auto& d = cg_data(h);
 
                 if(h->cfg_node() == state.cfg_node)
-                    new_cpu.req_store |= d.isel.store_mask;
+                    cpu_copy.req_store |= d.isel.store_mask;
             }
 
-            cont->call(new_cpu, &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(Opt::to_struct, prev, Param::trans()));
+            cont->call(cpu_copy, &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(Opt::to_struct, prev, Param::trans()));
         }
     }
 
-    template<typename Opt, typename Def, typename Load, typename Store, bool Maybe = true> [[gnu::noinline]]
+    template<typename Opt, typename Def, typename Load, typename Store, 
+             bool Maybe = true, bool ConstsAsNode = false> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(Load::trans() == Store::trans())
@@ -1127,20 +1005,20 @@ namespace isel
 
         chain
         < load_A<Opt, Load>
-        , set_defs<Opt, REGF_A, true, Def>
-        , store<Opt, STA, Store, Maybe>
+        , set_defs<Opt, REGF_A, true, Def, ConstsAsNode>
+        , store<Opt, STA, Def, Store, Maybe>
         >(cpu, prev, cont);
 
         chain
         < load_X<Opt, Load>
-        , set_defs<Opt, REGF_X, true, Def>
-        , store<Opt, STX, Store, Maybe>
+        , set_defs<Opt, REGF_X, true, Def, ConstsAsNode>
+        , store<Opt, STX, Def, Store, Maybe>
         >(cpu, prev, cont);
 
         chain
         < load_Y<Opt, Load>
-        , set_defs<Opt, REGF_Y, true, Def>
-        , store<Opt, STY, Store, Maybe>
+        , set_defs<Opt, REGF_Y, true, Def, ConstsAsNode>
+        , store<Opt, STY, Def, Store, Maybe>
         >(cpu, prev, cont);
     };
 
@@ -1248,37 +1126,37 @@ namespace isel
     void sign_extend(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
-        using label = param<i_tag<struct sign_extend_label_tag, 0>>;
-        label::set(state.minor_label());
+        using this_label = param<i_tag<struct sign_extend_label_tag, 0>>;
+        this_label::set(state.minor_label());
 
         chain
         < load_A<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_A>, Value>
-        , exact_op<Opt, BMI_RELATIVE, null_, label>
-        , exact_op<OptC, LDA_IMMEDIATE, null_, const_<0xFF>>
+        , simple_op<Opt, BMI_RELATIVE, null_, this_label>
+        , simple_op<OptC, LDA_IMMEDIATE, null_, const_<0xFF>>
+        , label<this_label>
         , clear_conditional
-        , set_defs<Opt, REGF_A, true, Def>
-        , store<Opt, STA, Def>
+        , store<Opt, STA, Def, Def>
         >(cpu, prev, cont);
 
         chain
         < load_X<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_X>, Value>
-        , exact_op<Opt, BMI_RELATIVE, null_, label>
-        , exact_op<OptC, DEX_IMPLIED, null_, null_>
+        , simple_op<Opt, BMI_RELATIVE, null_, this_label>
+        , simple_op<OptC, DEX_IMPLIED, null_, null_>
+        , label<this_label>
         , clear_conditional
-        , set_defs<Opt, REGF_X, true, Def>
-        , store<Opt, STX, Def>
+        , store<Opt, STX, Def, Def>
         >(cpu, prev, cont);
 
         chain
         < load_Y<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_Y>, Value>
-        , exact_op<Opt, BMI_RELATIVE, null_, label>
-        , exact_op<OptC, DEY_IMPLIED, null_, null_>
+        , simple_op<Opt, BMI_RELATIVE, null_, this_label>
+        , simple_op<OptC, DEY_IMPLIED, null_, null_>
+        , label<this_label>
         , clear_conditional
-        , set_defs<Opt, REGF_Y, true, Def>
-        , store<Opt, STY, Def>
+        , store<Opt, STY, Def, Def>
         >(cpu, prev, cont);
     }
 
@@ -1308,9 +1186,6 @@ namespace isel
 
                     assert(p_lhs::value());
                     assert(p_rhs::value());
-
-                    //assert(p_lhs::trans());
-                    //assert(p_rhs::trans());
                     
                     if(p_lhs::value().eq_const_byte(0))
                     {
@@ -1324,7 +1199,7 @@ namespace isel
                     {
                         chain
                         < load_NZ_for<OptC, p_lhs>
-                        , exact_op<OptC, InverseOp, null_, FailLabel>
+                        , simple_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
                     }
                     else
@@ -1332,25 +1207,25 @@ namespace isel
                         chain
                         < load_A<OptC, p_lhs>
                         , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
-                                                      exact_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
+                                                      simple_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
                         , pick_op<OptC, CMP, null_, p_rhs>
-                        , exact_op<OptC, InverseOp, null_, FailLabel>
+                        , simple_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
                         < load_X<OptC, p_lhs>
                         , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
-                                                      exact_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
+                                                      simple_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
                         , pick_op<OptC, CPX, null_, p_rhs>
-                        , exact_op<OptC, InverseOp, null_, FailLabel>
+                        , simple_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
                         < load_Y<OptC, p_lhs>
                         , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
-                                                      exact_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
+                                                      simple_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
                         , pick_op<OptC, CPY, null_, p_rhs>
-                        , exact_op<OptC, InverseOp, null_, FailLabel>
+                        , simple_op<OptC, InverseOp, null_, FailLabel>
                         >(cpu, prev, cont);
                     }
                 }
@@ -1359,7 +1234,7 @@ namespace isel
 
         select_step<false>(
             chain
-            < exact_op<OptC, Op, null_, SuccessLabel>
+            < simple_op<OptC, Op, null_, SuccessLabel>
             , clear_conditional
             >);
     }
@@ -1392,11 +1267,10 @@ namespace isel
 
             chain
             < label<success>
-            , exact_op<OC, INX_IMPLIED>
+            , simple_op<OC, INX_IMPLIED>
             , clear_conditional
             , label<fail>
-            , set_defs<O, REGF_X, true, p_def>
-            , store<O, STX, p_def>
+            , store<O, STX, p_def, p_def>
             >(cpu, prev, cont);
         });
     }
@@ -1410,8 +1284,6 @@ namespace isel
         type_name_t const lt = type_name_t(h->input(0 ^ Flip).whole());
         type_name_t const rt = type_name_t(h->input(1 ^ Flip).whole());
 
-        //std::cout << "LT " << type_t(lt) << ' ' << type_t(rt) << std::endl;
-
         int const lwhole = whole_bytes(lt);
         int const rwhole = whole_bytes(rt);
         int const minwhole = std::min(lwhole, rwhole);
@@ -1420,7 +1292,7 @@ namespace isel
 
         int const lfrac = frac_bytes(lt);
         int const rfrac = frac_bytes(rt);
-        int const minfrac = std::min(lfrac, rfrac);
+        //int const minfrac = std::min(lfrac, rfrac);
         int const maxfrac = std::max(lfrac, rfrac);
 
         int const lsize = lwhole + lfrac;
@@ -1460,9 +1332,9 @@ namespace isel
                         select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_rhs>
-                            , exact_op<OptC, BMI_RELATIVE, null_, FailLabel>
-                            , exact_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
-                            , if_<OptC, last_comp, exact_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                            , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
+                            , simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
+                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
                             >);
                     }
                     else
@@ -1470,8 +1342,8 @@ namespace isel
                         select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_rhs>
-                            , exact_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
-                            , if_<OptC, last_comp, exact_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                            , simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
+                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
                             >);
                     }
                 }
@@ -1491,9 +1363,9 @@ namespace isel
                         select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_lhs>
-                            , exact_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
-                            , exact_op<OptC, BNE_RELATIVE, null_, FailLabel>
-                            , if_<OptC, last_comp, exact_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
+                            , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                            , simple_op<OptC, BNE_RELATIVE, null_, FailLabel>
+                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
                             >);
                     }
                     else
@@ -1501,8 +1373,8 @@ namespace isel
                         select_step<false>(
                             chain
                             < load_NZ_for<OptC, p_lhs>
-                            , exact_op<OptC, BNE_RELATIVE, null_, FailLabel>
-                            , if_<OptC, last_comp, exact_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
+                            , simple_op<OptC, BNE_RELATIVE, null_, FailLabel>
+                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
                             >);
                     }
                 }
@@ -1528,29 +1400,29 @@ namespace isel
                 {
                     chain
                     < load_A<OptC, p_lhs>
-                    , exact_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
                     , pick_op<OptC, CMP, null_, p_rhs>
-                    , exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
                     < load_X<OptC, p_lhs>
-                    , exact_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
                     , pick_op<OptC, CPX, null_, p_rhs>
-                    , exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
                     < load_Y<OptC, p_lhs>
-                    , exact_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
                     , pick_op<OptC, CPY, null_, p_rhs>
-                    , exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           exact_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
                 });
             }
@@ -1562,29 +1434,29 @@ namespace isel
                 {
                     chain
                     < load_A<OptC, p_rhs>
-                    , exact_op<OptC, BMI_RELATIVE, null_, FailLabel>
+                    , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
                     , pick_op<OptC, CMP, null_, p_lhs>
-                    , exact_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          exact_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
 
                     chain
                     < load_X<OptC, p_rhs>
-                    , exact_op<OptC, BMI_RELATIVE, null_, FailLabel>
+                    , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
                     , pick_op<OptC, CPX, null_, p_lhs>
-                    , exact_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          exact_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
 
                     chain
                     < load_Y<OptC, p_rhs>
-                    , exact_op<OptC, BMI_RELATIVE, null_, FailLabel>
+                    , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
                     , pick_op<OptC, CPY, null_, p_lhs>
-                    , exact_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, exact_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          exact_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
                 });
             }
@@ -1699,20 +1571,20 @@ namespace isel
             {
                 select_step<false>(
                     chain
-                    < exact_op<OptC, BVC_RELATIVE, null_, p_overflow_label>
+                    < simple_op<OptC, BVC_RELATIVE, null_, p_overflow_label>
                     , exact_op<OptC, EOR_ABSOLUTE, null_, const_<0x80>>
                     , label<p_overflow_label>
                     , clear_conditional
-                    , exact_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
-                    , exact_op<OptC, BPL_RELATIVE, null_, FailLabel>
+                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                    , simple_op<OptC, BPL_RELATIVE, null_, FailLabel>
                     >);
             }
             else
             {
                 select_step<false>(
                     chain
-                    < exact_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , exact_op<OptC, BCS_RELATIVE, null_, FailLabel>
+                    < simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
+                    , simple_op<OptC, BCS_RELATIVE, null_, FailLabel>
                     >);
             }
         }
@@ -1750,11 +1622,10 @@ namespace isel
 
             chain
             < label<std::conditional_t<LTE, fail, success>>
-            , exact_op<OC, INX_IMPLIED>
+            , simple_op<OC, INX_IMPLIED>
             , clear_conditional
             , label<std::conditional_t<LTE, success, fail>>
-            , set_defs<O, REGF_X, true, p_def>
-            , store<O, STX, p_def>
+            , store<O, STX, p_def, p_def>
             >(cpu, prev, cont);
         });
     }
@@ -1762,6 +1633,7 @@ namespace isel
     template<typename Opt>
     void write_globals(ssa_ht h)
     {
+        // TODO: Create a sorted order of the globals before writing.
         for_each_written_global(h, [h](ssa_value_t def, locator_t loc)
         {
             if(def.is_handle() && cset_locator(def.handle()) == loc)
@@ -1795,25 +1667,25 @@ namespace isel
             chain
             < load_X<Opt, Index>
             , exact_op<Opt, LDA_ABSOLUTE_X, Def, Array>
-            , store<Opt, STA, Def>
+            , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
 
             chain
             < load_X<Opt, Index>
             , exact_op<Opt, LDY_ABSOLUTE_X, Def, Array>
-            , store<Opt, STY, Def>
+            , store<Opt, STY, Def, Def>
             >(cpu, prev, cont);
 
             chain
             < load_Y<Opt, Index>
             , exact_op<Opt, LDA_ABSOLUTE_Y, Def, Array>
-            , store<Opt, STA, Def>
+            , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
 
             chain
             < load_Y<Opt, Index>
             , exact_op<Opt, LDX_ABSOLUTE_Y, Def, Array>
-            , store<Opt, STX, Def>
+            , store<Opt, STX, Def, Def>
             >(cpu, prev, cont);
         }
     }
@@ -1860,18 +1732,18 @@ namespace isel
             p_label<0>::set(state.minor_label());
 
             chain
-            < exact_op<Opt, AND_IMMEDIATE, null_, const_<0>>
-            , exact_op<typename Opt::valid_for<REGF_A>, ROL_IMPLIED, p_def>
-            , store<Opt, STA, p_def, false>
+            < load_A<Opt, const_<0>>
+            , simple_op<typename Opt::valid_for<REGF_A>, ROL_IMPLIED, p_def>
+            , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
             >(cpu, prev, cont);
 
             chain
             < load_X<Opt, const_<0>>
-            , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-            , exact_op<OptC, INX_IMPLIED>
+            , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+            , simple_op<OptC, INX_IMPLIED>
             , carry_label_clear_conditional<Opt, p_label<0>, false>
             , set_defs<Opt, REGF_X | REGF_C, true, p_def>
-            , store<Opt, STX, p_def, false>
+            , exact_op<Opt, STX_ABSOLUTE, null_, p_def>
             >(cpu, prev, cont);
 
             chain
@@ -1880,7 +1752,7 @@ namespace isel
             , exact_op<OptC, INY_IMPLIED>
             , carry_label_clear_conditional<Opt, p_label<0>, false>
             , set_defs<Opt, REGF_Y | REGF_C, true, p_def>
-            , store<Opt, STY, p_def, false>
+            , exact_op<Opt, STY_ABSOLUTE, null_, p_def>
             >(cpu, prev, cont);
         }
         else
@@ -1917,49 +1789,28 @@ namespace isel
             break;
 
         case SSA_add:
-            //p_lhs::set(h->input(0));
-            //p_rhs::set(h->input(1));
             p_carry::set(h->input(2));
-
-            // TODO: This should be a math identity, right?
-            /* TODO: remove
-            if(p_lhs::value() == p_rhs::value())
-            {
-                chain
-                < load_AC<Opt, p_lhs, p_carry>
-                , exact_op<Opt::valid_for<REGF_A | REGF_NZ>, ROL_IMPLIED, p_def>
-                , store<Opt, STA, p_def>
-                >(cpu, prev, cont);
-
-                if(p_carry::value().eq_const_byte(0))
-                    chain
-                    < load_A<Opt, p_lhs>
-                    , exact_op<Opt::valid_for<REGF_A | REGF_NZ>, ASL_IMPLIED, p_def>
-                    , store<Opt, STA, p_def>
-                    >(cpu, prev, cont);
-            }
-            */
 
             commutative(h, [&]()
             {
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , pick_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC, p_def, p_rhs>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , load_X<Opt::restrict_to<~REGF_AC>, p_rhs>
                 , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_X, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , load_Y<Opt::restrict_to<~REGF_AC>, p_rhs>
                 , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_Y, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 if(p_rhs::value().is_const_num())
@@ -1971,27 +1822,25 @@ namespace isel
                         chain
                         < load_C<Opt, p_carry>
                         , load_X<Opt, p_lhs>
-                        , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                        , exact_op<OptC, INX_IMPLIED>
+                        , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+                        , simple_op<OptC, INX_IMPLIED>
                         , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
-                        , set_defs<Opt, REGF_X, true, p_def>
-                        , store<Opt, STX, p_def>
+                        , store<Opt, STX, p_def, p_def>
                         >(cpu, prev, cont);
 
                         chain
                         < load_C<Opt, p_carry>
                         , load_Y<Opt, p_lhs>
-                        , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                        , exact_op<OptC, INY_IMPLIED>
+                        , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+                        , simple_op<OptC, INY_IMPLIED>
                         , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
-                        , set_defs<Opt, REGF_Y, true, p_def>
-                        , store<Opt, STY, p_def>
+                        , store<Opt, STY, p_def, p_def>
                         >(cpu, prev, cont);
 
                         if(p_def::trans() == p_lhs::trans())
                         {
                             chain
-                            < exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+                            < simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
                             , pick_op<OptC, INC, p_def, p_lhs>
                             , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                             >(cpu, prev, cont);
@@ -2005,29 +1854,27 @@ namespace isel
                         chain
                         < load_C<Opt, p_carry>
                         , load_X<Opt, p_lhs>
-                        , exact_op<Opt, BCS_RELATIVE, null_, p_label<0>>
-                        , exact_op<OptC, DEX_IMPLIED>
+                        , simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>
+                        , simple_op<OptC, DEX_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_defs<Opt, REGF_X, true, p_def>
-                        , store<Opt, STX, p_def>
+                        , store<Opt, STX, p_def, p_def>
                         >(cpu, prev, cont);
 
                         chain
                         < load_C<Opt, p_carry>
                         , load_Y<Opt, p_lhs>
-                        , exact_op<Opt, BCS_RELATIVE, null_, p_label<0>>
-                        , exact_op<OptC, DEY_IMPLIED>
+                        , simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>
+                        , simple_op<OptC, DEY_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
-                        , set_defs<Opt, REGF_Y, true, p_def>
-                        , store<Opt, STY, p_def>
+                        , store<Opt, STY, p_def, p_def>
                         >(cpu, prev, cont);
 
                         if(p_def::trans() == p_lhs::trans())
                         {
                             chain
-                            < exact_op<Opt, BCS_RELATIVE, null_, p_label<0>>
+                            < simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>
                             , pick_op<OptC, DEC, p_def, p_def>
                             , label<p_label<0>>
                             , clear_conditional
@@ -2041,22 +1888,22 @@ namespace isel
 
                         chain
                         < load_AX<Opt, p_lhs, p_lhs>
-                        , exact_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_temp>
-                        , store<Opt, STX, p_def>
+                        , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_temp>
+                        , store<Opt, STX, p_def, p_def>
                         >(cpu, prev, cont);
 
                         if((p_rhs::value().data() + !!p_carry::value().data()) == 1 && !carry_used(*h))
                         {
                             chain
                             < load_X<Opt, p_lhs>
-                            , exact_op<Opt, INX_IMPLIED, p_def>
-                            , store<Opt, STX, p_def>
+                            , simple_op<Opt, INX_IMPLIED, p_def>
+                            , store<Opt, STX, p_def, p_def>
                             >(cpu, prev, cont);
 
                             chain
                             < load_Y<Opt, p_lhs>
-                            , exact_op<Opt, INY_IMPLIED, p_def>
-                            , store<Opt, STY, p_def>
+                            , simple_op<Opt, INY_IMPLIED, p_def>
+                            , store<Opt, STY, p_def, p_def>
                             >(cpu, prev, cont);
 
                             if(p_def::trans() == p_lhs::trans())
@@ -2067,14 +1914,14 @@ namespace isel
                         {
                             chain
                             < load_X<Opt, p_lhs>
-                            , exact_op<Opt, DEX_IMPLIED, p_def>
-                            , store<Opt, STX, p_def>
+                            , simple_op<Opt, DEX_IMPLIED, p_def>
+                            , store<Opt, STX, p_def, p_def>
                             >(cpu, prev, cont);
 
                             chain
                             < load_Y<Opt, p_lhs>
-                            , exact_op<Opt, DEY_IMPLIED, p_def>
-                            , store<Opt, STY, p_def>
+                            , simple_op<Opt, DEY_IMPLIED, p_def>
+                            , store<Opt, STY, p_def, p_def>
                             >(cpu, prev, cont);
 
                             if(p_def::trans() == p_lhs::trans())
@@ -2091,34 +1938,31 @@ namespace isel
                 chain
                 < load_A<Opt, p_lhs>
                 , pick_op<Opt, AND, p_def, p_rhs>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
-                , exact_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, const_<0>>
-                , store<Opt, STX, p_def>
+                , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, const_<0>>
+                , store<Opt, STX, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
                 , iota_op<Opt, AND_ABSOLUTE_X, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AY<Opt, p_lhs, p_rhs>
                 , iota_op<Opt, AND_ABSOLUTE_Y, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
-                , store<Opt, SAX, p_def, false>
+                , store<Opt, SAX, p_def, p_def, false>
                 >(cpu, prev, cont);
-
-                // TODO: consider using subtraction instructions,
-                // checking constraints when it's applicable.
             });
             break;
 
@@ -2128,23 +1972,20 @@ namespace isel
                 chain
                 < load_A<Opt, p_lhs>
                 , pick_op<Opt, ORA, p_def, p_rhs>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
                 , iota_op<Opt, ORA_ABSOLUTE_X, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AY<Opt, p_lhs, p_rhs>
                 , iota_op<Opt, ORA_ABSOLUTE_Y, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
-
-                // TODO: consider using add instructions, 
-                // checking constraints when it's applicable.
             });
             break;
 
@@ -2154,23 +1995,20 @@ namespace isel
                 chain
                 < load_A<Opt, p_lhs>
                 , pick_op<Opt, EOR, p_def, p_rhs>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
                 , iota_op<Opt, EOR_ABSOLUTE_X, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AY<Opt, p_lhs, p_rhs>
                 , iota_op<Opt, EOR_ABSOLUTE_Y, p_def>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
-
-                // TODO: consider using add instructions, 
-                // checking constraints when it's applicable.
             });
             break;
 
@@ -2181,8 +2019,8 @@ namespace isel
             {
                 chain
                 < load_A<Opt, p_lhs>
-                , exact_op<Opt, ASL_IMPLIED, p_def>
-                , store<Opt, STA, p_def>
+                , simple_op<Opt, ASL_IMPLIED, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
@@ -2192,8 +2030,8 @@ namespace isel
             {
                 chain
                 < load_AC<Opt, p_lhs, p_rhs>
-                , exact_op<Opt, ROL_IMPLIED, p_def>
-                , store<Opt, STA, p_def>
+                , simple_op<Opt, ROL_IMPLIED, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
@@ -2213,8 +2051,8 @@ namespace isel
             {
                 chain
                 < load_A<Opt, p_lhs>
-                , exact_op<Opt, LSR_IMPLIED, p_def>
-                , store<Opt, STA, p_def>
+                , simple_op<Opt, LSR_IMPLIED, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
@@ -2224,8 +2062,8 @@ namespace isel
             {
                 chain
                 < load_AC<Opt, p_lhs, p_rhs>
-                , exact_op<Opt, ROR_IMPLIED, p_lhs>
-                , store<Opt, STA, p_def>
+                , simple_op<Opt, ROR_IMPLIED, p_lhs>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
@@ -2250,7 +2088,7 @@ namespace isel
                 p_arg<0>::set(h->input(0));
                 chain
                 < load_A<Opt, p_lhs>
-                , exact_op<Opt, CMP_IMMEDIATE, p_def, const_<0x80>>
+                , simple_op<Opt, CMP_IMMEDIATE, p_def, const_<0x80>>
                 , store_carry<Opt, p_def>
                 >(cpu, prev, cont);
             }
@@ -2265,25 +2103,24 @@ namespace isel
             {
                 chain
                 < exact_op<Opt, LDA_ABSOLUTE, p_def, p_arg<0>>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < exact_op<Opt, LDX_ABSOLUTE, p_def, p_arg<0>>
-                , store<Opt, STX, p_def>
+                , store<Opt, STX, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < exact_op<Opt, LDY_ABSOLUTE, p_def, p_arg<0>>
-                , store<Opt, STY, p_def>
+                , store<Opt, STY, p_def, p_def>
                 >(cpu, prev, cont);
 
                 chain
                 < exact_op<Opt, LAX_ABSOLUTE, p_def, p_arg<0>>
-                , store<Opt, STA, p_def>
+                , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
             }
-
             break;
 
         case SSA_write_hw:
@@ -2323,11 +2160,17 @@ namespace isel
             break;
 
         case SSA_phi_copy:
-            if(!h->input(0).holds_ref() || cset_head(h) != cset_head(h->input(0).handle()))
+            p_arg<0>::set(h->input(0));
+            if(!orig_def(h->input(0)).holds_ref())
             {
-                p_arg<0>::set(h->input(0));
-                load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
+                // Normally, loading a constant into a register only tracks the constant, 
+                // not the node that required it.
+                // For SSA_phi_copy, we want to also tag the node, 
+                // so that the can be passed to other CFG nodes.
+                load_then_store<Opt, p_def, p_arg<0>, p_def, true, true>(cpu, prev, cont);
             }
+            else if(cset_head(h) != cset_head(h->input(0).handle()))
+                load_then_store<Opt, p_def, p_arg<0>, p_def, true, false>(cpu, prev, cont);
             else
                 ignore_req_store<p_def>(cpu, prev, cont);
             break;
@@ -2336,17 +2179,21 @@ namespace isel
             {
                 assert(h->input_size() > 0);
                 locator_t const loc = cset_locator(h->input(0).handle());
+                assert(loc.lclass() == LOC_PHI);
 
                 if(cset_head(h) != cset_head(h->input(0).handle()))
                 {
+                    // 'LOC_PHI' values are used to pass phi inputs from other CFG nodes.
+                    // They are special-cased here:
                     if(cpu.def_eq(REG_A, loc))
-                        store<Opt, STA, p_def>(cpu, prev, cont);
+                        store<Opt, STA, p_def, p_def>(cpu, prev, cont);
                     else if(cpu.def_eq(REG_X, loc))
-                        store<Opt, STX, p_def>(cpu, prev, cont);
+                        store<Opt, STX, p_def, p_def>(cpu, prev, cont);
                     else if(cpu.def_eq(REG_Y, loc))
-                        store<Opt, STY, p_def>(cpu, prev, cont);
+                        store<Opt, STY, p_def, p_def>(cpu, prev, cont);
                     else
                     {
+                        // No LOC_PHI:
                         p_arg<0>::set(h->input(0));
                         load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
                     }
@@ -2354,20 +2201,11 @@ namespace isel
                 else
                 {
                     if(cpu.def_eq(REG_A, loc))
-                        chain
-                        < set_defs<Opt, REGF_A, true, p_def>
-                        , ignore_req_store<p_def>
-                        >(cpu, prev, cont);
+                        chain<set_defs<Opt, REGF_A, true, p_def>, ignore_req_store<p_def>>(cpu, prev, cont);
                     else if(cpu.def_eq(REG_X, loc))
-                        chain
-                        < set_defs<Opt, REGF_X, true, p_def>
-                        , ignore_req_store<p_def>
-                        >(cpu, prev, cont);
+                        chain<set_defs<Opt, REGF_X, true, p_def>, ignore_req_store<p_def>>(cpu, prev, cont);
                     else if(cpu.def_eq(REG_Y, loc))
-                        chain
-                        < set_defs<Opt, REGF_Y, true, p_def>
-                        , ignore_req_store<p_def>
-                        >(cpu, prev, cont);
+                        chain<set_defs<Opt, REGF_Y, true, p_def>, ignore_req_store<p_def>>(cpu, prev, cont);
                     else
                         ignore_req_store<p_def>(cpu, prev, cont);
                 }
@@ -2445,20 +2283,20 @@ namespace isel
                         chain
                         < load_X<Opt, const_<0>>
                         , exact_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
-                        , store<Opt, STA, p_def>
+                        , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
                     }
 
                     chain
                     < load_Y<Opt, p_index>
                     , exact_op<Opt, LDA_INDIRECT_Y, p_def, p_ptr>
-                    , store<Opt, STA, p_def>
+                    , store<Opt, STA, p_def, p_def>
                     >(cpu, prev, cont);
 
                     chain
                     < load_Y<Opt, p_index>
                     , exact_op<Opt, LAX_INDIRECT_Y, p_def, p_ptr>
-                    , store<Opt, STA, p_def>
+                    , store<Opt, STA, p_def, p_def>
                     >(cpu, prev, cont);
                 }
             }
@@ -2514,8 +2352,9 @@ namespace isel
             p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
             chain
             < load_Y<Opt, p_arg<1>>
+            , simple_op<Opt, read_reg_op(REGF_Y)>
             , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-            , set_defs<Opt, REGF_CPU & ~REGF_B, false, null_>
+            , simple_op<Opt, write_reg_op(REGF_CPU & ~REGF_B)> // Clobbers most everything
             >(cpu, prev, cont);
             break;
 
@@ -2531,7 +2370,7 @@ namespace isel
                 exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
                 break;
             default:
-                exact_op<Opt, RTS_IMPLIED>(cpu, prev, cont);
+                simple_op<Opt, RTS_IMPLIED>(cpu, prev, cont);
                 break;
             }
             break;
@@ -2542,21 +2381,27 @@ namespace isel
             exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
             break;
 
-            /* TODO: remove?
         case SSA_if:
-            (load_NZ<>{ h->input(0) }
-            >>= def_op<BNE>{ {}, locator_t::cfg_label(cfg_node->output(0)) }
-            >>= def_op<BEQ>{ {}, locator_t::cfg_label(cfg_node->output(1)) }
-            >>= finish)(cpu, prev);
+            p_arg<0>::set(h->input(0));
+            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
+            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
+
+            chain
+            < load_NZ_for<Opt, p_arg<0>>
+            , simple_op<Opt, BNE_RELATIVE, p_label<0>>
+            , simple_op<Opt, BEQ_RELATIVE, p_label<1>>
+            >(cpu, prev, cont);
+
             break;
-            */
 
         case SSA_wait_nmi:
             p_arg<0>::set(locator_t::runtime_rom(RTROM_wait_nmi));
+
             chain
             < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
-            , set_defs<Opt, REGF_CPU & ~(REGF_X | REGF_Y | REGF_B), false, null_>
+            , simple_op<Opt, write_reg_op(REGF_CPU & ~(REGF_X | REGF_Y | REGF_B))>
             >(cpu, prev, cont);
+
             break;
 
         case SSA_entry:
@@ -2574,7 +2419,7 @@ namespace isel
         p_def::set(h);
 
         using Opt = options<>;
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+        //using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
 
         cfg_ht const cfg_node = h->cfg_node();
 
@@ -2669,8 +2514,9 @@ namespace isel
                         select_step<false>(
                             chain
                             < load_Y<Opt, p_arg<1>>
+                            , simple_op<Opt, read_reg_op(REGF_Y)>
                             , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-                            , set_defs<Opt, REGF_CPU, false, null_>
+                            , simple_op<Opt, write_reg_op(REGF_CPU)> // Clobbers everything
                             >);
                     }
                 });
@@ -2699,13 +2545,12 @@ namespace isel
                 select_step<true>(
                     chain
                     < load_Y<Opt, p_arg<1>>
+                    , simple_op<Opt, read_reg_op(REGF_Y)>
                     , exact_op<Opt, BANKED_Y_JMP, null_, p_arg<0>>
                     , set_defs<Opt, REGF_CPU, false, null_>
                     >);
             }
             break;
-
-            goto simple;
 
         case SSA_init_array:
             // TODO
@@ -2716,81 +2561,15 @@ namespace isel
                 p_arg<0>::set(h->input(0));
                 p_arg<1>::set(e);
                 select_step(load_then_store<Opt, p_arg<0>, p_arg<1>>);
-
-                {
-                    chain
-                    <
-    template<typename Opt, typename Def, typename Load, typename Store> [[gnu::noinline]]
-    void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
-
-                });
                 */
             }
             break;
 
-            /* TODO: remove?
-        case SSA_shl:
-            p_lhs::set(h->input(0));
-            p_rhs::set(h->input(1));
-
-            if(h->input(1).is_num())
-            {
-                unsigned const shift = h->input(1).whole();
-                select_step(load_A<Opt, p_lhs>);
-                for(unsigned i = 0; i < shift; ++i)
-                    select_step(exact_op<Opt, ASL_IMPLIED, p_def>);
-                select_step(
-                    chain
-                    < set_defs<Opt, REGF_A, true, p_def>
-                    , store<Opt, STA, p_def>
-                    >);
-            }
-            else
-            {
-                p_label<0>::set(state.minor_label());
-                p_label<1>::set(state.minor_label());
-
-                select_step([h](cpu_t cpu, sel_t const* prev, cons_t const* cont)
-                {
-                    chain
-                    < load_AX<Opt, p_lhs, p_rhs>
-                    , load_NZ_for<typename Opt::restrict_to<~REGF_AX>, p_rhs>
-                    , exact_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
-                    , label<p_label<0>>
-                    , exact_op<OptC, ASL_IMPLIED>
-                    , exact_op<OptC, DEX_IMPLIED>
-                    , exact_op<OptC, BNE_RELATIVE, null_, p_label<0>>
-                    , label<p_label<1>>
-                    , clear_conditional
-                    , set_defs<Opt, REGF_A, true, p_def>
-                    , store<Opt, STA, p_def>
-                    >(cpu, prev, cont);
-
-                    chain
-                    < load_AY<Opt, p_lhs, p_rhs>
-                    , load_NZ_for<typename Opt::restrict_to<~REGF_AY>, p_rhs>
-                    , exact_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
-                    , label<p_label<0>>
-                    , exact_op<OptC, ASL_IMPLIED>
-                    , exact_op<OptC, DEY_IMPLIED>
-                    , exact_op<OptC, BNE_RELATIVE, null_, p_label<0>>
-                    , label<p_label<1>>
-                    , clear_conditional
-                    , set_defs<Opt, REGF_A, true, p_def>
-                    , store<Opt, STA, p_def>
-                    >(cpu, prev, cont);
-                });
-            }
-            break;
-            */
-
         case SSA_read_ptr:
         case SSA_write_ptr:
             {
+                // Handle bankswitching here, then call to 'isel_node_simple'
                 using namespace ssai::rw_ptr;
-
-                // Handle bankswitching here
-
                 if(h->input(BANK) && mapper().bankswitches())
                 {
                     p_arg<0>::set(h->input(BANK));
@@ -2809,288 +2588,140 @@ namespace isel
         }
     }
 
-} // namespace isel
+///////////////////////////////////////////////////////////////////////////////
 
-static void setup_rolling_window(cfg_ht cfg_node)
-{
-    auto& cd = cg_data(cfg_node);
-
-    for(ssa_ht h : cd.schedule)
-        cg_data(h).isel = {};
-
-    // A bitset is used to track which variables have been stored.
-    // To shrink the bitset size down to 64 bits, a rolling window is used
-    // based around the live ranges occuring within a single CFG node.
-
-    // This code finds that rolling window and allocates each node to a bit:
-    std::uint64_t free = ~0ull; // Set of availible bits to use
-    for(ssa_ht h : cd.schedule)
+    std::ostream& operator<<(std::ostream& o, cross_cpu_t const& cross)
     {
-        if(free)
+        o << "cross_cpu_t\n{\n";
+        for(locator_t loc : cross.defs)
+            o << "    " << loc << std::endl;
+        o << "}" << std::endl;
+        return o;
+    }
+
+    static void setup_rolling_window(cfg_ht cfg_node)
+    {
+        auto& cd = cg_data(cfg_node);
+
+        for(ssa_ht h : cd.schedule)
+            cg_data(h).isel = {};
+
+        // A bitset is used to track which variables have been stored.
+        // To shrink the bitset size down to 64 bits, a rolling window is used
+        // based around the live ranges occuring within a single CFG node.
+
+        // This code finds that rolling window and allocates each node to a bit:
+        std::uint64_t free = ~0ull; // Set of availible bits to use
+        for(ssa_ht h : cd.schedule)
         {
-            // Allocate a single bit.
-            std::uint64_t const allocated = 1ull << builtin::ctz(free);
-            assert((free & allocated) == allocated);
-
-            // Remove the allocated bit from 'free'.
-            free ^= allocated;
-
-            // Track the bit with this node:
-            cg_data(h).isel.store_mask = allocated;
-
-            // Determine which use occurs latest in the CFG node.
-            // If a use
-            ssa_ht last_use = h;
-            for(unsigned j = 0; j < h->output_size(); ++j)
+            if(free)
             {
-                auto const oe = h->output_edge(j);
+                // Allocate a single bit.
+                std::uint64_t const allocated = 1ull << builtin::ctz(free);
+                assert((free & allocated) == allocated);
 
-                if(oe.input_class() != INPUT_VALUE)
-                    continue;
+                // Remove the allocated bit from 'free'.
+                free ^= allocated;
 
-                if(((ssa_flags(oe.handle->op()) & SSAF_WRITE_GLOBALS) 
-                    && oe.index >= write_globals_begin(oe.handle->op()))
-                   || oe.handle->op() == SSA_aliased_store)
+                // Track the bit with this node:
+                cg_data(h).isel.store_mask = allocated;
+
+                // Determine which use occurs latest in the CFG node.
+                // Also guess if the node is a 'likely_store'.
+                ssa_ht last_use = h;
+                for(unsigned j = 0; j < h->output_size(); ++j)
                 {
-                    cg_data(h).isel.likely_store = true;
+                    auto const oe = h->output_edge(j);
+
+                    if(oe.input_class() != INPUT_VALUE)
+                        continue;
+
+                    if(((ssa_flags(oe.handle->op()) & SSAF_WRITE_GLOBALS) 
+                        && oe.index >= write_globals_begin(oe.handle->op()))
+                       || oe.handle->op() == SSA_aliased_store)
+                    {
+                        cg_data(h).isel.likely_store = true;
+                        goto skip;
+                    }
+
+                    // Assume that all stores used across basic block
+                    // boundaries must be stored. 
+                    // (They may not be in the final generated code.)
+                    // This is highly pessimistic, but simplifies the code gen.
+                    if(oe.handle->cfg_node() != h->cfg_node())
+                    {
+                        cg_data(h).isel.likely_store = true;
+                        goto skip;
+                    }
+
+                    if(cg_data(oe.handle).schedule.index > cg_data(last_use).schedule.index)
+                        last_use = oe.handle;
                 }
 
-                // Assume that all stores used across basic block
-                // boundaries must be stored. 
-                // (They may not be in the final generated code.)
-                // This is highly pessimistic, but simplifies the code gen.
-                if(oe.handle->cfg_node() != h->cfg_node())
+                cg_data(last_use).isel.last_use |= allocated; // TODO
+            }
+        skip:
+            // Reclaim bits after the last use has been seen:
+            assert((free & cg_data(h).isel.last_use) == 0);
+            free |= cg_data(h).isel.last_use; // TODO
+        }
+    }
+
+    static cross_cpu_t prepare_cross_cpu_for(cross_cpu_t const& cross, cfg_ht cfg, unsigned input_i)
+    {
+        auto const convert = [&](locator_t l) -> locator_t
+        {
+            assert(l.lclass() != LOC_PHI); // Should have been stripped earlier.
+
+            if(l.lclass() == LOC_SSA)
+            {
+                ssa_ht const h = l.ssa_node();
+
+                // Values can't loop:
+                if(h->cfg_node() == cfg)
+                    return LOC_NONE;
+
+                // Setup incoming phis:
+                locator_t const cset_loc = cset_locator(h);
+                if(cset_loc.lclass() == LOC_PHI)
                 {
-                    cg_data(h).isel.likely_store = true;
-                    goto skip;
+                    for(ssa_ht phi = cfg->phi_begin(); phi; ++phi)
+                    {
+                        assert(phi->op() == SSA_phi);
+                        if(cset_loc.ssa_node() == phi)
+                            return locator_t::phi(phi);
+                    }
                 }
 
-                if(cg_data(oe.handle).schedule.index > cg_data(last_use).schedule.index)
-                    last_use = oe.handle;
+                // If the node has no output used through 'cfg', ignore it.
+                if(for_each_output_matching(h, INPUT_VALUE, [&](ssa_ht output)
+                {
+                    return !dominates(cfg, output->cfg_node());
+                }))
+                {
+                    return LOC_NONE;
+                }
             }
 
-            cg_data(last_use).isel.last_use |= allocated; // TODO
-        }
-    skip:
-        // Reclaim bits after the last use has been seen:
-        assert((free & cg_data(h).isel.last_use) == 0);
-        free |= cg_data(h).isel.last_use; // TODO
+            return l;
+        };
+
+        cross_cpu_t ret = {};
+        for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+            ret.defs[i] = convert(cross.defs[i]);
+        return ret;
     }
+
 }
 
-/* TODO: remove
-
-struct isel_t
-{
-    std::vector<asm_inst_t> code;
-    cpu_t cpu;
-    unsigned cost;
-};
-rh::batman_map<cpu_t, isel_result_t> do_isel(fn_t const& fn, cfg_ht cfg_node, map_t const& initial_states)
+void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
 {
     using namespace isel;
 
-    state.fn = fn.handle();
-    state.cfg_node = cfg_node;
-
-    ///////////////////////
-    // DO THE SELECTIONS //
-    ///////////////////////
-
-do_selections:
-    state.sel_pool.clear();
-    state.best_cost = ~0 - cost_cutoff(0);
-    state.map = std::move(initial_states);
-
-    for(ssa_ht h : cd.schedule)
-    {
-        try
-        {
-            state.ssa_node = h;
-            isel_node(h);
-            //std::cout << "MAP SIZE = " << state.map.size() << std::endl;
-        }
-        catch(isel_no_progress_error_t const&)
-        {
-            // We'll try and fix the error.
-            bool repaired = false;
-
-            // 
-            for_each_node_input(h, [&](ssa_ht input)
-            {
-                if(input->cfg_node() == cfg_node && input->op() == SSA_cg_read_array_direct)
-                {
-                    input->unsafe_set_op(SSA_read_array);
-                    repaired = true;
-                }
-            });
-
-            if(repaired)
-                goto do_selections;
-            throw;
-        }
-        catch(...) { throw; }
-    }
-
-    rh::batman_map<cpu_t, isel_result_t> sels;
-
-    for(auto const& pair : state.map)
-    {
-        sels.emplace(pair.first, [&] -> isel_result_t
-        {
-            isel_result_t result;
-            result.cost = pair.second->cost;
-
-            // Create the 'code' vector:
-            std::size_t size = 1;
-            sel_t const* first_sel = pair.second;
-            assert(first_sel);
-            for(;first_sel->prev; first_sel = first_sel->prev)
-                ++size;
-            result.code.resize(size);
-            for(sel_t const* sel = pair.second; sel; sel = sel->prev)
-                result.code[size--] = sel->inst;
-            assert(size == 0);
-            assert(result.code[0].op == ASM_PRUNED);
-            result.code[0] = { ASM_LABEL, SSA_null, locator_t::cfg_label(cfg_node) };
-
-            // Determine the final 'in_state'.
-            // This is the in_state we started with, 
-            // ignoring any input register not actually used.
-
-            regs_t used = 0;
-            regs_t live = REGF_A | REGF_X | REGF_Y;
-            for(asm_inst_t const& inst : result.code)
-            {
-                used |= op_input_regs(inst.op)
-                live &= ~op_output_regs(inst.op);
-                if(!live)
-                    break;
-            }
-
-            assert(first_sel->inst.op == ASM_PRUNED);
-            assert(first_sel->inst.arg.lclass() == LOC_HANDLE);
-
-            unsigned const in_i = first_sel->inst.arg.handle();
-            assert(in_i < in_states.size());
-
-            result.in_state = in_states.begin()[in_i].first;
-
-            if(!(used & ASMF_A))
-                in_state.a = LOC_NONE;
-            if(!(used & ASMF_X))
-                in_state.x = LOC_NONE;
-            if(!(used & ASMF_Y))
-                in_state.y = LOC_NONE;
-
-            return result;
-        });
-    }
-
-    return sels;
-}
-*/
-
-namespace isel
-{
-
-static cpu_t to_cpu(cross_cpu_t const& cross)
-{
-    static_assert(REGF_CROSS == (REGF_A | REGF_X | REGF_Y | REGF_C));
-    cpu_t ret = {};
-    ret.set_def<REG_A>({}, cross.defs[REG_A]);
-    ret.set_def<REG_X>({}, cross.defs[REG_X]);
-    ret.set_def<REG_Y>({}, cross.defs[REG_Y]);
-    ret.set_def<REG_C>({}, cross.defs[REG_C]);
-    return ret;
-}
-
-static cross_cpu_t make_cross_cpu(cpu_t const& cpu)
-{
-    auto const convert = [](locator_t l) -> locator_t
-    {
-        if(l.lclass() == LOC_PHI)
-            return LOC_NONE;
-
-        if(l.lclass() == LOC_SSA)
-        {
-            ssa_ht const h = l.ssa_node();
-            
-
-            if(h->op() == SSA_phi_copy)
-            {
-                assert(0);
-                assert(cset_locator(h).lclass() == LOC_PHI);
-                return cset_locator(h);
-            }
-        }
-
-        return l;
-    };
-
-    cross_cpu_t cross = {};
-    cross.defs[REG_A] = convert(cpu.defs[REG_A]);
-    cross.defs[REG_X] = convert(cpu.defs[REG_X]);
-    cross.defs[REG_Y] = convert(cpu.defs[REG_Y]);
-    if(cpu.defs[REG_C].lclass() == LOC_CONST_BYTE)
-        cross.defs[REG_C] = cpu.defs[REG_C];
-    return cross;
-}
-
-static cross_cpu_t prepare_cross_cpu_for(cross_cpu_t const& cross, cfg_ht cfg)
-{
-    auto const convert = [cfg](locator_t l) -> locator_t
-    {
-        assert(l.lclass() != LOC_PHI);
-
-        if(l.lclass() == LOC_SSA)
-        {
-            ssa_ht const h = l.ssa_node();
-
-            // Setup incoming phis:
-            locator_t const cset_loc = cset_locator(h);
-            if(cset_loc.lclass() == LOC_PHI)
-            {
-                for(ssa_ht phi = cfg->phi_begin(); phi; ++phi)
-                {
-                    assert(phi->op() == SSA_phi);
-                    if(cset_loc.ssa_node() == phi)
-                        return locator_t::phi(phi);
-                }
-            }
-
-            // Values can't loop:
-            if(h->cfg_node() == cfg)
-                return LOC_NONE;
-
-            // If the node has no output used through 'cfg', ignore it.
-            if(for_each_output_matching(h, INPUT_VALUE, [&](ssa_ht output)
-            {
-                return !dominates(cfg, output->cfg_node());
-            }))
-            {
-                return LOC_NONE;
-            }
-        }
-
-        return l;
-    };
-
-    cross_cpu_t ret = {};
-    ret.defs[REG_A] = convert(cross.defs[REG_A]);
-    ret.defs[REG_X] = convert(cross.defs[REG_X]);
-    ret.defs[REG_Y] = convert(cross.defs[REG_Y]);
-    return ret;
-}
-
-}
-
-void select_instructions(fn_t const& fn, ir_t& ir)
-{
-    using namespace isel;
-
+    state.log = log;
     state.fn = fn.handle();
 
+    // TODO: prerequire this.
     build_loops_and_order(ir);
     build_dominators_from_order(ir);
 
@@ -3101,7 +2732,7 @@ void select_instructions(fn_t const& fn, ir_t& ir)
     // GENERATE SELECTION LIST FOR EACH CFG NODE //
     ///////////////////////////////////////////////
 
-    rh::batman_map<cross_cpu_t, result_t> rebuilt;
+    rh::batman_map<cross_transition_t, result_t> rebuilt;
 
     // Create the initial worklist:
     assert(cfg_worklist.empty());
@@ -3135,8 +2766,13 @@ void select_instructions(fn_t const& fn, ir_t& ir)
         state.map.clear();
         for(unsigned index : d.to_compute)
         {
+#ifndef NDEBUG
+            for(locator_t loc : d.in_states.begin()[index].defs)
+                if(loc.lclass() == LOC_SSA)
+                    assert(loc.ssa_node()->cfg_node() != cfg);
+#endif
             state.map.insert({ 
-                to_cpu(d.in_states.begin()[index]),
+                d.in_states.begin()[index].to_cpu(),
                 &state.sel_pool.emplace(nullptr, 0, 
                     asm_inst_t{ .op = ASM_PRUNED, .arg = locator_t::index(index) }) });
         }
@@ -3151,6 +2787,8 @@ void select_instructions(fn_t const& fn, ir_t& ir)
             }
             catch(isel_no_progress_error_t const&)
             {
+                dprint(state.log, "-ISEL_NO_PROGRES!");
+
                 // We'll try and fix the error.
                 bool repaired = false;
 
@@ -3178,7 +2816,8 @@ void select_instructions(fn_t const& fn, ir_t& ir)
         // Assemble those selections:
         for(auto const& pair : state.map)
         {
-            rh::apair<cross_cpu_t, result_t> new_sel = { make_cross_cpu(pair.first) };
+            rh::apair<cross_transition_t, result_t> new_sel = {{ .out_state = cross_cpu_t(pair.first, true) }};
+            cross_transition_t& transition = new_sel.first;
             result_t& result = new_sel.second;
             result.cost = pair.second->cost;
 
@@ -3201,12 +2840,23 @@ void select_instructions(fn_t const& fn, ir_t& ir)
 
             regs_t used = 0;
             regs_t written = 0;
-            for(asm_inst_t const& inst : result.code)
+            for(asm_inst_t& inst : result.code)
             {
                 used |= op_input_regs(inst.op) & ~written;
-                written |= op_output_regs(inst.op);
-                if((written & REGF_CROSS) == REGF_CROSS)
-                    break;
+                if(!(op_flags(inst.op) & ASMF_MAYBE_STORE))
+                    written |= op_output_regs(inst.op);
+
+                if((op_flags(inst.op) & ASMF_MAYBE_STORE) && inst.alt)
+                {
+                    if(transition.out_state.has(inst.alt))
+                    {
+                        op_t const new_op = change_addr_mode(inst.op, MODE_MAYBE);
+                        assert(new_op != BAD_OP);
+                        result.cost -= cost_fn(inst.op);
+                        inst.op = new_op;
+                    }
+                    inst.alt = LOC_NONE;
+                }
             }
 
             assert(first_sel->inst.op == ASM_PRUNED);
@@ -3215,11 +2865,26 @@ void select_instructions(fn_t const& fn, ir_t& ir)
             unsigned const in_i = first_sel->inst.arg.data();
             assert(in_i < d.in_states.size());
 
-            result.in_state = d.in_states.begin()[in_i];
+            transition.in_state = d.in_states.begin()[in_i];
+
+#ifndef NDEBUG
+            for(locator_t loc : transition.in_state.defs)
+                if(loc.lclass() == LOC_SSA)
+                    assert(loc.ssa_node()->cfg_node() != cfg);
+#endif
 
             for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
-                if(~used & written & (1 << i))
-                    result.in_state.defs[i] = LOC_NONE;
+                if(~used & written & (1 << i)) 
+                    transition.in_state.defs[i] = LOC_NONE;
+
+            dprint(state.log, "ISEL_RESULT", cfg, result.cost);
+
+            if(state.log)
+                for(auto const& inst : result.code)
+                    dprint(state.log, inst);
+
+            dprint(state.log, "ISEL_RESULT_IN", new_sel.first.in_state);
+            dprint(state.log, "ISEL_RESULT_OUT", new_sel.first.out_state);
 
             // Insert the 'new_sel' into 'd':
             auto insert_result = d.sels.insert(new_sel);
@@ -3227,18 +2892,16 @@ void select_instructions(fn_t const& fn, ir_t& ir)
             {
                 // Keep the lowest cost:
                 if(insert_result.first->second.cost > new_sel.second.cost)
-                    *insert_result.first = new_sel;
+                    *insert_result.first = std::move(new_sel);
             }
         }
 
         // For efficiency, cap the maximum number of selections tracked:
-        constexpr unsigned MAX_SELS_PER_CFG = 256;
+        constexpr unsigned MAX_SELS_PER_CFG = 64;
         if(d.sels.size() > MAX_SELS_PER_CFG)
         {
             std::sort(d.sels.begin(), d.sels.end(), [&](auto const& a, auto const& b)
-            {
-                return a.second.cost < b.second.cost;
-            });
+                { return a.second.cost < b.second.cost; });
 
             // Reuse 'rebuilt':
             rebuilt.clear();
@@ -3251,18 +2914,16 @@ void select_instructions(fn_t const& fn, ir_t& ir)
         }
 
         // Pass our output CPU states to our output CFG nodes.
-        unsigned const depth = loop_depth(cfg);
         unsigned const output_size = cfg->output_size();
         for(unsigned i = 0; i < output_size; ++i)
         {
-            cfg_ht const output = cfg->output(i);
-            if(depth < loop_depth(output))
-                continue;
+            auto const oe = cfg->output_edge(i);
+            cfg_ht const output = oe.handle;
             auto& od = data(output);
 
             for(auto const& new_sel : d.sels)
             {
-                auto result = od.in_states.insert(prepare_cross_cpu_for(new_sel.first, output));
+                auto result = od.in_states.insert(prepare_cross_cpu_for(new_sel.first.out_state, output, oe.index));
                 if(result.second)
                 {
                     od.to_compute.push_back(result.first - od.in_states.begin());
@@ -3287,6 +2948,9 @@ void select_instructions(fn_t const& fn, ir_t& ir)
     auto const gen_load = [&](cross_cpu_t const& cross, regs_t reg, locator_t loc) -> asm_inst_t
     {
         //assert(loc);
+
+        if(loc.lclass() == LOC_SSA || loc.lclass() == LOC_PHI)
+            loc = asm_arg(loc.ssa_node()).with_byteified(false);
 
         switch(reg)
         {
@@ -3326,12 +2990,11 @@ void select_instructions(fn_t const& fn, ir_t& ir)
     };
 
     {
-        pbqp_t pbqp;
+        pbqp_t pbqp(state.log);
 
         for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
         {
             auto& d = data(cfg);
-
             isel_cost_t const multiplier = loop_depth_exp(cfg, 4);
 
             for(auto const& pair : d.sels)
@@ -3354,19 +3017,21 @@ void select_instructions(fn_t const& fn, ir_t& ir)
                 for(unsigned y = 0; y < od.sels.size(); ++y)
                 for(unsigned x = 0; x < d.sels.size(); ++x)
                 {
-                    cross_cpu_t const& out = prepare_cross_cpu_for(d.sels.begin()[x].first, output);
-                    cross_cpu_t const& in  = od.sels.begin()[y].second.in_state;
+                    cross_cpu_t const& out = prepare_cross_cpu_for(d.sels.begin()[x].first.out_state, output, cfg->output_edge(i).index);
+                    cross_cpu_t const& in  = od.sels.begin()[y].first.in_state;
 
                     pbqp_cost_t cost = 0;
 
                     for(regs_t reg = 0; reg < NUM_CROSS_REGS; ++reg)
                     {
-                        if(!in.defs[reg])
+                        if(!in.defs[reg] || in.defs[reg] == out.defs[reg])
                             continue;
-                        if(in.defs[reg] == out.defs[reg])
-                            continue;
+
                         op_t const op = gen_load(out, reg, LOC_NONE).op;
-                        cost += cost_fn(op);
+                        unsigned add_to_cost = cost_fn(op);
+                        assert(add_to_cost);
+
+                        cost += add_to_cost * 2; // Make it arbitrarily worse than a normal load.
                     }
 
                     cost_matrix[x + y * d.sels.size()] = cost * multiplier;
@@ -3386,7 +3051,7 @@ void select_instructions(fn_t const& fn, ir_t& ir)
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
         auto& d = data(cfg);
-        assert(d.sel >= 0 && d.sel < d.sels.size());
+        assert(d.sel >= 0 && d.sel < int(d.sels.size()));
     }
 #endif
 
@@ -3399,6 +3064,10 @@ void select_instructions(fn_t const& fn, ir_t& ir)
     {
         auto& d = data(cfg);
 
+        dprint(state.log, "ISEL_GEN_COST", cfg, d.final_cost());
+        dprint(state.log, "ISEL_GEN_IN", cfg, d.final_in_state());
+        dprint(state.log, "ISEL_GEN_OUT", cfg, d.final_out_state());
+
         regs_t to_load = 0;
         unsigned const input_size = cfg->input_size();
         input_loads.resize(input_size);
@@ -3408,14 +3077,12 @@ void select_instructions(fn_t const& fn, ir_t& ir)
             cfg_ht input = cfg->input(i);
             auto const& id = data(input);
 
-            cross_cpu_t const out_state = prepare_cross_cpu_for(id.final_out_state(), cfg);
+            cross_cpu_t const out_state = prepare_cross_cpu_for(id.final_out_state(), cfg, i);
 
             regs_t input_load = 0;
             for(unsigned reg = 0; reg < NUM_CROSS_REGS; ++reg)
             {
-                if(!d.final_in_state().defs[reg])
-                    continue;
-                if(out_state.defs[reg] == d.final_in_state().defs[reg])
+                if(!d.final_in_state().defs[reg] || out_state.defs[reg] == d.final_in_state().defs[reg])
                     continue;
                 to_load |= 1 << reg;
                 input_load |= 1 << reg;
@@ -3454,6 +3121,41 @@ void select_instructions(fn_t const& fn, ir_t& ir)
             if(input_loads[i])
                 always_load &= input_loads[i];
 
+        // Now find loads that can be appended onto an input's CFG.
+
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            cfg_ht input = cfg->input(i);
+            auto& id = data(input);
+
+            if(input->output_size() != 1)
+                continue;
+
+            regs_t const load_now = input_loads[i] & ~always_load;
+
+            if(!load_now)
+                continue;
+
+            input_loads[i] &= ~load_now;
+
+            auto& code = id.final_code();
+            assert(code.size());
+            passert(op_flags(code.back().op) & ASMF_JUMP, to_string(code.back().op));
+            asm_inst_t const jump = code.back();
+            code.pop_back();
+
+            cross_cpu_t cross = prepare_cross_cpu_for(id.final_out_state(), cfg, i);
+            bitset_for_each(load_now, [&](regs_t reg)
+            {
+                code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));
+                cross.defs[reg] = d.final_in_state().defs[reg];
+            });
+
+            code.push_back(jump);
+        }
+
+        // Generate code for 'always_load' now.
+
         bc::small_vector<asm_inst_t, NUM_CROSS_REGS * 2> always_load_code;
         unsigned next_label_index = 1;
 
@@ -3470,40 +3172,6 @@ void select_instructions(fn_t const& fn, ir_t& ir)
             });
 
             replace_labels(always_load, label);
-        }
-
-        // Now find loads that can be appended onto an input's CFG.
-
-        for(unsigned i = 0; i < input_size; ++i)
-        {
-            cfg_ht input = cfg->input(i);
-            auto& id = data(input);
-
-            if(input->output_size() != 1)
-                continue;
-
-            regs_t const load_now = input_loads[i];
-
-            if(!load_now)
-                continue;
-
-            input_loads[i] = 0;
-
-            auto& code = id.final_code();
-            assert(code.size());
-            assert(op_flags(code.back().op) & ASMF_BRANCH);
-            asm_inst_t const jump = code.back();
-            code.pop_back();
-
-            cross_cpu_t cross = prepare_cross_cpu_for(id.final_out_state(), cfg);
-            bitset_for_each(load_now, [&](regs_t reg)
-            {
-                code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));
-                cross.defs[reg] = d.final_in_state().defs[reg];
-            });
-
-            code.push_back(jump);
-            std::cout << "ISEL CODE 1OUT " << input << std::endl;
         }
 
         // Now handle all the remaining loads.
@@ -3535,7 +3203,7 @@ void select_instructions(fn_t const& fn, ir_t& ir)
 
                     for(unsigned j = 0; j < order.size(); ++j)
                     {
-                        regs_t const regf = 1 << order[i];
+                        regs_t const regf = 1 << order[j];
 
                         if(!(input_load & regf))
                             misses += cost;
@@ -3570,7 +3238,6 @@ void select_instructions(fn_t const& fn, ir_t& ir)
         }
 
         // Prepend to code:
-        std::cout << "ISEL CODE " << remaining_load_code.size() << ' ' << always_load_code.size() << std::endl;
         std::vector<asm_inst_t> new_code(d.final_code().size() + always_load_code.size() + remaining_load_code.size());
         std::copy(remaining_load_code.begin(), remaining_load_code.end(), 
                   new_code.begin());
@@ -3582,13 +3249,7 @@ void select_instructions(fn_t const& fn, ir_t& ir)
     }
 
     // Store the code
-    std::cout << "ISEL\n";
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
-    {
         cg_data(cfg).code = std::move(data(cfg).final_code());
-
-        auto const& d = data(cfg);
-        std::cout << "ISEL " << cfg << ' ' << d.in_states.size() << ' ' << d.sels.size() << std::endl;
-    }
 }
 

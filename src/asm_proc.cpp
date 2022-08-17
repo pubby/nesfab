@@ -7,10 +7,9 @@
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
     o << "{ " << to_string(inst.op) << ", " << inst.arg;
-    if(inst.ptr_hi)
-        o << " hi: " << inst.ptr_hi;
+    o << " hi: " << inst.alt;
     o << "   (" << inst.ssa_op << ") }";
-    //o << "   (" << (float(inst.cost) / 256.0f) << ") }";
+    o << "   (" << (float(inst.cost) / 256.0f) << ") }";
     return o;
 }
 
@@ -36,7 +35,7 @@ void asm_proc_t::absolute_to_zp()
     for(asm_inst_t& inst : code)
     {
         // TODO: implement this
-        if(inst.ptr_hi || inst.arg.lclass() != LOC_ADDR || inst.arg.data() >= 0x100)
+        if(inst.alt || inst.arg.lclass() != LOC_ADDR || inst.arg.data() >= 0x100)
             continue;
 
         switch(op_addr_mode(inst.op))
@@ -276,7 +275,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
     auto const absolute_locs = [](asm_inst_t const& inst)
     {
         locator_t lo = inst.arg;
-        locator_t hi = inst.ptr_hi;
+        locator_t hi = inst.alt;
 
         if(!hi)
             hi = lo;
@@ -343,7 +342,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
 
         if(inst.op == BANKED_Y_JSR || inst.op == BANKED_Y_JMP)
         {
-            assert(!inst.ptr_hi);
+            assert(!inst.alt);
             auto locs = absolute_locs(inst);
 
             write_inst({ .op = LDA_IMMEDIATE, .arg = locs.first });
@@ -371,7 +370,7 @@ void asm_proc_t::link(romv_t romv, int bank)
     for(asm_inst_t& inst : code)
     {
         inst.arg = inst.arg.link(romv, fn, bank);
-        inst.ptr_hi = inst.ptr_hi.link(romv, fn, bank);
+        inst.alt = inst.alt.link(romv, fn, bank);
     }
 
     optimize(false);

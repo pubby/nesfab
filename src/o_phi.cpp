@@ -38,7 +38,7 @@ ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
     return unique ? unique : node.handle();
 }
 
-bool o_remove_trivial_phis(ir_t& ir)
+bool o_remove_trivial_phis(log_t* log, ir_t& ir)
 {
     ssa_worklist.clear();
 
@@ -74,6 +74,7 @@ bool o_remove_trivial_phis(ir_t& ir)
             assert(!value.holds_ref() || value.handle() != phi_h);
 
             // Delete the trivial phi.
+            dprint(log, "REMOVE_TRIVIAL_PHI", phi_h);
             phi.replace_with(value);
             phi.prune();
 
@@ -184,7 +185,8 @@ void tarjan_t::visit(ssa_ht phi_h)
 
 // Paper: Simple and Efficient Construction of Static Single Assignment Form
 // https://pp.info.uni-karlsruhe.de/uploads/publikationen/braun13cc.pdf
-void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
+void o_remove_redundant_phis(log_t* log, 
+                             ir_t& ir, bool& changed, unsigned& subgraph_i,
                              ssa_ht* phis, std::size_t phis_size)
 {
     tarjan_t tarjan(ir, subgraph_i, phis, phis_size);
@@ -236,6 +238,7 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
         {
             for(ssa_ht phi_h : scc)
             {
+                dprint(log, "REMOVE_REDUNDANT_PHI", phi_h);
                 ssa_node_t& phi = *phi_h;
                 phi.replace_with(outer);
                 phi.prune();
@@ -245,7 +248,7 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
         else if(outer_count > 1)
         {
             ++subgraph_i;
-            o_remove_redundant_phis(ir, changed, subgraph_i, 
+            o_remove_redundant_phis(log, ir, changed, subgraph_i, 
                                     inner_begin, inner_end - inner_begin);
         }
     }
@@ -253,7 +256,7 @@ void o_remove_redundant_phis(ir_t& ir, bool& changed, unsigned& subgraph_i,
 
 } // end anonymous namespace
 
-bool o_remove_redundant_phis(ir_t& ir)
+bool o_remove_redundant_phis(log_t* log, ir_t& ir)
 {
     ssa_data_pool::scope_guard_t<phi_data_t> sg(ssa_pool::array_size());
     ssa_workvec.clear();
@@ -267,14 +270,14 @@ bool o_remove_redundant_phis(ir_t& ir)
 
     bool changed = false;
     unsigned subgraph_i = 0;
-    o_remove_redundant_phis(ir, changed, subgraph_i, ssa_workvec.data(), ssa_workvec.size());
+    o_remove_redundant_phis(log, ir, changed, subgraph_i, ssa_workvec.data(), ssa_workvec.size());
     return changed;
 }
 
-bool o_phis(ir_t& ir)
+bool o_phis(log_t* log, ir_t& ir)
 {
     bool changed = false;
-    changed |= o_remove_trivial_phis(ir);
-    changed |= o_remove_redundant_phis(ir);
+    changed |= o_remove_trivial_phis(log, ir);
+    changed |= o_remove_redundant_phis(log, ir);
     return changed;
 }

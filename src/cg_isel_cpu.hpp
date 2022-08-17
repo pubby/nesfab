@@ -96,22 +96,10 @@ struct cpu_t
     bool operator==(cpu_t const& o) const 
     { 
         assert(known_array_valid() && o.known_array_valid());
-        return accurate_eq(o);
-    }
-
-    bool accurate_eq(cpu_t const& o) const 
-    { 
-        assert(known_array_valid() && o.known_array_valid());
         return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask && known == o.known); 
     }
 
-    bool approximate_eq(cpu_t const& o) const
-    {
-        return ((known_mask & REGF_AC) == (o.known_mask & REGF_AC)
-                && defs[REG_A] == o.defs[REG_A]);
-    }
-
-    std::size_t accurate_hash() const
+    std::size_t hash() const
     {
         std::size_t h = req_store;
         for(locator_t const& v : defs)
@@ -121,13 +109,6 @@ struct cpu_t
         for(std::uint8_t k : known)
             h = rh::hash_combine(h, k);
         h = rh::hash_combine(h, known_mask);
-        return h;
-    }
-
-    std::size_t approximate_hash() const
-    {
-        std::size_t h = known_mask & REGF_AC;
-        h = rh::hash_combine(h, defs[REG_A].to_uint());
         return h;
     }
     
@@ -142,12 +123,14 @@ struct cpu_t
             assert(!!value == value);
         known[reg] = value;
         known_mask |= 1 << reg;
+        assert(known_array_valid());
     }
 
     void clear_known(regs_t reg)
     {
         known_mask &= ~(1 << reg);
         known[reg] = 0; // Must do this to ensure operator== works.
+        assert(known_array_valid());
     }
 
     bool def_eq(regs_t reg, locator_t v) const
@@ -185,6 +168,7 @@ struct cpu_t
         {
             defs[Reg] = locator_t{};
             clear_known(Reg);
+            assert(known_array_valid());
             return;
         }
 
@@ -207,6 +191,8 @@ struct cpu_t
             if(!keep_value)
                 clear_known(Reg);
         }
+
+        assert(known_array_valid());
     }
 
     template<regs_t Regs> [[gnu::noinline]]
@@ -226,6 +212,7 @@ struct cpu_t
             set_def_impl<REG_N>(opt, value, keep_value);
         if(Regs & REGF_B)
             set_def_impl<REG_B>(opt, value, keep_value);
+        assert(known_array_valid());
     }
 
     template<regs_t Regs> [[gnu::noinline]]
@@ -264,45 +251,37 @@ struct cpu_t
     // If the registers and inputs are known constants,
     // the set values may be constants too.
     template<op_t Op>
-    bool set_defs_for(options_t opt, locator_t def, locator_t arg);
+    std::enable_if_t<Op < NUM_NORMAL_OPS, bool> set_defs_for(options_t opt, locator_t def, locator_t arg);
 
-    /* TODO: remove?
-    locator_t normalize(locator_t loc)
+    template<op_t Op>
+    std::enable_if_t<Op >= NUM_NORMAL_OPS, bool> set_defs_for(options_t opt, locator_t def, locator_t arg)
     {
-        if(l.lclass() == LOC_SSA)
-        {
-            ssa_ht const h = l.ssa();
-
-            if(h->op() == SSA_phi_copy)
-            {
-                assert(cset_locator(h).lclass() == LOC_PHI);
-                return cset_locator(h);
-            }
-        }
+        return set_output_defs<Op>(opt, def);
     }
-
-    void strip_transient() 
-    {
-        conditional_regs = 0;
-        req_store = 0;
-        for(locator_t& loc : defs)
-            loc = normalize(loc);
-    }
-    */
-
 };
 
-struct approximate_hash_t
+// Like cpu_t, but tracks far, far less state.
+// This is used to pass CPU state across CFG boundaries.
+struct cross_cpu_t
 {
-    std::size_t operator()(isel::cpu_t const& cpu) const noexcept
-        { return cpu.approximate_hash(); }
+    cross_cpu_t() = default;
+    explicit cross_cpu_t(cpu_t const& cpu, bool strip_phi = false);
+
+    auto operator<=>(cross_cpu_t const&) const = default;
+    bool has(locator_t loc) const { return std::find(defs.begin(), defs.end(), loc) != defs.end(); }
+    cpu_t to_cpu() const;
+
+    std::array<locator_t, NUM_CROSS_REGS> defs = {};
 };
 
-struct approximate_eq_t
+struct cross_transition_t
 {
-    std::size_t operator()(isel::cpu_t const& l, isel::cpu_t const& r) const noexcept
-        { return l.approximate_eq(r); }
+    cross_cpu_t in_state;
+    cross_cpu_t out_state;
+    auto operator<=>(cross_transition_t const&) const = default;
 };
+
+
 
 } // end namespace isel
 
@@ -310,9 +289,28 @@ struct approximate_eq_t
 template<>
 struct std::hash<isel::cpu_t>
 {
-    std::size_t operator()(isel::cpu_t const& cpu) const noexcept
+    std::size_t operator()(isel::cpu_t const& cpu) const noexcept { return cpu.hash(); }
+};
+
+template<>
+struct std::hash<isel::cross_cpu_t>
+{
+    std::size_t operator()(isel::cross_cpu_t const& cross) const noexcept
     {
-        return cpu.accurate_hash();
+        std::size_t h = 0xDEADBEEF;
+        for(locator_t const& v : cross.defs)
+            h = rh::hash_combine(h, v.to_uint());
+        return h;
+    }
+};
+
+template<>
+struct std::hash<isel::cross_transition_t>
+{
+    std::size_t operator()(isel::cross_transition_t const& ct) const noexcept
+    {
+        std::hash<isel::cross_cpu_t> hasher;
+        return rh::hash_combine(hasher(ct.in_state), hasher(ct.out_state));
     }
 };
 

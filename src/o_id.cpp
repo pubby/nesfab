@@ -1,7 +1,6 @@
 #include "o_id.hpp"
 
 #include <cstdint>
-#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -12,15 +11,14 @@
 #include "type_mask.hpp"
 #include "alloca.hpp"
 #include "worklist.hpp"
-#include "debug_print.hpp"
 
 namespace bc = ::boost::container;
 
 // Replaces single nodes with one of their inputs.
 // (e.g. X + 0 becomes X, or Y & ~0 becomes Y)
-static bool o_simple_identity(ir_t& ir, std::ostream* os)
+static bool o_simple_identity(log_t* log, ir_t& ir)
 {
-    dprint(os, "SIMPLE_IDENTITY");
+    dprint(log, "SIMPLE_IDENTITY");
     bool updated = false;
 
     for(cfg_node_t const& cfg_node : ir)
@@ -32,20 +30,20 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
             continue;
         }
 
-        dprint(os, "-SIMPLE_IDENTITY_OP", ssa_it, ssa_it->op());
+        dprint(log, "-SIMPLE_IDENTITY_OP", ssa_it, ssa_it->op());
 
         ssa_node_t& node = *ssa_it;
         fixed_t const all_set = { numeric_bitmask(node.type().name()) };
 
         ssa_value_t carry_replacement = {};
-        auto const replace_carry = [&os](ssa_node_t& node, ssa_value_t carry_replacement)
+        auto const replace_carry = [log](ssa_node_t& node, ssa_value_t carry_replacement)
         {
             assert(!carry_output(node) || carry_replacement);
             if(carry_replacement)
             {
                 if(ssa_ht carry = carry_output(node))
                 {
-                    dprint(os, "-SIMPLE_IDENTITY_REPLACE_CARRY", node.handle(), carry_replacement);
+                    dprint(log, "-SIMPLE_IDENTITY_REPLACE_CARRY", node.handle(), carry_replacement);
                     carry->replace_with(carry_replacement);
                     carry->prune();
                 }
@@ -84,7 +82,7 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
                 if(input.holds_ref() && input->op() == SSA_cast
                    && same_scalar_layout(from.name(), to.name()))
                 {
-                    dprint(os, "--SIMPLE_IDENTITY_SIMPLIFY_CAST");
+                    dprint(log, "--SIMPLE_IDENTITY_SIMPLIFY_CAST");
                     node.link_change_input(0, input->input(0));
                 }
             }
@@ -187,19 +185,19 @@ static bool o_simple_identity(ir_t& ir, std::ostream* os)
         continue;
 
     replaceWith0:
-        dprint(os, "--SIMPLE_IDENTITY_REPLACE 0", ssa_it, node.input(0));
+        dprint(log, "--SIMPLE_IDENTITY_REPLACE 0", ssa_it, node.input(0));
         replace_carry(node, carry_replacement);
         node.replace_with(node.input(0));
         goto prune;
 
     replaceWith1:
-        dprint(os, "--SIMPLE_IDENTITY_REPLACE 1", ssa_it, node.input(1));
+        dprint(log, "--SIMPLE_IDENTITY_REPLACE 1", ssa_it, node.input(1));
         replace_carry(node, carry_replacement);
         node.replace_with(node.input(1));
         goto prune;
 
     prune:
-        dprint(os, "--SIMPLE_IDENTITY_PRUNE", ssa_it);
+        dprint(log, "--SIMPLE_IDENTITY_PRUNE", ssa_it);
         ssa_it = node.prune();
         updated = true;
     }
@@ -286,7 +284,7 @@ struct ssa_monoid_d
 class run_monoid_t
 {
 public:
-    run_monoid_t(ir_t& ir, std::ostream* log);
+    run_monoid_t(log_t* log, ir_t& ir);
 
     static ssa_op_t defining_op(ssa_op_t op);
 
@@ -337,7 +335,7 @@ private:
     using internals_map_t = fc::vector_map<ssa_ht, unsigned>;
     internals_map_t internals;
 
-    std::ostream* log;
+    log_t* log;
 };
 
 // Whatever op defines the monoid, or SSA_null if the op isn't supported.
@@ -357,7 +355,7 @@ ssa_op_t run_monoid_t::defining_op(ssa_op_t op)
     }
 }
 
-run_monoid_t::run_monoid_t(ir_t& ir, std::ostream* log)
+run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 : log(log)
 {
     dprint(log, "MONOID");
@@ -822,13 +820,13 @@ void run_monoid_t::build(ssa_ht h, bool negative)
 
 } // end anonymous namespace
 
-bool o_identities(ir_t& ir, std::ostream* os)
+bool o_identities(log_t* log, ir_t& ir)
 {
-    bool updated = o_simple_identity(ir, os);
+    bool updated = o_simple_identity(log, ir);
 
     {
         ssa_data_pool::scope_guard_t<ssa_monoid_d> sg(ssa_pool::array_size());
-        run_monoid_t run(ir, os);
+        run_monoid_t run(log, ir);
         updated |= run.updated;
     }
 

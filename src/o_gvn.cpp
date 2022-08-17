@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <vector>
-#include <iostream> // TODO
 
 #include "robin/map.hpp"
 #include "robin/hash.hpp"
@@ -10,7 +9,6 @@
 #include "ir.hpp"
 #include "ir_algo.hpp"
 #include "ir_util.hpp"
-#include "debug_print.hpp"
 
 using gvn_t = std::uint64_t;
 
@@ -35,26 +33,23 @@ struct gvn_key_t
     }
 };
 
-namespace std
+template<>
+struct std::hash<gvn_key_t>
 {
-    template<>
-    struct hash<gvn_key_t>
+    std::size_t operator()(gvn_key_t const& key) const noexcept
     {
-        std::size_t operator()(gvn_key_t const& key) const noexcept
-        {
-            std::size_t h = rh::hash_finalize(key.op);
-            h = rh::hash_combine(h, key.type.hash());
-            for(gvn_t vn : key)
-                h = rh::hash_combine(h, vn);
-            return h;
-        }
-    };
-}
+        std::size_t h = rh::hash_finalize(key.op);
+        h = rh::hash_combine(h, key.type.hash());
+        for(gvn_t vn : key)
+            h = rh::hash_combine(h, vn);
+        return h;
+    }
+};
 
 class run_gvn_t
 {
 public:
-    run_gvn_t(ir_t& ir, std::ostream* log)
+    run_gvn_t(log_t* log, ir_t& ir)
     : log(log)
     {
         m_key_map.reserve(ssa_pool::array_size());
@@ -154,12 +149,12 @@ private:
     rh::batman_map<gvn_t, std::vector<ssa_ht>> m_gvn_sets;
     gvn_t m_next_gvn = 1ull;
 
-    std::ostream* log = nullptr;
+    log_t* log = nullptr;
 };
 
-bool o_global_value_numbering(ir_t& ir, std::ostream* log)
+bool o_global_value_numbering(log_t* log, ir_t& ir)
 {
     ssa_data_pool::scope_guard_t<ssa_gvn_d> sg(ssa_pool::array_size());
-    run_gvn_t runner(ir, log);
+    run_gvn_t runner(log, ir);
     return runner.updated;
 }

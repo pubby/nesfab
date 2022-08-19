@@ -207,6 +207,15 @@ void build_loops_and_order(ir_t& ir)
     assert(postorder.empty() || postorder.back() == ir.root);
 }
 
+cfg_ht this_loop_header(cfg_ht h)
+{
+    assert(h);
+    auto& d = algo(h);
+    if(d.is_loop_header)
+        return h;
+    return d.iloop_header;
+}
+
 unsigned loop_depth(cfg_ht cfg)
 {
     unsigned depth = 0;
@@ -222,19 +231,26 @@ unsigned loop_depth(cfg_ht cfg)
     return depth;
 }
 
-std::uint64_t loop_depth_exp(cfg_ht cfg, std::uint64_t scale, std::uint64_t max_shifts)
+unsigned edge_depth(cfg_ht cfg, cfg_ht output)
 {
-    return 1ull << std::min<std::uint64_t>(loop_depth(cfg) * scale, max_shifts);
+    assert(cfg);
+    unsigned const depth = loop_depth(cfg);
+    unsigned const output_depth = loop_depth(output);
+    if(depth && depth == output_depth && !loop_is_parent_of(this_loop_header(output), cfg))
+        return depth - 1;
+    return std::min(depth, output_depth);
+}
+
+std::uint64_t depth_exp(std::uint64_t depth, std::uint64_t scale, std::uint64_t max_shifts)
+{
+    return 1ull << std::min<std::uint64_t>(depth * scale, max_shifts);
 }
 
 bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node)
 {
     assert(loop_header && algo(loop_header).is_loop_header);
 
-    if(!algo(node).is_loop_header)
-        node = algo(node).iloop_header;
-
-    for(; node; node = algo(node).iloop_header)
+    for(node = this_loop_header(node); node; node = algo(node).iloop_header)
         if(node == loop_header)
             return true;
 

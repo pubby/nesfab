@@ -20,11 +20,38 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = MAYBE_STORE_C,
         .addr_mode = MODE_ABSOLUTE,
-        .size = 9,
-        .cycles = 13, // Arbitrary
+        .size = 10, // Keep in sync with 'asm_proc.cpp'
+        .cycles = 30, // Arbitrary
         .input_regs = REGF_C,
         .output_regs = REGF_M,
         .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    { 
+        .op = STORE_C_ABSOLUTE,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 10, // Keep in sync with 'asm_proc.cpp'
+        .cycles = 30, // Arbitrary
+        .input_regs = REGF_C,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE,
+    },
+    { 
+        .op = MAYBE_STORE_Z,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 11, // Keep in sync with 'asm_proc.cpp'
+        .cycles = 30, // Arbitrary
+        .input_regs = REGF_C,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    { 
+        .op = STORE_Z_ABSOLUTE,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 11, // Keep in sync with 'asm_proc.cpp'
+        .cycles = 30, // Arbitrary
+        .input_regs = REGF_C,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE,
     },
     {
         .op = BANKED_Y_JSR,

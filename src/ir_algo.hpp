@@ -40,9 +40,14 @@ void build_loops_and_order(ir_t& ir);
 
 bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node);
 
+// If 'h' is a loop header, returns itself.
+// Otherwise, returns its immediate loop header.
+cfg_ht this_loop_header(cfg_ht h);
+
 // Returns how many loops a node is in.
 unsigned loop_depth(cfg_ht cfg);
-std::uint64_t loop_depth_exp(cfg_ht cfg, std::uint64_t scale = 1, std::uint64_t max_shifts = 16);
+unsigned edge_depth(cfg_ht cfg, cfg_ht output);
+std::uint64_t depth_exp(std::uint64_t depth, std::uint64_t scale = 4, std::uint64_t max_shifts = 32);
 
 // Builds the dominance tree.
 // Requires that the order was built.

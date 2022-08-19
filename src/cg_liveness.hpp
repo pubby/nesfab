@@ -36,9 +36,4 @@ bool live_range_overlap(ssa_ht a, ssa_ht b);
 // A rough approximation of how much a live range overlaps with all others.
 std::size_t live_range_busyness(ir_t& ir, ssa_ht h);
 
-class lvars_manager_t;
-
-void calc_asm_liveness(fn_t const& fn, ir_t const& ir, lvars_manager_t const& var_map);
-void build_lvar_interferences(fn_t const& fn, ir_t const& ir, lvars_manager_t& lvars);
-
 #endif

@@ -94,16 +94,19 @@ void asm_proc_t::absolute_to_zp()
         switch(op_addr_mode(inst.op))
         {
         case MODE_ABSOLUTE:
-            inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE); 
+            if(op_t new_op = get_op(op_name(inst.op), MODE_ZERO_PAGE))
+                inst.op = new_op;
             break;
 
         // These are *generally* safe, but aren't if arrays can start in ZP but end outside of it.
         // TODO: Better specify this by possibly adding new pseudo asm ops.
         case MODE_ABSOLUTE_X:
-            inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE_X); 
+            if(op_t new_op = get_op(op_name(inst.op), MODE_ZERO_PAGE_X))
+                inst.op = new_op;
             break;
         case MODE_ABSOLUTE_Y: 
-            inst.op = get_op(op_name(inst.op), MODE_ZERO_PAGE_Y); 
+            if(op_t new_op = get_op(op_name(inst.op), MODE_ZERO_PAGE_Y))
+                inst.op = new_op;
             break;
 
         default: 
@@ -394,6 +397,29 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
         if(op_size(inst.op) == 0)
             continue;
 
+        if(inst.op == STORE_C_ABSOLUTE)
+        {
+            write_inst({ .op = PHP_IMPLIED });
+            write_inst({ .op = PHA_IMPLIED });
+            write_inst({ .op = LDA_IMMEDIATE, .arg = locator_t::const_byte(0) });
+            write_inst({ .op = ROL_IMPLIED });
+            write_inst({ .op = STA_ABSOLUTE, .arg = inst.arg });
+            write_inst({ .op = PLA_IMPLIED });
+            write_inst({ .op = PLP_IMPLIED });
+            // total bytes: 1+1+2+1+3+1+1 = 10
+        }
+        else if(inst.op == STORE_Z_ABSOLUTE)
+        {
+            write_inst({ .op = PHP_IMPLIED });
+            write_inst({ .op = PHA_IMPLIED });
+            write_inst({ .op = PHP_IMPLIED });
+            write_inst({ .op = PLA_IMPLIED });
+            write_inst({ .op = ALR_IMMEDIATE, .arg = locator_t::const_byte(0b10) });
+            write_inst({ .op = STA_ABSOLUTE, .arg = inst.arg });
+            write_inst({ .op = PLA_IMPLIED });
+            write_inst({ .op = PLP_IMPLIED });
+            // total bytes: 1+1+1+1+2+3+1+1 = 11
+        }
         if(inst.op == BANKED_Y_JSR || inst.op == BANKED_Y_JMP)
         {
             assert(!inst.alt);

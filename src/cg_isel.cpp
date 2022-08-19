@@ -376,20 +376,12 @@ namespace isel
         cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
     };
 
-    template<typename Opt, regs_t Regs, bool KeepValue, typename Param, bool ConstsAsNode = false> [[gnu::noinline]]
+    template<typename Opt, regs_t Regs, bool KeepValue, typename Param> [[gnu::noinline]]
     void set_defs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs<Regs>(Opt::to_struct, Param::value(), KeepValue))
-        {
-            if(ConstsAsNode && Param::value().lclass() == LOC_CONST_BYTE)
-            {
-                assert((cpu_copy.known_mask & Regs) == Regs);
-                cpu_copy.set_defs<Regs>(Opt::to_struct, locator_t::from_ssa_value(Param::node()), true);
-                assert((cpu_copy.known_mask & Regs) == Regs);
-            }
             cont->call(cpu_copy, prev);
-        }
     };
 
     template<typename Opt, op_t Op, typename Def, typename Arg = null_> [[gnu::noinline]]
@@ -771,37 +763,44 @@ namespace isel
             else
                 simple_op<CLC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
-        /* TODO: this may not be valid.
-        else if(cpu.reg_eq(REG_NZ, Def::value()))
+        else if(cpu.def_eq(REG_Z, Def::value()))
         {
-            if(cpu.reg_eq(REG_C, locator_t::const_byte(0)))
+            using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+            using load_C_label = param<struct load_C_label_tag>;
+            load_C_label::set(state.minor_label());
+
+            if(cpu.is_known(REG_C, 0))
             {
-                // definitely need to add labels / clear conditional
                 chain
-                < exact_op<Opt, BEQ_IMPLIED, none_, const_<1>>
-                , exact_op<typename Opt::add_flag<OPT_CONDITIONAL>, SEC_IMPLIED>
-                , set_defs<Opt, REGF_C, Def>
+                < simple_op<Opt, BNE_RELATIVE, null_, load_C_label>
+                , simple_op<OptC, SEC_IMPLIED>
+                , label<load_C_label>
+                , clear_conditional
+                , set_defs<Opt, REGF_C, true, Def>
                 >(cpu, prev, cont);
             }
-            else if(cpu.reg_eq(REG_C, locator_t::const_byte(1)))
+            else if(cpu.is_known(REG_C, 1))
             {
                 chain
-                < exact_op<Opt, BNE_IMPLIED, none_, const_<1>>
-                , exact_op<typename Opt::add_flag<OPT_CONDITIONAL>, CLC_IMPLIED>
-                , set_defs<Opt, REGF_C, Def>
+                < simple_op<Opt, BEQ_RELATIVE, null_, load_C_label>
+                , simple_op<OptC, CLC_IMPLIED>
+                , label<load_C_label>
+                , clear_conditional
+                , set_defs<Opt, REGF_C, true, Def>
                 >(cpu, prev, cont);
             }
             else
             {
                 chain
-                < exact_op<Opt, CLC_IMPLIED>
-                , exact_op<Opt, BNE_IMPLIED, none_, const_<1>>
-                , exact_op<typename Opt::add_flag<OPT_CONDITIONAL>, SEC_IMPLIED>
-                , set_defs<Opt, REGF_C, Def>
+                < simple_op<Opt, CLC_IMPLIED>
+                , simple_op<Opt, BNE_RELATIVE, null_, load_C_label>
+                , simple_op<OptC, SEC_IMPLIED>
+                , label<load_C_label>
+                , clear_conditional
+                , set_defs<Opt, REGF_C, true, Def>
                 >(cpu, prev, cont);
             }
         }
-        */
         else
         {
             chain
@@ -994,7 +993,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def, typename Load, typename Store, 
-             bool Maybe = true, bool ConstsAsNode = false> [[gnu::noinline]]
+             bool Maybe = true> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         if(Load::trans() == Store::trans())
@@ -1005,19 +1004,19 @@ namespace isel
 
         chain
         < load_A<Opt, Load>
-        , set_defs<Opt, REGF_A, true, Def, ConstsAsNode>
+        , set_defs<Opt, REGF_A, true, Def>
         , store<Opt, STA, Def, Store, Maybe>
         >(cpu, prev, cont);
 
         chain
         < load_X<Opt, Load>
-        , set_defs<Opt, REGF_X, true, Def, ConstsAsNode>
+        , set_defs<Opt, REGF_X, true, Def>
         , store<Opt, STX, Def, Store, Maybe>
         >(cpu, prev, cont);
 
         chain
         < load_Y<Opt, Load>
-        , set_defs<Opt, REGF_Y, true, Def, ConstsAsNode>
+        , set_defs<Opt, REGF_Y, true, Def>
         , store<Opt, STY, Def, Store, Maybe>
         >(cpu, prev, cont);
     };
@@ -1117,7 +1116,7 @@ namespace isel
     using p_lhs = p_arg<0>;
     using p_rhs = p_arg<1>;
     using p_carry = param<struct carry_tag>;
-    using p_temp = param<struct temp_tag>;
+    using p_carry_output = param<struct carry_output_tag>;
     template<unsigned I>
     using p_label = param<i_tag<struct label_tag, I>>;
     using p_condition = condition<struct condition_tag>;
@@ -1721,7 +1720,59 @@ namespace isel
     }
 
     template<typename Opt, typename Def>
-    void store_carry(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void store_Z(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+
+        ssa_value_t v = Def::node();
+
+        if(v.holds_ref() && (v->output_size() > 1 || (v->output_size() == 1 && v->output(0)->cfg_node() != v->cfg_node())))
+        {
+            p_label<0>::set(state.minor_label());
+            p_label<1>::set(state.minor_label());
+
+            chain
+            < simple_op<Opt, PHP_IMPLIED>
+            , simple_op<Opt, PLA_IMPLIED>
+            , simple_op<Opt, ALR_IMMEDIATE, null_, const_<0b10>>
+            , set_defs<Opt, REGF_A | REGF_Z, true, p_def>
+            , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
+            , load_X<OptC, const_<0>>
+            , simple_op<OptC, BEQ_RELATIVE, null_, p_label<1>>
+            , label<p_label<0>>
+            , load_X<OptC, const_<1>>
+            , label<p_label<1>>
+            , clear_conditional
+            , set_defs<Opt, REGF_X | REGF_Z, true, p_def>
+            , exact_op<Opt, STX_ABSOLUTE, null_, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
+            , load_Y<OptC, const_<0>>
+            , simple_op<OptC, BEQ_RELATIVE, null_, p_label<1>>
+            , label<p_label<0>>
+            , load_Y<OptC, const_<1>>
+            , label<p_label<1>>
+            , clear_conditional
+            , set_defs<Opt, REGF_Y | REGF_Z, true, p_def>
+            , exact_op<Opt, STY_ABSOLUTE, null_, p_def>
+            >(cpu, prev, cont);
+        }
+        else
+        {
+            cpu_t new_cpu = cpu;
+            if(new_cpu.set_def<REG_Z>(Opt::to_struct, Def::value(), true))
+                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_Z>(Opt::to_struct, prev, Def::trans()));
+        }
+    }
+
+    template<typename Opt, typename Def>
+    void store_C(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
 
@@ -1733,7 +1784,8 @@ namespace isel
 
             chain
             < load_A<Opt, const_<0>>
-            , simple_op<typename Opt::valid_for<REGF_A>, ROL_IMPLIED, p_def>
+            , simple_op<typename Opt::valid_for<REGF_A>, ROL_IMPLIED>
+            , set_defs<Opt, REGF_A, true, p_def>
             , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
             >(cpu, prev, cont);
 
@@ -1785,18 +1837,27 @@ namespace isel
         switch(h->op())
         {
         case SSA_carry:
-            store_carry<Opt, p_def>(cpu, prev, cont);
+            if(cpu.def_eq(REG_Z, p_def::value()))
+                store_Z<Opt, p_def>(cpu, prev, cont);
+            else if(cpu.def_eq(REG_C, p_def::value()))
+                store_C<Opt, p_def>(cpu, prev, cont);
+            else
+                passert(0, h, h->input(0)); // Input node must output carry.
             break;
 
         case SSA_add:
             p_carry::set(h->input(2));
+            p_carry_output::set(carry_output(*h));
 
             commutative(h, [&]()
             {
+                using in_Z = condition<struct in_Z_tag>;
+
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , pick_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC, p_def, p_rhs>
                 , store<Opt, STA, p_def, p_def>
+                , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 chain
@@ -1804,6 +1865,7 @@ namespace isel
                 , load_X<Opt::restrict_to<~REGF_AC>, p_rhs>
                 , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_X, p_def>
                 , store<Opt, STA, p_def, p_def>
+                , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 chain
@@ -1811,50 +1873,63 @@ namespace isel
                 , load_Y<Opt::restrict_to<~REGF_AC>, p_rhs>
                 , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_Y, p_def>
                 , store<Opt, STA, p_def, p_def>
+                , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 if(p_rhs::value().is_const_num())
                 {
                     p_label<0>::set(state.minor_label());
 
-                    if(p_rhs::value().data() == 0 && !carry_used(*h))
+                    if(p_rhs::value().data() == 0)
                     {
-                        chain
-                        < load_C<Opt, p_carry>
-                        , load_X<Opt, p_lhs>
-                        , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                        , simple_op<OptC, INX_IMPLIED>
-                        , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
-                        , store<Opt, STX, p_def, p_def>
-                        >(cpu, prev, cont);
-
-                        chain
-                        < load_C<Opt, p_carry>
-                        , load_Y<Opt, p_lhs>
-                        , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                        , simple_op<OptC, INY_IMPLIED>
-                        , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
-                        , store<Opt, STY, p_def, p_def>
-                        >(cpu, prev, cont);
-
-                        if(p_def::trans() == p_lhs::trans())
+                        if(cpu.def_eq(REG_C, p_carry::value()) || cpu.def_eq(REG_Z, p_carry::value()))
                         {
+                            in_Z::set(cpu.def_eq(REG_Z, p_carry::value()));
+
                             chain
-                            < simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                            , pick_op<OptC, INC, p_def, p_lhs>
+                            < load_X<Opt, p_lhs>
+                            , if_<OptC, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                                              simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
+                            , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+                            , simple_op<OptC, INX_IMPLIED>
                             , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
+                            , store<Opt, STX, p_def, p_def>
+                            , set_defs<Opt, REGF_Z, true, p_carry_output>
                             >(cpu, prev, cont);
+
+                            chain
+                            < load_Y<Opt, p_lhs>
+                            , if_<OptC, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                                              simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
+                            , simple_op<OptC, INY_IMPLIED>
+                            , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
+                            , store<Opt, STY, p_def, p_def>
+                            , set_defs<Opt, REGF_Z, true, p_carry_output>
+                            >(cpu, prev, cont);
+
+                            if(p_def::trans() == p_lhs::trans())
+                            {
+                                chain
+                                < if_<OptC, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                                                  simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
+                                , pick_op<OptC, INC, p_def, p_lhs>
+                                , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
+                                , set_defs<Opt, REGF_Z, true, p_carry_output>
+                                >(cpu, prev, cont);
+                            }
                         }
                     }
 
-                    if(p_rhs::value().data() == 0xFF && !carry_used(*h))
+                    if(p_rhs::value().data() == 0xFF && !p_carry_output::node() && cpu.def_eq(REG_C, p_carry::value()))
                     {
+                        in_Z::set(cpu.def_eq(REG_Z, p_carry::value()));
+
                         p_label<0>::set(state.minor_label());
 
                         chain
-                        < load_C<Opt, p_carry>
-                        , load_X<Opt, p_lhs>
-                        , simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>
+                        < load_X<Opt, p_lhs>
+                        , if_<OptC, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                                          simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
                         , simple_op<OptC, DEX_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
@@ -1862,9 +1937,9 @@ namespace isel
                         >(cpu, prev, cont);
 
                         chain
-                        < load_C<Opt, p_carry>
-                        , load_Y<Opt, p_lhs>
-                        , simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>
+                        < load_Y<Opt, p_lhs>
+                        , if_<OptC, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                                          simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
                         , simple_op<OptC, DEY_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
@@ -1874,7 +1949,8 @@ namespace isel
                         if(p_def::trans() == p_lhs::trans())
                         {
                             chain
-                            < simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>
+                            < if_<OptC, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                                              simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
                             , pick_op<OptC, DEC, p_def, p_def>
                             , label<p_label<0>>
                             , clear_conditional
@@ -1884,33 +1960,41 @@ namespace isel
 
                     if(p_carry::value().is_const_num())
                     {
-                        p_temp::set(ssa_value_t((0x100 - p_rhs::value().data() - !!p_carry::value().data()) & 0xFF, TYPE_U));
+                        p_arg<2>::set(ssa_value_t((0x100 - p_rhs::value().data() - !!p_carry::value().data()) & 0xFF, TYPE_U));
 
                         chain
                         < load_AX<Opt, p_lhs, p_lhs>
-                        , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_temp>
+                        , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
                         , store<Opt, STX, p_def, p_def>
+                        , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
 
-                        if((p_rhs::value().data() + !!p_carry::value().data()) == 1 && !carry_used(*h))
+                        if((p_rhs::value().data() + !!p_carry::value().data()) == 1)
                         {
                             chain
                             < load_X<Opt, p_lhs>
                             , simple_op<Opt, INX_IMPLIED, p_def>
                             , store<Opt, STX, p_def, p_def>
+                            , set_defs<Opt, REGF_Z, true, p_carry_output>
                             >(cpu, prev, cont);
 
                             chain
                             < load_Y<Opt, p_lhs>
                             , simple_op<Opt, INY_IMPLIED, p_def>
                             , store<Opt, STY, p_def, p_def>
+                            , set_defs<Opt, REGF_Z, true, p_carry_output>
                             >(cpu, prev, cont);
 
                             if(p_def::trans() == p_lhs::trans())
-                                pick_op<Opt, INC, p_def, p_lhs>(cpu, prev, cont);
+                            {
+                                chain
+                                < pick_op<Opt, INC, p_def, p_lhs>
+                                , set_defs<Opt, REGF_Z, true, p_carry_output>
+                                >(cpu, prev, cont);
+                            }
                         }
 
-                        if(((p_rhs::value().data() + !!p_carry::value().data()) & 0xFF) == 0xFF && !carry_used(*h))
+                        if(((p_rhs::value().data() + !!p_carry::value().data()) & 0xFF) == 0xFF && !p_carry_output::node())
                         {
                             chain
                             < load_X<Opt, p_lhs>
@@ -2015,16 +2099,23 @@ namespace isel
         case SSA_rol:
             p_lhs::set(h->input(0));
             p_rhs::set(h->input(1));
+            p_carry_output::set(carry_output(*h));
             if(h->input(1).eq_whole(0u))
             {
                 chain
                 < load_A<Opt, p_lhs>
                 , simple_op<Opt, ASL_IMPLIED, p_def>
                 , store<Opt, STA, p_def, p_def>
+                , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
-                    pick_op<Opt, ASL, p_def, p_lhs>(cpu, prev, cont);
+                {
+                    chain
+                    < pick_op<Opt, ASL, p_def, p_lhs>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
+                    >(cpu, prev, cont);
+                }
             }
             else
             {
@@ -2032,6 +2123,7 @@ namespace isel
                 < load_AC<Opt, p_lhs, p_rhs>
                 , simple_op<Opt, ROL_IMPLIED, p_def>
                 , store<Opt, STA, p_def, p_def>
+                , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
@@ -2039,6 +2131,7 @@ namespace isel
                     chain
                     < load_C<Opt, p_rhs>
                     , pick_op<Opt, ROL, p_def, p_lhs>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
                 }
             }
@@ -2047,16 +2140,23 @@ namespace isel
         case SSA_ror:
             p_lhs::set(h->input(0));
             p_rhs::set(h->input(1));
+            p_carry_output::set(carry_output(*h));
             if(h->input(1).eq_whole(0u))
             {
                 chain
                 < load_A<Opt, p_lhs>
                 , simple_op<Opt, LSR_IMPLIED, p_def>
                 , store<Opt, STA, p_def, p_def>
+                , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
-                    pick_op<Opt, LSR, p_def, p_lhs>(cpu, prev, cont);
+                {
+                    chain
+                    < pick_op<Opt, LSR, p_def, p_lhs>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
+                    >(cpu, prev, cont);
+                }
             }
             else
             {
@@ -2064,6 +2164,7 @@ namespace isel
                 < load_AC<Opt, p_lhs, p_rhs>
                 , simple_op<Opt, ROR_IMPLIED, p_lhs>
                 , store<Opt, STA, p_def, p_def>
+                , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 if(p_def::trans() == p_lhs::trans())
@@ -2071,6 +2172,7 @@ namespace isel
                     chain
                     < load_C<Opt, p_rhs>
                     , pick_op<Opt, ROR, p_def, p_lhs>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
                 }
             }
@@ -2089,7 +2191,7 @@ namespace isel
                 chain
                 < load_A<Opt, p_lhs>
                 , simple_op<Opt, CMP_IMMEDIATE, p_def, const_<0x80>>
-                , store_carry<Opt, p_def>
+                , store_C<Opt, p_def>
                 >(cpu, prev, cont);
             }
             break;
@@ -2160,19 +2262,8 @@ namespace isel
             break;
 
         case SSA_phi_copy:
-            p_arg<0>::set(h->input(0));
-            if(!orig_def(h->input(0)).holds_ref())
-            {
-                // Normally, loading a constant into a register only tracks the constant, 
-                // not the node that required it.
-                // For SSA_phi_copy, we want to also tag the node, 
-                // so that the can be passed to other CFG nodes.
-                //load_then_store<Opt, p_def, p_arg<0>, p_def, true, true>(cpu, prev, cont);
-                // TODO
-                load_then_store<Opt, p_def, p_arg<0>, p_def, true, false>(cpu, prev, cont);
-            }
-            else if(cset_head(h) != cset_head(h->input(0).handle()))
-                load_then_store<Opt, p_def, p_arg<0>, p_def, true, false>(cpu, prev, cont);
+            if(!orig_def(h->input(0)).holds_ref() || cset_head(h) != cset_head(h->input(0).handle()))
+                load_then_store<Opt, p_def, p_arg<0>, p_def, true>(cpu, prev, cont);
             else
                 ignore_req_store<p_def>(cpu, prev, cont);
             break;
@@ -2669,8 +2760,20 @@ namespace isel
         }
     }
 
+    static bool value_unused(cfg_ht cfg, ssa_ht ssa)
+    {
+        return for_each_output_matching(ssa, INPUT_VALUE, [cfg](ssa_ht output) -> bool
+        {
+            if(ssa_flags(output->op()) & SSAF_COPY)
+                return value_unused(cfg, output);
+            return !dominates(cfg, output->cfg_node());
+        });
+    }
+
     static cross_cpu_t prepare_cross_cpu_for(cross_cpu_t const& cross, cfg_ht cfg, unsigned input_i)
     {
+        ssa_ht next_phi = {};
+
         auto const convert = [&](locator_t l) -> locator_t
         {
             assert(l.lclass() != LOC_PHI); // Should have been stripped earlier.
@@ -2683,34 +2786,34 @@ namespace isel
                 if(h->cfg_node() == cfg)
                     return LOC_NONE;
 
-                /*
-                locator_t const cset_loc = cset_locator(h);
-                if(cset_loc.lclass() == LOC_PHI)
-                {
-                    for(ssa_ht phi = cfg->phi_begin(); phi; ++phi)
-                    {
-                        assert(phi->op() == SSA_phi);
-                        if(cset_loc.ssa_node() == phi)
-                            return locator_t::phi(phi);
-                    }
-                }
-
                 // If the node has no output used through 'cfg', ignore it.
-                /* TODO
-                if(for_each_output_matching(h, INPUT_VALUE, [&](ssa_ht output)
-                {
-                    return !dominates(cfg, output->cfg_node());
-                }))
-                {
+                if(value_unused(cfg, h))
                     return LOC_NONE;
-                }
-                */
             }
 
-            // Setup incoming phis:
-            for(ssa_ht phi = cfg->phi_begin(); phi; ++phi)
+            // Setup incoming phis.
+            // Search to see if we have an input to the phi.
+            // If we do, we'll change the locator to that phi and update 'next_phi'.
+            // The point of 'next_phi' is to get a better phi variety;
+            // we don't want to change all values to the same phi.
+
+            for(ssa_ht phi = next_phi; phi; ++phi)
+            {
                 if(ssa_to_value(phi->input(input_i)) == l)
+                {
+                    next_phi = phi.next();
                     return locator_t::phi(phi);
+                }
+            }
+
+            for(ssa_ht phi = cfg->phi_begin(); phi != next_phi; ++phi)
+            {
+                if(ssa_to_value(phi->input(input_i)) == l)
+                {
+                    next_phi = phi.next();
+                    return locator_t::phi(phi);
+                }
+            }
 
             return l;
         };
@@ -2725,7 +2828,6 @@ namespace isel
 
 void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
 {
-    log = &stdout_log;
     using namespace isel;
 
     state.log = log;
@@ -2842,12 +2944,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 result.code[--size] = sel->inst;
             assert(size == 0);
             assert(result.code[0].op == ASM_PRUNED);
-            result.code[0] = 
-            { 
-                .op = ASM_LABEL, 
-                .arg = locator_t::cfg_label(cfg), 
-                .alt = locator_t::const_byte(std::min<unsigned>(0xFF, loop_depth(cfg))),
-            };
+            result.code[0] = { .op = ASM_LABEL, .arg = locator_t::cfg_label(cfg), };
 
             // Determine the final 'start state'.
             // This is the cpu state we started with, 
@@ -3008,7 +3105,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
         {
             auto& d = data(cfg);
-            isel_cost_t const multiplier = loop_depth_exp(cfg, 4);
+            isel_cost_t const multiplier = depth_exp(loop_depth(cfg));
 
             for(auto const& pair : d.sels)
                 d.cost_vector.push_back(pair.second.cost * multiplier);
@@ -3018,13 +3115,13 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         {
             auto& d = data(cfg);
 
-            isel_cost_t const multiplier = loop_depth_exp(cfg, 4);
-
             unsigned const output_size = cfg->output_size();
             for(unsigned i = 0; i < output_size; ++i)
             {
                 cfg_ht const output = cfg->output(i);
                 auto& od = data(output);
+
+                isel_cost_t const multiplier = depth_exp(edge_depth(cfg, output));
 
                 std::vector<pbqp_cost_t> cost_matrix(d.sels.size() * od.sels.size());
                 for(unsigned y = 0; y < od.sels.size(); ++y)
@@ -3110,15 +3207,6 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             return cross;
         };
 
-        auto const label_loop_depth = [&](regs_t loads)
-        {
-            unsigned depth = 0;
-            for(unsigned i = 0; i < input_size; ++i)
-                if(input_loads[i] && (input_loads[i] & loads) == input_loads[i])
-                    depth = std::max<unsigned>(depth, loop_depth(cfg->input(i)));
-            return std::min<unsigned>({ loop_depth(cfg), depth, 0xFF });
-        };
-
         auto const replace_labels = [&](regs_t loads, locator_t label)
         {
             unsigned depth = 0;
@@ -3191,11 +3279,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         if(always_load)
         {
             locator_t const label = locator_t::cfg_label(cfg, next_label_index++);
-            always_load_code.push_back({ 
-                .op = ASM_LABEL, 
-                .arg = label,
-                .alt = locator_t::const_byte(label_loop_depth(always_load)),
-            });
+            always_load_code.push_back({ .op = ASM_LABEL, .arg = label });
 
             cross_cpu_t cross = initial_cross(always_load);
             bitset_for_each(always_load, [&](regs_t reg)
@@ -3232,7 +3316,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 {
                     cfg_ht input = cfg->input(i);
 
-                    unsigned const cost = loop_depth_exp(input, 4);
+                    unsigned const cost = depth_exp(edge_depth(input, cfg));
                     regs_t input_load = input_loads[i];
 
                     for(unsigned j = 0; j < order.size(); ++j)
@@ -3264,11 +3348,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             {
                 locator_t const label = locator_t::cfg_label(cfg, next_label_index++);
                 remaining_load_code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));
-                remaining_load_code.push_back({ 
-                    .op = ASM_LABEL, 
-                    .arg = label,
-                    .alt = locator_t::const_byte(label_loop_depth(1 << reg)),
-                });
+                remaining_load_code.push_back({ .op = ASM_LABEL, .arg = label });
 
                 replace_labels(1 << reg, label);
             }

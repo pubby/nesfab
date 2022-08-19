@@ -428,7 +428,7 @@ void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
     std::fprintf(hpp, "constexpr bool token_right_assoc_table[] =\n{\n");
         std::fprintf(hpp, "    0,\n"); // TOK_ERROR
     for(auto const& p : names)
-        std::fprintf(hpp, "    %i,\n", p.second.second->precedence & RIGHT_ASSOC);
+        std::fprintf(hpp, "    %i,\n", bool(p.second.second->precedence & RIGHT_ASSOC));
     std::fprintf(hpp, "};\n");
 
     std::fprintf(hpp, "#define TOK_KEY_CASES \\\n");
@@ -583,6 +583,19 @@ rptr type() { return many1(cat(upper(), many1(pred(is_lower_or_digit)))); }
 rptr digit() { return pred(isdigit); }
 rptr hex_digit() { return pred(isxdigit); }
 rptr bin_digit() { return pred([](unsigned char c) { return c == '0' || c == '1'; }); }
+
+rptr asm_op_keyword(char const* a) 
+{ 
+    std::string lower(a);
+    std::string upper(a);
+
+    for(char& c : lower)
+        c = std::tolower(c);
+    for(char& c : upper)
+        c = std::toupper(c);
+
+    return uor(word(lower.c_str()), word(upper.c_str()));
+}
 
 int main()
 {
@@ -767,11 +780,20 @@ int main()
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);
-
     print_output(dfa, minimize_dfa(dfa));
 
-    //nfa_t nfa = gen_nfa(*pred(&isdigit), nfa_nodes);
-    //print_nfa(nfa, nfa_nodes);
-    //print_dfa(dfa);
+    std::deque<nfa_node_t> asm_nfa_nodes;
+    nfa_t asm_nfa = gen_nfa(*
+        uor(
+            accept("eof", "file ending", eof()),
+#define OP_NAME(name, b) asm_op_keyword(#name),
+#include "lexed_op_name.inc"
+#undef OP_NAME
+            accept("reg_x", "register x", uor(word("x"), word("X"))),
+            accept("reg_y", "register y", uor(word("y"), word("Y")))
+            ),
+        asm_nfa_nodes);
+    dfa_t asm_dfa = nfa_to_dfa(asm_nfa);
+    //print_output(asm_dfa, minimize_dfa(asm_dfa));
 }
 

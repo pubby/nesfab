@@ -1,6 +1,7 @@
 #include "asm_graph.hpp"
 
 #include <random>
+#include <iostream> // TODO
 
 #include <boost/intrusive/list.hpp>
 
@@ -15,6 +16,7 @@
 #include "lvar.hpp"
 #include "worklist.hpp"
 #include "globals.hpp"
+#include "ir_algo.hpp"
 
 namespace { // anonymouse
 
@@ -75,8 +77,7 @@ public:
         } vlive;
     };
 
-    unsigned depth = 0;
-    unsigned freq() const { return 1 << std::min<unsigned>(16, 4 * depth); }
+    cfg_ht cfg = {};
 private:
 
     bc::small_vector<asm_node_t*, 2> m_inputs;
@@ -187,12 +188,8 @@ asm_graph_t::asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locato
             node.output_inst = { .op = JMP_ABSOLUTE };
             asm_node_t& node = push_back(inst.arg, true);
 
-            if(inst.alt)
-            {
-                // 'alt' holds loop depth.
-                assert(inst.alt.lclass() == LOC_CONST_BYTE);
-                node.depth = std::max<unsigned>(node.depth, inst.alt.data());
-            }
+            if(inst.arg.lclass() == LOC_CFG_LABEL)
+                node.cfg = inst.arg.cfg_node();
         }
         else 
         {
@@ -241,7 +238,7 @@ asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)
     if(succeed && list.size() > 0)
     {
         list.back().push_output(&node);
-        node.depth = list.back().depth;
+        node.cfg = list.back().cfg;
     }
 
     if(label)
@@ -371,7 +368,7 @@ bool asm_graph_t::o_returns()
             std::vector<asm_inst_t> new_code(a.code.end() - match_len, a.code.end());
 
             asm_node_t& new_node = push_back();
-            new_node.depth = std::max(a.depth, b.depth);
+            new_node.cfg = a.cfg ? a.cfg : b.cfg;
             new_node.code = std::move(new_code);
             new_node.output_inst = a.output_inst;
 
@@ -470,7 +467,7 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
            || (node.inputs().size() == 1 && prev != node.inputs()[0])
            || node.label == entry_label)
         {
-            code.push_back({ .op = ASM_LABEL, .arg = get_label(node), .alt = locator_t::const_byte(node.depth) });
+            code.push_back({ .op = ASM_LABEL, .arg = get_label(node) });
         }
         code.insert(code.end(), node.code.begin(), node.code.end());
 
@@ -520,6 +517,18 @@ struct asm_path_t
     int offset = 0;
 };
 
+// This is used to handle the entrances of CFG nodes which may have multiple labels.
+// Specifically, it's used to get an accurate edge_depth.
+template<typename Set>
+static void build_incoming(Set& incoming, asm_node_t const& node, cfg_ht cfg)
+{
+    if(node.cfg != cfg)
+        incoming.insert(node.cfg);
+    else if(node.label.lclass() == LOC_CFG_LABEL && node.label.data() > 0)
+        for(asm_node_t* input : node.inputs())
+            build_incoming(incoming, *input, cfg);
+}
+
 std::vector<asm_node_t*> asm_graph_t::order()
 {
     struct edge_t
@@ -533,10 +542,28 @@ std::vector<asm_node_t*> asm_graph_t::order()
     std::vector<edge_t> elim_order;
     elim_order.reserve(list.size() * 2);
 
+    fc::small_set<cfg_ht, 8> incoming;
+
     for(asm_node_t& node : list)
     {
-        unsigned const scale = node.freq();
-        assert(scale > 0);
+        auto const scale = [&](asm_node_t& other)
+        {
+            assert(node.cfg && other.cfg);
+
+            incoming.clear();
+            if(node.cfg == other.cfg)
+                build_incoming(incoming, node, node.cfg);
+
+            unsigned depth = 0;
+
+            if(incoming.empty())
+                depth = edge_depth(node.cfg, other.cfg);
+            else
+                for(cfg_ht cfg : incoming)
+                    depth = std::max<unsigned>(depth, edge_depth(cfg, other.cfg));
+
+            return 1 << std::min<unsigned>(16, 2 * depth);
+        };
 
         switch(node.outputs().size())
         {
@@ -544,14 +571,14 @@ std::vector<asm_node_t*> asm_graph_t::order()
             break;
         case 1:  
             // Weight 'jmp' the highest:
-            elim_order.push_back({ &node, 0, 3 * scale });
+            elim_order.push_back({ &node, 0, 3 * scale(*node.outputs()[0]) });
             break;
         case 2:
             // It's dumb, but we'll slightly prioritize falling into the smallest branch nodes.
             {
                 bool const fat_i = node.outputs()[0]->code.size() < node.outputs()[1]->code.size();
-                elim_order.push_back({ &node, fat_i, 2 * scale });
-                elim_order.push_back({ &node, !fat_i, 1 * scale });
+                elim_order.push_back({ &node, fat_i, 2 * scale(*node.outputs()[fat_i]) });
+                elim_order.push_back({ &node, !fat_i, 1 * scale(*node.outputs()[!fat_i]) });
             }
             break;
         default: 
@@ -572,12 +599,12 @@ std::vector<asm_node_t*> asm_graph_t::order()
     // Build path cover greedily:
     for(edge_t const& edge : elim_order)
     {
-        dprint(log, "PATH_COVER_EDGE", edge.weight);
+        asm_node_t& to = *edge.from->outputs()[edge.output];
+        dprint(log, "PATH_COVER_EDGE", edge.weight, edge.from->cfg, to.cfg);
 
         if(edge.from->vcover.path_output >= 0)
             continue; // Path already exists
 
-        asm_node_t& to = *edge.from->outputs()[edge.output];
         if(to.vcover.path_input >= 0)
             continue; // Path already exists
 
@@ -592,6 +619,8 @@ std::vector<asm_node_t*> asm_graph_t::order()
         edge.from->vcover.list_end = end;
         edge.from->vcover.path_output = edge.output;
         to.vcover.path_input = to.find_input(edge.from);
+
+        dprint(log, "PATH_COVER_EDGE_MADE");
     }
 
     bc::small_vector<asm_path_t, 8> paths;
@@ -705,7 +734,7 @@ std::vector<asm_node_t*> asm_graph_t::order()
         // For small sizes, we can solve the path order optimally:
         std::sort(order.begin(), order.end());
         do check(order);
-        while(std::next_permutation(order.begin(), order.end()));
+        while(lowest_cost && std::next_permutation(order.begin(), order.end()));
     }
     else
     {
@@ -735,7 +764,10 @@ std::vector<asm_node_t*> asm_graph_t::order()
                 std::swap(order[a], order[b]);
             }
             check(order);
+            if(lowest_cost == 0)
+                goto done;
         }
+    done:;
     }
 
     // Now gather the final result:
@@ -992,19 +1024,8 @@ void asm_graph_t::liveness(fn_t const& fn, lvars_manager_t& lvars)
                             {
                                 switch(inst.op)
                                 {
-                                case MAYBE_STORE_C: 
-                                                assert(false); // TODO
-                                                /*
-                                    temp_code.push_back({ PHP_IMPLIED, inst.ssa_op });
-                                    temp_code.push_back({ PHA_IMPLIED, inst.ssa_op });
-                                    temp_code.push_back({ LDA_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
-                                    temp_code.push_back({ ROL_IMPLIED, inst.ssa_op });
-                                    inst.op = STA_ABSOLUTE;
-                                    temp_code.push_back(std::move(inst));
-                                    temp_code.push_back({ PLA_IMPLIED, inst.ssa_op });
-                                    temp_code.push_back({ PLP_IMPLIED, inst.ssa_op });
-                                    continue;
-                                    */
+                                case MAYBE_STORE_C: inst.op = STORE_C_ABSOLUTE; break;
+                                case MAYBE_STORE_Z: inst.op = STORE_Z_ABSOLUTE; break;
                                 default: assert(false);
                                 }
                             }
@@ -1041,6 +1062,7 @@ std::vector<asm_inst_t> run_asm_graph(
     log_t* log, fn_t const& fn, lvars_manager_t& lvars,
     std::vector<asm_inst_t> const& code, locator_t entry_label)
 {
+    log = &stdout_log;
     asm_graph_t graph(log, code, entry_label);
     graph.optimize();
     graph.liveness(fn, lvars);

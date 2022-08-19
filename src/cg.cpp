@@ -1141,6 +1141,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         lvars_manager_t lvars(fn.handle(), ir);
 
+        // NOTE: REQUIRES LOOP INFORMATION BUILT.
         asm_proc_t asm_proc(fn.handle(), run_asm_graph(log, fn, lvars, code, locator_t::cfg_label(ir.root)));
         asm_proc.initial_optimize();
 

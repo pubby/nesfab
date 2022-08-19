@@ -29,15 +29,33 @@ struct asm_inst_t
     locator_t alt;
 
     int cost; // another debugging tool. TODO: remove this
+
+    bool operator==(asm_inst_t const& o) const
+        { return op == o.op && arg == o.arg && alt == o.alt; }
+    bool operator!=(asm_inst_t const& o) const
+        { return !operator==(o); }
 };
+
+bool is_return(asm_inst_t const& inst);
+
+template<typename It>
+unsigned size_in_bytes(It begin, It end)
+{
+    unsigned size = 0;
+    for(It it = begin; it != end; ++it)
+        size += op_size(it->op);
+    return size;
+}
 
 // A relocatable sequence of assembly instructions, 
 // used after code generation but still amenable to code optimizations.
 struct asm_proc_t
 {
+    asm_proc_t() = default;
+    asm_proc_t(fn_ht fn, std::vector<asm_inst_t> code);
+
     fn_ht fn = {};
     std::vector<asm_inst_t> code;
-    //rh::robin_map<locator_t, unsigned> mem_usage; // Counts how many times locators are mentioned.
     rh::batman_map<locator_t, unsigned> labels; // Maps from locators to code indices
 
     // Adds 'inst' to 'code':
@@ -47,6 +65,11 @@ struct asm_proc_t
     void push_inst(op_name_t op_name, std::uint8_t i) { push_inst(get_op(op_name, MODE_IMMEDIATE), locator_t::const_byte(i)); }
     locator_t push_label(unsigned id) { auto l = make_label(id); push_inst(ASM_LABEL, l); return l; }
     locator_t make_label(unsigned id) const { return locator_t::minor_label(id); }
+
+    asm_inst_t* prev_inst(int i);
+    asm_inst_t* next_inst(int i);
+
+    void rebuild_label_map();
 
     void initial_optimize();
 
@@ -67,13 +90,15 @@ struct asm_proc_t
     // Replaces labels with constant addresses.
     void relocate(std::uint16_t addr);
 private:
+    void process_inst(asm_inst_t const& inst);
+
     void optimize(bool initial);
 
     // Converts absolute instructions to zp, when appropriate
     void absolute_to_zp();
 
     // Converts very short jumps to SKB or IGN ops.
-    void optimize_short_jumps(bool initial);
+    void optimize_short_jumps(bool use_nops);
 
     // Converts invalid relative branches into long branches.
     void convert_long_branch_ops();

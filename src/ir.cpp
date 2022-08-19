@@ -967,5 +967,5 @@ ssa_ht split_output_edge(ssa_ht ssa_node, bool this_cfg, unsigned output_i, ssa_
 }
 
 template class node_io_buffers_t<ssa_fwd_edge_t, ssa_bck_edge_t, 3, 1>;
-template class node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 2, 2>;
+template class node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 3, 2>;
 

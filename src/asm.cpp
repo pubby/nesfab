@@ -40,6 +40,11 @@ std::string to_string(op_t op)
         return BOOST_PP_CAT(BOOST_PP_STRINGIZE(name),s);
 #include "op.inc"
 #undef OP
-    default: return ""s;
+    default: 
+        if(op >= BEGIN_REG_READ_OP && op < END_REG_READ_OP)
+            return "REG_READ"s;
+        if(op >= BEGIN_REG_WRITE_OP && op < END_REG_WRITE_OP)
+            return "REG_WRITE"s;
+        return ""s;
     }
 }

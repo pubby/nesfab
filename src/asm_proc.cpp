@@ -4,6 +4,13 @@
 #include "globals.hpp"
 #include "runtime.hpp"
 
+bool is_return(asm_inst_t const& inst)
+{
+    return ((op_flags(inst.op) & ASMF_RETURN) 
+            || ((op_flags(inst.op) & ASMF_JUMP) 
+                && !is_label(inst.arg.lclass())));
+}
+
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
     o << "{ " << to_string(inst.op) << ", " << inst.arg;
@@ -13,6 +20,58 @@ std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
     return o;
 }
 
+asm_proc_t::asm_proc_t(fn_ht fn, std::vector<asm_inst_t> code_)
+: fn(fn)
+, code(std::move(code_))
+{
+    rebuild_label_map();
+}
+
+void asm_proc_t::rebuild_label_map()
+{
+    labels.clear();
+
+    for(unsigned i = 0; i < code.size(); ++i)
+    {
+        if(code[i].op == ASM_LABEL)
+        {
+            auto result = labels.insert({ code[i].arg, i });
+            assert(result.second);
+        }
+    }
+}
+
+asm_inst_t* asm_proc_t::prev_inst(int i)
+{
+    for(--i; i >= 0; --i)
+        if(op_size(code[i].op))
+            return &code[i];
+    return nullptr;
+}
+
+asm_inst_t* asm_proc_t::next_inst(int i) 
+{
+    for(++i; i < code.size(); ++i)
+        if(op_size(code[i].op))
+            return &code[i];
+    return nullptr;
+}
+
+int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
+{
+    if(bi < ai)
+        return -bytes_between(bi, ai);
+
+    int bytes = 0;
+    for(unsigned i = ai; i < bi; ++i)
+    {
+        assert(i < code.size());
+        bytes += op_size(code[i].op);
+    }
+
+    return bytes;
+}
+
 void asm_proc_t::push_inst(asm_inst_t inst)
 {
     if(inst.op == ASM_LABEL)
@@ -20,14 +79,8 @@ void asm_proc_t::push_inst(asm_inst_t inst)
         auto result = labels.insert({ inst.arg, code.size() });
         assert(result.second);
     }
-    else
-    {
-        code.push_back(inst);
 
-        //if(!is_label(inst.arg.lclass()))
-            //mem_usage[inst.arg.mem_head()] += 1;
-    }
-
+    code.push_back(inst);
 }
 
 void asm_proc_t::absolute_to_zp()
@@ -54,7 +107,7 @@ void asm_proc_t::absolute_to_zp()
             break;
 
         default: 
-            continue;
+            break;
         }
     }
 }
@@ -75,7 +128,10 @@ void asm_proc_t::convert_long_branch_ops()
                 continue;
 
             unsigned const label_i = labels[inst.arg];
-            int dist = bytes_between(i+1, label_i);
+            asm_inst_t const* next = next_inst(i);
+            if(!next)
+                continue;
+            int dist = bytes_between(next - code.data(), label_i);
 
             if(is_relative_branch(inst.op))
             {
@@ -99,8 +155,8 @@ void asm_proc_t::convert_long_branch_ops()
                     inst.op = new_op;
                     progress = true;
 
-                    assert(bytes_between(i+1, label_i) <= 127);
-                    assert(bytes_between(i+1, label_i) >= -128);
+                    assert(bytes_between(next - code.data(), label_i) <= 127);
+                    assert(bytes_between(next - code.data(), label_i) >= -128);
                 }
             }
         }
@@ -108,16 +164,22 @@ void asm_proc_t::convert_long_branch_ops()
     while(progress);
 }
 
-void asm_proc_t::optimize_short_jumps(bool initial)
+// Note: 'use_nops' can be dangerous if applied too early,
+// as it hardcodes the relative jump distance.
+void asm_proc_t::optimize_short_jumps(bool use_nops)
 {
     for(unsigned i = 0; i < code.size(); ++i)
     {
         asm_inst_t& inst = code[i];
 
+        asm_inst_t* next = next_inst(i);
+        if(!next)
+            continue;
+
         if(inst.op == JMP_ABSOLUTE)
         {
             unsigned const label_i = labels[inst.arg];
-            int const dist = bytes_between(i+1, label_i);
+            int const dist = bytes_between(next - code.data(), label_i);
             
             if(dist == 0)
             {
@@ -125,15 +187,19 @@ void asm_proc_t::optimize_short_jumps(bool initial)
                 inst.op = ASM_PRUNED;
                 inst.arg = {};
             }
-            else if(!initial && dist == 1)
+            else if(use_nops && dist == 1)
             {
                 inst.op = SKB_IMPLIED;
                 inst.arg = {};
             }
-            else if(!initial && dist == 2 && op_code(code[i+1].op) != 0x20) // Check for 0x20 to avoid reading a PPU register
+            else if(use_nops && dist == 2)
             {
-                inst.op = IGN_IMPLIED;
-                inst.arg = {};
+                auto o = op_code(next->op);
+                if(o < 0x20 || o >= 0x42) // Avoid reading PPU / APU registers, etc.
+                {
+                    inst.op = IGN_IMPLIED;
+                    inst.arg = {};
+                }
             }
         }
         else if(op_flags(inst.op) & ASMF_BRANCH)
@@ -141,14 +207,14 @@ void asm_proc_t::optimize_short_jumps(bool initial)
             // Prune unecessary branches
 
             unsigned const label_i = labels[inst.arg];
-            int const dist = bytes_between(i+1, label_i);
+            int const dist = bytes_between(next - code.data(), label_i);
 
             if(dist == 0)
             {
                 inst.op = ASM_PRUNED;
                 inst.arg = {};
             }
-            else if(dist == 2 && code[i+1].op == invert_branch(inst.op))
+            else if(dist == 2 && next->op == invert_branch(inst.op))
             {
                 // Handles code like:
                 //  BEQ l1
@@ -156,18 +222,18 @@ void asm_proc_t::optimize_short_jumps(bool initial)
                 //  L1:
                 // (Removes the first BEQ)
 
-                if(code[i+1].arg == code[i].arg)
+                if(next->arg == code[i].arg)
                 {
                     // Prune both
-                    code[i].op = code[i+1].op = ASM_PRUNED;
-                    code[i].arg = code[i+1].arg = {};
+                    code[i].op = next->op = ASM_PRUNED;
+                    code[i].arg = next->arg = {};
                 }
                 else
                 {
                     // Prune the useless branch op
-                    code[i] = code[i+1];
-                    code[i+1].op = ASM_PRUNED;
-                    code[i+1].arg = {};
+                    code[i] = *next;
+                    next->op = ASM_PRUNED;
+                    next->arg = {};
                 }
             }
         }
@@ -178,42 +244,46 @@ void asm_proc_t::optimize(bool initial)
 {
     // Order matters here.
     absolute_to_zp();
-    optimize_short_jumps(initial);
+    optimize_short_jumps(!initial);
     convert_long_branch_ops();
 }
 
-void asm_proc_t::initial_optimize() { optimize(true); }
-
-int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
+void asm_proc_t::initial_optimize()
 {
-    if(bi < ai)
-        return -bytes_between(bi, ai);
+    // Order matters here.
+    optimize(true);
+}
 
-    int bytes = 0;
-    for(unsigned i = ai; i < bi; ++i)
+void asm_proc_t::link(romv_t romv, int bank)
+{
+#ifndef NDEBUG
+    std::size_t const pre_size = size();
+#endif
+
+    for(asm_inst_t& inst : code)
     {
-        assert(i < code.size());
-        bytes += op_size(code[i].op);
+        inst.arg = inst.arg.link(romv, fn, bank);
+        inst.alt = inst.alt.link(romv, fn, bank);
     }
 
-    return bytes;
+    optimize(false);
+    assert(pre_size >= size());
 }
 
 void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
 {
     if(fn)
         os << fn->global.name << ":\n";
+
     for(unsigned i = 0; i < code.size(); ++i)
     {
         asm_inst_t const& inst = code[i];
 
         for(auto const& pair : labels)
-        {
             if(pair.second == i)
                 os << "LABEL " << pair.first << ":\n";
-        }
 
-        if(inst.op == ASM_PRUNED)
+        if(inst.op == ASM_PRUNED || inst.op == ASM_LABEL)
             continue;
 
         os << "    " << to_string(inst.op) << ' ';
@@ -226,28 +296,12 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         case LOC_FN:
             os << "fn " << inst.arg.fn()->global.name;
             break;
-        case LOC_GMEMBER:
-            os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() 
-               << " " << inst.arg.gmember()->span(inst.arg.atom());
-            break;
-        case LOC_ARG:
-        case LOC_RETURN:
-        case LOC_PHI:
-        case LOC_SSA:
-            if(!fn)
-                throw std::runtime_error("Unable to write assembly. Missing function.");
-            os << "lvar " << fn->lvar_span(romv, fn->lvars().index(inst.arg)) << "   " << inst.arg;
-            break;
-
-        case LOC_NONE:
-            break;
-
         default:
-            os << "???" << ' ' << inst.arg;
+            os << inst.arg;
             break;
         }
 
-        os << inst.arg << '\n';
+        os << '\n';
     }
 }
 
@@ -337,7 +391,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
 
     for(asm_inst_t const& inst : code)
     {
-        if(inst.op == ASM_PRUNED)
+        if(op_size(inst.op) == 0)
             continue;
 
         if(inst.op == BANKED_Y_JSR || inst.op == BANKED_Y_JMP)
@@ -359,23 +413,6 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
             write_inst(inst);
 
     }
-}
-
-void asm_proc_t::link(romv_t romv, int bank)
-{
-#ifndef NDEBUG
-    std::size_t const pre_size = size();
-#endif
-
-    for(asm_inst_t& inst : code)
-    {
-        inst.arg = inst.arg.link(romv, fn, bank);
-        inst.alt = inst.alt.link(romv, fn, bank);
-    }
-
-    optimize(false);
-
-    assert(pre_size >= size());
 }
 
 void asm_proc_t::relocate(std::uint16_t addr)

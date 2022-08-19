@@ -121,7 +121,8 @@ ram_init.cpp \
 mods.cpp \
 rom_prune.cpp \
 cg_ptr.cpp \
-pbqp.cpp
+pbqp.cpp \
+asm_graph.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

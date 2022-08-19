@@ -1,7 +1,6 @@
 #ifndef CG_ORDER_HPP
 #define CG_ORDER_HPP
 
-
 #include <vector>
 
 #include "ir_decl.hpp"

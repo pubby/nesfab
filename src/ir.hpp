@@ -13,6 +13,7 @@
 #include "sizeof_bits.hpp"
 #include "ssa_op.hpp"
 #include "static_pool.hpp"
+#include "flags.hpp"
 #include "loop_test.hpp" // TODO: move with iter functions?
 
 //////////////////////////
@@ -98,7 +99,7 @@ public:
 };
 
 using ssa_buffer_t = node_io_buffers_t<ssa_fwd_edge_t, ssa_bck_edge_t, 3, 1>;
-using cfg_buffer_t = node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 2, 2>;
+using cfg_buffer_t = node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 3, 2>;
 
 ////////////////////////////////////////
 // ssa_node_t                         //
@@ -106,7 +107,7 @@ using cfg_buffer_t = node_io_buffers_t<cfg_fwd_edge_t, cfg_bck_edge_t, 2, 2>;
 
 class cfg_node_t;
 
-class alignas(32) ssa_node_t : public intrusive_t<ssa_ht>
+class alignas(32) ssa_node_t : public intrusive_t<ssa_ht>, public flag_owner_t
 {
     friend class ssa_fwd_edge_t;
     friend class ssa_bck_edge_t;
@@ -120,7 +121,6 @@ private:
     type_t m_type = TYPE_VOID;
     cfg_ht m_cfg_h = {};
     ssa_op_t m_op = SSA_null;
-    std::uint16_t m_flags = 0;
     ssa_buffer_t m_io;
 public:
     ssa_node_t() = default;
@@ -129,12 +129,12 @@ public:
 
     ssa_ht handle() const { return { this - ssa_pool::data() }; }
 
-    void set_flags(std::uint16_t f) { m_flags |= f; }
-    void clear_flags(std::uint16_t f) { m_flags &= ~f; }
-    bool test_flags(std::uint16_t f) const { return (m_flags & f) == f; }
+    //void set_flags(std::uint16_t f) { m_flags |= f; }
+    //void clear_flags(std::uint16_t f) { m_flags &= ~f; }
+    //bool test_flags(std::uint16_t f) const { return (m_flags & f) == f; }
 
-    void set_mark(mark_t mark) { m_flags &= ~MARK_MASK; m_flags |= mark; }
-    mark_t get_mark() const { return (mark_t)(m_flags & MARK_MASK); }
+    //void set_mark(mark_t mark) { m_flags &= ~MARK_MASK; m_flags |= mark; }
+    //mark_t get_mark() const { return (mark_t)(m_flags & MARK_MASK); }
 
     cfg_ht cfg_node() const { return m_cfg_h; }
     cfg_ht input_cfg(std::size_t i) const;
@@ -210,7 +210,7 @@ private:
 // cfg_node_t                         //
 ////////////////////////////////////////
 
-class alignas(32) cfg_node_t : public intrusive_t<cfg_ht>
+class alignas(32) cfg_node_t : public intrusive_t<cfg_ht>, public flag_owner_t
 {
     friend struct cfg_fwd_edge_t;
     friend struct cfg_bck_edge_t;
@@ -226,8 +226,7 @@ private:
     ssa_ht m_first_phi = {};
     ssa_ht m_last_daisy = {};
 
-    std::uint16_t m_flags = 0;
-    std::uint16_t m_ssa_size = 0;
+    unsigned m_ssa_size = 0;
 private:
     cfg_buffer_t m_io;
 public:
@@ -236,13 +235,6 @@ public:
     cfg_node_t& operator=(cfg_node_t&&) = default;
 
     cfg_ht handle() const { return { this - cfg_pool::data() }; }
-
-    void set_flags(std::uint16_t f) { m_flags |= f; }
-    void clear_flags(std::uint16_t f) { m_flags &= ~f; }
-    bool test_flags(std::uint16_t f) const { return (m_flags & f) == f; }
-
-    void set_mark(mark_t mark) { m_flags &= ~MARK_MASK; m_flags |= mark; }
-    mark_t get_mark() const { return (mark_t)(m_flags & MARK_MASK); }
 
     cfg_ht input(unsigned i) const { return m_io.input(i).handle; }
     cfg_fwd_edge_t input_edge(unsigned i) const { return m_io.input(i); }

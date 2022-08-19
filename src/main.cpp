@@ -100,6 +100,8 @@ int main(int argc, char** argv)
             if(vm.count("print-cpp-sizes"))
             {
 #define PRINT_SIZE(x) std::printf(#x ": %u\n", unsigned(sizeof(x)));
+                PRINT_SIZE(cfg_buffer_t);
+                PRINT_SIZE(ssa_buffer_t);
                 PRINT_SIZE(cfg_node_t);
                 PRINT_SIZE(ssa_node_t);
                 PRINT_SIZE(global_t);
@@ -203,7 +205,7 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
         alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
-        //print_rom(std::cout);
+        print_rom(std::cout);
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);

@@ -1,6 +1,8 @@
 #ifndef DEBUG_PRINT_HPP
 #define DEBUG_PRINT_HPP
 
+// Logging, used for debugging purposes.
+
 #include <cstdio>
 #include <mutex>
 
@@ -15,6 +17,7 @@ struct log_t
     {
         std::lock_guard<std::mutex> lock(mutex);
         std::fputs(msg.c_str(), stream);
+        std::fputc('\n', stream);
     }
 };
 

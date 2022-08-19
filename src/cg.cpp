@@ -19,6 +19,7 @@
 #include "ir.hpp"
 #include "locator.hpp"
 #include "rom.hpp"
+#include "asm_graph.hpp" // TODO
 
 #include <iostream> // TODO
 
@@ -1131,232 +1132,22 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // INSTRUCTION SELECTION //
     ///////////////////////////
 
-    select_instructions(log, fn, ir);
-
-
     {
-        /*
-        rh::robin_map<locator_t, unsigned> store_map;
+        select_instructions(log, fn, ir);
 
-        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-        {
-            auto& d = cg_data(cfg_it);
+        std::vector<asm_inst_t> code;
+        for(cfg_ht h : postorder | std::views::reverse)
+            code.insert(code.end(), cg_data(h).code.begin(), cg_data(h).code.end());
 
-            //std::cout << "\n\n";
-
-//#ifndef DEBUG_PRINT
-            for(ssa_ht h : d.schedule)
-                std::cout << "sched " << h->op() << ' ' << h.id << '\n';
-//#endif
-
-            d.code = select_instructions(fn, cfg_it);
-
-            for(asm_inst_t inst : d.code)
-                if(op_input_regs(inst.op) & REGF_M)
-                    store_map.emplace(inst.arg.mem_head(), [&]{ return store_map.size(); });
-        }
-
-        // Replace used MAYBE stores with real stores, 
-        // and prune unused MAYBE stores:
-        // TODO: we need a more accurate way to do this.
-        // i.e. some liveness check
-#if 0 // Changing to #if 0 can be useful for debugging.
-        std::vector<asm_inst_t> temp_code;
-        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-        {
-            auto& d = cg_data(cfg_it);
-
-            temp_code.clear();
-            temp_code.reserve(d.code.size());
-
-            for(asm_inst_t inst : d.code)
-            {
-                if(op_flags(inst.op) & ASMF_MAYBE_STORE)
-                {
-                    if(!store_map.count(inst.arg.mem_head()))
-                        continue;
-
-                    switch(inst.op)
-                    {
-                    case MAYBE_STA: inst.op = STA_ABSOLUTE; break;
-                    case MAYBE_STX: inst.op = STX_ABSOLUTE; break;
-                    case MAYBE_STY: inst.op = STY_ABSOLUTE; break;
-                    case MAYBE_SAX: inst.op = SAX_ABSOLUTE; break;
-                    case MAYBE_STORE_C: 
-                        temp_code.push_back({ PHP_IMPLIED, inst.ssa_op });
-                        temp_code.push_back({ PHA_IMPLIED, inst.ssa_op });
-                        temp_code.push_back({ LDA_IMMEDIATE, inst.ssa_op, locator_t::const_byte(0) });
-                        temp_code.push_back({ ROL_IMPLIED, inst.ssa_op });
-                        inst.op = STA_ABSOLUTE;
-                        temp_code.push_back(std::move(inst));
-                        temp_code.push_back({ PLA_IMPLIED, inst.ssa_op });
-                        temp_code.push_back({ PLP_IMPLIED, inst.ssa_op });
-                        continue;
-                    default: assert(false);
-                    }
-                }
-                temp_code.push_back(std::move(inst));
-            }
-            
-            d.code.swap(temp_code);
-        }
-#endif
-*/
-    }
-
-    ////////////////////////
-    // ORDER BASIC BLOCKS //
-    ////////////////////////
-
-    std::vector<cfg_ht> order = order_ir(ir);
-
-    for(cfg_ht h : order)
-    {
-        std::cout << "CFG = " << h.id << '\n';
-        for(asm_inst_t inst : cg_data(h).code)
-            std::cout << inst << '\n';
-    }
-
-    ///////////////
-    // PEEP-HOLE //
-    ///////////////
-
-    // TODO: this has been moved in asm_proc, right?
-
-    // Remove unnecessary branch/jump ops that pointlessly jump over nothing.
-
-    /*
-    for(int i = 0; i < (int)order.size() - 1;)
-    {
-        auto& code = cg_data(order[i]).code;
-
-        if(code.empty())
-        {
-            ++i;
-            continue;
-        }
-
-        auto const unnecessary_jump = [&order, i](asm_inst_t const& inst) -> bool
-        {
-            return ((op_flags(inst.op) & ASMF_JUMP) 
-                    && inst.arg.lclass() == LOC_CFG_LABEL
-                    && inst.arg.cfg_node() == order[i+1]);
-        };
-
-        // Pairs of inverted branches can be flipped.
-        if(code.size() >= 2)
-        {
-            asm_inst_t& inst = code[code.size() - 2];
-            if(code.back().op == invert_branch(inst.op) && unnecessary_jump(inst))
-            {
-                std::swap(inst, code.back());
-                code.pop_back();
-            }
-        }
-
-        if(unnecessary_jump(code.back()))
-            code.pop_back();
-        else
-            ++i;
-    }
-    */
-
-    /////////////////////
-    // BUILD LVAR INFO //
-    /////////////////////
-
-    {
         lvars_manager_t lvars(fn.handle(), ir);
 
-        calc_asm_liveness(fn, ir, lvars);
-        build_lvar_interferences(fn, ir, lvars);
+        asm_proc_t asm_proc(fn.handle(), run_asm_graph(log, fn, lvars, code, locator_t::cfg_label(ir.root)));
+        asm_proc.initial_optimize();
 
         // Add the lvars to the fn
         fn.assign_lvars(std::move(lvars));
-    }
-
-
-    //////////////////////////
-    // CONVERT TO ASM_PROC //
-    /////////////////////////
-
-    {
-        asm_proc_t asm_proc;
-        asm_proc.fn = fn.handle();
-
-        std::size_t size_upper_bound = 0;
-        for(cfg_ht h : order)
-            size_upper_bound += cg_data(h).code.size();
-        asm_proc.code.reserve(asm_proc.code.size() + size_upper_bound);
-
-        for(cfg_ht h : order)
-            for(asm_inst_t inst : cg_data(h).code)
-                asm_proc.push_inst(inst);
-
-        asm_proc.initial_optimize();
-
-        //proc.write_assembly(std::cout, fn); TODO: remove
-
-        //std::cout << "RELOC\n";
-        // proc.write_assembly(std::cout, fn); TODO: remove
-        //std::cout << "DONE RELOC\n";
-        //for(asm_inst_t inst : proc.code)
-            //std::cout << inst << '\n';
-
-        // Add the proc to the fn
         fn.rom_proc().safe().assign(std::move(asm_proc));
     }
-
-    ///////////////////////
-    // MEMORY ALLOCATION //
-    ///////////////////////
-
-    /////////////////////////
-    // CONVERT TO asm_fn_t //
-    /////////////////////////
-
-    /* TODO
-    asm_fn_t asm_fn;
-    asm_bb_t asm_bb;
-
-    rh::robin_map<locator_t, int> label_map;
-
-    for(cfg_ht h : order)
-    {
-        auto& code = cg_data(h).code;
-
-        for(unsigned i = 0; i < code.size; ++i)
-        {
-            asm_inst_t const inst = code[i];
-
-            if(inst.op == ASM_LABEL)
-            {
-                assert(inst.op.arg.is_label());
-                auto result = label_map.emplace(inst.op.arg.label(), asm_fn.bbs.size());
-                assert(result.inserted);
-
-                if(asm_bb.code.size())
-                {
-                    asm_fn.bbs.push_back(std::move(asm_bb));
-                    asm_bb = {};
-                }
-            }
-            else if(op_flags(inst.op) & ASMF_BRANCH)
-            {
-                asm_bb.branch = 
-                asm_bb.code.assign(code.begin(), code.begin() + i + 1);
-
-
-                ++i;
-            }
-            else
-                bb.code.push_back(inst);
-        }
-
-        for(asm_inst_t inst : cg_data(h).code)
-            std::cout << inst << '\n';
-    }
-    */
 
 }
 

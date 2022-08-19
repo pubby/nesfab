@@ -2167,7 +2167,9 @@ namespace isel
                 // not the node that required it.
                 // For SSA_phi_copy, we want to also tag the node, 
                 // so that the can be passed to other CFG nodes.
-                load_then_store<Opt, p_def, p_arg<0>, p_def, true, true>(cpu, prev, cont);
+                //load_then_store<Opt, p_def, p_arg<0>, p_def, true, true>(cpu, prev, cont);
+                // TODO
+                load_then_store<Opt, p_def, p_arg<0>, p_def, true, false>(cpu, prev, cont);
             }
             else if(cset_head(h) != cset_head(h->input(0).handle()))
                 load_then_store<Opt, p_def, p_arg<0>, p_def, true, false>(cpu, prev, cont);
@@ -2681,7 +2683,7 @@ namespace isel
                 if(h->cfg_node() == cfg)
                     return LOC_NONE;
 
-                // Setup incoming phis:
+                /*
                 locator_t const cset_loc = cset_locator(h);
                 if(cset_loc.lclass() == LOC_PHI)
                 {
@@ -2694,6 +2696,7 @@ namespace isel
                 }
 
                 // If the node has no output used through 'cfg', ignore it.
+                /* TODO
                 if(for_each_output_matching(h, INPUT_VALUE, [&](ssa_ht output)
                 {
                     return !dominates(cfg, output->cfg_node());
@@ -2701,7 +2704,13 @@ namespace isel
                 {
                     return LOC_NONE;
                 }
+                */
             }
+
+            // Setup incoming phis:
+            for(ssa_ht phi = cfg->phi_begin(); phi; ++phi)
+                if(ssa_to_value(phi->input(input_i)) == l)
+                    return locator_t::phi(phi);
 
             return l;
         };
@@ -2716,6 +2725,7 @@ namespace isel
 
 void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
 {
+    log = &stdout_log;
     using namespace isel;
 
     state.log = log;
@@ -2832,19 +2842,24 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 result.code[--size] = sel->inst;
             assert(size == 0);
             assert(result.code[0].op == ASM_PRUNED);
-            result.code[0] = { ASM_LABEL, SSA_null, locator_t::cfg_label(cfg) };
+            result.code[0] = 
+            { 
+                .op = ASM_LABEL, 
+                .arg = locator_t::cfg_label(cfg), 
+                .alt = locator_t::const_byte(std::min<unsigned>(0xFF, loop_depth(cfg))),
+            };
 
             // Determine the final 'start state'.
             // This is the cpu state we started with, 
             // ignoring any input register not actually used.
 
-            regs_t used = 0;
-            regs_t written = 0;
+            regs_t gen = 0;
+            regs_t kill = 0;
             for(asm_inst_t& inst : result.code)
             {
-                used |= op_input_regs(inst.op) & ~written;
+                gen |= op_input_regs(inst.op) & ~kill;
                 if(!(op_flags(inst.op) & ASMF_MAYBE_STORE))
-                    written |= op_output_regs(inst.op);
+                    kill |= op_output_regs(inst.op);
 
                 if((op_flags(inst.op) & ASMF_MAYBE_STORE) && inst.alt)
                 {
@@ -2874,7 +2889,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
 #endif
 
             for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
-                if(~used & written & (1 << i)) 
+                if(~gen & kill & (1 << i)) 
                     transition.in_state.defs[i] = LOC_NONE;
 
             dprint(state.log, "ISEL_RESULT", cfg, result.cost);
@@ -2947,8 +2962,6 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
 
     auto const gen_load = [&](cross_cpu_t const& cross, regs_t reg, locator_t loc) -> asm_inst_t
     {
-        //assert(loc);
-
         if(loc.lclass() == LOC_SSA || loc.lclass() == LOC_PHI)
             loc = asm_arg(loc.ssa_node()).with_byteified(false);
 
@@ -3097,8 +3110,19 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             return cross;
         };
 
+        auto const label_loop_depth = [&](regs_t loads)
+        {
+            unsigned depth = 0;
+            for(unsigned i = 0; i < input_size; ++i)
+                if(input_loads[i] && (input_loads[i] & loads) == input_loads[i])
+                    depth = std::max<unsigned>(depth, loop_depth(cfg->input(i)));
+            return std::min<unsigned>({ loop_depth(cfg), depth, 0xFF });
+        };
+
         auto const replace_labels = [&](regs_t loads, locator_t label)
         {
+            unsigned depth = 0;
+
             for(unsigned i = 0; i < input_size; ++i)
             {
                 if(!input_loads[i] || (input_loads[i] &= ~loads))
@@ -3111,7 +3135,12 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 for(asm_inst_t& inst : id.final_code())
                     if(inst.arg == locator_t::cfg_label(cfg))
                         inst.arg = label;
+
+                // Also track loop depth:
+                depth = std::max<unsigned>(depth, loop_depth(cfg->input(i)));
             }
+
+            return std::min<unsigned>({ loop_depth(cfg), depth, 0xFF });
         };
 
         // Find loads that all incoming paths (that need loads) will use.
@@ -3162,7 +3191,11 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         if(always_load)
         {
             locator_t const label = locator_t::cfg_label(cfg, next_label_index++);
-            always_load_code.push_back({ .op = ASM_LABEL, .arg = label });
+            always_load_code.push_back({ 
+                .op = ASM_LABEL, 
+                .arg = label,
+                .alt = locator_t::const_byte(label_loop_depth(always_load)),
+            });
 
             cross_cpu_t cross = initial_cross(always_load);
             bitset_for_each(always_load, [&](regs_t reg)
@@ -3189,6 +3222,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             unsigned lowest_misses = ~0u;
             bc::small_vector<regs_t, NUM_CROSS_REGS> order, best_order;
             bitset_for_each(remaining_load, [&](regs_t r){ order.push_back(r); });
+            assert(std::is_sorted(order.begin(), order.end()));
 
             do
             {
@@ -3230,7 +3264,11 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             {
                 locator_t const label = locator_t::cfg_label(cfg, next_label_index++);
                 remaining_load_code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));
-                remaining_load_code.push_back({ .op = ASM_LABEL, .arg = label });
+                remaining_load_code.push_back({ 
+                    .op = ASM_LABEL, 
+                    .arg = label,
+                    .alt = locator_t::const_byte(label_loop_depth(1 << reg)),
+                });
 
                 replace_labels(1 << reg, label);
             }

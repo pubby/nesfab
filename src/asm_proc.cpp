@@ -51,7 +51,7 @@ asm_inst_t* asm_proc_t::prev_inst(int i)
 
 asm_inst_t* asm_proc_t::next_inst(int i) 
 {
-    for(++i; i < code.size(); ++i)
+    for(++i; i < int(code.size()); ++i)
         if(op_size(code[i].op))
             return &code[i];
     return nullptr;

@@ -1330,33 +1330,34 @@ void parser_t<P>::parse_asm_label_block()
 template<typename P>
 void parser_t<P>::parse_asm_op()
 {
-    auto const call = [this](iasm_class_t iclass)
+    auto const call = [this](stmt_name_t stmt)
     {
         pstring_t call;
         std::unique_ptr<mods_t> mods = parse_mods_after([&]{ call = parse_ident(); });
-        policy().asm_call(iclass, call, std::move(mods));
+        policy().asm_call(stmt, call, std::move(mods));
     };
 
     switch(token.type)
     {
     case TOK_fn:
         parse_token();
-        return call(IASM_CALL);
+        return call(STMT_ASM_CALL);
 
     case TOK_goto:
         parse_token();
         if(token.type == TOK_mode)
         {
             parse_token();
-            return call(IASM_GOTO_MODE);
+            return call(STMT_ASM_GOTO_MODE);
         }
-        return call(IASM_GOTO);
+        return call(STMT_ASM_GOTO);
 
     case TOK_nmi:
         {
             int const nmi_indent = indent;
+            pstring_t const pstring = token.pstring;
             parse_token();
-            policy().asm_wait_nmi(parse_mods(nmi_indent));
+            policy().asm_wait_nmi(pstring, parse_mods(nmi_indent));
         }
         return;
 

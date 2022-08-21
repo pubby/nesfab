@@ -11,6 +11,7 @@
 #include "pstring.hpp"
 #include "mods.hpp"
 #include "sval.hpp"
+#include "locator.hpp"
 
 namespace bc = ::boost::container;
 
@@ -18,7 +19,7 @@ struct local_const_t
 {
     var_decl_t var_decl;
     token_t const* expr;
-    sval_t sval;
+    locator_t value;
 
     type_t type() const { return var_decl.src_type.type; }
 };

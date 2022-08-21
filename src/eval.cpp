@@ -120,7 +120,7 @@ public:
     };
 
     static constexpr bool is_check(do_t d) { return d == CHECK; }
-    static constexpr bool is_interpret(do_t d) { return d == INTERPRET_CE || d == INTERPRET; }
+    static constexpr bool is_interpret(do_t d) { return d == INTERPRET_CE || d == INTERPRET_ASM || d == INTERPRET; }
 
     template<do_t Do>
     struct do_wrapper_t { static constexpr auto D = Do; };
@@ -279,10 +279,24 @@ public:
 
 thread_local eval_t::ir_builder_t eval_t::builder;
 
-spair_t interpret_asm_expr(pstring_t pstring, token_t const* expr, type_t expected_type, local_const_t const* local_consts)
+locator_t interpret_asm_expr(pstring_t pstring, token_t const* expr, 
+                             bool addr, local_const_t const* local_consts)
 {
-    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET_ASM>{}, pstring, expr, expected_type, local_consts);
-    return i.final_result;
+    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET_ASM>{}, pstring, expr, addr ? TYPE_U20 : TYPE_U, local_consts);
+
+    assert(i.final_result.value.size() == 1);
+
+    if(ssa_value_t const* value = std::get_if<ssa_value_t>(&i.final_result.value[0]))
+    {
+        if(value->is_locator())
+            return value->locator();
+        if(value->is_num())
+            return addr ? locator_t::addr(value->whole()) : locator_t::const_byte(value->whole());
+    }
+    else if(expr_vec_t const* vec = std::get_if<expr_vec_t>(&i.final_result.value[0]))
+        return locator_t::lt_expr(alloc_lt_value(i.final_result.type, *vec));
+
+    compiler_error(pstring, "Invalid expression.");
 }
 
 spair_t interpret_expr(pstring_t pstring, token_t const* expr, type_t expected_type, eval_t* env)
@@ -1174,7 +1188,13 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
                 };
 
                 if(D != CHECK)
-                    new_top.sval = local_consts[index].sval;
+                {
+                    locator_t const loc = local_consts[index].value;
+                    if(is_const(loc.lclass()))
+                        new_top.sval = { ssa_value_t(loc.data(), local_consts[index].type().name()) };
+                    else
+                        new_top.sval = { ssa_value_t(loc) };
+                }
 
                 rpn_stack.push(std::move(new_top));
             }

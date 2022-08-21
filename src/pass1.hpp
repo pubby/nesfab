@@ -41,8 +41,6 @@ private:
     bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> break_stack;
     bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> continue_stack;
 
-    iasm_def_t iasm_def;
-
     struct nothing_t {};
 
     void validate_mods(
@@ -131,7 +129,6 @@ public:
 
         // Reset the fn_def and iasm:
         fn_def = fn_def_t();
-        iasm_def.clear();
 
         // Find the global
         active_global = &global_t::lookup(file.source(), fn_name);
@@ -227,7 +224,7 @@ public:
         // Create the global:
         active_global->define_fn(
             decl.name, std::move(ideps), std::move(weak_ideps),
-            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, nullptr);
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, false);
         ideps.clear();
         weak_ideps.clear();
     }
@@ -242,13 +239,14 @@ public:
     [[gnu::always_inline]]
     void asm_value(pstring_t name, expr_temp_t& expr)
     {
-        _add_symbol({{ name, type_t::asm_ptr(false) }, name }, true, convert_expr(expr));
+        _add_symbol({{ name, TYPE_U20 }, name }, true, convert_expr(expr));
     }
 
     [[gnu::always_inline]]
     void asm_label(pstring_t label)
     {
-        _add_symbol({{ label, type_t::asm_ptr(false) }, label }, true);
+        int const i = -_add_symbol({{ label, type_t::asm_ptr(false) }, label }, true)-1;
+        fn_def.push_stmt({ .name = STMT_ASM_LABEL, .pstring = label, .asm_label = i });
     }
 
     [[gnu::always_inline]]
@@ -258,23 +256,25 @@ public:
         if(!op)
             op = get_op(name, zp_equivalent(mode));
         if(!op)
-            compiler_error(pstring, fmt("% is invalid for addressing mode %.", to_string(name), to_string(mode)));
+            compiler_error(pstring, fmt("% lacks addressing mode %.", to_string(name), to_string(mode)));
         // We'll save the expr, but *don't* convert it yet.
-        iasm_def.code.push_back({ .iclass = IASM_OP, .op = op, .ptr = eternal_expr(expr) });
+        fn_def.push_stmt({ .name = STMT_ASM_OP, .asm_op = op, .pstring = pstring, .expr = eternal_expr(expr) });
     }
 
     [[gnu::always_inline]]
-    void asm_call(iasm_class_t iclass, pstring_t pstring, std::unique_ptr<mods_t> mods)
+    void asm_call(stmt_name_t stmt, pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
         global_t& g = global_t::lookup(file.source(), pstring);
         ideps.insert(&g);
-        iasm_def.code.push_back({ .iclass = iclass, .ptr = &g, .mods = std::move(mods) });
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+        fn_def.push_stmt({ .name = stmt, .mods = mods_h, .pstring = pstring, .global = &g });
     }
 
     [[gnu::always_inline]]
-    void asm_wait_nmi(std::unique_ptr<mods_t> mods)
+    void asm_wait_nmi(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        iasm_def.code.push_back({ .iclass = IASM_WAIT_NMI, .mods = std::move(mods) });
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+        fn_def.push_stmt({ .name = STMT_ASM_NMI, .mods = mods_h, .pstring = pstring });
     }
 
     [[gnu::always_inline]]
@@ -283,9 +283,9 @@ public:
         std::unique_ptr<mods_t> mods)
     {
         // Convert all expressions
-        for(iasm_inst_t& inst : iasm_def.code)
-            if(inst.has_expr())
-                convert_expr(const_cast<token_t*>(inst.expr()));
+        for(auto& stmt : fn_def.stmts)
+            if(stmt.name == STMT_ASM_OP && stmt.expr)
+                convert_expr(const_cast<token_t*>(stmt.expr));
 
         symbol_table.pop_scope(); // param scope
 
@@ -302,12 +302,10 @@ public:
             false // nmi
             );
 
-        std::unique_ptr<iasm_def_t> iasm(new iasm_def_t(std::move(iasm_def)));
-
         // Create the global:
         active_global->define_fn(
             decl.name, std::move(ideps), std::move(weak_ideps),
-            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, std::move(iasm));
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true);
 
         ideps.clear();
         weak_ideps.clear();

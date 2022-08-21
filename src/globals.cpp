@@ -109,7 +109,7 @@ static unsigned _append_to_vec(Args&&... args)
 fn_t& global_t::define_fn(pstring_t pstring,
                           global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
                           type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
-                          fn_class_t fclass, std::unique_ptr<iasm_def_t> iasm)
+                          fn_class_t fclass, bool iasm)
 {
     fn_t* ret;
 
@@ -117,7 +117,7 @@ fn_t& global_t::define_fn(pstring_t pstring,
     define(pstring, GLOBAL_FN, std::move(ideps), std::move(weak_ideps), [&](global_t& g)
     { 
         return fn_ht::pool_emplace(
-            ret, g, type, std::move(fn_def), std::move(mods), fclass, std::move(iasm)).id; 
+            ret, g, type, std::move(fn_def), std::move(mods), fclass, iasm).id; 
     });
 
     if(fclass == FN_MODE)
@@ -444,7 +444,7 @@ void global_t::build_order(bool precheck)
         // Add additional ideps
         for(fn_t& fn : fn_ht::values())
         {
-            if(fn.iasm())
+            if(fn.iasm)
                 continue;
             // fns that fence for nmis should depend on said nmis
             if(fn.precheck_tracked().wait_nmis.size() > 0)
@@ -653,13 +653,13 @@ global_datum_t* global_t::datum() const
 ///////////
 
 fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
-           fn_class_t fclass, std::unique_ptr<iasm_def_t> iasm) 
+           fn_class_t fclass, bool iasm) 
 : modded_t(std::move(mods))
 , global(global)
 , fclass(fclass)
+, iasm(iasm)
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
-, m_iasm(std::move(iasm))
 {
     switch(fclass)
     {
@@ -696,7 +696,7 @@ xbitset_t<fn_ht> const& fn_t::nmi_used_in_modes() const
     return pimpl<nmi_impl_t>().used_in_modes;
 }
 
-void fn_t::calc_ir_bitsets(ir_t const& ir)
+void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 {
     xbitset_t<gmember_ht>  reads(0);
     xbitset_t<gmember_ht> writes(0);
@@ -719,100 +719,131 @@ void fn_t::calc_ir_bitsets(ir_t const& ir)
         }
     }
 
-    // Iterate the IR looking for reads and writes
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+    if(iasm)
     {
-        if(ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE)
-            io_pure = false;
+        assert(!ir_ptr);
+        assert(mods());
+        assert(mods()->explicit_group_vars);
+        assert(mods()->explicit_group_data);
 
-        if(ssa_it->op() == SSA_fn_call)
+        io_pure = false;
+        fences = true;
+        group_vars = m_precheck_group_vars;
+
+        for(auto const& pair : mods()->group_vars)
+            deref_groups.set(pair.first->handle().id);
+        for(auto const& pair : mods()->group_data)
+            deref_groups.set(pair.first->handle().id);
+
+        for(auto const& pair : precheck_tracked().calls)
         {
-            fn_ht const callee_h = get_fn(*ssa_it);
-            fn_t const& callee = *callee_h;
-
-            writes     |= callee.ir_writes();
-            reads      |= callee.ir_reads();
-            group_vars |= callee.ir_group_vars();
-            calls      |= callee.ir_calls();
-            calls.set(callee_h.id);
-            io_pure &= callee.ir_io_pure();
-            fences |= callee.ir_fences();
+            fn_t const& callee = *pair.first;
+            reads   |= callee.ir_reads();
+            writes  |= callee.ir_writes();
+            calls   |= callee.ir_calls();
+            calls.set(pair.first.id);
         }
+    }
+    else
+    {
+        assert(ir_ptr);
+        ir_t const& ir = *ir_ptr;
 
-        if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
+        // Iterate the IR looking for reads and writes
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
         {
-            for_each_written_global(ssa_it,
-            [&](ssa_value_t def, locator_t loc)
+            if(ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE)
+                io_pure = false;
+
+            if(ssa_it->op() == SSA_fn_call)
             {
+                fn_ht const callee_h = get_fn(*ssa_it);
+                fn_t const& callee = *callee_h;
+
+                reads      |= callee.ir_reads();
+                writes     |= callee.ir_writes();
+                group_vars |= callee.ir_group_vars();
+                calls      |= callee.ir_calls();
+                fences     |= callee.ir_fences();
+                io_pure    &= callee.ir_io_pure();
+                calls.set(callee_h.id);
+            }
+
+            if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
+            {
+                for_each_written_global(ssa_it,
+                [&](ssa_value_t def, locator_t loc)
+                {
+                    if(loc.lclass() == LOC_GMEMBER)
+                    {
+                        gmember_t const& written = *loc.gmember();
+                        assert(written.gvar.global.gclass() == GLOBAL_VAR);
+
+                        // Writes only have effect if they're not writing back a
+                        // previously read value.
+                        // TODO: verify this is correct
+                        if(!def.holds_ref()
+                           || def->op() != SSA_read_global
+                           || def->input(1).locator() != loc)
+                        {
+                            writes.set(written.index);
+                            group_vars.set(written.gvar.group_vars.id);
+                        }
+                    }
+                });
+            }
+            else if(ssa_it->op() == SSA_read_global)
+            {
+                assert(ssa_it->input_size() == 2);
+                locator_t loc = ssa_it->input(1).locator();
+
                 if(loc.lclass() == LOC_GMEMBER)
                 {
-                    gmember_t const& written = *loc.gmember();
-                    assert(written.gvar.global.gclass() == GLOBAL_VAR);
+                    gmember_t const& read = *loc.gmember();
+                    assert(read.gvar.global.gclass() == GLOBAL_VAR);
 
-                    // Writes only have effect if they're not writing back a
-                    // previously read value.
-                    // TODO: verify this is correct
-                    if(!def.holds_ref()
-                       || def->op() != SSA_read_global
-                       || def->input(1).locator() != loc)
+                    // Reads only have effect if something actually uses them:
+                    for(unsigned i = 0; i < ssa_it->output_size(); ++i)
                     {
-                        writes.set(written.index);
-                        group_vars.set(written.gvar.group_vars.id);
+                        auto oe = ssa_it->output_edge(i);
+                        // TODO: verify this is correct
+                        if(!is_locator_write(oe) || oe.handle->input(oe.index + 1) != loc)
+                        {
+                            reads.set(read.index);
+                            group_vars.set(read.gvar.group_vars.id);
+                            break;
+                        }
                     }
                 }
-            });
-        }
-        else if(ssa_it->op() == SSA_read_global)
-        {
-            assert(ssa_it->input_size() == 2);
-            locator_t loc = ssa_it->input(1).locator();
+            }
 
-            if(loc.lclass() == LOC_GMEMBER)
+            if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
             {
-                gmember_t const& read = *loc.gmember();
-                assert(read.gvar.global.gclass() == GLOBAL_VAR);
+                using namespace ssai::rw_ptr;
 
-                // Reads only have effect if something actually uses them:
-                for(unsigned i = 0; i < ssa_it->output_size(); ++i)
+                io_pure = false;
+
+                type_t const ptr_type = ssa_it->input(PTR).type(true);
+                assert(is_ptr(ptr_type.name()));
+
+                unsigned const size = ptr_type.group_tail_size();
+                for(unsigned i = 0; i < size; ++i)
                 {
-                    auto oe = ssa_it->output_edge(i);
-                    // TODO: verify this is correct
-                    if(!is_locator_write(oe) || oe.handle->input(oe.index + 1) != loc)
-                    {
-                        reads.set(read.index);
-                        group_vars.set(read.gvar.group_vars.id);
-                        break;
-                    }
+                    // Set 'deref_groups':
+                    group_ht const h = ptr_type.group(i);
+                    deref_groups.set(h.id);
+
+                    // Also update 'ir_group_vars':
+                    group_t const& group = *h;
+                    if(group.gclass() == GROUP_VARS)
+                        group_vars.set(group.handle<group_vars_ht>().id);
                 }
             }
+
+            if(ssa_flags(ssa_it->op()) & SSAF_FENCE)
+                fences = true;
         }
-
-        if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
-        {
-            using namespace ssai::rw_ptr;
-
-            io_pure = false;
-
-            type_t const ptr_type = ssa_it->input(PTR).type(true);
-            assert(is_ptr(ptr_type.name()));
-
-            unsigned const size = ptr_type.group_tail_size();
-            for(unsigned i = 0; i < size; ++i)
-            {
-                // Set 'deref_groups':
-                group_ht const h = ptr_type.group(i);
-                deref_groups.set(h.id);
-
-                // Also update 'ir_group_vars':
-                group_t const& group = *h;
-                if(group.gclass() == GROUP_VARS)
-                    group_vars.set(group.handle<group_vars_ht>().id);
-            }
-        }
-
-        if(ssa_flags(ssa_it->op()) & SSAF_FENCE)
-            fences = true;
     }
 
     m_ir_writes = std::move(writes);
@@ -920,18 +951,48 @@ void fn_t::precheck()
     if(is_ct(def().return_type.type))
         compiler_error(def().return_type.pstring, fmt("Function must be declared as ct to use type %.", def().return_type.type));
 
-    if(m_iasm)
+    if(iasm)
     {
+        if(!mods() || !mods()->explicit_group_vars)
+            compiler_error(global.pstring(), "Missing vars modifier.");
+        if(!mods() || !mods()->explicit_group_data)
+            compiler_error(global.pstring(), "Missing data modifier.");
+
         m_precheck_tracked.reset(new precheck_tracked_t());
+        auto& pt = *m_precheck_tracked;
+
+        for(stmt_ht h = {0}; h.id != def().stmts.size(); ++h)
+        {
+            stmt_t const& stmt = def()[h];
+
+            switch(stmt.name)
+            {
+            case STMT_ASM_OP:
+            case STMT_ASM_LABEL:
+                break;
+            case STMT_ASM_CALL:
+            case STMT_ASM_GOTO:
+                pt.calls.emplace(stmt.global->handle<fn_ht>(), stmt.pstring);
+                break;
+            case STMT_ASM_GOTO_MODE:
+                pt.goto_modes.emplace_back(stmt.global->handle<fn_ht>(), h);
+                break;
+            case STMT_ASM_NMI:
+                pt.wait_nmis.emplace_back(h);
+                break;
+            default:
+                throw std::runtime_error("Unexpected stmt in inline assembly.");
+            }
+        }
     }
     else
     {
         // Run the evaluator to generate 'm_precheck_tracked':
         assert(!m_precheck_tracked);
         m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
-
-        calc_precheck_bitsets();
     }
+
+    calc_precheck_bitsets();
 }
 
 /* TODO
@@ -948,7 +1009,7 @@ void fn_t::compile()
 
 void fn_t::compile_iasm()
 {
-    assert(m_iasm);
+    assert(iasm);
 
     // First resolve local constants:
     for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
@@ -956,18 +1017,75 @@ void fn_t::compile_iasm()
     {
         if(!c.expr)
             continue;
-        spair_t spair = interpret_asm_expr(c.var_decl.name, c.expr, TYPE_U20, m_def.local_consts.data());
-        assert(spair.type.name() == TYPE_U20);
-        m_def.local_consts[i].sval = std::move(spair.value);
+        m_def.local_consts[i].value = interpret_asm_expr(c.var_decl.name, c.expr, true, m_def.local_consts.data());
     }
     
+    /*
     for(unsigned i = 0; i < m_iasm->code.size(); ++i)
     {
         // TODO
         //if(token_t const* expr = m_iasm->code[i])
             //interpret_expr({}, expr, 
     }
+    */
 
+    calc_ir_bitsets(nullptr);
+
+    asm_proc_t proc;
+
+    for(stmt_t const& stmt : def().stmts)
+    {
+        switch(stmt.name)
+        {
+        case STMT_ASM_OP:
+            {
+                locator_t value = {};
+
+                if(stmt.expr)
+                {
+                    assert(op_addr_mode(stmt.asm_op) != MODE_IMPLIED);
+
+                    value = interpret_asm_expr(
+                        stmt.pstring, stmt.expr, 
+                        op_addr_mode(stmt.asm_op) != MODE_IMMEDIATE, 
+                        m_def.local_consts.data());
+                }
+
+                proc.push_inst({ .op = stmt.asm_op, .arg = value });
+            }
+            break;
+
+        case STMT_ASM_LABEL:
+            // TODO: implement
+            assert(0);
+            throw 0;
+            break;
+
+        case STMT_ASM_CALL:
+        case STMT_ASM_GOTO:
+            {
+                if(stmt.global->gclass() != GLOBAL_FN || stmt.global->impl<fn_t>().fclass != FN_FN)
+                    compiler_error(stmt.pstring, fmt("% is not a callable function.", stmt.global->name));
+                op_t const op = stmt.name == STMT_ASM_CALL ? BANKED_Y_JSR : BANKED_Y_JMP;
+                proc.push_inst({ .op = LDY_IMMEDIATE, .arg = locator_t::fn(stmt.global->handle<fn_ht>()).with_is(IS_BANK) });
+                proc.push_inst({ .op = op, .arg = locator_t::fn(stmt.global->handle<fn_ht>()) });
+            }
+            break;
+        case STMT_ASM_GOTO_MODE:
+            // TODO: implement
+            assert(0);
+            throw 0;
+            break;
+        case STMT_ASM_NMI:
+            proc.push_inst({ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
+            break;
+        default:
+            throw std::runtime_error("Unexpected stmt in inline assembly.");
+        }
+    }
+
+    // TODO
+    proc.write_assembly(std::cout, ROMV_MODE);
 }
 
 void fn_t::compile()
@@ -978,7 +1096,7 @@ void fn_t::compile()
     if(fclass == FN_CT)
         return; // Nothing to do!
 
-    if(m_iasm)
+    if(iasm)
         return compile_iasm();
 
     // Init 'fence_reads' and 'fence_writes':
@@ -1051,7 +1169,7 @@ void fn_t::compile()
     save_graph(ir, "2_o1");
 
     // Set the global's 'read' and 'write' bitsets:
-    calc_ir_bitsets(ir);
+    calc_ir_bitsets(&ir);
     assert(ir_reads());
 
     byteify(ir, *this);
@@ -1128,8 +1246,14 @@ void fn_t::calc_precheck_bitsets()
 
     // Set 'wait_nmi' and 'fences':
     m_precheck_wait_nmi |= m_precheck_tracked->wait_nmis.size() > 0;
-    m_precheck_fences |= m_precheck_tracked->fences.size() > 0;
-    m_precheck_fences |= m_precheck_wait_nmi;
+
+    if(iasm)
+        m_precheck_fences = true;
+    else
+    {
+        m_precheck_fences |= m_precheck_tracked->fences.size() > 0;
+        m_precheck_fences |= m_precheck_wait_nmi;
+    }
 
     unsigned const gv_bs_size = group_vars_ht::bitset_size();
 
@@ -1215,7 +1339,7 @@ void fn_t::calc_precheck_bitsets()
         stmt_t const& stmt = def()[fn_stmt.second];
         mods_t const* goto_mods = def().mods_of(fn_stmt.second);
 
-        assert(stmt.name == STMT_GOTO_MODE);
+        assert(stmt.name == STMT_GOTO_MODE || stmt.name == STMT_ASM_GOTO_MODE);
 
         if(!goto_mods || !goto_mods->explicit_group_vars)
             compiler_error(stmt.pstring ? stmt.pstring : global.pstring(), 

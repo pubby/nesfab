@@ -21,6 +21,9 @@ void pass1_t::uses_type(type_t type)
 
 token_t* pass1_t::eternal_expr(expr_temp_t& expr)
 {
+    if(expr.empty())
+        return nullptr;
+
     // Null-like terminator
     expr.push_back({});
 

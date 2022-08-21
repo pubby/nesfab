@@ -47,7 +47,8 @@ struct fn_not_rt_t : public std::exception
     pstring_t pstring;
 };
 
-spair_t interpret_asm_expr(pstring_t pstring, token_t const* expr, type_t expected_type, local_const_t const* local_consts);
+locator_t interpret_asm_expr(pstring_t pstring, token_t const* expr, 
+                             bool addr, local_const_t const* local_consts);
 
 spair_t interpret_expr(pstring_t pstring, token_t const* expr, 
                        type_t expected_type, eval_t* env = nullptr);

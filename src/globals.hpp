@@ -125,8 +125,7 @@ public:
     // Helpers that delegate to 'define':
     fn_t& define_fn(
         pstring_t pstring, global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-        type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass,
-        std::unique_ptr<iasm_def_t> iasm);
+        type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass, bool iasm);
     gvar_t& define_var(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
@@ -316,13 +315,12 @@ public:
     using handle_t = fn_ht;
 
     fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
-         fn_class_t fclass, std::unique_ptr<iasm_def_t> iasm);
+         fn_class_t fclass, bool iasm);
 
     fn_ht handle() const;
 
     type_t type() const { return m_type; }
     fn_def_t const& def() const { return m_def; }
-    iasm_def_t const* iasm() const { return m_iasm.get(); }
 
     void precheck();
     void compile();
@@ -391,19 +389,19 @@ public:
 public:
     global_t& global;
     fn_class_t const fclass;
+    bool const iasm = false; // if the fn is inline assembly
 private:
     void precheck_finish_mode() const;
     void precheck_finish_nmi() const;
 
     void calc_precheck_bitsets();
-    void calc_ir_bitsets(ir_t const& ir);
+    void calc_ir_bitsets(ir_t const* ir);
 
     template<typename P>
     P& pimpl() const { assert(P::fclass == fclass); return *static_cast<P*>(m_pimpl.get()); }
 
     type_t m_type;
     fn_def_t m_def;
-    std::unique_ptr<iasm_def_t> m_iasm;
 
     // This enables different fclasses to store different data.
     std::unique_ptr<fn_impl_base_t> m_pimpl;

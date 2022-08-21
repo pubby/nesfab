@@ -15,16 +15,17 @@ namespace bc = boost::container;
 class symbol_table_t
 {
 public:
+    using handle_type = int;
     using hash_type = std::uint32_t;
 
     // Adds a local var to the table with handle 'handle'.
     // If the var already exists, return a pointer to its handle.
     // Otherwise, return nullptr.
-    unsigned const* new_def(unsigned handle, std::string_view name);
+    handle_type const* new_def(handle_type handle, std::string_view name);
 
     // Looks up a local var using 'name'.
     // Returns a pointer to the handle if found.
-    unsigned const* find(std::string_view name) const;
+    handle_type const* find(std::string_view name) const;
 
     void push_scope() { scope_stack.push_back(assoc_list.size()); }
     void pop_scope();
@@ -39,7 +40,7 @@ private:
     {
         std::string_view name;
         hash_type hash;
-        unsigned handle;
+        handle_type handle;
     };
 
     bc::small_vector<storage_t, 32> assoc_list;
@@ -47,7 +48,7 @@ private:
     // Holds indexes into assoc_list for each stack frame.
     bc::small_vector<unsigned, 16> scope_stack;
     
-    // Assoc lists are pretty damn slow to check if elements are NOT in them.
+    // Assoc lists are slow to check if elements are NOT in them.
     // To speed things up, count which hashes are contained in the assoc list
     // using a fixed-size hash table. 
     // A count of zero for an element's hash implies it's not in the container.

@@ -21,6 +21,7 @@
 
 namespace sc = std::chrono;
 namespace bc = boost::container;
+using namespace lex;
 
 using ssa_value_array_t = bc::small_vector<ssa_value_t, 1>;
 
@@ -105,14 +106,16 @@ private:
 public:
     spair_t final_result;
     std::vector<locator_t> paa; // Only used when defining PAA inits
+    local_const_t const* local_consts = nullptr;
     precheck_tracked_t* precheck_tracked = nullptr; // Various things callers of 'eval_t' may want.
 
     enum do_t
     {
-        CHECK,        // Resolves types and syntax, but not values.
-        INTERPRET_CE, // Like INTERPRET, but can't read/write locals.
-        INTERPRET,    // Calculates values at compile-time.
-        COMPILE,      // Generates the SSA IR.
+        CHECK,         // Resolves types and syntax, but not values.
+        INTERPRET_CE,  // Like INTERPRET, but can't read/write locals.
+        INTERPRET_ASM, // Like INTERPRET, but for inline assembly
+        INTERPRET,     // Calculates values at compile-time.
+        COMPILE,       // Generates the SSA IR.
         LINK
     };
 
@@ -123,7 +126,8 @@ public:
     struct do_wrapper_t { static constexpr auto D = Do; };
 
     template<do_t D>
-    eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, type_t expected_type = TYPE_VOID);
+    eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, 
+           type_t expected_type = TYPE_VOID, local_const_t const* local_consts = nullptr);
 
     template<do_t D>
     eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
@@ -215,7 +219,7 @@ public:
     template<do_t D>
     int cast_args(pstring_t pstring, rpn_value_t* begin, rpn_value_t* end, type_t const* type_begin, bool implicit);
 
-    std::size_t num_locals() const { assert(fn); return fn->def().local_vars.size(); }
+    std::size_t num_local_vars() const { assert(fn); return fn->def().local_vars.size(); }
 
     type_t var_i_type(unsigned var_i) const;
     void init_sval(access_t a, sval_t& sval);
@@ -227,9 +231,9 @@ public:
     // compiler-specific //
     ///////////////////////
 
-    std::size_t num_vars() const { assert(ir); return num_locals() + ir->gmanager.num_locators(); }
+    std::size_t num_vars() const { assert(ir); return num_local_vars() + ir->gmanager.num_locators(); }
 
-    unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.id + num_locals(); }
+    unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.id + num_local_vars(); }
     template<typename T>
     unsigned to_var_i(T gvar) const { return to_var_i(ir->gmanager.var_i(gvar)); }
 
@@ -275,6 +279,12 @@ public:
 
 thread_local eval_t::ir_builder_t eval_t::builder;
 
+spair_t interpret_asm_expr(pstring_t pstring, token_t const* expr, type_t expected_type, local_const_t const* local_consts)
+{
+    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET_ASM>{}, pstring, expr, expected_type, local_consts);
+    return i.final_result;
+}
+
 spair_t interpret_expr(pstring_t pstring, token_t const* expr, type_t expected_type, eval_t* env)
 {
     if(env)
@@ -312,9 +322,11 @@ void build_ir(ir_t& ir, fn_t const& fn)
 }
 
 template<eval_t::do_t D>
-eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, type_t expected_type)
+eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, token_t const* expr, 
+               type_t expected_type, local_const_t const* local_consts)
 : pstring(pstring)
 , start_time(clock::now())
+, local_consts(local_consts)
 {
     do_expr_result<D>(expr, expected_type);
 }
@@ -328,7 +340,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
 , start_time(clock::now())
 , precheck_tracked(tracked)
 {
-    unsigned const nlocals = num_locals();
+    unsigned const nlocals = num_local_vars();
 
     var_types.resize(nlocals);
         for(unsigned i = 0; i < nlocals; ++i)
@@ -374,7 +386,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
     builder.clear(); // TODO: make sure this isn't called in recursion
     ir->gmanager.init(fn->handle());
 
-    unsigned const nlocals = num_locals();
+    unsigned const nlocals = num_local_vars();
 
     var_types.resize(nlocals);
     for(unsigned i = 0; i < nlocals; ++i)
@@ -1141,44 +1153,65 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
         throw std::runtime_error(fmt("Invalid token '%' in expression.", token_string(token->type)));
 
     case TOK_ident:
-        assert(token->value < num_locals());
-
         if(D == INTERPRET_CE)
             compiler_error(token->pstring, "Expression cannot be evaluated at compile-time.");
         else if(D == LINK)
             compiler_error(token->pstring, "Expression cannot be evaluated at link-time.");
         else
         {
-            assert(is_check(D) || D == INTERPRET || D == COMPILE);
-            assert(token->value < var_types.size());
+            assert(is_check(D) || D == INTERPRET || D == INTERPRET_ASM || D == COMPILE);
 
-            rpn_value_t new_top =
+            if(token->signed_() < 0) // If we have a local const
             {
-                .category = LVAL, 
-                .type = var_types[token->value],
-                .pstring = token->pstring,
-                .var_i = token->value,
-            };
+                assert(local_consts);
+                unsigned const index = ~token->value;
 
-            if(D == COMPILE) 
-            {
-                new_top.sval = var_lookup(builder.cfg, token->value);
-                new_top.time = RT;
-            }
-            else if(D == INTERPRET)
-            {
-                if(interpret_locals[token->value].empty())
+                rpn_value_t new_top =
                 {
-                    compiler_error(token->pstring, 
-                        "Variable is invalid because goto jumped past its initialization.");
+                    .category = RVAL, 
+                    .type = local_consts[index].type(),
+                    .pstring = token->pstring,
+                };
+
+                if(D != CHECK)
+                    new_top.sval = local_consts[index].sval;
+
+                rpn_stack.push(std::move(new_top));
+            }
+            else
+            {
+                unsigned const index = token->value;
+                assert(index < var_types.size());
+                assert(index < num_local_vars());
+
+                rpn_value_t new_top =
+                {
+                    .category = LVAL, 
+                    .type = var_types[index],
+                    .pstring = token->pstring,
+                    .var_i = index,
+                };
+
+                if(D == COMPILE) 
+                {
+                    new_top.sval = var_lookup(builder.cfg, index);
+                    new_top.time = RT;
+                }
+                else if(D == INTERPRET)
+                {
+                    if(interpret_locals[index].empty())
+                    {
+                        compiler_error(token->pstring, 
+                            "Variable is invalid because goto jumped past its initialization.");
+                    }
+
+                    new_top.sval = interpret_locals[index];
                 }
 
-                new_top.sval = interpret_locals[token->value];
+                if(!is_check(D))
+                    assert(new_top.sval.size() == num_members(new_top.type));
+                rpn_stack.push(std::move(new_top));
             }
-
-            if(!is_check(D))
-                assert(new_top.sval.size() == num_members(new_top.type));
-            rpn_stack.push(std::move(new_top));
         }
 
         break;
@@ -2037,7 +2070,7 @@ token_t const* eval_t::do_token(rpn_stack_t& rpn_stack, token_t const* token)
 
                 if(is_ptr)
                 {
-                    bool const is_banked = array_val.type.name() == TYPE_BANKED_PTR;
+                    bool const is_banked = is_banked_ptr(array_val.type.name());
                     assert(array_val.sval.size() == is_banked ? 2 : 1);
 
                     // TODO
@@ -2743,7 +2776,7 @@ void eval_t::do_arith(rpn_stack_t& rpn_stack, token_t const& token)
                 assert(is_ptr(new_top.type.name()));
                 assert(!is_ptr(rhs.type.name()));
 
-                bool const banked = new_top.type.name() == TYPE_BANKED_PTR;
+                bool const banked = is_banked_ptr(new_top.type.name());
 
                 throwing_cast<Policy::D>(rhs, TYPE_S20, true);
 
@@ -3061,7 +3094,7 @@ void eval_t::force_ptrify_int(rpn_value_t& rpn_value, rpn_value_t const* bank, t
     assert(!is_ct(to_type));
     assert(is_ptr(to_type.name()) && is_arithmetic(rpn_value.type.name()));
 
-    assert((to_type.name() == TYPE_BANKED_PTR) == !!bank);
+    assert(is_banked_ptr(to_type.name()) == !!bank);
 
     throwing_cast<D>(rpn_value, TYPE_U20, true, pstring);
     if(bank)
@@ -3348,7 +3381,7 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
         }
         catch(var_lookup_error_t&)
         {
-            if(block_data.label_name.size && var_i < num_locals())
+            if(block_data.label_name.size && var_i < num_local_vars())
             {
                 pstring_t var_name = fn->def().local_vars[var_i].name;
                 file_contents_t file(var_name.file_i);

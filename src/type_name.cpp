@@ -49,8 +49,12 @@ std::string to_string(type_name_t type_name)
     case TYPE_TEA:  return "TEA"s; 
     case TYPE_PAA:  return "PAA"s; 
     case TYPE_STRUCT: return "STRUCT"s; 
-    case TYPE_BANKED_PTR: return "BANKED_PTR"s;
-    case TYPE_PTR: return "PTR"s;
+    case TYPE_BANKED_APTR: return "BANKED_APTR"s;
+    case TYPE_APTR: return "PTR"s;
+    case TYPE_BANKED_CPTR: return "BANKED_CPTR"s;
+    case TYPE_CPTR: return "CPTR"s;
+    case TYPE_BANKED_MPTR: return "BANKED_MPTR"s;
+    case TYPE_MPTR: return "MPTR"s;
     case TYPE_FN: return "FN"s;
     }
 }

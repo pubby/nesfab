@@ -138,7 +138,7 @@ type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool muta, bool b
     if(muta)
         t.unsafe_set_name(banked ? TYPE_BANKED_MPTR : TYPE_MPTR);
     else
-        t.unsafe_set_name(banked ? TYPE_BANKED_PTR : TYPE_PTR);
+        t.unsafe_set_name(banked ? TYPE_BANKED_CPTR : TYPE_CPTR);
     return t;
 }
 
@@ -167,13 +167,23 @@ type_t type_t::struct_(struct_t const& s)
     return type_t(TYPE_STRUCT, 0, &s);
 }
 
+type_t type_t::asm_ptr(bool banked)
+{
+    return type_t(banked ? TYPE_BANKED_APTR : TYPE_APTR, 0, nullptr);
+}
+
 void type_t::set_banked(bool banked)
 {
     assert(is_ptr(name()));
-    if(is_mptr(name()))
+    if(is_aptr(name()))
+        unsafe_set_name(banked ? TYPE_BANKED_APTR : TYPE_APTR);
+    else if(is_mptr(name()))
         unsafe_set_name(banked ? TYPE_BANKED_MPTR : TYPE_MPTR);
     else
-        unsafe_set_name(banked ? TYPE_BANKED_PTR : TYPE_PTR);
+    {
+        assert(is_cptr(name()));
+        unsafe_set_name(banked ? TYPE_BANKED_CPTR : TYPE_CPTR);
+    }
     assert(is_banked_ptr(name()) == banked);
 }
 
@@ -192,15 +202,15 @@ std::size_t type_t::size_of() const
     switch(name())
     {
     default: 
-        //std::cout << *this << std::endl;
-        assert(false);
+        if(is_ptr(name()))
+        {
+            if(is_banked_ptr(name()))
+                return 3;
+            else
+                return 2;
+        }
+        passert(false, name());
         return 0; // Error!
-    case TYPE_PTR:
-    case TYPE_MPTR:
-        return 2;
-    case TYPE_BANKED_PTR:
-    case TYPE_BANKED_MPTR:
-        return 3;
     case TYPE_TEA: 
         return size() * types()[0].size_of();
     case TYPE_PAA: 
@@ -278,17 +288,12 @@ std::string to_string(type_t type)
         str = fmt("[%]%", type.size() ? std::to_string(type.size()) : "",
                   type.group()->name);
         break;
-    case TYPE_BANKED_MPTR:
-        str = "MMM";
-        goto ptr_groups;
-    case TYPE_MPTR:
-        str = "MM";
-        goto ptr_groups;
-    case TYPE_BANKED_PTR:
-        str = "PPP";
-        goto ptr_groups;
-    case TYPE_PTR:
-        str = "PP";
+    case TYPE_BANKED_APTR: str = "AAA"; goto ptr_groups;
+    case TYPE_APTR:        str = "AA";  goto ptr_groups;
+    case TYPE_BANKED_MPTR: str = "MMM"; goto ptr_groups;
+    case TYPE_MPTR:        str = "MM";  goto ptr_groups;
+    case TYPE_BANKED_CPTR: str = "CCC"; goto ptr_groups;
+    case TYPE_CPTR:        str = "CC";  goto ptr_groups;
     ptr_groups:
         for(unsigned i = 0; i < type.size(); ++i)
             str += type.group(i)->name;
@@ -325,8 +330,8 @@ bool can_size_unsized_array(type_t const& sized, type_t const& unsized)
 
 static bool can_cast_groups(type_t const& from, type_t const& to)
 {
-    assert(is_ptr(from.name()));
-    assert(is_ptr(to.name()));
+    assert(is_group_ptr(from.name()));
+    assert(is_group_ptr(to.name()));
     assert(from.size() == from.group_tail_size());
     assert(to.size() == to.group_tail_size());
 
@@ -360,13 +365,24 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(from.name() == TYPE_PAA || to.name() == TYPE_PAA)
         return CAST_FAIL;
 
-    if(!implicit && is_ptr(from.name()) && is_arithmetic(to.name()) && !is_ct(to.name()))
+    // Ptrs can convert to ints.
+    if(((!implicit && is_ptr(from.name())) || is_aptr(from.name()))
+       && is_arithmetic(to.name()) && !is_ct(to.name()))
+    {
         return CAST_INTIFY_PTR;
+    }
+
+    // Any ptr can convert to an aptr.
+    if(is_ptr(from.name()) && is_aptr(to.name()) 
+       && (is_banked_ptr(from.name()) || !is_banked_ptr(to.name())))
+    {
+        return CAST_NOP;
+    }
 
     // Pointers can generalize
     // i.e. ram{foo} can convert to ram{foo, bar}
-    // Likewise, mptrs convert to ptrs
-    if(is_ptr(from.name()) && is_ptr(to.name()) 
+    // Likewise, mptrs convert to cptrs
+    if(is_group_ptr(from.name()) && is_group_ptr(to.name()) 
        && is_banked_ptr(from.name()) == is_banked_ptr(to.name())
        && (is_mptr(from.name()) || !is_mptr(to.name()))
        && can_cast_groups(from, to))
@@ -395,7 +411,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(from.name() == TYPE_INT && is_arithmetic(to.name()))
         return CAST_CONVERT_INT;
 
-    // Otherwise arithmetic types can be converted amongst each other,
+    // Otherwise arithmetic types can be converted amongst each other:
     if(is_arithmetic(from.name()) && is_arithmetic(to.name()))
     {
         if(is_arithmetic_subset(from.name(), to.name()))
@@ -478,13 +494,14 @@ unsigned num_atoms(type_t type, unsigned member)
     case TYPE_PAA: 
         assert(member == 0);
         return 1;
-    case TYPE_BANKED_PTR: 
-    case TYPE_BANKED_MPTR: 
-        return member == 0 ? 2 : 1;
-    case TYPE_PTR: 
-    case TYPE_MPTR: 
-        return 2;
     default: 
+        if(is_ptr(type.name()))
+        {
+            if(is_banked_ptr(type.name()))
+                return member == 0 ? 2 : 1;
+            else
+                return 2;
+        }
         assert(is_scalar(type.name()));
         assert(member == 0);
         return type.size_of();
@@ -516,11 +533,9 @@ unsigned member_offset(type_t type, unsigned member)
     case TYPE_TEA: 
     case TYPE_TEA_THUNK: 
         return member_offset(type.elem_type(), member);
-    case TYPE_BANKED_PTR:
-    case TYPE_BANKED_MPTR:
-        assert(member <= 1);
-        return member == 1 ? 2 : 0;
     default: 
+        if(is_banked_ptr(type.name()))
+            return member == 1 ? 2 : 0;
         assert(member == 0);
         return 0;
     }
@@ -537,11 +552,12 @@ unsigned member_index(type_t const& type, unsigned member)
     case TYPE_TEA: 
     case TYPE_TEA_THUNK: 
         return member_index(type.elem_type(), member);
-    case TYPE_BANKED_PTR:
-    case TYPE_BANKED_MPTR:
-        assert(member < 2);
-        return member;
     default: 
+        if(is_banked_ptr(type.name()))
+        {
+            assert(member < 2);
+            return member;
+        }
         assert(member == 0);
         return 0;
     }

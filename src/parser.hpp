@@ -14,6 +14,7 @@
 #include "parser_decl.hpp"
 #include "token.hpp"
 #include "pstring.hpp"
+#include "asm_lex_tables.hpp"
 
 struct mods_t;
 
@@ -30,7 +31,7 @@ private:
     char const* line_source = nullptr;
     char const* token_source = nullptr;
     char const* next_char = nullptr;
-    token_t token = { TOK_ERROR };
+    token_t token = { lex::TOK_ERROR };
     int indent = 0;
     unsigned line_number = 0;
 
@@ -47,7 +48,7 @@ private:
 
     // Parses comma-separated values between token types 'l' and 'r'.
     template<bool TrailingComma = false, typename Func> 
-    unsigned parse_args(token_type_t l, token_type_t r, Func parse_func);
+    unsigned parse_args(lex::token_type_t l, lex::token_type_t r, Func parse_func);
 
     // Parses an indented block OR a non-indented newline.
     template<typename Func>
@@ -64,9 +65,10 @@ private:
 
     static bool fail_using() { return false; }
 
-    void expect_token(token_type_t expecting) const;
-    bool parse_token(token_type_t expecting);
+    void expect_token(lex::token_type_t expecting) const;
+    bool parse_token(lex::token_type_t expecting);
     bool parse_token();
+    asm_lex::token_type_t parse_asm_token(pstring_t from);
     bool parse_indented_token();
     bool parse_line_ending();
 
@@ -74,16 +76,17 @@ private:
     string_literal_t parse_string_literal();
     pstring_t parse_group_ident();
 
-    static std::uint16_t get_hw_reg(token_type_t token_type);
+    static std::uint16_t get_hw_reg(lex::token_type_t token_type);
     std::uint16_t parse_hw_reg();
 
     expr_temp_t parse_expr();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
     src_type_t parse_cast(expr_temp_t&, int open_parens=0);
 
-    src_type_t parse_type(bool allow_void, bool allow_bank_size, group_ht group);
+    src_type_t parse_type(bool allow_void, bool allow_bank_size, group_ht group, 
+                          bool allow_groupless_paa = false);
 
-    var_decl_t parse_var_decl(bool block_init, group_ht group);
+    var_decl_t parse_var_decl(bool block_init, group_ht group, bool allow_groupless_paa = false);
     bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool block_init, group_ht group);
 
     std::unique_ptr<mods_t> parse_mods(int base_indent);
@@ -94,9 +97,7 @@ private:
     void parse_const();
     void parse_group_vars();
     void parse_group_data();
-    //void parse_top_level_const();
-    void parse_fn();
-    //void parse_mode();
+    void parse_fn(bool is_asm = false);
     void parse_with();
     void parse_struct();
 
@@ -116,6 +117,9 @@ private:
     void parse_label();
     void parse_nmi_statement();
     void parse_fence();
+
+    void parse_asm_label_block();
+    void parse_asm_op();
 
     [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const
         { ::compiler_error(pstring, what, &file); }

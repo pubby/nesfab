@@ -10,6 +10,10 @@
 #include "eternal_new.hpp"
 #include "mods.hpp"
 #include "hw_reg.hpp"
+#include "asm.hpp"
+#include "loop_test.hpp"
+
+using namespace lex;
 
 static constexpr bool is_operator(token_type_t type)
     { return type > TOK_lparen && type < TOK_rparen; }
@@ -21,9 +25,10 @@ static constexpr int operator_precedence(token_type_t type)
     { return token_precedence_table[type] & 0x7F; }
 
 static constexpr bool is_type_prefix(token_type_t type)
-{
-    return (type >= TOK_Void && type <= TOK_Bool) || type == TOK_type_ident || type == TOK_lbracket;
-}
+    { return (type >= TOK_Void && type <= TOK_Bool) || type == TOK_type_ident || type == TOK_lbracket; }
+
+static constexpr bool is_ident(token_type_t type)
+    { return type == TOK_ident || type == TOK_type_ident; }
 
 template<typename P>
 parser_t<P>::parser_t(P& policy, file_contents_t const& file)
@@ -92,7 +97,8 @@ void parser_t<P>::maybe_parse_block(int parent_indent, Func func)
                 compiler_error("Unexpected indentation.");
             compiler_error("Unexpected deindentation.");
         }
-        func();
+        if(!LOOP_TEST(func))
+            break;
     }
 }
 
@@ -371,6 +377,23 @@ restart:
 }
 
 template<typename P>
+asm_lex::token_type_t parser_t<P>::parse_asm_token(pstring_t from)
+{
+    asm_lex::token_type_t lexed = asm_lex::TOK_START;
+    int size_left = from.size;
+    for(char const* ptr = source() + from.offset; lexed > asm_lex::TOK_LAST_STATE; ++ptr)
+    {
+        if(size_left-- == -1)
+            ::compiler_error(from, "Invalid assembly token.");
+        unsigned char const c = *ptr;
+        lexed = asm_lex::lexer_transition_table[lexed + asm_lex::lexer_ec_table[c]];
+    }
+    if(lexed == asm_lex::TOK_ERROR)
+        ::compiler_error(from, "Invalid assembly token.");
+    return lexed;
+}
+
+template<typename P>
 bool parser_t<P>::parse_line_ending()
 {
     if(token.type != TOK_eol)
@@ -509,8 +532,7 @@ expr_temp_t parser_t<P>::parse_expr()
 }
 
 template<typename P>
-void parser_t<P>::parse_expr(expr_temp_t& expr_temp, 
-                             int starting_indent, int open_parens)
+void parser_t<P>::parse_expr(expr_temp_t& expr_temp, int starting_indent, int open_parens)
 {
     // Expression parsing is based on the shunting yard algorithm,
     // with small modifications to support more varied expressions.
@@ -826,7 +848,8 @@ src_type_t parser_t<P>::parse_cast(expr_temp_t& expr_temp, int open_parens)
 }
 
 template<typename P>
-src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group_ht group)
+src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group_ht group, 
+                                   bool allow_groupless_paa)
 {
     src_type_t result = { token.pstring, TYPE_VOID };
     switch(token.type)
@@ -884,8 +907,8 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
     // PAA
     case TOK_lbracket:
         {
-            if(!group)
-                compiler_error("Pointer-addressable array types can only appear in group contexts.");
+            if(!group && !allow_groupless_paa)
+                compiler_error("Pointer-addressable array types can only appear in group or assembly contexts.");
 
             pstring_t const start_pstring = token.pstring;
             parse_token();
@@ -969,9 +992,9 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
 }
 
 template<typename P>
-var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group)
+var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group, bool allow_groupless_paa)
 {
-    return { parse_type(false, block_init, group), parse_ident() };
+    return { parse_type(false, block_init, group, allow_groupless_paa), parse_ident() };
 }
 
 // Returns true if the var init contains an expression.
@@ -1039,6 +1062,8 @@ void parser_t<P>::parse_top_level_def()
     case TOK_nmi: 
     case TOK_mode: 
         return parse_fn();
+    case TOK_asm: 
+        return parse_fn(true);
     case TOK_vars: 
         return parse_group_vars();
     case TOK_omni: 
@@ -1177,8 +1202,11 @@ void parser_t<P>::parse_const()
 }
 
 template<typename P>
-void parser_t<P>::parse_fn()
+void parser_t<P>::parse_fn(bool is_asm)
 {
+    if(is_asm)
+        parse_token(TOK_asm);
+
     fn_class_t fclass;
     switch(token.type)
     {
@@ -1216,39 +1244,34 @@ void parser_t<P>::parse_fn()
             return_type = parse_type(true, false, {});
     });
 
-    auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type);
 
-    // Parse the body of the function
-    parse_block_statement(fn_indent);
-    policy().end_fn(std::move(state), fclass, std::move(mods));
-}
+    auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type, is_asm);
 
-/* TODO remove
-template<typename P>
-void parser_t<P>::parse_mode()
-{
-    int const mode_indent = indent;
-
-    pstring_t mode_name;
-    bc::small_vector<var_decl_t, 8> params;
-
-    mods_t mods = parse_mods_after([&]
+    if(!is_asm)
     {
-        // Parse the declaration
-        parse_token(TOK_mode);
-        mode_name = parse_ident();
+        // Parse the body of the function
+        parse_block_statement(fn_indent);
+        policy().end_fn(std::move(state), fclass, std::move(mods));
+    }
+    else
+    {
+        // Parse the local vars of this fn:
+        maybe_parse_block(fn_indent, [&]
+        { 
+            if(is_ident(token.type))
+                return false;
+            policy().asm_fn_var(parse_var_decl(false, {}, true));
+            parse_line_ending();
+            return true;
+        });
 
-        // Parse the arguments
-        parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
-    });
+        // Parse the code:
+        maybe_parse_block(fn_indent, [&]{ parse_asm_label_block(); });
 
-    var_decl_t state = policy().begin_mode(mode_name, &*params.begin(), &*params.end());
+        policy().end_asm_fn(std::move(state), fclass, std::move(mods));
+    }
 
-    // Parse the body of the function
-    parse_block_statement(mode_indent);
-    policy().end_mode(std::move(state), std::move(mods));
 }
-*/
 
 template<typename P>
 void parser_t<P>::parse_statement()
@@ -1272,6 +1295,163 @@ void parser_t<P>::parse_statement()
         else
             return parse_expr_statement();
     }
+}
+
+template<typename P>
+void parser_t<P>::parse_asm_label_block()
+{
+    unsigned const label_indent = indent;
+
+    if(!is_ident(token.type))
+        compiler_error("Unexpected token. Expecting assembly label.");
+
+    pstring_t const name = token.pstring;
+    parse_token();
+
+    if(token.type == TOK_colon)
+    {
+        parse_token();
+        parse_line_ending();
+        policy().asm_label(name);
+    }
+    else if(token.type == TOK_assign)
+    {
+        parse_token();
+        expr_temp_t expr = parse_expr();
+        parse_line_ending();
+        policy().asm_value(name, expr);
+    }
+    else
+        compiler_error("Unexpected token. Expecting : or =.");
+
+    maybe_parse_block(label_indent, [&]{ parse_asm_op(); });
+}
+
+template<typename P>
+void parser_t<P>::parse_asm_op()
+{
+    auto const call = [this](iasm_class_t iclass)
+    {
+        pstring_t call;
+        std::unique_ptr<mods_t> mods = parse_mods_after([&]{ call = parse_ident(); });
+        policy().asm_call(iclass, call, std::move(mods));
+    };
+
+    switch(token.type)
+    {
+    case TOK_fn:
+        parse_token();
+        return call(IASM_CALL);
+
+    case TOK_goto:
+        parse_token();
+        if(token.type == TOK_mode)
+        {
+            parse_token();
+            return call(IASM_GOTO_MODE);
+        }
+        return call(IASM_GOTO);
+
+    case TOK_nmi:
+        {
+            int const nmi_indent = indent;
+            parse_token();
+            policy().asm_wait_nmi(parse_mods(nmi_indent));
+        }
+        return;
+
+    default:
+        if(!is_ident(token.type))
+            compiler_error("Unexpected token. Expecting assembly instruction.");
+    }
+
+    pstring_t const pstring = token.pstring;
+    asm_lex::token_type_t const asm_token = parse_asm_token(token.pstring);
+
+    parse_token();
+
+    op_name_t name;
+    switch(asm_token)
+    {
+#define OP_NAME(NAME) case asm_lex::TOK_##NAME: name = NAME; break;
+#include "lex_op_name.inc"
+#undef OP_NAME
+    default: name = BAD_OP_NAME; break;
+    }
+
+    auto const is_reg = [this](pstring_t pstring, char ch)
+        { return pstring.size == 1 && std::tolower(pstring.view(source())[0]) == ch; };
+
+    addr_mode_t mode;
+    expr_temp_t expr;
+
+    switch(token.type)
+    {
+    case TOK_eol:
+        mode = MODE_IMPLIED;
+        break;
+
+    case TOK_hash:
+        parse_token();
+        expr = parse_expr();
+        mode = MODE_IMMEDIATE;
+        break;
+
+    case TOK_lparen:
+        parse_token();
+        expr = parse_expr();
+
+        if(token.type == TOK_comma)
+        {
+            parse_token();
+            if(!is_ident(token.type) || !is_reg(token.pstring, 'x'))
+                compiler_error("Expecting X.");
+            parse_token();
+            parse_token(TOK_rparen);
+            mode = MODE_INDIRECT_X;
+        }
+        else
+        {
+            parse_token(TOK_rparen);
+
+            if(token.type == TOK_comma)
+            {
+                parse_token();
+                if(!is_ident(token.type) || !is_reg(token.pstring, 'y'))
+                    compiler_error("Expecting Y.");
+                parse_token();
+                mode = MODE_INDIRECT_Y;
+            }
+            else
+                mode = MODE_INDIRECT;
+        }
+        break;
+
+    default:
+        expr = parse_expr();
+
+        if(token.type == TOK_comma)
+        {
+            parse_token();
+            if(!is_ident(token.type))
+                compiler_error("Expecting X or Y.");
+            if(is_reg(token.pstring, 'x'))
+                mode = MODE_ABSOLUTE_X;
+            else if(is_reg(token.pstring, 'y'))
+                mode = MODE_ABSOLUTE_Y;
+            else
+                compiler_error("Expecting X or Y.");
+            parse_token();
+        }
+        else
+            mode = MODE_ABSOLUTE;
+
+        break;
+    }
+
+    parse_line_ending();
+
+    policy().asm_op(pstring, name, mode, expr);
 }
 
 template<typename P>

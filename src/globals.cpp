@@ -108,7 +108,8 @@ static unsigned _append_to_vec(Args&&... args)
 
 fn_t& global_t::define_fn(pstring_t pstring,
                           global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-                          type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass)
+                          type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
+                          fn_class_t fclass, std::unique_ptr<iasm_def_t> iasm)
 {
     fn_t* ret;
 
@@ -116,7 +117,7 @@ fn_t& global_t::define_fn(pstring_t pstring,
     define(pstring, GLOBAL_FN, std::move(ideps), std::move(weak_ideps), [&](global_t& g)
     { 
         return fn_ht::pool_emplace(
-            ret, g, type, std::move(fn_def), std::move(mods), fclass).id; 
+            ret, g, type, std::move(fn_def), std::move(mods), fclass, std::move(iasm)).id; 
     });
 
     if(fclass == FN_MODE)
@@ -443,6 +444,8 @@ void global_t::build_order(bool precheck)
         // Add additional ideps
         for(fn_t& fn : fn_ht::values())
         {
+            if(fn.iasm())
+                continue;
             // fns that fence for nmis should depend on said nmis
             if(fn.precheck_tracked().wait_nmis.size() > 0)
             {
@@ -459,21 +462,23 @@ void global_t::build_order(bool precheck)
         }
     }
 
+
+
     // Convert weak ideps
     for(global_t& global : global_ht::values())
     {
-        for(global_t* idep : global.m_weak_ideps)
+        /* TODO
+        if(global.gclass() == GLOBAL_FN && global.impl<fn_t>().iasm())
         {
-            // No point if we already have the idep.
-            if(global.ideps().count(idep))
-                continue;
-
-            // Avoid loops.
-            if(idep->has_dep(global))
-                continue;
-
-            global.m_ideps.insert(idep);
+            // 'iasm' fns will convert all weak_ideps to regular ideps:
+            global.m_ideps.insert(global.m_weak_ideps.begin(),
+                                  global.m_weak_ideps.end());
         }
+        else
+        */
+        for(global_t* idep : global.m_weak_ideps)
+            if(!idep->has_dep(global)) // Avoid loops.
+                global.m_ideps.insert(idep);
 
         global.m_weak_ideps.clear();
         global.m_weak_ideps.container.shrink_to_fit();
@@ -647,12 +652,14 @@ global_datum_t* global_t::datum() const
 // fn_t //
 ///////////
 
-fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass) 
+fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
+           fn_class_t fclass, std::unique_ptr<iasm_def_t> iasm) 
 : modded_t(std::move(mods))
 , global(global)
 , fclass(fclass)
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
+, m_iasm(std::move(iasm))
 {
     switch(fclass)
     {
@@ -913,11 +920,54 @@ void fn_t::precheck()
     if(is_ct(def().return_type.type))
         compiler_error(def().return_type.pstring, fmt("Function must be declared as ct to use type %.", def().return_type.type));
 
-    // Run the evaluator to generate 'm_precheck_tracked':
-    assert(!m_precheck_tracked);
-    m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
+    if(m_iasm)
+    {
+        m_precheck_tracked.reset(new precheck_tracked_t());
+    }
+    else
+    {
+        // Run the evaluator to generate 'm_precheck_tracked':
+        assert(!m_precheck_tracked);
+        m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
 
-    calc_precheck_bitsets();
+        calc_precheck_bitsets();
+    }
+}
+
+/* TODO
+void fn_t::compile()
+{
+    for each value expr
+        compile value expr
+
+    for each code expr
+        compile code expr
+        assign loc to '.code'
+}
+*/
+
+void fn_t::compile_iasm()
+{
+    assert(m_iasm);
+
+    // First resolve local constants:
+    for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
+    for(auto& c : m_def.local_consts)
+    {
+        if(!c.expr)
+            continue;
+        spair_t spair = interpret_asm_expr(c.var_decl.name, c.expr, TYPE_U20, m_def.local_consts.data());
+        assert(spair.type.name() == TYPE_U20);
+        m_def.local_consts[i].sval = std::move(spair.value);
+    }
+    
+    for(unsigned i = 0; i < m_iasm->code.size(); ++i)
+    {
+        // TODO
+        //if(token_t const* expr = m_iasm->code[i])
+            //interpret_expr({}, expr, 
+    }
+
 }
 
 void fn_t::compile()
@@ -927,6 +977,9 @@ void fn_t::compile()
 
     if(fclass == FN_CT)
         return; // Nothing to do!
+
+    if(m_iasm)
+        return compile_iasm();
 
     // Init 'fence_reads' and 'fence_writes':
     if(precheck_fences())

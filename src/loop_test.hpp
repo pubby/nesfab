@@ -6,21 +6,25 @@
 // This is used inside "for_each" style functions.
 // It converts functions returning void into functions returning 'true'.
 
-template<typename Return>
+template<typename Fn, typename Return>
 struct loop_test_t
 {
-    template<typename Fn, typename... T>
-    static bool call(Fn const& fn, T&&... t) { return fn(std::forward<T>(t)...); } 
+    Fn const& fn;
+
+    template<typename... T>
+    bool call(T&&... t) { return fn(std::forward<T>(t)...); } 
 };
 
 
-template<>
-struct loop_test_t<void>
+template<typename Fn>
+struct loop_test_t<Fn, void>
 {
-    template<typename Fn, typename... T>
-    static bool call(Fn const& fn, T&&... t) { fn(std::forward<T>(t)...); return true; } 
+    Fn const& fn;
+
+    template<typename... T>
+    bool call(T&&... t) { fn(std::forward<T>(t)...); return true; } 
 };
 
-#define LOOP_TEST(FN, ...) ::loop_test_t<decltype((FN)(__VA_ARGS__))>::call((FN), __VA_ARGS__)
+#define LOOP_TEST(FN, ...) (::loop_test_t<decltype(FN), decltype((FN)(__VA_ARGS__))>{FN}.call(__VA_ARGS__))
 
 #endif

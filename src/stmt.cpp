@@ -27,16 +27,3 @@ std::string to_string(stmt_name_t stmt_name)
 #undef X
     }
 }
-
-pstring_t fn_def_t::find_global(global_t const* global) const
-{
-    for(stmt_t const& stmt : stmts)
-    {
-        if(!has_expression(stmt.name))
-            continue;
-        for(token_t const* token = stmt.expr; token->type; ++token)
-            if(token->type == TOK_global_ident && token->ptr<global_t>() == global)
-                return token->pstring;
-    }
-    return {};
-}

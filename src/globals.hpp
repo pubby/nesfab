@@ -20,7 +20,7 @@
 #include "parser_decl.hpp"
 #include "phase.hpp"
 #include "ram.hpp"
-#include "stmt.hpp"
+#include "fn_def.hpp"
 #include "type.hpp"
 #include "lvar.hpp"
 #include "sval.hpp"
@@ -28,6 +28,7 @@
 #include "locator.hpp"
 #include "mods.hpp"
 #include "debug_print.hpp"
+#include "iasm.hpp"
 
 struct rom_array_t;
 struct precheck_tracked_t;
@@ -124,7 +125,8 @@ public:
     // Helpers that delegate to 'define':
     fn_t& define_fn(
         pstring_t pstring, global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
-        type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass);
+        type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass,
+        std::unique_ptr<iasm_def_t> iasm);
     gvar_t& define_var(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
@@ -313,15 +315,18 @@ public:
     static constexpr global_class_t global_class = GLOBAL_FN;
     using handle_t = fn_ht;
 
-    fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass);
+    fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
+         fn_class_t fclass, std::unique_ptr<iasm_def_t> iasm);
 
     fn_ht handle() const;
 
     type_t type() const { return m_type; }
     fn_def_t const& def() const { return m_def; }
+    iasm_def_t const* iasm() const { return m_iasm.get(); }
 
     void precheck();
     void compile();
+    void compile_iasm();
 
     fn_ht mode_nmi() const; // Returns the NMI of this mode.
     unsigned nmi_index() const;
@@ -398,6 +403,7 @@ private:
 
     type_t m_type;
     fn_def_t m_def;
+    std::unique_ptr<iasm_def_t> m_iasm;
 
     // This enables different fclasses to store different data.
     std::unique_ptr<fn_impl_base_t> m_pimpl;
@@ -436,6 +442,7 @@ private:
 
     // The first, dominating bank switch in this function.
     // (This is the bank the fn should be called from.)
+    // TODO: finish implementing this feature
     locator_t m_first_bank_switch = {};
 
     // Holds the assembly code generated.

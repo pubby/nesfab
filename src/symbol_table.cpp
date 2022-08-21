@@ -3,17 +3,15 @@
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
 
-unsigned const* symbol_table_t::new_def(unsigned handle, std::string_view name)
+auto symbol_table_t::new_def(handle_type handle, std::string_view name) -> handle_type const*
 {
     assert(scope_stack.size() > 0);
 
     hash_type hash = fnv1a<hash_type>::hash(name);
     if(hash_counts[hash & table_mask] != 0)
-    {
         for(auto i = scope_stack.back(); i != assoc_list.size(); ++i)
             if(assoc_list[i].hash == hash && assoc_list[i].name == name)
                 return &assoc_list[i].handle;
-    }
     assoc_list.push_back({ name, hash, handle });
     ++hash_counts[hash & table_mask];
     if(hash_counts[hash & table_mask] == 0)
@@ -22,7 +20,7 @@ unsigned const* symbol_table_t::new_def(unsigned handle, std::string_view name)
     return nullptr;
 }
 
-unsigned const* symbol_table_t::find(std::string_view name) const
+auto symbol_table_t::find(std::string_view name) const -> handle_type const*
 {
     if(scope_stack.size() <= 0)
         return nullptr;

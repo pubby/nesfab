@@ -9,6 +9,7 @@
 
 #include "flat/small_map.hpp"
 #include "flat/small_multimap.hpp"
+#include "robin/map.hpp"
 
 #include "alloca.hpp"
 #include "compiler_error.hpp"
@@ -19,6 +20,7 @@
 #include "symbol_table.hpp"
 #include "type.hpp"
 #include "mods.hpp"
+#include "iasm.hpp"
 
 namespace bc = boost::container;
 
@@ -38,6 +40,8 @@ private:
 
     bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> break_stack;
     bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> continue_stack;
+
+    iasm_def_t iasm_def;
 
     struct nothing_t {};
 
@@ -103,6 +107,8 @@ public:
     // Helpers
     char const* source() { return file.source(); }
     void uses_type(type_t type);
+    token_t* eternal_expr(expr_temp_t& expr);
+    void convert_expr(token_t* begin);
     token_t const* convert_expr(expr_temp_t& expr);
 
     [[gnu::always_inline]]
@@ -123,8 +129,9 @@ public:
         assert(label_map.empty());
         assert(unlinked_gotos.empty());
 
-        // Reset the fn_def:
+        // Reset the fn_def and iasm:
         fn_def = fn_def_t();
+        iasm_def.clear();
 
         // Find the global
         active_global = &global_t::lookup(file.source(), fn_name);
@@ -134,19 +141,42 @@ public:
         symbol_table.push_scope();
     }
 
+    // implementation detail:
+    int _add_symbol(var_decl_t const& var_decl, bool local_const, 
+                    token_t const* local_const_expr = nullptr)
+    {
+        if(local_const_expr)
+            assert(local_const);
+
+        int const handle = local_const ? -int(fn_def.local_consts.size())-1 : int(fn_def.local_vars.size());
+        if(int const* existing = symbol_table.new_def(handle, var_decl.name.view(source())))
+        {
+            // Already have a variable defined in this scope.
+            throw compiler_error_t(
+                fmt_error(var_decl.name, 
+                          fmt("Identifier % already in use.", 
+                              var_decl.name.view(source())), &file)
+                + fmt_error(fn_def.var_decl(*existing).name, 
+                            "Previous definition here:", &file));
+        }
+        if(local_const)
+            fn_def.local_consts.push_back({ var_decl, local_const_expr });
+        else
+            fn_def.local_vars.push_back(var_decl);
+        return handle;
+    }
+
     // Functions
     [[gnu::always_inline]]
-    var_decl_t fn_decl(pstring_t fn_name, var_decl_t 
-                       const* params_begin, var_decl_t const* params_end, 
-                       src_type_t return_type)
+    var_decl_t fn_decl(
+        pstring_t fn_name, 
+        var_decl_t const* params_begin, var_decl_t const* params_end, 
+        src_type_t return_type, bool assembly)
     {
         // Add the parameters to the symbol table.
         fn_def.num_params = params_end - params_begin;
         for(unsigned i = 0; i < fn_def.num_params; ++i)
-        {
-            symbol_table.new_def(i, params_begin[i].name.view(source()));
-            fn_def.local_vars.push_back(params_begin[i]);
-        }
+            _add_symbol(params_begin[i], false);
 
         pstring_t pstring = return_type.pstring;
 
@@ -166,7 +196,8 @@ public:
         uses_type(fn_type);
 
         // Create a scope for the fn body.
-        symbol_table.push_scope();
+        if(!assembly)
+            symbol_table.push_scope();
 
         return { { pstring, fn_type }, fn_name };
     }
@@ -196,89 +227,91 @@ public:
         // Create the global:
         active_global->define_fn(
             decl.name, std::move(ideps), std::move(weak_ideps),
-            decl.src_type.type, std::move(fn_def), std::move(mods), fclass);
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, nullptr);
         ideps.clear();
         weak_ideps.clear();
     }
 
-    // Functions
-    /* TODO: remove
     [[gnu::always_inline]]
-    var_decl_t begin_mode(pstring_t mode_name, 
-                          var_decl_t const* params_begin, var_decl_t const* params_end)
+    void asm_fn_var(var_decl_t const& var_decl)
     {
-        assert(ideps.empty());
-        assert(weak_ideps.empty());
-        assert(label_map.empty());
-        assert(unlinked_gotos.empty());
-        assert(mode_name);
-
-        // Reset the fn_def:
-        fn_def = fn_def_t();
-
-        // Find the global
-        active_global = &global_t::lookup(file.source(), mode_name);
-
-        // Create a scope for the parameters.
-        assert(symbol_table.empty());
-        symbol_table.push_scope();
-
-        // Add the parameters to the symbol table.
-        fn_def.num_params = params_end - params_begin;
-        for(unsigned i = 0; i < fn_def.num_params; ++i)
-        {
-            symbol_table.new_def(i, params_begin[i].name.view(source()));
-            fn_def.local_vars.push_back(params_begin[i]);
-        }
-
-        // Find and store the fn's type:
-        type_t* types = ALLOCA_T(type_t, fn_def.num_params + 1);
-        for(unsigned i = 0; i != fn_def.num_params; ++i)
-            types[i] = params_begin[i].src_type.type;
-        types[fn_def.num_params] = TYPE_VOID;
-        type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);
-
-        // Track it!
-        uses_type(fn_type);
-
-        // Create a scope for the fn body.
-        symbol_table.push_scope();
-
-        assert(mode_name);
-        return { .src_type = { mode_name, fn_type }, .name = mode_name };
+        _add_symbol(var_decl, false);
+        uses_type(var_decl.src_type.type);
     }
 
     [[gnu::always_inline]]
-    void end_mode(var_decl_t decl, std::unique_ptr<mods_t> mods)
+    void asm_value(pstring_t name, expr_temp_t& expr)
     {
-        assert(decl.name);
-        symbol_table.pop_scope(); // mode body scope
+        _add_symbol({{ name, type_t::asm_ptr(false) }, name }, true, convert_expr(expr));
+    }
+
+    [[gnu::always_inline]]
+    void asm_label(pstring_t label)
+    {
+        _add_symbol({{ label, type_t::asm_ptr(false) }, label }, true);
+    }
+
+    [[gnu::always_inline]]
+    void asm_op(pstring_t pstring, op_name_t name, addr_mode_t mode, expr_temp_t& expr)
+    {
+        op_t op = get_op(name, mode);
+        if(!op)
+            op = get_op(name, zp_equivalent(mode));
+        if(!op)
+            compiler_error(pstring, fmt("% is invalid for addressing mode %.", to_string(name), to_string(mode)));
+        // We'll save the expr, but *don't* convert it yet.
+        iasm_def.code.push_back({ .iclass = IASM_OP, .op = op, .ptr = eternal_expr(expr) });
+    }
+
+    [[gnu::always_inline]]
+    void asm_call(iasm_class_t iclass, pstring_t pstring, std::unique_ptr<mods_t> mods)
+    {
+        global_t& g = global_t::lookup(file.source(), pstring);
+        ideps.insert(&g);
+        iasm_def.code.push_back({ .iclass = iclass, .ptr = &g, .mods = std::move(mods) });
+    }
+
+    [[gnu::always_inline]]
+    void asm_wait_nmi(std::unique_ptr<mods_t> mods)
+    {
+        iasm_def.code.push_back({ .iclass = IASM_WAIT_NMI, .mods = std::move(mods) });
+    }
+
+    [[gnu::always_inline]]
+    void end_asm_fn(
+        var_decl_t decl, fn_class_t fclass, 
+        std::unique_ptr<mods_t> mods)
+    {
+        // Convert all expressions
+        for(iasm_inst_t& inst : iasm_def.code)
+            if(inst.has_expr())
+                convert_expr(const_cast<token_t*>(inst.expr()));
+
         symbol_table.pop_scope(); // param scope
+
         label_map.clear();
         assert(symbol_table.empty());
-        fn_def.push_stmt({ STMT_END_FN });
 
-        if(!unlinked_gotos.empty())
-        {
-            auto it = unlinked_gotos.begin();
-            compiler_error(it->first, "Label not in scope.", &file);
-        }
+        if(fclass != FN_FN && fclass != FN_NMI)
+            compiler_error(decl.name, fmt("% does not support inline assembly.", fn_class_keyword(fclass)));
 
-        validate_mods("mode", decl.name, mods, 0, true, true);
+        validate_mods(fn_class_keyword(fclass), decl.name, mods, 
+            0, // flags
+            true, // vars
+            true, // data
+            false // nmi
+            );
 
-        // TODO: remove?
-        //if(!mods.explicit_group_vars)
-            //compiler_error(decl.name, "Missing vars modifier.");
+        std::unique_ptr<iasm_def_t> iasm(new iasm_def_t(std::move(iasm_def)));
 
         // Create the global:
-        assert(decl.name);
         active_global->define_fn(
             decl.name, std::move(ideps), std::move(weak_ideps),
-            decl.src_type.type, std::move(fn_def), std::move(mods), FN_MODE);
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, std::move(iasm));
+
         ideps.clear();
         weak_ideps.clear();
     }
-*/
 
     [[gnu::always_inline]]
     pstring_t begin_struct(pstring_t struct_name)
@@ -394,19 +427,7 @@ public:
     void local_var(var_decl_t var_decl, expr_temp_t* expr)
     {
         // Create the var.
-        unsigned handle = fn_def.local_vars.size();
-        if(unsigned const* existing = 
-           symbol_table.new_def(handle, var_decl.name.view(source())))
-        {
-            // Already have a variable defined in this scope.
-            throw compiler_error_t(
-                fmt_error(var_decl.name, 
-                          fmt("Identifier % already in use.", 
-                              var_decl.name.view(source())), &file)
-                + fmt_error(fn_def.local_vars[*existing].name, 
-                            "Previous definition here:", &file));
-        }
-        fn_def.local_vars.push_back(var_decl);
+        unsigned const handle = _add_symbol(var_decl, false);
         fn_def.push_var_init(handle, expr ? convert_expr(*expr) : nullptr, var_decl.src_type.pstring);
         uses_type(var_decl.src_type.type);
     }

@@ -1,6 +1,7 @@
 // A quick-n-dirty lexer generator; an alternative to 'lex' and 'flex'.
 
 #include <ctype.h>
+#include <cassert>
 #include <cstdio>
 #include <cstdint>
 #include <deque>
@@ -365,16 +366,22 @@ void print_dfa(dfa_t const& dfa)
     }
 }
 
-void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
+void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini, char const* name_space, bool extra)
 {
-    std::FILE* hpp = std::fopen("lex_tables.hpp", "w");
-    std::FILE* cpp = std::fopen("lex_tables.cpp", "w");
+    std::string hpp_name = name_space;
+    std::string cpp_name = name_space;
+    hpp_name += "_tables.hpp";
+    cpp_name += "_tables.cpp";
+
+    std::FILE* hpp = std::fopen(hpp_name.c_str(), "w");
+    std::FILE* cpp = std::fopen(cpp_name.c_str(), "w");
 
     std::unordered_map<dfa_set_t const*, unsigned> nodes;
     std::vector<dfa_set_t const*> node_vector;
     std::fprintf(hpp, "#include <cstdint>\n");
     std::fprintf(hpp, "#include <string_view>\n");
-    std::fprintf(hpp, "using token_type_t = std::uint32_t;\n");
+    std::fprintf(hpp, "namespace %s\n{\n", name_space);
+    std::fprintf(hpp, "using token_type_t = std::uint16_t;\n");
     std::fprintf(hpp, "constexpr token_type_t TOK_ERROR = 0;\n");
     nodes.emplace(nullptr, nodes.size()); // Reserve for TOK_ERROR.
     node_vector.push_back(nullptr);
@@ -419,19 +426,22 @@ void print_output(dfa_t const& dfa, fc::vector_set<dfa_set_t> const& mini)
                     p.second.second->name, p.second.second->string);
     std::fprintf(hpp, "    }\n}\n");
 
-    std::fprintf(hpp, "constexpr unsigned char token_precedence_table[] =\n{\n");
-        std::fprintf(hpp, "    0,\n"); // TOK_ERROR
-    for(auto const& p : names)
-        std::fprintf(hpp, "    %i,\n", p.second.second->precedence & 0xFF);
-    std::fprintf(hpp, "};\n");
+    if(extra)
+    {
+        std::fprintf(hpp, "constexpr unsigned char token_precedence_table[] =\n{\n");
+            std::fprintf(hpp, "    0,\n"); // TOK_ERROR
+        for(auto const& p : names)
+            std::fprintf(hpp, "    %i,\n", p.second.second->precedence & 0xFF);
+        std::fprintf(hpp, "};\n");
 
-    std::fprintf(hpp, "constexpr bool token_right_assoc_table[] =\n{\n");
-        std::fprintf(hpp, "    0,\n"); // TOK_ERROR
-    for(auto const& p : names)
-        std::fprintf(hpp, "    %i,\n", bool(p.second.second->precedence & RIGHT_ASSOC));
-    std::fprintf(hpp, "};\n");
+        std::fprintf(hpp, "constexpr bool token_right_assoc_table[] =\n{\n");
+            std::fprintf(hpp, "    0,\n"); // TOK_ERROR
+        for(auto const& p : names)
+            std::fprintf(hpp, "    %i,\n", bool(p.second.second->precedence & RIGHT_ASSOC));
+        std::fprintf(hpp, "};\n");
+    }
 
-    std::fprintf(hpp, "#define TOK_KEY_CASES \\\n");
+    std::fprintf(hpp, "#define %s_TOK_KEY_CASES \\\n", name_space);
     for(auto const& p : names)
         if(p.second.second->precedence)
             std::fprintf(hpp, "    case TOK_%s:\\\n", p.second.second->name);
@@ -513,7 +523,8 @@ exit_loop:
         }
     }
 
-    std::fprintf(cpp, "#include \"lex_tables.hpp\"\n");
+    std::fprintf(cpp, "#include \"%s_tables.hpp\"\n", name_space);
+    std::fprintf(cpp, "namespace %s\n{\n", name_space);
     std::fprintf(cpp, "extern unsigned const lexer_ec_table[256] = {");
     for(unsigned i = 0 ; i != 256; ++i)
         std::fprintf(cpp, "%s%i,", i % 16 == 0 ? "\n    " : " ", ec_table[i]);
@@ -548,6 +559,7 @@ exit_loop:
         assigned:;
         }
     }
+    assert(ttable.size() < 65536);
 
     std::fprintf(cpp, "extern token_type_t const lexer_transition_table[%u] = {\n", (unsigned)ttable.size());
     for(unsigned i = 0; i < ttable.size(); ++i)
@@ -556,6 +568,9 @@ exit_loop:
 
     std::fprintf(hpp, "extern unsigned const lexer_ec_table[256];\n");
     std::fprintf(hpp, "extern token_type_t const lexer_transition_table[%u];\n", (unsigned)ttable.size());
+
+    std::fprintf(hpp, "} // namespace %s\n", name_space);
+    std::fprintf(cpp, "} // namespace %s\n", name_space);
 
     std::fclose(hpp);
     std::fclose(cpp);
@@ -570,7 +585,6 @@ bool is_lower_or_digit(unsigned char c)
 { 
     return std::islower(c) || std::isdigit(c);
 }
-
 
 rptr idchar() { return pred(is_idchar); }
 rptr upper() { return pred(&isupper); }
@@ -594,7 +608,7 @@ rptr asm_op_keyword(char const* a)
     for(char& c : upper)
         c = std::toupper(c);
 
-    return uor(word(lower.c_str()), word(upper.c_str()));
+    return accept(a, a, uor(word(lower.c_str()), word(upper.c_str())));
 }
 
 int main()
@@ -628,6 +642,7 @@ int main()
             keyword("vars"),
             keyword("data"),
             keyword("omni"),
+            keyword("asm"),
             keyword("ready"),
             keyword("fence"),
             keyword("switch"), // TODO
@@ -652,6 +667,7 @@ int main()
             keyword("rbracket", "]"),
 
             keyword("colon", ":"),
+            keyword("hash", "#"),
 
             keyword(1, "dquote", "\""),
             keyword(1, "quote", "'"),
@@ -780,20 +796,19 @@ int main()
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);
-    print_output(dfa, minimize_dfa(dfa));
+    print_output(dfa, minimize_dfa(dfa), "lex", true);
 
     std::deque<nfa_node_t> asm_nfa_nodes;
     nfa_t asm_nfa = gen_nfa(*
         uor(
             accept("eof", "file ending", eof()),
-#define OP_NAME(name, b) asm_op_keyword(#name),
-#include "lexed_op_name.inc"
+#define OP_NAME(name) asm_op_keyword(#name),
+#include "lex_op_name.inc"
 #undef OP_NAME
-            accept("reg_x", "register x", uor(word("x"), word("X"))),
-            accept("reg_y", "register y", uor(word("y"), word("Y")))
+            keyword("bank")
             ),
         asm_nfa_nodes);
     dfa_t asm_dfa = nfa_to_dfa(asm_nfa);
-    //print_output(asm_dfa, minimize_dfa(asm_dfa));
+    print_output(asm_dfa, minimize_dfa(asm_dfa), "asm_lex", false);
 }
 

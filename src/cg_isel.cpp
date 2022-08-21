@@ -492,7 +492,7 @@ namespace isel
     {
 #ifndef NDEBUG
         constexpr auto mode = op_addr_mode(Op);
-        assert(mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE);
+        assert(Op >= NUM_NORMAL_OPS || mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE);
         assert(valid_arg<Op>(arg));
 #endif
         cpu_t cpu_copy = cpu;
@@ -2115,6 +2115,12 @@ namespace isel
                     < pick_op<Opt, ASL, p_def, p_lhs>
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
+
+                    chain
+                    < load_A<Opt, const_<0>>
+                    , pick_op<Opt, SLO, p_def, p_lhs>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
+                    >(cpu, prev, cont);
                 }
             }
             else
@@ -2131,6 +2137,12 @@ namespace isel
                     chain
                     < load_C<Opt, p_rhs>
                     , pick_op<Opt, ROL, p_def, p_lhs>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_AC<Opt, const_<0xFF>, p_rhs>
+                    , pick_op<Opt, RLA, p_def, p_lhs>
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
                 }
@@ -2154,6 +2166,12 @@ namespace isel
                 {
                     chain
                     < pick_op<Opt, LSR, p_def, p_lhs>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_A<Opt, const_<0>>
+                    , pick_op<Opt, SRE, p_def, p_lhs>
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
                 }

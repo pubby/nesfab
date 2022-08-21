@@ -102,6 +102,7 @@ private:
     bool o_remove_stubs();
     bool o_remove_branches();
     bool o_returns();
+    bool o_peephole();
 
     array_pool_t<bitset_uint_t> bitset_pool;
     array_pool_t<asm_node_t> node_pool;
@@ -270,6 +271,7 @@ void asm_graph_t::optimize()
         changed |= o_remove_stubs();
         changed |= o_remove_branches();
         changed |= o_returns();
+        changed |= o_peephole();
     }
     while(changed);
 }
@@ -345,6 +347,20 @@ bool asm_graph_t::o_returns()
         if(node.outputs().empty())
             returns.push_back(&node);
 
+    // Tail-call optimize
+    for(asm_node_t* node : returns)
+    {
+        if(node->output_inst.op != RTS_IMPLIED || node->code.empty())
+            continue;
+
+        if(op_t new_op = tail_call_op(node->code.back().op))
+        {
+            node->output_inst = node->code.back();
+            node->output_inst.op = new_op;
+        }
+    }
+
+    // Combine duplicated code
     for(unsigned i = 0;   i < returns.size(); ++i)
     for(unsigned j = i+1; j < returns.size(); ++j)
     {
@@ -355,7 +371,7 @@ bool asm_graph_t::o_returns()
         if(a.output_inst != b.output_inst)
             continue;
 
-        // Look for duplicated code and combine it.
+        // Search for duplicated code:
         unsigned match_len = 0;
         unsigned const min_size = std::min(a.code.size(), b.code.size());
         for(; match_len < min_size; ++match_len)
@@ -381,6 +397,54 @@ bool asm_graph_t::o_returns()
             a.output_inst = b.output_inst = { .op = JMP_ABSOLUTE };
 
             changed = true;
+        }
+    }
+
+    return changed;
+}
+
+bool asm_graph_t::o_peephole()
+{
+    bool changed = false;
+
+    for(asm_node_t& node : list)
+    {
+        for(int i = 0; i < int(node.code.size()) - 1; ++i)
+        {
+            asm_inst_t& a = node.code[i];
+            asm_inst_t& b = node.code[i+1];
+
+            auto const replace_op = [&](op_t op)
+            {
+                a.op = op;
+                b.op = ASM_PRUNED;
+                changed = true;
+            };
+
+            auto const peep_rmw = [&](op_name_t second, op_name_t replace)
+            {
+                if(b.op == get_op(second, op_addr_mode(a.op))
+                   && a.arg == b.arg && a.alt == b.alt)
+                {
+                    if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
+                        replace_op(new_op);
+                }
+            };
+
+            switch(op_name(a.op))
+            {
+            default: break;
+            case DEC: peep_rmw(CMP, DCP); break;
+            case INC: peep_rmw(SBC, ISC); break;
+            case ROL: peep_rmw(AND, RLA); break;
+            case ROR: peep_rmw(ADC, RRA); break;
+            case ASL: peep_rmw(ORA, SLO); break;
+            case LSR: peep_rmw(EOR, SRE); break;
+            case AND:
+                if(a.op == AND_IMMEDIATE && b.op == LSR_IMPLIED)
+                    replace_op(ALR_IMMEDIATE);
+                break;
+            }
         }
     }
 

@@ -217,6 +217,27 @@ constexpr bool xy_addr_mode(addr_mode_t mode)
     }
 }
 
+constexpr addr_mode_t zp_equivalent(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    default: return MODE_BAD;
+    case MODE_ABSOLUTE: return MODE_ZERO_PAGE;
+    case MODE_ABSOLUTE_X: return MODE_ZERO_PAGE_X;
+    case MODE_ABSOLUTE_Y: return MODE_ZERO_PAGE_Y;
+    }
+}
+
+constexpr op_t tail_call_op(op_t op)
+{
+    switch(op)
+    {
+    case JSR_ABSOLUTE: return JMP_ABSOLUTE;
+    case BANKED_Y_JSR: return BANKED_Y_JMP;
+    default: return BAD_OP;
+    }
+}
+
 constexpr bool is_branch(op_t op) 
 { 
     return op_flags(op) & ASMF_BRANCH; 

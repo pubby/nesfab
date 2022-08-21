@@ -35,13 +35,13 @@ inline eternal_new_pool_t<T>& eternal_new_pool()
 }
 
 template<typename T>
-T const* eternal_new(T const* begin, T const* end)
+T* eternal_new(T const* begin, T const* end)
 {
     return eternal_new_pool<T>().insert(begin, end);
 }
 
 template<typename T, typename... Args>
-T const* eternal_emplace(Args&&... args)
+T* eternal_emplace(Args&&... args)
 {
     return &eternal_new_pool<T>().emplace(std::forward<Args>(args)...);
 }

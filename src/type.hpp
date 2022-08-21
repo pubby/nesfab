@@ -90,6 +90,8 @@ public:
     static type_t struct_thunk(global_t const& global);
     static type_t struct_(struct_t const& s);
     static type_t group_set(group_ht const* begin, group_ht const* end);
+    static type_t asm_ptr(bool banked);
+    //static type_t asm_value(); // TODO
 
     void set_banked(bool banked);
     type_t with_banked(bool banked) const;

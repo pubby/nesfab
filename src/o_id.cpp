@@ -24,18 +24,11 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
     for(cfg_node_t const& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it;)
     {
-        if(!is_arithmetic(ssa_it->type().name()))
-        {
-            ++ssa_it;
-            continue;
-        }
-
         dprint(log, "-SIMPLE_IDENTITY_OP", ssa_it, ssa_it->op());
 
         ssa_node_t& node = *ssa_it;
-        fixed_t const all_set = { numeric_bitmask(node.type().name()) };
-
         ssa_value_t carry_replacement = {};
+
         auto const replace_carry = [log](ssa_node_t& node, ssa_value_t carry_replacement)
         {
             assert(!carry_output(node) || carry_replacement);
@@ -50,23 +43,25 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
         };
 
-        auto const add_sub_impl = [&all_set](ssa_value_t v, fixed_t carry, bool sub) -> ssa_value_t
-        {
-            if(!v.is_num())
-                return {};
-
-            // Put the carry in the lowest bit.
-            if(carry.value)
-                carry.value = low_bit_only(all_set.value);
-
-            if((v.fixed().value + carry.value) & all_set.value)
-                return {};
-
-            return ssa_value_t(!!(v.fixed().value + carry.value) != sub, TYPE_BOOL);
-        };
-
         switch(node.op())
         {
+        case SSA_write_array:
+            {
+                using namespace ssai::array;
+
+                // Prune pointless writes like foo[5] = foo[5]
+
+                ssa_value_t const assign = node.input(ASSIGNMENT);
+
+                if(assign.holds_ref() && assign->op() == SSA_read_array 
+                   && assign->input(ARRAY) == node.input(ARRAY)
+                   && assign->input(INDEX) == node.input(INDEX))
+                {
+                    goto replaceWith0;
+                }
+            }
+            break;
+
         case SSA_cast:
             {
                 ssa_value_t const input = node.input(0);
@@ -87,6 +82,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 }
             }
             break;
+
         case SSA_lt:
         case SSA_not_eq:
             if(node.input(0) == node.input(1))
@@ -112,6 +108,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 }
             }
             break;
+
         case SSA_lte:
         case SSA_eq:
             if(node.input(0) == node.input(1))
@@ -137,48 +134,79 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 }
             }
             break;
-        case SSA_add:
-            {
-                if(!node.input(2).is_num())
-                    break;
 
-                if((carry_replacement = add_sub_impl(node.input(0), node.input(2).fixed(), false)))
-                    goto replaceWith1;
-                if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), false)))
-                    goto replaceWith0;
-            }
-            break;
-        case SSA_sub:
-            {
-                if(!node.input(2).is_num())
-                    break;
-                if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), true)))
-                    goto replaceWith0;
-            }
-            break;
-        case SSA_or:
-            if(node.input(0) == node.input(1))
-                goto replaceWith0;
-            // fall through
-        case SSA_xor:
-            if(node.input(0).eq_fixed({0}))
-                goto replaceWith1;
-            // fall through
-        case SSA_shl:
-        case SSA_shr:
-            if(node.input(1).eq_fixed({0}))
-                goto replaceWith0;
-            break;
-        case SSA_and:
-            if(node.input(0).eq_fixed(all_set))
-                goto replaceWith1;
-            if(node.input(1).eq_fixed(all_set))
-                goto replaceWith0;
-            if(node.input(0) == ssa_it->input(1))
-                goto replaceWith0;
-            break;
         default:
             break;
+        }
+
+        if(is_arithmetic(ssa_it->type().name()))
+        {
+            fixed_t const all_set = { numeric_bitmask(node.type().name()) };
+
+            auto const add_sub_impl = [&all_set](ssa_value_t v, fixed_t carry, bool sub) -> ssa_value_t
+            {
+                if(!v.is_num())
+                    return {};
+
+                // Put the carry in the lowest bit.
+                if(carry.value)
+                    carry.value = low_bit_only(all_set.value);
+
+                if((v.fixed().value + carry.value) & all_set.value)
+                    return {};
+
+                return ssa_value_t(!!(v.fixed().value + carry.value) != sub, TYPE_BOOL);
+            };
+
+            switch(node.op())
+            {
+            case SSA_add:
+                {
+                    if(!node.input(2).is_num())
+                        break;
+
+                    if((carry_replacement = add_sub_impl(node.input(0), node.input(2).fixed(), false)))
+                        goto replaceWith1;
+                    if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), false)))
+                        goto replaceWith0;
+                }
+                break;
+
+            case SSA_sub:
+                {
+                    if(!node.input(2).is_num())
+                        break;
+                    if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), true)))
+                        goto replaceWith0;
+                }
+                break;
+
+            case SSA_or:
+                if(node.input(0) == node.input(1))
+                    goto replaceWith0;
+                // fall through
+            case SSA_xor:
+                if(node.input(0).eq_fixed({0}))
+                    goto replaceWith1;
+                // fall through
+            case SSA_shl:
+            case SSA_shr:
+                if(node.input(1).eq_fixed({0}))
+                    goto replaceWith0;
+                break;
+
+            case SSA_and:
+                if(node.input(0).eq_fixed(all_set))
+                    goto replaceWith1;
+                if(node.input(1).eq_fixed(all_set))
+                    goto replaceWith0;
+                if(node.input(0) == ssa_it->input(1))
+                    goto replaceWith0;
+                break;
+
+            default:
+                break;
+            }
         }
 
         ++ssa_it;

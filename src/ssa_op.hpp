@@ -36,6 +36,13 @@ namespace ssai
         constexpr unsigned INDEX       = 3;
         constexpr unsigned ASSIGNMENT  = 4;
     }
+
+    namespace array
+    {
+        constexpr unsigned ARRAY        = 0;
+        constexpr unsigned INDEX        = 2;
+        constexpr unsigned ASSIGNMENT   = 3;
+    }
 }
 
 enum input_class_t

@@ -98,37 +98,91 @@ static bm_t _get_bm(ssa_value_t value)
     }
 }
 
-// Used in 'byteify' to remove casts.
-static void _split_cast(ssa_ht ssa_node)
+// If the op gets entirely removed during byteify.
+bool _vanishes(ssa_op_t op)
+{
+    return (op == SSA_cast || op == SSA_get_byte || op == SSA_array_get_byte
+            || op == SSA_replace_byte || op == SSA_array_replace_byte);
+}
+
+// Used in 'byteify' to remove casts, etc.
+static void _split_vanishing(ssa_ht ssa_node)
 {
     assert(ssa_node);
-    assert(ssa_node->op() == SSA_cast);
+    assert(_vanishes(ssa_node->op()));
 
-    // Check if the input is a cast that wasn't split yet:
+    auto const split_input = [](ssa_value_t input)
+    {
+        if(input.holds_ref() && !input->test_flags(FLAG_PROCESSED) && _vanishes(input->op()))
+            _split_vanishing(input.handle());
+    };
+
+    passert(ssa_node->input_size() >= 1, ssa_node->op());
     ssa_value_t input = ssa_node->input(0);
-    if(input.holds_ref() && input->op() == SSA_cast && !input->test_flags(FLAG_PROCESSED))
-        _split_cast(input.handle());
+    split_input(input);
 
     type_t const type = ssa_node->type();
-    auto& data = ssa_node.data<ssa_byteify_d>();
-
     type_t const input_type = input.type();
 
+    auto& data = ssa_node.data<ssa_byteify_d>();
     data.bm = zero_bm;
-    bm_t input_bm = _get_bm(input);
-    unsigned const end = end_byte(type.name());
-    for(unsigned i = begin_byte(type.name()); i < end; ++i)
-        data.bm[i] = input_bm[i];
+    bm_t const input_bm = _get_bm(input);
 
-    if(is_signed(input_type.name()))// && whole_bytes(input_type.name()) < whole_bytes(type.name()))
+    if(ssa_node->op() == SSA_cast)
     {
-        // We have to sign extend!
-        unsigned i = end_byte(input_type.name());
-        assert(i > 0);
-        ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, data.bm[i - 1]);
-        for(; i < end; ++i)
-            data.bm[i] = extension;
+        unsigned const end = end_byte(type.name());
+        for(unsigned i = begin_byte(type.name()); i < end; ++i)
+            data.bm[i] = input_bm[i];
+
+        if(is_signed(input_type.name()))// && whole_bytes(input_type.name()) < whole_bytes(type.name()))
+        {
+            // We have to sign extend!
+            unsigned i = end_byte(input_type.name());
+            assert(i > 0);
+            ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, data.bm[i - 1]);
+            for(; i < end; ++i)
+                data.bm[i] = extension;
+        }
     }
+    else if(ssa_node->op() == SSA_get_byte)
+    {
+        unsigned const atom = ssa_node->input(1).whole();
+        data.bm = zero_bm;
+        data.bm[max_frac_bytes] = input_bm[atom + begin_byte(input_type.name())];
+    }
+    else if(ssa_node->op() == SSA_array_get_byte)
+    {
+        unsigned const atom = ssa_node->input(1).whole();
+        data.bm = zero_bm;
+        data.bm[max_frac_bytes] = input_bm[atom + begin_byte(input_type.elem_type().name())];
+    }
+    else if(ssa_node->op() == SSA_replace_byte)
+    {
+        ssa_value_t with = ssa_node->input(2);
+        assert(with->type().name() == TYPE_U);
+        split_input(with);
+
+        bm_t const with_bm = _get_bm(with);
+
+        unsigned const atom = ssa_node->input(1).whole();
+        data.bm = input_bm;
+        data.bm[atom + begin_byte(type.name())] = with_bm[max_frac_bytes];
+    }
+    else if(ssa_node->op() == SSA_array_replace_byte)
+    {
+        ssa_value_t with = ssa_node->input(2);
+        assert(with->type().name() == TYPE_TEA);
+        assert(with->type().elem_type().name() == TYPE_U);
+        split_input(with);
+
+        bm_t const with_bm = _get_bm(with);
+
+        unsigned const atom = ssa_node->input(1).whole();
+        data.bm = input_bm;
+        data.bm[atom + begin_byte(type.name())] = with_bm[max_frac_bytes];
+    }
+    else
+        assert(false);
 
     ssa_node->set_flags(FLAG_PROCESSED);
 }
@@ -158,13 +212,17 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             type_t const type = _bm_type(ssa_it->type());
 
-            if(ssa_it->op() == SSA_cast)
+            if(_vanishes(ssa_it->op()))
             {
                 // Casts will just forward their input(s) to their output(s),
                 // and will be removed entirely.
                 // The forwarding will happen after all other nodes that
                 // need splitting have been split.
-                assert(is_scalar(type.name()));
+                //
+                // Likewise, 'get_byte' and 'replace_byte' will be removed 
+                // entirely too.
+
+                assert(ssa_it->op() != SSA_cast || is_scalar(type.name()));
                 prune_nodes.push_back(ssa_it);
                 continue;
             }
@@ -248,7 +306,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     // Split cast operations now.
     // 'prune_nodes' should hold all the casts at the moment and nothing else.
     for(ssa_ht ssa_h : prune_nodes)
-        _split_cast(ssa_h);
+        _split_vanishing(ssa_h);
 
     // Rewrite the inputs of certain nodes to use multi-byte
     bc::small_vector<ssa_value_t, 24> new_input;

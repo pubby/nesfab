@@ -33,10 +33,10 @@ SSA_DEF(shr,    2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
 
 // (value, atom)
 SSA_DEF(get_byte,        2, INPUT_VALUE, SSAF_TRACE_INPUTS)
+SSA_DEF(array_get_byte,  2, INPUT_VALUE, SSAF_TRACE_INPUTS)
 // (value, atom, replace)
 SSA_DEF(replace_byte,    3, INPUT_VALUE, SSAF_TRACE_INPUTS)
-// (array value, atom)
-SSA_DEF(array_get_byte,  2, INPUT_VALUE, SSAF_TRACE_INPUTS)
+SSA_DEF(array_replace_byte,  2, INPUT_VALUE, SSAF_TRACE_INPUTS)
 
 // (value, carry) - This only supports unsigned inputs.
 SSA_DEF(rol,    2, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_TRACE_INPUTS)

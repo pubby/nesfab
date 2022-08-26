@@ -2542,6 +2542,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
     if(lval_t* lval = v.is_lval())
     {
         unsigned const num_members = ::num_members(v.type);
+        type_t type;
         rval_t rval;
 
         if(lval->is_global)
@@ -2553,14 +2554,18 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             {
             case GLOBAL_CONST:
                 if(!is_check(D))
-                    rval = global->impl<const_t>().rval();
+                {
+                    const_t const& c = global->impl<const_t>();
+                    rval = c.rval();
+                    type = c.type();
+                }
                 break;
 
             case GLOBAL_VAR:
                 if(!is_check(D))
                 {
                     lval->set_var_i(to_var_i(global->handle<gvar_ht>()));
-                    rval.resize(num_members);
+                    goto have_var_i;
                 }
                 break;
 
@@ -2576,46 +2581,50 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             }
         }
         else
+        {
+        have_var_i:
             rval.resize(num_members);
+            type = var_types[lval->var_i()];
+        }
 
         if(is_check(D))
         {
             v.val = std::move(rval);
             return v;
         }
-        else if(is_interpret(D))
-        {
-            type_t mt = ::member_type(v.type, lval->member);
 
+        type = ::member_type(type, lval->member);
+
+        if(is_interpret(D))
+        {
             if(lval->is_var())
                 for(unsigned i = 0; i < num_members; ++i)
                     rval[i] = interpret_locals[lval->var_i()][lval->member + i];
 
             if(lval->index)
             {
-                assert(is_tea(mt.name()));
+                assert(is_tea(type.name()));
                 assert(lval->index.is_num());
 
                 unsigned const index = lval->index.whole();
-                assert(index < mt.array_length());
+                assert(index < type.array_length());
                 for(auto& v : rval) // TODO: handle link
                     v = std::get<ct_array_t>(v)[index];
 
-                mt = mt.elem_type();
-
+                type = type.elem_type();
             }
 
             if(lval->atom >= 0)
             {
                 assert(rval.size() == 1);
 
-                if(is_tea(mt.name()))
+                if(is_tea(type.name()))
                 {
                     assert(is_tea(v.type.name()));
                     assert(v.type.elem_type() == TYPE_U);
-                    int const shift = lval->atom - frac_bytes(mt.elem_type().name());
+                    int const shift = lval->atom - frac_bytes(type.elem_type().name());
 
-                    unsigned const tea_length = mt.array_length();
+                    unsigned const tea_length = type.array_length();
                     ct_array_t const& from = std::get<ct_array_t>(rval[0]);
                     ct_array_t to = make_ct_array(tea_length);
 
@@ -2627,14 +2636,14 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 else
                 {
                     assert(v.type == TYPE_U);
-                    int const shift = lval->atom - frac_bytes(mt.name());
+                    int const shift = lval->atom - frac_bytes(type.name());
                     rval = { _interpret_shift_atom(std::get<ssa_value_t>(rval[0]), shift) };
                 }
             }
         }
         else if(is_compile(D))
         {
-            type_t mt = ::member_type(v.type, lval->member);
+            //std::cout << lval->member << ' ' << ::num_membersstd::endl;
 
             if(lval->is_var())
                 for(unsigned i = 0; i < num_members; ++i)
@@ -2642,14 +2651,14 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             if(lval->index)
             {
-                assert(is_tea(mt.name()));
-                mt = mt.elem_type();
+                assert(is_tea(type.name()));
+                type = type.elem_type();
 
                 for(unsigned i = 0; i < num_members; ++i)
                 {
                     rval[i] = builder.cfg->emplace_ssa(
-                        SSA_read_array, mt, 
-                        from_variant<D>(rval[i], mt), locator_t(), lval->index);
+                        SSA_read_array, type, 
+                        from_variant<D>(rval[i], type), locator_t(), lval->index);
                 }
             }
 
@@ -2657,8 +2666,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             {
                 assert(rval.size() == 1);
                 ssa_ht const h = builder.cfg->emplace_ssa(
-                    is_tea(mt.name()) ? SSA_array_get_byte : SSA_get_byte, 
-                    mt, 
+                    is_tea(type.name()) ? SSA_array_get_byte : SSA_get_byte, 
+                    type, 
                     std::get<ssa_value_t>(rval[0]), 
                     ssa_value_t(lval->atom, TYPE_U));
                 rval = { h };
@@ -2743,46 +2752,61 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         without_atom = to_rval<D>(without_atom);
 
         type_t new_type = member_type(var_types[lval->var_i()], lval->member);
-        if(is_tea(new_type.name()))
+        if(lval->index)
         {
-            // TODO: handle arrays
-            assert(false);
-            if(lval->index)
-                new_type = new_type.elem_type();
+            assert(is_tea(new_type.name()));
+            new_type = new_type.elem_type();
         }
         assert(num_members(new_type) == 1);
         assert(num_members(rhs.type) == 1);
 
         if(is_interpret(D))
         {
-            assert(!is_tea(new_type.name()));
             int const shift = lval->atom - frac_bytes(new_type.name());
             assert(shift >= 0);
 
             fixed_uint_t mask = numeric_bitmask(rhs.type.name());
-            fixed_uint_t replace = rhs.u();
-            assert((replace & mask) == replace);
-
             if(shift < 0)
-            {
                 mask >>= (-shift * 8);
-                replace >>= (-shift * 8);
+            else
+                mask <<= (shift * 8);
+
+            auto const convert = [&](ssa_value_t from, ssa_value_t to) -> ssa_value_t
+            {
+                fixed_uint_t replace = to.fixed().value;
+                assert((replace & mask) == replace);
+
+                if(shift < 0)
+                    replace >>= (-shift * 8);
+                else
+                    replace <<= (shift * 8);
+
+                fixed_uint_t u = from.fixed().value;
+                u &= ~mask;
+                u |= replace;
+                return ssa_value_t(u, new_type.name());
+            };
+
+            if(is_tea(new_type.name()))
+            {
+                unsigned const tea_length = new_type.array_length();
+                ct_array_t const& from = std::get<ct_array_t>(without_atom.rval()[0]);
+                ct_array_t to = make_ct_array(tea_length);
+
+                for(unsigned i = 0; i < tea_length; ++i)
+                    to[i] = convert(from[i], to[i]);
+
+                rhs.rval() = { std::move(to) };
             }
             else
-            {
-                mask <<= (shift * 8);
-                replace <<= (shift * 8);
-            }
+                rhs.rval() = { convert(without_atom.ssa(), rhs.ssa()) };
 
-            fixed_uint_t u = without_atom.u();
-            u &= ~mask;
-            u |= replace;
-            rhs.rval() = { ssa_value_t(u, new_type.name()) };
         }
         else if(is_compile(D))
         {
             ssa_ht const h = builder.cfg->emplace_ssa(
-                SSA_replace_byte, new_type, 
+                is_tea(new_type.name()) ? SSA_array_replace_byte : SSA_replace_byte, 
+                new_type, 
                 without_atom.ssa(), ssa_value_t(lval->atom, TYPE_U), rhs.ssa());
             rhs.rval() = { h };
         }
@@ -2830,7 +2854,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
         else
         {
-            //ssert(false);
+            assert(false);
             /* TODO
             if(lhs.atom)
             {
@@ -2877,22 +2901,21 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         {
             type_t const mt = member_type(var_types[lval->var_i()], lval->member);
             assert(mt.name() == TYPE_TEA);
-            assert(mt.elem_type() == lhs.type);
 
             for(unsigned i = 0; i < rval.size(); ++i)
             {
-                ssa_ht read = lhs.ssa(i).handle();
-                assert(read->op() == SSA_read_array);
+                //ssa_ht read = lhs.ssa(i).handle();
+                //assert(read->op() == SSA_read_array);
 
-                assert(rhs.type.name() != TYPE_TEA);
-                type_t const type = type_t::tea(member_type(rhs.type, i), mt.size(), rhs.pstring);
-                assert(type.name() == TYPE_TEA);
+                passert(rhs.type.name() != TYPE_TEA, rhs.type);
+                type_t const type = type_t::tea(rhs.type, mt.size(), rhs.pstring);
+                //assert(type.name() == TYPE_TEA);
 
                 ssa_value_t const prev_array = var_lookup(builder.cfg, lval->var_i(), i);
 
                 ssa_ht write = builder.cfg->emplace_ssa(
                     SSA_write_array, type,
-                    prev_array, locator_t(), read->input(2), std::get<ssa_value_t>(rval[i]));
+                    prev_array, locator_t(), lval->index, std::get<ssa_value_t>(rval[i]));
 
                 local[i + lval->member] = write;
             }

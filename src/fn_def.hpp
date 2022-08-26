@@ -10,7 +10,6 @@
 #include "parser_decl.hpp"
 #include "pstring.hpp"
 #include "mods.hpp"
-#include "sval.hpp"
 #include "locator.hpp"
 
 namespace bc = ::boost::container;
@@ -18,7 +17,7 @@ namespace bc = ::boost::container;
 struct local_const_t
 {
     var_decl_t var_decl;
-    token_t const* expr;
+    ast_node_t const* expr;
     locator_t value;
 
     type_t type() const { return var_decl.src_type.type; }
@@ -55,7 +54,7 @@ public:
     stmt_ht next_stmt() const { return { stmts.size() }; }
 
     stmt_ht push_stmt(stmt_t stmt);
-    stmt_ht push_var_init(unsigned name, token_t const* expr, pstring_t pstring);
+    stmt_ht push_var_init(unsigned name, ast_node_t const* expr, pstring_t pstring);
     stmt_mods_ht push_mods(std::unique_ptr<mods_t> m);
 
     // Returns the first pstring matching 'global'.

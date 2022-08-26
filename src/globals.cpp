@@ -136,7 +136,7 @@ fn_t& global_t::define_fn(pstring_t pstring,
 
 gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
                              src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
-                             token_t const* expr, std::unique_ptr<mods_t> mods)
+                             ast_node_t const* expr, std::unique_ptr<mods_t> mods)
 {
     gvar_t* ret;
 
@@ -155,7 +155,7 @@ gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps,
 
 const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
                                 src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
-                                token_t const* expr, std::unique_ptr<mods_t> mods)
+                                ast_node_t const* expr, std::unique_ptr<mods_t> mods)
 {
     const_t* ret;
 
@@ -444,7 +444,7 @@ void global_t::build_order(bool precheck)
         // Add additional ideps
         for(fn_t& fn : fn_ht::values())
         {
-            if(fn.iasm)
+            if(fn.iasm || fn.fclass == FN_CT)
                 continue;
             // fns that fence for nmis should depend on said nmis
             if(fn.precheck_tracked().wait_nmis.size() > 0)
@@ -547,7 +547,7 @@ void global_t::compile(log_t* log)
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    dprint(log, "COMPILING", name);
+    dprint(log, "COMPILING", name, m_ideps.size());
 
 #ifndef NDEBUG
     for(global_t const* idep : ideps())
@@ -1017,7 +1017,7 @@ void fn_t::compile_iasm()
     {
         if(!c.expr)
             continue;
-        m_def.local_consts[i].value = interpret_asm_expr(c.var_decl.name, c.expr, true, m_def.local_consts.data());
+        m_def.local_consts[i].value = interpret_asm_expr(c.var_decl.name, *c.expr, true, m_def.local_consts.data());
     }
     
     /*
@@ -1046,7 +1046,7 @@ void fn_t::compile_iasm()
                     assert(op_addr_mode(stmt.asm_op) != MODE_IMPLIED);
 
                     value = interpret_asm_expr(
-                        stmt.pstring, stmt.expr, 
+                        stmt.pstring, *stmt.expr, 
                         op_addr_mode(stmt.asm_op) != MODE_IMMEDIATE, 
                         m_def.local_consts.data());
                 }
@@ -1420,6 +1420,7 @@ void fn_t::calc_precheck_bitsets()
         {
             fn_t& call = *pair.first;
 
+            assert(call.fclass != FN_CT);
             assert(call.fclass != FN_MODE);
             assert(call.m_precheck_group_vars);
             assert(call.m_precheck_rw);
@@ -1520,7 +1521,7 @@ void global_datum_t::precheck()
 
     if(m_src_type.type.name() == TYPE_PAA)
     {
-        loc_vec_t paa = interpret_paa(global.pstring(), init_expr);
+        loc_vec_t paa = interpret_paa(global.pstring(), *init_expr);
 
         unsigned const def_length = m_src_type.type.array_length();
         if(def_length && def_length != paa.size())
@@ -1531,13 +1532,13 @@ void global_datum_t::precheck()
         //m_rom_array = lookup_rom_array({}, group(), std::move(paa));
 
         // TODO : remove?
-        //m_sval = { m_paa };
+        //m_rval = { m_paa };
     }
     else
     {
-        spair_t spair = interpret_expr(global.pstring(), init_expr, m_src_type.type);
-        m_src_type.type = std::move(spair.type); // Handles unsized arrays
-        sval_init(std::move(spair.value));
+        rpair_t rpair = interpret_expr(global.pstring(), *init_expr, m_src_type.type);
+        m_src_type.type = std::move(rpair.type); // Handles unsized arrays
+        rval_init(std::move(rpair.value));
     }
 }
 
@@ -1557,12 +1558,12 @@ void gvar_t::paa_init(loc_vec_t&& paa)
     m_init_data = std::move(paa);
 }
 
-void gvar_t::sval_init(sval_t&& sval)
+void gvar_t::rval_init(rval_t&& rval)
 {
-    m_sval = std::move(sval);
+    m_rval = std::move(rval);
 
     m_init_data.clear();
-    append_locator_bytes(m_init_data, m_sval, m_src_type.type, global.pstring());
+    append_locator_bytes(m_init_data, m_rval, m_src_type.type, global.pstring());
 }
 
 void gvar_t::set_gmember_range(gmember_ht begin, gmember_ht end)
@@ -1648,9 +1649,9 @@ void const_t::paa_init(loc_vec_t&& paa)
     assert(m_rom_array);
 }
 
-void const_t::sval_init(sval_t&& sval)
+void const_t::rval_init(rval_t&& rval)
 {
-    m_sval = std::move(sval);
+    m_rval = std::move(rval);
 }
 
 //////////////

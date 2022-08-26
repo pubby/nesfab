@@ -28,7 +28,7 @@ struct fnv1a_constants<std::uint64_t>
     static constexpr std::uint64_t seed  = 14695981039346656037ull;
 };
 
-template<typename T>
+template<typename T = std::uint64_t>
 struct fnv1a
 {
     static constexpr T prime = fnv1a_constants<T>::prime;

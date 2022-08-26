@@ -2,16 +2,23 @@
 
 using namespace lex;
 
+static pstring_t _find_global(ast_node_t const& ast, global_t const* global)
+{
+    if(ast.token.type == TOK_global_ident && ast.token.ptr<global_t const>() == global)
+        return ast.token.pstring;
+    unsigned const n = ast.num_children();
+    for(unsigned i = 0; i != n; ++i)
+        if(pstring_t pstring = _find_global(ast.children[i], global))
+           return pstring;
+    return {};
+}
+
 pstring_t fn_def_t::find_global(global_t const* global) const
 {
     for(stmt_t const& stmt : stmts)
-    {
-        if(!has_expression(stmt.name))
-            continue;
-        for(token_t const* token = stmt.expr; token->type; ++token)
-            if(token->type == TOK_global_ident && token->ptr<global_t>() == global)
-                return token->pstring;
-    }
+        if(has_expression(stmt.name))
+            if(pstring_t pstring = _find_global(*stmt.expr, global))
+                return pstring;
     return {};
 }
 
@@ -23,7 +30,7 @@ stmt_ht fn_def_t::push_stmt(stmt_t stmt)
     return handle;
 }
 
-stmt_ht fn_def_t::push_var_init(unsigned name, token_t const* expr, pstring_t pstring)
+stmt_ht fn_def_t::push_var_init(unsigned name, ast_node_t const* expr, pstring_t pstring)
 { 
     return push_stmt({ static_cast<stmt_name_t>(~name), {}, {}, pstring, expr }); 
 }

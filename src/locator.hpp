@@ -60,9 +60,10 @@ enum locator_class_t : std::uint8_t
 
     LOC_ROM_ARRAY,
 
-    LOC_LT_GMEMBER_PTR,
-    FIRST_LOC_LT = LOC_LT_GMEMBER_PTR,
+    //LOC_LT_GMEMBER_PTR,
     LOC_LT_CONST_PTR,
+    FIRST_LOC_LT = LOC_LT_CONST_PTR,
+    LOC_LT_CONST_ADDR,
     LOC_LT_EXPR, // link-time expression
     LAST_LOC_LT = LOC_LT_EXPR,
 
@@ -101,8 +102,9 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_RETURN:
     case LOC_SSA:
     case LOC_PHI:
-    case LOC_LT_GMEMBER_PTR:
+    //case LOC_LT_GMEMBER_PTR:
     case LOC_LT_CONST_PTR:
+    case LOC_LT_CONST_ADDR:
     case LOC_LT_EXPR:
         return true;
     default:
@@ -289,13 +291,13 @@ public:
 
     gmember_ht gmember() const 
     { 
-        assert(lclass() == LOC_GMEMBER || lclass() == LOC_LT_GMEMBER_PTR);
+        assert(lclass() == LOC_GMEMBER/* || lclass() == LOC_LT_GMEMBER_PTR*/);
         return { handle() }; 
     }
 
     const_ht const_() const 
     { 
-        assert(lclass() == LOC_LT_CONST_PTR);
+        assert(lclass() == LOC_LT_CONST_PTR || lclass() == LOC_LT_CONST_ADDR);
         return { handle() }; 
     }
 
@@ -381,8 +383,8 @@ public:
         return ret;
     }
 
-    constexpr static locator_t fn(fn_ht fn)
-        { return locator_t(LOC_FN, fn.id, 0, 0); }
+    constexpr static locator_t fn(fn_ht fn, std::uint16_t offset=0)
+        { return locator_t(LOC_FN, fn.id, 0, offset); }
 
     constexpr static locator_t stmt(stmt_ht stmt)
         { return locator_t(LOC_STMT, stmt.id, 0, 0); }
@@ -390,7 +392,7 @@ public:
     constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
         { return locator_t(LOC_ARG, fn.id, arg, member, atom, offset); }
 
-    constexpr static locator_t gmember(gmember_ht gmember, std::uint8_t atom, std::uint16_t offset=0)
+    constexpr static locator_t gmember(gmember_ht gmember, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_GMEMBER, gmember.id, 0, 0, atom, offset); }
 
     constexpr static locator_t gmember_set(fn_ht fn, std::uint16_t id)
@@ -432,11 +434,14 @@ public:
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_MINOR_VAR, fn.id, id, 0); }
 
-    constexpr static locator_t lt_gmember_ptr(gmember_ht m, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_GMEMBER_PTR, m.id, 0, 0, 0, offset); }
+    //constexpr static locator_t lt_gmember_ptr(gmember_ht m, std::uint16_t offset=0)
+        //{ return locator_t(LOC_LT_GMEMBER_PTR, m.id, 0, 0, 0, offset); }
 
-    constexpr static locator_t lt_const_ptr(const_ht c, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_CONST_PTR, c.id, 0, 0, 0, offset).with_is(IS_PTR); }
+    constexpr static locator_t lt_const_ptr(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_LT_CONST_PTR, c.id, 0, member, atom, offset).with_is(IS_PTR); }
+
+    constexpr static locator_t lt_const_addr(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_LT_CONST_ADDR, c.id, 0, member, atom, offset).with_is(IS_PTR); }
 
     constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_LT_EXPR, lt.id, 0, member, atom, offset); }

@@ -23,6 +23,7 @@ struct fixed_t
 
     static constexpr fixed_t whole(fixed_uint_t i) { return { i << shift }; }
     constexpr fixed_uint_t whole() const { return value >> shift; }
+    constexpr fixed_sint_t swhole() const { return signed_() >> shift; }
 };
 
 constexpr fixed_t operator""_f(unsigned long long int i) { return { i }; }

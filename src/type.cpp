@@ -107,9 +107,9 @@ type_t type_t::paa(std::int64_t size, group_ht group, pstring_t pstring)
     return ret;
 }
 
-type_t type_t::paa_thunk(pstring_t pstring, token_t const* tokens, group_ht group)
+type_t type_t::paa_thunk(pstring_t pstring, ast_node_t const& ast, group_ht group)
 {
-    return type_t(TYPE_PAA_THUNK, 0, eternal_emplace<paa_thunk_t>(pstring, tokens, group));
+    return type_t(TYPE_PAA_THUNK, 0, eternal_emplace<paa_thunk_t>(pstring, ast, group));
 }
 
 type_t type_t::tea(type_t elem_type, unsigned size)
@@ -125,9 +125,9 @@ type_t type_t::tea(type_t elem_type, std::int64_t size, pstring_t pstring)
     return ret;
 }
 
-type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, token_t const* tokens)
+type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, ast_node_t const& ast)
 {
-    return type_t(TYPE_TEA_THUNK, 0, eternal_emplace<tea_thunk_t>(pstring, elem_type, tokens));
+    return type_t(TYPE_TEA_THUNK, 0, eternal_emplace<tea_thunk_t>(pstring, ast, elem_type));
 }
 
 type_t type_t::ptr(group_ht group, bool muta, bool banked) { return ptr(&group, &group + 1, muta, banked); }
@@ -167,7 +167,7 @@ type_t type_t::struct_(struct_t const& s)
     return type_t(TYPE_STRUCT, 0, &s);
 }
 
-type_t type_t::asm_ptr(bool banked)
+type_t type_t::addr(bool banked)
 {
     return type_t(banked ? TYPE_BANKED_APTR : TYPE_APTR, 0, nullptr);
 }
@@ -636,9 +636,9 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 
             if(full)
             {
-                spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
+                rpair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
                 assert(result.value.size());
-                if(std::holds_alternative<expr_vec_t>(result.value[0]))
+                if(is_lt(result.value))
                     compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
                 auto size = std::get<ssa_value_t>(result.value[0]).signed_whole();
 
@@ -657,9 +657,9 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 
             if(full)
             {
-                spair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
+                rpair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
                 assert(result.value.size());
-                if(std::holds_alternative<expr_vec_t>(result.value[0]))
+                if(is_lt(result.value))
                     compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
                 auto size = std::get<ssa_value_t>(result.value[0]).signed_whole();
 

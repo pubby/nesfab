@@ -23,7 +23,7 @@
 #include "fn_def.hpp"
 #include "type.hpp"
 #include "lvar.hpp"
-#include "sval.hpp"
+#include "rval.hpp"
 #include "rom_decl.hpp"
 #include "locator.hpp"
 #include "mods.hpp"
@@ -41,8 +41,8 @@ std::string to_string(global_class_t gclass);
 struct field_t
 {
     var_decl_t decl;
-    token_t const* init_expr = nullptr;
-    sval_t default_sval;
+    //token_t const* init_expr = nullptr; TODO
+    //rval_t default_rval; TODO
 
     type_t& type() { return decl.src_type.type; }
     type_t const& type() const { return decl.src_type.type; }
@@ -129,11 +129,11 @@ public:
     gvar_t& define_var(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
-        token_t const* expr, std::unique_ptr<mods_t> mods);
+        ast_node_t const* expr, std::unique_ptr<mods_t> mods);
     const_t& define_const(
         pstring_t pstring, global_t::ideps_set_t&& ideps, 
         src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, 
-        token_t const* expr, std::unique_ptr<mods_t> mods);
+        ast_node_t const* expr, std::unique_ptr<mods_t> mods);
     struct_t& define_struct(
         pstring_t pstring, global_t::ideps_set_t&& ideps, field_map_t&& map);
 
@@ -455,7 +455,7 @@ private:
 class global_datum_t : public modded_t
 {
 public:
-    global_datum_t(global_t& global, src_type_t src_type, token_t const* expr, std::unique_ptr<mods_t> mods)
+    global_datum_t(global_t& global, src_type_t src_type, ast_node_t const* expr, std::unique_ptr<mods_t> mods)
     : modded_t(std::move(mods))
     , global(global)
     , init_expr(expr)
@@ -464,11 +464,11 @@ public:
     {}
     
     global_t& global;
-    token_t const* const init_expr = nullptr;
+    ast_node_t const* const init_expr = nullptr;
     bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
 
     type_t type() const { return m_src_type.type; }
-    sval_t const& sval() const { assert(global.prechecked()); return m_sval; }
+    rval_t const& rval() const { assert(global.prechecked()); return m_rval; }
 
     void dethunkify(bool full);
     void precheck();
@@ -478,10 +478,10 @@ public:
 
 protected:
     virtual void paa_init(loc_vec_t&& paa) = 0;
-    virtual void sval_init(sval_t&& sval) = 0;
+    virtual void rval_init(rval_t&& rval) = 0;
 
     src_type_t m_src_type = {};
-    sval_t m_sval = {};
+    rval_t m_rval = {};
 };
  
 class gvar_t : public global_datum_t
@@ -492,7 +492,7 @@ public:
 
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
-    gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, token_t const* expr, std::unique_ptr<mods_t> mods)
+    gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, ast_node_t const* expr, std::unique_ptr<mods_t> mods)
     : global_datum_t(global, src_type, expr, std::move(mods))
     , group_vars(group_vars)
     {}
@@ -514,7 +514,7 @@ public:
 
 private:
     virtual void paa_init(loc_vec_t&& paa);
-    virtual void sval_init(sval_t&& sval);
+    virtual void rval_init(rval_t&& rval);
 
     loc_vec_t m_init_data = {};
 
@@ -559,7 +559,7 @@ public:
 
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
-    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, token_t const* expr, std::unique_ptr<mods_t> mods)
+    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, ast_node_t const* expr, std::unique_ptr<mods_t> mods)
     : global_datum_t(global, src_type, expr, std::move(mods))
     , group_data(group_data)
     { assert(init_expr); }
@@ -572,7 +572,7 @@ public:
 
 private:
     virtual void paa_init(loc_vec_t&& paa);
-    virtual void sval_init(sval_t&& sval);
+    virtual void rval_init(rval_t&& rval);
 
     rom_array_ht m_rom_array = {};
 };

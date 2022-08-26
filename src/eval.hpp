@@ -20,7 +20,7 @@ class fn_t;
 class eval_t;
 class type_t;
 class locator_t;
-struct spair_t;
+struct rpair_t;
 struct pstring_t;
 struct token_t;
 
@@ -47,13 +47,13 @@ struct fn_not_rt_t : public std::exception
     pstring_t pstring;
 };
 
-locator_t interpret_asm_expr(pstring_t pstring, token_t const* expr, 
+locator_t interpret_asm_expr(pstring_t pstring, ast_node_t const& expr,
                              bool addr, local_const_t const* local_consts);
 
-spair_t interpret_expr(pstring_t pstring, token_t const* expr, 
+rpair_t interpret_expr(pstring_t pstring, ast_node_t const& ast,
                        type_t expected_type, eval_t* env = nullptr);
 
-std::vector<locator_t> interpret_paa(pstring_t pstring, token_t const* expr);
+std::vector<locator_t> interpret_paa(pstring_t pstring, ast_node_t const& ast);
 
 precheck_tracked_t build_tracked(fn_t const& fn);
 

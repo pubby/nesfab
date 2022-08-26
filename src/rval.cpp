@@ -1,12 +1,12 @@
-#include "sval.hpp"
+#include "rval.hpp"
 
 #include "locator.hpp"
 #include "compiler_error.hpp"
 #include "lt.hpp"
 
-bool is_ct(sval_t const& sval)
+bool is_ct(rval_t const& rval)
 {
-    for(auto const& v : sval)
+    for(auto const& v : rval)
     {
         if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
         {
@@ -20,11 +20,11 @@ bool is_ct(sval_t const& sval)
     return true;
 }
 
-bool is_lt(sval_t const& sval)
+bool is_lt(rval_t const& rval)
 {
-    for(auto const& v : sval)
+    for(auto const& v : rval)
     {
-        if(std::holds_alternative<expr_vec_t>(v))
+        if(std::holds_alternative<ast_node_t const*>(v))
             return true;
         else if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
         {
@@ -36,7 +36,7 @@ bool is_lt(sval_t const& sval)
     return false;
 }
 
-void append_locator_bytes(std::vector<locator_t>& vec, sval_t const& sval, type_t const type, pstring_t pstring)
+void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t const type, pstring_t pstring)
 {
     std::size_t const total_size_of = type.size_of();
 
@@ -45,8 +45,8 @@ void append_locator_bytes(std::vector<locator_t>& vec, sval_t const& sval, type_
 
     vec.reserve(vec.size() + total_size_of);
 
-    assert(sval.size());
-    for(unsigned i = 0; i < sval.size(); ++i)
+    assert(rval.size());
+    for(unsigned i = 0; i < rval.size(); ++i)
     {
         type_t const mt = ::member_type(type, i);
 
@@ -108,7 +108,7 @@ void append_locator_bytes(std::vector<locator_t>& vec, sval_t const& sval, type_
         };
 
         // Convert the scalar into bytes.
-        ct_variant_t const& v = sval[i];
+        ct_variant_t const& v = rval[i];
 
         if(ssa_value_t const* value = std::get_if<ssa_value_t>(&v))
             push_bytes(*value, mt);
@@ -119,7 +119,57 @@ void append_locator_bytes(std::vector<locator_t>& vec, sval_t const& sval, type_
             for(unsigned i = 0; i < length; ++i)
                 push_bytes((*array)[i], elem_type);
         }
-        else if(expr_vec_t const* vec = std::get_if<expr_vec_t>(&v))
-            push_bytes(locator_t::lt_expr(alloc_lt_value(mt, *vec)), mt);
+        else if(ast_node_t const* const* ast = std::get_if<ast_node_t const*>(&v))
+        {
+            assert(false);
+            // TODO
+            //push_bytes(locator_t::lt_expr(alloc_lt_value(mt, *vec)), mt);
+        }
     }
+}
+
+fixed_t expr_value_t::fixed() const
+{ 
+    if(rval_t const* rval = is_rval())
+        return ::fixed(*rval, type, pstring);
+    else
+        compiler_error(pstring, "Expecting rvalue.");
+}
+
+fixed_t expr_value_t::sfixed() const
+{ 
+    if(rval_t const* rval = is_rval())
+        return ::sfixed(*rval, type, pstring);
+    else
+        compiler_error(pstring, "Expecting rvalue.");
+}
+
+fixed_t fixed(rval_t const& rval, type_t type, pstring_t pstring)
+{ 
+    ssa_value_t const* v;
+
+    if(rval.size() != 1)
+        goto not_cne;
+
+    if(!(v = std::get_if<ssa_value_t>(&rval[0])))
+        goto not_cne;
+
+    if(!*v)
+        compiler_error(pstring, "Value is uninitialized.");
+
+    if(!v->is_num() || !is_arithmetic(type.name()))
+        goto not_cne;
+
+    assert(is_masked(v->fixed(), type.name()));
+    return v->fixed();
+
+not_cne:
+    compiler_error(pstring, "Expecting compile-time constant numeric expression.");
+}
+
+fixed_t sfixed(rval_t const& rval, type_t type, pstring_t pstring)
+{ 
+    if(is_signed(type.name()))
+        return { to_signed(fixed(rval, type, pstring).value, type.name()) };
+    return fixed(rval, type, pstring);
 }

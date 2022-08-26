@@ -109,6 +109,8 @@ int main(int argc, char** argv)
                 PRINT_SIZE(const_t);
                 PRINT_SIZE(type_t);
                 PRINT_SIZE(mods_t);
+                PRINT_SIZE(token_t);
+                PRINT_SIZE(ast_node_t);
 #undef PRINT_SIZE
                 return EXIT_SUCCESS;
             }

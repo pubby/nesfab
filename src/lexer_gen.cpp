@@ -675,25 +675,28 @@ int main()
             //keyword(3, "double_colon", "::"),
             //keyword(4, "pointer", "%"),
             //keyword(4, "rarrow", "->"),
-            keyword(6, "semicolon", ";"),
-            keyword(6, "comma", ","),
-            keyword(1, "lparen", "("),
+            keyword("semicolon", ";"),
+            keyword("comma", ","),
 
+            keyword("sizeof"),
+            accept("sizeof_expr", "sizeof", eof()), // dummy
+            keyword("len", "len"),
+            accept("len_expr", "len", eof()), // dummy
 
-
-            keyword(4, "at", "@"),
-            keyword(5, "period", "."),
-            keyword(7, "sizeof", "sizeof"),
-            accept(7, "sizeof_expr", "sizeof", eof()), // dummy
-            keyword(7, "len", "len"),
-            accept(7, "len_expr", "len", eof()), // dummy
-            accept(7, "apply", "apply", eof()), // dummy
-            accept(7, "cast_argn", "cast", eof()), // dummy
-            accept(7, "cast_type", "cast type", eof()), // dummy
-            accept(7, "index", "index", eof()), // dummy
             accept(8, "unary_minus", "unary -", eof()), // dummy
             op(8, "unary_xor", "~"),
             op(8, "unary_negate", "!"),
+            op(8, "unary_ref", "unary &"),
+
+            keyword(8, "at", "@"),
+
+            keyword(5, "period", "."),
+            accept(7, "apply", "apply", eof()), // dummy
+            accept(7, "cast", "cast", eof()), // dummy
+            accept(7, "cast_type", "cast_type", eof()), // dummy
+            accept(7, "index", "index", eof()), // dummy
+
+            keyword(1, "lparen", "("), // begin infix ops
 
             op(10, "asterisk", "*"),
             op(10, "fslash", "/"),
@@ -734,7 +737,7 @@ int main()
             op(30 | RIGHT_ASSOC, "lshift_assign", "<<="),
             op(30 | RIGHT_ASSOC, "rshift_assign", ">>="),
 
-            keyword(1, "rparen", ")"),
+            keyword(1, "rparen", ")"), // end infix ops
 
             accept("Void", "void type", word("Void")), // First type
             accept("F", "F type", word("F")),
@@ -764,8 +767,12 @@ int main()
             accept("SFFF", "SFFF type", word("SFFF")),
             accept("SSFFF", "SSFFF type", word("SSFFF")),
             accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
+            accept("AA", "AA type", word("AA")),
+            accept("AAA", "AAA type", word("AAA")),
             accept("PP", "PP type", word("PP")),
             accept("PPP", "PPP type", word("PPP")),
+            accept("CC", "CC type", word("CC")),
+            accept("CCC", "CCC type", word("CCC")),
             accept("MM", "MM type", word("MM")),
             accept("MMM", "MMM type", word("MMM")),
             accept("Int", "Int type", word("Int")),
@@ -787,12 +794,12 @@ int main()
             accept("hw_addr", "hardware address", eof()),
             accept("read_hw", "read hardware", eof()),
             accept("write_hw", "write hardware", eof()),
-            accept("push_paa_byte_array", "byte array", eof()),
+            accept("paa_byte_array", "byte array", eof()),
             accept("push_paa", "push paa", eof()),
             accept("begin_paa", "begin paa", eof()),
             accept("end_paa", "end paa", eof()),
             accept("group_set", "group set", eof()),
-            accept("spair", "spair", eof())
+            accept("rpair", "rpair", eof())
             ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

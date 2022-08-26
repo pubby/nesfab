@@ -15,6 +15,7 @@
 #include "token.hpp"
 #include "pstring.hpp"
 #include "asm_lex_tables.hpp"
+#include "ast.hpp"
 
 struct mods_t;
 
@@ -79,15 +80,22 @@ private:
     static std::uint16_t get_hw_reg(lex::token_type_t token_type);
     std::uint16_t parse_hw_reg();
 
+    ast_node_t parse_expr_atom(int starting_indent, int open_parens);
+    ast_node_t parse_expr_atom_impl(int starting_indent, int open_parens);
+    ast_node_t parse_expr(int starting_indent, int open_parens, int min_precedence = 256);
+    ast_node_t parse_expr();
+
+    /*
     expr_temp_t parse_expr();
     void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
-    src_type_t parse_cast(expr_temp_t&, int open_parens=0);
+    */
+    ast_node_t parse_cast(src_type_t& src_type, int open_parens=0);
 
     src_type_t parse_type(bool allow_void, bool allow_bank_size, group_ht group, 
                           bool allow_groupless_paa = false);
 
     var_decl_t parse_var_decl(bool block_init, group_ht group, bool allow_groupless_paa = false);
-    bool parse_var_init(var_decl_t& var_decl, expr_temp_t& expr, bool block_init, group_ht group);
+    bool parse_var_init(var_decl_t& var_decl, ast_node_t& expr, bool block_init, group_ht group);
 
     std::unique_ptr<mods_t> parse_mods(int base_indent);
 

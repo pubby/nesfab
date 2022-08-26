@@ -72,7 +72,7 @@ public:
             callback(gmember_sets[i], index_t{ i + num_gvar_locators() }, locator_t::gmember_set(fn, i));
     }
 
-    static std::size_t bitset_size();
+    static std::size_t bitset_size(); // TODO: remove this garbage
 
 private:
     fn_ht fn;

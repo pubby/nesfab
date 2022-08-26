@@ -105,7 +105,7 @@ ram_alloc.cpp \
 lvar.cpp \
 o_gvn.cpp \
 eval.cpp \
-sval.cpp \
+rval.cpp \
 type_name.cpp \
 cg_isel_cpu.cpp \
 convert_file.cpp \
@@ -125,7 +125,9 @@ cg_ptr.cpp \
 pbqp.cpp \
 asm_graph.cpp \
 iasm.cpp \
-fn_def.cpp
+fn_def.cpp \
+rpn.cpp \
+ast.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

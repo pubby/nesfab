@@ -50,8 +50,8 @@ std::string to_string(locator_t loc)
         str = fmt("minor var %", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:
         str = "rom_array"; break;
-    case LOC_LT_GMEMBER_PTR:
-        str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
+    //case LOC_LT_GMEMBER_PTR:
+        //str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_LT_CONST_PTR:
         str = fmt("lt_const_ptr %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
@@ -144,7 +144,7 @@ type_t locator_t::type() const
     switch(is())
     {
     case IS_PTR:
-        return byteify(TYPE_U20);
+        return byteify(TYPE_APTR);
     case IS_PTR_HI:
     case IS_BANK:
         return TYPE_U;
@@ -154,13 +154,19 @@ type_t locator_t::type() const
 
     switch(lclass())
     {
+        /*
     case LOC_LT_GMEMBER_PTR:
         if(gmember_ht const m = gmember())
             return byteify(type_t::ptr(m->gvar.group(), true, false));
         break;
+        */
     case LOC_LT_CONST_PTR:
         if(const_ht const c = const_())
             return byteify(type_t::ptr(c->group(), false, false));
+        break;
+    case LOC_LT_CONST_ADDR:
+        if(const_ht const c = const_())
+            return byteify(type_t::addr(false));
         break;
     case LOC_LT_EXPR:
         assert(lt());
@@ -262,8 +268,8 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             return locator_t::const_byte(bank);
         return *this;
 
-    case LOC_LT_GMEMBER_PTR:
-        return from_span(gmember()->span(0));
+    //case LOC_LT_GMEMBER_PTR:
+        //return from_span(gmember()->span(0));
 
     case LOC_RUNTIME_RAM:
         {

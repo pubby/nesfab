@@ -197,7 +197,7 @@ int main(int argc, char** argv)
         // TODO: remove
         //for(fn_t const& fn : impl_deque<fn_t>)
             //fn.proc().write_assembly(std::cout, fn.handle());
-        //print_ram(std::cout);
+        print_ram(std::cout);
         output_time("alloc ram:");
 
         set_compiler_phase(PHASE_INITIAL_VALUES);

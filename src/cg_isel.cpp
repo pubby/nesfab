@@ -55,6 +55,10 @@ namespace isel
 
         // Used for debug logging.
         log_t* log = nullptr;
+
+#ifndef NDEBUG
+        bool selecting = false;
+#endif
     };
 
     // Main global state of the instruction selection algorithm.
@@ -81,6 +85,13 @@ namespace isel
             _node = v;
             _value = ssa_to_value(v);
             _trans = asm_arg(v).with_byteified(false);
+        }
+
+        static void set(ssa_value_t v, std::uint16_t offset)
+        {
+            _node = v;
+            _value = ssa_to_value(v).with_advance_offset(offset);
+            _trans = asm_arg(v).with_byteified(false).with_advance_offset(offset);
         }
 
         [[gnu::always_inline]] static ssa_value_t node() { return _node; }
@@ -247,6 +258,8 @@ namespace isel
 
         if(sel_cost < state.next_best_cost)
             state.next_best_cost = sel_cost;
+
+        assert(!state.next_map.empty());
     }
 
 
@@ -254,10 +267,17 @@ namespace isel
     template<bool FinishNode, typename Fn>
     void select_step(Fn fn)
     {
+        assert(!state.selecting);
+        assert(state.selecting = true);
+
         dprint(state.log, "-SELECT_STEP", state.ssa_node);
 
         state.next_map.clear();
         state.next_best_cost = ~0 - cost_cutoff(0);
+
+        assert(state.next_map.size() == 0);
+        assert(state.next_map.begin() == state.next_map.end());
+        assert(state.map.size());
 
         cons_t const cont = { finish<FinishNode> };
 
@@ -299,7 +319,13 @@ namespace isel
         else
             state.map.swap(state.next_map);
 
+#ifndef NDEBUG
+        state.next_map.clear();
+        assert(state.map.size());
+#endif
         state.best_cost = state.next_best_cost;
+
+        assert(!(state.selecting = false));
     }
 
     template<op_t Op>
@@ -1630,6 +1656,74 @@ namespace isel
     }
 
     template<typename Opt>
+    void copy_array(ssa_value_t from, ssa_value_t def)
+    {
+        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+
+        if(asm_arg(def).with_byteified(false) == asm_arg(from).with_byteified(false))
+            return;
+
+        unsigned const len = def.type().size();
+        unsigned half_unroll = 2;
+
+        if(len <= half_unroll * 2)
+        {
+            // No loop.
+            for(unsigned i = 0; i < len; ++i)
+            {
+                p_arg<0>::set(from, i);
+                p_def::set(def, i);
+                select_step<true>(load_then_store<Opt, null_, p_arg<0>, p_def, false>);
+            }
+        }
+        else
+        {
+            using loop_label = p_arg<1>;
+
+            if(len == 256)
+                half_unroll *= 2;
+
+            unsigned const iter = len / half_unroll;
+            assert(iter < 0x80);
+
+            p_arg<0>::set(locator_t::const_byte(iter));
+            loop_label::set(state.minor_label());
+
+            select_step<false>(
+                chain
+                < load_X<Opt, p_arg<0>>
+                , label<loop_label>
+                >);
+
+            for(unsigned i = 0; i < half_unroll; ++i)
+            {
+                p_arg<0>::set(from, i * iter);
+                p_def::set(def, i * iter);
+                select_step<false>(
+                    chain
+                    < exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<0>>
+                    , exact_op<OptC, STA_ABSOLUTE_X, null_, p_def>
+                    >);
+            }
+
+            select_step<true>(
+                chain
+                < simple_op<OptC, DEX_IMPLIED>
+                , simple_op<OptC, BPL_RELATIVE, null_, loop_label>
+                , clear_conditional
+                , set_defs<Opt, REGF_X, true, const_<0xFF>>
+                >);
+
+            for(unsigned i = iter * half_unroll; i < len; ++i)
+            {
+                p_arg<0>::set(from, i);
+                p_def::set(def, i);
+                select_step<true>(load_then_store<Opt, null_, p_arg<0>, p_def, false>);
+            }
+        }
+    }
+
+    template<typename Opt>
     void write_globals(ssa_ht h)
     {
         // TODO: Create a sorted order of the globals before writing.
@@ -1638,10 +1732,15 @@ namespace isel
             if(def.is_handle() && cset_locator(def.handle()) == loc)
                 return;
 
-            p_def::set(def);
-            p_arg<0>::set(loc);
+            if(is_tea(def.type().name()))
+                copy_array<Opt>(def, loc);
+            else
+            {
+                p_def::set(def);
+                p_arg<0>::set(loc);
 
-            select_step<true>(load_then_store<Opt, p_def, p_def, p_arg<0>, false>);
+                select_step<true>(load_then_store<Opt, p_def, p_def, p_arg<0>, false>);
+            }
         });
     }
 
@@ -2264,11 +2363,6 @@ namespace isel
 
             break;
 
-        case SSA_early_store:
-            p_arg<0>::set(h->input(0));
-            load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
-            break;
-
         case SSA_read_global:
             if(h->input(1).locator().mem_head() != cset_locator(h))
             {
@@ -2336,18 +2430,12 @@ namespace isel
             break;
 
         case SSA_write_array:
-            if(h->input(0).holds_ref() && cset_head(h->input(0).handle()) != cset_head(h))
-            {
-                // TODO! Insert an array copy here.
-                throw std::runtime_error("Unimplemented array copy.");
-            }
-            else
             {
                 using p_array = p_arg<0>;
                 using p_index = p_arg<1>;
                 using p_assignment = p_arg<2>;
 
-                p_array::set(h->input(0));
+                p_array::set(h);
                 p_index::set(h->input(2));
                 p_assignment::set(h->input(3));
 
@@ -2689,6 +2777,21 @@ namespace isel
             }
             goto simple;
 
+        case SSA_write_array:
+            if(h->input(0).holds_ref() && cset_head(h->input(0).handle()) != cset_head(h))
+                copy_array<Opt>(h->input(0), h);
+            goto simple;
+
+        case SSA_early_store:
+            if(is_tea(h->type().name()))
+                copy_array<Opt>(h->input(0), h);
+            else
+            {
+                p_arg<0>::set(h->input(0));
+                select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def>);
+            }
+            break;
+
         default: 
         simple:
             select_step<true>([h](cpu_t cpu, sel_t const* prev, cons_t const* cont)
@@ -2910,11 +3013,12 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         // Generate every selection:
         for(ssa_ht h : cg_data(cfg).schedule)
         {
-            try
+            //try
             {
                 state.ssa_node = h;
                 isel_node(h); // This creates all the selections.
             }
+            /*
             catch(isel_no_progress_error_t const&)
             {
                 dprint(state.log, "-ISEL_NO_PROGRES!");
@@ -2938,6 +3042,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 throw;
             }
             catch(...) { throw; }
+            */
         }
 
         // Clear after computing:

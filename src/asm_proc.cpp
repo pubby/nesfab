@@ -299,6 +299,14 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         case LOC_FN:
             os << "fn " << inst.arg.fn()->global.name;
             break;
+        case LOC_ARG:
+        case LOC_RETURN:
+        case LOC_PHI:
+        case LOC_SSA:
+            if(!fn)
+                throw std::runtime_error("Unable to write assembly. Missing function.");
+            os << "lvar " << fn->lvar_span(romv, fn->lvars().index(inst.arg)) << "   " << inst.arg;
+            break;
         default:
             os << inst.arg;
             break;

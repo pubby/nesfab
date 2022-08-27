@@ -64,6 +64,7 @@ span_t runtime_span(runtime_rom_name_t name, romv_t romv)
 ram_bitset_t alloc_runtime_ram()
 {
     runtime_ram_allocator_t a;
+    a.allocated = stack_bitset; // Don't allocate in stack space.
 
     _rtram_spans[RTRAM_ptr_temp]        = {{ a.alloc_zp(2), a.alloc_zp(2) }};
     _rtram_spans[RTRAM_nmi_index]       = {{ a.alloc_zp(1) }};

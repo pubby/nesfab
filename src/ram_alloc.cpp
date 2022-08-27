@@ -102,7 +102,7 @@ private:
     struct group_vars_d
     {
         // Addresses that can be used to allocate globals.
-        ram_bitset_t usable_ram = {};
+        ram_bitset_t usable_ram;
 
         // Tracks how it interferes with other group_vars
         xbitset_t<group_vars_ht> interferences;
@@ -121,12 +121,7 @@ private:
         unsigned lvar_count = 0;
 
         // Addresses that can be used to allocate lvars.
-        std::array<ram_bitset_t, NUM_ROMV> usable_ram = []
-            {
-                std::array<ram_bitset_t, NUM_ROMV> ret;
-                ret.fill(ram_bitset_t::filled());
-                return ret;
-            }();
+        std::array<ram_bitset_t, NUM_ROMV> usable_ram;
 
         // Ram allocated by lvars in this fn.
         std::array<ram_bitset_t, NUM_ROMV> lvar_ram = {};
@@ -229,13 +224,15 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             }
         }
 
-        // Init 'maximal_group_vars'
+        // Init 'maximal_group_vars' and 'fn usable_ram'.
         for(fn_ht fn : fn_ht::handles())
         {
             if(fn->fclass == FN_CT)
                 continue;
 
             fn_data[fn.id].maximal_group_vars = fn->ir_group_vars();
+            for(auto& bs : fn_data[fn.id].usable_ram)
+                bs = initial_usable_ram;
             assert(fn_data[fn.id].maximal_group_vars);
         }
 

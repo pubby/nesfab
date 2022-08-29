@@ -790,7 +790,6 @@ int main()
             accept("real", "real", eof()),
             accept("global_ident", "global identifier", eof()),
             accept("weak_ident", "weak identifier", eof()),
-            accept("hw_expr", "hardware expression", eof()),
             accept("hw_addr", "hardware address", eof()),
             accept("read_hw", "read hardware", eof()),
             accept("write_hw", "write hardware", eof()),

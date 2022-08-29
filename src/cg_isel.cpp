@@ -4,6 +4,8 @@
 #include <functional>
 #include <type_traits>
 #include <vector>
+#include <algorithm>
+#include <numeric>
 #include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
@@ -156,10 +158,10 @@ namespace isel
         isel_cost_t penalty = 0;
 
         // Very slightly penalize the use of X / Y:
-        if(op_input_regs(op) & REGF_X)
-            penalty += 1;
         if(op_input_regs(op) & REGF_Y)
             penalty += 2;
+        else if(op_input_regs(op) & REGF_X)
+            penalty += 1;
 
         switch(op_name(op))
         {
@@ -175,7 +177,7 @@ namespace isel
             penalty += 1;
         }
 
-        return (op_cycles(op) * 256ull) + op_size(op) + penalty;
+        return (op_cycles(op) * 256ull) + (op_size(op) * 4ull) + penalty;
     }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -229,12 +231,13 @@ namespace isel
 ///////////////////////////////////////////////////////////////////////////////
 
     // These determine how extensive the search is.
-    constexpr unsigned MAX_MAP_SIZE = 64;
+    constexpr unsigned MAX_MAP_SIZE = 48;
     constexpr unsigned cost_cutoff(int size)
     {
         constexpr unsigned BASE = cost_fn(LDY_ABSOLUTE) * 3;
-        return (BASE >> (size >> 4)) + cost_fn(TAY_IMPLIED);
-        //return std::max<int>(BASE * (int(MAX_MAP_SIZE) - size) / int(MAX_MAP_SIZE), cost_fn(LDY_ABSOLUTE));
+        return BASE;
+        //return (BASE >> (size >> 4)) + cost_fn(TAY_IMPLIED);
+        //return std::max<int>((BASE * (int(MAX_MAP_SIZE*2) - size)) / int(MAX_MAP_SIZE*2), cost_fn(TAY_IMPLIED) * 3 / 2);
     }
 
     // Finishes the selection step.
@@ -283,18 +286,37 @@ namespace isel
 
         cons_t const cont = { finish<FinishNode> };
 
-        isel_cost_t const cutoff = cost_cutoff(state.map.size());
+        isel_cost_t const cutoff = state.best_cost + cost_cutoff(state.map.size());
 
         // Run every selection step:
-        unsigned i = 0;
-        for(auto const& pair : state.map)
+        if(state.map.size() > MAX_MAP_SIZE)
         {
-            if(pair.second->cost <= state.best_cost + cutoff)
+            thread_local std::vector<unsigned> indices;
+            indices.resize(state.map.size());
+
+            auto const begin = indices.begin();
+            auto end = indices.end();
+            
+            auto comp = [&](unsigned a, unsigned b)
+                { return state.map.begin()[a].second->cost > state.map.begin()[b].second->cost; };
+
+            std::iota(begin, end, 0);
+            std::make_heap(begin, end, comp);
+
+            for(unsigned i = 0; i < MAX_MAP_SIZE; ++i)
             {
-                fn(pair.first, pair.second, &cont);
-                if(++i > MAX_MAP_SIZE)
+                std::pop_heap(begin, end, comp);
+                auto const& pair = state.map.begin()[*(--end)];
+                if(pair.second->cost > cutoff)
                     break;
+                fn(pair.first, pair.second, &cont);
             }
+        }
+        else
+        {
+            for(auto const& pair : state.map)
+                if(pair.second->cost <= cutoff)
+                    fn(pair.first, pair.second, &cont);
         }
 
         if(state.next_map.empty())
@@ -347,7 +369,7 @@ namespace isel
             total_cost = (total_cost * 3) / 4; // Conditional ops are arbitrarily cheaper.
         total_cost += prev->cost + extra_cost;
 
-        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, alt , total_cost  });
+        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, alt/* , total_cost*/  });
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
@@ -2369,6 +2391,7 @@ namespace isel
             }
             break;
 
+            /* TODO: remove
         case SSA_read_hw:
             p_arg<0>::set(h->input(0));
 
@@ -2418,6 +2441,7 @@ namespace isel
             >(cpu, prev, cont);
 
             break;
+            */
 
         case SSA_read_global:
             if(h->output_size() > 0 && h->input(1).locator().mem_head() != cset_locator(h))
@@ -2513,6 +2537,7 @@ namespace isel
             break;
 
         case SSA_read_ptr:
+        case SSA_read_ptr_hw:
             {
                 using p_ptr_lo = p_arg<0>;
                 using p_ptr_hi = p_arg<1>;
@@ -2528,7 +2553,20 @@ namespace isel
                 if(h->input(PTR).is_const()) // TODO
                 {
                     assert(!h->input(PTR_HI) || h->input(PTR_HI).is_const());
-                    read_array<Opt, p_def, p_ptr, p_index>(cpu, prev, cont);
+                    if(h->output_size() == 0)
+                    {
+                        if(h->input(INDEX).eq_whole(0))
+                            exact_op<Opt, IGN_ABSOLUTE, p_def, p_arg<0>>(cpu, prev, cont);
+                        else
+                        {
+                            chain
+                            < load_X<Opt, p_index>
+                            , exact_op<Opt, IGN_ABSOLUTE_X, p_def, p_arg<0>>
+                            >(cpu, prev, cont);
+                        }
+                    }
+                    else
+                        read_array<Opt, p_def, p_ptr, p_index>(cpu, prev, cont);
                 }
                 else
                 {
@@ -2557,6 +2595,7 @@ namespace isel
             break;
 
         case SSA_write_ptr:
+        case SSA_write_ptr_hw:
             {
                 using p_ptr_lo = p_arg<0>;
                 using p_ptr_hi = p_arg<1>;
@@ -2668,81 +2707,44 @@ namespace isel
         }
     }
 
-    void isel_node_preprep(ssa_ht h)
+    preprep_bitset_t isel_node_build_preprep(ssa_ht h)
     {
         assert(h);
 
-        using Opt = options<>::restrict_to<~REGF_C>;
+        preprep_bitset_t bs = {};
+
         switch(h->op())
         {
-        case SSA_branch_eq:
-        case SSA_branch_not_eq:
-        case SSA_branch_lt:
-        case SSA_branch_lte:
-            break;
-
-        case SSA_sign_extend:
-            select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
-            {
-                cont->call(cpu, prev);
-                load_A<Opt, const_<0>>(cpu, prev, cont);
-                load_X<Opt, const_<0>>(cpu, prev, cont);
-                load_Y<Opt, const_<0>>(cpu, prev, cont);
-            });
-            break;
-
         case SSA_multi_eq:
         case SSA_multi_not_eq:
         case SSA_multi_lt:
         case SSA_multi_lte:
-            select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
-            {
-                cont->call(cpu, prev);
-                load_X<Opt, const_<0>>(cpu, prev, cont);
-                load_Y<Opt, const_<0>>(cpu, prev, cont);
-            });
-            break;
-
+        case SSA_sign_extend:
         case SSA_rol:
         case SSA_ror:
         case SSA_add:
         case SSA_sub:
-            select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
-            {
-                cont->call(cpu, prev);
-                load_A<Opt, const_<0>>(cpu, prev, cont);
-            });
-            break;
-
+            bs.set(0);
+            // fall-through
         default: 
-            static_bitset_t<256> bs = {};
             unsigned i = 0;
-            if(ssa_input0_class(h->op()) != INPUT_VALUE)
-                ++i;
+            if(ssa_flags(h->op()) & SSAF_WRITE_GLOBALS)
+                i = write_globals_begin(h->op());
+            else if(ssa_input0_class(h->op()) != INPUT_VALUE)
+                i = 1;
+
             for(; i < h->input_size(); ++i)
             {
                 ssa_value_t const input = h->input(i);
                 if(!input.is_num())
                     continue;
-
                 unsigned const whole = input.whole();
-                if(whole > 256 || bs.test(whole))
-                    continue;
-
-                p_arg<0>::set(input);
-
-                select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
-                {
-                    cont->call(cpu, prev);
-                    load_A<Opt, p_arg<0>>(cpu, prev, cont);
-                    load_X<Opt, p_arg<0>>(cpu, prev, cont);
-                    load_Y<Opt, p_arg<0>>(cpu, prev, cont);
-                });
-
-                bs.set(whole);
+                if(whole < 256)
+                    bs.set(whole);
             }
-            break;
         }
+
+        return bs;
     }
 
     void isel_node(ssa_ht h)
@@ -2897,7 +2899,9 @@ namespace isel
             break;
 
         case SSA_read_ptr:
+        case SSA_read_ptr_hw:
         case SSA_write_ptr:
+        case SSA_write_ptr_hw:
             {
                 // Handle bankswitching here, then call to 'isel_node_simple'
                 using namespace ssai::rw_ptr;
@@ -3093,6 +3097,34 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
     _data_vec.clear();
     _data_vec.resize(cfg_pool::array_size());
 
+    ///////////////////////////
+    // GENERATE PREPREP LIST //
+    ///////////////////////////
+
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+        auto const& schedule = cg_data(cfg).schedule;
+
+        d.preprep.resize(schedule.size());
+
+        for(int i = 0; i < int(schedule.size()); ++i)
+        {
+            constexpr int PREPREP = 8;
+            constexpr unsigned MAX_BITS = 4;
+
+            preprep_bitset_t const bs = isel_node_build_preprep(schedule[i]);
+
+            for(int j = i-1; j >= i-PREPREP && j >= 0; --j)
+            {
+                preprep_bitset_t const u = bs | d.preprep[j];
+                if(u.popcount() > MAX_BITS)
+                    break;
+                d.preprep[j] = u;
+            }
+        }
+    }
+
     ///////////////////////////////////////////////
     // GENERATE SELECTION LIST FOR EACH CFG NODE //
     ///////////////////////////////////////////////
@@ -3153,10 +3185,20 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             {
                 state.ssa_node = h;
                 
-                constexpr unsigned PREPREP = 2;
                 if(ssa_input0_class(h->op()) != INPUT_LINK) 
-                    for(unsigned j = i+1; j < i+1+PREPREP && j < schedule.size(); ++j)
-                        isel_node_preprep(schedule[j]);
+                {
+                    d.preprep[i].for_each([&](unsigned c)
+                    {
+                        p_arg<0>::set(locator_t::const_byte(c));
+                        select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                        {
+                            cont->call(cpu, prev);
+                            load_A<options<>, p_arg<0>>(cpu, prev, cont);
+                            load_X<options<>, p_arg<0>>(cpu, prev, cont);
+                            load_Y<options<>, p_arg<0>>(cpu, prev, cont);
+                        });
+                    });
+                }
 
                 isel_node(h); // This creates all the selections.
             }

@@ -2,6 +2,9 @@
 
 #include <iostream> // TODO
 
+#include <boost/container/static_vector.hpp>
+#include <boost/container/small_vector.hpp>
+
 #include "alloca.hpp"
 #include "fixed.hpp"
 #include "format.hpp"
@@ -494,7 +497,6 @@ std::uint16_t parser_t<P>::get_hw_reg(token_type_t token_type)
     case TOK_OAMADDR:   return OAMADDR;
     case TOK_OAMDATA:   return OAMDATA;
     case TOK_OAMDMA:    return OAMDMA;
-
     default: return 0;
     }
 }
@@ -631,23 +633,33 @@ retry:
     case TOK_len:
         return type_info_impl(TOK_len_expr, &type_t::array_length);
 
-        /* TODO
     case TOK_lbrace:
         {
+            bc::static_vector<ast_node_t, 2> children;
+
             // braces define a register value
             pstring_t const pstring = token.pstring;
             parse_token();
-            expr_temp_t hw_temp;
-            parse_expr(hw_temp, indent, open_parens+1);
+            children.push_back(parse_expr(indent, open_parens+1));
             parse_token(TOK_rbrace);
+            parse_token(TOK_lparen);
 
-            saved_token = token_t::make_ptr(
-                TOK_hw_expr, concat(pstring, token.pstring), 
-                policy().convert_expr(hw_temp));
+            ast_node_t ast = {};
 
-            goto rw_hardware;
+            if(token.type == TOK_rparen)
+                ast.token.type = TOK_read_hw;
+            else
+            {
+                ast.token.type = TOK_write_hw;
+                children.push_back(parse_expr(indent, open_parens+1));
+            }
+
+            ast.token.pstring = fast_concat(pstring, token.pstring);
+            ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
+            parse_token(TOK_rparen);
+
+            return ast;
         }
-        */
 
     default:
         if(is_type_prefix(token.type))
@@ -657,37 +669,14 @@ retry:
         }
         else 
         {
-            compiler_error("Unexpected token while parsing expression.");
-            /* TODO
             if(std::uint16_t hw_reg = get_hw_reg(token.type))
             {
-                saved_token = { .type = TOK_hw_addr, .pstring = token.pstring, .value = hw_reg };
+                token_t t = { .type = TOK_hw_addr, .pstring = token.pstring, .value = hw_reg };
                 parse_token();
+                return { .token = t };
             }
             else
-            {
                 compiler_error("Unexpected token while parsing expression.");
-            }
-        rw_hardware:
-            pstring_t const pstring = token.pstring;
-            parse_token(TOK_lparen);
-
-            if(token.type == TOK_rparen)
-            {
-                expr_temp.push_back(saved_token);
-                expr_temp.push_back({ .type = TOK_read_hw, .pstring = concat(pstring, token.pstring) });
-            }
-            else
-            {
-                parse_expr(expr_temp, indent, open_parens+1);
-                expr_temp.push_back(saved_token);
-                expr_temp.push_back({ .type = TOK_write_hw, .pstring = concat(pstring, token.pstring) });
-            }
-
-            parse_token(TOK_rparen);
-
-            goto applicable;
-            */
         }
     }
 }

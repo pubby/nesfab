@@ -18,8 +18,12 @@ unsigned ast_node_t::num_children() const
     case TOK_sizeof_expr:
     case TOK_len_expr:
     case TOK_period:
+    case TOK_read_hw:
         assert(children);
         return 1;
+
+    case TOK_write_hw:
+        return 2;
 
     default:
         if(is_operator(token.type))

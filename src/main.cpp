@@ -18,6 +18,7 @@
 #include "runtime.hpp"
 #include "rom_link.hpp"
 #include "ram_init.hpp"
+#include "cg_isel.hpp"
 #include "eternal_new.hpp" // TODO: remove?
 #include "ir.hpp" // TODO: remove?
 
@@ -111,6 +112,9 @@ int main(int argc, char** argv)
                 PRINT_SIZE(mods_t);
                 PRINT_SIZE(token_t);
                 PRINT_SIZE(ast_node_t);
+                PRINT_SIZE(asm_inst_t);
+                PRINT_SIZE(isel::cpu_t);
+                PRINT_SIZE(isel::sel_t);
 #undef PRINT_SIZE
                 return EXIT_SUCCESS;
             }

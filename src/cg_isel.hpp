@@ -26,21 +26,20 @@ struct isel_no_progress_error_t : public std::exception
 
 using isel_cost_t = pbqp_cost_t;
 
-struct sel_t
-{
-    sel_t(sel_t const* prev, unsigned cost, asm_inst_t inst)
-    : prev(prev)
-    , cost(cost)
-    , inst(inst)
-    {}
-
-    sel_t const* prev = nullptr;
-    isel_cost_t cost = 0;
-    asm_inst_t inst = {};
-};
-
 namespace isel
 {
+    struct sel_t
+    {
+        sel_t(sel_t const* prev, unsigned cost, asm_inst_t inst)
+        : prev(prev)
+        , cost(cost)
+        , inst(inst)
+        {}
+
+        sel_t const* prev = nullptr;
+        isel_cost_t cost = 0;
+        asm_inst_t inst = {};
+    };
 
     struct result_t
     {
@@ -48,8 +47,11 @@ namespace isel
         std::vector<asm_inst_t> code;
     };
 
+    using preprep_bitset_t = static_bitset_t<256>;
+
     struct cfg_d : public pbqp_node_t
     {
+        std::vector<preprep_bitset_t> preprep;
         std::vector<unsigned> to_compute;
         rh::batman_set<cross_cpu_t> in_states;
         rh::batman_map<cross_transition_t, result_t> sels;

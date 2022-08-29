@@ -1191,7 +1191,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     // Declare cross-label vars before switch.
     ssa_value_t common_value;
     type_t common_type;
-    ssa_value_t hw_addr;
 
     switch(ast.token.type)
     {
@@ -1818,64 +1817,66 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return result;
         }
 
-    case TOK_hw_expr:
+    case TOK_hw_addr:
+        {
+            expr_value_t result = { .type = TYPE_APTR, .pstring = ast.token.pstring };
+            if(!is_check(D))
+                result.val = rval_t{ ssa_value_t(ast.token.value, TYPE_APTR) };
+            return result;
+        }
+
+    case TOK_read_hw:
         {
             if(is_interpret(D))
                 compiler_error(stmt->pstring, "Hardware expression cannot be evaluated at compile-time.");
 
-            // TODO
-            rpair_t result = interpret_expr(ast.token.pstring, *ast.token.ptr<ast_node_t const>(), TYPE_U20, this);
+            expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
 
-            hw_addr = from_variant<COMPILE>(result.value[0], TYPE_U20);
-            if(hw_addr.is_num())
-                hw_addr = locator_t::addr(hw_addr.whole());
-            else if(hw_addr.is_locator())
-                hw_addr = hw_addr.locator().with_is(IS_DEREF);
-
-            goto rw_hw;
-        }
-
-    case TOK_hw_addr:
-        hw_addr = locator_t::addr(ast.token.value);
-    rw_hw:
-        if(ast.token.type == TOK_read_hw)
-        {
             expr_value_t result = 
             {
                 .type = TYPE_U, 
                 .pstring = ast.token.pstring,
             };
 
-            if(is_interpret(D))
-                compiler_error(stmt->pstring, "Hardware-related expressions cannot be evaluated at compile-time.");
-            else if(is_compile(D))
+            if(is_compile(D))
             {
-                ssa_ht const h = builder.cfg->emplace_ssa(SSA_read_hw, TYPE_U, hw_addr);
+                ssa_ht const h = builder.cfg->emplace_ssa(
+                    SSA_read_ptr_hw, TYPE_U, 
+                    addr.ssa(), ssa_value_t(), ssa_value_t(), 
+                    ssa_value_t(0u, TYPE_U));
                 h->append_daisy();
                 result.val = rval_t{ h };
             }
 
             return result;
         }
-        else if(ast.token.type == TOK_write_hw)
-        {
-            expr_value_t result = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_U, true);
-            result.pstring = concat(result.pstring, ast.token.pstring);
 
+    case TOK_write_hw:
+        {
             if(is_interpret(D))
-                compiler_error(stmt->pstring, "Hardware-related expressions cannot be evaluated at compile-time.");
-            else if(is_compile(D))
+                compiler_error(stmt->pstring, "Hardware expression cannot be evaluated at compile-time.");
+
+            expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
+            expr_value_t arg  = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_U, true);
+
+            expr_value_t result = 
+            {
+                .type = TYPE_U, 
+                .pstring = ast.token.pstring,
+            };
+
+            if(is_compile(D))
             {
                 ssa_ht const h = builder.cfg->emplace_ssa(
-                    SSA_write_hw, TYPE_VOID, hw_addr, result.ssa());
+                    SSA_write_ptr_hw, TYPE_VOID, 
+                    addr.ssa(), ssa_value_t(), ssa_value_t(), 
+                    ssa_value_t(0u, TYPE_U), arg.ssa());
                 h->append_daisy();
+                result.val = rval_t{ h };
             }
 
             return result;
         }
-        else
-            passert(false, token_string(ast.token.type));
-        break;
 
     case TOK_push_paa:
         if(!is_check(D))

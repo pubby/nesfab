@@ -29,7 +29,7 @@ constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 17;
 // Parameter indexes for SSA ops
 namespace ssai
 {
-    namespace rw_ptr
+    namespace rw_ptr // also applies to read_hw and write_hw
     {
         //constexpr unsigned ORDER_AFTER = 0;
         constexpr unsigned PTR         = 0;
@@ -156,7 +156,9 @@ inline unsigned ssa_index_input(ssa_op_t op)
     case SSA_write_array:
         return 2;
     case SSA_read_ptr:
+    case SSA_read_ptr_hw:
     case SSA_write_ptr:
+    case SSA_write_ptr_hw:
         return 3;
     default:
         assert(false);
@@ -175,7 +177,9 @@ inline unsigned ssa_bank_input(ssa_op_t op)
     switch(op)
     {
     case SSA_read_ptr:
+    case SSA_read_ptr_hw:
     case SSA_write_ptr:
+    case SSA_write_ptr_hw:
         return ssai::rw_ptr::BANK;
     default:
         assert(false);

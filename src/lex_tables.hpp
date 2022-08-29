@@ -148,17 +148,16 @@ constexpr token_type_t TOK_int = 141;
 constexpr token_type_t TOK_real = 142;
 constexpr token_type_t TOK_global_ident = 143;
 constexpr token_type_t TOK_weak_ident = 144;
-constexpr token_type_t TOK_hw_expr = 145;
-constexpr token_type_t TOK_hw_addr = 146;
-constexpr token_type_t TOK_read_hw = 147;
-constexpr token_type_t TOK_write_hw = 148;
-constexpr token_type_t TOK_paa_byte_array = 149;
-constexpr token_type_t TOK_push_paa = 150;
-constexpr token_type_t TOK_begin_paa = 151;
-constexpr token_type_t TOK_end_paa = 152;
-constexpr token_type_t TOK_group_set = 153;
-constexpr token_type_t TOK_rpair = 154;
-constexpr token_type_t TOK_END = 155;
+constexpr token_type_t TOK_hw_addr = 145;
+constexpr token_type_t TOK_read_hw = 146;
+constexpr token_type_t TOK_write_hw = 147;
+constexpr token_type_t TOK_paa_byte_array = 148;
+constexpr token_type_t TOK_push_paa = 149;
+constexpr token_type_t TOK_begin_paa = 150;
+constexpr token_type_t TOK_end_paa = 151;
+constexpr token_type_t TOK_group_set = 152;
+constexpr token_type_t TOK_rpair = 153;
+constexpr token_type_t TOK_END = 154;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -309,7 +308,6 @@ inline std::string_view token_name(token_type_t type)
     case TOK_real: return "real"sv;
     case TOK_global_ident: return "global_ident"sv;
     case TOK_weak_ident: return "weak_ident"sv;
-    case TOK_hw_expr: return "hw_expr"sv;
     case TOK_hw_addr: return "hw_addr"sv;
     case TOK_read_hw: return "read_hw"sv;
     case TOK_write_hw: return "write_hw"sv;
@@ -471,7 +469,6 @@ inline std::string_view token_string(token_type_t type)
     case TOK_real: return "real"sv;
     case TOK_global_ident: return "global identifier"sv;
     case TOK_weak_ident: return "weak identifier"sv;
-    case TOK_hw_expr: return "hardware expression"sv;
     case TOK_hw_addr: return "hardware address"sv;
     case TOK_read_hw: return "read hardware"sv;
     case TOK_write_hw: return "write hardware"sv;
@@ -582,7 +579,6 @@ constexpr unsigned char token_precedence_table[] =
     158,
     158,
     1,
-    0,
     0,
     0,
     0,
@@ -797,7 +793,6 @@ constexpr bool token_right_assoc_table[] =
     0,
     0,
     0,
-    0,
 };
 #define lex_TOK_KEY_CASES \
     case TOK_if:\
@@ -891,8 +886,8 @@ constexpr bool token_right_assoc_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 154;
-constexpr token_type_t TOK_START = 155;
+constexpr token_type_t TOK_LAST_STATE = 153;
+constexpr token_type_t TOK_START = 154;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[34207];
+extern token_type_t const lexer_transition_table[34128];
 } // namespace lex

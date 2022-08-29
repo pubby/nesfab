@@ -241,7 +241,7 @@ inline std::string_view token_string(token_type_t type)
     case TOK_bank:\
 
 constexpr token_type_t TOK_LAST_STATE = 72;
-constexpr token_type_t TOK_START = 232;
+constexpr token_type_t TOK_START = 252;
 extern unsigned const lexer_ec_table[256];
 extern token_type_t const lexer_transition_table[12420];
 } // namespace asm_lex

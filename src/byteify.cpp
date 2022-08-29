@@ -252,6 +252,11 @@ void byteify(ir_t& ir, fn_t const& fn)
                     // We created nodes, so we have to resize:
                     ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
                 }
+                else if(ssa_it->input(PTR).is_num())
+                {
+                    assert(is_ptr(ssa_it->input(PTR).type().name()));
+                    ssa_it->link_change_input(PTR, locator_t::addr(ssa_it->input(PTR).whole()));
+                }
             }
 
             if(is_make_ptr(ssa_it->op()))

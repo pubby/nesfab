@@ -70,7 +70,7 @@ struct cpu_t
 
     // Sometimes the register will known to hold a specific constant value.
     // These vars track that:
-    std::array<std::uint8_t, NUM_CPU_REGS> known = {};
+    std::array<std::uint8_t, NUM_KNOWN_REGS> known = {};
     regs_t known_mask = 0; // If bit is set, known_values holds constant.
 
     // When implementing minor branches (such as in multi-byte comparisons),
@@ -114,13 +114,15 @@ struct cpu_t
     
     // If we know the value of a register:
     bool is_known(regs_t reg) const { return known_mask & (1 << reg); }
-    bool is_known(regs_t reg, std::uint8_t value) const { return is_known(reg) && known[reg] == value; }
+    bool is_known(regs_t reg, std::uint8_t value) const 
+        { assert(reg < known.size()); return is_known(reg) && known[reg] == value; }
     bool are_known(regs_t regs) const { return (regs & known_mask) == regs; }
 
     void set_known(regs_t reg, std::uint8_t value)
     {
         if(reg == REG_C || reg == REG_Z || reg == REG_N)
             assert(!!value == value);
+        assert(reg < known.size());
         known[reg] = value;
         known_mask |= 1 << reg;
         assert(known_array_valid());
@@ -182,7 +184,7 @@ struct cpu_t
                 set_known(Reg, !!value.data());
             else if(Reg == REG_N)
                 set_known(Reg, !!(value.data() & 0x80));
-            else
+            else if(Reg < known.size())
                 set_known(Reg, value.data());
         }
         else

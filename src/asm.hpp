@@ -17,6 +17,7 @@ constexpr regs_t REG_C   = 3;
 constexpr unsigned NUM_CROSS_REGS = 4; // Registers that propagate across CFG nodes
 constexpr regs_t REG_Z   = 4;
 constexpr regs_t REG_N   = 5;
+constexpr unsigned NUM_KNOWN_REGS = 6; // Registers that isel::cpu_t tracks constants of
 constexpr regs_t REG_B   = 6; // Bank
 constexpr unsigned NUM_CPU_REGS = 7;
 constexpr regs_t REG_M   = 7; // RAM

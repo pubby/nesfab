@@ -354,8 +354,8 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 else if(ie.holds_ref())
                 {
                     // Don't bother with arrays.
-                    if(ssa_flags(ie.handle()->op()) & SSAF_WRITE_ARRAY)
-                        continue;
+                    //if(ssa_flags(ie.handle()->op()) & SSAF_WRITE_ARRAY)
+                        //continue;
 
                     // Create a new SSA_early_store node here.
 
@@ -549,10 +549,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         // Prioritize less busy ranges over larger ones.
         for(copy_t& copy : ld.copies)
-        {
-            std::cout << "copy = " << copy.node.id << std::endl;
             copy.cost = live_range_busyness(ir, copy.node);
-        }
         std::sort(ld.copies.begin(), ld.copies.end(),
             [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
 
@@ -566,7 +563,6 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // Now insert early_stores for constants, trying to minimize the amount of stores needed.
     build_loops_and_order(ir); // We'll need loop information eventually.
     build_dominators_from_order(ir);
-    if(false) // TODO
     for(auto& pair : global_loc_map)
     {
         locator_t const loc = pair.first;
@@ -732,57 +728,54 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht store = cfg_node.ssa_begin(); store;)
     {
-        if(store->op() == SSA_early_store)
+        if(store->op() != SSA_early_store || !store->input(0).holds_ref())
         {
-            std::printf("try alias %i\n", store.id);
+            ++store;
+            continue;
+        }
 
-            if(!store->input(0).holds_ref())
-            {
-                ++store;
-                continue;
-            }
+        std::printf("try alias %i\n", store.id);
 
-            assert(store->input(0).holds_ref());
-            ssa_ht parent = store->input(0).handle();
+        assert(store->input(0).holds_ref());
+        ssa_ht parent = store->input(0).handle();
 
-            ssa_ht store_cset = cset_head(store);
-            ssa_ht parent_cset = cset_head(parent);
+        ssa_ht store_cset = cset_head(store);
+        ssa_ht parent_cset = cset_head(parent);
+
+        assert(cset_locator(store_cset));
+
+        ssa_ht last;
+
+        last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, cache);
+
+        if(last)
+        {
+            //cset_merge_locators(store_cset, parent_cset);
+            //assert(last);
+            cset_append(last, parent_cset);
+            store->unsafe_set_op(SSA_aliased_store);
 
             assert(cset_locator(store_cset));
+            assert(cset_locator(store_cset) == cset_locator(parent_cset));
+            assert(cset_head(store) == cset_head(parent));
+        }
+        else
+        {
+        fail:
+            std::printf("can't alias %i\n", store.id);
 
-            ssa_ht last;
+            assert(store->output_size() == 1);
+            ssa_ht use = store->output(0);
 
-            last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, cache);
-
-            if(last)
+            if(is_array(store->type().name())
+               || loop_depth(store->cfg_node()) > loop_depth(use->cfg_node()))
             {
-                //cset_merge_locators(store_cset, parent_cset);
-                //assert(last);
-                cset_append(last, parent_cset);
-                store->unsafe_set_op(SSA_aliased_store);
-                assert(cset_locator(store_cset));
-                assert(cset_locator(store_cset) == cset_locator(parent_cset));
-                assert(cset_head(store) == cset_head(parent));
-            }
-            else
-            {
-            fail:
-                std::printf("can't alias %i\n", store.id);
-
-                assert(store->output_size() == 1);
-                ssa_ht use = store->output(0);
-
-                unsigned const use_depth = loop_depth(use->cfg_node());
-                unsigned const def_depth = loop_depth(store->cfg_node());
-                if(def_depth > use_depth)
-                {
-                    std::printf("depth diff! %i\n", store.id);
-                    // The early store is inside a loop, 
-                    // meaning it will likely slow the code down.
-                    // Thus, let's remove it.
-                    store = prune_early_store(store);
-                    continue;
-                }
+                std::printf("depth diff! %i\n", store.id);
+                // The early store is either an array copy, or inside a loop, 
+                // meaning it will likely slow the code down.
+                // Thus, let's remove it.
+                store = prune_early_store(store);
+                continue;
             }
         }
 
@@ -801,13 +794,16 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             if(!h->input(0).holds_ref())
                 continue;
 
-            ssa_ht parent = h->input(0).handle();
+            ssa_ht const parent = h->input(0).handle();
 
-            ssa_ht this_cset = cset_head(h);
-            ssa_ht parent_cset = cset_head(parent);
+            ssa_ht const this_cset = cset_head(h);
+            ssa_ht const parent_cset = cset_head(parent);
+
+            std::cout << "TRY ARRAY COAL " << h << std::endl;
 
             if(ssa_ht last = csets_appendable(fn.handle(), ir, this_cset, parent_cset, cache))
             {
+                std::cout << "SUCCCESS ARRAY COAL " << h << std::endl;
                 cset_append(last, parent_cset);
                 assert(cset_head(h) == cset_head(parent));
             }
@@ -887,6 +883,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 
+#if 0 // TODO
     fc::small_set<ssa_ht, 32> unique_csets;
     for(auto& pair : global_loc_map)
     {
@@ -945,6 +942,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
     std::puts("coalesce phis 6");
+#endif
 
     // Merge additional csets to aid memory reuse:
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)

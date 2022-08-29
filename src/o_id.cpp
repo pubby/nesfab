@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include <boost/container/small_vector.hpp>
+#include <boost/container/static_vector.hpp>
 
 #include "flat/small_map.hpp"
 
@@ -20,6 +21,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 {
     dprint(log, "SIMPLE_IDENTITY");
     bool updated = false;
+
+    constexpr void* replaceWith[] = { &&replaceWith0, &&replaceWith1 };
 
     for(cfg_node_t const& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it;)
@@ -83,8 +86,23 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
             break;
 
-        case SSA_lt:
         case SSA_not_eq:
+            for(unsigned i = 0; i < 2; ++i)
+            {
+                assert(node.input(i).type() == node.input(!i).type());
+
+                if(node.input(i) == ssa_value_t(0u, TYPE_BOOL))
+                    goto *replaceWith[!i];
+
+                if(node.input(i) == ssa_value_t(1u, TYPE_BOOL))
+                {
+                    node.unsafe_set_op(SSA_xor);
+                    updated = true;
+                    goto check_xor;
+                }
+            }
+            // fall-through
+        case SSA_lt:
             if(node.input(0) == node.input(1))
             {
                 node.replace_with(ssa_value_t(0u, TYPE_BOOL));
@@ -105,12 +123,27 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 {
                     node.link_change_input(1, ssa_value_t(type_min(rt), rt));
                     node.unsafe_set_op(SSA_eq);
+                    updated = true;
                 }
             }
             break;
 
-        case SSA_lte:
         case SSA_eq:
+            for(unsigned i = 0; i < 2; ++i)
+            {
+                if(node.input(i) == ssa_value_t(1u, TYPE_BOOL))
+                    goto *replaceWith[!i];
+
+                if(node.input(i) == ssa_value_t(0u, TYPE_BOOL))
+                {
+                    node.unsafe_set_op(SSA_xor);
+                    node.link_change_input(i, ssa_value_t(1u, TYPE_BOOL));
+                    updated = true;
+                    goto check_xor;
+                }
+            }
+            // fall-through
+        case SSA_lte:
             if(node.input(0) == node.input(1))
             {
                 node.replace_with(ssa_value_t(1u, TYPE_BOOL));
@@ -131,7 +164,76 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 {
                     node.link_change_input(0, ssa_value_t(type_min(lt), lt));
                     node.unsafe_set_op(SSA_not_eq);
+                    updated = true;
                 }
+            }
+            break;
+
+        case SSA_multi_eq:
+        case SSA_multi_not_eq:
+            {
+                // If we have several inputs comparing to zero,
+                // we'll combine them using SSA_or first.
+
+                bc::static_vector<unsigned, max_total_bytes+1> to_or;
+
+                unsigned const input_size = node.input_size();
+                for(unsigned i = 0; i < input_size; i += 2)
+                {
+                    if(node.input(i+0).eq_whole(0))
+                        to_or.push_back(i+1);
+                    else if(node.input(i+1).eq_whole(0))
+                        to_or.push_back(i+0);
+                }
+
+                if(to_or.size() <= 1)
+                    break;
+
+                // Chain together 'SSA_or' nodes:
+                ssa_value_t v = node.input(to_or[0]);
+                for(unsigned i = 1; i < to_or.size(); ++i)
+                    v = node.cfg_node()->emplace_ssa(SSA_or, TYPE_U, v, node.input(to_or[i]));
+
+                // Replace and remove the multi_eq inputs:
+                node.link_change_input(to_or.back(), v);
+                to_or.pop_back();
+                for(unsigned i : to_or | std::views::reverse)
+                {
+                    unsigned const first  = i & ~1;
+                    node.link_remove_input(first+1);
+                    node.link_remove_input(first);
+                }
+
+                updated = true;
+            }
+            break;
+
+        case SSA_xor:
+        check_xor:
+            for(unsigned i = 0; i < 2; ++i)
+            {
+                if(node.input(i) != ssa_value_t(1u, TYPE_BOOL))
+                    continue;
+
+                assert(node.input(!i).type() == TYPE_BOOL);
+                assert(node.type() == TYPE_BOOL);
+
+                if(!node.input(!i).holds_ref())
+                    continue;
+
+                ssa_ht const input = node.input(!i).handle();
+
+                if(input->op() == SSA_eq)
+                    node.unsafe_set_op(SSA_not_eq);
+                else if(input->op() == SSA_not_eq)
+                    node.unsafe_set_op(SSA_eq);
+                else
+                    continue;
+
+                updated = true;
+                node.link_change_input(0, input->input(0));
+                node.link_change_input(1, input->input(1));
+                break;
             }
             break;
 
@@ -161,24 +263,17 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             switch(node.op())
             {
             case SSA_add:
-                {
-                    if(!node.input(2).is_num())
-                        break;
-
-                    if((carry_replacement = add_sub_impl(node.input(0), node.input(2).fixed(), false)))
-                        goto replaceWith1;
-                    if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), false)))
-                        goto replaceWith0;
-                }
+                if(node.input(2).is_num())
+                    for(unsigned i = 0; i < 2; ++i)
+                        if((carry_replacement = add_sub_impl(node.input(i), node.input(2).fixed(), false)))
+                            goto *replaceWith[!i];
                 break;
 
             case SSA_sub:
-                {
-                    if(!node.input(2).is_num())
-                        break;
-                    if((carry_replacement = add_sub_impl(node.input(1), node.input(2).fixed(), true)))
-                        goto replaceWith0;
-                }
+                if(node.input(2).is_num())
+                    for(unsigned i = 0; i < 2; ++i)
+                        if((carry_replacement = add_sub_impl(node.input(i), node.input(2).fixed(), true)))
+                            goto *replaceWith[!i];
                 break;
 
             case SSA_or:
@@ -196,10 +291,9 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 break;
 
             case SSA_and:
-                if(node.input(0).eq_fixed(all_set))
-                    goto replaceWith1;
-                if(node.input(1).eq_fixed(all_set))
-                    goto replaceWith0;
+                for(unsigned i = 0; i < 2; ++i)
+                    if(node.input(i).eq_fixed(all_set))
+                        goto *replaceWith[!i];
                 if(node.input(0) == ssa_it->input(1))
                     goto replaceWith0;
                 break;
@@ -578,7 +672,10 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                 case SSA_add: accum.value += f.value * count.pos - f.value * count.neg; break;
                 case SSA_and: accum.value &= f.value; break;
                 case SSA_or:  accum.value |= f.value; break;
-                case SSA_xor: accum.value ^= f.value; break;
+                case SSA_xor: 
+                    if(count.pos % 2 == 1) // even number of XORs cancel out.
+                        accum.value ^= f.value; 
+                    break;
                 default: assert(0); break;
                 }
 
@@ -618,10 +715,9 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                     break;
 
                 case SSA_xor:
-                    // An even number of XORs cancels out.
                     if(count.pos % 2)
                         operands.push_back({ p.first });
-                    else
+                    else // even number of XORs cancel out.
                         ++num_nums; // Treat it as a 0.
                     break;
 

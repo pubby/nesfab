@@ -300,4 +300,12 @@ extern std::array<narrow_fn_t*, NUM_SSA_OPS> const narrow_fn_table;
 [[gnu::pure]] inline narrow_fn_t* narrow_fn(ssa_op_t op) 
     { return narrow_fn_table[op]; }
 
+constraints_t abstract_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
+                          constraints_t rhs, constraints_mask_t rhs_cm,
+                          bool sign_diff = false);
+
+constraints_t abstract_not_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
+                              constraints_t rhs, constraints_mask_t rhs_cm,
+                              bool sign_diff = false);
+
 #endif

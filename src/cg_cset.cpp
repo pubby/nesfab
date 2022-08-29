@@ -274,12 +274,18 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_i
         if(special_interferes(fn, ir, cset_locator(a), node))
             for(ssa_ht bi = b; bi; bi = cset_next(bi))
                 if(live_at_def(bi, node))
+                {
+                    std::puts("INTERFERE 1");
                     return {};
+                }
 
         if(special_interferes(fn, ir, cset_locator(b), node))
             for(ssa_ht ai = a; ai; ai = cset_next(ai))
                 if(live_at_def(ai, node))
+                {
+                    std::puts("INTERFERE 2");
                     return {};
+                }
     }
 
     ssa_ht last_a = {};
@@ -289,7 +295,10 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_i
         {
             assert(ai != bi);
             if(orig_def(ai) != orig_def(bi) && live_range_overlap(ai, bi))
+            {
+                    std::puts("INTERFERE 3");
                 return {};
+            }
         }
         last_a = ai;
     }

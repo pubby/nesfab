@@ -2,6 +2,7 @@
 #include "o.hpp"
 
 #include <array>
+#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -524,7 +525,6 @@ void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original,
     }
 
     ssa_ht trace = cfg_trace->emplace_ssa(SSA_trace, original->type());
-    //TODO:
     ssa_data_pool::resize<ssa_ai_d>(ssa_pool::array_size());
     // All references to SSA nodes have been invalidated by the new node!!
 
@@ -1024,12 +1024,49 @@ void ai_t::fold_consts()
 
             dprint(log, "-FOLDING", ssa_it->op(), ssa_it, (constant.value >> fixed_t::shift));
 
-            if(ssa_it->replace_with(INPUT_VALUE, ssa_value_t(constant, ssa_it->type().name())))
+            ssa_value_t const replace_with(constant, ssa_it->type().name());
+            
+            if(ssa_ht mapping = ai_data(ssa_it).rebuild_mapping)
+            {
+                // If this is a trace, restrict how we want to fold it.
+
+                auto& rm_d = ai_data(mapping);
+                ssa_value_t rm_replace_with = {};
+                if(rm_d.constraints()[0].is_const())
+                    rm_replace_with = ssa_value_t(fixed_t{ rm_d.constraints()[0].get_const() }, ssa_it->type().name());
+
+                for(unsigned i = 0; i < ssa_it->output_size();)
+                {
+                    auto oe = ssa_it->output_edge(i);
+
+                    if(oe.input_class() == INPUT_VALUE)
+                    {
+                        if(oe.handle->op() == SSA_phi || !(ssa_flags(oe.handle->op()) & SSAF_WRITE_GLOBALS))
+                        {
+                            // If the trace is used in a phi or WRITE_GLOBALS node,
+                            // fold using its rebuild_mapping instead.
+                            // This is to prevent unnecessary copying,
+                            // as folding removes information.
+                            if(!rm_replace_with)
+                            {
+                                ++i;
+                                continue;
+                            }
+                            oe.handle->link_change_input(oe.index, rm_replace_with);
+                        }
+                        else
+                            oe.handle->link_change_input(oe.index, replace_with);
+                        updated = __LINE__;
+                    }
+                    else
+                        ++i;
+                }
+            }
+            else if(ssa_it->replace_with(INPUT_VALUE, replace_with))
                 updated = __LINE__;
         }
-        else if(op == SSA_eq || op == SSA_not_eq)
+        else if(op == SSA_multi_eq || op == SSA_multi_not_eq)
         {
-            /* TODO!
             // Simplify comparisons, removing unnecessary operations:
             for(unsigned i = 0; i < ssa_it->input_size();)
             {
@@ -1038,21 +1075,34 @@ void ai_t::fold_consts()
                 ssa_value_t const lhs = ssa_it->input(i);
                 ssa_value_t const rhs = ssa_it->input(i+1);
 
-                constraints_t const lhs_c = first_constraint(lhs);
-                constraints_t const rhs_c = first_constraint(rhs);
+                auto const lhs_c = get_constraints(lhs);
+                auto const rhs_c = get_constraints(rhs);
 
-                if(lhs_c.is_const() && rhs_c.is_const()
-                   && lhs_c.get_const() == rhs_c.get_const())
+                if(abstract_eq(lhs_c[0], lhs_c.cm, rhs_c[0], rhs_c.cm, i + 2 == ssa_it->input_size())
+                   .bit_eq(constraints_t::bool_(true)))
                 {
-                    ssa_it->link_remove_input(i+1);
-                    ssa_it->link_remove_input(i);
-                    updated = __LINE__;
-                    continue;
+                    if(i + 2 == ssa_it->input_size())
+                    {
+                        if(ssa_it->input(i+0) != ssa_value_t(0u, TYPE_U)
+                           || ssa_it->input(i+1) != ssa_value_t(0u, TYPE_U))
+                        {
+                            updated = __LINE__;
+                            ssa_it->link_change_input(i+0, ssa_value_t(0u, TYPE_U));
+                            ssa_it->link_change_input(i+1, ssa_value_t(0u, TYPE_U));
+                        }
+                        break;
+                    }
+                    else
+                    {
+                        updated = __LINE__;
+                        ssa_it->link_remove_input(i+1);
+                        ssa_it->link_remove_input(i);
+                        continue;
+                    }
                 }
 
                 i+= 2;
             }
-            */
         }
         else if(op == SSA_lt || op == SSA_lte)
         {

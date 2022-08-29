@@ -23,6 +23,8 @@ constexpr unsigned SSAF_BRANCHY_CG     = 1 << 12; // Potentially uses a conditio
 constexpr unsigned SSAF_NULL_INPUT_VALID = 1 << 13; // Can use nulls as input
 constexpr unsigned SSAF_FENCE          = 1 << 14; 
 constexpr unsigned SSAF_BANK_INPUT     = 1 << 15; 
+constexpr unsigned SSAF_CG_UNLIVE      = 1 << 16; // Has no liveness
+constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 17;
 
 // Parameter indexes for SSA ops
 namespace ssai

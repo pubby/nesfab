@@ -4,6 +4,7 @@
 #include <functional>
 #include <type_traits>
 #include <vector>
+#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -486,7 +487,7 @@ namespace isel
     {
         constexpr auto mode = op_addr_mode(Op);
 
-        assert(valid_arg<Op>(arg));
+        passert(valid_arg<Op>(arg), arg, Op);
 
         cpu_t cpu_copy = cpu;
 
@@ -519,7 +520,7 @@ namespace isel
 #ifndef NDEBUG
         constexpr auto mode = op_addr_mode(Op);
         assert(Op >= NUM_NORMAL_OPS || mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE);
-        assert(valid_arg<Op>(arg));
+        passert(valid_arg<Op>(arg), arg, Op);
 #endif
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs_for<Op>(opt, def, arg))
@@ -983,7 +984,7 @@ namespace isel
         static_assert(!(Opt::flags & OPT_CONDITIONAL), "Conditional stores likely break cg_liveness"); 
 
         cpu_t cpu_copy = cpu;
-        if(!cpu_copy.set_defs<op_output_regs(get_op(StoreOp, MODE_ABSOLUTE)) & REGF_CPU>(Opt::to_struct, Def::value(), true))
+        if(!cpu_copy.set_defs<op_input_regs(get_op(StoreOp, MODE_ABSOLUTE)) & REGF_CPU>(Opt::to_struct, Def::value(), true))
             return;
 
         // Store the node, locally:
@@ -1185,16 +1186,56 @@ namespace isel
         >(cpu, prev, cont);
     }
 
-    template<typename Opt, op_name_t BranchOp, typename FailLabel, typename SuccessLabel>
+    template<typename Opt, typename FailLabel, typename SuccessLabel>
     void eq_branch(ssa_ht h)
     {
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+        constexpr op_name_t BranchOp = BEQ;
         constexpr op_t Op = get_op(BranchOp, MODE_RELATIVE);
         constexpr op_t InverseOp = get_op(invert_branch(BranchOp), MODE_RELATIVE);
         using SignLabel = std::conditional_t<BranchOp == BEQ, FailLabel, SuccessLabel>;
         using sign_check = condition<struct eq_sign_check_tag>;
         using last_iter = condition<struct eq_last_iter_tag>;
 
+        /* TODO
+        auto const is_zero = [](ssa_value_t v){ return ssa_to_value(v).eq_const_byte(0); };
+
+        for(unsigned i = 0; i < h->input_size(); i += 2)
+            if(!is_zero(h->input(i+0)) && !is_zero(h->input(i+1)))
+                goto not_all_zero_comparisons;
+
+        {
+            bool loaded = false;
+            for(unsigned i = 0; i < h->input_size(); i += 2)
+            {
+                if(is_zero(h->input(i+0)))
+                {
+                    if(is_zero(h->input(i+1)))
+                        continue;
+                    p_lhs::set(h->input(i+1));
+                }
+                else
+                    p_lhs::set(h->input(i+0));
+
+                if(loaded)
+                    select_step<false>(pick_op<Opt, ORA, null_, p_lhs>);
+                else
+                    select_step<false>(load_A<Opt, p_lhs>);
+
+                loaded = true;
+            }
+
+            select_step<false>(
+                chain
+                < simple_op<Opt, Op, null_, SuccessLabel>
+                , simple_op<Opt, InverseOp, null_, FailLabel>
+                >);
+
+            return;
+        }
+
+    not_all_zero_comparisons:
+    */
         for(unsigned i = 0; i < h->input_size(); i += 2)
         {
             // The last comparison cares about sign.
@@ -1264,7 +1305,7 @@ namespace isel
             >);
     }
 
-    template<op_name_t BranchOp>
+    template<bool Eq>
     void eq_store(ssa_ht h)
     {
         using fail = p_label<0>;
@@ -1279,14 +1320,17 @@ namespace isel
 
         p_def::set(h);
 
-        eq_branch<O::restrict_to<~REGF_X>, BranchOp, fail, success>(h);
+        if(Eq)
+            eq_branch<O::restrict_to<~REGF_X>, fail, success>(h);
+        else
+            eq_branch<O::restrict_to<~REGF_X>, success, fail>(h);
 
         using OC = O::add_flags<OPT_CONDITIONAL>;
         
         select_step<true>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
         {
             // Explicitly instantiate the labels.
-            // (For some reason, GCC can't link without these lines. Could be a compiler bug.)
+            // (For some reason, GCC can't link without these lines. Likely a compiler bug.)
             (void)&label<success>;
             (void)&label<fail>;
 
@@ -1664,55 +1708,59 @@ namespace isel
             return;
 
         unsigned const len = def.type().size();
-        unsigned half_unroll = 2;
+        constexpr unsigned half_unroll = 2;
 
         if(len <= half_unroll * 2)
         {
-            // No loop.
             for(unsigned i = 0; i < len; ++i)
             {
-                p_arg<0>::set(from, i);
-                p_def::set(def, i);
-                select_step<true>(load_then_store<Opt, null_, p_arg<0>, p_def, false>);
+                p_arg<0>::set(def, i);
+                p_arg<1>::set(from, i);
+                select_step<true>(load_then_store<Opt, p_arg<0>, p_arg<1>, p_arg<0>, false>);
             }
         }
         else
         {
-            using loop_label = p_arg<1>;
-
-            if(len == 256)
-                half_unroll *= 2;
+            using loop_label = p_label<0>;
 
             unsigned const iter = len / half_unroll;
-            assert(iter < 0x80);
+            assert(iter <= 0x80);
 
-            p_arg<0>::set(locator_t::const_byte(iter));
+            p_arg<0>::set(locator_t::const_byte(iter - 1));
+            p_arg<1>::set(from, 0 * iter);
+            p_arg<2>::set(def,  0 * iter);
+            p_arg<3>::set(from, 1 * iter);
+            p_arg<4>::set(def,  1 * iter);
             loop_label::set(state.minor_label());
-
-            select_step<false>(
+            
+            select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+            {
                 chain
                 < load_X<Opt, p_arg<0>>
                 , label<loop_label>
-                >);
-
-            for(unsigned i = 0; i < half_unroll; ++i)
-            {
-                p_arg<0>::set(from, i * iter);
-                p_def::set(def, i * iter);
-                select_step<false>(
-                    chain
-                    < exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<0>>
-                    , exact_op<OptC, STA_ABSOLUTE_X, null_, p_def>
-                    >);
-            }
-
-            select_step<true>(
-                chain
-                < simple_op<OptC, DEX_IMPLIED>
+                , exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<1>>
+                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<2>>
+                , exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<3>>
+                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<4>>
+                , simple_op<OptC, DEX_IMPLIED>
                 , simple_op<OptC, BPL_RELATIVE, null_, loop_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_X, true, const_<0xFF>>
-                >);
+                >(cpu, prev, cont);
+
+                chain
+                < load_Y<Opt, p_arg<0>>
+                , label<loop_label>
+                , exact_op<OptC, LDA_ABSOLUTE_Y, null_, p_arg<1>>
+                , exact_op<OptC, STA_ABSOLUTE_Y, null_, p_arg<2>>
+                , exact_op<OptC, LDA_ABSOLUTE_Y, null_, p_arg<3>>
+                , exact_op<OptC, STA_ABSOLUTE_Y, null_, p_arg<4>>
+                , simple_op<OptC, DEY_IMPLIED>
+                , simple_op<OptC, BPL_RELATIVE, null_, loop_label>
+                , clear_conditional
+                , set_defs<Opt, REGF_Y, true, const_<0xFF>>
+                >(cpu, prev, cont);
+            });
 
             for(unsigned i = iter * half_unroll; i < len; ++i)
             {
@@ -2364,7 +2412,7 @@ namespace isel
             break;
 
         case SSA_read_global:
-            if(h->input(1).locator().mem_head() != cset_locator(h))
+            if(h->output_size() > 0 && h->input(1).locator().mem_head() != cset_locator(h))
             {
                 p_arg<0>::set(h->input(1));
                 load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
@@ -2383,10 +2431,9 @@ namespace isel
         case SSA_phi:
             {
                 assert(h->input_size() > 0);
-                locator_t const loc = cset_locator(h->input(0).handle());
-                assert(loc.lclass() == LOC_PHI);
+                locator_t const loc = locator_t::phi(h);
 
-                if(cset_head(h) != cset_head(h->input(0).handle()))
+                if(h->output_size() > 0 && cset_head(h) != cset_head(h->input(0).handle()))
                 {
                     // 'LOC_PHI' values are used to pass phi inputs from other CFG nodes.
                     // They are special-cased here:
@@ -2420,7 +2467,7 @@ namespace isel
         case SSA_aliased_store:
             // Aliased stores normally produce no code, however, 
             // we must implement an input 'cg_read_array_direct' as a store:
-            if(h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array_direct)
+            if(h->output_size() > 0 && h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array_direct)
             {
                 h = h->input(0).handle();
                 goto do_read_array_direct;
@@ -2587,8 +2634,8 @@ namespace isel
 
             chain
             < load_NZ_for<Opt, p_arg<0>>
-            , simple_op<Opt, BNE_RELATIVE, p_label<0>>
-            , simple_op<Opt, BEQ_RELATIVE, p_label<1>>
+            , simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
             >(cpu, prev, cont);
 
             break;
@@ -2613,6 +2660,84 @@ namespace isel
         }
     }
 
+
+    void isel_node_preprep(ssa_ht h)
+    {
+        assert(h);
+
+        using Opt = options<>::restrict_to<~REGF_C>;
+        switch(h->op())
+        {
+        case SSA_branch_eq:
+        case SSA_branch_not_eq:
+        case SSA_branch_lt:
+        case SSA_branch_lte:
+            break;
+
+        case SSA_sign_extend:
+            select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+            {
+                cont->call(cpu, prev);
+                load_A<Opt, const_<0>>(cpu, prev, cont);
+                load_X<Opt, const_<0>>(cpu, prev, cont);
+                load_Y<Opt, const_<0>>(cpu, prev, cont);
+            });
+            break;
+
+        case SSA_multi_eq:
+        case SSA_multi_not_eq:
+        case SSA_multi_lt:
+        case SSA_multi_lte:
+            select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+            {
+                cont->call(cpu, prev);
+                load_X<Opt, const_<0>>(cpu, prev, cont);
+                load_Y<Opt, const_<0>>(cpu, prev, cont);
+            });
+            break;
+
+        case SSA_rol:
+        case SSA_ror:
+        case SSA_add:
+        case SSA_sub:
+            select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+            {
+                cont->call(cpu, prev);
+                load_A<Opt, const_<0>>(cpu, prev, cont);
+            });
+            break;
+
+        default: 
+            static_bitset_t<256> bs = {};
+            unsigned i = 0;
+            if(ssa_input0_class(h->op()) != INPUT_VALUE)
+                ++i;
+            for(; i < h->input_size(); ++i)
+            {
+                ssa_value_t const input = h->input(i);
+                if(!input.is_num())
+                    continue;
+
+                unsigned const whole = input.whole();
+                if(whole > 256 || bs.test(whole))
+                    continue;
+
+                p_arg<0>::set(input);
+
+                select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                {
+                    cont->call(cpu, prev);
+                    load_A<Opt, p_arg<0>>(cpu, prev, cont);
+                    load_X<Opt, p_arg<0>>(cpu, prev, cont);
+                    load_Y<Opt, p_arg<0>>(cpu, prev, cont);
+                });
+
+                bs.set(whole);
+            }
+            break;
+        }
+    }
+
     void isel_node(ssa_ht h)
     {
         p_def::set(h);
@@ -2625,11 +2750,11 @@ namespace isel
         switch(h->op())
         {
         case SSA_multi_eq:
-            eq_store<BEQ>(h); 
+            eq_store<true>(h); 
             break;
 
         case SSA_multi_not_eq: 
-            eq_store<BNE>(h); 
+            eq_store<false>(h); 
             break;
 
         case SSA_multi_lt:
@@ -2644,12 +2769,12 @@ namespace isel
         case SSA_branch_eq:
             p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
             p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
-            eq_branch<Opt, BEQ, p_label<0>, p_label<1>>(h);
+            eq_branch<Opt, p_label<0>, p_label<1>>(h);
             break;
         case SSA_branch_not_eq:
             p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
             p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
-            eq_branch<Opt, BNE, p_label<0>, p_label<1>>(h);
+            eq_branch<Opt, p_label<1>, p_label<0>>(h);
             break;
 
         case SSA_branch_lt:
@@ -3011,14 +3136,21 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         }
 
         // Generate every selection:
-        for(ssa_ht h : cg_data(cfg).schedule)
+        auto const& schedule = cg_data(cfg).schedule;
+        for(unsigned i = 0; i < schedule.size(); ++i)
         {
-            //try
+            ssa_ht h = schedule[i];
+            try
             {
                 state.ssa_node = h;
+                
+                constexpr unsigned PREPREP = 2;
+                if(ssa_input0_class(h->op()) != INPUT_LINK) 
+                    for(unsigned j = i+1; j < i+1+PREPREP && j < schedule.size(); ++j)
+                        isel_node_preprep(schedule[j]);
+
                 isel_node(h); // This creates all the selections.
             }
-            /*
             catch(isel_no_progress_error_t const&)
             {
                 dprint(state.log, "-ISEL_NO_PROGRES!");
@@ -3042,7 +3174,6 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 throw;
             }
             catch(...) { throw; }
-            */
         }
 
         // Clear after computing:
@@ -3214,7 +3345,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 return { .op = LDY_ABSOLUTE, .arg = loc };
 
         case REG_C:
-            assert(loc.lclass() == LOC_CONST_BYTE);
+            passert(!loc || loc.lclass() == LOC_CONST_BYTE, loc);
             return { .op = loc.data() ? SEC_IMPLIED : CLC_IMPLIED };
 
         default:

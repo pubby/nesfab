@@ -522,6 +522,9 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
     bitset_copy(set_size, new_bitset, scheduled);
     // 'new_bitset' assumes 'h' will be scheduled:
     bitset_set(new_bitset, index(h));
+
+    if(h->op() == SSA_read_global)
+        return -1;
     
     int max_length = 0;
     int outputs_in_cfg_node = 0; // Number of outputs in the same CFG node.
@@ -550,9 +553,9 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
 
         int const l = path_length(relax, oe.handle, new_bitset);
 
-        assert(l >= 0);
-        //if(l < 0) // Only enable this if -1 can be returned.
-            //return l;
+        //assert(l >= 0);
+        if(l < 0) // Only enable this if -1 can be returned.
+            return l;
 
         max_length = std::max(max_length, l);
     }
@@ -636,10 +639,18 @@ ssa_ht scheduler_t::full_search(unsigned relax) const
         if(!ready(relax, ssa_it, scheduled))
             continue;
 
-        // Fairly arbitrary formula.
-        int score = path_length(relax, ssa_it, scheduled);
-        score += indexer_score(ssa_it);
-        score += banker_score(ssa_it);
+        int score;
+
+        if(ssa_flags(ssa_it->op()) & SSAF_PRIO_SCHEDULE)
+            score = 1 << 16;
+        else
+        {
+            // Fairly arbitrary formula.
+            score = path_length(relax, ssa_it, scheduled);
+            score += indexer_score(ssa_it);
+            score += banker_score(ssa_it);
+        }
+
         // Full searches also care about exit distance:
         score = (score * 8) + data(ssa_it).exit_distance;
 

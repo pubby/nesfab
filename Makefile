@@ -126,7 +126,6 @@ pbqp.cpp \
 asm_graph.cpp \
 iasm.cpp \
 fn_def.cpp \
-rpn.cpp \
 ast.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))

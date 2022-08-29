@@ -48,3 +48,21 @@ std::string to_string(op_t op)
         return ""s;
     }
 }
+
+std::ostream& operator<<(std::ostream& os, addr_mode_t addr_mode)
+{
+    os << to_string(addr_mode);
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, op_name_t name)
+{
+    os << to_string(name);
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, op_t op)
+{
+    os << to_string(op);
+    return os;
+}

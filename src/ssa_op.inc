@@ -12,7 +12,7 @@ SSA_DEF(phi,   -1, INPUT_VALUE, SSAF_NO_GVN)
 SSA_DEF(entry, 0, INPUT_NONE, SSAF_NO_GVN)
 
 // ()
-SSA_DEF(uninitialized, 0, INPUT_NONE, 0) // for new vars
+SSA_DEF(uninitialized, 0, INPUT_NONE, SSAF_CG_UNLIVE) // for new vars
 
 // (op)
 SSA_DEF(carry, 1, INPUT_LINK, SSAF_TRACE_INPUTS)
@@ -58,6 +58,7 @@ SSA_DEF(not_eq, 2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_C
 SSA_DEF(lt,     2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
 SSA_DEF(lte,    2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
 
+// Multi-byte comparisons.
 // Last two arguments are compared as if the first is unsigned, the second is signed.
 // Other arguments are compared as if both are unsigned.
 SSA_DEF(multi_eq,     -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
@@ -78,15 +79,15 @@ SSA_DEF(branch_not_eq, -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 SSA_DEF(branch_lt,     -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 SSA_DEF(branch_lte,    -1, INPUT_VALUE, SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 
-SSA_DEF(wait_nmi,      -1, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_WRITE_GLOBALS | SSAF_FENCE)
-SSA_DEF(fence,         -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_FENCE)
+SSA_DEF(wait_nmi,      -1, INPUT_VALUE, SSAF_IO_IMPURE | SSAF_WRITE_GLOBALS | SSAF_FENCE | SSAF_PRIO_SCHEDULE)
+SSA_DEF(fence,         -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_FENCE | SSAF_PRIO_SCHEDULE)
 
 ///////////////
 // FUNCTIONS //
 ///////////////
 
 // (fn, (arg, locator)...)
-SSA_DEF(fn_call, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_CLOBBERS_CARRY)
+SSA_DEF(fn_call, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_CLOBBERS_CARRY | SSAF_PRIO_SCHEDULE)
 
 // (fn, (arg, locator)...)
 SSA_DEF(goto_mode, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_IO_IMPURE | SSAF_NO_GVN)

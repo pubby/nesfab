@@ -366,7 +366,8 @@ bool asm_graph_t::o_returns()
     {
         asm_node_t& a = *returns[i];
         asm_node_t& b = *returns[j];
-        assert(a.outputs().empty() && b.outputs().empty());
+        if(!a.outputs().empty() || b.outputs().empty())
+            continue;
 
         if(a.output_inst != b.output_inst)
             continue;
@@ -541,7 +542,7 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
                 code.push_back(node.output_inst);
             else
             {
-                assert(node.outputs().size() <= 2); // TODO: switch
+                passert(node.outputs().size() <= 2, node.outputs().size()); // TODO: switch
 
                 for(unsigned j = 0; j < node.outputs().size(); ++j)
                 {
@@ -612,19 +613,24 @@ std::vector<asm_node_t*> asm_graph_t::order()
     {
         auto const scale = [&](asm_node_t& other)
         {
-            assert(node.cfg && other.cfg);
+            cfg_ht other_cfg = other.cfg;
+            if(!other_cfg)
+                other_cfg = node.cfg;
+            if(!node.cfg)
+                return 1;
+            assert(node.cfg && other_cfg);
 
             incoming.clear();
-            if(node.cfg == other.cfg)
+            if(node.cfg == other_cfg)
                 build_incoming(incoming, node, node.cfg);
 
             unsigned depth = 0;
 
             if(incoming.empty())
-                depth = edge_depth(node.cfg, other.cfg);
+                depth = edge_depth(node.cfg, other_cfg);
             else
                 for(cfg_ht cfg : incoming)
-                    depth = std::max<unsigned>(depth, edge_depth(cfg, other.cfg));
+                    depth = std::max<unsigned>(depth, edge_depth(cfg, other_cfg));
 
             return 1 << std::min<unsigned>(16, 2 * depth);
         };
@@ -638,11 +644,11 @@ std::vector<asm_node_t*> asm_graph_t::order()
             elim_order.push_back({ &node, 0, 3 * scale(*node.outputs()[0]) });
             break;
         case 2:
-            // It's dumb, but we'll slightly prioritize falling into the smallest branch nodes.
+            // It's dumb, but we'll slightly prioritize falling into the larger branch nodes.
             {
                 bool const fat_i = node.outputs()[0]->code.size() < node.outputs()[1]->code.size();
-                elim_order.push_back({ &node, fat_i, 2 * scale(*node.outputs()[fat_i]) });
-                elim_order.push_back({ &node, !fat_i, 1 * scale(*node.outputs()[!fat_i]) });
+                elim_order.push_back({ &node, fat_i, 1 * scale(*node.outputs()[fat_i]) });
+                elim_order.push_back({ &node, !fat_i, 2 * scale(*node.outputs()[!fat_i]) });
             }
             break;
         default: 

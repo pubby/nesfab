@@ -13,13 +13,13 @@
 #include "file.hpp"
 #include "options.hpp"
 #include "ir.hpp"
-#include "rpn.hpp"
 #include "stmt.hpp"
 #include "eternal_new.hpp"
 #include "lt.hpp"
 #include "group.hpp"
 #include "fnv1a.hpp"
 #include "ast.hpp"
+#include "compiler_error.hpp"
 
 namespace sc = std::chrono;
 namespace bc = boost::container;
@@ -158,20 +158,11 @@ public:
     template<do_t D>
     expr_value_t do_var_init_expr(unsigned var_i, ast_node_t const& expr);
 
-    //template<do_t D>
-    //token_t const* do_token(rpn_stack_t& rpn_stack, token_t const* token);
-
     template<eval_t::do_t D>
     expr_value_t do_expr(ast_node_t const& ast);
 
-    //template<do_t D>
-    //void do_expr(rpn_stack_t& rpn_stack, token_t const* expr);
-
     template<do_t D>
     void do_expr_result(ast_node_t const&, type_t expected_result);
-
-    //template<do_t D>
-    //void do_assign(rpn_stack_t& rpn_stack, token_t const& token);
 
     template<do_t D>
     expr_value_t do_assign(expr_value_t lhs, expr_value_t rhs, token_t const& token);
@@ -198,32 +189,26 @@ public:
     template<typename Policy>
     expr_value_t do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
-    /*
-    template<typename Policy>
-    void do_logical_begin(rpn_stack_t& rpn_stack, token_t const*& token);
-
-    template<typename Policy>
-    void do_logical_end(rpn_stack_t& rpn_stack);
-    */
+    template<do_t D>
+    expr_value_t do_logical(ast_node_t const& ast);
 
     void req_quantity(token_t const& token, expr_value_t const& value);
     void req_quantity(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
 
     template<do_t D>
-    expr_value_t force_truncate(expr_value_t const& value, type_t to_type, pstring_t cast_pstring);
-
+    expr_value_t force_truncate(expr_value_t value, type_t to_type, pstring_t cast_pstring);
     template<do_t D>
-    expr_value_t force_promote(expr_value_t const& value, type_t to_type, pstring_t cast_pstring);
+    expr_value_t force_promote(expr_value_t value, type_t to_type, pstring_t cast_pstring);
     template<do_t D>
-    expr_value_t force_intify_ptr(expr_value_t const& value, type_t to_type, pstring_t cast_pstring);
+    expr_value_t force_intify_ptr(expr_value_t value, type_t to_type, pstring_t cast_pstring);
     template<do_t D>
-    expr_value_t force_ptrify_int(expr_value_t const& value, expr_value_t* bank, type_t to_type, pstring_t cast_pstring);
+    expr_value_t force_ptrify_int(expr_value_t value, expr_value_t* bank, type_t to_type, pstring_t cast_pstring);
     template<do_t D>
-    expr_value_t force_convert_int(expr_value_t const& value, type_t to_type, bool implicit, pstring_t cast_pstring);
+    expr_value_t force_convert_int(expr_value_t value, type_t to_type, bool implicit, pstring_t cast_pstring);
     template<do_t D>
-    expr_value_t force_round_real(expr_value_t const& value, type_t to_type, bool implicit, pstring_t cast_pstring);
+    expr_value_t force_round_real(expr_value_t value, type_t to_type, bool implicit, pstring_t cast_pstring);
     template<do_t D>
-    expr_value_t force_boolify(expr_value_t const& value, pstring_t cast_pstring);
+    expr_value_t force_boolify(expr_value_t value, pstring_t cast_pstring);
 
     template<do_t D>
     bool cast(expr_value_t& v, type_t to_type, bool implicit, pstring_t pstring = {});
@@ -238,7 +223,7 @@ public:
 
     type_t var_i_type(unsigned var_i) const;
     void init_rval(access_t a, rval_t& rval);
-    access_t access(rpn_value_t const& rpn_value) const;
+    //access_t access(rpn_value_t const& rpn_value) const;
     ssa_value_t const& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index) const;
     ssa_value_t& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index);
 
@@ -277,23 +262,23 @@ public:
     // link-specific //
     ///////////////////
 
-    void make_lt(rpn_stack_t& rpn_stack, unsigned argn,
-                 token_t const* op_begin, token_t const* op_end);
+    //void make_lt(rpn_stack_t& rpn_stack, unsigned argn,
+                 //token_t const* op_begin, token_t const* op_end);
 
-    void make_lt(rpn_stack_t& rpn_stack, unsigned argn, token_t const& op);
+    //void make_lt(rpn_stack_t& rpn_stack, unsigned argn, token_t const& op);
 
-    template<eval_t::do_t D>
-    rval_t prep_lt(rpn_value_t const& rpn_value, token_t const* op_begin, token_t const* op_end);
+    //template<eval_t::do_t D>
+    //rval_t prep_lt(rpn_value_t const& rpn_value, token_t const* op_begin, token_t const* op_end);
 
-    template<eval_t::do_t D>
-    rval_t prep_lt(rpn_value_t const& rpn_value, token_t const& op);
+    //template<eval_t::do_t D>
+    //rval_t prep_lt(rpn_value_t const& rpn_value, token_t const& op);
 
-    template<eval_t::do_t D>
-    bool handle_lt(rpn_stack_t& rpn_stack, unsigned argn,
-                   token_t const* op_begin, token_t const* op_end);
+    //template<eval_t::do_t D>
+    //bool handle_lt(rpn_stack_t& rpn_stack, unsigned argn,
+                   //token_t const* op_begin, token_t const* op_end);
 
-    template<eval_t::do_t D>
-    bool handle_lt(rpn_stack_t& rpn_stack, unsigned argn, token_t const& op);
+    //template<eval_t::do_t D>
+    //bool handle_lt(rpn_stack_t& rpn_stack, unsigned argn, token_t const& op);
 };
 
 thread_local eval_t::ir_builder_t eval_t::builder;
@@ -1782,7 +1767,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
                 fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
 
-                if(call->fclass == FN_MODE || !call->ir_io_pure() || ir->gmanager.num_locators() > 0)
+                if(call->fclass == FN_MODE || !call->ir_io_pure()/* || ir->gmanager.num_locators() > 0*/)
                     fn_node->append_daisy();
 
                 if(call->fclass != FN_MODE)
@@ -1834,37 +1819,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             return result;
         }
-
-        // TODO
-        /* TODO
-    case TOK_byte_array_argn:
-        assert(0);
-        {
-            // TOK_byte_array are pseudo tokens used to implement bulk data of bytes.
-
-            // Extract how many args this cast parsed:
-            unsigned const argn = ast.token.value;
-
-            // Advance the token to get the TOK_byte_array.
-            ++token;
-            assert(ast.token.type == TOK_byte_array);
-            locator_t const* byte_array = ast.token.ptr<locator_t const>();
-
-            ct_array_t ct_array = make_ct_array(argn);
-            std::copy(byte_array, byte_array + argn, ct_array.get());
-
-            expr_value_t result = 
-            {
-                .category = RVAL, 
-                .type = type, 
-                .pstring = ast.token.pstring,
-            };
-            assert(0); // TODO
-
-            rpn_stack.push(std::move(result));
-        }
-        break;
-        */
 
     case TOK_hw_expr:
         {
@@ -2242,31 +2196,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_assign:
         return infix(&eval_t::do_assign<D>, false, true);
 
-        /* TODO
     case TOK_logical_and:
-        // TODO: lt
-        struct logical_and_p : do_wrapper_t<D>
-        {
-            static token_type_t logical_token() { return TOK_logical_and; }
-            static token_type_t end_logical_token() { return TOK_end_logical_and; }
-        };
-        do_logical_begin<logical_and_p>(rpn_stack, token);
-        break;
-    case TOK_end_logical_and:
-        do_logical_end<logical_and_p>(rpn_stack);
-        break;
     case TOK_logical_or:
-        struct logical_or_p : do_wrapper_t<D>
-        {
-            static token_type_t logical_token() { return TOK_logical_or; }
-            static token_type_t end_logical_token() { return TOK_end_logical_or; }
-        };
-        do_logical_begin<logical_or_p>(rpn_stack, token);
-        break;
-    case TOK_end_logical_or:
-        do_logical_end<logical_or_p>(rpn_stack);
-        break;
-        */
+        return do_logical<D>(ast);
 
     case TOK_eq:
         // TODO
@@ -2338,155 +2270,151 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             static ssa_op_t op() { return SSA_sub; }
         };
         return infix(&eval_t::do_arith<minus_p>);
-        /*
     case TOK_minus_assign:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
-        do_assign_arith<minus_p>(rpn_stack, *token);
-        break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_arith<minus_p>, false, true);
 
     case TOK_bitwise_and: 
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
         struct bitwise_and_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, S rhs) { return lhs & rhs; }
             static ssa_op_t op() { return SSA_and; }
         };
-        do_arith<bitwise_and_p>(rpn_stack, *token);
-        break;
+        return infix(&eval_t::do_arith<bitwise_and_p>);
     case TOK_bitwise_and_assign:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
-        do_assign_arith<bitwise_and_p>(rpn_stack, *token);
-        break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_arith<bitwise_and_p>, false, true);
 
     case TOK_bitwise_or:  
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
         struct bitwise_or_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, S rhs) { return lhs | rhs; }
             static ssa_op_t op() { return SSA_or; }
         };
-        do_arith<bitwise_or_p>(rpn_stack, *token);
-        break;
+        return infix(&eval_t::do_arith<bitwise_or_p>);
     case TOK_bitwise_or_assign:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
-        do_assign_arith<bitwise_or_p>(rpn_stack, *token);
-        break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_arith<bitwise_or_p>, false, true);
 
     case TOK_bitwise_xor:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
         struct bitwise_xor_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, S rhs) { return lhs ^ rhs; }
             static ssa_op_t op() { return SSA_xor; }
         };
-        do_arith<bitwise_xor_p>(rpn_stack, *token);
-        break;
+        return infix(&eval_t::do_arith<bitwise_xor_p>);
     case TOK_bitwise_xor_assign:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
-        do_assign_arith<bitwise_xor_p>(rpn_stack, *token);
-        break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_arith<bitwise_xor_p>, false, true);
 
     case TOK_lshift:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
         struct lshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift) { return lhs << shift; }
             static ssa_op_t op() { return SSA_shl; }
         };
-        do_shift<lshift_p>(rpn_stack, *token);
-        break;
+        return infix(&eval_t::do_shift<lshift_p>);
     case TOK_lshift_assign:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
-        do_assign_shift<lshift_p>(rpn_stack, *token);
-        break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_shift<lshift_p>, false, true);
 
     case TOK_rshift:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
         struct rshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift) { return lhs >> shift; }
             static ssa_op_t op() { return SSA_shr; }
         };
-        do_shift<rshift_p>(rpn_stack, *token);
-        break;
+        return infix(&eval_t::do_shift<rshift_p>);
     case TOK_rshift_assign:
-        if(handle_lt<D>(rpn_stack, 2, *token))
-            break;
-        do_assign_shift<rshift_p>(rpn_stack, *token);
-        break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_shift<rshift_p>, false, true);
 
     case TOK_unary_negate:
-        if(handle_lt<D>(rpn_stack, 1, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 1, *token))
+            //break;
         {
-            expr_value_t& top = rpn_stack.peek(0);
-            throwing_cast<D>(top, { TYPE_BOOL }, true);
+            expr_value_t v = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_BOOL, true);
 
             if(is_interpret(D))
-                top.ssa().set(unsigned(!top.fixed()), top.type.name());
+                v.ssa().set(unsigned(!v.fixed()), TYPE_BOOL);
             else if(is_compile(D))
             {
                 // Must be two lines; reference invalidation lurks.
-                ssa_ht ssa = builder.cfg->emplace_ssa(SSA_eq, TYPE_BOOL, top.ssa(), ssa_value_t(0u, TYPE_BOOL));
-                top.ssa() = ssa;
+                ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_eq, TYPE_BOOL, v.ssa(), ssa_value_t(0u, TYPE_BOOL));
+                v.ssa() = ssa;
             }
 
-            break;
+            return v;
         }
 
     case TOK_unary_minus:
-        if(handle_lt<D>(rpn_stack, 1, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 1, *token))
+            //break;
         {
-            expr_value_t& top = rpn_stack.peek(0);
-            req_quantity(*token, top);
+            expr_value_t v = to_rval<D>(do_expr<D>(ast.children[0]));
+            req_quantity(ast.token, v);
 
             if(is_interpret(D))
-                top.ssa().set(mask_numeric(fixed_t{ -top.fixed().value }, top.type.name()), top.type.name());
+                v.ssa().set(mask_numeric(fixed_t{ -v.fixed().value }, v.type.name()), v.type.name());
             else if(D == COMPILE)
             {
                 // Must be two lines; reference invalidation lurks.
-                ssa_ht ssa = builder.cfg->emplace_ssa(SSA_sub, top.type, ssa_value_t(0u, top.type.name()), top.ssa());
-                top.ssa() = ssa;
+                ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_sub, v.type, ssa_value_t(0u, v.type.name()), v.ssa());
+                v.ssa() = ssa;
             }
 
-            break;
+            return v;
         }
 
     case TOK_unary_xor:
-        if(handle_lt<D>(rpn_stack, 1, *token))
-            break;
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 1, *token))
+            //break;
         {
-            expr_value_t& top = rpn_stack.peek(0);
-            req_quantity(*token, top);
+            expr_value_t v = to_rval<D>(do_expr<D>(ast.children[0]));
+            req_quantity(ast.token, v);
 
             if(is_interpret(D))
-                top.ssa().set(mask_numeric(fixed_t{ ~top.fixed().value }, top.type.name()), top.type.name());
+                v.ssa().set(mask_numeric(fixed_t{ ~v.fixed().value }, v.type.name()), v.type.name());
             else if(D == COMPILE)
             {
                 // Must be two lines; reference invalidation lurks.
-                ssa_ht ssa = builder.cfg->emplace_ssa(SSA_xor, top.type, 
-                                                      ssa_value_t(numeric_bitmask(top.type.name()), top.type.name()), 
-                                                      top.ssa());
-                top.ssa() = ssa;
+                ssa_ht const ssa = builder.cfg->emplace_ssa(
+                    SSA_xor, v.type, ssa_value_t(numeric_bitmask(v.type.name()), v.type.name()), v.ssa());
+                v.ssa() = ssa;
             }
 
-            break;
+            return v;
         }
-    }
-    */
-
-    //return token + 1;
     }
     assert(false);
     return {};
@@ -3476,76 +3404,59 @@ expr_value_t eval_t::do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t
     return do_assign<Policy::D>(std::move(lhs), do_shift<Policy>(to_rval<Policy::D>(lhs), rhs, token), token);
 }
 
-/* TODO
-template<typename Policy>
-void eval_t::do_logical_begin(rpn_stack_t& rpn_stack, token_t const*& token)
+template<eval_t::do_t D>
+expr_value_t eval_t::do_logical(ast_node_t const& ast)
 {
-    rpn_value_t& top = rpn_stack.peek(0);
-    throwing_cast<Policy::D>(top, { TYPE_BOOL }, true);
+    assert(ast.token.type == TOK_logical_or || ast.token.type == TOK_logical_and);
 
-    if(is_check(Policy::D))
-        rpn_stack.pop(1);
-    else if(is_interpret(Policy::D))
+    expr_value_t const lhs = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_BOOL, true);
+    bool const is_or = ast.token.type == TOK_logical_or;
+
+    if(is_interpret(D))
     {
-        if(bool(top.fixed()) == (Policy::logical_token() == TOK_logical_or))
-        {
-            for(int left = 1; left; --left)
-            while(token->type != Policy::end_logical_token())
-            {
-                assert(token->type);
-                ++token;
-                if(token->type == Policy::logical_token())
-                    ++left;
-            }
-        }
-        else
-            rpn_stack.pop(1);
+        if(bool(lhs.fixed()) == is_or)
+            return lhs;
+        return throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
     }
-    else if(Policy::D == COMPILE)
+    else if(is_compile(D))
     {
         cfg_ht const branch_node = builder.cfg;
-        cfg_exits_with_branch(top.ssa());
-        builder.logical_stack.push_back({ branch_node, top.pstring });
-        rpn_stack.pop();
+        cfg_exits_with_branch(lhs.ssa());
 
-        cfg_ht const long_cut = insert_cfg(true);
-        branch_node->build_set_output(Policy::logical_token() != TOK_logical_or, long_cut);
-        builder.cfg = long_cut;
-    }
-}
+        cfg_ht const long_cut = builder.cfg = insert_cfg(true);
+        branch_node->build_set_output(!is_or, long_cut);
 
-template<typename Policy>
-void eval_t::do_logical_end(rpn_stack_t& rpn_stack)
-{
-    rpn_value_t& top = rpn_stack.peek(0);
-    throwing_cast<Policy::D>(top, { TYPE_BOOL }, true);
-
-    if(Policy::D == COMPILE)
-    {
-        logical_data_t logical = builder.logical_stack.back();
-        builder.logical_stack.pop_back();
+        expr_value_t const rhs = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
 
         cfg_ht const merge_node = insert_cfg(true);
         cfg_exits_with_jump();
         builder.cfg->build_set_output(0, merge_node);
-        logical.branch_node->build_set_output(Policy::logical_token() == TOK_logical_or, merge_node);
-
-        top.ssa() = merge_node->emplace_ssa(
-            SSA_phi, TYPE_BOOL, top.ssa(), ssa_value_t(Policy::logical_token() == TOK_logical_or, TYPE_BOOL));
-        top.pstring = concat(logical.lhs_pstring, top.pstring);
-        top.category = RVAL;
-
+        branch_node->build_set_output(is_or, merge_node);
         builder.cfg = merge_node;
+
+        expr_value_t result =
+        {
+            .val = rval_t{ merge_node->emplace_ssa(
+                SSA_phi, TYPE_BOOL, rhs.ssa(), ssa_value_t(is_or, TYPE_BOOL)) },
+            .type = TYPE_BOOL,
+            .pstring = concat(lhs.pstring, rhs.pstring),
+        };
+
+        return result;
     }
+
+    expr_value_t const rhs = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
+    return { .type = TYPE_BOOL, .pstring = concat(lhs.pstring, rhs.pstring) };
 }
-*/
 
 template<eval_t::do_t D>
-expr_value_t eval_t::force_truncate(expr_value_t const& value, type_t to_type, pstring_t cast_pstring)
+expr_value_t eval_t::force_truncate(expr_value_t value, type_t to_type, pstring_t cast_pstring)
 {
     assert(!is_ct(value.type));
     assert(!is_ct(to_type));
     assert(is_arithmetic(to_type.name()) && is_arithmetic(value.type.name()));
+
+    value = to_rval<D>(std::move(value));
 
     expr_value_t result =
     {
@@ -3562,10 +3473,12 @@ expr_value_t eval_t::force_truncate(expr_value_t const& value, type_t to_type, p
 }
 
 template<eval_t::do_t D>
-expr_value_t eval_t::force_promote(expr_value_t const& value, type_t to_type, pstring_t cast_pstring)
+expr_value_t eval_t::force_promote(expr_value_t value, type_t to_type, pstring_t cast_pstring)
 {
     assert(!is_ct(value.type));
     assert(is_arithmetic(to_type.name()) && is_arithmetic(value.type.name()));
+
+    value = to_rval<D>(std::move(value));
 
     expr_value_t result =
     {
@@ -3586,11 +3499,13 @@ expr_value_t eval_t::force_promote(expr_value_t const& value, type_t to_type, ps
 }
 
 template<eval_t::do_t D>
-expr_value_t eval_t::force_intify_ptr(expr_value_t const& value, type_t to_type, pstring_t cast_pstring)
+expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstring_t cast_pstring)
 {
     assert(!is_ct(value.type));
     assert(!is_ct(to_type));
     assert(is_arithmetic(to_type.name()) && is_ptr(value.type.name()));
+
+    value = to_rval<D>(std::move(value));
 
     expr_value_t result =
     {
@@ -3625,11 +3540,13 @@ expr_value_t eval_t::force_intify_ptr(expr_value_t const& value, type_t to_type,
 }
 
 template<eval_t::do_t D>
-expr_value_t eval_t::force_ptrify_int(expr_value_t const& value, expr_value_t* bank, type_t to_type, pstring_t cast_pstring)
+expr_value_t eval_t::force_ptrify_int(expr_value_t value, expr_value_t* bank, type_t to_type, pstring_t cast_pstring)
 {
     assert(!is_ct(value.type));
     assert(!is_ct(to_type));
     assert(is_ptr(to_type.name()) && is_arithmetic(value.type.name()));
+
+    value = to_rval<D>(std::move(value));
 
     assert(is_banked_ptr(to_type.name()) == !!bank);
 
@@ -3667,10 +3584,12 @@ expr_value_t eval_t::force_ptrify_int(expr_value_t const& value, expr_value_t* b
 }
 
 template<eval_t::do_t D>
-expr_value_t eval_t::force_convert_int(expr_value_t const& value, type_t to_type, bool implicit, pstring_t cast_pstring)
+expr_value_t eval_t::force_convert_int(expr_value_t value, type_t to_type, bool implicit, pstring_t cast_pstring)
 {
     assert(value.type.name() == TYPE_INT);
     assert(is_arithmetic(to_type.name()) && is_arithmetic(value.type.name()));
+
+    value = to_rval<D>(std::move(value));
 
     expr_value_t result =
     {
@@ -3699,10 +3618,12 @@ expr_value_t eval_t::force_convert_int(expr_value_t const& value, type_t to_type
 }
 
 template<eval_t::do_t D>
-expr_value_t eval_t::force_round_real(expr_value_t const& value, type_t to_type, bool implicit, pstring_t cast_pstring)
+expr_value_t eval_t::force_round_real(expr_value_t value, type_t to_type, bool implicit, pstring_t cast_pstring)
 {
     assert(value.type.name() == TYPE_REAL);
     assert(is_arithmetic(to_type.name()));
+
+    value = to_rval<D>(std::move(value));
 
     expr_value_t result =
     {
@@ -3745,8 +3666,10 @@ expr_value_t eval_t::force_round_real(expr_value_t const& value, type_t to_type,
 
 // This is used to implement the other cast functions.
 template<eval_t::do_t D>
-expr_value_t eval_t::force_boolify(expr_value_t const& value, pstring_t cast_pstring)
+expr_value_t eval_t::force_boolify(expr_value_t value, pstring_t cast_pstring)
 {
+    value = to_rval<D>(std::move(value));
+
     expr_value_t result =
     {
         .type = TYPE_BOOL, 

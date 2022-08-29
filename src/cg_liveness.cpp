@@ -1,5 +1,7 @@
 #include "cg_liveness.hpp"
 
+#include <iostream> // TODO
+
 #include "alloca.hpp"
 #include "cg.hpp"
 #include "globals.hpp"
@@ -106,7 +108,7 @@ void clear_liveness_for(ir_t const& ir, ssa_ht node)
 
 bool live_at_def(ssa_ht range, ssa_ht def)
 {
-    if(range == def)
+    if(range == def || (ssa_flags(range->op()) & SSAF_CG_UNLIVE))
         return false;
 
     bool const same_cfg = range->cfg_node() == def->cfg_node();
@@ -118,7 +120,10 @@ bool live_at_def(ssa_ht range, ssa_ht def)
     {
         // Interfere if range is also live-out at def.
         if(bitset_test(def_live.out, range.id))
+        {
+            std::puts("live 1");
             return true;
+        }
 
         // Test to see if a use occurs after def:
         for(unsigned i = 0; i < range->output_size(); ++i)
@@ -131,7 +136,11 @@ bool live_at_def(ssa_ht range, ssa_ht def)
 
             ssa_ht const output = oe.handle;
             if(output->cfg_node() == def->cfg_node() && cg_data(def).schedule.index < cg_data(output).schedule.index)
+            {
+                std::puts("live 2");
+                std::cout << range << ' ' << def << output << ' ' << cg_data(def).schedule.index <<  ' ' << cg_data(output).schedule.index << std::endl;
                 return true;
+            }
         }
     }
 

@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstdint>
 #include <string>
+#include <ostream>
 
 using regs_t = std::uint8_t;
 constexpr regs_t REG_A   = 0;
@@ -72,6 +73,10 @@ enum op_t : std::uint16_t
 std::string to_string(addr_mode_t addr_mode);
 std::string to_string(op_name_t name);
 std::string to_string(op_t op);
+
+std::ostream& operator<<(std::ostream&, addr_mode_t addr_mode);
+std::ostream& operator<<(std::ostream&, op_name_t name);
+std::ostream& operator<<(std::ostream&, op_t op);
 
 using asm_flags_t = std::uint32_t;
 

@@ -822,7 +822,7 @@ ABSTRACT(SSA_add) = ABSTRACT_FN
 
 constraints_t abstract_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
                           constraints_t rhs, constraints_mask_t rhs_cm,
-                          bool sign_diff = false)
+                          bool sign_diff)
 {
     // For now, require both types be the same size.
     assert(lhs_cm.mask == rhs_cm.mask);
@@ -881,7 +881,7 @@ ABSTRACT(SSA_multi_eq) = ABSTRACT_FN
 
 constraints_t abstract_not_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
                               constraints_t rhs, constraints_mask_t rhs_cm,
-                              bool sign_diff = false)
+                              bool sign_diff)
 {
     // For now, require both types be the same size.
     assert(lhs_cm.mask == rhs_cm.mask);

@@ -201,6 +201,8 @@ asm_graph_t::asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locato
             }
             else if(op_flags(inst.op) & ASMF_JUMP)
             {
+                if(!inst.arg)
+                    throw std::runtime_error(fmt("jump %", to_string(inst.op)));
                 node.output_inst = inst;
                 delay_lookup(node, inst.arg);
                 push_back();
@@ -208,6 +210,8 @@ asm_graph_t::asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locato
             else if(op_flags(inst.op) & ASMF_BRANCH)
             {
                 node.output_inst = inst;
+                if(!inst.arg)
+                    throw std::runtime_error(fmt("branch %", to_string(inst.op)));
                 delay_lookup(node, inst.arg);
                 if(i+1 < code.size() && inst.op == invert_branch(code[i+1].op))
                 {
@@ -228,7 +232,7 @@ asm_graph_t::asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locato
         if(auto const* pair = label_map.lookup(lookup.label))
             lookup.node->replace_output(lookup.output, pair->second);
         else
-            throw std::runtime_error("Missing label in assembly.");
+            throw std::runtime_error(fmt("Missing label % in assembly.", lookup.label));
     }
 }
 

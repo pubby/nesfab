@@ -51,7 +51,7 @@ override CXXFLAGS+= \
   -DGIT_COMMIT=\"$(GIT_COMMIT)\"
 
 debug: CXXFLAGS += -O0 -g
-release: CXXFLAGS += -O3 -DNDEBUG
+release: CXXFLAGS += -O3 -DNDEBUG -g
 
 ifeq ($(MAKECMDGOALS), all)
 CXXFLAGS += -g

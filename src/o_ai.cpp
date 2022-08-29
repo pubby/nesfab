@@ -2,7 +2,6 @@
 #include "o.hpp"
 
 #include <array>
-#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 

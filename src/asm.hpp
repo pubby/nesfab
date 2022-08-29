@@ -144,7 +144,7 @@ constexpr regs_t op_regs(op_t op)
     { return op_input_regs(op) | op_output_regs(op); }
 
 constexpr asm_flags_t op_flags(op_t op)
-    { return op_defs_table[op].flags; }
+    { return op < NUM_NORMAL_OPS ? op_defs_table[op].flags : 0; }
 
 using addr_mode_table_t = std::array<op_t, NUM_ADDR_MODES>;
 using op_name_mode_table_t = std::array<addr_mode_table_t, NUM_OP_NAMES>;
@@ -163,10 +163,10 @@ constexpr op_name_mode_table_t op_name_mode_table = []() consteval
 }();
 
 constexpr op_t get_op(op_name_t name, addr_mode_t mode)
-    { return op_name_mode_table[name][mode]; }
+    { assert(name < op_name_mode_table.size()); return op_name_mode_table[name][mode]; }
 
 inline addr_mode_table_t const& get_addr_modes(op_name_t name)
-    { return op_name_mode_table[name]; }
+    { assert(name < op_name_mode_table.size()); return op_name_mode_table[name]; }
 
 constexpr op_t change_addr_mode(op_t op, addr_mode_t mode)
     { return get_op(op_name(op), mode); }

@@ -30,7 +30,7 @@ namespace isel
     {
         // Holds all selection memory. 
         // Is reset at the start of the algorithm.
-        array_pool_t<sel_t> sel_pool;
+        array_pool_t<sel_t, 4098> sel_pool;
 
         using map_t = rh::batman_map<cpu_t, sel_t const*>;
 
@@ -230,10 +230,11 @@ namespace isel
 
     // These determine how extensive the search is.
     constexpr unsigned MAX_MAP_SIZE = 64;
-    constexpr unsigned cost_cutoff(unsigned size)
+    constexpr unsigned cost_cutoff(int size)
     {
-        constexpr unsigned BASE = cost_fn(LDA_ABSOLUTE) * 3;
-        return BASE >> (size >> 4);
+        constexpr unsigned BASE = cost_fn(LDY_ABSOLUTE) * 3;
+        return (BASE >> (size >> 4)) + cost_fn(TAY_IMPLIED);
+        //return std::max<int>(BASE * (int(MAX_MAP_SIZE) - size) / int(MAX_MAP_SIZE), cost_fn(LDY_ABSOLUTE));
     }
 
     // Finishes the selection step.
@@ -241,12 +242,12 @@ namespace isel
     template<bool FinishNode>
     void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
     {
-        state_t::map_t::value_type insertion = { cpu, sel };
-
         isel_cost_t const sel_cost = sel->cost;
 
         if(sel_cost > state.next_best_cost + cost_cutoff(state.next_map.size()))
             return;
+
+        state_t::map_t::value_type insertion = { cpu, sel };
 
         // If this completes a node's operations, we'll release 'req_store'.
         if(FinishNode)
@@ -285,9 +286,16 @@ namespace isel
         isel_cost_t const cutoff = cost_cutoff(state.map.size());
 
         // Run every selection step:
+        unsigned i = 0;
         for(auto const& pair : state.map)
+        {
             if(pair.second->cost <= state.best_cost + cutoff)
+            {
                 fn(pair.first, pair.second, &cont);
+                if(++i > MAX_MAP_SIZE)
+                    break;
+            }
+        }
 
         if(state.next_map.empty())
             throw isel_no_progress_error_t{};
@@ -295,6 +303,8 @@ namespace isel
         dprint(state.log, "--SELECT_STEP_POOL_SIZE", state.sel_pool.size());
         dprint(state.log, "--SELECT_STEP_MAP_SIZE", state.next_map.size());
 
+        state.map.swap(state.next_map);
+        /* TODO: remove?
         if(state.next_map.size() > MAX_MAP_SIZE)
         {
             // If we have too many selections, only keep the lowest cost ones.
@@ -319,13 +329,11 @@ namespace isel
         }
         else
             state.map.swap(state.next_map);
+            */
 
-#ifndef NDEBUG
-        state.next_map.clear();
-        assert(state.map.size());
-#endif
         state.best_cost = state.next_best_cost;
 
+        assert(state.map.size());
         assert(!(state.selecting = false));
     }
 
@@ -2660,7 +2668,6 @@ namespace isel
         }
     }
 
-
     void isel_node_preprep(ssa_ht h)
     {
         assert(h);
@@ -3116,7 +3123,9 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
 
         state.cfg_node = cfg;
         setup_rolling_window(cfg);
+        unsigned repairs = 0;
     do_selections:
+        dprint(state.log, "-ISEL_CFG", cfg);
 
         // Init the state:
         state.sel_pool.clear();
@@ -3153,21 +3162,34 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             }
             catch(isel_no_progress_error_t const&)
             {
-                dprint(state.log, "-ISEL_NO_PROGRES!");
+                dprint(state.log, "-ISEL_NO_PROGRESS!");
 
                 // We'll try and fix the error.
-                bool repaired = false;
 
-                // Maybe the addressing mode was impossible,
-                // so let's make it simpler.
-                for_each_node_input(h, [&](ssa_ht input)
+                ++repairs;
+                bool repaired = false;
+                constexpr unsigned REPAIR_LIMIT = 8;
+
+                if(repairs < REPAIR_LIMIT)
                 {
-                    if(input->cfg_node() == cfg && input->op() == SSA_cg_read_array_direct)
+                    // Maybe the addressing mode was impossible,
+                    // so let's make it simpler.
+                    for_each_node_input(h, [&](ssa_ht input)
                     {
-                        input->unsafe_set_op(SSA_read_array);
-                        repaired = true;
-                    }
-                });
+                        if(input->cfg_node() == cfg && input->op() == SSA_cg_read_array_direct)
+                        {
+                            input->unsafe_set_op(SSA_read_array);
+                            repaired = true;
+                        }
+                    });
+                }
+                else if(repairs == REPAIR_LIMIT)
+                {
+                    for(ssa_node_t& node : *cfg)
+                        if(node.op() == SSA_cg_read_array_direct)
+                            node.unsafe_set_op(SSA_read_array);
+                    repaired = true;
+                }
 
                 if(repaired)
                     goto do_selections;

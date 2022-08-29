@@ -713,7 +713,6 @@ void eval_t::interpret_stmts()
         case STMT_RETURN:
             {
                 type_t const return_type = fn->type().return_type();
-                std::cout << "RETURN " << return_type << std::endl;
                 if(stmt->expr)
                 {
                     expr_value_t v = throwing_cast<D>(do_expr<D>(*stmt->expr), return_type, true);
@@ -773,7 +772,6 @@ void eval_t::compile_block()
 {
     while(true)
     {
-    std::cout << "STMT = " << to_string(stmt->name) << std::endl;
     switch(stmt->name)
     {
     default: // Handles var inits
@@ -2571,8 +2569,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         }
         else if(is_compile(D))
         {
-            //std::cout << lval->member << ' ' << ::num_membersstd::endl;
-
             if(lval->is_var())
                 for(unsigned i = 0; i < num_members; ++i)
                     rval[i] = var_lookup(builder.cfg, lval->var_i(), lval->member + i);
@@ -3694,7 +3690,6 @@ expr_value_t eval_t::force_boolify(expr_value_t value, pstring_t cast_pstring)
 template<eval_t::do_t D>
 bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t cast_pstring)
 {
-    std::cout << "cast " << value.type << " -> " << to_type << ' ' << can_cast(value.type, to_type, implicit) << std::endl;
     switch(can_cast(value.type, to_type, implicit))
     {
     default: assert(false);

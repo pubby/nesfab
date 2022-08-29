@@ -523,8 +523,8 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
     // 'new_bitset' assumes 'h' will be scheduled:
     bitset_set(new_bitset, index(h));
 
-    if(h->op() == SSA_read_global)
-        return -1;
+    if(ssa_flags(h->op()) & SSAF_PRIO_SCHEDULE)
+        return 0;
     
     int max_length = 0;
     int outputs_in_cfg_node = 0; // Number of outputs in the same CFG node.

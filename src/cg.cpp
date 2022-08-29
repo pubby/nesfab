@@ -1137,10 +1137,10 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         for(cfg_ht h : postorder | std::views::reverse)
             code.insert(code.end(), cg_data(h).code.begin(), cg_data(h).code.end());
 
-#ifndef NDEBUG
+//#ifndef NDEBUG
         for(asm_inst_t const& inst : code)
             std::cout << inst << std::endl;
-#endif
+//#endif
 
         lvars_manager_t lvars(fn.handle(), ir);
 

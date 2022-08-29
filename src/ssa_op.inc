@@ -165,7 +165,7 @@ SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY)
 // Stores into a locator at some point earlier in the program than needed.
 // Used in out-of-SSA as an optimization.
 // (node)
-SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY)
+SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE)
 SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY) // TODO: is this really necessary?
 
 #undef SSA_DEF

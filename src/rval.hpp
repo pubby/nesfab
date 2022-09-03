@@ -66,7 +66,7 @@ struct lval_t
     bool is_var() const { return !is_global; }
 
     unsigned uatom() const { return atom < 0 ? 0 : atom; }
-    unsigned ulabel() const { return label < 0 ? 0 : label; }
+    unsigned ulabel() const;
 };
 
 struct deref_t

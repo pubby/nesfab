@@ -98,6 +98,7 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                     o << gv_input_id(ssa_it, i);
                     o << " [label=\"{";
                     o << input.locator().fn()->global.name;
+                    o << " (" << input.locator().data() << ")";
                     o << "}\" shape=box];\n";
                 }
                 else if(input.is_locator())

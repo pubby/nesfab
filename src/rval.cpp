@@ -3,6 +3,18 @@
 #include "locator.hpp"
 #include "compiler_error.hpp"
 #include "lt.hpp"
+#include "globals.hpp"
+
+unsigned lval_t::ulabel() const
+{ 
+    if(label >= 0)
+        return label;
+
+    if(is_global && global()->gclass() == GLOBAL_FN && global()->impl<fn_t>().iasm)
+        return global()->impl<fn_t>().def().default_label;
+
+    return 0;
+}
 
 bool is_ct(rval_t const& rval)
 {

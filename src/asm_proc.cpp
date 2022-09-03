@@ -26,8 +26,9 @@ std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
     return o;
 }
 
-asm_proc_t::asm_proc_t(fn_ht fn, std::vector<asm_inst_t> code_)
+asm_proc_t::asm_proc_t(fn_ht fn, std::vector<asm_inst_t> code_, locator_t entry_label)
 : fn(fn)
+, entry_label(entry_label)
 , code(std::move(code_))
 {
     rebuild_label_map();
@@ -41,9 +42,22 @@ void asm_proc_t::rebuild_label_map()
     {
         if(code[i].op == ASM_LABEL)
         {
-            auto result = labels.insert({ code[i].arg.with_is(IS_DEREF), i });
+            auto result = labels.insert({ code[i].arg.mem_head(), { .index = i }});
             assert(result.second);
         }
+    }
+
+    assert(!entry_label || labels.count(entry_label));
+}
+
+void asm_proc_t::build_label_offsets()
+{
+    int offset = 0;
+    for(asm_inst_t const& inst : code)
+    {
+        if(inst.op == ASM_LABEL)
+            get_label(inst.arg).offset = offset;
+        offset += op_size(inst.op);
     }
 }
 
@@ -82,7 +96,7 @@ void asm_proc_t::push_inst(asm_inst_t inst)
 {
     if(inst.op == ASM_LABEL)
     {
-        auto result = labels.insert({ inst.arg.with_is(IS_DEREF), code.size() });
+        auto result = labels.insert({ inst.arg.with_is(IS_DEREF), { .index = code.size() }});
         assert(result.second);
     }
 
@@ -136,7 +150,7 @@ void asm_proc_t::convert_long_branch_ops()
             if(!is_branch(inst.op))
                 continue;
 
-            unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
+            unsigned const label_i = get_label(inst.arg).index;
             asm_inst_t const* next = next_inst(i);
             if(!next)
                 continue;
@@ -187,7 +201,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
 
         if(inst.op == JMP_ABSOLUTE)
         {
-            unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
+            unsigned const label_i = get_label(inst.arg).index;
             int const dist = bytes_between(next - code.data(), label_i);
             
             if(dist == 0)
@@ -215,7 +229,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
         {
             // Prune unecessary branches
 
-            unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
+            unsigned const label_i = get_label(inst.arg).index;
             int const dist = bytes_between(next - code.data(), label_i);
 
             if(dist == 0)
@@ -289,7 +303,7 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         asm_inst_t const& inst = code[i];
 
         for(auto const& pair : labels)
-            if(pair.second == i)
+            if(pair.second.index == i)
                 os << "LABEL " << pair.first << ":\n";
 
         if(inst.op == ASM_PRUNED || inst.op == ASM_LABEL)
@@ -301,9 +315,6 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         {
         case LOC_CONST_BYTE:
             os << "#" << inst.arg.data();
-            break;
-        case LOC_FN:
-            os << "fn " << inst.arg.fn()->global.name;
             break;
         case LOC_GMEMBER:
             os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() 
@@ -471,7 +482,7 @@ void asm_proc_t::relocate(std::uint16_t addr)
 
         assert(inst.arg.is() != IS_BANK);
         assert(labels.count(inst.arg.with_is(IS_DEREF)));
-        unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
+        unsigned const label_i = get_label(inst.arg).index;
 
         if(op_addr_mode(inst.op) == MODE_RELATIVE)
         {
@@ -485,4 +496,3 @@ void asm_proc_t::relocate(std::uint16_t addr)
             inst.arg = locator_t::addr(addr + bytes_between(0, label_i));
     }
 }
-

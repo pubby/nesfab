@@ -29,7 +29,8 @@ struct local_const_t
 class fn_def_t
 {
 public:
-    unsigned num_params = 0;
+    std::uint16_t num_params = 0;
+    std::int16_t default_label = -1;
     src_type_t return_type;
     std::vector<var_decl_t> local_vars; // First elems are params
     std::vector<local_const_t> local_consts;

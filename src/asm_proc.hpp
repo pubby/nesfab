@@ -52,12 +52,19 @@ unsigned size_in_bytes(It begin, It end)
 // used after code generation but still amenable to code optimizations.
 struct asm_proc_t
 {
+    struct label_info_t
+    {
+        unsigned index; // Position in 'code'
+        int offset; // Bytes from start
+    };
+
     asm_proc_t() = default;
-    asm_proc_t(fn_ht fn, std::vector<asm_inst_t> code);
+    asm_proc_t(fn_ht fn, std::vector<asm_inst_t> code, locator_t entry_label);
 
     fn_ht fn = {};
+    locator_t entry_label = {};
     std::vector<asm_inst_t> code;
-    rh::batman_map<locator_t, unsigned> labels; // Maps from locators to code indices
+    rh::batman_map<locator_t, label_info_t> labels;
 
     // Adds 'inst' to 'code':
     void push_inst(asm_inst_t inst);
@@ -70,7 +77,8 @@ struct asm_proc_t
     asm_inst_t* prev_inst(int i);
     asm_inst_t* next_inst(int i);
 
-    void rebuild_label_map();
+    void rebuild_label_map();   // Sets 'index' of each label_info, not 'offset'.
+    void build_label_offsets(); // Sets 'offset'.
 
     void initial_optimize();
 
@@ -90,7 +98,12 @@ struct asm_proc_t
 
     // Replaces labels with constant addresses.
     void relocate(std::uint16_t addr);
+
+    label_info_t const* lookup_label(locator_t loc) const { return labels.mapped(loc.mem_head()); }
+    label_info_t* lookup_label(locator_t loc) { return labels.mapped(loc.mem_head()); }
+    label_info_t& get_label(locator_t loc) { return labels[loc.mem_head()]; }
 private:
+
     void process_inst(asm_inst_t const& inst);
 
     void optimize(bool initial);

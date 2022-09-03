@@ -214,19 +214,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         return *this;
     };
 
-    auto const from_alloc = [&](rom_alloc_ht h) -> locator_t
-    {
-        if(is() == IS_BANK)
-        {
-            int const bank = h.first_bank();
-            if(bank < 0 || bank >= 256)
-                return *this;
-            return locator_t::const_byte(bank);
-        }
-        else if(rom_alloc_t* alloc = h.get())
-            return from_span(alloc->span);
-        return *this;
-    };
+    int span_offset = 0;
 
     switch(lclass())
     {
@@ -234,10 +222,41 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         // Functions with a known first bank must be called using that bank:
         if(is() == IS_BANK && fn()->first_bank_switch())
             return fn()->first_bank_switch().link(romv, fn_h, bank);
+
+        {
+            auto const& proc = fn()->rom_proc()->asm_proc();
+            if(fn()->iasm)
+            {
+                std::printf("data = %i\n", data());
+                if(auto const* info = proc.lookup_label(locator_t::minor_label(data())))
+                    span_offset = info->offset;
+                else
+                    assert(false);
+            }
+            else 
+            {
+                if(auto const* info = proc.lookup_label(proc.entry_label))
+                    span_offset = info->offset;
+                else
+                    assert(false);
+            }
+        }
+
         // fall-through
     default:
         if(rom_alloc_ht a = rom_alloc(romv))
-            return from_alloc(a);
+        {
+            if(is() == IS_BANK)
+            {
+                int const bank = a.first_bank();
+                if(bank < 0 || bank >= 256)
+                    return *this;
+                return locator_t::const_byte(bank);
+            }
+            else if(rom_alloc_t* alloc = a.get())
+                return from_span(offset_span(alloc->span, span_offset));
+            return *this;
+        }
         return *this;
 
     case LOC_ADDR: // Remove the offset.

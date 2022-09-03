@@ -55,7 +55,7 @@ void asm_node_t::replace_output(unsigned i, asm_node_t* with)
 /////////////////
 
 asm_graph_t::asm_graph_t(log_t* log, locator_t entry_label)
-: entry_label(entry_label)
+: m_entry_label(entry_label)
 , log(log)
 {
     assert(entry_label.lclass() != LOC_MINOR_LABEL); // minor labels will get rewritten.
@@ -154,7 +154,7 @@ asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)
 
 auto asm_graph_t::prune(asm_node_t& node) -> list_t::iterator 
 {
-    assert(node.label != entry_label);
+    assert(node.label != m_entry_label);
     while(node.outputs().size())
         node.remove_output(0);
     assert(node.inputs().empty());
@@ -181,7 +181,7 @@ bool asm_graph_t::o_remove_stubs()
 
     for(auto it = list.begin(); it != list.end();)
     {
-        if(!it->code.empty() || it->label == entry_label)
+        if(!it->code.empty() || it->label == m_entry_label)
             goto next_iter;
 
         if(it->inputs().size() == 0)
@@ -429,7 +429,7 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
 
         if(node.inputs().size() > 1 
            || (node.inputs().size() == 1 && prev != node.inputs()[0])
-           || node.label == entry_label)
+           || node.label == m_entry_label)
         {
             code.push_back({ .op = ASM_LABEL, .arg = get_label(node) });
         }
@@ -844,7 +844,7 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
     };
 
     // Every arg will be "written" at root:
-    asm_node_t& root = *label_map[entry_label];
+    asm_node_t& root = *label_map[m_entry_label];
     for(locator_t const& loc : map)
     {
         if(loc.lclass() == LOC_ARG)
@@ -998,7 +998,7 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
 
     for_each_inst([&](asm_inst_t const& inst)
     {
-        if(!mem_inst(inst))
+        if(!(op_flags(inst.op) & ASMF_MAYBE_STORE))
             return;
         if(inst.arg)
             map.insert(inst.arg.mem_head());

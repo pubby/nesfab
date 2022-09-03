@@ -107,6 +107,8 @@ public:
         for(asm_inst_t const& inst : node.code)
             fn(inst);
     }
+
+    locator_t entry_label() const { return m_entry_label; }
 private:
     using list_t = bi::list<asm_node_t>;
 
@@ -124,7 +126,7 @@ private:
     array_pool_t<asm_node_t> node_pool;
     list_t list;
     rh::batman_map<locator_t, asm_node_t*> label_map;
-    locator_t entry_label = {};
+    locator_t m_entry_label = {};
     unsigned original_order = 0;
 
     struct delayed_lookup_t

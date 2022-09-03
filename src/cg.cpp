@@ -1146,8 +1146,9 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         lvars_manager_t lvars = graph.build_lvars(fn);
 
-        asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()));
+        asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()), graph.entry_label());
         asm_proc.initial_optimize();
+        asm_proc.build_label_offsets();
 
 
 //#ifndef NDEBUG

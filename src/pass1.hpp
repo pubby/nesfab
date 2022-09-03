@@ -4,6 +4,7 @@
 #include <memory>
 #include <variant>
 #include <vector>
+#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -254,11 +255,21 @@ public:
     }
 
     [[gnu::always_inline]]
-    void asm_label(pstring_t label)
+    void asm_label(pstring_t label, bool is_default)
     {
         int const i = -_add_symbol({{ label, type_t::addr(false) }, label }, true)-1;
+        assert(i >= 0);
+
         fn_def.push_stmt({ .name = STMT_ASM_LABEL, .pstring = label, .asm_label = i });
-        fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(label.view(file.source())));
+
+        if(is_default)
+        {
+            if(fn_def.default_label >= 0)
+                compiler_error(label, "Multiple default labels.");
+            fn_def.default_label = i;
+        }
+        else
+            fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(label.view(file.source())));
     }
 
     [[gnu::always_inline]]
@@ -294,6 +305,21 @@ public:
         var_decl_t decl, fn_class_t fclass, 
         std::unique_ptr<mods_t> mods)
     {
+        if(fn_def.default_label < 0)
+        {
+            for(unsigned i = 0; i < fn_def.local_consts.size(); ++i)
+            {
+                if(fn_def.local_consts[i].is_label())
+                {
+                    fn_def.default_label = i;
+                    goto found_default_label;
+                }
+            }
+            fn_def.default_label = -_add_symbol({{ {}, type_t::addr(false) }, {} }, true)-1;
+            fn_def.push_stmt({ .name = STMT_ASM_LABEL, .asm_label = fn_def.default_label });
+        found_default_label:;
+        }
+
         //Convert all expressions
         for(auto& c : fn_def.local_consts)
             if(c.expr)

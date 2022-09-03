@@ -21,6 +21,8 @@ struct span_t
     constexpr bool intersects(span_t const& o) const { return o.end() > addr && end() > o.addr; }
 };
 
+constexpr span_t offset_span(span_t span, int amount) { span.addr += amount; return span; }
+
 std::ostream& operator<<(std::ostream& o, span_t span);
 
 span_t aligned(span_t span, std::uint16_t size, std::uint16_t alignment);

@@ -1498,7 +1498,7 @@ void parser_t<P>::parse_fn(bool is_asm)
         // Parse the local vars of this fn:
         maybe_parse_block(fn_indent, [&]
         { 
-            if(is_ident(token.type))
+            if(token.type == TOK_default || is_ident(token.type))
                 return false;
             if(token.type == TOK_ct)
                 parse_asm_local_const();
@@ -1568,16 +1568,23 @@ void parser_t<P>::parse_asm_label_block()
         parse_asm_local_const();
     else
     {
-        if(!is_ident(token.type))
+        if(token.type != TOK_default && !is_ident(token.type))
             compiler_error("Unexpected token. Expecting 'ct' or label.");
 
         unsigned const label_indent = indent;
 
-        pstring_t const name = token.pstring;
+        bool const is_default = token.type == TOK_default;
+
+        pstring_t name = token.pstring;
         parse_token();
+        if(is_default && token.type == TOK_ident)
+        {
+            name = token.pstring;
+            parse_token();
+        }
         parse_token(TOK_colon);
         parse_line_ending();
-        policy().asm_label(name);
+        policy().asm_label(name, is_default);
 
         maybe_parse_block(label_indent, [&]{ parse_asm_op(); });
     }

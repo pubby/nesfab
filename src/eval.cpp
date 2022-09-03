@@ -1370,7 +1370,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         fn_ht const fn = lval->global()->handle<fn_ht>();
                         if(lval->arg < 0)
-                            return make_ptr(locator_t::fn(fn, 0, offset), type_t::addr(true), true);
+                            return make_ptr(locator_t::fn(fn, lval->ulabel(), offset), type_t::addr(true), true);
                         else
                         {
                             // Referencing a parameter.
@@ -1494,7 +1494,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             else if(lhs.type.name() == TYPE_FN)
             {
                 if(!lhs.is_lval())
-                    goto bad_accessor;
+                    compiler_error(ast.token.pstring, "Expecting lvalue.");
 
                 fn_t const& fn = *to_rval<D>(lhs).ssa().locator().fn();
 
@@ -1710,7 +1710,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 bc::small_vector<ssa_value_t, 32> fn_inputs;
 
                 // The [0] argument holds the fn_t ptr.
-                fn_inputs.push_back(ssa_value_t(locator_t::fn(call)));
+                fn_inputs.push_back(fn_expr.ssa());
                 
                 // For modes, the [1] argument references the stmt:
                 if(call->fclass == FN_MODE)

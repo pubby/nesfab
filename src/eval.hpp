@@ -47,8 +47,11 @@ struct fn_not_rt_t : public std::exception
     pstring_t pstring;
 };
 
-locator_t interpret_asm_expr(pstring_t pstring, ast_node_t const& expr,
-                             bool addr, local_const_t const* local_consts);
+void check_local_const(pstring_t pstring, fn_t const* fn, ast_node_t const& expr,
+                       local_const_t const* local_consts);
+
+rpair_t interpret_local_const(pstring_t pstring, fn_t const* fn, ast_node_t const& expr,
+                              type_t expected_type, local_const_t const* local_consts);
 
 rpair_t interpret_expr(pstring_t pstring, ast_node_t const& ast,
                        type_t expected_type, eval_t* env = nullptr);

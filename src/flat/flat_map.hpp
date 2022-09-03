@@ -6,6 +6,7 @@
 #define LIB_FLAT_FLAT_MAP_HPP
 
 #include "impl/flat_impl.hpp"
+#include <stdexcept>
 
 namespace fc {
 namespace impl {
@@ -16,14 +17,15 @@ class flat_map_base
 : public flat_container_base<D, Key, Container, Compare>
 {
 #include "impl/container_traits.hpp"
-    using mapped_type = typename value_type::second_type;
     using B = flat_container_base<D, Key, Container, Compare>;
     D const* self() const { return static_cast<D const*>(this); }
     D* self() { return static_cast<D*>(this); }
 public:
+    using mapped_type = typename value_type::second_type;
     using value_compare = first_compare<value_type, Compare>;
     value_compare value_comp() const { return value_compare(B::key_comp()); }
 
+    using B::B;
     using B::insert;
     using B::erase;
 
@@ -90,12 +92,12 @@ public:
         { return insert_or_assign_(std::move(key), std::forward<M>(obj)); }
 
     template<typename M>
-    std::pair<iterator, bool> insert_or_assign(const_iterator hint,
+    std::pair<iterator, bool> insert_or_assign(const_iterator /*hint*/,
                                                key_type const& key, M&& obj)
         { return insert_or_assign(key, std::forward<M>(obj)); }
 
     template<typename M>
-    std::pair<iterator, bool> insert_or_assign(const_iterator hint,
+    std::pair<iterator, bool> insert_or_assign(const_iterator /*hint*/,
                                                key_type&& key, M&& obj)
         { return insert_or_assign(std::move(key), std::forward<M>(obj)); }
 
@@ -108,12 +110,12 @@ public:
         { return try_emplace_(std::move(key), std::forward<Args>(args)...); }
 
     template<typename... Args>
-    iterator try_emplace(const_iterator hint,
+    iterator try_emplace(const_iterator /*hint*/,
                          key_type const& key, Args&&... args)
         { return try_emplace_(key, std::forward<Args>(args)...).first; }
 
     template<typename... Args>
-    iterator try_emplace(const_iterator hint, key_type&& key, Args&&... args)
+    iterator try_emplace(const_iterator /*hint*/, key_type&& key, Args&&... args)
     {
         return try_emplace_(std::move(key),
                             std::forward<Args>(args)...).first;
@@ -185,16 +187,31 @@ class flat_map_base<D, Key, Container, Compare,
 : public flat_map_base<D, Key, Container, Compare, int>
 {
 #include "impl/container_traits.hpp"
-    using mapped_type = typename value_type::second_type;
     using B = flat_map_base<D, Key, Container, Compare, int>;
     D const* self() const { return static_cast<D const*>(this); }
     D* self() { return static_cast<D*>(this); }
 public:
+    using mapped_type = typename value_type::second_type;
 
+    using B::B;
     using B::insert;
     using B::count;
 
     // Modifiers
+
+    template<class K>
+    mapped_type const* has(K const& key) const
+    {
+        const_iterator it = self()->find(key);
+        return it == self()->end() ? nullptr : &it.underlying->second;
+    }
+
+    template<class K>
+    mapped_type* has(K const& key)
+    {
+        iterator it = self()->find(key);
+        return it == self()->end() ? nullptr : &it.underlying->second;
+    }
 
     template<class P>
     std::pair<iterator, bool> insert(P&& value)
@@ -220,11 +237,13 @@ public:
 
 } // namespace impl
 
-template<typename Container, typename Compare = std::less<typename Container::value_type::first_type>>
+template<typename Container, typename Compare = std::less<void>>
 class flat_map
 : public impl::flat_map_base<flat_map<Container, Compare>,
     typename Container::value_type::first_type, Container, Compare>
 {
+    using B = impl::flat_map_base<flat_map<Container, Compare>,
+        typename Container::value_type::first_type, Container, Compare>;
 #define FLATNAME flat_map
 #define FLATKEY typename Container::value_type::first_type
 #include "impl/class_def.hpp"
@@ -232,8 +251,8 @@ class flat_map
 #undef FLATKEY
 };
 
-template<typename Key, typename T, typename... Args>
-using vector_map = flat_map<std::vector<std::pair<Key, T>>, Args...>;
+template<typename Key, typename T, typename Compare = std::less<void>>
+using vector_map = flat_map<std::vector<std::pair<Key, T>>, Compare>;
 
 template<typename Container, typename Compare>
 inline bool operator==(const flat_map<Container, Compare>& lhs, const flat_map<Container, Compare>& rhs)

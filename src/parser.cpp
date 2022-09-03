@@ -513,7 +513,7 @@ std::uint16_t parser_t<P>::parse_hw_reg()
 }
 
 template<typename P>
-ast_node_t parser_t<P>::parse_expr_atom_impl(int starting_indent, int open_parens)
+ast_node_t parser_t<P>::parse_expr_atom(int starting_indent, int open_parens)
 {
     auto const type_info_impl = [&](token_type_t expr_token, std::size_t(type_t::*fn)() const) -> ast_node_t
     {
@@ -576,6 +576,10 @@ retry:
         goto retry;
 
     case TOK_ident:
+#ifndef NDEBUG
+        token.value = ~0ull; // May catch a bug if the AST isn't properly converted.
+#endif
+        //fall-through
     case TOK_int:
     case TOK_real:
         {
@@ -682,12 +686,6 @@ retry:
 }
 
 template<typename P>
-ast_node_t parser_t<P>::parse_expr_atom(int starting_indent, int open_parens)
-{
-    return policy().process_ast(parse_expr_atom_impl(starting_indent, open_parens));
-}
-
-template<typename P>
 ast_node_t parser_t<P>::parse_expr()
 {
     return parse_expr(indent, 0);
@@ -762,8 +760,6 @@ ast_node_t parser_t<P>::parse_expr(int starting_indent, int open_parens, int min
         }
         else
             break;
-
-        result = policy().process_ast(result);
     }
 
     assert(result.token.type != TOK_eol);
@@ -1497,21 +1493,20 @@ void parser_t<P>::parse_fn(bool is_asm)
 
     auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type, is_asm);
 
-    if(!is_asm)
-    {
-        // Parse the body of the function
-        parse_block_statement(fn_indent);
-        policy().end_fn(std::move(state), fclass, std::move(mods));
-    }
-    else
+    if(is_asm)
     {
         // Parse the local vars of this fn:
         maybe_parse_block(fn_indent, [&]
         { 
             if(is_ident(token.type))
                 return false;
-            policy().asm_fn_var(parse_var_decl(false, {}, true));
-            parse_line_ending();
+            if(token.type == TOK_ct)
+                parse_asm_local_const();
+            else
+            {
+                policy().asm_fn_var(parse_var_decl(false, {}, true));
+                parse_line_ending();
+            }
             return true;
         });
 
@@ -1520,7 +1515,12 @@ void parser_t<P>::parse_fn(bool is_asm)
 
         policy().end_asm_fn(std::move(state), fclass, std::move(mods));
     }
-
+    else
+    {
+        // Parse the body of the function
+        parse_block_statement(fn_indent);
+        policy().end_fn(std::move(state), fclass, std::move(mods));
+    }
 }
 
 template<typename P>
@@ -1548,33 +1548,39 @@ void parser_t<P>::parse_statement()
 }
 
 template<typename P>
+void parser_t<P>::parse_asm_local_const()
+{
+    parse_token(TOK_ct);
+
+    var_decl_t var_decl;
+    ast_node_t expr;
+    if(!parse_var_init(var_decl, expr, false, {}))
+        compiler_error(var_decl.name, "Constants must be assigned a value.");
+    parse_line_ending();
+
+    policy().asm_value(var_decl, expr);
+}
+
+template<typename P>
 void parser_t<P>::parse_asm_label_block()
 {
-    unsigned const label_indent = indent;
-
-    if(!is_ident(token.type))
-        compiler_error("Unexpected token. Expecting assembly label.");
-
-    pstring_t const name = token.pstring;
-    parse_token();
-
-    if(token.type == TOK_colon)
+    if(token.type == TOK_ct)
+        parse_asm_local_const();
+    else
     {
+        if(!is_ident(token.type))
+            compiler_error("Unexpected token. Expecting 'ct' or label.");
+
+        unsigned const label_indent = indent;
+
+        pstring_t const name = token.pstring;
         parse_token();
+        parse_token(TOK_colon);
         parse_line_ending();
         policy().asm_label(name);
-    }
-    else if(token.type == TOK_assign)
-    {
-        parse_token();
-        ast_node_t expr = parse_expr();
-        parse_line_ending();
-        policy().asm_value(name, expr);
-    }
-    else
-        compiler_error("Unexpected token. Expecting : or =.");
 
-    maybe_parse_block(label_indent, [&]{ parse_asm_op(); });
+        maybe_parse_block(label_indent, [&]{ parse_asm_op(); });
+    }
 }
 
 template<typename P>
@@ -1634,7 +1640,7 @@ void parser_t<P>::parse_asm_op()
         { return pstring.size == 1 && std::tolower(pstring.view(source())[0]) == ch; };
 
     addr_mode_t mode;
-    ast_node_t expr;
+    ast_node_t expr = {}, *maybe_expr = nullptr;
 
     switch(token.type)
     {
@@ -1645,12 +1651,14 @@ void parser_t<P>::parse_asm_op()
     case TOK_hash:
         parse_token();
         expr = parse_expr();
+        maybe_expr = &expr;
         mode = MODE_IMMEDIATE;
         break;
 
     case TOK_lparen:
         parse_token();
         expr = parse_expr();
+        maybe_expr = &expr;
 
         if(token.type == TOK_comma)
         {
@@ -1680,6 +1688,7 @@ void parser_t<P>::parse_asm_op()
 
     default:
         expr = parse_expr();
+        maybe_expr = &expr;
 
         if(token.type == TOK_comma)
         {
@@ -1695,14 +1704,19 @@ void parser_t<P>::parse_asm_op()
             parse_token();
         }
         else
-            mode = MODE_ABSOLUTE;
+        {
+            if(get_op(name, MODE_RELATIVE))
+                mode = MODE_RELATIVE;
+            else
+                mode = MODE_ABSOLUTE;
+        }
 
         break;
     }
 
     parse_line_ending();
 
-    policy().asm_op(pstring, name, mode, expr);
+    policy().asm_op(pstring, name, mode, maybe_expr);
 }
 
 template<typename P>
@@ -1918,7 +1932,7 @@ void parser_t<P>::parse_goto()
         std::unique_ptr<mods_t> mods = parse_mods_after([&]
         {
             bc::small_vector<ast_node_t, 16> children;
-            children.push_back(policy().process_ast({ .token = { .type = TOK_weak_ident, .pstring = token.pstring }}));
+            children.push_back({ .token = { .type = TOK_weak_ident, .pstring = token.pstring }});
 
             mode = parse_ident();
             char const* begin = token_source;

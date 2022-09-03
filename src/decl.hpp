@@ -14,6 +14,7 @@
 #include "handle.hpp"
 
 constexpr unsigned MAX_FN_ARGS = 32;
+constexpr unsigned MAX_ASM_LOCAL_VARS = 128;
 constexpr unsigned MAX_MEMBERS = 256;
 constexpr unsigned MAX_ATOMS = 8;
 

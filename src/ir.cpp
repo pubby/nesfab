@@ -2,6 +2,7 @@
 
 #include "builtin.hpp"
 #include "globals.hpp"
+#include "multi.hpp"
 
 #include <iostream> // TODO
 
@@ -921,6 +922,44 @@ void ir_t::assert_valid() const
                 // Currently unimplemented: links with daisy.
                 assert(ssa_input0_class(ssa_it->op()) != INPUT_LINK);
             }
+
+            // Multi checks
+            if(ssa_it->op() == SSA_multi_eq)
+            {
+                assert(ssa_it->input_size() % 2 == 0);
+                for(unsigned i = 0; i < ssa_it->input_size(); i += 2)
+                {
+                    if(i + 2 != ssa_it->input_size())
+                        assert(ssa_it->input(i).type() == ssa_it->input(i+1).type());
+                }
+            }
+
+            /* TODO
+            if(ssa_it->op() == SSA_multi_lt)
+            {
+                assert(ssa_it->input_size() % 2 == 0);
+
+                multi_lt_info_t const info(ssa_it);
+
+                for(int i = 0; i < info.lsize; ++i)
+                {
+                    assert(info.validl(i + info.loffset));
+                    if(i + 1 == info.lsize)
+                        assert(is_signed(ssa_it->input(i + info.loffset).type().name()) == info.lsigned);
+                    else
+                        assert(ssa_it->input(i + info.loffset).type() == TYPE_U);
+                }
+
+                for(int i = 0; i < info.rsize; ++i)
+                {
+                    assert(info.validr(i + info.roffset));
+                    if(i + 1 == info.rsize)
+                        assert(is_signed(ssa_it->input(i + info.roffset).type().name()) == info.rsigned);
+                    else
+                        assert(ssa_it->input(i + info.roffset).type() == TYPE_U);
+                }
+            }
+            */
 
             // Array checks.
 

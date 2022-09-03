@@ -2,6 +2,7 @@
 #include "o.hpp"
 
 #include <array>
+#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -19,6 +20,7 @@
 #include "type_mask.hpp"
 #include "assert.hpp"
 #include "constraints.hpp"
+#include "multi.hpp"
 
 namespace bc = ::boost::container;
 
@@ -1066,11 +1068,11 @@ void ai_t::fold_consts()
         }
         else if(op == SSA_multi_eq || op == SSA_multi_not_eq)
         {
+            assert(ssa_it->input_size() % 2 == 0);
+
             // Simplify comparisons, removing unnecessary operations:
             for(unsigned i = 0; i < ssa_it->input_size();)
             {
-                assert(ssa_it->input_size() % 2 == 0);
-
                 ssa_value_t const lhs = ssa_it->input(i);
                 ssa_value_t const rhs = ssa_it->input(i+1);
 
@@ -1103,29 +1105,213 @@ void ai_t::fold_consts()
                 i+= 2;
             }
         }
-        else if(op == SSA_lt || op == SSA_lte)
+        else if(op == SSA_multi_lt || op == SSA_multi_lte)
         {
-            /* TODO!
-            std::puts("TODO! SIMPLIFY SSA_LT");
-            // Simplify comparisons, removing unnecessary operations:
-            while(unsigned const size = ssa_it->input_size())
+            multi_lt_info_t const info(ssa_it);
+
+            constraints_mask_t const cm = type_constraints_mask(TYPE_U);
+            fixed_uint_t const sign_bit = high_bit_only(cm.mask);
+
+            // We'll build equal-sized vectors holding the constraints of lhs and rhs.
+
+            bc::small_vector<constraints_t, max_total_bytes> lhs_vec;
+            bc::small_vector<constraints_t, max_total_bytes> rhs_vec;
+
+            for(int i = info.lfrac; i < info.rfrac; ++i)
+                lhs_vec.push_back(constraints_t::const_(0, cm));
+            for(int i = info.rfrac; i < info.lfrac; ++i)
+                rhs_vec.push_back(constraints_t::const_(0, cm));
+
+            int const lvec_offset = lhs_vec.size();
+            int const rvec_offset = rhs_vec.size();
+
+            assert(int(lhs_vec.size()) == info.maxfrac);
+            assert(int(rhs_vec.size()) == info.maxfrac);
+
+            for(int i = 0; i < info.lsize; ++i)
             {
-                ssa_value_t const lhs = ssa_it->input(size - 2);
-                ssa_value_t const rhs = ssa_it->input(size - 1);
+                int const li = info.lstart + i;
+                assert(info.validl(li));
+                lhs_vec.push_back(get_constraints(ssa_it->input(li))[0]);
+            }
+            for(int i = 0; i < info.rsize; ++i)
+            {
+                int const ri = info.rstart + i;
+                assert(info.validr(ri));
+                rhs_vec.push_back(get_constraints(ssa_it->input(ri))[0]);
+            }
 
-                constraints_t const lhs_c = first_constraint(lhs);
-                constraints_t const rhs_c = first_constraint(rhs);
+            constraints_t extend; // temporary holding sign extension
 
-                if(lhs_c.is_const() && rhs_c.is_const() 
-                   && lhs_c.get_const() == rhs_c.get_const())
+            if(info.lsigned)
+                extend = abstract_sign_extend(lhs_vec.back(), cm);
+            else
+                extend = constraints_t::const_(0, cm);
+            while(lhs_vec.size() < rhs_vec.size())
+                lhs_vec.push_back(extend);
+
+            if(info.rsigned)
+                extend = abstract_sign_extend(rhs_vec.back(), cm);
+            else
+                extend = constraints_t::const_(0, cm);
+            while(rhs_vec.size() < lhs_vec.size())
+                rhs_vec.push_back(extend);
+
+            // OK! The vectors are built.
+
+            assert(lhs_vec.size() == rhs_vec.size());
+            assert(int(lhs_vec.size()) == info.maxfrac + info.maxwhole);
+
+            int begin = 0;
+            int end = lhs_vec.size();
+            bool flip = false;
+            unsigned ignore = 0;
+
+            for(int i = lhs_vec.size() - 1; i >= 0; --i)
+            {
+                constraints_mask_t lhs_cm = cm;
+                constraints_mask_t rhs_cm = cm;
+
+                assert(!lhs_cm.signed_);
+                assert(!rhs_cm.signed_);
+
+                if(i == int(lhs_vec.size()) - 1)
                 {
-                    ssa_it->link_shrink_inputs(size - 2);
+                    lhs_cm.signed_ = info.lsigned;
+                    rhs_cm.signed_ = info.rsigned;
+                }
+
+                constraints_t const eq = abstract_eq(lhs_vec[i], lhs_cm, rhs_vec[i], rhs_cm);
+
+                if(eq.bit_eq(constraints_t::bool_(true)))
+                {
+                    if(i+1 == end)
+                        --end;
+                    ignore |= 1 << i;
+                    dprint(log, "-MULTI_LT EQ");
+                    continue;
+                }
+                else if(!eq.bit_eq(constraints_t::bool_(false)))
+                    continue;
+
+                constraints_t const lt = abstract_lt(lhs_vec[i], lhs_cm, rhs_vec[i], rhs_cm);
+
+                if(lt.bit_eq(constraints_t::bool_(true)))
+                {
+                    flip = ssa_it->op() == SSA_multi_lt;
+                    begin = i+1;
+                    dprint(log, "-MULTI_LT LT");
+                    break;
+                }
+                
+                if(lt.bit_eq(constraints_t::bool_(false)))
+                {
+                    flip = ssa_it->op() == SSA_multi_lte;
+                    begin = i+1;
+                    dprint(log, "-MULTI_LT GT");
+                    break;
+                }
+            }
+
+            unsigned new_lfrac = 0;
+            unsigned new_lwhole = 0;
+            unsigned new_rfrac = 0;
+            unsigned new_rwhole = 0;
+            bool new_signedl = false;
+            bool new_signedr = false;
+
+            bc::small_vector<ssa_value_t, max_total_bytes> new_lhs;
+            bc::small_vector<ssa_value_t, max_total_bytes> new_rhs;
+
+            for(int i = begin; i < end; ++i)
+            {
+                if(ignore & (1 << i))
+                    continue;
+
+                int const li = i - lvec_offset + info.lstart;
+                if(info.validl(li))
+                {
+                    new_lhs.push_back(ssa_it->input(li));
+
+                    if(info.signedl(li) && !(lhs_vec[i].bits.known0 & sign_bit))
+                        new_signedl |= true;
+
+                    if(li < info.loffset())
+                        ++new_lfrac;
+                    else
+                        ++new_lwhole;
+                }
+
+                int const ri = i - rvec_offset + info.rstart;
+                if(info.validr(ri))
+                {
+                    new_rhs.push_back(ssa_it->input(ri));
+
+                    if(info.signedr(ri) && !(rhs_vec[i].bits.known0 & sign_bit))
+                        new_signedr = true;
+
+                    if(ri < info.roffset())
+                        ++new_rfrac;
+                    else
+                        ++new_rwhole;
+                }
+            }
+
+            if(new_lhs.empty())
+            {
+                if(new_rhs.empty())
+                {
                     updated = __LINE__;
+                    ssa_it->replace_with(ssa_value_t((ssa_it->op() == SSA_multi_lte) != flip, TYPE_BOOL));
+                    continue;
+                }
+
+                new_lhs.push_back(ssa_value_t(0, TYPE_U));
+                new_lwhole += 1;
+            }
+
+            if(new_rhs.empty())
+            {
+                new_rhs.push_back(ssa_value_t(0, TYPE_U));
+                new_rwhole += 1;
+            }
+
+            unsigned const new_input_size = new_lhs.size() + new_rhs.size() + 2;
+            assert(new_input_size <= ssa_it->input_size());
+
+            if(new_input_size != ssa_it->input_size())
+            {
+                updated = __LINE__;
+
+                bc::small_vector<ssa_value_t, max_total_bytes> inputs(2);
+
+                // Set the types
+                type_name_t const lt = type_s_or_u(new_lwhole, new_lfrac, new_signedl);
+                type_name_t const rt = type_s_or_u(new_rwhole, new_rfrac, new_signedr);
+                inputs[flip]  = ssa_value_t(unsigned(lt), TYPE_INT);
+                inputs[!flip] = ssa_value_t(unsigned(rt), TYPE_INT);
+
+                if(flip)
+                {
+                    inputs.insert(inputs.end(), new_rhs.begin(), new_rhs.end());
+                    inputs.insert(inputs.end(), new_lhs.begin(), new_lhs.end());
+
+                    if(ssa_it->op() == SSA_multi_lt)
+                        ssa_it->unsafe_set_op(SSA_multi_lte);
+                    else
+                        ssa_it->unsafe_set_op(SSA_multi_lt);
                 }
                 else
-                    break;
+                {
+                    inputs.insert(inputs.end(), new_lhs.begin(), new_lhs.end());
+                    inputs.insert(inputs.end(), new_rhs.begin(), new_rhs.end());
+                }
+
+                ssa_it->link_clear_inputs();
+                ssa_it->link_append_input(&*inputs.begin(), &*inputs.end());
+
+                dprint(log, "-MULTI_LT_REWRITE", lt, rt);
             }
-            */
         }
     }
     ir.assert_valid();

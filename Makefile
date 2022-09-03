@@ -126,7 +126,8 @@ pbqp.cpp \
 asm_graph.cpp \
 iasm.cpp \
 fn_def.cpp \
-ast.cpp
+ast.cpp \
+multi.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

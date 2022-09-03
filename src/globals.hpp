@@ -386,6 +386,10 @@ public:
     span_t lvar_span(romv_t romv, int lvar_i) const;
     span_t lvar_span(romv_t romv, locator_t loc) const;
 
+    void mark_referenced_param(unsigned param);
+    std::uint64_t referenced_params() const { return m_referenced_params.load(); }
+    void for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const;
+
 public:
     global_t& global;
     fn_class_t const fclass;
@@ -449,6 +453,10 @@ private:
     // Aids in allocating RAM for local variables:
     lvars_manager_t m_lvars;
     std::array<std::vector<span_t>, NUM_ROMV> m_lvar_spans;
+
+    // Bitset tracking which parametres have been referenced.
+    // (i.e. used with unary operator '&')
+    std::atomic<std::uint64_t> m_referenced_params = 0;
 };
 
 // Base class for vars and consts.

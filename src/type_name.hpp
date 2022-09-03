@@ -218,40 +218,34 @@ constexpr unsigned total_bytes(type_name_t type_name)
 constexpr type_name_t type_f(unsigned f)
 {
     assert(f > 0);
-    assert(f <= 3);
+    assert(f <= max_frac_bytes);
     return type_name_t(TYPE_F1 - 1 + f);
 }
 
 constexpr type_name_t type_u(unsigned w, unsigned f)
 {
-    assert(w > 0);
-    assert(w <= 3);
-    assert(f <= 3);
+    assert(w + f > 0);
+    assert(w <= max_whole_bytes);
+    assert(f <= max_frac_bytes);
     return type_name_t(TYPE_U10 - 4 + w*4 + f);
 }
 
 constexpr type_name_t type_s(unsigned w, unsigned f)
 {
-    assert(w > 0);
-    assert(w <= 3);
-    assert(f <= 3);
+    assert(w + f > 0);
+    assert(w <= max_whole_bytes);
+    assert(f <= max_frac_bytes);
     return type_name_t(TYPE_S10 - 4 + w*4 + f);
 }
 
 constexpr type_name_t type_s_or_u(unsigned w, unsigned f, bool s)
-{
-    return s ? type_s(w, f) : type_u(w, f);
-}
+    { return s ? type_s(w, f) : type_u(w, f); }
 
 constexpr unsigned begin_byte(type_name_t type_name)
-{
-    return max_frac_bytes - frac_bytes(type_name);
-}
+    { return max_frac_bytes - frac_bytes(type_name); }
 
 constexpr unsigned end_byte(type_name_t type_name)
-{
-    return max_frac_bytes + whole_bytes(type_name);
-}
+    { return max_frac_bytes + whole_bytes(type_name); }
 
 // True if 'super' can represent every value that 'sub' can.
 constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)

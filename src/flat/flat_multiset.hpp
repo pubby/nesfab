@@ -23,6 +23,7 @@ public:
     using value_compare = Compare;
     value_compare value_comp() const { return value_compare(B::key_comp()); }
 
+    using B::B;
     using B::insert;
     using B::erase;
 
@@ -72,6 +73,7 @@ class flat_multiset_base<D, Key, Container, Compare,
     D const* self() const { return static_cast<D const*>(this); }
     D* self() { return static_cast<D*>(this); }
 public:
+    using B::B;
     using B::count;
 
     // Lookup
@@ -86,11 +88,13 @@ public:
 
 } // namespace impl
 
-template<typename Container, typename Compare = std::less<typename Container::value_type>>
+template<typename Container, typename Compare = std::less<void>>
 class flat_multiset
 : public impl::flat_multiset_base<flat_multiset<Container, Compare>,
     typename Container::value_type, Container, Compare>
 {
+    using B = impl::flat_multiset_base<flat_multiset<Container, Compare>,
+        typename Container::value_type, Container, Compare>;
 #define FLATNAME flat_multiset
 #define FLATKEY typename Container::value_type
 #include "impl/class_def.hpp"
@@ -98,8 +102,8 @@ class flat_multiset
 #undef FLATKEY
 };
 
-template<typename T, typename... Args>
-using vector_multiset = flat_multiset<std::vector<T>, Args...>;
+template<typename T, typename Compare = std::less<void>>
+using vector_multiset = flat_multiset<std::vector<T>, Compare>;
 
 template<typename Container, typename Compare>
 inline bool operator==(const flat_multiset<Container, Compare>& lhs, const flat_multiset<Container, Compare>& rhs)

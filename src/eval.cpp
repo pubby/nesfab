@@ -132,8 +132,9 @@ public:
     struct do_wrapper_t { static constexpr auto D = Do; };
 
     template<do_t D>
-    eval_t(do_wrapper_t<D>, pstring_t pstring, ast_node_t const& expr, 
-           type_t expected_type = TYPE_VOID, local_const_t const* local_consts = nullptr);
+    eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const* fn_ref,
+           ast_node_t const& expr, type_t expected_type, 
+           local_const_t const* local_consts = nullptr);
 
     template<do_t D>
     eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
@@ -283,24 +284,17 @@ public:
 
 thread_local eval_t::ir_builder_t eval_t::builder;
 
-locator_t interpret_asm_expr(pstring_t pstring, ast_node_t const& expr,
-                             bool addr, local_const_t const* local_consts)
+rpair_t interpret_local_const(pstring_t pstring, fn_t const* fn, ast_node_t const& expr,
+                              type_t expected_type, local_const_t const* local_consts)
 {
-    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET_ASM>{}, pstring, expr, addr ? TYPE_U20 : TYPE_U, local_consts);
+    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET_CE>{}, pstring, fn, expr, expected_type, local_consts);
+    return i.final_result;
+}
 
-    assert(i.final_result.value.size() == 1);
-
-    if(ssa_value_t const* value = std::get_if<ssa_value_t>(&i.final_result.value[0]))
-    {
-        if(value->is_locator())
-            return value->locator();
-        if(value->is_num())
-            return addr ? locator_t::addr(value->whole()) : locator_t::const_byte(value->whole());
-    }
-    else if(ast_node_t const** ast = std::get_if<ast_node_t const*>(&i.final_result.value[0]))
-        return locator_t::lt_expr(alloc_lt_value(i.final_result.type, **ast));
-
-    compiler_error(pstring, "Invalid expression.");
+void check_local_const(pstring_t pstring, fn_t const* fn, ast_node_t const& expr,
+                       local_const_t const* local_consts)
+{
+    eval_t i(eval_t::do_wrapper_t<eval_t::CHECK>{}, pstring, fn, expr, TYPE_VOID, local_consts);
 }
 
 rpair_t interpret_expr(pstring_t pstring, ast_node_t const& expr, type_t expected_type, eval_t* env)
@@ -312,7 +306,7 @@ rpair_t interpret_expr(pstring_t pstring, ast_node_t const& expr, type_t expecte
     }
     else
     {
-        eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, expr, expected_type);
+        eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, nullptr, expr, expected_type);
         return i.final_result;
     }
 }
@@ -320,7 +314,7 @@ rpair_t interpret_expr(pstring_t pstring, ast_node_t const& expr, type_t expecte
 
 std::vector<locator_t> interpret_paa(pstring_t pstring, ast_node_t const& expr)
 {
-    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, expr, TYPE_VOID);
+    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, nullptr, expr, TYPE_VOID);
     return std::move(i.paa);
 }
 
@@ -341,12 +335,20 @@ void build_ir(ir_t& ir, fn_t const& fn)
 }
 
 template<eval_t::do_t D>
-eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, ast_node_t const& expr, 
-               type_t expected_type, local_const_t const* local_consts)
+eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const* fn_ref,
+               ast_node_t const& expr, type_t expected_type, local_const_t const* local_consts)
 : pstring(pstring)
+, fn(fn_ref)
 , start_time(clock::now())
 , local_consts(local_consts)
 {
+    if(fn)
+    {
+        unsigned const nlocals = num_local_vars();
+        var_types.resize(nlocals);
+        for(unsigned i = 0; i < nlocals; ++i)
+            var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
+    }
     do_expr_result<D>(expr, expected_type);
 }
 
@@ -362,8 +364,8 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
     unsigned const nlocals = num_local_vars();
 
     var_types.resize(nlocals);
-        for(unsigned i = 0; i < nlocals; ++i)
-            var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
+    for(unsigned i = 0; i < nlocals; ++i)
+        var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
 
     if(D == COMPILE)
     {
@@ -1198,60 +1200,50 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         throw std::runtime_error(fmt("Invalid token '%' in expression.", token_string(ast.token.type)));
 
     case TOK_ident:
-        if(D == INTERPRET_CE)
-            compiler_error(ast.token.pstring, "Expression cannot be evaluated at compile-time.");
-        else if(D == LINK)
-            compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
+        if(ast.token.signed_() < 0) // If we have a local const
+        {
+            assert(local_consts);
+            unsigned const const_i = ~ast.token.value;
+
+            expr_value_t result =
+            {
+                .type = local_consts[const_i].type(),
+                .pstring = ast.token.pstring,
+            };
+
+            if(!is_check(D))
+                result.val = local_consts[const_i].value;
+
+            return result;
+        }
         else
         {
-            assert(is_check(D) || D == INTERPRET || D == INTERPRET_ASM || D == COMPILE);
+            if(is_link(D)) // TODO: perhaps this should move to 'to_rval'.
+                compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
 
-            if(ast.token.signed_() < 0) // If we have a local const
+            unsigned const var_i = ast.token.value;
+            if(fn->iasm)
+                std::printf("asm var_i %i\n", var_i);
+            assert(var_i < var_types.size());
+            assert(var_i < num_local_vars());
+
+            expr_value_t result =
             {
-                assert(local_consts);
-                unsigned const const_i = ~ast.token.value;
+                .val = lval_t{ .vvar_i = var_i },
+                .type = var_types[var_i],
+                .pstring = ast.token.pstring,
+            };
 
-                expr_value_t result =
-                {
-                    .type = local_consts[const_i].type(),
-                    .pstring = ast.token.pstring,
-                };
-
-                if(!is_check(D))
-                {
-                    locator_t const loc = local_consts[const_i].value;
-                    if(is_const(loc.lclass()))
-                        result.val = rval_t{ ssa_value_t(loc.data(), local_consts[const_i].type().name()) };
-                    else
-                        result.val = rval_t{ ssa_value_t(loc) };
-                }
-
-                return result;
-            }
-            else
+            if(is_compile(D))
+                result.time = RT;
+            else if(D == INTERPRET && interpret_locals[var_i].empty())
             {
-                unsigned const var_i = ast.token.value;
-                assert(var_i < var_types.size());
-                assert(var_i < num_local_vars());
-
-                expr_value_t result =
-                {
-                    .val = lval_t{ .vvar_i = var_i },
-                    .type = var_types[var_i],
-                    .pstring = ast.token.pstring,
-                };
-
-                if(is_compile(D))
-                    result.time = RT;
-                else if(is_interpret(D) && interpret_locals[var_i].empty())
-                {
-                    compiler_error(ast.token.pstring, 
-                        "Variable is invalid because goto jumped past its initialization.");
-                }
-
-                assert(result.is_lval());
-                return result;
+                compiler_error(ast.token.pstring, 
+                    "Variable is invalid because goto jumped past its initialization.");
             }
+
+            assert(result.is_lval());
+            return result;
         }
 
     case TOK_global_ident:
@@ -1322,14 +1314,22 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 compiler_error(ast.token.pstring, "lvalue required as unary '&' operand.");
 
             type_t base_type = value.type;
-            if(is_tea(base_type.name()))
+            if(is_paa(base_type.name()))
+                base_type = TYPE_U;
+            else if(is_tea(base_type.name()))
             {
                 base_type = base_type.elem_type();
                 if(base_type.size_of() > 1 && lval->atom < 0)
-                    compiler_error(value.pstring, "Cannot get address of multi-byte array using unary '&'.");
+                    goto err_mb;
             }
             else if(base_type.size_of() > 1 && lval->atom < 0)
-                compiler_error(value.pstring, "Cannot get address of multi-byte value using unary '&'.");
+            {
+            err_mb:
+                char const* s = is_tea(base_type.name()) ? "array" : "type";
+                throw compiler_error_t(
+                    fmt_error(value.pstring, fmt("Cannot get address of multi-byte % using unary '&'.", s))
+                    + fmt_note(fmt("Use the '.' operator to get a single byte %.", s)));
+            }
 
             if(is_struct(base_type.name()))
                 compiler_error(value.pstring, "Cannot get address of struct value using unary '&'.");
@@ -1356,20 +1356,28 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         bool const banked = !c.group_data || c.group_data->once;
 
                         return make_ptr(locator_t::lt_const_addr(c.handle(), lval->member, lval->uatom(), offset), 
-                                    type_t::addr(banked), banked);
+                                        type_t::addr(banked), banked);
                     }
 
                 case GLOBAL_VAR:
                     {
                         gvar_t const& gvar = lval->global()->impl<gvar_t>();
                         return make_ptr(locator_t::gmember(gvar.begin() + lval->member, lval->uatom(), offset), 
-                                    type_t::addr(false), false);
+                                        type_t::addr(false), false);
                     }
 
                 case GLOBAL_FN:
                     {
                         fn_ht const fn = lval->global()->handle<fn_ht>();
-                        return make_ptr(locator_t::fn(fn, offset), type_t::addr(true), true);
+                        if(lval->arg < 0)
+                            return make_ptr(locator_t::fn(fn, 0, offset), type_t::addr(true), true);
+                        else
+                        {
+                            // Referencing a parameter.
+                            fn->mark_referenced_param(lval->arg);
+                            return make_ptr(locator_t::arg(fn, lval->arg, lval->member, lval->uatom(), offset), 
+                                            type_t::addr(false), false);
+                        }
                     }
 
                 default: 
@@ -1378,12 +1386,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             }
             else
             {
-                // TODO
-                assert(false);
+                if(!fn || !fn->iasm)
+                    compiler_error(value.pstring, "Cannot get address.");
+                return make_ptr(locator_t::asm_local_var(fn->handle(), lval->var_i(), lval->member, lval->uatom()), 
+                                type_t::addr(false), false);
             }
         }
         break;
-
 
     case TOK_at:
         {
@@ -1459,23 +1468,68 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 if(lhs.is_lval())
                     lhs.lval().member += member_i;
-                else if(!is_check(D) && lhs.is_rval())
+                else if(lhs.is_rval())
                 {
-                    rval_t& rval = lhs.rval();
+                    if(!is_check(D))
+                    {
+                        rval_t& rval = lhs.rval();
 
-                    // Shrink the rval to only contain the specified field.
-                    unsigned const size = num_members(ptr->second.type());
+                        // Shrink the rval to only contain the specified field.
+                        unsigned const size = num_members(ptr->second.type());
 
-                    assert(rval.size() == num_members(lhs.type));
-                    assert(size + member_i <= rval.size());
+                        assert(rval.size() == num_members(lhs.type));
+                        assert(size + member_i <= rval.size());
 
-                    if(member_i != 0)
-                        for(unsigned i = 0; i < size; ++i)
-                            rval[i] = std::move(rval[i + member_i]);
-                    rval.resize(size);
+                        if(member_i != 0)
+                            for(unsigned i = 0; i < size; ++i)
+                                rval[i] = std::move(rval[i + member_i]);
+                        rval.resize(size);
+                    }
                 }
+                else
+                    goto bad_accessor;
 
                 lhs.type = ptr->second.type();
+            }
+            else if(lhs.type.name() == TYPE_FN)
+            {
+                if(!lhs.is_lval())
+                    goto bad_accessor;
+
+                fn_t const& fn = *to_rval<D>(lhs).ssa().locator().fn();
+
+                auto const& hashes = fn.def().name_hashes;
+                auto it = std::find(hashes.begin(), hashes.end(), hash);
+
+                if(it == hashes.end())
+                    goto bad_accessor;
+
+                unsigned i = it - hashes.begin();
+
+                if(i < fn.def().num_params) // If it's a param
+                {
+                    lhs.lval().arg = i;
+                    lhs.type = fn.def().local_vars[i].src_type.type;
+                }
+                else // It's a label
+                {
+                    if(lhs.lval().label >= 0)
+                        goto bad_accessor;
+
+                    assert(fn.iasm);
+
+                    // Determine the corresponding 'local_consts' index to this label:
+
+                    i -= fn.def().num_params;
+                    for(unsigned j = 0; j < fn.def().local_consts.size(); ++j)
+                    {
+                        if(fn.def().local_consts[j].is_label() && i-- == 0)
+                        {
+                            lhs.lval().label = j; // OK! Found the label.
+                            break;
+                        }
+                    }
+                }
             }
             else
             {
@@ -2497,11 +2551,17 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 break;
 
             case GLOBAL_FN:
-                assert(lval->member == 0);
-                assert(lval->atom < 0);
-                assert(!lval->index);
-                v.val = rval_t{ ssa_value_t(locator_t::fn(global->handle<fn_ht>())) };
-                assert(v.rval().size() == 1);
+                if(lval->arg < 0)
+                {
+                    assert(v.type.name() == TYPE_FN);
+                    assert(lval->member == 0);
+                    assert(lval->atom < 0);
+                    assert(!lval->index);
+                    v.val = rval_t{ ssa_value_t(locator_t::fn(global->handle<fn_ht>(), lval->ulabel())) };
+                    assert(v.rval().size() == 1);
+                }
+                else
+                    compiler_error(v.pstring, "Cannot use the value of a function parameter this way.");
                 return v;
             default:
                 assert(false);
@@ -2509,6 +2569,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         }
         else
         {
+            if(D == INTERPRET_CE)
+                compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
         have_var_i:
             rval.resize(num_members);
             type = var_types[lval->var_i()];
@@ -3153,12 +3215,12 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
     return result;
 }
 
-static locator_t _loc_const(rval_t const& rval)
+static locator_t _loc_ptr(rval_t const& rval)
 {
     if(rval.size() < 1)
         return {};
     if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&rval[0]))
-        if(ssa->is_locator() && ssa->locator().lclass() == LOC_LT_CONST_PTR)
+        if(ssa->is_locator() && is_ptr(ssa->locator().type().name()))
             return ssa->locator();
     return {};
 }
@@ -3203,10 +3265,10 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
                     {
                         // If both are locators with the same handle,
                         // we can calculate this at CT
-                        locator_t const l = _loc_const(lhs.rval());
-                        locator_t const r = _loc_const(rhs.rval());
+                        locator_t const l = _loc_ptr(lhs.rval());
+                        locator_t const r = _loc_ptr(rhs.rval());
                         // TODO: check for interpret
-                        if(l && r && l.const_() && l.const_() == r.const_())
+                        if(l && r && l.with_offset(0) == r.with_offset(0))
                         {
                             std::uint16_t const diff = l.offset() - r.offset();
                             result.val = rval_t{ ssa_value_t(diff, TYPE_S20) };
@@ -3247,15 +3309,14 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 
                 if(!is_check(Policy::D))
                 {
-                    locator_t const l = _loc_const(lhs.rval());
+                    locator_t const l = _loc_ptr(lhs.rval());
 
-                    if(l && l.const_() && rhs.is_ct())
+                    if(l && rhs.is_ct())
                     {
-                        std::uint16_t const sum = std::uint16_t(l.offset()) + rhs.whole();
-                        result.val = rval_t{ locator_t::lt_const_ptr(l.const_(), sum) };
-
+                        locator_t const new_l = l.with_advance_offset(rhs.whole());
+                        result.val = rval_t{ new_l };
                         if(banked)
-                            result.rval().push_back(locator_t::lt_const_ptr(l.const_()).with_is(IS_BANK));
+                            result.rval().push_back(new_l.with_is(IS_BANK));
                     }
                     else
                     {
@@ -3512,7 +3573,14 @@ expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstrin
 
     if(is_interpret(D))
     {
-        assert(false);
+        // TODO
+        if(value.ssa().is_locator() && (to_type.name() == TYPE_U || to_type.name() == TYPE_S))
+        {
+            result.val = rval_t{ value.ssa().locator().with_is(IS_PTR) };
+        }
+        else
+            assert(false);
+        //passert(false, value.ssa());
         /* TODO LT
         std::array<token_t, 2> const tokens = 
         {{
@@ -3539,11 +3607,9 @@ expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstrin
 template<eval_t::do_t D>
 expr_value_t eval_t::force_ptrify_int(expr_value_t value, expr_value_t* bank, type_t to_type, pstring_t cast_pstring)
 {
-    assert(!is_ct(value.type));
-    assert(!is_ct(to_type));
+    //passert(!is_ct(value.type), value.type);
+    passert(!is_ct(to_type), to_type);
     assert(is_ptr(to_type.name()) && is_arithmetic(value.type.name()));
-
-    value = to_rval<D>(std::move(value));
 
     assert(is_banked_ptr(to_type.name()) == !!bank);
 
@@ -3717,6 +3783,10 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
         return true;
     case CAST_INTIFY_PTR:
         value = force_intify_ptr<D>(std::move(value), to_type, cast_pstring);
+        return true;
+    case CAST_PTRIFY_INT:
+        assert(!is_banked_ptr(to_type.name()));
+        value = force_ptrify_int<D>(std::move(value), nullptr, to_type, cast_pstring);
         return true;
     }
 }

@@ -155,16 +155,16 @@ void _bitset_do_n(std::size_t size, UInt* bitset, std::size_t start, std::size_t
 }
 
 template<typename UInt>
-void bitset_set_n(std::size_t size, UInt* bitset, std::size_t n)
-{
-    bitset_set_n(size, bitset, 0, n);
-}
-
-template<typename UInt>
 void bitset_set_n(std::size_t size, UInt* bitset, std::size_t start, std::size_t n)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
     _bitset_do_n(size, bitset, start, n, [](UInt& v, UInt m) { v |= m; });
+}
+
+template<typename UInt>
+void bitset_set_n(std::size_t size, UInt* bitset, std::size_t n)
+{
+    bitset_set_n(size, bitset, 0, n);
 }
 
 template<typename UInt>

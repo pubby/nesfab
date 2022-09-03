@@ -241,9 +241,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             if(oe.handle->cfg_node() != cfg_node)
                 continue;
 
-            locator_t const loc = oe.handle->input(oe.index + 1).locator();
+            // Likewise, we need a daisy chain:
+            if(!oe.handle->in_daisy())
+                continue;
 
-            assert(oe.handle->in_daisy());
+            locator_t const loc = oe.handle->input(oe.index + 1).locator();
 
             // Find the previous reader/writer of 'loc':
             for(ssa_ht daisy = oe.handle->prev_daisy(); daisy; --daisy)

@@ -11,6 +11,12 @@ bool is_return(asm_inst_t const& inst)
                 && !is_label(inst.arg.lclass())));
 }
 
+bool mem_inst(asm_inst_t const& inst)
+{
+    return (op_input_regs(inst.op) | op_output_regs(inst.op)) & REGF_M;
+}
+
+
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
     o << "{ " << to_string(inst.op) << ", " << inst.arg;
@@ -35,7 +41,7 @@ void asm_proc_t::rebuild_label_map()
     {
         if(code[i].op == ASM_LABEL)
         {
-            auto result = labels.insert({ code[i].arg, i });
+            auto result = labels.insert({ code[i].arg.with_is(IS_DEREF), i });
             assert(result.second);
         }
     }
@@ -76,7 +82,7 @@ void asm_proc_t::push_inst(asm_inst_t inst)
 {
     if(inst.op == ASM_LABEL)
     {
-        auto result = labels.insert({ inst.arg, code.size() });
+        auto result = labels.insert({ inst.arg.with_is(IS_DEREF), code.size() });
         assert(result.second);
     }
 
@@ -130,7 +136,7 @@ void asm_proc_t::convert_long_branch_ops()
             if(!is_branch(inst.op))
                 continue;
 
-            unsigned const label_i = labels[inst.arg];
+            unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
             asm_inst_t const* next = next_inst(i);
             if(!next)
                 continue;
@@ -181,7 +187,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
 
         if(inst.op == JMP_ABSOLUTE)
         {
-            unsigned const label_i = labels[inst.arg];
+            unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
             int const dist = bytes_between(next - code.data(), label_i);
             
             if(dist == 0)
@@ -209,7 +215,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
         {
             // Prune unecessary branches
 
-            unsigned const label_i = labels[inst.arg];
+            unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
             int const dist = bytes_between(next - code.data(), label_i);
 
             if(dist == 0)
@@ -289,7 +295,7 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         if(inst.op == ASM_PRUNED || inst.op == ASM_LABEL)
             continue;
 
-        os << "    " << to_string(inst.op) << ' ';
+        os << "-   " << to_string(inst.op) << ' ';
 
         switch(inst.arg.lclass())
         {
@@ -299,16 +305,21 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         case LOC_FN:
             os << "fn " << inst.arg.fn()->global.name;
             break;
-        case LOC_ARG:
-        case LOC_RETURN:
-        case LOC_PHI:
-        case LOC_SSA:
-            if(!fn)
-                throw std::runtime_error("Unable to write assembly. Missing function.");
-            os << "lvar " << fn->lvar_span(romv, fn->lvars().index(inst.arg)) << "   " << inst.arg;
+        case LOC_GMEMBER:
+            os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() 
+               << " " << inst.arg.gmember()->span(inst.arg.atom());
             break;
         default:
             os << inst.arg;
+
+            if(has_fn(inst.arg.lclass()) && inst.arg.fn())
+            {
+                fn_ht fn = inst.arg.fn();
+                int const index = fn->lvars().index(inst.arg);
+                if(index >= 0)
+                    os << " lvar " << fn->lvar_span(romv, index);
+            }
+
             break;
         }
 
@@ -458,8 +469,9 @@ void asm_proc_t::relocate(std::uint16_t addr)
         if(!is_label(inst.arg.lclass()))
             continue;
 
-        assert(labels.count(inst.arg));
-        unsigned const label_i = labels[inst.arg];
+        assert(inst.arg.is() != IS_BANK);
+        assert(labels.count(inst.arg.with_is(IS_DEREF)));
+        unsigned const label_i = labels[inst.arg.with_is(IS_DEREF)];
 
         if(op_addr_mode(inst.op) == MODE_RELATIVE)
         {
@@ -467,7 +479,9 @@ void asm_proc_t::relocate(std::uint16_t addr)
             assert(dist <= 127 && dist >= -128);
             inst.arg = locator_t::const_byte(dist);
         }
-        else 
+        else if(op_addr_mode(inst.op) == MODE_IMMEDIATE)
+            inst.arg = locator_t::const_byte(addr + bytes_between(0, label_i));
+        else
             inst.arg = locator_t::addr(addr + bytes_between(0, label_i));
     }
 }

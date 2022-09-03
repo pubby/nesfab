@@ -109,7 +109,9 @@ public:
     //void convert_expr(token_t* begin); TODO
     //token_t const* convert_expr(expr_temp_t& expr); TODO
     ast_node_t const* eternal_expr(ast_node_t const* expr);
-    ast_node_t process_ast(ast_node_t ast);
+    ast_node_t const* convert_eternal_expr(ast_node_t const* expr);
+    void convert_ast(ast_node_t& ast);
+    //ast_node_t process_ast(ast_node_t ast);
     global_t const* at_ident(pstring_t pstring);
 
     [[gnu::always_inline]]
@@ -143,10 +145,9 @@ public:
 
     // implementation detail:
     int _add_symbol(var_decl_t const& var_decl, bool local_const, 
-                    ast_node_t const* local_const_expr = nullptr)
+                    ast_node_t* local_const_expr = nullptr)
     {
-        if(local_const_expr)
-            assert(local_const);
+        assert(!local_const_expr || local_const);
 
         int const handle = local_const ? -int(fn_def.local_consts.size())-1 : int(fn_def.local_vars.size());
         if(int const* existing = symbol_table.new_def(handle, var_decl.name.view(source())))
@@ -160,7 +161,7 @@ public:
                             "Previous definition here:", &file));
         }
         if(local_const)
-            fn_def.local_consts.push_back({ var_decl, eternal_expr(local_const_expr) });
+            fn_def.local_consts.push_back({ var_decl, convert_eternal_expr(local_const_expr) });
         else
             fn_def.local_vars.push_back(var_decl);
         return handle;
@@ -177,6 +178,11 @@ public:
         fn_def.num_params = params_end - params_begin;
         for(unsigned i = 0; i < fn_def.num_params; ++i)
             _add_symbol(params_begin[i], false);
+
+        // Add the parameters to 'name_hashes':
+        fn_def.name_hashes.resize(fn_def.num_params);
+        for(unsigned i = 0; i < fn_def.num_params; ++i)
+            fn_def.name_hashes[i] = fnv1a<std::uint64_t>::hash(params_begin[i].name.view(file.source()));
 
         pstring_t pstring = return_type.pstring;
 
@@ -241,9 +247,10 @@ public:
     }
 
     [[gnu::always_inline]]
-    void asm_value(pstring_t name, ast_node_t const& ast)
+    void asm_value(var_decl_t const& var_decl, ast_node_t& ast)
     {
-        _add_symbol({{ name, TYPE_U20 }, name }, true, &ast);
+        // We'll save the expr, but *don't* convert it yet.
+        _add_symbol(var_decl, true, &ast);
     }
 
     [[gnu::always_inline]]
@@ -251,10 +258,11 @@ public:
     {
         int const i = -_add_symbol({{ label, type_t::addr(false) }, label }, true)-1;
         fn_def.push_stmt({ .name = STMT_ASM_LABEL, .pstring = label, .asm_label = i });
+        fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(label.view(file.source())));
     }
 
     [[gnu::always_inline]]
-    void asm_op(pstring_t pstring, op_name_t name, addr_mode_t mode, ast_node_t const& expr)
+    void asm_op(pstring_t pstring, op_name_t name, addr_mode_t mode, ast_node_t* expr)
     {
         op_t op = get_op(name, mode);
         if(!op)
@@ -262,7 +270,7 @@ public:
         if(!op)
             compiler_error(pstring, fmt("% lacks addressing mode %.", to_string(name), to_string(mode)));
         // We'll save the expr, but *don't* convert it yet.
-        fn_def.push_stmt({ .name = STMT_ASM_OP, .asm_op = op, .pstring = pstring, .expr = eternal_expr(&expr) });
+        fn_def.push_stmt({ .name = STMT_ASM_OP, .asm_op = op, .pstring = pstring, .expr = eternal_expr(expr) });
     }
 
     [[gnu::always_inline]]
@@ -286,10 +294,16 @@ public:
         var_decl_t decl, fn_class_t fclass, 
         std::unique_ptr<mods_t> mods)
     {
-        // Convert all expressions TODO
-        //for(auto& stmt : fn_def.stmts)
-            //if(stmt.name == STMT_ASM_OP && stmt.expr)
-                //convert_expr(const_cast<token_t*>(stmt.expr));
+        //Convert all expressions
+        for(auto& c : fn_def.local_consts)
+            if(c.expr)
+                convert_ast(*const_cast<ast_node_t*>(c.expr));
+        for(auto& stmt : fn_def.stmts)
+            if(stmt.name == STMT_ASM_OP && stmt.expr)
+                convert_ast(*const_cast<ast_node_t*>(stmt.expr));
+
+        if(fn_def.local_vars.size() > MAX_ASM_LOCAL_VARS)
+            compiler_error(decl.name, fmt("Too many local variables. Max %.", MAX_ASM_LOCAL_VARS));
 
         symbol_table.pop_scope(); // param scope
 
@@ -336,7 +350,7 @@ public:
             struct_name, std::move(ideps), std::move(field_map));
     }
 
-    void struct_field(pstring_t struct_name, var_decl_t const& var_decl, ast_node_t const* expr)
+    void struct_field(pstring_t struct_name, var_decl_t const& var_decl, ast_node_t* expr)
     {
         assert(symbol_table.empty());
 
@@ -393,12 +407,12 @@ public:
 
     [[gnu::always_inline]]
     void global_var(std::pair<group_vars_t*, group_vars_ht> group, var_decl_t const& var_decl, 
-                    ast_node_t const* expr, std::unique_ptr<mods_t> mods)
+                    ast_node_t* expr, std::unique_ptr<mods_t> mods)
     {
         uses_type(var_decl.src_type.type);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_var(var_decl.name, std::move(ideps), var_decl.src_type, group, eternal_expr(expr), std::move(mods));
+        active_global->define_var(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(expr), std::move(mods));
         ideps.clear();
     }
 
@@ -409,22 +423,22 @@ public:
         uses_type(var_decl.src_type.type);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_const(var_decl.name, std::move(ideps), var_decl.src_type, group, eternal_expr(&expr), std::move(mods));
+        active_global->define_const(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(&expr), std::move(mods));
         ideps.clear();
     }
 
     [[gnu::always_inline]]
     void expr_statement(ast_node_t const& expr)
     {
-        fn_def.push_stmt({ STMT_EXPR, {}, {}, {}, eternal_expr(&expr) });
+        fn_def.push_stmt({ STMT_EXPR, {}, {}, {}, convert_eternal_expr(&expr) });
     }
 
     [[gnu::always_inline]]
-    void local_var(var_decl_t var_decl, ast_node_t const* expr)
+    void local_var(var_decl_t var_decl, ast_node_t* expr)
     {
         // Create the var.
         unsigned const handle = _add_symbol(var_decl, false);
-        fn_def.push_var_init(handle, eternal_expr(expr), var_decl.src_type.pstring);
+        fn_def.push_var_init(handle, convert_eternal_expr(expr), var_decl.src_type.pstring);
         uses_type(var_decl.src_type.type);
     }
 
@@ -444,7 +458,7 @@ public:
         validate_mods("if", pstring, mods);
 
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
-        stmt_ht const begin_if = fn_def.push_stmt({ STMT_IF, mods_h, {}, pstring, eternal_expr(&condition) });
+        stmt_ht const begin_if = fn_def.push_stmt({ STMT_IF, mods_h, {}, pstring, convert_eternal_expr(&condition) });
         return { begin_if, mods_h };
     }
 
@@ -497,7 +511,7 @@ public:
     [[gnu::always_inline]]
     void end_do_while(do_d d, pstring_t pstring, ast_node_t const& condition)
     {
-        stmt_ht const cond = fn_def.push_stmt({ STMT_END_DO, d.mods, d.begin, pstring, eternal_expr(&condition) });
+        stmt_ht const cond = fn_def.push_stmt({ STMT_END_DO, d.mods, d.begin, pstring, convert_eternal_expr(&condition) });
         fn_def[d.begin].link = cond;
 
         for(stmt_ht h : break_stack.back())
@@ -522,7 +536,7 @@ public:
         validate_mods("while", pstring, mods);
 
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
-        stmt_ht const begin_while = fn_def.push_stmt({ STMT_WHILE, mods_h, {}, pstring, eternal_expr(&condition) });
+        stmt_ht const begin_while = fn_def.push_stmt({ STMT_WHILE, mods_h, {}, pstring, convert_eternal_expr(&condition) });
 
         return { begin_while, mods_h};
     }
@@ -545,12 +559,12 @@ public:
 
     struct for_d : flow_d
     {
-        ast_node_t const* effect;
+        ast_node_t* effect;
     };
 
     [[gnu::always_inline]]
-    for_d begin_for(pstring_t pstring, var_decl_t* var_decl, ast_node_t const* init, 
-                    ast_node_t const* condition, ast_node_t const* effect, std::unique_ptr<mods_t> mods)
+    for_d begin_for(pstring_t pstring, var_decl_t* var_decl, ast_node_t* init, 
+                    ast_node_t* condition, ast_node_t* effect, std::unique_ptr<mods_t> mods)
     {
         symbol_table.push_scope();
 
@@ -564,7 +578,7 @@ public:
         stmt_ht begin_for;
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
 
-        begin_for = fn_def.push_stmt({ STMT_FOR, mods_h, {}, pstring, eternal_expr(condition) });
+        begin_for = fn_def.push_stmt({ STMT_FOR, mods_h, {}, pstring, convert_eternal_expr(condition) });
 
         symbol_table.push_scope();
         break_stack.emplace_back();
@@ -576,7 +590,7 @@ public:
     [[gnu::always_inline]]
     void end_for(for_d d)
     {
-        stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, d.mods, d.begin, {}, eternal_expr(d.effect) });
+        stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, d.mods, d.begin, {}, convert_eternal_expr(d.effect) });
         symbol_table.pop_scope();
         stmt_ht const exit = fn_def.push_stmt({ STMT_END_FOR, d.mods, d.begin });
         fn_def[d.begin].link = exit + 1;
@@ -592,11 +606,11 @@ public:
     }
 
     [[gnu::always_inline]]
-    void return_statement(pstring_t pstring, ast_node_t const* expr, std::unique_ptr<mods_t> mods)
+    void return_statement(pstring_t pstring, ast_node_t* expr, std::unique_ptr<mods_t> mods)
     {
         validate_mods("return", pstring, mods);
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
-        fn_def.push_stmt({ STMT_RETURN, mods_h, {}, pstring, eternal_expr(expr) });
+        fn_def.push_stmt({ STMT_RETURN, mods_h, {}, pstring, convert_eternal_expr(expr) });
     }
 
     [[gnu::always_inline]]
@@ -677,7 +691,7 @@ public:
         if(!mods || !mods->explicit_group_vars)
             compiler_error(mode, "Missing vars modifier.");
 
-        fn_def.push_stmt({ STMT_GOTO_MODE, fn_def.push_mods(std::move(mods)), {}, mode, eternal_expr(&expr) });
+        fn_def.push_stmt({ STMT_GOTO_MODE, fn_def.push_mods(std::move(mods)), {}, mode, convert_eternal_expr(&expr) });
     }
 
     [[gnu::always_inline]]

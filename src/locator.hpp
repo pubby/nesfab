@@ -49,6 +49,7 @@ enum locator_class_t : std::uint8_t
     LOC_SSA,
     LOC_MINOR_VAR,
     LOC_LVAR,
+    LOC_ASM_LOCAL_VAR,
 
     // Labels are used during code gen. They map to assembly terms.
     LOC_CFG_LABEL,
@@ -102,6 +103,7 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_RETURN:
     case LOC_SSA:
     case LOC_PHI:
+    case LOC_ASM_LOCAL_VAR:
     //case LOC_LT_GMEMBER_PTR:
     case LOC_LT_CONST_PTR:
     case LOC_LT_CONST_ADDR:
@@ -124,6 +126,7 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_GMEMBER_SET:
     case LOC_PTR_SET:
     case LOC_NMI_INDEX:
+    case LOC_ASM_LOCAL_VAR:
         return true;
     default:
         return false;
@@ -281,6 +284,13 @@ public:
         assert(offset == this->offset()); 
     }
 
+    constexpr locator_t with_offset(std::uint16_t o) const
+    {
+        locator_t ret = *this;
+        ret.set_offset(o);
+        return ret;
+    }
+
     constexpr void advance_offset(std::uint16_t amount) { set_offset(offset() + amount); }
     constexpr locator_t with_advance_offset(std::uint16_t amount) const
     { 
@@ -383,8 +393,8 @@ public:
         return ret;
     }
 
-    constexpr static locator_t fn(fn_ht fn, std::uint16_t offset=0)
-        { return locator_t(LOC_FN, fn.id, 0, offset); }
+    constexpr static locator_t fn(fn_ht fn, std::uint16_t label=0, std::uint16_t offset=0)
+        { return locator_t(LOC_FN, fn.id, label, offset); }
 
     constexpr static locator_t stmt(stmt_ht stmt)
         { return locator_t(LOC_STMT, stmt.id, 0, 0); }
@@ -433,6 +443,9 @@ public:
 
     constexpr static locator_t minor_var(fn_ht fn, std::uint16_t id)
         { return locator_t(LOC_MINOR_VAR, fn.id, id, 0); }
+
+    constexpr static locator_t asm_local_var(fn_ht fn, std::uint8_t arg, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_ASM_LOCAL_VAR, fn.id, arg, member, atom, offset); }
 
     //constexpr static locator_t lt_gmember_ptr(gmember_ht m, std::uint16_t offset=0)
         //{ return locator_t(LOC_LT_GMEMBER_PTR, m.id, 0, 0, 0, offset); }

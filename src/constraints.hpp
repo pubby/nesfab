@@ -308,4 +308,9 @@ constraints_t abstract_not_eq(constraints_t lhs, constraints_mask_t lhs_cm,
                               constraints_t rhs, constraints_mask_t rhs_cm,
                               bool sign_diff = false);
 
+constraints_t abstract_lt(constraints_t lhs, constraints_mask_t lhs_cm, 
+                          constraints_t rhs, constraints_mask_t rhs_cm);
+
+constraints_t abstract_sign_extend(constraints_t c, constraints_mask_t cm);
+
 #endif

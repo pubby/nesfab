@@ -24,6 +24,7 @@ public:
     using value_compare = first_compare<value_type, Compare>;
     value_compare value_comp() const { return value_compare(B::key_comp()); }
 
+    using B::B;
     using B::insert;
     using B::erase;
 
@@ -76,6 +77,7 @@ class flat_multimap_base<D, Key, Container, Compare,
     D* self() { return static_cast<D*>(this); }
 public:
 
+    using B::B;
     using B::insert;
     using B::count;
 
@@ -101,11 +103,13 @@ public:
 
 } // namespace impl
 
-template<typename Container, typename Compare = std::less<typename Container::value_type::first_type>>
+template<typename Container, typename Compare = std::less<void>>
 class flat_multimap
 : public impl::flat_multimap_base<flat_multimap<Container, Compare>,
     typename Container::value_type::first_type, Container, Compare>
 {
+    using B = impl::flat_multimap_base<flat_multimap<Container, Compare>,
+        typename Container::value_type::first_type, Container, Compare>;
 #define FLATNAME flat_multimap
 #define FLATKEY typename Container::value_type::first_type
 #include "impl/class_def.hpp"
@@ -113,9 +117,9 @@ class flat_multimap
 #undef FLATKEY
 };
 
-template<typename Key, typename T, typename... Args>
+template<typename Key, typename T, typename Compare = std::less<void>>
 using vector_multimap
-    = flat_multimap<std::vector<std::pair<Key, T>>, Args...>;
+    = flat_multimap<std::vector<std::pair<Key, T>>, Compare>;
 
 template<typename Container, typename Compare>
 inline bool operator==(const flat_multimap<Container, Compare>& lhs, const flat_multimap<Container, Compare>& rhs)

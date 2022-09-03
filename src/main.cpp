@@ -210,7 +210,7 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
-        alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
+        alloc_rom(&stdout_log, rom_allocator, mapper().num_32k_banks);
         print_rom(std::cout);
         output_time("alloc rom:");
 

@@ -888,6 +888,9 @@ span_t fn_t::lvar_span(romv_t romv, int lvar_i) const
 {
     assert(lvar_i < int(m_lvars.num_all_lvars()));
 
+    if(lvar_i < 0)
+        return {};
+
     if(lvar_i < int(m_lvars.num_this_lvars()))
         return m_lvar_spans[romv][lvar_i];
 
@@ -958,6 +961,20 @@ void fn_t::precheck()
         if(!mods() || !mods()->explicit_group_data)
             compiler_error(global.pstring(), "Missing data modifier.");
 
+        // First resolve local constants:
+        for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
+        {
+            auto& c = m_def.local_consts[i];
+            if(c.expr)
+            {
+                c.value = interpret_local_const(
+                    c.var_decl.name, this, *c.expr, 
+                    c.var_decl.src_type.type, m_def.local_consts.data()).value;
+            }
+            else
+                c.value = { locator_t::minor_label(i) };
+        }
+
         m_precheck_tracked.reset(new precheck_tracked_t());
         auto& pt = *m_precheck_tracked;
 
@@ -968,6 +985,9 @@ void fn_t::precheck()
             switch(stmt.name)
             {
             case STMT_ASM_OP:
+                if(stmt.expr)
+                    check_local_const(stmt.pstring, this, *stmt.expr, m_def.local_consts.data());
+                break;
             case STMT_ASM_LABEL:
                 break;
             case STMT_ASM_CALL:
@@ -1012,13 +1032,20 @@ void fn_t::compile_iasm()
     assert(iasm);
 
     // First resolve local constants:
+    /*
     for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
-    for(auto& c : m_def.local_consts)
     {
-        if(!c.expr)
-            continue;
-        m_def.local_consts[i].value = interpret_asm_expr(c.var_decl.name, *c.expr, true, m_def.local_consts.data());
+        auto& c = m_def.local_consts[i];
+        if(c.expr)
+        {
+            c.value = interpret_local_const(
+                c.var_decl.name, this, *c.expr, 
+                c.var_decl.src_type.type, m_def.local_consts.data()).value;
+        }
+        else
+            c.value = { locator_t::minor_label(i) };
     }
+    */
     
     /*
     for(unsigned i = 0; i < m_iasm->code.size(); ++i)
@@ -1032,6 +1059,7 @@ void fn_t::compile_iasm()
     calc_ir_bitsets(nullptr);
 
     asm_proc_t proc;
+    proc.fn = handle();
 
     for(stmt_t const& stmt : def().stmts)
     {
@@ -1045,10 +1073,26 @@ void fn_t::compile_iasm()
                 {
                     assert(op_addr_mode(stmt.asm_op) != MODE_IMPLIED);
 
-                    value = interpret_asm_expr(
-                        stmt.pstring, *stmt.expr, 
-                        op_addr_mode(stmt.asm_op) != MODE_IMMEDIATE, 
-                        m_def.local_consts.data());
+                    rval_t rval = interpret_local_const(
+                        stmt.pstring, this, *stmt.expr, 
+                        op_addr_mode(stmt.asm_op) == MODE_IMMEDIATE ? TYPE_U : TYPE_APTR, 
+                        m_def.local_consts.data()).value;
+
+                    assert(rval.size() == 1);
+
+                    ssa_value_t v = std::get<ssa_value_t>(rval[0]);
+
+                    if(v.is_locator())
+                        value = v.locator();
+                    else if(v.is_num())
+                    {
+                        if(op_addr_mode(stmt.asm_op) == MODE_IMMEDIATE)
+                            value = locator_t::const_byte(v.whole());
+                        else
+                            value = locator_t::addr(v.whole());
+                    }
+                    else
+                        assert(false);
                 }
 
                 proc.push_inst({ .op = stmt.asm_op, .arg = value });
@@ -1056,9 +1100,7 @@ void fn_t::compile_iasm()
             break;
 
         case STMT_ASM_LABEL:
-            // TODO: implement
-            assert(0);
-            throw 0;
+            proc.push_inst({ .op = ASM_LABEL, .arg = locator_t::minor_label(stmt.asm_label) });
             break;
 
         case STMT_ASM_CALL:
@@ -1084,8 +1126,12 @@ void fn_t::compile_iasm()
         }
     }
 
+
+    assign_lvars(lvars_manager_t(*this));
+
     // TODO
-    proc.write_assembly(std::cout, ROMV_MODE);
+    //proc.write_assembly(std::cout, ROMV_MODE);
+    rom_proc().safe().assign(std::move(proc));
 }
 
 void fn_t::compile()
@@ -1498,6 +1544,34 @@ void fn_t::calc_lang_gvars()
     }
 }
 */
+
+void fn_t::mark_referenced_param(unsigned param)
+{
+    std::uint64_t const mask = 1ull << param;
+    assert(mask);
+    std::uint64_t expected = m_referenced_params.load();
+    while(!m_referenced_params.compare_exchange_weak(expected, expected | mask));
+    assert(m_referenced_params & mask);
+}
+
+void fn_t::for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const
+{
+    bitset_for_each(referenced_params(), [&](unsigned param)
+    {
+        var_decl_t const& decl = def().local_vars[param];
+        type_t const param_type = decl.src_type.type;
+        unsigned const num_members = ::num_members(param_type);
+
+        for(unsigned j = 0; j < num_members; ++j)
+        {
+            type_t const member_type = ::member_type(param_type, j);
+            unsigned const num_atoms = ::num_atoms(member_type, j);
+
+            for(unsigned k = 0; k < num_atoms; ++k)
+                fn(locator_t::arg(handle(), param, j, k));
+        }
+    });
+}
 
 
 ////////////////////

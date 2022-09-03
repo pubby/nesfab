@@ -43,12 +43,13 @@ bool is_lt(rval_t const& rval);
 // Appends 'rval' onto 'vec'
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring);
 
-// TODO: below
 struct lval_t
 {
     bool is_global = false;
     std::int8_t atom = -1; // negative means no atom.
     std::uint16_t member = 0;
+    std::int16_t arg = -1;
+    std::int16_t label = -1;
     union
     {
         unsigned vvar_i = ~0u;
@@ -65,6 +66,7 @@ struct lval_t
     bool is_var() const { return !is_global; }
 
     unsigned uatom() const { return atom < 0 ? 0 : atom; }
+    unsigned ulabel() const { return label < 0 ? 0 : label; }
 };
 
 struct deref_t

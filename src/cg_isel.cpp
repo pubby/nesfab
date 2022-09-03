@@ -22,6 +22,7 @@
 #include "ir_algo.hpp"
 #include "worklist.hpp"
 #include "debug_print.hpp"
+#include "multi.hpp"
 
 namespace bc = ::boost::container;
 
@@ -563,6 +564,44 @@ namespace isel
         simple_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
     }
 
+    template<typename Opt, op_name_t Op, typename Arg> [[gnu::noinline]]
+    void branch_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        switch(Op)
+        {
+        case BEQ:
+        case BNE:
+            if(cpu.def_eq(REGF_Z, locator_t::const_byte(Op == BEQ)))
+                cont->call(cpu, prev);
+            else if(cpu.def_eq(REGF_Z, locator_t::const_byte(Op != BEQ)))
+                goto jmp;
+            goto regular;
+
+        case BCS:
+        case BCC:
+            if(cpu.def_eq(REGF_C, locator_t::const_byte(Op == BCS)))
+                cont->call(cpu, prev);
+            else if(cpu.def_eq(REGF_Z, locator_t::const_byte(Op != BCS)))
+                goto jmp;
+            goto regular;
+
+        case BMI:
+        case BPL:
+            if(cpu.def_eq(REGF_N, locator_t::const_byte(Op == BMI)))
+                cont->call(cpu, prev);
+            else if(cpu.def_eq(REGF_Z, locator_t::const_byte(Op != BMI)))
+                goto jmp;
+            goto regular;
+
+        default:
+        regular:
+            simple_op<Opt, get_op(Op, MODE_RELATIVE), null_, Arg>(cpu, prev, cont);
+            break;
+        jmp:
+            simple_op<Opt, JMP_ABSOLUTE, null_, Arg>(cpu, prev, cont);
+        }
+    }
+
     // Generates an op using the 0..255 table.
     template<typename Opt, op_t Op, typename Def = null_> [[gnu::noinline]]
     void iota_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
@@ -829,7 +868,7 @@ namespace isel
             if(cpu.is_known(REG_C, 0))
             {
                 chain
-                < simple_op<Opt, BNE_RELATIVE, null_, load_C_label>
+                < branch_op<Opt, BNE, load_C_label>
                 , simple_op<OptC, SEC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
@@ -839,7 +878,7 @@ namespace isel
             else if(cpu.is_known(REG_C, 1))
             {
                 chain
-                < simple_op<Opt, BEQ_RELATIVE, null_, load_C_label>
+                < branch_op<Opt, BEQ, load_C_label>
                 , simple_op<OptC, CLC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
@@ -850,7 +889,7 @@ namespace isel
             {
                 chain
                 < simple_op<Opt, CLC_IMPLIED>
-                , simple_op<Opt, BNE_RELATIVE, null_, load_C_label>
+                , branch_op<Opt, BNE, load_C_label>
                 , simple_op<OptC, SEC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
@@ -906,6 +945,33 @@ namespace isel
         chain
         < load_C<Opt, C>
         , load_A<typename Opt::restrict_to<~REGF_C>, A>
+        >(cpu, prev, cont);
+    }
+
+    template<typename Opt, typename A> [[gnu::noinline]]
+    void load_ANZ(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        chain
+        < load_A<Opt, A>
+        , load_NZ_for<typename Opt::restrict_to<~REGF_A>, A>
+        >(cpu, prev, cont);
+    }
+
+    template<typename Opt, typename A> [[gnu::noinline]]
+    void load_XNZ(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        chain
+        < load_X<Opt, A>
+        , load_NZ_for<typename Opt::restrict_to<~REGF_X>, A>
+        >(cpu, prev, cont);
+    }
+
+    template<typename Opt, typename A> [[gnu::noinline]]
+    void load_YNZ(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        chain
+        < load_Y<Opt, A>
+        , load_NZ_for<typename Opt::restrict_to<~REGF_Y>, A>
         >(cpu, prev, cont);
     }
 
@@ -1009,13 +1075,15 @@ namespace isel
     // 'Maybe' means the store may not be required in the final code;
     // such instructions can be pruned later.
     template<typename Opt, op_name_t StoreOp, typename Def, typename Param, bool Maybe = true> [[gnu::noinline]]
-    void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void simple_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         static_assert(!(Opt::flags & OPT_CONDITIONAL), "Conditional stores likely break cg_liveness"); 
 
         cpu_t cpu_copy = cpu;
-        if(!cpu_copy.set_defs<op_input_regs(get_op(StoreOp, MODE_ABSOLUTE)) & REGF_CPU>(Opt::to_struct, Def::value(), true))
-            return;
+        constexpr auto input_regs = op_input_regs(get_op(StoreOp, MODE_ABSOLUTE)) & REGF_CPU;
+        if(builtin::popcount(unsigned(input_regs)) == 1) // Don't modify cpu for SAX, etc.
+            if(!cpu_copy.set_defs<input_regs>(Opt::to_struct, Def::value(), true))
+                return;
 
         // Store the node, locally:
         if(Maybe)
@@ -1047,6 +1115,39 @@ namespace isel
 
             cont->call(cpu_copy, &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(Opt::to_struct, prev, Param::trans()));
         }
+    }
+
+    template<typename Opt, op_name_t StoreOp, typename Def, typename Param, bool Maybe = true> [[gnu::noinline]]
+    void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    {
+        if(StoreOp == STA)
+        {
+            chain
+            < simple_op<Opt, TAX_IMPLIED, Def>
+            , simple_store<Opt, StoreOp, Def, Param, Maybe>
+            >(cpu, prev, cont);
+
+            chain
+            < simple_op<Opt, TAY_IMPLIED, Def>
+            , simple_store<Opt, StoreOp, Def, Param, Maybe>
+            >(cpu, prev, cont);
+        }
+        else if(StoreOp == STX)
+        {
+            chain
+            < simple_op<Opt, TXA_IMPLIED, Def>
+            , simple_store<Opt, StoreOp, Def, Param, Maybe>
+            >(cpu, prev, cont);
+        }
+        else if(StoreOp == STY)
+        {
+            chain
+            < simple_op<Opt, TYA_IMPLIED, Def>
+            , simple_store<Opt, StoreOp, Def, Param, Maybe>
+            >(cpu, prev, cont);
+        }
+
+        simple_store<Opt, StoreOp, Def, Param, Maybe>(cpu, prev, cont);
     }
 
     template<typename Opt, typename Def, typename Load, typename Store, 
@@ -1188,7 +1289,7 @@ namespace isel
         chain
         < load_A<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_A>, Value>
-        , simple_op<Opt, BMI_RELATIVE, null_, this_label>
+        , branch_op<Opt, BMI, this_label>
         , simple_op<OptC, LDA_IMMEDIATE, null_, const_<0xFF>>
         , label<this_label>
         , clear_conditional
@@ -1198,7 +1299,7 @@ namespace isel
         chain
         < load_X<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_X>, Value>
-        , simple_op<Opt, BMI_RELATIVE, null_, this_label>
+        , branch_op<Opt, BMI, this_label>
         , simple_op<OptC, DEX_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional
@@ -1208,7 +1309,7 @@ namespace isel
         chain
         < load_Y<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_Y>, Value>
-        , simple_op<Opt, BMI_RELATIVE, null_, this_label>
+        , branch_op<Opt, BMI, this_label>
         , simple_op<OptC, DEY_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional
@@ -1221,51 +1322,11 @@ namespace isel
     {
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         constexpr op_name_t BranchOp = BEQ;
-        constexpr op_t Op = get_op(BranchOp, MODE_RELATIVE);
-        constexpr op_t InverseOp = get_op(invert_branch(BranchOp), MODE_RELATIVE);
+        constexpr op_name_t InverseOp = BNE;
         using SignLabel = std::conditional_t<BranchOp == BEQ, FailLabel, SuccessLabel>;
         using sign_check = condition<struct eq_sign_check_tag>;
         using last_iter = condition<struct eq_last_iter_tag>;
 
-        /* TODO
-        auto const is_zero = [](ssa_value_t v){ return ssa_to_value(v).eq_const_byte(0); };
-
-        for(unsigned i = 0; i < h->input_size(); i += 2)
-            if(!is_zero(h->input(i+0)) && !is_zero(h->input(i+1)))
-                goto not_all_zero_comparisons;
-
-        {
-            bool loaded = false;
-            for(unsigned i = 0; i < h->input_size(); i += 2)
-            {
-                if(is_zero(h->input(i+0)))
-                {
-                    if(is_zero(h->input(i+1)))
-                        continue;
-                    p_lhs::set(h->input(i+1));
-                }
-                else
-                    p_lhs::set(h->input(i+0));
-
-                if(loaded)
-                    select_step<false>(pick_op<Opt, ORA, null_, p_lhs>);
-                else
-                    select_step<false>(load_A<Opt, p_lhs>);
-
-                loaded = true;
-            }
-
-            select_step<false>(
-                chain
-                < simple_op<Opt, Op, null_, SuccessLabel>
-                , simple_op<Opt, InverseOp, null_, FailLabel>
-                >);
-
-            return;
-        }
-
-    not_all_zero_comparisons:
-    */
         for(unsigned i = 0; i < h->input_size(); i += 2)
         {
             // The last comparison cares about sign.
@@ -1295,33 +1356,56 @@ namespace isel
                     {
                         chain
                         < load_NZ_for<OptC, p_lhs>
-                        , simple_op<OptC, InverseOp, null_, FailLabel>
+                        , branch_op<OptC, InverseOp, FailLabel>
                         >(cpu, prev, cont);
                     }
                     else
                     {
                         chain
                         < load_A<OptC, p_lhs>
-                        , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
-                                                      simple_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
+                        , if_<OptC, sign_check, 
+                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<OptC, BMI, SignLabel>>>
                         , pick_op<OptC, CMP, null_, p_rhs>
-                        , simple_op<OptC, InverseOp, null_, FailLabel>
+                        , branch_op<OptC, InverseOp, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
                         < load_X<OptC, p_lhs>
-                        , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
-                                                      simple_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
+                        , if_<OptC, sign_check, 
+                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<OptC, BMI, SignLabel>>>
                         , pick_op<OptC, CPX, null_, p_rhs>
-                        , simple_op<OptC, InverseOp, null_, FailLabel>
+                        , branch_op<OptC, InverseOp, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
                         < load_Y<OptC, p_lhs>
-                        , if_<OptC, sign_check, chain<load_NZ_for<OptC, p_lhs>,
-                                                      simple_op<OptC, BMI_RELATIVE, null_, SignLabel>>>
+                        , if_<OptC, sign_check, 
+                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<OptC, BMI, SignLabel>>>
                         , pick_op<OptC, CPY, null_, p_rhs>
-                        , simple_op<OptC, InverseOp, null_, FailLabel>
+                        , branch_op<OptC, InverseOp, FailLabel>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_A<OptC, p_lhs>
+                        , if_<OptC, sign_check, 
+                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<OptC, BMI, SignLabel>>>
+                        , load_X<typename OptC::restrict_to<~REGF_A>, p_rhs>
+                        , iota_op<OptC, CMP_ABSOLUTE_X, null_>
+                        , branch_op<OptC, InverseOp, FailLabel>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_A<OptC, p_lhs>
+                        , if_<OptC, sign_check, 
+                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<OptC, BMI, SignLabel>>>
+                        , load_Y<typename OptC::restrict_to<~REGF_A>, p_rhs>
+                        , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
+                        , branch_op<OptC, InverseOp, FailLabel>
                         >(cpu, prev, cont);
                     }
                 }
@@ -1330,7 +1414,7 @@ namespace isel
 
         select_step<false>(
             chain
-            < simple_op<OptC, Op, null_, SuccessLabel>
+            < simple_op<OptC, get_op(BranchOp, MODE_RELATIVE), null_, SuccessLabel>
             , clear_conditional
             >);
     }
@@ -1380,126 +1464,138 @@ namespace isel
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         using last_comp = condition<struct lt_last_comp_tag>;
 
-        type_name_t const lt = type_name_t(h->input(0 ^ Flip).whole());
-        type_name_t const rt = type_name_t(h->input(1 ^ Flip).whole());
-
-        int const lwhole = whole_bytes(lt);
-        int const rwhole = whole_bytes(rt);
-        int const minwhole = std::min(lwhole, rwhole);
-        int const maxwhole = std::max(lwhole, rwhole);
-        int sbcwhole = minwhole; // This is used to implement the multi-byte subtraction.
-
-        int const lfrac = frac_bytes(lt);
-        int const rfrac = frac_bytes(rt);
-        //int const minfrac = std::min(lfrac, rfrac);
-        int const maxfrac = std::max(lfrac, rfrac);
-
-        int const lsize = lwhole + lfrac;
-        int const rsize = rwhole + rfrac;
-
-        // Offsets into the node's input array.
-        int const loffset = 2 + lfrac + (Flip ? rsize : 0);
-        int const roffset = 2 + rfrac + (Flip ? 0 : lsize);
-        assert(loffset != roffset);
-
-        bool const lsigned = is_signed(lt);
-        bool const rsigned = is_signed(rt);
-
-        auto const validl = [&](int i) { return i >= loffset - lfrac && i < loffset + lwhole; };
-        auto const validr = [&](int i) { return i >= roffset - rfrac && i < roffset + rwhole; };
-
-        if(lwhole != rwhole)
+        multi_lt_info_t info(h, Flip);
+        
+        if(info.lwhole != info.rwhole)
         {
             // One number has more whole bytes than the other.
             // We'll compare these bytes to zero.
 
             // Signed < Signed comparisons should always have the same whole bytes. 
-            assert(!(lsigned && rsigned));
+            assert(!(info.lsigned && info.rsigned));
 
-            if(lwhole < rwhole)
+            if(info.lwhole < info.rwhole)
             {
-                for(int i = maxwhole - 1; i >= minwhole; --i)
+                for(int i = info.maxwhole - 1; i >= info.minwhole; --i)
                 {
-                    assert(validr(roffset + i));
-                    p_rhs::set(h->input(roffset + i));
-                    last_comp::set(i == minwhole && sbcwhole <= -maxfrac);
+                    assert(info.validr(info.roffset() + i));
+                    p_rhs::set(h->input(info.roffset() + i));
+                    last_comp::set(i == info.minwhole && info.sbcwhole <= -info.maxfrac);
 
-                    if(rsigned && i == maxwhole - 1) // If sign byte
+                    if(info.rsigned && i == info.maxwhole - 1) // If sign byte
                     {
-                        assert(!lsigned);
+                        assert(!info.lsigned);
 
-                        select_step<false>(
-                            chain
-                            < load_NZ_for<OptC, p_rhs>
-                            , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
-                            , simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
-                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
-                            >);
+                        if(p_rhs::value().eq_const_byte(0))
+                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, FailLabel>>);
+                        else
+                        {
+                            select_step<false>(
+                                chain
+                                < load_NZ_for<OptC, p_rhs>
+                                , branch_op<OptC, BMI, FailLabel>
+                                , branch_op<OptC, BNE, SuccessLabel>
+                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                                >);
+                        }
                     }
                     else
                     {
-                        select_step<false>(
-                            chain
-                            < load_NZ_for<OptC, p_rhs>
-                            , simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
-                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
-                            >);
+                        if(p_rhs::value().eq_const_byte(0))
+                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, FailLabel>>);
+                        else
+                        {
+                            select_step<false>(
+                                chain
+                                < load_NZ_for<OptC, p_rhs>
+                                , branch_op<OptC, BNE, SuccessLabel>
+                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                                >);
+                        }
                     }
                 }
             }
             else
             {
-                for(int i = maxwhole - 1; i >= minwhole; --i)
+                for(int i = info.maxwhole - 1; i >= info.minwhole; --i)
                 {
-                    assert(validl(loffset + i));
-                    p_lhs::set(h->input(loffset + i));
-                    last_comp::set(i == minwhole && sbcwhole <= -maxfrac);
+                    assert(info.validl(info.loffset() + i));
+                    p_lhs::set(h->input(info.loffset() + i));
+                    last_comp::set(i == info.minwhole && info.sbcwhole <= -info.maxfrac);
 
-                    if(lsigned && i == maxwhole - 1) // If sign byte
+                    if(info.lsigned && i == info.maxwhole - 1) // If sign byte
                     {
-                        assert(!rsigned);
+                        assert(!info.rsigned);
 
-                        select_step<false>(
-                            chain
-                            < load_NZ_for<OptC, p_lhs>
-                            , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
-                            , simple_op<OptC, BNE_RELATIVE, null_, FailLabel>
-                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
-                            >);
+                        if(p_lhs::value().eq_const_byte(0))
+                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, SuccessLabel>>);
+                        else
+                        {
+                            select_step<false>(
+                                chain
+                                < load_NZ_for<OptC, p_lhs>
+                                , branch_op<OptC, BMI, SuccessLabel>
+                                , branch_op<OptC, BNE, FailLabel>
+                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
+                                >);
+                        }
                     }
                     else
                     {
-                        select_step<false>(
-                            chain
-                            < load_NZ_for<OptC, p_lhs>
-                            , simple_op<OptC, BNE_RELATIVE, null_, FailLabel>
-                            , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
-                            >);
+                        if(p_lhs::value().eq_const_byte(0))
+                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, SuccessLabel>>);
+                        else
+                        {
+                            select_step<false>(
+                                chain
+                                < load_NZ_for<OptC, p_lhs>
+                                , branch_op<OptC, BNE, FailLabel>
+                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
+                                >);
+                        }
                     }
                 }
             }
         }
-        else if(lsigned != rsigned)
+        else if(info.lsigned != info.rsigned)
         {
             // The types have the same number whole bytes, but the signs differ.
 
             // The multi-byte subtraction won't use the highest bytes.
-            sbcwhole -= 1;
+            info.sbcwhole -= 1;
 
-            assert(validl(loffset + lwhole - 1));
-            assert(validr(roffset + rwhole - 1));
+            assert(info.validl(info.loffset() + info.lwhole - 1));
+            assert(info.validr(info.roffset() + info.rwhole - 1));
 
-            p_lhs::set(h->input(loffset + lwhole - 1));
-            p_rhs::set(h->input(roffset + rwhole - 1));
-            last_comp::set(sbcwhole <= -maxfrac);
+            p_lhs::set(h->input(info.loffset() + info.lwhole - 1));
+            p_rhs::set(h->input(info.roffset() + info.rwhole - 1));
+            last_comp::set(info.sbcwhole <= -info.maxfrac);
 
-            if(lsigned)
+            if(p_lhs::value().eq_const_byte(0))
+            {
+                select_step<false>(
+                    chain
+                    < load_NZ_for<OptC, p_rhs>
+                    , branch_op<OptC, BNE, SuccessLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                    >);
+            }
+            else if(p_rhs::value().eq_const_byte(0))
+            {
+                select_step<false>(
+                    chain
+                    < load_NZ_for<OptC, p_lhs>
+                    , branch_op<OptC, BNE, FailLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>>
+                    >);
+            }
+            else if(info.lsigned)
             {
                 select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
-                    < load_A<OptC, p_lhs>
-                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                    < load_ANZ<OptC, p_lhs>
+                    , branch_op<OptC, BMI, SuccessLabel>
                     , pick_op<OptC, CMP, null_, p_rhs>
                     , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
@@ -1507,8 +1603,8 @@ namespace isel
                     >(cpu, prev, cont);
 
                     chain
-                    < load_X<OptC, p_lhs>
-                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                    < load_XNZ<OptC, p_lhs>
+                    , branch_op<OptC, BMI, SuccessLabel>
                     , pick_op<OptC, CPX, null_, p_rhs>
                     , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
@@ -1516,9 +1612,29 @@ namespace isel
                     >(cpu, prev, cont);
 
                     chain
-                    < load_Y<OptC, p_lhs>
-                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
+                    < load_YNZ<OptC, p_lhs>
+                    , branch_op<OptC, BMI, SuccessLabel>
                     , pick_op<OptC, CPY, null_, p_rhs>
+                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_ANZ<OptC, p_lhs>
+                    , branch_op<OptC, BMI, SuccessLabel>
+                    , load_X<typename OptC::restrict_to<~REGF_A>, p_rhs>
+                    , iota_op<OptC, CMP_ABSOLUTE_X, null_>
+                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_ANZ<OptC, p_lhs>
+                    , branch_op<OptC, BMI, SuccessLabel>
+                    , load_Y<typename OptC::restrict_to<~REGF_A>, p_rhs>
+                    , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
                     , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
                                            simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
@@ -1527,13 +1643,13 @@ namespace isel
             }
             else // if rsigned
             {
-                assert(rsigned);
+                assert(info.rsigned);
 
                 select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
-                    < load_A<OptC, p_rhs>
-                    , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
+                    < load_ANZ<OptC, p_rhs>
+                    , branch_op<OptC, BMI, FailLabel>
                     , pick_op<OptC, CMP, null_, p_lhs>
                     , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
                     , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
@@ -1541,8 +1657,8 @@ namespace isel
                     >(cpu, prev, cont);
 
                     chain
-                    < load_X<OptC, p_rhs>
-                    , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
+                    < load_XNZ<OptC, p_rhs>
+                    , branch_op<OptC, BMI, FailLabel>
                     , pick_op<OptC, CPX, null_, p_lhs>
                     , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
                     , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
@@ -1550,9 +1666,29 @@ namespace isel
                     >(cpu, prev, cont);
 
                     chain
-                    < load_Y<OptC, p_rhs>
-                    , simple_op<OptC, BMI_RELATIVE, null_, FailLabel>
+                    < load_YNZ<OptC, p_rhs>
+                    , branch_op<OptC, BMI, FailLabel>
                     , pick_op<OptC, CPY, null_, p_lhs>
+                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_ANZ<OptC, p_rhs>
+                    , branch_op<OptC, BMI, FailLabel>
+                    , load_X<typename OptC::restrict_to<~REGF_A>, p_lhs>
+                    , iota_op<OptC, CMP_ABSOLUTE_X, null_>
+                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
+                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_ANZ<OptC, p_rhs>
+                    , branch_op<OptC, BMI, FailLabel>
+                    , load_Y<typename OptC::restrict_to<~REGF_A>, p_lhs>
+                    , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
                     , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
                     , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
                                           simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
@@ -1564,56 +1700,72 @@ namespace isel
         // Now do a multi-byte subtraction.
 
         int iteration = 0; // Tracks comparisons inserted.
-        for(int i = -maxfrac; i < sbcwhole; ++i)
+        for(int i = -info.maxfrac; i < info.sbcwhole; ++i)
         {
-            if(i < -lfrac)
+            if(i < -info.lfrac)
             {
-                if(validr(i) && h->input(roffset + i).eq_whole(0))
+                if(info.validr(i) && h->input(info.roffset() + i).eq_whole(0))
                     continue; // No point to comparing
                 else
                     p_lhs::set(ssa_value_t(0, TYPE_U));
             }
             else
-                p_lhs::set(h->input(loffset + i));
+                p_lhs::set(h->input(info.loffset() + i));
 
-            if(i < -rfrac)
+            if(i < -info.rfrac)
             {
-                if(validl(i) && h->input(loffset + i).eq_whole(0))
+                if(info.validl(i) && h->input(info.loffset() + i).eq_whole(0))
                     continue; // No point to comparing.
-                else if(i + 1 == maxwhole)
+                else if(i + 1 == info.maxwhole)
                     p_rhs::set(ssa_value_t(0, TYPE_U));
                 else
                     continue; // No point to comparing.
             }
             else
-                p_rhs::set(h->input(roffset + i));
+                p_rhs::set(h->input(info.roffset() + i));
 
             if(iteration == 0) // If this is the first iteration
             {
-                if(i + 1 == maxwhole && lsigned && rsigned) // If this is the only iteration, and we're signed
+                if(i + 1 == info.maxwhole) // If this is the only iteration
                 {
-                    select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                    if(p_lhs::value().eq_const_byte(0))
                     {
-                        chain
-                        < load_AC<OptC, p_lhs, const_<1>>
-                        , pick_op<OptC, SBC, null_, p_rhs>
-                        >(cpu, prev, cont);
+                        select_step<false>(
+                            chain
+                            < load_NZ_for<OptC, p_rhs>
+                            , simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
+                            , simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>
+                            >);
+                        goto done;
+                    }
+                    else if(info.lsigned && info.rsigned) // If we're signed.
+                    {
+                        select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                        {
+                            chain
+                            < load_AC<OptC, p_lhs, const_<1>>
+                            , pick_op<OptC, SBC, null_, p_rhs>
+                            >(cpu, prev, cont);
 
-                        chain
-                        < load_C<OptC, const_<1>>
-                        , load_AX<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
-                        , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_X, null_>
-                        >(cpu, prev, cont);
+                            chain
+                            < load_C<OptC, const_<1>>
+                            , load_AX<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
+                            , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_X, null_>
+                            >(cpu, prev, cont);
 
-                        chain
-                        < load_C<OptC, const_<1>>
-                        , load_AY<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
-                        , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_Y, null_>
-                        >(cpu, prev, cont);
-                    });
+                            chain
+                            < load_C<OptC, const_<1>>
+                            , load_AY<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
+                            , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_Y, null_>
+                            >(cpu, prev, cont);
+                        });
+                    }
+                    else 
+                        goto cmp_first;
                 }
                 else
                 {
+                cmp_first:
                     // We can use CMP for the first iteration:
                     select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                     {
@@ -1630,6 +1782,16 @@ namespace isel
                         chain
                         < load_Y<OptC, p_lhs>
                         , pick_op<OptC, CPY, null_, p_rhs>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_AX<OptC, p_lhs, p_rhs>
+                        , iota_op<OptC, CMP_ABSOLUTE_X, null_>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_AY<OptC, p_lhs, p_rhs>
+                        , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
                         >(cpu, prev, cont);
                     });
                 }
@@ -1659,14 +1821,14 @@ namespace isel
 
         } // End for
 
-        if(-maxfrac < sbcwhole)
+        if(-info.maxfrac < info.sbcwhole)
         {
             assert(iteration > 0);
 
             using p_overflow_label = param<struct lt_overflow_label_tag>;
             p_overflow_label::set(state.minor_label());
 
-            if(lsigned && rsigned)
+            if(info.lsigned && info.rsigned)
             {
                 select_step<false>(
                     chain
@@ -1690,6 +1852,7 @@ namespace isel
         else
             assert(iteration == 0);
 
+    done:
         select_step<false>(clear_conditional);
     }
 

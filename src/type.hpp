@@ -181,6 +181,7 @@ enum cast_result_t : char
     CAST_ROUND_REAL,
     CAST_CONVERT_INT,
     CAST_INTIFY_PTR,
+    CAST_PTRIFY_INT,
 };
 
 bool can_size_unsized_array(type_t const& sized, type_t const& unsized);

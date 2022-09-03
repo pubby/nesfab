@@ -15,6 +15,7 @@ unsigned ast_node_t::num_children() const
     case TOK_unary_minus:
     case TOK_unary_xor:
     case TOK_unary_negate:
+    case TOK_unary_ref:
     case TOK_sizeof_expr:
     case TOK_len_expr:
     case TOK_period:

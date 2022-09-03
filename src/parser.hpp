@@ -81,7 +81,6 @@ private:
     std::uint16_t parse_hw_reg();
 
     ast_node_t parse_expr_atom(int starting_indent, int open_parens);
-    ast_node_t parse_expr_atom_impl(int starting_indent, int open_parens);
     ast_node_t parse_expr(int starting_indent, int open_parens, int min_precedence = 256);
     ast_node_t parse_expr();
 
@@ -126,6 +125,7 @@ private:
     void parse_nmi_statement();
     void parse_fence();
 
+    void parse_asm_local_const();
     void parse_asm_label_block();
     void parse_asm_op();
 

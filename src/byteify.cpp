@@ -460,7 +460,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     if(is_signed(lt) == is_signed(rt))
                     {
                         new_input.push_back(ssa_value_t(0u, TYPE_U));
-                        new_input.push_back(ssa_value_t(0u, TYPE_U));
+                        new_input.push_back(ssa_value_t(0u, TYPE_S));
                     }
 
                     ssa_it->link_clear_inputs();

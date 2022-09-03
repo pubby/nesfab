@@ -1131,22 +1131,30 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     ///////////////////////////
 
     {
+        // REQUIRES LOOP INFORMATION BUILT!!!
+
+        // TODO: Calculate loops here, not in 'select_instructions'.
         select_instructions(log, fn, ir);
 
-        std::vector<asm_inst_t> code;
+        asm_graph_t graph(log, locator_t::cfg_label(ir.root));
         for(cfg_ht h : postorder | std::views::reverse)
-            code.insert(code.end(), cg_data(h).code.begin(), cg_data(h).code.end());
+            graph.append_code(cg_data(h).code);
+        graph.finish_appending();
+
+        graph.optimize();
+        graph.remove_maybes(fn);
+
+        lvars_manager_t lvars = graph.build_lvars(fn);
+
+        asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()));
+        asm_proc.initial_optimize();
+
 
 //#ifndef NDEBUG
-        for(asm_inst_t const& inst : code)
+        for(asm_inst_t const& inst : asm_proc.code)
             std::cout << inst << std::endl;
 //#endif
 
-        lvars_manager_t lvars(fn.handle(), ir);
-
-        // NOTE: REQUIRES LOOP INFORMATION BUILT.
-        asm_proc_t asm_proc(fn.handle(), run_asm_graph(log, fn, lvars, code, locator_t::cfg_label(ir.root)));
-        asm_proc.initial_optimize();
 
         // Add the lvars to the fn
         fn.assign_lvars(std::move(lvars));

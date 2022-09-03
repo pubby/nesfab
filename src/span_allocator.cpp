@@ -18,8 +18,11 @@ span_t span_allocator_t::alloc_at(span_t span)
 
 span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t alignment, bool insist_alignment)
 {
-    if(!size || treap.empty())
+    if(treap.empty())
         return {};
+
+    if(!size)
+        size = 1;
 
     auto it = treap.top(); // Select the node with the largest size.
     if(it->span.size < size)

@@ -10,6 +10,9 @@
 #include <iterator>
 #include <utility>
 #include <vector>
+#if __cplusplus >= 202002L && __cpp_lib_three_way_comparison >= 201907L
+#include <compare>
+#endif
 
 namespace fc {
 
@@ -20,9 +23,6 @@ struct container_construct_t {};
 constexpr container_construct_t container_construct = {};
 
 namespace impl {
-
-template<typename Key>
-using transparent_key_t = std::reference_wrapper<Key>;
 
 template<typename Comp>
 struct eq_comp
@@ -98,16 +98,13 @@ public:
 
     reference operator[](difference_type d) const { return *(*this + d); }
 
+#if __cplusplus >= 202002L && __cpp_lib_three_way_comparison >= 201907L
+    auto operator<=>(flat_iterator const&) const = default;
+#endif
     auto operator==(flat_iterator const& o) const
-    {
-        using namespace std::rel_ops;
-        return this->underlying == o.underlying;
-    }
+        { return this->underlying == o.underlying; }
     auto operator!=(flat_iterator const& o) const
-    {
-        using namespace std::rel_ops;
-        return this->underlying != o.underlying;
-    }
+        { return this->underlying != o.underlying; }
     auto operator<(flat_iterator const& o) const
         { return this->underlying < o.underlying; }
     auto operator<=(flat_iterator const& o) const
@@ -120,51 +117,39 @@ public:
     It underlying;
 };
 
-template<typename Pair, typename Compare = std::less<void>, typename TransparentKey = void>
+template<typename Pair, typename Compare, typename = void>
 struct first_compare
 {
-	first_compare(const Compare& comp) :
-		compare(comp) {
-	}
+    first_compare(Compare const& comp) : compare(comp) {}
 
     bool operator()(Pair const& lhs, Pair const& rhs) const
-    {
-        return compare.get()(lhs.first, rhs.first);
-    }
+        { return compare.get()(lhs.first, rhs.first); }
 
     bool operator()(typename Pair::first_type const& lhs, Pair const& rhs) const
-    {
-        return compare.get()(lhs, rhs.first);
-    }
+        { return compare.get()(lhs, rhs.first); }
 
     bool operator()(Pair const& lhs, typename Pair::first_type const& rhs) const
-    {
-        return compare.get()(lhs.first, rhs);
-    }
+        { return compare.get()(lhs.first, rhs); }
 
-	template<typename Key>
-    bool operator()(transparent_key_t<Key> const& lhs, Pair const& rhs) const
-    {
-        return compare.get()(lhs.get(), rhs.first);
-    }
+    std::reference_wrapper<const Compare> compare;
+};
 
-	template<typename Key>
-    bool operator()(transparent_key_t<Key> const& lhs, typename Pair::first_type const& rhs) const
-    {
-        return compare.get()(lhs.get(), rhs);
-    }
+template<typename Pair, typename Compare>
+struct first_compare<Pair, Compare, std::void_t<typename Compare::is_transparent>>
+{
+    first_compare(Compare const& comp) : compare(comp) {}
+    using is_transparent = void;
 
-	template<typename Key>
-    bool operator()(Pair const& lhs, transparent_key_t<Key> const& rhs) const
-    {
-        return compare.get()(lhs.first, rhs.get());
-    }
+    bool operator()(Pair const& lhs, Pair const& rhs) const
+        { return compare.get()(lhs.first, rhs.first); }
 
-	template<typename Key>
-    bool operator()(typename Pair::first_type const& lhs, transparent_key_t<Key> const& rhs) const
-    {
-		return compare.get()(lhs, rhs.get());
-    }
+    template<typename K>
+    bool operator()(K const& lhs, Pair const& rhs) const
+        { return compare.get()(lhs, rhs.first); }
+
+    template<typename K>
+    bool operator()(Pair const& lhs, K const& rhs) const
+        { return compare.get()(lhs.first, rhs); }
 
     std::reference_wrapper<const Compare> compare;
 };
@@ -172,14 +157,17 @@ struct first_compare
 template<typename D, typename Key,
          typename Container, typename Compare,
          typename = void>
-class flat_container_base
+class flat_container_base : private Compare
 {
 #include "container_traits.hpp"
     D const* self() const { return static_cast<D const*>(this); }
     D* self() { return static_cast<D*>(this); }
 public:
     using key_compare = Compare;
-    const key_compare &key_comp() const { return self()->comp; }
+    key_compare const& key_comp() const { return *this; }
+
+    flat_container_base() = default;
+    explicit flat_container_base(Compare const& c) : Compare(c) {}
 
     // Iterators
 
@@ -235,10 +223,10 @@ public:
 
     // Modifiers
 
-    iterator insert(const_iterator hint, value_type const& value)
+    iterator insert(const_iterator /*hint*/, value_type const& value)
         { return self()->insert(value).first; }
 
-    iterator insert(const_iterator hint, value_type&& value)
+    iterator insert(const_iterator /*hint*/, value_type&& value)
         { return self()->insert(std::move(value)).first; }
 
     template<class InputIt>
@@ -259,7 +247,7 @@ public:
         { return self()->insert(value_type(std::forward<Args>(args)...)); }
 
     template<typename... Args>
-    auto emplace_hint(const_iterator hint, Args&&... args)
+    auto emplace_hint(const_iterator /*hint*/, Args&&... args)
         { return self()->insert(value_type(std::forward<Args>(args)...)); }
 
     iterator erase(const_iterator pos)
@@ -382,6 +370,7 @@ class flat_container_base<D, Key, Container, Compare,
     using B = flat_container_base<D, Key, Container, Compare, int>;
 public:
 
+    using B::B;
     using B::insert;
     using B::find;
     using B::lower_bound;
@@ -391,7 +380,8 @@ public:
     // Modifiers
 
     template<class P>
-    iterator insert(const_iterator hint, P&& value)
+    std::enable_if_t<std::is_constructible<value_type, P&&>::value, iterator>
+    insert(const_iterator /*hint*/, P&& value)
         { return insert(std::forward<P>(value)).first; }
 
     // Lookup
@@ -400,7 +390,7 @@ public:
     const_iterator find(K const& key) const
     {
         const_iterator it = self()->lower_bound(key);
-		if (it == self()->end() || self()->value_comp()(std::ref(key), *it))
+        if (it == self()->end() || self()->value_comp()(key, *it))
             return self()->end();
         return it;
     }
@@ -409,7 +399,7 @@ public:
     iterator find(K const& key)
     {
         iterator it = self()->lower_bound(key);
-		if (it == self()->end() || self()->value_comp()(std::ref(key), *it))
+        if (it == self()->end() || self()->value_comp()(key, *it))
             return self()->end();
         return it;
     }
@@ -419,7 +409,7 @@ public:
     {
          return std::lower_bound(
              self()->begin(), self()->end(),
-			 std::ref(key), self()->value_comp());
+             key, self()->value_comp());
     }
 
     template<typename K>
@@ -427,7 +417,7 @@ public:
     {
          return std::lower_bound(
              self()->begin(), self()->end(),
-			 std::ref(key), self()->value_comp());
+             key, self()->value_comp());
     }
 
     template<typename K>
@@ -435,7 +425,7 @@ public:
     {
          return std::upper_bound(
              self()->begin(), self()->end(),
-			 std::ref(key), self()->value_comp());
+             key, self()->value_comp());
     }
 
     template<typename K>
@@ -443,7 +433,7 @@ public:
     {
          return std::upper_bound(
              self()->begin(), self()->end(),
-			 std::ref(key), self()->value_comp());
+             key, self()->value_comp());
     }
 
     template<typename K>
@@ -452,7 +442,7 @@ public:
     {
          return std::equal_range<const_iterator>(
              self()->begin(), self()->end(),
-			 std::ref(key), self()->value_comp());
+             key, self()->value_comp());
     }
 
     template<typename K>
@@ -460,7 +450,7 @@ public:
     {
          return std::equal_range<iterator>(
              self()->begin(), self()->end(),
-			 std::ref(key), self()->value_comp());
+             key, self()->value_comp());
     }
 };
 

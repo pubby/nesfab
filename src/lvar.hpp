@@ -12,13 +12,19 @@
 #include "locator.hpp"
 #include "span.hpp"
 
+class asm_graph_t;
+struct asm_inst_t;
+
 // Tracks all vars used in assembly code, assigning them an index.
 class lvars_manager_t
 {
 public:
     lvars_manager_t() = default;
-    lvars_manager_t(fn_ht fn, ir_t const& ir);
-    
+    lvars_manager_t(fn_ht fn, asm_graph_t const& graph);
+    explicit lvars_manager_t(fn_t const& fn); // For iasm
+
+    rh::batman_set<locator_t> const& map() const { return m_map; }
+
     bool seen_arg(unsigned argn) const { return m_seen_args & (1ull << argn); }
 
     int index(locator_t var) const
@@ -41,8 +47,7 @@ public:
     }
 
     std::size_t num_this_lvars() const { return m_num_this_lvars; }
-    std::size_t num_all_lvars() const { return m_num_lvars; }
-    std::size_t num_locators() const { return m_map.size(); }
+    std::size_t num_all_lvars() const { return m_map.size(); }
     std::size_t bitset_size() const { return m_bitset_size; }
 
     bitset_uint_t const* lvar_interferences(unsigned i) const 
@@ -88,7 +93,6 @@ public:
 
     static bool is_this_lvar(fn_ht fn, locator_t arg);
     static bool is_call_lvar(fn_ht fn, locator_t arg);
-    static bool is_tracked_non_lvar(fn_ht fn, locator_t arg);
     static bool is_tracked(fn_ht fn, locator_t arg);
     static bool is_lvar(fn_ht fn, locator_t arg) { return is_this_lvar(fn, arg) || is_call_lvar(fn, arg); }
 
@@ -120,17 +124,6 @@ public:
         }
     }
 
-    template<typename Fn>
-    void for_each_non_lvar(Fn const& fn) const
-    {
-        unsigned i = num_all_lvars();
-        for(auto it = m_map.begin() + i; it != m_map.end(); ++it, ++i)
-        {
-            assert(i == unsigned(index(*it)));
-            fn(*it, i);
-        }
-    }
-
     struct loc_info_t
     {
         std::uint16_t size;
@@ -148,7 +141,7 @@ public:
 private:
     bitset_uint_t* lvar_interferences(unsigned i) 
     { 
-        assert(i < m_lvar_interferences.size());
+        passert(i < m_lvar_interferences.size(), i, m_lvar_interferences.size());
         return &m_lvar_interferences[i * bitset_size()]; 
 
     }
@@ -171,7 +164,6 @@ private:
     //bitset_t m_nmi_interferences; TODO
 
     unsigned m_num_this_lvars = 0;
-    unsigned m_num_lvars = 0;
     unsigned m_bitset_size = 0;
 };
 

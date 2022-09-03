@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <type_traits>
+#include <algorithm>
 
 #ifdef _MSC_VER
 // Note that MSVC's alloca can throw something called a structured exception.
@@ -25,9 +26,14 @@ void allocaT_trait_check()
     static_assert(std::is_trivially_destructible<T>::value);
 }
 
+template<typename T>
+T* callocaT_impl(T* ptr, std::size_t n, T const& fill) { std::fill(ptr, ptr+n, fill); return ptr; }
+
 // It's the sequel to alloca.
 // Expects "number of elements" rather than "total size of elements".
 #define ALLOCA_T(t, n) \
     (allocaT_trait_check<t>(), static_cast<t*>(alloca((n) * sizeof(t))))
+#define CALLOCA_T(t, n) \
+    (allocaT_trait_check<t>(), callocaT_impl(static_cast<t*>(alloca((n) * sizeof(t))), (n), (t())))
 
 #endif

@@ -551,8 +551,6 @@ ABSTRACT(SSA_cast) = ABSTRACT_FN
         fixed_uint_t const sign_bit = high_bit_only(cv[0].cm.mask);
         fixed_uint_t const extended = result.cm.mask & ~submask(cv[0].cm.mask);
 
-        //std::cout << extended << std::endl;
-
         result[0].bits.known0 &= ~extended;
         result[0].bits.known1 &= ~extended;
 
@@ -563,6 +561,17 @@ ABSTRACT(SSA_cast) = ABSTRACT_FN
     }
 };
 
+constraints_t abstract_sign_extend(constraints_t c, constraints_mask_t cm)
+{
+    fixed_uint_t const sign_bit = high_bit_only(cm.mask);
+
+    if(c.bits.known1 & sign_bit)
+        return constraints_t::const_(cm.signed_ ? supermask(cm.mask) : cm.mask, cm);
+    else if(c.bits.known0 & sign_bit)
+        return constraints_t::const_(0, cm);
+    return constraints_t::bottom(cm);
+}
+
 ABSTRACT(SSA_sign_extend) = ABSTRACT_FN
 {
     assert(argn == 1);
@@ -570,15 +579,7 @@ ABSTRACT(SSA_sign_extend) = ABSTRACT_FN
     if(handle_top(cv, argn, result))
         return;
 
-    constraints_mask_t const cm = cv[0].cm;
-    fixed_uint_t const sign_bit = high_bit_only(cm.mask);
-
-    if(cv[0][0].bits.known1 & sign_bit)
-        result[0] = constraints_t::const_(cm.signed_ ? supermask(cm.mask) : cm.mask, cm);
-    else if(cv[0][0].bits.known0 & sign_bit)
-        result[0] = constraints_t::const_(0, cm);
-    else
-        result[0] = constraints_t::bottom(cm);
+    result[0] = abstract_sign_extend(cv[0][0], cv[0].cm);
 };
 
 ABSTRACT(SSA_sign_to_carry) = ABSTRACT_FN
@@ -955,16 +956,10 @@ ABSTRACT(SSA_lt) = ABSTRACT_FN
 {
     assert(argn == 2 && result.vec.size() >= 1);
 
-    // TODO: remove
-    //result[0] = constraints_t::any_bool();
-    //return;
-
     if(handle_top(cv, argn, result))
         return;
     
     result[0] = abstract_lt(cv[0][0], cv[0].cm, cv[1][0], cv[1].cm);
-    // TODO:
-    //result[0] = constraints_t::any_bool();
 };
 
 ABSTRACT(SSA_multi_lt) = ABSTRACT_FN

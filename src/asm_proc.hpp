@@ -37,6 +37,7 @@ struct asm_inst_t
 };
 
 bool is_return(asm_inst_t const& inst);
+bool mem_inst(asm_inst_t const& inst);
 
 template<typename It>
 unsigned size_in_bytes(It begin, It end)

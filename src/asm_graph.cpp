@@ -3,115 +3,12 @@
 #include <random>
 #include <iostream> // TODO
 
-#include <boost/intrusive/list.hpp>
-
-#include "flat/small_set.hpp"
-#include "robin/map.hpp"
-#include "robin/set.hpp"
-
-#include "locator.hpp"
-#include "asm_proc.hpp"
 #include "intrusive_pool.hpp"
-#include "flags.hpp"
 #include "lvar.hpp"
 #include "worklist.hpp"
 #include "globals.hpp"
 #include "ir_algo.hpp"
-
-namespace { // anonymouse
-
-namespace bi = ::boost::intrusive;
-
-struct asm_node_t;
-struct asm_path_t;
-
-class asm_node_t : public bi::list_base_hook<>, public flag_owner_t
-{
-friend class asm_graph_t;
-public:
-    explicit asm_node_t(locator_t new_label)
-    : label(new_label)
-    {}
-
-    void push_output(asm_node_t* o);
-    void remove_output(unsigned i);
-    void replace_output(unsigned i, asm_node_t* with);
-
-    unsigned find_input(asm_node_t* h) const { return std::find(m_inputs.begin(), m_inputs.end(), h) - m_inputs.begin(); }
-    unsigned find_output(asm_node_t* h) const { return std::find(m_outputs.begin(), m_outputs.end(), h) - m_outputs.begin(); }
-
-    auto const& inputs() const { return m_inputs; }
-    auto const& outputs() const { return m_outputs; }
-
-public:
-    void remove_outputs_input(unsigned i);
-
-    std::vector<asm_inst_t> code;
-    asm_inst_t output_inst = {};
-    locator_t label = {};
-
-    union
-    {
-        unsigned vid;
-        struct
-        {
-            int path_input;
-            int path_output;
-            asm_node_t* list_end;
-        } vcover;
-        struct
-        {
-            unsigned code_size;
-            int offset;
-            asm_path_t* path;
-        } vorder;
-        struct
-        {
-            regs_t in;
-            regs_t out;
-        } vregs;
-        struct
-        {
-            bitset_uint_t* in;
-            bitset_uint_t* out; // Also used to hold the 'KILL' set temporarily.
-        } vlive;
-    };
-
-    cfg_ht cfg = {};
-private:
-
-    bc::small_vector<asm_node_t*, 2> m_inputs;
-    bc::small_vector<asm_node_t*, 2> m_outputs;
-};
-
-class asm_graph_t
-{
-public:
-    asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locator_t entry_label);
-
-    std::vector<asm_node_t*> order();
-    std::vector<asm_inst_t> to_linear(std::vector<asm_node_t*> order);
-    void liveness(fn_t const& fn, lvars_manager_t& lvars);
-    void optimize();
-private:
-    using list_t = bi::list<asm_node_t>;
-
-    asm_node_t& push_back(locator_t label = LOC_NONE, bool succeed = false);
-    list_t::iterator prune(asm_node_t& node);
-
-    bool o_remove_stubs();
-    bool o_remove_branches();
-    bool o_returns();
-    bool o_peephole();
-
-    array_pool_t<bitset_uint_t> bitset_pool;
-    array_pool_t<asm_node_t> node_pool;
-    list_t list;
-    rh::batman_map<locator_t, asm_node_t*> label_map;
-    locator_t entry_label = {};
-
-    log_t* log;
-};
+#include "lvar.hpp"
 
 ////////////////
 // asm_node_t //
@@ -157,22 +54,16 @@ void asm_node_t::replace_output(unsigned i, asm_node_t* with)
 // asm_graph_t //
 /////////////////
 
-asm_graph_t::asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locator_t entry_label)
+asm_graph_t::asm_graph_t(log_t* log, locator_t entry_label)
 : entry_label(entry_label)
 , log(log)
 {
     assert(entry_label.lclass() != LOC_MINOR_LABEL); // minor labels will get rewritten.
     push_back();
+}
 
-    struct delayed_lookup_t
-    {
-        asm_node_t* node;
-        unsigned output;
-        locator_t label;
-    };
-
-    std::vector<delayed_lookup_t> to_lookup;
-
+void asm_graph_t::append_code(std::vector<asm_inst_t> const& code)
+{
     auto const delay_lookup = [&](asm_node_t& node, locator_t label)
     {
         to_lookup.push_back({ &node, node.outputs().size(), label });
@@ -226,7 +117,10 @@ asm_graph_t::asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locato
                 node.code.push_back(inst);
         }
     }
+}
 
+void asm_graph_t::finish_appending()
+{
     for(auto const& lookup : to_lookup)
     {
         if(auto const* pair = label_map.lookup(lookup.label))
@@ -234,11 +128,12 @@ asm_graph_t::asm_graph_t(log_t* log, std::vector<asm_inst_t> const& code, locato
         else
             throw std::runtime_error(fmt("Missing label % in assembly.", lookup.label));
     }
+    to_lookup.clear();
 }
 
 asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)
 {
-    asm_node_t& node = node_pool.emplace(label);
+    asm_node_t& node = node_pool.emplace(label, original_order++);
 
     if(succeed && list.size() > 0)
     {
@@ -648,11 +543,11 @@ std::vector<asm_node_t*> asm_graph_t::order()
             elim_order.push_back({ &node, 0, 3 * scale(*node.outputs()[0]) });
             break;
         case 2:
-            // It's dumb, but we'll slightly prioritize falling into the larger branch nodes.
+            // It's dumb, but we'll slightly prioritize the original order.
             {
-                bool const fat_i = node.outputs()[0]->code.size() < node.outputs()[1]->code.size();
-                elim_order.push_back({ &node, fat_i, 1 * scale(*node.outputs()[fat_i]) });
-                elim_order.push_back({ &node, !fat_i, 2 * scale(*node.outputs()[!fat_i]) });
+                bool const i = node.outputs()[0]->original_order > node.outputs()[1]->original_order;
+                elim_order.push_back({ &node, i, 2 * scale(*node.outputs()[i]) });
+                elim_order.push_back({ &node, !i, 1 * scale(*node.outputs()[!i]) });
             }
             break;
         default: 
@@ -860,68 +755,54 @@ std::vector<asm_node_t*> asm_graph_t::order()
 //////////////
 
 template<typename ReadWrite>
-void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars, asm_inst_t const& inst, ReadWrite rw)
+void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t const& inst, ReadWrite rw)
 {
     if(inst.arg.lclass() == LOC_FN)
     {
         fn_ht const call_h = inst.arg.fn();
         fn_t const& call = *call_h;
 
-        // Handle args and returns:
-        lvars.for_each_lvar(false, [&](locator_t loc, unsigned i)
+        for(locator_t const& loc : map)
         {
-            if(!has_fn(loc.lclass()) || loc.fn() != call_h)
-                return;
-            rw(i, loc.lclass() == LOC_ARG, 
-                  loc.lclass() == LOC_RETURN);
-        });
+            unsigned const i = &loc - map.begin();
 
-        if(call.fclass == FN_MODE)
-        {
-            // Handle gmembers:
-            lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
+            if(has_fn(loc.lclass()) && loc.fn() == call_h)
+                rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
+
+            if(loc.lclass() == LOC_GMEMBER)
             {
-                if(loc.lclass() == LOC_GMEMBER)
+                if(call.fclass == FN_MODE)
                     rw(i, call.precheck_group_vars().test(loc.gmember()->gvar.group_vars.id), false);
-            });
-        }
-        else
-        {
-            assert(call.global.compiled());
-
-            // Handle gmembers:
-            lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
-            {
-                if(loc.lclass() == LOC_GMEMBER)
-                    rw(i, call.ir_reads().test(loc.gmember().id),
-                          call.ir_writes().test(loc.gmember().id));
-            });
+                else
+                    rw(i, call.ir_reads().test(loc.gmember().id), call.ir_writes().test(loc.gmember().id));
+            }
         }
     }
 
     if(is_return(inst))
     {
-        // Every return will be "read" by the rts:
-        lvars.for_each_lvar(true, [&](locator_t loc, unsigned i)
+        for(locator_t const& loc : map)
         {
-            rw(i, loc.lclass() == LOC_RETURN, false);
-        });
+            unsigned const i = &loc - map.begin();
 
-        // Handle gmembers:
-        lvars.for_each_non_lvar([&](locator_t loc, unsigned i)
-        {
+            // Every return will be "read" by the rts:
+            if(loc.lclass() == LOC_RETURN)
+                rw(i, true, false);
+
+            // Some gmembers will be written:
             if(loc.lclass() == LOC_GMEMBER)
                 rw(i, fn.ir_writes().test(loc.gmember().id), false);
-        });
+        }
     }
     else if(inst.arg.lclass() != LOC_FN) // fns handled earlier.
     {
         auto test_loc = [&](locator_t loc)
         {
-            int const i = lvars.index(loc);
-            if(i >= 0)
-                rw(i, op_input_regs(inst.op) & REGF_M,
-                      op_output_regs(inst.op) & REGF_M);
+            if(locator_t const* it = map.lookup(loc))
+            {
+                unsigned const i = it - map.begin();
+                rw(i, op_input_regs(inst.op) & REGF_M, op_output_regs(inst.op) & REGF_M);
+            }
         };
 
         test_loc(inst.arg);
@@ -936,14 +817,11 @@ void do_inst_rw(fn_t const& fn, lvars_manager_t const& lvars, asm_inst_t const& 
     }
 }
 
-void asm_graph_t::liveness(fn_t const& fn, lvars_manager_t& lvars)
+// Returns bitset size
+unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> const& map)
 {
-    //////////////////////////
-    // Calculating liveness //
-    //////////////////////////
-
     bitset_pool.clear();
-    auto bs_size = lvars.bitset_size();
+    auto const bs_size = bitset_size<>(map.size());
 
     // Allocate bitsets:
     for(asm_node_t& node : list)
@@ -967,11 +845,11 @@ void asm_graph_t::liveness(fn_t const& fn, lvars_manager_t& lvars)
 
     // Every arg will be "written" at root:
     asm_node_t& root = *label_map[entry_label];
-    lvars.for_each_lvar(true, [&](locator_t loc, unsigned i)
+    for(locator_t const& loc : map)
     {
         if(loc.lclass() == LOC_ARG)
-            do_read(root, i);
-    });
+            do_read(root, &loc - map.begin());
+    }
 
     for(asm_node_t& node : list)
     {
@@ -987,7 +865,7 @@ void asm_graph_t::liveness(fn_t const& fn, lvars_manager_t& lvars)
 
         for(asm_inst_t const& inst : node.code)
         {
-            do_inst_rw(fn, lvars, inst, [&](unsigned i, bool read, bool write)
+            do_inst_rw(fn, map, inst, [&](unsigned i, bool read, bool write)
             {
                 // Order matters here. 'do_write' comes after 'do_read'.
                 if(read)
@@ -1055,11 +933,15 @@ void asm_graph_t::liveness(fn_t const& fn, lvars_manager_t& lvars)
             bitset_or(bs_size, node.vlive.out, output->vlive.in);
     }
 
-    ///////////////////////////////////////
-    // Build the lvar interference graph //
-    ///////////////////////////////////////
+    return bs_size;
+}
 
-    bitset_uint_t* const live = temp_set; // re-use
+lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
+{
+    lvars_manager_t lvars(fn.handle(), *this);
+
+    unsigned const bs_size = calc_liveness(fn, lvars.map());
+    bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, bs_size);
 
     // Step-through the code backwards, maintaining a current liveness set
     // and using that to build an interference graph.
@@ -1068,54 +950,20 @@ void asm_graph_t::liveness(fn_t const& fn, lvars_manager_t& lvars)
         // Since we're going backwards, reset 'live' to the node's output state.
         bitset_copy(bs_size, live, node.vlive.out);
 
+        lvars.add_lvar_interferences(live);
+
         for(asm_inst_t& inst : node.code | std::views::reverse)
         {
-            if(op_flags(inst.op) & ASMF_CALL)
+            if((op_flags(inst.op) & ASMF_CALL) && inst.arg.lclass() == LOC_FN)
             {
-                if(inst.arg.lclass() == LOC_FN)
+                // Every live lvar will interfere with this fn:
+                bitset_for_each(bs_size, live, [&](unsigned i)
                 {
-                    // Every live lvar will interfere with this fn:
-                    bitset_for_each(bs_size, live, [&](unsigned i)
-                    {
-                        if(lvars.is_lvar(i))
-                            lvars.add_fn_interference(i, inst.arg.fn());
-                    });
-                }
-            }
-            else if(inst.arg)
-            {
-                int const lvar_i = lvars.index(inst.arg);
-                if(lvar_i >= 0)
-                {
-                    if(op_flags(inst.op) & ASMF_MAYBE_STORE)
-                    {
-                        assert(op_output_regs(inst.op) & REGF_M);
-                        if(lvar_i < 0 || bitset_test(live, lvar_i))
-                        {
-                            if(op_t op = change_addr_mode(inst.op, MODE_ABSOLUTE))
-                                inst.op = op;
-                            else 
-                            {
-                                switch(inst.op)
-                                {
-                                case MAYBE_STORE_C: inst.op = STORE_C_ABSOLUTE; break;
-                                case MAYBE_STORE_Z: inst.op = STORE_Z_ABSOLUTE; break;
-                                default: assert(false);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            dprint(log, "ASM_GRAPH_PRUNE", inst.arg);
-                            inst.op = ASM_PRUNED;
-                        }
-                    }
-                }
-                else
-                    passert(!(op_flags(inst.op) & ASMF_MAYBE_STORE), to_string(inst.op), inst.arg);
+                    lvars.add_fn_interference(i, inst.arg.fn());
+                });
             }
 
-            do_inst_rw(fn, lvars, inst, [&](unsigned i, bool read, bool write)
+            do_inst_rw(fn, lvars.map(), inst, [&](unsigned i, bool read, bool write)
             {
                 if(read)
                     bitset_set(live, i);
@@ -1128,17 +976,87 @@ void asm_graph_t::liveness(fn_t const& fn, lvars_manager_t& lvars)
             lvars.add_lvar_interferences(live);
         }
     }
+
+    // All referenced params will interfere with each other:
+    bitset_clear_all(bs_size, live);
+    fn.for_each_referenced_param_locator([&](locator_t loc)
+    { 
+        int const i = lvars.index(loc);
+        if(i >= 0)
+            bitset_set(live, i);
+    });
+    lvars.add_lvar_interferences(live);
+
+    return lvars;
 }
 
-} // end anonymous namespace
-
-std::vector<asm_inst_t> run_asm_graph(
-    log_t* log, fn_t const& fn, lvars_manager_t& lvars,
-    std::vector<asm_inst_t> const& code, locator_t entry_label)
+void asm_graph_t::remove_maybes(fn_t const& fn)
 {
-    log = &stdout_log;
-    asm_graph_t graph(log, code, entry_label);
-    graph.optimize();
-    graph.liveness(fn, lvars);
-    return graph.to_linear(graph.order());
+    // Map locators.
+
+    rh::batman_set<locator_t> map;
+
+    for_each_inst([&](asm_inst_t const& inst)
+    {
+        if(!mem_inst(inst))
+            return;
+        if(inst.arg)
+            map.insert(inst.arg.mem_head());
+        if(inst.alt)
+            map.insert(inst.alt.mem_head());
+    });
+
+    // Now do liveness:
+    unsigned const bs_size = calc_liveness(fn, map);
+    bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, bs_size);
+
+    // Step-through the code backwards, maintaining a current liveness set
+    // and using that to build an interference graph.
+    for(asm_node_t& node : list)
+    {
+        // Since we're going backwards, reset 'live' to the node's output state.
+        bitset_copy(bs_size, live, node.vlive.out);
+
+        for(asm_inst_t& inst : node.code | std::views::reverse)
+        {
+            if(op_flags(inst.op) & ASMF_MAYBE_STORE)
+            {
+                if(locator_t const* it = map.lookup(inst.arg))
+                {
+                    assert(op_output_regs(inst.op) & REGF_M);
+
+                    unsigned const i = it - map.begin();
+
+                    if(bitset_test(live, i))
+                    {
+                        if(op_t op = change_addr_mode(inst.op, MODE_ABSOLUTE))
+                            inst.op = op;
+                        else switch(inst.op)
+                        {
+                        case MAYBE_STORE_C: inst.op = STORE_C_ABSOLUTE; break;
+                        case MAYBE_STORE_Z: inst.op = STORE_Z_ABSOLUTE; break;
+                        default: assert(false);
+                        }
+                    }
+                    else
+                    {
+                        dprint(log, "ASM_GRAPH_PRUNE", inst.arg);
+                        inst.op = ASM_PRUNED;
+                        inst.arg = inst.alt = {};
+                    }
+                }
+                else 
+                    passert(false, inst.arg);
+            }
+
+            do_inst_rw(fn, map, inst, [&](unsigned i, bool read, bool write)
+            {
+                if(read)
+                    bitset_set(live, i);
+                else if(write) // Only occurs if 'read' is false.
+                    bitset_clear(live, i);
+            });
+        }
+    }
 }
+

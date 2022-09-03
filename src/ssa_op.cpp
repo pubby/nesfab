@@ -16,4 +16,3 @@ std::ostream& operator<<(std::ostream& o, ssa_op_t node_type)
     o << to_string(node_type);
     return o;
 }
-

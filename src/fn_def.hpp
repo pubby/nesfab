@@ -11,6 +11,7 @@
 #include "pstring.hpp"
 #include "mods.hpp"
 #include "locator.hpp"
+#include "rval.hpp"
 
 namespace bc = ::boost::container;
 
@@ -18,9 +19,10 @@ struct local_const_t
 {
     var_decl_t var_decl;
     ast_node_t const* expr;
-    locator_t value;
+    rval_t value;
 
     type_t type() const { return var_decl.src_type.type; }
+    bool is_label() const { return !expr; }
 };
 
 // Represents function data right after parsing
@@ -33,6 +35,11 @@ public:
     std::vector<local_const_t> local_consts;
     std::vector<stmt_t> stmts;
     std::vector<mods_t> mods;
+
+    // Used to implement operator '.' for fns.
+    // The first elements are the parameters, in order (size 'num_params').
+    // Following that, assembly labels in the order they appear in 'local_consts'.
+    std::vector<std::uint64_t> name_hashes;
 
     var_decl_t const& var_decl(int i) const
     {

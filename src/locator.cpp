@@ -48,6 +48,8 @@ std::string to_string(locator_t loc)
         str = fmt("phi %", loc.handle()); break;
     case LOC_MINOR_VAR:
         str = fmt("minor var %", loc.fn()->global.name); break;
+    case LOC_ASM_LOCAL_VAR:
+        str = fmt("asm_local_var", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:
         str = "rom_array"; break;
     //case LOC_LT_GMEMBER_PTR:
@@ -71,11 +73,11 @@ std::string to_string(locator_t loc)
     }
 
     if(has_arg_member_atom(loc.lclass()))
-        str += fmt(" %.%:% (%)", (int)loc.arg(), (int)loc.member(), (int)loc.atom(), (int)loc.offset());
+        str += fmt(" arg:% member:% atom:% offset:%", (int)loc.arg(), (int)loc.member(), (int)loc.atom(), (int)loc.offset());
     else
-        str += fmt(" [%] (%)", (int)loc.data(), (int)loc.offset());
+        str += fmt(" data:% offset:%", (int)loc.data(), (int)loc.offset());
 
-    str += fmt(" {% %}", (int)loc.byteified(), (int)loc.is());
+    str += fmt(" byteified:% is:%", (int)loc.byteified(), (int)loc.is());
 
     return str;
 }
@@ -177,6 +179,8 @@ type_t locator_t::type() const
         return byteify(fn().safe().type().type(arg()));
     case LOC_RETURN:
         return byteify(fn().safe().type().return_type());
+    case LOC_ASM_LOCAL_VAR:
+        return byteify(fn().safe().def().local_vars[arg()].src_type.type);
     case LOC_CONST_BYTE:
         return TYPE_U;
     case LOC_SSA:
@@ -256,6 +260,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_MINOR_VAR:
+    case LOC_ASM_LOCAL_VAR:
         {
             span_t span = {};
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)

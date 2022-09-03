@@ -164,6 +164,7 @@ public:
     template<typename It>
     void assign_input(It begin, It end)
     {
+        assert(input_size() == 0);
         std::size_t size = end - begin;
         alloc_input(size);
         for(std::size_t i = 0; i < size; ++i)

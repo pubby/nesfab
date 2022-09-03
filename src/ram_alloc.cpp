@@ -1,4 +1,4 @@
-#include "ram_alloc.hpp"
+
 
 #include "flat/small_set.hpp"
 
@@ -666,12 +666,16 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
     // Refine 'usable_ram', adding in romv interferences:
     for(unsigned i = 0; i < NUM_ROMV; ++i)
+    {
         if(i != romv)
+        {
             for(unsigned j : d.romv_interferes[i])
             {
                 dprint(log, "-INTERFERE", fn.global.name, i, j);
                 d.usable_ram[romv] -= romv_allocated[i][j];
             }
+        }
+    }
 
     // Setup lvar usable ram:
     std::vector<ram_bitset_t> lvar_usable_ram;
@@ -692,7 +696,10 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
     // Handle these interferences here:
     for(unsigned i = fn.lvars().num_this_lvars(); i < fn.lvars().num_all_lvars(); ++i)
     {
-        span_t const span = fn.lvar_span(romv, i);
+        locator_t const loc = fn.lvars().locator(i);
+        if(!has_fn(loc.lclass()))
+            continue;
+        span_t const span = loc.fn()->lvar_span(romv, loc);
 
         if(!span) // It might not have been allocated yet, or it might not exist in the generated assembly.
             continue;
@@ -884,5 +891,18 @@ void print_ram(std::ostream& o)
         }
 
         o << '\n';
+    }
+
+    o << "fn RAM:\n\n";
+    for(fn_t const& fn : fn_ht::values())
+    {
+        o << fmt("  /%:\n", fn.global.name);
+        fn.lvars().for_each_lvar(true, [&](locator_t loc, int i)
+        {
+            o << fmt("    %:", loc);
+            for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
+                o << fmt(" (%)", fn.lvar_span(romv_t(romv), i));
+            o << '\n';
+        });
     }
 }

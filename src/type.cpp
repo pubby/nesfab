@@ -379,6 +379,15 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
         return CAST_NOP;
     }
 
+    // Any int can convert to AA.
+    if(is_arithmetic(from.name()) 
+       && to.name() == TYPE_APTR
+       && whole_bytes(from.name()) <= 2 
+       && frac_bytes(from.name()) == 0)
+    {
+        return CAST_PTRIFY_INT;
+    }
+
     // Pointers can generalize
     // i.e. ram{foo} can convert to ram{foo, bar}
     // Likewise, mptrs convert to cptrs
@@ -473,6 +482,8 @@ unsigned num_members(type_t type)
         ret = num_members(type.elem_type());
     else if(is_banked_ptr(type.name()))
         ret = 2; // The bank is a member
+    else if(type.name() == TYPE_VOID)
+        return 0;
     else
         ret = 1;
 
@@ -502,7 +513,7 @@ unsigned num_atoms(type_t type, unsigned member)
             else
                 return 2;
         }
-        assert(is_scalar(type.name()));
+        passert(is_scalar(type.name()), type);
         assert(member == 0);
         return type.size_of();
     }

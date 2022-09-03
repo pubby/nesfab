@@ -65,7 +65,8 @@ SSA_DEF(multi_eq,     -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY |
 SSA_DEF(multi_not_eq, -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 
 // The first two arguments are the types being compared, as constant ints.
-// Next, the sequential bytes of LHS, followed by the sequential bytes of RHS.
+// Next, the sequential bytes of LHS, followed by the sequential bytes of RHS,
+// from least significant bytes to most significant.
 // If both types are signed, both types must have the same number of whole bytes.
 SSA_DEF(multi_lt,  -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)
 SSA_DEF(multi_lte, -1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_BRANCHY_CG)

@@ -472,7 +472,7 @@ public:
         { return locator_t(LOC_RUNTIME_ROM, 0, name, offset); }
 
     constexpr static locator_t nmi_index(fn_ht fn)
-        { return locator_t(LOC_NMI_INDEX, fn.id, 0, 0).with_is(IS_PTR); }
+        { return fn ? locator_t(LOC_NMI_INDEX, fn.id, 0, 0).with_is(IS_PTR) : const_byte(0); }
 
     static locator_t from_ssa_value(ssa_value_t v);
 

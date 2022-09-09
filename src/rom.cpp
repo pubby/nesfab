@@ -192,6 +192,7 @@ unsigned rom_data_ht::max_size() const
     default: 
         return 0;
     case ROMD_ARRAY:
+        assert(rom_array_ht{ handle() }->data().size() < 1 << 16);
         return rom_array_ht{ handle() }->data().size();
     case ROMD_PROC:
         return rom_proc_ht{ handle() }->max_size();

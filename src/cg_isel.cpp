@@ -370,7 +370,8 @@ namespace isel
             total_cost = (total_cost * 3) / 4; // Conditional ops are arbitrarily cheaper.
         total_cost += prev->cost + extra_cost;
 
-        return state.sel_pool.emplace(prev, total_cost, asm_inst_t{ Op, state.ssa_node->op(), arg, alt/* , total_cost*/  });
+        return state.sel_pool.emplace(prev, total_cost, 
+            asm_inst_t{ .op = Op, .ssa_op = state.ssa_node->op(), .arg = arg, .alt = alt/* , total_cost*/  });
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>

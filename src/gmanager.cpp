@@ -115,8 +115,10 @@ void gmanager_t::init(fn_ht fn)
             new_eq_classes.clear();
         };
 
+        // TODO: remove
+        //bitset_uint_t* const temp = ALLOCA_T(bitset_uint_t, set_size);
+
         // Split calls.
-        bitset_uint_t* const temp = ALLOCA_T(bitset_uint_t, set_size);
         for(auto const& pair : fn->precheck_tracked().calls)
         {
             fn_t const& call = *pair.first;
@@ -124,15 +126,17 @@ void gmanager_t::init(fn_ht fn)
             if(call.fclass == FN_CT)
                 continue;
             assert(call.fclass != FN_MODE);
+            assert(call.global.compiled());
 
             split(set_size, call.ir_reads().data(), call.ir_writes().data());
 
             // If it waits on an NMI, split using the NMI's reads and writes.
             if(call.precheck_fences())
             {
-                bitset_copy(bitset_size(), temp, call.fence_reads().data());
-                bitset_or(bitset_size(), temp, call.fence_writes().data());
-                split(set_size, temp, temp);
+                // TODO: remove
+                //bitset_copy(bitset_size(), temp, call.fence_reads().data());
+                //bitset_or(bitset_size(), temp, call.fence_writes().data());
+                split(set_size, call.fence_rw().data(), call.fence_rw().data());
             }
         }
 

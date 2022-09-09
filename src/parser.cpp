@@ -1,6 +1,7 @@
 #include "parser.hpp"
 
 #include <iostream> // TODO
+#include <filesystem>
 
 #include <boost/container/static_vector.hpp>
 #include <boost/container/small_vector.hpp>
@@ -11,13 +12,14 @@
 #include "globals.hpp"
 #include "group.hpp"
 #include "fnv1a.hpp"
-#include "convert_file.hpp"
+#include "convert.hpp"
 #include "eternal_new.hpp"
 #include "mods.hpp"
 #include "hw_reg.hpp"
 #include "asm.hpp"
 #include "loop_test.hpp"
 
+namespace fs = ::std::filesystem;
 using namespace lex;
 
 template<typename P>
@@ -575,6 +577,7 @@ retry:
         parse_indented_token();
         goto retry;
 
+    case TOK_return:
     case TOK_ident:
 #ifndef NDEBUG
         token.value = ~0ull; // May catch a bug if the AST isn't properly converted.
@@ -594,14 +597,23 @@ retry:
             parse_token();
             if(token.type != TOK_ident)
                 compiler_error("Unexpected token. Expecting identifier.");
+            ast.token.pstring = token.pstring;
+            /* TODO: remove
             ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
-            ast.token.set_ptr(policy().at_ident(token.pstring));
-            parse_token(TOK_ident);
+            if(global_t const* g = policy().at_ident(token.pstring))
+                ast.token.set_ptr(g);
+            else
+                compiler_error("Expecting global.");
+                */
+            parse_token();
             return ast;
         }
 
     case TOK_bitwise_and:
         token.type = TOK_unary_ref;
+        goto unary;
+    case TOK_plus:
+        token.type = TOK_unary_plus;
         goto unary;
     case TOK_minus:
         token.type = TOK_unary_minus;
@@ -615,15 +627,20 @@ retry:
 
             // Handling numbers separately may grant a tiny speedup
             // (note the code would still work without this)
-            if(ast.token.type == TOK_unary_minus 
-               && (token.type == TOK_int || token.type == TOK_real))
+            if(token.type == TOK_int || token.type == TOK_real)
             {
-                token.value = -token.value;
+                if(ast.token.type == TOK_unary_plus)
+                    token.value = token.value;
+                else if(ast.token.type == TOK_unary_minus)
+                    token.value = -token.value;
+                else
+                    goto done_unary_number;
                 token.pstring = fast_concat(ast.token.pstring, token.pstring);
                 ast = { .token = token };
                 parse_token();
                 return ast;
             }
+        done_unary_number:
 
             ast.children = eternal_emplace<ast_node_t>(parse_expr(
                 starting_indent, open_parens, operator_precedence(ast.token.type)));
@@ -739,11 +756,15 @@ ast_node_t parser_t<P>::parse_expr(int starting_indent, int open_parens, int min
 
             result.token = token;
             parse_token();
+
+            if(token.type != TOK_ident && token.type != TOK_return)
+                compiler_error("Unexpected token. Expecting identifier or 'return'.");
+
             result.token.pstring = fast_concat(result.token.pstring, token.pstring);
             result.token.value = fnv1a<std::uint64_t>::hash(token.pstring.view(source()));
             result.children = children;
 
-            parse_token(TOK_ident);
+            parse_token();
         }
         else if(is_operator(token.type) && operator_precedence(token.type) <= min_precedence)
         {
@@ -1171,7 +1192,8 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             }
             else
             {
-                ast_node_t const expr = parse_expr(indent, 1);
+                ast_node_t expr = parse_expr(indent, 1);
+                policy().convert_ast(expr, IDEP_TYPE);
 
                 if(expr.token.type == TOK_int)
                     result.type = type_t::paa(expr.token.signed_() >> fixed_t::shift, group, expr.token.pstring);
@@ -1214,7 +1236,8 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
         else
         {
             int const array_indent = indent;
-            ast_node_t const expr = parse_expr(indent, 1);
+            ast_node_t expr = parse_expr(indent, 1);
+            policy().convert_ast(expr, IDEP_TYPE);
 
             if(expr.token.type == TOK_int)
                 result.type = type_t::tea(result.type, expr.token.signed_() >> fixed_t::shift, expr.token.pstring);
@@ -1261,11 +1284,26 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, bool bl
                 parse_token(TOK_file);
                 pstring_t const script = parse_ident();
                 string_literal_t filename = parse_string_literal();
-                std::vector<locator_t> data = convert_file(source(), script, filename);
-                children.push_back({ 
-                    .token = token_t::make_ptr(TOK_paa_byte_array, filename.pstring, 
-                                               eternal_new<locator_t>(&*data.begin(), &*data.end()))
-                });
+
+                fs::path preferred_dir = file.path();
+                preferred_dir.remove_filename();
+
+                conversion_t c = convert_file(source(), script, preferred_dir, filename);
+
+                if(auto* vec = std::get_if<std::vector<std::uint8_t>>(&c.data))
+                {
+                    children.push_back({ 
+                        .token = token_t::make_ptr(TOK_paa_byte_array, filename.pstring, 
+                                                   eternal_emplace<std::vector<std::uint8_t>>(std::move(*vec)))
+                    });
+                }
+                else if(auto* vec = std::get_if<std::vector<locator_t>>(&c.data))
+                {
+                    children.push_back({ 
+                        .token = token_t::make_ptr(TOK_paa_locator_array, filename.pstring, 
+                                                   eternal_emplace<std::vector<locator_t>>(std::move(*vec)))
+                    });
+                }
             }
             else
             {

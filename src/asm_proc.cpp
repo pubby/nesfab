@@ -3,6 +3,7 @@
 #include "format.hpp"
 #include "globals.hpp"
 #include "runtime.hpp"
+#include "compiler_error.hpp"
 
 bool is_return(asm_inst_t const& inst)
 {
@@ -289,7 +290,8 @@ void asm_proc_t::link(romv_t romv, int bank)
         inst.alt = inst.alt.link(romv, fn, bank);
     }
 
-    optimize(false);
+    if(!fn || !fn->iasm)
+        optimize(false);
     assert(pre_size >= size());
 }
 
@@ -486,8 +488,20 @@ void asm_proc_t::relocate(std::uint16_t addr)
 
         if(op_addr_mode(inst.op) == MODE_RELATIVE)
         {
-            int const dist = bytes_between(i+1, label_i);
-            assert(dist <= 127 && dist >= -128);
+            int const dist = bytes_between(i, label_i) - op_size(inst.op);
+            if(dist > 127 || dist < -128)
+            {
+                std::string what = fmt("Unable to relocate branch instruction %. Destination outside valid range.", 
+                                       op_name(inst.op));
+                if(fn)
+                {
+                    pstring_t pstring = fn->global.pstring();
+                    if(inst.iasm_stmt >= 0)
+                        pstring = fn->def().stmts[inst.iasm_stmt].pstring;
+                    compiler_error(pstring, std::move(what));
+                }
+                throw std::runtime_error(std::move(what)); // TODO: make it a real compiler_error
+            }
             inst.arg = locator_t::const_byte(dist);
         }
         else if(op_addr_mode(inst.op) == MODE_IMMEDIATE)

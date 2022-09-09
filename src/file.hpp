@@ -5,8 +5,16 @@
 #include <string>
 #include <vector>
 #include <cassert>
+#include <cstdio>
+#include <filesystem>
+#include <functional>
 
-extern std::vector<std::string> source_file_names;
+#include "options.hpp"
+
+namespace fs = ::std::filesystem;
+
+bool resource_path(fs::path preferred_dir, fs::path name, fs::path& result);
+bool read_binary_file(char const* filename, std::function<void*(std::size_t)> const& alloc);
 
 // Holds the contents of a file in a buffer and its filename.
 struct file_contents_t
@@ -20,8 +28,10 @@ public:
     file_contents_t(file_contents_t&&) = default;
     file_contents_t& operator=(file_contents_t&&) = default;
 
-    std::string const& name() const { assert(m_source); return source_file_names[m_file_i]; }
-    unsigned index() const { assert(m_source); return m_file_i; }
+    fs::path const& input_path() const { return compiler_options().source_names[m_file_i]; }
+    fs::path const& path() const { assert(m_source); return m_path; }
+    std::string name() const { return fs::relative(path()).string(); }
+    unsigned index() const { return m_file_i; }
     char const* source() const { return m_source.get(); }
     std::size_t size() const { return m_size; }
 
@@ -29,7 +39,8 @@ public:
     void reset(unsigned file_i);
 private:
     unsigned m_file_i = 0;
-    unsigned m_size = 0;
+    int m_size = 0;
+    fs::path m_path;
     std::unique_ptr<char[]> m_source;
 };
 

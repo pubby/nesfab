@@ -588,6 +588,12 @@ void rom_allocator_t::free_many(rom_many_ht many_h, unsigned bank_i)
 bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
 {
     rom_many_t& many = *many_h;
+    
+    if(many.data.max_size() == 0)
+    {
+        many.span = { .addr = 0, .size = 1 };
+        return true;
+    }
 
     if(many.span)
     {

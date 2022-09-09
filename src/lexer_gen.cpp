@@ -577,28 +577,26 @@ exit_loop:
 }
 
 bool is_idchar(unsigned char c) 
-{ 
-    return c == '_' || std::isalnum(c) || std::isdigit(c);
-}
-
-bool is_lower_or_digit(unsigned char c) 
-{ 
-    return std::islower(c) || std::isdigit(c);
-}
+    { return c == '_' || std::isalnum(c); }
+bool is_idlower(unsigned char c) 
+    { return c == '_' || std::islower(c) || std::isdigit(c); }
+bool is_idupper(unsigned char c) 
+    { return c == '_' || std::isupper(c) || std::isdigit(c); }
 
 rptr idchar() { return pred(is_idchar); }
+rptr idlower() { return pred(is_idlower); }
+rptr idupper() { return pred(is_idupper); }
 rptr upper() { return pred(&isupper); }
 rptr lower() { return pred(&islower); }
 rptr newline() { return uor(word("\n"), word("\r"), word("\n\r"), word("\r\n")); }
 rptr comchar() { return pred([](unsigned char c) { return c != '\n' && c != '\r' && c; }); }
 rptr eof() { return pred([](unsigned char c) { return c == '\0'; }); }
 rptr whitespace() { return pred([](unsigned char c) { return c == ' ' || c == '\t'; }); }
-rptr type() { return many1(cat(upper(), many1(pred(is_lower_or_digit)))); }
 rptr digit() { return pred(isdigit); }
 rptr hex_digit() { return pred(isxdigit); }
 rptr bin_digit() { return pred([](unsigned char c) { return c == '0' || c == '1'; }); }
 
-rptr asm_op_keyword(char const* a) 
+rptr either_case_keyword(char const* a) 
 { 
     std::string lower(a);
     std::string upper(a);
@@ -614,192 +612,194 @@ rptr asm_op_keyword(char const* a)
 int main()
 {
     std::deque<nfa_node_t> nfa_nodes;
-    nfa_t nfa = gen_nfa(*
-        uor(
-            accept("eof", "file ending", eof()),
-            accept("comment", "comment", cat(word("//"), kleene(comchar()), uor(eof(), newline()))),
-            accept("eol", "line ending", newline()),
-            accept("whitespace", "space", many1(whitespace())),
+    nfa_t nfa = gen_nfa(*uor(
+        accept("eof", "file ending", eof()),
+        accept("comment", "comment", cat(word("//"), kleene(comchar()), uor(eof(), newline()))),
+        accept("eol", "line ending", newline()),
+        accept("whitespace", "space", many1(whitespace())),
 
-            // Keywords
-            keyword("if"),
-            keyword("else"),
-            keyword("for"),
-            keyword("while"),
-            keyword("do"),
-            keyword("break"),
-            keyword("continue"),
-            keyword("return"),
-            keyword("fn"),
-            keyword("ct"),
-            keyword("mode"),
-            keyword("nmi"),
-            keyword("goto"),
-            keyword("label"),
-            keyword("using"),
-            keyword("file"),
-            keyword("struct"),
-            keyword("vars"),
-            keyword("data"),
-            keyword("omni"),
-            keyword("asm"),
-            keyword("ready"),
-            keyword("fence"),
-            keyword("switch"), // TODO
-            keyword("case"), // TODO
-            keyword("default"), // TODO
+        // Keywords
+        keyword("if"),
+        keyword("else"),
+        keyword("for"),
+        keyword("while"),
+        keyword("do"),
+        keyword("break"),
+        keyword("continue"),
+        keyword("return"),
+        keyword("fn"),
+        keyword("ct"),
+        keyword("mode"),
+        keyword("nmi"),
+        keyword("goto"),
+        keyword("label"),
+        keyword("using"),
+        keyword("file"),
+        keyword("struct"),
+        keyword("vars"),
+        keyword("data"),
+        keyword("omni"),
+        keyword("asm"),
+        keyword("ready"),
+        keyword("fence"),
+        keyword("switch"), // TODO
+        keyword("case"), // TODO
+        keyword("default"), // TODO
 
-            keyword("PPUCTRL"),
-            keyword("PPUMASK"),
-            keyword("PPUSTATUS"),
-            keyword("PPUSCROLL"),
-            keyword("PPUADDR"),
-            keyword("PPUDATA"),
-            keyword("OAMADDR"),
-            keyword("OAMDATA"),
-            keyword("OAMDMA"),
+        keyword("PPUCTRL"),
+        keyword("PPUMASK"),
+        keyword("PPUSTATUS"),
+        keyword("PPUSCROLL"),
+        keyword("PPUADDR"),
+        keyword("PPUDATA"),
+        keyword("OAMADDR"),
+        keyword("OAMDATA"),
+        keyword("OAMDMA"),
 
-            // Symbols
-            keyword("lbrace", "{"),
-            keyword("rbrace", "}"),
+        // Symbols
+        keyword("lbrace", "{"),
+        keyword("rbrace", "}"),
 
-            keyword("lbracket", "["),
-            keyword("rbracket", "]"),
+        keyword("lbracket", "["),
+        keyword("rbracket", "]"),
 
-            keyword("colon", ":"),
-            keyword("hash", "#"),
+        keyword("colon", ":"),
+        keyword("hash", "#"),
 
-            keyword(1, "dquote", "\""),
-            keyword(1, "quote", "'"),
+        keyword(1, "dquote", "\""),
+        keyword(1, "quote", "'"),
 
-            //keyword(3, "double_colon", "::"),
-            //keyword(4, "pointer", "%"),
-            //keyword(4, "rarrow", "->"),
-            keyword("semicolon", ";"),
-            keyword("comma", ","),
+        //keyword(3, "double_colon", "::"),
+        //keyword(4, "pointer", "%"),
+        //keyword(4, "rarrow", "->"),
+        keyword("semicolon", ";"),
+        keyword("comma", ","),
 
-            keyword("sizeof"),
-            accept("sizeof_expr", "sizeof", eof()), // dummy
-            keyword("len", "len"),
-            accept("len_expr", "len", eof()), // dummy
+        keyword("sizeof"),
+        accept("sizeof_expr", "sizeof", eof()), // dummy
+        keyword("len", "len"),
+        accept("len_expr", "len", eof()), // dummy
 
-            accept(8, "unary_minus", "unary -", eof()), // dummy
-            op(8, "unary_xor", "~"),
-            op(8, "unary_negate", "!"),
-            op(8, "unary_ref", "unary &"),
+        accept(8, "unary_plus", "unary +", eof()), // dummy
+        accept(8, "unary_minus", "unary -", eof()), // dummy
+        op(8, "unary_xor", "~"),
+        op(8, "unary_negate", "!"),
+        op(8, "unary_ref", "unary &"),
 
-            keyword(8, "at", "@"),
+        keyword(8, "at", "@"),
 
-            keyword(5, "period", "."),
-            accept(7, "apply", "apply", eof()), // dummy
-            accept(7, "cast", "cast", eof()), // dummy
-            accept(7, "cast_type", "cast_type", eof()), // dummy
-            accept(7, "index", "index", eof()), // dummy
+        keyword(5, "period", "."),
+        accept(7, "apply", "apply", eof()), // dummy
+        accept(7, "cast", "cast", eof()), // dummy
+        accept(7, "cast_type", "cast_type", eof()), // dummy
+        accept(7, "index", "index", eof()), // dummy
 
-            keyword(1, "lparen", "("), // begin infix ops
+        keyword(1, "lparen", "("), // begin infix ops
 
-            op(10, "asterisk", "*"),
-            op(10, "fslash", "/"),
+        op(10, "asterisk", "*"),
+        op(10, "fslash", "/"),
 
-            op(11, "plus", "+"),
-            op(11, "minus", "-"),
+        op(11, "plus", "+"),
+        op(11, "minus", "-"),
 
-            op(12, "lshift", "<<"),
-            op(12, "rshift", ">>"),
+        op(12, "lshift", "<<"),
+        op(12, "rshift", ">>"),
 
-            op(13, "bitwise_and", "&"),
-            op(14, "bitwise_xor", "^"),
-            op(15, "bitwise_or", "|"),
+        op(13, "bitwise_and", "&"),
+        op(14, "bitwise_xor", "^"),
+        op(15, "bitwise_or", "|"),
 
-            op(16, "lt", "<"),
-            op(16, "lte", "<="),
-            op(16, "gt", ">"),
-            op(16, "gte", ">="),
+        op(16, "lt", "<"),
+        op(16, "lte", "<="),
+        op(16, "gt", ">"),
+        op(16, "gte", ">="),
 
-            op(17, "eq", "=="),
-            op(17, "not_eq", "!="),
+        op(17, "eq", "=="),
+        op(17, "not_eq", "!="),
 
-            op(18, "logical_and", "&&"),
-            accept(18, "end_logical_and", "end_logical_and", eof()),
-            op(19, "logical_or", "||"),
-            accept(19, "end_logical_or", "end_logical_or", eof()),
+        op(18, "logical_and", "&&"),
+        accept(18, "end_logical_and", "end_logical_and", eof()),
+        op(19, "logical_or", "||"),
+        accept(19, "end_logical_or", "end_logical_or", eof()),
 
-            op(30 | RIGHT_ASSOC, "assign", "="),
-            op(30 | RIGHT_ASSOC, "plus_assign", "+="),
-            op(30 | RIGHT_ASSOC, "minus_assign", "-="),
-            op(30 | RIGHT_ASSOC, "times_assign", "*="),
-            op(30 | RIGHT_ASSOC, "div_assign", "/="),
-            op(30 | RIGHT_ASSOC, "bitwise_and_assign", "&="),
-            op(30 | RIGHT_ASSOC, "logical_and_assign", "&&="),
-            op(30 | RIGHT_ASSOC, "bitwise_or_assign", "|="),
-            op(30 | RIGHT_ASSOC, "logical_or_assign", "||="),
-            op(30 | RIGHT_ASSOC, "bitwise_xor_assign", "^="),
-            op(30 | RIGHT_ASSOC, "lshift_assign", "<<="),
-            op(30 | RIGHT_ASSOC, "rshift_assign", ">>="),
+        op(30 | RIGHT_ASSOC, "assign", "="),
+        op(30 | RIGHT_ASSOC, "plus_assign", "+="),
+        op(30 | RIGHT_ASSOC, "minus_assign", "-="),
+        op(30 | RIGHT_ASSOC, "times_assign", "*="),
+        op(30 | RIGHT_ASSOC, "div_assign", "/="),
+        op(30 | RIGHT_ASSOC, "bitwise_and_assign", "&="),
+        op(30 | RIGHT_ASSOC, "logical_and_assign", "&&="),
+        op(30 | RIGHT_ASSOC, "bitwise_or_assign", "|="),
+        op(30 | RIGHT_ASSOC, "logical_or_assign", "||="),
+        op(30 | RIGHT_ASSOC, "bitwise_xor_assign", "^="),
+        op(30 | RIGHT_ASSOC, "lshift_assign", "<<="),
+        op(30 | RIGHT_ASSOC, "rshift_assign", ">>="),
 
-            keyword(1, "rparen", ")"), // end infix ops
+        keyword(1, "rparen", ")"), // end infix ops
 
-            accept("Void", "void type", word("Void")), // First type
-            accept("F", "F type", word("F")),
-            accept("FF", "FF type", word("FF")),
-            accept("FFF", "FFF type", word("FFF")),
-            accept("U", "U type", word("U")),
-            accept("UU", "UU type", word("UU")),
-            accept("UUU", "UUU type", word("UUU")),
-            accept("UF", "UF type", word("UF")),
-            accept("UUF", "UUF type", word("UUF")),
-            accept("UUUF", "UUUF type", word("UUUF")),
-            accept("UFF", "UFF type", word("UFF")),
-            accept("UUFF", "UUFF type", word("UUFF")),
-            accept("UUUFF", "UUUFF type", word("UUUFF")),
-            accept("UFFF", "UFFF type", word("UFFF")),
-            accept("UUFFF", "UUFFF type", word("UUFFF")),
-            accept("UUUFFF", "UUUFFF type", word("UUUFFF")),
-            accept("S", "S type", word("S")),
-            accept("SS", "SS type", word("SS")),
-            accept("SSS", "SSS type", word("SSS")),
-            accept("SF", "SF type", word("SF")),
-            accept("SSF", "SSF type", word("SSF")),
-            accept("SSSF", "SSSF type", word("SSSF")),
-            accept("SFF", "SFF type", word("SFF")),
-            accept("SSFF", "SSFF type", word("SSFF")),
-            accept("SSSFF", "SSSFF type", word("SSSFF")),
-            accept("SFFF", "SFFF type", word("SFFF")),
-            accept("SSFFF", "SSFFF type", word("SSFFF")),
-            accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
-            accept("AA", "AA type", word("AA")),
-            accept("AAA", "AAA type", word("AAA")),
-            accept("PP", "PP type", word("PP")),
-            accept("PPP", "PPP type", word("PPP")),
-            accept("CC", "CC type", word("CC")),
-            accept("CCC", "CCC type", word("CCC")),
-            accept("MM", "MM type", word("MM")),
-            accept("MMM", "MMM type", word("MMM")),
-            accept("Int", "Int type", word("Int")),
-            accept("Real", "Real type", word("Real")),
-            accept("Bool", "Bool type", word("Bool")), // Last type
-            //accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
-            accept("ident", "identifier", cat(lower(), kleene(idchar()))),
-            accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
-            accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
-            accept("hex", "number", cat(word("$"), uor(many1(hex_digit()), cat(many1(hex_digit()), word("."), many1(hex_digit()))))),
-            accept("binary", "number", cat(word("%"), uor(many1(bin_digit()), cat(many1(bin_digit()), word("."), many1(bin_digit()))))),
+        accept("Void", "void type", word("Void")), // First type
+        accept("F", "F type", word("F")),
+        accept("FF", "FF type", word("FF")),
+        accept("FFF", "FFF type", word("FFF")),
+        accept("U", "U type", word("U")),
+        accept("UU", "UU type", word("UU")),
+        accept("UUU", "UUU type", word("UUU")),
+        accept("UF", "UF type", word("UF")),
+        accept("UUF", "UUF type", word("UUF")),
+        accept("UUUF", "UUUF type", word("UUUF")),
+        accept("UFF", "UFF type", word("UFF")),
+        accept("UUFF", "UUFF type", word("UUFF")),
+        accept("UUUFF", "UUUFF type", word("UUUFF")),
+        accept("UFFF", "UFFF type", word("UFFF")),
+        accept("UUFFF", "UUFFF type", word("UUFFF")),
+        accept("UUUFFF", "UUUFFF type", word("UUUFFF")),
+        accept("S", "S type", word("S")),
+        accept("SS", "SS type", word("SS")),
+        accept("SSS", "SSS type", word("SSS")),
+        accept("SF", "SF type", word("SF")),
+        accept("SSF", "SSF type", word("SSF")),
+        accept("SSSF", "SSSF type", word("SSSF")),
+        accept("SFF", "SFF type", word("SFF")),
+        accept("SSFF", "SSFF type", word("SSFF")),
+        accept("SSSFF", "SSSFF type", word("SSSFF")),
+        accept("SFFF", "SFFF type", word("SFFF")),
+        accept("SSFFF", "SSFFF type", word("SSFFF")),
+        accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
+        accept("AA", "AA type", word("AA")),
+        accept("AAA", "AAA type", word("AAA")),
+        accept("PP", "PP type", word("PP")),
+        accept("PPP", "PPP type", word("PPP")),
+        accept("CC", "CC type", word("CC")),
+        accept("CCC", "CCC type", word("CCC")),
+        accept("MM", "MM type", word("MM")),
+        accept("MMM", "MMM type", word("MMM")),
+        accept("Int", "Int type", word("Int")),
+        accept("Real", "Real type", word("Real")),
+        accept("Bool", "Bool type", word("Bool")), // Last type
+        //accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
+        accept("ident", "identifier", uor(cat(lower(), kleene(idlower())),
+                                          cat(upper(), kleene(idupper())))),
+        accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
+        accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
+        accept("hex", "number", cat(word("$"), uor(many1(hex_digit()), cat(many1(hex_digit()), word("."), many1(hex_digit()))))),
+        accept("binary", "number", cat(word("%"), uor(many1(bin_digit()), cat(many1(bin_digit()), word("."), many1(bin_digit()))))),
 
-            // dummy:
-            accept("int", "int", eof()),
-            accept("real", "real", eof()),
-            accept("global_ident", "global identifier", eof()),
-            accept("weak_ident", "weak identifier", eof()),
-            accept("hw_addr", "hardware address", eof()),
-            accept("read_hw", "read hardware", eof()),
-            accept("write_hw", "write hardware", eof()),
-            accept("paa_byte_array", "byte array", eof()),
-            accept("push_paa", "push paa", eof()),
-            accept("begin_paa", "begin paa", eof()),
-            accept("end_paa", "end paa", eof()),
-            accept("group_set", "group set", eof()),
-            accept("rpair", "rpair", eof())
-            ),
+        // dummy:
+        accept("int", "int", eof()),
+        accept("real", "real", eof()),
+        accept("global_ident", "global identifier", eof()),
+        accept("weak_ident", "weak identifier", eof()),
+        accept("hw_addr", "hardware address", eof()),
+        accept("read_hw", "read hardware", eof()),
+        accept("write_hw", "write hardware", eof()),
+        accept("paa_byte_array", "byte array", eof()),
+        accept("paa_locator_array", "locator array", eof()),
+        accept("push_paa", "push paa", eof()),
+        accept("begin_paa", "begin paa", eof()),
+        accept("end_paa", "end paa", eof()),
+        accept("group_set", "group set", eof()),
+        accept("rpair", "rpair", eof())
+        ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);
     print_output(dfa, minimize_dfa(dfa), "lex", true);
@@ -807,14 +807,25 @@ int main()
     std::deque<nfa_node_t> asm_nfa_nodes;
     nfa_t asm_nfa = gen_nfa(*
         uor(
-            accept("eof", "file ending", eof()),
-#define OP_NAME(name) asm_op_keyword(#name),
+#define OP_NAME(name) either_case_keyword(#name),
 #include "lex_op_name.inc"
 #undef OP_NAME
-            keyword("bank")
+            accept("eof", "file ending", eof())
+            //keyword("bank")
             ),
         asm_nfa_nodes);
     dfa_t asm_dfa = nfa_to_dfa(asm_nfa);
     print_output(asm_dfa, minimize_dfa(asm_dfa), "asm_lex", false);
+
+    std::deque<nfa_node_t> ext_nfa_nodes;
+    nfa_t ext_nfa = gen_nfa(*uor(
+        either_case_keyword("bin"),
+        either_case_keyword("chr"),
+        either_case_keyword("png"),
+        either_case_keyword("txt")
+        ),
+        ext_nfa_nodes);
+    dfa_t ext_dfa = nfa_to_dfa(ext_nfa);
+    print_output(ext_dfa, minimize_dfa(ext_dfa), "ext_lex", false);
 }
 

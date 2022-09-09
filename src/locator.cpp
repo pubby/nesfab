@@ -1,5 +1,7 @@
 #include "locator.hpp"
 
+#include <iostream> // TODO
+
 #include "format.hpp"
 #include "globals.hpp"
 #include "group.hpp"
@@ -240,6 +242,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
                 else
                     assert(false);
             }
+                std::printf("span offset = %i\n", span_offset);
         }
 
         // fall-through
@@ -276,10 +279,14 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             return from_span(fn_h->lvar_span(romv, mem_head()));
         }
 
+    case LOC_ASM_LOCAL_VAR:
+        fn()->lvars().for_each_lvar(true, [&](locator_t loc, unsigned i)
+        {
+            std::cout << "ASM_LOCAL " << loc << std::endl;
+        });
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_MINOR_VAR:
-    case LOC_ASM_LOCAL_VAR:
         {
             span_t span = {};
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)

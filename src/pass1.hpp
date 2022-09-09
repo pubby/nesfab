@@ -30,8 +30,7 @@ class pass1_t
 private:
     file_contents_t const& file;
     global_t* active_global = nullptr;
-    global_t::ideps_set_t ideps;
-    global_t::ideps_set_t weak_ideps;
+    ideps_map_t ideps;
     fn_def_t fn_def;
     field_map_t field_map;
 
@@ -105,21 +104,20 @@ public:
 
     // Helpers
     char const* source() { return file.source(); }
-    void uses_type(type_t type);
+    void uses_type(type_t type, idep_class_t calc = IDEP_TYPE);
     //token_t* eternal_expr(expr_temp_t& expr); TODO
     //void convert_expr(token_t* begin); TODO
     //token_t const* convert_expr(expr_temp_t& expr); TODO
     ast_node_t const* eternal_expr(ast_node_t const* expr);
-    ast_node_t const* convert_eternal_expr(ast_node_t const* expr);
-    void convert_ast(ast_node_t& ast);
+    ast_node_t const* convert_eternal_expr(ast_node_t const* expr, idep_class_t calc = IDEP_VALUE);
+    void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
     //ast_node_t process_ast(ast_node_t ast);
-    global_t const* at_ident(pstring_t pstring);
+    //global_t const* at_ident(pstring_t pstring);
 
     [[gnu::always_inline]]
     void prepare_global()
     {
         assert(ideps.empty());
-        assert(weak_ideps.empty());
         assert(label_map.empty());
         assert(unlinked_gotos.empty());
         assert(symbol_table.empty());
@@ -129,7 +127,6 @@ public:
     void prepare_fn(pstring_t fn_name)
     {
         assert(ideps.empty());
-        assert(weak_ideps.empty());
         assert(label_map.empty());
         assert(unlinked_gotos.empty());
 
@@ -234,10 +231,9 @@ public:
 
         // Create the global:
         active_global->define_fn(
-            decl.name, std::move(ideps), std::move(weak_ideps),
+            decl.name, std::move(ideps),
             decl.src_type.type, std::move(fn_def), std::move(mods), fclass, false);
         ideps.clear();
-        weak_ideps.clear();
     }
 
     [[gnu::always_inline]]
@@ -287,8 +283,10 @@ public:
     [[gnu::always_inline]]
     void asm_call(stmt_name_t stmt, pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
+        if(symbol_table.find(pstring.view(source())))
+            compiler_error(pstring, "Cannot call a local variable.");
         global_t& g = global_t::lookup(file.source(), pstring);
-        ideps.insert(&g);
+        ideps.emplace(&g, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
         fn_def.push_stmt({ .name = stmt, .mods = mods_h, .pstring = pstring, .global = &g });
     }
@@ -305,6 +303,7 @@ public:
         var_decl_t decl, fn_class_t fclass, 
         std::unique_ptr<mods_t> mods)
     {
+        // Set the default label
         if(fn_def.default_label < 0)
         {
             for(unsigned i = 0; i < fn_def.local_consts.size(); ++i)
@@ -323,10 +322,10 @@ public:
         //Convert all expressions
         for(auto& c : fn_def.local_consts)
             if(c.expr)
-                convert_ast(*const_cast<ast_node_t*>(c.expr));
+                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_VALUE);
         for(auto& stmt : fn_def.stmts)
             if(stmt.name == STMT_ASM_OP && stmt.expr)
-                convert_ast(*const_cast<ast_node_t*>(stmt.expr));
+                convert_ast(*const_cast<ast_node_t*>(stmt.expr), IDEP_VALUE);
 
         if(fn_def.local_vars.size() > MAX_ASM_LOCAL_VARS)
             compiler_error(decl.name, fmt("Too many local variables. Max %.", MAX_ASM_LOCAL_VARS));
@@ -348,18 +347,16 @@ public:
 
         // Create the global:
         active_global->define_fn(
-            decl.name, std::move(ideps), std::move(weak_ideps),
+            decl.name, std::move(ideps),
             decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true);
 
         ideps.clear();
-        weak_ideps.clear();
     }
 
     [[gnu::always_inline]]
     pstring_t begin_struct(pstring_t struct_name)
     {
         assert(ideps.empty());
-        assert(weak_ideps.empty());
 
         // Reset the struct:
         field_map.clear();

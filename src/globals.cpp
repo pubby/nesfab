@@ -64,8 +64,7 @@ global_t const* global_t::lookup_sourceless(std::string_view view)
 // Changes a global from UNDEFINED to some specified 'gclass'.
 // This gets called whenever a global is parsed.
 unsigned global_t::define(pstring_t pstring, global_class_t gclass, 
-                          ideps_set_t&& ideps, ideps_set_t&& weak_ideps,
-                          std::function<unsigned(global_t&)> create_impl)
+                          ideps_map_t&& ideps, std::function<unsigned(global_t&)> create_impl)
 {
     assert(compiler_phase() <= PHASE_PARSE);
     unsigned ret;
@@ -90,7 +89,6 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
         m_pstring = pstring; // Not necessary but useful for error reporting.
         m_impl_id = ret = create_impl(*this);
         m_ideps = std::move(ideps);
-        m_weak_ideps = std::move(weak_ideps);
     }
     ideps.clear();
     return ret;
@@ -106,15 +104,14 @@ static unsigned _append_to_vec(Args&&... args)
 }
 */
 
-fn_t& global_t::define_fn(pstring_t pstring,
-                          global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
+fn_t& global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
                           type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
                           fn_class_t fclass, bool iasm)
 {
     fn_t* ret;
 
     // Create the fn
-    define(pstring, GLOBAL_FN, std::move(ideps), std::move(weak_ideps), [&](global_t& g)
+    define(pstring, GLOBAL_FN, std::move(ideps), [&](global_t& g)
     { 
         return fn_ht::pool_emplace(
             ret, g, type, std::move(fn_def), std::move(mods), fclass, iasm).id; 
@@ -134,14 +131,14 @@ fn_t& global_t::define_fn(pstring_t pstring,
     return *ret;
 }
 
-gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps, 
+gvar_t& global_t::define_var(pstring_t pstring, ideps_map_t&& ideps, 
                              src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
                              ast_node_t const* expr, std::unique_ptr<mods_t> mods)
 {
     gvar_t* ret;
 
     // Create the var
-    gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), {}, [&](global_t& g)
+    gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), [&](global_t& g)
     { 
         return gvar_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(mods)).id;
     })};
@@ -153,14 +150,14 @@ gvar_t& global_t::define_var(pstring_t pstring, global_t::ideps_set_t&& ideps,
     return *ret;
 }
 
-const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps, 
+const_t& global_t::define_const(pstring_t pstring, ideps_map_t&& ideps, 
                                 src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
                                 ast_node_t const* expr, std::unique_ptr<mods_t> mods)
 {
     const_t* ret;
 
     // Create the const
-    const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), {}, [&](global_t& g)
+    const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
     { 
         return const_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(mods)).id;
     })};
@@ -172,14 +169,14 @@ const_t& global_t::define_const(pstring_t pstring, global_t::ideps_set_t&& ideps
     return *ret;
 }
 
-struct_t& global_t::define_struct(pstring_t pstring, global_t::ideps_set_t&& ideps,
+struct_t& global_t::define_struct(pstring_t pstring, ideps_map_t&& ideps,
                                   field_map_t&& fields)
                                 
 {
     struct_t* ret;
 
     // Create the struct
-    define(pstring, GLOBAL_STRUCT, std::move(ideps), {}, [&](global_t& g)
+    define(pstring, GLOBAL_STRUCT, std::move(ideps), [&](global_t& g)
     { 
         return struct_ht::pool_emplace(ret, g, std::move(fields)).id;
     });
@@ -205,27 +202,6 @@ void global_t::init()
         return _append_to_vec<vbank_t>(g); 
     });
     */
-}
-
-bool global_t::has_dep(global_t const& other) const
-{
-    assert(compiler_phase() > PHASE_PARSE);
-
-    // Every global depends on itself.
-    if(this == &other)
-        return true;
-    
-    if(ideps().count(const_cast<global_t*>(&other)))
-        return true;
-
-    for(global_t* idep : ideps())
-    {
-        assert(this != idep);
-        if(idep->has_dep(other))
-            return true;
-    }
-
-    return false;
 }
 
 // This function isn't thread-safe.
@@ -286,6 +262,28 @@ void global_t::parse_cleanup()
 
 // This function isn't thread-safe.
 // Call from a single thread only.
+void global_t::resolve_all()
+{
+    assert(compiler_phase() == PHASE_RESOLVE);
+
+    globals_left = global_ht::pool().size();
+
+    // Spawn threads to compile in parallel:
+    parallelize(compiler_options().num_threads,
+    [](std::atomic<bool>& exception_thrown)
+    {
+        while(!exception_thrown)
+        {
+            global_t* global = await_ready_global();
+            if(!global)
+                return;
+            global->resolve(nullptr);
+        }
+    });
+}
+
+// This function isn't thread-safe.
+// Call from a single thread only.
 void global_t::precheck_all()
 {
     assert(compiler_phase() == PHASE_PRECHECK);
@@ -334,7 +332,8 @@ void global_t::precheck_all()
 
     // Then populate 'used_in_modes':
     for(fn_t* mode : modes())
-        mode->mode_nmi()->pimpl<nmi_impl_t>().used_in_modes.set(mode->handle().id);
+        if(fn_ht nmi = mode->mode_nmi())
+            nmi->pimpl<nmi_impl_t>().used_in_modes.set(mode->handle().id);
 
     // Determine which rom procs each fn should have:
 
@@ -370,36 +369,49 @@ void global_t::precheck_all()
     }
 }
 
-global_t* global_t::detect_cycle(global_t& global, std::vector<std::string>& error_msgs)
+// Not thread safe!
+global_t* global_t::detect_cycle(global_t& global, idep_class_t pass, idep_class_t calc)
 {
-    if(global.m_ideps_left == 2) // Re-use 'm_ideps_left' to track the DFS.
+    if(global.m_ideps_left >= calc) // Re-use 'm_ideps_left' to track the DFS.
         return nullptr;
 
-    if(global.m_ideps_left == 1)
+    if(global.m_ideps_left == -1)
         return &global;
 
-    global.m_ideps_left = 1;
+    global.m_ideps_left = -1;
 
-    for(global_t* idep : global.m_ideps)
+    for(auto const& pair : global.m_ideps)
     {
-        if(global_t* error = detect_cycle(*idep, error_msgs))
+        assert(pair.second.calc);
+        assert(pair.second.depends_on);
+
+        // If we can calcalate:
+        if(pair.second.calc > calc)
+            continue;
+
+        // If the the idep was computed in a previous pass:
+        if(pair.second.calc < pass || pair.second.depends_on < pass)
+            continue;
+
+        if(global_t* error = detect_cycle(*pair.first, pass, pair.second.depends_on))
         {
             if(error != &global)
             {
-                error_msgs.push_back(fmt_error(global.m_pstring, "Mutually recursive with:"));
+                detect_cycle_error_msgs.push_back(fmt_error(global.m_pstring, "Mutually recursive with:"));
                 return error;
             }
 
             std::string msg = fmt_error(global.m_pstring,
                 fmt("% has a recursive definition.", global.name));
-            for(std::string const& str : error_msgs)
+            for(std::string const& str : detect_cycle_error_msgs)
                 msg += str;
 
+            detect_cycle_error_msgs.clear();
             throw compiler_error_t(std::move(msg));
         }
     }
 
-    global.m_ideps_left = 2;
+    global.m_ideps_left = calc;
 
     return nullptr;
 }
@@ -432,42 +444,59 @@ void global_t::count_members()
 
 // This function isn't thread-safe.
 // Call from a single thread only.
-void global_t::build_order(bool precheck)
+void global_t::build_order()
 {
-    assert(compiler_phase() == PHASE_ORDER_PRECHECK
-           || compiler_phase() == PHASE_ORDER_COMPILE);
-    assert(precheck == (compiler_phase() == PHASE_ORDER_PRECHECK));
+    idep_class_t pass;
+    switch(compiler_phase())
+    {
+    case PHASE_ORDER_RESOLVE:
+        pass = IDEP_TYPE;
+        break;
+    case PHASE_ORDER_PRECHECK:
+    case PHASE_ORDER_COMPILE:
+        pass = IDEP_VALUE;
+        break;
+    default:
+        assert(false);
+    }
 
-    // TODO: move this to precheck?
-    if(!precheck)
+    /*
+    if(compiler_phase() == PHASE_ORDER_COMPILE)
     {
         // Add additional ideps
         for(fn_t& fn : fn_ht::values())
         {
             if(fn.iasm || fn.fclass == FN_CT)
                 continue;
+
             // fns that fence for nmis should depend on said nmis
             if(fn.precheck_tracked().wait_nmis.size() > 0)
             {
                 for(fn_ht mode : fn.precheck_parent_modes())
                 {
-                    global_t* new_dep = &mode->mode_nmi()->global;
-                    assert(!new_dep->has_dep(fn.global));
-                    fn.global.m_ideps.insert(new_dep); // ideps
+                    if(fn_ht nmi = mode->mode_nmi())
+                    {
+                        global_t* new_dep = &nmi->global;
+                        //assert(!new_dep->has_dep(fn.global)); TODO
+                        fn.global.m_ideps.emplace(new_dep, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
+                    }
                 }
             }
-            else if(fn.precheck_tracked().fences.size() > 0)
-                for(fn_ht mode : fn.precheck_parent_modes())
-                    fn.global.m_weak_ideps.insert(&mode->mode_nmi()->global); // weak ideps
+            // TODO
+            //else if(fn.precheck_tracked().fences.size() > 0)
+                //for(fn_ht mode : fn.precheck_parent_modes())
+                    //if(fn_ht nmi = mode->mode_nmi())
+                        //fn.global.m_weak_ideps.insert(&nmi->global); // weak ideps
         }
     }
+    */
 
 
 
     // Convert weak ideps
+    /* TODO : remove?
     for(global_t& global : global_ht::values())
     {
-        /* TODO
         if(global.gclass() == GLOBAL_FN && global.impl<fn_t>().iasm())
         {
             // 'iasm' fns will convert all weak_ideps to regular ideps:
@@ -475,7 +504,6 @@ void global_t::build_order(bool precheck)
                                   global.m_weak_ideps.end());
         }
         else
-        */
         for(global_t* idep : global.m_weak_ideps)
             if(!idep->has_dep(global)) // Avoid loops.
                 global.m_ideps.insert(idep);
@@ -483,40 +511,87 @@ void global_t::build_order(bool precheck)
         global.m_weak_ideps.clear();
         global.m_weak_ideps.container.shrink_to_fit();
     }
+    */
 
-    // Detect cycles
+    // Detect cycles and clear 'm_iuses':
     for(global_t& global : global_ht::values())
     {
-        std::vector<std::string> error_msgs;
-        detect_cycle(global, error_msgs);
-
-        // Also clear m_iuses:
+        detect_cycle(global, pass, pass);
         global.m_iuses.clear();
     }
 
+    // Build the order:
     for(global_t& global : global_ht::values())
     {
-        global.m_ideps_left.store(global.m_ideps.size(), std::memory_order_relaxed);
-        for(global_t* idep : global.m_ideps)
-            idep->m_iuses.insert(&global);
+        // 'm_ideps_left' was set by 'detect_cycles',
+        // and holds the level of calculation required:
+        idep_class_t const calc = idep_class_t(global.m_ideps_left.load());
 
-        if(global.m_ideps.empty())
+        unsigned ideps_left = 0;
+        for(auto const& pair : global.m_ideps)
+        {
+            // If we can calcalate:
+            if(pair.second.calc > calc)
+                continue;
+
+            // If the the idep was computed in a previous pass:
+            if(pair.second.calc < pass || pair.second.depends_on < pass)
+                continue;
+
+            ++ideps_left;
+            assert(pair.first != &global);
+            pair.first->m_iuses.insert(&global);
+        }
+
+        global.m_ideps_left.store(ideps_left, std::memory_order_relaxed);
+
+        if(ideps_left == 0)
             ready.push_back(&global);
     }
+
+    assert(ready.size());
+}
+
+// TODO: combine this with 'precheck' and 'compile'.
+void global_t::resolve(log_t* log)
+{
+    log = &stdout_log;
+    assert(compiler_phase() == PHASE_RESOLVE);
+
+    dprint(log, "RESOLVING", name);
+
+    switch(gclass())
+    {
+    default:
+        throw std::runtime_error("Invalid global.");
+
+    case GLOBAL_FN:
+        this->impl<fn_t>().resolve();
+        break;
+
+    case GLOBAL_CONST:
+        this->impl<const_t>().resolve();
+        break;
+
+    case GLOBAL_VAR:
+        this->impl<gvar_t>().resolve();
+        break;
+
+    case GLOBAL_STRUCT:
+        this->impl<struct_t>().resolve();
+        break;
+    }
+
+    completed();
 }
 
 void global_t::precheck(log_t* log)
 {
+    log = &stdout_log;
     assert(compiler_phase() == PHASE_PRECHECK);
 
     dprint(log, "PRECHECKING", name);
 
-#ifndef NDEBUG
-    for(global_t const* idep : ideps())
-        assert(idep->prechecked());
-#endif
-
-    // Compile it!
     switch(gclass())
     {
     default:
@@ -547,14 +622,9 @@ void global_t::compile(log_t* log)
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
+    log = &stdout_log; // TODO
     dprint(log, "COMPILING", name, m_ideps.size());
 
-#ifndef NDEBUG
-    for(global_t const* idep : ideps())
-        assert(idep->compiled());
-#endif
-
-    // Compile it!
     switch(gclass())
     {
     default:
@@ -678,8 +748,7 @@ fn_ht fn_t::mode_nmi() const
 { 
     assert(fclass == FN_MODE); 
     assert(compiler_phase() > PHASE_PARSE_CLEANUP);
-    assert(mods());
-    return mods()->nmi->handle<fn_ht>();
+    return mods() ? mods()->nmi->handle<fn_ht>() : fn_ht{};
 }
 
 unsigned fn_t::nmi_index() const
@@ -930,7 +999,7 @@ void alloc_args(ir_t const& ir)
 }
 */
 
-void fn_t::precheck()
+void fn_t::resolve()
 {
     // Dethunkify the fn type:
     {
@@ -942,7 +1011,7 @@ void fn_t::precheck()
     }
 
     if(fclass == FN_CT)
-        return; // Nothing else to do!
+        return; // Nothing to do!
 
     // Finish up types:
     for(unsigned i = 0; i < def().num_params; ++i)
@@ -961,7 +1030,7 @@ void fn_t::precheck()
         if(!mods() || !mods()->explicit_group_data)
             compiler_error(global.pstring(), "Missing data modifier.");
 
-        // First resolve local constants:
+        // Resolve local constants:
         for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
         {
             auto& c = m_def.local_consts[i];
@@ -974,7 +1043,16 @@ void fn_t::precheck()
             else
                 c.value = { locator_t::minor_label(i) };
         }
+    }
+}
 
+void fn_t::precheck()
+{
+    if(fclass == FN_CT)
+        return; // Nothing to do!
+
+    if(iasm)
+    {
         m_precheck_tracked.reset(new precheck_tracked_t());
         auto& pt = *m_precheck_tracked;
 
@@ -1061,8 +1139,10 @@ void fn_t::compile_iasm()
     asm_proc_t proc;
     proc.fn = handle();
 
-    for(stmt_t const& stmt : def().stmts)
+    for(unsigned i = 0; i < def().stmts.size(); ++i)
     {
+        stmt_t const& stmt = def().stmts[i];
+
         switch(stmt.name)
         {
         case STMT_ASM_OP:
@@ -1095,12 +1175,12 @@ void fn_t::compile_iasm()
                         assert(false);
                 }
 
-                proc.push_inst({ .op = stmt.asm_op, .arg = value });
+                proc.push_inst({ .op = stmt.asm_op, .iasm_stmt = i, .arg = value });
             }
             break;
 
         case STMT_ASM_LABEL:
-            proc.push_inst({ .op = ASM_LABEL, .arg = locator_t::minor_label(stmt.asm_label) });
+            proc.push_inst({ .op = ASM_LABEL, .iasm_stmt = i, .arg = locator_t::minor_label(stmt.asm_label) });
             break;
 
         case STMT_ASM_CALL:
@@ -1109,8 +1189,8 @@ void fn_t::compile_iasm()
                 if(stmt.global->gclass() != GLOBAL_FN || stmt.global->impl<fn_t>().fclass != FN_FN)
                     compiler_error(stmt.pstring, fmt("% is not a callable function.", stmt.global->name));
                 op_t const op = stmt.name == STMT_ASM_CALL ? BANKED_Y_JSR : BANKED_Y_JMP;
-                proc.push_inst({ .op = LDY_IMMEDIATE, .arg = locator_t::fn(stmt.global->handle<fn_ht>()).with_is(IS_BANK) });
-                proc.push_inst({ .op = op, .arg = locator_t::fn(stmt.global->handle<fn_ht>()) });
+                proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_stmt = i, .arg = locator_t::fn(stmt.global->handle<fn_ht>()).with_is(IS_BANK) });
+                proc.push_inst({ .op = op, .iasm_stmt = i, .arg = locator_t::fn(stmt.global->handle<fn_ht>()) });
             }
             break;
         case STMT_ASM_GOTO_MODE:
@@ -1119,7 +1199,7 @@ void fn_t::compile_iasm()
             throw 0;
             break;
         case STMT_ASM_NMI:
-            proc.push_inst({ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
+            proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_stmt = i, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
             break;
         default:
             throw std::runtime_error("Unexpected stmt in inline assembly.");
@@ -1131,6 +1211,7 @@ void fn_t::compile_iasm()
 
     // TODO
     //proc.write_assembly(std::cout, ROMV_MODE);
+    proc.build_label_offsets();
     rom_proc().safe().assign(std::move(proc));
 }
 
@@ -1142,23 +1223,18 @@ void fn_t::compile()
     if(fclass == FN_CT)
         return; // Nothing to do!
 
-    if(iasm)
-        return compile_iasm();
-
-    // Init 'fence_reads' and 'fence_writes':
+    // Init 'fence_rw':
     if(precheck_fences())
     {
-        m_fence_reads.alloc();
-        m_fence_writes.alloc();
-
+        m_fence_rw.alloc();
         for(fn_ht mode : precheck_parent_modes())
-        {
-            fn_ht const nmi = mode->mode_nmi();
-            bool const has_dep = global.has_dep(nmi->global);
-            m_fence_reads  |= nmi->avail_reads(has_dep);
-            m_fence_writes |= nmi->avail_writes(has_dep);
-        }
+            if(fn_ht nmi = mode->mode_nmi())
+                m_fence_rw |= nmi->precheck_rw();
+        assert(m_fence_rw);
     }
+
+    if(iasm)
+        return compile_iasm();
 
     // Compile the FN.
     ssa_pool::clear();
@@ -1466,10 +1542,10 @@ void fn_t::calc_precheck_bitsets()
         {
             fn_t& call = *pair.first;
 
-            assert(call.fclass != FN_CT);
-            assert(call.fclass != FN_MODE);
-            assert(call.m_precheck_group_vars);
-            assert(call.m_precheck_rw);
+            passert(call.fclass != FN_CT, global.name, call.global.name);
+            passert(call.fclass != FN_MODE, global.name, call.global.name);
+            passert(call.m_precheck_group_vars, global.name, call.global.name);
+            passert(call.m_precheck_rw, global.name, call.global.name);
 
             bitset_copy(gv_bs_size, temp_bs, call.m_precheck_group_vars.data());
             bitset_difference(gv_bs_size, temp_bs, mod_group_vars);
@@ -1580,15 +1656,19 @@ void fn_t::for_each_referenced_param_locator(std::function<void(locator_t)> cons
 
 void global_datum_t::dethunkify(bool full)
 {
-    assert(compiler_phase() == PHASE_PRECHECK || compiler_phase() == PHASE_COUNT_MEMBERS);
+    assert(compiler_phase() == PHASE_RESOLVE || compiler_phase() == PHASE_COUNT_MEMBERS);
     m_src_type.type = ::dethunkify(m_src_type, full);
+}
+
+void global_datum_t::resolve()
+{
+    assert(compiler_phase() == PHASE_RESOLVE);
+    dethunkify(true);
 }
 
 void global_datum_t::precheck()
 {
     assert(compiler_phase() == PHASE_PRECHECK);
-
-    dethunkify(true);
 
     if(!init_expr)
         return;
@@ -1765,9 +1845,9 @@ unsigned struct_t::count_members()
     return m_num_members = count;
 }
 
-void struct_t::precheck()
+void struct_t::resolve()
 {
-    assert(compiler_phase() == PHASE_PRECHECK);
+    assert(compiler_phase() == PHASE_RESOLVE);
 
     // Dethunkify
     for(unsigned i = 0; i < fields().size(); ++i)
@@ -1776,10 +1856,8 @@ void struct_t::precheck()
     gen_member_types(*this, 0);
 }
 
-void struct_t::compile()
-{
-    assert(compiler_phase() == PHASE_COMPILE);
-}
+void struct_t::precheck() { assert(compiler_phase() == PHASE_PRECHECK); }
+void struct_t::compile() { assert(compiler_phase() == PHASE_COMPILE); }
 
 // Builds 'm_member_types', sets 'm_has_array_member', and dethunkifies the struct.
 void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
@@ -1852,4 +1930,16 @@ fn_t const& get_main_entry()
         compiler_error(main_fn.def().local_vars[0].name, "Mode main cannot have parameters.");
 
     return main_fn;
+}
+
+void add_idep(ideps_map_t& map, global_t* global, idep_pair_t pair)
+{
+    auto result = map.emplace(global, pair);
+    if(!result.second)
+    {
+        idep_pair_t& prev = result.first.underlying->second;
+        prev.calc = std::min(prev.calc, pair.calc);
+        prev.depends_on = std::max(prev.depends_on, pair.depends_on);
+    }
+
 }

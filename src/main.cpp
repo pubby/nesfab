@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <chrono>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 
 #include <boost/program_options.hpp>
 
@@ -21,6 +23,7 @@
 #include "cg_isel.hpp"
 #include "eternal_new.hpp" // TODO: remove?
 #include "ir.hpp" // TODO: remove?
+#include "convert_png.hpp" // TODO: remove?
 
 #include "eval.hpp" // TODO: remove?
 
@@ -29,6 +32,72 @@
 extern char __GIT_COMMIT;
 
 namespace po = boost::program_options;
+namespace fs = std::filesystem;
+
+void handle_options(fs::path dir, po::options_description const& cfg_desc, po::variables_map const& vm, int depth = 0)
+{
+    if(depth > 16)
+        throw std::runtime_error("Configuration files nested too deeply.");
+
+    if(vm.count("input"))
+    {
+        for(std::string const& name : vm["input"].as<std::vector<std::string>>())
+        {
+            fs::path const path = dir / fs::path(name);
+            std::string const ext = fs::path(path).extension();
+
+            std::cout << path << std::endl;
+
+            if(ext == ".cfg")
+            {
+                std::ifstream ifs(path.string(), std::ios::in);
+                if(ifs)
+                {
+                    fs::path cfg_dir = path;
+                    cfg_dir.remove_filename();
+
+                    po::variables_map cfg_vm;
+                    po::store(po::parse_config_file(ifs, cfg_desc), cfg_vm);
+                    po::notify(cfg_vm);
+
+                    handle_options(cfg_dir, cfg_desc, cfg_vm, depth + 1);
+                }
+                else
+                    throw std::runtime_error(fmt("Unable to open configuration file: %", name.c_str()));
+            }
+            else if(ext == ".fab")
+                _options.source_names.push_back(path);
+            else
+                throw std::runtime_error(fmt("Unknown file type: %", name.c_str()));
+        }
+    }
+
+    if(vm.count("code-dir"))
+        for(std::string const& str : vm["code-dir"].as<std::vector<std::string>>())
+            _options.code_dirs.push_back(dir / fs::path(str));
+
+    if(vm.count("resource-dir"))
+        for(std::string const& str : vm["resource-dir"].as<std::vector<std::string>>())
+            _options.resource_dirs.push_back(dir / fs::path(str));
+
+    if(vm.count("output"))
+        _options.output_file = vm["output"].as<std::string>();
+
+    if(vm.count("graphviz"))
+        _options.graphviz = true;
+
+    if(vm.count("build-time"))
+        _options.build_time = true;
+
+    if(vm.count("error-on-warning"))
+        _options.werror = true;
+
+    if(vm.count("threads"))
+        _options.num_threads = std::clamp(vm["threads"].as<int>(), 1, 1024); // Clamp to some sufficiently high value
+
+    if(vm.count("timelimit"))
+        _options.time_limit = std::max(vm["timelimit"].as<int>(), 0);
+}
 
 int main(int argc, char** argv)
 {
@@ -40,30 +109,53 @@ int main(int argc, char** argv)
         // Handle program options: //
         /////////////////////////////
         {
-            po::options_description desc("Allowed options");
-            desc.add_options()
+            po::options_description cmdline("Command line options");
+            cmdline.add_options()
                 ("help,h", "produce help message")
                 ("version,v", "version")
-                ("input-file,i", po::value<std::vector<std::string>>(), "input file")
-                ("graphviz,g", "output graphviz files")
-                ("threads,j", po::value<int>(), "number of compiler threads")
-                ("timelimit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
-                ("build-time,B", "print compiler execution time")
-                ("error-on-warning,W", "turn warnings into errors")
-                ("output-file,o", po::value<std::string>(), "output file")
+            ;
+
+            po::options_description cmdline_hidden("Hidden command line options");
+            cmdline_hidden.add_options()
                 ("print-cpp-sizes", "print size of C++ objects")
             ;
 
+            po::options_description basic("Basic options");
+            basic.add_options()
+                ("code-dir,I", po::value<std::vector<std::string>>(), "search directory for code files")
+                ("resource-dir,R", po::value<std::vector<std::string>>(), "search directory for resource files")
+                ("output,o", po::value<std::string>(), "output file")
+                ("config,c", po::value<std::string>(), "configuration file")
+                ("threads,j", po::value<int>(), "number of compiler threads")
+                ("error-on-warning,W", "turn warnings into errors")
+            ;
+
+            po::options_description basic_hidden("Hidden options");
+            basic_hidden.add_options()
+                ("input,i", po::value<std::vector<std::string>>()->multitoken(), "input file")
+                ("graphviz,g", "output graphviz files")
+                ("time-limit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
+                ("build-time,B", "print compiler execution time")
+            ;
+
+            po::options_description cmdline_full;
+            cmdline_full.add(cmdline).add(cmdline_hidden).add(basic).add(basic_hidden);
+
+            po::options_description config_full;
+            config_full.add(basic).add(basic_hidden);
+
             po::positional_options_description p;
-            p.add("input-file", -1);
+            p.add("input", -1);
 
             po::variables_map vm;        
-            po::store(po::command_line_parser(argc, argv) .options(desc).positional(p).run(), vm);
+            po::store(po::command_line_parser(argc, argv).options(cmdline_full).positional(p).run(), vm);
             po::notify(vm);
 
             if(vm.count("help")) 
             {
-                std::cout << desc << '\n';
+                po::options_description visible;
+                visible.add(cmdline).add(basic);
+                std::cout << visible << '\n';
                 return EXIT_SUCCESS;
             }
 
@@ -76,27 +168,6 @@ int main(int argc, char** argv)
                     "There is no warranty.\n";
                 return EXIT_SUCCESS;
             }
-
-            if(vm.count("input-file"))
-                source_file_names = vm["input-file"].as<std::vector<std::string>>();
-
-            if(vm.count("output-file"))
-                _options.output_file = vm["output-file"].as<std::string>();
-
-            if(vm.count("graphviz"))
-                _options.graphviz = true;
-
-            if(vm.count("build-time"))
-                _options.build_time = true;
-
-            if(vm.count("error-on-warning"))
-                _options.werror = true;
-
-            if(vm.count("threads"))
-                _options.num_threads = std::clamp(vm["threads"].as<int>(), 1, 1024); // Clamp to some sufficiently high value
-
-            if(vm.count("timelimit"))
-                _options.time_limit = std::max(vm["timelimit"].as<int>(), 0);
 
             if(vm.count("print-cpp-sizes"))
             {
@@ -119,7 +190,9 @@ int main(int argc, char** argv)
                 return EXIT_SUCCESS;
             }
 
-            if(source_file_names.empty())
+            handle_options(fs::path(), config_full, vm);
+
+            if(compiler_options().source_names.empty())
                 throw std::runtime_error("No input files.");
         }
 
@@ -150,7 +223,7 @@ int main(int argc, char** argv)
             while(!exception_thrown)
             {
                 unsigned const file_i = next_file_i++;
-                if(file_i >= source_file_names.size())
+                if(file_i >= compiler_options().source_names.size())
                     return;
 
                 file_contents_t file(file_i);
@@ -178,18 +251,25 @@ int main(int argc, char** argv)
         auto rom_allocator = alloc_runtime_rom();
         output_time("runtime:  ");
 
-        set_compiler_phase(PHASE_ORDER_PRECHECK);
-        global_t::build_order(true);
+        set_compiler_phase(PHASE_ORDER_RESOLVE);
+        global_t::build_order();
         output_time("order1:   ");
+
+        set_compiler_phase(PHASE_RESOLVE);
+        global_t::resolve_all();
+        output_time("resolve:  ");
+
+        set_compiler_phase(PHASE_ORDER_PRECHECK);
+        global_t::build_order();
+        output_time("order2:   ");
 
         set_compiler_phase(PHASE_PRECHECK);
         global_t::precheck_all();
         output_time("precheck: ");
 
-        // Create an ordering of all the globals:
         set_compiler_phase(PHASE_ORDER_COMPILE);
-        global_t::build_order(false);
-        output_time("order2:   ");
+        global_t::build_order();
+        output_time("order3:   ");
 
         // Compile each global:
         set_compiler_phase(PHASE_COMPILE);

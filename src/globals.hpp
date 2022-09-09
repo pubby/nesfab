@@ -54,7 +54,6 @@ using field_map_t = rh::batman_map<std::uint64_t, field_t, std::identity>;
 class global_t
 {
 public:
-    using ideps_set_t = fc::vector_set<global_t*>;
     std::string const name;
 private:
     // These variables are set only by 'define', as soon
@@ -69,17 +68,12 @@ private:
     // 'ideps' means "immediate dependencies".
     // AKA any global name that appears in the definition of this global.
     // This is set by 'define'
-    ideps_set_t m_ideps;
-
-    // 'weak_ideps' exist to handle recursive mode gotos.
-    // These can be converted into regular ideps, if no cycles will be created.
-    // Otherwise, they're simply discarded.
-    ideps_set_t m_weak_ideps;
+    ideps_map_t m_ideps;
 
     // Likewise, 'iuses' holds the immediate users of this global.
     // This is built after all globals have been created, after parsing.
-    ideps_set_t m_iuses;
-    std::atomic<unsigned> m_ideps_left = 0;
+    fc::vector_set<global_t*> m_iuses;
+    std::atomic<int> m_ideps_left = 0;
 
     std::atomic<bool> m_prechecked = false; // Use for debugging only.
     std::atomic<bool> m_compiled = false; // Use for debugging only.
@@ -94,7 +88,7 @@ public:
     }
 
     global_class_t gclass() const { assert(compiler_phase() > PHASE_PARSE); return m_gclass; }
-    ideps_set_t const& ideps() const { assert(compiler_phase() > PHASE_PARSE); return m_ideps; }
+    ideps_map_t const& ideps() const { assert(compiler_phase() > PHASE_PARSE); return m_ideps; }
     pstring_t pstring() const { return m_pstring; }
     unsigned impl_id() const { assert(compiler_phase() > PHASE_PARSE); return m_impl_id; }
     bool prechecked() const { return m_prechecked; }
@@ -119,23 +113,20 @@ public:
 
     global_datum_t* datum() const;
 
-    // If this global has a dependency to 'other'
-    bool has_dep(global_t const& other) const;
-
     // Helpers that delegate to 'define':
     fn_t& define_fn(
-        pstring_t pstring, global_t::ideps_set_t&& ideps, global_t::ideps_set_t&& weak_ideps, 
+        pstring_t pstring, ideps_map_t&& ideps,
         type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass, bool iasm);
     gvar_t& define_var(
-        pstring_t pstring, global_t::ideps_set_t&& ideps, 
+        pstring_t pstring, ideps_map_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
         ast_node_t const* expr, std::unique_ptr<mods_t> mods);
     const_t& define_const(
-        pstring_t pstring, global_t::ideps_set_t&& ideps, 
+        pstring_t pstring, ideps_map_t&& ideps, 
         src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, 
         ast_node_t const* expr, std::unique_ptr<mods_t> mods);
     struct_t& define_struct(
-        pstring_t pstring, global_t::ideps_set_t&& ideps, field_map_t&& map);
+        pstring_t pstring, ideps_map_t&& ideps, field_map_t&& map);
 
     static void init();
 
@@ -150,7 +141,9 @@ public:
     static void parse_cleanup();
 
     // Implementation detail used in 'build_order'.
-    static global_t* detect_cycle(global_t& global, std::vector<std::string>& error_msgs);
+    // Sets 'm_ideps_left' with the idep calc required.
+    static global_t* detect_cycle(global_t& global, idep_class_t pass, idep_class_t calc);
+    inline static std::vector<std::string> detect_cycle_error_msgs;
 
     // This allocates 'gmember_t's.
     static void count_members(); 
@@ -159,7 +152,10 @@ public:
     // among other things.
     // This function isn't thread-safe.
     // Call from a single thread only.
-    static void build_order(bool precheck);
+    static void build_order();
+
+    // Call after 'build_order'. Dethunkifies types.
+    static void resolve_all();
 
     // Call after 'build_order'. Checks the code and gathers information with a pre-pass evaluation.
     static void precheck_all();
@@ -172,9 +168,9 @@ public:
 private:
     // Sets the variables of the global:
     unsigned define(pstring_t pstring, global_class_t gclass, 
-                    ideps_set_t&& ideps, ideps_set_t&& weak_ideps,
-                    std::function<unsigned(global_t&)> create_impl);
+                    ideps_map_t&& ideps, std::function<unsigned(global_t&)> create_impl);
 
+    void resolve(log_t* log);
     void precheck(log_t* log);
     void compile(log_t* log);
 
@@ -249,6 +245,7 @@ public:
 
     unsigned count_members(); 
 
+    void resolve();
     void precheck();
     void compile();
 private:
@@ -322,6 +319,7 @@ public:
     type_t type() const { return m_type; }
     fn_def_t const& def() const { return m_def; }
 
+    void resolve();
     void precheck();
     void compile();
     void compile_iasm();
@@ -365,11 +363,12 @@ public:
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
 
-    auto const& avail_reads(bool known_compiled) const { return known_compiled ? ir_reads() : precheck_rw(); }
-    auto const& avail_writes(bool known_compiled) const { return known_compiled ? ir_writes() : precheck_rw(); }
+    // TODO: remove?
+    //auto const& avail_reads(bool known_compiled) const { return known_compiled ? ir_reads() : precheck_rw(); }
+    //auto const& avail_writes(bool known_compiled) const { return known_compiled ? ir_writes() : precheck_rw(); }
 
-    auto const& fence_reads() const { assert(m_fence_reads); return m_fence_reads; }
-    auto const& fence_writes() const { assert(m_fence_writes); return m_fence_writes; }
+    auto const& fence_rw() const { assert(m_fence_rw); return m_fence_rw; }
+    //auto const& fence_writes() const { assert(m_fence_writes); return m_fence_writes; }
 
     //bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
     //bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
@@ -422,8 +421,7 @@ private:
     bool m_precheck_fences = false; // TODO: remove?
 
     // TODO: describe
-    xbitset_t<gmember_ht> m_fence_reads;
-    xbitset_t<gmember_ht> m_fence_writes;
+    xbitset_t<gmember_ht> m_fence_rw;
 
     // Bitsets of all global vars read/written in fn (deep)
     // These get assigned by 'calc_reads_writes_purity'.
@@ -479,6 +477,7 @@ public:
     rval_t const& rval() const { assert(global.prechecked()); return m_rval; }
 
     void dethunkify(bool full);
+    void resolve();
     void precheck();
     void compile();
 

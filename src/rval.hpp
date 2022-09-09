@@ -5,6 +5,7 @@
 #include <memory>
 #include <variant>
 #include <vector>
+#include <limits>
 
 #include <boost/container/small_vector.hpp>
 
@@ -45,6 +46,8 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
 
 struct lval_t
 {
+    static constexpr std::int16_t RETURN_ARG = std::numeric_limits<std::int16_t>::max();
+
     bool is_global = false;
     std::int8_t atom = -1; // negative means no atom.
     std::uint16_t member = 0;

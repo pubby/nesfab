@@ -19,6 +19,7 @@ struct asm_inst_t
 {
     op_t op;
     ssa_op_t ssa_op; // Which op generated this instruction. (Useful for debugging)
+    int iasm_stmt = -1;
     locator_t arg;
 
     // 'alt' typically holds the hi part of a pointer.

@@ -150,7 +150,7 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
             unsigned const num_atoms = ::num_atoms(member_type, j);
 
             for(unsigned k = 0; k < num_atoms; ++k)
-                insert_lvar(locator_t::arg(fn, 0, j, k), is_this);
+                insert_lvar(locator_t::ret(fn, j, k), is_this);
         }
     };
 
@@ -177,6 +177,9 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
     bitset_uint_t* bs = CALLOCA_T(bitset_uint_t, m_bitset_size);
     bitset_set_n(m_bitset_size, bs, m_map.size());
     add_lvar_interferences(bs);
+
+    // Every arg is seen:
+    m_seen_args = ~0ull;
 }
 
 bool lvars_manager_t::is_this_lvar(fn_ht fn, locator_t arg)

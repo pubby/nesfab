@@ -120,7 +120,7 @@ public:
 
     // BE CAREFUL. NO SYNCHRONIZATION!
     asm_proc_t const& asm_proc() const { return m_asm_proc; }
-    unsigned max_size() const { return m_max_size; }
+    unsigned max_size() const { assert(m_max_size < 1 << 16); return m_max_size; }
 
     xbitset_t<group_ht> const* uses_groups() const;
     bool for_each_group_test(std::function<bool(group_ht)> const& fn);

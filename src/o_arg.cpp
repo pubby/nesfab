@@ -15,13 +15,13 @@ bool o_remove_unused_arguments(log_t* log, ir_t& ir, fn_t const& fn, bool byteif
 
         fn_ht const called_h = get_fn(*ssa_it);
         fn_t const& called = *called_h;
-        bool const is_idep = fn.global.ideps().count(&called.global) > 0;
 
-        // If the called fn isn't an idep, it may not have been compiled yet.
+        // If the called fn is a mode, it may not have been compiled yet.
         // Thus, we can't check if it uses the argument.
-        if(!is_idep)
+        if(called.fclass == FN_MODE)
             continue;
 
+        assert(fn.global.ideps().count(&called.global));
         assert(called.global.compiled());
 
         for(unsigned i = write_globals_begin(ssa_it->op()); i < ssa_it->input_size();)

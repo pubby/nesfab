@@ -10,6 +10,8 @@
 #include <deque>
 #include <type_traits>
 
+#include "flat/flat_map.hpp"
+
 #include "phase.hpp"
 #include "handle.hpp"
 
@@ -17,6 +19,7 @@ constexpr unsigned MAX_FN_ARGS = 32;
 constexpr unsigned MAX_ASM_LOCAL_VARS = 128;
 constexpr unsigned MAX_MEMBERS = 256;
 constexpr unsigned MAX_ATOMS = 8;
+constexpr unsigned MAX_PAA_SIZE = 8192;
 
 struct group_t;
 class global_t;
@@ -112,5 +115,28 @@ constexpr char const* fn_class_keyword(fn_class_t fc)
     case FN_NMI: return "nmi";
     }
 }
+
+///////////
+// ideps //
+///////////
+
+enum idep_class_t : std::int8_t
+{
+    BAD_IDEP   = 0,
+    IDEP_TYPE,
+    IDEP_PRECHECK,
+    IDEP_VALUE,
+    NUM_IDEP_CLASSES
+};
+
+struct idep_pair_t
+{
+    idep_class_t calc;
+    idep_class_t depends_on;
+};
+
+using ideps_map_t = fc::vector_map<global_t*, idep_pair_t>;
+
+void add_idep(ideps_map_t& map, global_t* global, idep_pair_t pair);
 
 #endif

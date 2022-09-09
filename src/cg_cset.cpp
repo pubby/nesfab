@@ -242,11 +242,11 @@ bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
         default: 
             return false;
         case LOC_GMEMBER:
-            return fn->fence_writes().test(loc.gmember().id);
+            return fn->fence_rw().test(loc.gmember().id);
         case LOC_GMEMBER_SET:
             std::size_t const bs_size = gmember_ht::bitset_size();
             bitset_uint_t* writes = ALLOCA_T(bitset_uint_t, bs_size);
-            bitset_copy(bs_size, writes, fn->fence_writes().data());
+            bitset_copy(bs_size, writes, fn->fence_rw().data());
             bitset_and(bs_size, writes, ir.gmanager.get_set(loc));
             return !bitset_all_clear(bs_size, writes);
         }

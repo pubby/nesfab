@@ -199,13 +199,16 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 });
                 fn_data[mode->handle().id].romv_self[ROMV_MODE].insert(i);
 
-                mode->mode_nmi()->ir_calls().for_each([&](fn_ht call)
+                if(fn_ht nmi = mode->mode_nmi())
                 {
-                    fn_data[call.id].romv_interferes[ROMV_NMI].insert(i);
-                });
-                fn_data[mode->mode_nmi().id].romv_interferes[ROMV_NMI].insert(i);
+                    nmi->ir_calls().for_each([&](fn_ht call)
+                    {
+                        fn_data[call.id].romv_interferes[ROMV_NMI].insert(i);
+                    });
+                    fn_data[nmi.id].romv_interferes[ROMV_NMI].insert(i);
 
-                nmi_to_modes[mode->mode_nmi()].push_back(i);
+                    nmi_to_modes[nmi].push_back(i);
+                }
             }
 
             for(unsigned i = 0; i < global_t::nmis().size(); ++i)
@@ -237,20 +240,22 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
         }
 
         // Build 'maximal_group_vars'
-        auto const propagate = [&](fn_t const* fn, auto const& additional)
+        auto const propagate = [&](fn_t const* fn, auto const* additional)
         {
             assert(fn->ir_calls() && fn->ir_group_vars());
             fn->ir_calls().for_each([&](fn_ht call)
             {
                 // Propagate down call graph, not up
                 fn_data[call.id].maximal_group_vars |= fn->ir_group_vars();
-                fn_data[call.id].maximal_group_vars |= additional;
+                if(additional)
+                    fn_data[call.id].maximal_group_vars |= *additional;
             });
-            fn_data[fn->handle().id].maximal_group_vars |= additional;
+            if(additional)
+                fn_data[fn->handle().id].maximal_group_vars |= *additional;
         };
 
         for(fn_t const* mode : global_t::modes())
-            propagate(mode, mode->mode_nmi()->ir_group_vars());
+            propagate(mode, mode->mode_nmi() ? &mode->mode_nmi()->ir_group_vars() : nullptr);
 
         xbitset_t<group_vars_ht> nmi_additional(0);
         for(fn_t const* nmi : global_t::nmis())
@@ -260,7 +265,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             {
                 nmi_additional |= mode->ir_group_vars();
             });
-            propagate(nmi, nmi_additional);
+            propagate(nmi, &nmi_additional);
         }
 
         // Init 'group_vars_data'
@@ -280,7 +285,8 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             for(fn_t const* mode : global_t::modes())
             {
                 group_vars = mode->ir_group_vars();
-                group_vars |= mode->mode_nmi()->ir_group_vars();
+                if(fn_ht nmi = mode->mode_nmi())
+                    group_vars |= nmi->ir_group_vars();
 
                 group_vars.for_each([&](group_vars_ht gv)
                 {

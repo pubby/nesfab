@@ -12,6 +12,7 @@ unsigned ast_node_t::num_children() const
         assert(children);
         return token.value;
 
+    case TOK_unary_plus:
     case TOK_unary_minus:
     case TOK_unary_xor:
     case TOK_unary_negate:

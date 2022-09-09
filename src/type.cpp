@@ -286,7 +286,7 @@ std::string to_string(type_t type)
         break;
     case TYPE_PAA:
         str = fmt("[%]%", type.size() ? std::to_string(type.size()) : "",
-                  type.group()->name);
+                  type.group() ? type.group()->name : "");
         break;
     case TYPE_BANKED_APTR: str = "AAA"; goto ptr_groups;
     case TYPE_APTR:        str = "AA";  goto ptr_groups;
@@ -382,7 +382,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     // Any int can convert to AA.
     if(is_arithmetic(from.name()) 
        && to.name() == TYPE_APTR
-       && whole_bytes(from.name()) <= 2 
+       && (from.name() == TYPE_INT || whole_bytes(from.name()) <= 2)
        && frac_bytes(from.name()) == 0)
     {
         return CAST_PTRIFY_INT;
@@ -576,7 +576,8 @@ unsigned member_index(type_t const& type, unsigned member)
 
 type_t member_type(type_t const& type, unsigned member)
 {
-    assert(member < ::num_members(type));
+    passert(type.name() == TYPE_VOID || member < ::num_members(type), member, type);
+
     if(type.name() == TYPE_STRUCT)
         return type.struct_().member_type(member);
     else if(type.name() == TYPE_TEA)

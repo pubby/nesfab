@@ -778,7 +778,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     // Handle preserved groups
     for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
     {
-        if(mods_t const* goto_mods = def().mods_of(fn_stmt.second))
+        if(mods_t const* goto_mods = fn_stmt.second.mods)
         {
             goto_mods->for_each_group_vars([&](group_vars_ht gv)
             {
@@ -1005,7 +1005,7 @@ void fn_t::resolve()
     {
         type_t* types = ALLOCA_T(type_t, def().num_params + 1);
         for(unsigned i = 0; i != def().num_params; ++i)
-            types[i] = ::dethunkify(def().local_vars[i].src_type, true);
+            types[i] = ::dethunkify(def().local_vars[i].decl.src_type, true);
         types[def().num_params] = ::dethunkify(def().return_type, true);
         m_type = type_t::fn(types, types + def().num_params + 1);
     }
@@ -1016,7 +1016,7 @@ void fn_t::resolve()
     // Finish up types:
     for(unsigned i = 0; i < def().num_params; ++i)
     {
-        auto const& decl = def().local_vars[i];
+        auto const& decl = def().local_vars[i].decl;
         if(is_ct(decl.src_type.type))
             compiler_error(decl.src_type.pstring, fmt("Function must be declared as ct to use type %.", decl.src_type.type));
     }
@@ -1037,8 +1037,8 @@ void fn_t::resolve()
             if(c.expr)
             {
                 c.value = interpret_local_const(
-                    c.var_decl.name, this, *c.expr, 
-                    c.var_decl.src_type.type, m_def.local_consts.data()).value;
+                    c.decl.name, this, *c.expr, 
+                    c.decl.src_type.type, m_def.local_consts.data()).value;
             }
             else
                 c.value = { locator_t::minor_label(i) };
@@ -1053,6 +1053,10 @@ void fn_t::precheck()
 
     if(iasm)
     {
+        assert(def().stmts.size() == 2);
+        assert(def().stmts[0].name == STMT_EXPR);
+
+        /*
         m_precheck_tracked.reset(new precheck_tracked_t());
         auto& pt = *m_precheck_tracked;
 
@@ -1082,6 +1086,9 @@ void fn_t::precheck()
                 throw std::runtime_error("Unexpected stmt in inline assembly.");
             }
         }
+        */
+        assert(!m_precheck_tracked);
+        m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
     }
     else
     {
@@ -1090,6 +1097,7 @@ void fn_t::precheck()
         m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
     }
 
+    assert(m_precheck_tracked);
     calc_precheck_bitsets();
 }
 
@@ -1136,9 +1144,15 @@ void fn_t::compile_iasm()
 
     calc_ir_bitsets(nullptr);
 
-    asm_proc_t proc;
+    assert(def().stmts.size() == 2);
+    assert(def().stmts[0].name == STMT_EXPR);
+    assert(def().stmts[0].expr[0].token.type == lex::TOK_byte_block_proc);
+
+    asm_proc_t proc = std::get<asm_proc_t>(interpret_byte_block(def().stmts[0].pstring, def().stmts[0].expr[0], 
+                                                                this, m_def.local_consts.data()));
     proc.fn = handle();
 
+#if 0
     for(unsigned i = 0; i < def().stmts.size(); ++i)
     {
         stmt_t const& stmt = def().stmts[i];
@@ -1205,6 +1219,7 @@ void fn_t::compile_iasm()
             throw std::runtime_error("Unexpected stmt in inline assembly.");
         }
     }
+#endif
 
 
     assign_lvars(lvars_manager_t(*this));
@@ -1345,7 +1360,7 @@ void fn_t::precheck_finish_nmi() const
     {
         if(fn.precheck_tracked().goto_modes.empty())
             return {};
-        return fn.def()[fn.precheck_tracked().goto_modes.begin()->second].pstring;
+        return fn.precheck_tracked().goto_modes.begin()->second.pstring;
     };
 
     if(pstring_t pstring = first_goto_mode(*this))
@@ -1458,13 +1473,11 @@ void fn_t::calc_precheck_bitsets()
     // Handle accesses through goto modes:
     for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
     {
-        stmt_t const& stmt = def()[fn_stmt.second];
-        mods_t const* goto_mods = def().mods_of(fn_stmt.second);
-
-        assert(stmt.name == STMT_GOTO_MODE || stmt.name == STMT_ASM_GOTO_MODE);
+        pstring_t pstring = fn_stmt.second.pstring;
+        mods_t const* goto_mods = fn_stmt.second.mods;
 
         if(!goto_mods || !goto_mods->explicit_group_vars)
-            compiler_error(stmt.pstring ? stmt.pstring : global.pstring(), 
+            compiler_error(pstring ? pstring : global.pstring(), 
                            "Missing vars modifier.");
 
         if(!goto_mods)
@@ -1495,7 +1508,7 @@ void fn_t::calc_precheck_bitsets()
                             missing += pair.first->name;
 
                     throw compiler_error_t(
-                        fmt_error(stmt.pstring, msg)
+                        fmt_error(pstring, msg)
                         + fmt_note(fmt("Excluded groups: vars %", missing)));
                 }
 
@@ -1634,7 +1647,7 @@ void fn_t::for_each_referenced_param_locator(std::function<void(locator_t)> cons
 {
     bitset_for_each(referenced_params(), [&](unsigned param)
     {
-        var_decl_t const& decl = def().local_vars[param];
+        var_decl_t const& decl = def().local_vars[param].decl;
         type_t const param_type = decl.src_type.type;
         unsigned const num_members = ::num_members(param_type);
 
@@ -1675,14 +1688,22 @@ void global_datum_t::precheck()
 
     if(m_src_type.type.name() == TYPE_PAA)
     {
-        loc_vec_t paa = interpret_paa(global.pstring(), *init_expr);
+        auto data = interpret_byte_block(global.pstring(), *init_expr);
+        std::size_t data_size = 0;
+
+        if(auto const* proc = std::get_if<asm_proc_t>(&data))
+            data_size = proc->size();
+        else if(auto const* vec = std::get_if<loc_vec_t>(&data))
+            data_size = vec->size();
+        else
+            assert(false);
 
         unsigned const def_length = m_src_type.type.array_length();
-        if(def_length && def_length != paa.size())
-             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", paa.size(), m_src_type.type));
+        if(def_length && def_length != data_size)
+             compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", data_size, m_src_type.type));
 
-        m_src_type.type.set_array_length(paa.size());
-        paa_init(std::move(paa));
+        m_src_type.type.set_array_length(data_size);
+        std::visit([this](auto&& v){ paa_init(std::move(v)); }, data);
         //m_rom_array = lookup_rom_array({}, group(), std::move(paa));
 
         // TODO : remove?
@@ -1707,17 +1728,16 @@ void global_datum_t::compile()
 
 group_ht gvar_t::group() const { return group_vars->group.handle(); }
 
-void gvar_t::paa_init(loc_vec_t&& paa)
-{
-    m_init_data = std::move(paa);
-}
+void gvar_t::paa_init(loc_vec_t&& paa) { m_init_data = std::move(paa); }
+void gvar_t::paa_init(asm_proc_t&& proc) { m_init_data = std::move(proc); }
 
 void gvar_t::rval_init(rval_t&& rval)
 {
     m_rval = std::move(rval);
 
-    m_init_data.clear();
-    append_locator_bytes(m_init_data, m_rval, m_src_type.type, global.pstring());
+    loc_vec_t vec;
+    append_locator_bytes(vec, m_rval, m_src_type.type, global.pstring());
+    m_init_data = std::move(vec);
 }
 
 void gvar_t::set_gmember_range(gmember_ht begin, gmember_ht end)
@@ -1736,6 +1756,15 @@ void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
         unsigned const num = num_atoms(h->type(), 0);
         for(unsigned atom = 0; atom < num; ++atom)
             fn(locator_t::gmember(h, atom));
+    }
+}
+
+void gvar_t::relocate_init_data(std::uint16_t addr)
+{
+    if(asm_proc_t* proc = std::get_if<asm_proc_t>(&m_init_data))
+    {
+        proc->relocate(locator_t::addr(addr));
+        m_init_data = proc->loc_vec();
     }
 }
 
@@ -1762,7 +1791,7 @@ locator_t const* gmember_t::init_data(unsigned atom) const
     }
 
     unsigned const offset = ::member_offset(gvar.type(), member());
-    return gvar.init_data().data() + offset + (atom * size);
+    return std::get<loc_vec_t>(gvar.init_data()).data() + offset + (atom * size);
 }
 
 std::size_t gmember_t::init_size() const
@@ -1797,10 +1826,17 @@ bool gmember_t::zero_init(unsigned atom) const
 
 group_ht const_t::group() const { return group_data->group.handle(); }
 
-void const_t::paa_init(loc_vec_t&& paa)
+void const_t::paa_init(loc_vec_t&& vec)
 {
-    m_rom_array = rom_array_t::make(std::move(paa), group_data);
+    m_rom_array = rom_array_t::make(std::move(vec), group_data);
     assert(m_rom_array);
+}
+
+void const_t::paa_init(asm_proc_t&& proc)
+{
+    proc.relocate(locator_t::lt_const_ptr(handle()));
+    proc.absolute_to_zp();
+    paa_init(proc.loc_vec());
 }
 
 void const_t::rval_init(rval_t&& rval)
@@ -1927,7 +1963,7 @@ fn_t const& get_main_entry()
 
     fn_t const& main_fn = main_entry->impl<fn_t>();
     if(main_fn.def().num_params > 0)
-        compiler_error(main_fn.def().local_vars[0].name, "Mode main cannot have parameters.");
+        compiler_error(main_fn.def().local_vars[0].decl.name, "Mode main cannot have parameters.");
 
     return main_fn;
 }

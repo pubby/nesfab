@@ -108,9 +108,21 @@ void asm_proc_t::absolute_to_zp()
 {
     for(asm_inst_t& inst : code)
     {
-        // TODO: implement this
-        if(inst.alt || inst.arg.lclass() != LOC_ADDR || inst.arg.data() >= 0x100)
+        // A hi-byte implies absolute.
+        if(inst.alt && !inst.alt.eq_const(0))
             continue;
+
+        if(inst.arg.is() != IS_DEREF && inst.arg.is() != IS_PTR)
+            continue;
+
+        if(inst.arg.lclass() == LOC_ADDR && inst.arg.data() >= 0x100)
+            continue;
+
+        // 'zp_only' *has* to go on the zero page:
+        if(!inst.arg.mem_zp_only())
+            continue;
+
+        // OK! Replace with zp:
 
         switch(op_addr_mode(inst.op))
         {
@@ -340,11 +352,142 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
     }
 }
 
+static std::pair<locator_t, locator_t> absolute_locs(asm_inst_t const& inst)
+{
+    locator_t lo = inst.arg;
+    locator_t hi = inst.alt;
+
+    if(!hi)
+        hi = lo;
+
+    lo.set_is(IS_PTR);
+    hi.set_is(IS_PTR_HI);
+
+    return std::make_pair(lo, hi);
+}
+
+template<typename Fn>
+void asm_proc_t::for_each_inst(Fn const& fn) const
+{
+    for(asm_inst_t const& inst : code)
+    {
+        if(op_size(inst.op) == 0)
+            continue;
+
+        if(inst.op == STORE_C_ABSOLUTE)
+        {
+            fn(asm_inst_t{ .op = PHP_IMPLIED });
+            fn(asm_inst_t{ .op = PHA_IMPLIED });
+            fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locator_t::const_byte(0) });
+            fn(asm_inst_t{ .op = ROL_IMPLIED });
+            fn(asm_inst_t{ .op = STA_ABSOLUTE, .arg = inst.arg });
+            fn(asm_inst_t{ .op = PLA_IMPLIED });
+            fn(asm_inst_t{ .op = PLP_IMPLIED });
+            // total bytes: 1+1+2+1+3+1+1 = 10
+        }
+        else if(inst.op == STORE_Z_ABSOLUTE)
+        {
+            fn(asm_inst_t{ .op = PHP_IMPLIED });
+            fn(asm_inst_t{ .op = PHA_IMPLIED });
+            fn(asm_inst_t{ .op = PHP_IMPLIED });
+            fn(asm_inst_t{ .op = PLA_IMPLIED });
+            fn(asm_inst_t{ .op = ALR_IMMEDIATE, .arg = locator_t::const_byte(0b10) });
+            fn(asm_inst_t{ .op = STA_ABSOLUTE, .arg = inst.arg });
+            fn(asm_inst_t{ .op = PLA_IMPLIED });
+            fn(asm_inst_t{ .op = PLP_IMPLIED });
+            // total bytes: 1+1+1+1+2+3+1+1 = 11
+        }
+        if(inst.op == BANKED_Y_JSR || inst.op == BANKED_Y_JMP)
+        {
+            assert(!inst.alt);
+            auto locs = absolute_locs(inst);
+
+            fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locs.first });
+            fn(asm_inst_t{ .op = LDX_IMMEDIATE, .arg = locs.second });
+            if(inst.op == BANKED_Y_JSR)
+                fn(asm_inst_t{ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_y_trampoline) });
+            else 
+            {
+                assert(inst.op == BANKED_Y_JMP);
+                fn(asm_inst_t{ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_y_trampoline) });
+            }
+        }
+        else
+            fn(inst);
+    }
+}
+
+template<typename Fn>
+void asm_proc_t::for_each_locator(Fn const& fn) const
+{
+    for_each_inst([&](asm_inst_t const& inst)
+    {
+        if(inst.op == ASM_DATA)
+        {
+            fn(inst.arg);
+            return;
+        }
+
+        passert(!(op_flags(inst.op) & ASMF_FAKE), to_string(inst.op), inst.arg);
+        locator_t const op = locator_t::const_byte(op_code(inst.op));
+
+        switch(op_addr_mode(inst.op))
+        {
+        case MODE_IMPLIED:
+            fn(op);
+            break;
+
+        case MODE_IMMEDIATE:
+        case MODE_RELATIVE:
+        case MODE_ZERO_PAGE:
+        case MODE_ZERO_PAGE_X:
+        case MODE_ZERO_PAGE_Y:
+        case MODE_INDIRECT_X:
+        case MODE_INDIRECT_Y:
+            fn(op);
+            fn(inst.arg);
+            break;
+
+        case MODE_LONG:
+            {
+                locator_t const inverted_op = locator_t::const_byte(
+                    op_code(get_op(invert_branch(op_name(inst.op)), MODE_RELATIVE)));
+                fn(inverted_op);
+                fn(locator_t::const_byte(3)); // Branch over upcoming jmp
+                fn(locator_t::const_byte(op_code(JMP_ABSOLUTE)));
+            }
+            goto absolute_addr;
+
+        case MODE_ABSOLUTE:
+        case MODE_ABSOLUTE_X:
+        case MODE_ABSOLUTE_Y:
+        case MODE_INDIRECT:
+            {
+                fn(op);
+            absolute_addr:
+                auto locs = absolute_locs(inst);
+                fn(locs.first);
+                fn(locs.second);
+            }
+            break;
+
+        default:
+            throw std::runtime_error("Invalid addressing mode.");
+        }
+    });
+}
+
+loc_vec_t asm_proc_t::loc_vec() const
+{
+    loc_vec_t ret;
+    ret.reserve(size());
+    for_each_locator([&](locator_t loc){ ret.push_back(loc); });
+    return ret;
+}
+
 void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) const
 {
     std::uint8_t* at = start;
-
-    auto const write = [&](std::uint8_t data) { *at++ = data; };
 
     auto const from_locator = [&](locator_t loc) -> std::uint8_t
     {
@@ -361,119 +504,10 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
         return data;
     };
 
-    auto const absolute_locs = [](asm_inst_t const& inst)
-    {
-        locator_t lo = inst.arg;
-        locator_t hi = inst.alt;
-
-        if(!hi)
-            hi = lo;
-
-        lo.set_is(IS_PTR);
-        hi.set_is(IS_PTR_HI);
-
-        return std::make_pair(lo, hi);
-    };
-
-    auto const write_inst = [&](asm_inst_t const& inst)
-    {
-        passert(!(op_flags(inst.op) & ASMF_FAKE), to_string(inst.op), inst.arg);
-        std::uint8_t const op = op_code(inst.op);
-
-        switch(op_addr_mode(inst.op))
-        {
-        case MODE_IMPLIED:
-            write(op);
-            break;
-
-        case MODE_IMMEDIATE:
-        case MODE_RELATIVE:
-        case MODE_ZERO_PAGE:
-        case MODE_ZERO_PAGE_X:
-        case MODE_ZERO_PAGE_Y:
-        case MODE_INDIRECT_X:
-        case MODE_INDIRECT_Y:
-            write(op);
-            write(from_locator(inst.arg));
-            break;
-
-        case MODE_LONG:
-            {
-                std::uint8_t const inverted_op = op_code(get_op(invert_branch(op_name(inst.op)), MODE_RELATIVE));
-                write(inverted_op);
-                write(3); // Branch over upcoming jmp
-                write(op_code(JMP_ABSOLUTE));
-            }
-            goto absolute_addr;
-
-        case MODE_ABSOLUTE:
-        case MODE_ABSOLUTE_X:
-        case MODE_ABSOLUTE_Y:
-        case MODE_INDIRECT:
-            {
-                write(op);
-            absolute_addr:
-                auto locs = absolute_locs(inst);
-                write(from_locator(locs.first));
-                write(from_locator(locs.second));
-            }
-            break;
-
-        default:
-            throw std::runtime_error("Invalid addressing mode.");
-        }
-    };
-
-    for(asm_inst_t const& inst : code)
-    {
-        if(op_size(inst.op) == 0)
-            continue;
-
-        if(inst.op == STORE_C_ABSOLUTE)
-        {
-            write_inst({ .op = PHP_IMPLIED });
-            write_inst({ .op = PHA_IMPLIED });
-            write_inst({ .op = LDA_IMMEDIATE, .arg = locator_t::const_byte(0) });
-            write_inst({ .op = ROL_IMPLIED });
-            write_inst({ .op = STA_ABSOLUTE, .arg = inst.arg });
-            write_inst({ .op = PLA_IMPLIED });
-            write_inst({ .op = PLP_IMPLIED });
-            // total bytes: 1+1+2+1+3+1+1 = 10
-        }
-        else if(inst.op == STORE_Z_ABSOLUTE)
-        {
-            write_inst({ .op = PHP_IMPLIED });
-            write_inst({ .op = PHA_IMPLIED });
-            write_inst({ .op = PHP_IMPLIED });
-            write_inst({ .op = PLA_IMPLIED });
-            write_inst({ .op = ALR_IMMEDIATE, .arg = locator_t::const_byte(0b10) });
-            write_inst({ .op = STA_ABSOLUTE, .arg = inst.arg });
-            write_inst({ .op = PLA_IMPLIED });
-            write_inst({ .op = PLP_IMPLIED });
-            // total bytes: 1+1+1+1+2+3+1+1 = 11
-        }
-        if(inst.op == BANKED_Y_JSR || inst.op == BANKED_Y_JMP)
-        {
-            assert(!inst.alt);
-            auto locs = absolute_locs(inst);
-
-            write_inst({ .op = LDA_IMMEDIATE, .arg = locs.first });
-            write_inst({ .op = LDX_IMMEDIATE, .arg = locs.second });
-            if(inst.op == BANKED_Y_JSR)
-                write_inst({ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_y_trampoline) });
-            else 
-            {
-                assert(inst.op == BANKED_Y_JMP);
-                write_inst({ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_y_trampoline) });
-            }
-        }
-        else
-            write_inst(inst);
-
-    }
+    for_each_locator([&](locator_t loc){ *at++ = from_locator(loc); });
 }
 
-void asm_proc_t::relocate(std::uint16_t addr)
+void asm_proc_t::relocate(locator_t from)
 {
     for(unsigned i = 0; i < code.size(); ++i)
     {
@@ -496,8 +530,12 @@ void asm_proc_t::relocate(std::uint16_t addr)
                 if(fn)
                 {
                     pstring_t pstring = fn->global.pstring();
-                    if(inst.iasm_stmt >= 0)
-                        pstring = fn->def().stmts[inst.iasm_stmt].pstring;
+                    if(inst.iasm_child >= 0)
+                    {
+                        // TODO: properly implement
+                        assert(false);
+                        //pstring = fn->def().stmts[inst.iasm_child].pstring;
+                    }
                     compiler_error(pstring, std::move(what));
                 }
                 throw std::runtime_error(std::move(what)); // TODO: make it a real compiler_error
@@ -505,8 +543,8 @@ void asm_proc_t::relocate(std::uint16_t addr)
             inst.arg = locator_t::const_byte(dist);
         }
         else if(op_addr_mode(inst.op) == MODE_IMMEDIATE)
-            inst.arg = locator_t::const_byte(addr + bytes_between(0, label_i));
+            inst.arg = from.with_advance_offset(bytes_between(0, label_i)).with_is(IS_PTR);
         else
-            inst.arg = locator_t::addr(addr + bytes_between(0, label_i));
+            inst.arg = from.with_advance_offset(bytes_between(0, label_i)).with_is(IS_DEREF);
     }
 }

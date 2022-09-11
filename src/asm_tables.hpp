@@ -12,6 +12,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { .op = ASM_LABEL, .flags = ASMF_FAKE },
     { .op = ASM_PRUNED, .flags = ASMF_FAKE },
     { .op = ASM_LOOP_DEPTH, .flags = ASMF_FAKE },
+    { .op = ASM_DATA, .size = 1, .flags = ASMF_FAKE },
     { 
         .op = ASM_DELAY,
         .cycles = 255,

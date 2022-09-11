@@ -58,6 +58,8 @@ std::string to_string(locator_t loc)
         //str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_LT_CONST_PTR:
         str = fmt("lt_const_ptr %", loc.const_()->global.name); break;
+    case LOC_LT_CONST_ADDR:
+        str = fmt("lt_const_addr %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
         str = fmt("lt_expr % %", loc.handle(), loc.lt().safe().type); break;
     case LOC_THIS_BANK:
@@ -107,10 +109,32 @@ std::size_t locator_t::mem_size() const
     return with_byteified(true).type().size_of();
 }
 
+mods_t const* locator_t::mods() const
+{
+    if(lclass() == LOC_ASM_LOCAL_VAR)
+        return fn().safe().def().local_vars[arg()].mods();
+    else if(has_const(lclass()))
+        return const_()->mods();
+    else if(has_gmember(lclass()))
+        return gmember()->gvar.mods();
+    return nullptr;
+}
+
 bool locator_t::mem_zp_only() const
 {
-    type_t const t = with_byteified(false).type();
-    return is_ptr(t.name()) && member() == 0;
+    if(!mem_zp_valid())
+        return false;
+
+    if(mod_test(mods(), MOD_zero_page))
+        return true;
+
+    type_t const t = with_byteified(false).with_is(IS_DEREF).type();
+    return is_ptr(t.name()) && (!has_arg_member_atom(lclass()) || member() == 0);
+}
+
+bool locator_t::mem_zp_valid() const
+{
+    return !mod_test(mods(), MOD_zero_page, false);
 }
 
 type_t locator_t::type() const
@@ -182,7 +206,7 @@ type_t locator_t::type() const
     case LOC_RETURN:
         return byteify(fn().safe().type().return_type());
     case LOC_ASM_LOCAL_VAR:
-        return byteify(fn().safe().def().local_vars[arg()].src_type.type);
+        return byteify(fn().safe().def().local_vars[arg()].type());
     case LOC_CONST_BYTE:
         return TYPE_U;
     case LOC_SSA:
@@ -227,22 +251,13 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
         {
             auto const& proc = fn()->rom_proc()->asm_proc();
-            if(fn()->iasm)
-            {
-                std::printf("data = %i\n", data());
-                if(auto const* info = proc.lookup_label(locator_t::minor_label(data())))
-                    span_offset = info->offset;
-                else
-                    assert(false);
-            }
-            else 
-            {
-                if(auto const* info = proc.lookup_label(proc.entry_label))
-                    span_offset = info->offset;
-                else
-                    assert(false);
-            }
-                std::printf("span offset = %i\n", span_offset);
+            locator_t const label = 
+                data() == ENTRY_LABEL ? proc.entry_label : locator_t::minor_label(data());
+
+            if(auto const* info = proc.lookup_label(label))
+                span_offset = info->offset;
+            else // Likely a compiler bug:
+                throw std::runtime_error(fmt("Missing label during link: % / % ", label, *this));
         }
 
         // fall-through
@@ -280,10 +295,6 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         }
 
     case LOC_ASM_LOCAL_VAR:
-        fn()->lvars().for_each_lvar(true, [&](locator_t loc, unsigned i)
-        {
-            std::cout << "ASM_LOCAL " << loc << std::endl;
-        });
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_MINOR_VAR:
@@ -340,6 +351,7 @@ rom_data_ht locator_t::rom_data() const
     case LOC_MAIN_ENTRY:
         return get_main_entry().rom_proc();
     case LOC_LT_CONST_PTR:
+    case LOC_LT_CONST_ADDR:
         return const_()->rom_array();
     case LOC_RESET_GROUP_VARS:
         return group_vars()->init_proc();

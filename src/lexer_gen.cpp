@@ -792,13 +792,26 @@ int main()
         accept("hw_addr", "hardware address", eof()),
         accept("read_hw", "read hardware", eof()),
         accept("write_hw", "write hardware", eof()),
-        accept("paa_byte_array", "byte array", eof()),
-        accept("paa_locator_array", "locator array", eof()),
-        accept("push_paa", "push paa", eof()),
-        accept("begin_paa", "begin paa", eof()),
-        accept("end_paa", "end paa", eof()),
+        //accept("paa_byte_array", "byte array", eof()),
+        //accept("paa_locator_array", "locator array", eof()),
+        //accept("push_paa", "push paa", eof()),
+        //accept("begin_paa", "begin paa", eof()),
+        //accept("end_paa", "end paa", eof()),
         accept("group_set", "group set", eof()),
-        accept("rpair", "rpair", eof())
+        accept("rpair", "rpair", eof()),
+
+        // byte block:
+        accept("byte_block_proc", "byte block", eof()),
+        accept("byte_block_data", "byte block", eof()),
+        accept("byte_block_asm_op", "assembly instruction", eof()),
+        accept("byte_block_label", "assembly instruction", eof()),
+        accept("byte_block_call", "assembly fn call", eof()),
+        accept("byte_block_goto", "assembly goto", eof()),
+        accept("byte_block_goto_mode", "assembly goto mode", eof()),
+        accept("byte_block_wait_nmi", "assembly wait nmi", eof()),
+        accept("byte_block_byte_array", "byte block array", eof()),
+        accept("byte_block_locator_array", "byte block array", eof())
+
         ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

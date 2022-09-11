@@ -21,7 +21,11 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
         if(result.second)
         {
             assert(loc.mem_size());
-            m_this_lvar_info.push_back({ .size = loc.mem_size(), .zp_only = loc.mem_zp_only() });
+            m_this_lvar_info.push_back({ 
+                .size = loc.mem_size(), 
+                .zp_only = loc.mem_zp_only(), 
+                .zp_valid = loc.mem_zp_valid() 
+            });
 
             if(loc.lclass() == LOC_ARG)
             {
@@ -47,6 +51,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
 
         m_this_lvar_info[index].size = 2;
         m_this_lvar_info[index].zp_only = true;
+        m_this_lvar_info[index].zp_valid = true;
         m_this_lvar_info[index].ptr_hi = ptr_hi;
         m_this_lvar_info[index].ptr_alt = ptr_alt;
     };
@@ -110,7 +115,11 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
         if(is_this && result.second)
         {
             assert(loc.mem_size());
-            m_this_lvar_info.push_back({ .size = loc.mem_size(), .zp_only = loc.mem_zp_only() });
+            m_this_lvar_info.push_back({ 
+                .size = loc.mem_size(), 
+                .zp_only = loc.mem_zp_only(), 
+                .zp_valid = loc.mem_zp_valid() 
+            });
         }
 
         return result.first - m_map.begin(); // Return an index
@@ -121,7 +130,7 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
         // Local vars:
         for(unsigned i = 0; i < fn->def().local_vars.size(); ++i)
         {
-            var_decl_t const& decl = fn->def().local_vars[i];
+            var_decl_t const& decl = fn->def().local_vars[i].decl;
             type_t const param_type = decl.src_type.type;
             unsigned const num_members = ::num_members(param_type);
 

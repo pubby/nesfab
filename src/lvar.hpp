@@ -128,6 +128,7 @@ public:
     {
         std::uint16_t size;
         bool zp_only;
+        bool zp_valid;
         bool ptr_hi;
         int ptr_alt = -1;
     };

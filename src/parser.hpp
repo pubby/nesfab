@@ -96,6 +96,10 @@ private:
     var_decl_t parse_var_decl(bool block_init, group_ht group, bool allow_groupless_paa = false);
     bool parse_var_init(var_decl_t& var_decl, ast_node_t& expr, bool block_init, group_ht group);
 
+    template<typename Children>
+    bool parse_byte_block(pstring_t decl, int block_indent, Children& children);
+    ast_node_t parse_byte_block(pstring_t decl, int block_indent);
+
     std::unique_ptr<mods_t> parse_mods(int base_indent);
 
     void parse_top_level();
@@ -125,9 +129,10 @@ private:
     void parse_nmi_statement();
     void parse_fence();
 
-    void parse_asm_local_const();
-    void parse_asm_label_block();
-    void parse_asm_op();
+    // TODO: remove
+    //void parse_asm_local_const();
+    //void parse_asm_label_block();
+    //void parse_asm_op();
 
     [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const
         { ::compiler_error(pstring, what, &file); }

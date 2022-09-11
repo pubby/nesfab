@@ -57,15 +57,13 @@ void gmanager_t::init(fn_ht fn)
 
         for(auto const& pair : fn->precheck_tracked().goto_modes)
         {
-            mods_t const* mods = fn->def().mods_of(pair.second);
-
-            if(!mods)
-                continue;
-
-            mods->for_each_group_vars([&](group_vars_ht gv)
+            if(mods_t const* mods = pair.second.mods)
             {
-                bitset_or(set_size, initial_set, gv->gmembers().data());
-            });
+                mods->for_each_group_vars([&](group_vars_ht gv)
+                {
+                    bitset_or(set_size, initial_set, gv->gmembers().data());
+                });
+            }
         }
 
         // Needed as we used 'push_back' to generate the set:
@@ -143,15 +141,13 @@ void gmanager_t::init(fn_ht fn)
         // Split goto modes.
         for(auto const& pair : fn->precheck_tracked().goto_modes)
         {
-            mods_t const* mods = fn->def().mods_of(pair.second);
-
-            if(!mods)
-                continue;
-
-            mods->for_each_group_vars([&](group_vars_ht gv)
+            if(mods_t const* mods = pair.second.mods)
             {
-                split(set_size, gv->gmembers().data(), gv->gmembers().data());
-            });
+                mods->for_each_group_vars([&](group_vars_ht gv)
+                {
+                    split(set_size, gv->gmembers().data(), gv->gmembers().data());
+                });
+            }
         }
 
         assert(eq_classes.size() >= 1);

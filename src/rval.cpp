@@ -13,7 +13,7 @@ unsigned lval_t::ulabel() const
     if(is_global && global()->gclass() == GLOBAL_FN && global()->impl<fn_t>().iasm)
         return global()->impl<fn_t>().def().default_label;
 
-    return 0;
+    return ENTRY_LABEL;
 }
 
 bool is_ct(rval_t const& rval)

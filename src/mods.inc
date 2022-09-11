@@ -1,2 +1,3 @@
-MOD(inline, 0)
-MOD(align, 1)
+MOD(0, inline)
+MOD(1, align)
+MOD(2, zero_page)

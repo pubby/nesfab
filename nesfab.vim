@@ -6,7 +6,9 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword nesfabKeyword if else for while do break continue then return fn ct nmi mode goto label using file struct vars data omni ready fence
+syn keyword nesfabKeyword if else for while do break continue then return fn 
+    \ ct nmi mode goto label using file struct vars data omni ready fence 
+    \ default case asm
 
 syntax match nesfabId "\l\k*"
 syntax match nesfabType "\u\k*"

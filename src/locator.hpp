@@ -24,6 +24,8 @@
 class type_t;
 struct ssa_value_t;
 
+constexpr std::uint16_t ENTRY_LABEL = std::uint16_t(~0u);
+
 enum locator_class_t : std::uint8_t
 {
     LOC_NONE,
@@ -64,7 +66,7 @@ enum locator_class_t : std::uint8_t
     //LOC_LT_GMEMBER_PTR,
     LOC_LT_CONST_PTR,
     FIRST_LOC_LT = LOC_LT_CONST_PTR,
-    LOC_LT_CONST_ADDR,
+    LOC_LT_CONST_ADDR, // TODO: combine this with LT_CONST_PTR?
     LOC_LT_EXPR, // link-time expression
     LAST_LOC_LT = LOC_LT_EXPR,
 
@@ -133,6 +135,23 @@ constexpr bool has_fn(locator_class_t lclass)
     }
 }
 
+constexpr bool has_const(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_LT_CONST_PTR:
+    case LOC_LT_CONST_ADDR:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool has_gmember(locator_class_t lclass)
+{
+    return lclass == LOC_GMEMBER;
+}
+
 constexpr bool is_lt(locator_class_t lclass)
 {
     return lclass >= FIRST_LOC_LT && lclass <= LAST_LOC_LT;
@@ -193,11 +212,11 @@ public:
     constexpr locator_is_t is() const { return locator_is_t((impl >> 53) & 0b11); }
 
     // 'arg', 'member', and 'atom' overlap with 'data'; use one or the other.
-    constexpr std::uint8_t member() const { assert(has_arg_member_atom(lclass())); return impl >> 24ull; }
+    constexpr std::uint8_t member() const { passert(has_arg_member_atom(lclass()), *this); return impl >> 24ull; }
     constexpr std::uint8_t maybe_member() const { return has_arg_member_atom(lclass()) ? member() : 0; }
-    constexpr std::uint8_t arg() const { assert(has_arg_member_atom(lclass())); return (impl >> 19ull) & 0b11111; }
+    constexpr std::uint8_t arg() const { passert(has_arg_member_atom(lclass()), *this); return (impl >> 19ull) & 0b11111; }
     constexpr std::uint8_t maybe_arg() const { return has_arg_member_atom(lclass()) ? arg() : 0; }
-    constexpr std::uint8_t atom() const { assert(has_arg_member_atom(lclass())); return (impl >> 16ull) & 0b111; }
+    constexpr std::uint8_t atom() const { passert(has_arg_member_atom(lclass()), *this); return (impl >> 16ull) & 0b111; }
     constexpr std::uint8_t maybe_atom() const { return has_arg_member_atom(lclass()) ? atom() : 0; }
 
     constexpr void set_byteified(bool b)
@@ -301,13 +320,13 @@ public:
 
     gmember_ht gmember() const 
     { 
-        assert(lclass() == LOC_GMEMBER/* || lclass() == LOC_LT_GMEMBER_PTR*/);
+        assert(has_gmember(lclass()));
         return { handle() }; 
     }
 
     const_ht const_() const 
     { 
-        assert(lclass() == LOC_LT_CONST_PTR || lclass() == LOC_LT_CONST_ADDR);
+        assert(has_const(lclass()));
         return { handle() }; 
     }
 
@@ -369,6 +388,8 @@ public:
     rom_data_ht rom_data() const;
     rom_alloc_ht rom_alloc(romv_t romv) const;
 
+    mods_t const* mods() const;
+
     // Strips offset info from this locator.
     locator_t mem_head() const 
     {
@@ -382,8 +403,8 @@ public:
     // Number of bytes this locator represents
     std::size_t mem_size() const;
 
-    // If this must go in ZP
-    bool mem_zp_only() const;
+    bool mem_zp_only() const; // If this must go in ZP
+    bool mem_zp_valid() const; // If this can go in ZP
 
     constexpr std::uint64_t to_uint() const { return impl; }
     constexpr static locator_t from_uint(std::uint64_t i) 
@@ -393,7 +414,7 @@ public:
         return ret;
     }
 
-    constexpr static locator_t fn(fn_ht fn, std::uint16_t label=0, std::uint16_t offset=0)
+    constexpr static locator_t fn(fn_ht fn, std::uint16_t label=ENTRY_LABEL, std::uint16_t offset=0)
         { return locator_t(LOC_FN, fn.id, label, offset); }
 
     constexpr static locator_t stmt(stmt_ht stmt)

@@ -22,6 +22,7 @@
 #include "type.hpp"
 #include "mods.hpp"
 #include "iasm.hpp"
+#include "eternal_new.hpp"
 
 namespace bc = boost::container;
 
@@ -108,8 +109,8 @@ public:
     //token_t* eternal_expr(expr_temp_t& expr); TODO
     //void convert_expr(token_t* begin); TODO
     //token_t const* convert_expr(expr_temp_t& expr); TODO
-    ast_node_t const* eternal_expr(ast_node_t const* expr);
-    ast_node_t const* convert_eternal_expr(ast_node_t const* expr, idep_class_t calc = IDEP_VALUE);
+    ast_node_t* eternal_expr(ast_node_t const* expr);
+    ast_node_t* convert_eternal_expr(ast_node_t const* expr, idep_class_t calc = IDEP_VALUE);
     void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
     //ast_node_t process_ast(ast_node_t ast);
     //global_t const* at_ident(pstring_t pstring);
@@ -142,7 +143,8 @@ public:
     }
 
     // implementation detail:
-    int _add_symbol(var_decl_t const& var_decl, bool local_const, 
+    int _add_symbol(var_decl_t const& var_decl, bool local_const,
+                    std::unique_ptr<mods_t> mods = {},
                     ast_node_t* local_const_expr = nullptr)
     {
         assert(!local_const_expr || local_const);
@@ -159,9 +161,9 @@ public:
                             "Previous definition here:", &file));
         }
         if(local_const)
-            fn_def.local_consts.push_back({ var_decl, convert_eternal_expr(local_const_expr) });
+            fn_def.local_consts.emplace_back(var_decl, std::move(mods), convert_eternal_expr(local_const_expr));
         else
-            fn_def.local_vars.push_back(var_decl);
+            fn_def.local_vars.emplace_back(var_decl, std::move(mods));
         return handle;
     }
 
@@ -237,73 +239,105 @@ public:
     }
 
     [[gnu::always_inline]]
-    void asm_fn_var(var_decl_t const& var_decl)
+    void asm_fn_var(var_decl_t const& var_decl, std::unique_ptr<mods_t> mods)
     {
-        _add_symbol(var_decl, false);
+        validate_mods("var", var_decl.name, mods, MOD_zero_page);
+
+        _add_symbol(var_decl, false, std::move(mods));
         uses_type(var_decl.src_type.type);
     }
 
     [[gnu::always_inline]]
-    void asm_value(var_decl_t const& var_decl, ast_node_t& ast)
+    void byte_block_ct_value(var_decl_t const& var_decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
     {
+        validate_mods("ct", var_decl.name, mods);
+
         // We'll save the expr, but *don't* convert it yet.
-        _add_symbol(var_decl, true, &ast);
+        _add_symbol(var_decl, true, std::move(mods), &ast);
     }
 
     [[gnu::always_inline]]
-    void asm_label(pstring_t label, bool is_default)
+    ast_node_t byte_block_label(pstring_t label, bool is_default, std::unique_ptr<mods_t> mods)
     {
         int const i = -_add_symbol({{ label, type_t::addr(false) }, label }, true)-1;
         assert(i >= 0);
 
-        fn_def.push_stmt({ .name = STMT_ASM_LABEL, .pstring = label, .asm_label = i });
-
         if(is_default)
         {
-            if(fn_def.default_label >= 0)
+            if(fn_def.default_label != ENTRY_LABEL)
                 compiler_error(label, "Multiple default labels.");
             fn_def.default_label = i;
         }
         else
             fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(label.view(file.source())));
+
+        validate_mods("label", label, mods);
+
+        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_label, .pstring = label, .value = i }};
+        if(mods)
+            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+
+        return ast;
     }
 
     [[gnu::always_inline]]
-    void asm_op(pstring_t pstring, op_name_t name, addr_mode_t mode, ast_node_t* expr)
+    ast_node_t byte_block_asm_op(pstring_t pstring, op_name_t name, addr_mode_t mode, ast_node_t* expr)
     {
         op_t op = get_op(name, mode);
         if(!op)
             op = get_op(name, zp_equivalent(mode));
         if(!op)
             compiler_error(pstring, fmt("% lacks addressing mode %.", to_string(name), to_string(mode)));
-        // We'll save the expr, but *don't* convert it yet.
-        fn_def.push_stmt({ .name = STMT_ASM_OP, .asm_op = op, .pstring = pstring, .expr = eternal_expr(expr) });
+
+        return ast_node_t
+        { 
+            .token = { .type = lex::TOK_byte_block_asm_op, .pstring = pstring, .value = op },
+            .children = eternal_expr(expr) // Don't convert yet. Wait until every label has been processed.
+        };
     }
 
     [[gnu::always_inline]]
-    void asm_call(stmt_name_t stmt, pstring_t pstring, std::unique_ptr<mods_t> mods)
+    ast_node_t byte_block_call(lex::token_type_t tt, pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
         if(symbol_table.find(pstring.view(source())))
             compiler_error(pstring, "Cannot call a local variable.");
+
         global_t& g = global_t::lookup(file.source(), pstring);
         ideps.emplace(&g, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
-        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
-        fn_def.push_stmt({ .name = stmt, .mods = mods_h, .pstring = pstring, .global = &g });
+
+        if(tt == lex::TOK_byte_block_goto_mode)
+            validate_mods("goto mode", pstring, mods, 0, true, false);
+        else if(tt == lex::TOK_byte_block_goto)
+            validate_mods("goto", pstring, mods);
+        else
+            validate_mods("fn", pstring, mods);
+
+        ast_node_t ast = { .token = token_t::make_ptr(tt, pstring, &g) };
+        if(mods)
+            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+
+        return ast;
     }
 
     [[gnu::always_inline]]
-    void asm_wait_nmi(pstring_t pstring, std::unique_ptr<mods_t> mods)
+    ast_node_t byte_block_wait_nmi(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
-        fn_def.push_stmt({ .name = STMT_ASM_NMI, .mods = mods_h, .pstring = pstring });
+        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_wait_nmi, .pstring =pstring }};
+
+        validate_mods("nmi", pstring, mods);
+
+        if(mods)
+            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+        return ast;
     }
 
     [[gnu::always_inline]]
     void end_asm_fn(
-        var_decl_t decl, fn_class_t fclass, 
+        var_decl_t decl, fn_class_t fclass, ast_node_t ast,
         std::unique_ptr<mods_t> mods)
     {
         // Set the default label
+        /* TODO: remove?
         if(fn_def.default_label < 0)
         {
             for(unsigned i = 0; i < fn_def.local_consts.size(); ++i)
@@ -314,18 +348,20 @@ public:
                     goto found_default_label;
                 }
             }
-            fn_def.default_label = -_add_symbol({{ {}, type_t::addr(false) }, {} }, true)-1;
-            fn_def.push_stmt({ .name = STMT_ASM_LABEL, .asm_label = fn_def.default_label });
         found_default_label:;
         }
+        */
+
+        assert(ast.token.type == lex::TOK_byte_block_proc
+               || ast.token.type == lex::TOK_byte_block_data);
+        ast.token.type = lex::TOK_byte_block_proc;
 
         //Convert all expressions
         for(auto& c : fn_def.local_consts)
             if(c.expr)
                 convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_VALUE);
-        for(auto& stmt : fn_def.stmts)
-            if(stmt.name == STMT_ASM_OP && stmt.expr)
-                convert_ast(*const_cast<ast_node_t*>(stmt.expr), IDEP_VALUE);
+        fn_def.push_stmt({ STMT_EXPR, {}, {}, {}, convert_eternal_expr(&ast) });
+        fn_def.push_stmt({ STMT_END_FN, {}, {}, decl.name });
 
         if(fn_def.local_vars.size() > MAX_ASM_LOCAL_VARS)
             compiler_error(decl.name, fmt("Too many local variables. Max %.", MAX_ASM_LOCAL_VARS));
@@ -434,6 +470,8 @@ public:
     {
         uses_type(var_decl.src_type.type);
 
+        validate_mods("var", var_decl.name, mods, MOD_zero_page);
+
         active_global = &global_t::lookup(file.source(), var_decl.name);
         active_global->define_var(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(expr), std::move(mods));
         ideps.clear();
@@ -444,6 +482,8 @@ public:
                       ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
         uses_type(var_decl.src_type.type);
+
+        validate_mods("ct", var_decl.name, mods);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
         active_global->define_const(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(&expr), std::move(mods));

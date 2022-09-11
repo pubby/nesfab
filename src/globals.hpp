@@ -29,6 +29,7 @@
 #include "mods.hpp"
 #include "debug_print.hpp"
 #include "iasm.hpp"
+#include "byte_block.hpp"
 
 struct rom_array_t;
 struct precheck_tracked_t;
@@ -285,13 +286,23 @@ struct nmi_impl_t : public fn_impl_base_t
     xbitset_t<fn_ht> used_in_modes;
 };
 
+struct pstring_mods_t
+{
+    pstring_t pstring;
+    mods_t const* mods;
+};
+
 struct precheck_tracked_t
 {
+    // This refers to a stmt index for regular functions,
+    // OR an ast_t children index for iasm.
+    using code_handle_t = unsigned;
+
     fc::vector_map<group_ht, src_type_t> deref_groups;
     rh::batman_set<type_t> deref_types;
-    std::vector<stmt_ht> wait_nmis;
-    std::vector<stmt_ht> fences;
-    std::vector<std::pair<fn_ht, stmt_ht>> goto_modes;
+    std::vector<pstring_mods_t> wait_nmis;
+    std::vector<pstring_mods_t> fences;
+    std::vector<std::pair<fn_ht, pstring_mods_t>> goto_modes;
     fc::vector_map<fn_ht, pstring_t> calls;
     fc::vector_map<gvar_ht, pstring_t> gvars_used;
 
@@ -484,7 +495,8 @@ public:
     virtual group_ht group() const = 0;
 
 protected:
-    virtual void paa_init(loc_vec_t&& paa) = 0;
+    virtual void paa_init(asm_proc_t&& proc) = 0;
+    virtual void paa_init(loc_vec_t&& vec) = 0;
     virtual void rval_init(rval_t&& rval) = 0;
 
     src_type_t m_src_type = {};
@@ -515,15 +527,17 @@ public:
 
     void set_gmember_range(gmember_ht begin, gmember_ht end);
 
-    loc_vec_t const& init_data() const { assert(compiler_phase() > PHASE_COMPILE); return m_init_data; }
+    byte_block_data_t const& init_data() const { assert(compiler_phase() > PHASE_COMPILE); return m_init_data; }
+    void relocate_init_data(std::uint16_t addr);
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
 private:
-    virtual void paa_init(loc_vec_t&& paa);
+    virtual void paa_init(asm_proc_t&& proc);
+    virtual void paa_init(loc_vec_t&& vec);
     virtual void rval_init(rval_t&& rval);
 
-    loc_vec_t m_init_data = {};
+    byte_block_data_t m_init_data = {};
 
     gmember_ht m_begin_gmember = {};
     gmember_ht m_end_gmember = {};
@@ -578,7 +592,8 @@ public:
     rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
 
 private:
-    virtual void paa_init(loc_vec_t&& paa);
+    virtual void paa_init(asm_proc_t&& proc);
+    virtual void paa_init(loc_vec_t&& vec);
     virtual void rval_init(rval_t&& rval);
 
     rom_array_ht m_rom_array = {};

@@ -4,6 +4,7 @@
 #include <string>
 #include <exception>
 #include <vector>
+#include <variant>
 
 #include <boost/container/small_vector.hpp>
 
@@ -12,6 +13,7 @@
 #include "bitset.hpp"
 #include "pstring.hpp"
 #include "globals.hpp"
+#include "byte_block.hpp"
 
 namespace bc = ::boost::container;
 
@@ -56,7 +58,9 @@ rpair_t interpret_local_const(pstring_t pstring, fn_t const* fn, ast_node_t cons
 rpair_t interpret_expr(pstring_t pstring, ast_node_t const& ast,
                        type_t expected_type, eval_t* env = nullptr);
 
-std::vector<locator_t> interpret_paa(pstring_t pstring, ast_node_t const& ast);
+byte_block_data_t interpret_byte_block(
+    pstring_t pstring, ast_node_t const& ast, fn_t const* fn = nullptr, 
+    local_const_t const* local_consts = nullptr);
 
 precheck_tracked_t build_tracked(fn_t const& fn);
 

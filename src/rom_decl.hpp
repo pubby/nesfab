@@ -21,6 +21,7 @@ struct rom_static_ht;
 struct rom_many_ht;
 struct rom_once_ht;
 
+constexpr compiler_phase_t ROM_DATA_PHASE = PHASE_INITIAL_VALUES;
 struct rom_array_ht : public pool_handle_t<rom_array_ht, std::deque<rom_array_t>, PHASE_INITIAL_VALUES> {};
 struct rom_proc_ht : public pool_handle_t<rom_proc_ht, std::deque<rom_proc_t>, PHASE_INITIAL_VALUES> {};
 

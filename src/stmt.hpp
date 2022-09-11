@@ -36,13 +36,7 @@ struct stmt_mods_ht : handle_t<stmt_mods_ht, std::uint16_t, ~0> {};
     X(STMT_GOTO,       0) \
     X(STMT_GOTO_MODE,  true) \
     X(STMT_NMI,        0) \
-    X(STMT_FENCE,      0) \
-    X(STMT_ASM_OP,     true) \
-    X(STMT_ASM_LABEL,  0) \
-    X(STMT_ASM_CALL,   0) \
-    X(STMT_ASM_GOTO,   0) \
-    X(STMT_ASM_GOTO_MODE, 0) \
-    X(STMT_ASM_NMI,    0)
+    X(STMT_FENCE,      0)
 
 // Negative values represent var inits, where the negated value 
 // holds the bitwise negated index of the fn variable.
@@ -75,19 +69,12 @@ struct stmt_t
 {
     stmt_name_t name;
     stmt_mods_ht mods;
-    union
-    {
-        stmt_ht link; // A stmt index, used to speed-up interpreters
-        op_t asm_op;
-    };
+    stmt_ht link; // A stmt index, used to speed-up interpreters
     pstring_t pstring;
     union
     {
-        //token_t const* expr; TODO
         ast_node_t const* expr;
-        global_t const* global;
         unsigned use_count; // Used for labels
-        unsigned asm_label; // used for inline assembly labels
     };
 };
 

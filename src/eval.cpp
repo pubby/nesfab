@@ -20,6 +20,7 @@
 #include "fnv1a.hpp"
 #include "ast.hpp"
 #include "compiler_error.hpp"
+#include "asm_proc.hpp"
 
 namespace sc = std::chrono;
 namespace bc = boost::container;
@@ -107,7 +108,7 @@ private:
     static thread_local ir_builder_t builder;
 public:
     rpair_t final_result;
-    std::vector<locator_t> paa; // Only used when defining PAA inits
+    byte_block_data_t byte_block_data; // Only used when defining byte blocks
     local_const_t const* local_consts = nullptr;
     precheck_tracked_t* precheck_tracked = nullptr; // Various things callers of 'eval_t' may want.
 
@@ -127,6 +128,7 @@ public:
     static constexpr bool is_link(do_t d) { return d == LINK; }
 
     stmt_ht stmt_handle() const { return { stmt - fn->def().stmts.data() }; }
+    pstring_mods_t stmt_pstring_mods() const { return { stmt->pstring, fn->def().mods_of(stmt_handle()) }; }
 
     template<do_t Do>
     struct do_wrapper_t { static constexpr auto D = Do; };
@@ -312,10 +314,11 @@ rpair_t interpret_expr(pstring_t pstring, ast_node_t const& expr, type_t expecte
 }
 
 
-std::vector<locator_t> interpret_paa(pstring_t pstring, ast_node_t const& expr)
+byte_block_data_t interpret_byte_block(pstring_t pstring, ast_node_t const& expr, fn_t const* fn, 
+                                       local_const_t const* local_consts)
 {
-    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, nullptr, expr, TYPE_VOID);
-    return std::move(i.paa);
+    eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, fn, expr, TYPE_VOID, local_consts);
+    return std::move(i.byte_block_data);
 }
 
 precheck_tracked_t build_tracked(fn_t const& fn)
@@ -347,7 +350,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const* fn_ref,
         unsigned const nlocals = num_local_vars();
         var_types.resize(nlocals);
         for(unsigned i = 0; i < nlocals; ++i)
-            var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
+            var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
     }
     do_expr_result<D>(expr, expected_type);
 }
@@ -365,7 +368,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
 
     var_types.resize(nlocals);
     for(unsigned i = 0; i < nlocals; ++i)
-        var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
+        var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
 
     if(D == COMPILE)
     {
@@ -411,7 +414,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
 
     var_types.resize(nlocals);
     for(unsigned i = 0; i < nlocals; ++i)
-        var_types[i] = ::dethunkify(fn->def().local_vars[i].src_type, true, this);
+        var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
 
     // Add global vars to 'var_types':
     var_types.reserve(num_vars());
@@ -619,7 +622,7 @@ void eval_t::interpret_stmts()
                 // Prepare the type.
                 assert(var_i < var_types.size());
                 if(var_types[var_i].name() == TYPE_VOID)
-                    var_types[var_i] = dethunkify(fn->def().local_vars[var_i].src_type, true, this);
+                    var_types[var_i] = dethunkify(fn->def().local_vars[var_i].decl.src_type, true, this);
 
                 if(stmt->expr)
                 {
@@ -745,13 +748,13 @@ void eval_t::interpret_stmts()
             if(!is_check(D))
                 compiler_error(stmt->pstring, "Cannot wait for nmi at compile-time.");
             if(precheck_tracked)
-                precheck_tracked->wait_nmis.push_back(stmt_handle());
+                precheck_tracked->wait_nmis.push_back(stmt_pstring_mods());
             ++stmt;
             break;
 
         case STMT_FENCE:
             if(precheck_tracked)
-                precheck_tracked->fences.push_back(stmt_handle());
+                precheck_tracked->fences.push_back(stmt_pstring_mods());
             ++stmt;
             break;
         }
@@ -1088,11 +1091,11 @@ void eval_t::compile_block()
         if(fn->fclass == FN_NMI)
             compiler_error(stmt->pstring, "Cannot wait for nmi inside nmi.");
         if(precheck_tracked)
-            precheck_tracked->wait_nmis.push_back(stmt_handle());
+            precheck_tracked->wait_nmis.push_back(stmt_pstring_mods());
         goto do_fence;
     case STMT_FENCE:
         if(precheck_tracked)
-            precheck_tracked->fences.push_back(stmt_handle());
+            precheck_tracked->fences.push_back(stmt_pstring_mods());
         // fall-through
     do_fence:
         {
@@ -1213,7 +1216,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
 
             unsigned const var_i = ast.token.value;
-            if(fn->iasm)
+            if(fn && fn->iasm)
                 std::printf("asm var_i %i\n", var_i);
             assert(var_i < var_types.size());
             assert(var_i < num_local_vars());
@@ -1542,7 +1545,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(i < fn.def().num_params) // If it's a param
                     {
                         lhs.lval().arg = i;
-                        lhs.type = fn.def().local_vars[i].src_type.type;
+                        lhs.type = fn.def().local_vars[i].decl.src_type.type;
                     }
                     else // It's a label
                     {
@@ -1699,7 +1702,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(precheck_tracked)
             {
                 if(call->fclass == FN_MODE) // Track that we're going to a mode here:
-                    precheck_tracked->goto_modes.push_back(std::make_pair(call, stmt_handle()));
+                    precheck_tracked->goto_modes.push_back(std::make_pair(call, stmt_pstring_mods()));
                 else if(call->fclass != FN_CT)
                     precheck_tracked->calls.emplace(call, call_pstring);
             }
@@ -1966,30 +1969,177 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return result;
         }
 
-    case TOK_push_paa:
+    case TOK_byte_block_data:
         if(!is_check(D))
         {
+            std::vector<locator_t> paa;
+
             unsigned const n = ast.num_children();
             for(unsigned i = 0; i < n; ++i)
             {
-                if(ast.children[i].token.type == TOK_paa_byte_array)
+                ast_node_t const& sub = ast.children[i];
+
+                switch(sub.token.type)
                 {
-                    auto const* data = ast.children[i].token.ptr<std::vector<std::uint8_t>>();
-                    paa.reserve(paa.size() + data->size());
-                    for(std::uint8_t i : *data)
-                        paa.push_back(locator_t::const_byte(i));
-                }
-                else if(ast.children[i].token.type == TOK_paa_locator_array)
-                {
-                    auto const* data = ast.children[i].token.ptr<std::vector<locator_t>>();
-                    paa.insert(paa.end(), data->begin(), data->end());
-                }
-                else
-                {
-                    expr_value_t arg = to_rval<D>(do_expr<D>(ast.children[i]));
-                    ::append_locator_bytes(paa, arg.rval(), arg.type, arg.pstring);
+                case TOK_byte_block_byte_array:
+                    {
+                        auto const* data = sub.token.ptr<std::vector<std::uint8_t>>();
+                        paa.reserve(paa.size() + data->size());
+                        for(std::uint8_t i : *data)
+                            paa.push_back(locator_t::const_byte(i));
+                    }
+                    break;
+
+                case TOK_byte_block_locator_array:
+                    {
+                        auto const* data = sub.token.ptr<std::vector<locator_t>>();
+                        paa.insert(paa.end(), data->begin(), data->end());
+                    }
+                    break;
+
+                default:
+                    {
+                        expr_value_t arg = to_rval<D>(do_expr<D>(sub));
+                        ::append_locator_bytes(paa, arg.rval(), arg.type, arg.pstring);
+                    }
+                    break;
                 }
             }
+
+            byte_block_data = std::move(paa);
+        }
+        return {};
+
+    case TOK_byte_block_proc:
+        if(!is_check(D))
+        {
+            asm_proc_t proc;
+            proc.entry_label = locator_t::minor_label(ENTRY_LABEL);
+            proc.push_inst({ .op = ASM_LABEL, .arg = proc.entry_label });
+
+            unsigned const n = ast.num_children();
+            for(unsigned i = 0; i < n; ++i)
+            {
+                ast_node_t const& sub = ast.children[i];
+
+                switch(ast.children[i].token.type)
+                {
+                case TOK_byte_block_asm_op:
+                    {
+                        op_t const asm_op = op_t(sub.token.value);
+                        locator_t value = {};
+
+                        if(sub.children)
+                        {
+                            assert(op_addr_mode(asm_op) != MODE_IMPLIED);
+
+                            expr_value_t arg = throwing_cast<INTERPRET_CE>(
+                                do_expr<INTERPRET_CE>(*sub.children), 
+                                op_addr_mode(asm_op) == MODE_IMMEDIATE ? TYPE_U : TYPE_APTR, 
+                                false);
+
+                            assert(arg.rval().size() == 1);
+
+                            ssa_value_t const v = arg.ssa();
+
+                            if(v.is_locator())
+                                value = v.locator();
+                            else if(v.is_num())
+                            {
+                                if(op_addr_mode(asm_op) == MODE_IMMEDIATE)
+                                    value = locator_t::const_byte(v.whole());
+                                else
+                                    value = locator_t::addr(v.whole());
+                            }
+                            else
+                            {
+                                // Likely a bug if this fires:
+                                assert(false);
+                                compiler_error(sub.token.pstring, "Unable to compile assembly instruction.");
+                            }
+                        }
+
+                        proc.push_inst({ .op = asm_op, .iasm_child = i, .arg = value });
+                        
+                    }
+                    break;
+
+                case TOK_byte_block_label:
+                    proc.push_inst({ .op = ASM_LABEL, .iasm_child = i, .arg = locator_t::minor_label(sub.token.value) });
+                    break;
+
+                case TOK_byte_block_call:
+                case TOK_byte_block_goto:
+                    {
+                        global_t const* g = sub.token.ptr<global_t>();
+
+                        if(g->gclass() != GLOBAL_FN || g->impl<fn_t>().fclass != FN_FN)
+                            compiler_error(sub.token.pstring, fmt("% is not a callable function.", g->name));
+
+                        if(precheck_tracked)
+                            precheck_tracked->calls.emplace(g->handle<fn_ht>(), sub.token.pstring);
+
+                        op_t const op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
+                        proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()).with_is(IS_BANK) });
+                        proc.push_inst({ .op = op, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()) });
+                    }
+                    break;
+
+                case TOK_byte_block_goto_mode:
+                    {
+                        global_t const* g = sub.token.ptr<global_t>();
+
+                        if(g->gclass() != GLOBAL_FN || g->impl<fn_t>().fclass != FN_MODE)
+                            compiler_error(sub.token.pstring, fmt("% is not a mode.", g->name));
+
+                        if(precheck_tracked)
+                            precheck_tracked->goto_modes.push_back({ g->handle<fn_ht>(), { sub.token.pstring, sub.mods }});
+
+                        // TODO
+                        assert(false);
+                        throw std::runtime_error("unimplemented");
+                    }
+                    break;
+
+                case TOK_byte_block_wait_nmi:
+                    if(precheck_tracked)
+                        precheck_tracked->wait_nmis.push_back({ sub.token.pstring, sub.mods });
+                    proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = i, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
+                    break;
+
+                case TOK_byte_block_byte_array:
+                    {
+                        auto const* data = sub.children[i].token.ptr<std::vector<std::uint8_t>>();
+                        proc.code.reserve(proc.code.size() + data->size());
+                        for(std::uint8_t i : *data)
+                            proc.push_inst({ .op = ASM_DATA, .iasm_child = i, .arg = locator_t::const_byte(i) });
+                    }
+                    break;
+
+                case TOK_byte_block_locator_array:
+                    {
+                        auto const* data = sub.children[i].token.ptr<std::vector<locator_t>>();
+                        proc.code.reserve(proc.code.size() + data->size());
+                        for(locator_t loc : *data)
+                            proc.push_inst({ .op = ASM_DATA, .iasm_child = i, .arg = loc });
+                    }
+                    break;
+
+                default:
+                    {
+                        thread_local loc_vec_t vec_temp;
+                        vec_temp.clear();
+
+                        expr_value_t arg = to_rval<D>(do_expr<D>(sub.children[i]));
+                        ::append_locator_bytes(vec_temp, arg.rval(), arg.type, arg.pstring);
+
+                        for(locator_t loc : vec_temp)
+                            proc.push_inst({ .op = ASM_DATA, .iasm_child = i, .arg = loc });
+                    }
+                }
+            }
+
+            byte_block_data = std::move(proc);
         }
         return {};
 
@@ -3962,7 +4112,7 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
         {
             if(block_data.label_name.size && var_i < num_local_vars())
             {
-                pstring_t var_name = fn->def().local_vars[var_i].name;
+                pstring_t var_name = fn->def().local_vars[var_i].decl.name;
                 file_contents_t file(var_name.file_i);
                 throw compiler_error_t(
                     fmt_error(block_data.label_name, fmt(

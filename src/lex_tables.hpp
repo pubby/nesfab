@@ -152,14 +152,19 @@ constexpr token_type_t TOK_weak_ident = 145;
 constexpr token_type_t TOK_hw_addr = 146;
 constexpr token_type_t TOK_read_hw = 147;
 constexpr token_type_t TOK_write_hw = 148;
-constexpr token_type_t TOK_paa_byte_array = 149;
-constexpr token_type_t TOK_paa_locator_array = 150;
-constexpr token_type_t TOK_push_paa = 151;
-constexpr token_type_t TOK_begin_paa = 152;
-constexpr token_type_t TOK_end_paa = 153;
-constexpr token_type_t TOK_group_set = 154;
-constexpr token_type_t TOK_rpair = 155;
-constexpr token_type_t TOK_END = 156;
+constexpr token_type_t TOK_group_set = 149;
+constexpr token_type_t TOK_rpair = 150;
+constexpr token_type_t TOK_byte_block_proc = 151;
+constexpr token_type_t TOK_byte_block_data = 152;
+constexpr token_type_t TOK_byte_block_asm_op = 153;
+constexpr token_type_t TOK_byte_block_label = 154;
+constexpr token_type_t TOK_byte_block_call = 155;
+constexpr token_type_t TOK_byte_block_goto = 156;
+constexpr token_type_t TOK_byte_block_goto_mode = 157;
+constexpr token_type_t TOK_byte_block_wait_nmi = 158;
+constexpr token_type_t TOK_byte_block_byte_array = 159;
+constexpr token_type_t TOK_byte_block_locator_array = 160;
+constexpr token_type_t TOK_END = 161;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -314,13 +319,18 @@ inline std::string_view token_name(token_type_t type)
     case TOK_hw_addr: return "hw_addr"sv;
     case TOK_read_hw: return "read_hw"sv;
     case TOK_write_hw: return "write_hw"sv;
-    case TOK_paa_byte_array: return "paa_byte_array"sv;
-    case TOK_paa_locator_array: return "paa_locator_array"sv;
-    case TOK_push_paa: return "push_paa"sv;
-    case TOK_begin_paa: return "begin_paa"sv;
-    case TOK_end_paa: return "end_paa"sv;
     case TOK_group_set: return "group_set"sv;
     case TOK_rpair: return "rpair"sv;
+    case TOK_byte_block_proc: return "byte_block_proc"sv;
+    case TOK_byte_block_data: return "byte_block_data"sv;
+    case TOK_byte_block_asm_op: return "byte_block_asm_op"sv;
+    case TOK_byte_block_label: return "byte_block_label"sv;
+    case TOK_byte_block_call: return "byte_block_call"sv;
+    case TOK_byte_block_goto: return "byte_block_goto"sv;
+    case TOK_byte_block_goto_mode: return "byte_block_goto_mode"sv;
+    case TOK_byte_block_wait_nmi: return "byte_block_wait_nmi"sv;
+    case TOK_byte_block_byte_array: return "byte_block_byte_array"sv;
+    case TOK_byte_block_locator_array: return "byte_block_locator_array"sv;
     }
 }
 inline std::string_view token_string(token_type_t type)
@@ -477,13 +487,18 @@ inline std::string_view token_string(token_type_t type)
     case TOK_hw_addr: return "hardware address"sv;
     case TOK_read_hw: return "read hardware"sv;
     case TOK_write_hw: return "write hardware"sv;
-    case TOK_paa_byte_array: return "byte array"sv;
-    case TOK_paa_locator_array: return "locator array"sv;
-    case TOK_push_paa: return "push paa"sv;
-    case TOK_begin_paa: return "begin paa"sv;
-    case TOK_end_paa: return "end paa"sv;
     case TOK_group_set: return "group set"sv;
     case TOK_rpair: return "rpair"sv;
+    case TOK_byte_block_proc: return "byte block"sv;
+    case TOK_byte_block_data: return "byte block"sv;
+    case TOK_byte_block_asm_op: return "assembly instruction"sv;
+    case TOK_byte_block_label: return "assembly instruction"sv;
+    case TOK_byte_block_call: return "assembly fn call"sv;
+    case TOK_byte_block_goto: return "assembly goto"sv;
+    case TOK_byte_block_goto_mode: return "assembly goto mode"sv;
+    case TOK_byte_block_wait_nmi: return "assembly wait nmi"sv;
+    case TOK_byte_block_byte_array: return "byte block array"sv;
+    case TOK_byte_block_locator_array: return "byte block array"sv;
     }
 }
 constexpr unsigned char token_precedence_table[] =
@@ -586,6 +601,11 @@ constexpr unsigned char token_precedence_table[] =
     158,
     158,
     1,
+    0,
+    0,
+    0,
+    0,
+    0,
     0,
     0,
     0,
@@ -803,6 +823,11 @@ constexpr bool token_right_assoc_table[] =
     0,
     0,
     0,
+    0,
+    0,
+    0,
+    0,
+    0,
 };
 #define lex_TOK_KEY_CASES \
     case TOK_if:\
@@ -897,8 +922,8 @@ constexpr bool token_right_assoc_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 155;
-constexpr token_type_t TOK_START = 157;
+constexpr token_type_t TOK_LAST_STATE = 160;
+constexpr token_type_t TOK_START = 162;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[34365];
+extern token_type_t const lexer_transition_table[34760];
 } // namespace lex

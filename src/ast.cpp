@@ -8,8 +8,9 @@ unsigned ast_node_t::num_children() const
     {
     case TOK_apply:
     case TOK_cast:
-    case TOK_push_paa:
-        assert(children);
+    case TOK_byte_block_proc:
+    case TOK_byte_block_data:
+        assert(!token.value || children);
         return token.value;
 
     case TOK_unary_plus:
@@ -24,6 +25,9 @@ unsigned ast_node_t::num_children() const
         assert(children);
         return 1;
 
+    case TOK_byte_block_asm_op:
+        return children ? 1 : 0;
+
     case TOK_write_hw:
         return 2;
 
@@ -35,6 +39,11 @@ unsigned ast_node_t::num_children() const
         }
 
         assert(!children);
+        // fall-through
+        // These use 'mods' instead of 'children':
+    case TOK_byte_block_call:
+    case TOK_byte_block_goto:
+    case TOK_byte_block_goto_mode:
         return 0;
     }
 }

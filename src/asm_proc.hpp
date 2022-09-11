@@ -19,7 +19,7 @@ struct asm_inst_t
 {
     op_t op;
     ssa_op_t ssa_op; // Which op generated this instruction. (Useful for debugging)
-    int iasm_stmt = -1;
+    int iasm_child = -1;
     locator_t arg;
 
     // 'alt' typically holds the hi part of a pointer.
@@ -83,6 +83,9 @@ struct asm_proc_t
 
     void initial_optimize();
 
+    // Converts absolute instructions to zp, when appropriate
+    void absolute_to_zp();
+
     // Converts identifier-based labels to relocatable ones.
     //void make_relocatable();
 
@@ -91,6 +94,7 @@ struct asm_proc_t
 
     std::size_t size() const { return bytes_between(0, code.size()); }
 
+    loc_vec_t loc_vec() const;
     void write_assembly(std::ostream& os, romv_t romv) const;
     void write_bytes(std::uint8_t* const start, romv_t romv, int bank) const;
 
@@ -98,19 +102,21 @@ struct asm_proc_t
     void link(romv_t romv, int bank = -1);
 
     // Replaces labels with constant addresses.
-    void relocate(std::uint16_t addr);
+    void relocate(locator_t from);
 
     label_info_t const* lookup_label(locator_t loc) const { return labels.mapped(loc.mem_head()); }
     label_info_t* lookup_label(locator_t loc) { return labels.mapped(loc.mem_head()); }
     label_info_t& get_label(locator_t loc) { return labels[loc.mem_head()]; }
 private:
+    template<typename Fn>
+    void for_each_inst(Fn const& fn) const;
+
+    template<typename Fn>
+    void for_each_locator(Fn const& fn) const;
 
     void process_inst(asm_inst_t const& inst);
 
     void optimize(bool initial);
-
-    // Converts absolute instructions to zp, when appropriate
-    void absolute_to_zp();
 
     // Converts very short jumps to SKB or IGN ops.
     void optimize_short_jumps(bool use_nops);

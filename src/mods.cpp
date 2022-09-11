@@ -6,7 +6,7 @@
 mod_flags_t parse_mod_flag(std::string_view sv)
 {
     using namespace std::literals::string_view_literals;
-#define MOD(name, bit) if(sv == (#name ""sv)) return MOD_##name;
+#define MOD(bit, name) if(sv == (#name ""sv)) return MOD_##name;
 #include "mods.inc"
 #undef MOD
     return 0;
@@ -17,7 +17,7 @@ std::string_view to_string(mod_flags_t flag)
     using namespace std::literals::string_view_literals;
     switch(flag)
     {
-#define MOD(name, bit) case MOD_##name: return (#name ""sv);
+#define MOD(bit, name) case MOD_##name: return (#name ""sv);
 #include "mods.inc"
 #undef MOD
     default: return "badflag";
@@ -87,4 +87,14 @@ void inherit(std::unique_ptr<mods_t>& mods, std::unique_ptr<mods_t> const& from)
     if(!mods)
         mods.reset(new mods_t());
     mods->inherit(*from);
+}
+
+bool mod_test(flag_mods_t const* mods, mod_flags_t flags, bool enabled) 
+{ 
+    if(!mods)
+        return false;
+    if(enabled)
+        return flags & mods->enable;
+    else
+        return flags & mods->disable;
 }

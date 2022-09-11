@@ -1258,6 +1258,259 @@ var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group, bool all
     return { parse_type(false, block_init, group, allow_groupless_paa), parse_ident() };
 }
 
+template<typename P>
+template<typename Children>
+bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& children)
+{
+    bool proc = false;
+
+    auto const call = [&](token_type_t tt)
+    {
+        pstring_t call;
+        std::unique_ptr<mods_t> mods = parse_mods_after([&]{ call = parse_ident(); });
+        children.push_back(policy().byte_block_call(tt, call, std::move(mods)));
+    };
+
+    maybe_parse_block(block_indent, [&]
+    { 
+        switch(token.type)
+        {
+        case TOK_ct:
+            {
+                parse_token();
+
+                var_decl_t var_decl;
+                ast_node_t expr;
+
+                std::unique_ptr<mods_t> mods = parse_mods_after([&]
+                {
+                    if(!parse_var_init(var_decl, expr, false, {}))
+                        compiler_error(var_decl.name, "Constants must be assigned a value.");
+                });
+
+                policy().byte_block_ct_value(var_decl, expr, std::move(mods));
+            }
+            break;
+
+        case TOK_label:
+        case TOK_default:
+            {
+                unsigned const label_indent = indent;
+                bool const is_default = token.type == TOK_default;
+
+                pstring_t name = token.pstring;
+                parse_token();
+                if(token.type == TOK_ident)
+                {
+                    name = token.pstring;
+                    parse_token();
+                }
+                else if(!is_default)
+                    parse_token(TOK_ident);
+                //parse_token(TOK_colon); TODO
+                parse_line_ending();
+                children.push_back(policy().byte_block_label(name, is_default, nullptr));
+
+                proc |= parse_byte_block(decl, label_indent, children);
+            }
+            return;
+
+        case TOK_file:
+            {
+                parse_token(TOK_file);
+                pstring_t const script = parse_ident();
+                string_literal_t filename = parse_string_literal();
+                parse_line_ending();
+
+                fs::path preferred_dir = file.path();
+                preferred_dir.remove_filename();
+
+                conversion_t c = convert_file(source(), script, preferred_dir, filename);
+
+                if(auto* vec = std::get_if<std::vector<std::uint8_t>>(&c.data))
+                {
+                    children.push_back({ 
+                        .token = token_t::make_ptr(
+                            TOK_byte_block_byte_array, filename.pstring, 
+                            eternal_emplace<std::vector<std::uint8_t>>(std::move(*vec)))
+                    });
+                }
+                else if(auto* vec = std::get_if<std::vector<locator_t>>(&c.data))
+                {
+                    children.push_back({ 
+                        .token = token_t::make_ptr(
+                            TOK_byte_block_locator_array, filename.pstring, 
+                            eternal_emplace<std::vector<locator_t>>(std::move(*vec)))
+                    });
+                }
+            }
+            break;
+
+        case TOK_fn:
+            proc = true;
+            parse_token();
+            call(TOK_byte_block_call);
+            break;
+
+        case TOK_goto:
+            proc = true;
+            parse_token();
+            if(token.type == TOK_mode)
+            {
+                parse_token();
+                call(TOK_byte_block_goto_mode);
+            }
+            else
+                call(TOK_byte_block_goto);
+            break;
+
+        case TOK_nmi:
+            {
+                proc = true;
+                int const nmi_indent = indent;
+                pstring_t const pstring = token.pstring;
+                parse_token();
+                children.push_back(policy().byte_block_wait_nmi(pstring, parse_mods(indent)));
+                parse_line_ending();
+            }
+            break;
+
+        default:
+            if(is_type_prefix(token.type))
+            {
+                src_type_t cast_type;
+                children.push_back(parse_cast(cast_type));
+                unsigned const cast_size = cast_type.type.size_of();
+                if(cast_size == 0)
+                    compiler_error(cast_type.pstring, fmt("Type % cannot appear in pointer-addressable array.", cast_type.type));
+                parse_line_ending();
+            }
+            else if(is_ident(token.type))
+            {
+                proc = true;
+                pstring_t const pstring = token.pstring;
+                asm_lex::token_type_t const asm_token = parse_asm_token(token.pstring);
+
+                parse_token();
+
+                op_name_t name;
+                switch(asm_token)
+                {
+#define OP_NAME(NAME) case asm_lex::TOK_##NAME: name = NAME; break;
+#include "lex_op_name.inc"
+#undef OP_NAME
+                default: name = BAD_OP_NAME; break;
+                }
+
+                auto const is_reg = [this](pstring_t pstring, char ch)
+                    { return pstring.size == 1 && std::tolower(pstring.view(source())[0]) == ch; };
+
+                addr_mode_t mode;
+                ast_node_t expr = {}, *maybe_expr = nullptr;
+
+                switch(token.type)
+                {
+                case TOK_eol:
+                    mode = MODE_IMPLIED;
+                    break;
+
+                case TOK_hash:
+                    parse_token();
+                    expr = parse_expr();
+                    maybe_expr = &expr;
+                    mode = MODE_IMMEDIATE;
+                    break;
+
+                case TOK_lparen:
+                    parse_token();
+                    expr = parse_expr();
+                    maybe_expr = &expr;
+
+                    if(token.type == TOK_comma)
+                    {
+                        parse_token();
+                        if(!is_ident(token.type) || !is_reg(token.pstring, 'x'))
+                            compiler_error("Expecting X.");
+                        parse_token();
+                        parse_token(TOK_rparen);
+                        mode = MODE_INDIRECT_X;
+                    }
+                    else
+                    {
+                        parse_token(TOK_rparen);
+
+                        if(token.type == TOK_comma)
+                        {
+                            parse_token();
+                            if(!is_ident(token.type) || !is_reg(token.pstring, 'y'))
+                                compiler_error("Expecting Y.");
+                            parse_token();
+                            mode = MODE_INDIRECT_Y;
+                        }
+                        else
+                            mode = MODE_INDIRECT;
+                    }
+                    break;
+
+                default:
+                    expr = parse_expr();
+                    maybe_expr = &expr;
+
+                    if(token.type == TOK_comma)
+                    {
+                        parse_token();
+                        if(!is_ident(token.type))
+                            compiler_error("Expecting X or Y.");
+                        if(is_reg(token.pstring, 'x'))
+                            mode = MODE_ABSOLUTE_X;
+                        else if(is_reg(token.pstring, 'y'))
+                            mode = MODE_ABSOLUTE_Y;
+                        else
+                            compiler_error("Expecting X or Y.");
+                        parse_token();
+                    }
+                    else
+                    {
+                        if(get_op(name, MODE_RELATIVE))
+                            mode = MODE_RELATIVE;
+                        else
+                            mode = MODE_ABSOLUTE;
+                    }
+                    break;
+                }
+
+                children.push_back(policy().byte_block_asm_op(pstring, name, mode, maybe_expr));
+                parse_line_ending();
+            }
+            else
+                compiler_error("Unexpected token. Expecting assembly instruction or type.");
+            break;
+        }
+    });
+
+    return proc;
+}
+
+template<typename P>
+ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent)
+{
+    bc::small_vector<ast_node_t, 32> children;
+
+    bool const proc = parse_byte_block(decl, block_indent, children);
+
+    return
+    {
+        .token = 
+        {
+            .type = proc ? TOK_byte_block_proc : TOK_byte_block_data,
+            .pstring = decl,
+            .value = children.size()
+        },
+        .children = eternal_new<ast_node_t>(&*children.begin(), &*children.end())
+    };
+}
+
+
 // Returns true if the var init contains an expression.
 template<typename P>
 bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, bool block_init, group_ht group)
@@ -1275,54 +1528,8 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, bool bl
     else if(block_init && is_paa(var_decl.src_type.type.name()))
     {
         parse_line_ending();
-        bc::small_vector<ast_node_t, 32> children;
-
-        maybe_parse_block(var_indent, [&]
-        { 
-            if(token.type == TOK_file)
-            {
-                parse_token(TOK_file);
-                pstring_t const script = parse_ident();
-                string_literal_t filename = parse_string_literal();
-
-                fs::path preferred_dir = file.path();
-                preferred_dir.remove_filename();
-
-                conversion_t c = convert_file(source(), script, preferred_dir, filename);
-
-                if(auto* vec = std::get_if<std::vector<std::uint8_t>>(&c.data))
-                {
-                    children.push_back({ 
-                        .token = token_t::make_ptr(TOK_paa_byte_array, filename.pstring, 
-                                                   eternal_emplace<std::vector<std::uint8_t>>(std::move(*vec)))
-                    });
-                }
-                else if(auto* vec = std::get_if<std::vector<locator_t>>(&c.data))
-                {
-                    children.push_back({ 
-                        .token = token_t::make_ptr(TOK_paa_locator_array, filename.pstring, 
-                                                   eternal_emplace<std::vector<locator_t>>(std::move(*vec)))
-                    });
-                }
-            }
-            else
-            {
-                src_type_t cast_type;
-                children.push_back(parse_cast(cast_type));
-                unsigned const cast_size = cast_type.type.size_of();
-                if(cast_size == 0)
-                    compiler_error(cast_type.pstring, fmt("Type % cannot appear in pointer-addressable array.", cast_type.type));
-            }
-
-            parse_line_ending();
-
-            expr.token.type = TOK_push_paa;
-            expr.token.pstring = var_decl.name;
-            expr.token.value = children.size();
-            expr.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
-        });
-
-        return !children.empty();
+        expr = parse_byte_block(var_decl.name, var_indent);
+        return expr.num_children();
     }
     else if(block_init)
         parse_line_ending();
@@ -1534,24 +1741,25 @@ void parser_t<P>::parse_fn(bool is_asm)
     if(is_asm)
     {
         // Parse the local vars of this fn:
-        maybe_parse_block(fn_indent, [&]
-        { 
-            if(token.type == TOK_default || is_ident(token.type))
-                return false;
-            if(token.type == TOK_ct)
-                parse_asm_local_const();
-            else
-            {
-                policy().asm_fn_var(parse_var_decl(false, {}, true));
-                parse_line_ending();
-            }
-            return true;
-        });
+        if(token.type == TOK_vars)
+        {
+            int const vars_indent = indent;
+            parse_token();
+            parse_line_ending();
+            maybe_parse_block(vars_indent, [&]
+            { 
+                var_decl_t decl;
+                std::unique_ptr<mods_t> mods = parse_mods_after([&]
+                {
+                    decl = parse_var_decl(false, {}, true);
+                });
+                policy().asm_fn_var(decl, std::move(mods));
+            });
+        }
 
-        // Parse the code:
-        maybe_parse_block(fn_indent, [&]{ parse_asm_label_block(); });
+        ast_node_t ast = parse_byte_block(fn_name, fn_indent);
 
-        policy().end_asm_fn(std::move(state), fclass, std::move(mods));
+        policy().end_asm_fn(std::move(state), fclass, ast, std::move(mods));
     }
     else
     {
@@ -1585,6 +1793,7 @@ void parser_t<P>::parse_statement()
     }
 }
 
+/* TODO: remove
 template<typename P>
 void parser_t<P>::parse_asm_local_const()
 {
@@ -1628,6 +1837,7 @@ void parser_t<P>::parse_asm_label_block()
     }
 }
 
+/* TODO remove
 template<typename P>
 void parser_t<P>::parse_asm_op()
 {
@@ -1663,8 +1873,12 @@ void parser_t<P>::parse_asm_op()
         return;
 
     default:
-        if(!is_ident(token.type))
-            compiler_error("Unexpected token. Expecting assembly instruction.");
+        if(is_type_prefix(token.type))
+        {
+            assert(0);
+        }
+        else if(!is_ident(token.type))
+            compiler_error("Unexpected token. Expecting assembly instruction or type.");
     }
 
     pstring_t const pstring = token.pstring;
@@ -1763,6 +1977,7 @@ void parser_t<P>::parse_asm_op()
 
     policy().asm_op(pstring, name, mode, maybe_expr);
 }
+*/
 
 template<typename P>
 void parser_t<P>::parse_flow_statement()

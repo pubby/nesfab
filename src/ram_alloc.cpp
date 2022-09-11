@@ -21,6 +21,17 @@ enum zp_request_t
     ZP_ONLY,
 };
 
+zp_request_t zp_request(bool valid, bool only)
+{
+    if(valid)
+    {
+        if(only)
+            return ZP_ONLY;
+        return ZP_MAYBE;
+    }
+    return ZP_NEVER;
+}
+
 // Allocates a span inside 'usable_ram'.
 static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp, 
                         bool insist_alignment = false)
@@ -485,13 +496,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
             dprint(log, "-RAM_GMEMBER_ALLOCATION", loc, loc.mem_size(), loc.mem_zp_only());
 
-            zp_request_t zp;
-            if(loc.mem_zp_only())
-                zp = ZP_ONLY;
-            else if(estimated_in_zp.count(loc))
-                zp = ZP_MAYBE;
-            else
-                zp = ZP_NEVER;
+            zp_request_t const zp = zp_request(loc.mem_zp_valid() && estimated_in_zp.count(loc), loc.mem_zp_only());
 
             // Try to allocate in a position that minimizes the amount of 
             // 'usable_ram' changed in interfering group vars bitsets.
@@ -512,7 +517,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             all.flip_all();
             any.flip_all();
 
-            bool const insist_align = (gmember.gvar.mflags() & MOD_align);
+            bool const insist_align = mod_test(gmember.gvar.mods(), MOD_align);
 
             // Allocate, prioritizing 'all', then 'any', then just 'd.usable_ram'.
             span_t span = alloc_ram(d.usable_ram & all, size, zp, insist_align);
@@ -790,12 +795,14 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
         assert(lvar_i < lvar_usable_ram.size());
 
+        zp_request_t const zp = zp_request(info.zp_valid, info.zp_only);
+
         // First try to allocate in 'freebie_ram'.
-        span_t span = alloc_ram(lvar_usable_ram[lvar_i] & freebie_ram, info.size, info.zp_only ? ZP_ONLY : ZP_MAYBE);
+        span_t span = alloc_ram(lvar_usable_ram[lvar_i] & freebie_ram, info.size, zp);
 
         // If that fails, try to allocate anywhere.
         if(!span)
-            span = alloc_ram(lvar_usable_ram[lvar_i], info.size, info.zp_only ? ZP_ONLY : ZP_MAYBE);
+            span = alloc_ram(lvar_usable_ram[lvar_i], info.size, zp);
 
         // If that fails, we're fucked.
         if(!span)

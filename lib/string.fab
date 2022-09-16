@@ -1,0 +1,135 @@
+
+
+vars /decompress_string_vars
+    CC/strings decompress_string_ptr
+    U decompress_string_skip
+    
+fn decompress_string_init(CC/strings str)
+    decompress_string_ptr = str
+    decompress_string_sub_offset = 0
+    
+
+charmap foo("\0\n", "abcdefghijklmnopqrstuvwxyz
+
+
+// Decompresses a single character of the string, returning it.
+// 
+asm fn decompress_string() U
+: vars /decompress_string_vars
+: data /strings
+    vars
+        U stack
+
+    default
+        tsx
+        stx stack
+        ldy #0
+    loop:
+        lda (&str.a), y
+        jsr process_byte
+        inc decompress_string_ptr.a
+        bne :+
+        inc decompress_string_ptr.b
+    :
+        ldy #0
+        sty decompress_string_skip
+        beq loop // always jumps
+
+    pair:
+        tax
+        lda &CSTR_pairs_hi_table - MAX_CHAR, x
+        pha
+        lda &CSTR_pairs_lo_table - MAX_CHAR, x
+        jsr process_byte
+        pla
+    process_byte:
+        cmp #MAX_CHAR
+        bcs pair
+        cpy decompress_string_skip
+        iny
+        bcc sub_return
+        sty decompress_string_skip
+        sta &return
+        ldx stack
+        txs
+    sub_return:
+        rts
+
+ ',.!?-$
+
+ 0123456789ABCDEFGHKLMNPQRSTUVWY
+
+ABCDEFGHIKLMNOPQRSTUVWY
+abcdefghiklmnoprstuvwxy
+
+    ,.!?'"#$%&*/+-0123456789
+
+ ,.!?'$-0123456789
+
+ ABCDEFGHIJKLMNPQRSTUVWY
+ abcdefghimnoprstuvwxy
+
+
+
+ ',.!?-$0123456789ABCDEFGHJKLMNPQRSTUVWYabcdefghijklmnoprstuvwxy
+
+    ~!#$%&*()-+=/:;,.<>|0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+
+ ',.:!?0123456789$+-(){0O}
+
+
+
+WELCOME TO THE NES GAME.
+
+    default
+        tsx
+        stx &stack
+
+        bit PPUSTATUS
+        lda &ppuaddr.b
+        sta PPUADDR
+        lda &ppuaddr.a
+        sta PPUADDR
+
+        ldy #0
+    loop:
+        ldy (&str.a), y
+        jsr process_byte
+        iny
+        bne loop
+        inc &str.b
+        jmp loop
+
+    pair:
+        lda &CSTR_pairs_hi_table - MAX_CHAR, x
+        pha
+        lda &CSTR_pairs_lo_table - MAX_CHAR, x
+        jsr process_byte
+        pla
+    process_byte:
+        tax
+        beq eof
+        cmp #MAX_CHAR-1
+        beq eol
+        bcs pair
+        lda char_to_pattern, x
+        sta PPUDATA
+        rts
+    eol:
+        lda &ppuaddr.a
+        clc
+        adc #32
+        sta &ppuaddr.a
+        bcc done_inc_ppuaddr
+        inc &ppuaddr.b
+    done_inc_ppuaddr:
+        ldx &ppuaddr.b
+        stx PPUADDR
+        sta PPUADDR
+        rts
+    eof:
+        ldx &stack
+        txs
+        rts
+
+

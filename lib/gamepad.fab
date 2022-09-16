@@ -1,0 +1,55 @@
+// Gamepad button flags:
+U BUTTON_A      = %10000000
+U BUTTON_B      = %01000000
+U BUTTON_SELECT = %00100000
+U BUTTON_START  = %00010000
+U BUTTON_UP     = %00001000
+U BUTTON_DOWN   = %00000100
+U BUTTON_LEFT   = %00000010
+U BUTTON_RIGHT  = %00000001
+U BUTTON_DPAD   = BUTTON_UP | BUTTON_DOWN | BUTTON_LEFT | BUTTON_RIGHT
+
+vars /gamepad
+    // [0] for the first controller, [1] for the second
+    U[2] buttons_held
+    U[2] buttons_pressed
+
+// Reads the current gamepad state into 'buttons_held' and 'buttons_pressed'.
+asm fn read_gamepads()
+: vars /gamepad
+: data
+    // 21+199+10+10+6 = 246 cycles (not counting JSR)
+    default:
+        // 3+2+3+4+2+4+3 cycles = 21 cycles
+        ldx &buttons_held+0
+        ldy #1
+        sty &buttons_held+0
+        sty $4016
+        dey
+        sty $4016
+        ldy &buttons_held+1
+    loop:
+        // (4+2+5+4+2+5+3)*8-1 = 199 cycles
+        lda $4017
+        lsr
+        rol &buttons_held+1
+        lda $4016
+        lsr
+        rol &buttons_held+0
+        bcc loop
+
+        // 2+2+3+3 = 10 cycles
+        txa
+        eor #$FF
+        and &buttons_held+0
+        sta &buttons_pressed+0
+
+        // 2+2+3+3 = 10 cycles
+        tya
+        eor #$FF
+        and &buttons_held+1
+        sta &buttons_pressed+1
+
+        // 6 cycles
+        rts
+

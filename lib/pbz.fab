@@ -1,0 +1,34 @@
+
+asm fn load_pbz(CC/pbz ptr, U tiles)
+: vars
+: data /pbz
+    vars
+        U run_mask
+    label write_plane
+        ldy #0
+        lda (&ptr.a), y
+        sec
+        rol
+        sta &run_mask
+        tya
+    label pb8_loop
+        bcs no_new_byte
+        iny
+        lda (&ptr.a), y
+    label no_new_byte
+        sta PPUDATA
+        asl &run_mask
+        bne pb8_loop
+        tya
+        adc &ptr.a
+        sta &ptr.a
+        bcc done_inc
+        inc &ptr.b
+    label done_inc
+        rts
+    default plane_loop
+        jsr write_plane
+        jsr write_plane
+        dec &tiles
+        bne plane_loop
+        rts

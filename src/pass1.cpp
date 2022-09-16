@@ -18,6 +18,11 @@ void pass1_t::uses_type(type_t type, idep_class_t calc)
     }
 }
 
+void pass1_t::uses_charmap(global_t const* charmap, idep_class_t calc)
+{
+    ideps.emplace(const_cast<global_t*>(charmap), idep_pair_t{ .calc = calc, .depends_on = IDEP_TYPE });
+}
+
 ast_node_t* pass1_t::eternal_expr(ast_node_t const* expr)
 {
     // Store the expression and return a pointer to it.
@@ -76,6 +81,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         }
         break;
 
+        /* TODO: remove
     case TOK_at:
         if(symbol_table.find(ast.token.pstring.view(source())))
             compiler_error(ast.token.pstring, "Cannot get addresses of local variables.");
@@ -86,6 +92,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
             ast.token.set_ptr(&g);
         }
         break;
+        */
 
     case TOK_type_ident:
         {
@@ -95,6 +102,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         }
         break;
 
+    case TOK_at:
     case TOK_unary_ref:
     case TOK_sizeof_expr:
     case TOK_len_expr:

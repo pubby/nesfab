@@ -153,7 +153,7 @@ public:
     // This version checks edges too.
     bool edges_eq(ssa_fwd_edge_t const& o) const { return value == o.value; }
 
-    type_t type(bool is_deref = false) const;
+    type_t type() const;
 
     explicit operator bool() const { return this->value; }
     bool operator!() const { return !this->value; }

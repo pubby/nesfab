@@ -76,13 +76,15 @@ private:
     fc::vector_set<global_t*> m_iuses;
     std::atomic<int> m_ideps_left = 0;
 
-    std::atomic<bool> m_prechecked = false; // Use for debugging only.
-    std::atomic<bool> m_compiled = false; // Use for debugging only.
+    // These are for debugging:
+    std::atomic<bool> m_resolved = false;
+    std::atomic<bool> m_prechecked = false;
+    std::atomic<bool> m_compiled = false;
 public:
     global_t() = delete;
 
-    global_t(pstring_t pstring, char const* source)
-    : name(pstring.view(source))
+    global_t(pstring_t pstring, std::string_view name)
+    : name(name)
     , m_pstring(pstring)
     {
         assert(m_pstring.size);
@@ -92,6 +94,8 @@ public:
     ideps_map_t const& ideps() const { assert(compiler_phase() > PHASE_PARSE); return m_ideps; }
     pstring_t pstring() const { return m_pstring; }
     unsigned impl_id() const { assert(compiler_phase() > PHASE_PARSE); return m_impl_id; }
+
+    bool resolved() const { return m_resolved; }
     bool prechecked() const { return m_prechecked; }
     bool compiled() const { return m_compiled; }
 
@@ -128,15 +132,18 @@ public:
         ast_node_t const* expr, std::unique_ptr<mods_t> mods);
     struct_t& define_struct(
         pstring_t pstring, ideps_map_t&& ideps, field_map_t&& map);
+    charmap_t& define_charmap(
+        pstring_t pstring, bool is_default, 
+        string_literal_t const& control, string_literal_t const& printable,
+        bool has_sentinel, std::unique_ptr<mods_t> mods);
 
     static void init();
 
     // Creates a global if it doesn't exist,
     // otherwise returns the existing global with name.
     static global_t& lookup(char const* source, pstring_t name);
-
-    static global_t const* lookup_sourceless(std::string_view view);
-    //static group_ht universal_group() { return {0}; }
+    static global_t& lookup_sourceless(pstring_t name, std::string_view key);
+    static global_t* lookup_sourceless(std::string_view view);
 
     // Call after parsing
     static void parse_cleanup();
@@ -166,7 +173,10 @@ public:
 
     static std::vector<fn_t*> modes() { assert(compiler_phase() > PHASE_PARSE); return modes_vec; }
     static std::vector<fn_t*> nmis() { assert(compiler_phase() > PHASE_PARSE); return nmi_vec; }
+
+    static global_t& default_charmap(pstring_t at);
 private:
+
     // Sets the variables of the global:
     unsigned define(pstring_t pstring, global_class_t gclass, 
                     ideps_map_t&& ideps, std::function<unsigned(global_t&)> create_impl);
@@ -178,6 +188,20 @@ private:
     // Call on completion of compile or precheck.
     // Updates the ready list.
     void completed();
+
+    template<typename Fn>
+    void delegate(Fn const& fn)
+    {
+        switch(gclass())
+        {
+        default: throw std::runtime_error("Invalid global.");
+        case GLOBAL_FN:      fn(this->impl<fn_t>());      break;
+        case GLOBAL_CONST:   fn(this->impl<const_t>());   break;
+        case GLOBAL_VAR:     fn(this->impl<gvar_t>());    break;
+        case GLOBAL_STRUCT:  fn(this->impl<struct_t>());  break;
+        case GLOBAL_CHARMAP: fn(this->impl<charmap_t>()); break;
+        }
+    }
 
     // Returns and pops the next ready global from the ready list.
     static global_t* await_ready_global();
@@ -569,6 +593,8 @@ public:
     bool zero_init(unsigned atom) const;
 
 private:
+    locator_t const* init_data(unsigned atom, loc_vec_t const& vec) const;
+
     bc::small_vector<span_t, 2> m_spans = {};
 };
 
@@ -599,8 +625,40 @@ private:
     rom_array_ht m_rom_array = {};
 };
 
+class charmap_t : public modded_t
+{
+public:
+    static constexpr global_class_t global_class = GLOBAL_CHARMAP;
+    using handle_t = charmap_ht;
+
+    charmap_t(global_t& global, bool is_default, 
+              string_literal_t const& control, string_literal_t const& printable,
+              bool has_sentinel, std::unique_ptr<mods_t> mods);
+
+    global_t& global;
+    bool const is_default = false;
+    bool const has_sentinel = false;
+
+    unsigned size() const { return m_num_unique; }
+    int convert(char32_t ch) const; // Returns negative on failure.
+    int sentinel() const;
+
+    group_data_ht group_data() const { assert(global.resolved()); return m_group_data; }
+
+    void resolve();
+    void precheck() {}
+    void compile() {}
+private:
+    rh::batman_map<char32_t, unsigned> m_map;
+    unsigned m_num_unique = 0;
+    unsigned m_num_control_chars = 0;
+    group_data_ht m_group_data = {};
+};
+
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }
 
 fn_t const& get_main_entry();
+
+charmap_t const& get_charmap(pstring_t from, global_t const& global);
 
 #endif

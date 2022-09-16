@@ -20,31 +20,34 @@
 #include "rom.hpp"
 #include "ir_util.hpp"
 #include "debug_print.hpp"
+#include "text.hpp"
 
 global_t& global_t::lookup(char const* source, pstring_t name)
 {
-    std::string_view view = name.view(source);
+    return lookup_sourceless(name, name.view(source));
+}
 
-    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
+global_t& global_t::lookup_sourceless(pstring_t name, std::string_view key)
+{
+    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(key.data(), key.size());
 
-    return *global_ht::with_pool([&, hash, view, source](auto& pool)
+    return *global_ht::with_pool([&, hash, key](auto& pool)
     {
         rh::apair<global_t**, bool> result = global_pool_map.emplace(hash,
-            [view](global_t* ptr) -> bool
+            [key](global_t* ptr) -> bool
             {
-                return std::equal(view.begin(), view.end(), 
-                                  ptr->name.begin(), ptr->name.end());
+                return std::equal(key.begin(), key.end(), ptr->name.begin(), ptr->name.end());
             },
-            [&pool, name, source]() -> global_t*
+            [&pool, name, key]() -> global_t*
             { 
-                return &pool.emplace_back(name, source);
+                return &pool.emplace_back(name, key);
             });
 
         return *result.first;
     });
 }
 
-global_t const* global_t::lookup_sourceless(std::string_view view)
+global_t* global_t::lookup_sourceless(std::string_view view)
 {
     std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
@@ -53,8 +56,7 @@ global_t const* global_t::lookup_sourceless(std::string_view view)
         auto result = global_pool_map.lookup(hash,
             [view](global_t* ptr) -> bool
             {
-                return std::equal(view.begin(), view.end(), 
-                                  ptr->name.begin(), ptr->name.end());
+                return std::equal(view.begin(), view.end(), ptr->name.begin(), ptr->name.end());
             });
 
         return result.second ? *result.second : nullptr;
@@ -184,17 +186,38 @@ struct_t& global_t::define_struct(pstring_t pstring, ideps_map_t&& ideps,
     return *ret;
 }
 
+charmap_t& global_t::define_charmap(
+        pstring_t pstring, bool is_default, 
+        string_literal_t const& control, string_literal_t const& printable,
+        bool has_sentinel, std::unique_ptr<mods_t> mods)
+{
+    charmap_t* ret;
+
+    // Create the charmap
+    define(pstring, GLOBAL_CHARMAP, {}, [&](global_t& g)
+    { 
+        return charmap_ht::pool_emplace(ret, g, is_default, control, printable, has_sentinel, std::move(mods)).id;
+    });
+    
+    return *ret;
+}
+
+global_t& global_t::default_charmap(pstring_t at)
+{
+    using namespace std::literals;
+    thread_local global_t* result = nullptr;
+    if(!result)
+        result = &lookup_sourceless(at, "charmap default"sv);
+    return *result;
+}
+
 void global_t::init()
 {
     assert(compiler_phase() == PHASE_INIT);
 
     /* TODO
     using namespace std::literals;
-    lookup_sourceless("(universal group)"sv).define({}, GLOBAL_GROUP, {}, {}, [](global_t& g)
-    {
-        assert(global_impl_vec<group_t>.empty());
-        return _append_to_vec<group_t>(g); 
-    });
+    default_charmap_ = lookup_sourceless("charmap default"sv);
 
     lookup_sourceless("(universal vbank)"sv).define({}, GLOBAL_VBANK, {}, {}, [](global_t& g)
     {
@@ -213,7 +236,7 @@ void global_t::parse_cleanup()
     // Verify groups are created:
     for(group_t const& group : group_ht::values())
         if(group.gclass() == GROUP_UNDEFINED)
-            compiler_error(group.pstring(), "Group name not in scope.");
+            compiler_error(group.pstring(), fmt("Group name not in scope: %", group.name));
 
     // Verify globals are created:
     for(global_t& global : global_ht::values())
@@ -221,9 +244,9 @@ void global_t::parse_cleanup()
         if(global.gclass() == GLOBAL_UNDEFINED)
         {
             if(global.m_pstring)
-                compiler_error(global.pstring(), "Name not in scope.");
+                compiler_error(global.pstring(), fmt("Name not in scope: %", global.name));
             else
-                throw compiler_error_t(fmt("Name not in scope: %.", global.name));
+                throw compiler_error_t(fmt("Name not in scope: %", global.name));
         }
     }
 
@@ -552,36 +575,15 @@ void global_t::build_order()
     assert(ready.size());
 }
 
-// TODO: combine this with 'precheck' and 'compile'.
 void global_t::resolve(log_t* log)
 {
     log = &stdout_log;
     assert(compiler_phase() == PHASE_RESOLVE);
 
     dprint(log, "RESOLVING", name);
+    delegate([](auto& g){ g.resolve(); });
 
-    switch(gclass())
-    {
-    default:
-        throw std::runtime_error("Invalid global.");
-
-    case GLOBAL_FN:
-        this->impl<fn_t>().resolve();
-        break;
-
-    case GLOBAL_CONST:
-        this->impl<const_t>().resolve();
-        break;
-
-    case GLOBAL_VAR:
-        this->impl<gvar_t>().resolve();
-        break;
-
-    case GLOBAL_STRUCT:
-        this->impl<struct_t>().resolve();
-        break;
-    }
-
+    m_resolved = true;
     completed();
 }
 
@@ -591,28 +593,7 @@ void global_t::precheck(log_t* log)
     assert(compiler_phase() == PHASE_PRECHECK);
 
     dprint(log, "PRECHECKING", name);
-
-    switch(gclass())
-    {
-    default:
-        throw std::runtime_error("Invalid global.");
-
-    case GLOBAL_FN:
-        this->impl<fn_t>().precheck();
-        break;
-
-    case GLOBAL_CONST:
-        this->impl<const_t>().precheck();
-        break;
-
-    case GLOBAL_VAR:
-        this->impl<gvar_t>().precheck();
-        break;
-
-    case GLOBAL_STRUCT:
-        this->impl<struct_t>().precheck();
-        break;
-    }
+    delegate([](auto& g){ g.precheck(); });
 
     m_prechecked = true;
     completed();
@@ -624,28 +605,7 @@ void global_t::compile(log_t* log)
 
     log = &stdout_log; // TODO
     dprint(log, "COMPILING", name, m_ideps.size());
-
-    switch(gclass())
-    {
-    default:
-        throw std::runtime_error("Invalid global.");
-
-    case GLOBAL_FN:
-        this->impl<fn_t>().compile();
-        break;
-
-    case GLOBAL_CONST:
-        this->impl<const_t>().compile();
-        break;
-
-    case GLOBAL_VAR:
-        this->impl<gvar_t>().compile();
-        break;
-
-    case GLOBAL_STRUCT:
-        this->impl<struct_t>().compile();
-        break;
-    }
+    delegate([](auto& g){ g.compile(); });
 
     m_compiled = true;
     completed();
@@ -893,8 +853,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
                 io_pure = false;
 
-                type_t const ptr_type = ssa_it->input(PTR).type(true);
-                assert(is_ptr(ptr_type.name()));
+                type_t const ptr_type = ssa_it->input(PTR).type();
+                passert(is_ptr(ptr_type.name()), ssa_it->input(PTR));
 
                 unsigned const size = ptr_type.group_tail_size();
                 for(unsigned i = 0; i < size; ++i)
@@ -1779,7 +1739,7 @@ void gmember_t::alloc_spans()
     m_spans.resize(num_atoms(type(), 0));
 }
 
-locator_t const* gmember_t::init_data(unsigned atom) const
+locator_t const* gmember_t::init_data(unsigned atom, loc_vec_t const& vec) const
 {
     unsigned const size = init_size();
 
@@ -1791,7 +1751,12 @@ locator_t const* gmember_t::init_data(unsigned atom) const
     }
 
     unsigned const offset = ::member_offset(gvar.type(), member());
-    return std::get<loc_vec_t>(gvar.init_data()).data() + offset + (atom * size);
+    return vec.data() + offset + (atom * size);
+}
+
+locator_t const* gmember_t::init_data(unsigned atom) const
+{
+    return init_data(atom, std::get<loc_vec_t>(gvar.init_data()));
 }
 
 std::size_t gmember_t::init_size() const
@@ -1809,15 +1774,19 @@ bool gmember_t::zero_init(unsigned atom) const
     if(!gvar.init_expr)
         return false;
 
-    std::size_t const size = init_size();
-    locator_t const* data = init_data(atom);
+    if(loc_vec_t const* vec = std::get_if<loc_vec_t>(&gvar.init_data()))
+    {
+        std::size_t const size = init_size();
+        locator_t const* data = init_data(atom, *vec);
 
-    for(unsigned i = 0; i < size; ++i)
-        if(!data[i].eq_const(0))
-            return false;
+        for(unsigned i = 0; i < size; ++i)
+            if(!data[i].eq_const(0))
+                return false;
 
-    return true;
+        return true;
+    }
 
+    return false;
 }
 
 /////////////
@@ -1834,7 +1803,7 @@ void const_t::paa_init(loc_vec_t&& vec)
 
 void const_t::paa_init(asm_proc_t&& proc)
 {
-    proc.relocate(locator_t::lt_const_ptr(handle()));
+    proc.relocate(locator_t::gconst(handle()));
     proc.absolute_to_zp();
     paa_init(proc.loc_vec());
 }
@@ -1936,6 +1905,105 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
     }
 }
 
+///////////////
+// charmap_t //
+///////////////
+
+charmap_t::charmap_t(global_t& global, bool is_default, 
+                     string_literal_t const& control, string_literal_t const& printable,
+                      bool has_sentinel, std::unique_ptr<mods_t> new_mods)
+: modded_t(std::move(new_mods))
+, global(global)
+, is_default(is_default)
+, has_sentinel(has_sentinel)
+{
+    auto const add_literal = [&](string_literal_t const& lit)
+    {
+        if(lit.string.empty())
+            return;
+
+        char const* ptr = lit.string.data();
+        char const* char_begin = ptr;
+        char32_t utf32 = escaped_utf8_to_utf32(lit.pstring, ptr);
+        assert(ptr != char_begin);
+
+        char const* end = lit.string.data() + lit.string.size();
+        while(true)
+        {
+            assert(ptr);
+
+            if(utf32 == SPECIAL_SLASH)
+                compiler_error(lit.pstring, "Invalid '\\/' operator.");
+
+            auto result = m_map.insert({ utf32, m_num_unique });
+
+            if(!result.second)
+                compiler_error(lit.pstring, fmt("Duplicate character: '%'", std::string_view(char_begin, ptr)));
+
+            if(ptr == end)
+            {
+                ++m_num_unique;
+                break;
+            }
+
+            char_begin = ptr;
+            utf32 = escaped_utf8_to_utf32(ptr);
+
+            if(utf32 == SPECIAL_SLASH)
+            {
+                char_begin = ptr;
+                utf32 = escaped_utf8_to_utf32(ptr);
+                if(!ptr)
+                    compiler_error(lit.pstring, "Invalid '\\/' operator.");
+            }
+            else
+                ++m_num_unique;
+        }
+    };
+
+    add_literal(control);
+    m_num_control_chars = m_map.size();
+    add_literal(printable);
+
+    if(m_num_unique > 256)
+        compiler_error(global.pstring(), fmt("Too many characters (%) in charmap. Max: 256.", m_num_unique));
+
+    if(m_num_unique == 0)
+        compiler_error(global.pstring(), "Empty charmap");
+}
+
+int charmap_t::convert(char32_t ch) const
+{
+    if(auto* result = m_map.lookup(ch))
+        return result->second;
+    return -1;
+}
+
+int charmap_t::sentinel() const
+{
+    if(!has_sentinel || m_map.empty())
+        return -1;
+    return m_map.begin()->second;
+}
+
+void charmap_t::resolve()
+{
+    if(mods() && mods()->group_data.size())
+    {
+        if(mods()->group_data.size() > 1)
+            compiler_error(global.pstring(), "Too many 'data' mods. Expecting one or zero.");
+
+        if(mods()->group_data.size() != 1)
+            return;
+
+        group_ht h = mods()->group_data.begin()->first;
+        if(h->gclass() != GROUP_DATA)
+            compiler_error(global.pstring(), fmt("% is not a data group.", h->name));
+
+        m_group_data = h->handle<group_data_ht>();
+    }
+}
+
 ////////////////////
 // free functions //
 ////////////////////
@@ -1977,5 +2045,11 @@ void add_idep(ideps_map_t& map, global_t* global, idep_pair_t pair)
         prev.calc = std::min(prev.calc, pair.calc);
         prev.depends_on = std::max(prev.depends_on, pair.depends_on);
     }
+}
 
+charmap_t const& get_charmap(pstring_t from, global_t const& global)
+{
+    if(global.gclass() != GLOBAL_CHARMAP)
+        compiler_error(from, fmt("% is not a charmap.", global.name));
+   return global.impl<charmap_t>();
 }

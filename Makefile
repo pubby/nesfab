@@ -62,6 +62,7 @@ VPATH=$(SRCDIR)
 LDLIBS:= -lboost_program_options
 
 SRCS:= \
+text.cpp \
 main.cpp \
 parser.cpp \
 token.cpp \

@@ -4,16 +4,14 @@
 #include "compiler_error.hpp"
 #include "lt.hpp"
 #include "globals.hpp"
+#include "text.hpp"
 
 unsigned lval_t::ulabel() const
 { 
-    if(label >= 0)
-        return label;
-
-    if(is_global && global()->gclass() == GLOBAL_FN && global()->impl<fn_t>().iasm)
+    if(label != ENTRY_LABEL && (flags & LVALF_IS_GLOBAL) && global()->gclass() == GLOBAL_FN && global()->impl<fn_t>().iasm)
         return global()->impl<fn_t>().def().default_label;
 
-    return ENTRY_LABEL;
+    return label;
 }
 
 bool is_ct(rval_t const& rval)
@@ -86,7 +84,10 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
                 locator_t const loc = v.locator();
 
                 if(loc.byteified())
+                {
                     vec.push_back(loc);
+                    return;
+                }
 
                 unsigned const member = loc.maybe_member();
                 type_t const mt = ::member_type(subtype, member);
@@ -184,4 +185,9 @@ fixed_t sfixed(rval_t const& rval, type_t type, pstring_t pstring)
     if(is_signed(type.name()))
         return { to_signed(fixed(rval, type, pstring).value, type.name()) };
     return fixed(rval, type, pstring);
+}
+
+std::string const& strval_t::get_string() const
+{
+    return sl_manager.get_string(&charmap->global, index, compressed);
 }

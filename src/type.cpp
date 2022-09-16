@@ -247,8 +247,8 @@ void type_t::set_array_length(std::int64_t size, pstring_t pstring)
 {
     assert(name() == TYPE_TEA || name() == TYPE_PAA);
     if(size <= 0 
-       || (name() == TYPE_TEA && size > 256)
-       || (name() == TYPE_PAA && size > 65535))
+       || (name() == TYPE_TEA && size > 65536)
+       || (name() == TYPE_PAA && size > 65536))
     {
         compiler_error(pstring, fmt("Invalid array length of %.", size));
     }
@@ -427,6 +427,12 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
             return CAST_PROMOTE;
         else
             return implicit ? CAST_FAIL : CAST_TRUNCATE;
+    }
+
+    if(!implicit && is_tea(from.name()) && is_tea(to.name()))
+    {
+        if(from.elem_type() == to.elem_type())
+            return CAST_RESIZE_TEA;
     }
 
     return CAST_FAIL;

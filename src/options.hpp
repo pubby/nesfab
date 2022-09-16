@@ -17,7 +17,7 @@ struct options_t
     bool graphviz = false;
     bool build_time = false;
     bool werror = false;
-    mapper_t mapper = mapper_t::bnrom(MIRROR_H, 1);
+    mapper_t mapper = mapper_t::bnrom(MIRROR_H, 4);
     std::string output_file = "a.nes";
 
     std::vector<fs::path> source_names;

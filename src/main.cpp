@@ -21,6 +21,7 @@
 #include "rom_link.hpp"
 #include "ram_init.hpp"
 #include "cg_isel.hpp"
+#include "text.hpp"
 #include "eternal_new.hpp" // TODO: remove?
 #include "ir.hpp" // TODO: remove?
 #include "convert_png.hpp" // TODO: remove?
@@ -250,6 +251,12 @@ int main(int argc, char** argv)
         auto static_used_ram = alloc_runtime_ram();
         auto rom_allocator = alloc_runtime_rom();
         output_time("runtime:  ");
+
+        set_compiler_phase(PHASE_CONVERT_STRINGS);
+        sl_manager.convert_all();
+        set_compiler_phase(PHASE_COMPRESS_STRINGS);
+        sl_manager.compress_all();
+        output_time("strings:  ");
 
         set_compiler_phase(PHASE_ORDER_RESOLVE);
         global_t::build_order();

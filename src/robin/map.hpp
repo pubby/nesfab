@@ -271,6 +271,12 @@ public:
         return collection.insert(std::move(v)); 
     }
 
+    template<typename K>
+    insertion emplace(K&& k)
+    {
+        return collection.emplace(k, [&](){ return value_type{ std::forward<K>(k) }; });
+    }
+
     template<typename K, typename MConstruct>
     insertion emplace(K&& k, MConstruct mconstruct)
     {

@@ -151,9 +151,11 @@ inline unsigned ssa_index_input(ssa_op_t op)
     assert(ssa_indexes(op));
     switch(op)
     {
-    case SSA_read_array:
-    case SSA_cg_read_array_direct:
-    case SSA_write_array:
+    case SSA_read_array8:
+    case SSA_read_array16:
+    case SSA_cg_read_array8_direct:
+    case SSA_write_array8:
+    case SSA_write_array16:
         return 2;
     case SSA_read_ptr:
     case SSA_read_ptr_hw:

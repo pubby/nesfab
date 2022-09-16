@@ -18,6 +18,7 @@
 #include "hw_reg.hpp"
 #include "asm.hpp"
 #include "loop_test.hpp"
+#include "text.hpp"
 
 namespace fs = ::std::filesystem;
 using namespace lex;
@@ -44,15 +45,12 @@ unsigned parser_t<P>::parse_args(token_type_t l, token_type_t r, Func parse_func
     {
         while(true)
         {
-            ++count;
-
             while(token.type == TOK_eol)
                 parse_line_ending();
 
-            parse_func();
+            parse_func(count++);
 
-            while(token.type == TOK_eol)
-                parse_line_ending();
+            mill_eol();
 
             if(token.type == r)
                 break;
@@ -64,8 +62,7 @@ unsigned parser_t<P>::parse_args(token_type_t l, token_type_t r, Func parse_func
 
             if(TrailingComma)
             {
-                while(token.type == TOK_eol)
-                    parse_line_ending();
+                mill_eol();
 
                 if(token.type == r)
                     break;
@@ -394,6 +391,13 @@ bool parser_t<P>::parse_line_ending()
 }
 
 template<typename P>
+void parser_t<P>::mill_eol()
+{
+    while(token.type == TOK_eol)
+        parse_line_ending();
+}
+
+template<typename P>
 bool parser_t<P>::parse_indented_token()
 {
     do
@@ -410,6 +414,7 @@ bool parser_t<P>::parse_indented_token()
         }
     }
     while(token.type == TOK_eol); // Ignore blank lines.
+
     return false;
 }
 
@@ -421,56 +426,114 @@ pstring_t parser_t<P>::parse_ident()
     return ident;
 }
 
-static constexpr char _escape_char(char ch) 
+template<typename P>
+string_literal_t parser_t<P>::parse_string_literal(bool open_parens, token_type_t first, char last)
 {
-    switch(ch)
+    expect_token(first);
+
+    string_literal_t ret = {};
+
+    while(token.type == first)
     {
-    case 'n': 
-    case 'N': 
-        return '\n';
-    case '\'': 
-        return '\'';
-    case '"': 
-        return '"';
-    case '\\': 
-        return '\\';
-    case '0':
-        return '\0';
-    default:
-        return ch;
+        char const* begin = token_source;
+
+        token.pstring.size = 1;
+        while(true)
+        {
+            token.pstring.offset = next_char - source();
+
+            char ch = *next_char++;
+
+            if(ch == last)
+                break;
+            else if(std::iscntrl(ch))
+                compiler_error("Unexpected character in string literal.");
+            else if(ch == '\\')
+            {
+                ret.string.push_back(ch);
+                char const e = *next_char++;
+                if(std::iscntrl(e))
+                    compiler_error("Unexpected character in string literal.");
+                ret.string.push_back(e);
+            }
+            else
+                ret.string.push_back(ch);
+
+        }
+
+        pstring_t const pstring = { begin - source(), next_char - begin, file_i() };
+        if(ret.pstring)
+            ret.pstring = fast_concat(ret.pstring, pstring);
+        else
+            ret.pstring = pstring;
+
+        parse_token();
+
+        if(open_parens)
+            mill_eol();
     }
+
+    return ret;
 }
 
 template<typename P>
-string_literal_t parser_t<P>::parse_string_literal()
+string_literal_t parser_t<P>::parse_char_literal(bool open_parens)
 {
-    char const* begin = token_source;
-    expect_token(TOK_dquote);
+    return parse_string_literal(open_parens, TOK_quote, '\'');
+}
 
-    string_literal_t ret;
-    while(true)
+template<typename P>
+ast_node_t parser_t<P>::parse_string_or_char_expr(bool open_parens)
+{
+    bool const is_char = token.type == TOK_quote;
+    bool const compressed = token.type == TOK_backtick;
+
+    string_literal_t literal; 
+    if(is_char)
+        literal = parse_char_literal(open_parens);
+    else if(compressed)
+        literal = parse_string_literal(open_parens, TOK_backtick, '`');
+    else
+        literal = parse_string_literal(open_parens);
+
+    global_t const* charmap;
+    if(token.type == TOK_ident)
+        charmap = &global_t::lookup(source(), parse_ident());
+    else
+        charmap = &global_t::default_charmap(literal.pstring);
+
+    ast_node_t ast = {};
+    ast.token.pstring = literal.pstring;
+    ast.charmap = charmap;
+
+    if(is_char)
     {
-        char ch = *next_char++;
+        // Parse the character:
+        char const* begin = literal.string.data();
+        char const* ptr = begin;
+        char32_t const utf32 = escaped_utf8_to_utf32(ptr);
+        if(!ptr)
+            compiler_error(literal.pstring, "Invalid character literal.");
+        if(ptr != literal.string.data() + literal.string.size())
+            compiler_error(literal.pstring, "Character literal with more than one character.");
 
-        if(ch == '\"')
-            break;
-        else if(std::iscntrl(ch))
-            compiler_error("Unexpected character in string literal.");
-        else if(ch == '\\')
-        {
-            char const e = *next_char++;
-            if(std::iscntrl(e))
-                compiler_error("Unexpected character in string literal.");
-            ch = _escape_char(e);
-        }
+        ast.token.type = TOK_character;
+        ast.token.value = utf32;
+    }
+    else
+    {
+        if(compressed)
+            ast.token.type = TOK_string_compressed;
+        else
+            ast.token.type = TOK_string_uncompressed;
 
-        ret.string.push_back(ch);
+        // Add it to the string literal manager:
+        ast.token.value = sl_manager.add_string(charmap, literal.string, compressed);
     }
 
-    ret.pstring = { begin - source(), next_char - begin, file_i() };
-    parse_token();
+    
 
-    return ret;
+    return ast;
 }
 
 template<typename P>
@@ -577,6 +640,11 @@ retry:
         parse_indented_token();
         goto retry;
 
+    case TOK_quote:
+    case TOK_dquote:
+    case TOK_backtick:
+        return parse_string_or_char_expr(open_parens);
+
     case TOK_return:
     case TOK_ident:
 #ifndef NDEBUG
@@ -591,6 +659,7 @@ retry:
             return ast;
         }
 
+        /* TODO: remove
     case TOK_at:
         {
             ast_node_t ast = { .token = token };
@@ -598,16 +667,10 @@ retry:
             if(token.type != TOK_ident)
                 compiler_error("Unexpected token. Expecting identifier.");
             ast.token.pstring = token.pstring;
-            /* TODO: remove
-            ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
-            if(global_t const* g = policy().at_ident(token.pstring))
-                ast.token.set_ptr(g);
-            else
-                compiler_error("Expecting global.");
-                */
             parse_token();
             return ast;
         }
+        */
 
     case TOK_bitwise_and:
         token.type = TOK_unary_ref;
@@ -618,6 +681,7 @@ retry:
     case TOK_minus:
         token.type = TOK_unary_minus;
         goto unary;
+    case TOK_at:
     case TOK_unary_xor:
     case TOK_unary_negate:
     unary:
@@ -714,74 +778,99 @@ ast_node_t parser_t<P>::parse_expr(int starting_indent, int open_parens, int min
     ast_node_t result = parse_expr_atom(starting_indent, open_parens);
     assert(result.token.type != TOK_eol);
 
+    auto const array_index = [&](token_type_t token_type, token_type_t end_token)
+    {
+        ast_node_t* children = eternal_new<ast_node_t>(2);
+        children[0] = result;
+
+        char const* begin = token_source;
+        int const bracket_indent = indent;
+        parse_token();
+        children[1] = parse_expr(bracket_indent, open_parens+1);
+
+        parse_token(end_token);
+        char const* end = token_source;
+
+        result.token.type = token_type;
+        result.token.pstring = concat(result.token.pstring, { begin - source(), end - begin, file_i() });
+        result.children = children;
+    };
+
     while(true)
     {
-        if(token.type == TOK_lbracket)
-        {
-            ast_node_t* children = eternal_new<ast_node_t>(2);
-            children[0] = result;
-
-            char const* begin = token_source;
-            int const bracket_indent = indent;
-            parse_token();
-            children[1] = parse_expr(bracket_indent, open_parens+1);
-
-            parse_token(TOK_rbracket);
-            char const* end = token_source;
-
-            result.token.type = TOK_index;
-            result.token.pstring = concat(result.token.pstring, { begin - source(), end - begin, file_i() });
-            result.children = children;
-        }
-        else if(token.type == TOK_lparen)
-        {
-            int const fn_indent = indent;
-            char const* begin = token_source;
-            bc::small_vector<ast_node_t, 8> children = { result };
-
-            parse_args(TOK_lparen, TOK_rparen,
-                [&]{ children.push_back(parse_expr(fn_indent, open_parens+1)); });
-
-            char const* end = token_source;
-
-            result.token.type = TOK_apply;
-            result.token.pstring = { begin - source(), end - begin, file_i() };
-            result.token.value = children.size();
-            result.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
-        }
-        else if(token.type == TOK_period)
-        {
-            ast_node_t* children = eternal_new<ast_node_t>(1);
-            children[0] = result;
-
-            result.token = token;
-            parse_token();
-
-            if(token.type != TOK_ident && token.type != TOK_return)
-                compiler_error("Unexpected token. Expecting identifier or 'return'.");
-
-            result.token.pstring = fast_concat(result.token.pstring, token.pstring);
-            result.token.value = fnv1a<std::uint64_t>::hash(token.pstring.view(source()));
-            result.children = children;
-
-            parse_token();
-        }
-        else if(is_operator(token.type) && operator_precedence(token.type) <= min_precedence)
-        {
-            int const p = operator_precedence(token.type) - !operator_right_assoc(token.type);
-            token_t const t = token;
-            parse_token();
-            ast_node_t rhs = parse_expr(starting_indent, open_parens, p);
-
-            ast_node_t* children = eternal_new<ast_node_t>(2);
-            children[0] = result;
-            children[1] = rhs;
-            result = { .token = t, .children = children };
-            result.token.pstring = concat(children[0].token.pstring, children[1].token.pstring);
-        }
-        else
+        if(operator_precedence(token.type) > min_precedence)
             break;
+
+        switch(token.type)
+        {
+        case TOK_lbracket:
+            array_index(TOK_index8, TOK_rbracket);
+            break;
+
+        case TOK_lbrace:
+            array_index(TOK_index16, TOK_rbrace);
+            break;
+
+        case TOK_lparen:
+            {
+                int const fn_indent = indent;
+                char const* begin = token_source;
+                bc::small_vector<ast_node_t, 8> children = { result };
+
+                parse_args(TOK_lparen, TOK_rparen,
+                    [&](unsigned){ children.push_back(parse_expr(fn_indent, open_parens+1)); });
+
+                char const* end = token_source;
+
+                result.token.type = TOK_apply;
+                result.token.pstring = { begin - source(), end - begin, file_i() };
+                result.token.value = children.size();
+                result.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
+            }
+            break;
+
+        case TOK_period:
+            {
+                ast_node_t* children = eternal_new<ast_node_t>(1);
+                children[0] = result;
+
+                result.token = token;
+                parse_token();
+
+                if(token.type != TOK_ident && token.type != TOK_return)
+                    compiler_error("Unexpected token. Expecting identifier or 'return'.");
+
+                result.token.pstring = fast_concat(result.token.pstring, token.pstring);
+                result.token.value = fnv1a<std::uint64_t>::hash(token.pstring.view(source()));
+                result.children = children;
+
+                parse_token();
+            }
+            break;
+
+        default:
+            if(is_operator(token.type))
+            {
+                int const p = operator_precedence(token.type) - !operator_right_assoc(token.type);
+                token_t const t = token;
+                parse_token();
+                ast_node_t rhs = parse_expr(starting_indent, open_parens, p);
+
+                ast_node_t* children = eternal_new<ast_node_t>(2);
+                children[0] = result;
+                children[1] = rhs;
+                result = { .token = t, .children = children };
+                result.token.pstring = concat(children[0].token.pstring, children[1].token.pstring);
+            }
+            else
+                goto done_loop;
+            break;
+        }
     }
+done_loop:
+
+    if(open_parens)
+        mill_eol();
 
     assert(result.token.type != TOK_eol);
     return result;
@@ -1098,7 +1187,7 @@ ast_node_t parser_t<P>::parse_cast(src_type_t& src_type, int open_parens)
         TOK_cast_type, src_type.pstring, type_t::new_type(src_type.type)) }};
 
     unsigned argument_count = parse_args<true>(TOK_lparen, TOK_rparen,
-        [&]{ children.push_back(parse_expr(cast_indent, open_parens+1)); });
+        [&](unsigned){ children.push_back(parse_expr(cast_indent, open_parens+1)); });
 
     char const* end = token_source;
 
@@ -1275,6 +1364,25 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
     { 
         switch(token.type)
         {
+            /* TODO: remove?
+        case TOK_quote:
+        case TOK_dquote:
+        case TOK_backtick:
+            children.push_back(parse_string_or_char_expr(false));
+            parse_line_ending();
+            break;
+            */
+            
+        case TOK_lparen:
+            {
+                int const paren_indent = indent;
+                parse_token();
+                children.push_back(parse_expr(paren_indent, 1));
+                parse_token(TOK_rparen);
+                parse_line_ending();
+            }
+            break;
+
         case TOK_ct:
             {
                 parse_token();
@@ -1317,9 +1425,26 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
 
         case TOK_file:
             {
+                pstring_t const file_pstring = token.pstring;
                 parse_token(TOK_file);
-                pstring_t const script = parse_ident();
-                string_literal_t filename = parse_string_literal();
+
+                pstring_t script;
+                string_literal_t filename;
+
+                unsigned const argn = parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
+                {
+                    std::cout << token_string(token.type) << std::endl;
+                    switch(arg)
+                    {
+                    case 0: script = parse_ident(); return true;
+                    case 1: filename = parse_string_literal(true); return true;
+                    default: compiler_error("Wrong number of arguments to 'file'.");
+                    }
+                });
+
+                if(argn != 2)
+                    compiler_error(file_pstring, "Wrong number of arguments to 'file'.");
+
                 parse_line_ending();
 
                 fs::path preferred_dir = file.path();
@@ -1483,7 +1608,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
                 parse_line_ending();
             }
             else
-                compiler_error("Unexpected token. Expecting assembly instruction or type.");
+                compiler_error("Unexpected token in byte block.");
             break;
         }
     });
@@ -1561,12 +1686,63 @@ void parser_t<P>::parse_top_level_def()
         return parse_group_data();
     case TOK_struct: 
         return parse_struct();
+    case TOK_charmap:
+        return parse_charmap();
     default: 
         if(is_type_prefix(token.type))
             return parse_const();
         else
             compiler_error("Unexpected token at top level.");
     }
+}
+
+template<typename P>
+void parser_t<P>::parse_charmap()
+{
+    pstring_t charmap_name;
+    bool is_default = false;
+    string_literal_t control, printable;
+    ast_node_t sentinel, *maybe_sentinel = nullptr;
+        
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    {
+        // Parse the declaration
+        parse_token(TOK_charmap);
+        charmap_name = token.pstring;
+        if(token.type == TOK_default)
+            is_default = true;
+        else if(token.type != TOK_ident)
+            compiler_error("Unexpected token. Expecting identifier or 'default'.");
+        parse_token();
+
+        unsigned const argn = parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
+        {
+            switch(arg)
+            {
+            case 0:
+                control = parse_string_literal(true);
+                break;
+            case 1:
+                printable = parse_string_literal(true);
+                break;
+            case 2:
+                sentinel = parse_expr();
+                maybe_sentinel = &sentinel;
+                break;
+            default:
+                compiler_error("Too many arguments to charmap.");
+            }
+        });
+
+        if(argn < 2)
+            compiler_error(charmap_name, "Too few arguments to charmap.");
+
+    });
+
+    std::puts("TODO: HANDLE SENTINEL CORRECTLY");
+    policy().charmap(charmap_name, is_default, control, printable, false, std::move(mods));
+
+    //charmap("\0", 
 }
 
 template<typename P>
@@ -1728,7 +1904,7 @@ void parser_t<P>::parse_fn(bool is_asm)
             parse_token(TOK_rparen);
         }
         else
-            parse_args(TOK_lparen, TOK_rparen, [&](){ params.push_back(parse_var_decl(false, {})); });
+            parse_args(TOK_lparen, TOK_rparen, [&](unsigned){ params.push_back(parse_var_decl(false, {})); });
 
         // Parse the return type
         if(fclass == FN_FN || fclass == FN_CT)
@@ -1741,11 +1917,11 @@ void parser_t<P>::parse_fn(bool is_asm)
     if(is_asm)
     {
         // Parse the local vars of this fn:
-        if(token.type == TOK_vars)
+        while(token.type == TOK_vars)
         {
             int const vars_indent = indent;
-            parse_token();
-            parse_line_ending();
+            std::unique_ptr<mods_t> base_mods = parse_mods_after([&]{ parse_token(); });
+
             maybe_parse_block(vars_indent, [&]
             { 
                 var_decl_t decl;
@@ -1753,6 +1929,9 @@ void parser_t<P>::parse_fn(bool is_asm)
                 {
                     decl = parse_var_decl(false, {}, true);
                 });
+
+                inherit(mods, base_mods);
+
                 policy().asm_fn_var(decl, std::move(mods));
             });
         }
@@ -2199,7 +2378,7 @@ void parser_t<P>::parse_goto()
             int const mode_indent = indent;
 
             parse_args(TOK_lparen, TOK_rparen,
-                [&]{ children.push_back(parse_expr(mode_indent, 1)); });
+                [&](unsigned){ children.push_back(parse_expr(mode_indent, 1)); });
 
             char const* end = token_source;
 

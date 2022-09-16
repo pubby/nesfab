@@ -32,6 +32,7 @@ enum locator_class_t : std::uint8_t
 
     LOC_FN, // A function.
     LOC_GMEMBER, // A global member.
+    LOC_GCONST, // A global const.
 
     // When a function calls another function, 
     // the IR tracks which gmembers are used in that function.
@@ -64,10 +65,8 @@ enum locator_class_t : std::uint8_t
     LOC_ROM_ARRAY,
 
     //LOC_LT_GMEMBER_PTR,
-    LOC_LT_CONST_PTR,
-    FIRST_LOC_LT = LOC_LT_CONST_PTR,
-    LOC_LT_CONST_ADDR, // TODO: combine this with LT_CONST_PTR?
     LOC_LT_EXPR, // link-time expression
+    FIRST_LOC_LT = LOC_LT_EXPR,
     LAST_LOC_LT = LOC_LT_EXPR,
 
     LOC_THIS_BANK, // Resolves to the bank its in
@@ -107,8 +106,7 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_PHI:
     case LOC_ASM_LOCAL_VAR:
     //case LOC_LT_GMEMBER_PTR:
-    case LOC_LT_CONST_PTR:
-    case LOC_LT_CONST_ADDR:
+    case LOC_GCONST:
     case LOC_LT_EXPR:
         return true;
     default:
@@ -139,8 +137,7 @@ constexpr bool has_const(locator_class_t lclass)
 {
     switch(lclass)
     {
-    case LOC_LT_CONST_PTR:
-    case LOC_LT_CONST_ADDR:
+    case LOC_GCONST:
         return true;
     default:
         return false;
@@ -471,11 +468,8 @@ public:
     //constexpr static locator_t lt_gmember_ptr(gmember_ht m, std::uint16_t offset=0)
         //{ return locator_t(LOC_LT_GMEMBER_PTR, m.id, 0, 0, 0, offset); }
 
-    constexpr static locator_t lt_const_ptr(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_CONST_PTR, c.id, 0, member, atom, offset).with_is(IS_PTR); }
-
-    constexpr static locator_t lt_const_addr(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
-        { return locator_t(LOC_LT_CONST_ADDR, c.id, 0, member, atom, offset).with_is(IS_PTR); }
+    constexpr static locator_t gconst(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_GCONST, c.id, 0, member, atom, offset).with_is(IS_PTR); }
 
     constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_LT_EXPR, lt.id, 0, member, atom, offset); }

@@ -56,10 +56,8 @@ std::string to_string(locator_t loc)
         str = "rom_array"; break;
     //case LOC_LT_GMEMBER_PTR:
         //str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
-    case LOC_LT_CONST_PTR:
-        str = fmt("lt_const_ptr %", loc.const_()->global.name); break;
-    case LOC_LT_CONST_ADDR:
-        str = fmt("lt_const_addr %", loc.const_()->global.name); break;
+    case LOC_GCONST:
+        str = fmt("gconst %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
         str = fmt("lt_expr % %", loc.handle(), loc.lt().safe().type); break;
     case LOC_THIS_BANK:
@@ -113,10 +111,12 @@ mods_t const* locator_t::mods() const
 {
     if(lclass() == LOC_ASM_LOCAL_VAR)
         return fn().safe().def().local_vars[arg()].mods();
-    else if(has_const(lclass()))
+    if(has_const(lclass()))
         return const_()->mods();
-    else if(has_gmember(lclass()))
+    if(has_gmember(lclass()))
         return gmember()->gvar.mods();
+    if(has_fn(lclass()))
+        return fn()->mods();
     return nullptr;
 }
 
@@ -127,6 +127,9 @@ bool locator_t::mem_zp_only() const
 
     if(mod_test(mods(), MOD_zero_page))
         return true;
+
+    if(lclass() == LOC_ROM_ARRAY || is_lt(lclass()))
+        return false;
 
     type_t const t = with_byteified(false).with_is(IS_DEREF).type();
     return is_ptr(t.name()) && (!has_arg_member_atom(lclass()) || member() == 0);
@@ -188,13 +191,13 @@ type_t locator_t::type() const
             return byteify(type_t::ptr(m->gvar.group(), true, false));
         break;
         */
-    case LOC_LT_CONST_PTR:
+    case LOC_GCONST:
         if(const_ht const c = const_())
-            return byteify(type_t::ptr(c->group(), false, false));
+            c->type();
         break;
-    case LOC_LT_CONST_ADDR:
-        if(const_ht const c = const_())
-            return byteify(type_t::addr(false));
+    case LOC_ROM_ARRAY:
+        if(rom_array_ht const a = rom_array())
+            return type_t::tea(TYPE_U, a.safe().data().size()); // TODO: use a proper pointer, with groups
         break;
     case LOC_LT_EXPR:
         assert(lt());
@@ -350,8 +353,7 @@ rom_data_ht locator_t::rom_data() const
         return rom_array();
     case LOC_MAIN_ENTRY:
         return get_main_entry().rom_proc();
-    case LOC_LT_CONST_PTR:
-    case LOC_LT_CONST_ADDR:
+    case LOC_GCONST:
         return const_()->rom_array();
     case LOC_RESET_GROUP_VARS:
         return group_vars()->init_proc();

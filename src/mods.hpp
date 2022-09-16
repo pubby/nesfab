@@ -106,8 +106,8 @@ protected:
 class modded_t
 {
 public:
-    explicit modded_t(std::unique_ptr<mods_t> mods) 
-    : m_mods(std::move(mods))
+    explicit modded_t(std::unique_ptr<mods_t> m) 
+    : m_mods(std::move(m))
     {}
 
     mods_t const* mods() const { return m_mods.get(); }

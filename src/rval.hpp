@@ -44,11 +44,15 @@ bool is_lt(rval_t const& rval);
 // Appends 'rval' onto 'vec'
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring);
 
+using lval_flags_t = std::uint8_t;
+constexpr lval_flags_t LVALF_IS_GLOBAL = 1 << 0;
+constexpr lval_flags_t LVALF_INDEX_16  = 1 << 1;
+
 struct lval_t
 {
     static constexpr std::int16_t RETURN_ARG = std::numeric_limits<std::int16_t>::max();
 
-    bool is_global = false;
+    lval_flags_t flags = 0;
     std::int8_t atom = -1; // negative means no atom.
     std::uint16_t member = 0;
     std::int16_t arg = -1;
@@ -60,13 +64,13 @@ struct lval_t
     };
     ssa_value_t index = {};
 
-    unsigned var_i() const { assert(!is_global); return vvar_i; }
-    global_t const* global() const { assert(is_global); return vglobal; }
+    unsigned var_i() const { assert(!(flags & LVALF_IS_GLOBAL)); return vvar_i; }
+    global_t const* global() const { assert(flags & LVALF_IS_GLOBAL); return vglobal; }
 
-    void set_var_i(unsigned i) { is_global = false; vvar_i = i; }
-    void set_global(global_t const* g) { is_global = true; vglobal = g; }
+    void set_var_i(unsigned i) { flags &= ~LVALF_IS_GLOBAL; vvar_i = i; }
+    void set_global(global_t const* g) { flags |= LVALF_IS_GLOBAL; vglobal = g; }
 
-    bool is_var() const { return !is_global; }
+    bool is_var() const { return !(flags & LVALF_IS_GLOBAL); }
 
     unsigned uatom() const { return atom < 0 ? 0 : atom; }
     unsigned ulabel() const;
@@ -79,12 +83,21 @@ struct deref_t
     ssa_value_t index = {};
 };
 
+struct strval_t
+{
+    charmap_t const* charmap = nullptr;
+    bool compressed = false;
+    unsigned index = 0;
+
+    std::string const& get_string() const;
+};
+
 fixed_t fixed(rval_t const& rval, type_t type, pstring_t pstring);
 fixed_t sfixed(rval_t const& rval, type_t type, pstring_t pstring);
 
 struct expr_value_t
 {
-    std::variant<rval_t, lval_t, deref_t> val;
+    std::variant<rval_t, lval_t, deref_t, strval_t> val;
     type_t type = TYPE_VOID;
     pstring_t pstring = {};
     value_time_t time = {};
@@ -95,6 +108,8 @@ struct expr_value_t
     lval_t* is_lval() { return std::get_if<lval_t>(&val); }
     deref_t const* is_deref() const { return std::get_if<deref_t>(&val); }
     deref_t* is_deref() { return std::get_if<deref_t>(&val); }
+    strval_t const* is_strval() const { return std::get_if<strval_t>(&val); }
+    strval_t* is_strval() { return std::get_if<strval_t>(&val); }
 
     rval_t const& rval() const { return std::get<rval_t>(val); }
     rval_t& rval() { return std::get<rval_t>(val); }

@@ -94,7 +94,11 @@ std::size_t constraints_size(ssa_node_t const& node)
     {
         assert(!is_banked_ptr(name));
         if(name == TYPE_TEA)
-            return node.type().size();
+        {
+            std::size_t const size = node.type().size();
+            // Only do page-sized arrays or smaller:
+            return (size > 256) ? 0 : size;
+        }
         if(is_scalar(name))
             return 1;
         return 0;

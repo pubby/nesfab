@@ -72,9 +72,12 @@ private:
     asm_lex::token_type_t parse_asm_token(pstring_t from);
     bool parse_indented_token();
     bool parse_line_ending();
+    void mill_eol();
 
     pstring_t parse_ident();
-    string_literal_t parse_string_literal();
+    string_literal_t parse_string_literal(bool open_parens, lex::token_type_t first = lex::TOK_dquote, char last = '"');
+    string_literal_t parse_char_literal(bool open_parens);
+    ast_node_t parse_string_or_char_expr(bool open_parens);
     pstring_t parse_group_ident();
 
     static std::uint16_t get_hw_reg(lex::token_type_t token_type);
@@ -111,6 +114,7 @@ private:
     void parse_fn(bool is_asm = false);
     void parse_with();
     void parse_struct();
+    void parse_charmap();
 
     void parse_statement();
     void parse_flow_statement();

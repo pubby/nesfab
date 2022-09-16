@@ -645,6 +645,7 @@ int main()
         keyword("switch"), // TODO
         keyword("case"), // TODO
         keyword("default"), // TODO
+        keyword("charmap"),
 
         keyword("PPUCTRL"),
         keyword("PPUMASK"),
@@ -657,17 +658,13 @@ int main()
         keyword("OAMDMA"),
 
         // Symbols
-        keyword("lbrace", "{"),
-        keyword("rbrace", "}"),
-
-        keyword("lbracket", "["),
-        keyword("rbracket", "]"),
 
         keyword("colon", ":"),
         keyword("hash", "#"),
 
-        keyword(1, "dquote", "\""),
-        keyword(1, "quote", "'"),
+        keyword("backtick", "`"),
+        keyword("dquote", "\""),
+        keyword("quote", "'"),
 
         //keyword(3, "double_colon", "::"),
         //keyword(4, "pointer", "%"),
@@ -686,15 +683,20 @@ int main()
         op(8, "unary_negate", "!"),
         op(8, "unary_ref", "unary &"),
 
-        keyword(8, "at", "@"),
+        keyword(4, "at", "@"),
 
         keyword(5, "period", "."),
         accept(7, "apply", "apply", eof()), // dummy
         accept(7, "cast", "cast", eof()), // dummy
         accept(7, "cast_type", "cast_type", eof()), // dummy
-        accept(7, "index", "index", eof()), // dummy
+        accept(7, "index8", "index []", eof()), // dummy
+        accept(7, "index16", "index {}", eof()), // dummy
 
-        keyword(1, "lparen", "("), // begin infix ops
+        keyword(6, "lbrace", "{"),
+        keyword(6, "rbrace", "}"),
+        keyword(6, "lbracket", "["),
+        keyword(6, "rbracket", "]"),
+        keyword(6, "lparen", "("), // begin infix ops
 
         op(10, "asterisk", "*"),
         op(10, "fslash", "/"),
@@ -800,6 +802,12 @@ int main()
         accept("group_set", "group set", eof()),
         accept("rpair", "rpair", eof()),
 
+
+        // string/char literals:
+        accept("character", "character literal", eof()),
+        accept("string_uncompressed", "uncompressed string literal", eof()),
+        accept("string_compressed", "compressed string literal", eof()),
+
         // byte block:
         accept("byte_block_proc", "byte block", eof()),
         accept("byte_block_data", "byte block", eof()),
@@ -810,7 +818,7 @@ int main()
         accept("byte_block_goto_mode", "assembly goto mode", eof()),
         accept("byte_block_wait_nmi", "assembly wait nmi", eof()),
         accept("byte_block_byte_array", "byte block array", eof()),
-        accept("byte_block_locator_array", "byte block array", eof())
+        accept("byte_block_locator_array", "byte block bbc array", eof())
 
         ),
         nfa_nodes);

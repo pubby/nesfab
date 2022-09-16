@@ -29,6 +29,7 @@ class gvar_t;
 class gmember_t;
 class const_t;
 class struct_t;
+class charmap_t;
 class group_vars_t;
 class group_data_t;
 struct field_t;
@@ -39,7 +40,8 @@ struct lt_value_t;
     X(GLOBAL_FN) \
     X(GLOBAL_VAR) \
     X(GLOBAL_CONST) \
-    X(GLOBAL_STRUCT)
+    X(GLOBAL_STRUCT) \
+    X(GLOBAL_CHARMAP)
 
 enum global_class_t : std::uint8_t
 {
@@ -79,6 +81,7 @@ struct gvar_ht : pool_handle_t<gvar_ht, std::deque<gvar_t>, PHASE_PARSE> {};
 struct const_ht : pool_handle_t<const_ht, std::deque<const_t>, PHASE_PARSE> {};
 struct struct_ht : pool_handle_t<struct_ht, std::deque<struct_t>, PHASE_PARSE> {};
 struct gmember_ht : pool_handle_t<gmember_ht, std::vector<gmember_t>, PHASE_COUNT_MEMBERS> {};
+struct charmap_ht : pool_handle_t<charmap_ht, std::deque<charmap_t>, PHASE_PARSE> {};
 
 struct group_ht : pool_handle_t<group_ht, std::deque<group_t>, PHASE_PARSE> 
 {
@@ -91,6 +94,7 @@ DEF_HANDLE_HASH(fn_ht);
 DEF_HANDLE_HASH(gvar_ht);
 DEF_HANDLE_HASH(const_ht);
 DEF_HANDLE_HASH(struct_ht);
+DEF_HANDLE_HASH(charmap_ht);
 DEF_HANDLE_HASH(gmember_ht);
 DEF_HANDLE_HASH(group_ht);
 DEF_HANDLE_HASH(group_vars_ht);

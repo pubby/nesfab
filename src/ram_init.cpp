@@ -77,6 +77,10 @@ void gen_group_var_inits()
             if(!v->init_expr)
                 continue;
 
+            // Relocate proc inits to become loc_vecs:
+            assert(v->end() - v->begin() > 0);
+            v->relocate_init_data(v->begin()->span(0).addr);
+
             for(gmember_ht m = v->begin(); m != v->end(); ++m)
             {
                 unsigned const num_atoms = ::num_atoms(m->type(), 0);

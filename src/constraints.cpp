@@ -1012,7 +1012,7 @@ ABSTRACT(SSA_init_array) = ABSTRACT_FN
     }
 };
 
-ABSTRACT(SSA_read_array) = ABSTRACT_FN
+auto const read_array = ABSTRACT_FN
 {
     if(handle_top(cv, argn, result))
         return;
@@ -1030,7 +1030,10 @@ ABSTRACT(SSA_read_array) = ABSTRACT_FN
             result[0] = union_(input_array[i], result[0]);
 };
 
-ABSTRACT(SSA_write_array) = ABSTRACT_FN
+ABSTRACT(SSA_read_array8) = read_array;
+ABSTRACT(SSA_read_array16) = read_array;
+
+auto const write_array = ABSTRACT_FN
 {
     if(handle_top(cv, argn, result))
         return;
@@ -1046,7 +1049,6 @@ ABSTRACT(SSA_write_array) = ABSTRACT_FN
     if(index.is_const())
     {
         unsigned const i = index.bounds.min >> fixed_t::shift;
-        assert(i < 256); // Arrays can't be larger than 256.
         if(i < result.vec.size())
             result[i] = value;
     }
@@ -1059,6 +1061,26 @@ ABSTRACT(SSA_write_array) = ABSTRACT_FN
         for(unsigned i = min_bound; i < iter_to; ++i)
             if(index(fixed_t::whole(i).value, cv[2].cm))
                 result[i] = union_(result[i], value);
+    }
+};
+
+ABSTRACT(SSA_write_array8) = write_array;
+ABSTRACT(SSA_write_array16) = write_array;
+
+ABSTRACT(SSA_resize_array) = ABSTRACT_FN
+{
+    if(handle_top(cv, argn, result))
+        return;
+
+    auto& input_array = cv[0].vec;
+
+    if(result.vec.size() < input_array.size())
+        std::copy_n(input_array.begin(), result.vec.size(), result.vec.begin());
+    else
+    {
+        std::copy(input_array.begin(), input_array.end(), result.vec.begin());
+        for(unsigned i = input_array.size(); i < result.vec.size(); ++i)
+            result[i] = constraints_t::const_(0, result.cm);
     }
 };
 

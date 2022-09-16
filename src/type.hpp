@@ -45,7 +45,8 @@ public:
         return size();
     }
 
-    void unsafe_set_name(type_name_t name) { m_name = name; assert(m_name == name); }
+    void unsafe_set_name(type_name_t name) { m_name = name; }
+    void unsafe_set_size(unsigned size) { m_size = size; }
 
     type_t const* types() const 
         { assert(has_type_tail(name())); return static_cast<type_t const*>(m_tail); }
@@ -107,7 +108,7 @@ private:
     // Overloaded; 
     // - Holds tail size for fns and ptrs
     // - Array size for arrays
-    std::uint16_t m_size = 0;
+    std::uint32_t m_size = 0;
 
     // Holds types, groups, globals, or thunks, depending on 'm_name'.
     void const* m_tail = nullptr;
@@ -182,6 +183,7 @@ enum cast_result_t : char
     CAST_CONVERT_INT,
     CAST_INTIFY_PTR,
     CAST_PTRIFY_INT,
+    CAST_RESIZE_TEA,
 };
 
 bool can_size_unsized_array(type_t const& sized, type_t const& unsized);

@@ -106,6 +106,7 @@ public:
     // Helpers
     char const* source() { return file.source(); }
     void uses_type(type_t type, idep_class_t calc = IDEP_TYPE);
+    void uses_charmap(global_t const* charmap, idep_class_t calc = IDEP_TYPE);
     //token_t* eternal_expr(expr_temp_t& expr); TODO
     //void convert_expr(token_t* begin); TODO
     //token_t const* convert_expr(expr_temp_t& expr); TODO
@@ -209,6 +210,8 @@ public:
         return { { pstring, fn_type }, fn_name };
     }
 
+    static constexpr mod_flags_t FN_MODS = MOD_zero_page;
+
     [[gnu::always_inline]]
     void end_fn(var_decl_t decl, fn_class_t fclass, std::unique_ptr<mods_t> mods)
     {
@@ -225,7 +228,7 @@ public:
         }
 
         validate_mods(fn_class_keyword(fclass), decl.name, mods, 
-            0, // flags
+            FN_MODS, // flags
             fclass != FN_CT, // vars
             fclass != FN_CT, // data
             fclass == FN_MODE // nmi
@@ -235,6 +238,64 @@ public:
         active_global->define_fn(
             decl.name, std::move(ideps),
             decl.src_type.type, std::move(fn_def), std::move(mods), fclass, false);
+        ideps.clear();
+    }
+
+    [[gnu::always_inline]]
+    void end_asm_fn(
+        var_decl_t decl, fn_class_t fclass, ast_node_t ast,
+        std::unique_ptr<mods_t> mods)
+    {
+        // Set the default label
+        /* TODO: remove?
+        if(fn_def.default_label < 0)
+        {
+            for(unsigned i = 0; i < fn_def.local_consts.size(); ++i)
+            {
+                if(fn_def.local_consts[i].is_label())
+                {
+                    fn_def.default_label = i;
+                    goto found_default_label;
+                }
+            }
+        found_default_label:;
+        }
+        */
+
+        assert(ast.token.type == lex::TOK_byte_block_proc
+               || ast.token.type == lex::TOK_byte_block_data);
+        ast.token.type = lex::TOK_byte_block_proc;
+
+        //Convert all expressions
+        for(auto& c : fn_def.local_consts)
+            if(c.expr)
+                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_VALUE);
+        fn_def.push_stmt({ STMT_EXPR, {}, {}, {}, convert_eternal_expr(&ast) });
+        fn_def.push_stmt({ STMT_END_FN, {}, {}, decl.name });
+
+        if(fn_def.local_vars.size() > MAX_ASM_LOCAL_VARS)
+            compiler_error(decl.name, fmt("Too many local variables. Max %.", MAX_ASM_LOCAL_VARS));
+
+        symbol_table.pop_scope(); // param scope
+
+        label_map.clear();
+        assert(symbol_table.empty());
+
+        if(fclass != FN_FN && fclass != FN_NMI)
+            compiler_error(decl.name, fmt("% does not support inline assembly.", fn_class_keyword(fclass)));
+
+        validate_mods(fn_class_keyword(fclass), decl.name, mods, 
+            FN_MODS, // flags
+            true, // vars
+            true, // data
+            false // nmi
+            );
+
+        // Create the global:
+        active_global->define_fn(
+            decl.name, std::move(ideps),
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true);
+
         ideps.clear();
     }
 
@@ -329,64 +390,6 @@ public:
         if(mods)
             ast.mods = eternal_emplace<mods_t>(std::move(*mods));
         return ast;
-    }
-
-    [[gnu::always_inline]]
-    void end_asm_fn(
-        var_decl_t decl, fn_class_t fclass, ast_node_t ast,
-        std::unique_ptr<mods_t> mods)
-    {
-        // Set the default label
-        /* TODO: remove?
-        if(fn_def.default_label < 0)
-        {
-            for(unsigned i = 0; i < fn_def.local_consts.size(); ++i)
-            {
-                if(fn_def.local_consts[i].is_label())
-                {
-                    fn_def.default_label = i;
-                    goto found_default_label;
-                }
-            }
-        found_default_label:;
-        }
-        */
-
-        assert(ast.token.type == lex::TOK_byte_block_proc
-               || ast.token.type == lex::TOK_byte_block_data);
-        ast.token.type = lex::TOK_byte_block_proc;
-
-        //Convert all expressions
-        for(auto& c : fn_def.local_consts)
-            if(c.expr)
-                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_VALUE);
-        fn_def.push_stmt({ STMT_EXPR, {}, {}, {}, convert_eternal_expr(&ast) });
-        fn_def.push_stmt({ STMT_END_FN, {}, {}, decl.name });
-
-        if(fn_def.local_vars.size() > MAX_ASM_LOCAL_VARS)
-            compiler_error(decl.name, fmt("Too many local variables. Max %.", MAX_ASM_LOCAL_VARS));
-
-        symbol_table.pop_scope(); // param scope
-
-        label_map.clear();
-        assert(symbol_table.empty());
-
-        if(fclass != FN_FN && fclass != FN_NMI)
-            compiler_error(decl.name, fmt("% does not support inline assembly.", fn_class_keyword(fclass)));
-
-        validate_mods(fn_class_keyword(fclass), decl.name, mods, 
-            0, // flags
-            true, // vars
-            true, // data
-            false // nmi
-            );
-
-        // Create the global:
-        active_global->define_fn(
-            decl.name, std::move(ideps),
-            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true);
-
-        ideps.clear();
     }
 
     [[gnu::always_inline]]
@@ -769,6 +772,21 @@ public:
     {
         validate_mods("fence", pstring, mods);
         fn_def.push_stmt({ STMT_FENCE, fn_def.push_mods(std::move(mods)), {}, pstring });
+    }
+
+    void charmap(pstring_t charmap_name, bool is_default, 
+                 string_literal_t const& control, string_literal_t const& printable, 
+                 bool has_sentinel, std::unique_ptr<mods_t> mods)
+    {
+        using namespace std::literals;
+
+        if(is_default)
+            active_global = &global_t::default_charmap(charmap_name);
+        else
+            active_global = &global_t::lookup(file.source(), charmap_name);
+
+        active_global->define_charmap(
+            charmap_name, is_default, control, printable, has_sentinel, std::move(mods));
     }
 };
 

@@ -48,15 +48,18 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
         switch(node.op())
         {
-        case SSA_write_array:
+        case SSA_write_array8:
+        case SSA_write_array16:
             {
                 using namespace ssai::array;
+
+                ssa_op_t const read = (node.op() == SSA_write_array8) ? SSA_read_array8 : SSA_read_array16;
 
                 // Prune pointless writes like foo[5] = foo[5]
 
                 ssa_value_t const assign = node.input(ASSIGNMENT);
 
-                if(assign.holds_ref() && assign->op() == SSA_read_array 
+                if(assign.holds_ref() && assign->op() == read
                    && assign->input(ARRAY) == node.input(ARRAY)
                    && assign->input(INDEX) == node.input(INDEX))
                 {
@@ -186,6 +189,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         to_or.push_back(i+0);
                 }
 
+                    assert(carry_output_i(node) >= 0);
+                    if(!carry_used(node))
                 if(to_or.size() <= 1)
                     break;
 
@@ -241,7 +246,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             break;
         }
 
-        if(is_arithmetic(ssa_it->type().name()))
+        if(is_scalar(ssa_it->type().name()))
         {
             fixed_t const all_set = { numeric_bitmask(node.type().name()) };
 
@@ -264,16 +269,53 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             {
             case SSA_add:
                 if(node.input(2).is_num())
+                {
                     for(unsigned i = 0; i < 2; ++i)
                         if((carry_replacement = add_sub_impl(node.input(i), node.input(2).fixed(), false)))
                             goto *replaceWith[!i];
+
+                    if(frac_bytes(node.type().name()) == 0 && !carry_used(node))
+                    {
+                        for(unsigned i = 0; i < 2; ++i)
+                        {
+                            if(!node.input(i).is_locator() || !node.input(!i).is_num())
+                                continue;
+
+                            locator_t const loc = node.input(i).locator();
+
+                            if(loc.is() == IS_PTR)
+                            {
+                                unsigned const offset = node.input(!i).whole() + node.input(2).whole();
+                                node.link_change_input(i, loc.with_advance_offset(offset));
+                                goto *replaceWith[i];
+                            }
+                        }
+                    }
+                }
                 break;
 
             case SSA_sub:
                 if(node.input(2).is_num())
+                {
                     for(unsigned i = 0; i < 2; ++i)
                         if((carry_replacement = add_sub_impl(node.input(i), node.input(2).fixed(), true)))
                             goto *replaceWith[!i];
+
+                    if(frac_bytes(node.type().name()) == 0 && !carry_used(node))
+                    {
+                        if(!node.input(0).is_locator() || !node.input(1).is_num())
+                            continue;
+
+                        locator_t const loc = node.input(0).locator();
+
+                        if(loc.is() == IS_PTR)
+                        {
+                            unsigned const offset = -node.input(1).whole() - (1 - node.input(2).whole());
+                            node.link_change_input(0, loc.with_advance_offset(offset));
+                            goto replaceWith0;
+                        }
+                    }
+                }
                 break;
 
             case SSA_or:

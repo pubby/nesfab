@@ -362,7 +362,8 @@ public:
     using reference = value_type&;
     using iterator_category = std::random_access_iterator_tag;
 
-    using unique_ptr_type = joker_ptr<std::remove_const_t<value_type>>;
+    using U = joker_ptr<std::remove_const_t<value_type>>;
+    using unique_ptr_type = std::conditional_t<std::is_const_v<T>, U const, U>;
 
     joker_iterator() : ptr(nullptr) {}
     explicit joker_iterator(unique_ptr_type* ptr) : ptr(ptr) {}
@@ -490,17 +491,17 @@ public:
     void reserve(hash_type size) { collection.reserve(size); }
 
     const_iterator cbegin() const noexcept 
-        { return const_iterator(collection.cbegin()); }
+        { return const_iterator(&*collection.cbegin()); }
     const_iterator begin() const noexcept 
-        { return const_iterator(collection.cbegin()); }
+        { return const_iterator(&*collection.cbegin()); }
     iterator begin() noexcept 
-        { return iterator(collection.begin()); }
+        { return iterator(&*collection.begin()); }
     const_iterator cend() const noexcept 
-        { return const_iterator(collection.cend()); }
+        { return const_iterator(&*collection.cend()); }
     const_iterator end() const noexcept 
-        { return const_iterator(collection.cend()); }
+        { return const_iterator(&*collection.cend()); }
     iterator end() noexcept 
-        { return iterator(collection.end()); }
+        { return iterator(&*collection.end()); }
 
     const_reverse_iterator crbegin() const { return cend(); }
     const_reverse_iterator rbegin() const { return cend(); }

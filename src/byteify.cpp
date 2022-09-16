@@ -1,6 +1,7 @@
 #include "byteify.hpp"
 
 #include <array>
+#include <iostream> // TODO: remove
 
 #include <boost/container/small_vector.hpp>
 
@@ -770,7 +771,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             }
             break;
 
-        case SSA_read_array:
+        case SSA_read_array8:
             {
                 bm_t const array_bm = _get_bm(ssa_node->input(0));
 
@@ -783,7 +784,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     locator_t loc = ssa_node->input(1).locator();
                     //loc.set_atom(i - start);
 
-                    assert(ssa_argn(SSA_read_array) == 3);
+                    assert(ssa_argn(SSA_read_array8) == 3);
                     split->alloc_input(3);
                     split->build_set_input(0, array_bm[i]);
                     split->build_set_input(1, loc);
@@ -793,7 +794,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             }
             break;
 
-        case SSA_write_array:
+        case SSA_write_array8:
             {
                 bm_t const array_bm = _get_bm(ssa_node->input(0));
                 bm_t const assign_bm = _get_bm(ssa_node->input(3));
@@ -807,7 +808,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     locator_t loc = ssa_node->input(1).locator();
                     //loc.set_atom(i - start);
 
-                    assert(ssa_argn(SSA_write_array) == 4);
+                    assert(ssa_argn(SSA_write_array8) == 4);
                     split->alloc_input(4);
                     split->build_set_input(0, array_bm[i]);
                     split->build_set_input(1, loc);

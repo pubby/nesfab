@@ -6,6 +6,7 @@
 #include "token.hpp"
 
 struct mods_t;
+class global_t;
 
 struct ast_node_t
 {
@@ -16,6 +17,7 @@ struct ast_node_t
     {
         ast_node_t* children = nullptr;
         mods_t* mods;
+        global_t const* charmap;
     };
 
     unsigned num_children() const;

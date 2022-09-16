@@ -98,12 +98,17 @@ SSA_DEF(goto_mode, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_IO_IMPURE | SSAF_N
 ////////////
 
 // (array, locator, index)
-SSA_DEF(read_array, 3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_READ_ARRAY)
+SSA_DEF(read_array8,  3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_READ_ARRAY)
+SSA_DEF(read_array16, 3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_READ_ARRAY)
 // Same as above, but more efficient in code gen.
-SSA_DEF(cg_read_array_direct, 3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_CG_NEVER_STORE | SSAF_READ_ARRAY)
+SSA_DEF(cg_read_array8_direct, 3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_CG_NEVER_STORE | SSAF_READ_ARRAY)
 
 // (array, locator, index, value)
-SSA_DEF(write_array, 4, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY)
+SSA_DEF(write_array8,  4, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY)
+SSA_DEF(write_array16, 4, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY)
+
+// (array)
+SSA_DEF(resize_array, 1, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_READ_ARRAY)
 
 // (array dest, new locator, array src) TODO
 // SSA_DEF(copy_array, 2, INPUT_ORDER, SSAF_WRITE_ARRAY | SSAF_READ_ARRAY) TODO
@@ -113,6 +118,7 @@ SSA_DEF(write_array, 4, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY)
 
 // (values...)
 SSA_DEF(init_array, -1, INPUT_VALUE, 0)
+
 
 //////////////
 // POINTERS //

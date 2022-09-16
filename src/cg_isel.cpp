@@ -511,7 +511,7 @@ namespace isel
 
     // Spits out the op specified.
     // NOTE: You generally shouldn't use this for any op that uses
-    // a memory argument, as that argument can't be a SSA_cg_read_array_direct.
+    // a memory argument, as that argument can't be a SSA_cg_read_array8_direct.
     // Thus, prefer pick_op.
     template<op_t Op> [[gnu::noinline]]
     void exact_op(options_t opt, locator_t def, locator_t arg, locator_t alt, ssa_value_t ssa_def, ssa_value_t ssa_arg,
@@ -1036,7 +1036,7 @@ namespace isel
         constexpr op_t absolute_X = get_op(OpName, MODE_ABSOLUTE_X);
         constexpr op_t absolute_Y = get_op(OpName, MODE_ABSOLUTE_Y);
 
-        bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array_direct;
+        bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array8_direct;
 
         if(implied != BAD_OP && !Arg::trans())
             simple_op<implied>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
@@ -1214,8 +1214,6 @@ namespace isel
 
                 using state = param<struct load_B_state_tag>;
                 state::set(locator_t::runtime_ram(RTRAM_mapper_state));
-
-                // TODO: track the mapper state as another CPU register.
 
                 chain
                 < load_A<Opt, Def>
@@ -1894,14 +1892,83 @@ namespace isel
     }
 
     template<typename Opt>
-    void copy_array(ssa_value_t from, ssa_value_t def)
+    void fill_array(ssa_value_t def, unsigned start, unsigned len = 0)
     {
         using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+        using loop_label = p_label<0>;
+
+        if(len >= 256)
+        {
+            loop_label::set(state.minor_label());
+
+            select_step<false>(
+                chain
+                < load_AX<Opt, const_<0>, const_<0>>
+                , label<loop_label>
+                >);
+
+            for(unsigned page = 0; page < len; page += 256)
+            {
+                p_arg<0>::set(def,  start + page);
+                select_step<false>(exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<0>>) ;
+            }
+
+            select_step<false>(
+                chain
+                < simple_op<OptC, INX_IMPLIED>
+                , simple_op<OptC, BNE_RELATIVE, null_, loop_label>
+                , clear_conditional
+                , set_defs<Opt, REGF_X, true, const_<0>>
+                >);
+        }
+
+        unsigned const left = len % 256;
+        unsigned const iter = left / 2;
+        if(iter)
+        {
+            loop_label::set(state.minor_label());
+            p_arg<0>::set(locator_t::const_byte(iter));
+            p_arg<1>::set(def, (start + len - left));
+            p_arg<2>::set(def,  (start + len - left) + iter);
+
+            select_step<false>(
+                chain
+                < load_AX<Opt, const_<0>, p_arg<0>>
+                , label<loop_label>
+                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<1>>
+                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<2>>
+                , simple_op<OptC, DEX_IMPLIED>
+                , simple_op<OptC, BPL_RELATIVE, null_, loop_label>
+                , clear_conditional
+                , set_defs<Opt, REGF_X, true, const_<0xFF>>
+                >);
+        }
+
+        if(left % 2)
+        {
+            p_arg<0>::set(def,  start + len - 1);
+            select_step<false>(
+                chain
+                < load_A<Opt, const_<0>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                >);
+        }
+    }
+
+    template<typename Opt>
+    void copy_array(ssa_value_t from, ssa_value_t def, unsigned resize_to = 0)
+    {
+        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
+        using loop_label = p_label<0>;
+
+        assert(is_tea(from.type().name()));
 
         if(asm_arg(def).with_byteified(false) == asm_arg(from).with_byteified(false))
             return;
 
-        unsigned const len = def.type().size();
+        unsigned len = from.type().size();
+        if(resize_to)
+            len = std::min<unsigned>(len, resize_to);
         constexpr unsigned half_unroll = 2;
 
         if(len <= half_unroll * 2)
@@ -1915,16 +1982,45 @@ namespace isel
         }
         else
         {
-            using loop_label = p_label<0>;
+            if(len >= 256)
+            {
+                loop_label::set(state.minor_label());
 
-            unsigned const iter = len / half_unroll;
+                select_step<false>(
+                    chain
+                    < load_X<Opt, const_<0>>
+                    , label<loop_label>
+                    >);
+
+                for(unsigned page = 0; page < len; page += 256)
+                {
+                    p_arg<0>::set(from, page);
+                    p_arg<1>::set(def,  page);
+                    select_step<false>(
+                        chain
+                        < exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<0>>
+                        , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<1>>
+                        >);
+                }
+
+                select_step<false>(
+                    chain
+                    < simple_op<OptC, INX_IMPLIED>
+                    , simple_op<OptC, BNE_RELATIVE, null_, loop_label>
+                    , clear_conditional
+                    , set_defs<Opt, REGF_X, true, const_<0>>
+                    >);
+            }
+
+            unsigned const start = len - (len % 256);
+            unsigned const iter = (len % 256) / half_unroll;
             assert(iter <= 0x80);
 
             p_arg<0>::set(locator_t::const_byte(iter - 1));
-            p_arg<1>::set(from, 0 * iter);
-            p_arg<2>::set(def,  0 * iter);
-            p_arg<3>::set(from, 1 * iter);
-            p_arg<4>::set(def,  1 * iter);
+            p_arg<1>::set(from, 0 * iter + start);
+            p_arg<2>::set(def,  0 * iter + start);
+            p_arg<3>::set(from, 1 * iter + start);
+            p_arg<4>::set(def,  1 * iter + start);
             loop_label::set(state.minor_label());
             
             select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
@@ -1956,13 +2052,16 @@ namespace isel
                 >(cpu, prev, cont);
             });
 
-            for(unsigned i = iter * half_unroll; i < len; ++i)
+            for(unsigned i = iter * half_unroll; i < (len % 256); ++i)
             {
-                p_arg<0>::set(from, i);
-                p_def::set(def, i);
-                select_step<true>(load_then_store<Opt, null_, p_arg<0>, p_def, false>);
+                p_arg<0>::set(from, i + start);
+                p_def::set(def, i + start);
+                select_step<false>(load_then_store<Opt, null_, p_arg<0>, p_def, false>);
             }
         }
+
+        if(len < resize_to)
+            fill_array<Opt>(def, len, resize_to - len);
     }
 
     template<typename Opt>
@@ -2663,7 +2762,7 @@ namespace isel
         case SSA_aliased_store:
             // Aliased stores normally produce no code, however, 
             // we must implement an input 'cg_read_array_direct' as a store:
-            if(h->output_size() > 0 && h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array_direct)
+            if(h->output_size() > 0 && h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array8_direct)
             {
                 h = h->input(0).handle();
                 goto do_read_array_direct;
@@ -2672,7 +2771,7 @@ namespace isel
                 ignore_req_store<p_def>(cpu, prev, cont);
             break;
 
-        case SSA_write_array:
+        case SSA_write_array8:
             {
                 using p_array = p_arg<0>;
                 using p_index = p_arg<1>;
@@ -2686,7 +2785,7 @@ namespace isel
             }
             break;
 
-        case SSA_read_array:
+        case SSA_read_array8:
         do_read_array_direct:
             {
                 using p_array = p_arg<0>;
@@ -2862,8 +2961,19 @@ namespace isel
             break;
 
         case SSA_entry:
+            if(state.fn->fclass == FN_MODE)
+            {
+                chain
+                < load_X<Opt, const_<0xFF>>
+                , simple_op<Opt, TXS_IMPLIED>
+                >(cpu, prev, cont);
+            }
+            else
+                cont->call(cpu, prev);
+            break;
+
         case SSA_uninitialized:
-        case SSA_cg_read_array_direct:
+        case SSA_cg_read_array8_direct:
             ignore_req_store<p_def>(cpu, prev, cont);
             break;
         default:
@@ -3077,8 +3187,8 @@ namespace isel
             }
             goto simple;
 
-        case SSA_write_array:
-            if(h->input(0).holds_ref() && cset_head(h->input(0).handle()) != cset_head(h))
+        case SSA_write_array8:
+            if(!h->input(0).holds_ref() || cset_head(h->input(0).handle()) != cset_head(h))
                 copy_array<Opt>(h->input(0), h);
             goto simple;
 
@@ -3089,6 +3199,21 @@ namespace isel
             {
                 p_arg<0>::set(h->input(0));
                 select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def>);
+            }
+            break;
+
+        case SSA_resize_array:
+            {
+                assert(is_tea(h->type().name()));
+                assert(is_tea(h->input(0).type().name()));
+
+                unsigned const old_size = h->input(0).type().size();
+                unsigned const new_size = h->type().size();
+
+                if(!h->input(0).holds_ref() || cset_head(h->input(0).handle()) != cset_head(h))
+                    copy_array<Opt>(h->input(0), h, new_size);
+                else if(old_size < new_size)
+                    fill_array<Opt>(h, old_size, new_size - old_size);
             }
             break;
 
@@ -3382,9 +3507,9 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                     // so let's make it simpler.
                     for_each_node_input(h, [&](ssa_ht input)
                     {
-                        if(input->cfg_node() == cfg && input->op() == SSA_cg_read_array_direct)
+                        if(input->cfg_node() == cfg && input->op() == SSA_cg_read_array8_direct)
                         {
-                            input->unsafe_set_op(SSA_read_array);
+                            input->unsafe_set_op(SSA_read_array8);
                             repaired = true;
                         }
                     });
@@ -3392,8 +3517,8 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 else if(repairs == REPAIR_LIMIT)
                 {
                     for(ssa_node_t& node : *cfg)
-                        if(node.op() == SSA_cg_read_array_direct)
-                            node.unsafe_set_op(SSA_read_array);
+                        if(node.op() == SSA_cg_read_array8_direct)
+                            node.unsafe_set_op(SSA_read_array8);
                     repaired = true;
                 }
 

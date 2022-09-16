@@ -278,27 +278,26 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
     for(ssa_ht ssa_node : toposorted)
     {
+        using namespace ssai::array;
+
         if(!(ssa_flags(ssa_node->op()) & SSAF_WRITE_ARRAY))
             continue;
 
         auto& d = data(ssa_node);
 
-        assert(ssa_node->input(0).holds_ref());
-        ssa_ht const array_input = ssa_node->input(0).handle();
-
-        assert(ssa_node->input(1).is_locator());
-        locator_t const loc = ssa_node->input(1).locator();
+        assert(ssa_node->input(ARRAY).holds_ref());
+        ssa_ht const array_input = ssa_node->input(ARRAY).handle();
 
         for_each_output(array_input, [&](ssa_ht read)
         {
             if(ssa_node == read)
                 return;
 
-            if(!(ssa_flags(read->op()) & SSAF_READ_ARRAY))
+            if(!(ssa_flags(read->op()) & (SSAF_READ_ARRAY)))
                 return;
 
-            assert(read->input(1).is_locator());
-            assert(read->input(1).locator() == loc);
+            if(!(ssa_flags(read->op()) & SSAF_INDEXES_ARRAY))
+                return;
 
             // We can only do this when the read is in the same CFG node
             if(read->cfg_node() != cfg_node)
@@ -438,6 +437,11 @@ void scheduler_t::run()
 
     carry_input_waiting = {};
     ssa_ht candidate = {};
+
+    // Always schedule the entry first:
+    if(ssa_ht h = cfg_node->first_daisy())
+        if(h->op() == SSA_entry)
+            append_schedule(h);
 
     while(schedule.size() < cfg_node->ssa_size())
     {

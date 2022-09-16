@@ -135,6 +135,8 @@ public:
 
     group_data_ht handle() const { return group.handle<group_data_ht>(); }
 
+    bool banked_ptrs() const { return once; }
+
     void add_const(const_ht c)
     {
         assert(compiler_phase() <= PHASE_PARSE);

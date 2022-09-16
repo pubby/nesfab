@@ -34,13 +34,13 @@ ssa_fwd_edge_t& ssa_bck_edge_t::input() const
     return handle->m_io.input(index);
 }
 
-type_t ssa_fwd_edge_t::type(bool is_deref) const
+type_t ssa_fwd_edge_t::type() const
 { 
     assert(operator bool());
     if(is_num())
         return num_type_name();
     if(is_locator())
-        return is_deref ? locator().with_is(IS_DEREF).type() : locator().type();
+        return locator().type();
     if(holds_ref())
         return handle()->type();
     return TYPE_VOID;

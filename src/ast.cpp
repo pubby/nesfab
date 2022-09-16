@@ -1,5 +1,7 @@
 #include "ast.hpp"
 
+#include "assert.hpp"
+
 unsigned ast_node_t::num_children() const
 {
     using namespace lex;
@@ -13,6 +15,7 @@ unsigned ast_node_t::num_children() const
         assert(!token.value || children);
         return token.value;
 
+    case TOK_at:
     case TOK_unary_plus:
     case TOK_unary_minus:
     case TOK_unary_xor:
@@ -29,6 +32,8 @@ unsigned ast_node_t::num_children() const
         return children ? 1 : 0;
 
     case TOK_write_hw:
+    case TOK_index8:
+    case TOK_index16:
         return 2;
 
     default:
@@ -38,12 +43,15 @@ unsigned ast_node_t::num_children() const
             return 2;
         }
 
-        assert(!children);
+        passert(!children, token_string(token.type));
         // fall-through
-        // These use 'mods' instead of 'children':
+        // These use other pointers in the union instead of 'children':
     case TOK_byte_block_call:
     case TOK_byte_block_goto:
     case TOK_byte_block_goto_mode:
+    case TOK_character:
+    case TOK_string_compressed:
+    case TOK_string_uncompressed:
         return 0;
     }
 }

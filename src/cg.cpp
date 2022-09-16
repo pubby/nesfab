@@ -823,7 +823,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         auto& d = cg_data(cfg_it);
         for(ssa_ht h : d.schedule)
         {
-            if(h->op() != SSA_read_array || !h->input(0).holds_ref())
+            if(h->op() != SSA_read_array8 || !h->input(0).holds_ref())
                 continue;
 
             std::printf("trying read %i\n", h.id);
@@ -878,7 +878,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             }
 
             // Success! Make it direct:
-            h->unsafe_set_op(SSA_cg_read_array_direct);
+            h->unsafe_set_op(SSA_cg_read_array8_direct);
         next_read_array_iter:;
         }
     }

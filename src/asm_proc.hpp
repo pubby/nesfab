@@ -29,7 +29,9 @@ struct asm_inst_t
     // Alternatively, 'alt' can be used to temporarily track additional information.
     locator_t alt;
 
-    //int cost; // another debugging tool. TODO: remove this
+#ifndef NDEBUG
+    int cost; // another debugging tool. TODO: remove this
+#endif
 
     bool operator==(asm_inst_t const& o) const
         { return op == o.op && arg == o.arg && alt == o.alt; }

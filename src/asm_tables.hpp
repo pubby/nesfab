@@ -565,7 +565,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 192,
         .size = 2,
         .cycles = 2,
-        .input_regs = REGF_Y | REGF_M,
+        .input_regs = REGF_Y,
         .output_regs = REGF_NZ | REGF_C,
     },
     {

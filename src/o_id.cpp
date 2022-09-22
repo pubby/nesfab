@@ -513,6 +513,8 @@ struct ssa_monoid_d
     bitset_uint_t* post_dom = nullptr;
     unsigned total_outputs = 0;
     bool sealed_singleton = false;
+
+    // A 'compatible' node only outputs to the same 'defining_op', of the same type.
     bool compatible = false;
 };
 
@@ -602,6 +604,14 @@ private:
     ssa_ht root;
 
     // Counts leaf nodes of our expression.
+    // 'compatible_leafs' may or may not convert to 'incompatible_leafs' later on,
+    // which is used to optimize unnecessary shared expressions like:
+    // a = x + 10
+    // b = a + 20
+    // c = a + 30
+    // ... optimizes to become:
+    // b = x + 30
+    // c = x + 40
     fc::small_map<ssa_value_t, leaf_count_t, 16> incompatible_leafs;
     fc::small_map<ssa_value_t, leaf_count_t, 16> compatible_leafs;
 

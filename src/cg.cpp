@@ -142,8 +142,11 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // CFG EDGE SPLITTING //
     ////////////////////////
 
+    split_critical_edges(ir);
+
     // Deal with conditional nodes that have both edges going to the same node
     // by splitting the edge and inserting a new node.
+#ifndef NDEBUG
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         cfg_node_t& cfg_node = *cfg_it;
@@ -152,10 +155,13 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(cfg_node.output_size() == 2 &&
            cfg_node.output(0) == cfg_node.output(1))
         {
+            // TODO
+            assert(false);
             // Introduce a new node as the fix:
-            ir.split_edge(cfg_node.output_edge(1));
+            //ir.split_edge(cfg_node.output_edge(1));
         }
     }
+#endif
 
     /////////////////////////
     // BRANCH INSTRUCTIONS //
@@ -1136,6 +1142,12 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         // TODO: Calculate loops here, not in 'select_instructions'.
         select_instructions(log, fn, ir);
 
+#ifndef NDEBUG
+        for(cfg_ht h : postorder | std::views::reverse)
+            for(asm_inst_t const& inst : cg_data(h).code)
+                std::cout << inst << std::endl;
+#endif
+
         asm_graph_t graph(log, locator_t::cfg_label(ir.root));
         for(cfg_ht h : postorder | std::views::reverse)
             graph.append_code(cg_data(h).code);
@@ -1151,10 +1163,10 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         asm_proc.build_label_offsets();
 
 
-//#ifndef NDEBUG
-        for(asm_inst_t const& inst : asm_proc.code)
-            std::cout << inst << std::endl;
-//#endif
+#ifndef NDEBUG
+        //for(asm_inst_t const& inst : asm_proc.code)
+            //std::cout << inst << std::endl;
+#endif
 
 
         // Add the lvars to the fn

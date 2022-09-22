@@ -44,7 +44,7 @@ namespace isel
     struct result_t
     {
         isel_cost_t cost = 0;
-        std::vector<asm_inst_t> code;
+        std::shared_ptr<std::vector<asm_inst_t>> code;
     };
 
     using preprep_bitset_t = static_bitset_t<256>;
@@ -56,8 +56,9 @@ namespace isel
         rh::batman_set<cross_cpu_t> in_states;
         rh::batman_map<cross_transition_t, result_t> sels;
 
-        std::vector<asm_inst_t> const& final_code() const { return sels.begin()[sel].second.code; }
-        std::vector<asm_inst_t>& final_code() { return sels.begin()[sel].second.code; }
+        std::vector<asm_inst_t> const& final_code() const { return *sels.begin()[sel].second.code; }
+        std::vector<asm_inst_t>& final_code() { return *sels.begin()[sel].second.code; }
+
         cross_cpu_t const& final_in_state() const { return sels.begin()[sel].first.in_state; }
         cross_cpu_t const& final_out_state() const { return sels.begin()[sel].first.out_state; }
         isel_cost_t final_cost() const { return sels.begin()[sel].second.cost; }

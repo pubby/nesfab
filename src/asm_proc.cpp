@@ -23,7 +23,9 @@ std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
     o << "{ " << to_string(inst.op) << ", " << inst.arg;
     o << " hi: " << inst.alt;
     o << "   (" << inst.ssa_op << ") }";
-    //o << "   (" << (float(inst.cost) / 256.0f) << ") }";
+#ifndef NDEBUG
+    o << "   (" << (float(inst.cost) / 256.0f) << ") }";
+#endif
     return o;
 }
 

@@ -387,3 +387,23 @@ void toposort_cfg_node(cfg_ht cfg_node, ssa_ht* vec)
     not_leaf:;
     }
 }
+
+void split_critical_edges(ir_t& ir)
+{
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        unsigned const output_size = cfg->output_size();
+        if(output_size < 2)
+            continue;
+
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            auto oe = cfg->output_edge(i);
+            if(oe.handle->input_size() >= 2)
+            {
+                ir.split_edge(oe);
+                passert(cfg->output_size() == output_size, cfg->output_size(), output_size);
+            }
+        }
+    }
+}

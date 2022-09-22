@@ -272,6 +272,14 @@ struct cross_cpu_t
     auto operator<=>(cross_cpu_t const&) const = default;
     bool has(locator_t loc) const { return std::find(defs.begin(), defs.end(), loc) != defs.end(); }
     cpu_t to_cpu() const;
+    unsigned unique_count() const
+    {
+        unsigned count = 0;
+        for(locator_t const& loc : defs)
+            if(loc)
+                ++count;
+        return count;
+    }
 
     std::array<locator_t, NUM_CROSS_REGS> defs = {};
 };
@@ -281,9 +289,8 @@ struct cross_transition_t
     cross_cpu_t in_state;
     cross_cpu_t out_state;
     auto operator<=>(cross_transition_t const&) const = default;
+    unsigned unique_count() const { return in_state.unique_count() + out_state.unique_count(); }
 };
-
-
 
 } // end namespace isel
 

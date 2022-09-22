@@ -1,6 +1,7 @@
-.PHONY: all debug release tests deps cleandeps clean run
+.PHONY: all debug release profile tests deps cleandeps clean run
 debug: compiler
 release: compiler
+profile: compiler
 all: compiler tests
 run: compiler
 	./compiler
@@ -52,6 +53,7 @@ override CXXFLAGS+= \
 
 debug: CXXFLAGS += -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG
+profile: CXXFLAGS += -O3 -DNDEBUG -g
 
 ifeq ($(MAKECMDGOALS), all)
 CXXFLAGS += -g

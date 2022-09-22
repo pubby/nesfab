@@ -1,4 +1,5 @@
 SSA_DEF(null, 0, INPUT_NONE, 0) // Keep as first!
+SSA_DEF(gen_load, 0, INPUT_NONE, 0) // Fake. Used by cg_isel for debugging purposes.
 
 SSA_DEF(if,     1, INPUT_VALUE, SSAF_NO_GVN)
 

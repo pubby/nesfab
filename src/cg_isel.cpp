@@ -57,6 +57,9 @@ namespace isel
         locator_t minor_label() { return locator_t::minor_label(next_label++); }
         locator_t minor_var() { return locator_t::minor_var(fn, next_var++); }
 
+        // Scratchpad used for sorting stuff:
+        std::vector<unsigned> indices;
+
         // Used for debug logging.
         log_t* log = nullptr;
 
@@ -180,10 +183,12 @@ namespace isel
         isel_cost_t penalty = 0;
 
         // Very slightly penalize the use of X / Y:
+        /* TODO remove?
         if(op_input_regs(op) & REGF_Y)
             penalty += 2;
         else if(op_input_regs(op) & REGF_X)
             penalty += 1;
+            */
 
         switch(op_name(op))
         {
@@ -313,11 +318,10 @@ namespace isel
         // Run every selection step:
         if(state.map.size() > MAX_MAP_SIZE)
         {
-            thread_local std::vector<unsigned> indices;
-            indices.resize(state.map.size());
+            state.indices.resize(state.map.size());
 
-            auto const begin = indices.begin();
-            auto end = indices.end();
+            auto const begin = state.indices.begin();
+            auto end = state.indices.end();
             
             auto comp = [&](unsigned a, unsigned b)
                 { return state.map.begin()[a].second->cost > state.map.begin()[b].second->cost; };
@@ -392,7 +396,11 @@ namespace isel
         total_cost += prev->cost + extra_cost;
 
         return state.sel_pool.emplace(prev, total_cost, 
-            asm_inst_t{ .op = Op, .ssa_op = state.ssa_node->op(), .arg = arg, .alt = alt/* , total_cost*/  });
+            asm_inst_t{ .op = Op, .ssa_op = state.ssa_node->op(), .arg = arg, .alt = alt,
+#ifndef NDEBUG
+            .cost = total_cost,
+#endif
+            });
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
@@ -1116,13 +1124,13 @@ namespace isel
             {
                 constexpr auto LikelyOp = get_op(StoreOp, MODE_LIKELY);
                 static_assert(LikelyOp);
-                cont->call(cpu_copy, &alloc_sel<LikelyOp>(Opt::to_struct, prev, Param::trans(), Def::value()));
+                cont->call(cpu_copy, &alloc_sel<LikelyOp>(Opt::to_struct, prev, Param::trans()));
             }
             else
             {
                 constexpr auto MaybeOp = get_op(StoreOp, MODE_MAYBE);
                 static_assert(MaybeOp);
-                cont->call(cpu_copy, &alloc_sel<MaybeOp>(Opt::to_struct, prev, Param::trans(), Def::value()));
+                cont->call(cpu_copy, &alloc_sel<MaybeOp>(Opt::to_struct, prev, Param::trans()));
             }
         }
         else
@@ -3437,6 +3445,9 @@ namespace isel
         {
             assert(l.lclass() != LOC_PHI); // Should have been stripped earlier.
 
+            if(!l)
+                return l;
+
             if(l.lclass() == LOC_SSA)
             {
                 ssa_ht const h = l.ssa_node();
@@ -3525,6 +3536,9 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 d.preprep[j] = u;
             }
         }
+
+        std::cout << "SCHEDBACK " << cfg << ' ' << schedule.back() << std::endl;
+        assert(d.preprep.back().all_clear());
     }
 
     ///////////////////////////////////////////////
@@ -3576,8 +3590,6 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                     assert(loc.ssa_node()->cfg_node() != cfg);
 #endif
             state.map.insert({ 
-                // TODO: uncomment
-                //{},
                 d.in_states.begin()[index].to_cpu(),
                 &state.sel_pool.emplace(nullptr, 0, 
                     asm_inst_t{ .op = ASM_PRUNED, .arg = locator_t::index(index) }) });
@@ -3594,12 +3606,14 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 
                 if(ssa_input0_class(h->op()) != INPUT_LINK) 
                 {
-                    d.preprep[i].for_each([&](unsigned c)
+                    select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                     {
-                        p_arg<0>::set(locator_t::const_byte(c));
-                        select_step<false>([](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                        cont->call(cpu, prev);
+
+                        d.preprep[i].for_each([&](unsigned c)
                         {
-                            cont->call(cpu, prev);
+                            assert(i != schedule.size() - 1);
+                            p_arg<0>::set(locator_t::const_byte(c));
                             load_A<options<>, p_arg<0>>(cpu, prev, cont);
                             load_X<options<>, p_arg<0>>(cpu, prev, cont);
                             load_Y<options<>, p_arg<0>>(cpu, prev, cont);
@@ -3654,23 +3668,23 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         assert(state.map.size());
         for(auto const& pair : state.map)
         {
-            rh::apair<cross_transition_t, result_t> new_sel = {{ .out_state = cross_cpu_t(pair.first, true) }};
-            cross_transition_t& transition = new_sel.first;
-            result_t& result = new_sel.second;
-            result.cost = pair.second->cost;
-
-            // Create the 'code' vector:
-            std::size_t size = 1;
+            std::vector<asm_inst_t> code_temp;
+            unsigned cost = pair.second->cost;
             sel_t const* first_sel = pair.second;
-            assert(first_sel);
-            for(;first_sel->prev; first_sel = first_sel->prev)
-                ++size;
-            result.code.resize(size);
-            for(sel_t const* sel = pair.second; sel; sel = sel->prev)
-                result.code[--size] = sel->inst;
-            assert(size == 0);
-            assert(result.code[0].op == ASM_PRUNED);
-            result.code[0] = { .op = ASM_LABEL, .arg = locator_t::cfg_label(cfg), };
+
+            // Create the 'code_temp' vector:
+            {
+                std::size_t size = 1;
+                assert(first_sel);
+                for(;first_sel->prev; first_sel = first_sel->prev)
+                    ++size;
+                code_temp.resize(size);
+                for(sel_t const* sel = pair.second; sel; sel = sel->prev)
+                    code_temp[--size] = sel->inst;
+                assert(size == 0);
+                assert(code_temp[0].op == ASM_PRUNED);
+                code_temp[0] = { .op = ASM_LABEL, .arg = locator_t::cfg_label(cfg), };
+            }
 
             // Determine the final 'start state'.
             // This is the cpu state we started with, 
@@ -3678,32 +3692,23 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
 
             regs_t gen = 0;
             regs_t kill = 0;
-            for(asm_inst_t& inst : result.code)
+            for(asm_inst_t& inst : code_temp)
             {
                 gen |= op_input_regs(inst.op) & ~kill;
-                if(!(op_flags(inst.op) & ASMF_MAYBE_STORE))
-                    kill |= op_output_regs(inst.op);
-
-                if((op_flags(inst.op) & ASMF_MAYBE_STORE) && inst.alt)
-                {
-                    if(transition.out_state.has(inst.alt))
-                    {
-                        op_t const new_op = change_addr_mode(inst.op, MODE_MAYBE);
-                        assert(new_op != BAD_OP);
-                        result.cost -= cost_fn(inst.op);
-                        inst.op = new_op;
-                    }
-                    inst.alt = LOC_NONE;
-                }
+                kill |= op_output_regs(inst.op);
             }
-
-            assert(first_sel->inst.op == ASM_PRUNED);
-            assert(first_sel->inst.arg.lclass() == LOC_INDEX);
 
             unsigned const in_i = first_sel->inst.arg.data();
             assert(in_i < d.in_states.size());
 
-            transition.in_state = d.in_states.begin()[in_i];
+            cross_transition_t transition = 
+            { 
+                .in_state = d.in_states.begin()[in_i],
+                .out_state = cross_cpu_t(pair.first, true) 
+            };
+
+            assert(first_sel->inst.op == ASM_PRUNED);
+            assert(first_sel->inst.arg.lclass() == LOC_INDEX);
 
 #ifndef NDEBUG
             for(locator_t loc : transition.in_state.defs)
@@ -3715,43 +3720,94 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 if(~gen & kill & (1 << i)) 
                     transition.in_state.defs[i] = LOC_NONE;
 
-            dprint(state.log, "ISEL_RESULT", cfg, result.cost);
+            // Some transitions have pass-through registers, 
+            // meaning they don't read or write those registers,
+            // they just pass their values along.
+            // For each pass-through register, 
+            // we'll also handle the case it's LOC_NONE,
+            // and will generate all the possible combinations:
+            bc::small_vector<cross_transition_t, 8> sub_transitions;
+            sub_transitions.push_back(transition);
+            for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+            {
+                // If the cfg node passes through a register:
+                if(((gen | kill) & (1 << i)) 
+                   || !transition.in_state.defs[i] 
+                   || transition.in_state.defs[i] != transition.out_state.defs[i])
+                {
+                    continue;
+                }
+
+                // Insert additional combinations:
+                unsigned const size = sub_transitions.size();
+                for(unsigned j = 0; j < size; ++j)
+                {
+                    auto& t = sub_transitions.emplace_back(sub_transitions[j]);
+                    t.in_state.defs[i] = t.out_state.defs[i] = LOC_NONE;
+                }
+            }
+
+            dprint(state.log, "ISEL_RESULT", cfg, cost);
 
             if(state.log)
-                for(auto const& inst : result.code)
+                for(auto const& inst : code_temp)
                     dprint(state.log, inst);
 
-            dprint(state.log, "ISEL_RESULT_IN", new_sel.first.in_state);
-            dprint(state.log, "ISEL_RESULT_OUT", new_sel.first.out_state);
+            dprint(state.log, "ISEL_RESULT_IN", transition.in_state);
+            dprint(state.log, "ISEL_RESULT_OUT", transition.out_state);
 
-            // Insert the 'new_sel' into 'd':
-            auto insert_result = d.sels.insert(new_sel);
-            if(!insert_result.second)
+            auto code_ptr = std::make_shared<std::vector<asm_inst_t>>(std::move(code_temp));
+
+            assert(!sub_transitions.empty());
+
+            for(auto& t : sub_transitions)
             {
-                // Keep the lowest cost:
-                if(insert_result.first->second.cost > new_sel.second.cost)
-                    *insert_result.first = std::move(new_sel);
+                rh::apair<cross_transition_t, result_t> new_sel = 
+                { 
+                    t, 
+                    {
+                        .cost = cost + t.unique_count(),
+                        .code = code_ptr
+                    }
+                };
+
+                // Insert the 'new_sel' into 'd':
+                auto insert_result = d.sels.insert(new_sel);
+                if(!insert_result.second)
+                {
+                    // Keep the lowest cost:
+                    if(insert_result.first->second.cost > new_sel.second.cost)
+                        *insert_result.first = std::move(new_sel);
+                }
             }
         }
 
         // For efficiency, cap the maximum number of selections tracked:
-        constexpr unsigned MAX_SELS_PER_CFG = 64;
+        constexpr unsigned MAX_SELS_PER_CFG = 16;
         if(d.sels.size() > MAX_SELS_PER_CFG)
         {
-            std::sort(d.sels.begin(), d.sels.end(), [&](auto const& a, auto const& b)
-                { return a.second.cost < b.second.cost; });
-
             // Reuse 'rebuilt':
             rebuilt.clear();
             rebuilt.reserve(MAX_SELS_PER_CFG);
 
+            state.indices.resize(d.sels.size());
+
+            auto const begin = state.indices.begin();
+            auto end = state.indices.end();
+            
+            auto comp = [&](unsigned a, unsigned b)
+                { return d.sels.begin()[a].second.cost > d.sels.begin()[b].second.cost; };
+
+            std::iota(begin, end, 0);
+            std::make_heap(begin, end, comp);
+
             for(unsigned i = 0; i < MAX_SELS_PER_CFG; ++i)
-                rebuilt.insert(d.sels.begin()[i]);
+            {
+                std::pop_heap(begin, end, comp);
+                rebuilt.insert(d.sels.begin()[*(--end)]);
+            }
 
             d.sels.swap(rebuilt);
-
-            assert(d.sels.size() <= MAX_SELS_PER_CFG);
-            assert(d.sels.size() > 0);
         }
 
         // Pass our output CPU states to our output CFG nodes.
@@ -3799,36 +3855,36 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         {
         case REG_A:
             if(cross.defs[REG_X] == loc)
-                return { .op = TXA_IMPLIED };
+                return { .op = TXA_IMPLIED, .ssa_op = SSA_gen_load };
             else if(cross.defs[REG_Y] == loc)
-                return { .op = TYA_IMPLIED };
+                return { .op = TYA_IMPLIED, .ssa_op = SSA_gen_load };
             else if(loc.is_immediate())
-                return { .op = LDA_IMMEDIATE, .arg = loc };
+                return { .op = LDA_IMMEDIATE, .ssa_op = SSA_gen_load, .arg = loc };
             else
-                return { .op = LDA_ABSOLUTE, .arg = loc };
+                return { .op = LDA_ABSOLUTE, .ssa_op = SSA_gen_load, .arg = loc };
 
         case REG_X:
             if(cross.defs[REG_A] == loc)
-                return { .op = TAX_IMPLIED };
+                return { .op = TAX_IMPLIED, .ssa_op = SSA_gen_load };
             else if(loc.is_immediate())
-                return { .op = LDX_IMMEDIATE, .arg = loc };
+                return { .op = LDX_IMMEDIATE, .ssa_op = SSA_gen_load, .arg = loc };
             else
-                return { .op = LDX_ABSOLUTE, .arg = loc };
+                return { .op = LDX_ABSOLUTE, .ssa_op = SSA_gen_load, .arg = loc };
 
         case REG_Y:
             if(cross.defs[REG_A] == loc)
-                return { .op = TAY_IMPLIED };
+                return { .op = TAY_IMPLIED, .ssa_op = SSA_gen_load };
             else if(loc.is_immediate())
-                return { .op = LDY_IMMEDIATE, .arg = loc };
+                return { .op = LDY_IMMEDIATE, .ssa_op = SSA_gen_load, .arg = loc };
             else
-                return { .op = LDY_ABSOLUTE, .arg = loc };
+                return { .op = LDY_ABSOLUTE, .ssa_op = SSA_gen_load, .arg = loc };
 
         case REG_C:
             passert(!loc || loc.lclass() == LOC_CONST_BYTE, loc);
-            return { .op = loc.data() ? SEC_IMPLIED : CLC_IMPLIED };
+            return { .op = loc.data() ? SEC_IMPLIED : CLC_IMPLIED, .ssa_op = SSA_gen_load };
 
         default:
-            return { .op = ASM_PRUNED };
+            return { .op = ASM_PRUNED, .ssa_op = SSA_gen_load };
         }
     };
 
@@ -3845,6 +3901,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             auto& d = data(cfg);
 
             isel_cost_t const multiplier = depth_exp(loop_depth(cfg));
+            assert(multiplier > 0);
 
             for(auto const& pair : d.sels)
                 d.cost_vector.push_back(pair.second.cost * multiplier);
@@ -3880,7 +3937,9 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                         unsigned add_to_cost = cost_fn(op);
                         assert(add_to_cost);
 
-                        cost += add_to_cost * 2; // Make it arbitrarily worse than a normal load.
+                        // Make it arbitrarily worse than a normal load.
+                        // (2 seems to be too small)
+                        cost += add_to_cost * 4;
                     }
 
                     cost_matrix[x + y * d.sels.size()] = cost * multiplier;
@@ -4095,6 +4154,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         }
 
         // Prepend to code:
+        // TODO: this sucks
         std::vector<asm_inst_t> new_code(d.final_code().size() + always_load_code.size() + remaining_load_code.size());
         std::copy(remaining_load_code.begin(), remaining_load_code.end(), 
                   new_code.begin());

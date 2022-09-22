@@ -62,4 +62,6 @@ cfg_ht dom_intersect(cfg_ht a, cfg_ht b);
 // Sorts a single cfg_node. Outputs in 'vec' (which should be large enough)
 void toposort_cfg_node(cfg_ht cfg_node, ssa_ht* vec);
 
+void split_critical_edges(ir_t& ir);
+
 #endif

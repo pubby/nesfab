@@ -1070,6 +1070,33 @@ void ai_t::fold_consts()
             else if(ssa_it->replace_with(INPUT_VALUE, replace_with))
                 updated = __LINE__;
         }
+        else if(op == SSA_read_array16 || op == SSA_write_array16)
+        {
+            using namespace ssai::array;
+
+            bool const read = op == SSA_read_array16;
+
+            ssa_value_t const index = ssa_it->input(INDEX);
+
+            auto const fits_in_byte = [](ssa_value_t v)
+            {
+                assert(same_scalar_layout(v.type().name(), TYPE_U20));
+                auto const c = get_constraints(v);
+                std::cout << "FITS " << c[0] << std::endl;
+                return c[0].bounds.min >= 0 && c[0].bounds.max < (256ll << fixed_t::shift);
+            };
+
+            // If the index fits in a byte, convert to byte-based indexing:
+            if(fits_in_byte(index))
+            {
+                std::cout << "FITS TRUE\n";
+                ssa_ht const cast = cfg_node.emplace_ssa(SSA_cast, TYPE_U, index);
+                ssa_data_pool::resize<ssa_ai_d>(ssa_pool::array_size());
+                ssa_it->link_change_input(INDEX, cast);
+                ssa_it->unsafe_set_op(read ? SSA_read_array8 : SSA_write_array8);
+                updated = __LINE__;
+            }
+        }
         else if(op == SSA_multi_eq || op == SSA_multi_not_eq)
         {
             assert(ssa_it->input_size() % 2 == 0);
@@ -1620,5 +1647,15 @@ bool o_abstract_interpret(log_t* log, ir_t& ir)
     ssa_data_pool::scope_guard_t<ssa_ai_d> sg(ssa_pool::array_size());
     ai_t ai(log, ir);
     o_remove_trivial_phis(log, ir); // clean-up phis created by ai_t
+
+#ifndef NDEBUG
+    for(cfg_node_t const& cfg : ir)
+    {
+        assert(!cfg.test_flags(FLAG_IN_WORKLIST));
+        for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it; ++ssa_it)
+            assert(!ssa_it->test_flags(FLAG_IN_WORKLIST));
+    }
+#endif
+
     return ai.updated;
 }

@@ -530,6 +530,8 @@ ABSTRACT(SSA_get_byte) = abstract_bottom;
 ABSTRACT(SSA_array_get_byte) = abstract_bottom;
 ABSTRACT(SSA_replace_byte) = abstract_bottom;
 ABSTRACT(SSA_array_replace_byte) = abstract_bottom;
+ABSTRACT(SSA_read_array16_b) = abstract_bottom;
+ABSTRACT(SSA_write_array16_b) = abstract_bottom;
 
 ABSTRACT(SSA_carry) = ABSTRACT_FN
 {

@@ -134,8 +134,9 @@ public:
         pstring_t pstring, ideps_map_t&& ideps, field_map_t&& map);
     charmap_t& define_charmap(
         pstring_t pstring, bool is_default, 
-        string_literal_t const& control, string_literal_t const& printable,
-        bool has_sentinel, std::unique_ptr<mods_t> mods);
+        string_literal_t const& characters, 
+        string_literal_t const& sentinel,
+        std::unique_ptr<mods_t> mods);
 
     static void init();
 
@@ -175,11 +176,17 @@ public:
     static std::vector<fn_t*> nmis() { assert(compiler_phase() > PHASE_PARSE); return nmi_vec; }
 
     static global_t& default_charmap(pstring_t at);
+    static global_t& chrrom(pstring_t at);
+    static global_t* chrrom();
 private:
 
     // Sets the variables of the global:
     unsigned define(pstring_t pstring, global_class_t gclass, 
                     ideps_map_t&& ideps, std::function<unsigned(global_t&)> create_impl);
+
+    // Helper to implement 'compile_all', 'precheck_all', etc.
+    template<typename Fn>
+    static void do_all(Fn const& fn);
 
     void resolve(log_t* log);
     void precheck(log_t* log);
@@ -632,16 +639,16 @@ public:
     using handle_t = charmap_ht;
 
     charmap_t(global_t& global, bool is_default, 
-              string_literal_t const& control, string_literal_t const& printable,
-              bool has_sentinel, std::unique_ptr<mods_t> mods);
+              string_literal_t const& characters, 
+              string_literal_t const& sentinel,
+              std::unique_ptr<mods_t> mods);
 
     global_t& global;
     bool const is_default = false;
-    bool const has_sentinel = false;
 
     unsigned size() const { return m_num_unique; }
     int convert(char32_t ch) const; // Returns negative on failure.
-    int sentinel() const;
+    int sentinel() const { return m_sentinel; }
 
     group_data_ht group_data() const { assert(global.resolved()); return m_group_data; }
 
@@ -651,7 +658,7 @@ public:
 private:
     rh::batman_map<char32_t, unsigned> m_map;
     unsigned m_num_unique = 0;
-    unsigned m_num_control_chars = 0;
+    int m_sentinel = -1;
     group_data_ht m_group_data = {};
 };
 

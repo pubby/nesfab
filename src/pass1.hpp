@@ -158,8 +158,8 @@ public:
                 fmt_error(var_decl.name, 
                           fmt("Identifier % already in use.", 
                               var_decl.name.view(source())), &file)
-                + fmt_error(fn_def.var_decl(*existing).name, 
-                            "Previous definition here:", &file));
+                + fmt_note(fn_def.var_decl(*existing).name, 
+                           "Previous definition here:", &file));
         }
         if(local_const)
             fn_def.local_consts.emplace_back(var_decl, std::move(mods), convert_eternal_expr(local_const_expr));
@@ -215,6 +215,11 @@ public:
     [[gnu::always_inline]]
     void end_fn(var_decl_t decl, fn_class_t fclass, std::unique_ptr<mods_t> mods)
     {
+        // Convert local consts now:
+        for(auto& c : fn_def.local_consts)
+            if(c.expr)
+                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_VALUE);
+
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
         label_map.clear();
@@ -309,15 +314,6 @@ public:
     }
 
     [[gnu::always_inline]]
-    void byte_block_ct_value(var_decl_t const& var_decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
-    {
-        validate_mods("ct", var_decl.name, mods);
-
-        // We'll save the expr, but *don't* convert it yet.
-        _add_symbol(var_decl, true, std::move(mods), &ast);
-    }
-
-    [[gnu::always_inline]]
     ast_node_t byte_block_label(pstring_t label, bool is_default, std::unique_ptr<mods_t> mods)
     {
         int const i = -_add_symbol({{ label, type_t::addr(false) }, label }, true)-1;
@@ -393,6 +389,15 @@ public:
     }
 
     [[gnu::always_inline]]
+    void local_ct(var_decl_t const& var_decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
+    {
+        validate_mods("ct", var_decl.name, mods);
+
+        // We'll save the expr, but *don't* convert it yet.
+        _add_symbol(var_decl, true, std::move(mods), &ast);
+    }
+
+    [[gnu::always_inline]]
     pstring_t begin_struct(pstring_t struct_name)
     {
         assert(ideps.empty());
@@ -434,7 +439,7 @@ public:
                               fmt("Multiple definitions of % in %.", 
                                   var_decl.name.view(source()),
                                   struct_name.view(source())), &file)
-                    + fmt_error(map_pstring, "Previous definition here:", &file));
+                    + fmt_note(map_pstring, "Previous definition here:", &file));
             }
             else
             {
@@ -710,7 +715,7 @@ public:
         {
             throw compiler_error_t(
                 fmt_error(pstring, "Label name already in use.", &file)
-                + fmt_error(pair.first->first, "Previous definition here:", &file));
+                + fmt_note(pair.first->first, "Previous definition here:", &file));
         }
 
         // Link up the unlinked gotos that jump to this label.
@@ -775,18 +780,45 @@ public:
     }
 
     void charmap(pstring_t charmap_name, bool is_default, 
-                 string_literal_t const& control, string_literal_t const& printable, 
-                 bool has_sentinel, std::unique_ptr<mods_t> mods)
+                 string_literal_t const& characters, 
+                 string_literal_t const& sentinel, 
+                 std::unique_ptr<mods_t> mods)
     {
         using namespace std::literals;
+
+        validate_mods("charmap", charmap_name, mods, 0, false, true);
 
         if(is_default)
             active_global = &global_t::default_charmap(charmap_name);
         else
             active_global = &global_t::lookup(file.source(), charmap_name);
 
+        assert(active_global);
+
         active_global->define_charmap(
-            charmap_name, is_default, control, printable, has_sentinel, std::move(mods));
+            charmap_name, is_default, characters, sentinel, std::move(mods));
+    }
+
+    global_t const& lookup_charmap(pstring_t at, pstring_t name = {})
+    {
+        global_t const* ret;
+        if(name)
+            ret = &global_t::lookup(source(), name);
+        else
+            ret = &global_t::default_charmap(at);
+
+        uses_charmap(ret);
+
+        assert(ret);
+        return *ret;
+    }
+
+    void chrrom(pstring_t decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
+    {
+        validate_mods("chrrom", decl, mods);
+
+        active_global = &global_t::chrrom(decl);
+        active_global->define_const(decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, convert_eternal_expr(&ast), std::move(mods));
     }
 };
 

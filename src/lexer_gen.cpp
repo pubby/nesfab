@@ -591,7 +591,7 @@ rptr lower() { return pred(&islower); }
 rptr newline() { return uor(word("\n"), word("\r"), word("\n\r"), word("\r\n")); }
 rptr comchar() { return pred([](unsigned char c) { return c != '\n' && c != '\r' && c; }); }
 rptr eof() { return pred([](unsigned char c) { return c == '\0'; }); }
-rptr whitespace() { return pred([](unsigned char c) { return c == ' ' || c == '\t'; }); }
+rptr whitespace() { return pred([](unsigned char c) { return c == ' '; }); }
 rptr digit() { return pred(isdigit); }
 rptr hex_digit() { return pred(isxdigit); }
 rptr bin_digit() { return pred([](unsigned char c) { return c == '0' || c == '1'; }); }
@@ -646,6 +646,10 @@ int main()
         keyword("case"), // TODO
         keyword("default"), // TODO
         keyword("charmap"),
+        keyword("chrrom"),
+
+        keyword("true"),
+        keyword("false"),
 
         keyword("PPUCTRL"),
         keyword("PPUMASK"),

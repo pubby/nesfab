@@ -46,7 +46,8 @@ bool resource_path(fs::path preferred_dir, fs::path name, fs::path& result)
 
 bool read_binary_file(char const* filename, std::function<void*(std::size_t)> const& alloc)
 {
-#ifdef PLATFORM_UNIX
+//#ifdef PLATFORM_UNIX
+#if 0
     int fd = open(filename, O_RDONLY);
     auto scope_guard = make_scope_guard([&]{ close(fd); });
 

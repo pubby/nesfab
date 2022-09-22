@@ -107,7 +107,11 @@ namespace isel
     template<typename Param>
     struct array_index
     {
-        [[gnu::always_inline]] static ssa_value_t node() { return Param::node()->input(2); }
+        [[gnu::always_inline]] static ssa_value_t node() 
+        { 
+            using namespace ssai::array;
+            return Param::node()->input(INDEX); 
+        }
         [[gnu::always_inline]] static locator_t value() { return ssa_to_value(node()); }
         [[gnu::always_inline]] static locator_t trans() { return asm_arg(node()); }
         [[gnu::always_inline]] static locator_t trans_hi() { return {}; }
@@ -116,9 +120,26 @@ namespace isel
     template<typename Param>
     struct array_mem
     {
-        [[gnu::always_inline]] static ssa_value_t node() { return Param::node()->input(0); }
-        [[gnu::always_inline]] static locator_t value() { return ssa_to_value(node()); }
-        [[gnu::always_inline]] static locator_t trans() { return asm_arg(node()); }
+        [[gnu::always_inline]] static ssa_value_t node() 
+        { 
+            using namespace ssai::array;
+            return Param::node()->input(ARRAY); 
+        }
+        
+        [[gnu::always_inline]] static locator_t value() 
+        { 
+            using namespace ssai::array;
+            return (ssa_to_value(node())
+                    .with_advance_offset(Param::node()->input(OFFSET).whole())); 
+        }
+
+        [[gnu::always_inline]] static locator_t trans() 
+        { 
+            using namespace ssai::array;
+            return (asm_arg(node())
+                    .with_advance_offset(Param::node()->input(OFFSET).whole())); 
+        }
+
         [[gnu::always_inline]] static locator_t trans_hi() { return {}; }
     };
 
@@ -420,7 +441,7 @@ namespace isel
         if(!xy_addr_mode(op_addr_mode(Op)) && (op_output_regs(Op) & REGF_M) 
            && !(op_flags(Op) & ASMF_MAYBE_STORE) && def.holds_ref() && def.handle() == state.ssa_node)
         {
-            assert(def.handle() != arg_h);
+            passert(def.handle() != arg_h, arg_h);
             cpu.req_store |= cg_data(def.handle()).isel.store_mask;
         }
 
@@ -981,11 +1002,12 @@ namespace isel
     struct pick_op_xy
     {
         [[gnu::noinline]]
-        static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+        static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont, unsigned offset = 0)
         {
             using OptN = typename Opt::inc_no_direct;
 
             locator_t const index = array_index<Arg>::value();
+
 
             if(Absolute != BAD_OP && index.is_const_num())
             {
@@ -2449,7 +2471,7 @@ namespace isel
                             >(cpu, prev, cont);
 
                             if(p_def::trans() == p_lhs::trans())
-                                pick_op<Opt, DEC, p_def, p_def>(cpu, prev, cont);
+                                pick_op<Opt, DEC, p_def, p_lhs>(cpu, prev, cont);
                         }
                     }
                 }
@@ -2718,7 +2740,10 @@ namespace isel
 
         case SSA_phi_copy:
             if(!orig_def(h->input(0)).holds_ref() || cset_head(h) != cset_head(h->input(0).handle()))
+            {
+                p_arg<0>::set(h->input(0));
                 load_then_store<Opt, p_def, p_arg<0>, p_def, true>(cpu, prev, cont);
+            }
             else
                 ignore_req_store<p_def>(cpu, prev, cont);
             break;
@@ -2773,13 +2798,16 @@ namespace isel
 
         case SSA_write_array8:
             {
+                using namespace ssai::array;
                 using p_array = p_arg<0>;
                 using p_index = p_arg<1>;
                 using p_assignment = p_arg<2>;
 
-                p_array::set(h);
-                p_index::set(h->input(2));
-                p_assignment::set(h->input(3));
+                unsigned const offset = h->input(OFFSET).whole();
+
+                p_array::set(h, offset);
+                p_index::set(h->input(INDEX));
+                p_assignment::set(h->input(ASSIGNMENT));
 
                 write_array<Opt, p_array, p_index, p_assignment>(cpu, prev, cont);
             }
@@ -2788,15 +2816,17 @@ namespace isel
         case SSA_read_array8:
         do_read_array_direct:
             {
+                using namespace ssai::array;
                 using p_array = p_arg<0>;
                 using p_index = p_arg<1>;
 
-                p_array::set(h->input(0));
-                p_index::set(h->input(2));
+                unsigned const offset = h->input(OFFSET).whole();
+
+                p_array::set(h->input(ARRAY), offset);
+                p_index::set(h->input(INDEX));
 
                 read_array<Opt, p_def, p_array, p_index>(cpu, prev, cont);
             }
-
             break;
 
         case SSA_read_ptr:
@@ -3025,6 +3055,16 @@ namespace isel
     {
         p_def::set(h);
 
+#ifndef NDEBUG
+        p_arg<0>::set({});
+        p_arg<1>::set({});
+        p_arg<2>::set({});
+        p_arg<3>::set({});
+        p_arg<4>::set({});
+        p_arg<6>::set({});
+        p_arg<7>::set({});
+#endif
+
         using Opt = options<>;
         //using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
 
@@ -3216,6 +3256,79 @@ namespace isel
                     fill_array<Opt>(h, old_size, new_size - old_size);
             }
             break;
+
+        case SSA_read_array16_b:
+        case SSA_write_array16_b:
+            {
+                using namespace ssai::array;
+
+                using p_array_lo = p_arg<0>;
+                using p_array_hi = p_arg<1>;
+                using p_index_lo = p_arg<2>;
+                using p_index_hi = p_arg<3>;
+                using p_assignment = p_arg<4>;
+                using p_ptr_lo = p_arg<5>;
+                using p_ptr_hi = p_arg<6>;
+                using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
+
+                p_array_lo::set(asm_arg(h).with_byteified(false).with_is(IS_PTR));
+                p_array_hi::set(asm_arg(h).with_byteified(false).with_is(IS_PTR_HI));
+
+                p_index_lo::set(h->input(INDEX));
+                p_index_hi::set(h->input(INDEX_HI));
+
+                p_ptr_lo::set(locator_t::runtime_ram(RTRAM_ptr_temp).with_is(IS_PTR));
+                p_ptr_hi::set(locator_t::runtime_ram(RTRAM_ptr_temp).with_is(IS_PTR_HI));
+
+                select_step<false>(
+                    chain
+                    < load_AC<Opt, p_index_lo, const_<0>>
+                    , pick_op<Opt, ADC, null_, p_array_lo>
+                    , exact_op<Opt, STA_ABSOLUTE, null_, p_ptr_lo>
+                    , load_A<Opt, p_index_hi>
+                    , pick_op<Opt, ADC, null_, p_array_hi>
+                    , exact_op<Opt, STA_ABSOLUTE, null_, p_ptr_hi>
+                    >);
+
+                if(h->op() == SSA_read_array16_b)
+                {
+                    select_step<true>([](cpu_t cpu, sel_t const* prev, cons_t const* cont)
+                    {
+                        chain
+                        < load_Y<Opt, const_<0>>
+                        , exact_op<Opt, LDA_INDIRECT_Y, p_def, p_ptr>
+                        , store<Opt, STA, p_def, p_def>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_X<Opt, const_<0>>
+                        , exact_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
+                        , store<Opt, STA, p_def, p_def>
+                        >(cpu, prev, cont);
+                    });
+                }
+                else
+                {
+                    assert(h->op() == SSA_write_array16_b);
+
+                    p_assignment::set(h->input(ASSIGNMENT));
+
+                    select_step<true>([](cpu_t cpu, sel_t const* prev, cons_t const* cont)
+                    {
+                        chain
+                        < load_AY<Opt, p_assignment, const_<0>>
+                        , exact_op<Opt, STA_INDIRECT_Y, null_, p_ptr>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_AX<Opt, p_assignment, const_<0>>
+                        , exact_op<Opt, STA_INDIRECT_X, null_, p_ptr>
+                        >(cpu, prev, cont);
+                    });
+                }
+            }
+            break;
+
 
         default: 
         simple:
@@ -3423,7 +3536,10 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
     // Create the initial worklist:
     assert(cfg_worklist.empty());
     for(cfg_ht cfg : postorder | std::views::reverse)
+    {
+        assert(!cfg->test_flags(FLAG_IN_WORKLIST));
         cfg_worklist.push(cfg);
+    }
 
     // Setup initial 'in_state's:
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
@@ -3460,6 +3576,8 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                     assert(loc.ssa_node()->cfg_node() != cfg);
 #endif
             state.map.insert({ 
+                // TODO: uncomment
+                //{},
                 d.in_states.begin()[index].to_cpu(),
                 &state.sel_pool.emplace(nullptr, 0, 
                     asm_inst_t{ .op = ASM_PRUNED, .arg = locator_t::index(index) }) });
@@ -3533,6 +3651,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         d.to_compute.clear();
 
         // Assemble those selections:
+        assert(state.map.size());
         for(auto const& pair : state.map)
         {
             rh::apair<cross_transition_t, result_t> new_sel = {{ .out_state = cross_cpu_t(pair.first, true) }};
@@ -3630,6 +3749,9 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 rebuilt.insert(d.sels.begin()[i]);
 
             d.sels.swap(rebuilt);
+
+            assert(d.sels.size() <= MAX_SELS_PER_CFG);
+            assert(d.sels.size() > 0);
         }
 
         // Pass our output CPU states to our output CFG nodes.
@@ -3647,7 +3769,10 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                 {
                     od.to_compute.push_back(result.first - od.in_states.begin());
                     cfg_worklist.push(output);
+                    assert(output->test_flags(FLAG_IN_WORKLIST));
                 }
+                else
+                    assert(output->test_flags(FLAG_IN_WORKLIST) || od.sels.size() > 0);
             }
         }
     }
@@ -3656,7 +3781,8 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
         auto& d = data(cfg);
-        assert(d.sels.size() > 0);
+        passert(!cfg->test_flags(FLAG_IN_WORKLIST), cfg);
+        passert(d.sels.size() > 0, cfg, cfg->ssa_size());
     }
 #endif
 
@@ -3706,12 +3832,18 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         }
     };
 
+#ifndef NDEBUG
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+        assert(data(cfg).is_reset());
+#endif
+
     {
         pbqp_t pbqp(state.log);
 
         for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
         {
             auto& d = data(cfg);
+
             isel_cost_t const multiplier = depth_exp(loop_depth(cfg));
 
             for(auto const& pair : d.sels)

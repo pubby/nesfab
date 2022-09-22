@@ -1,6 +1,6 @@
 #include "o_phi.hpp"
 
-#include <vector>
+#include <deque>
 
 #include <boost/container/small_vector.hpp>
 
@@ -104,7 +104,7 @@ private:
     void visit(ssa_ht phi_h);
 public:
     using scc_t = fc::small_set<ssa_ht, 2>;
-    inline static thread_local std::vector<scc_t> sccs = {};
+    std::deque<scc_t> sccs = {};
     std::size_t max_scc_size = 0;
     tarjan_t(ir_t& ir, unsigned subgraph_i,
              ssa_ht* phis, std::size_t phis_size);
@@ -209,6 +209,7 @@ void o_remove_redundant_phis(log_t* log,
 
         for(ssa_ht phi_h : scc)
         {
+            std::printf("scc %i %i\n", scc.size(), tarjan.sccs.size());
             ssa_node_t& phi = *phi_h;
             bool is_inner = true;
 

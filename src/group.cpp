@@ -49,7 +49,7 @@ unsigned group_t::define(pstring_t pstring, group_class_t gclass,
                 throw compiler_error_t(
                     fmt_error(pstring, fmt("Group identifier % already in use.", 
                                            pstring.view(file.source())), &file)
-                    + fmt_error(m_pstring, "Previous definition here:"));
+                    + fmt_note(m_pstring, "Previous definition here:"));
             }
             else
                 throw compiler_error_t(fmt("Group identifier % already in use.", name));

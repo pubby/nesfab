@@ -6,6 +6,7 @@
 #include "cg.hpp"
 #include "ir.hpp"
 #include "locator.hpp"
+#include "guard.hpp"
 
 static ssa_value_t first_bank_switch(cfg_ht cfg, ssa_value_t* memoized)
 {
@@ -22,6 +23,7 @@ static ssa_value_t first_bank_switch(cfg_ht cfg, ssa_value_t* memoized)
                 return (memoized[cfg.id] = bank);
 
     cfg->set_flags(FLAG_IN_WORKLIST);
+    auto guard = make_scope_guard([&]{ cfg->clear_flags(FLAG_IN_WORKLIST); });
 
     ssa_value_t bank = {};
     for(unsigned i = 0; i < cfg->output_size(); ++i)
@@ -34,7 +36,6 @@ static ssa_value_t first_bank_switch(cfg_ht cfg, ssa_value_t* memoized)
         }
     }
 
-    cfg->clear_flags(FLAG_IN_WORKLIST);
     return (memoized[cfg.id] = bank);
 }
 
@@ -49,6 +50,11 @@ locator_t first_bank_switch(ir_t& ir)
     std::fill(memoized, memoized + cfg_pool::array_size(), ssa_value_t());
 
     ssa_value_t const first = first_bank_switch(ir.root, memoized);
+
+#ifndef NDEBUG
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+        assert(!cfg->test_flags(FLAG_IN_WORKLIST));
+#endif
     return first.is_locator() ? first.locator() : locator_t(LOC_NONE);
 }
 

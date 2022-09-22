@@ -296,7 +296,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             if(!(ssa_flags(read->op()) & (SSAF_READ_ARRAY)))
                 return;
 
-            if(!(ssa_flags(read->op()) & SSAF_INDEXES_ARRAY))
+            if(!(ssa_flags(read->op()) & (SSAF_INDEXES_ARRAY8 | SSAF_INDEXES_ARRAY16)))
                 return;
 
             // We can only do this when the read is in the same CFG node
@@ -340,20 +340,20 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     // scheduling other nodes that use them afterwards.
     for(ssa_ht ssa_node : toposorted)
     {
-        if(!ssa_indexes(ssa_node->op()))
+        if(!ssa_indexes8(ssa_node->op()))
             continue;
 
-        if(!ssa_node->input(ssa_index_input(ssa_node->op())).holds_ref())
+        if(!ssa_node->input(ssa_index8_input(ssa_node->op())).holds_ref())
             continue;
 
-        ssa_ht const indexer = ssa_node->input(ssa_index_input(ssa_node->op())).handle();
+        ssa_ht const indexer = ssa_node->input(ssa_index8_input(ssa_node->op())).handle();
 
         unsigned const size = indexer->output_size();
         for(unsigned i = 0; i < size; ++i)
         {
             auto oe = indexer->output_edge(i);
 
-            if(ssa_indexes(oe.handle->op()) && oe.index == ssa_index_input(oe.handle->op()))
+            if(ssa_indexes8(oe.handle->op()) && oe.index == ssa_index8_input(oe.handle->op()))
                 continue;
 
             if(oe.handle == ssa_node)
@@ -387,8 +387,8 @@ void scheduler_t::append_schedule(ssa_ht h)
     schedule.push_back(h);
 
     // Handle array indexes
-    if(ssa_indexes(h->op()))
-        add_array_index(h->input(ssa_index_input(h->op())));
+    if(ssa_indexes8(h->op()))
+        add_array_index(h->input(ssa_index8_input(h->op())));
 
     // Handle banks
     if(ssa_banks(h->op()))
@@ -574,9 +574,9 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
 // The score is used to weight different nodes for scheduling.
 int scheduler_t::indexer_score(ssa_ht h) const
 {
-    if(ssa_indexes(h->op()))
+    if(ssa_indexes8(h->op()))
     {
-        ssa_value_t index = h->input(ssa_index_input(h->op()));
+        ssa_value_t index = h->input(ssa_index8_input(h->op()));
         if(index == array_indexers[0])
             return 64; // Fairly arbitrary numbers
         else if(index == array_indexers[1])

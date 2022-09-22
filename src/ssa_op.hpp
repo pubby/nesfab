@@ -14,17 +14,19 @@ constexpr unsigned SSAF_WRITE_GLOBALS  = 1 << 3;
 constexpr unsigned SSAF_IO_IMPURE      = 1 << 4;
 constexpr unsigned SSAF_WRITE_ARRAY    = 1 << 5; // Modifies an array in arg0
 constexpr unsigned SSAF_READ_ARRAY     = 1 << 6;
-constexpr unsigned SSAF_INDEXES_ARRAY  = 1 << 7;
-constexpr unsigned SSAF_INDEXES_PTR    = 1 << 8;
-constexpr unsigned SSAF_CG_NEVER_STORE = 1 << 9; // The op has no associated memory during code gen
-constexpr unsigned SSAF_NO_GVN         = 1 << 10; // Won't be optimized in GVN pass
-constexpr unsigned SSAF_COMMUTATIVE    = 1 << 11; // First two args can be swapped
-constexpr unsigned SSAF_BRANCHY_CG     = 1 << 12; // Potentially uses a conditional in code gen
-constexpr unsigned SSAF_NULL_INPUT_VALID = 1 << 13; // Can use nulls as input
-constexpr unsigned SSAF_FENCE          = 1 << 14; 
-constexpr unsigned SSAF_BANK_INPUT     = 1 << 15; 
-constexpr unsigned SSAF_CG_UNLIVE      = 1 << 16; // Has no liveness
-constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 17;
+constexpr unsigned SSAF_INDEXES_ARRAY8 = 1 << 7;
+constexpr unsigned SSAF_INDEXES_ARRAY16= 1 << 8;
+constexpr unsigned SSAF_INDEXES_PTR    = 1 << 9;
+constexpr unsigned SSAF_ARRAY_OFFSET   = 1 << 10;
+constexpr unsigned SSAF_CG_NEVER_STORE = 1 << 11; // The op has no associated memory during code gen
+constexpr unsigned SSAF_NO_GVN         = 1 << 12; // Won't be optimized in GVN pass
+constexpr unsigned SSAF_COMMUTATIVE    = 1 << 13; // First two args can be swapped
+constexpr unsigned SSAF_BRANCHY_CG     = 1 << 14; // Potentially uses a conditional in code gen
+constexpr unsigned SSAF_NULL_INPUT_VALID = 1 << 15; // Can use nulls as input
+constexpr unsigned SSAF_FENCE          = 1 << 16; 
+constexpr unsigned SSAF_BANK_INPUT     = 1 << 17; 
+constexpr unsigned SSAF_CG_UNLIVE      = 1 << 18; // Has no liveness
+constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 19;
 
 // Parameter indexes for SSA ops
 namespace ssai
@@ -42,6 +44,8 @@ namespace ssai
     namespace array
     {
         constexpr unsigned ARRAY        = 0;
+        constexpr unsigned OFFSET       = 1;
+        constexpr unsigned INDEX_HI     = 1;
         constexpr unsigned INDEX        = 2;
         constexpr unsigned ASSIGNMENT   = 3;
     }
@@ -140,22 +144,20 @@ inline unsigned ssa_copy_input(ssa_op_t op)
     }
 }
 
-constexpr bool ssa_indexes(ssa_op_t op)
+constexpr bool ssa_indexes8(ssa_op_t op)
 {
-    constexpr unsigned SSAFS_INDEXES = SSAF_INDEXES_ARRAY | SSAF_INDEXES_PTR;
+    constexpr unsigned SSAFS_INDEXES = SSAF_INDEXES_ARRAY8 | SSAF_INDEXES_PTR;
     return ssa_flags(op) & SSAFS_INDEXES;
 }
 
-inline unsigned ssa_index_input(ssa_op_t op)
+constexpr unsigned ssa_index8_input(ssa_op_t op)
 {
-    assert(ssa_indexes(op));
+    assert(ssa_indexes8(op));
     switch(op)
     {
     case SSA_read_array8:
-    case SSA_read_array16:
     case SSA_cg_read_array8_direct:
     case SSA_write_array8:
-    case SSA_write_array16:
         return 2;
     case SSA_read_ptr:
     case SSA_read_ptr_hw:

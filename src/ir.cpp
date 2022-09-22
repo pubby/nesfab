@@ -934,6 +934,13 @@ void ir_t::assert_valid() const
                 }
             }
 
+            // Array checks
+            if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_ARRAY8)
+            {
+                using namespace ssai::array;
+                assert(ssa_it->input(OFFSET).type() == TYPE_U20);
+            }
+
             /* TODO
             if(ssa_it->op() == SSA_multi_lt)
             {

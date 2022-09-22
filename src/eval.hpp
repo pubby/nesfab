@@ -62,8 +62,8 @@ byte_block_data_t interpret_byte_block(
     pstring_t pstring, ast_node_t const& ast, fn_t const* fn = nullptr, 
     local_const_t const* local_consts = nullptr);
 
-precheck_tracked_t build_tracked(fn_t const& fn);
+precheck_tracked_t build_tracked(fn_t const& fn, local_const_t const* local_consts);
 
-void build_ir(ir_t& ir, fn_t const& fn);
+void build_ir(ir_t& ir, fn_t const& fn, local_const_t const* local_consts);
 
 #endif

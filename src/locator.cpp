@@ -233,12 +233,8 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
         span.addr += offset();
 
-        if(is() == IS_DEREF)
-            return addr(span.addr); 
-        else if(is() == IS_PTR)
-            return const_byte(span.addr & 0xFF);
-        else if(is() == IS_PTR_HI)
-            return const_byte((span.addr >> 8) & 0xFF);
+        if(is() != IS_BANK)
+            return addr(span.addr).with_is(is()); 
 
         return *this;
     };

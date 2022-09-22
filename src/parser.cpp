@@ -502,6 +502,8 @@ ast_node_t parser_t<P>::parse_string_or_char_expr(bool open_parens)
     else
         charmap = &global_t::default_charmap(literal.pstring);
 
+    policy().uses_charmap(charmap);
+
     ast_node_t ast = {};
     ast.token.pstring = literal.pstring;
     ast.charmap = charmap;
@@ -528,10 +530,8 @@ ast_node_t parser_t<P>::parse_string_or_char_expr(bool open_parens)
             ast.token.type = TOK_string_uncompressed;
 
         // Add it to the string literal manager:
-        ast.token.value = sl_manager.add_string(charmap, literal.string, compressed);
+        ast.token.value = sl_manager.add_string(charmap, literal.pstring, literal.string, compressed);
     }
-
-    
 
     return ast;
 }
@@ -645,6 +645,21 @@ retry:
     case TOK_backtick:
         return parse_string_or_char_expr(open_parens);
 
+    case TOK_charmap:
+        {
+            global_t const* charmap = &global_t::default_charmap(token.pstring);
+            assert(charmap);
+            policy().uses_charmap(charmap);
+
+            ast_node_t ast = { .token = token };
+            ast.token.type = TOK_global_ident;
+            ast.token.set_ptr(charmap);
+
+            parse_token();
+
+            return ast;
+        }
+
     case TOK_return:
     case TOK_ident:
 #ifndef NDEBUG
@@ -653,11 +668,14 @@ retry:
         //fall-through
     case TOK_int:
     case TOK_real:
+    case TOK_true:
+    case TOK_false:
         {
             ast_node_t ast = { .token = token };
             parse_token();
             return ast;
         }
+
 
         /* TODO: remove
     case TOK_at:
@@ -1384,20 +1402,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
             break;
 
         case TOK_ct:
-            {
-                parse_token();
-
-                var_decl_t var_decl;
-                ast_node_t expr;
-
-                std::unique_ptr<mods_t> mods = parse_mods_after([&]
-                {
-                    if(!parse_var_init(var_decl, expr, false, {}))
-                        compiler_error(var_decl.name, "Constants must be assigned a value.");
-                });
-
-                policy().byte_block_ct_value(var_decl, expr, std::move(mods));
-            }
+            parse_local_ct();
             break;
 
         case TOK_label:
@@ -1408,14 +1413,11 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
 
                 pstring_t name = token.pstring;
                 parse_token();
-                if(token.type == TOK_ident)
+                if(!is_default)
                 {
                     name = token.pstring;
-                    parse_token();
-                }
-                else if(!is_default)
                     parse_token(TOK_ident);
-                //parse_token(TOK_colon); TODO
+                }
                 parse_line_ending();
                 children.push_back(policy().byte_block_label(name, is_default, nullptr));
 
@@ -1673,12 +1675,12 @@ void parser_t<P>::parse_top_level_def()
     switch(token.type)
     {
     case TOK_fn: 
-    case TOK_ct: 
     case TOK_nmi: 
     case TOK_mode: 
         return parse_fn();
     case TOK_asm: 
-        return parse_fn(true);
+        parse_token();
+        return parse_fn(TOK_asm);
     case TOK_vars: 
         return parse_group_vars();
     case TOK_omni: 
@@ -1688,12 +1690,30 @@ void parser_t<P>::parse_top_level_def()
         return parse_struct();
     case TOK_charmap:
         return parse_charmap();
-    default: 
-        if(is_type_prefix(token.type))
-            return parse_const();
+    case TOK_chrrom:
+        return parse_chrrom();
+    case TOK_ct:
+        parse_token();
+        if(token.type == TOK_fn)
+            return parse_fn(TOK_ct);
         else
-            compiler_error("Unexpected token at top level.");
+            return parse_const();
+    default:
+        compiler_error("Unexpected token at top level.");
     }
+}
+
+template<typename P>
+void parser_t<P>::parse_chrrom()
+{
+    pstring_t const decl = token.pstring;
+    int const chrrom_indent = indent;
+
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_chrrom); });
+
+    ast_node_t ast = parse_byte_block(decl, chrrom_indent);
+
+    policy().chrrom(decl, ast, std::move(mods));
 }
 
 template<typename P>
@@ -1701,46 +1721,44 @@ void parser_t<P>::parse_charmap()
 {
     pstring_t charmap_name;
     bool is_default = false;
-    string_literal_t control, printable;
-    ast_node_t sentinel, *maybe_sentinel = nullptr;
+    bool has_sentinel = false;
+    string_literal_t characters, sentinel;
         
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
         // Parse the declaration
-        parse_token(TOK_charmap);
         charmap_name = token.pstring;
-        if(token.type == TOK_default)
+        parse_token(TOK_charmap);
+
+        if(token.type == TOK_lparen)
             is_default = true;
-        else if(token.type != TOK_ident)
+        else if(token.type == TOK_ident)
+            charmap_name = parse_ident();
+        else 
             compiler_error("Unexpected token. Expecting identifier or 'default'.");
-        parse_token();
 
         unsigned const argn = parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
         {
             switch(arg)
             {
             case 0:
-                control = parse_string_literal(true);
+                characters = parse_string_literal(true);
                 break;
             case 1:
-                printable = parse_string_literal(true);
-                break;
-            case 2:
-                sentinel = parse_expr();
-                maybe_sentinel = &sentinel;
+                sentinel = parse_char_literal(true);
                 break;
             default:
                 compiler_error("Too many arguments to charmap.");
             }
         });
 
-        if(argn < 2)
+        if(argn < 1)
             compiler_error(charmap_name, "Too few arguments to charmap.");
 
     });
 
     std::puts("TODO: HANDLE SENTINEL CORRECTLY");
-    policy().charmap(charmap_name, is_default, control, printable, false, std::move(mods));
+    policy().charmap(charmap_name, is_default, characters, sentinel, std::move(mods));
 
     //charmap("\0", 
 }
@@ -1868,16 +1886,18 @@ void parser_t<P>::parse_const()
 }
 
 template<typename P>
-void parser_t<P>::parse_fn(bool is_asm)
+void parser_t<P>::parse_fn(token_type_t prefix)
 {
-    if(is_asm)
-        parse_token(TOK_asm);
-
     fn_class_t fclass;
-    switch(token.type)
+
+    if(prefix == TOK_ct)
+    {
+        expect_token(TOK_fn);
+        fclass = FN_CT;
+    }
+    else switch(token.type)
     {
     case TOK_fn:   fclass = FN_FN; break;
-    case TOK_ct:   fclass = FN_CT; break;
     case TOK_nmi:  fclass = FN_NMI; break;
     case TOK_mode: fclass = FN_MODE; break;
     default: compiler_error("Unknown function prefix.");
@@ -1912,9 +1932,9 @@ void parser_t<P>::parse_fn(bool is_asm)
     });
 
 
-    auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type, is_asm);
+    auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type, prefix == TOK_asm);
 
-    if(is_asm)
+    if(prefix == TOK_asm)
     {
         // Parse the local vars of this fn:
         while(token.type == TOK_vars)
@@ -1964,6 +1984,7 @@ void parser_t<P>::parse_statement()
     case TOK_label:    return parse_label();
     case TOK_nmi:      return parse_nmi_statement();
     case TOK_fence:    return parse_fence();
+    case TOK_ct:       return parse_local_ct();
     default: 
         if(is_type_prefix(token.type))
             return parse_var_init_statement();
@@ -2422,6 +2443,24 @@ void parser_t<P>::parse_fence()
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_fence); });
     policy().fence_statement(pstring, std::move(mods));
 }
+
+template<typename P>
+void parser_t<P>::parse_local_ct()
+{
+    parse_token(TOK_ct);
+
+    var_decl_t var_decl;
+    ast_node_t expr;
+
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    {
+        if(!parse_var_init(var_decl, expr, false, {}))
+            compiler_error(var_decl.name, "Constants must be assigned a value.");
+    });
+
+    policy().local_ct(var_decl, expr, std::move(mods));
+}
+
 
 // The policies for the parser:
 #include "pass1.hpp"

@@ -8,18 +8,18 @@ asm fn rand() U
 : vars /rng
 : data
     vars foo
-    default:
+    default
         lda &rng_state+0
         asl
         rol &rng_state+1
         bcc done_xor_0
         eor #$2D // apply XOR feedback whenever a 1 bit is shifted out
-    done_xor_0:
+    label done_xor_0
         asl
         rol &rng_state+1
         bcc done_xor_1
         eor #$2D
-    done_xor_1:
+    label done_xor_1
         sta &rng_state+0
         sta &return
         rts
@@ -40,11 +40,7 @@ asm fn ceil_mask(U num) U
     label table
         U[8](%0, %1, %11, %111, %1111, %11111, %111111, %1111111, %11111111)
 
-[] foo
-    label foo
-        U[8](1,2,3,)
-
-fn rand2(U bound) U
+fn randb(U bound) U
     U mask = ceil_mask(bound)
     U result
     do

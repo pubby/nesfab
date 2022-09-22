@@ -97,17 +97,25 @@ SSA_DEF(goto_mode, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_IO_IMPURE | SSAF_N
 // ARRAYS //
 ////////////
 
-// (array, locator, index)
-SSA_DEF(read_array8,  3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_READ_ARRAY)
-SSA_DEF(read_array16, 3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_READ_ARRAY)
+// (array, offset, index)
+SSA_DEF(read_array8,  4, INPUT_VALUE, SSAF_INDEXES_ARRAY8 | SSAF_READ_ARRAY | SSAF_ARRAY_OFFSET)
+
+// (array, offset, index)
+SSA_DEF(read_array16, 4, INPUT_VALUE, SSAF_INDEXES_ARRAY16 | SSAF_READ_ARRAY | SSAF_ARRAY_OFFSET)
 // Same as above, but more efficient in code gen.
-SSA_DEF(cg_read_array8_direct, 3, INPUT_VALUE, SSAF_INDEXES_ARRAY | SSAF_CG_NEVER_STORE | SSAF_READ_ARRAY)
+SSA_DEF(cg_read_array8_direct, 3, INPUT_VALUE, SSAF_INDEXES_ARRAY8 | SSAF_CG_NEVER_STORE | SSAF_READ_ARRAY | SSAF_ARRAY_OFFSET)
 
-// (array, locator, index, value)
-SSA_DEF(write_array8,  4, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY)
-SSA_DEF(write_array16, 4, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY)
+// (array, index_hi, index)
+SSA_DEF(read_array16_b, 4, INPUT_VALUE, SSAF_INDEXES_ARRAY16 | SSAF_READ_ARRAY)
 
-// (array)
+// (array, offset, unused, index, value)
+SSA_DEF(write_array8,  5, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY8 | SSAF_ARRAY_OFFSET)
+SSA_DEF(write_array16, 5, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_INDEXES_ARRAY16 | SSAF_ARRAY_OFFSET)
+
+// (array, index_hi, index, value)
+SSA_DEF(write_array16_b, 5, INPUT_VALUE, SSAF_INDEXES_ARRAY16 | SSAF_WRITE_ARRAY)
+
+// (array) - uses type as resize target
 SSA_DEF(resize_array, 1, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_READ_ARRAY)
 
 // (array dest, new locator, array src) TODO

@@ -15,6 +15,7 @@ void pbqp_t::solve(std::vector<pbqp_node_t*> order)
     {
         unsigned optimal_reductions = 0;
 
+        next_order.clear();
         for(pbqp_node_t* node : order)
         {
             if(!node)
@@ -44,6 +45,8 @@ void pbqp_t::solve(std::vector<pbqp_node_t*> order)
             heuristic_reduction(*order[best_i]);
             order[best_i] = nullptr;
         }
+        else
+            passert(order.size() < next_order.size(), order.size(), next_order.size());
     }
 
     // Back-propagate
@@ -189,6 +192,9 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
 
         pbqp_node_t& other_a = *edge_a->nodes[!node_a];
         pbqp_node_t& other_b = *edge_b->nodes[!node_b];
+
+        assert(&node != &other_a);
+        assert(&node != &other_b);
 
         unsigned const matrix_size = other_a.num_sels() * other_b.num_sels();
         node.bp_proof.resize(matrix_size);

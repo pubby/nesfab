@@ -98,6 +98,18 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("timelimit"))
         _options.time_limit = std::max(vm["timelimit"].as<int>(), 0);
+
+    if(vm.count("mapper"))
+        _options.raw_mn = vm["mapper"].as<std::string>();
+
+    if(vm.count("mirroring"))
+        _options.raw_mm = vm["mirroring"].as<std::string>();
+
+    if(vm.count("prg-size"))
+        _options.raw_mp = vm["prg-size"].as<unsigned>();
+
+    if(vm.count("chr-size"))
+        _options.raw_mc = vm["chr-size"].as<unsigned>();
 }
 
 int main(int argc, char** argv)
@@ -110,7 +122,7 @@ int main(int argc, char** argv)
         // Handle program options: //
         /////////////////////////////
         {
-            po::options_description cmdline("Command line options");
+            po::options_description cmdline("Instructional Flags");
             cmdline.add_options()
                 ("help,h", "produce help message")
                 ("version,v", "version")
@@ -121,7 +133,7 @@ int main(int argc, char** argv)
                 ("print-cpp-sizes", "print size of C++ objects")
             ;
 
-            po::options_description basic("Basic options");
+            po::options_description basic("Options");
             basic.add_options()
                 ("code-dir,I", po::value<std::vector<std::string>>(), "search directory for code files")
                 ("resource-dir,R", po::value<std::vector<std::string>>(), "search directory for resource files")
@@ -129,6 +141,14 @@ int main(int argc, char** argv)
                 ("config,c", po::value<std::string>(), "configuration file")
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("error-on-warning,W", "turn warnings into errors")
+            ;
+
+            po::options_description mapper_opt("Mapper options");
+            mapper_opt.add_options()
+                ("mapper,M", po::value<std::string>(), "name of cartridge mapper")
+                ("mirroring", po::value<std::string>(), "mirroring of mapper")
+                ("prg-size", po::value<unsigned>(), "size of mapper PRG in KiB")
+                ("chr-size", po::value<unsigned>(), "size of mapper CHR in KiB")
             ;
 
             po::options_description basic_hidden("Hidden options");
@@ -140,10 +160,10 @@ int main(int argc, char** argv)
             ;
 
             po::options_description cmdline_full;
-            cmdline_full.add(cmdline).add(cmdline_hidden).add(basic).add(basic_hidden);
+            cmdline_full.add(cmdline).add(cmdline_hidden).add(basic).add(basic_hidden).add(mapper_opt);
 
             po::options_description config_full;
-            config_full.add(basic).add(basic_hidden);
+            config_full.add(basic).add(basic_hidden).add(mapper_opt);
 
             po::positional_options_description p;
             p.add("input", -1);
@@ -155,7 +175,7 @@ int main(int argc, char** argv)
             if(vm.count("help")) 
             {
                 po::options_description visible;
-                visible.add(cmdline).add(basic);
+                visible.add(cmdline).add(basic).add(mapper_opt);
                 std::cout << visible << '\n';
                 return EXIT_SUCCESS;
             }
@@ -195,6 +215,59 @@ int main(int argc, char** argv)
 
             if(compiler_options().source_names.empty())
                 throw std::runtime_error("No input files.");
+
+            using namespace std::literals;
+
+            // Handle mapper:
+
+            auto const get_mirroring = [&]() -> mapper_mirroring_t
+            {
+                if(_options.raw_mm.empty())
+                    return MIRROR_NONE;
+                if(_options.raw_mm == "H"sv)
+                    return MIRROR_H;
+                if(_options.raw_mm == "V"sv)
+                    return MIRROR_V;
+                if(_options.raw_mm == "4"sv)
+                    return MIRROR_4;
+                throw std::runtime_error(fmt("Invalid mapper mirroring: \"%\"", _options.raw_mm));
+            };
+
+            auto const get_prg_size = [&]() -> unsigned
+            {
+                if((_options.raw_mp % 32) != 0)
+                    throw std::runtime_error(fmt("Invalid mapper PRG size: \"%\"", _options.raw_mp));
+                return _options.raw_mp / 32;
+            };
+
+            auto const get_chr_size = [&]() -> unsigned
+            {
+                if((_options.raw_mc % 8) != 0)
+                    throw std::runtime_error(fmt("Invalid mapper CHR size: \"%\"", _options.raw_mp));
+                return _options.raw_mc / 8;
+            };
+
+            auto const to_lower = [](std::string str)
+            {
+                std::transform(str.begin(), str.end(), str.begin(),
+                    [](unsigned char c){ return std::tolower(c); });
+                return str;
+            };
+
+            if(to_lower(compiler_options().raw_mn) == "nrom"sv || compiler_options().raw_mn.empty())
+                _options.mapper = mapper_t::nrom(get_mirroring());
+            else if(to_lower(compiler_options().raw_mn) == "cnrom"sv)
+                _options.mapper = mapper_t::cnrom(get_mirroring(), get_chr_size());
+            else if(to_lower(compiler_options().raw_mn) == "anrom"sv)
+                _options.mapper = mapper_t::anrom(get_prg_size());
+            else if(to_lower(compiler_options().raw_mn) == "bnrom"sv)
+                _options.mapper = mapper_t::bnrom(get_mirroring(), get_prg_size());
+            else if(to_lower(compiler_options().raw_mn) == "gnrom"sv)
+                _options.mapper = mapper_t::gnrom(get_mirroring(), get_prg_size(), get_chr_size());
+            else if(to_lower(compiler_options().raw_mn) == "gtrom"sv)
+                _options.mapper = mapper_t::gtrom();
+            else
+                throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
         }
 
         ////////////////////////////////////
@@ -230,11 +303,12 @@ int main(int argc, char** argv)
                 file_contents_t file(file_i);
                 parse<pass1_t>(file);
             }
-        });
+        }, []{});
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);
         get_main_entry(); // This throws an error if 'main' isn't proper.
+
         global_t::parse_cleanup();
         output_time("parse:  ");
 

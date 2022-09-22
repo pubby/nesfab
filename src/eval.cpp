@@ -141,9 +141,10 @@ public:
 
     template<do_t D>
     eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
-           precheck_tracked_t* tracked, rval_t const* args, unsigned num_args);
+           precheck_tracked_t* tracked, rval_t const* args, unsigned num_args,
+           local_const_t const* local_consts = nullptr);
 
-    eval_t(ir_t& ir, fn_t const& fn);
+    eval_t(ir_t& ir_ref, fn_t const& fn_ref, local_const_t const* local_consts);
 
     struct access_t
     {
@@ -324,20 +325,20 @@ byte_block_data_t interpret_byte_block(pstring_t pstring, ast_node_t const& expr
     return std::move(i.byte_block_data);
 }
 
-precheck_tracked_t build_tracked(fn_t const& fn)
+precheck_tracked_t build_tracked(fn_t const& fn, local_const_t const* local_consts)
 {
     precheck_tracked_t tracked;
-    eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK>{}, {}, fn, &tracked, nullptr, 0);
+    eval_t eval(eval_t::do_wrapper_t<eval_t::CHECK>{}, {}, fn, &tracked, nullptr, 0, local_consts);
     return tracked;
 }
 
-void build_ir(ir_t& ir, fn_t const& fn)
+void build_ir(ir_t& ir, fn_t const& fn, local_const_t const* local_consts)
 {
     assert(cfg_data_pool::array_size() == 0);
     assert(ssa_data_pool::array_size() == 0);
     cfg_data_pool::scope_guard_t<block_d> cg(0);
 
-    eval_t eval(ir, fn);
+    eval_t eval(ir, fn, local_consts);
 }
 
 template<eval_t::do_t D>
@@ -360,12 +361,14 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const* fn_ref,
 
 template<eval_t::do_t D>
 eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref, 
-               precheck_tracked_t* tracked, rval_t const* args, unsigned num_args)
+               precheck_tracked_t* tracked, rval_t const* args, unsigned num_args,
+               local_const_t const* local_consts)
 : pstring(pstring)
 , fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , start_time(clock::now())
 , precheck_tracked(tracked)
+, local_consts(local_consts)
 {
     unsigned const nlocals = num_local_vars();
 
@@ -403,11 +406,12 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
     }
 }
 
-eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref)
+eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, local_const_t const* local_consts)
 : fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , ir(&ir_ref)
 , start_time(clock::now())
+, local_consts(local_consts)
 {
     // Reset the static thread-local state:
     builder.clear(); // TODO: make sure this isn't called in recursion
@@ -1249,10 +1253,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
 
             global_t const* global = ast.token.ptr<global_t>();
+            assert(global);
+
             switch(global->gclass())
             {
             default: 
-                throw std::runtime_error("Unimplemented global in expression.");
+                throw std::runtime_error(fmt("Unimplemented global in expression. (%)", global));
 
             case GLOBAL_VAR:
                 {
@@ -1294,6 +1300,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     .type = global->impl<fn_t>().type(), 
                     .pstring = ast.token.pstring 
                 };
+
+            case GLOBAL_CHARMAP:
+                return
+                {
+                    .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
+                    .type = TYPE_CHARMAP, 
+                    .pstring = ast.token.pstring 
+                };
             }
         }
         break;
@@ -1322,43 +1336,41 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         {
             expr_value_t value = do_expr<D>(ast.children[0]);
 
-            std::cout << value.type << ' ' << value.val.index() << std::endl;
+            strval_t const* strval;
 
             if(lval_t const* lval = value.is_lval())
             {
-                constexpr char const* cannot = "Cannot get address using '@'.";
-
                 if(!(lval->flags & LVALF_IS_GLOBAL) || !is_paa(value.type.name()))
-                    compiler_error(ast.token.pstring, fmt("% Expression is not a global.", cannot));
+                    goto at_error;
 
-                switch(lval->global()->gclass())
+                switch(lval->global().gclass())
                 {
                 case GLOBAL_CONST:
                     {
-                        const_t const& c = lval->global()->impl<const_t>();
+                        const_t const& c = lval->global().impl<const_t>();
                         bool const banked = c.group_data->banked_ptrs();
 
                         if(!c.is_paa)
-                            compiler_error(ast.token.pstring, fmt("% % is not a pointer-addressable array.", cannot, c.global.name));
+                            goto at_error;
 
                         return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), false, banked), banked);
                     }
 
                 case GLOBAL_VAR:
                     {
-                        gvar_t const& v = lval->global()->impl<gvar_t>();
+                        gvar_t const& v = lval->global().impl<gvar_t>();
 
                         if(!v.is_paa)
-                            compiler_error(ast.token.pstring, fmt("% % is not a pointer-addressable array.", cannot, v.global.name));
+                            goto at_error;
 
                         return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), false, false), false);
                     }
 
                 default: 
-                    compiler_error(ast.token.pstring, cannot);
+                    goto at_error;
                 }
             }
-            else if(strval_t const* strval = value.is_strval())
+            else if((strval = value.is_strval()))
             {
                 rom_array_ht const rom_array = sl_manager.get_rom_array(&strval->charmap->global, strval->index, strval->compressed);
                 assert(rom_array);
@@ -1370,7 +1382,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 return make_ptr(locator_t::rom_array(rom_array), type_t::ptr(group->group.handle(), false, banked), banked);
             }
             else
-                compiler_error(ast.token.pstring, "lvalue or string literal required as unary '@' operand.");
+            {
+            at_error:
+                compiler_error(ast.token.pstring, "Cannot get pointer. String literal or pointer-addressable array lvalue required as unary '@' operand.");
+            }
 
         }
         break;
@@ -1419,29 +1434,34 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                 }
 
-                if(lval->flags & LVALF_IS_GLOBAL)
+                if(lval->is_global())
                 {
-                    switch(lval->global()->gclass())
+                    switch(lval->global().gclass())
                     {
                     case GLOBAL_CONST:
                         {
-                            const_t const& c = lval->global()->impl<const_t>();
+                            const_t const& c = lval->global().impl<const_t>();
+
+                            if(!c.group_data)
+                                compiler_error(value.pstring, "Cannot get address of a constant that doesn't belong to a group.");
+
                             bool const banked = c.group_data->banked_ptrs();
 
+                            // TODO: not every const has an address. This is buggy.
                             return make_ptr(locator_t::gconst(c.handle(), lval->member, lval->uatom(), offset), 
                                             type_t::addr(banked), banked);
                         }
 
                     case GLOBAL_VAR:
                         {
-                            gvar_t const& gvar = lval->global()->impl<gvar_t>();
+                            gvar_t const& gvar = lval->global().impl<gvar_t>();
                             return make_ptr(locator_t::gmember(gvar.begin() + lval->member, lval->uatom(), offset), 
                                             type_t::addr(false), false);
                         }
 
                     case GLOBAL_FN:
                         {
-                            fn_ht const fn = lval->global()->handle<fn_ht>();
+                            fn_ht const fn = lval->global().handle<fn_ht>();
                             if(lval->arg < 0)
                                 return make_ptr(locator_t::fn(fn, lval->ulabel(), offset), type_t::addr(true), true);
                             else
@@ -1489,9 +1509,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 return make_ptr(locator_t::rom_array(rom_array), type_t::addr(banked), banked);
             }
             else
-                compiler_error(ast.token.pstring, "lvalue or string literal required as unary '@' operand.");
+                compiler_error(ast.token.pstring, "lvalue or string literal required as unary '&' operand.");
         }
         break;
+
+    case TOK_true:
+    case TOK_false:
+        {
+            expr_value_t result = { .type = TYPE_BOOL, .pstring = ast.token.pstring };
+            if(!is_check(D))
+                result.val = rval_t{ ssa_value_t(unsigned(ast.token.type == TOK_true), TYPE_BOOL) };
+            return result;
+        }
 
     case TOK_int:
         common_value.set(mask_numeric(fixed_t{ ast.token.value }, TYPE_INT), TYPE_INT);
@@ -1516,13 +1545,112 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_period:
         {
             // Periods represent struct member access.
+            
+            using namespace std::literals;
 
             expr_value_t lhs = do_expr<D>(ast.children[0]);
             std::uint64_t const hash = ast.token.value;
 
-            if(lhs.type.name() == TYPE_STRUCT)
+            type_t elem_type = lhs.type;
+            unsigned tea_length = 0;
+            bool const is_tea = ::is_tea(elem_type.name());
+            if(is_tea)
             {
-                struct_t const& s = lhs.type.struct_();
+                tea_length = elem_type.size();
+                elem_type = elem_type.elem_type();
+            }
+
+            if(lval_t const* lval = lhs.is_lval())
+            {
+                if(lval->is_global()) switch(lval->global().gclass())
+                {
+                case GLOBAL_CHARMAP:
+                    {
+                        charmap_t const& charmap = lval->global().impl<charmap_t>();
+                        switch(hash)
+                        {
+                        case fnv1a<std::uint64_t>::hash("size"sv): 
+                            lhs.type = TYPE_INT;
+                            lhs.val = rval_t{ ssa_value_t(charmap.size(), TYPE_INT) };
+                            break;
+                        case fnv1a<std::uint64_t>::hash("sentinel"sv): 
+                            if(charmap.sentinel() < 0)
+                                goto bad_global_accessor;
+                            lhs.type = TYPE_U;
+                            lhs.val = rval_t{ ssa_value_t(charmap.sentinel(), TYPE_U) };
+                            break;
+                        default:
+                            goto bad_global_accessor;
+                        }
+
+                    }
+                    goto finish_period;
+
+                case GLOBAL_FN:
+                    {
+                        if(!lhs.is_lval())
+                            compiler_error(ast.token.pstring, "Expecting lvalue.");
+
+                        fn_t const& fn = *to_rval<D>(lhs).ssa().locator().fn();
+
+                        using namespace std::literals;
+                        if(hash == fnv1a<std::uint64_t>::hash("return"sv))
+                        {
+                            lhs.lval().arg = lval_t::RETURN_ARG;
+                            lhs.type = fn.type().return_type();
+                        }
+                        else
+                        {
+                            auto const& hashes = fn.def().name_hashes;
+                            auto it = std::find(hashes.begin(), hashes.end(), hash);
+
+                            if(it == hashes.end())
+                                goto bad_global_accessor;
+
+                            unsigned i = it - hashes.begin();
+
+                            if(i < fn.def().num_params) // If it's a param
+                            {
+                                lhs.lval().arg = i;
+                                lhs.type = fn.def().local_vars[i].decl.src_type.type;
+                            }
+                            else // It's a label
+                            {
+                                if(lhs.lval().label >= 0)
+                                    goto bad_global_accessor;
+
+                                assert(fn.iasm);
+
+                                // Determine the corresponding 'local_consts' index to this label:
+
+                                i -= fn.def().num_params;
+                                for(unsigned j = 0; j < fn.def().local_consts.size(); ++j)
+                                {
+                                    if(fn.def().local_consts[j].is_label() && i-- == 0)
+                                    {
+                                        lhs.lval().label = j; // OK! Found the label.
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    goto finish_period;
+
+                default:
+                    break;
+
+                bad_global_accessor:
+                    file_contents_t file(ast.token.pstring.file_i);
+                    compiler_error(ast.token.pstring, fmt(
+                        "% isn't a member of %.", 
+                        ast.token.pstring.view(file.source()), lval->global().name));
+                }
+            }
+
+            if(elem_type.name() == TYPE_STRUCT)
+            {
+                struct_t const& s = elem_type.struct_();
                 auto const ptr = s.fields().lookup(hash);
 
                 if(!ptr)
@@ -1554,7 +1682,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 else
                     goto bad_accessor;
 
-                lhs.type = ptr->second.type();
+                if(is_tea)
+                    lhs.type = type_t::tea(ptr->second.type(), tea_length);
+                else
+                    lhs.type = ptr->second.type();
             }
             else if(lhs.type.name() == TYPE_FN)
             {
@@ -1605,7 +1736,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                 }
             }
-            else
+            else if(is_scalar(elem_type.name()) || is_banked_ptr(elem_type.name()))
             {
                 int shift;
                 switch(hash)
@@ -1626,17 +1757,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 int const atom = shift + frac_bytes(lhs.type.name());
 
-                unsigned tea_length = 0;
-                type_t base_type = lhs.type;
                 type_t result_type = TYPE_U;
-                if(is_tea(base_type.name()))
-                {
-                    tea_length = base_type.array_length();
-                    base_type = base_type.elem_type();
+                if(is_tea)
                     result_type = type_t::tea(TYPE_U, tea_length);
-                }
 
-                if(atom < 0 || atom >= int(total_bytes(base_type.name())))
+                if(atom < 0 || atom >= int(total_bytes(elem_type.name())))
                     goto bad_accessor;
 
                 if(lhs.is_lval())
@@ -1670,7 +1795,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 lhs.type = result_type;
             }
+            else
+                goto bad_accessor;
 
+        finish_period:
             lhs.pstring = concat(lhs.pstring, ast.token.pstring);
             return lhs;
         }
@@ -2507,7 +2635,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                             rval[i] = builder.cfg->emplace_ssa(
                                 is8 ? SSA_read_array8 : SSA_read_array16, etype.elem_type(), 
-                                from_variant<D>(rval[i], etype), locator_t(), 
+                                from_variant<D>(rval[i], etype), ssa_value_t(0u, TYPE_U20), 
                                 std::get<ssa_value_t>(array_index.rval()[0]));
                         }
                     }
@@ -2940,17 +3068,16 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         type_t type;
         rval_t rval;
 
-        if(lval->flags & LVALF_IS_GLOBAL)
+        if(lval->is_global())
         {
-            global_t const* global = lval->global();
-            assert(global);
+            global_t const& global = lval->global();
 
-            switch(global->gclass())
+            switch(global.gclass())
             {
             case GLOBAL_CONST:
                 if(!is_check(D))
                 {
-                    const_t const& c = global->impl<const_t>();
+                    const_t const& c = global.impl<const_t>();
                     rval = c.rval();
                     type = c.type();
                 }
@@ -2959,7 +3086,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             case GLOBAL_VAR:
                 if(is_compile(D))
                 {
-                    lval->set_var_i(to_var_i(global->handle<gvar_ht>()));
+                    lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
                     goto have_var_i;
                 }
                 else if(!is_check(D))
@@ -2973,7 +3100,10 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     assert(lval->member == 0);
                     assert(lval->atom < 0);
                     assert(!lval->index);
-                    v.val = rval_t{ ssa_value_t(locator_t::fn(global->handle<fn_ht>(), lval->ulabel())) };
+
+                    v.val = rval_t{ ssa_value_t(locator_t::fn(global.handle<fn_ht>(), lval->ulabel())) };
+                    type = v.type;
+
                     assert(v.rval().size() == 1);
                 }
                 else
@@ -3062,7 +3192,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     // TODO
                     rval[i] = builder.cfg->emplace_ssa(
                         (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8, type, 
-                        from_variant<D>(rval[i], type), locator_t(), lval->index);
+                        from_variant<D>(rval[i], type), ssa_value_t(0u, TYPE_U20), lval->index);
                 }
             }
 
@@ -3151,15 +3281,14 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
     rhs = throwing_cast<D>(std::move(rhs), lhs.type, true);
 
-    if(lval->flags & LVALF_IS_GLOBAL)
+    if(lval->is_global())
     {
-        global_t const* global = lval->global();
-        assert(global);
+        global_t const& global = lval->global();
 
-        if(global->gclass() == GLOBAL_VAR)
-            lval->set_var_i(to_var_i(global->handle<gvar_ht>()));
+        if(global.gclass() == GLOBAL_VAR)
+            lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
         else
-            compiler_error(pstring, fmt("Unable to modify %", global->name));
+            compiler_error(pstring, fmt("Unable to modify %", global.name));
     }
 
     // de-atomize
@@ -3333,7 +3462,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
                 ssa_ht write = builder.cfg->emplace_ssa(
                     (lval->flags & LVALF_INDEX_16) ? SSA_write_array16 : SSA_write_array8, type,
-                    prev_array, locator_t(), lval->index, std::get<ssa_value_t>(rval[i]));
+                    prev_array, ssa_value_t(0u, TYPE_U20), lval->index, std::get<ssa_value_t>(rval[i]));
 
                 local[i + lval->member] = write;
             }

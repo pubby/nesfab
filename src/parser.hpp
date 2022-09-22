@@ -111,10 +111,11 @@ private:
     void parse_const();
     void parse_group_vars();
     void parse_group_data();
-    void parse_fn(bool is_asm = false);
+    void parse_fn(lex::token_type_t prefix = {});
     void parse_with();
     void parse_struct();
     void parse_charmap();
+    void parse_chrrom();
 
     void parse_statement();
     void parse_flow_statement();
@@ -132,6 +133,7 @@ private:
     void parse_label();
     void parse_nmi_statement();
     void parse_fence();
+    void parse_local_ct();
 
     // TODO: remove
     //void parse_asm_local_const();

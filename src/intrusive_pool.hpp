@@ -8,6 +8,7 @@
 #include <vector>
 #include <type_traits>
 
+#include "debug_print.hpp"
 #include "handle.hpp"
 
 // A simple pool based on a single vector, providing handles (indexes) into
@@ -22,9 +23,18 @@ public:
     struct handle_t : public ::handle_t<handle_t, std::uint32_t, 0u>
     {
         T const& get(intrusive_pool_t const& pool) const 
-            { assert(this->operator bool()); assert(this->id < pool.storage.size()); return pool.storage[this->id]; }
+        { 
+            assert(this->operator bool()); 
+            passert(this->id < pool.storage.size(), this->id, pool.storage.size()); 
+            return pool.storage[this->id]; 
+        }
+
         T& get(intrusive_pool_t& pool) const 
-            { assert(this->operator bool()); assert(this->id < pool.storage.size()); return pool.storage[this->id]; }
+        { 
+            assert(this->operator bool()); 
+            passert(this->id < pool.storage.size(), this->id, pool.storage.size()); 
+            return pool.storage[this->id]; 
+        }
 
         handle_t next(intrusive_pool_t const& pool) const { return pool.storage[this->id].next; }
         handle_t prev(intrusive_pool_t const& pool) const { return pool.storage[this->id].prev; }

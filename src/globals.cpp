@@ -80,7 +80,7 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
                 throw compiler_error_t(
                     fmt_error(pstring, fmt("Global identifier % already in use.", 
                                            pstring.view(file.source())), &file)
-                    + fmt_error(m_pstring, "Previous definition here:"));
+                    + fmt_note(m_pstring, "Previous definition here:"));
             }
             else
                 throw compiler_error_t(fmt("Global identifier % already in use.", name));
@@ -188,17 +188,18 @@ struct_t& global_t::define_struct(pstring_t pstring, ideps_map_t&& ideps,
 
 charmap_t& global_t::define_charmap(
         pstring_t pstring, bool is_default, 
-        string_literal_t const& control, string_literal_t const& printable,
-        bool has_sentinel, std::unique_ptr<mods_t> mods)
+        string_literal_t const& characters, 
+        string_literal_t const& sentinel,
+        std::unique_ptr<mods_t> mods)
 {
     charmap_t* ret;
 
     // Create the charmap
     define(pstring, GLOBAL_CHARMAP, {}, [&](global_t& g)
     { 
-        return charmap_ht::pool_emplace(ret, g, is_default, control, printable, has_sentinel, std::move(mods)).id;
+        return charmap_ht::pool_emplace(ret, g, is_default, characters, sentinel, std::move(mods)).id;
     });
-    
+
     return *ret;
 }
 
@@ -207,9 +208,25 @@ global_t& global_t::default_charmap(pstring_t at)
     using namespace std::literals;
     thread_local global_t* result = nullptr;
     if(!result)
-        result = &lookup_sourceless(at, "charmap default"sv);
+        result = &lookup_sourceless(at, "charmap"sv);
     return *result;
 }
+
+global_t& global_t::chrrom(pstring_t at)
+{
+    using namespace std::literals;
+    thread_local global_t* result = nullptr;
+    if(!result)
+        result = &lookup_sourceless(at, "chrrom"sv);
+    return *result;
+}
+
+global_t* global_t::chrrom() 
+{ 
+    using namespace std::literals;
+    return lookup_sourceless("chrrom"sv); 
+}
+
 
 void global_t::init()
 {
@@ -217,7 +234,7 @@ void global_t::init()
 
     /* TODO
     using namespace std::literals;
-    default_charmap_ = lookup_sourceless("charmap default"sv);
+    default_charmap_ = lookup_sourceless("charmap"sv);
 
     lookup_sourceless("(universal vbank)"sv).define({}, GLOBAL_VBANK, {}, {}, [](global_t& g)
     {
@@ -283,26 +300,45 @@ void global_t::parse_cleanup()
         nmis()[i]->pimpl<nmi_impl_t>().index = i;
 }
 
-// This function isn't thread-safe.
-// Call from a single thread only.
-void global_t::resolve_all()
+template<typename Fn>
+void global_t::do_all(Fn const& fn)
 {
-    assert(compiler_phase() == PHASE_RESOLVE);
+    {
+        std::lock_guard lock(ready_mutex);
+        globals_left = global_ht::pool().size();
+    }
+    ready_cv.notify_all();
 
-    globals_left = global_ht::pool().size();
-
+    //std::cout << "DOING\n"i
     // Spawn threads to compile in parallel:
     parallelize(compiler_options().num_threads,
-    [](std::atomic<bool>& exception_thrown)
+    [&fn](std::atomic<bool>& exception_thrown)
     {
         while(!exception_thrown)
         {
             global_t* global = await_ready_global();
             if(!global)
                 return;
-            global->resolve(nullptr);
+            fn(*global);
         }
+    },
+    []
+    {
+        {
+            std::lock_guard lock(ready_mutex);
+            globals_left = 0;
+        }
+        ready_cv.notify_all();
     });
+}
+
+// This function isn't thread-safe.
+// Call from a single thread only.
+void global_t::resolve_all()
+{
+    assert(compiler_phase() == PHASE_RESOLVE);
+
+    do_all([&](global_t& g){ g.resolve(nullptr); });
 }
 
 // This function isn't thread-safe.
@@ -311,20 +347,7 @@ void global_t::precheck_all()
 {
     assert(compiler_phase() == PHASE_PRECHECK);
 
-    globals_left = global_ht::pool().size();
-
-    // Spawn threads to compile in parallel:
-    parallelize(compiler_options().num_threads,
-    [](std::atomic<bool>& exception_thrown)
-    {
-        while(!exception_thrown)
-        {
-            global_t* global = await_ready_global();
-            if(!global)
-                return;
-            global->precheck(nullptr);
-        }
-    });
+    do_all([&](global_t& g){ g.precheck(nullptr); });
 
     for(fn_t const* fn : modes())
         fn->precheck_finish_mode();
@@ -627,8 +650,12 @@ void global_t::completed()
 
     {
         std::lock_guard lock(ready_mutex);
-        ready.insert(ready.end(), newly_ready, newly_ready_end);
-        new_globals_left = --globals_left;
+        if(globals_left)
+        {
+            ready.insert(ready.end(), newly_ready, newly_ready_end);
+            --globals_left;
+        }
+        new_globals_left = globals_left;
     }
 
     if(newly_ready_end != newly_ready || new_globals_left == 0)
@@ -638,7 +665,7 @@ void global_t::completed()
 global_t* global_t::await_ready_global()
 {
     std::unique_lock<std::mutex> lock(ready_mutex);
-    ready_cv.wait(lock, []{ return globals_left == 0 || !ready.empty(); });
+    ready_cv.wait(lock, []{ return !ready.empty() || globals_left == 0; });
 
     if(globals_left == 0)
         return nullptr;
@@ -652,20 +679,7 @@ void global_t::compile_all()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    globals_left = global_ht::pool().size();
-
-    // Spawn threads to compile in parallel:
-    parallelize(compiler_options().num_threads,
-    [](std::atomic<bool>& exception_thrown)
-    {
-        while(!exception_thrown)
-        {
-            global_t* global = await_ready_global();
-            if(!global)
-                return;
-            global->compile(nullptr);
-        }
-    });
+    do_all([&](global_t& g){ g.compile(nullptr); });
 }
 
 global_datum_t* global_t::datum() const
@@ -971,7 +985,7 @@ void fn_t::resolve()
     }
 
     if(fclass == FN_CT)
-        return; // Nothing to do!
+        goto resolve_ct;
 
     // Finish up types:
     for(unsigned i = 0; i < def().num_params; ++i)
@@ -989,20 +1003,21 @@ void fn_t::resolve()
             compiler_error(global.pstring(), "Missing vars modifier.");
         if(!mods() || !mods()->explicit_group_data)
             compiler_error(global.pstring(), "Missing data modifier.");
+    }
 
-        // Resolve local constants:
-        for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
+    // Resolve local constants:
+resolve_ct:
+    for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
+    {
+        auto& c = m_def.local_consts[i];
+        if(c.expr)
         {
-            auto& c = m_def.local_consts[i];
-            if(c.expr)
-            {
-                c.value = interpret_local_const(
-                    c.decl.name, this, *c.expr, 
-                    c.decl.src_type.type, m_def.local_consts.data()).value;
-            }
-            else
-                c.value = { locator_t::minor_label(i) };
+            c.value = interpret_local_const(
+                c.decl.name, this, *c.expr, 
+                c.decl.src_type.type, m_def.local_consts.data()).value;
         }
+        else
+            c.value = { locator_t::minor_label(i) };
     }
 }
 
@@ -1048,13 +1063,13 @@ void fn_t::precheck()
         }
         */
         assert(!m_precheck_tracked);
-        m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
+        m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this, def().local_consts.data())));
     }
     else
     {
         // Run the evaluator to generate 'm_precheck_tracked':
         assert(!m_precheck_tracked);
-        m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this)));
+        m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this, def().local_consts.data())));
     }
 
     assert(m_precheck_tracked);
@@ -1109,7 +1124,7 @@ void fn_t::compile_iasm()
     assert(def().stmts[0].expr[0].token.type == lex::TOK_byte_block_proc);
 
     asm_proc_t proc = std::get<asm_proc_t>(interpret_byte_block(def().stmts[0].pstring, def().stmts[0].expr[0], 
-                                                                this, m_def.local_consts.data()));
+                                                                this, def().local_consts.data()));
     proc.fn = handle();
 
 #if 0
@@ -1215,7 +1230,7 @@ void fn_t::compile()
     ssa_pool::clear();
     cfg_pool::clear();
     ir_t ir;
-    build_ir(ir, *this);
+    build_ir(ir, *this, m_def.local_consts.data());
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {
@@ -1255,6 +1270,8 @@ void fn_t::compile()
             // Enable this to debug:
             //save_graph(ir, fmt("during_o_%", iter).c_str());
             ++iter;
+
+            std::puts("pass");
         }
         while(changed);
     };
@@ -1263,6 +1280,9 @@ void fn_t::compile()
     ir.assert_valid();
 
     optimize_suite(false);
+    // TODO: remove
+    //if(global.name == "load_level")
+        //o_identities(&stdout_log, ir);
     save_graph(ir, "2_o1");
 
     // Set the global's 'read' and 'write' bitsets:
@@ -1910,12 +1930,12 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
 ///////////////
 
 charmap_t::charmap_t(global_t& global, bool is_default, 
-                     string_literal_t const& control, string_literal_t const& printable,
-                      bool has_sentinel, std::unique_ptr<mods_t> new_mods)
+                     string_literal_t const& characters, 
+                     string_literal_t const& sentinel,
+                     std::unique_ptr<mods_t> new_mods)
 : modded_t(std::move(new_mods))
 , global(global)
 , is_default(is_default)
-, has_sentinel(has_sentinel)
 {
     auto const add_literal = [&](string_literal_t const& lit)
     {
@@ -1961,15 +1981,28 @@ charmap_t::charmap_t(global_t& global, bool is_default,
         }
     };
 
-    add_literal(control);
-    m_num_control_chars = m_map.size();
-    add_literal(printable);
+    add_literal(characters);
 
     if(m_num_unique > 256)
         compiler_error(global.pstring(), fmt("Too many characters (%) in charmap. Max: 256.", m_num_unique));
 
     if(m_num_unique == 0)
         compiler_error(global.pstring(), "Empty charmap");
+
+    if(!sentinel.string.empty())
+    {
+        char const* ptr = sentinel.string.data();
+        char32_t utf32 = escaped_utf8_to_utf32(ptr);
+
+        if(ptr != sentinel.string.data() + sentinel.string.size())
+            compiler_error(sentinel.pstring, "Invalid sentinel character.");
+
+        int const converted = convert(utf32);
+        if(converted < 0)
+            compiler_error(sentinel.pstring, "Sentinel character must appear in charmap.");
+
+        m_sentinel = converted;
+    }
 }
 
 int charmap_t::convert(char32_t ch) const
@@ -1977,13 +2010,6 @@ int charmap_t::convert(char32_t ch) const
     if(auto* result = m_map.lookup(ch))
         return result->second;
     return -1;
-}
-
-int charmap_t::sentinel() const
-{
-    if(!has_sentinel || m_map.empty())
-        return -1;
-    return m_map.begin()->second;
 }
 
 void charmap_t::resolve()
@@ -2027,7 +2053,7 @@ fn_t const& get_main_entry()
     global_t const* main_entry = global_t::lookup_sourceless("main"sv);
 
     if(!main_entry || main_entry->gclass() != GLOBAL_FN || main_entry->impl<fn_t>().fclass != FN_MODE)
-        throw compiler_error_t("Missing definition of mode main. Program has no entry point.");
+        throw compiler_error_t(fmt_error("Missing definition of mode main. Program has no entry point."));
 
     fn_t const& main_fn = main_entry->impl<fn_t>();
     if(main_fn.def().num_params > 0)

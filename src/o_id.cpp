@@ -1,6 +1,7 @@
 #include "o_id.hpp"
 
 #include <cstdint>
+#include <iostream> // TODO: remove
 
 #include <boost/container/small_vector.hpp>
 #include <boost/container/static_vector.hpp>
@@ -46,6 +47,75 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
         };
 
+        if(ssa_flags(node.op()) & SSAF_ARRAY_OFFSET)
+        {
+            using namespace ssai::array;
+
+            ssa_value_t const index = node.input(INDEX);
+
+            if(index.is_num() && index.whole() != 0)
+            {
+                // Turn array indexes of a constant into an offset.
+                // e.g. foo[5] turns the '5' into an offset.
+
+                unsigned offset = (node.input(OFFSET).whole()
+                                   + index.whole());
+
+                node.link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
+                node.link_change_input(INDEX, ssa_value_t(0u, TYPE_U));
+
+                if(node.op() == SSA_read_array16)
+                    ssa_it->unsafe_set_op(SSA_read_array8);
+                else if(node.op() == SSA_write_array16)
+                    ssa_it->unsafe_set_op(SSA_write_array8);
+                else
+                    assert(!(ssa_flags(node.op()) & SSAF_INDEXES_ARRAY16));
+
+                updated = true;
+            }
+            else if(index.holds_ref())
+            {
+                if(index->op() == SSA_add && index->input(2).is_num())
+                {
+                    // Turn array indexes plus a constant into an offset.
+                    // e.g. foo[a + 5] turns the '5' into an offset.
+
+                    for(unsigned i = 0; i < 2; ++i)
+                    {
+                        if(!index->input(i).is_num())
+                            continue;
+
+                        unsigned offset = (node.input(OFFSET).whole()
+                                           + index->input(i).whole()
+                                           + index->input(2).whole());
+
+                        node.link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
+                        node.link_change_input(INDEX, index->input(!i));
+
+                        updated = true;
+                        break;
+                    }
+                }
+                else if(index->op() == SSA_sub && index->input(2).is_num())
+                {
+                    // Turn array indexes minus a constant into an offset.
+                    // e.g. foo[a - 5] turns the '-5' into an offset.
+
+                    if(index->input(1).is_num())
+                    {
+                        unsigned offset = (node.input(OFFSET).whole()
+                                           - index->input(1).whole()
+                                           - (1 - index->input(2).whole()));
+
+                        node.link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
+                        node.link_change_input(INDEX, index->input(0));
+
+                        updated = true;
+                    }
+                }
+            }
+        }
+
         switch(node.op())
         {
         case SSA_write_array8:
@@ -54,11 +124,9 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 using namespace ssai::array;
 
                 ssa_op_t const read = (node.op() == SSA_write_array8) ? SSA_read_array8 : SSA_read_array16;
-
-                // Prune pointless writes like foo[5] = foo[5]
-
                 ssa_value_t const assign = node.input(ASSIGNMENT);
 
+                // Prune pointless writes like foo[5] = foo[5]
                 if(assign.holds_ref() && assign->op() == read
                    && assign->input(ARRAY) == node.input(ARRAY)
                    && assign->input(INDEX) == node.input(INDEX))
@@ -189,8 +257,6 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         to_or.push_back(i+0);
                 }
 
-                    assert(carry_output_i(node) >= 0);
-                    if(!carry_used(node))
                 if(to_or.size() <= 1)
                     break;
 
@@ -274,6 +340,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         if((carry_replacement = add_sub_impl(node.input(i), node.input(2).fixed(), false)))
                             goto *replaceWith[!i];
 
+
                     if(frac_bytes(node.type().name()) == 0 && !carry_used(node))
                     {
                         for(unsigned i = 0; i < 2; ++i)
@@ -303,16 +370,16 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
                     if(frac_bytes(node.type().name()) == 0 && !carry_used(node))
                     {
-                        if(!node.input(0).is_locator() || !node.input(1).is_num())
-                            continue;
-
-                        locator_t const loc = node.input(0).locator();
-
-                        if(loc.is() == IS_PTR)
+                        if(node.input(0).is_locator() && node.input(1).is_num())
                         {
-                            unsigned const offset = -node.input(1).whole() - (1 - node.input(2).whole());
-                            node.link_change_input(0, loc.with_advance_offset(offset));
-                            goto replaceWith0;
+                            locator_t const loc = node.input(0).locator();
+
+                            if(loc.is() == IS_PTR)
+                            {
+                                unsigned const offset = -node.input(1).whole() - (1 - node.input(2).whole());
+                                node.link_change_input(0, loc.with_advance_offset(offset));
+                                goto replaceWith0;
+                            }
                         }
                     }
                 }
@@ -400,9 +467,9 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
             process_inputs = false;
         }
 
-        if(ssa_indexes(h->op()))
+        if(ssa_indexes8(h->op()))
         {
-            indexes[h->input(ssa_index_input(h->op()))] += 1;
+            indexes[h->input(ssa_index8_input(h->op()))] += 1;
             process_inputs = false;
         }
 
@@ -410,9 +477,16 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
             process_inputs = false;
 
         if(process_inputs)
+        {
             for(unsigned i = 0; i < h->input_size(); ++i)
+            {
                 if(h->input(i).holds_ref())
+                {
+                    assert(h != h->input(i).handle());
                     ssa_worklist.push(h->input(i).handle());
+                }
+            }
+        }
     }
 
     // Sort by use count. Most used comes first.
@@ -434,12 +508,12 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
     return ret;
 }
 
-
 struct ssa_monoid_d
 {
     bitset_uint_t* post_dom = nullptr;
     unsigned total_outputs = 0;
     bool sealed_singleton = false;
+    bool compatible = false;
 };
 
 // 'run_monoid_t' searches for connected nodes of similar ops, where the op forms a monoid.
@@ -461,7 +535,8 @@ public:
         singletons.push_back(h);
     }
 
-    void build(ssa_ht h, bool negative);
+    template<bool Initial = true>
+    void build(ssa_op_t def_op, ssa_ht h, bool negative);
 
     bool updated = false;
 private:
@@ -473,6 +548,37 @@ private:
         int total() const { return pos + neg; }
         int diff() const { return pos - neg; }
     };
+
+    void accumulate(ssa_op_t def_op, fixed_t const f, bool negative)
+    {
+        // Update 'accum':
+        switch(def_op)
+        {
+        case SSA_add: 
+            if(negative)
+                accum.value -= f.value;
+            else
+                accum.value += f.value;
+            break;
+
+        case SSA_and: 
+            accum.value &= f.value;
+            break;
+
+        case SSA_or:
+            accum.value |= f.value;
+            break;
+
+        case SSA_xor: 
+            accum.value ^= f.value; 
+            break;
+
+        default: 
+            assert(0); 
+            break;
+        }
+        dprint(log, "----MONOID_ACCUMULATE", f.value >> fixed_t::shift, accum.value >> fixed_t::shift);
+    }
 
     //////////////////////////
     // Used before 'build': //
@@ -489,11 +595,15 @@ private:
     // Used inside 'build': //
     //////////////////////////
 
+    // Tracks the accumulation of all constant nums:
+    fixed_t accum;
+
     // The root of the expression (a singleton)
     ssa_ht root;
 
     // Counts leaf nodes of our expression.
-    fc::small_map<ssa_value_t, leaf_count_t, 16> leafs;
+    fc::small_map<ssa_value_t, leaf_count_t, 16> incompatible_leafs;
+    fc::small_map<ssa_value_t, leaf_count_t, 16> compatible_leafs;
 
     // Counts how often a node appears during 'build'.
     using internals_map_t = fc::vector_map<ssa_ht, unsigned>;
@@ -583,6 +693,7 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
             // Otherwise optimistically assume every node is a post dominator.
             // (We'll then prove those which aren't.)
             bitset_set_all(bs_size, d.post_dom);
+            d.compatible = true;
         }
     }
     
@@ -681,154 +792,144 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
         // Build the monoid
 
-        root = h;
-        leafs.clear();
-        internals.clear();
-        build(h, false);
-
         ssa_op_t const def_op = defining_op(h->op());
-        type_t const type = h->type();
         cfg_ht const cfg = h->cfg_node();
+        type_t const type = h->type();
+        fixed_uint_t const mask = numeric_bitmask(type.name());
 
-        // Calculate the constant while building 'operands':
+        root = h;
+        incompatible_leafs.clear();
+        compatible_leafs.clear();
+        internals.clear();
+        accum = { (def_op == SSA_and) ? ~0ull : 0ull };
+        build<>(def_op, h, false);
 
-        operands.clear();
+        bool uses_accum; // Tracks if we'll use 'accum'
+        int carry_req; // Tracks if we need a carry.
 
-        unsigned num_nums = 0; // Counts how many constant numbers are in leafs.
-        fixed_t accum = { (def_op == SSA_and) ? ~0ull : 0ull }; // Combination of constant numbers in leafs
-
-        for(auto const& p : leafs)
-        {
-            ssa_value_t const v = p.first;
-            leaf_count_t const count = p.second;
-            assert(count.total());
-
-            if(v.is_num())
-            {
-                // Update 'accum':
-
-                fixed_t const f = v.fixed();
-
-                switch(def_op)
-                {
-                case SSA_add: accum.value += f.value * count.pos - f.value * count.neg; break;
-                case SSA_and: accum.value &= f.value; break;
-                case SSA_or:  accum.value |= f.value; break;
-                case SSA_xor: 
-                    if(count.pos % 2 == 1) // even number of XORs cancel out.
-                        accum.value ^= f.value; 
-                    break;
-                default: assert(0); break;
-                }
-
-                ++num_nums;
-            }
-            else
-            {
-                switch(def_op)
-                {
-                case SSA_add:
-                    {
-                        // Convert multiple adds into shifts.
-
-                        int const diff = count.diff();
-
-                        ssa_value_t cur = v;
-                        for(unsigned bits = std::abs(diff), pow = 0; bits; bits >>= 1, ++pow)
-                        {
-                            if(!(bits & 1))
-                                continue;
-
-                            if(pow)
-                            {
-                                cur = cfg->emplace_ssa(SSA_shl, type, cur, ssa_value_t(pow, TYPE_U));
-                                pow = 0;
-                            }
-
-                            operands.push_back({ cur, diff < 0 });
-                        }
-                    }
-                    break;
-
-                case SSA_and:
-                case SSA_or:
-                    // Ignore duplicates.
-                    operands.push_back({ p.first });
-                    break;
-
-                case SSA_xor:
-                    if(count.pos % 2)
-                        operands.push_back({ p.first });
-                    else // even number of XORs cancel out.
-                        ++num_nums; // Treat it as a 0.
-                    break;
-
-                default: 
-                    assert(0); 
-                    break;
-                }
-            }
-        }
-
-        int carry_req = 0; // Tracks if we need a carry.
-        if(num_nums)
+    accum_loop:
         {
             // Check 'accum', seeing if it's necessary.
             // Also set 'carry_req' when needed.
 
-            fixed_uint_t const mask = numeric_bitmask(type.name());
+            uses_accum = true;
+            carry_req = 0;
 
             accum.value &= mask;
 
-            if(!operands.empty())
+            switch(def_op)
             {
-                switch(def_op)
+            case SSA_add:
+                if(accum.value == low_bit_only(mask))
                 {
-                case SSA_add:
-                    if(accum.value == low_bit_only(mask))
-                    {
-                        carry_req = 1;
-                        goto skip_num;
-                    }
-                    else if(accum.value == mask)
-                    {
-                        carry_req = -1;
-                        goto skip_num;
-                    }
-                    // fall through
-                case SSA_or:
-                case SSA_xor:
-                    if(accum.value == 0ull)
-                        goto skip_num;
-                    break;
-                case SSA_and:
-                    if(accum.value == mask)
-                        goto skip_num;
-                    break;
-                default:
-                    assert(0);
+                    carry_req = 1;
+                    uses_accum = false;
                     break;
                 }
+                else if(accum.value == mask)
+                {
+                    carry_req = -1;
+                    uses_accum = false;
+                    break;
+                }
+                // fall through
+            case SSA_or:
+            case SSA_xor:
+                uses_accum = accum.value != 0ull;
+                break;
+            case SSA_and:
+                uses_accum = accum.value != mask;
+                break;
+            default:
+                assert(0);
+                break;
             }
 
-            // It's needed; add it to 'operands'.
-            operands.push_back({ ssa_value_t(accum, type.name()) });
-        skip_num:;
+            while(compatible_leafs.size() > 0)
+            {
+                auto pair = std::move(compatible_leafs.container.back());
+                compatible_leafs.container.pop_back();
+
+                assert(pair.first.holds_ref());
+                assert(pair.second.total() > 0);
+
+                if(uses_accum && pair.second.total() == 1)
+                {
+                    build<false>(def_op, pair.first.handle(), pair.second.neg);
+                    goto accum_loop;
+                }
+                else
+                {
+                    // Note: this breaks sorted property, which we shouldn't need.
+                    incompatible_leafs.container.push_back(std::move(pair));
+                }
+            }
         }
 
-        dprint(log, "--MONOID_ACCUM", accum.value, num_nums);
-
-        // Calc banks and indexes for our operands:
-        for(operand_t& operand : operands)
+        // Build 'operands' from 'incompatible_leafs':
+        operands.clear();
+        for(auto const& p : incompatible_leafs)
         {
-            if(!operand.v.holds_ref())
-                continue;
-            operand.banks_and_indexes = calc_banks_and_indexes(operand.v.handle());
+            ssa_value_t const v = p.first;
+            leaf_count_t const count = p.second;
+            assert(!v.is_num());
+            assert(count.total());
+
+            switch(def_op)
+            {
+            case SSA_add:
+                {
+                    // Convert multiple adds into shifts.
+
+                    int const diff = count.diff();
+
+                    ssa_value_t cur = v;
+                    for(unsigned bits = std::abs(diff), pow = 0; bits; bits >>= 1, ++pow)
+                    {
+                        if(!(bits & 1))
+                            continue;
+
+                        if(pow)
+                        {
+                            cur = cfg->emplace_ssa(SSA_shl, type, cur, ssa_value_t(pow, TYPE_U));
+                            pow = 0;
+                        }
+
+                        operands.push_back({ cur, diff < 0 });
+                    }
+                }
+                break;
+
+            case SSA_and:
+            case SSA_or:
+                // Ignore duplicates.
+                operands.push_back({ p.first });
+                break;
+
+            case SSA_xor:
+                if(count.pos % 2)
+                    operands.push_back({ p.first });
+                break;
+
+            default: 
+                assert(0); 
+                break;
+            }
         }
 
-        // Sort operands, ordering their bank accesses and array indexes.
-        std::sort(operands.begin(), operands.end(), [](auto const& l, auto const& r)
-            { return l.banks_and_indexes < r.banks_and_indexes; });
+        dprint(log, "--MONOID_ACCUM", accum.value >> fixed_t::shift, uses_accum, carry_req);
+
+        if(operands.size() > 1)
+        {
+            // Calc banks and indexes for our operands:
+            for(operand_t& operand : operands)
+                if(operand.v.holds_ref())
+                    operand.banks_and_indexes = calc_banks_and_indexes(operand.v.handle());
+
+            // Sort operands, ordering their bank accesses and array indexes.
+            std::sort(operands.begin(), operands.end(), [](auto const& l, auto const& r)
+                { return l.banks_and_indexes < r.banks_and_indexes; });
+        }
 
         dprint(log, "--MONOID_SORTED_BEGIN");
         for(operand_t const& op : operands)
@@ -844,9 +945,9 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
         if(def_op == SSA_add)
         {
-        loop:
-            while(operands.size() > 1)
+            auto const step = [&]
             {
+                assert(operands.size() >= 2);
                 auto& a0 = operands.rbegin()[0];
                 auto& a1 = operands.rbegin()[1];
 
@@ -885,9 +986,12 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                         operands.back() = { ssa, a0.negative };
                     }
                 }
-            }
+            };
 
-            if(operands[0].negative)
+            while(operands.size() > 1)
+                step();
+
+            if(operands.size() > 0 && operands[0].negative)
             {
                 operands[0].v = cfg->emplace_ssa(SSA_sub, type, ssa_value_t(0u, type.name()), operands[0].v, 
                                                  ssa_value_t(carry_req != -1, TYPE_BOOL));
@@ -896,20 +1000,33 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                     carry_req = 0;
             }
 
-            if(carry_req != 0)
+            if(carry_req != 0 || uses_accum)
             {
                 operands.push_back({ ssa_value_t(accum, type.name()) });
                 carry_req = 0;
-                goto loop;
+                if(operands.size() == 2)
+                    step();
             }
+
+            assert(!operands[0].negative);
         }
         else // Not 'SSA_add':
         {
-            while(operands.size() > 1)
+            auto const step = [&]
             {
                 ssa_ht const ssa = cfg->emplace_ssa(def_op, type, operands.rbegin()[0].v, operands.rbegin()[1].v);
                 operands.pop_back();
                 operands.back().v = ssa;
+            };
+
+            while(operands.size() > 1)
+                step();
+
+            if(uses_accum)
+            {
+                operands.push_back({ ssa_value_t(accum, type.name()) });
+                if(operands.size() == 2)
+                    step();
             }
         }
 
@@ -936,10 +1053,15 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 }
 
 // Builds a monoid
-void run_monoid_t::build(ssa_ht h, bool negative)
+template<bool Initial>
+void run_monoid_t::build(ssa_op_t def_op, ssa_ht h, bool negative)
 {
+    assert(h->type() == root->type());
+    assert(defining_op(h->op()) == def_op);
+
     dprint(log, "---MONOID_BUILD_STEP", h);
-    internals[h] += 1;
+    if(Initial)
+        internals[h] += 1;
 
     unsigned const input_size = h->input_size();
     for(unsigned i = 0; i < input_size; ++i)
@@ -948,15 +1070,15 @@ void run_monoid_t::build(ssa_ht h, bool negative)
 
         bool const next_negative = (h->op() == SSA_sub && i >= 1) ? !negative : negative;
 
-        if(input.holds_ref() && data(input.handle()).post_dom && bitset_test(data(input.handle()).post_dom, root.id))
+        if(Initial && input.holds_ref() && data(input.handle()).post_dom && bitset_test(data(input.handle()).post_dom, root.id))
         {
             assert(i != 2);
             assert(defining_op(input->op()) == defining_op(h->op()));
             assert(input->type() == h->type());
 
-            build(h->input(i).handle(), next_negative);
+            build<Initial>(def_op, h->input(i).handle(), next_negative);
         }
-        else
+        else 
         {
             if(i == 2)
             {
@@ -966,20 +1088,34 @@ void run_monoid_t::build(ssa_ht h, bool negative)
 
                 type_name_t const type_name = h->type().name();
 
-                // Convert the carry into h's type.
+                // Convert the carry into the h's type.
                 if(!!input.whole() != (h->op() == SSA_sub))
+                    accumulate(def_op, fixed_t{ low_bit_only(numeric_bitmask(type_name)) }, next_negative);
+
+                continue;
+            }
+            else if(Initial && input.holds_ref() && defining_op(input->op()) == def_op)
+            {
+                if(data(input.handle()).compatible 
+                   && (input->input(0).is_num() || input->input(1).is_num()))
                 {
-                    fixed_uint_t const carry_bit = low_bit_only(numeric_bitmask(type_name));
-                    input = ssa_value_t(fixed_t{ carry_bit }, type_name);
+                    dprint(log, "----MONOID_COMPATIBLE_LEAF", input.handle());
+
+                    if(next_negative)
+                        compatible_leafs[input].neg += 1;
+                    else
+                        compatible_leafs[input].pos += 1;
+
+                    continue;
                 }
-                else
-                    input = ssa_value_t(0, type_name);
             }
 
-            if(next_negative)
-                leafs[input].neg += 1;
+            if(input.is_num())
+                accumulate(def_op, input.fixed(), next_negative);
+            else if(next_negative)
+                incompatible_leafs[input].neg += 1;
             else
-                leafs[input].pos += 1;
+                incompatible_leafs[input].pos += 1;
         }
     }
 }

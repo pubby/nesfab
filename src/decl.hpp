@@ -126,7 +126,7 @@ constexpr char const* fn_class_keyword(fn_class_t fc)
 
 enum idep_class_t : std::int8_t
 {
-    BAD_IDEP   = 0,
+    BAD_IDEP = 0,
     IDEP_TYPE,
     IDEP_PRECHECK,
     IDEP_VALUE,

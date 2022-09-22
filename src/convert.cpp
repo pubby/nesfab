@@ -60,6 +60,24 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
 
         if(view == "bin"sv)
             ret.data = read_as_vec();
+        else if(view == "chr"sv)
+        {
+            std::vector<std::uint8_t> vec = read_as_vec();
+
+            switch(get_extension())
+            {
+            case ext_lex::TOK_png:
+                vec = png_to_chr(vec.data(), vec.size());
+                break;
+            case ext_lex::TOK_chr:
+            case ext_lex::TOK_bin:
+                break;
+            default:
+                compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
+            }
+
+            ret.data = std::move(vec);
+        }
         else if(view == "pbz"sv)
         {
             std::vector<std::uint8_t> vec = read_as_vec();

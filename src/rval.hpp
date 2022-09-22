@@ -46,7 +46,8 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
 
 using lval_flags_t = std::uint8_t;
 constexpr lval_flags_t LVALF_IS_GLOBAL = 1 << 0;
-constexpr lval_flags_t LVALF_INDEX_16  = 1 << 1;
+constexpr lval_flags_t LVALF_DID_PERIOD  = 1 << 1; // if operator '.' was used on the value
+constexpr lval_flags_t LVALF_INDEX_16  = 1 << 2;
 
 struct lval_t
 {
@@ -64,12 +65,13 @@ struct lval_t
     };
     ssa_value_t index = {};
 
-    unsigned var_i() const { assert(!(flags & LVALF_IS_GLOBAL)); return vvar_i; }
-    global_t const* global() const { assert(flags & LVALF_IS_GLOBAL); return vglobal; }
+    unsigned var_i() const { assert(is_var()); return vvar_i; }
+    global_t const& global() const { assert(is_global()); assert(vglobal); return *vglobal; }
 
     void set_var_i(unsigned i) { flags &= ~LVALF_IS_GLOBAL; vvar_i = i; }
     void set_global(global_t const* g) { flags |= LVALF_IS_GLOBAL; vglobal = g; }
 
+    bool is_global() const { return (flags & LVALF_IS_GLOBAL); }
     bool is_var() const { return !(flags & LVALF_IS_GLOBAL); }
 
     unsigned uatom() const { return atom < 0 ? 0 : atom; }

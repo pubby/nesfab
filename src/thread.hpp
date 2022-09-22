@@ -7,8 +7,8 @@
 #include <vector>
 
 // Launches a bunch of threads and waits until they finish.
-template<typename Fn>
-void parallelize(unsigned const num_threads, Fn fn)
+template<typename Fn, typename OnError>
+void parallelize(unsigned const num_threads, Fn const& fn, OnError const& on_error)
 {
     std::vector<std::thread> threads;
     threads.reserve(num_threads);
@@ -27,7 +27,7 @@ void parallelize(unsigned const num_threads, Fn fn)
     for(unsigned i = 0; i < num_threads; ++i)
     {
         threads.emplace_back(
-        [fn, &exception_thrown](std::exception_ptr& exception_ptr)
+        [&fn, &exception_thrown, &on_error](std::exception_ptr& exception_ptr)
         {
             try
             {
@@ -37,6 +37,7 @@ void parallelize(unsigned const num_threads, Fn fn)
             {
                 exception_ptr = std::current_exception();
                 exception_thrown = true;
+                on_error();
             }
         }, std::ref(exception_ptrs[i]));
     }

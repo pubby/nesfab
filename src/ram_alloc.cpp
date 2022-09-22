@@ -572,14 +572,24 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             if(fn->fclass == FN_CT)
                 continue;
 
+            fn_data[fn.id].maximal_group_vars.for_each([&](group_vars_ht gv)
+            {
+                for(auto& bs : fn_data[fn.id].usable_ram)
+                    bs &= group_vars_data[gv.id].usable_ram;
+            });
+
+            // TODO remove?
+            /*
             fn->ir_calls().for_each([&](fn_ht call)
             {
                 fn_data[fn.id].maximal_group_vars.for_each([&](group_vars_ht gv)
                 {
+                    std::cout << "MAXIMAL " << fn->global.name << ' ' << gv->group.name << std::endl;
                     for(auto& bs : fn_data[call.id].usable_ram)
                         bs &= group_vars_data[gv.id].usable_ram;
                 });
             });
+            */
         }
 
         // Build an order to allocate fn lvars:

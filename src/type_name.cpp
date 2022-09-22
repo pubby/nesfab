@@ -16,6 +16,7 @@ std::string to_string(type_name_t type_name)
     case TYPE_PAA_THUNK:  return "PAA_THUNK"s; 
     case TYPE_STRUCT_THUNK: return "STRUCT_THUNK"s; 
     case TYPE_VOID:  return "Void"s;  
+    case TYPE_CHARMAP:  return "charmap"s;  
     case TYPE_BOOL:  return "Bool"s;  
     case TYPE_INT:   return "Int"s;  
     case TYPE_REAL:  return "Real"s;  

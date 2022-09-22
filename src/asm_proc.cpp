@@ -106,6 +106,7 @@ void asm_proc_t::push_inst(asm_inst_t inst)
 
 void asm_proc_t::absolute_to_zp()
 {
+    return; // TODO!
     for(asm_inst_t& inst : code)
     {
         // A hi-byte implies absolute.
@@ -328,22 +329,22 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
         switch(inst.arg.lclass())
         {
         case LOC_CONST_BYTE:
-            os << "#" << inst.arg.data();
+            os << "#" << inst.arg.data() << "   " << inst.arg;
             break;
         case LOC_GMEMBER:
             os << "gmember " << inst.arg.gmember()->gvar.global.name << ' ' << inst.arg.gmember()->member() 
-               << " " << inst.arg.gmember()->span(inst.arg.atom());
+               << " " << inst.arg.gmember()->span(inst.arg.atom()) << "   " << inst.arg;
             break;
         default:
             os << inst.arg;
 
+            fn_ht lfn = fn;
             if(has_fn(inst.arg.lclass()) && inst.arg.fn())
-            {
-                fn_ht fn = inst.arg.fn();
-                int const index = fn->lvars().index(inst.arg);
-                if(index >= 0)
-                    os << " lvar " << fn->lvar_span(romv, index);
-            }
+                lfn = inst.arg.fn();
+
+            int const index = lfn->lvars().index(inst.arg);
+            if(index >= 0)
+                os << " lvar " << lfn->lvar_span(romv, index);
 
             break;
         }
@@ -358,10 +359,12 @@ static std::pair<locator_t, locator_t> absolute_locs(asm_inst_t const& inst)
     locator_t hi = inst.alt;
 
     if(!hi)
-        hi = lo;
-
-    lo.set_is(IS_PTR);
-    hi.set_is(IS_PTR_HI);
+    {
+        if(lo.is() == IS_PTR || lo.is() == IS_DEREF)
+            hi = lo.with_is(IS_PTR_HI);
+        else
+            hi = locator_t::const_byte(0);
+    }
 
     return std::make_pair(lo, hi);
 }
@@ -466,6 +469,7 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
                 fn(op);
             absolute_addr:
                 auto locs = absolute_locs(inst);
+                passert(locs.first && locs.second, inst);
                 fn(locs.first);
                 fn(locs.second);
             }
@@ -496,12 +500,9 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
             throw std::runtime_error(fmt("Unable to link %", loc));
         assert(loc.offset() == 0);
 
-        std::uint16_t data = loc.data(); // TODO
-
         if(loc.is() == IS_PTR_HI)
-            data >>= 8;
-
-        return data;
+            return loc.data() >> 8;
+        return loc.data();
     };
 
     for_each_locator([&](locator_t loc){ *at++ = from_locator(loc); });

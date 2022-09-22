@@ -59,8 +59,6 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     // Add 'this_lvar's
     graph.for_each_inst([&](asm_inst_t const& inst)
     {
-        if(!mem_inst(inst))
-            return;
         int arg_index = -1;
         if(is_this_lvar(fn, inst.arg))
             arg_index = insert_this_lvar(inst.arg);
@@ -86,9 +84,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     // Add 'call_lvar's
     graph.for_each_inst([&](asm_inst_t const& inst)
     {
-        if(!mem_inst(inst))
-            return;
-        if(is_call_lvar(fn, inst.arg))
+        if(mem_inst(inst) && is_call_lvar(fn, inst.arg))
             m_map.insert(inst.arg.mem_head());
     });
 

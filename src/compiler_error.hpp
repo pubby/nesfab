@@ -26,6 +26,7 @@ public:
 
 std::string fmt_source_pos(file_contents_t const& file, pstring_t pstring);
 
+std::string fmt_error(std::string const& what);
 std::string fmt_error(pstring_t pstring, std::string const& what, 
                       file_contents_t const* file = nullptr, 
                       char const* color = CONSOLE_RED CONSOLE_BOLD, char const* prefix = "error");

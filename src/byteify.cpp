@@ -263,6 +263,28 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(is_make_ptr(ssa_it->op()))
                 continue;
 
+            if(ssa_it->op() == SSA_read_array16 || ssa_it->op() == SSA_write_array16)
+            {
+                // We'll convert these to the '_b' version of their ops,
+                // which lack support for the 'OFFSET' input.
+                // Thus, we'll extract the offset here and turn it into an add.
+
+                using namespace ssai::array;
+
+                if(!ssa_it->input(OFFSET).eq_whole(0))
+                {
+                    ssa_ht const add = cfg_node.emplace_ssa(
+                        SSA_add, TYPE_U20, 
+                        ssa_it->input(OFFSET), ssa_it->input(INDEX), ssa_value_t(0u, TYPE_BOOL));
+
+                    ssa_it->link_change_input(INDEX, add);
+                    ssa_it->link_change_input(OFFSET, ssa_value_t(0u, TYPE_U20));
+
+                    // We created nodes, so we have to resize:
+                    ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
+                }
+            }
+
             if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
             {
                 auto& d = ssa_it.data<ssa_byteify_d>(); 
@@ -575,6 +597,24 @@ void byteify(ir_t& ir, fn_t const& fn)
                         ssa_it->link_change_input(0, bm[begin]);
                         ssa_it->link_append_input(bm[begin+1]);
                     }
+                }
+                break;
+
+            case SSA_read_array16:
+            case SSA_write_array16:
+                {
+                    using namespace ssai::array;
+                    
+                    bool const is_read = ssa_it->op() == SSA_read_array16;
+
+                    // Offset should have been zero'd earlier:
+                    assert(ssa_it->input(OFFSET).eq_whole(0));
+
+                    bm_t bm = _get_bm(ssa_it->input(INDEX));
+                    ssa_it->link_change_input(INDEX,    bm[max_frac_bytes]);
+                    ssa_it->link_change_input(INDEX_HI, bm[max_frac_bytes+1]);
+                    
+                    ssa_it->unsafe_set_op(is_read ? SSA_read_array16_b : SSA_write_array16_b);
                 }
                 break;
 
@@ -892,14 +932,6 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
 
             unsigned const num_shifts = ssa_it->input(1).whole();
 
-            // Shifts of zero have no effect.
-            if(num_shifts == 0)
-            {
-                ssa_it->replace_with(ssa_it->input(0));
-                to_prune.push_back(ssa_it);
-                continue;
-            }
-
             // Shifting more bits than representable resolves to 0 or -1.
             if(num_shifts > type.size_of_bits())
             {
@@ -914,8 +946,7 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
 
             // Otherwise replace with N rotates.
 
-            ssa_ht value = ssa_it;
-
+            ssa_value_t value = ssa_it->input(0);
             ssa_value_t prev_carry = ssa_value_t(0u, TYPE_BOOL);
             if(is_signed(type.name()))
                prev_carry = cfg_it->emplace_ssa(SSA_sign_to_carry, TYPE_BOOL, ssa_it);

@@ -15,6 +15,7 @@
 #include <vector>
 #include <deque>
 
+#include "assert.hpp"
 #include "debug_print.hpp"
 
 using pbqp_cost_t = std::uint64_t;
@@ -39,6 +40,8 @@ public:
     pbqp_node_t(pbqp_node_t&&) = default;
     pbqp_node_t& operator=(pbqp_node_t const&) = delete;
     pbqp_node_t& operator=(pbqp_node_t&&) = delete;
+
+    bool is_reset() const { return degree == 0 && edges.empty() && bp_proof.empty() && sel < 0; }
 private:
     std::vector<pbqp_edge_t*> edges;
     std::vector<unsigned> bp_proof; // 'sel' can be determined from this during backpropagation.
@@ -47,8 +50,10 @@ private:
     {
         assert(degree > 0);
         --degree;
+        assert(std::find(edges.begin(), edges.end(), edge) != edges.end());
         auto it = std::find(edges.begin(), edges.begin() + degree, edge);
-        assert(*it == edge);
+        assert(it != edges.end());
+        passert(*it == edge, degree);
         std::swap(*it, edges[degree]);
     }
 };

@@ -250,6 +250,7 @@ public:
     void alloc_output(unsigned size);
     // Used after 'alloc_output' to assign to the output array.
     unsigned build_set_output(unsigned i, cfg_ht new_node_h);
+    unsigned build_append_output(cfg_ht new_h);
 
     void link_clear_inputs();
 

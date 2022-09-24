@@ -22,6 +22,7 @@ static bool _can_prune(ssa_node_t& node)
     default: 
         return pure(node);
     case SSA_if:
+    case SSA_switch:
     case SSA_return:
         return false;
     }
@@ -121,6 +122,7 @@ bool o_remove_no_effect(log_t* log, ir_t& ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
         if(ssa_it->op() == SSA_if
+           || ssa_it->op() == SSA_switch
            || (ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
            || (ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE)
            || ssa_input0_class(ssa_it->op()) == INPUT_LINK) // links are handled in other function

@@ -84,6 +84,7 @@ private:
 
         bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> break_stack;
         bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> continue_stack;
+        bc::small_vector<cfg_ht, 4> switch_stack;
 
         bc::small_vector<ssa_value_array_t, 8> return_values;
         bc::small_vector<cfg_ht, 8> return_jumps;
@@ -367,8 +368,8 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
 , fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , start_time(clock::now())
-, precheck_tracked(tracked)
 , local_consts(local_consts)
+, precheck_tracked(tracked)
 {
     unsigned const nlocals = num_local_vars();
 
@@ -681,6 +682,9 @@ void eval_t::interpret_stmts()
         case STMT_DO:
         case STMT_END_IF:
         case STMT_LABEL:
+        case STMT_END_SWITCH:
+        case STMT_CASE:
+        case STMT_DEFAULT:
             ++stmt;
             break;
 
@@ -720,6 +724,40 @@ void eval_t::interpret_stmts()
                 stmt = &fn->def()[stmt->link];
             else
                 ++stmt;
+            break;
+
+        case STMT_SWITCH:
+            {
+                expr_value_t switch_expr = do_expr<D>(*stmt->expr);
+                switch_expr = throwing_cast<D>(std::move(switch_expr), is_signed(switch_expr.type.name()) ? TYPE_S : TYPE_U, true);
+
+                if(!is_interpret(D))
+                    ++stmt;
+                else while(true)
+                {
+                    assert(stmt->link);
+                    stmt = &fn->def()[stmt->link];
+
+                    if(stmt->name == STMT_CASE)
+                    {
+                        expr_value_t case_expr = throwing_cast<D>(do_expr<D>(*stmt->expr), switch_expr.type, true);
+
+                        if(switch_expr.fixed() == case_expr.fixed())
+                        {
+                            ++stmt;
+                            break;
+                        }
+                    }
+                    else if(stmt->name == STMT_DEFAULT)
+                    {
+                        ++stmt;
+                        break;
+                    }
+                    else
+                        assert(false);
+                }
+            }
+
             break;
 
         case STMT_RETURN:
@@ -1012,7 +1050,7 @@ void eval_t::compile_block()
 
     case STMT_BREAK:
         if(builder.break_stack.empty())
-            compiler_error(stmt->pstring, "break statement outside of loop.");
+            compiler_error(stmt->pstring, "break statement outside of loop or switch.");
         builder.break_stack.back().push_back(builder.cfg);
         builder.cfg = compile_goto();
         ++stmt;
@@ -1024,6 +1062,98 @@ void eval_t::compile_block()
         builder.continue_stack.back().push_back(builder.cfg);
         builder.cfg = compile_goto();
         ++stmt;
+        break;
+
+    case STMT_SWITCH:
+        // TODO
+        {
+            cfg_ht const dead_branch = compile_goto();
+            cfg_ht const switch_cfg = insert_cfg(true);
+            switch_cfg->alloc_output(1);
+            builder.cfg->build_set_output(0, switch_cfg);
+
+            expr_value_t v = do_expr<COMPILE>(*stmt->expr);
+            ++stmt;
+            v = throwing_cast<COMPILE>(std::move(v), is_signed(v.type.name()) ? TYPE_S : TYPE_U, true);
+
+            ssa_ht const switch_ssa = switch_cfg->emplace_ssa(SSA_switch, TYPE_VOID, v.ssa());
+            switch_ssa->append_daisy();
+
+            assert(switch_cfg->last_daisy()->op() == SSA_switch);
+
+            builder.break_stack.emplace_back();
+            builder.switch_stack.push_back(switch_cfg);
+            builder.cfg = dead_branch;
+        }
+        break;
+
+    case STMT_END_SWITCH:
+        {
+            cfg_ht const exit = insert_cfg(true);
+            cfg_exits_with_jump();
+            builder.cfg->build_set_output(0, exit);
+            builder.cfg = exit;
+
+            for(cfg_ht node : builder.break_stack.back())
+                node->build_set_output(0, exit);
+
+            builder.break_stack.pop_back();
+            builder.switch_stack.pop_back();
+
+            ++stmt;
+        }
+        break;
+
+    case STMT_CASE:
+        // TODO
+        {
+            cfg_ht const entry = builder.cfg;
+            cfg_exits_with_jump();
+
+            cfg_ht const case_cfg = builder.cfg = insert_cfg(true);
+            entry->build_set_output(0, case_cfg);
+
+            assert(builder.switch_stack.size() > 0);
+
+            assert(builder.switch_stack.size() > 0);
+            cfg_ht const switch_cfg = builder.switch_stack.back();
+            ssa_ht const switch_ssa = switch_cfg->last_daisy();
+            passert(switch_ssa->op() == SSA_switch, switch_ssa->op());
+
+            expr_value_t case_value = do_expr<INTERPRET_CE>(*stmt->expr);
+            ++stmt;
+            case_value = throwing_cast<INTERPRET_CE>(std::move(case_value), switch_ssa->input(0).type(), true);
+
+            // TODO: handle non-consts
+            //if(!v.ssa().is_num())
+                //compiler_error(TODO);
+
+            switch_cfg->build_append_output(case_cfg);
+            assert(!switch_cfg->output(0));
+            assert(switch_cfg->output_size() >= 1);
+            switch_ssa->link_append_input(case_value.ssa());
+        }
+        break;
+
+    case STMT_DEFAULT:
+        {
+            cfg_ht const entry = builder.cfg;
+            cfg_exits_with_jump();
+
+            cfg_ht const case_cfg = builder.cfg = insert_cfg(true);
+            entry->build_set_output(0, case_cfg);
+
+            assert(builder.switch_stack.size() > 0);
+            cfg_ht const switch_cfg = builder.switch_stack.back();
+            ssa_ht const switch_ssa = switch_cfg->last_daisy();
+            passert(switch_ssa->op() == SSA_switch, switch_ssa->op());
+
+            assert(switch_cfg->output_size() >= 1);
+            assert(!switch_cfg->output(0));
+            switch_cfg->build_set_output(0, case_cfg);
+
+            ++stmt;
+        }
         break;
 
     case STMT_LABEL:
@@ -3819,7 +3949,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
             {
                 if(op == SSA_sub)
                 {
-                    result.type = TYPE_S20;
+                    result.type = TYPE_U20;
 
                     if(!is_check(Policy::D))
                     {
@@ -3831,7 +3961,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
                         if(l && r && l.with_offset(0) == r.with_offset(0))
                         {
                             std::uint16_t const diff = l.offset() - r.offset();
-                            result.val = rval_t{ ssa_value_t(diff, TYPE_S20) };
+                            result.val = rval_t{ ssa_value_t(diff, TYPE_U20) };
                         }
                         else
                         {
@@ -3865,7 +3995,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 
                 bool const banked = is_banked_ptr(result.type.name());
 
-                rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_S20, true);
+                rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
 
                 if(!is_check(Policy::D))
                 {
@@ -4011,7 +4141,12 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
 template<typename Policy>
 expr_value_t eval_t::do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
-    rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+    ssa_op_t const op = Policy::op();
+
+    if((op == SSA_add || op == SSA_sub) && is_ptr(lhs.type.name()))
+        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
+    else
+        rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
     expr_value_t lhs_copy = to_rval<Policy::D>(lhs);
     return do_assign<Policy::D>(std::move(lhs), do_arith<Policy>(std::move(lhs_copy), rhs, token), token);
 }
@@ -4510,6 +4645,7 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
             switch(cfg_node->input_size())
             {
             case 0:
+                passert(false, to_string(stmt->name));
                 throw var_lookup_error_t();
             case 1:
                 return var_lookup(cfg_node->input(0), var_i, member);

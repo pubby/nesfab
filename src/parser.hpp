@@ -131,6 +131,9 @@ private:
     void parse_continue();
     void parse_goto();
     void parse_label();
+    void parse_case();
+    void parse_default();
+    void parse_switch();
     void parse_nmi_statement();
     void parse_fence();
     void parse_local_ct();

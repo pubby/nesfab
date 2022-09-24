@@ -39,8 +39,15 @@ private:
     fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
     fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
 
+    struct switch_info_t
+    {
+        stmt_ht prev_case;
+        stmt_ht default_case;
+    };
+
     bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> break_stack;
     bc::small_vector<bc::small_vector<stmt_ht, 4>, 8> continue_stack;
+    bc::small_vector<switch_info_t, 4> switch_stack;
 
     struct nothing_t {};
 
@@ -585,6 +592,9 @@ public:
         stmt_ht const cond = fn_def.push_stmt({ STMT_END_DO, d.mods, d.begin, pstring, convert_eternal_expr(&condition) });
         fn_def[d.begin].link = cond;
 
+        assert(break_stack.size());
+        assert(continue_stack.size());
+
         for(stmt_ht h : break_stack.back())
             fn_def[h].link = cond + 1;
         for(stmt_ht h : continue_stack.back())
@@ -617,6 +627,9 @@ public:
     {
         stmt_ht const exit = fn_def.push_stmt({ STMT_END_WHILE, d.mods, d.begin });
         fn_def[d.begin].link = exit + 1;
+
+        assert(break_stack.size());
+        assert(continue_stack.size());
 
         for(stmt_ht h : break_stack.back())
             fn_def[h].link = exit + 1;
@@ -666,6 +679,9 @@ public:
         stmt_ht const exit = fn_def.push_stmt({ STMT_END_FOR, d.mods, d.begin });
         fn_def[d.begin].link = exit + 1;
 
+        assert(break_stack.size());
+        assert(continue_stack.size());
+
         for(stmt_ht h : break_stack.back())
             fn_def[h].link = exit + 1;
         for(stmt_ht h : continue_stack.back())
@@ -688,6 +704,10 @@ public:
     void break_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
         validate_mods("break", pstring, mods);
+
+        if(break_stack.empty())
+            compiler_error(pstring, "break cannot be used here.");
+
         break_stack.back().push_back(fn_def.push_stmt(
             { STMT_BREAK, fn_def.push_mods(std::move(mods)), {}, pstring }));
     }
@@ -696,12 +716,86 @@ public:
     void continue_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
         validate_mods("continue", pstring, mods);
+
+        if(continue_stack.empty())
+            compiler_error(pstring, "continue cannot be used here.");
+
         break_stack.back().push_back(fn_def.push_stmt(
             { STMT_CONTINUE, fn_def.push_mods(std::move(mods)), {}, pstring }));
     }
 
     [[gnu::always_inline]]
-    void label_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
+    void begin_switch(pstring_t pstring, ast_node_t const& condition, std::unique_ptr<mods_t> mods)
+    {
+        symbol_table.push_scope();
+        break_stack.emplace_back();
+
+        validate_mods("switch", pstring, mods);
+
+        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
+        stmt_ht const begin_switch = fn_def.push_stmt({ STMT_SWITCH, mods_h, {}, pstring, convert_eternal_expr(&condition) });
+
+        switch_stack.push_back({ .prev_case = begin_switch });
+    }
+
+    [[gnu::always_inline]]
+    void end_switch(pstring_t pstring)
+    {
+        if(!switch_stack.back().default_case)
+        {
+            begin_default_label(pstring, {});
+            end_label();
+            assert(switch_stack.back().default_case);
+        }
+
+        stmt_ht const exit = fn_def.push_stmt({ STMT_END_SWITCH });
+        
+        fn_def[switch_stack.back().prev_case].link = switch_stack.back().default_case;
+        fn_def[switch_stack.back().default_case].link = exit;
+
+        for(stmt_ht h : break_stack.back())
+            fn_def[h].link = exit + 1;
+
+        break_stack.pop_back();
+        switch_stack.pop_back();
+        symbol_table.pop_scope();
+    }
+
+    [[gnu::always_inline]]
+    void begin_case_label(pstring_t pstring, ast_node_t const& expr, std::unique_ptr<mods_t> mods)
+    {
+        symbol_table.push_scope();
+
+        validate_mods("case", pstring, mods);
+
+        // Create a new label
+        stmt_ht label = fn_def.push_stmt(
+            { STMT_CASE, fn_def.push_mods(std::move(mods)), {}, pstring, convert_eternal_expr(&expr) });
+
+        if(switch_stack.empty())
+            compiler_error(pstring, "case without switch.");
+
+        fn_def[switch_stack.back().prev_case].link = label;
+        switch_stack.back().prev_case = label;
+    }
+
+    [[gnu::always_inline]]
+    void begin_default_label(pstring_t pstring, std::unique_ptr<mods_t> mods)
+    {
+        symbol_table.push_scope();
+
+        validate_mods("default", pstring, mods);
+
+        // Create a new label
+        switch_stack.back().default_case = fn_def.push_stmt(
+            { STMT_DEFAULT, fn_def.push_mods(std::move(mods)), {}, pstring });
+
+        if(switch_stack.empty())
+            compiler_error(pstring, "default without switch.");
+    }
+
+    [[gnu::always_inline]]
+    void begin_label(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
         validate_mods("label", pstring, mods);
 
@@ -728,6 +822,11 @@ public:
         }
         fn_def[label].use_count = std::distance(lower, upper);
         unlinked_gotos.erase(lower, upper);
+    }
+
+    void end_label()
+    {
+        symbol_table.pop_scope();
     }
 
     [[gnu::always_inline]]

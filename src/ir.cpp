@@ -444,6 +444,11 @@ unsigned cfg_node_t::build_set_output(unsigned i, cfg_ht new_node_h)
     return input_i;
 }
 
+unsigned cfg_node_t::build_append_output(cfg_ht new_node_h)
+{
+    return link_append_output(new_node_h, [](ssa_ht){ return ssa_value_t(); });
+}
+
 unsigned cfg_node_t::append_input(cfg_fwd_edge_t edge)
 {
     unsigned const i = input_size();

@@ -1982,6 +1982,9 @@ void parser_t<P>::parse_statement()
     case TOK_continue: return parse_continue();
     case TOK_goto:     return parse_goto();
     case TOK_label:    return parse_label();
+    case TOK_switch:   return parse_switch();
+    case TOK_case:     return parse_case();
+    case TOK_default:  return parse_default();
     case TOK_nmi:      return parse_nmi_statement();
     case TOK_fence:    return parse_fence();
     case TOK_ct:       return parse_local_ct();
@@ -2422,10 +2425,54 @@ void parser_t<P>::parse_goto()
 template<typename P>
 void parser_t<P>::parse_label()
 {
+    int const label_indent = indent;
     parse_token(TOK_label);
     pstring_t label;
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ label = parse_ident(); });
-    policy().label_statement(label, std::move(mods));
+    policy().begin_label(label, std::move(mods));
+    parse_block_statement(label_indent);
+    policy().end_label();
+}
+
+template<typename P>
+void parser_t<P>::parse_case()
+{
+    int const label_indent = indent;
+    pstring_t const at = token.pstring;
+    parse_token(TOK_case);
+    ast_node_t switch_expr;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ switch_expr = parse_expr(); });
+    policy().begin_case_label(at, switch_expr, std::move(mods));
+    parse_block_statement(label_indent);
+    policy().end_label();
+}
+
+template<typename P>
+void parser_t<P>::parse_default()
+{
+    assert(false);
+    /* TODO
+    int const label_indent = indent;
+    pstring_t const at = token.pstring;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_default); });
+    policy().begin_default_label(at, std::move(mods));
+    parse_block_statement(label_indent);
+    policy().end_label();
+    */
+}
+
+template<typename P>
+void parser_t<P>::parse_switch()
+{
+    int const switch_indent = indent;
+    pstring_t const at = token.pstring;
+    parse_token(TOK_switch);
+    ast_node_t switch_expr;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ switch_expr = parse_expr(); });
+
+    policy().begin_switch(at, switch_expr, std::move(mods));
+    parse_block_statement(switch_indent);
+    policy().end_switch(at);
 }
 
 template<typename P>

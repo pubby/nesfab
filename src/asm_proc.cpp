@@ -9,6 +9,7 @@ bool is_return(asm_inst_t const& inst)
 {
     return ((op_flags(inst.op) & ASMF_RETURN) 
             || ((op_flags(inst.op) & ASMF_JUMP) 
+                && !(op_flags(inst.op) & ASMF_SWITCH)
                 && !is_label(inst.arg.lclass())));
 }
 
@@ -99,7 +100,7 @@ void asm_proc_t::push_inst(asm_inst_t inst)
 {
     if(inst.op == ASM_LABEL)
     {
-        auto result = labels.insert({ inst.arg.with_is(IS_DEREF), { .index = code.size() }});
+        auto result = labels.insert({ inst.arg.mem_head(), { .index = code.size() }});
         assert(result.second);
     }
 
@@ -338,15 +339,19 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
                << " " << inst.arg.gmember()->span(inst.arg.atom()) << "   " << inst.arg;
             break;
         default:
-            os << inst.arg;
+            os << inst.arg << ' ';
+            os << inst.alt << ' ';
 
             fn_ht lfn = fn;
             if(has_fn(inst.arg.lclass()) && inst.arg.fn())
                 lfn = inst.arg.fn();
 
-            int const index = lfn->lvars().index(inst.arg);
-            if(index >= 0)
-                os << " lvar " << lfn->lvar_span(romv, index);
+            if(lfn)
+            {
+                int const index = lfn->lvars().index(inst.arg);
+                if(index >= 0)
+                    os << " lvar " << lfn->lvar_span(romv, index);
+            }
 
             break;
         }
@@ -379,8 +384,9 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
         if(op_size(inst.op) == 0)
             continue;
 
-        if(inst.op == STORE_C_ABSOLUTE)
+        switch(inst.op)
         {
+        case STORE_C_ABSOLUTE:
             fn(asm_inst_t{ .op = PHP_IMPLIED });
             fn(asm_inst_t{ .op = PHA_IMPLIED });
             fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locator_t::const_byte(0) });
@@ -389,9 +395,9 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
             fn(asm_inst_t{ .op = PLA_IMPLIED });
             fn(asm_inst_t{ .op = PLP_IMPLIED });
             // total bytes: 1+1+2+1+3+1+1 = 10
-        }
-        else if(inst.op == STORE_Z_ABSOLUTE)
-        {
+            break;
+
+        case STORE_Z_ABSOLUTE:
             fn(asm_inst_t{ .op = PHP_IMPLIED });
             fn(asm_inst_t{ .op = PHA_IMPLIED });
             fn(asm_inst_t{ .op = PHP_IMPLIED });
@@ -401,24 +407,46 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
             fn(asm_inst_t{ .op = PLA_IMPLIED });
             fn(asm_inst_t{ .op = PLP_IMPLIED });
             // total bytes: 1+1+1+1+2+3+1+1 = 11
-        }
-        if(inst.op == BANKED_Y_JSR || inst.op == BANKED_Y_JMP)
-        {
-            assert(!inst.alt);
-            auto locs = absolute_locs(inst);
+            break;
 
-            fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locs.first });
-            fn(asm_inst_t{ .op = LDX_IMMEDIATE, .arg = locs.second });
-            if(inst.op == BANKED_Y_JSR)
-                fn(asm_inst_t{ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_y_trampoline) });
-            else 
+        case BANKED_Y_JSR:
+        case BANKED_Y_JMP:
             {
-                assert(inst.op == BANKED_Y_JMP);
-                fn(asm_inst_t{ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_y_trampoline) });
+                assert(!inst.alt);
+                auto locs = absolute_locs(inst);
+
+                fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locs.first });
+                fn(asm_inst_t{ .op = LDX_IMMEDIATE, .arg = locs.second });
+                if(inst.op == BANKED_Y_JSR)
+                    fn(asm_inst_t{ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_y_trampoline) });
+                else 
+                {
+                    assert(inst.op == BANKED_Y_JMP);
+                    fn(asm_inst_t{ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_y_trampoline) });
+                }
             }
-        }
-        else
+            break;
+
+        case ASM_X_SWITCH:
+            fn(asm_inst_t{ .op = LDA_ABSOLUTE_X, .arg = inst.alt.with_is(IS_DEREF) });
+            fn(asm_inst_t{ .op = PHA_IMPLIED });
+            fn(asm_inst_t{ .op = LDA_ABSOLUTE_X, .arg = inst.arg.with_is(IS_DEREF) });
+            fn(asm_inst_t{ .op = PHA_IMPLIED });
+            fn(asm_inst_t{ .op = RTS_IMPLIED });
+            break;
+
+        case ASM_Y_SWITCH:
+            fn(asm_inst_t{ .op = LDA_ABSOLUTE_Y, .arg = inst.alt.with_is(IS_DEREF) });
+            fn(asm_inst_t{ .op = PHA_IMPLIED });
+            fn(asm_inst_t{ .op = LDA_ABSOLUTE_Y, .arg = inst.arg.with_is(IS_DEREF) });
+            fn(asm_inst_t{ .op = PHA_IMPLIED });
+            fn(asm_inst_t{ .op = RTS_IMPLIED });
+            break;
+
+        default:
             fn(inst);
+            break;
+        }
     }
 }
 
@@ -516,38 +544,42 @@ void asm_proc_t::relocate(locator_t from)
     {
         asm_inst_t& inst = code[i];
 
-        if(!is_label(inst.arg.lclass()))
-            continue;
-
-        assert(inst.arg.is() != IS_BANK);
-        assert(labels.count(inst.arg.with_is(IS_DEREF)));
-        unsigned const label_i = get_label(inst.arg).index;
-
-        if(op_addr_mode(inst.op) == MODE_RELATIVE)
+        auto const relocate1 = [&](locator_t loc)
         {
-            int const dist = bytes_between(i, label_i) - op_size(inst.op);
-            if(dist > 127 || dist < -128)
+            if(!is_label(loc.lclass()))
+                return loc;
+
+            assert(loc.is() != IS_BANK);
+            passert(labels.count(loc.mem_head()), inst.arg);
+            unsigned const label_i = get_label(loc).index;
+
+            if(op_addr_mode(inst.op) == MODE_RELATIVE)
             {
-                std::string what = fmt("Unable to relocate branch instruction %. Destination outside valid range.", 
-                                       op_name(inst.op));
-                if(fn)
+                int const dist = bytes_between(i, label_i) - op_size(inst.op);
+                if(dist > 127 || dist < -128)
                 {
-                    pstring_t pstring = fn->global.pstring();
-                    if(inst.iasm_child >= 0)
+                    std::string what = fmt("Unable to relocate branch instruction %. Destination outside valid range.", 
+                                           op_name(inst.op));
+                    if(fn)
                     {
-                        // TODO: properly implement
-                        assert(false);
-                        //pstring = fn->def().stmts[inst.iasm_child].pstring;
+                        pstring_t pstring = fn->global.pstring();
+                        if(inst.iasm_child >= 0)
+                        {
+                            // TODO: properly implement
+                            assert(false);
+                            //pstring = fn->def().stmts[inst.iasm_child].pstring;
+                        }
+                        compiler_error(pstring, std::move(what));
                     }
-                    compiler_error(pstring, std::move(what));
+                    throw std::runtime_error(std::move(what)); // TODO: make it a real compiler_error
                 }
-                throw std::runtime_error(std::move(what)); // TODO: make it a real compiler_error
+                return locator_t::const_byte(loc.offset() + dist);
             }
-            inst.arg = locator_t::const_byte(dist);
-        }
-        else if(op_addr_mode(inst.op) == MODE_IMMEDIATE)
-            inst.arg = from.with_advance_offset(bytes_between(0, label_i)).with_is(IS_PTR);
-        else
-            inst.arg = from.with_advance_offset(bytes_between(0, label_i)).with_is(IS_DEREF);
+            else
+                return from.with_advance_offset(loc.offset() + bytes_between(0, label_i)).with_is(loc.is());
+        };
+
+        inst.arg = relocate1(inst.arg);
+        inst.alt = relocate1(inst.alt);
     }
 }

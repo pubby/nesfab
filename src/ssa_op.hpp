@@ -27,6 +27,7 @@ constexpr unsigned SSAF_FENCE          = 1 << 16;
 constexpr unsigned SSAF_BANK_INPUT     = 1 << 17; 
 constexpr unsigned SSAF_CG_UNLIVE      = 1 << 18; // Has no liveness
 constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 19;
+constexpr unsigned SSAF_CONDITIONAL    = 1 << 20;
 
 // Parameter indexes for SSA ops
 namespace ssai
@@ -175,7 +176,7 @@ constexpr bool ssa_banks(ssa_op_t op)
     return ssa_flags(op) & SSAF_BANK_INPUT;
 }
 
-inline unsigned ssa_bank_input(ssa_op_t op)
+constexpr unsigned ssa_bank_input(ssa_op_t op)
 {
     assert(ssa_flags(op) & SSAF_BANK_INPUT);
     switch(op)
@@ -190,5 +191,23 @@ inline unsigned ssa_bank_input(ssa_op_t op)
         return ~0;
     }
 }
+
+// Returns an offset to the first CFG output representing a case.
+constexpr unsigned ssa_switch_cases(ssa_op_t op)
+{
+    switch(op)
+    {
+    case SSA_switch_full:
+        return 0;
+    case SSA_switch_partial:
+        return 1;
+    default:
+        assert(false);
+        return ~0;
+    }
+}
+
+constexpr bool is_switch(ssa_op_t op) 
+    { return op == SSA_switch_full || op == SSA_switch_partial; }
 
 #endif

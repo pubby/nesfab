@@ -146,6 +146,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     // Deal with conditional nodes that have both edges going to the same node
     // by splitting the edge and inserting a new node.
+    /* TODO: remove?
 #ifndef NDEBUG
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -162,6 +163,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 #endif
+*/
 
     /////////////////////////
     // BRANCH INSTRUCTIONS //
@@ -180,7 +182,9 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             continue;
 
         ssa_ht if_h = cfg_it->last_daisy();
-        assert(if_h->op() == SSA_if); // TODO: handle switch
+
+        if(if_h->op() != SSA_if) // TODO: handle switch
+            continue;
 
         ssa_value_t condition = if_h->input(0);
 
@@ -1142,6 +1146,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         // TODO: Calculate loops here, not in 'select_instructions'.
         select_instructions(log, fn, ir);
 
+        /*
 #ifndef NDEBUG
         for(cfg_ht h : postorder | std::views::reverse)
             for(asm_inst_t const& inst : cg_data(h).code)
@@ -1172,6 +1177,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         // Add the lvars to the fn
         fn.assign_lvars(std::move(lvars));
         fn.rom_proc().safe().assign(std::move(asm_proc));
+        */
     }
 
 }

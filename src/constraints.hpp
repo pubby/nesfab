@@ -19,6 +19,7 @@
 #include "type_mask.hpp"
 #include "ssa_op.hpp"
 #include "assert.hpp"
+#include "loop_test.hpp"
 
 namespace bc = ::boost::container;
 
@@ -268,6 +269,9 @@ struct constraints_t
 
     // Self-Modification
     void normalize(constraints_mask_t cm) { *this = ::normalize(*this, cm); }
+
+    template<typename Fn>
+    bool for_each(constraints_mask_t cm, Fn const& fn) const;
 };
 
 using constraints_vec_t = bc::small_vector<constraints_t, 2>;
@@ -312,5 +316,25 @@ constraints_t abstract_lt(constraints_t lhs, constraints_mask_t lhs_cm,
                           constraints_t rhs, constraints_mask_t rhs_cm);
 
 constraints_t abstract_sign_extend(constraints_t c, constraints_mask_t cm);
+
+template<typename Fn>
+bool constraints_t::for_each(constraints_mask_t cm, Fn const& fn) const
+{
+    assert(!is_top(cm));
+
+    if(is_const())
+        return LOOP_TEST(fn, fixed_t{ get_const() });
+
+    // This method isn't particularly efficient, but it's easiest to code:
+    fixed_sint_t const increment = 1ull << builtin::ctz(~(bits.known()));
+    for(auto i = bounds.min; i <= bounds.max; i += increment)
+    {
+        auto const x = (i & ~bits.known0) | bits.known1;
+        if(operator()(x, cm))
+            if(!LOOP_TEST(fn, fixed_t{ x }))
+                return false;
+    }
+    return true;
+}
 
 #endif

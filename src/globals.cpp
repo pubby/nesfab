@@ -21,6 +21,7 @@
 #include "ir_util.hpp"
 #include "debug_print.hpp"
 #include "text.hpp"
+#include "switch.hpp"
 
 global_t& global_t::lookup(char const* source, pstring_t name)
 {
@@ -1268,7 +1269,7 @@ void fn_t::compile()
             }
 
             // Enable this to debug:
-            //save_graph(ir, fmt("during_o_%", iter).c_str());
+            save_graph(ir, fmt("during_o_%", iter).c_str());
             ++iter;
 
             std::puts("pass");
@@ -1289,14 +1290,18 @@ void fn_t::compile()
     calc_ir_bitsets(&ir);
     assert(ir_reads());
 
+    // Convert switches:
+    switch_partial_to_full(ir);
+    save_graph(ir, "3_switch");
+
     byteify(ir, *this);
-    save_graph(ir, "3_byteify");
+    save_graph(ir, "4_byteify");
 
     optimize_suite(true);
-    save_graph(ir, "4_o2");
+    save_graph(ir, "5_o2");
 
     code_gen(log, ir, *this);
-    save_graph(ir, "5_cg");
+    save_graph(ir, "6_cg");
 }
 
 void fn_t::precheck_finish_mode() const

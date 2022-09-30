@@ -16,7 +16,35 @@ bool o_merge_basic_blocks(log_t* log, ir_t& ir)
             continue;
         }
 
-        cfg_ht const output = cfg_it->output(0);
+        auto const oe = cfg_it->output_edge(0);
+        cfg_ht const output = oe.handle;
+
+        if(cfg_it->ssa_size() == 0 && cfg_it != output)
+        {
+            // If the CFG node has no SSA inside it,
+            // it can be merged by rediricting CFG nodes.
+
+            dprint(log, "MERGE_EMPTY_BB", cfg_it);
+
+            while(cfg_it->input_size())
+            {
+                auto ie = cfg_it->input_edge(0);
+
+                ie.handle->link_change_output(ie.index, output, [&oe](ssa_ht phi)
+                {
+                    return phi->input(oe.index);
+                });
+
+                assert(ie.handle->output(ie.index) == output);
+            }
+
+            cfg_it->link_clear_outputs();
+            cfg_it = ir.prune_cfg(cfg_it);
+
+            did_work = true;
+
+            continue;
+        }
 
         if(output->input_size() != 1 || cfg_it == output)
         {

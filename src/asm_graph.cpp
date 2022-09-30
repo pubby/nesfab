@@ -3,10 +3,13 @@
 #include <random>
 #include <iostream> // TODO
 
+#include <boost/container/static_vector.hpp>
+
 #include "intrusive_pool.hpp"
 #include "lvar.hpp"
 #include "worklist.hpp"
 #include "globals.hpp"
+#include "ir.hpp"
 #include "ir_algo.hpp"
 #include "lvar.hpp"
 
@@ -14,17 +17,17 @@
 // asm_node_t //
 ////////////////
 
-void asm_node_t::push_output(asm_node_t* o)
+void asm_node_t::push_output(asm_edge_t o)
 {
     m_outputs.push_back(o);
     if(o)
-        o->m_inputs.push_back(this);
+        o.node->m_inputs.push_back(this);
 }
 
 void asm_node_t::remove_outputs_input(unsigned i)
 {
     assert(i < m_outputs.size());
-    if(asm_node_t* output = m_outputs[i])
+    if(asm_node_t* output = m_outputs[i].node)
     {
         auto it = std::find(output->m_inputs.begin(), output->m_inputs.end(), this);
         assert(it != output->m_inputs.end());
@@ -47,7 +50,7 @@ void asm_node_t::replace_output(unsigned i, asm_node_t* with)
     remove_outputs_input(i);
     if(with)
         with->m_inputs.push_back(this);
-    m_outputs[i] = with;
+    m_outputs[i].node = with;
 }
 
 /////////////////
@@ -62,17 +65,18 @@ asm_graph_t::asm_graph_t(log_t* log, locator_t entry_label)
     push_back();
 }
 
-void asm_graph_t::append_code(std::vector<asm_inst_t> const& code)
+void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end, 
+                              rh::batman_map<cfg_ht, switch_table_t> const& switch_tables)
 {
-    auto const delay_lookup = [&](asm_node_t& node, locator_t label)
+    auto const delay_lookup = [&](asm_node_t& node, locator_t label, int case_value = -1)
     {
         to_lookup.push_back({ &node, node.outputs().size(), label });
-        node.push_output(nullptr);
+        node.push_output({ nullptr, case_value });
     };
 
-    for(unsigned i = 0; i < code.size(); ++i)
+    for(asm_inst_t const* it = begin; it != end; ++it)
     {
-        auto const& inst = code[i];
+        auto const& inst = *it;
         asm_node_t& node = list.back();
 
         if(inst.op == ASM_LABEL)
@@ -90,24 +94,42 @@ void asm_graph_t::append_code(std::vector<asm_inst_t> const& code)
                 node.code.push_back(inst);
                 push_back();
             }
+            else if(op_flags(inst.op) & ASMF_SWITCH)
+            {
+                passert(node.cfg, to_string(inst.op));
+
+                cfg_ht const cfg = inst.arg.cfg_node();
+
+                switch_table_t const* switch_table = switch_tables.mapped(cfg);
+                passert(switch_table, cfg);
+
+                ssa_ht const branch = cfg->last_daisy();
+                assert(branch && branch->op() == SSA_switch_full);
+
+                for(unsigned i = 0; i < switch_table->size(); ++i)
+                    delay_lookup(node, (*switch_table)[i], branch->input(i + 1).whole());
+
+                node.output_inst = inst;
+                push_back();
+            }
             else if(op_flags(inst.op) & ASMF_JUMP)
             {
-                if(!inst.arg)
-                    throw std::runtime_error(fmt("jump %", to_string(inst.op)));
+                passert(inst.arg, to_string(inst.op));
+
                 node.output_inst = inst;
                 delay_lookup(node, inst.arg);
                 push_back();
             }
             else if(op_flags(inst.op) & ASMF_BRANCH)
             {
+                passert(inst.arg, to_string(inst.op));
+
                 node.output_inst = inst;
-                if(!inst.arg)
-                    throw std::runtime_error(fmt("branch %", to_string(inst.op)));
                 delay_lookup(node, inst.arg);
-                if(i+1 < code.size() && inst.op == invert_branch(code[i+1].op))
+                if(it+1 < end && inst.op == invert_branch((it+1)->op))
                 {
-                    delay_lookup(node, code[i+1].arg);
-                    i += 1;
+                    delay_lookup(node, (it+1)->arg);
+                    it += 1;
                     push_back();
                 }
                 else
@@ -137,7 +159,7 @@ asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)
 
     if(succeed && list.size() > 0)
     {
-        list.back().push_output(&node);
+        list.back().push_output({ &node });
         node.cfg = list.back().cfg;
     }
 
@@ -188,9 +210,9 @@ bool asm_graph_t::o_remove_stubs()
             goto prune;
 
         // Removes 1-output nodes with no code.
-        if(it->outputs().size() == 1 && it->outputs()[0] != &*it)
+        if(it->outputs().size() == 1 && it->outputs()[0].node != &*it)
         {
-            asm_node_t* const output = it->outputs()[0];
+            asm_node_t* const output = it->outputs()[0].node;
             assert(output);
             while(it->inputs().size())
             {
@@ -271,6 +293,9 @@ bool asm_graph_t::o_returns()
         if(a.output_inst != b.output_inst)
             continue;
 
+        if(a.is_switch() || b.is_switch())
+            continue;
+
         // Search for duplicated code:
         unsigned match_len = 0;
         unsigned const min_size = std::min(a.code.size(), b.code.size());
@@ -291,8 +316,8 @@ bool asm_graph_t::o_returns()
             a.code.resize(a.code.size() - match_len);
             b.code.resize(b.code.size() - match_len);
 
-            a.push_output(&new_node);
-            b.push_output(&new_node);
+            a.push_output({ &new_node });
+            b.push_output({ &new_node });
 
             a.output_inst = b.output_inst = { .op = JMP_ABSOLUTE };
 
@@ -399,6 +424,7 @@ bool asm_graph_t::o_peephole()
 std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
 {
     std::vector<asm_inst_t> code;
+    std::vector<asm_inst_t> table_code;
 
     unsigned next_id = 0;
     unsigned estimated_size = 0;
@@ -421,6 +447,52 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
         return locator_t::minor_label(node.vid);
     };
 
+    // Prepare switch tables first:
+
+    bc::static_vector<locator_t, 256> table;
+    for(asm_node_t* node : order)
+    {
+        if(!node->is_switch())
+            continue;
+
+        int min = 0xFF;
+        int max = 0;
+
+        for(auto const& edge : node->outputs())
+        {
+            passert(edge.case_value >= 0, edge.case_value);
+            passert(edge.case_value <= 0xFF, edge.case_value);
+            min = std::min(min, edge.case_value);
+            max = std::max(max, edge.case_value);
+        }
+
+        int const size = max - min + 1;
+        assert(size <= 256);
+
+        // Shift the offset so that out table doesn't have to start with [0]:
+        node->output_inst.arg.advance_offset(-min);
+        node->output_inst.alt.advance_offset(-min);
+
+        table.resize(size, locator_t::const_byte(0));
+
+        for(auto const& edge : node->outputs())
+            table[edge.case_value - min] = get_label(*edge.node).with_advance_offset(-1);
+
+        table_code.reserve(table_code.size() + table.size() * 2 + 2);
+
+        cfg_ht const cfg = node->output_inst.arg.cfg_node();
+
+        table_code.push_back({ .op = ASM_LABEL, .arg = locator_t::switch_lo_table(cfg) });
+        for(locator_t loc : table)
+            table_code.push_back({ .op = ASM_DATA, .arg = loc.with_is(IS_PTR) });
+
+        table_code.push_back({ .op = ASM_LABEL, .arg = locator_t::switch_hi_table(cfg) });
+        for(locator_t loc : table)
+            table_code.push_back({ .op = ASM_DATA, .arg = loc.with_is(IS_PTR_HI) });
+    }
+
+    // Now prepare main code:
+
     for(unsigned i = 0; i < order.size(); ++i)
     {
         asm_node_t& node = *order[i];
@@ -431,32 +503,41 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
            || (node.inputs().size() == 1 && prev != node.inputs()[0])
            || node.label == m_entry_label)
         {
+        insert_label:
             code.push_back({ .op = ASM_LABEL, .arg = get_label(node) });
         }
+        else for(asm_node_t const* input : node.inputs())
+            if(input->is_switch())
+                goto insert_label;
+
         code.insert(code.end(), node.code.begin(), node.code.end());
 
         if(node.output_inst.op)
         {
-            if(node.outputs().empty())
+            if(node.is_switch() || node.outputs().empty())
                 code.push_back(node.output_inst);
             else
             {
-                passert(node.outputs().size() <= 2, node.outputs().size()); // TODO: switch
+                passert(node.outputs().size() <= 2, node.outputs().size());
 
                 for(unsigned j = 0; j < node.outputs().size(); ++j)
                 {
-                    if(node.outputs()[j] == next)
+                    if(node.outputs()[j].node == next)
                         continue;
                     op_t op = node.output_inst.op;
                     if(j > 0 && is_branch(op))
                         op = invert_branch(op);
-                    code.push_back({ .op = op, .arg = get_label(*node.outputs()[j]) });
+                    code.push_back({ .op = op, .arg = get_label(*node.outputs()[j].node) });
                 }
             }
         }
         else
             assert(node.outputs().empty());
     }
+
+    // Append switch:
+
+    code.insert(code.end(), table_code.begin(), table_code.end());
 
     return code;
 }
@@ -540,14 +621,14 @@ std::vector<asm_node_t*> asm_graph_t::order()
             break;
         case 1:  
             // Weight 'jmp' the highest:
-            elim_order.push_back({ &node, 0, 3 * scale(*node.outputs()[0]) });
+            elim_order.push_back({ &node, 0, 3 * scale(*node.outputs()[0].node) });
             break;
         case 2:
             // It's dumb, but we'll slightly prioritize the original order.
             {
-                bool const i = node.outputs()[0]->original_order > node.outputs()[1]->original_order;
-                elim_order.push_back({ &node, i, 2 * scale(*node.outputs()[i]) });
-                elim_order.push_back({ &node, !i, 1 * scale(*node.outputs()[!i]) });
+                bool const i = node.outputs()[0].node->original_order > node.outputs()[1].node->original_order;
+                elim_order.push_back({ &node, i, 2 * scale(*node.outputs()[i].node) });
+                elim_order.push_back({ &node, !i, 1 * scale(*node.outputs()[!i].node) });
             }
             break;
         default: 
@@ -568,7 +649,7 @@ std::vector<asm_node_t*> asm_graph_t::order()
     // Build path cover greedily:
     for(edge_t const& edge : elim_order)
     {
-        asm_node_t& to = *edge.from->outputs()[edge.output];
+        asm_node_t& to = *edge.from->outputs()[edge.output].node;
         dprint(log, "PATH_COVER_EDGE", edge.weight, edge.from->cfg, to.cfg);
 
         if(edge.from->vcover.path_output >= 0)
@@ -603,7 +684,7 @@ std::vector<asm_node_t*> asm_graph_t::order()
 
         // Build a path:
         asm_path_t path;
-        for(asm_node_t* it = &node;; it = it->outputs()[it->vcover.path_output])
+        for(asm_node_t* it = &node;; it = it->outputs()[it->vcover.path_output].node)
         {
             path.nodes.push_back(it);
             if(it->vcover.path_output < 0)
@@ -644,9 +725,12 @@ std::vector<asm_node_t*> asm_graph_t::order()
     {
         if(!is_branch(node->output_inst.op))
             continue;
-        for(asm_node_t* output : node->outputs())
+        for(auto const& edge : node->outputs())
+        {
+            asm_node_t* output = edge.node;
             if(output->vorder.path != &path)
                 path.branches.push_back({ node->vorder.offset, output->vorder.offset, output->vorder.path });
+        }
     }
 
     auto const cost_fn = [](std::vector<asm_path_t*> const& order) -> unsigned
@@ -894,8 +978,8 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
         // Calculate the real live-out set, storing it in 'temp_set'.
         // The live-out set is the union of the successor's live-in sets.
         bitset_clear_all(bs_size, temp_set);
-        for(asm_node_t* output : node.outputs())
-            bitset_or(bs_size, temp_set, output->vlive.in);
+        for(auto const& output : node.outputs())
+            bitset_or(bs_size, temp_set, output.node->vlive.in);
 
         // Now use that to calculate a new live-in set:
         bitset_and(bs_size, temp_set, node.vlive.out); // (vlive.out holds KILL)
@@ -929,8 +1013,8 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
         node.clear_flags(FLAG_IN_WORKLIST | FLAG_PROCESSED);
 
         bitset_clear_all(bs_size, node.vlive.out);
-        for(asm_node_t* output : node.outputs())
-            bitset_or(bs_size, node.vlive.out, output->vlive.in);
+        for(auto const& output : node.outputs())
+            bitset_or(bs_size, node.vlive.out, output.node->vlive.in);
     }
 
     return bs_size;

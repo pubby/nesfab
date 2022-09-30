@@ -27,4 +27,7 @@ using cfg_pool = static_intrusive_pool_t<class cfg_node_t>;
 using ssa_ht = ssa_pool::handle_t;
 using cfg_ht = cfg_pool::handle_t;
 
+DEF_HANDLE_HASH(ssa_ht)
+DEF_HANDLE_HASH(cfg_ht)
+
 #endif

@@ -68,6 +68,6 @@ namespace isel
     inline cfg_d& data(cfg_ht h) { assert(h.id < _data_vec.size()); return _data_vec[h.id]; }
 } // end namespace isel
 
-void select_instructions(log_t* log, fn_t const& fn, ir_t& ir);
+void select_instructions(log_t* log, fn_t& fn, ir_t& ir);
 
 #endif

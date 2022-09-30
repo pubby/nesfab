@@ -72,6 +72,22 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .output_regs = REGF_X | REGF_A, // Always clobbers these.
         .flags = ASMF_FAKE | ASMF_JUMP,
     },
+    {
+        .op = ASM_X_SWITCH,
+        .size = 3+1+3+1+1,
+        .cycles = 4+3+4+3+6,
+        .input_regs = REGF_X,
+        .output_regs = REGF_A | REGF_N | REGF_Z, // clobbers
+        .flags = ASMF_FAKE | ASMF_JUMP | ASMF_SWITCH,
+    },
+    {
+        .op = ASM_Y_SWITCH,
+        .size = 3+1+3+1+1,
+        .cycles = 4+3+4+3+6,
+        .input_regs = REGF_Y,
+        .output_regs = REGF_A | REGF_N | REGF_Z, // clobbers
+        .flags = ASMF_FAKE | ASMF_JUMP | ASMF_SWITCH,
+    },
 
     // ADC
     {

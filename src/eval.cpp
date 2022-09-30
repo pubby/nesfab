@@ -7,12 +7,14 @@
 #include <boost/container/small_vector.hpp>
 
 #include "alloca.hpp"
+#include "bitset.hpp"
 #include "rval.hpp"
 #include "decl.hpp"
 #include "globals.hpp"
 #include "file.hpp"
 #include "options.hpp"
 #include "ir.hpp"
+#include "ir_util.hpp"
 #include "stmt.hpp"
 #include "eternal_new.hpp"
 #include "lt.hpp"
@@ -22,6 +24,7 @@
 #include "compiler_error.hpp"
 #include "asm_proc.hpp"
 #include "text.hpp"
+#include "switch.hpp"
 
 namespace sc = std::chrono;
 namespace bc = boost::container;
@@ -75,16 +78,29 @@ private:
         bc::small_vector<cfg_ht, 2> inputs;
     };
 
+    struct switch_t
+    {
+        cfg_ht cfg;
+        static_bitset_t<256> case_set;
+    };
+
     // Data used by the ir builder can go inside this struct (for organization).
     struct ir_builder_t
     {
+        // !!!
+        // UPDATE 'clear()' WHEN MODIFYING THIS CODE!
+        // !!!
+
         cfg_ht cfg = {}; // The current CFG node
 
         bc::small_vector<logical_data_t, 8> logical_stack;
 
         bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> break_stack;
         bc::small_vector<bc::small_vector<cfg_ht, 4>, 4> continue_stack;
-        bc::small_vector<cfg_ht, 4> switch_stack;
+        bc::small_vector<switch_t, 4> switch_stack;
+
+        // Holds switch cfgs that cover every case.
+        bc::small_vector<cfg_ht, 1> exhaustive_switches;
 
         bc::small_vector<ssa_value_array_t, 8> return_values;
         bc::small_vector<cfg_ht, 8> return_jumps;
@@ -99,6 +115,9 @@ private:
 
             break_stack.clear();
             continue_stack.clear();
+            switch_stack.clear();
+
+            exhaustive_switches.clear();
             
             return_values.clear();
             return_jumps.clear();
@@ -553,6 +572,20 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, local_const_t const* local_cons
     for(cfg_ht h = ir->cfg_begin(); h; ++h)
         assert(h.data<block_d>().sealed);
 #endif
+
+    // Handle exhaustive switches
+    for(cfg_ht switch_cfg : builder.exhaustive_switches)
+    {
+        ssa_ht const switch_ssa = switch_cfg->last_daisy();
+        assert(switch_ssa->input_size() == MAX_CFG_OUTPUT + 1);
+        assert(switch_cfg->output_size() == MAX_CFG_OUTPUT + 1);
+        passert(switch_ssa->op() == SSA_switch_partial, switch_ssa->op());
+
+        switch_partial_to_full(*switch_ssa);
+
+        assert(switch_ssa->input_size() == MAX_CFG_OUTPUT + 1);
+        assert(switch_cfg->output_size() == MAX_CFG_OUTPUT);
+    }
 }
 
 template<eval_t::do_t D>
@@ -1076,13 +1109,13 @@ void eval_t::compile_block()
             ++stmt;
             v = throwing_cast<COMPILE>(std::move(v), is_signed(v.type.name()) ? TYPE_S : TYPE_U, true);
 
-            ssa_ht const switch_ssa = switch_cfg->emplace_ssa(SSA_switch, TYPE_VOID, v.ssa());
+            ssa_ht const switch_ssa = switch_cfg->emplace_ssa(SSA_switch_partial, TYPE_VOID, v.ssa());
             switch_ssa->append_daisy();
 
-            assert(switch_cfg->last_daisy()->op() == SSA_switch);
+            assert(switch_cfg->last_daisy()->op() == SSA_switch_partial);
 
             builder.break_stack.emplace_back();
-            builder.switch_stack.push_back(switch_cfg);
+            builder.switch_stack.push_back({ switch_cfg });
             builder.cfg = dead_branch;
         }
         break;
@@ -1097,6 +1130,18 @@ void eval_t::compile_block()
             for(cfg_ht node : builder.break_stack.back())
                 node->build_set_output(0, exit);
 
+            cfg_ht const switch_cfg = builder.switch_stack.back().cfg;
+            ssa_ht const switch_ssa = switch_cfg->last_daisy();
+            passert(switch_ssa->op() == SSA_switch_partial, switch_ssa->op());
+
+            assert(switch_cfg->output_size() == switch_ssa->input_size());
+
+            if(switch_cfg->output_size() > MAX_CFG_OUTPUT)
+            {
+                assert(switch_cfg->output_size() == MAX_CFG_OUTPUT + 1);
+                builder.exhaustive_switches.push_back(switch_cfg);
+            }
+
             builder.break_stack.pop_back();
             builder.switch_stack.pop_back();
 
@@ -1105,7 +1150,6 @@ void eval_t::compile_block()
         break;
 
     case STMT_CASE:
-        // TODO
         {
             cfg_ht const entry = builder.cfg;
             cfg_exits_with_jump();
@@ -1116,17 +1160,24 @@ void eval_t::compile_block()
             assert(builder.switch_stack.size() > 0);
 
             assert(builder.switch_stack.size() > 0);
-            cfg_ht const switch_cfg = builder.switch_stack.back();
+            cfg_ht const switch_cfg = builder.switch_stack.back().cfg;
             ssa_ht const switch_ssa = switch_cfg->last_daisy();
-            passert(switch_ssa->op() == SSA_switch, switch_ssa->op());
+            passert(switch_ssa->op() == SSA_switch_partial, switch_ssa->op());
 
             expr_value_t case_value = do_expr<INTERPRET_CE>(*stmt->expr);
             ++stmt;
             case_value = throwing_cast<INTERPRET_CE>(std::move(case_value), switch_ssa->input(0).type(), true);
 
-            // TODO: handle non-consts
-            //if(!v.ssa().is_num())
-                //compiler_error(TODO);
+            // TODO: handle link
+            if(!case_value.ssa().is_num())
+                compiler_error(stmt->pstring, "case values must be known at compile-time.");
+
+            std::uint8_t const case_u8 = case_value.ssa().whole();
+
+            auto& case_set = builder.switch_stack.back().case_set;
+            if(case_set.test(case_u8))
+                compiler_error(stmt->pstring, "Duplicate case value.");
+            case_set.set(case_u8);
 
             switch_cfg->build_append_output(case_cfg);
             assert(!switch_cfg->output(0));
@@ -1140,13 +1191,16 @@ void eval_t::compile_block()
             cfg_ht const entry = builder.cfg;
             cfg_exits_with_jump();
 
+            assert(builder.switch_stack.size() > 0);
+            cfg_ht const switch_cfg = builder.switch_stack.back().cfg;
+            ssa_ht const switch_ssa = switch_cfg->last_daisy();
+            passert(switch_ssa->op() == SSA_switch_partial, switch_ssa->op());
+
+            auto const& case_set = builder.switch_stack.back().case_set;
+            assert(switch_cfg->output_size() == case_set.popcount() + 1);
+
             cfg_ht const case_cfg = builder.cfg = insert_cfg(true);
             entry->build_set_output(0, case_cfg);
-
-            assert(builder.switch_stack.size() > 0);
-            cfg_ht const switch_cfg = builder.switch_stack.back();
-            ssa_ht const switch_ssa = switch_cfg->last_daisy();
-            passert(switch_ssa->op() == SSA_switch, switch_ssa->op());
 
             assert(switch_cfg->output_size() >= 1);
             assert(!switch_cfg->output(0));

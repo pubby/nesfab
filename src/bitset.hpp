@@ -411,6 +411,9 @@ struct bitset_base_t
     bool all_clear() const { return bitset_all_clear(d().size(), d().data()); }
 
     [[gnu::flatten]]
+    bool all_set() const { return bitset_all_set(d().size(), d().data()); }
+
+    [[gnu::flatten]]
     constexpr void flip_all() { bitset_flip_all(d().size(), d().data()); }
 
     [[gnu::flatten]]
@@ -418,6 +421,9 @@ struct bitset_base_t
 
     [[gnu::flatten]]
     int lowest_bit_set() const { return bitset_lowest_bit_set(d().size(), d().data()); }
+
+    [[gnu::flatten]]
+    int highest_bit_set() const { return bitset_highest_bit_set(d().size(), d().data()); }
 
     template<typename Bit = unsigned, typename Fn>
     void for_each(Fn const& fn) const { bitset_for_each<Bit>(d().size(), d().data(), fn); }

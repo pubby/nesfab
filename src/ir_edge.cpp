@@ -30,7 +30,8 @@ ssa_bck_edge_t* ssa_fwd_edge_t::output() const
 
 ssa_fwd_edge_t& ssa_bck_edge_t::input() const
 {
-    assert(index < handle->input_size());
+    assert(handle);
+    passert(index < handle->input_size(), index, handle->input_size());
     return handle->m_io.input(index);
 }
 
@@ -58,13 +59,15 @@ input_class_t ssa_bck_edge_t::input_class() const
 
 cfg_bck_edge_t& cfg_fwd_edge_t::output() const
 {
+    assert(handle);
     assert(index < handle->output_size());
     return handle->m_io.output(index);
 }
 
 cfg_fwd_edge_t& cfg_bck_edge_t::input() const
 {
-    assert(index < handle->input_size());
+    assert(handle);
+    passert(index < handle->input_size(), index, handle->input_size());
     return handle->m_io.input(index);
 }
 

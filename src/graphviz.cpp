@@ -77,8 +77,21 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                 o << gv_id(cfg_it);
             o << " -> " << gv_id(succ);
             o << "[penwidth=3 color=red arrowsize=2";
-            if(cfg_it->last_daisy() && cfg_it->last_daisy()->op() == SSA_if)
-                o << " label=\"" << (i ? "TRUE" : "FALSE") << "\"";
+            if(cfg_it->last_daisy())
+            {
+                auto const& branch = *cfg_it->last_daisy();
+                if(branch.op() == SSA_if)
+                    o << " label=\"" << (i ? "TRUE" : "FALSE") << "\"";
+                else if(branch.op() == SSA_switch_full)
+                    o << " label=\"" << branch.input(i+1).whole() << " [" << i << "]\"";
+                else if(branch.op() == SSA_switch_partial)
+                {
+                    if(i == 0)
+                        o << " label=\"default [" << i << "]\"";
+                    else
+                        o << " label=\"" << branch.input(i).whole() << " [" << i << "]\"";
+                }
+            }
             o << "];\n";
         }
     }

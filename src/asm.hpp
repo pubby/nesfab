@@ -87,6 +87,7 @@ constexpr asm_flags_t ASMF_BRANCH      = 1 << 2;
 constexpr asm_flags_t ASMF_JUMP        = 1 << 3;
 constexpr asm_flags_t ASMF_CALL        = 1 << 4;
 constexpr asm_flags_t ASMF_RETURN      = 1 << 5;
+constexpr asm_flags_t ASMF_SWITCH      = 1 << 6;
 
 struct op_def_t
 {
@@ -157,14 +158,20 @@ constexpr op_name_mode_table_t op_name_mode_table = []() consteval
     for(unsigned i = 0; i < NUM_OPS; ++i)
     {
         op_t op = (op_t)i;
-        ret[op_name(op)][op_addr_mode(op)] = op;
+
+        if(op_name(op) && op_addr_mode(op))
+            ret[op_name(op)][op_addr_mode(op)] = op;
     }
 
     return ret;
 }();
 
 constexpr op_t get_op(op_name_t name, addr_mode_t mode)
-    { assert(name < op_name_mode_table.size()); return op_name_mode_table[name][mode]; }
+{ 
+    assert(name < op_name_mode_table.size()); 
+    assert(mode < op_name_mode_table[name].size()); 
+    return op_name_mode_table[name][mode]; 
+}
 
 inline addr_mode_table_t const& get_addr_modes(op_name_t name)
     { assert(name < op_name_mode_table.size()); return op_name_mode_table[name]; }

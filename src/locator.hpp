@@ -50,6 +50,8 @@ enum locator_class_t : std::uint8_t
     LOC_RETURN,
     LOC_PHI, // TODO: remove?
     LOC_SSA,
+    LOC_SWITCH_LO_TABLE,
+    LOC_SWITCH_HI_TABLE,
     LOC_MINOR_VAR,
     LOC_LVAR,
     LOC_ASM_LOCAL_VAR,
@@ -87,7 +89,8 @@ static_assert(NUM_LCLASS < 1 << 6);
 
 constexpr bool is_label(locator_class_t lclass)
 {
-    return lclass == LOC_CFG_LABEL || lclass == LOC_MINOR_LABEL;
+    return (lclass == LOC_CFG_LABEL || lclass == LOC_MINOR_LABEL
+            || lclass == LOC_SWITCH_LO_TABLE || lclass == LOC_SWITCH_HI_TABLE);
 }
 
 constexpr bool is_const(locator_class_t lclass)
@@ -104,6 +107,8 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_RETURN:
     case LOC_SSA:
     case LOC_PHI:
+    case LOC_SWITCH_LO_TABLE:
+    case LOC_SWITCH_HI_TABLE:
     case LOC_ASM_LOCAL_VAR:
     //case LOC_LT_GMEMBER_PTR:
     case LOC_GCONST:
@@ -342,7 +347,8 @@ public:
 
     cfg_ht cfg_node() const 
     { 
-        assert(lclass() == LOC_CFG_LABEL);
+        assert(lclass() == LOC_CFG_LABEL
+               || lclass() == LOC_SWITCH_LO_TABLE || lclass() == LOC_SWITCH_HI_TABLE);
         return { handle() }; 
     }
 
@@ -455,6 +461,12 @@ public:
 
     constexpr static locator_t ssa(ssa_ht node)
         { return locator_t(LOC_SSA, node.id, 0, 0, 0, 0); }
+
+    constexpr static locator_t switch_lo_table(cfg_ht node)
+        { return locator_t(LOC_SWITCH_LO_TABLE, node.id, 0, 0, 0, 0); }
+
+    constexpr static locator_t switch_hi_table(cfg_ht node)
+        { return locator_t(LOC_SWITCH_HI_TABLE, node.id, 0, 0, 0, 0); }
 
     constexpr static locator_t lvar(fn_ht fn, unsigned lvar)
         { return locator_t(LOC_LVAR, fn.id, lvar, 0); }

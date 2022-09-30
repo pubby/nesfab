@@ -116,12 +116,14 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     // The last daisy in the cfg_node should be scheduled last.
     if(ssa_ht exit = cfg_node->last_daisy())
     {
-        auto& exit_d = data(exit);
-        assert(exit->output_size() == 0);
-        for(ssa_ht ssa_node : toposorted)
-            if(ssa_node != exit)
-                bitset_set(exit_d.deps, index(ssa_node));
-        calc_exit_distance(exit);
+        if(exit->output_size() == 0)
+        {
+            auto& exit_d = data(exit);
+            for(ssa_ht ssa_node : toposorted)
+                if(ssa_node != exit)
+                    bitset_set(exit_d.deps, index(ssa_node));
+            calc_exit_distance(exit);
+        }
     }
 
     for(ssa_ht ssa_node : toposorted)

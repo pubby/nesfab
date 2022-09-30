@@ -14,6 +14,7 @@
 #include "debug_print.hpp"
 #include "flags.hpp"
 #include "array_pool.hpp"
+#include "switch.hpp"
 
 struct asm_inst_t;
 class locator_t;
@@ -25,6 +26,15 @@ struct asm_path_t;
 
 namespace bi = ::boost::intrusive;
 
+struct asm_edge_t
+{
+    asm_node_t* node;
+    int case_value = -1; // for switch nodes
+
+    constexpr explicit operator bool() const { return node; }
+    constexpr auto operator<=>(asm_edge_t const&) const = default;
+};
+
 class asm_node_t : public bi::list_base_hook<>, public flag_owner_t
 {
 friend class asm_graph_t;
@@ -33,15 +43,21 @@ public:
     : label(new_label), original_order(original_order)
     {}
 
-    void push_output(asm_node_t* o);
+    void push_output(asm_edge_t o);
     void remove_output(unsigned i);
     void replace_output(unsigned i, asm_node_t* with);
 
     unsigned find_input(asm_node_t* h) const { return std::find(m_inputs.begin(), m_inputs.end(), h) - m_inputs.begin(); }
-    unsigned find_output(asm_node_t* h) const { return std::find(m_outputs.begin(), m_outputs.end(), h) - m_outputs.begin(); }
+    unsigned find_output(asm_edge_t h) const { return std::find(m_outputs.begin(), m_outputs.end(), h) - m_outputs.begin(); }
+    unsigned find_output(asm_node_t* h) const 
+    { 
+        return std::find_if(m_outputs.begin(), m_outputs.end(), [h](auto const& n){ return n.node == h; }) - m_outputs.begin(); 
+    }
 
     auto const& inputs() const { return m_inputs; }
     auto const& outputs() const { return m_outputs; }
+
+    bool is_switch() const { return op_flags(output_inst.op) & ASMF_SWITCH; }
 
 public:
     void remove_outputs_input(unsigned i);
@@ -82,14 +98,15 @@ public:
 private:
 
     bc::small_vector<asm_node_t*, 2> m_inputs;
-    bc::small_vector<asm_node_t*, 2> m_outputs;
+    bc::small_vector<asm_edge_t, 2> m_outputs;
 };
 
 class asm_graph_t
 {
 public:
     asm_graph_t(log_t* log, locator_t entry_label);
-    void append_code(std::vector<asm_inst_t> const& code);
+    void append_code(asm_inst_t const* begin, asm_inst_t const* end, 
+                     rh::batman_map<cfg_ht, switch_table_t> const& switch_tables);
     void finish_appending();
 
     std::vector<asm_node_t*> order();

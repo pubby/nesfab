@@ -355,6 +355,15 @@ void ssa_node_t::link_shrink_inputs(unsigned new_size)
     m_io.shrink_input(new_size);
 }
 
+void ssa_node_t::link_swap_inputs(unsigned ai, unsigned bi)
+{
+    ssa_fwd_edge_t& ae = m_io.input(ai);
+    ssa_fwd_edge_t& be = m_io.input(bi);
+
+    std::swap(ae, be);
+    std::swap(ae.output()->index, be.output()->index);
+}
+
 void ssa_node_t::replace_with(ssa_value_t value)
 {
     unsigned const this_size = output_size();
@@ -614,6 +623,22 @@ ssa_ht cfg_node_t::prune_ssa(ssa_ht ssa_h)
     return ret;
 }
 
+void cfg_node_t::steal_outputs(cfg_node_t& cfg)
+{
+    assert(output_size() == 0);
+
+    cfg_ht const this_handle = handle();
+    unsigned const output_size = cfg.output_size();
+
+    m_io.resize_output(output_size);
+    for(unsigned i = 0; i < output_size; ++i)
+    {
+        m_io.output(i) = cfg.m_io.output(i);
+        m_io.output(i).input().handle = this_handle;
+    }
+    cfg.m_io.clear_output();
+}
+
 void cfg_node_t::steal_ssa_nodes(cfg_ht cfg)
 {
     if(&*cfg == this)
@@ -674,20 +699,10 @@ ssa_ht cfg_node_t::steal_ssa(ssa_ht ssa, bool steal_linked)
 
 void cfg_node_t::link_remove_output(unsigned i)
 {
-    assert(i < output_size());
+    auto oe = output_edge(i);
 
-    // The back of 'output_vec' will move to position 'i'.
-    // We have to adjust the edge's index too.
-    assert(m_io.last_output().handle);
-    assert(m_io.last_output().input().index == output_size() - 1);
-    m_io.last_output().input().index = i;
-
-    // Deal with the node we're passing outputs along 'i' from.
-    remove_outputs_input(i);
-
-    // Remove the output.
-    std::swap(m_io.output(i), m_io.last_output());
-    m_io.shrink_output(output_size() - 1);
+    link_swap_outputs(i, output_size() - 1);
+    link_shrink_outputs(output_size() - 1);
 }
 
 void cfg_node_t::link_clear_inputs()
@@ -702,12 +717,39 @@ void cfg_node_t::link_clear_inputs()
         phi_it->link_clear_inputs();
 }
 
+void cfg_node_t::link_shrink_outputs(unsigned new_size)
+{
+    std::size_t const size = output_size();
+    assert(new_size <= size);
+    for(std::size_t i = new_size; i < size; ++i)
+        remove_outputs_input(i);
+    m_io.shrink_output(new_size);
+}
+
 void cfg_node_t::link_clear_outputs()
 {
-    unsigned const size = output_size();
-    for(std::size_t i = 0; i < size; ++i)
-        remove_outputs_input(i);
-    m_io.clear_output();
+    link_shrink_outputs(0);
+}
+
+void cfg_node_t::link_swap_inputs(unsigned ai, unsigned bi)
+{
+    cfg_fwd_edge_t& ae = m_io.input(ai);
+    cfg_fwd_edge_t& be = m_io.input(bi);
+
+    for(ssa_ht phi_it = phi_begin(); phi_it; ++phi_it)
+        phi_it->link_swap_inputs(ai, bi);
+
+    std::swap(ae, be);
+    std::swap(ae.output().index, be.output().index);
+}
+
+void cfg_node_t::link_swap_outputs(unsigned ai, unsigned bi)
+{
+    cfg_bck_edge_t& ae = m_io.output(ai);
+    cfg_bck_edge_t& be = m_io.output(bi);
+
+    std::swap(ae, be);
+    std::swap(ae.input().index, be.input().index);
 }
 
 void cfg_node_t::remove_inputs_output(unsigned i)
@@ -718,14 +760,22 @@ void cfg_node_t::remove_inputs_output(unsigned i)
     // We'll be removing this node eventually:
     cfg_fwd_edge_t edge = m_io.input(i);
     cfg_node_t& edge_node = *edge.handle;
+    unsigned const from_i = edge.index;
 
     assert(edge_node.output_size() > 0);
 
     // Remove the input edge that leads to our input on 'i'.
-    edge_node.m_io.last_output().input().index = edge.index;
+    edge_node.m_io.last_output().input().index = from_i;
 
     std::swap(edge.output(), edge_node.m_io.last_output());
     edge_node.m_io.shrink_output(edge_node.output_size() - 1);
+
+#ifndef NDEBUG
+        if(from_i < edge_node.m_io.output_size())
+            assert(edge_node.m_io.output(from_i).input().index == from_i);
+        for(unsigned i = 0; i < edge_node.output_size(); ++i)
+            assert(edge_node.output_edge(i).input().index == i);
+#endif
 }
 
 void cfg_node_t::remove_outputs_input(unsigned i)
@@ -736,11 +786,13 @@ void cfg_node_t::remove_outputs_input(unsigned i)
     // We'll be removing this node eventually:
     cfg_bck_edge_t edge = m_io.output(i);
     cfg_node_t& edge_node = *edge.handle;
+    unsigned const from_i = edge.index;
 
     assert(edge_node.input_size() > 0);
 
     // Remove the output edge that leads to our input on 'i'.
-    edge_node.m_io.last_input().output().index = edge.index;
+    edge_node.m_io.last_input().output().index = from_i;
+    edge.input().handle = {};
 
     // Update all phi nodes
     for(ssa_ht phi_it = edge_node.phi_begin(); phi_it; ++phi_it)
@@ -753,6 +805,13 @@ void cfg_node_t::remove_outputs_input(unsigned i)
 
     std::swap(edge.input(), edge_node.m_io.last_input());
     edge_node.m_io.shrink_input(edge_node.input_size() - 1);
+
+#ifndef NDEBUG
+        if(from_i < edge_node.m_io.input_size())
+            assert(edge_node.m_io.input(from_i).output().index == from_i);
+        for(unsigned i = 0; i < edge_node.input_size(); ++i)
+            assert(edge_node.input_edge(i).output().index == i);
+#endif
 }
 
 ////////////////////////////////////////
@@ -868,6 +927,8 @@ void ir_t::assert_valid() const
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 
         cfg_node_t& cfg_node = *cfg_it;
+
+        passert(cfg_node.output_size() <= MAX_CFG_OUTPUT, cfg_node.output_size());
 
         for(unsigned i = 0; i < cfg_node.input_size(); ++i)
         {

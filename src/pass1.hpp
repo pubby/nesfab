@@ -786,6 +786,9 @@ public:
 
         validate_mods("default", pstring, mods);
 
+        if(switch_stack.back().default_case)
+            compiler_error(pstring, "Multiple default labels inside switch.");
+
         // Create a new label
         switch_stack.back().default_case = fn_def.push_stmt(
             { STMT_DEFAULT, fn_def.push_mods(std::move(mods)), {}, pstring });

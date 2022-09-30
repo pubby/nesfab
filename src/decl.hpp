@@ -20,6 +20,7 @@ constexpr unsigned MAX_ASM_LOCAL_VARS = 128;
 constexpr unsigned MAX_MEMBERS = 256;
 constexpr unsigned MAX_ATOMS = 8;
 constexpr unsigned MAX_PAA_SIZE = 8192;
+constexpr unsigned MAX_CFG_OUTPUT = 256;
 
 struct group_t;
 class global_t;

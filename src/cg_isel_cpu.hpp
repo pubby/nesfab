@@ -13,7 +13,7 @@ namespace isel
 
 using options_flags_t = std::uint8_t;
 constexpr options_flags_t OPT_NO_DIRECT   = 0b10; // Works as a 2-bit counter
-constexpr options_flags_t OPT_CONDITIONAL = 1 << 2;
+//constexpr options_flags_t OPT_CONDITIONAL = 1 << 2; TODO: remove
 
 // Options, to be passed to various construction functions:
 struct options_t
@@ -75,8 +75,13 @@ struct cpu_t
 
     // When implementing minor branches (such as in multi-byte comparisons),
     // some registers will be conditionally set.
-    // These flags track which registers are conditional:
+    // These flags track which registers are conditional.
     regs_t conditional_regs = 0;
+
+    // The high bit of 'conditional_regs' is repurposed,
+    // and tracks if conditional execution is happening.
+    static constexpr regs_t CONDITIONAL_EXEC = 1 << 7;
+    static_assert((REGF_CPU & CONDITIONAL_EXEC) == 0);
 
     // This bitset keeps track of which variables must be stored.
     // To shrink the size down to 64 bits, a rolling window is used
@@ -93,12 +98,16 @@ struct cpu_t
     }
 
     // Determines if two cpus are reasonably equivalent.
+    // Keep in sync with 'hash'.
+    // DO NOT COMPARE 'conditional_regs'!
     bool operator==(cpu_t const& o) const 
     { 
         assert(known_array_valid() && o.known_array_valid());
         return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask && known == o.known); 
     }
 
+    // Keep in sync with 'operator=='.
+    // DO NOT HASH 'conditional_regs'!
     std::size_t hash() const
     {
         std::size_t h = req_store;
@@ -157,8 +166,7 @@ struct cpu_t
     {
         if(!(opt.can_set & (1 << Reg)))
             return false;
-        if(opt.flags & OPT_CONDITIONAL)
-            conditional_regs |= 1 << Reg;
+        conditional_regs |= 1 << Reg;
         set_def_impl<Reg>(opt, value, keep_value);
         return true;
     }
@@ -222,8 +230,7 @@ struct cpu_t
     {
         if((Regs & opt.can_set) != Regs)
             return false;
-        if(opt.flags & OPT_CONDITIONAL)
-            conditional_regs |= Regs;
+        conditional_regs |= Regs;
         set_defs_impl<Regs>(opt, value, keep_value);
         return true;
     }
@@ -244,8 +251,9 @@ struct cpu_t
         constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
         if((Regs & opt.can_set) != Regs)
             return false;
-        if(opt.flags & OPT_CONDITIONAL)
-            conditional_regs |= Regs;
+        if((op_flags(Op) & ASMF_BRANCH) && !(conditional_regs & CONDITIONAL_EXEC))
+            conditional_regs = CONDITIONAL_EXEC;
+        conditional_regs |= Regs;
         return set_defs<Regs>(opt, value);
     }
 

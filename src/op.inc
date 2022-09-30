@@ -11,6 +11,8 @@ OP(MAYBE_STORE_Z)
 OP(STORE_Z_ABSOLUTE)
 OP(BANKED_Y_JSR)
 OP(BANKED_Y_JMP)
+OP(ASM_X_SWITCH)
+OP(ASM_Y_SWITCH)
 
 // Standard MOS 6502 ops (with some nonstandard addr modes)
 OP(ADC_IMMEDIATE)

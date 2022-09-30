@@ -868,8 +868,9 @@ std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, l
     constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
     if((Regs & opt.can_set) != Regs)
         return false;
-    if(opt.flags & OPT_CONDITIONAL)
-        conditional_regs |= Regs;
+    if((op_flags(Op) & ASMF_BRANCH) && !(conditional_regs & CONDITIONAL_EXEC))
+        conditional_regs = CONDITIONAL_EXEC;
+    conditional_regs |= Regs;
     set_defs_for_impl<Op>::call(opt, *this, def, arg);
     return true;
 }

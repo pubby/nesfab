@@ -177,6 +177,7 @@ public:
     bool link_change_input(unsigned i, ssa_value_t new_value);
     void link_clear_inputs();
     void link_shrink_inputs(unsigned new_size);
+    void link_swap_inputs(unsigned ai, unsigned bi);
 
     bool in_daisy() const { return test_flags(FLAG_DAISY); }
     void insert_daisy(ssa_ht it);
@@ -259,7 +260,10 @@ public:
     unsigned link_append_output(cfg_ht new_h, PhiFn phi_fn);
     template<typename PhiFn>
     void link_change_output(unsigned i, cfg_ht new_h, PhiFn phi_fn);
+    void link_shrink_outputs(unsigned new_size);
     void link_clear_outputs();
+    void link_swap_inputs(unsigned ai, unsigned bi);
+    void link_swap_outputs(unsigned ai, unsigned bi);
 
     ssa_ht ssa_begin() const { return m_first_ssa; }
     ssa_ht phi_begin() const { return m_first_phi; }
@@ -290,6 +294,10 @@ public:
 
     void prune_ssa();
     ssa_ht prune_ssa(ssa_ht ssa_h);
+
+    // Steals all the outputs of 'cfg'.
+    // Only valid if this node has no outputs.
+    void steal_outputs(cfg_node_t& cfg);
 
     // Moves all the SSA nodes in 'cfg' into this node.
     void steal_ssa_nodes(cfg_ht cfg);
@@ -514,13 +522,13 @@ inline fn_ht get_fn(ssa_node_t const& node)
 
 inline unsigned get_condition_i(ssa_op_t op)
 {
-    assert(op == SSA_if);
+    assert(ssa_flags(op) & SSAF_CONDITIONAL);
     return 0;
 }
 
 inline ssa_value_t get_condition(ssa_node_t& node)
 {
-    assert(node.op() == SSA_if);
+    assert(ssa_flags(node.op()) & SSAF_CONDITIONAL);
     assert(node.input_size() > get_condition_i(node.op()));
     return node.input(get_condition_i(node.op()));
 }

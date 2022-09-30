@@ -24,3 +24,4 @@ bool pure(ssa_node_t const& ssa_node)
         return get_fn(ssa_node)->ir_writes().all_clear();
     return true;
 }
+

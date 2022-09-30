@@ -23,6 +23,9 @@
 #include "worklist.hpp"
 #include "debug_print.hpp"
 #include "multi.hpp"
+#include "switch.hpp"
+#include "asm_graph.hpp"
+#include "rom.hpp"
 
 namespace bc = ::boost::container;
 
@@ -386,12 +389,12 @@ namespace isel
     }
 
     template<op_t Op>
-    sel_t& alloc_sel(options_t opt, sel_t const* prev, 
+    sel_t& alloc_sel(cpu_t const& cpu, sel_t const* prev, 
                      locator_t arg = {}, locator_t alt = {}, isel_cost_t extra_cost = 0)
     {
         assert(Op != BAD_OP);
         isel_cost_t total_cost = cost_fn(Op);
-        if(opt.flags & OPT_CONDITIONAL)
+        if(cpu.conditional_regs & cpu_t::CONDITIONAL_EXEC)
             total_cost = (total_cost * 3) / 4; // Conditional ops are arbitrarily cheaper.
         total_cost += prev->cost + extra_cost;
 
@@ -404,9 +407,9 @@ namespace isel
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
-    sel_t& alloc_sel(options_t opt, sel_t const* prev, locator_t arg, Args... args)
+    sel_t& alloc_sel(cpu_t const& cpu, sel_t const* prev, locator_t arg, Args... args)
     {
-        return alloc_sel<NextOp, Ops...>(opt, alloc_sel<Op>(opt, prev, arg), args...);
+        return alloc_sel<NextOp, Ops...>(cpu, alloc_sel<Op>(cpu, prev, arg), args...);
     }
 
     // Marks the node as stored without any cost.
@@ -461,7 +464,7 @@ namespace isel
     template<typename Label> [[gnu::noinline]]
     void label(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        cont->call(cpu, &alloc_sel<ASM_LABEL>({}, prev, Label::trans()));
+        cont->call(cpu, &alloc_sel<ASM_LABEL>(cpu, prev, Label::trans()));
     };
 
     template<typename Opt, regs_t Regs, bool KeepValue, typename Param> [[gnu::noinline]]
@@ -489,6 +492,7 @@ namespace isel
     void clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
+        assert(cpu.conditional_regs & cpu_t::CONDITIONAL_EXEC);
         for(regs_t r = 0; r < NUM_CPU_REGS; ++r)
         {
             if(cpu_copy.conditional_regs & (1 << r))
@@ -563,7 +567,7 @@ namespace isel
                 penalty = handle_req_store_penalty<Op>(cpu_copy, ssa_def, ssa_arg);
             }
 
-            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, alt, penalty));
+            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, arg, alt, penalty));
         }
     }
 
@@ -585,7 +589,7 @@ namespace isel
 #endif
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs_for<Op>(opt, def, arg))
-            cont->call(cpu_copy, &alloc_sel<Op>(opt, prev, arg, {}, 0));
+            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, arg, {}, 0));
     }
 
     template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
@@ -639,7 +643,7 @@ namespace isel
         static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_output_defs<Op>(Opt::to_struct, Def::value()))
-            cont->call(cpu_copy, &alloc_sel<Op>(Opt::to_struct, prev, locator_t::runtime_rom(RTROM_iota)));
+            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota)));
     };
 
     template<typename Opt, typename Def> [[gnu::noinline]]
@@ -714,23 +718,23 @@ namespace isel
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, {}, value) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ANC_IMMEDIATE>(opt, prev, value));
+                cont->call(cpu_copy, &alloc_sel<ANC_IMMEDIATE>(cpu, prev, value));
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<LSR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<LSR_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<LSR_IMPLIED>(cpu, prev));
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<ASL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ASL_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<ASL_IMPLIED>(cpu, prev));
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<ROL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ROL_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<ROL_IMPLIED>(cpu, prev));
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<ROR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ROR_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<ROR_IMPLIED>(cpu, prev));
 
             if(cpu.is_known(REG_A))
             {
@@ -745,7 +749,7 @@ namespace isel
                         locator_t const arg = locator_t::const_byte(mask | i);
                         cpu_copy = cpu;
                         if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, {}, arg) && cpu_copy.is_known(REG_A, byte))
-                            cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(opt, prev, value));
+                            cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(cpu, prev, value));
 
                         // No point in doing the second iteration if it can't set the carry:
                         if(!(cpu.known[REG_A] & 1))
@@ -790,11 +794,11 @@ namespace isel
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<INX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
-                cont->call(cpu_copy, &alloc_sel<INX_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<INX_IMPLIED>(cpu, prev));
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<DEX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
-                cont->call(cpu_copy, &alloc_sel<DEX_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<DEX_IMPLIED>(cpu, prev));
         }
     }
 
@@ -838,11 +842,11 @@ namespace isel
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
-                cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(cpu, prev));
 
             cpu_copy = cpu;
             if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
-                cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(opt, prev));
+                cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(cpu, prev));
         }
     }
 
@@ -891,7 +895,6 @@ namespace isel
         }
         else if(cpu.def_eq(REG_Z, Def::value()))
         {
-            using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
             using load_C_label = param<struct load_C_label_tag>;
             load_C_label::set(state.minor_label());
 
@@ -899,7 +902,7 @@ namespace isel
             {
                 chain
                 < branch_op<Opt, BNE, load_C_label>
-                , simple_op<OptC, SEC_IMPLIED>
+                , simple_op<Opt, SEC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_C, true, Def>
@@ -909,7 +912,7 @@ namespace isel
             {
                 chain
                 < branch_op<Opt, BEQ, load_C_label>
-                , simple_op<OptC, CLC_IMPLIED>
+                , simple_op<Opt, CLC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_C, true, Def>
@@ -920,7 +923,7 @@ namespace isel
                 chain
                 < simple_op<Opt, CLC_IMPLIED>
                 , branch_op<Opt, BNE, load_C_label>
-                , simple_op<OptC, SEC_IMPLIED>
+                , simple_op<Opt, SEC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_C, true, Def>
@@ -1090,14 +1093,11 @@ namespace isel
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
     void carry_label_clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        using C = typename Opt::add_flags<OPT_CONDITIONAL>;
-        using NC = typename Opt::remove_flags<OPT_CONDITIONAL>;
-
         chain
-        < load_C<C, const_<Sec>>
+        < load_C<Opt, const_<Sec>>
         , label<Label>
         , clear_conditional
-        , set_defs_for<NC, Sec ? SEC_IMPLIED : CLC_IMPLIED, null_>
+        , set_defs_for<Opt, Sec ? SEC_IMPLIED : CLC_IMPLIED, null_>
         >(cpu, prev, cont);
     };
 
@@ -1108,7 +1108,8 @@ namespace isel
     template<typename Opt, op_name_t StoreOp, typename Def, typename Param, bool Maybe = true> [[gnu::noinline]]
     void simple_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        static_assert(!(Opt::flags & OPT_CONDITIONAL), "Conditional stores likely break cg_liveness"); 
+        // Conditional stores break cg_liveness
+        assert(!(cpu.conditional_regs & cpu_t::CONDITIONAL_EXEC));
 
         cpu_t cpu_copy = cpu;
         constexpr auto input_regs = op_input_regs(get_op(StoreOp, MODE_ABSOLUTE)) & REGF_CPU;
@@ -1124,13 +1125,13 @@ namespace isel
             {
                 constexpr auto LikelyOp = get_op(StoreOp, MODE_LIKELY);
                 static_assert(LikelyOp);
-                cont->call(cpu_copy, &alloc_sel<LikelyOp>(Opt::to_struct, prev, Param::trans()));
+                cont->call(cpu_copy, &alloc_sel<LikelyOp>(cpu, prev, Param::trans()));
             }
             else
             {
                 constexpr auto MaybeOp = get_op(StoreOp, MODE_MAYBE);
                 static_assert(MaybeOp);
-                cont->call(cpu_copy, &alloc_sel<MaybeOp>(Opt::to_struct, prev, Param::trans()));
+                cont->call(cpu_copy, &alloc_sel<MaybeOp>(cpu, prev, Param::trans()));
             }
         }
         else
@@ -1144,7 +1145,7 @@ namespace isel
                     cpu_copy.req_store |= d.isel.store_mask;
             }
 
-            cont->call(cpu_copy, &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(Opt::to_struct, prev, Param::trans()));
+            cont->call(cpu_copy, &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(cpu, prev, Param::trans()));
         }
     }
 
@@ -1311,7 +1312,6 @@ namespace isel
     template<typename Opt, typename Def, typename Value> [[gnu::noinline]]
     void sign_extend(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         using this_label = param<i_tag<struct sign_extend_label_tag, 0>>;
         this_label::set(state.minor_label());
 
@@ -1319,7 +1319,7 @@ namespace isel
         < load_A<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_A>, Value>
         , branch_op<Opt, BMI, this_label>
-        , simple_op<OptC, LDA_IMMEDIATE, null_, const_<0xFF>>
+        , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0xFF>>
         , label<this_label>
         , clear_conditional
         , store<Opt, STA, Def, Def>
@@ -1329,7 +1329,7 @@ namespace isel
         < load_X<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_X>, Value>
         , branch_op<Opt, BMI, this_label>
-        , simple_op<OptC, DEX_IMPLIED, null_, null_>
+        , simple_op<Opt, DEX_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional
         , store<Opt, STX, Def, Def>
@@ -1339,7 +1339,7 @@ namespace isel
         < load_Y<Opt, const_<0>>
         , load_NZ_for<typename Opt::restrict_to<~REGF_Y>, Value>
         , branch_op<Opt, BMI, this_label>
-        , simple_op<OptC, DEY_IMPLIED, null_, null_>
+        , simple_op<Opt, DEY_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional
         , store<Opt, STY, Def, Def>
@@ -1349,7 +1349,6 @@ namespace isel
     template<typename Opt, typename FailLabel, typename SuccessLabel>
     void eq_branch(ssa_ht h)
     {
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         constexpr op_name_t BranchOp = BEQ;
         constexpr op_name_t InverseOp = BNE;
         using SignLabel = std::conditional_t<BranchOp == BEQ, FailLabel, SuccessLabel>;
@@ -1384,57 +1383,57 @@ namespace isel
                     else if(p_rhs::value().eq_const_byte(0))
                     {
                         chain
-                        < load_NZ_for<OptC, p_lhs>
-                        , branch_op<OptC, InverseOp, FailLabel>
+                        < load_NZ_for<Opt, p_lhs>
+                        , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
                     }
                     else
                     {
                         chain
-                        < load_A<OptC, p_lhs>
-                        , if_<OptC, sign_check, 
-                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
-                            branch_op<OptC, BMI, SignLabel>>>
-                        , pick_op<OptC, CMP, null_, p_rhs>
-                        , branch_op<OptC, InverseOp, FailLabel>
+                        < load_A<Opt, p_lhs>
+                        , if_<Opt, sign_check, 
+                            chain<load_NZ_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<Opt, BMI, SignLabel>>>
+                        , pick_op<Opt, CMP, null_, p_rhs>
+                        , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_X<OptC, p_lhs>
-                        , if_<OptC, sign_check, 
-                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
-                            branch_op<OptC, BMI, SignLabel>>>
-                        , pick_op<OptC, CPX, null_, p_rhs>
-                        , branch_op<OptC, InverseOp, FailLabel>
+                        < load_X<Opt, p_lhs>
+                        , if_<Opt, sign_check, 
+                            chain<load_NZ_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<Opt, BMI, SignLabel>>>
+                        , pick_op<Opt, CPX, null_, p_rhs>
+                        , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_Y<OptC, p_lhs>
-                        , if_<OptC, sign_check, 
-                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
-                            branch_op<OptC, BMI, SignLabel>>>
-                        , pick_op<OptC, CPY, null_, p_rhs>
-                        , branch_op<OptC, InverseOp, FailLabel>
+                        < load_Y<Opt, p_lhs>
+                        , if_<Opt, sign_check, 
+                            chain<load_NZ_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<Opt, BMI, SignLabel>>>
+                        , pick_op<Opt, CPY, null_, p_rhs>
+                        , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_A<OptC, p_lhs>
-                        , if_<OptC, sign_check, 
-                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
-                            branch_op<OptC, BMI, SignLabel>>>
-                        , load_X<typename OptC::restrict_to<~REGF_A>, p_rhs>
-                        , iota_op<OptC, CMP_ABSOLUTE_X, null_>
-                        , branch_op<OptC, InverseOp, FailLabel>
+                        < load_A<Opt, p_lhs>
+                        , if_<Opt, sign_check, 
+                            chain<load_NZ_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<Opt, BMI, SignLabel>>>
+                        , load_X<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                        , iota_op<Opt, CMP_ABSOLUTE_X, null_>
+                        , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_A<OptC, p_lhs>
-                        , if_<OptC, sign_check, 
-                            chain<load_NZ_for<typename OptC::restrict_to<~REGF_X>, p_lhs>,
-                            branch_op<OptC, BMI, SignLabel>>>
-                        , load_Y<typename OptC::restrict_to<~REGF_A>, p_rhs>
-                        , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
-                        , branch_op<OptC, InverseOp, FailLabel>
+                        < load_A<Opt, p_lhs>
+                        , if_<Opt, sign_check, 
+                            chain<load_NZ_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            branch_op<Opt, BMI, SignLabel>>>
+                        , load_Y<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                        , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
+                        , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
                     }
                 }
@@ -1443,7 +1442,7 @@ namespace isel
 
         select_step<false>(
             chain
-            < simple_op<OptC, get_op(BranchOp, MODE_RELATIVE), null_, SuccessLabel>
+            < simple_op<Opt, get_op(BranchOp, MODE_RELATIVE), null_, SuccessLabel>
             , clear_conditional
             >);
     }
@@ -1468,8 +1467,6 @@ namespace isel
         else
             eq_branch<O::restrict_to<~REGF_X>, success, fail>(h);
 
-        using OC = O::add_flags<OPT_CONDITIONAL>;
-        
         select_step<true>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
         {
             // Explicitly instantiate the labels.
@@ -1479,7 +1476,7 @@ namespace isel
 
             chain
             < label<success>
-            , simple_op<OC, INX_IMPLIED>
+            , simple_op<O, INX_IMPLIED>
             , clear_conditional
             , label<fail>
             , store<O, STX, p_def, p_def>
@@ -1490,7 +1487,6 @@ namespace isel
     template<typename Opt, typename FailLabel, typename SuccessLabel, bool Flip = false>
     void lt_branch(ssa_ht h)
     {
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         using last_comp = condition<struct lt_last_comp_tag>;
 
         multi_lt_info_t info(h, Flip);
@@ -1516,29 +1512,29 @@ namespace isel
                         assert(!info.lsigned);
 
                         if(p_rhs::value().eq_const_byte(0))
-                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, FailLabel>>);
+                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, FailLabel>>);
                         else
                         {
                             select_step<false>(
                                 chain
-                                < load_NZ_for<OptC, p_rhs>
-                                , branch_op<OptC, BMI, FailLabel>
-                                , branch_op<OptC, BNE, SuccessLabel>
-                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                                < load_NZ_for<Opt, p_rhs>
+                                , branch_op<Opt, BMI, FailLabel>
+                                , branch_op<Opt, BNE, SuccessLabel>
+                                , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, FailLabel>>
                                 >);
                         }
                     }
                     else
                     {
                         if(p_rhs::value().eq_const_byte(0))
-                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, FailLabel>>);
+                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, FailLabel>>);
                         else
                         {
                             select_step<false>(
                                 chain
-                                < load_NZ_for<OptC, p_rhs>
-                                , branch_op<OptC, BNE, SuccessLabel>
-                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                                < load_NZ_for<Opt, p_rhs>
+                                , branch_op<Opt, BNE, SuccessLabel>
+                                , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, FailLabel>>
                                 >);
                         }
                     }
@@ -1557,29 +1553,29 @@ namespace isel
                         assert(!info.rsigned);
 
                         if(p_lhs::value().eq_const_byte(0))
-                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, SuccessLabel>>);
+                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, SuccessLabel>>);
                         else
                         {
                             select_step<false>(
                                 chain
-                                < load_NZ_for<OptC, p_lhs>
-                                , branch_op<OptC, BMI, SuccessLabel>
-                                , branch_op<OptC, BNE, FailLabel>
-                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
+                                < load_NZ_for<Opt, p_lhs>
+                                , branch_op<Opt, BMI, SuccessLabel>
+                                , branch_op<Opt, BNE, FailLabel>
+                                , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
                                 >);
                         }
                     }
                     else
                     {
                         if(p_lhs::value().eq_const_byte(0))
-                            select_step<false>(if_<OptC, last_comp, simple_op<OptC, JMP_ABSOLUTE, null_, SuccessLabel>>);
+                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, SuccessLabel>>);
                         else
                         {
                             select_step<false>(
                                 chain
-                                < load_NZ_for<OptC, p_lhs>
-                                , branch_op<OptC, BNE, FailLabel>
-                                , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
+                                < load_NZ_for<Opt, p_lhs>
+                                , branch_op<Opt, BNE, FailLabel>
+                                , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, SuccessLabel>, nullptr>
                                 >);
                         }
                     }
@@ -1604,18 +1600,18 @@ namespace isel
             {
                 select_step<false>(
                     chain
-                    < load_NZ_for<OptC, p_rhs>
-                    , branch_op<OptC, BNE, SuccessLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>>
+                    < load_NZ_for<Opt, p_rhs>
+                    , branch_op<Opt, BNE, SuccessLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, FailLabel>>
                     >);
             }
             else if(p_rhs::value().eq_const_byte(0))
             {
                 select_step<false>(
                     chain
-                    < load_NZ_for<OptC, p_lhs>
-                    , branch_op<OptC, BNE, FailLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BEQ_RELATIVE, null_, SuccessLabel>>
+                    < load_NZ_for<Opt, p_lhs>
+                    , branch_op<Opt, BNE, FailLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, SuccessLabel>>
                     >);
             }
             else if(info.lsigned)
@@ -1623,50 +1619,50 @@ namespace isel
                 select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
-                    < load_ANZ<OptC, p_lhs>
-                    , branch_op<OptC, BMI, SuccessLabel>
-                    , pick_op<OptC, CMP, null_, p_rhs>
-                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    < load_ANZ<Opt, p_lhs>
+                    , branch_op<Opt, BMI, SuccessLabel>
+                    , pick_op<Opt, CMP, null_, p_rhs>
+                    , simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<Opt, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_XNZ<OptC, p_lhs>
-                    , branch_op<OptC, BMI, SuccessLabel>
-                    , pick_op<OptC, CPX, null_, p_rhs>
-                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    < load_XNZ<Opt, p_lhs>
+                    , branch_op<Opt, BMI, SuccessLabel>
+                    , pick_op<Opt, CPX, null_, p_rhs>
+                    , simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<Opt, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_YNZ<OptC, p_lhs>
-                    , branch_op<OptC, BMI, SuccessLabel>
-                    , pick_op<OptC, CPY, null_, p_rhs>
-                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    < load_YNZ<Opt, p_lhs>
+                    , branch_op<Opt, BMI, SuccessLabel>
+                    , pick_op<Opt, CPY, null_, p_rhs>
+                    , simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<Opt, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_ANZ<OptC, p_lhs>
-                    , branch_op<OptC, BMI, SuccessLabel>
-                    , load_X<typename OptC::restrict_to<~REGF_A>, p_rhs>
-                    , iota_op<OptC, CMP_ABSOLUTE_X, null_>
-                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    < load_ANZ<Opt, p_lhs>
+                    , branch_op<Opt, BMI, SuccessLabel>
+                    , load_X<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                    , iota_op<Opt, CMP_ABSOLUTE_X, null_>
+                    , simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<Opt, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_ANZ<OptC, p_lhs>
-                    , branch_op<OptC, BMI, SuccessLabel>
-                    , load_Y<typename OptC::restrict_to<~REGF_A>, p_rhs>
-                    , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
-                    , simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, FailLabel>,
-                                           simple_op<OptC, BNE_RELATIVE, null_, FailLabel>>
+                    < load_ANZ<Opt, p_lhs>
+                    , branch_op<Opt, BMI, SuccessLabel>
+                    , load_Y<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                    , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
+                    , simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, FailLabel>,
+                                           simple_op<Opt, BNE_RELATIVE, null_, FailLabel>>
                     >(cpu, prev, cont);
                 });
             }
@@ -1677,50 +1673,50 @@ namespace isel
                 select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
-                    < load_ANZ<OptC, p_rhs>
-                    , branch_op<OptC, BMI, FailLabel>
-                    , pick_op<OptC, CMP, null_, p_lhs>
-                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    < load_ANZ<Opt, p_rhs>
+                    , branch_op<Opt, BMI, FailLabel>
+                    , pick_op<Opt, CMP, null_, p_lhs>
+                    , simple_op<Opt, BCC_RELATIVE, null_, FailLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<Opt, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_XNZ<OptC, p_rhs>
-                    , branch_op<OptC, BMI, FailLabel>
-                    , pick_op<OptC, CPX, null_, p_lhs>
-                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    < load_XNZ<Opt, p_rhs>
+                    , branch_op<Opt, BMI, FailLabel>
+                    , pick_op<Opt, CPX, null_, p_lhs>
+                    , simple_op<Opt, BCC_RELATIVE, null_, FailLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<Opt, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_YNZ<OptC, p_rhs>
-                    , branch_op<OptC, BMI, FailLabel>
-                    , pick_op<OptC, CPY, null_, p_lhs>
-                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    < load_YNZ<Opt, p_rhs>
+                    , branch_op<Opt, BMI, FailLabel>
+                    , pick_op<Opt, CPY, null_, p_lhs>
+                    , simple_op<Opt, BCC_RELATIVE, null_, FailLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<Opt, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_ANZ<OptC, p_rhs>
-                    , branch_op<OptC, BMI, FailLabel>
-                    , load_X<typename OptC::restrict_to<~REGF_A>, p_lhs>
-                    , iota_op<OptC, CMP_ABSOLUTE_X, null_>
-                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    < load_ANZ<Opt, p_rhs>
+                    , branch_op<Opt, BMI, FailLabel>
+                    , load_X<typename Opt::restrict_to<~REGF_A>, p_lhs>
+                    , iota_op<Opt, CMP_ABSOLUTE_X, null_>
+                    , simple_op<Opt, BCC_RELATIVE, null_, FailLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<Opt, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_ANZ<OptC, p_rhs>
-                    , branch_op<OptC, BMI, FailLabel>
-                    , load_Y<typename OptC::restrict_to<~REGF_A>, p_lhs>
-                    , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
-                    , simple_op<OptC, BCC_RELATIVE, null_, FailLabel>
-                    , if_<OptC, last_comp, simple_op<OptC, BCS_RELATIVE, null_, SuccessLabel>,
-                                          simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>>
+                    < load_ANZ<Opt, p_rhs>
+                    , branch_op<Opt, BMI, FailLabel>
+                    , load_Y<typename Opt::restrict_to<~REGF_A>, p_lhs>
+                    , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
+                    , simple_op<Opt, BCC_RELATIVE, null_, FailLabel>
+                    , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, SuccessLabel>,
+                                          simple_op<Opt, BNE_RELATIVE, null_, SuccessLabel>>
                     >(cpu, prev, cont);
                 });
             }
@@ -1761,9 +1757,9 @@ namespace isel
                     {
                         select_step<false>(
                             chain
-                            < load_NZ_for<OptC, p_rhs>
-                            , simple_op<OptC, BNE_RELATIVE, null_, SuccessLabel>
-                            , simple_op<OptC, BEQ_RELATIVE, null_, FailLabel>
+                            < load_NZ_for<Opt, p_rhs>
+                            , simple_op<Opt, BNE_RELATIVE, null_, SuccessLabel>
+                            , simple_op<Opt, BEQ_RELATIVE, null_, FailLabel>
                             >);
                         goto done;
                     }
@@ -1772,18 +1768,18 @@ namespace isel
                         select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                         {
                             chain
-                            < load_AC<OptC, p_lhs, const_<1>>
-                            , pick_op<OptC, SBC, null_, p_rhs>
+                            < load_AC<Opt, p_lhs, const_<1>>
+                            , pick_op<Opt, SBC, null_, p_rhs>
                             >(cpu, prev, cont);
 
                             chain
-                            < load_C<OptC, const_<1>>
+                            < load_C<Opt, const_<1>>
                             , load_AX<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
                             , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_X, null_>
                             >(cpu, prev, cont);
 
                             chain
-                            < load_C<OptC, const_<1>>
+                            < load_C<Opt, const_<1>>
                             , load_AY<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
                             , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_Y, null_>
                             >(cpu, prev, cont);
@@ -1799,28 +1795,28 @@ namespace isel
                     select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                     {
                         chain
-                        < load_A<OptC, p_lhs>
-                        , pick_op<OptC, CMP, null_, p_rhs>
+                        < load_A<Opt, p_lhs>
+                        , pick_op<Opt, CMP, null_, p_rhs>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_X<OptC, p_lhs>
-                        , pick_op<OptC, CPX, null_, p_rhs>
+                        < load_X<Opt, p_lhs>
+                        , pick_op<Opt, CPX, null_, p_rhs>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_Y<OptC, p_lhs>
-                        , pick_op<OptC, CPY, null_, p_rhs>
+                        < load_Y<Opt, p_lhs>
+                        , pick_op<Opt, CPY, null_, p_rhs>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_AX<OptC, p_lhs, p_rhs>
-                        , iota_op<OptC, CMP_ABSOLUTE_X, null_>
+                        < load_AX<Opt, p_lhs, p_rhs>
+                        , iota_op<Opt, CMP_ABSOLUTE_X, null_>
                         >(cpu, prev, cont);
 
                         chain
-                        < load_AY<OptC, p_lhs, p_rhs>
-                        , iota_op<OptC, CMP_ABSOLUTE_Y, null_>
+                        < load_AY<Opt, p_lhs, p_rhs>
+                        , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
                         >(cpu, prev, cont);
                     });
                 }
@@ -1830,18 +1826,18 @@ namespace isel
                 select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
                 {
                     chain
-                    < load_A<OptC, p_lhs>
-                    , pick_op<OptC, SBC, null_, p_rhs>
+                    < load_A<Opt, p_lhs>
+                    , pick_op<Opt, SBC, null_, p_rhs>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_AX<OptC, p_lhs, p_rhs>
-                    , iota_op<OptC, SBC_ABSOLUTE_X, null_>
+                    < load_AX<Opt, p_lhs, p_rhs>
+                    , iota_op<Opt, SBC_ABSOLUTE_X, null_>
                     >(cpu, prev, cont);
 
                     chain
-                    < load_AY<OptC, p_lhs, p_rhs>
-                    , iota_op<OptC, SBC_ABSOLUTE_Y, null_>
+                    < load_AY<Opt, p_lhs, p_rhs>
+                    , iota_op<Opt, SBC_ABSOLUTE_Y, null_>
                     >(cpu, prev, cont);
                 });
             }
@@ -1861,20 +1857,20 @@ namespace isel
             {
                 select_step<false>(
                     chain
-                    < simple_op<OptC, BVC_RELATIVE, null_, p_overflow_label>
-                    , exact_op<OptC, EOR_ABSOLUTE, null_, const_<0x80>>
+                    < simple_op<Opt, BVC_RELATIVE, null_, p_overflow_label>
+                    , exact_op<Opt, EOR_ABSOLUTE, null_, const_<0x80>>
                     , label<p_overflow_label>
                     , clear_conditional
-                    , simple_op<OptC, BMI_RELATIVE, null_, SuccessLabel>
-                    , simple_op<OptC, BPL_RELATIVE, null_, FailLabel>
+                    , simple_op<Opt, BMI_RELATIVE, null_, SuccessLabel>
+                    , simple_op<Opt, BPL_RELATIVE, null_, FailLabel>
                     >);
             }
             else
             {
                 select_step<false>(
                     chain
-                    < simple_op<OptC, BCC_RELATIVE, null_, SuccessLabel>
-                    , simple_op<OptC, BCS_RELATIVE, null_, FailLabel>
+                    < simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
+                    , simple_op<Opt, BCS_RELATIVE, null_, FailLabel>
                     >);
             }
         }
@@ -1902,8 +1898,6 @@ namespace isel
 
         lt_branch<O::restrict_to<~REGF_X>, fail, success, LTE>(h);
 
-        using OC = O::add_flags<OPT_CONDITIONAL>;
-        
         select_step<true>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
         {
             // Explicitly instantiate the labels.
@@ -1913,7 +1907,7 @@ namespace isel
 
             chain
             < label<std::conditional_t<LTE, fail, success>>
-            , simple_op<OC, INX_IMPLIED>
+            , simple_op<O, INX_IMPLIED>
             , clear_conditional
             , label<std::conditional_t<LTE, success, fail>>
             , store<O, STX, p_def, p_def>
@@ -1924,7 +1918,6 @@ namespace isel
     template<typename Opt>
     void fill_array(ssa_value_t def, unsigned start, unsigned len = 0)
     {
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         using loop_label = p_label<0>;
 
         if(len >= 256)
@@ -1940,13 +1933,13 @@ namespace isel
             for(unsigned page = 0; page < len; page += 256)
             {
                 p_arg<0>::set(def,  start + page);
-                select_step<false>(exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<0>>) ;
+                select_step<false>(exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<0>>) ;
             }
 
             select_step<false>(
                 chain
-                < simple_op<OptC, INX_IMPLIED>
-                , simple_op<OptC, BNE_RELATIVE, null_, loop_label>
+                < simple_op<Opt, INX_IMPLIED>
+                , simple_op<Opt, BNE_RELATIVE, null_, loop_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_X, true, const_<0>>
                 >);
@@ -1965,10 +1958,10 @@ namespace isel
                 chain
                 < load_AX<Opt, const_<0>, p_arg<0>>
                 , label<loop_label>
-                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<1>>
-                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<2>>
-                , simple_op<OptC, DEX_IMPLIED>
-                , simple_op<OptC, BPL_RELATIVE, null_, loop_label>
+                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>
+                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
+                , simple_op<Opt, DEX_IMPLIED>
+                , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_X, true, const_<0xFF>>
                 >);
@@ -1988,7 +1981,6 @@ namespace isel
     template<typename Opt>
     void copy_array(ssa_value_t from, ssa_value_t def, unsigned resize_to = 0)
     {
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
         using loop_label = p_label<0>;
 
         assert(is_tea(from.type().name()));
@@ -2028,15 +2020,15 @@ namespace isel
                     p_arg<1>::set(def,  page);
                     select_step<false>(
                         chain
-                        < exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<0>>
-                        , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<1>>
+                        < exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<0>>
+                        , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>
                         >);
                 }
 
                 select_step<false>(
                     chain
-                    < simple_op<OptC, INX_IMPLIED>
-                    , simple_op<OptC, BNE_RELATIVE, null_, loop_label>
+                    < simple_op<Opt, INX_IMPLIED>
+                    , simple_op<Opt, BNE_RELATIVE, null_, loop_label>
                     , clear_conditional
                     , set_defs<Opt, REGF_X, true, const_<0>>
                     >);
@@ -2058,12 +2050,12 @@ namespace isel
                 chain
                 < load_X<Opt, p_arg<0>>
                 , label<loop_label>
-                , exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<1>>
-                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<2>>
-                , exact_op<OptC, LDA_ABSOLUTE_X, null_, p_arg<3>>
-                , exact_op<OptC, STA_ABSOLUTE_X, null_, p_arg<4>>
-                , simple_op<OptC, DEX_IMPLIED>
-                , simple_op<OptC, BPL_RELATIVE, null_, loop_label>
+                , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<1>>
+                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
+                , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<3>>
+                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<4>>
+                , simple_op<Opt, DEX_IMPLIED>
+                , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_X, true, const_<0xFF>>
                 >(cpu, prev, cont);
@@ -2071,12 +2063,12 @@ namespace isel
                 chain
                 < load_Y<Opt, p_arg<0>>
                 , label<loop_label>
-                , exact_op<OptC, LDA_ABSOLUTE_Y, null_, p_arg<1>>
-                , exact_op<OptC, STA_ABSOLUTE_Y, null_, p_arg<2>>
-                , exact_op<OptC, LDA_ABSOLUTE_Y, null_, p_arg<3>>
-                , exact_op<OptC, STA_ABSOLUTE_Y, null_, p_arg<4>>
-                , simple_op<OptC, DEY_IMPLIED>
-                , simple_op<OptC, BPL_RELATIVE, null_, loop_label>
+                , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<1>>
+                , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<2>>
+                , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<3>>
+                , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<4>>
+                , simple_op<Opt, DEY_IMPLIED>
+                , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                 , clear_conditional
                 , set_defs<Opt, REGF_Y, true, const_<0xFF>>
                 >(cpu, prev, cont);
@@ -2192,8 +2184,6 @@ namespace isel
     template<typename Opt, typename Def>
     void store_Z(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
-
         ssa_value_t v = Def::node();
 
         if(v.holds_ref() && (v->output_size() > 1 || (v->output_size() == 1 && v->output(0)->cfg_node() != v->cfg_node())))
@@ -2211,10 +2201,10 @@ namespace isel
 
             chain
             < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
-            , load_X<OptC, const_<0>>
-            , simple_op<OptC, BEQ_RELATIVE, null_, p_label<1>>
+            , load_X<Opt, const_<0>>
+            , simple_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
             , label<p_label<0>>
-            , load_X<OptC, const_<1>>
+            , load_X<Opt, const_<1>>
             , label<p_label<1>>
             , clear_conditional
             , set_defs<Opt, REGF_X | REGF_Z, true, p_def>
@@ -2223,10 +2213,10 @@ namespace isel
 
             chain
             < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
-            , load_Y<OptC, const_<0>>
-            , simple_op<OptC, BEQ_RELATIVE, null_, p_label<1>>
+            , load_Y<Opt, const_<0>>
+            , simple_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
             , label<p_label<0>>
-            , load_Y<OptC, const_<1>>
+            , load_Y<Opt, const_<1>>
             , label<p_label<1>>
             , clear_conditional
             , set_defs<Opt, REGF_Y | REGF_Z, true, p_def>
@@ -2237,15 +2227,13 @@ namespace isel
         {
             cpu_t new_cpu = cpu;
             if(new_cpu.set_def<REG_Z>(Opt::to_struct, Def::value(), true))
-                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_Z>(Opt::to_struct, prev, Def::trans()));
+                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_Z>(cpu, prev, Def::trans()));
         }
     }
 
     template<typename Opt, typename Def>
     void store_C(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
-
         ssa_value_t v = Def::node();
 
         if(v.holds_ref() && (v->output_size() > 1 || (v->output_size() == 1 && v->output(0)->cfg_node() != v->cfg_node())))
@@ -2262,7 +2250,7 @@ namespace isel
             chain
             < load_X<Opt, const_<0>>
             , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-            , simple_op<OptC, INX_IMPLIED>
+            , simple_op<Opt, INX_IMPLIED>
             , carry_label_clear_conditional<Opt, p_label<0>, false>
             , set_defs<Opt, REGF_X | REGF_C, true, p_def>
             , exact_op<Opt, STX_ABSOLUTE, null_, p_def>
@@ -2271,7 +2259,7 @@ namespace isel
             chain
             < load_Y<Opt, const_<0>>
             , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-            , exact_op<OptC, INY_IMPLIED>
+            , exact_op<Opt, INY_IMPLIED>
             , carry_label_clear_conditional<Opt, p_label<0>, false>
             , set_defs<Opt, REGF_Y | REGF_C, true, p_def>
             , exact_op<Opt, STY_ABSOLUTE, null_, p_def>
@@ -2281,7 +2269,7 @@ namespace isel
         {
             cpu_t new_cpu = cpu;
             if(new_cpu.set_def<REG_C>(Opt::to_struct, Def::value(), true))
-                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_C>(Opt::to_struct, prev, Def::trans()));
+                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_C>(cpu, prev, Def::trans()));
         }
     }
 
@@ -2302,7 +2290,6 @@ namespace isel
         p_def::set(h);
 
         using Opt = options<>;
-        using OptC = Opt::add_flags<OPT_CONDITIONAL>;
 
         switch(h->op())
         {
@@ -2358,10 +2345,10 @@ namespace isel
 
                             chain
                             < load_X<Opt, p_lhs>
-                            , if_<OptC, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                            , if_<Opt, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
                                               simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
                             , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-                            , simple_op<OptC, INX_IMPLIED>
+                            , simple_op<Opt, INX_IMPLIED>
                             , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                             , store<Opt, STX, p_def, p_def>
                             , set_defs<Opt, REGF_Z, true, p_carry_output>
@@ -2369,9 +2356,9 @@ namespace isel
 
                             chain
                             < load_Y<Opt, p_lhs>
-                            , if_<OptC, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                            , if_<Opt, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
                                               simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
-                            , simple_op<OptC, INY_IMPLIED>
+                            , simple_op<Opt, INY_IMPLIED>
                             , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                             , store<Opt, STY, p_def, p_def>
                             , set_defs<Opt, REGF_Z, true, p_carry_output>
@@ -2380,9 +2367,9 @@ namespace isel
                             if(p_def::trans() == p_lhs::trans())
                             {
                                 chain
-                                < if_<OptC, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                                < if_<Opt, in_Z, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
                                                   simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
-                                , pick_op<OptC, INC, p_def, p_lhs>
+                                , pick_op<Opt, INC, p_def, p_lhs>
                                 , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
                                 , set_defs<Opt, REGF_Z, true, p_carry_output>
                                 >(cpu, prev, cont);
@@ -2398,9 +2385,9 @@ namespace isel
 
                         chain
                         < load_X<Opt, p_lhs>
-                        , if_<OptC, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                        , if_<Opt, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
                                           simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
-                        , simple_op<OptC, DEX_IMPLIED>
+                        , simple_op<Opt, DEX_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
                         , store<Opt, STX, p_def, p_def>
@@ -2408,9 +2395,9 @@ namespace isel
 
                         chain
                         < load_Y<Opt, p_lhs>
-                        , if_<OptC, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                        , if_<Opt, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
                                           simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
-                        , simple_op<OptC, DEY_IMPLIED>
+                        , simple_op<Opt, DEY_IMPLIED>
                         , label<p_label<0>>
                         , clear_conditional
                         , store<Opt, STY, p_def, p_def>
@@ -2419,9 +2406,9 @@ namespace isel
                         if(p_def::trans() == p_lhs::trans())
                         {
                             chain
-                            < if_<OptC, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                            < if_<Opt, in_Z, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
                                               simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
-                            , pick_op<OptC, DEC, p_def, p_def>
+                            , pick_op<Opt, DEC, p_def, p_def>
                             , label<p_label<0>>
                             , clear_conditional
                             >(cpu, prev, cont);
@@ -2980,11 +2967,21 @@ namespace isel
             p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
             p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
 
-            chain
-            < load_NZ_for<Opt, p_arg<0>>
-            , simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>
-            , simple_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
-            >(cpu, prev, cont);
+            if(cpu.def_eq(REG_C, p_arg<0>::value()))
+            {
+                chain
+                < simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
+                , simple_op<Opt, BCS_RELATIVE, null_, p_label<1>>
+                >(cpu, prev, cont);
+            }
+            else
+            {
+                chain
+                < load_NZ_for<Opt, p_arg<0>>
+                , simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>
+                , simple_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
+                >(cpu, prev, cont);
+            }
 
             break;
 
@@ -3008,6 +3005,25 @@ namespace isel
             }
             else
                 cont->call(cpu, prev);
+            break;
+
+        case SSA_switch_full:
+            {
+                p_arg<0>::set(h->input(0));
+                p_arg<1>::set(locator_t::switch_lo_table(h->cfg_node()));
+                p_arg<2>::set(locator_t::switch_hi_table(h->cfg_node()));
+                using p_ptr = set_ptr_hi<p_arg<1>, p_arg<2>>;
+
+                chain
+                < load_X<Opt, p_arg<0>>
+                , exact_op<Opt, ASM_X_SWITCH, null_, p_ptr>
+                >(cpu, prev, cont);
+
+                chain
+                < load_Y<Opt, p_arg<0>>
+                , exact_op<Opt, ASM_Y_SWITCH, null_, p_ptr>
+                >(cpu, prev, cont);
+            }
             break;
 
         case SSA_uninitialized:
@@ -3074,7 +3090,6 @@ namespace isel
 #endif
 
         using Opt = options<>;
-        //using OptC = typename Opt::add_flags<OPT_CONDITIONAL>;
 
         cfg_ht const cfg_node = h->cfg_node();
 
@@ -3496,7 +3511,7 @@ namespace isel
 
 }
 
-void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
+void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 {
     using namespace isel;
 
@@ -3537,8 +3552,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             }
         }
 
-        std::cout << "SCHEDBACK " << cfg << ' ' << schedule.back() << std::endl;
-        assert(d.preprep.back().all_clear());
+        assert(d.preprep.empty() || d.preprep.back().all_clear());
     }
 
     ///////////////////////////////////////////////
@@ -3963,11 +3977,36 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
     }
 #endif
 
+    ///////////////////////////
+    // PREPARE SWITCH TABLES //
+    ///////////////////////////
+    
+    rh::batman_map<cfg_ht, switch_table_t> switch_tables;
+
+    for(cfg_node_t const& cfg_node : ir)
+    {
+        ssa_ht const branch = cfg_node.last_daisy();
+
+        assert(!branch || branch->op() != SSA_switch_partial);
+
+        if(!branch || branch->op() != SSA_switch_full)
+            continue;
+
+        unsigned const output_size = cfg_node.output_size();
+        switch_table_t table(output_size);
+        for(unsigned i = 0; i < output_size; ++i)
+            table[i] = locator_t::cfg_label(cfg_node.output(i));
+
+        switch_tables.insert({ cfg_node.handle(), std::move(table) });
+    }
+
     ////////////////////////////////////
     // INSERT ADDITIONAL INSTRUCTIONS //
     ////////////////////////////////////
 
+    // Which register loads are needed for each CFG input:
     bc::small_vector<regs_t, 16> input_loads;
+
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
         auto& d = data(cfg);
@@ -4022,6 +4061,12 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
                     if(inst.arg == locator_t::cfg_label(cfg))
                         inst.arg = label;
 
+                // Handle switch:
+                if(auto* table = switch_tables.mapped(cfg))
+                    for(locator_t& loc : *table)
+                        if(loc == locator_t::cfg_label(cfg))
+                            loc = label;
+
                 // Also track loop depth:
                 depth = std::max<unsigned>(depth, loop_depth(cfg->input(i)));
             }
@@ -4043,6 +4088,7 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
             cfg_ht input = cfg->input(i);
             auto& id = data(input);
 
+            // Single outputs only!
             if(input->output_size() != 1)
                 continue;
 
@@ -4154,7 +4200,6 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         }
 
         // Prepend to code:
-        // TODO: this sucks
         std::vector<asm_inst_t> new_code(d.final_code().size() + always_load_code.size() + remaining_load_code.size());
         std::copy(remaining_load_code.begin(), remaining_load_code.end(), 
                   new_code.begin());
@@ -4165,8 +4210,35 @@ void select_instructions(log_t* log, fn_t const& fn, ir_t& ir)
         d.final_code() = std::move(new_code);
     }
 
-    // Store the code
-    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
-        cg_data(cfg).code = std::move(data(cfg).final_code());
+    ////////////////////////
+    // GRAPH OPTIMIZATION //
+    ////////////////////////
+
+    asm_graph_t graph(log, locator_t::cfg_label(ir.root));
+
+    for(cfg_ht cfg : postorder | std::views::reverse)
+    {
+        auto& d = data(cfg);
+#ifndef NDEBUG
+        for(asm_inst_t const& inst : d.final_code())
+            std::cout << inst << std::endl;
+#endif
+        graph.append_code(&*d.final_code().begin(), &*d.final_code().end(), switch_tables);
+    }
+
+    graph.finish_appending();
+    graph.optimize();
+    graph.remove_maybes(fn);
+
+    lvars_manager_t lvars = graph.build_lvars(fn);
+
+    asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()), graph.entry_label());
+
+    asm_proc.initial_optimize();
+    asm_proc.build_label_offsets();
+
+    // Add the lvars to the fn
+    fn.assign_lvars(std::move(lvars));
+    fn.rom_proc().safe().assign(std::move(asm_proc));
 }
 

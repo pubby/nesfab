@@ -118,6 +118,26 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
         switch(node.op())
         {
+        case SSA_if:
+            {
+                if(node.input(0).holds_ref() && node.input(0)->op() == SSA_xor)
+                {
+                    ssa_ht const x = node.input(0).handle();
+
+                    for(unsigned i = 0; i < 2; ++i)
+                    {
+                        if(x->input(i) == ssa_value_t(1u, TYPE_BOOL))
+                        {
+                            node.link_change_input(0, x->input(!i));
+                            node.cfg_node()->link_swap_outputs(0, 1);
+                            updated = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            break;
+
         case SSA_write_array8:
         case SSA_write_array16:
             {

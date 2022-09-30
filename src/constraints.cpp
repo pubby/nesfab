@@ -9,7 +9,6 @@
 #include "builtin.hpp"
 #include "format.hpp"
 #include "type_mask.hpp"
-#include "assert.hpp"
 
 extern std::uint8_t const add_constraints_table[1024];
 
@@ -1200,6 +1199,7 @@ ABSTRACT(SSA_rol) = ABSTRACT_FN
     assert(CARRY_MASK == cv[1].cm);
     assert(!cv[0].cm.signed_);
     assert(!result.cm.signed_);
+    assert(result.vec.size() == 2);
 
     if(handle_top(cv, argn, result))
         return;
@@ -1258,6 +1258,7 @@ ABSTRACT(SSA_ror) = ABSTRACT_FN
     assert(CARRY_MASK == cv[1].cm);
     assert(!cv[0].cm.signed_);
     assert(!result.cm.signed_);
+    assert(result.vec.size() == 2);
 
     if(handle_top(cv, argn, result))
         return;

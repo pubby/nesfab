@@ -261,7 +261,7 @@ namespace isel
 ///////////////////////////////////////////////////////////////////////////////
 
     // These determine how extensive the search is.
-    constexpr unsigned MAX_MAP_SIZE = 48;
+    constexpr unsigned MAX_MAP_SIZE = 64;
     constexpr unsigned cost_cutoff(int size)
     {
         constexpr unsigned BASE = cost_fn(LDY_ABSOLUTE) * 3;
@@ -3444,11 +3444,11 @@ namespace isel
 
     static bool value_unused(cfg_ht cfg, ssa_ht ssa)
     {
-        return for_each_output_matching(ssa, INPUT_VALUE, [cfg](ssa_ht output) -> bool
+        return for_each_output_matching(ssa, INPUT_VALUE, [&](ssa_ht output) -> bool
         {
             if(ssa_flags(output->op()) & SSAF_COPY)
                 return value_unused(cfg, output);
-            return !dominates(cfg, output->cfg_node());
+            return output->op() != SSA_phi && !dominates(cfg, output->cfg_node());
         });
     }
 
@@ -3463,19 +3463,6 @@ namespace isel
             if(!l)
                 return l;
 
-            if(l.lclass() == LOC_SSA)
-            {
-                ssa_ht const h = l.ssa_node();
-
-                // Values can't loop:
-                if(h->cfg_node() == cfg)
-                    return LOC_NONE;
-
-                // If the node has no output used through 'cfg', ignore it.
-                if(value_unused(cfg, h))
-                    return LOC_NONE;
-            }
-
             // Setup incoming phis.
             // Search to see if we have an input to the phi.
             // If we do, we'll change the locator to that phi and update 'next_phi'.
@@ -3484,6 +3471,9 @@ namespace isel
 
             for(ssa_ht phi = next_phi; phi; ++phi)
             {
+                auto input = phi->input(input_i);
+                std::cout << "GRONK POOP " << phi << input << l << std::endl;
+
                 if(ssa_to_value(phi->input(input_i)) == l)
                 {
                     next_phi = phi.next();
@@ -3493,11 +3483,37 @@ namespace isel
 
             for(ssa_ht phi = cfg->phi_begin(); phi != next_phi; ++phi)
             {
+                auto input = phi->input(input_i);
+                std::cout << "GRONK POOP " << phi << '|' << input << '|' << l << std::endl;
+
                 if(ssa_to_value(phi->input(input_i)) == l)
                 {
+                    std::cout << "GRONK POOPED\n";
                     next_phi = phi.next();
                     return locator_t::phi(phi);
                 }
+                else
+                    std::cout << "GRONK POOPED FAIL\n";
+            }
+
+            if(l.lclass() == LOC_SSA)
+            {
+                ssa_ht const h = l.ssa_node();
+
+                // Values can't loop:
+                if(h->cfg_node() == cfg)
+                {
+                    std::cout << "GRONK NOLOOP "  << h << std::endl;
+                    return LOC_NONE;
+                }
+
+                // If the node has no output used through 'cfg', ignore it.
+                if(value_unused(cfg, h))
+                {
+                    std::cout << "GRONK UNUSED " << h << cfg << std::endl;
+                    return LOC_NONE;
+                }
+                std::cout << "GRONK USED " << h << cfg << std::endl;
             }
 
             return l;
@@ -3515,7 +3531,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 {
     using namespace isel;
 
-    state.log = log;
+    state.log = &stdout_log;//log;
     state.fn = fn.handle();
 
     // TODO: prerequire this.
@@ -3560,6 +3576,67 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     ///////////////////////////////////////////////
 
     rh::batman_map<cross_transition_t, result_t> rebuilt;
+
+    constexpr unsigned MAX_SELS_PER_CFG = 16;
+    constexpr unsigned MAX_SELS_PER_ITER = 128;
+    constexpr auto SELS_MIN_COST_BOUND = cost_fn(LDA_ABSOLUTE) / 2;
+    constexpr auto SELS_PREV_COST_BOUND = cost_fn(LDA_IMMEDIATE) / 2;
+
+    auto const shrink_sels = [&](unsigned max_sels, cfg_d& d)
+    {
+        if(d.sels.size() > max_sels)
+        {
+            // Reuse 'rebuilt':
+            rebuilt.clear();
+            rebuilt.reserve(MAX_SELS_PER_CFG);
+
+            state.indices.resize(d.sels.size());
+
+            auto const begin = state.indices.begin();
+            auto end = state.indices.end();
+            
+            auto comp = [&](unsigned a, unsigned b)
+                { return d.sels.begin()[a].second.cost > d.sels.begin()[b].second.cost; };
+
+            std::iota(begin, end, 0);
+            std::make_heap(begin, end, comp);
+
+            isel_cost_t const bound = d.sels.begin()[*begin].second.cost + SELS_MIN_COST_BOUND;
+            isel_cost_t prev_cost = std::numeric_limits<isel_cost_t>::max() - SELS_PREV_COST_BOUND;
+
+            for(unsigned i = 0; i < max_sels; ++i)
+            {
+                std::pop_heap(begin, end, comp);
+                auto const& to_insert = d.sels.begin()[*(--end)];
+
+                if(to_insert.second.cost > bound)
+                    break;
+
+                if(to_insert.second.cost > prev_cost + SELS_PREV_COST_BOUND)
+                    break;
+
+                prev_cost = to_insert.second.cost;
+                rebuilt.insert(to_insert);
+            }
+
+            /* TODO: remove?
+            // Extend until reaching a cost exceeding 'rebuilt's maximum cost.
+            auto prev_cost = d.sels.begin()[*end].second.cost;
+            while(begin != end && d.sels.size() < max_sels * 2)
+            {
+                std::pop_heap(begin, end, comp);
+                auto const& to_insert = d.sels.begin()[*(--end)];
+                if(to_insert.second.cost != prev_cost)
+                    break;
+                rebuilt.insert(to_insert);
+            }
+            */
+
+            std::cout << "REBUILTSIZE " << rebuilt.size() << std::endl;
+
+            d.sels.swap(rebuilt);
+        }
+    };
 
     // Create the initial worklist:
     assert(cfg_worklist.empty());
@@ -3742,17 +3819,24 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             // and will generate all the possible combinations:
             bc::small_vector<cross_transition_t, 8> sub_transitions;
             sub_transitions.push_back(transition);
+
+            unsigned cost_reduction = 0;
+
             for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
             {
-                // If the cfg node passes through a register:
-                if(((gen | kill) & (1 << i)) 
-                   || !transition.in_state.defs[i] 
-                   || transition.in_state.defs[i] != transition.out_state.defs[i])
+                if(!transition.in_state.defs[i] || transition.in_state.defs[i] != transition.out_state.defs[i])
+                    continue;
+
+                if((gen | kill) & (1 << i))
                 {
+                    if(transition.in_state.defs[i] == transition.out_state.defs[i])
+                        ++cost_reduction;
+
                     continue;
                 }
 
-                // Insert additional combinations:
+                // If the cfg node passes through a register,
+                // insert additional combinations:
                 unsigned const size = sub_transitions.size();
                 for(unsigned j = 0; j < size; ++j)
                 {
@@ -3774,13 +3858,13 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
             assert(!sub_transitions.empty());
 
-            for(auto& t : sub_transitions)
+            for(unsigned i = 0; i < sub_transitions.size(); ++i)
             {
                 rh::apair<cross_transition_t, result_t> new_sel = 
                 { 
-                    t, 
+                    sub_transitions[i], 
                     {
-                        .cost = cost + t.unique_count(),
+                        .cost = cost + sub_transitions[i].unique_count() - cost_reduction,
                         .code = code_ptr
                     }
                 };
@@ -3797,32 +3881,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         }
 
         // For efficiency, cap the maximum number of selections tracked:
-        constexpr unsigned MAX_SELS_PER_CFG = 16;
-        if(d.sels.size() > MAX_SELS_PER_CFG)
-        {
-            // Reuse 'rebuilt':
-            rebuilt.clear();
-            rebuilt.reserve(MAX_SELS_PER_CFG);
-
-            state.indices.resize(d.sels.size());
-
-            auto const begin = state.indices.begin();
-            auto end = state.indices.end();
-            
-            auto comp = [&](unsigned a, unsigned b)
-                { return d.sels.begin()[a].second.cost > d.sels.begin()[b].second.cost; };
-
-            std::iota(begin, end, 0);
-            std::make_heap(begin, end, comp);
-
-            for(unsigned i = 0; i < MAX_SELS_PER_CFG; ++i)
-            {
-                std::pop_heap(begin, end, comp);
-                rebuilt.insert(d.sels.begin()[*(--end)]);
-            }
-
-            d.sels.swap(rebuilt);
-        }
+        shrink_sels(MAX_SELS_PER_ITER, d);
 
         // Pass our output CPU states to our output CFG nodes.
         unsigned const output_size = cfg->output_size();
@@ -3846,6 +3905,9 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             }
         }
     }
+
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+        shrink_sels(MAX_SELS_PER_CFG, data(cfg));
 
 #ifndef NDEBUG
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
@@ -3974,6 +4036,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     {
         auto& d = data(cfg);
         assert(d.sel >= 0 && d.sel < int(d.sels.size()));
+        std::cout << "SEL = " << d.sel << std::endl;
     }
 #endif
 

@@ -20,7 +20,7 @@
 #include "debug_print.hpp"
 #include "ir_decl.hpp"
 
-bool o_abstract_interpret(log_t* os, ir_t& ir);
+bool o_abstract_interpret(log_t* os, ir_t& ir, bool byteified);
 
 // TODO: one day we may implement this
 //std::size_t ai_constraints_size(ssa_value_t value);

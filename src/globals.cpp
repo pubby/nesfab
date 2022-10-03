@@ -1254,13 +1254,31 @@ void fn_t::compile()
         do
         {
             changed = false;
+
             changed |= o_phis(log, ir);
-            changed |= o_merge_basic_blocks(log, ir);
+            ir.assert_valid();
+
+            changed |= o_merge_basic_blocks(&stdout_log, ir);
+            ir.assert_valid();
+
+            save_graph(ir, fmt("post_merge%", iter).c_str());
+
             changed |= o_remove_unused_arguments(log, ir, *this, post_byteified);
+            ir.assert_valid();
+
             changed |= o_identities(log, ir);
-            changed |= o_abstract_interpret(log, ir);
+            ir.assert_valid();
+
+            changed |= o_abstract_interpret(&stdout_log, ir, post_byteified);
+            ir.assert_valid();
+
+            save_graph(ir, fmt("post_ai_o_%", iter).c_str());
+
             changed |= o_remove_unused_ssa(log, ir);
+            ir.assert_valid();
+
             changed |= o_global_value_numbering(log, ir);
+            ir.assert_valid();
 
             if(post_byteified)
             {

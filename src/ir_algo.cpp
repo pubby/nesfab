@@ -140,13 +140,13 @@ static cfg_ht _visit_loops(cfg_ht node)
                 unsigned const out_i = i;
                 unsigned const in_i = node->output_edge(i).index;
 
-                if(out_i >= sizeof_bits<decltype(u.reentry_out)>)
-                    throw std::runtime_error("CFG node has too many outputs.");
-                if(in_i >= sizeof_bits<decltype(u.reentry_in)>)
-                    throw std::runtime_error("CFG node has too many inputs.");
+                if(!u.reentry_out)
+                    u.reentry_out.reset(new reentry_set_t());
+                if(!succ_u.reentry_out)
+                    succ_u.reentry_out.reset(new reentry_set_t());
 
-                u.reentry_out |= (1 << out_i);
-                succ_u.reentry_in |= (1 << in_i);
+                u.reentry_out->insert(out_i);
+                succ_u.reentry_in->insert(in_i);
 
                 header->set_flags(FLAG_IRREDUCIBLE);
 
@@ -186,8 +186,8 @@ void build_loops_and_order(ir_t& ir)
         u.postorder_i = UNVISITED;
         u.iloop_header = {};
         u.is_loop_header = false;
-        u.reentry_in = 0;
-        u.reentry_out = 0;
+        u.reentry_in.reset();
+        u.reentry_out.reset();
     }
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)

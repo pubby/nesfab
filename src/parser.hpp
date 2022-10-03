@@ -123,9 +123,9 @@ private:
     void parse_expr_statement();
     void parse_var_init_statement();
     void parse_if();
-    void parse_do_while();
-    void parse_while();
-    void parse_for();
+    void parse_do();
+    void parse_while(bool is_do = false);
+    void parse_for(bool is_do = false);
     void parse_return();
     void parse_break();
     void parse_continue();

@@ -623,17 +623,23 @@ void for_each_output(ssa_ht h, Fn const& fn)
 }
 
 template<typename Fn>
-void for_each_output_with_links(ssa_ht const h, Fn const& fn)
+bool for_each_output_with_links(ssa_ht const h, Fn const& fn)
 {
     unsigned const output_size = h->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
         auto const oe = h->output_edge(i);
         if(oe.input_class() == INPUT_LINK)
-            for_each_output_with_links(oe.handle, fn);
+        {
+            if(!for_each_output_with_links(oe.handle, fn))
+                return false;
+        }
         else
-            fn(h, oe.handle);
+            if(!LOOP_TEST(fn, h, oe.handle))
+               return false;
     }
+
+    return true;
 }
 
 template<typename Fn>

@@ -19,7 +19,7 @@ bool o_merge_basic_blocks(log_t* log, ir_t& ir)
         auto const oe = cfg_it->output_edge(0);
         cfg_ht const output = oe.handle;
 
-        if(cfg_it->ssa_size() == 0 && cfg_it != output)
+        if(cfg_it->ssa_size() == 0 && cfg_it != output && cfg_it != ir.root)
         {
             // If the CFG node has no SSA inside it,
             // it can be merged by rediricting CFG nodes.
@@ -71,6 +71,8 @@ bool o_merge_basic_blocks(log_t* log, ir_t& ir)
                 { return phi->input(phi_i); });
         }
         output->link_clear_outputs();
+
+        assert(output != ir.root);
 
         if(output == ir.exit)
             ir.exit = cfg_it;

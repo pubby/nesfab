@@ -1974,7 +1974,7 @@ void parser_t<P>::parse_statement()
     switch(token.type)
     {
     case TOK_if:       return parse_if();
-    case TOK_do:       return parse_do_while();
+    case TOK_do:       return parse_do();
     case TOK_while:    return parse_while();
     case TOK_for:      return parse_for();
     case TOK_return:   return parse_return();
@@ -2187,10 +2187,11 @@ void parser_t<P>::parse_flow_statement()
 {
     switch(token.type)
     {
-    case TOK_if:    return parse_if();
-    case TOK_do:    return parse_do_while();
-    case TOK_while: return parse_while();
-    case TOK_for:   return parse_for();
+    case TOK_if:      return parse_if();
+    case TOK_do:      return parse_do();
+    case TOK_while:   return parse_while();
+    case TOK_for:     return parse_for();
+    case TOK_switch:  return parse_switch();
     default:
         compiler_error("Unexpected token. Expecting if, do, while, or for.");
     }
@@ -2258,26 +2259,23 @@ void parser_t<P>::parse_if()
 }
 
 template<typename P>
-void parser_t<P>::parse_do_while()
+void parser_t<P>::parse_do()
 {
     int const do_indent = indent;
     pstring_t pstring = token.pstring;
 
     parse_token(TOK_do);
-    parse_line_ending();
 
-    auto do_state = policy().begin_do_while(pstring, parse_mods(do_indent));
-    parse_block_statement(do_indent);
-
-    pstring = token.pstring;
-    parse_token(TOK_while);
-    ast_node_t expr = parse_expr();
-    policy().end_do_while(std::move(do_state), pstring, expr);
-    parse_line_ending();
+    if(token.type == TOK_while)
+        parse_while(true);
+    else if(token.type == TOK_for)
+        parse_for(true);
+    else
+        compiler_error("Unexpected token. Expecting while or for.");
 }
 
 template<typename P>
-void parser_t<P>::parse_while()
+void parser_t<P>::parse_while(bool is_do)
 {
     int const while_indent = indent;
     pstring_t pstring = token.pstring;
@@ -2286,13 +2284,13 @@ void parser_t<P>::parse_while()
     ast_node_t expr;
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ expr = parse_expr(); });
 
-    auto while_state = policy().begin_while(pstring, expr, std::move(mods));
+    auto while_state = policy().begin_while(is_do, pstring, expr, std::move(mods));
     parse_block_statement(while_indent);
-    policy().end_while(std::move(while_state));
+    policy().end_while(is_do, std::move(while_state));
 }
 
 template<typename P>
-void parser_t<P>::parse_for()
+void parser_t<P>::parse_for(bool is_do)
 {
     int const for_indent = indent;
     pstring_t pstring = token.pstring;
@@ -2314,6 +2312,7 @@ void parser_t<P>::parse_for()
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
         parse_token(TOK_for);
+
         if(token.type != TOK_semicolon && token.type != TOK_eol)
         {
             if(is_type_prefix(token.type))
@@ -2338,11 +2337,11 @@ void parser_t<P>::parse_for()
     });
 
     auto for_state = policy().begin_for(
-        pstring, maybe_var_init, maybe_init_expr, 
+        is_do, pstring, maybe_var_init, maybe_init_expr, 
         maybe_condition, maybe_effect, std::move(mods));
 
     parse_block_statement(for_indent);
-    policy().end_for(std::move(for_state));
+    policy().end_for(is_do, std::move(for_state));
 }
 
 template<typename P>

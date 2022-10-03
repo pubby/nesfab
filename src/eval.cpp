@@ -640,10 +640,12 @@ void eval_t::interpret_stmts()
 {
     static_assert(D != COMPILE);
 
-    auto const do_condition = [&]() -> bool
+    auto const do_condition = [&](bool check_value) -> bool
     { 
         expr_value_t v = throwing_cast<D>(do_expr<D>(*stmt->expr), TYPE_BOOL, true);
-        return !is_interpret(D) || v.fixed();
+        if(!is_interpret(D))
+            return check_value;
+        return v.fixed().value;
     };
 
     while(true)
@@ -699,7 +701,7 @@ void eval_t::interpret_stmts()
                 ++stmt;
             }
             else
-                compiler_error(stmt->pstring, "Statement cannot appear in constant evaluation.");
+                compiler_error(stmt->pstring, fmt("Statement % cannot appear in constant evaluation.", to_string(stmt->name)));
             break;
 
         case STMT_GOTO_MODE:
@@ -712,7 +714,8 @@ void eval_t::interpret_stmts()
             ++stmt;
             break;
 
-        case STMT_DO:
+        case STMT_DO_WHILE:
+        case STMT_DO_FOR:
         case STMT_END_IF:
         case STMT_LABEL:
         case STMT_END_SWITCH:
@@ -734,7 +737,7 @@ void eval_t::interpret_stmts()
             break;
 
         case STMT_IF:
-            if(do_condition())
+            if(do_condition(true))
                 ++stmt;
             else
             {
@@ -746,14 +749,15 @@ void eval_t::interpret_stmts()
 
         case STMT_WHILE:
         case STMT_FOR:
-            if(do_condition())
+            if(do_condition(true))
                 ++stmt;
             else
                 stmt = &fn->def()[stmt->link];
             break;
 
-        case STMT_END_DO:
-            if(do_condition())
+        case STMT_END_DO_WHILE:
+        case STMT_END_DO_FOR:
+            if(do_condition(false))
                 stmt = &fn->def()[stmt->link];
             else
                 ++stmt;
@@ -897,7 +901,7 @@ void eval_t::compile_block()
     case STMT_END_FOR:
         ++stmt;
         // fall-through
-    case STMT_END_DO:
+    case STMT_END_DO_WHILE:
     case STMT_FOR_EFFECT:
         return;
 
@@ -956,8 +960,8 @@ void eval_t::compile_block()
 
             expr_value_t v = do_expr<COMPILE>(*stmt->expr);
             ++stmt;
-            cfg_ht const end_branch = builder.cfg;
             v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
+            cfg_ht const end_branch = builder.cfg;
             cfg_exits_with_branch(v.ssa());
 
             builder.continue_stack.emplace_back();
@@ -976,8 +980,16 @@ void eval_t::compile_block()
                 // Compile the 'for' expr in its own block:
                 assert(stmt->name == STMT_FOR_EFFECT);
                 begin_for_expr = builder.cfg = insert_cfg(true);
-                end_body->build_set_output(0, begin_for_expr);
+            }
 
+            end_body->build_set_output(0, begin_for_expr);
+
+            // All continue statements jump to the 'begin_for_expr'.
+            for(cfg_ht node : builder.continue_stack.back())
+                node->build_set_output(0, begin_for_expr);
+
+            if(is_for)
+            {
                 do_expr<COMPILE>(*stmt->expr);
                 ++stmt;
                 assert(stmt->name == STMT_END_FOR);
@@ -986,12 +998,7 @@ void eval_t::compile_block()
                 cfg_exits_with_jump();
                 end_for_expr->build_set_output(0, begin_branch);
             }
-            else
-                end_body->build_set_output(0, begin_for_expr);
 
-            // All continue statements jump to the 'begin_for_expr'.
-            for(cfg_ht node : builder.continue_stack.back())
-                node->build_set_output(0, begin_for_expr);
             seal_block(begin_branch.data<block_d>());
 
             // Create the exit node.
@@ -1005,8 +1012,10 @@ void eval_t::compile_block()
         }
         break;
 
-    case STMT_DO:
+    case STMT_DO_WHILE:
+    case STMT_DO_FOR:
         {
+            bool const is_for = stmt->name == STMT_DO_FOR;
             cfg_ht const entry = builder.cfg;
 
             ++stmt;
@@ -1019,27 +1028,50 @@ void eval_t::compile_block()
             entry->build_set_output(0, begin_body);
             compile_block();
             cfg_ht const end_body = builder.cfg;
-
-            assert(stmt->name == STMT_END_DO);
-
-            // The loop condition can go in its own block, which is
-            // necessary to implement 'continue'.
             cfg_exits_with_jump();
-            cfg_ht const begin_branch = builder.cfg = insert_cfg(true);
-            end_body->build_set_output(0, begin_branch);
 
+            // The loop condition will go in its own block.
+            // We'll setup this block later!
+            cfg_ht const begin_branch = insert_cfg(true);
+
+            cfg_ht begin_for_expr = begin_branch; // Will be 'begin_branch' only for WHILE stmts, otherwise see below:
+            if(is_for)
+            {
+                // Compile the 'for' expr in its own block:
+                assert(stmt->name == STMT_FOR_EFFECT);
+                begin_for_expr = builder.cfg = insert_cfg(true);
+                end_body->build_set_output(0, begin_for_expr);
+            }
+
+            // All continue statements jump to the 'begin_for_expr'.
+            for(cfg_ht node : builder.continue_stack.back())
+                node->build_set_output(0, begin_for_expr);
+
+            if(is_for)
+            {
+                assert(stmt->name == STMT_FOR_EFFECT);
+                do_expr<COMPILE>(*stmt->expr);
+                ++stmt;
+                assert(stmt->name == STMT_END_DO_FOR);
+                cfg_ht const end_for_expr = builder.cfg;
+                cfg_exits_with_jump();
+                end_for_expr->build_set_output(0, begin_branch);
+            }
+            else
+                end_body->build_set_output(0, begin_branch);
+
+            assert(stmt->name == (is_for ? STMT_END_DO_FOR : STMT_END_DO_WHILE));
+
+            // Create the loop condition now.
+            builder.cfg = begin_branch;
             expr_value_t v = do_expr<COMPILE>(*stmt->expr);
             ++stmt;
+            v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
             cfg_ht const end_branch = builder.cfg;
-            throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
             cfg_exits_with_branch(v.ssa());
 
             end_branch->build_set_output(1, begin_body);
             seal_block(begin_body.data<block_d>());
-
-            // All continue statements jump to the branch node.
-            for(cfg_ht node : builder.continue_stack.back())
-                node->build_set_output(0, begin_branch);
 
             // Create the exit cfg_node.
             cfg_ht const begin_exit = builder.cfg = insert_cfg(true);

@@ -1,11 +1,17 @@
 #ifndef IR_ALGO_HPP
 #define IR_ALGO_HPP
 
+#include <memory>
 #include <vector>
 
+#include "flat/small_set.hpp"
+
+#include "bitset.hpp"
 #include "ir_decl.hpp"
 
 constexpr unsigned UNVISITED = -1;
+
+using reentry_set_t = fc::small_set<unsigned, 2>;
 
 struct cfg_algo_d
 {
@@ -16,8 +22,8 @@ struct cfg_algo_d
     bool is_loop_header = false;
 
     // Incoming edges with
-    std::uint64_t reentry_in = 0;
-    std::uint64_t reentry_out = 0;
+    std::unique_ptr<reentry_set_t> reentry_in;
+    std::unique_ptr<reentry_set_t> reentry_out;
 };
 
 extern thread_local std::vector<cfg_algo_d> cfg_algo_pool;

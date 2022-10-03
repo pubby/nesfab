@@ -633,7 +633,6 @@ int main()
         keyword("nmi"),
         keyword("goto"),
         keyword("label"),
-        keyword("using"),
         keyword("file"),
         keyword("struct"),
         keyword("vars"),

@@ -665,7 +665,7 @@ void cfg_node_t::steal_ssa_nodes(cfg_ht cfg)
 
 ssa_ht cfg_node_t::steal_ssa(ssa_ht ssa, bool steal_linked)
 {
-    ssa_ht const ret = ssa.next();
+    ssa_ht ret = ssa.next();
 
     assert(ssa->op() != SSA_phi);
     cfg_node_t& old_cfg = *ssa->cfg_node();
@@ -690,10 +690,18 @@ ssa_ht cfg_node_t::steal_ssa(ssa_ht ssa, bool steal_linked)
         {
             // Currently unimplemented: links with daisy.
             assert(!linked->in_daisy());
+
+            if(ret == linked)
+            {
+                assert(ret);
+                ++ret;
+            }
+
             steal_ssa(linked, true);
         });
     }
 
+    assert(ret->cfg_node() == old_cfg.handle());
     return ret;
 }
 
@@ -924,10 +932,15 @@ cfg_ht ir_t::merge_edge(cfg_ht cfg_h)
 #ifndef NDEBUG
 void ir_t::assert_valid() const
 {
+    assert(root);
+    assert(root->first_daisy());
+    assert(root->first_daisy()->op() == SSA_entry);
+
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 
         cfg_node_t& cfg_node = *cfg_it;
 
+        passert(cfg_node.input_size() <= MAX_CFG_INPUT, cfg_node.input_size());
         passert(cfg_node.output_size() <= MAX_CFG_OUTPUT, cfg_node.output_size());
 
         for(unsigned i = 0; i < cfg_node.input_size(); ++i)
@@ -958,7 +971,7 @@ void ir_t::assert_valid() const
             {
                 if((ssa_flags(ssa_node.op()) & SSAF_NULL_INPUT_VALID) && !ssa_node.input(i))
                     continue;
-                passert(ssa_node.input(i), ssa_node.op(), ssa_it, i);
+                passert(ssa_node.input(i), ssa_node.op(), ssa_it, i, ssa_node.input_size());
                 if(!ssa_node.input(i).holds_ref())
                     continue;
                 assert(ssa_node.input_edge(i).output()->input().handle()

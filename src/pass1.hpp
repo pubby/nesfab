@@ -570,63 +570,46 @@ public:
         symbol_table.pop_scope();
     }
 
-    struct do_d : flow_d {};
-
-    [[gnu::always_inline]]
-    do_d begin_do_while(pstring_t pstring, std::unique_ptr<mods_t> mods) 
-    { 
-        symbol_table.push_scope();
-        break_stack.emplace_back();
-        continue_stack.emplace_back();
-
-        validate_mods("do", pstring, mods);
-
-        stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
-        stmt_ht const begin_while = fn_def.push_stmt({ STMT_DO, mods_h, {}, pstring });
-        return { begin_while, mods_h };
-    }
-
-    [[gnu::always_inline]]
-    void end_do_while(do_d d, pstring_t pstring, ast_node_t const& condition)
+    struct while_d : flow_d 
     {
-        stmt_ht const cond = fn_def.push_stmt({ STMT_END_DO, d.mods, d.begin, pstring, convert_eternal_expr(&condition) });
-        fn_def[d.begin].link = cond;
-
-        assert(break_stack.size());
-        assert(continue_stack.size());
-
-        for(stmt_ht h : break_stack.back())
-            fn_def[h].link = cond + 1;
-        for(stmt_ht h : continue_stack.back())
-            fn_def[h].link = cond;
-
-        break_stack.pop_back();
-        continue_stack.pop_back();
-        symbol_table.pop_scope();
-    }
-
-    struct while_d : flow_d {};
+        ast_node_t const* condition;
+        pstring_t pstring;
+    };
 
     [[gnu::always_inline]]
-    while_d begin_while(pstring_t pstring, ast_node_t const& condition, std::unique_ptr<mods_t> mods)
+    while_d begin_while(bool is_do, pstring_t pstring, ast_node_t const& condition, std::unique_ptr<mods_t> mods)
     {
         symbol_table.push_scope();
         break_stack.emplace_back();
         continue_stack.emplace_back();
 
         validate_mods("while", pstring, mods);
-
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
-        stmt_ht const begin_while = fn_def.push_stmt({ STMT_WHILE, mods_h, {}, pstring, convert_eternal_expr(&condition) });
+        stmt_ht begin_while;
 
-        return { begin_while, mods_h};
+        if(is_do)
+            begin_while = fn_def.push_stmt({ STMT_DO_WHILE, mods_h, {}, pstring });
+        else
+            begin_while = fn_def.push_stmt({ STMT_WHILE, mods_h, {}, pstring, convert_eternal_expr(&condition) });
+
+        return { begin_while, mods_h, &condition, pstring };
     }
 
     [[gnu::always_inline]]
-    void end_while(while_d d)
+    void end_while(bool is_do, while_d d)
     {
-        stmt_ht const exit = fn_def.push_stmt({ STMT_END_WHILE, d.mods, d.begin });
-        fn_def[d.begin].link = exit + 1;
+        stmt_ht exit;
+
+        if(is_do)
+        {
+            exit = fn_def.push_stmt({ STMT_END_DO_WHILE, d.mods, d.begin, d.pstring, convert_eternal_expr(d.condition) });
+            fn_def[d.begin].link = exit;
+        }
+        else
+        {
+            exit = fn_def.push_stmt({ STMT_END_WHILE, d.mods, d.begin });
+            fn_def[d.begin].link = exit + 1;
+        }
 
         assert(break_stack.size());
         assert(continue_stack.size());
@@ -634,7 +617,7 @@ public:
         for(stmt_ht h : break_stack.back())
             fn_def[h].link = exit + 1;
         for(stmt_ht h : continue_stack.back())
-            fn_def[h].link = d.begin;
+            fn_def[h].link = is_do ? exit : d.begin;
 
         break_stack.pop_back();
         continue_stack.pop_back();
@@ -643,11 +626,13 @@ public:
 
     struct for_d : flow_d
     {
+        ast_node_t* condition;
         ast_node_t* effect;
+        pstring_t pstring;
     };
 
     [[gnu::always_inline]]
-    for_d begin_for(pstring_t pstring, var_decl_t* var_decl, ast_node_t* init, 
+    for_d begin_for(bool is_do, pstring_t pstring, var_decl_t* var_decl, ast_node_t* init, 
                     ast_node_t* condition, ast_node_t* effect, std::unique_ptr<mods_t> mods)
     {
         symbol_table.push_scope();
@@ -662,22 +647,35 @@ public:
         stmt_ht begin_for;
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
 
-        begin_for = fn_def.push_stmt({ STMT_FOR, mods_h, {}, pstring, convert_eternal_expr(condition) });
+        if(is_do)
+            begin_for = fn_def.push_stmt({ STMT_DO_FOR, mods_h, {}, pstring });
+        else
+            begin_for = fn_def.push_stmt({ STMT_FOR, mods_h, {}, pstring, convert_eternal_expr(condition) });
 
         symbol_table.push_scope();
         break_stack.emplace_back();
         continue_stack.emplace_back();
         
-        return { begin_for, mods_h, effect };
+        return { begin_for, mods_h, condition, effect, pstring };
     }
 
     [[gnu::always_inline]]
-    void end_for(for_d d)
+    void end_for(bool is_do, for_d d)
     {
-        stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, d.mods, d.begin, {}, convert_eternal_expr(d.effect) });
+        stmt_ht const effect = fn_def.push_stmt({ STMT_FOR_EFFECT, d.mods, d.begin, d.pstring, convert_eternal_expr(d.effect) });
         symbol_table.pop_scope();
-        stmt_ht const exit = fn_def.push_stmt({ STMT_END_FOR, d.mods, d.begin });
-        fn_def[d.begin].link = exit + 1;
+
+        stmt_ht exit;
+        if(is_do)
+        {
+            fn_def.push_stmt({ STMT_END_DO_FOR, d.mods, d.begin, d.pstring, convert_eternal_expr(d.condition) });
+            fn_def[d.begin].link = exit;
+        }
+        else
+        {
+            fn_def.push_stmt({ STMT_END_FOR, d.mods, d.begin });
+            fn_def[d.begin].link = exit + 1;
+        }
 
         assert(break_stack.size());
         assert(continue_stack.size());

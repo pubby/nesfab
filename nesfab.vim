@@ -6,9 +6,9 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword nesfabKeyword if else for while do break continue then return fn 
-    \ ct nmi mode goto label using file struct vars data omni ready fence 
-    \ default case asm
+syn keyword nesfabKeyword if else for while do break continue return fn 
+    \ ct nmi mode goto label file struct vars data omni ready fence 
+    \ default switch case asm charmap chrrom
 
 syntax match nesfabId "\l\k*"
 syntax match nesfabType "\u\k*"
@@ -16,9 +16,9 @@ syntax match nesfabType "\u\k*"
 syntax match nesfabGroup "/\k\+"
 
 " Integer with - + or nothing in front
-syn match nesfabNumber '[-+]\?\d\+'
-syn match nesfabNumberHex '[-+]\?\$\x\+'
-syn match nesfabNumberBin '[-+]\?%[01]\+'
+syn match nesfabNumber '\d\+'
+syn match nesfabNumberHex '\$\x\+'
+syn match nesfabNumberBin '%[01]\+'
 
 " Comment
 syn match nesfabComment "//.*$"

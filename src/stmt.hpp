@@ -21,14 +21,16 @@ struct stmt_mods_ht : handle_t<stmt_mods_ht, std::uint16_t, ~0> {};
     X(STMT_IF,         true)\
     X(STMT_ELSE,       0)\
     X(STMT_END_IF,     0)\
-    X(STMT_END_DO,     true)\
     X(STMT_WHILE,      true)\
     X(STMT_END_WHILE,  0)\
     X(STMT_FOR,        true)\
     X(STMT_FOR_EFFECT, true)\
     X(STMT_END_FOR,    0)\
     X(STMT_EXPR,       true)\
-    X(STMT_DO,         0)\
+    X(STMT_DO_WHILE,   0)\
+    X(STMT_END_DO_WHILE, true)\
+    X(STMT_DO_FOR,     0)\
+    X(STMT_END_DO_FOR, true)\
     X(STMT_RETURN,     true)\
     X(STMT_BREAK,      0)\
     X(STMT_CONTINUE,   0)\

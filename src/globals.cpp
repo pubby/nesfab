@@ -1261,8 +1261,6 @@ void fn_t::compile()
             changed |= o_merge_basic_blocks(&stdout_log, ir);
             ir.assert_valid();
 
-            save_graph(ir, fmt("post_merge%", iter).c_str());
-
             changed |= o_remove_unused_arguments(log, ir, *this, post_byteified);
             ir.assert_valid();
 
@@ -1272,13 +1270,15 @@ void fn_t::compile()
             changed |= o_abstract_interpret(&stdout_log, ir, post_byteified);
             ir.assert_valid();
 
-            save_graph(ir, fmt("post_ai_o_%", iter).c_str());
-
             changed |= o_remove_unused_ssa(log, ir);
             ir.assert_valid();
 
-            changed |= o_global_value_numbering(log, ir);
+            save_graph(ir, fmt("pre_motion_%", iter).c_str());
+
+            changed |= o_motion(log, ir);
             ir.assert_valid();
+
+            save_graph(ir, fmt("post_motion_%", iter).c_str());
 
             if(post_byteified)
             {

@@ -143,6 +143,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     ////////////////////////
 
     split_critical_edges(ir);
+    //split_critical_edges(ir);
 
     // Deal with conditional nodes that have both edges going to the same node
     // by splitting the edge and inserting a new node.

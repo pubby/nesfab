@@ -43,6 +43,7 @@ namespace isel
         // These track the in-flight selections:
         map_t map;
         map_t next_map;
+        unsigned max_map_size = 0;
 
         // The current best selection has this cost:
         isel_cost_t best_cost = ~0;
@@ -94,14 +95,14 @@ namespace isel
         {
             _node = v;
             _value = ssa_to_value(v);
-            _trans = asm_arg(v).with_byteified(false);
+            _trans = asm_arg(v);
         }
 
         static void set(ssa_value_t v, std::uint16_t offset)
         {
             _node = v;
             _value = ssa_to_value(v).with_advance_offset(offset);
-            _trans = asm_arg(v).with_byteified(false).with_advance_offset(offset);
+            _trans = asm_arg(v).with_advance_offset(offset);
         }
 
         [[gnu::always_inline]] static ssa_value_t node() { return _node; }
@@ -261,7 +262,6 @@ namespace isel
 ///////////////////////////////////////////////////////////////////////////////
 
     // These determine how extensive the search is.
-    constexpr unsigned MAX_MAP_SIZE = 64;
     constexpr unsigned cost_cutoff(int size)
     {
         constexpr unsigned BASE = cost_fn(LDY_ABSOLUTE) * 3;
@@ -304,6 +304,7 @@ namespace isel
     {
         assert(!state.selecting);
         assert(state.selecting = true);
+        assert(state.max_map_size > 0);
 
         dprint(state.log, "-SELECT_STEP", state.ssa_node);
 
@@ -319,7 +320,7 @@ namespace isel
         isel_cost_t const cutoff = state.best_cost + cost_cutoff(state.map.size());
 
         // Run every selection step:
-        if(state.map.size() > MAX_MAP_SIZE)
+        if(state.map.size() > state.max_map_size)
         {
             state.indices.resize(state.map.size());
 
@@ -332,7 +333,7 @@ namespace isel
             std::iota(begin, end, 0);
             std::make_heap(begin, end, comp);
 
-            for(unsigned i = 0; i < MAX_MAP_SIZE; ++i)
+            for(unsigned i = 0; i < state.max_map_size; ++i)
             {
                 std::pop_heap(begin, end, comp);
                 auto const& pair = state.map.begin()[*(--end)];
@@ -1152,6 +1153,7 @@ namespace isel
     template<typename Opt, op_name_t StoreOp, typename Def, typename Param, bool Maybe = true> [[gnu::noinline]]
     void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
+        /*
         if(StoreOp == STA)
         {
             chain
@@ -1178,6 +1180,7 @@ namespace isel
             , simple_store<Opt, StoreOp, Def, Param, Maybe>
             >(cpu, prev, cont);
         }
+        */
 
         simple_store<Opt, StoreOp, Def, Param, Maybe>(cpu, prev, cont);
     }
@@ -1985,7 +1988,7 @@ namespace isel
 
         assert(is_tea(from.type().name()));
 
-        if(asm_arg(def).with_byteified(false) == asm_arg(from).with_byteified(false))
+        if(asm_arg(def) == asm_arg(from))
             return;
 
         unsigned len = from.type().size();
@@ -2995,18 +2998,6 @@ namespace isel
 
             break;
 
-        case SSA_entry:
-            if(state.fn->fclass == FN_MODE)
-            {
-                chain
-                < load_X<Opt, const_<0xFF>>
-                , simple_op<Opt, TXS_IMPLIED>
-                >(cpu, prev, cont);
-            }
-            else
-                cont->call(cpu, prev);
-            break;
-
         case SSA_switch_full:
             {
                 p_arg<0>::set(h->input(0));
@@ -3294,8 +3285,8 @@ namespace isel
                 using p_ptr_hi = p_arg<6>;
                 using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
 
-                p_array_lo::set(asm_arg(h).with_byteified(false).with_is(IS_PTR));
-                p_array_hi::set(asm_arg(h).with_byteified(false).with_is(IS_PTR_HI));
+                p_array_lo::set(asm_arg(h).with_is(IS_PTR));
+                p_array_hi::set(asm_arg(h).with_is(IS_PTR_HI));
 
                 p_index_lo::set(h->input(INDEX));
                 p_index_hi::set(h->input(INDEX_HI));
@@ -3352,6 +3343,8 @@ namespace isel
             }
             break;
 
+        case SSA_entry:
+            break;
 
         default: 
         simple:
@@ -3446,9 +3439,9 @@ namespace isel
     {
         return for_each_output_matching(ssa, INPUT_VALUE, [&](ssa_ht output) -> bool
         {
-            if(ssa_flags(output->op()) & SSAF_COPY)
+            if((ssa_flags(output->op()) & SSAF_COPY) && asm_arg(ssa) == asm_arg(output))
                 return value_unused(cfg, output);
-            return output->op() != SSA_phi && !dominates(cfg, output->cfg_node());
+            return output->op() != SSA_phi && cfg == output->cfg_node();
         });
     }
 
@@ -3463,6 +3456,9 @@ namespace isel
             if(!l)
                 return l;
 
+            if(l == LOC_PASS_THRU)
+                return LOC_NONE;
+
             // Setup incoming phis.
             // Search to see if we have an input to the phi.
             // If we do, we'll change the locator to that phi and update 'next_phi'.
@@ -3472,7 +3468,6 @@ namespace isel
             for(ssa_ht phi = next_phi; phi; ++phi)
             {
                 auto input = phi->input(input_i);
-                std::cout << "GRONK POOP " << phi << input << l << std::endl;
 
                 if(ssa_to_value(phi->input(input_i)) == l)
                 {
@@ -3484,16 +3479,12 @@ namespace isel
             for(ssa_ht phi = cfg->phi_begin(); phi != next_phi; ++phi)
             {
                 auto input = phi->input(input_i);
-                std::cout << "GRONK POOP " << phi << '|' << input << '|' << l << std::endl;
 
                 if(ssa_to_value(phi->input(input_i)) == l)
                 {
-                    std::cout << "GRONK POOPED\n";
                     next_phi = phi.next();
                     return locator_t::phi(phi);
                 }
-                else
-                    std::cout << "GRONK POOPED FAIL\n";
             }
 
             if(l.lclass() == LOC_SSA)
@@ -3502,18 +3493,14 @@ namespace isel
 
                 // Values can't loop:
                 if(h->cfg_node() == cfg)
-                {
-                    std::cout << "GRONK NOLOOP "  << h << std::endl;
                     return LOC_NONE;
-                }
 
-                // If the node has no output used through 'cfg', ignore it.
-                if(value_unused(cfg, h))
+                // If 'h' has no output to another CFG, ignore it.
+                if(value_unused(h->cfg_node(), h))
                 {
-                    std::cout << "GRONK UNUSED " << h << cfg << std::endl;
+                    std::cout << "NONE " << h << std::endl;
                     return LOC_NONE;
                 }
-                std::cout << "GRONK USED " << h << cfg << std::endl;
             }
 
             return l;
@@ -3575,15 +3562,33 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     // GENERATE SELECTION LIST FOR EACH CFG NODE //
     ///////////////////////////////////////////////
 
-    rh::batman_map<cross_transition_t, result_t> rebuilt;
+    thread_local rh::batman_map<cross_transition_t, result_t> rebuilt;
+    thread_local std::vector<rh::apair<cross_cpu_t, isel_cost_t>> new_out_states;
 
     constexpr unsigned MAX_SELS_PER_CFG = 16;
-    constexpr unsigned MAX_SELS_PER_ITER = 128;
-    constexpr auto SELS_MIN_COST_BOUND = cost_fn(LDA_ABSOLUTE) / 2;
-    constexpr auto SELS_PREV_COST_BOUND = cost_fn(LDA_IMMEDIATE) / 2;
+    constexpr unsigned MAX_SELS_PER_ITER = 1024;
+    constexpr auto SELS_MIN_COST_BOUND = cost_fn(LDA_ABSOLUTE);
+    constexpr auto SELS_COST_BOUND = cost_fn(NOP_IMPLIED) / 4;
 
     auto const shrink_sels = [&](unsigned max_sels, cfg_d& d)
     {
+        std::cout << "REBUILTSIZEOLD " << d.sels.size() << std::endl;
+
+        unsigned good = 0;
+        for(auto const& pair : d.sels)
+            if(pair.second.cost < d.min_sel_cost + SELS_MIN_COST_BOUND)
+                ++good;
+
+        std::cout << "REBUILTSIZEGOOD " << good << std::endl;
+
+        std::sort(d.sels.begin(), d.sels.end(), [](auto const& a, auto const& b)
+        {
+            if(a.second.cost != b.second.cost)
+                return a.second.cost < b.second.cost;
+            return a.first.unique_count() < b.first.unique_count();
+        });
+
+        /*
         if(d.sels.size() > max_sels)
         {
             // Reuse 'rebuilt':
@@ -3601,21 +3606,16 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             std::iota(begin, end, 0);
             std::make_heap(begin, end, comp);
 
-            isel_cost_t const bound = d.sels.begin()[*begin].second.cost + SELS_MIN_COST_BOUND;
-            isel_cost_t prev_cost = std::numeric_limits<isel_cost_t>::max() - SELS_PREV_COST_BOUND;
+            //isel_cost_t const bound = d.sels.begin()[*begin].second.cost + SELS_MIN_COST_BOUND;
 
             for(unsigned i = 0; i < max_sels; ++i)
             {
                 std::pop_heap(begin, end, comp);
                 auto const& to_insert = d.sels.begin()[*(--end)];
 
-                if(to_insert.second.cost > bound)
-                    break;
+                //if(to_insert.second.cost > bound)
+                    //break;
 
-                if(to_insert.second.cost > prev_cost + SELS_PREV_COST_BOUND)
-                    break;
-
-                prev_cost = to_insert.second.cost;
                 rebuilt.insert(to_insert);
             }
 
@@ -3632,10 +3632,12 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             }
             */
 
-            std::cout << "REBUILTSIZE " << rebuilt.size() << std::endl;
-
+        /*
             d.sels.swap(rebuilt);
         }
+    */
+        std::cout << "REBUILTSIZE " << d.sels.size() << std::endl;
+
     };
 
     // Create the initial worklist:
@@ -3652,7 +3654,10 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         auto& d = data(cfg);
         d.in_states.insert({});
         d.to_compute.push_back(0);
+        d.min_in_costs.resize(cfg->input_size(), isel_cost_t(~0ull) - SELS_COST_BOUND);
     }
+
+    unsigned computed = 0;
 
     // Run until completion:
     while(!cfg_worklist.empty())
@@ -3685,6 +3690,22 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 &state.sel_pool.emplace(nullptr, 0, 
                     asm_inst_t{ .op = ASM_PRUNED, .arg = locator_t::index(index) }) });
         }
+
+        constexpr unsigned BASE_MAP_SIZE = 25600; // TODO
+        state.max_map_size = std::min<unsigned>(1 + loop_depth(cfg), 4) * BASE_MAP_SIZE;
+
+        // Modes get stack instructions:
+        if(cfg == ir.root && state.fn->fclass == FN_MODE)
+        {
+            using Opt = options<>;
+            select_step<false>(
+                chain
+                < load_X<Opt, const_<0xFF>>
+                , simple_op<Opt, TXS_IMPLIED>
+                >);
+        }
+
+        assert(state.map.size() > 0);
 
         // Generate every selection:
         auto const& schedule = cg_data(cfg).schedule;
@@ -3752,11 +3773,14 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             catch(...) { throw; }
         }
 
+        computed += d.to_compute.size();
+
         // Clear after computing:
         d.to_compute.clear();
 
         // Assemble those selections:
         assert(state.map.size());
+        new_out_states.clear();
         for(auto const& pair : state.map)
         {
             std::vector<asm_inst_t> code_temp;
@@ -3817,23 +3841,28 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             // For each pass-through register, 
             // we'll also handle the case it's LOC_NONE,
             // and will generate all the possible combinations:
+
+            // TODO:
             bc::small_vector<cross_transition_t, 8> sub_transitions;
             sub_transitions.push_back(transition);
 
-            unsigned cost_reduction = 0;
-
             for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
             {
-                if(!transition.in_state.defs[i] || transition.in_state.defs[i] != transition.out_state.defs[i])
-                    continue;
-
                 if((gen | kill) & (1 << i))
                 {
-                    if(transition.in_state.defs[i] == transition.out_state.defs[i])
-                        ++cost_reduction;
-
+                    // TODO
+                    //for(auto& inst : code_temp)
+                        //if((op_input_regs(inst.op) & (1 << i)) && (op_flags(inst.op) & ASMF_MAYBE_STORE) && inst.arg == transition.in_state.defs[i])
+                            //cost -= cost_fn(inst.op) - cost_fn(STA_MAYBE);
                     continue;
                 }
+
+                if(!transition.in_state.defs[i] || transition.in_state.defs[i] != transition.out_state.defs[i])
+                //if(transition.in_state.defs[i] != transition.out_state.defs[i])
+                    continue;
+
+                // TODO
+                //transition.in_state.defs[i] = transition.out_state.defs[i] = LOC_PASS_THRU;
 
                 // If the cfg node passes through a register,
                 // insert additional combinations:
@@ -3856,22 +3885,33 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
             auto code_ptr = std::make_shared<std::vector<asm_inst_t>>(std::move(code_temp));
 
+            // TODO
             assert(!sub_transitions.empty());
 
+            // TODO
             for(unsigned i = 0; i < sub_transitions.size(); ++i)
             {
                 rh::apair<cross_transition_t, result_t> new_sel = 
                 { 
-                    sub_transitions[i], 
+                    transition, 
                     {
-                        .cost = cost + sub_transitions[i].unique_count() - cost_reduction,
+                        // TODO:
+                        //.cost = cost + sub_transitions[i].unique_count(),
+                        //.cost = cost + (10 - sub_transitions[i].unique_count()) * cost_fn(LDA_ABSOLUTE),
+                        //.cost = cost + !!i,
+                        .cost = cost,
                         .code = code_ptr
                     }
                 };
 
+                if(d.min_sel_cost > new_sel.second.cost)
+                    d.min_sel_cost = new_sel.second.cost;
+
                 // Insert the 'new_sel' into 'd':
                 auto insert_result = d.sels.insert(new_sel);
-                if(!insert_result.second)
+                if(insert_result.second)
+                    new_out_states.push_back({ new_sel.first.out_state, new_sel.second.cost });
+                else
                 {
                     // Keep the lowest cost:
                     if(insert_result.first->second.cost > new_sel.second.cost)
@@ -3881,7 +3921,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         }
 
         // For efficiency, cap the maximum number of selections tracked:
-        shrink_sels(MAX_SELS_PER_ITER, d);
+        //shrink_sels(MAX_SELS_PER_ITER, d);
 
         // Pass our output CPU states to our output CFG nodes.
         unsigned const output_size = cfg->output_size();
@@ -3891,9 +3931,20 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             cfg_ht const output = oe.handle;
             auto& od = data(output);
 
-            for(auto const& new_sel : d.sels)
+            for(auto const& out_state : new_out_states)
             {
-                auto result = od.in_states.insert(prepare_cross_cpu_for(new_sel.first.out_state, output, oe.index));
+                assert(oe.index < od.min_in_costs.size());
+
+                //if(out_state.second > od.min_in_costs[oe.index] + SELS_COST_BOUND)
+                    //continue;
+
+                //if(out_state.second > d.min_sel_cost + SELS_COST_BOUND)
+                    //continue;
+
+                if(out_state.second < od.min_in_costs[oe.index])
+                    od.min_in_costs[oe.index] = out_state.second;
+
+                auto result = od.in_states.insert(prepare_cross_cpu_for(out_state.first, output, oe.index));
                 if(result.second)
                 {
                     od.to_compute.push_back(result.first - od.in_states.begin());
@@ -3906,8 +3957,33 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         }
     }
 
+    // TODO
+    cfg_ht inspect = {3};
+
+    std::sort(data(inspect).sels.begin(), data(inspect).sels.end(), [](auto const& a, auto const& b)
+        { return a.second.cost < b.second.cost; });
+
+    for(auto const& sel : data(inspect).sels)
+    {
+        std::cerr << std::endl;
+        std::cerr << sel.second.cost << std::endl;
+        for(auto const& inst : *sel.second.code)
+            std::cerr << inst << std::endl;
+
+        std::cerr << "in:\n";
+        std::cerr << sel.first.in_state << std::endl;
+        std::cerr << "out:\n";
+        std::cerr << sel.first.out_state << std::endl;
+    }
+
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        std::cout << "REBUILTS CFG " << cfg << std::endl;
         shrink_sels(MAX_SELS_PER_CFG, data(cfg));
+    }
+
+    std::printf("computed = %u\n", computed);
+
 
 #ifndef NDEBUG
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
@@ -3925,7 +4001,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     auto const gen_load = [&](cross_cpu_t const& cross, regs_t reg, locator_t loc) -> asm_inst_t
     {
         if(loc.lclass() == LOC_SSA || loc.lclass() == LOC_PHI)
-            loc = asm_arg(loc.ssa_node()).with_byteified(false);
+            loc = asm_arg(loc.ssa_node());
 
         switch(reg)
         {
@@ -3978,9 +4054,11 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
             isel_cost_t const multiplier = depth_exp(loop_depth(cfg));
             assert(multiplier > 0);
+            assert(d.cost_vector.empty());
 
-            for(auto const& pair : d.sels)
-                d.cost_vector.push_back(pair.second.cost * multiplier);
+            d.cost_vector.resize(d.sels.size(), 0);
+            for(unsigned i = 0; i < d.sels.size(); ++i)
+                d.cost_vector[i] = d.sels.begin()[i].second.cost * multiplier;
         }
 
         for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
@@ -4018,6 +4096,8 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                         cost += add_to_cost * 4;
                     }
 
+                    //std::cout << "MULTI " << cfg << output << multiplier << ' ' << cost << std::endl;
+
                     cost_matrix[x + y * d.sels.size()] = cost * multiplier;
                 }
 
@@ -4036,7 +4116,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     {
         auto& d = data(cfg);
         assert(d.sel >= 0 && d.sel < int(d.sels.size()));
-        std::cout << "SEL = " << d.sel << std::endl;
+        std::cout << "SEL = " << d.sel << " / " << d.sels.size() << std::endl;
     }
 #endif
 

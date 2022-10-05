@@ -29,6 +29,7 @@ constexpr std::uint16_t ENTRY_LABEL = std::uint16_t(~0u);
 enum locator_class_t : std::uint8_t
 {
     LOC_NONE,
+    LOC_PASS_THRU, // Used only in isel
 
     LOC_FN, // A function.
     LOC_GMEMBER, // A global member.

@@ -1991,6 +1991,10 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht branch_cfg, unsigned back_edge_input, bool 
 
     constraints_t const& c = def[0];
 
+    // Cleanup executable indexes, just to be safe
+    for(ssa_ht ssa_it = branch_cfg->ssa_begin(); ssa_it; ++ssa_it)
+        ai_data(ssa_it).executable_index = EXEC_PROPAGATE;
+
     if(c.is_top(def.cm) || !c.is_const() || !c.get_const() != exit_output)
     {
         dprint(log, "---REWRITE_LOOPS_FAIL", branch_cfg, c);
@@ -1999,10 +2003,6 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht branch_cfg, unsigned back_edge_input, bool 
 
     // OK! The branch is forced for the first iteration.
     dprint(log, "---REWRITE_LOOPS_REWRITE", branch_cfg);
-
-    // Cleanup executable indexes, just to be safe
-    for(ssa_ht ssa_it = branch_cfg->ssa_begin(); ssa_it; ++ssa_it)
-        ai_data(ssa_it).executable_index = EXEC_PROPAGATE;
 
     // Split the back edge:
     cfg_ht const new_cfg = ir.split_edge(branch_cfg->input_edge(back_edge_input).output());
@@ -2038,8 +2038,6 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht branch_cfg, unsigned back_edge_input, bool 
 
     // Remove the old branch:
     branch_cfg->link_remove_output(exit_output);
-
-    ::build_loops_and_order(ir);
 
     updated = __LINE__;
     return new_cfg;
@@ -2123,12 +2121,13 @@ void ai_t::rewrite_loops()
         if(cfg_ht new_cfg = try_rewrite_loop(cfg_it, back_edge, exit_i))
         {
             // Did rewrite!
-
             assert(cfg_it->output_size() == 1);
+            assert(new_cfg != cfg_it);
 
             // Update 'algo', just to be safe:
             cfg_algo_pool.resize(cfg_pool::array_size());
             algo(new_cfg).iloop_header = cfg_it;
+            algo(new_cfg).is_loop_header = false;
         }
     next_iter:;
     }

@@ -69,7 +69,7 @@ struct pbqp_edge_t
         return nodes[1] == &node;
     }
 
-    pbqp_cost_t& cost(unsigned from_sel, unsigned to_sel, bool node_i = false)
+    pbqp_cost_t& cost(unsigned from_sel, unsigned to_sel, bool node_i)
     {
         if(node_i)
             std::swap(from_sel, to_sel);

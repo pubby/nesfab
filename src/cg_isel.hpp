@@ -55,6 +55,8 @@ namespace isel
         std::vector<unsigned> to_compute;
         rh::batman_set<cross_cpu_t> in_states;
         rh::batman_map<cross_transition_t, result_t> sels;
+        std::vector<isel_cost_t> min_in_costs;
+        isel_cost_t min_sel_cost = isel_cost_t(~0ull) / 2;
 
         std::vector<asm_inst_t> const& final_code() const { return *sels.begin()[sel].second.code; }
         std::vector<asm_inst_t>& final_code() { return *sels.begin()[sel].second.code; }

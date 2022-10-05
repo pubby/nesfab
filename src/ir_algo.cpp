@@ -68,6 +68,15 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
     if(node == header || !header)
         return;
 
+    /* TODO REMOVE
+    auto const dfsp_pos = [](auto& d) -> unsigned
+    {
+        if(d.postorder_i == UNVISITED)
+            return UNVISITED;
+        return d.preorder_i;
+    };
+    */
+
     while(cfg_ht iloop_header = algo(node).iloop_header)
     {
         if(iloop_header == header)
@@ -82,10 +91,9 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
 
         // The new header should already be traversed:
         assert(header_u.preorder_i != UNVISITED);
+        assert(header_u.postorder_i == UNVISITED);
 
-        if(header_u.postorder_i != UNVISITED // If header's in the path
-           && iloop_header_u.preorder_i < header_u.preorder_i)
-           // And if 'iloop_header' comes before 'header' in the path.
+        if(iloop_header_u.dfsp < header_u.dfsp)
         {
             algo(node).iloop_header = header;
             node = header;
@@ -93,19 +101,31 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
         }
         else
             node = iloop_header;
+
+        std::cout << "LOOP " << node << std::endl;
     }
 
+    //if(node.id == 1 && header) TODO REMOVE
+        //assert(false);
     algo(node).iloop_header = header;
 }
 
 // Paper: A New Algorithm for Identifying Loops in Decompilation
 // By Tao Wei, Jian Mao, Wei Zou, Yu Chen 
-static cfg_ht _visit_loops(cfg_ht node)
+static cfg_ht _visit_loops(cfg_ht node, unsigned dfsp = 1)
 {
     auto& u = algo(node);
 
+    u.dfsp = dfsp;
     u.preorder_i = preorder.size(); // Marks as traversed.
     preorder.push_back(node);
+
+    std::cout << "VISIT " << node << std::endl;
+
+    auto const in_dfsp = [](auto& d) -> bool
+    {
+        return d.dfsp > 0;
+    };
 
     unsigned const output_size = node->output_size();
     for(unsigned i = 0; i < output_size; ++i)
@@ -114,8 +134,8 @@ static cfg_ht _visit_loops(cfg_ht node)
         auto& succ_u = algo(succ);
 
         if(succ_u.preorder_i == UNVISITED) // If 'succ' hasn't been traversed.
-            _tag_loop_header(node, _visit_loops(succ));
-        else if(succ_u.postorder_i == UNVISITED) // Is back edge?
+            _tag_loop_header(node, _visit_loops(succ, dfsp + 1));
+        else if(in_dfsp(succ_u)) // Is back edge?
         {
             if(!succ_u.is_loop_header)
             { 
@@ -128,7 +148,7 @@ static cfg_ht _visit_loops(cfg_ht node)
         else if(cfg_ht header = succ_u.iloop_header)
         {
             auto& header_u = algo(header);
-            if(header_u.postorder_i == UNVISITED) // Is back edge?
+            if(in_dfsp(header_u)) // Is back edge?
             {
                 assert(header_u.preorder_i != UNVISITED);
                 _tag_loop_header(node, header);
@@ -142,8 +162,8 @@ static cfg_ht _visit_loops(cfg_ht node)
 
                 if(!u.reentry_out)
                     u.reentry_out.reset(new reentry_set_t());
-                if(!succ_u.reentry_out)
-                    succ_u.reentry_out.reset(new reentry_set_t());
+                if(!succ_u.reentry_in)
+                    succ_u.reentry_in.reset(new reentry_set_t());
 
                 u.reentry_out->insert(out_i);
                 succ_u.reentry_in->insert(in_i);
@@ -155,11 +175,11 @@ static cfg_ht _visit_loops(cfg_ht node)
                 // or until we run out of headers to check.
                 while(header_u.iloop_header)
                 {
+                    std::cout << header << std::endl;
                     header = header_u.iloop_header;
                     // Check if 'header' is in the current DFS path:
-                    if(algo(header).postorder_i == UNVISITED)
+                    if(in_dfsp(algo(header)))
                     {
-                        assert(algo(header).preorder_i != UNVISITED);
                         _tag_loop_header(node, header);
                         break;
                     }
@@ -170,6 +190,7 @@ static cfg_ht _visit_loops(cfg_ht node)
         }
     }
 
+    u.dfsp = 0;
     u.postorder_i = postorder.size();
     postorder.push_back(node);
 
@@ -184,6 +205,7 @@ void build_loops_and_order(ir_t& ir)
     {
         u.preorder_i = UNVISITED;
         u.postorder_i = UNVISITED;
+        u.dfsp = 0;
         u.iloop_header = {};
         u.is_loop_header = false;
         u.reentry_in.reset();
@@ -205,6 +227,11 @@ void build_loops_and_order(ir_t& ir)
 
     assert(preorder.empty() || preorder.front() == ir.root);
     assert(postorder.empty() || postorder.back() == ir.root);
+
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+        std::cout << "HEADER " << cfg << algo(cfg).iloop_header << ' ' << algo(cfg).is_loop_header 
+        << ' ' << !!algo(cfg).reentry_in << ' ' << !!algo(cfg).reentry_out
+        << std::endl;
 }
 
 cfg_ht this_loop_header(cfg_ht h)
@@ -404,6 +431,19 @@ void split_critical_edges(ir_t& ir)
                 ir.split_edge(oe);
                 passert(cfg->output_size() == output_size, cfg->output_size(), output_size);
             }
+        }
+    }
+}
+
+void split_all_edges(ir_t& ir)
+{
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        unsigned const output_size = cfg->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            auto oe = cfg->output_edge(i);
+            ir.split_edge(oe);
         }
     }
 }

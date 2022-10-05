@@ -19,6 +19,7 @@ struct cfg_algo_d
     unsigned postorder_i = UNVISITED;
     cfg_ht idom = {};
     cfg_ht iloop_header = {};
+    unsigned dfsp = 0; // implementation detail, used inside loop generation algorithm.
     bool is_loop_header = false;
 
     // Incoming edges with
@@ -69,5 +70,6 @@ cfg_ht dom_intersect(cfg_ht a, cfg_ht b);
 void toposort_cfg_node(cfg_ht cfg_node, ssa_ht* vec);
 
 void split_critical_edges(ir_t& ir);
+void split_all_edges(ir_t& ir);
 
 #endif

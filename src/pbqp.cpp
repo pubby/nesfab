@@ -159,6 +159,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
         for(unsigned j = 0; j < other.num_sels(); ++j)
         {
             pbqp_cost_t min_cost = ~0ull;
+            auto& bp_proof = node.bp_proof[j];
 
             for(unsigned i = 0; i < node.num_sels(); ++i)
             {
@@ -169,7 +170,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
                 if(cost < min_cost)
                 {
                     min_cost = cost;
-                    node.bp_proof[j] = i;
+                    bp_proof = i;
                 }
             }
 
@@ -178,6 +179,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
 
         bp_stack.push_back(&node);
         other.dec_degree(edge);
+        assert(node.degree == 1);
         return true;
     }
     else if(node.degree == 2) // R2
@@ -204,6 +206,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
         for(unsigned b = 0 ; b < other_b.num_sels(); ++b)
         {
             pbqp_cost_t min_cost = ~0ull;
+            auto& bp_proof = node.bp_proof[a + (other_a.num_sels() * b)];
 
             for(unsigned i = 0; i < node.num_sels(); ++i)
             {
@@ -214,6 +217,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
                 if(cost < min_cost)
                 {
                     min_cost = cost;
+                    bp_proof = i;
                     node.bp_proof[a + (other_a.num_sels() * b)] = i;
                 }
             }
@@ -225,6 +229,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
         other_a.dec_degree(edge_a);
         other_b.dec_degree(edge_b);
         add_edge(other_a, other_b, std::move(new_matrix));
+        assert(node.degree == 2);
         return true;
     }
 

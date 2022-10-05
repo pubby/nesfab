@@ -8,7 +8,7 @@
 #include "o_phi.hpp"
 #include "o_unused.hpp"
 #include "o_merge_bb.hpp"
-#include "o_gvn.hpp"
+#include "o_motion.hpp"
 #include "o_arg.hpp"
 #include "o_id.hpp"
 

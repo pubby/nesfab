@@ -14,9 +14,9 @@ locator_t asm_arg(ssa_value_t v)
         if(ssa_flags(v->op()) & SSAF_CG_NEVER_STORE)
             return {};
         if(locator_t loc = cset_locator(v.handle(), true))
-            return loc;
+            return loc.with_byteified(false);
     }
-    return locator_t::from_ssa_value(v);
+    return locator_t::from_ssa_value(v).with_byteified(false);
 }
 
 cset_ir_cache_t cset_build_cache(ir_t const& ir)

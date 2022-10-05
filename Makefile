@@ -107,7 +107,7 @@ span_allocator.cpp \
 group.cpp \
 ram_alloc.cpp \
 lvar.cpp \
-o_gvn.cpp \
+o_motion.cpp \
 eval.cpp \
 rval.cpp \
 type_name.cpp \

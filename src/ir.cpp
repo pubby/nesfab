@@ -701,7 +701,7 @@ ssa_ht cfg_node_t::steal_ssa(ssa_ht ssa, bool steal_linked)
         });
     }
 
-    assert(ret->cfg_node() == old_cfg.handle());
+    assert(!ret || ret->cfg_node() == old_cfg.handle());
     return ret;
 }
 
@@ -932,9 +932,10 @@ cfg_ht ir_t::merge_edge(cfg_ht cfg_h)
 #ifndef NDEBUG
 void ir_t::assert_valid() const
 {
+    // TODO
     assert(root);
-    assert(root->first_daisy());
-    assert(root->first_daisy()->op() == SSA_entry);
+    //assert(root->first_daisy());
+    //assert(root->first_daisy()->op() == SSA_entry);
 
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 

@@ -1,7 +1,8 @@
-#include "o_gvn.hpp"
+#include "o_motion.hpp"
 
 #include <cstdint>
 #include <vector>
+#include <iostream> // TODO
 
 #include "robin/map.hpp"
 #include "robin/hash.hpp"
@@ -9,6 +10,11 @@
 #include "ir.hpp"
 #include "ir_algo.hpp"
 #include "ir_util.hpp"
+#include "worklist.hpp"
+
+////////////////////////////
+// GLOBAL VALUE NUMBERING //
+////////////////////////////
 
 using gvn_t = std::uint64_t;
 
@@ -61,7 +67,7 @@ public:
         {
             if(ssa_it->in_daisy() 
                || (ssa_flags(ssa_it->op()) & (SSAF_NO_GVN | SSAF_WRITE_ARRAY)) 
-               || !io_pure(*ssa_it))
+               || !pure(*ssa_it))
             {
                 data(ssa_it).gvn = m_next_gvn++;
             }
@@ -152,9 +158,119 @@ private:
     log_t* log = nullptr;
 };
 
-bool o_global_value_numbering(log_t* log, ir_t& ir)
+///////////////////
+// LOOP HOISTING //
+///////////////////
+
+static bool o_hoist(log_t* log, ir_t& ir)
 {
-    ssa_data_pool::scope_guard_t<ssa_gvn_d> sg(ssa_pool::array_size());
-    run_gvn_t runner(log, ir);
-    return runner.updated;
+    dprint(log, "HOIST");
+
+    bool updated = false;
+
+    assert(ssa_worklist.empty());
+
+    for(cfg_node_t const& cfg_node : ir)
+    {
+        cfg_ht const header = this_loop_header(cfg_node.handle());
+
+        if(header)
+        {
+            for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+            {
+                ssa_it->clear_flags(FLAG_PROCESSED | FLAG_IN_WORKLIST);
+
+                if(ssa_it->in_daisy() 
+                   || (ssa_flags(ssa_it->op()) & (SSAF_NO_GVN | SSAF_WRITE_ARRAY)) 
+                   || (ssa_input0_class(ssa_it->op()) == INPUT_LINK)
+                   || !pure(*ssa_it))
+                {
+                    // Cache unmovable nodes using FLAG_PROCESSED:
+                    ssa_it->set_flags(FLAG_PROCESSED);
+                }
+                else
+                    ssa_worklist.push(ssa_it);
+            }
+        }
+        else for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+        {
+            // Cache unmovable nodes using FLAG_PROCESSED:
+            ssa_it->clear_flags(FLAG_IN_WORKLIST);
+            ssa_it->set_flags(FLAG_PROCESSED);
+        }
+    }
+
+    while(!ssa_worklist.empty())
+    {
+        ssa_ht const ssa = ssa_worklist.pop();
+        assert(!ssa->test_flags(FLAG_PROCESSED));
+
+        while(true)
+        {
+            cfg_ht const cfg = ssa->cfg_node();
+            cfg_ht const header = this_loop_header(cfg);
+            if(!header)
+                break;
+
+            // We'll try to relocate SSA nodes to this CFG:
+            cfg_ht const hoist_to = algo(header).idom;
+            if(!hoist_to)
+                break;
+
+            assert(hoist_to != header);
+            assert(this_loop_header(hoist_to) != header);
+            assert(dominates(header, cfg));
+            assert(loop_is_parent_of(header, cfg));
+            passert(!loop_is_parent_of(header, hoist_to), header, hoist_to, algo(hoist_to).iloop_header);
+
+            // Make sure our inputs are valid in 'hoist_to'.
+            unsigned const input_size = ssa->input_size();
+            for(unsigned i = 0; i < input_size; ++i)
+            {
+                ssa_value_t const input = ssa->input(i);
+                if(input.holds_ref() && !dominates(input->cfg_node(), hoist_to))
+                    goto next_iter;
+            }
+
+            std::cout << "steal " << hoist_to << ssa << std::endl;
+
+            // Move the node:
+            hoist_to->steal_ssa(ssa, true);
+            dprint(log, "-HOIST_STEAL", ssa, hoist_to);
+
+            // Enqueue outputs:
+            for_each_output_with_links(ssa, [&](ssa_ht from, ssa_ht output)
+            {
+                if(!output->test_flags(FLAG_PROCESSED))
+                    ssa_worklist.push(output);
+            });
+
+            updated = true;
+        }
+    next_iter:;
+    }
+
+    return updated;
+}
+
+////////////
+// MOTION //
+////////////
+
+bool o_motion(log_t* log, ir_t& ir)
+{
+    build_loops_and_order(ir);
+    build_dominators_from_order(ir);
+
+    bool updated = false;
+
+    {
+        ssa_data_pool::scope_guard_t<ssa_gvn_d> sg(ssa_pool::array_size());
+        run_gvn_t runner(log, ir);
+        updated |= runner.updated;
+    }
+
+    updated |= o_hoist(log, ir);
+
+    return updated;
 }

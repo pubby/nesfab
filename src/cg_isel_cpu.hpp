@@ -283,6 +283,29 @@ struct cross_cpu_t
     int unique_count() const
     {
         int count = 0;
+        for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+        {
+            if(!defs[i])
+            {
+                count += 0;
+                continue;
+            }
+
+            for(unsigned j = 0; j < NUM_CROSS_REGS; ++j)
+            {
+                if(j == i)
+                    continue;
+
+                if(defs[i] == defs[j])
+                {
+                    count += 3;
+                    break;
+                }
+            }
+
+            count += 1;
+        }
+
         for(locator_t const& loc : defs)
             if(loc)
                 ++count;
@@ -291,6 +314,32 @@ struct cross_cpu_t
 
     std::array<locator_t, NUM_CROSS_REGS> defs = {};
 };
+
+inline unsigned heuristic_penalty(locator_t const* defs)
+{
+    unsigned count = 0;
+    for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+    {
+        if(!defs[i])
+            continue;
+
+        for(unsigned j = 0; j < NUM_CROSS_REGS; ++j)
+        {
+            if(j == i)
+                continue;
+
+            if(defs[i] == defs[j])
+            {
+                count += 3;
+                break;
+            }
+        }
+
+        count += 1;
+    }
+
+    return count;
+}
 
 struct cross_transition_t
 {

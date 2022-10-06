@@ -43,7 +43,9 @@ namespace isel
 
     struct result_t
     {
+        double sort_by = 0; // TODO
         isel_cost_t cost = 0;
+        unsigned age = 0; // TODO
         std::shared_ptr<std::vector<asm_inst_t>> code;
     };
 
@@ -57,6 +59,11 @@ namespace isel
         rh::batman_map<cross_transition_t, result_t> sels;
         std::vector<isel_cost_t> min_in_costs;
         isel_cost_t min_sel_cost = isel_cost_t(~0ull) / 2;
+
+        // TODO:
+        //std::array<rh::batman_map<locator_t, isel_cost_t>, NUM_CROSS_REGS> output_costs;
+
+        // TODO:
 
         std::vector<asm_inst_t> const& final_code() const { return *sels.begin()[sel].second.code; }
         std::vector<asm_inst_t>& final_code() { return *sels.begin()[sel].second.code; }

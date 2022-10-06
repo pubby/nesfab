@@ -126,16 +126,16 @@ public:
     }
 
     locator_t entry_label() const { return m_entry_label; }
-private:
-    using list_t = bi::list<asm_node_t>;
-
-    asm_node_t& push_back(locator_t label = LOC_NONE, bool succeed = false);
-    list_t::iterator prune(asm_node_t& node);
 
     bool o_remove_stubs();
     bool o_remove_branches();
     bool o_returns();
     bool o_peephole();
+private:
+    using list_t = bi::list<asm_node_t>;
+
+    asm_node_t& push_back(locator_t label = LOC_NONE, bool succeed = false);
+    list_t::iterator prune(asm_node_t& node);
 
     unsigned calc_liveness(fn_t const& fn, rh::batman_set<locator_t> const& map);
 

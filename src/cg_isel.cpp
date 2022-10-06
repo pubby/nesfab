@@ -328,7 +328,12 @@ namespace isel
             auto end = state.indices.end();
             
             auto comp = [&](unsigned a, unsigned b)
-                { return state.map.begin()[a].second->cost > state.map.begin()[b].second->cost; };
+            { 
+                unsigned ac = state.map.begin()[a].second->cost + heuristic_penalty(state.map.begin()[a].first.defs.data());
+                unsigned bc = state.map.begin()[b].second->cost + heuristic_penalty(state.map.begin()[b].first.defs.data());
+                return ac > bc;
+                //return state.map.begin()[a].second->cost > state.map.begin()[b].second->cost; 
+            };
 
             std::iota(begin, end, 0);
             std::make_heap(begin, end, comp);
@@ -3497,10 +3502,7 @@ namespace isel
 
                 // If 'h' has no output to another CFG, ignore it.
                 if(value_unused(h->cfg_node(), h))
-                {
-                    std::cout << "NONE " << h << std::endl;
                     return LOC_NONE;
-                }
             }
 
             return l;
@@ -3518,7 +3520,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 {
     using namespace isel;
 
-    state.log = &stdout_log;//log;
+    state.log = log;
     state.fn = fn.handle();
 
     // TODO: prerequire this.
@@ -3565,35 +3567,45 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     thread_local rh::batman_map<cross_transition_t, result_t> rebuilt;
     thread_local std::vector<rh::apair<cross_cpu_t, isel_cost_t>> new_out_states;
 
-    constexpr unsigned MAX_SELS_PER_CFG = 16;
+    constexpr unsigned BASE_SEL_SIZE = 32;
+    constexpr unsigned BASE_MAP_SIZE = 128;
+
     constexpr unsigned MAX_SELS_PER_ITER = 1024;
-    constexpr auto SELS_MIN_COST_BOUND = cost_fn(LDA_ABSOLUTE);
+    //constexpr auto SELS_MIN_COST_BOUND = cost_fn(LDA_ABSOLUTE);
     constexpr auto SELS_COST_BOUND = cost_fn(NOP_IMPLIED) / 4;
 
-    auto const shrink_sels = [&](unsigned max_sels, cfg_d& d)
+    auto const shrink_sels = [&](cfg_ht cfg)
     {
-        std::cout << "REBUILTSIZEOLD " << d.sels.size() << std::endl;
+        auto& d = data(cfg);
 
+
+        unsigned const max_sels = std::min<unsigned>(1 + loop_depth(cfg), 4) * BASE_SEL_SIZE;
+
+        std::cout << "REBUILTSIZEOLD " << d.sels.size() << cfg << max_sels << std::endl;
+
+        /*
         unsigned good = 0;
         for(auto const& pair : d.sels)
             if(pair.second.cost < d.min_sel_cost + SELS_MIN_COST_BOUND)
                 ++good;
+                */
 
-        std::cout << "REBUILTSIZEGOOD " << good << std::endl;
+        //std::cout << "REBUILTSIZEGOOD " << good << std::endl;
 
+        /*
         std::sort(d.sels.begin(), d.sels.end(), [](auto const& a, auto const& b)
         {
             if(a.second.cost != b.second.cost)
                 return a.second.cost < b.second.cost;
             return a.first.unique_count() < b.first.unique_count();
         });
+        */
 
-        /*
         if(d.sels.size() > max_sels)
         {
             // Reuse 'rebuilt':
             rebuilt.clear();
-            rebuilt.reserve(MAX_SELS_PER_CFG);
+            rebuilt.reserve(max_sels);
 
             state.indices.resize(d.sels.size());
 
@@ -3632,11 +3644,9 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             }
             */
 
-        /*
             d.sels.swap(rebuilt);
         }
-    */
-        std::cout << "REBUILTSIZE " << d.sels.size() << std::endl;
+        //std::cout << "REBUILTSIZE " << d.sels.size() << std::endl;
 
     };
 
@@ -3657,7 +3667,9 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         d.min_in_costs.resize(cfg->input_size(), isel_cost_t(~0ull) - SELS_COST_BOUND);
     }
 
+    // TODO
     unsigned computed = 0;
+    unsigned age = 0;
 
     // Run until completion:
     while(!cfg_worklist.empty())
@@ -3667,6 +3679,8 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
         if(d.to_compute.empty())
             continue;
+
+        ++age;
 
         state.cfg_node = cfg;
         setup_rolling_window(cfg);
@@ -3691,7 +3705,6 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                     asm_inst_t{ .op = ASM_PRUNED, .arg = locator_t::index(index) }) });
         }
 
-        constexpr unsigned BASE_MAP_SIZE = 25600; // TODO
         state.max_map_size = std::min<unsigned>(1 + loop_depth(cfg), 4) * BASE_MAP_SIZE;
 
         // Modes get stack instructions:
@@ -3896,10 +3909,11 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                     transition, 
                     {
                         // TODO:
-                        //.cost = cost + sub_transitions[i].unique_count(),
+                        .cost = cost + sub_transitions[i].unique_count(),
                         //.cost = cost + (10 - sub_transitions[i].unique_count()) * cost_fn(LDA_ABSOLUTE),
                         //.cost = cost + !!i,
-                        .cost = cost,
+                        //.cost = cost,
+                        .age = age,
                         .code = code_ptr
                     }
                 };
@@ -3915,7 +3929,10 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 {
                     // Keep the lowest cost:
                     if(insert_result.first->second.cost > new_sel.second.cost)
+                    {
+                        //new_sel.second.age = insert_result.first->second.age;
                         *insert_result.first = std::move(new_sel);
+                    }
                 }
             }
         }
@@ -3935,11 +3952,11 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             {
                 assert(oe.index < od.min_in_costs.size());
 
-                //if(out_state.second > od.min_in_costs[oe.index] + SELS_COST_BOUND)
-                    //continue;
+                if(out_state.second > od.min_in_costs[oe.index] + SELS_COST_BOUND)
+                    continue;
 
-                //if(out_state.second > d.min_sel_cost + SELS_COST_BOUND)
-                    //continue;
+                if(out_state.second > d.min_sel_cost + SELS_COST_BOUND)
+                    continue;
 
                 if(out_state.second < od.min_in_costs[oe.index])
                     od.min_in_costs[oe.index] = out_state.second;
@@ -3958,6 +3975,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     }
 
     // TODO
+    /*
     cfg_ht inspect = {3};
 
     std::sort(data(inspect).sels.begin(), data(inspect).sels.end(), [](auto const& a, auto const& b)
@@ -3975,11 +3993,104 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         std::cerr << "out:\n";
         std::cerr << sel.first.out_state << std::endl;
     }
+    */
+
+    // TODO
+    /*
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+        for(auto const& sel : d.sels)
+        {
+            for(unsigned r = 0; r < NUM_CROSS_REGS; ++r)
+            {
+                if(locator_t loc = sel.first.out_state.defs[r])
+                {
+                    auto& cost = d.output_costs[r][loc];
+                    if(cost)
+                        cost = std::min(cost, sel.second.cost);
+                    else
+                        cost = sel.second.cost;
+                }
+            }
+        }
+    }
+
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+
+        for(auto& sel : d.sels)
+        {
+            double sort_by = 0.0;
+
+            for(unsigned r = 0; r < NUM_CROSS_REGS; ++r)
+            {
+                if(locator_t loc = sel.first.in_state.defs[r])
+                {
+                    double max_sort = 0.0;
+
+                    for(unsigned i = 0; i < cfg->input_size(); ++i)
+                    {
+                        isel_cost_t const multiplier = depth_exp(edge_depth(cfg->input(i), cfg));
+
+                        auto& id = data(cfg->input(i));
+                        if(auto const* cost = id.output_costs[r].mapped(loc))
+                        {
+                            assert(*cost >= id.min_sel_cost);
+                            max_sort = std::max<double>(max_sort, multiplier * double(*cost) / double(id.min_sel_cost));
+                        }
+                        else
+                            max_sort = multiplier * 256.0;
+                    }
+
+                    sort_by += max_sort;
+                }
+                else
+                {
+                    for(unsigned i = 0; i < cfg->input_size(); ++i)
+                    {
+                        isel_cost_t const multiplier = depth_exp(edge_depth(cfg->input(i), cfg));
+                        sort_by += multiplier;
+                    }
+                }
+            }
+
+            std::cout << "ISEL MULT " << sort_by << std::endl;
+
+            sel.second.sort_by = sort_by;
+        }
+    }
+    */
+
+#if 0
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        auto& d = data(cfg);
+
+        std::sort(d.sels.begin(), d.sels.end(), [](auto const& a, auto const& b)
+        {
+            auto const calc = [](auto const& x)
+            {
+                return x.second.cost + /*(isel_cost_t(x.second.sort_by) / 32)*/ + x.first.unique_count();
+            };
+
+            //if(a.second.age != b.second.age)
+                //return a.second.age < b.second.age;
+
+            if(calc(a) != calc(b))
+                return calc(a) < calc(b);
+
+            return false;
+        });
+    }
+#endif
+
 
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
         std::cout << "REBUILTS CFG " << cfg << std::endl;
-        shrink_sels(MAX_SELS_PER_CFG, data(cfg));
+        shrink_sels(cfg);
     }
 
     std::printf("computed = %u\n", computed);
@@ -4112,12 +4223,17 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     }
 
 #ifndef NDEBUG
+    unsigned a = 0;
+    unsigned b = 0;
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
         auto& d = data(cfg);
         assert(d.sel >= 0 && d.sel < int(d.sels.size()));
-        std::cout << "SEL = " << d.sel << " / " << d.sels.size() << std::endl;
+        std::cout << "SEL = " << d.sel << " / " << d.sels.size() << ' ' << cfg << std::endl;
+        a += d.sel;
+        b += d.sels.size();
     }
+    std::cout << "TOTAL SEL = " << a << " / " << b << std::endl;
 #endif
 
     ///////////////////////////
@@ -4372,6 +4488,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     graph.finish_appending();
     graph.optimize();
     graph.remove_maybes(fn);
+    graph.o_peephole();
 
     lvars_manager_t lvars = graph.build_lvars(fn);
 

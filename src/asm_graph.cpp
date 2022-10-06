@@ -338,6 +338,7 @@ bool asm_graph_t::o_peephole()
         {
             asm_inst_t& a = node.code[i];
             asm_inst_t& b = node.code[i+1];
+            asm_inst_t* c = (i+2 < node.code.size()) ? &node.code[i+2] : nullptr;
 
             auto const replace_op = [&](op_t op)
             {
@@ -356,6 +357,20 @@ bool asm_graph_t::o_peephole()
                 }
             };
 
+            auto const peep_inxy = [&](op_name_t second, op_name_t store, op_name_t replace)
+            {
+                if(c && op_name(b.op) == second && op_name(c->op) == store 
+                   && op_addr_mode(a.op) == op_addr_mode(c->op)
+                   && a.arg == c->arg && a.alt == c->alt)
+                {
+                    if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
+                    {
+                        c->op = a.op;
+                        replace_op(new_op);
+                    }
+                }
+            };
+
             switch(op_name(a.op))
             {
             default: break;
@@ -368,6 +383,14 @@ bool asm_graph_t::o_peephole()
             case AND:
                 if(a.op == AND_IMMEDIATE && b.op == LSR_IMPLIED)
                     replace_op(ALR_IMMEDIATE);
+                break;
+            case LDX:
+                peep_inxy(INX, STX, INC);
+                peep_inxy(DEX, STX, DEC);
+                break;
+            case LDY:
+                peep_inxy(INY, STY, INC);
+                peep_inxy(DEY, STY, DEC);
                 break;
             }
         }

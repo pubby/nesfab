@@ -20,6 +20,8 @@ std::string to_string(locator_t loc)
         return fmt("unknown locator %", (int)loc.lclass());
     case LOC_NONE:
         return "none";
+    case LOC_PASS_THRU:
+        return "pass_thru";
     case LOC_GMEMBER:
         str = fmt("gmember % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_GMEMBER_SET:

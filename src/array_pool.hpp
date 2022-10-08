@@ -111,7 +111,10 @@ public:
         used_size = 0;
 
         if(used)
-            used->destruct_owned();
+        {
+            for(buffer_t* buf = used.get(); buf; buf = buf->prev)
+                buf->destruct_owned();
+        }
 
         // Move the used list onto the free list.
         if(first_free)
@@ -223,13 +226,9 @@ private:
 
         void destruct_owned()
         {
-            // Implement non-recursively, to avoid stack overflows
-            for(buffer_t* buf = this; buf; buf = buf->prev)
-            {
-                for(unsigned i = 0; i < buf->size; ++i)
-                    reinterpret_cast<T&>(buf->data[i]).~T();
-                buf->size = 0;
-            }
+            for(unsigned i = 0; i < size; ++i)
+                reinterpret_cast<T&>(data[i]).~T();
+            size = 0;
         }
 
         void set_prev(buffer_t* new_prev)

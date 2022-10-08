@@ -7,6 +7,11 @@ void pbqp_t::solve(std::vector<pbqp_node_t*> order)
     if(order.empty())
         return;
 
+#ifndef NDEBUG
+    for(auto* node : order)
+        assert(node->num_sels() > 0);
+#endif
+
     std::vector<pbqp_node_t*> next_order;
     next_order.reserve(order.size());
 
@@ -76,9 +81,10 @@ void pbqp_t::solve(std::vector<pbqp_node_t*> order)
 
             assert(other_a.sel >= 0);
             assert(other_b.sel >= 0);
-            assert(other_a.sel + (other_b.sel * other_a.num_sels()) < node.bp_proof.size());
 
-            node.sel = node.bp_proof[other_a.sel + (other_b.sel * other_a.num_sels())];
+            unsigned const index = other_a.sel + (other_b.sel * other_a.num_sels());
+            passert(index < node.bp_proof.size(), index, node.bp_proof.size());
+            node.sel = node.bp_proof[index];
         }
     }
 }

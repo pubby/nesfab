@@ -746,29 +746,32 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         // Find the original instruction to narrow with.
         // Due to how traces are inserted, this *could* be a trace,
         // so we'll have to iterate up until it's not.
-        ssa_ht narowing_op = parent_trace->input(0).handle();
-        while(narowing_op->op() == SSA_trace)
-            narowing_op = narowing_op->input(0).handle();
+        ssa_ht narrowing_op = parent_trace->input(0).handle();
+        while(narrowing_op->op() == SSA_trace)
+            narrowing_op = narrowing_op->input(0).handle();
 
         unsigned const arg_i = trace->input(i+1).whole();
-        unsigned const num_args = narowing_op->input_size();
+        unsigned const num_args = narrowing_op->input_size();
         passert(arg_i < num_args, arg_i, num_args);
 
         // The narrow function expects a mutable array of constraints
         // that it modifies. Create that array here.
         c.resize(num_args);
         for(unsigned j = 0; j < num_args; ++j)
-            copy_constraints(narowing_op->input(j), c[j]);
+            copy_constraints(narrowing_op->input(j), c[j]);
 
         auto& parent_trace_d = ai_data(parent_trace);
         assert(parent_trace_d.rebuild_mapping);
 
-        ssa_op_t const op = narowing_op->op();
+        ssa_op_t const op = narrowing_op->op();
         passert(narrow_fn(op), op);
 
         // Call the narrowing op:
         narrow_fn(op)(c.data(), num_args, parent_trace_d.constraints());
-        assert(c[arg_i].vec.size() == narrowed.size());
+
+        // TODO: remove?
+        //passert(c[arg_i].vec.size() == narrowed.size(), 
+                //c[arg_i].vec.size(), narrowed.size(), narrowing_op->op(), narrowing_op, arg_i);
 
         // Update narrowed:
         for(unsigned j = 0; j < narrowed.size(); ++j)
@@ -1060,7 +1063,6 @@ void ai_t::prune_unreachable_code()
 
         if(branch->op() == SSA_if)
         {
-            std::cout << "IF " << branch << c << std::endl;
             if(!c.is_const())
                 continue;
 
@@ -2084,7 +2086,6 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
     auto& na = algo(new_cfg);
     na.iloop_header = header_cfg;
     na.idom = new_cfg->input(0);
-    //na.postorder_i = 0; // This hack ensures 'dominates' works.
     assert(na.is_loop_header == false);
 
     // Update the exit
@@ -2096,11 +2097,15 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
     {
         // Recalulate the 'idom' of 'exit_cfg'.
 
+        // We'll iterate up through the dominator tree, 
+        // storing all nodes with a tree height.
         fc::small_map<cfg_ht, unsigned, 32> dom_map;
-
         for(cfg_ht dom = new_cfg; dom; dom = algo(dom).idom)
             dom_map.emplace(dom, dom_map.size());
 
+        // Then we'll iterate up through the dominator tree with other nodes,
+        // finding where they intersect with our stored map.
+        // The highest intersection is our new idom.
         unsigned highest_pos = 0;
         unsigned const remove_input = header_cfg->output_edge(exit_output).index;
         unsigned const new_input = new_cfg->output_edge(0).index;
@@ -2126,23 +2131,18 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
     // Rewrite outputs of phi nodes from 'branch' cfg.
     // NOTE: this also rewrites the inputs of stolen nodes in 'new_cfg'.
-    unsigned const new_back_edge_input = new_cfg->output_edge(0).index;
-    std::cout << "XDOM START\n";
+    assert(new_cfg->output(!exit_output) == header_cfg);
+    unsigned const new_back_edge_input = new_cfg->output_edge(!exit_output).index;
     for(ssa_ht phi = header_cfg->phi_begin(); phi; ++phi)
     {
+        ssa_value_t const replace_with = phi->input(new_back_edge_input);
         for(unsigned i = 0; i < phi->output_size();)
         {
             auto const oe = phi->output_edge(i);
             if(orderless_dominates(new_cfg, oe.handle->cfg_node()))
-            {
-                oe.handle->link_change_input(oe.index, phi->input(new_back_edge_input));
-                std::cout << "XDOM " << oe.handle << new_cfg << oe.handle->cfg_node() << std::endl;
-            }
+                oe.handle->link_change_input(oe.index, replace_with);
             else
-            {
                 ++i;
-                std::cout << "NOTXDOM " << oe.handle << new_cfg << oe.handle->cfg_node() << std::endl;
-            }
         }
     }
 

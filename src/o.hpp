@@ -10,5 +10,6 @@
 #include "o_arg.hpp"
 #include "o_id.hpp"
 #include "o_loop.hpp"
+#include "o_defork.hpp"
 
 #endif

@@ -1255,6 +1255,9 @@ void fn_t::compile()
         {
             changed = false;
 
+            changed |= o_defork(log, ir);
+            ir.assert_valid();
+
             changed |= o_phis(log, ir);
             ir.assert_valid();
 
@@ -1276,7 +1279,6 @@ void fn_t::compile()
 
             changed |= o_remove_unused_ssa(log, ir);
             ir.assert_valid();
-
 
             changed |= o_motion(log, ir);
             ir.assert_valid();

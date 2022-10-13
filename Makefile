@@ -136,7 +136,8 @@ multi.cpp \
 lodepng.cpp \
 convert_png.cpp \
 switch.cpp \
-o_loop.cpp
+o_loop.cpp \
+o_defork.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

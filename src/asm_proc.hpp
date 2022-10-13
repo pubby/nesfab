@@ -51,6 +51,24 @@ unsigned size_in_bytes(It begin, It end)
     return size;
 }
 
+inline asm_inst_t* prev_inst(asm_inst_t* begin, asm_inst_t* end, asm_inst_t* inst)
+{
+    for(--inst; inst >= begin; --inst)
+        if(inst->op != ASM_PRUNED)
+            return inst;
+    return nullptr;
+}
+
+inline asm_inst_t* next_inst(asm_inst_t* code, asm_inst_t* end, asm_inst_t* inst) 
+{
+    for(++inst; inst < end; ++inst)
+        if(inst->op != ASM_PRUNED)
+            return inst;
+    return nullptr;
+}
+
+bool o_peephole(asm_inst_t* begin, asm_inst_t* end);
+
 // A relocatable sequence of assembly instructions, 
 // used after code generation but still amenable to code optimizations.
 struct asm_proc_t
@@ -89,6 +107,7 @@ struct asm_proc_t
     void absolute_to_zp();
 
     // Converts identifier-based labels to relocatable ones.
+    // TODO
     //void make_relocatable();
 
     // Number of bytes between two instruction indexes.

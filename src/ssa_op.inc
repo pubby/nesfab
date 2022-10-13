@@ -141,17 +141,17 @@ SSA_DEF(init_array, -1, INPUT_VALUE, 0)
 //////////////
 
 // (hi, lo) - combines two bytes into a pointer
-SSA_DEF(make_ptr_lo, 2, INPUT_NONE, SSAF_COPY)
+SSA_DEF(make_ptr_lo, 2, INPUT_NONE, SSAF_COPY | SSAF_CHEAP_SCHEDULE)
 // (lo, hi) - combines two bytes into a pointer
-SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY)
+SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY | SSAF_CHEAP_SCHEDULE)
 
 // (ptr, ptr_hi, bank, index)
 SSA_DEF(read_ptr,    4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT)
 SSA_DEF(read_ptr_hw, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT | SSAF_IO_IMPURE)
 
 // (ptr, ptr_hi, bank, index, value)
-SSA_DEF(write_ptr,    5, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT | SSAF_IO_IMPURE)
-SSA_DEF(write_ptr_hw, 5, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT | SSAF_IO_IMPURE)
+SSA_DEF(write_ptr,    5, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT | SSAF_IO_IMPURE | SSAF_CHEAP_SCHEDULE)
+SSA_DEF(write_ptr_hw, 5, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT | SSAF_IO_IMPURE | SSAF_CHEAP_SCHEDULE)
 
 /////////////
 // GLOBALS //
@@ -174,12 +174,12 @@ SSA_DEF(read_global, 2, INPUT_LINK, 0)
 
 // Used to implement out-of-SSA for phi node inputs.
 // (node)
-SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY)
+SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY | SSAF_CHEAP_SCHEDULE)
 
 // Stores into a locator at some point earlier in the program than needed.
 // Used in out-of-SSA as an optimization.
 // (node)
-SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE)
-SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY) // TODO: is this really necessary?
+SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE | SSAF_CHEAP_SCHEDULE)
+SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_CHEAP_SCHEDULE) // TODO: is this really necessary?
 
 #undef SSA_DEF

@@ -301,7 +301,7 @@ void ssa_node_t::remove_inputs_output(unsigned i)
 void ssa_node_t::link_remove_input(unsigned i)
 {
     link_change_input(i, m_io.last_input());
-    link_change_input(input_size() - 1, ssa_value_t(0u, TYPE_VOID));
+    link_change_input(input_size() - 1, ssa_value_t());
     m_io.shrink_input(input_size() - 1);
 #ifndef NDEBUG
     for(unsigned j = 0; j < input_size(); ++j)
@@ -357,11 +357,25 @@ void ssa_node_t::link_shrink_inputs(unsigned new_size)
 
 void ssa_node_t::link_swap_inputs(unsigned ai, unsigned bi)
 {
+    assert(ai < input_size());
+    assert(bi < input_size());
+
     ssa_fwd_edge_t& ae = m_io.input(ai);
     ssa_fwd_edge_t& be = m_io.input(bi);
 
+    if(ssa_bck_edge_t* ao = ae.output())
+    {
+        passert(ao->index == ai, ai, bi, ao->index);
+        ao->index = bi;
+    }
+
+    if(ssa_bck_edge_t* bo = be.output())
+    {
+        assert(bo->index == bi);
+        bo->index = ai;
+    }
+
     std::swap(ae, be);
-    std::swap(ae.output()->index, be.output()->index);
 }
 
 void ssa_node_t::replace_with(ssa_value_t value)
@@ -576,7 +590,7 @@ void cfg_node_t::list_erase_daisy(ssa_node_t& node)
 
 ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
 {
-    assert(!is_ct(type));
+    passert(!is_ct(type), type);
 
     // Alloc and initialize it.
     ssa_ht h = ssa_pool::alloc();
@@ -994,7 +1008,8 @@ void ir_t::assert_valid() const
             if(ssa_it->op() == SSA_if)
             {
                 assert(ssa_it == cfg_node.last_daisy());
-                assert(cfg_node.output_size() == 2);
+                assert(ssa_it->cfg_node() == cfg_node.handle());
+                passert(cfg_node.output_size() == 2, cfg_node.output_size(), ssa_it->cfg_node(), ssa_it);
             }
 
             if(ssa_it->in_daisy())

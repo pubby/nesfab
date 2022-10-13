@@ -449,7 +449,7 @@ public:
         { return locator_t(LOC_MINOR_LABEL, 0, id, 0); }
 
     constexpr static locator_t const_byte(std::uint8_t value)
-        { return locator_t(LOC_CONST_BYTE, 0, value, 0).with_byteified(true).with_is(IS_PTR); }
+        { return locator_t(LOC_CONST_BYTE, 0, value, 0).with_is(IS_PTR); }
 
     constexpr static locator_t addr(std::uint16_t addr, std::uint16_t offset = 0)
         { return locator_t(LOC_ADDR, 0, addr, offset); }

@@ -12,6 +12,8 @@
 
 namespace { // anon namespace
 
+constexpr int MAX_EXIT_DISTANCE = INT_MAX / 4; // Some sufficiently large number.
+
 class scheduler_t
 {
 public:
@@ -30,6 +32,9 @@ private:
     fc::small_set<ssa_ht, 16> unused_global_reads;
     std::array<ssa_value_t, 2> array_indexers = {};
     ssa_value_t ptr_banker = {};
+
+    // Some successor searches will restart from this:
+    ssa_ht retry_from = {};
 
     // Each SSA node in the CFG node that has been scheduled.
     bitset_uint_t* scheduled = nullptr;
@@ -53,9 +58,9 @@ private:
     int indexer_score(ssa_ht h) const;
     int banker_score(ssa_ht h) const;
 
-    ssa_ht successor_search(ssa_ht last_scheduled) const;
+    ssa_ht successor_search(ssa_ht last_scheduled);
 
-    ssa_ht full_search(unsigned relax) const;
+    ssa_ht full_search(unsigned relax);
 
     void calc_exit_distance(ssa_ht ssa, int exit_distance=0) const;
 
@@ -105,7 +110,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     {
         index(toposorted[i]) = i;
         data(toposorted[i]).deps = bitset_pool.alloc(set_size);
-        data(toposorted[i]).exit_distance = INT_MAX / 4; // Some sufficiently large number.
+        data(toposorted[i]).exit_distance = MAX_EXIT_DISTANCE; // Some sufficiently large number.
     }
 
 #ifndef NDEBUG
@@ -125,6 +130,9 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             calc_exit_distance(exit);
         }
     }
+
+    for(ssa_ht ssa_node : toposorted)
+        std::cout << "EXITD " << ssa_node << data(ssa_node).exit_distance << std::endl;
 
     for(ssa_ht ssa_node : toposorted)
     {
@@ -274,6 +282,38 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             }
         }
     }
+
+    // Phis
+    for(ssa_ht ssa_node : toposorted)
+    {
+        cfg_ht const cfg_node = ssa_node->cfg_node();
+        //ssa_ht self_loop_phi = {};
+
+        bool const exits_cfg = !for_each_output_with_links(ssa_node, [&](ssa_ht from, ssa_ht output)
+        {
+            while((ssa_flags(output->op()) & SSAF_COPY) && output->output_size() == 1)
+                output = output->output(0);
+
+            bool const is_phi = output->op() == SSA_phi;
+            bool const same_cfg = output->cfg_node() == cfg_node;
+
+            //self_loop |= is_phi && same_cfg;
+
+            return !is_phi && same_cfg;
+        });
+
+        // TODO
+        //if(self_loop)
+        {
+        }
+
+        if(exits_cfg)
+        {
+            std::cout << "OPHI " << ssa_node << std::endl;
+            calc_exit_distance(ssa_node, MAX_EXIT_DISTANCE / 2);
+        }
+    }
+
 
     // ARRAYS:
     // - Schedule write_arrays after all read_arrays from previous write_arrays
@@ -451,6 +491,9 @@ void scheduler_t::run()
         if(candidate)
             candidate = successor_search(candidate);
 
+        if(!candidate && retry_from)
+            candidate = successor_search(retry_from);
+
         // Second priority: try to find *any* node that's ready,
         // expanding the search until we succeed.
         for(unsigned relax = 0; !candidate; ++relax)
@@ -602,7 +645,7 @@ int scheduler_t::banker_score(ssa_ht h) const
     return 0;
 }
 
-ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
+ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled)
 {
     int best_score = -1;
     ssa_ht best = {};
@@ -617,9 +660,12 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
 
         if(ready(0, succ, scheduled))
         {
-            // Copies are so trivial we might as well schedule them next:
-            if(ssa_flags(succ->op()) & SSAF_COPY)
+            // Some nodes are so trivial we might as well schedule them next:
+            if(ssa_flags(succ->op()) & SSAF_CHEAP_SCHEDULE)
+            {
+                retry_from = last_scheduled;
                 return succ;
+            }
 
             // Otherwise find the best successor node by comparing path lengths:
             int score = path_length(0, succ, this->scheduled);
@@ -634,10 +680,11 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled) const
         }
     }
 
+    retry_from = {};
     return best;
 }
 
-ssa_ht scheduler_t::full_search(unsigned relax) const
+ssa_ht scheduler_t::full_search(unsigned relax)
 {
     int best_score = INT_MIN;
     ssa_ht best = {};
@@ -675,6 +722,7 @@ ssa_ht scheduler_t::full_search(unsigned relax) const
         assert(ready(relax, best, scheduled));
     }
 
+    retry_from = {};
     return best;
 }
 

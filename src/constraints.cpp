@@ -162,7 +162,7 @@ bounds_t from_bits(known_bits_t bits, constraints_mask_t cm)
             assert(complement >= 0);
 
             assert(complement);
-            bounds_t const pos = { bits.known1, ~bits.known0 };
+            bounds_t const pos = { bits.known1 & cm.mask, ~bits.known0 & cm.mask };
             assert(pos.min <= pos.max);
             
             ret = { pos.min - complement, pos.max - complement };
@@ -172,8 +172,8 @@ bounds_t from_bits(known_bits_t bits, constraints_mask_t cm)
             //std::cout << pos << std::endl;
             //std::cout << ret << std::endl;
 
-            assert(ret.min < 0);
-            assert(ret.max < 0);
+            passert(ret.min < 0, ret.min);
+            passert(ret.max < 0, ret.max);
             assert(ret.min <= ret.max);
         }
         else if(bits.known0 & sign_bit)
@@ -747,7 +747,7 @@ ABSTRACT(SSA_add) = ABSTRACT_FN
     value = {};
 
     fixed_uint_t const neg_mask = ~(L.bits.known0 & R.bits.known0 & shifted_C.bits.known0) & cm.mask;
-    std::uint64_t const start_i = neg_mask ? builtin::ctz(neg_mask) : 0;
+    std::uint64_t const start_i = neg_mask ? (builtin::ctz(neg_mask) & ~1ull): 0;
     std::uint64_t const end_i = ((1 + (cm.mask ? builtin::rclz(cm.mask) : sizeof_bits<fixed_uint_t>)) & ~1ull);
     value.bits.known0 = (1ull << start_i) - 1ull;
 
@@ -1088,7 +1088,7 @@ ABSTRACT(SSA_resize_array) = ABSTRACT_FN
 ABSTRACT(SSA_shl) = ABSTRACT_FN
 {
     assert(argn == 2);
-    assert(result.cm.mask == cv[0].cm.mask);
+    passert(result.cm.mask == cv[0].cm.mask, result.cm.mask, cv[0].cm.mask);
     assert((cv[1].cm.mask & numeric_bitmask(TYPE_U)) == cv[1].cm.mask);
 
     if(handle_top(cv, argn, result))
@@ -1197,7 +1197,6 @@ ABSTRACT(SSA_rol) = ABSTRACT_FN
     assert(argn == 2);
     assert(result.cm.mask == cv[0].cm.mask);
     assert(CARRY_MASK == cv[1].cm);
-    assert(!cv[0].cm.signed_);
     assert(!result.cm.signed_);
     assert(result.vec.size() == 2);
 
@@ -1207,11 +1206,15 @@ ABSTRACT(SSA_rol) = ABSTRACT_FN
     // Inputs:
     fixed_uint_t const mask = result.cm.mask;
     fixed_uint_t const C_mask = low_bit_only(mask);
-    constraints_t const V = cv[0][0];
+    constraints_mask_t const V_cm = { cv[0].cm.mask, false };
+    constraints_t V = cv[0][0];
     constraints_t const C = cv[1][0];
     constraints_t const shifted_C = constraints_t::shifted_carry(C.to_carry(), C_mask);
 
-    assert(V.is_normalized(cv[0].cm));
+    if(cv[0].cm.signed_)
+        V = normalize(apply_mask(V, V_cm), V_cm);
+
+    assert(V.is_normalized(V_cm));
     assert(C.is_normalized(cv[1].cm));
 
     // Calc the out carry:
@@ -1229,8 +1232,6 @@ ABSTRACT(SSA_rol) = ABSTRACT_FN
     bits.known1 <<= 1;
     bits.known0 &= ~CARRY_MASK.mask;
     bits.known1 &= ~CARRY_MASK.mask;
-    assert(!cv[0].cm.signed_);
-    assert(!result.cm.signed_);
     bits.known0 |= shifted_C.bits.known0 & CARRY_MASK.mask;
     bits.known1 |= shifted_C.bits.known1 & CARRY_MASK.mask;
     bits.known0 |= ~mask;
@@ -1256,7 +1257,6 @@ ABSTRACT(SSA_ror) = ABSTRACT_FN
     assert(argn == 2);
     assert(result.cm.mask == cv[0].cm.mask);
     assert(CARRY_MASK == cv[1].cm);
-    assert(!cv[0].cm.signed_);
     assert(!result.cm.signed_);
     assert(result.vec.size() == 2);
 
@@ -1266,11 +1266,15 @@ ABSTRACT(SSA_ror) = ABSTRACT_FN
     // Inputs:
     fixed_uint_t const mask = result.cm.mask;
     fixed_uint_t const C_mask = high_bit_only(mask);
-    constraints_t const V = cv[0][0];
+    constraints_mask_t const V_cm = { cv[0].cm.mask, false };
+    constraints_t V = cv[0][0];
     constraints_t const C = cv[1][0];
     constraints_t const shifted_C = constraints_t::shifted_carry(C.to_carry(), C_mask);
 
-    assert(V.is_normalized(cv[0].cm));
+    if(cv[0].cm.signed_)
+        V = normalize(apply_mask(V, V_cm), V_cm);
+
+    assert(V.is_normalized(V_cm));
     assert(C.is_normalized(cv[1].cm));
 
     // Calc the out carry:

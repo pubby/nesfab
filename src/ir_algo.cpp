@@ -168,23 +168,22 @@ static cfg_ht _visit_loops(cfg_ht node, unsigned dfsp = 1)
                 u.reentry_out->insert(out_i);
                 succ_u.reentry_in->insert(in_i);
 
-                header->set_flags(FLAG_IRREDUCIBLE);
+                assert(header_u.is_loop_header);
+                header_u.is_irreducible = true;
 
                 // Travel up the iloop header tree until either finding
                 // a loop header that exists inside the current DFS path,
                 // or until we run out of headers to check.
-                while(header_u.iloop_header)
+                while((header = algo(header).iloop_header))
                 {
-                    std::cout << header << std::endl;
-                    header = header_u.iloop_header;
+                    algo(header).is_irreducible = true;
+
                     // Check if 'header' is in the current DFS path:
                     if(in_dfsp(algo(header)))
                     {
                         _tag_loop_header(node, header);
                         break;
                     }
-
-                    header->set_flags(FLAG_IRREDUCIBLE);
                 }
             }
         }
@@ -208,12 +207,10 @@ void build_loops_and_order(ir_t& ir)
         u.dfsp = 0;
         u.iloop_header = {};
         u.is_loop_header = false;
+        u.is_irreducible = false;
         u.reentry_in.reset();
         u.reentry_out.reset();
     }
-
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-        cfg_it->clear_flags(FLAG_IRREDUCIBLE);
 
     preorder.clear();
     postorder.clear();
@@ -290,14 +287,34 @@ bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node)
 
 bool dominates(cfg_ht a, cfg_ht b)
 {
+    assert(a);
+    while(b != a)
+    {
+        assert(a);
+        assert(b);
+
+        if(algo(b).postorder_i >= algo(a).postorder_i)
+            return false;
+
+        b = algo(b).idom;
+    }
+    assert(dom_intersect(a, b) == a);
+    return true;
+}
+
+bool orderless_dominates(cfg_ht a, cfg_ht b)
+{
+    assert(a);
     assert(b);
-    while(b != a && algo(b).postorder_i < algo(a).postorder_i)
+    while(b != a)
     {
         b = algo(b).idom;
-        assert(b);
+
+        if(!b)
+            return false;
     }
-    assert((b == a) == (dom_intersect(a, b) == a));
-    return b == a;
+    assert(dom_intersect(a, b) == a);
+    return true;
 }
 
 cfg_ht dom_intersect(cfg_ht a, cfg_ht b)

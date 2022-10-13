@@ -18,6 +18,106 @@ bool mem_inst(asm_inst_t const& inst)
     return (op_input_regs(inst.op) | op_output_regs(inst.op)) & REGF_M;
 }
 
+bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
+{
+    if(begin == end)
+        return false;
+
+    bool changed = false;
+
+    asm_inst_t* a, *b, *c;
+
+    auto const next_inst = [&](asm_inst_t* inst) { return ::next_inst(begin, end, inst); };
+
+    auto const replace_op = [&](op_t op)
+    {
+        a->op = op;
+        b->op = ASM_PRUNED;
+        changed = true;
+    };
+
+    a = begin;
+    if(op_size(a->op) == 0)
+        if(!(a = next_inst(a)))
+            return false;
+
+    b = next_inst(a);
+
+    while(b)
+    {
+        c = next_inst(b);
+
+        auto const peep_rmw = [&](op_name_t second, op_name_t replace)
+        {
+            if(b->op == get_op(second, op_addr_mode(a->op))
+               && a->arg == b->arg && a->alt == b->alt)
+            {
+                if(op_t new_op = get_op(replace, op_addr_mode(a->op)))
+                    replace_op(new_op);
+            }
+        };
+
+        auto const peep_inxy = [&](op_name_t second, op_name_t store, op_name_t replace)
+        {
+            if(c && op_name(b->op) == second && op_name(c->op) == store 
+               && op_addr_mode(a->op) == op_addr_mode(c->op)
+               && a->arg == c->arg && a->alt == c->alt)
+            {
+                if(op_t new_op = get_op(replace, op_addr_mode(a->op)))
+                {
+                    c->op = a->op;
+                    replace_op(new_op);
+                }
+            }
+        };
+
+        auto const peep_transfer = [&](op_name_t second, op_t replace)
+        {
+            if(op_name(b->op) == second 
+               && op_addr_mode(a->op) == op_addr_mode(b->op)
+               && a->arg == b->arg
+               && a->alt == b->alt)
+            {
+                replace_op(replace);
+            }
+        };
+
+        switch(op_name(a->op))
+        {
+        default: break;
+        case DEC: peep_rmw(CMP, DCP); break;
+        case INC: peep_rmw(SBC, ISC); break;
+        case ROL: peep_rmw(AND, RLA); break;
+        case ROR: peep_rmw(ADC, RRA); break;
+        case ASL: peep_rmw(ORA, SLO); break;
+        case LSR: peep_rmw(EOR, SRE); break;
+        case AND:
+            if(a->op == AND_IMMEDIATE && b->op == LSR_IMPLIED)
+                replace_op(ALR_IMMEDIATE);
+            break;
+        case LDX:
+            peep_inxy(INX, STX, INC);
+            peep_inxy(DEX, STX, DEC);
+            peep_transfer(LDA, TXA_IMPLIED);
+            break;
+        case LDY:
+            peep_inxy(INY, STY, INC);
+            peep_inxy(DEY, STY, DEC);
+            peep_transfer(LDA, TYA_IMPLIED);
+            break;
+        case LDA:
+            peep_transfer(LDX, TAX_IMPLIED);
+            peep_transfer(LDY, TAY_IMPLIED);
+            break;
+        }
+
+        a = b;
+        b = c;
+    }
+
+    return changed;
+}
+
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
@@ -67,18 +167,12 @@ void asm_proc_t::build_label_offsets()
 
 asm_inst_t* asm_proc_t::prev_inst(int i)
 {
-    for(--i; i >= 0; --i)
-        if(op_size(code[i].op))
-            return &code[i];
-    return nullptr;
+    return ::prev_inst(&*code.begin(), &*code.end(), i + code.data());
 }
 
 asm_inst_t* asm_proc_t::next_inst(int i) 
 {
-    for(++i; i < int(code.size()); ++i)
-        if(op_size(code[i].op))
-            return &code[i];
-    return nullptr;
+    return ::next_inst(&*code.begin(), &*code.end(), i + code.data());
 }
 
 int asm_proc_t::bytes_between(unsigned ai, unsigned bi) const
@@ -283,6 +377,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
 void asm_proc_t::optimize(bool initial)
 {
     // Order matters here.
+    o_peephole(&*code.begin(), &*code.end());
     absolute_to_zp();
     optimize_short_jumps(!initial);
     convert_long_branch_ops();

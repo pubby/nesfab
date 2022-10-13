@@ -32,8 +32,8 @@ struct cfg_order_d
 
 struct ssa_schedule_d
 {
-    ssa_ht carry_user = {};
     bitset_uint_t* deps = nullptr;
+    ssa_ht carry_user = {};
     int exit_distance = 0;
 
     unsigned index = 0;

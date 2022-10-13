@@ -201,21 +201,40 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
             else if(node.op() == SSA_lt)
             {
-                // Replace expressions like (X < 1) with (X == 0).
-                // This aids code generation.
-
                 type_name_t const lt = node.input(0).type().name();
                 type_name_t const rt = node.input(1).type().name();
 
+                // Replace C < X with C+1 <= X
+                // (This produces more efficient isel)
+
+                if(node.input(0).is_num() && !node.input(1).is_num())
+                {
+                    fixed_sint_t f = node.input(0).signed_fixed();
+                    f += type_unit(lt);
+
+                    if(f <= type_max(lt))
+                    {
+                        node.link_change_input(0, ssa_value_t(fixed_t{f}, lt));
+                        node.unsafe_set_op(SSA_lte);
+                        updated = true;
+                        break;
+                    }
+                }
+
                 if(!same_scalar_layout(lt, rt))
                     break;
+
+                // Replace expressions like (X < 1) with (X == 0).
+                // This aids code generation.
 
                 if(node.input(1).eq_fixed({ type_min(lt) + type_unit(lt) }))
                 {
                     node.link_change_input(1, ssa_value_t(type_min(rt), rt));
                     node.unsafe_set_op(SSA_eq);
                     updated = true;
+                    break;
                 }
+
             }
             break;
 
@@ -242,11 +261,28 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
             else if(node.op() == SSA_lte)
             {
-                // Replace expressions like (1 <= x) with (X != 0).
-                // This aids code generation.
-
                 type_name_t const lt = node.input(0).type().name();
                 type_name_t const rt = node.input(1).type().name();
+
+                // Replace C <= X with C-1 < X
+                // (This produces more efficient isel)
+
+                if(!node.input(0).is_num() && node.input(1).is_num())
+                {
+                    fixed_sint_t f = node.input(1).signed_fixed();
+                    f -= type_unit(lt);
+
+                    if(f >= type_min(lt))
+                    {
+                        node.link_change_input(1, ssa_value_t(fixed_t{f}, lt));
+                        node.unsafe_set_op(SSA_lt);
+                        updated = true;
+                        break;
+                    }
+                }
+
+                // Replace expressions like (1 <= x) with (X != 0).
+                // This aids code generation.
 
                 if(!same_scalar_layout(lt, rt))
                     break;
@@ -256,6 +292,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     node.link_change_input(0, ssa_value_t(type_min(lt), lt));
                     node.unsafe_set_op(SSA_not_eq);
                     updated = true;
+                    break;
                 }
             }
             break;
@@ -971,7 +1008,8 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
         // Now use 'operands' to build a replacement for 'h':
 
-        assert(!operands.empty());
+        // TODO: remove?
+        //passert(!operands.empty(), incompatible_leafs.size(), compatible_leafs.size(), internals.size(), uses_accum, accum.value);
 
         if(def_op == SSA_add)
         {

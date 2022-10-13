@@ -43,18 +43,18 @@ namespace isel
 
     struct result_t
     {
-        //double sort_by = 0; // TODO
+        double sort_by = 0; // TODO
         isel_cost_t cost = 0;
-        //unsigned age = 0; // TODO
-        bool passes_thru = false;
+        unsigned age = 0; // TODO
         std::shared_ptr<std::vector<asm_inst_t>> code;
     };
 
-    using preprep_bitset_t = static_bitset_t<256>;
+    // TODO
+    //using preprep_bitset_t = static_bitset_t<256>;
 
     struct cfg_d : public pbqp_node_t
     {
-        std::vector<preprep_bitset_t> preprep;
+        //std::vector<preprep_bitset_t> preprep;
         std::vector<unsigned> to_compute;
         rh::batman_set<cross_cpu_t> in_states;
         rh::batman_map<cross_transition_t, result_t> sels;
@@ -63,26 +63,18 @@ namespace isel
 
         // TODO
         std::vector<rh::robin_map<locator_t, locator_t>> memoized_input_maps;
-        rh::batman_set<locator_t> pass_thru_set;
-        std::vector<unsigned> to_pass_thru;
-        regs_t pass_thru_regs = 0;
-        std::vector<bitset_t> bitsets;
-        std::vector<bitset_t> bs_reverse;
-        rh::batman_set<locator_t> prio;
-        std::vector<rh::apair<cross_transition_t, result_t>> new_sels;
-
 
         // TODO:
         //std::array<rh::batman_map<locator_t, isel_cost_t>, NUM_CROSS_REGS> output_costs;
 
         // TODO:
 
-        std::vector<asm_inst_t> const& final_code() const { return *new_sels.begin()[sel].second.code; }
-        std::vector<asm_inst_t>& final_code() { return *new_sels.begin()[sel].second.code; }
+        std::vector<asm_inst_t> const& final_code() const { return *sels.begin()[sel].second.code; }
+        std::vector<asm_inst_t>& final_code() { return *sels.begin()[sel].second.code; }
 
-        cross_cpu_t const& final_in_state() const { assert(sel < new_sels.size()); return new_sels.begin()[sel].first.in_state; }
-        cross_cpu_t const& final_out_state() const { assert(sel < new_sels.size()); return new_sels.begin()[sel].first.out_state; }
-        isel_cost_t final_cost() const { return new_sels.begin()[sel].second.cost; }
+        cross_cpu_t const& final_in_state() const { return sels.begin()[sel].first.in_state; }
+        cross_cpu_t const& final_out_state() const { return sels.begin()[sel].first.out_state; }
+        isel_cost_t final_cost() const { return sels.begin()[sel].second.cost; }
     };
 
     inline thread_local std::vector<cfg_d> _data_vec;

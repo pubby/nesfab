@@ -12,6 +12,7 @@
 #include "ir.hpp"
 #include "ir_algo.hpp"
 #include "lvar.hpp"
+#include "asm_proc.hpp"
 
 ////////////////
 // asm_node_t //
@@ -333,68 +334,7 @@ bool asm_graph_t::o_peephole()
     bool changed = false;
 
     for(asm_node_t& node : list)
-    {
-        for(int i = 0; i < int(node.code.size()) - 1; ++i)
-        {
-            asm_inst_t& a = node.code[i];
-            asm_inst_t& b = node.code[i+1];
-            asm_inst_t* c = (i+2 < node.code.size()) ? &node.code[i+2] : nullptr;
-
-            auto const replace_op = [&](op_t op)
-            {
-                a.op = op;
-                b.op = ASM_PRUNED;
-                changed = true;
-            };
-
-            auto const peep_rmw = [&](op_name_t second, op_name_t replace)
-            {
-                if(b.op == get_op(second, op_addr_mode(a.op))
-                   && a.arg == b.arg && a.alt == b.alt)
-                {
-                    if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
-                        replace_op(new_op);
-                }
-            };
-
-            auto const peep_inxy = [&](op_name_t second, op_name_t store, op_name_t replace)
-            {
-                if(c && op_name(b.op) == second && op_name(c->op) == store 
-                   && op_addr_mode(a.op) == op_addr_mode(c->op)
-                   && a.arg == c->arg && a.alt == c->alt)
-                {
-                    if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
-                    {
-                        c->op = a.op;
-                        replace_op(new_op);
-                    }
-                }
-            };
-
-            switch(op_name(a.op))
-            {
-            default: break;
-            case DEC: peep_rmw(CMP, DCP); break;
-            case INC: peep_rmw(SBC, ISC); break;
-            case ROL: peep_rmw(AND, RLA); break;
-            case ROR: peep_rmw(ADC, RRA); break;
-            case ASL: peep_rmw(ORA, SLO); break;
-            case LSR: peep_rmw(EOR, SRE); break;
-            case AND:
-                if(a.op == AND_IMMEDIATE && b.op == LSR_IMPLIED)
-                    replace_op(ALR_IMMEDIATE);
-                break;
-            case LDX:
-                peep_inxy(INX, STX, INC);
-                peep_inxy(DEX, STX, DEC);
-                break;
-            case LDY:
-                peep_inxy(INY, STY, INC);
-                peep_inxy(DEY, STY, DEC);
-                break;
-            }
-        }
-    }
+        changed |= ::o_peephole(&*node.code.begin(), &*node.code.end());
 
     return changed;
 }

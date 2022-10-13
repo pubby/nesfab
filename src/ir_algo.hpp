@@ -21,6 +21,7 @@ struct cfg_algo_d
     cfg_ht iloop_header = {};
     unsigned dfsp = 0; // implementation detail, used inside loop generation algorithm.
     bool is_loop_header = false;
+    bool is_irreducible = false;
 
     // Incoming edges with
     std::unique_ptr<reentry_set_t> reentry_in;
@@ -62,6 +63,10 @@ void build_dominators_from_order(ir_t& ir);
 
 // If 'a' dominates 'b'
 bool dominates(cfg_ht a, cfg_ht b); 
+
+// If 'a' dominates 'b'.
+// This version doesn't depend on 'preorder_i' or 'postorder_i'.
+bool orderless_dominates(cfg_ht a, cfg_ht b); 
 
 // Returns a dominator common to both.
 cfg_ht dom_intersect(cfg_ht a, cfg_ht b);

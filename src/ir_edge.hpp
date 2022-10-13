@@ -62,10 +62,12 @@ public:
 
     fixed_t fixed() const 
         { assert(is_num()); return { value & MAX_FIXED_MASK }; }
+    fixed_sint_t signed_fixed() const 
+        { assert(is_num()); return to_signed(fixed().value, num_type_name()); }
     std::uint32_t whole() const 
         { assert(is_num()); return fixed().whole(); }
-    std::int64_t signed_whole() const 
-        { assert(is_num()); return to_signed(fixed().value, num_type_name()) >> fixed_t::shift ; }
+    fixed_sint_t signed_whole() const 
+        { assert(is_num()); return signed_fixed() >> fixed_t::shift ; }
     std::uint32_t carry() const 
         { assert(is_num()); assert(whole() < 2); return fixed().whole(); }
     locator_t locator() const
@@ -89,7 +91,11 @@ public:
         { return is_num() && fixed() == f; }
 
     constexpr void set(fixed_t fixed, type_name_t type_name) 
-        { value = (fixed.value & MAX_FIXED_MASK) | (uint_t(type_name) << 56) | const_flag; }
+    { 
+        fixed_uint_t const mask = numeric_bitmask(type_name);
+        assert((mask & MAX_FIXED_MASK) == mask);
+        value = (fixed.value & mask) | (uint_t(type_name) << 56) | const_flag; 
+    }
     constexpr void set(unsigned u, type_name_t type_name) 
         { set(fixed_t::whole(u), type_name); }
     constexpr void set(locator_t loc) 

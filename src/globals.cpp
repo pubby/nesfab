@@ -1264,8 +1264,12 @@ void fn_t::compile()
             changed |= o_remove_unused_arguments(log, ir, *this, post_byteified);
             ir.assert_valid();
 
+            save_graph(ir, fmt("pre_id%_%", post_byteified, iter).c_str());
+
             changed |= o_identities(log, ir);
             ir.assert_valid();
+
+            save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
 
             changed |= o_abstract_interpret(&stdout_log, ir, post_byteified);
             ir.assert_valid();
@@ -1273,12 +1277,16 @@ void fn_t::compile()
             changed |= o_remove_unused_ssa(log, ir);
             ir.assert_valid();
 
-            save_graph(ir, fmt("pre_motion_%", iter).c_str());
 
             changed |= o_motion(log, ir);
             ir.assert_valid();
 
-            save_graph(ir, fmt("post_motion_%", iter).c_str());
+            save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
+
+            changed |= o_loop(log, ir);
+            ir.assert_valid();
+
+            save_graph(ir, fmt("post_loop_%_%", post_byteified, iter).c_str());
 
             if(post_byteified)
             {

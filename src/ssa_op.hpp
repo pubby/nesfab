@@ -28,6 +28,7 @@ constexpr unsigned SSAF_BANK_INPUT     = 1 << 17;
 constexpr unsigned SSAF_CG_UNLIVE      = 1 << 18; // Has no liveness
 constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 19;
 constexpr unsigned SSAF_CONDITIONAL    = 1 << 20;
+constexpr unsigned SSAF_CHEAP_SCHEDULE = 1 << 21;
 
 // Parameter indexes for SSA ops
 namespace ssai
@@ -209,5 +210,19 @@ constexpr unsigned ssa_switch_cases(ssa_op_t op)
 
 constexpr bool is_switch(ssa_op_t op) 
     { return op == SSA_switch_full || op == SSA_switch_partial; }
+
+constexpr int carry_input_i(ssa_op_t op)
+{
+    switch(op)
+    {
+    case SSA_add:
+    case SSA_sub:
+    case SSA_rol:
+    case SSA_ror:
+        return 2;
+    default:
+        return -1;
+    }
+}
 
 #endif

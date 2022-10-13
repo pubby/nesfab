@@ -3,6 +3,7 @@
 
 #include <array>
 
+#include "assert.hpp"
 #include "builtin.hpp"
 #include "fixed.hpp"
 #include "type_name.hpp"
@@ -41,19 +42,19 @@ constexpr fixed_lut_t<fixed_uint_t> numeric_bitmask_table = []()
 
 constexpr fixed_uint_t numeric_bitmask(type_name_t type_name)
 {
-    assert(is_scalar(type_name));
+    passert(is_scalar(type_name), type_name);
     return numeric_bitmask_table[type_name - TYPE_FIRST_SCALAR];
 }
 
 constexpr fixed_t mask_numeric(fixed_t f, type_name_t type_name)
 {
-    assert(is_scalar(type_name));
+    passert(is_scalar(type_name), type_name);
     return fixed_t{ f.value & numeric_bitmask(type_name) };
 }
 
 constexpr bool is_masked(fixed_t f, type_name_t type_name)
 {
-    assert(is_scalar(type_name));
+    passert(is_scalar(type_name), type_name);
     return (f.value & numeric_bitmask(type_name)) == f.value;
 }
 

@@ -248,8 +248,8 @@ constexpr unsigned begin_byte(type_name_t type_name)
 constexpr unsigned end_byte(type_name_t type_name)
     { return max_frac_bytes + whole_bytes(type_name); }
 
-// True if 'super' can represent every value that 'sub' can.
-constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)
+template<bool Bijective>
+constexpr bool is_arithmetic_subset_impl(type_name_t sub, type_name_t super)
 {
     if(sub == TYPE_BOOL)
         return true;
@@ -263,10 +263,25 @@ constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)
     if(whole_bytes(sub) > whole_bytes(super))
         return false;
 
-    if(whole_bytes(sub) == whole_bytes(super) && is_signed(sub) != is_signed(super))
-        return false;
+    if(!Bijective)
+    {
+        if(whole_bytes(sub) == whole_bytes(super) && is_signed(sub) != is_signed(super))
+            return false;
+    }
 
     return true;
+}
+
+// True if 'super' can represent every value that 'sub' can.
+constexpr bool is_arithmetic_subset(type_name_t sub, type_name_t super)
+{
+    return is_arithmetic_subset_impl<false>(sub, super);
+}
+
+// True if converting from 'sub' to 'super' can be reversed.
+constexpr bool is_arithmetic_bijection(type_name_t sub, type_name_t super)
+{
+    return is_arithmetic_subset_impl<true>(sub, super);
 }
 
 constexpr bool same_scalar_layout(type_name_t a, type_name_t b)

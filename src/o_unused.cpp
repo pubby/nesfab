@@ -125,8 +125,7 @@ bool o_remove_no_effect(log_t* log, ir_t& ir)
     {
         if((ssa_flags(ssa_it->op()) & SSAF_CONDITIONAL)
            || (ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
-           || (ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE)
-           || ssa_input0_class(ssa_it->op()) == INPUT_LINK) // links are handled in other function
+           || (ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE))
         {
             ssa_it->clear_flags(FLAG_PRUNED);
             ssa_worklist.push(ssa_it);

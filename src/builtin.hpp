@@ -31,8 +31,7 @@ using uint128 = unsigned __int128;
 [[gnu::always_inline]] inline auto rclz(unsigned i) 
     { assert(i); return ((unsigned)sizeof_bits<unsigned> - (unsigned)__builtin_clz(i)); }
 [[gnu::always_inline]] inline unsigned long rclz(unsigned long i) 
-    { assert(i); return ((unsigned long)sizeof_bits<unsigned long>
-              - (unsigned long)__builtin_clzl(i)); }
+    { assert(i); return ((unsigned long)sizeof_bits<unsigned long> - (unsigned long)__builtin_clzl(i)); }
 [[gnu::always_inline]] inline unsigned long long rclz(unsigned long long i) 
     { assert(i); return ((unsigned long long)sizeof_bits<unsigned long long>
                          - (unsigned long long)__builtin_clzll(i)); }
@@ -55,11 +54,9 @@ using uint128 = unsigned __int128;
 [[gnu::always_inline]] inline auto rctz(unsigned i) 
     { assert(i); return ((unsigned)sizeof_bits<unsigned> - (unsigned)__builtin_ctz(i)); }
 [[gnu::always_inline]] inline unsigned long rctz(unsigned long i) 
-    { assert(i); return ((unsigned long)sizeof_bits<unsigned long>
-                         - (unsigned long)__builtin_ctzl(i)); }
+    { assert(i); return ((unsigned long)sizeof_bits<unsigned long> - (unsigned long)__builtin_ctzl(i)); }
 [[gnu::always_inline]] inline unsigned long long rctz(unsigned long long i) 
-    { assert(i); return ((unsigned long long)sizeof_bits<unsigned long long>
-                         - (unsigned long long)__builtin_ctzll(i)); }
+    { assert(i); return ((unsigned long long)sizeof_bits<unsigned long long> - (unsigned long long)__builtin_ctzll(i)); }
 [[gnu::always_inline]] inline auto rctz(unsigned char i) 
     { assert(i); return rctz(unsigned(i)); }
 [[gnu::always_inline]] inline auto rctz(unsigned short i) 

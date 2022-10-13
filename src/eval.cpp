@@ -3159,7 +3159,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         {
             expr_value_t v = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_BOOL, true);
 
-            if(is_interpret(D))
+            if(is_interpret(D) || (is_compile(D) && is_ct(v.type.name())))
                 v.ssa().set(unsigned(!v.fixed()), TYPE_BOOL);
             else if(is_compile(D))
             {
@@ -3194,9 +3194,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t v = to_rval<D>(do_expr<D>(ast.children[0]));
             req_quantity(ast.token, v);
 
-            if(is_interpret(D))
+            if(is_interpret(D) || (is_compile(D) && is_ct(v.type.name())))
                 v.ssa().set(mask_numeric(fixed_t{ -v.fixed().value }, v.type.name()), v.type.name());
-            else if(D == COMPILE)
+            else if(is_compile(D))
             {
                 // Must be two lines; reference invalidation lurks.
                 ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_sub, v.type, ssa_value_t(0u, v.type.name()), v.ssa());
@@ -3214,7 +3214,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t v = to_rval<D>(do_expr<D>(ast.children[0]));
             req_quantity(ast.token, v);
 
-            if(is_interpret(D))
+            if(is_interpret(D) || (is_compile(D) && is_ct(v.type.name())))
                 v.ssa().set(mask_numeric(fixed_t{ ~v.fixed().value }, v.type.name()), v.type.name());
             else if(D == COMPILE)
             {
@@ -4219,7 +4219,15 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
         result.val = rval_t{ ssa_value_t(f, result_type.name()) };
     }
     else if(Policy::D == COMPILE)
+    {
+        if(is_ct(result_type.name()))
+        {
+            throw compiler_error_t(
+                fmt_error(lhs.pstring, fmt("Cannot shift expression of type % at run-time.", result_type))
+                + fmt_note("Addding an explicit cast will fix."));
+        }
         return compile_binary_operator(std::move(lhs), std::move(rhs), Policy::op(), result_type);
+    }
 
     return result;
 }
@@ -4330,7 +4338,7 @@ expr_value_t eval_t::force_promote(expr_value_t value, type_t to_type, pstring_t
     else if(D == COMPILE)
     {
         if(is_ct(to_type))
-            compiler_error(value.pstring, fmt("Cannot promote type % to type % at runtime.", value.type, to_type));
+            compiler_error(value.pstring, fmt("Cannot promote type % to type % at run-time.", value.type, to_type));
         result.val = rval_t{ builder.cfg->emplace_ssa(SSA_cast, to_type, value.ssa()) };
     }
 

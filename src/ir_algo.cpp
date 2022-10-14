@@ -140,8 +140,9 @@ static cfg_ht _visit_loops(cfg_ht node, unsigned dfsp = 1)
             if(!succ_u.is_loop_header)
             { 
                 // Create a new header
-                loop_headers.push_back(succ);
+                succ_u.header_i = loop_headers.size();
                 succ_u.is_loop_header = true;
+                loop_headers.push_back(succ);
             }
             _tag_loop_header(node, succ);
         }

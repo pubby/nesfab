@@ -1285,7 +1285,7 @@ void fn_t::compile()
 
             save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
 
-            changed |= o_loop(log, ir);
+            changed |= o_loop(log, ir, post_byteified);
             ir.assert_valid();
 
             save_graph(ir, fmt("post_loop_%_%", post_byteified, iter).c_str());

@@ -55,6 +55,10 @@ struct cfg_cg_d
 
     std::vector<ssa_ht> schedule;
     std::vector<asm_inst_t> code;
+
+    // Phi nodes will be ordered based on their appearnce in the schedule.
+    // cg_isel will prioritize phis appearing first.
+    std::vector<ssa_ht> phi_order;
 };
 
 struct ssa_cg_d

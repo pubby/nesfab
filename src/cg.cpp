@@ -462,6 +462,20 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     ir.assert_valid();
     schedule_ir(ir);
 
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    {
+        auto& d = cg_data(cfg_it);
+        assert(d.phi_order.empty());
+
+        for(ssa_ht phi = cfg_it->phi_begin(); phi; ++phi)
+            d.phi_order.push_back(phi);
+
+        std::sort(d.phi_order.begin(), d.phi_order.end(), [](ssa_ht a, ssa_ht b)
+        {
+            return cg_data(a).schedule.index < cg_data(b).schedule.index;
+        });
+    }
+
     std::cout << "sched start " << std::endl;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {

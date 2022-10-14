@@ -656,7 +656,7 @@ namespace isel
         static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_output_defs<Op>(Opt::to_struct, Def::value()))
-            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota)));
+            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota), {}, -cost_fn(STA_MAYBE)));
     };
 
     template<typename Opt, typename Def> [[gnu::noinline]]
@@ -3474,16 +3474,26 @@ namespace isel
         });
     }
 
-    static cross_cpu_t prepare_cross_cpu_for(cross_cpu_t const& cross, cfg_ht cfg, unsigned input_i)
+    static cross_cpu_t prepare_cross_cpu_for(cross_cpu_t const& cross, cfg_ht cfg, unsigned input_i,
+                                             cross_cpu_t const* match = nullptr)
     {
         //ssa_ht next_phi = {};
 
-        auto const convert = [&](locator_t l) -> locator_t
+        auto const convert = [&](locator_t l, unsigned i) -> locator_t
         {
             assert(l.lclass() != LOC_PHI); // Should have been stripped earlier.
 
             if(l.lclass() == LOC_NONE || l.lclass() == LOC_PASS_THRU)
                 return LOC_NONE;
+
+            if(match && match->defs[i].lclass() == LOC_PHI)
+            {
+                ssa_ht const phi = match->defs[i].ssa_node();
+                auto input = phi->input(input_i);
+
+                if(ssa_to_value(phi->input(input_i)) == l)
+                    return locator_t::phi(phi);
+            }
 
             auto& memoized = data(cfg).memoized_input_maps[input_i];
 
@@ -3498,28 +3508,8 @@ namespace isel
             // The point of 'next_phi' is to get a better phi variety;
             // we don't want to change all values to the same phi.
 
-            /*
-            for(ssa_ht phi = next_phi; phi; ++phi)
-            {
-                auto input = phi->input(input_i);
-                if(ssa_to_value(phi->input(input_i)) == l)
-                {
-                    next_phi = phi.next();
-                    return locator_t::phi(phi);
-                }
-            }
-            for(ssa_ht phi = cfg->phi_begin(); phi != next_phi; ++phi)
-            {
-                auto input = phi->input(input_i);
-                if(ssa_to_value(phi->input(input_i)) == l)
-                {
-                    next_phi = phi.next();
-                    return locator_t::phi(phi);
-                }
-            }
-            */
-
-            for(ssa_ht phi = cfg->phi_begin(); phi; ++phi)
+            auto& d = cg_data(cfg);
+            for(ssa_ht phi : d.phi_order)
             {
                 auto input = phi->input(input_i);
 
@@ -3557,7 +3547,7 @@ namespace isel
 
         cross_cpu_t ret = {};
         for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
-            ret.defs[i] = convert(cross.defs[i]);
+            ret.defs[i] = convert(cross.defs[i], i);
         return ret;
     }
 
@@ -4252,8 +4242,8 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 for(unsigned y = 0; y < od.sels.size(); ++y)
                 for(unsigned x = 0; x < d.sels.size(); ++x)
                 {
-                    cross_cpu_t const& out = prepare_cross_cpu_for(d.sels.begin()[x].first.out_state, output, cfg->output_edge(i).index);
                     cross_cpu_t const& in  = od.sels.begin()[y].first.in_state;
+                    cross_cpu_t const& out = prepare_cross_cpu_for(d.sels.begin()[x].first.out_state, output, cfg->output_edge(i).index, &in);
 
                     pbqp_cost_t cost = 0;
 
@@ -4347,7 +4337,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             cfg_ht input = cfg->input(i);
             auto const& id = data(input);
 
-            cross_cpu_t const out_state = prepare_cross_cpu_for(id.final_out_state(), cfg, i);
+            cross_cpu_t const out_state = prepare_cross_cpu_for(id.final_out_state(), cfg, i, &d.final_in_state());
 
             regs_t input_load = 0;
             for(unsigned reg = 0; reg < NUM_CROSS_REGS; ++reg)
@@ -4428,7 +4418,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             asm_inst_t const jump = code.back();
             code.pop_back();
 
-            cross_cpu_t cross = prepare_cross_cpu_for(id.final_out_state(), cfg, i);
+            cross_cpu_t cross = prepare_cross_cpu_for(id.final_out_state(), cfg, i, &d.final_in_state());
             bitset_for_each(load_now, [&](regs_t reg)
             {
                 code.push_back(gen_load(cross, reg, d.final_in_state().defs[reg]));

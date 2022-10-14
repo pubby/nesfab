@@ -4,6 +4,6 @@
 #include "debug_print.hpp"
 #include "ir_decl.hpp"
 
-bool o_loop(log_t* log, ir_t& ir);
+bool o_loop(log_t* log, ir_t& ir, bool is_byteified);
 
 #endif

@@ -20,6 +20,7 @@ struct cfg_algo_d
     cfg_ht idom = {};
     cfg_ht iloop_header = {};
     unsigned dfsp = 0; // implementation detail, used inside loop generation algorithm.
+    unsigned header_i = 0;
     bool is_loop_header = false;
     bool is_irreducible = false;
 

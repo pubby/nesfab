@@ -210,6 +210,8 @@ std::size_t type_t::size_of() const
                 return 2;
         }
         passert(false, name());
+        // fall-through
+    case TYPE_VOID:
         return 0; // Error!
     case TYPE_TEA: 
         return size() * types()[0].size_of();

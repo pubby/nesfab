@@ -25,3 +25,33 @@ bool pure(ssa_node_t const& ssa_node)
     return true;
 }
 
+unsigned estimate_cost(ssa_node_t const& ssa_node)
+{
+    if(ssa_input0_class(ssa_node.op()) == INPUT_LINK)
+        return 0;
+
+    if(ssa_flags(ssa_node.op()) & SSAF_FREE)
+        return 0;
+
+    if(ssa_flags(ssa_node.op()) & SSAF_CONDITIONAL)
+        return 4; // somewhat arbitrary
+
+    if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_PTR)
+        return 2; // somewhat arbitrary
+
+    if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_ARRAY8)
+        return 2; // somewhat arbitrary
+
+    if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_ARRAY16)
+        return 8; // somewhat arbitrary
+
+    unsigned cost = 0;
+
+    unsigned const input_size = ssa_node.input_size();
+    for(unsigned i = 0; i < input_size; ++i)
+        cost += ssa_node.input(i).type().size_of();
+
+    cost = std::max<unsigned>(cost, ssa_node.type().size_of());
+
+    return cost;
+}

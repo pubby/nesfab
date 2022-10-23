@@ -71,7 +71,7 @@ static bm_t _get_bm(ssa_value_t value)
         case IS_DEREF:
             {
                 type_t const t = loc.type();
-                assert(is_scalar(t.name()));
+                passert(is_scalar(t.name()), t, loc);
 
                 unsigned const start = begin_byte(t.name());
                 unsigned const end = end_byte(t.name());
@@ -99,7 +99,7 @@ static bm_t _get_bm(ssa_value_t value)
     else
     {
         assert(value.holds_ref());
-        assert(is_scalar(_bm_type(value->type()).name()));
+        passert(is_scalar(_bm_type(value->type()).name()), value->type(), _bm_type(value->type().name()));
         return value.handle().data<ssa_byteify_d>().bm;
     }
 }
@@ -149,6 +149,8 @@ static void _split_vanishing(ssa_ht ssa_node)
             for(; i < end; ++i)
                 data.bm[i] = extension;
         }
+
+        std::cout << "CASTY " <<  ssa_node << ssa_node->type() << data.bm[max_frac_bytes] << std::endl;
     }
     else if(ssa_node->op() == SSA_get_byte)
     {
@@ -285,7 +287,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 }
             }
 
-            if(type == TYPE_U || type == TYPE_S || type == TYPE_BOOL)
+            if(is_byteified(type.name()))
             {
                 auto& d = ssa_it.data<ssa_byteify_d>(); 
                 d.bm = zero_bm;
@@ -343,286 +345,303 @@ void byteify(ir_t& ir, fn_t const& fn)
 
     // Rewrite the inputs of certain nodes to use multi-byte
     bc::small_vector<ssa_value_t, 24> new_input;
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(cfg_node_t& cfg_node : ir)
+    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
-        cfg_node_t& cfg_node = *cfg_it;
-        for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+        switch(ssa_it->op())
         {
-            switch(ssa_it->op())
+        case SSA_fn_call:
+        case SSA_goto_mode:
+        case SSA_return:
+        case SSA_fence:
+        case SSA_wait_nmi:
             {
-            case SSA_fn_call:
-            case SSA_goto_mode:
-            case SSA_return:
-            case SSA_fence:
-            case SSA_wait_nmi:
+                new_input.clear();
+
+                for_each_written_global(ssa_it, 
+                [&](ssa_value_t v, locator_t loc)
                 {
-                    new_input.clear();
+                    type_t t;
 
-                    for_each_written_global(ssa_it, 
-                    [&](ssa_value_t v, locator_t loc)
+                    if(loc.lclass() == LOC_ARG)
+                        t = loc.fn()->type().types()[loc.arg()];
+                    else if(loc.lclass() == LOC_RETURN)
                     {
-                        type_t t;
+                        assert(ssa_it->op() == SSA_return);
+                        t = fn.type().return_type();
+                    }
+                    else if(loc.lclass() == LOC_GMEMBER)
+                        t = loc.gmember()->type();
+                    else
+                    {
+                        assert(loc.lclass() == LOC_GMEMBER_SET);
+                        new_input.push_back(v);
+                        new_input.push_back(loc);
+                        return;
+                    }
 
-                        if(loc.lclass() == LOC_ARG)
-                            t = loc.fn()->type().types()[loc.arg()];
-                        else if(loc.lclass() == LOC_RETURN)
-                        {
-                            assert(ssa_it->op() == SSA_return);
-                            t = fn.type().return_type();
-                        }
-                        else if(loc.lclass() == LOC_GMEMBER)
-                            t = loc.gmember()->type();
-                        else
-                        {
-                            assert(loc.lclass() == LOC_GMEMBER_SET);
-                            new_input.push_back(v);
-                            new_input.push_back(loc);
-                            return;
-                        }
+                    t = _bm_type(t);
 
-                        t = _bm_type(t);
+                    bm_t bm = _get_bm(v);
 
-                        bm_t bm = _get_bm(v);
+                    unsigned const start = begin_byte(t.name());
+                    unsigned const end = end_byte(t.name());
+                    for(unsigned j = start; j < end; ++j)
+                    {
+                        locator_t new_loc = loc;
+                        new_loc.set_atom(j - start);
+                        new_loc.set_byteified(true);
 
-                        unsigned const start = begin_byte(t.name());
-                        unsigned const end = end_byte(t.name());
-                        for(unsigned j = start; j < end; ++j)
-                        {
-                            locator_t new_loc = loc;
-                            new_loc.set_atom(j - start);
-                            new_loc.set_byteified(true);
+                        new_input.push_back(bm[j]);
+                        new_input.push_back(std::move(new_loc));
+                    }
+                });
 
-                            new_input.push_back(bm[j]);
-                            new_input.push_back(std::move(new_loc));
-                        }
-                    });
+                assert(new_input.size() % 2 == 0);
 
-                    assert(new_input.size() % 2 == 0);
+                ssa_it->link_shrink_inputs(write_globals_begin(ssa_it->op()));
+                ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
+            }
+            break;
 
-                    ssa_it->link_shrink_inputs(write_globals_begin(ssa_it->op()));
-                    ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
-                }
-                break;
+        case SSA_eq:
+        case SSA_not_eq:
+            {
+                // Equality comparisons convert to N parallel comparisons,
+                // where N is the size in bytes of the largest argument.
 
-            case SSA_eq:
-            case SSA_not_eq:
+                // The format is interleaved (ababab instead of aaabbb)
+                // to make it easier to remove arguments in optimization.
+
+                // The last comparison assumes one argument is signed, the other isn't.
+
+                new_input.clear();
+                passert(ssa_it->input_size() == 2, ssa_it, ssa_it->input_size());
+
+                ssa_value_t const l = ssa_it->input(0);
+                ssa_value_t const r = ssa_it->input(1);
+
+                type_name_t const lt = l.type().name();
+                type_name_t const rt = r.type().name();
+
+                bm_t sbm = _get_bm(is_signed(lt) ? l : r);
+                bm_t ubm = _get_bm(is_signed(lt) ? r : l);
+
+                int const begin = begin_byte(lt);
+                int const end = end_byte(lt);
+
+                assert((unsigned)begin == begin_byte(rt));
+                assert((unsigned)end == end_byte(rt));
+                assert(begin != end);
+
+                // If the signs differ, 
+                if(is_signed(lt) != is_signed(rt))
                 {
-                    // Equality comparisons convert to N parallel comparisons,
-                    // where N is the size in bytes of the largest argument.
-
-                    // The format is interleaved (ababab instead of aaabbb)
-                    // to make it easier to remove arguments in optimization.
-
-                    // The last comparison assumes one argument is signed, the other isn't.
-
-                    new_input.clear();
-                    assert(ssa_it->input_size() == 2);
-
-                    ssa_value_t const l = ssa_it->input(0);
-                    ssa_value_t const r = ssa_it->input(1);
-
-                    type_name_t const lt = l.type().name();
-                    type_name_t const rt = r.type().name();
-
-                    bm_t sbm = _get_bm(is_signed(lt) ? l : r);
-                    bm_t ubm = _get_bm(is_signed(lt) ? r : l);
-
-                    int const begin = begin_byte(lt);
-                    int const end = end_byte(lt);
-
-                    assert((unsigned)begin == begin_byte(rt));
-                    assert((unsigned)end == end_byte(rt));
-                    assert(begin != end);
-
-                    // If the signs differ, 
-                    if(is_signed(lt) != is_signed(rt))
+                    if(sbm[end-1].holds_ref() && sbm[end-1]->op() == SSA_sign_extend)
                     {
-                        if(sbm[end-1].holds_ref() && sbm[end-1]->op() == SSA_sign_extend)
+                        // If the most significant signed comparison(s) are sign-extended,
+                        // we can eliminate the sign-extension's use inside the comparison.
+
+                        ssa_value_t const extend = sbm[end-1]->input(0);
+
+                        for(int i = end-2; i >= begin; --i)
                         {
-                            // If the most significant signed comparison(s) are sign-extended,
-                            // we can eliminate the sign-extension's use inside the comparison.
-
-                            ssa_value_t const extend = sbm[end-1]->input(0);
-
-                            for(int i = end-2; i >= begin; --i)
+                            if(sbm[i].holds_ref() && sbm[i]->op() == SSA_sign_extend)
                             {
-                                if(sbm[i].holds_ref() && sbm[i]->op() == SSA_sign_extend)
-                                {
-                                    if(sbm[i]->input(0) != extend)
-                                        break;
-                                }
-                                else
-                                {
-                                    if(sbm[i] != extend)
-                                        break;
-
-                                    // We can simplify!
-
-                                    // Comparisons above the sign can be simplified:
-                                    for(int j = i+1; j < end; ++j) 
-                                        sbm[j] = ssa_value_t(0u, TYPE_U);
-
-                                    // Make 'i' the most significant:
-                                    std::swap(sbm[i], sbm[end-1]);
-                                    std::swap(ubm[i], ubm[end-1]);
-
+                                if(sbm[i]->input(0) != extend)
                                     break;
-                                }
+                            }
+                            else
+                            {
+                                if(sbm[i] != extend)
+                                    break;
+
+                                // We can simplify!
+
+                                // Comparisons above the sign can be simplified:
+                                for(int j = i+1; j < end; ++j) 
+                                    sbm[j] = ssa_value_t(0u, TYPE_U);
+
+                                // Make 'i' the most significant:
+                                std::swap(sbm[i], sbm[end-1]);
+                                std::swap(ubm[i], ubm[end-1]);
+
+                                break;
                             }
                         }
                     }
-
-                    for(int i = begin; i < end; ++i)
-                    {
-                        new_input.push_back(ubm[i]);
-                        new_input.push_back(sbm[i]);
-                    }
-
-                    // Last two arguments compare signs.
-                    // If we don't have to do that, insert trivially true dummy args:
-                    if(is_signed(lt) == is_signed(rt))
-                    {
-                        new_input.push_back(ssa_value_t(0u, TYPE_U));
-                        new_input.push_back(ssa_value_t(0u, TYPE_S));
-                    }
-
-                    ssa_it->link_clear_inputs();
-                    ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
-
-                    ssa_it->unsafe_set_op(ssa_it->op() == SSA_eq ? SSA_multi_eq : SSA_multi_not_eq);
-
-                    // Should always have an even number of args.
-                    assert(ssa_it->input_size() % 2 == 0);
-                    assert(ssa_it->input_size() > 0);
                 }
-                break;
 
-            case SSA_lt:
-            case SSA_lte:
+                for(int i = begin; i < end; ++i)
                 {
-                    // Comparisons convert to N parallel comparisons,
-                    // where N is the size in bytes of the largest argument.
-
-                    // The format is interleaved (ababab instead of aaabbb)
-                    // to make it easier to remove arguments in optimization.
-
-                    new_input.clear();
-                    assert(ssa_it->input_size() == 2);
-
-                    ssa_value_t const l = ssa_it->input(0);
-                    ssa_value_t const r = ssa_it->input(1);
-
-                    type_name_t const lt = l.type().name();
-                    type_name_t const rt = r.type().name();
-
-                    bool const both_signed = is_signed(lt) && is_signed(rt);
-                    unsigned const lwhole = whole_bytes(lt);
-                    unsigned const rwhole = whole_bytes(rt);
-
-                    // First two args are the types:
-                    if(both_signed && lwhole != rwhole)
-                    {
-                        // When both are signed, the types must have an equal number of whole bytes.
-                        // (This simplifies code gen)
-                        unsigned const w = std::max(lwhole, rwhole);
-                        new_input.push_back(ssa_value_t(type_s(w, frac_bytes(lt)), TYPE_INT));
-                        new_input.push_back(ssa_value_t(type_s(w, frac_bytes(rt)), TYPE_INT));
-                    }
-                    else
-                    {
-                        new_input.push_back(ssa_value_t((unsigned)lt, TYPE_INT));
-                        new_input.push_back(ssa_value_t((unsigned)rt, TYPE_INT));
-                    }
-
-                    bm_t lbm = _get_bm(l);
-                    int lbegin = begin_byte(lt);
-                    int lend = end_byte(lt);
-                    for(int i = lbegin; i < lend; ++i)
-                        new_input.push_back(lbm[i]);
-
-                    // If both are signed, sign-extend.
-                    if(both_signed && lwhole < rwhole)
-                    {
-                        ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
-                        for(unsigned i = 0; i < rwhole - lwhole; ++i)
-                            new_input.push_back(extension);
-                    }
-
-                    bm_t rbm = _get_bm(r);
-                    int rbegin = begin_byte(rt);
-                    int rend = end_byte(rt);
-                    for(int i = rbegin; i < rend; ++i)
-                        new_input.push_back(rbm[i]);
-
-                    // If both are signed, sign-extend.
-                    if(both_signed && rwhole < lwhole)
-                    {
-                        ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
-                        for(unsigned i = 0; i < lwhole - rwhole; ++i)
-                            new_input.push_back(extension);
-                    }
-
-                    ssa_it->link_clear_inputs();
-                    ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
-
-                    ssa_it->unsafe_set_op(ssa_it->op() == SSA_lt ? SSA_multi_lt : SSA_multi_lte);
-
-                    assert(ssa_it->input_size() >= 4); // 2 type args, plus at least one input per argument
+                    new_input.push_back(ubm[i]);
+                    new_input.push_back(sbm[i]);
                 }
-                break;
 
-            case SSA_make_ptr_lo:
-            case SSA_make_ptr_hi:
+                // Last two arguments compare signs.
+                // If we don't have to do that, insert trivially true dummy args:
+                if(is_signed(lt) == is_signed(rt))
                 {
-                    // Convert 'SSA_make_ptr' nodes created earlier,
-                    // expanding their single argument into 2.
-
-                    assert(ssa_it->input_size() == 1);
-                    ssa_value_t const input = ssa_it->input(0);
-                    assert(is_ptr(input.type().name()));
-
-                    bm_t bm = _get_bm(input);
-                    unsigned const begin = begin_byte(input.type().name());
-
-                    // The relevant input is held in [1],
-                    // while a dummy input representing the other half 
-                    // of the pointer is held in [0].
-                    if(ssa_it->op() == SSA_make_ptr_lo)
-                    {
-                        ssa_it->link_change_input(0, bm[begin+1]);
-                        ssa_it->link_append_input(bm[begin]);
-                    }
-                    else
-                    {
-                        ssa_it->link_change_input(0, bm[begin]);
-                        ssa_it->link_append_input(bm[begin+1]);
-                    }
+                    new_input.push_back(ssa_value_t(0u, TYPE_U));
+                    new_input.push_back(ssa_value_t(0u, TYPE_S));
                 }
-                break;
 
-            case SSA_read_array16:
-            case SSA_write_array16:
-                {
-                    using namespace ssai::array;
-                    
-                    bool const is_read = ssa_it->op() == SSA_read_array16;
+                ssa_it->link_clear_inputs();
+                ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
 
-                    // Offset should have been zero'd earlier:
-                    assert(ssa_it->input(OFFSET).eq_whole(0));
+                ssa_it->unsafe_set_op(ssa_it->op() == SSA_eq ? SSA_multi_eq : SSA_multi_not_eq);
 
-                    bm_t bm = _get_bm(ssa_it->input(INDEX));
-                    ssa_it->link_change_input(INDEX,    bm[max_frac_bytes]);
-                    ssa_it->link_change_input(INDEX_HI, bm[max_frac_bytes+1]);
-                    
-                    ssa_it->unsafe_set_op(is_read ? SSA_read_array16_b : SSA_write_array16_b);
-                }
-                break;
-
-            default:
-                assert(!(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS));
-                assert(!fn_like(ssa_it->op()));
-                break;
+                // Should always have an even number of args.
+                assert(ssa_it->input_size() % 2 == 0);
+                assert(ssa_it->input_size() > 0);
             }
+            break;
+
+        case SSA_lt:
+        case SSA_lte:
+            {
+                // Comparisons convert to N parallel comparisons,
+                // where N is the size in bytes of the largest argument.
+
+                // The format is interleaved (ababab instead of aaabbb)
+                // to make it easier to remove arguments in optimization.
+
+                new_input.clear();
+                assert(ssa_it->input_size() == 2);
+
+                ssa_value_t const l = ssa_it->input(0);
+                ssa_value_t const r = ssa_it->input(1);
+
+                type_name_t const lt = l.type().name();
+                type_name_t const rt = r.type().name();
+
+                bool const both_signed = is_signed(lt) && is_signed(rt);
+                unsigned const lwhole = whole_bytes(lt);
+                unsigned const rwhole = whole_bytes(rt);
+
+                // First two args are the types:
+                if(both_signed && lwhole != rwhole)
+                {
+                    // When both are signed, the types must have an equal number of whole bytes.
+                    // (This simplifies code gen)
+                    unsigned const w = std::max(lwhole, rwhole);
+                    new_input.push_back(ssa_value_t(type_s(w, frac_bytes(lt)), TYPE_INT));
+                    new_input.push_back(ssa_value_t(type_s(w, frac_bytes(rt)), TYPE_INT));
+                }
+                else
+                {
+                    new_input.push_back(ssa_value_t((unsigned)lt, TYPE_INT));
+                    new_input.push_back(ssa_value_t((unsigned)rt, TYPE_INT));
+                }
+
+                bm_t lbm = _get_bm(l);
+                int lbegin = begin_byte(lt);
+                int lend = end_byte(lt);
+                for(int i = lbegin; i < lend; ++i)
+                    new_input.push_back(lbm[i]);
+
+                // If both are signed, sign-extend.
+                if(both_signed && lwhole < rwhole)
+                {
+                    ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
+                    for(unsigned i = 0; i < rwhole - lwhole; ++i)
+                        new_input.push_back(extension);
+                }
+
+                bm_t rbm = _get_bm(r);
+                int rbegin = begin_byte(rt);
+                int rend = end_byte(rt);
+                for(int i = rbegin; i < rend; ++i)
+                    new_input.push_back(rbm[i]);
+
+                // If both are signed, sign-extend.
+                if(both_signed && rwhole < lwhole)
+                {
+                    ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
+                    for(unsigned i = 0; i < lwhole - rwhole; ++i)
+                        new_input.push_back(extension);
+                }
+
+                ssa_it->link_clear_inputs();
+                ssa_it->link_append_input(&*new_input.begin(), &*new_input.end());
+
+                ssa_it->unsafe_set_op(ssa_it->op() == SSA_lt ? SSA_multi_lt : SSA_multi_lte);
+
+                assert(ssa_it->input_size() >= 4); // 2 type args, plus at least one input per argument
+            }
+            break;
+
+        case SSA_make_ptr_lo:
+        case SSA_make_ptr_hi:
+            {
+                // Convert 'SSA_make_ptr' nodes created earlier,
+                // expanding their single argument into 2.
+
+                assert(ssa_it->input_size() == 1);
+                ssa_value_t const input = ssa_it->input(0);
+                assert(is_ptr(input.type().name()));
+
+                bm_t bm = _get_bm(input);
+                unsigned const begin = begin_byte(input.type().name());
+
+                // The relevant input is held in [1],
+                // while a dummy input representing the other half 
+                // of the pointer is held in [0].
+                if(ssa_it->op() == SSA_make_ptr_lo)
+                {
+                    ssa_it->link_change_input(0, bm[begin+1]);
+                    ssa_it->link_append_input(bm[begin]);
+                }
+                else
+                {
+                    ssa_it->link_change_input(0, bm[begin]);
+                    ssa_it->link_append_input(bm[begin+1]);
+                }
+            }
+            break;
+
+        case SSA_read_array16:
+        case SSA_write_array16:
+            {
+                using namespace ssai::array;
+                
+                bool const is_read = ssa_it->op() == SSA_read_array16;
+
+                // Offset should have been zero'd earlier:
+                assert(ssa_it->input(OFFSET).eq_whole(0));
+
+                bm_t bm = _get_bm(ssa_it->input(INDEX));
+                ssa_it->link_change_input(INDEX,    bm[max_frac_bytes]);
+                ssa_it->link_change_input(INDEX_HI, bm[max_frac_bytes+1]);
+                
+                ssa_it->unsafe_set_op(is_read ? SSA_read_array16_b : SSA_write_array16_b);
+            }
+            break;
+
+        default:
+            assert(!(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS));
+            assert(!fn_like(ssa_it->op()));
+
+            type_t const type = ssa_it->type();
+            if(is_byteified(type.name()))
+            {
+                unsigned const input_size = ssa_it->input_size();
+                for(unsigned i = 0; i < input_size; ++i)
+                {
+                    ssa_value_t const input = ssa_it->input(i);
+                    //passert(is_byteified(input.type().name()), ssa_it, ssa_it->op(), i, input.type());
+
+                    if(input.holds_ref() && input.type() != TYPE_VOID)
+                    {
+                        std::cout << ssa_it << input << std::endl;
+                        bm_t const bm = _get_bm(input);
+                        assert(bm[max_frac_bytes]);
+                        ssa_it->link_change_input(i, bm[max_frac_bytes]);
+                    }
+                }
+            }
+
+            break;
         }
     }
 
@@ -813,7 +832,9 @@ void byteify(ir_t& ir, fn_t const& fn)
 
         case SSA_read_array8:
             {
-                bm_t const array_bm = _get_bm(ssa_node->input(0));
+                using namespace ssai::array;
+
+                bm_t const array_bm = _get_bm(ssa_node->input(ARRAY));
 
                 unsigned const start = begin_byte(t);
                 unsigned const end = end_byte(t);
@@ -821,14 +842,11 @@ void byteify(ir_t& ir, fn_t const& fn)
                 {
                     ssa_ht split = d.bm[i].handle();
 
-                    locator_t loc = ssa_node->input(1).locator();
-                    //loc.set_atom(i - start);
-
                     assert(ssa_argn(SSA_read_array8) == 3);
                     split->alloc_input(3);
-                    split->build_set_input(0, array_bm[i]);
-                    split->build_set_input(1, loc);
-                    split->build_set_input(2, ssa_node->input(2));
+                    split->build_set_input(ARRAY, array_bm[i]);
+                    split->build_set_input(OFFSET, ssa_node->input(OFFSET));
+                    split->build_set_input(INDEX, ssa_node->input(INDEX));
                 }
                 prune_nodes.push_back(ssa_node);
             }
@@ -836,8 +854,10 @@ void byteify(ir_t& ir, fn_t const& fn)
 
         case SSA_write_array8:
             {
-                bm_t const array_bm = _get_bm(ssa_node->input(0));
-                bm_t const assign_bm = _get_bm(ssa_node->input(3));
+                using namespace ssai::array;
+
+                bm_t const array_bm = _get_bm(ssa_node->input(ARRAY));
+                bm_t const assign_bm = _get_bm(ssa_node->input(ASSIGNMENT));
 
                 unsigned const start = begin_byte(t);
                 unsigned const end = end_byte(t);
@@ -845,15 +865,12 @@ void byteify(ir_t& ir, fn_t const& fn)
                 {
                     ssa_ht split = d.bm[i].handle();
 
-                    locator_t loc = ssa_node->input(1).locator();
-                    //loc.set_atom(i - start);
-
                     assert(ssa_argn(SSA_write_array8) == 4);
                     split->alloc_input(4);
-                    split->build_set_input(0, array_bm[i]);
-                    split->build_set_input(1, loc);
-                    split->build_set_input(2, ssa_node->input(2));
-                    split->build_set_input(3, assign_bm[i]);
+                    split->build_set_input(ARRAY, array_bm[i]);
+                    split->build_set_input(OFFSET, ssa_node->input(OFFSET));
+                    split->build_set_input(INDEX, ssa_node->input(INDEX));
+                    split->build_set_input(ASSIGNMENT, assign_bm[i]);
                 }
                 prune_nodes.push_back(ssa_node);
             }
@@ -902,6 +919,12 @@ void byteify(ir_t& ir, fn_t const& fn)
             h->replace_with(h.data<ssa_byteify_d>().bm[max_frac_bytes]);
         h->prune();
     }
+
+    // Fix up types
+    for(cfg_node_t& cfg : ir)
+    for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it; ++ssa_it)
+        if(ssa_it->type().name() == TYPE_S)
+            ssa_it->set_type(TYPE_U);
 }
 
 // Expands shifts into rotates.

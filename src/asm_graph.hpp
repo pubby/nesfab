@@ -54,6 +54,8 @@ public:
         return std::find_if(m_outputs.begin(), m_outputs.end(), [h](auto const& n){ return n.node == h; }) - m_outputs.begin(); 
     }
 
+    void steal_outputs(asm_node_t& from);
+
     auto const& inputs() const { return m_inputs; }
     auto const& outputs() const { return m_outputs; }
 
@@ -129,6 +131,7 @@ public:
 
     bool o_remove_stubs();
     bool o_remove_branches();
+    bool o_merge();
     bool o_returns();
     bool o_peephole();
 private:

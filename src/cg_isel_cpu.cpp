@@ -865,6 +865,9 @@ struct set_defs_for_impl<BCC_RELATIVE>
 template<op_t Op> [[gnu::noinline]]
 std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)
 {
+    assert(def.lclass() != 0xFF);
+    assert(arg.lclass() != 0xFF);
+
     constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
     if((Regs & opt.can_set) != Regs)
         return false;
@@ -911,6 +914,10 @@ cpu_t cross_cpu_t::to_cpu() const
     ret.set_def<REG_X>({}, defs[REG_X]);
     ret.set_def<REG_Y>({}, defs[REG_Y]);
     ret.set_def<REG_C>({}, defs[REG_C]);
+#ifndef NDEBUG
+    for(locator_t def : ret.defs)
+        assert(def.lclass() != 0xFF);
+#endif
     return ret;
 }
 

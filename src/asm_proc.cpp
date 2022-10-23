@@ -1,5 +1,7 @@
 #include "asm_proc.hpp"
 
+#include <iostream> // TODO
+
 #include "format.hpp"
 #include "globals.hpp"
 #include "runtime.hpp"
@@ -82,6 +84,19 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             }
         };
 
+        auto const peep_transfer2 = [&](op_name_t second, op_t replace)
+        {
+            if(op_name(b->op) == second 
+               && (op_addr_mode(b->op) == MODE_ZERO_PAGE || op_addr_mode(b->op) == MODE_ABSOLUTE)
+               && a->arg == b->arg
+               && a->alt == b->alt)
+            {
+                b->op = replace;
+                b->arg = b->alt = {};
+                changed = true;
+            }
+        };
+
         switch(op_name(a->op))
         {
         default: break;
@@ -109,10 +124,21 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             peep_transfer(LDX, TAX_IMPLIED);
             peep_transfer(LDY, TAY_IMPLIED);
             break;
+        case STA:
+            peep_transfer2(LDX, TAX_IMPLIED);
+            peep_transfer2(LDY, TAY_IMPLIED);
+            break;
+        case STX:
+            peep_transfer2(LDA, TXA_IMPLIED);
+            break;
+        case STY:
+            peep_transfer2(LDA, TYA_IMPLIED);
+            break;
         }
 
         a = b;
         b = c;
+        assert(b == next_inst(a));
     }
 
     return changed;

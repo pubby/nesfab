@@ -568,6 +568,13 @@ TEST_CASE("abstract_add", "[constraints]")
         test_op<int_cm_t, int_cm_t, int_cm_t, bool_cm_t>(SSA_add, [](fixed_sint_t* c) { return c[0] + c[1]; });
 }
 
+TEST_CASE("abstract_sub", "[constraints]")
+{
+    std::srand(std::time(nullptr));
+    for(unsigned i = 0; i < TEST_ITER; ++i)
+        test_op<int_cm_t, int_cm_t, int_cm_t, bool_cm_t>(SSA_sub, [](fixed_sint_t* c) { return c[0] - c[1]; });
+}
+
 TEST_CASE("abstract_eq", "[constraints]")
 {
     std::srand(std::time(nullptr));

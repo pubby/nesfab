@@ -84,13 +84,13 @@ public:
     bool empty() const { return input_empty() && output_empty(); }
 
     I const& input(unsigned i) const 
-        { assert(i < m_input_size); return m_input[i]; } 
+        { passert(i < m_input_size, i, m_input_size); return m_input[i]; } 
     I& input(unsigned i)
-        { assert(i < m_input_size); return m_input[i]; } 
+        { passert(i < m_input_size, i, m_input_size); return m_input[i]; } 
     O const& output(unsigned i) const 
-        { assert(i < m_output_size); return m_output[i]; } 
+        { passert(i < m_output_size, i, m_input_size); return m_output[i]; } 
     O& output(unsigned i)
-        { assert(i < m_output_size); return m_output[i]; }
+        { passert(i < m_output_size, i, m_input_size); return m_output[i]; }
 
     I const& last_input() const { return input(input_size()-1); }
     I& last_input() { return input(input_size()-1); }

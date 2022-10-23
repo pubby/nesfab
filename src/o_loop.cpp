@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 #include <iostream> // TODO
+#include <fstream> // TODO
+#include "graphviz.hpp" // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -14,43 +16,11 @@
 #include "ir_util.hpp"
 #include "worklist.hpp"
 #include "guard.hpp"
+#include "unroll_divisor.hpp"
+#include "constraints.hpp"
+#include "o_ai.hpp"
 
 namespace bc = ::boost::container;
-
-/*
-for each value inside loop
-{
-    - if an output is used outside of the loop, the loop order matters
-    - if an input is used inside the loop, 
-
-
-    - PHIs mark the point of re-use
-}
-
-// 1. tag induction variables
-// 2. check outputs o i
-
-////////////////////////////
-// TODO
-////////////////////////////
-
-// TODO
-enum loop_dep_type_t : std::uint8_t
-{
-    LD_NONE,
-    LD_RAW,
-    LD_WAW,
-    LD_WAR,
-};
-
-// TODO
-enum loop_dir_t : std::uint8_t
-{
-    DIR_EQ,
-    DIR_NEG,
-    DIR_POS,
-};
-*/ 
 
 namespace // anonymous
 {
@@ -58,6 +28,11 @@ namespace // anonymous
 // "iv" means "induction variable".
 
 struct iv_t;
+
+using iv_deps_t = std::uint32_t;
+constexpr iv_deps_t VALUE_DEP = 1 << 0;
+constexpr iv_deps_t INDEX_DEP = 1 << 1;
+constexpr iv_deps_t ORDER_DEP = 1 << 2;
 
 struct iv_base_t
 {
@@ -69,9 +44,9 @@ struct iv_base_t
     virtual iv_t& root() = 0;
     virtual bool const_init(fixed_sint_t& result) const = 0;
     virtual bool transform(fixed_sint_t& result) const = 0;
+    virtual void propagate_dep(iv_deps_t deps) = 0;
 
-    bool value_dep = false;
-    bool order_dep = false;
+    iv_deps_t deps = 0;
 
     std::vector<iv_base_t*> children;
 };
@@ -102,6 +77,8 @@ struct iv_t : public iv_base_t
     }
 
     virtual bool transform(fixed_sint_t& result) const { return true; }
+
+    virtual void propagate_dep(iv_deps_t new_deps) { deps |= new_deps; }
 
     bool plus() const { return arith->op() == SSA_add; }
     int sign() const { return arith->op() == SSA_add ? 1 : -1; }
@@ -189,42 +166,41 @@ struct mutual_iv_t : public iv_base_t
         }
     }
 
+    virtual void propagate_dep(iv_deps_t new_deps) { deps |= new_deps; parent->propagate_dep(new_deps); }
+
     virtual iv_t& root() { return parent->root(); }
 };
 
-/* TODO
-struct bounded_loop_t
-{
-    iv_base_t* iv;
-    ssa_ht comparison;
-    ssa_ht branch;
-    std::uint64_t iterations;
-};
-    */
-
 struct header_d
 {
+    // Number of exits from this loop.
+    unsigned loop_exits = 0;
+
     ssa_ht simple_condition = {};
     ssa_ht simple_branch = {};
     unsigned simple_condition_iv_i = 0;
+    unsigned simple_reentry_i = 0;
+    bool simple_do = false;
 
-    iv_base_t* iv = nullptr;
-
-    bool is_do = false;
-
-    fixed_sint_t init = 0;
-    fixed_sint_t compare_with = 0;
-    fixed_sint_t end = 0;
-    fixed_sint_t increment = 0;
-    fixed_sint_t iterations = 0;
+    // For unrolling:
+    cfg_ht simple_unroll_body = {};
 };
 
 // iv = induction variable
 thread_local std::deque<iv_t> ivs;
 thread_local std::deque<mutual_iv_t> mutual_ivs;
-//thread_local std::vector<bounded_loop_t> bounded_loops;
 thread_local std::vector<header_d> header_data_vec;
 
+template<typename Fn>
+void for_each_iv(Fn const& fn)
+{
+    for(iv_base_t& iv : ivs)
+        fn(iv);
+    for(iv_base_t& iv : mutual_ivs)
+        fn(iv);
+}
+
+/* TODO: remove?
 struct cfg_loop_d
 {
     // If the iterations can occur in any order:
@@ -239,13 +215,17 @@ struct cfg_loop_d
 
     // For headers only:
 };
+*/
 
 struct ssa_loop_d
 {
+    unsigned unroll_i = 0;
+
     bc::small_vector<iv_base_t*, 1> ivs;
 };
 
-cfg_loop_d& data(cfg_ht cfg) { return cfg.data<cfg_loop_d>(); }
+// TODO
+//cfg_loop_d& data(cfg_ht cfg) { return cfg.data<cfg_loop_d>(); }
 ssa_loop_d& data(ssa_ht ssa) { return ssa.data<ssa_loop_d>(); }
 header_d& header_data(cfg_ht cfg) 
 { 
@@ -301,7 +281,6 @@ step_t reduce(cfg_ht header, cfg_ht step_cfg, iv_t& root, type_t type, ssa_op_t 
 
 bool has_order_dep(cfg_ht header, iv_base_t& def, ssa_ht ssa)
 {
-        std::cout << "HAS ORDER" << ssa << ssa->op() << std::endl;
     if(ssa->test_flags(FLAG_PROCESSED) || ssa->in_daisy())
         return true;
 
@@ -310,24 +289,52 @@ bool has_order_dep(cfg_ht header, iv_base_t& def, ssa_ht ssa)
     if(!def_in_loop(header, ssa))
         return true;
 
+    // If we reach a flagged array write,
+    // we know the order has already been handled.
+    {
+        using namespace ssai::array;
+
+        if(ssa->test_flags(FLAG_ARRAY) 
+           && ssa->input(ARRAY)->cfg_node() == header
+           && ssa->input(INDEX) == def.root().ssa(true))
+        {
+            return false;
+        }
+    }
+
     ssa->set_flags(FLAG_PROCESSED);
     auto guard = make_scope_guard([&]{ ssa->clear_flags(FLAG_PROCESSED); });
 
     unsigned const output_size = ssa->output_size();
     for(unsigned i = 0; i < output_size; ++i)
-        if(has_order_dep(header, def, ssa->output(i)))
+    {
+        ssa_ht const output = ssa->output(i);
+        if(has_order_dep(header, def, output))
             return true;
+    }
 
     return false;
 }
 
-bool try_reduce(cfg_ht header, iv_base_t& def, bool is_phi, unsigned depth = 1)
+struct to_calc_order_dep_t
+{
+    cfg_ht header;
+    iv_base_t* def;
+    ssa_ht ssa;
+};
+
+using to_calc_order_dep_vec_t = bc::small_vector<to_calc_order_dep_t, 16>;
+
+bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_base_t& def, bool is_phi, unsigned depth = 1)
 {
     constexpr unsigned MAX_DEPTH = 4;
     if(depth >= MAX_DEPTH)
         return false;
 
     bool updated = false;
+
+    // TODO
+    //auto const& hd = header_data(header);
 
     ssa_ht const def_ssa = def.ssa(is_phi);
     type_t const type = def_ssa->type();
@@ -341,10 +348,19 @@ bool try_reduce(cfg_ht header, iv_base_t& def, bool is_phi, unsigned depth = 1)
         if(oe.handle == root.ssa(!is_phi))
             goto next_iter;
 
+        if(ssa_flags(oe.handle->op()) & SSAF_ARRAY_OFFSET)
+        {
+            using namespace ssai::array;
+            if(oe.index == INDEX)
+            {
+                def.deps |= INDEX_DEP;
+                goto calc_order;
+            }
+        }
+
         if(!def_in_loop(header, oe.handle))
         {
-            def.value_dep = true;
-            def.order_dep = true;
+            def.deps |= VALUE_DEP | ORDER_DEP;
             goto next_iter;
         }
 
@@ -353,30 +369,7 @@ bool try_reduce(cfg_ht header, iv_base_t& def, bool is_phi, unsigned depth = 1)
         default:
             if(oe.handle == header_data(header).simple_condition)
                 goto next_iter;
-
             break;
-
-            /* TODO
-        //case SSA_read_array8:
-        case SSA_write_array8:
-            {
-                using namespace ssai::array;
-
-                if(oe.index == INDEX)
-                {
-                    // Pattern match.
-
-                    // - input is phi in loop header
-                    // - output is same phi in loop header
-                    // - all read arrays in loop use same index
-
-                    ssa_value_t const array = oe.handle->input(ARRAY);
-                    if(!array.holds_ref() || array->cfg_node() != header || array->op() != SSA_phi)
-                        break;
-                }
-            }
-            break;
-            */
 
         case SSA_cast:
             if(is_arithmetic_bijection(type.name(), oe.handle->type().name()))
@@ -390,9 +383,8 @@ bool try_reduce(cfg_ht header, iv_base_t& def, bool is_phi, unsigned depth = 1)
 
                 data(oe.handle).ivs.push_back(&new_iv);
 
-                updated |= try_reduce(header, new_iv, is_phi, depth + 1);
-                def.value_dep |= new_iv.value_dep;
-                def.order_dep |= new_iv.order_dep;
+                updated |= try_reduce(to_calc_order_dep, header, new_iv, is_phi, depth + 1);
+                def.deps |= new_iv.deps;
                 goto next_iter;
             }
             break;
@@ -464,8 +456,9 @@ bool try_reduce(cfg_ht header, iv_base_t& def, bool is_phi, unsigned depth = 1)
             break;
         }
 
-        def.value_dep = true;
-        def.order_dep |= has_order_dep(header, def, oe.handle);
+        def.deps |= VALUE_DEP;
+    calc_order:
+        to_calc_order_dep.push_back({ header, &def, oe.handle });
     next_iter:
         ++i;
     }
@@ -473,111 +466,337 @@ bool try_reduce(cfg_ht header, iv_base_t& def, bool is_phi, unsigned depth = 1)
     return updated;
 }
 
-bool o_loop_index_rewrite(cfg_ht header, bool is_byteified)
+void increment_array_offsets(iv_base_t& iv, std::uint16_t amount)
 {
-    auto& d = header_data(header);
-    assert(d.simple_condition);
-    assert(d.iterations > 0);
+    using namespace ssai::array;
 
-    if(d.iv->order_dep)
-        return false; // Can't rewrite if the order matters.
+    ssa_ht const ssa = iv.ssa(true);
 
-    iv_t& root = d.iv->root();
-
-    if(d.iv->value_dep)
+    unsigned const output_size = ssa->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
     {
-        // We have to keep the IV values the same, 
-        // but we can reverse the order and count to 0.
+        auto oe = ssa->output_edge(i);
 
-        if(&root != d.iv)
-            return false;
-
-        if(d.init != 0)
-            return false;
-
-        type_name_t const iv_type = root.phi->type().name();
-
-        // Rewrite 'iv.phi':
-        assert(root.entry_inputs);
-        bitset_for_each(root.entry_inputs, [&](unsigned input_i)
+        if(oe.index == INDEX && (ssa_flags(oe.handle->op()) & SSAF_ARRAY_OFFSET))
         {
-            assert(root.phi->input(input_i) == root.init);
-            root.phi->link_change_input(input_i, ssa_value_t(fixed_t{d.end}, iv_type));
-        });
-
-        // Rewrite 'iv.arith':
-        root.arith->unsafe_set_op(SSA_sub);
-        root.arith->link_change_input(!root.arith_to_phi_input, ssa_value_t(fixed_t{d.increment}, iv_type));
-        root.arith->link_change_input(2, ssa_value_t(1, TYPE_BOOL)); // carry
-        if(root.arith_to_phi_input)
-        {
-            root.arith_to_phi_input = 0;
-            root.arith->link_swap_inputs(0, 1);
+            std::uint16_t const offset = oe.handle->input(OFFSET).whole();
+            oe.handle->link_change_input(OFFSET, ssa_value_t(offset + amount, TYPE_U20));
         }
+    }
+
+    for(iv_base_t* child : iv.children)
+        increment_array_offsets(*child, amount);
+}
+
+bool reverse_loop(cfg_ht header, iv_t& root, fixed_sint_t init, fixed_sint_t increment, ssa_ht condition, bool condition_root_i, cfg_ht branch)
+{
+    if(root.deps & ORDER_DEP)
+        return false;
+
+    // Counting down to 0 is efficient.
+    if(init != 0)
+        return false;
+
+    // We can only handle != and <
+    if(condition->op() != SSA_not_eq && (condition->op() != SSA_lt || condition_root_i != 0))
+        return false;
+
+    type_name_t const root_type = root.phi->type().name();
+
+    // For now, only handle the smallest increment.
+    // TODO: handle other increments
+    if(fixed_uint_t(increment) != low_bit_only(numeric_bitmask(root_type)))
+        return false;
+
+    // Can't index with fractional.
+    if((root.deps & INDEX_DEP) && frac_bytes(root_type) > 0)
+        return false;
+
+    ssa_value_t end = condition->input(!condition_root_i);
+    if(def_in_loop(header, end))
+        return false;
+    assert(end);
+
+    if(end.is_num() && !(end.fixed().value & high_bit_only(numeric_bitmask(end.num_type_name()))))
+    {
+        end = ssa_value_t(fixed_t{end.signed_fixed() - increment}, end.num_type_name());
 
         // Rewrite 'condition':
-        d.simple_condition->link_change_input(!d.simple_condition_iv_i, ssa_value_t(0, iv_type));
-        d.simple_condition->unsafe_set_op(SSA_not_eq);
+        assert(condition->output_size() == 1);
+        condition->link_remove_input(!condition_root_i);
+        condition->unsafe_set_op(SSA_sign_to_carry);
 
-        return true;
+        branch->link_swap_outputs(0, 1);
     }
     else
     {
-        // Re-write the loop.
-
-        if(is_byteified && d.iterations >= 256)
-            return false; // Not worth the complexity of implementing.
-
-        // Determine the type:
-        auto const calc_whole = [](unsigned iterations, bool is_do)
-        {
-            return 1 + (builtin::rclz((iterations - is_do) | 1) - 1) / 8;
-        };
-        assert(calc_whole(1, 0) == 1);
-        assert(calc_whole(255, 0) == 1);
-        assert(calc_whole(255, 1) == 1);
-        assert(calc_whole(256, 0) == 2);
-        assert(calc_whole(256, 1) == 1);
-        assert(calc_whole(257, 0) == 2);
-        assert(calc_whole(257, 1) == 2);
-        unsigned const whole_bytes = calc_whole(d.iterations, d.is_do);
-        assert(whole_bytes > 0);
-        type_name_t const iv_type = type_u(whole_bytes, 0);
-
-        // It's stupid to replace with a larger type.
-        if(whole_bytes > root.arith->type().size_of())
+        if(root.deps & VALUE_DEP)
             return false;
 
-        // No point in optimizing an already good loop:
-        if(iv_type == root.phi->type().name() && d.end == 0)
-            return false;
-
-        // Rewrite 'iv.phi':
-        root.phi->set_type(iv_type);
-        assert(root.entry_inputs);
-        bitset_for_each(root.entry_inputs, [&](unsigned input_i)
-        {
-            assert(root.phi->input(input_i) == root.init);
-            root.phi->link_change_input(input_i, ssa_value_t(d.iterations & ((1 << whole_bytes * 8) - 1), iv_type));
-        });
-
-        // Rewrite 'iv.arith':
-        root.arith->set_type(iv_type);
-        root.arith->unsafe_set_op(SSA_sub);
-        root.arith->link_change_input(!root.arith_to_phi_input, ssa_value_t(1, iv_type));
-        root.arith->link_change_input(2, ssa_value_t(1, TYPE_BOOL)); // carry
-        if(root.arith_to_phi_input)
-        {
-            root.arith_to_phi_input = 0;
-            root.arith->link_swap_inputs(0, 1);
-        }
+        // Rewrite array outputs:
+        if(root.deps & INDEX_DEP)
+            increment_array_offsets(root, -1);
 
         // Rewrite 'condition':
-        d.simple_condition->link_change_input(!d.simple_condition_iv_i, ssa_value_t(0, iv_type));
-        d.simple_condition->unsafe_set_op(SSA_not_eq);
-
-        return true;
+        condition->link_change_input(!condition_root_i, ssa_value_t(0, root_type));
+        condition->unsafe_set_op(SSA_not_eq);
     }
+
+    // Rewrite 'iv.phi':
+    assert(root.entry_inputs);
+    assert(end.type().name() == root_type);
+    bitset_for_each(root.entry_inputs, [&](unsigned input_i)
+    {
+        assert(root.phi->input(input_i) == root.init);
+        root.phi->link_change_input(input_i, end);
+    });
+
+    // Rewrite 'iv.arith':
+    root.arith->unsafe_set_op(SSA_sub);
+    root.arith->link_change_input(!root.arith_to_phi_input, ssa_value_t(fixed_t{increment}, root_type));
+    root.arith->link_change_input(2, ssa_value_t(1, TYPE_BOOL)); // carry
+    if(root.arith_to_phi_input)
+    {
+        root.arith_to_phi_input = 0;
+        root.arith->link_swap_inputs(0, 1);
+    }
+
+    return true;
+}
+
+bool rewrite_loop(bool is_do, bool is_byteified, iv_t& root, 
+                  fixed_sint_t init, fixed_sint_t increment, fixed_sint_t iterations, fixed_sint_t end,
+                  ssa_ht condition, bool condition_root_i)
+{
+    assert(iterations > 0);
+
+    if(root.deps & (ORDER_DEP | VALUE_DEP | INDEX_DEP))
+        return false; // Can't rewrite if the order or value matters.
+
+    // Re-write the loop.
+
+    if(is_byteified && iterations >= 256)
+        return false; // Not worth the complexity of implementing.
+
+    // Determine the type:
+    auto const calc_whole = [](unsigned iterations, bool is_do)
+    {
+        return 1 + (builtin::rclz((iterations - is_do) | 1) - 1) / 8;
+    };
+    assert(calc_whole(1, 0) == 1);
+    assert(calc_whole(255, 0) == 1);
+    assert(calc_whole(255, 1) == 1);
+    assert(calc_whole(256, 0) == 2);
+    assert(calc_whole(256, 1) == 1);
+    assert(calc_whole(257, 0) == 2);
+    assert(calc_whole(257, 1) == 2);
+    unsigned const whole_bytes = calc_whole(iterations, is_do);
+    assert(whole_bytes > 0);
+    if(whole_bytes > max_whole_bytes)
+        return false;
+    type_name_t const iv_type = type_u(whole_bytes, 0);
+
+    // It's stupid to replace with a larger type.
+    if(whole_bytes > root.arith->type().size_of())
+        return false;
+
+    // No point in optimizing an already good loop:
+    if(iv_type == root.phi->type().name() && end == 0)
+        return false;
+
+    // Rewrite 'root.phi':
+    root.phi->set_type(iv_type);
+    assert(root.entry_inputs);
+    bitset_for_each(root.entry_inputs, [&](unsigned input_i)
+    {
+        assert(root.phi->input(input_i) == root.init);
+        root.phi->link_change_input(input_i, ssa_value_t(iterations & ((1 << whole_bytes * 8) - 1), iv_type));
+    });
+
+    // Rewrite 'root.arith':
+    root.arith->set_type(iv_type);
+    root.arith->unsafe_set_op(SSA_sub);
+    root.arith->link_change_input(!root.arith_to_phi_input, ssa_value_t(1, iv_type));
+    root.arith->link_change_input(2, ssa_value_t(1, TYPE_BOOL)); // carry
+    if(root.arith_to_phi_input)
+    {
+        root.arith_to_phi_input = 0;
+        root.arith->link_swap_inputs(0, 1);
+    }
+
+    // Rewrite 'condition':
+    condition->link_change_input(!condition_root_i, ssa_value_t(0, iv_type));
+    condition->unsafe_set_op(SSA_not_eq);
+
+    return true;
+}
+
+// Returns times unrolled, or 0 if nothing happened.
+fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
+{
+    std::cout << "UNROLL ENTER\n";
+
+    auto const& hd = header_data(header);
+
+    if(!hd.simple_unroll_body)
+        return 0;
+    cfg_ht const body = hd.simple_unroll_body;
+
+    // Estimate the cost of each loop iteration.
+
+    constexpr unsigned MAX_COST = 32;
+    unsigned cost_per_iter = 0;
+
+    auto const calc_cost_per_iter = [&](cfg_ht cfg)
+    {
+        for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
+        {
+            if(ssa != hd.simple_condition && ssa != hd.simple_branch)
+            {
+                cost_per_iter += estimate_cost(*ssa);
+                if(cost_per_iter > MAX_COST / 2)
+                    return false;
+            }
+        }
+        return true;
+    };
+
+    if(!calc_cost_per_iter(header))
+        return 0;
+
+    if(body != header)
+        if(!calc_cost_per_iter(body))
+            return 0;
+
+    std::cout << "UNROLL COST " << cost_per_iter << std::endl;
+
+    if(cost_per_iter == 0)
+        return 0;
+
+    unsigned const unroll_amount = estimate_unroll_divisor(iterations, MAX_COST / cost_per_iter);
+    passert(iterations % unroll_amount == 0, iterations, unroll_amount);
+
+    std::cout << "UNROLL " << header << ' ' << iterations << " / " << unroll_amount << std::endl;
+
+    if(unroll_amount <= 1)
+        return 0;
+
+    auto const in_unroll = [&](cfg_ht cfg) { return cfg == header || cfg == body; };
+
+    // We'll use these vectors to track SSA nodes while we're unrolling.
+
+    std::vector<ssa_ht> orig_map;
+    std::vector<ssa_value_t> map, next_map;
+
+    unsigned reserve_size = header->ssa_size();
+    if(header != body)
+        reserve_size += body->ssa_size();
+    orig_map.reserve(reserve_size);
+    map.reserve(reserve_size);
+    
+    auto const init_map = [&](cfg_ht cfg)
+    {
+        for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
+        {
+            if(ssa != hd.simple_branch)
+            {
+                data(ssa).unroll_i = map.size();
+                orig_map.push_back(ssa);
+                map.push_back(ssa->op() == SSA_phi ? ssa->input(!hd.simple_reentry_i) : ssa);
+            }
+        }
+    };
+
+    init_map(header);
+    if(body != header)
+        init_map(body);
+
+    next_map.resize(map.size());
+    
+    // Add the new SSA nodes:
+    for(unsigned u = 1; u < unroll_amount; ++u)
+    {
+        for(unsigned i = 0; i < map.size(); ++i)
+        {
+            if(orig_map[i]->op() == SSA_phi)
+            {
+                ssa_value_t const input = orig_map[i]->input(hd.simple_reentry_i);
+
+                if(input.holds_ref() && in_unroll(input->cfg_node()))
+                    next_map[i] = map[data(input.handle()).unroll_i];
+                else
+                    next_map[i] = input;
+            }
+            else
+            {
+                // Create new nodes, but don't fill their inputs yet.
+                ssa_ht const orig = orig_map[i];
+                ssa_ht const next = body->emplace_ssa(orig->op(), orig->type());
+
+                if(orig->in_daisy())
+                    next->append_daisy();
+
+                //data(next).unroll_i = i;
+                next_map[i] = next;
+            }
+        }
+
+        // Finish new nodes:
+        for(unsigned i = 0; i < map.size(); ++i)
+        {
+            if(orig_map[i]->op() == SSA_phi)
+                continue;
+
+            ssa_ht const orig = orig_map[i];
+            ssa_ht const next = next_map[i].handle();
+
+            unsigned const input_size = orig->input_size();
+            for(unsigned i = 0; i < input_size; ++i)
+            {
+                ssa_value_t input = orig->input(i);
+
+                if(input.holds_ref() && in_unroll(input->cfg_node()))
+                    input = next_map[data(input.handle()).unroll_i];
+
+                next->link_append_input(input);
+            }
+        }
+
+        std::swap(map, next_map);
+    }
+
+    // Fix up the phis:
+    for(ssa_ht phi = header->phi_begin(); phi; ++phi)
+    {
+        ssa_value_t const input = phi->input(hd.simple_reentry_i);
+        if(input.holds_ref() && in_unroll(input->cfg_node()))
+            phi->link_change_input(hd.simple_reentry_i, map[data(input.handle()).unroll_i]);
+    }
+
+    // Fix up the branch:
+    assert(hd.simple_branch->op() == SSA_if);
+    assert(hd.simple_branch->input(0).handle() == hd.simple_condition);
+    assert(hd.simple_branch->in_daisy());
+
+    hd.simple_branch->erase_daisy();
+    hd.simple_branch->append_daisy();
+    hd.simple_branch->link_change_input(0, map[data(hd.simple_condition).unroll_i]);
+
+    // Fix up uses outside the loop:
+    for(unsigned i = 0; i < orig_map.size(); ++i)
+    {
+        ssa_ht const orig = orig_map[i];
+        for(unsigned j = 0; j < orig->output_size();)
+        {
+            auto const oe = orig->output_edge(j);
+            if(in_unroll(oe.handle->cfg_node()))
+                ++j;
+            else
+                oe.handle->link_change_input(oe.index, map[i]);
+        }
+    }
+
+    return unroll_amount;
 }
 
 bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
@@ -586,6 +805,23 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 
     ivs.clear();
     mutual_ivs.clear();
+
+    // Count how many exits each loop has.
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
+        cfg_ht const this_header = this_loop_header(cfg);
+        if(!this_header)
+            continue;
+
+        unsigned const output_size = cfg->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            cfg_ht const output = cfg->output(i);
+            for(cfg_ht header = this_header; header && !loop_is_parent_of(header, output); header = algo(header).iloop_header)
+                header_data(header).loop_exits += 1;
+        }
+    }
+
     for(cfg_ht header : loop_headers)
     {
         auto const& a = ::algo(header);
@@ -622,11 +858,15 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
             unsigned const reentry_i = builtin::ctz(reentry_inputs);
             cfg_ht const reentry = header->input(reentry_i);
             cfg_ht branch_cfg;
+            bool is_do = false;
 
             if(header->output_size() == 2 && reentry->output_size() == 1)
                 branch_cfg = header; // simple 'while' loop
-            else if(header->output_size() == 1 && reentry->output_size() == 2)
+            else if(reentry == header || (header->output_size() == 1 && reentry->output_size() == 2))
+            {
                 branch_cfg = reentry; // simple 'do' loop
+                is_do = true;
+            }
 
             if(branch_cfg)
             {
@@ -639,6 +879,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                        && (condition->op() == SSA_not_eq
                            || condition->op() == SSA_lt
                            || condition->op() == SSA_lte)
+                       && condition->input(0).type() == condition->input(1).type()
                        && header == this_loop_header(condition->cfg_node()))
                     {
                         assert(condition->input_size() == 2);
@@ -646,9 +887,34 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                         if(def_in_loop(header, condition->input(0)) != iv_index)
                         {
                             // Found a simple loop condition:
-                            header_data(header).simple_condition = condition.handle();
-                            header_data(header).simple_branch = branch;
-                            header_data(header).simple_condition_iv_i = iv_index;
+                            auto& hd = header_data(header);
+                            hd.simple_condition = condition.handle();
+                            hd.simple_branch = branch;
+                            hd.simple_condition_iv_i = iv_index;
+                            hd.simple_reentry_i = reentry_i;
+                            hd.simple_do = is_do;
+
+                            // Now look for a simple unroll body:
+                            if(is_do)
+                            {
+                                if(header == branch_cfg
+                                   || (header->output_size() == 1
+                                       && header->output(0) == branch_cfg))
+                                {
+                                    hd.simple_unroll_body = branch_cfg;
+                                }
+                            }
+                            else
+                            {
+                                assert(branch_cfg == header);
+                                if(reentry->input_size() == 1
+                                   && reentry->input(0) == header)
+                                {
+                                    hd.simple_unroll_body = reentry;
+                                }
+                            }
+
+                            assert(!hd.simple_unroll_body || this_loop_header(hd.simple_unroll_body) == header);
                         }
                     }
                 }
@@ -736,18 +1002,130 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
     }
 
     // Perform strength reductions and collect mutual_ivs:
+    to_calc_order_dep_vec_t to_calc_order_dep;
     for(iv_t& iv : ivs)
     {
         cfg_ht const header = iv.phi->cfg_node();
 
-        updated |= try_reduce(header, iv, false);
-        updated |= try_reduce(header, iv, true);
+        updated |= try_reduce(to_calc_order_dep, header, iv, false);
+        updated |= try_reduce(to_calc_order_dep, header, iv, true);
     }
 
+    // Identify some simple looping array writes.
+    for_each_iv([&](iv_base_t& iv)
+    {
+        iv_t& root = iv.root();
+        cfg_ht const header = root.phi->cfg_node();
+        auto const& hd = header_data(header);
+
+        // We can only handle arrays if they're in a simple loop with one exit.
+        if(!hd.simple_branch || hd.loop_exits != 1)
+            return;
+
+        ssa_ht const def_ssa = iv.ssa(true);
+
+        for(unsigned i = 0; i < def_ssa->output_size(); ++i)
+        {
+            auto oe = def_ssa->output_edge(i);
+
+            if(!def_in_loop(header, oe.handle))
+                continue;
+
+            if(oe.handle->op() == SSA_write_array8 || oe.handle->op() == SSA_write_array16)
+            {
+                using namespace ssai::array;
+
+                // We'll tentatively flag this node with FLAG_ARRAY,
+                // which is needed for 'has_order_dep' to work.
+                oe.handle->set_flags(FLAG_ARRAY);
+
+                ssa_op_t const read = oe.handle->op() == SSA_write_array8 ? SSA_read_array8 : SSA_read_array16;
+
+                if(oe.index == INDEX)
+                {
+                    // Pattern match.
+
+                    ssa_value_t const offset = oe.handle->input(OFFSET);
+
+                    // We're looking for a simple loop of phi and an array write.
+                    ssa_value_t const array_phi = oe.handle->input(ARRAY);
+                    if(!array_phi.holds_ref() || array_phi->cfg_node() != header || array_phi->op() != SSA_phi)
+                        goto next_iter;
+
+                    unsigned const input_size = header->input_size();
+                    for(unsigned i = 0; i < input_size; ++i)
+                    {
+                        if(root.entry_inputs & (1 << i))
+                            continue;
+                        if(array_phi->input(i) != oe.handle)
+                            goto next_iter;
+                    }
+
+                    // Check each output, pattern matching.
+
+                    // Check the write's outputs:
+                    for(unsigned i = 0; i < oe.handle->output_size(); ++i)
+                    {
+                        ssa_ht const output = oe.handle->output(i);
+                        if(output == array_phi)
+                            continue;
+                        if(!hd.simple_do || def_in_loop(header, output))
+                            goto next_iter;
+                    }
+
+                    // Check the phi's outputs:
+                    for(unsigned i = 0; i < array_phi->output_size(); ++i)
+                    {
+                        ssa_ht const output = array_phi->output(i);
+                        if(output == oe.handle)
+                            continue;
+
+                        if(def_in_loop(header, output))
+                        {
+                            // It's fine to read values before writing,
+                            // so long as the index and offset match.
+                            if(output->op() != read
+                               || output->input(INDEX) != def_ssa
+                               || output->input(OFFSET) != offset)
+                            {
+                                goto next_iter;
+                            }
+
+                            // The output could still impose an ORDER_DEP.
+                            // Check for that here:
+
+                            assert(oe.handle->test_flags(FLAG_ARRAY));
+                            if(has_order_dep(header, iv, output))
+                                goto next_iter;
+
+                        }
+                        else if(hd.simple_do)
+                            goto next_iter;
+                    }
+
+                    // Alright! This write_array looks good.
+                    // We'll keep the flag set.
+                    assert(oe.handle->test_flags(FLAG_ARRAY));
+                    continue;
+                }
+            }
+        next_iter:;
+            oe.handle->clear_flags(FLAG_ARRAY); // remove the flag
+        }
+    });
+
+    // Calculate ORDER_DEP:
+    for(auto const& c : to_calc_order_dep)
+        if(has_order_dep(c.header, *c.def, c.ssa))
+            c.def->propagate_dep(ORDER_DEP);
+
     // Now finish the identification of simple loops:
+    bool this_iter_updated;
     for(cfg_ht header : loop_headers)
     {
+        this_iter_updated = false;
         auto& d = header_data(header);
+
         {
             if(!d.simple_condition)
                 continue;
@@ -758,68 +1136,80 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
             assert(iv_ssa.holds_ref());
 
             iv_t* root;
-            for(iv_base_t* iv : data(iv_ssa.handle()).ivs)
+            for(iv_base_t* base : data(iv_ssa.handle()).ivs)
             {
-                assert(iv->has_ssa(iv_ssa.handle()));
-                root = &iv->root();
-                if(root->phi->cfg_node() == header)
+                if((root = dynamic_cast<iv_t*>(base)))
                 {
-                    d.iv = iv;
-                    goto found_iv;
+                    assert(root->has_ssa(iv_ssa.handle()));
+                    if(root->phi->cfg_node() == header)
+                        goto found_iv;
                 }
             }
             goto fail;
         found_iv:
 
             // Needs a constant starting point:
-            if(!d.iv->const_init(d.init))
+            fixed_sint_t init;
+            if(!root->const_init(init))
                 goto fail;
 
             // Need a constant increment:
             if(!root->operand.is_num())
                 goto fail;
-            d.increment = root->operand.signed_fixed();
+            fixed_sint_t increment = root->operand.signed_fixed() * root->sign();
+
+            // First, try to reverse the loop:
+            if(reverse_loop(header, *root, init, increment, d.simple_condition, d.simple_condition_iv_i, d.simple_branch->cfg_node()))
+            {
+                updated = this_iter_updated = true;
+                goto did_reverse;
+            }
 
             ssa_value_t const compare_with = d.simple_condition->input(!d.simple_condition_iv_i);
+            assert(d.simple_condition->input(0).type() == d.simple_condition->input(1).type());
 
             // Must be comparing with a constant:
             if(!compare_with.is_num())
                 goto fail;
-            d.compare_with = compare_with.signed_fixed();
+            fixed_sint_t compare_with_value = compare_with.signed_fixed();
 
-            d.is_do = (d.simple_branch->cfg_node() == root->arith->cfg_node() 
-                       || !dominates(d.simple_branch->cfg_node(), root->arith->cfg_node()));
+            fixed_sint_t const span = compare_with_value - init;
 
-            fixed_sint_t const span = d.compare_with - d.init;
-            d.iterations = span / d.increment;
-            fixed_sint_t const remainder = span % d.increment;
+            if(d.simple_condition->op() == SSA_not_eq && span < 0 && increment >= 0)
+                increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));
 
-            if(d.iterations <= 0)
+            fixed_sint_t iterations = span / increment;
+            fixed_sint_t const remainder = span % increment;
+
+            if(iterations <= 0)
                 goto fail;
 
             switch(d.simple_condition->op())
             {
             default: 
                 goto fail;
-            case SSA_lte:
-                if(remainder == 0)
-                    ++d.iterations;
-                // fall-through
+
             case SSA_lt:
+                if(remainder != 0)
+                {
+            case SSA_lte:
+                    ++iterations;
+                }
+
                 if(d.simple_condition_iv_i == 0) // IV < C
                 {
-                    if(d.increment < 0 || d.iterations * d.increment + d.init > type_max(compare_with.num_type_name()))
+                    if(increment < 0 || iterations * increment + init > type_max(compare_with.num_type_name()))
                         goto fail;
                 }
                 else // C < IV
                 {
-                    if(d.increment > 0 || d.iterations * d.increment + d.init < type_min(compare_with.num_type_name()))
+                    if(increment > 0 || iterations * increment + init < type_min(compare_with.num_type_name()))
                         goto fail;
                 }
                 break;
 
             case SSA_not_eq:
-                // Require increment reaches 'd.compare_with' exactly, without passing it.
+                // Require increment reaches 'compare_with' exactly, without passing it.
                 // Technically the value could wrap around and become equivalent eventually,
                 // but it's simpler to ignore that and assume no wrap around.
                 if(remainder != 0)
@@ -827,13 +1217,60 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                 break;
             }
 
-            d.end = d.iterations * d.increment + d.init;
+            fixed_sint_t const end = init + iterations * increment;
 
-            updated |= o_loop_index_rewrite(header, is_byteified);
+            if(rewrite_loop(
+                d.simple_do, is_byteified, *root,
+                init, increment, iterations, end,
+                d.simple_condition, d.simple_condition_iv_i))
+            {
+                init = 0;
+                increment = -1ull << fixed_t::shift;
+                updated = this_iter_updated = true;
+            }
+
+            /* TODO
+            if(fixed_sint_t unroll_amount = unroll_loop(header, iterations))
+            {
+                iterations /= unroll_amount;
+                increment *= unroll_amount;
+                updated = this_iter_updated = true;
+            }
+            */
+
+            // Prepare constraints:
+            {
+                ssa_ht const phi = root->ssa(true);
+
+                assert(iterations > 0);
+                fixed_sint_t last = init + increment * iterations;
+
+                if(d.simple_do)
+                    last -= iterations;
+
+                constraints_t c = {};
+                c.bounds.min = std::min(init, last);
+                c.bounds.max = std::max(init, last);
+
+                assert(increment);
+                fixed_uint_t const b = (1ull << builtin::ctz(fixed_uint_t(increment))) - 1ull;
+                c.bits.known0 = ~init & b;
+                c.bits.known1 = init & b;
+
+                c.normalize(type_constraints_mask(phi->type().name()));
+
+                resize_ai_prep();
+                auto& prep = ai_prep(phi);
+                prep.constraints.reset(new constraints_t(std::move(c)));
+            }
+
             continue;
         }
     fail:
         d.simple_condition = d.simple_branch = {};
+        continue;
+
+    did_reverse:;
     }
 
     return updated;
@@ -953,11 +1390,12 @@ bool o_loop(log_t* log, ir_t& ir, bool is_byteified)
 
     for(cfg_node_t& cfg : ir)
     for(ssa_ht ssa = cfg.ssa_begin(); ssa; ++ssa)
-        ssa->clear_flags(FLAG_PROCESSED);
+        ssa->clear_flags(FLAG_PROCESSED | FLAG_ARRAY);
 
     bool updated = false;
 
-    cfg_data_pool::scope_guard_t<cfg_loop_d> cfg_sg(cfg_pool::array_size());
+    // TODO
+    //cfg_data_pool::scope_guard_t<cfg_loop_d> cfg_sg(cfg_pool::array_size());
     ssa_data_pool::scope_guard_t<ssa_loop_d> ssa_sg(ssa_pool::array_size());
 
     updated |= initial_loop_processing(log, ir, is_byteified);

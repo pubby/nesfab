@@ -52,17 +52,22 @@ namespace isel
     // TODO
     //using preprep_bitset_t = static_bitset_t<256>;
 
+    struct memoized_input_t
+    {
+        locator_t main;
+        locator_t phi;
+    };
+
     struct cfg_d : public pbqp_node_t
     {
         //std::vector<preprep_bitset_t> preprep;
         std::vector<unsigned> to_compute;
         rh::batman_set<cross_cpu_t> in_states;
         rh::batman_map<cross_transition_t, result_t> sels;
-        std::vector<isel_cost_t> min_in_costs;
         isel_cost_t min_sel_cost = isel_cost_t(~0ull) / 2;
 
         // TODO
-        std::vector<rh::robin_map<locator_t, locator_t>> memoized_input_maps;
+        std::vector<rh::robin_map<locator_t, memoized_input_t>> memoized_input_maps;
 
         // TODO:
         //std::array<rh::batman_map<locator_t, isel_cost_t>, NUM_CROSS_REGS> output_costs;

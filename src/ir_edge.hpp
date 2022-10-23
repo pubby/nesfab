@@ -101,7 +101,7 @@ public:
     constexpr void set(locator_t loc) 
     { 
         uint_t uint = loc.to_uint();
-        assert((uint & ~const_flag) == uint);
+        passert((uint & ~const_flag) == uint, loc);
         value = (uint & ~const_flag) | locator_flag; 
     }
 

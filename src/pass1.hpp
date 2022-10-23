@@ -798,6 +798,8 @@ public:
     [[gnu::always_inline]]
     void begin_label(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
+        symbol_table.push_scope();
+
         validate_mods("label", pstring, mods);
 
         // Create a new label

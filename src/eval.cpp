@@ -710,7 +710,8 @@ void eval_t::interpret_stmts()
             // fall-through
         case STMT_EXPR:
         case STMT_FOR_EFFECT:
-            do_expr<D>(*stmt->expr);
+            if(stmt->expr)
+                do_expr<D>(*stmt->expr);
             ++stmt;
             break;
 
@@ -990,7 +991,8 @@ void eval_t::compile_block()
 
             if(is_for)
             {
-                do_expr<COMPILE>(*stmt->expr);
+                if(stmt->expr)
+                    do_expr<COMPILE>(*stmt->expr);
                 ++stmt;
                 assert(stmt->name == STMT_END_FOR);
                 ++stmt;
@@ -1050,7 +1052,8 @@ void eval_t::compile_block()
             if(is_for)
             {
                 assert(stmt->name == STMT_FOR_EFFECT);
-                do_expr<COMPILE>(*stmt->expr);
+                if(stmt->expr)
+                    do_expr<COMPILE>(*stmt->expr);
                 ++stmt;
                 assert(stmt->name == STMT_END_DO_FOR);
                 cfg_ht const end_for_expr = builder.cfg;
@@ -4739,7 +4742,6 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
             switch(cfg_node->input_size())
             {
             case 0:
-                passert(false, to_string(stmt->name));
                 throw var_lookup_error_t();
             case 1:
                 return var_lookup(cfg_node->input(0), var_i, member);

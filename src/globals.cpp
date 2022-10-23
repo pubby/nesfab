@@ -2,6 +2,7 @@
 
 #include <iostream> // TODO remove?
 #include <fstream> // TODO remove?
+#include "ir_algo.hpp" // TODO: remove
 
 #include "alloca.hpp"
 #include "bitset.hpp"
@@ -1255,11 +1256,17 @@ void fn_t::compile()
         {
             changed = false;
 
+            save_graph(ir, fmt("pre_fork_%_%", post_byteified, iter).c_str());
+
             changed |= o_defork(log, ir);
             ir.assert_valid();
+            
+            save_graph(ir, fmt("post_fork_%_%", post_byteified, iter).c_str());
 
             changed |= o_phis(log, ir);
             ir.assert_valid();
+
+            save_graph(ir, fmt("post_phis_%_%", post_byteified, iter).c_str());
 
             changed |= o_merge_basic_blocks(&stdout_log, ir);
             ir.assert_valid();
@@ -1272,23 +1279,23 @@ void fn_t::compile()
             changed |= o_identities(log, ir);
             ir.assert_valid();
 
+            // 'o_loop' populates 'ai_prep', which feeds into 'o_abstract_interpret'.
+            // Thus, they must occur sequentially.
+            reset_ai_prep();
+            save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
+            changed |= o_loop(log, ir, post_byteified);
             save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
-
+            ir.assert_valid();
             changed |= o_abstract_interpret(&stdout_log, ir, post_byteified);
             ir.assert_valid();
+
+            save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
 
             changed |= o_remove_unused_ssa(log, ir);
             ir.assert_valid();
 
             changed |= o_motion(log, ir);
             ir.assert_valid();
-
-            save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
-
-            changed |= o_loop(log, ir, post_byteified);
-            ir.assert_valid();
-
-            save_graph(ir, fmt("post_loop_%_%", post_byteified, iter).c_str());
 
             if(post_byteified)
             {
@@ -1301,6 +1308,10 @@ void fn_t::compile()
             ++iter;
 
             std::puts("pass");
+
+            // TODO:
+            //if(iter == 3)
+                //break;
         }
         while(changed);
     };

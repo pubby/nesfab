@@ -73,12 +73,14 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
                 updated = true;
             }
-            else if(index.holds_ref())
+            else if(index.holds_ref() && (ssa_flags(node.op()) & SSAF_INDEXES_ARRAY16))
             {
                 if(index->op() == SSA_add && index->input(2).is_num())
                 {
                     // Turn array indexes plus a constant into an offset.
                     // e.g. foo[a + 5] turns the '5' into an offset.
+
+                    assert(index->type() == TYPE_U20);
 
                     for(unsigned i = 0; i < 2; ++i)
                     {
@@ -100,6 +102,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 {
                     // Turn array indexes minus a constant into an offset.
                     // e.g. foo[a - 5] turns the '-5' into an offset.
+
+                    assert(index->type() == TYPE_U20);
 
                     if(index->input(1).is_num())
                     {
@@ -144,14 +148,48 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 using namespace ssai::array;
 
                 ssa_op_t const read = (node.op() == SSA_write_array8) ? SSA_read_array8 : SSA_read_array16;
+                ssa_value_t const array = node.input(ARRAY);
                 ssa_value_t const assign = node.input(ASSIGNMENT);
 
                 // Prune pointless writes like foo[5] = foo[5]
                 if(assign.holds_ref() && assign->op() == read
                    && assign->input(ARRAY) == node.input(ARRAY)
+                   && assign->input(OFFSET) == node.input(OFFSET)
                    && assign->input(INDEX) == node.input(INDEX))
                 {
                     goto replaceWith0;
+                }
+
+                // Prune pointless writes like foo[5] = X; foo[5] = Y
+                if(array.holds_ref() && array->op() == node.op()
+                   && array->output_size() == 1
+                   && array->input(OFFSET) == node.input(OFFSET)
+                   && array->input(INDEX) == node.input(INDEX))
+                {
+                    node.link_change_input(ARRAY, array->input(ARRAY));
+                    assert(array->output_size() == 0);
+                    array->prune();
+                    updated = true;
+                    break;
+                }
+            }
+            break;
+
+        case SSA_read_array8:
+        case SSA_read_array16:
+            {
+                using namespace ssai::array;
+
+                ssa_op_t const write = (node.op() == SSA_read_array8) ? SSA_write_array8 : SSA_write_array16;
+                ssa_value_t const array = node.input(ARRAY);
+
+                // Prune pointless reads.
+                if(array.holds_ref() && array->op() == write
+                   && array->input(OFFSET) == node.input(OFFSET)
+                   && array->input(INDEX) == node.input(INDEX))
+                {
+                    node.replace_with(array->input(ASSIGNMENT));
+                    goto prune;
                 }
             }
             break;
@@ -180,8 +218,6 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
         case SSA_not_eq:
             for(unsigned i = 0; i < 2; ++i)
             {
-                assert(node.input(i).type() == node.input(!i).type());
-
                 if(node.input(i) == ssa_value_t(0u, TYPE_BOOL))
                     goto *replaceWith[!i];
 
@@ -264,15 +300,15 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 type_name_t const lt = node.input(0).type().name();
                 type_name_t const rt = node.input(1).type().name();
 
-                // Replace C <= X with C-1 < X
+                // Replace X <= C with X < C+1
                 // (This produces more efficient isel)
 
                 if(!node.input(0).is_num() && node.input(1).is_num())
                 {
                     fixed_sint_t f = node.input(1).signed_fixed();
-                    f -= type_unit(lt);
+                    f += type_unit(lt);
 
-                    if(f >= type_min(lt))
+                    if(f <= type_max(lt))
                     {
                         node.link_change_input(1, ssa_value_t(fixed_t{f}, lt));
                         node.unsafe_set_op(SSA_lt);
@@ -503,6 +539,14 @@ struct banks_and_indexes_t
     auto operator<=>(banks_and_indexes_t const&) const = default;
 };
 
+// 'operands' tracks the operands of our new expression.
+struct operand_t 
+{ 
+    ssa_value_t v; 
+    bool negative; 
+    banks_and_indexes_t banks_and_indexes;
+};
+
 banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
 {
     fc::small_map<ssa_value_t, unsigned, 8> banks;
@@ -573,7 +617,36 @@ struct ssa_monoid_d
 
     // A 'compatible' node only outputs to the same 'defining_op', of the same type.
     bool compatible = false;
+
+    // Used only for 'dfs_sort':
+    operand_t* operand = nullptr;
 };
+
+// Sorts nodes based on DFS order (postorder).
+// Reset marks before calling.
+void dfs_sort(std::vector<operand_t>& result, cfg_ht in_cfg, ssa_ht h)
+{
+    ssa_node_t& node = *h;
+
+    if(node.get_mark() == MARK_PERMANENT)
+        return;
+
+    if(node.op() != SSA_phi)
+    {
+        unsigned const input_size = node.input_size();
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            ssa_value_t const input = node.input(i);
+            if(input.holds_ref() && input->cfg_node() == in_cfg)
+                dfs_sort(result, in_cfg, input.handle());
+        }
+    }
+
+    if(node.get_mark() == MARK_TEMPORARY)
+        result.push_back(std::move(*h.data<ssa_monoid_d>().operand));
+
+    node.set_mark(MARK_PERMANENT);
+}
 
 // 'run_monoid_t' searches for connected nodes of similar ops, where the op forms a monoid.
 // For example, it searches for expressions like (1 | X | Y | 5 | X) or (X + 10 - Y - 3).
@@ -840,13 +913,6 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
     }
 #endif
 
-    // 'operands' tracks the operands of our new expression.
-    struct operand_t 
-    { 
-        ssa_value_t v; 
-        bool negative; 
-        banks_and_indexes_t banks_and_indexes;
-    };
     std::vector<operand_t> operands;
 
     // These are used at the end to replace the expression's old nodes with the new ones:
@@ -996,6 +1062,33 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
             // Sort operands, ordering their bank accesses and array indexes.
             std::sort(operands.begin(), operands.end(), [](auto const& l, auto const& r)
                 { return l.banks_and_indexes < r.banks_and_indexes; });
+
+            // Further sort:
+            std::vector<operand_t> final_sort;
+            final_sort.reserve(operands.size());
+
+            for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
+                ssa->clear_mark();
+            for(operand_t& op : operands)
+            {
+                if(!op.v.holds_ref())
+                    continue;
+                op.v->set_mark(MARK_TEMPORARY);
+                data(op.v.handle()).operand = &op;
+            }
+            for(operand_t& op : operands)
+            {
+                if(op.v.holds_ref())
+                    dfs_sort(final_sort, cfg, op.v.handle());
+                else
+                    final_sort.push_back(std::move(op));
+            }
+
+            assert(operands.size() == final_sort.size());
+                
+            unsigned const size = operands.size();
+            for(unsigned i = 0; i < size; ++i)
+                operands[i] = std::move(final_sort[size - i - 1]);
         }
 
         dprint(log, "--MONOID_SORTED_BEGIN");

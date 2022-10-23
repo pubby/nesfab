@@ -650,13 +650,13 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled)
     int best_score = -1;
     ssa_ht best = {};
 
-    unsigned const output_size = last_scheduled->output_size();
-    for(unsigned i = 0; i < output_size; ++i)
+    auto const step = [&](ssa_ht succ, bool prio) -> ssa_ht
     {
-        ssa_ht succ = last_scheduled->output(i);
-
         if(succ->cfg_node() != cfg_node)
-            continue;
+            return {};
+
+        if(prio && data(succ).exit_distance != MAX_EXIT_DISTANCE)
+            return {};
 
         if(ready(0, succ, scheduled))
         {
@@ -678,7 +678,19 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled)
                 best = succ;
             }
         }
-    }
+
+        return {};
+    };
+
+    unsigned const output_size = last_scheduled->output_size();
+    for(unsigned i = 0; i < output_size; ++i)
+        if(ssa_ht ret = step(last_scheduled->output(i), true))
+            return ret;
+
+    if(!best)
+        for(unsigned i = 0; i < output_size; ++i)
+            if(ssa_ht ret = step(last_scheduled->output(i), true))
+                return ret;
 
     retry_from = {};
     return best;

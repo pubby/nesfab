@@ -542,7 +542,7 @@ ABSTRACT(SSA_carry) = ABSTRACT_FN
 ABSTRACT(SSA_cast) = ABSTRACT_FN
 {
     assert(argn == 1);
-    assert(result.vec.size() == 1);
+    assert(result.vec.size() <= 2);
     assert(cv[0].vec.size() >= 1);
     result[0] = apply_mask(cv[0][0], result.cm); // handles top itself
 
@@ -694,11 +694,9 @@ ABSTRACT(SSA_xor) = ABSTRACT_FN
     assert(result[0].is_normalized(result.cm));
 };
 
-ABSTRACT(SSA_add) = ABSTRACT_FN
+template<bool Add>
+void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_def_t& result)
 {
-    //std::cout << "add masks:\n";
-    //std::cout << result.cm.mask << ' ' << result.cm.signed_ << std::endl;
-    //std::cout << cv[1].cm.mask << ' ' << cv[1].cm.signed_ << std::endl;
     assert(argn == 3);
     assert(result.cm == cv[0].cm);
     assert(result.cm == cv[1].cm);
@@ -713,13 +711,19 @@ ABSTRACT(SSA_add) = ABSTRACT_FN
     // Inputs:
     constraints_mask_t const cm = result.cm;
     constraints_t const L = cv[0][0];
-    constraints_t const R = cv[1][0];
+    constraints_t R = cv[1][0];
     constraints_t const C = cv[2][0];
     constraints_t const shifted_C = constraints_t::shifted_carry(C.to_carry(), cm.mask);
 
     assert(L.is_normalized(cm));
     assert(R.is_normalized(cm));
     assert(C.is_normalized(CARRY_MASK));
+
+    if(!Add)
+    {
+        // Invert the bits:
+        std::swap(R.bits.known0, R.bits.known1);
+    }
 
     // Outputs:
     constraints_t& value = result[0];
@@ -790,19 +794,40 @@ ABSTRACT(SSA_add) = ABSTRACT_FN
     assert(!value.bits.is_top());
 
     // OK! Now for the bounds.
-    // Calculate 'min' and 'max.
-    if(builtin::add_overflow(L.bounds.max, R.bounds.max, value.bounds.max)
-    || builtin::add_overflow(value.bounds.max, shifted_C.bounds.max, value.bounds.max))
-    {
-        // Value overflowed. Derive min/max from known bits.
-        value.bounds = apply_mask(from_bits(value.bits, cm), cm);
-        assert(!value.is_top(cm));
-        normalize(value, cm);
-        return;
-    }
 
-    value.bounds.min = L.bounds.min + R.bounds.min + shifted_C.bounds.min;
-    value.bounds = apply_mask(value.bounds, cm);
+    if(Add)
+    {
+        // Calculate 'min' and 'max.
+        value.bounds.min = L.bounds.min + R.bounds.min + shifted_C.bounds.min;
+        value.bounds.max = L.bounds.max + R.bounds.max + shifted_C.bounds.max;
+        value.bounds = apply_mask(value.bounds, cm);
+
+        // The bounds can prove the output carry is set:
+        auto const masked_min = (L.bounds.min & cm.mask) + (R.bounds.min & cm.mask) + shifted_C.bounds.min;
+        if((masked_min & cm.mask) != masked_min)
+        {
+            passert((carry_t)j == CARRY_SET || (carry_t)j == CARRY_BOTTOM, j, masked_min >> fixed_t::shift, bounds_t::bottom(cm),
+                    '\n', L, '\n', R);
+            carry = constraints_t::carry(CARRY_SET);
+        }
+    }
+    else
+    {
+        // Calculate 'min' and 'max.
+        fixed_sint_t const one = static_cast<fixed_sint_t>(low_bit_only(cm.mask));
+        value.bounds.min = L.bounds.min - R.bounds.max - (one - shifted_C.bounds.min);
+        value.bounds.max = L.bounds.max - R.bounds.min - (one - shifted_C.bounds.max);
+        value.bounds = apply_mask(value.bounds, cm);
+
+        // The bounds can prove the output carry is set:
+        auto const masked_max = (L.bounds.max & cm.mask) - (R.bounds.min & cm.mask) - (one - shifted_C.bounds.max);
+        if((masked_max & cm.mask) != masked_max)
+        {
+            passert((carry_t)j == CARRY_CLEAR || (carry_t)j == CARRY_BOTTOM, j, masked_max >> fixed_t::shift, bounds_t::bottom(cm),
+                    '\n', L, '\n', R);
+            carry = constraints_t::carry(CARRY_CLEAR);
+        }
+    }
 
     // 'min' and 'max' put constraints on the bits - neat!
     // Calculate those constraints here.
@@ -820,6 +845,10 @@ ABSTRACT(SSA_add) = ABSTRACT_FN
     assert(apply_mask(value.bits, cm).bit_eq(value.bits));
     value.normalize(cm);
 };
+
+// Keep this up-to-date with SSA_sub
+ABSTRACT(SSA_add) = abstract_add_sub<true>;
+ABSTRACT(SSA_sub) = abstract_add_sub<false>;
 
 constraints_t abstract_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
                           constraints_t rhs, constraints_mask_t rhs_cm,
@@ -1015,6 +1044,9 @@ ABSTRACT(SSA_init_array) = ABSTRACT_FN
 
 auto const read_array = ABSTRACT_FN
 {
+    // TODO: add offset
+    std::puts("REWRITE READ_ARRAY CONSTRAINTS");
+
     if(handle_top(cv, argn, result))
         return;
 
@@ -1561,8 +1593,8 @@ NARROW(SSA_xor) = NARROW_FN
     R.bits.known1 |= result[0].bits.known1 & L.bits.known0;
 };
 
-
-NARROW(SSA_add) = NARROW_FN
+template<bool Add>
+void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t const& result)
 {
     assert(argn == 3 && result.vec.size() >= 2);
     assert(result.cm == cv[0].cm);
@@ -1581,6 +1613,10 @@ NARROW(SSA_add) = NARROW_FN
     constraints_t& R = cv[1][0];
     constraints_t& C = cv[2][0];
 
+    known_bits_t R_bits = R.bits;
+    if(!Add)
+        std::swap(R_bits.known0, R_bits.known1);
+
     assert(L.is_normalized(cm) && R.is_normalized(cm));
 
     // We use an approximation approach.
@@ -1588,16 +1624,16 @@ NARROW(SSA_add) = NARROW_FN
     // (Three arguments because of carries).
 
     // Determine some of the carried bits:
-    fixed_uint_t carry0 = ((L.bits.known0 & R.bits.known0 & cm.mask) << 1ull) & cm.mask;
-    fixed_uint_t carry1 = ((L.bits.known1 & R.bits.known1 & cm.mask) << 1ull) & cm.mask;
+    fixed_uint_t carry0 = ((L.bits.known0 & R_bits.known0 & cm.mask) << 1ull) & cm.mask;
+    fixed_uint_t carry1 = ((L.bits.known1 & R_bits.known1 & cm.mask) << 1ull) & cm.mask;
 
     fixed_uint_t const carry_i = ~cm.mask ? (~(cm.mask << 1) & cm.mask) : 1;
     
     // First do the carry. If we know the lowest bit of L, R, and result
     // we can infer the required carry.
-    if(result[0].bits.known() & L.bits.known() & R.bits.known() & carry_i)
+    if(result[0].bits.known() & L.bits.known() & R_bits.known() & carry_i)
     {
-        if((result[0].bits.known1 ^ L.bits.known1 ^ R.bits.known1) & carry_i)
+        if((result[0].bits.known1 ^ L.bits.known1 ^ R_bits.known1) & carry_i)
             C = constraints_t::carry(CARRY_SET);
         else
             C = constraints_t::carry(CARRY_CLEAR);
@@ -1611,15 +1647,24 @@ NARROW(SSA_add) = NARROW_FN
     case CARRY_SET:    carry1 |= carry_i; break;
     case CARRY_TOP:    return;
     }
-
+    
     fixed_uint_t const solvable = result[0].bits.known() & (carry0 | carry1);
-    fixed_uint_t const lsolvable = R.bits.known() & solvable;
+    fixed_uint_t const lsolvable = R_bits.known() & solvable;
     fixed_uint_t const rsolvable = L.bits.known() & solvable;
 
-    L.bits.known1 |= ((carry1 ^ R.bits.known1 ^ result[0].bits.known1) & lsolvable);
-    R.bits.known1 |= ((carry1 ^ L.bits.known1 ^ result[0].bits.known1) & rsolvable);
+    L.bits.known1 |= ((carry1 ^ R_bits.known1 ^ result[0].bits.known1) & lsolvable);
     L.bits.known0 |= ~L.bits.known1 & lsolvable;
-    R.bits.known0 |= ~R.bits.known1 & rsolvable;
+
+    if(Add)
+    {
+        R.bits.known1 |= ((carry1 ^ L.bits.known1 ^ result[0].bits.known1) & rsolvable);
+        R.bits.known0 |= ~R_bits.known1 & rsolvable;
+    }
+    else
+    {
+        R.bits.known0 |= ((carry1 ^ L.bits.known1 ^ result[0].bits.known1) & rsolvable);
+        R.bits.known1 |= ~R_bits.known1 & rsolvable;
+    }
 
     // Move the bounds in after calculating bits.
     L.bounds = intersect(L.bounds, from_bits(L.bits, cm));
@@ -1632,74 +1677,89 @@ NARROW(SSA_add) = NARROW_FN
     //if(cm.signed_)
         //return;
 
-    constraints_t const shifted_C = constraints_t::shifted_carry(C.to_carry(), cm.mask);
-
-    fixed_sint_t const min_sum = L.bounds.min + R.bounds.min + shifted_C.bounds.min;
-    fixed_sint_t const max_sum = L.bounds.max + R.bounds.max + shifted_C.bounds.max;
-    fixed_uint_t const span = max_sum - min_sum;
-
-    /* TODO: remove?
-    if(builtin::add_overflow(L.bounds.max, R.bounds.max, max_sum))
-        return;
-    if(builtin::add_overflow(max_sum, shifted_C.bounds.max, max_sum))
-        return;
-        */
-
-    constraints_t LL = L;
-    constraints_t RR = R;
-
     constraints_t value = result[0];
     bounds_t const bb = bounds_t::bottom(cm);
+    constraints_t const shifted_C = constraints_t::shifted_carry(C.to_carry(), cm.mask);
 
-    if(max_sum > bb.max)
+    if(Add)
     {
-        if(min_sum <= bb.max)
-            return;
+        fixed_sint_t const min_sum = L.bounds.min + R.bounds.min + shifted_C.bounds.min;
+        fixed_sint_t const max_sum = L.bounds.max + R.bounds.max + shifted_C.bounds.max;
+        fixed_uint_t const span = max_sum - min_sum;
 
-        value.bounds.min += high_bit_only(cm.mask) << 1;
-        value.bounds.max += high_bit_only(cm.mask) << 1;
+        if(max_sum > bb.max)
+        {
+            if(min_sum <= bb.max)
+                return;
+
+            value.bounds.min += high_bit_only(cm.mask) << 1;
+            value.bounds.max += high_bit_only(cm.mask) << 1;
+        }
+        else if(min_sum < bb.min)
+        {
+            assert(cm.signed_);
+
+            if(max_sum >= bb.min)
+                return;
+
+            value.bounds.min -= high_bit_only(cm.mask) << 1;
+            value.bounds.max -= high_bit_only(cm.mask) << 1;
+        }
+
+        // If the result's max is less than expected, 
+        // try lowering L and R's max bound.
+        L.bounds.max = std::min(L.bounds.max, value.bounds.max - R.bounds.min - shifted_C.bounds.min);
+        R.bounds.max = std::min(R.bounds.max, value.bounds.max - L.bounds.min - shifted_C.bounds.min);
+
+        // If the result's min is greater than expected,
+        // try raising L and R's min bound.
+        if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
+            L.bounds.min = std::max(L.bounds.min, value.bounds.min - R.bounds.max - shifted_C.bounds.max);
+        if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
+            R.bounds.min = std::max(R.bounds.min, value.bounds.min - L.bounds.max - shifted_C.bounds.max);
     }
-    else if(min_sum < bb.min)
+    else
     {
-        assert(cm.signed_);
+        fixed_sint_t const one = static_cast<fixed_sint_t>(low_bit_only(cm.mask));
+        fixed_sint_t const min_sum = L.bounds.min - R.bounds.max - (one - shifted_C.bounds.min);
+        fixed_sint_t const max_sum = L.bounds.max - R.bounds.max - (one - shifted_C.bounds.max);
+        fixed_uint_t const span = max_sum - min_sum;
 
-        if(max_sum >= bb.min)
-            return;
+        if(max_sum > bb.max)
+        {
+            assert(cm.signed_);
 
-        value.bounds.min -= high_bit_only(cm.mask) << 1;
-        value.bounds.max -= high_bit_only(cm.mask) << 1;
+            if(min_sum <= bb.max)
+                return;
+
+            value.bounds.min += high_bit_only(cm.mask) << 1;
+            value.bounds.max += high_bit_only(cm.mask) << 1;
+        }
+        else if(min_sum < bb.min)
+        {
+            if(max_sum >= bb.min)
+                return;
+
+            value.bounds.min -= high_bit_only(cm.mask) << 1;
+            value.bounds.max -= high_bit_only(cm.mask) << 1;
+        }
+
+        // If the result's max is less than expected, 
+        // try lowering L and R's max bound.
+        L.bounds.max = std::min(L.bounds.max, value.bounds.max + R.bounds.max + (one - shifted_C.bounds.max));
+        R.bounds.max = std::min(R.bounds.max, L.bounds.min - value.bounds.min - (one - shifted_C.bounds.min));
+
+        // If the result's min is greater than expected, 
+        // try raising L and R's min bound.
+        if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
+            L.bounds.min = std::max(L.bounds.min, value.bounds.min + R.bounds.min + (one - shifted_C.bounds.min));
+        if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
+            R.bounds.min = std::max(R.bounds.min, L.bounds.max - value.bounds.max - (one - shifted_C.bounds.max));
     }
-
-    // If the result's max is less than expected, try lowering
-    // L and R's max bound.
-    L.bounds.max = std::min(L.bounds.max, value.bounds.max - R.bounds.min - shifted_C.bounds.min);
-    R.bounds.max = std::min(R.bounds.max, value.bounds.max - L.bounds.min - shifted_C.bounds.min);
-
-    // If the result's min is greater than expected, try raising
-    // L and R's min bound.
-    if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
-        L.bounds.min = std::max(L.bounds.min, value.bounds.min - R.bounds.max - shifted_C.bounds.max);
-    if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
-        R.bounds.min = std::max(R.bounds.min, value.bounds.min - L.bounds.max - shifted_C.bounds.max);
-
-
-    /*
-    return;
-    if(!L.bit_eq(LL))
-    {
-        std::cout << "L" << std::endl;
-        std::cout << L << std::endl;
-        std::cout << LL << std::endl;
-    }
-
-    if(!R.bit_eq(RR))
-    {
-        std::cout << "R" << std::endl;
-        std::cout << R << std::endl;
-        std::cout << RR << std::endl;
-    }
-    */
 };
+
+NARROW(SSA_add) = narrow_add_sub<true>;
+NARROW(SSA_sub) = narrow_add_sub<false>;
 
 template<bool Eq>
 static void narrow_eq(constraints_def_t* cv, unsigned argn, constraints_def_t const& result)

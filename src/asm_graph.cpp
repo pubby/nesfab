@@ -54,6 +54,20 @@ void asm_node_t::replace_output(unsigned i, asm_node_t* with)
     m_outputs[i].node = with;
 }
 
+void asm_node_t::steal_outputs(asm_node_t& from)
+{
+    assert(this != &from);
+
+    while(!m_outputs.empty())
+        remove_output(0);
+
+    m_outputs = std::move(from.m_outputs);
+    from.m_outputs.clear();
+
+    for(asm_edge_t const& edge : m_outputs)
+        edge.node->m_inputs[edge.node->find_input(&from)] = this;
+}
+
 /////////////////
 // asm_graph_t //
 /////////////////
@@ -192,6 +206,7 @@ void asm_graph_t::optimize()
         changed = false;
         changed |= o_remove_stubs();
         changed |= o_remove_branches();
+        changed |= o_merge();
         changed |= o_returns();
         changed |= o_peephole();
     }
@@ -255,6 +270,40 @@ bool asm_graph_t::o_remove_branches()
         node.output_inst = { .op = JMP_ABSOLUTE };
         changed = true;
     next_iter:;
+    }
+
+    return changed;
+}
+
+bool asm_graph_t::o_merge()
+{
+    bool changed = false;
+
+    // Merges 1-output nodes with 1-input nodes.
+    for(auto it = list.begin(); it != list.end(); ++it)
+    {
+        if(it->output_inst.op != JMP_ABSOLUTE)
+            continue;
+
+        if(it->outputs().size() != 1)
+            continue;
+
+        asm_node_t* const output = it->outputs()[0].node;
+
+        if(output == &*it || output->inputs().size() != 1)
+            continue;
+
+        asm_node_t* const input = output->inputs()[0];
+        assert(input == &*it);
+
+        // Merge:
+
+        it->code.insert(it->code.end(), output->code.begin(), output->code.end());
+        it->output_inst = output->output_inst;
+        it->steal_outputs(*output);
+
+        prune(*output);
+        changed = true;
     }
 
     return changed;

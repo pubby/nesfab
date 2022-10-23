@@ -134,6 +134,8 @@ constexpr bool is_struct(type_name_t type_name)
     { return type_name == TYPE_STRUCT || type_name == TYPE_STRUCT_THUNK; }
 constexpr bool is_aggregate(type_name_t type_name)
     { return is_tea(type_name) || is_struct(type_name); }
+constexpr bool is_byteified(type_name_t type_name)
+    { return type_name == TYPE_U || type_name == TYPE_S || type_name == TYPE_BOOL; }
 
 constexpr bool has_type_tail(type_name_t name)
     { return name == TYPE_TEA || name == TYPE_FN; }

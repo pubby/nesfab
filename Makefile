@@ -137,7 +137,8 @@ lodepng.cpp \
 convert_png.cpp \
 switch.cpp \
 o_loop.cpp \
-o_defork.cpp
+o_defork.cpp \
+unroll_divisor.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -151,6 +152,7 @@ constraints_tests.cpp \
 bitset_tests.cpp \
 carry.cpp \
 ssa_op.cpp \
+type_name.cpp \
 add_constraints_table.cpp \
 catch/catch.cpp
 

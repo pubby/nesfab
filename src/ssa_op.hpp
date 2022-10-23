@@ -29,6 +29,7 @@ constexpr unsigned SSAF_CG_UNLIVE      = 1 << 18; // Has no liveness
 constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 19;
 constexpr unsigned SSAF_CONDITIONAL    = 1 << 20;
 constexpr unsigned SSAF_CHEAP_SCHEDULE = 1 << 21;
+constexpr unsigned SSAF_FREE           = 1 << 22;
 
 // Parameter indexes for SSA ops
 namespace ssai
@@ -222,6 +223,20 @@ constexpr int carry_input_i(ssa_op_t op)
         return 2;
     default:
         return -1;
+    }
+}
+
+constexpr bool is_basic_comparison(ssa_op_t op)
+{
+    switch(op)
+    {
+    case SSA_eq:
+    case SSA_not_eq:
+    case SSA_lt:
+    case SSA_lte:
+        return true;
+    default:
+        return false;
     }
 }
 

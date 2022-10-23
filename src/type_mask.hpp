@@ -86,11 +86,16 @@ constexpr fixed_sint_t sign_extend(fixed_uint_t i, fixed_uint_t mask)
     return static_cast<fixed_sint_t>(i);
 }
 
+constexpr fixed_sint_t maybe_sign_extend(fixed_uint_t i, fixed_uint_t mask, bool extend) 
+{ 
+    if(extend)
+        return sign_extend(i, mask);
+    return static_cast<fixed_sint_t>(i);
+}
+
 constexpr fixed_sint_t to_signed(fixed_uint_t i, type_name_t tn) 
 {
-    if(is_signed(tn))
-        return sign_extend(i, numeric_bitmask(tn));
-    return static_cast<fixed_sint_t>(i);
+    return maybe_sign_extend(i, numeric_bitmask(tn), is_signed(tn));
 }
 
 constexpr bool in_mask(fixed_uint_t i, fixed_uint_t mask, bool signed_) 

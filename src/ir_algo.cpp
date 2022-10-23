@@ -65,6 +65,7 @@ void build_order(ir_t const& ir)
 // until everything nests nicely.
 static void _tag_loop_header(cfg_ht node, cfg_ht header)
 {
+    std::cout << "TAG LOOP " << node << header << std::endl;
     if(node == header || !header)
         return;
 
@@ -95,18 +96,23 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
 
         if(iloop_header_u.dfsp < header_u.dfsp)
         {
+            std::cout << "TAG LOOP SET " << node << header << std::endl;
             algo(node).iloop_header = header;
             node = header;
             header = iloop_header;
         }
         else
+        {
+            std::cout << "TAG LOOP SET2 " << node << header << std::endl;
             node = iloop_header;
+        }
 
         std::cout << "LOOP " << node << std::endl;
     }
 
     //if(node.id == 1 && header) TODO REMOVE
         //assert(false);
+    std::cout << "TAG LOOP SET3 " << node << header << std::endl;
     algo(node).iloop_header = header;
 }
 
@@ -177,14 +183,13 @@ static cfg_ht _visit_loops(cfg_ht node, unsigned dfsp = 1)
                 // or until we run out of headers to check.
                 while((header = algo(header).iloop_header))
                 {
-                    algo(header).is_irreducible = true;
-
                     // Check if 'header' is in the current DFS path:
                     if(in_dfsp(algo(header)))
                     {
                         _tag_loop_header(node, header);
                         break;
                     }
+                    algo(header).is_irreducible = true;
                 }
             }
         }
@@ -226,10 +231,19 @@ void build_loops_and_order(ir_t& ir)
     assert(preorder.empty() || preorder.front() == ir.root);
     assert(postorder.empty() || postorder.back() == ir.root);
 
+    std::cout << "HEADER BEGIN\n";
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+    {
         std::cout << "HEADER " << cfg << algo(cfg).iloop_header << ' ' << algo(cfg).is_loop_header 
-        << ' ' << !!algo(cfg).reentry_in << ' ' << !!algo(cfg).reentry_out
-        << std::endl;
+        << ' ' << algo(cfg).is_irreducible
+        << ' ' << !!algo(cfg).reentry_in << ' ' << !!algo(cfg).reentry_out;
+        for(cfg_ht i = algo(cfg).iloop_header; i; i = algo(i).iloop_header)
+        {
+            std::cout << i;
+            std::flush(std::cout);
+        }
+        std::cout << std::endl;
+    }
 }
 
 cfg_ht this_loop_header(cfg_ht h)
@@ -273,7 +287,8 @@ std::uint64_t depth_exp(std::uint64_t depth, std::uint64_t scale, std::uint64_t 
 
 bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node)
 {
-    assert(loop_header && algo(loop_header).is_loop_header);
+    assert(loop_header);
+    assert(algo(loop_header).is_loop_header);
 
     for(node = this_loop_header(node); node; node = algo(node).iloop_header)
         if(node == loop_header)
@@ -373,6 +388,51 @@ void build_dominators_from_order(ir_t& ir)
     }
     while(changed);
 }
+
+/* TODO
+void rebuild_orderless_dominates(cfg_ht cfg)
+{
+    // Recalulate the 'idom' of 'cfg'.
+
+    if(cfg->input_size() == 0)
+        return {};
+    else if(cfg->input_size() == 1)
+        return cfg->input(0);
+
+    // We'll iterate up through the dominator tree, 
+    // storing all nodes with a tree height.
+    fc::small_map<cfg_ht, unsigned, 32> dom_map;
+    for(cfg_ht dom = cfg->input(0); dom; dom = algo(dom).idom)
+        dom_map.emplace(dom, dom_map.size());
+
+    // Then we'll iterate up through the dominator tree with other nodes,
+    // finding where they intersect with our stored map.
+    // The highest intersection is our new idom.
+    unsigned highest_pos = 0;
+    cfg_ht idom = cfg->input(0);
+
+    for(unsigned i = 1; i < cfg->input_size(); ++i)
+    {
+        for(cfg_ht dom = cfg->input(i); dom; dom = algo(dom).idom)
+        {
+            if(dom == cfg)
+                break;
+            if(unsigned* pos = dom_map.has(dom))
+            {
+                if(*pos > highest_pos)
+                {
+                    highest_pos = *pos;
+                    idom = dom;
+                    assert(idom != cfg);
+                }
+                break;
+            }
+        }
+    }
+
+    return idom;
+}
+*/
 
 ////////////////////////////////////////
 // other stuff

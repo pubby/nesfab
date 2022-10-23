@@ -71,7 +71,7 @@ bool o_remove_trivial_phis(log_t* log, ir_t& ir)
                     ssa_worklist.push(output_h);
             }
 
-            assert(!value.holds_ref() || value.handle() != phi_h);
+            passert(!value.holds_ref() || value.handle() != phi_h, phi_h, value.holds_ref(), value.handle());
 
             // Delete the trivial phi.
             dprint(log, "REMOVE_TRIVIAL_PHI", phi_h);

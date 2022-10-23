@@ -146,7 +146,10 @@ struct cpu_t
 
     bool def_eq(regs_t reg, locator_t v) const
     {
+        assert(reg < defs.size());
         assert(v);
+        assert(v.lclass() != 0xFF);
+        assert(defs[reg].lclass() != 0xFF);
         assert(is_orig_def(defs[reg]));
         assert(is_orig_def(v));
         return defs[reg] == v;
@@ -154,6 +157,7 @@ struct cpu_t
 
     bool value_eq(regs_t reg, locator_t v) const
     {
+        assert(reg < defs.size());
         if(def_eq(reg, v))
            return true;
         if(v.is_const_num())
@@ -174,6 +178,8 @@ struct cpu_t
     template<regs_t Reg> [[gnu::always_inline]]
     void set_def_impl(options_t opt, locator_t value, bool keep_value = false)
     {
+        assert(value.lclass() != 0xFF);
+
         if(!(opt.set_mask & (1 << Reg)))
         {
             defs[Reg] = locator_t{};
@@ -208,6 +214,8 @@ struct cpu_t
     template<regs_t Regs> [[gnu::noinline]]
     void set_defs_impl(options_t opt, locator_t value, bool keep_value = false)
     {
+        assert(value.lclass() != 0xFF);
+
         if(Regs & REGF_A)
             set_def_impl<REG_A>(opt, value, keep_value);
         if(Regs & REGF_X)
@@ -228,6 +236,8 @@ struct cpu_t
     template<regs_t Regs> [[gnu::noinline]]
     bool set_defs(options_t opt, locator_t value, bool keep_value = false)
     {
+        assert(value.lclass() != 0xFF);
+
         if((Regs & opt.can_set) != Regs)
             return false;
         conditional_regs |= Regs;
@@ -280,62 +290,36 @@ struct cross_cpu_t
     auto operator<=>(cross_cpu_t const&) const = default;
     bool has(locator_t loc) const { return std::find(defs.begin(), defs.end(), loc) != defs.end(); }
     cpu_t to_cpu() const;
-    int unique_count() const
-    {
-        int count = 0;
-        for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
-        {
-            if(!defs[i])
-            {
-                count += 0;
-                continue;
-            }
-
-            for(unsigned j = 0; j < NUM_CROSS_REGS; ++j)
-            {
-                if(j == i)
-                    continue;
-
-                if(defs[i] == defs[j])
-                {
-                    count += 3;
-                    break;
-                }
-            }
-
-            count += 1;
-        }
-
-        for(locator_t const& loc : defs)
-            if(loc)
-                ++count;
-        return count;
-    }
 
     std::array<locator_t, NUM_CROSS_REGS> defs = {};
 };
 
-inline unsigned heuristic_penalty(locator_t const* defs)
+inline int heuristic_penalty(locator_t const* defs, bool in = false)
 {
-    unsigned count = 0;
+    int count = 0;
+
     for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
     {
         if(!defs[i])
+        {
+            switch(i)
+            {
+            case REG_A: count += 2; break;
+            case REG_X: count += 1; break;
+            case REG_Y: count += 1; break;
+            default: break;
+            }
             continue;
+        }
 
         for(unsigned j = 0; j < NUM_CROSS_REGS; ++j)
         {
-            if(j == i)
-                continue;
-
-            if(defs[i] == defs[j])
+            if(j != i && defs[i] == defs[j])
             {
                 count += 3;
                 break;
             }
         }
-
-        count += 1;
     }
 
     return count;
@@ -346,7 +330,7 @@ struct cross_transition_t
     cross_cpu_t in_state;
     cross_cpu_t out_state;
     auto operator<=>(cross_transition_t const&) const = default;
-    int unique_count() const { return out_state.unique_count() + in_state.unique_count(); }
+    int heuristic_penalty() const { return isel::heuristic_penalty(in_state.defs.data(), true) + isel::heuristic_penalty(out_state.defs.data()); }
 };
 
 } // end namespace isel

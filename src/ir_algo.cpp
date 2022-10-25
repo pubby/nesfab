@@ -493,7 +493,7 @@ void toposort_cfg_node(cfg_ht cfg_node, ssa_ht* vec)
     }
 }
 
-void split_critical_edges(ir_t& ir)
+void split_critical_edges(ir_t& ir, bool split_back_edges)
 {
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
@@ -501,27 +501,23 @@ void split_critical_edges(ir_t& ir)
         if(output_size < 2)
             continue;
 
+        bool back_edge_found = split_back_edges;
+
         for(unsigned i = 0; i < output_size; ++i)
         {
             auto oe = cfg->output_edge(i);
+
+            if(!back_edge_found && oe.handle == this_loop_header(cfg))
+            {
+                back_edge_found = true;
+                continue;
+            }
+
             if(oe.handle->input_size() >= 2)
             {
                 ir.split_edge(oe);
                 passert(cfg->output_size() == output_size, cfg->output_size(), output_size);
             }
-        }
-    }
-}
-
-void split_all_edges(ir_t& ir)
-{
-    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
-    {
-        unsigned const output_size = cfg->output_size();
-        for(unsigned i = 0; i < output_size; ++i)
-        {
-            auto oe = cfg->output_edge(i);
-            ir.split_edge(oe);
         }
     }
 }

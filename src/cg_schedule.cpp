@@ -286,8 +286,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     // Phis
     for(ssa_ht ssa_node : toposorted)
     {
-        cfg_ht const cfg_node = ssa_node->cfg_node();
-        //ssa_ht self_loop_phi = {};
+        assert(cfg_node == ssa_node->cfg_node());
 
         bool const exits_cfg = !for_each_output_with_links(ssa_node, [&](ssa_ht from, ssa_ht output)
         {
@@ -297,23 +296,71 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             bool const is_phi = output->op() == SSA_phi;
             bool const same_cfg = output->cfg_node() == cfg_node;
 
-            //self_loop |= is_phi && same_cfg;
+            // For tight self-loops, phis should be used before they are re-written.
+            if(is_phi && same_cfg)
+            {
+                auto& d = data(ssa_node);
+
+                for_each_output(output, [&](ssa_ht phi_output)
+                {
+                    if(phi_output->cfg_node() != cfg_node)
+                        return;
+
+                    if(phi_output == ssa_node)
+                        return;
+
+                    // Can't add a dep if a cycle would be created:
+                    if(bitset_test(data(phi_output).deps, index(ssa_node)))
+                        return;
+
+                    // Add a dep!
+                    bitset_set(d.deps, index(phi_output));
+                    bitset_or(set_size, d.deps, data(phi_output).deps);
+                    propagate_deps_change(ssa_node);
+                });
+            }
 
             return !is_phi && same_cfg;
         });
 
-        // TODO
-        //if(self_loop)
-        {
-        }
-
         if(exits_cfg)
-        {
-            std::cout << "OPHI " << ssa_node << std::endl;
             calc_exit_distance(ssa_node, MAX_EXIT_DISTANCE / 2);
-        }
     }
 
+    // Schedule cheap nodes before other uses
+    for(ssa_ht ssa_node : toposorted)
+    {
+        assert(cfg_node == ssa_node->cfg_node());
+
+        if(!(ssa_flags(ssa_node->op()) & SSAF_CHEAP_SCHEDULE))
+            continue;
+
+        unsigned const input_size = ssa_node->input_size();
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            ssa_value_t const input = ssa_node->input(i);
+            if(!input.holds_ref() || input->cfg_node() != cfg_node)
+                continue;
+
+            unsigned const output_size = input->output_size();
+            for(unsigned j = 0; j < output_size; ++j)
+            {
+                ssa_ht const output = input->output(j);
+                if(output->cfg_node() != cfg_node || (ssa_flags(output->op()) & SSAF_CHEAP_SCHEDULE))
+                    continue;
+
+                // Can't add a dep if a cycle would be created:
+                if(bitset_test(data(ssa_node).deps, index(output)))
+                    continue;
+
+                // Add a dep!
+                auto& d = data(output);
+                bitset_set(d.deps, index(ssa_node));
+                bitset_or(set_size, d.deps, data(ssa_node).deps);
+                propagate_deps_change(output);
+            }
+        }
+    }
 
     // ARRAYS:
     // - Schedule write_arrays after all read_arrays from previous write_arrays

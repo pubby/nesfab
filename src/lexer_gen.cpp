@@ -701,6 +701,9 @@ int main()
         keyword(6, "rbracket", "]"),
         keyword(6, "lparen", "("), // begin infix ops
 
+        op(8, "increment", "++"),
+        op(8, "decrement", "--"),
+
         op(10, "asterisk", "*"),
         op(10, "fslash", "/"),
 

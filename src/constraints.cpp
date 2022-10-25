@@ -583,7 +583,7 @@ ABSTRACT(SSA_sign_extend) = ABSTRACT_FN
     result[0] = abstract_sign_extend(cv[0][0], cv[0].cm);
 };
 
-ABSTRACT(SSA_sign_to_carry) = ABSTRACT_FN
+ABSTRACT(SSA_sign) = ABSTRACT_FN
 {
     assert(argn == 1);
 
@@ -1044,22 +1044,26 @@ ABSTRACT(SSA_init_array) = ABSTRACT_FN
 
 auto const read_array = ABSTRACT_FN
 {
-    // TODO: add offset
-    std::puts("REWRITE READ_ARRAY CONSTRAINTS");
+    using namespace ssai::array;
 
     if(handle_top(cv, argn, result))
         return;
 
-    auto& input_array = cv[0];
-    constraints_t const index = cv[2][0];
+    auto& input_array = cv[ARRAY];
 
-    unsigned const min_bound = index.bounds.min >> fixed_t::shift;
-    unsigned const max_bound = index.bounds.max >> fixed_t::shift;
-    unsigned const iter_to = std::min<unsigned>(max_bound + 1, input_array.vec.size());
+    if(input_array.vec.empty())
+        return abstract_bottom(cv, argn, result);
+
+    std::int16_t const offset = static_cast<std::int16_t>(cv[OFFSET][0].get_const());
+    bounds_t const index = cv[INDEX][0].bounds;
+
+    fixed_sint_t const min_bound = (index.min >> fixed_t::shift) + offset;
+    fixed_sint_t const max_bound = (index.max >> fixed_t::shift) + offset;
+    fixed_sint_t const iter_to = std::min<fixed_sint_t>(max_bound + 1, input_array.vec.size());
 
     result[0] = constraints_t::top();
-    for(unsigned i = min_bound; i < iter_to; ++i)
-        if(index(fixed_t::whole(i).value, cv[2].cm))
+    for(auto i = std::max<fixed_sint_t>(min_bound, 0); i < iter_to; ++i)
+        if(index(fixed_t::whole(i).value, cv[INDEX].cm))
             result[0] = union_(input_array[i], result[0]);
 };
 
@@ -1068,12 +1072,19 @@ ABSTRACT(SSA_read_array16) = read_array;
 
 auto const write_array = ABSTRACT_FN
 {
+    using namespace ssai::array;
+
     if(handle_top(cv, argn, result))
         return;
 
-    auto& input_array = cv[0];
-    constraints_t const index = cv[2][0];
-    constraints_t const value = cv[3][0];
+    auto& input_array = cv[ARRAY];
+
+    if(input_array.vec.empty())
+        return abstract_bottom(cv, argn, result);
+
+    std::int16_t const offset = static_cast<std::int16_t>(cv[OFFSET][0].get_const());
+    bounds_t const index = cv[INDEX][0].bounds;
+    constraints_t const value = cv[ASSIGNMENT][0];
 
     assert(input_array.vec.size() == result.vec.size());
 
@@ -1081,18 +1092,18 @@ auto const write_array = ABSTRACT_FN
 
     if(index.is_const())
     {
-        unsigned const i = index.bounds.min >> fixed_t::shift;
-        if(i < result.vec.size())
+        fixed_sint_t const i = (index.min >> fixed_t::shift) + offset;
+        if(i >= 0 && i < fixed_sint_t(result.vec.size()))
             result[i] = value;
     }
     else
     {
-        unsigned const min_bound = index.bounds.min >> fixed_t::shift;
-        unsigned const max_bound = index.bounds.max >> fixed_t::shift;
-        unsigned const iter_to = std::min<unsigned>(max_bound + 1, result.vec.size());
+        fixed_sint_t const min_bound = (index.min >> fixed_t::shift) + offset;
+        fixed_sint_t const max_bound = (index.max >> fixed_t::shift) + offset;
+        fixed_sint_t const iter_to = std::min<fixed_sint_t>(max_bound + 1, input_array.vec.size());
 
-        for(unsigned i = min_bound; i < iter_to; ++i)
-            if(index(fixed_t::whole(i).value, cv[2].cm))
+        for(auto i = std::max<fixed_sint_t>(min_bound, 0); i < iter_to; ++i)
+            if(index(fixed_t::whole(i).value, cv[INDEX].cm))
                 result[i] = union_(result[i], value);
     }
 };
@@ -1484,7 +1495,7 @@ NARROW(SSA_sign_extend) = NARROW_FN
         cv[0][0].bits.known1 |= sign_bit;
 };
 
-NARROW(SSA_sign_to_carry) = NARROW_FN
+NARROW(SSA_sign) = NARROW_FN
 {
     assert(argn == 1);
 

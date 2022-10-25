@@ -30,6 +30,17 @@ struct cfg_order_d
     std::uint16_t offset = 0;
 };
 
+struct cfg_banks_d
+{
+    bitset_uint_t* in;
+    bitset_uint_t* out;
+    ssa_ht first_ssa;
+    int first;
+    int last;
+
+    bool pass_thru() const { return first < 0; }
+};
+
 struct ssa_schedule_d
 {
     bitset_uint_t* deps = nullptr;
@@ -51,6 +62,7 @@ struct ssa_isel_d
 struct cfg_cg_d
 {
     cfg_liveness_d live;
+    cfg_banks_d banks;
     cfg_order_d order;
 
     std::vector<ssa_ht> schedule;

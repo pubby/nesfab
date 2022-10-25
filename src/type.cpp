@@ -93,7 +93,7 @@ bool type_t::operator==(type_t o) const
     return true;
 }
 
-group_ht type_t::group(unsigned i) const { return groups()[i]; }
+group_ht type_t::group(unsigned i) const { return groups() ? groups()[i] : group_ht{}; }
 
 type_t type_t::paa(unsigned size, group_ht group)
 { 

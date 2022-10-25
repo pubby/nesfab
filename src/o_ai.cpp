@@ -116,8 +116,9 @@ std::size_t constraints_size(ssa_node_t const& node)
         if(name == TYPE_TEA)
         {
             std::size_t const size = node.type().size();
-            // Only do page-sized arrays or smaller:
-            return (size > 256) ? 0 : size;
+            // Only do small arrays:
+            constexpr std::size_t MAX_TRACKED_ARRAY_SIZE = 16;
+            return (size > MAX_TRACKED_ARRAY_SIZE) ? 0 : size;
         }
         if(is_scalar(name))
             return 1;
@@ -493,6 +494,7 @@ void ai_t::remove_skippable()
 //   Simple and Efficient Construction of Static Single Assignment Form
 ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
 {
+    std::cout << "LOOKUP " << cfg_node << std::endl;
     assert(cfg_node);
     assert(ssa_node);
 
@@ -515,7 +517,7 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
         switch(cfg_node->input_size())
         {
         case 0:
-            throw std::runtime_error("Local lookup failed.");
+            throw std::runtime_error(fmt("Local lookup failed. % %", ssa_node, cfg_node));
         case 1:
             return local_lookup(cfg_node->input(0), ssa_node);
         default:
@@ -681,6 +683,7 @@ void ai_t::insert_traces()
             ssa_bck_edge_t edge = h->output_edge(i);
             assert(edge.handle->op() != SSA_trace || edge.index == 0);
 
+            std::cout << "LOOKUP START " << h << std::endl;
             ssa_ht const lookup = local_lookup(edge.handle->input_cfg(edge.index), look_for);
             assert(lookup);
 
@@ -2178,6 +2181,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
             // Create a new branch:
             ssa_ht const new_condition = new_header_cfg->emplace_ssa(condition->op(), condition->type());
+            new_ssa(new_condition);
             new_condition->alloc_input(2);
             for(unsigned i = 0; i < 2; ++i)
                 new_condition->build_set_input(i, condition->input(i));

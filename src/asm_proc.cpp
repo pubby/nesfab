@@ -121,6 +121,10 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             peep_transfer(LDA, TYA_IMPLIED);
             break;
         case LDA:
+            peep_inxy(ASL, STA, ASL);
+            peep_inxy(LSR, STA, LSR);
+            peep_inxy(ROL, STA, ROL);
+            peep_inxy(ROR, STA, ROR);
             peep_transfer(LDX, TAX_IMPLIED);
             peep_transfer(LDY, TAY_IMPLIED);
             break;

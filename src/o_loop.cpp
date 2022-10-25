@@ -1,6 +1,7 @@
 #include "o_loop.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <vector>
 #include <iostream> // TODO
 #include <fstream> // TODO
@@ -28,6 +29,7 @@ namespace // anonymous
 // "iv" means "induction variable".
 
 struct iv_t;
+void new_ssa(ssa_ht ssa);
 
 using iv_deps_t = std::uint32_t;
 constexpr iv_deps_t VALUE_DEP = 1 << 0;
@@ -108,7 +110,8 @@ struct mutual_iv_t : public iv_base_t
 
         ssa_value_t const parent_init = parent->make_init(cfg);
 
-        ssa_ht init = cfg->emplace_ssa(arith->op(), arith->type());
+        ssa_ht const init = cfg->emplace_ssa(arith->op(), arith->type());
+        new_ssa(init);
         for(unsigned i = 0; i < arith->input_size(); ++i)
         {
             if(i == arith_to_parent_input)
@@ -233,6 +236,14 @@ header_d& header_data(cfg_ht cfg)
     return header_data_vec[algo(cfg).header_i];
 }
 
+void new_ssa(ssa_ht ssa)
+{
+    ssa_data_pool::resize<ssa_loop_d>(ssa_pool::array_size());
+    resize_ai_prep();
+    data(ssa) = {};
+    ai_prep(ssa) = {};
+}
+
 // Includes nested loops - this isn't always what you want.
 bool def_in_loop(cfg_ht loop_header, ssa_value_t v)
 {
@@ -263,9 +274,9 @@ step_t reduce(cfg_ht header, cfg_ht step_cfg, iv_t& root, type_t type, ssa_op_t 
     //assert(!iv.init.holds_ref() || dominates(step_init_cfg, iv.init->cfg_node()));
 
     step_t step = {};
-    step.init = step_init_cfg->emplace_ssa(init_op, type);
-    step.phi = header->emplace_ssa(SSA_phi, type);
-    step.arith = step_cfg->emplace_ssa(arith_op, type);
+    new_ssa(step.init = step_init_cfg->emplace_ssa(init_op, type));
+    new_ssa(step.phi = header->emplace_ssa(SSA_phi, type));
+    new_ssa(step.arith = step_cfg->emplace_ssa(arith_op, type));
 
     // Setup 'step.phi':
     for(unsigned j = 0; j < input_size; ++j)
@@ -337,13 +348,13 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
     //auto const& hd = header_data(header);
 
     ssa_ht const def_ssa = def.ssa(is_phi);
-    type_t const type = def_ssa->type();
 
     iv_t& root = def.root();
 
     for(unsigned i = 0; i < def_ssa->output_size();)
     {
         auto oe = def_ssa->output_edge(i);
+        type_t const type = oe.handle->type();
 
         if(oe.handle == root.ssa(!is_phi))
             goto next_iter;
@@ -417,8 +428,12 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
 
                     ssa_value_t cast_inc = inc;
                     if(type.name() != inc.num_type_name())
+                    {
                         cast_inc = step.init->cfg_node()->emplace_ssa(SSA_cast, type, inc);
+                        new_ssa(cast_inc.handle());
+                    }
                     ssa_ht const add_operand = step.init->cfg_node()->emplace_ssa(SSA_shl, type, cast_inc, oe.handle->input(1));
+                    new_ssa(add_operand);
 
                     step.init->link_append_input(def.make_init(step.init->cfg_node()));
                     step.init->link_append_input(oe.handle->input(1));
@@ -524,7 +539,7 @@ bool reverse_loop(cfg_ht header, iv_t& root, fixed_sint_t init, fixed_sint_t inc
         // Rewrite 'condition':
         assert(condition->output_size() == 1);
         condition->link_remove_input(!condition_root_i);
-        condition->unsafe_set_op(SSA_sign_to_carry);
+        condition->unsafe_set_op(SSA_sign);
 
         branch->link_swap_outputs(0, 1);
     }
@@ -644,7 +659,7 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
 
     // Estimate the cost of each loop iteration.
 
-    constexpr unsigned MAX_COST = 32;
+    constexpr unsigned MAX_COST = 64;
     unsigned cost_per_iter = 0;
 
     auto const calc_cost_per_iter = [&](cfg_ht cfg)
@@ -732,11 +747,11 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
                 // Create new nodes, but don't fill their inputs yet.
                 ssa_ht const orig = orig_map[i];
                 ssa_ht const next = body->emplace_ssa(orig->op(), orig->type());
+                new_ssa(next);
 
                 if(orig->in_daisy())
                     next->append_daisy();
 
-                //data(next).unroll_i = i;
                 next_map[i] = next;
             }
         }
@@ -778,21 +793,24 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
     assert(hd.simple_branch->input(0).handle() == hd.simple_condition);
     assert(hd.simple_branch->in_daisy());
 
-    hd.simple_branch->erase_daisy();
-    hd.simple_branch->append_daisy();
-    hd.simple_branch->link_change_input(0, map[data(hd.simple_condition).unroll_i]);
-
-    // Fix up uses outside the loop:
-    for(unsigned i = 0; i < orig_map.size(); ++i)
+    if(hd.simple_do)
     {
-        ssa_ht const orig = orig_map[i];
-        for(unsigned j = 0; j < orig->output_size();)
+        hd.simple_branch->erase_daisy();
+        hd.simple_branch->append_daisy();
+        hd.simple_branch->link_change_input(0, map[data(hd.simple_condition).unroll_i]);
+
+        // Fix up uses outside the loop:
+        for(unsigned i = 0; i < orig_map.size(); ++i)
         {
-            auto const oe = orig->output_edge(j);
-            if(in_unroll(oe.handle->cfg_node()))
-                ++j;
-            else
-                oe.handle->link_change_input(oe.index, map[i]);
+            ssa_ht const orig = orig_map[i];
+            for(unsigned j = 0; j < orig->output_size();)
+            {
+                auto const oe = orig->output_edge(j);
+                if(in_unroll(oe.handle->cfg_node()))
+                    ++j;
+                else
+                    oe.handle->link_change_input(oe.index, map[i]);
+            }
         }
     }
 
@@ -870,22 +888,42 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 
             if(branch_cfg)
             {
+                bool const branch_output_i = loop_is_parent_of(header, branch_cfg->output(1));
+
                 ssa_ht const branch = branch_cfg->last_daisy();
                 if(branch && branch->op() == SSA_if && header == this_loop_header(branch->cfg_node()))
                 {
                     ssa_value_t const condition = branch->input(0);
                     if(condition.holds_ref() 
                        && condition->output_size() == 1 
-                       && (condition->op() == SSA_not_eq
-                           || condition->op() == SSA_lt
-                           || condition->op() == SSA_lte)
-                       && condition->input(0).type() == condition->input(1).type()
                        && header == this_loop_header(condition->cfg_node()))
                     {
-                        assert(condition->input_size() == 2);
-                        bool const iv_index = def_in_loop(header, condition->input(1));
-                        if(def_in_loop(header, condition->input(0)) != iv_index)
+                        bool iv_index;
+
+                        switch(condition->op())
                         {
+                        default:
+                            break;
+
+                        case SSA_not_eq:
+                        case SSA_lt:
+                        case SSA_lte:
+                            if(branch_output_i == 0)
+                                break;
+                            if(condition->input(0).type() == condition->input(1).type())
+                            {
+                                iv_index = def_in_loop(header, condition->input(1));
+                                if(def_in_loop(header, condition->input(0)) != iv_index)
+                                    goto is_simple;
+                            }
+                            break;
+
+                        case SSA_sign:
+                            if(branch_output_i == 1)
+                                break;
+                            iv_index = 0;
+                            // fall-through
+                        is_simple:
                             // Found a simple loop condition:
                             auto& hd = header_data(header);
                             hd.simple_condition = condition.handle();
@@ -917,6 +955,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                             assert(!hd.simple_unroll_body || this_loop_header(hd.simple_unroll_body) == header);
                         }
                     }
+
                 }
             }
         }
@@ -1165,78 +1204,107 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                 goto did_reverse;
             }
 
-            ssa_value_t const compare_with = d.simple_condition->input(!d.simple_condition_iv_i);
-            assert(d.simple_condition->input(0).type() == d.simple_condition->input(1).type());
+            fixed_sint_t iterations = 0;
 
-            // Must be comparing with a constant:
-            if(!compare_with.is_num())
-                goto fail;
-            fixed_sint_t compare_with_value = compare_with.signed_fixed();
-
-            fixed_sint_t const span = compare_with_value - init;
-
-            if(d.simple_condition->op() == SSA_not_eq && span < 0 && increment >= 0)
-                increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));
-
-            fixed_sint_t iterations = span / increment;
-            fixed_sint_t const remainder = span % increment;
-
-            if(iterations <= 0)
-                goto fail;
-
-            switch(d.simple_condition->op())
+            // TODO
+            if(d.simple_condition->op() == SSA_sign)
             {
-            default: 
-                goto fail;
+                fixed_sint_t signed_init = sign_extend(init, numeric_bitmask(root->ssa(true)->type().name()));
 
-            case SSA_lt:
-                if(remainder != 0)
-                {
-            case SSA_lte:
-                    ++iterations;
-                }
+                std::cout << "SHREK " << (init >> 24) << ' ' << (increment >> 24) << std::endl;
 
-                if(d.simple_condition_iv_i == 0) // IV < C
-                {
-                    if(increment < 0 || iterations * increment + init > type_max(compare_with.num_type_name()))
-                        goto fail;
-                }
-                else // C < IV
-                {
-                    if(increment > 0 || iterations * increment + init < type_min(compare_with.num_type_name()))
-                        goto fail;
-                }
-                break;
+                if(signed_init >= 0 && increment >= 0)
+                    increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));
 
-            case SSA_not_eq:
-                // Require increment reaches 'compare_with' exactly, without passing it.
-                // Technically the value could wrap around and become equivalent eventually,
-                // but it's simpler to ignore that and assume no wrap around.
-                if(remainder != 0)
+                if(std::signbit(signed_init) == std::signbit(increment))
                     goto fail;
-                break;
+
+                if(signed_init >= 0)
+                    signed_init += 1;
+
+                iterations = -signed_init / increment;
+
+                if(signed_init % increment != 0)
+                    ++iterations;
+
+                if(iterations <= 0)
+                    goto fail;
+
+                std::cout << "SHREK " << iterations << std::endl;
             }
-
-            fixed_sint_t const end = init + iterations * increment;
-
-            if(rewrite_loop(
-                d.simple_do, is_byteified, *root,
-                init, increment, iterations, end,
-                d.simple_condition, d.simple_condition_iv_i))
+            else
             {
-                init = 0;
-                increment = -1ull << fixed_t::shift;
-                updated = this_iter_updated = true;
+                ssa_value_t const compare_with = d.simple_condition->input(!d.simple_condition_iv_i);
+                assert(d.simple_condition->input(0).type() == d.simple_condition->input(1).type());
+
+                // Must be comparing with a constant:
+                if(!compare_with.is_num())
+                    goto fail;
+                fixed_sint_t compare_with_value = compare_with.signed_fixed();
+
+                fixed_sint_t const span = compare_with_value - init;
+
+                if(d.simple_condition->op() == SSA_not_eq && span < 0 && increment >= 0)
+                    increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));
+
+                iterations = span / increment;
+                fixed_sint_t const remainder = span % increment;
+
+                if(iterations <= 0)
+                    goto fail;
+
+                switch(d.simple_condition->op())
+                {
+                default: 
+                    goto fail;
+
+                case SSA_lt:
+                    if(remainder != 0)
+                    {
+                case SSA_lte:
+                        ++iterations;
+                    }
+
+                    if(d.simple_condition_iv_i == 0) // IV < C
+                    {
+                        if(increment < 0 || iterations * increment + init > type_max(compare_with.num_type_name()))
+                            goto fail;
+                    }
+                    else // C < IV
+                    {
+                        if(increment > 0 || iterations * increment + init < type_min(compare_with.num_type_name()))
+                            goto fail;
+                    }
+                    break;
+
+                case SSA_not_eq:
+                    // Require increment reaches 'compare_with' exactly, without passing it.
+                    // Technically the value could wrap around and become equivalent eventually,
+                    // but it's simpler to ignore that and assume no wrap around.
+                    if(remainder != 0)
+                        goto fail;
+                    break;
+                }
+
+                fixed_sint_t const end = init + iterations * increment;
+
+                if(rewrite_loop(
+                    d.simple_do, is_byteified, *root,
+                    init, increment, iterations, end,
+                    d.simple_condition, d.simple_condition_iv_i))
+                {
+                    init = 0;
+                    increment = -1ull << fixed_t::shift;
+                    updated = this_iter_updated = true;
+                }
             }
 
-            /* TODO
             if(fixed_sint_t unroll_amount = unroll_loop(header, iterations))
             {
                 iterations /= unroll_amount;
                 increment *= unroll_amount;
                 updated = this_iter_updated = true;
             }
-            */
 
             // Prepare constraints:
             {
@@ -1246,11 +1314,12 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                 fixed_sint_t last = init + increment * iterations;
 
                 if(d.simple_do)
-                    last -= iterations;
+                    last -= increment;
 
                 constraints_t c = {};
                 c.bounds.min = std::min(init, last);
                 c.bounds.max = std::max(init, last);
+                std::cout << "SHREK " << d.simple_do << ' ' << (last >> 24) << ' ' << iterations << c << std::endl;
 
                 assert(increment);
                 fixed_uint_t const b = (1ull << builtin::ctz(fixed_uint_t(increment))) - 1ull;
@@ -1258,6 +1327,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                 c.bits.known1 = init & b;
 
                 c.normalize(type_constraints_mask(phi->type().name()));
+
 
                 resize_ai_prep();
                 auto& prep = ai_prep(phi);

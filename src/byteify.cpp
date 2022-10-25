@@ -262,9 +262,6 @@ void byteify(ir_t& ir, fn_t const& fn)
                 }
             }
 
-            if(is_make_ptr(ssa_it->op()))
-                continue;
-
             if(ssa_it->op() == SSA_read_array16 || ssa_it->op() == SSA_write_array16)
             {
                 // We'll convert these to the '_b' version of their ops,
@@ -351,6 +348,17 @@ void byteify(ir_t& ir, fn_t const& fn)
         switch(ssa_it->op())
         {
         case SSA_fn_call:
+            {
+                ssa_value_t bank = ssa_it->input(1);
+
+                if(bank.holds_ref())
+                {
+                    bm_t const bm = _get_bm(bank);
+                    passert(bm[max_frac_bytes], ssa_it, bank);
+                    ssa_it->link_change_input(1, bm[max_frac_bytes]);
+                }
+            }
+            // fall-through
         case SSA_goto_mode:
         case SSA_return:
         case SSA_fence:
@@ -618,6 +626,18 @@ void byteify(ir_t& ir, fn_t const& fn)
             }
             break;
 
+        case SSA_sign:
+            {
+                assert(ssa_it->input_size() == 1);
+                ssa_value_t const input = ssa_it->input(0);
+                bm_t bm = _get_bm(input);
+
+                unsigned const end = end_byte(input.type().name());
+
+                ssa_it->link_change_input(0, bm[end-1]);
+            }
+            break;
+
         default:
             assert(!(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS));
             assert(!fn_like(ssa_it->op()));
@@ -633,9 +653,8 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     if(input.holds_ref() && input.type() != TYPE_VOID)
                     {
-                        std::cout << ssa_it << input << std::endl;
                         bm_t const bm = _get_bm(input);
-                        assert(bm[max_frac_bytes]);
+                        passert(bm[max_frac_bytes], ssa_it, input);
                         ssa_it->link_change_input(i, bm[max_frac_bytes]);
                     }
                 }
@@ -748,7 +767,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                         ssa_value_t prev_carry(0u, TYPE_BOOL);
                         if(is_signed(t))
                            prev_carry = ssa_node->cfg_node()->emplace_ssa(
-                               SSA_sign_to_carry, TYPE_BOOL, values[end - 1]);
+                               SSA_sign, TYPE_BOOL, values[end - 1]);
 
                         for(int i = end - 1 - byte_shifts; i >= int(begin); --i)
                         {
@@ -865,7 +884,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 {
                     ssa_ht split = d.bm[i].handle();
 
-                    assert(ssa_argn(SSA_write_array8) == 4);
+                    passert(ssa_argn(SSA_write_array8) == 4, ssa_argn(SSA_write_array8));
                     split->alloc_input(4);
                     split->build_set_input(ARRAY, array_bm[i]);
                     split->build_set_input(OFFSET, ssa_node->input(OFFSET));
@@ -972,7 +991,7 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             ssa_value_t value = ssa_it->input(0);
             ssa_value_t prev_carry = ssa_value_t(0u, TYPE_BOOL);
             if(is_signed(type.name()))
-               prev_carry = cfg_it->emplace_ssa(SSA_sign_to_carry, TYPE_BOOL, ssa_it);
+               prev_carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, ssa_it);
 
             for(unsigned i = 0; i < num_shifts; ++i)
             {
@@ -1091,7 +1110,7 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             assert(shr);
             ssa_value_t carry(0u, TYPE_BOOL);
             if(is_signed(type.name()))
-               carry = cfg_it->emplace_ssa(SSA_sign_to_carry, TYPE_BOOL, loop_result);
+               carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, loop_result);
             loop_shift = loop_body->emplace_ssa(SSA_ror, type, loop_result, carry);
         }
         ssa_ht const loop_incr  = loop_body->emplace_ssa(

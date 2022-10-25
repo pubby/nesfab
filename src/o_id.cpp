@@ -257,6 +257,15 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     }
                 }
 
+                // Replace X < 0 with SSA_sign
+                if(node.input(1).eq_fixed({0}) && is_signed(node.input(0).type().name()))
+                {
+                    node.link_shrink_inputs(1);
+                    node.unsafe_set_op(SSA_sign);
+                    updated = true;
+                    break;
+                }
+
                 if(!same_scalar_layout(lt, rt))
                     break;
 

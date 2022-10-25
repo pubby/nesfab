@@ -1481,9 +1481,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             case GLOBAL_VAR:
                 {
-                    if(precheck_tracked)
-                        precheck_tracked->gvars_used.emplace(global->handle<gvar_ht>(), ast.token.pstring);
-
                     expr_value_t result =
                     {
                         .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
@@ -2132,10 +2129,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 // The [0] argument holds the fn_t ptr.
                 fn_inputs.push_back(fn_expr.ssa());
+
                 
-                // For modes, the [1] argument references the stmt:
+                // For modes, the [1] argument references the stmt,
+                // otherwise it holds the bank, if necessary.
                 if(call->fclass == FN_MODE)
                     fn_inputs.push_back(locator_t::stmt(stmt_handle()));
+                else
+                    fn_inputs.push_back({});
 
                 // Prepare the input globals
 
@@ -2217,6 +2218,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     });
                 }
 
+                locator_t first_bank = {};
+                if(call->fclass == FN_FN)
+                    first_bank = call->first_bank_switch().mem_head();
+
                 // Prepare the arguments
                 for(unsigned i = 0; i < num_params; ++i)
                 {
@@ -2229,8 +2234,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         type_t const member_type = ::member_type(param_type, j);
 
-                        fn_inputs.push_back(from_variant<COMPILE>(args[i].rval()[j], member_type));
+                        ssa_value_t arg = from_variant<COMPILE>(args[i].rval()[j], member_type);
+
+                        fn_inputs.push_back(arg);
                         fn_inputs.push_back(loc);
+
+                        // Set the bank:
+                        if(loc == first_bank)
+                        {
+                            assert(!fn_inputs[1]);
+                            assert(call->fclass == FN_FN);
+                            fn_inputs[1] = arg;
+                        }
                     }
                 }
 
@@ -3303,6 +3318,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 break;
 
             case GLOBAL_VAR:
+                if(precheck_tracked)
+                    precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), v.pstring);
                 if(is_compile(D))
                 {
                     lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
@@ -3505,7 +3522,12 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         global_t const& global = lval->global();
 
         if(global.gclass() == GLOBAL_VAR)
+        {
             lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
+
+            if(precheck_tracked)
+                precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), lhs.pstring);
+        }
         else
             compiler_error(pstring, fmt("Unable to modify %", global.name));
     }

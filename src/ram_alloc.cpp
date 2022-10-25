@@ -376,7 +376,6 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             if(is_paa(pair.first.gmember()->type().name()))
             {
                 // PAAs are handled separately, as they won't appear in the code.
-                assert(pair.second == 0);
                 ordered_gmembers.push_back({ pair.first.mem_size() * size_scale, pair.first });
             }
             else if(pair.first.mem_zp_only())

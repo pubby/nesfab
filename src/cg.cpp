@@ -142,29 +142,24 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // CFG EDGE SPLITTING //
     ////////////////////////
 
-    split_critical_edges(ir);
-    //split_critical_edges(ir);
+    build_loops_and_order(ir); // Needed for the splitting:
+    split_critical_edges(ir, false);
 
     // Deal with conditional nodes that have both edges going to the same node
     // by splitting the edge and inserting a new node.
-    /* TODO: remove?
-#ifndef NDEBUG
+    /* TODO: remove
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         cfg_node_t& cfg_node = *cfg_it;
 
-        assert(cfg_node.output_size() <= 2); // TODO: handle switch
-        if(cfg_node.output_size() == 2 &&
-           cfg_node.output(0) == cfg_node.output(1))
+        if(cfg_node.output_size() == 2 
+           && cfg_node.output(0) == cfg_node.output(1))
         {
-            // TODO
-            assert(false);
             // Introduce a new node as the fix:
-            //ir.split_edge(cfg_node.output_edge(1));
+            ir.split_edge(cfg_node.output_edge(1));
         }
     }
-#endif
-*/
+    */
 
     /////////////////////////
     // BRANCH INSTRUCTIONS //
@@ -184,7 +179,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         ssa_ht if_h = cfg_it->last_daisy();
 
-        if(if_h->op() != SSA_if) // TODO: handle switch
+        if(if_h->op() != SSA_if)
             continue;
 
         ssa_value_t condition = if_h->input(0);
@@ -211,6 +206,9 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             break;
         case SSA_multi_lte:
             condition->unsafe_set_op(SSA_branch_lte); 
+            break;
+        case SSA_sign:
+            condition->unsafe_set_op(SSA_branch_sign); 
             break;
         default: 
             continue;
@@ -1149,7 +1147,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // FINAL SCHEDULE ANALYSIS //
     /////////////////////////////
 
-    fn.assign_first_bank_switch(first_bank_switch(ir));
+    fn.assign_first_bank_switch(cg_calc_bank_switches(fn.handle(), ir));
 
     ///////////////////////////
     // INSTRUCTION SELECTION //

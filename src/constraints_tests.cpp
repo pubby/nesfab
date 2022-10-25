@@ -639,11 +639,11 @@ TEST_CASE("abstract_sign_extend", "[constraints]")
         test_op<int_cm_t, int_cm_t>(SSA_sign_extend, [](fixed_sint_t* c) { return c[0] & 0b1000 ? 0xFF : 0; });
 }
 
-TEST_CASE("abstract_sign_to_carry", "[constraints]")
+TEST_CASE("abstract_sign, "[constraints]")
 {
     std::srand(std::time(nullptr));
     for(unsigned i = 0; i < TEST_ITER; ++i)
-        test_op<bool_cm_t, int_cm_t>(SSA_sign_to_carry, [](fixed_sint_t* c) { return !!(c[0] & 0b1000); });
+        test_op<bool_cm_t, int_cm_t>(SSA_sign, [](fixed_sint_t* c) { return !!(c[0] & 0b1000); });
 }
 
 /*

@@ -123,7 +123,7 @@ inline unsigned write_globals_begin(ssa_op_t op)
     case SSA_fence:
     case SSA_return: 
         return 0;
-    case SSA_fn_call: return 1;
+    case SSA_fn_call: return 2;
     case SSA_goto_mode: return 2;
     default: assert(false); return 0;
     }

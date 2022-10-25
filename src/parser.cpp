@@ -778,6 +778,10 @@ retry:
                 parse_token();
                 return { .token = t };
             }
+            else if(token.type == TOK_increment || token.type == TOK_decrement)
+                throw compiler_error_t(fmt_error(token.pstring, "Unexpected token while parsing expression.")
+                                       + fmt_note("++ and -- are reserved for future use.")
+                                       + fmt_note("To increment and decrement, use '+= 1' and '-= 1'."));
             else
                 compiler_error("Unexpected token while parsing expression.");
         }

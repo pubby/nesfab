@@ -20,6 +20,7 @@ constexpr std::uint16_t FLAG_DAISY          = 1ull << 3;
 constexpr std::uint16_t FLAG_IN_WORKLIST    = 1ull << 4;
 constexpr std::uint16_t FLAG_PROCESSED      = 1ull << 5;
 constexpr std::uint16_t FLAG_ARRAY          = 1ull << 6;
+constexpr std::uint16_t FLAG_BANK_PRELOADED = 1ull << 7;
 
 class flag_owner_t
 {

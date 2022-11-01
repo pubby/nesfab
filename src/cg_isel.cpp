@@ -3289,8 +3289,8 @@ namespace isel
             {
                 chain
                 < load_NZ_for<Opt, p_arg<0>>
-                , simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>
-                , simple_op<Opt, BEQ_RELATIVE, null_, p_label<1>>
+                , simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
+                , simple_op<Opt, BNE_RELATIVE, null_, p_label<1>>
                 >(cpu, prev, cont);
             }
 
@@ -3928,7 +3928,6 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     using namespace isel;
 
     state.log = log;
-    state.log = &stdout_log; // TODO
     state.fn = fn.handle();
     state.ssa_node = {};
 
@@ -4916,6 +4915,10 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     lvars_manager_t lvars = graph.build_lvars(fn);
 
     asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()), graph.entry_label());
+
+    std::cout << "SHREK " << fn.global.name << std::endl;
+    for(auto const& inst : asm_proc.code)
+        std::cout << inst << std::endl;
 
     asm_proc.initial_optimize();
     asm_proc.build_label_offsets();

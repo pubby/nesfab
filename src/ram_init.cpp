@@ -25,6 +25,16 @@ struct merged_span_t
 {
     span_t span = {};
     init_span_t* head = nullptr;
+
+    void assert_valid() const
+    {
+#ifndef NDEBUG
+        unsigned size = 0;
+        for(init_span_t* i = head; i; i = i->merged_with)
+            size += i->span().size;
+        assert(size == span.size);
+#endif
+    }
 };
 
 // Merges non-overlapping spans together into a smaller set
@@ -115,6 +125,7 @@ void gen_group_var_inits()
 
         for(merged_span_t const& ms : zero_merged)
         {
+            ms.assert_valid();
             span_t span = ms.span;
             assert(span.size);
 
@@ -140,6 +151,7 @@ void gen_group_var_inits()
 
         for(merged_span_t const& ms : value_merged)
         {
+            ms.assert_valid();
             span_t span_left = ms.span;
 
             loc_vec_t vec;
@@ -160,6 +172,7 @@ void gen_group_var_inits()
                 unsigned const size = gmember.init_size();
                 locator_t const* data = gmember.init_data(is->atom);
 
+                passert(size == is->span().size, size, is->span().size, gvar.global.name);
                 assert(vec.size() < 256);
 
                 if(vec.size() + size >= 256)
@@ -180,7 +193,7 @@ void gen_group_var_inits()
             }
 
             assert(span_left.size <= 256);
-            assert(vec.size() == span_left.size);
+            passert(vec.size() == span_left.size, vec.size(), span_left.size);
 
             if(vec.size() > 0)
                 value_combined.push_back({ span_left, rom_array_t::make(std::move(vec)) });

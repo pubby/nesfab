@@ -65,7 +65,7 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
 
         auto const push_bytes = [&](ssa_value_t v, type_t subtype)
         {
-            assert(subtype == v.type());
+            //passert(subtype == v.type(), subtype, v.type());
 
             if(!is_scalar(subtype.name()))
                 compiler_error(pstring, "Invalid type in pointer-addressable array. (Not scalar subtype.)");
@@ -89,6 +89,13 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
                     return;
                 }
 
+                if(loc.is() == IS_PTR)
+                {
+                    vec.push_back(loc);
+                    vec.push_back(loc.with_is(IS_PTR_HI));
+                    return;
+                }
+
                 unsigned const member = loc.maybe_member();
                 type_t const mt = ::member_type(subtype, member);
                 unsigned const num_atoms = ::num_atoms(mt, member);
@@ -103,13 +110,12 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
                         
                         if(!loc.byteified())
                         {
-                            assert(loc.atom() == 0);
-                            assert(loc.offset() == 0);
+                            passert(loc.atom() == 0, loc);
 
                             loc.set_byteified(true);
                             if(has_arg_member_atom(loc.lclass()))
                                 loc.set_atom(j);
-                            loc.set_offset(k);
+                            loc.advance_offset(k);
                         }
 
                         vec.push_back(loc);

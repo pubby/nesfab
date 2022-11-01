@@ -11,6 +11,16 @@
 #include "parser_decl.hpp"
 #include "ir_edge.hpp"
 
+struct mods_t;
+
+struct convert_arg_t
+{
+    using variant_t = std::variant<bool, std::uint64_t, string_literal_t, pstring_t>;
+
+    variant_t value;
+    pstring_t pstring;
+};
+
 class convert_error_t : public std::runtime_error
 {
 public:
@@ -31,7 +41,7 @@ struct conversion_t
 };
 
 conversion_t convert_file(char const* source, pstring_t script, fs::path preferred_dir, 
-                          string_literal_t const& filename);
+                          string_literal_t const& filename, mods_t const* mods);
 
 template<typename T>
 struct convert_u8_impl_t 

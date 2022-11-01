@@ -776,7 +776,11 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
         group_vars = m_precheck_group_vars;
 
         for(auto const& pair : mods()->group_vars)
+        {
             deref_groups.set(pair.first->handle().id);
+            reads |= pair.first->impl<group_vars_t>().gmembers();
+            writes |= pair.first->impl<group_vars_t>().gmembers();
+        }
         for(auto const& pair : mods()->group_data)
             deref_groups.set(pair.first->handle().id);
 
@@ -1250,6 +1254,8 @@ void fn_t::compile()
 
     auto const optimize_suite = [&](bool post_byteified)
     {
+#define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { changed = true; std::printf("DID_O %s\n", #o); } ir.assert_valid(); } while(false)
+
         unsigned iter = 0;
         bool changed;
         do
@@ -1258,44 +1264,29 @@ void fn_t::compile()
 
             save_graph(ir, fmt("pre_fork_%_%", post_byteified, iter).c_str());
 
-            changed |= o_defork(log, ir);
-            ir.assert_valid();
-            
-            save_graph(ir, fmt("post_fork_%_%", post_byteified, iter).c_str());
+            RUN_O(o_defork, log, ir);
+            RUN_O(o_fork, log, ir);
 
-            changed |= o_phis(log, ir);
-            ir.assert_valid();
+            RUN_O(o_phis, &stdout_log, ir);
 
-            save_graph(ir, fmt("post_phis_%_%", post_byteified, iter).c_str());
+            RUN_O(o_merge_basic_blocks, log, ir);
 
-            changed |= o_merge_basic_blocks(&stdout_log, ir);
-            ir.assert_valid();
+            RUN_O(o_remove_unused_arguments, log, ir, *this, post_byteified);
 
-            changed |= o_remove_unused_arguments(log, ir, *this, post_byteified);
-            ir.assert_valid();
-
-            save_graph(ir, fmt("pre_id%_%", post_byteified, iter).c_str());
-
-            changed |= o_identities(log, ir);
-            ir.assert_valid();
+            RUN_O(o_identities, log, ir);
 
             // 'o_loop' populates 'ai_prep', which feeds into 'o_abstract_interpret'.
             // Thus, they must occur sequentially.
             reset_ai_prep();
             save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
-            changed |= o_loop(log, ir, post_byteified);
+            RUN_O(o_loop, log, ir, post_byteified);
             save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
-            ir.assert_valid();
-            changed |= o_abstract_interpret(&stdout_log, ir, post_byteified);
-            ir.assert_valid();
-
+            RUN_O(o_abstract_interpret, &stdout_log, ir, post_byteified);
             save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
 
-            changed |= o_remove_unused_ssa(log, ir);
-            ir.assert_valid();
+            RUN_O(o_remove_unused_ssa, log, ir);
 
-            changed |= o_motion(log, ir);
-            ir.assert_valid();
+            RUN_O(o_motion, log, ir);
 
             if(post_byteified)
             {
@@ -1695,17 +1686,13 @@ void global_datum_t::dethunkify(bool full)
 {
     assert(compiler_phase() == PHASE_RESOLVE || compiler_phase() == PHASE_COUNT_MEMBERS);
     m_src_type.type = ::dethunkify(m_src_type, full);
+    std::cout << "SHREK TYPE " << global.name << ' ' << m_src_type.type << std::endl;
 }
 
 void global_datum_t::resolve()
 {
     assert(compiler_phase() == PHASE_RESOLVE);
     dethunkify(true);
-}
-
-void global_datum_t::precheck()
-{
-    assert(compiler_phase() == PHASE_PRECHECK);
 
     if(!init_expr)
         return;
@@ -1739,6 +1726,11 @@ void global_datum_t::precheck()
         m_src_type.type = std::move(rpair.type); // Handles unsized arrays
         rval_init(std::move(rpair.value));
     }
+}
+
+void global_datum_t::precheck()
+{
+    assert(compiler_phase() == PHASE_PRECHECK);
 }
 
 void global_datum_t::compile()
@@ -1807,12 +1799,14 @@ locator_t const* gmember_t::init_data(unsigned atom, loc_vec_t const& vec) const
 {
     unsigned const size = init_size();
 
+    /*
     if(is_ptr(type().name()))
     {
         assert(atom <= 1);
         assert(size == 2);
         atom = 0;
     }
+    */
 
     unsigned const offset = ::member_offset(gvar.type(), member());
     return vec.data() + offset + (atom * size);
@@ -1825,11 +1819,13 @@ locator_t const* gmember_t::init_data(unsigned atom) const
 
 std::size_t gmember_t::init_size() const
 {
+    /*
     if(is_ptr(type().name()))
     {
         assert(!is_banked_ptr(type().name()));
         return 2;
     }
+    */
     return ::num_offsets(type());
 }
 

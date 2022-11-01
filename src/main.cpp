@@ -146,7 +146,7 @@ int main(int argc, char** argv)
             po::options_description mapper_opt("Mapper options");
             mapper_opt.add_options()
                 ("mapper,M", po::value<std::string>(), "name of cartridge mapper")
-                ("mirroring", po::value<std::string>(), "mirroring of mapper")
+                ("mirroring", po::value<std::string>(), "mirroring of mapper (V, H, 4)")
                 ("prg-size", po::value<unsigned>(), "size of mapper PRG in KiB")
                 ("chr-size", po::value<unsigned>(), "size of mapper CHR in KiB")
             ;

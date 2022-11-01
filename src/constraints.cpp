@@ -1033,7 +1033,7 @@ ABSTRACT(SSA_init_array) = ABSTRACT_FN
     if(handle_top(cv, argn, result))
         return;
 
-    assert(result.vec.size() == argn);
+    passert(result.vec.size() == argn || result.vec.size() == 0, result.vec.size(), argn);
 
     for(unsigned i = 0; i < result.vec.size(); ++i)
     {
@@ -1480,6 +1480,11 @@ NARROW(SSA_uninitialized) = narrow_bottom;
 NARROW(SSA_fn_call) = narrow_bottom;
 NARROW(SSA_cast) = narrow_bottom;
 
+// TODO: implement
+NARROW(SSA_get_byte) = narrow_bottom;
+NARROW(SSA_array_get_byte) = narrow_bottom;
+NARROW(SSA_replace_byte) = narrow_bottom;
+
 NARROW(SSA_sign_extend) = NARROW_FN
 {
     assert(argn == 1);
@@ -1624,6 +1629,12 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
     constraints_t& R = cv[1][0];
     constraints_t& C = cv[2][0];
 
+    std::cout << "NAR OG" << Add << std::endl;
+    std::cout << L << std::endl;
+    std::cout << R << std::endl;
+    std::cout << C << std::endl;
+    std::cout << result[0] << std::endl;
+
     known_bits_t R_bits = R.bits;
     if(!Add)
         std::swap(R_bits.known0, R_bits.known1);
@@ -1663,23 +1674,33 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
     fixed_uint_t const lsolvable = R_bits.known() & solvable;
     fixed_uint_t const rsolvable = L.bits.known() & solvable;
 
-    L.bits.known1 |= ((carry1 ^ R_bits.known1 ^ result[0].bits.known1) & lsolvable);
-    L.bits.known0 |= ~L.bits.known1 & lsolvable;
 
     if(Add)
     {
+        L.bits.known1 |= ((carry1 ^ R_bits.known1 ^ result[0].bits.known1) & lsolvable);
         R.bits.known1 |= ((carry1 ^ L.bits.known1 ^ result[0].bits.known1) & rsolvable);
-        R.bits.known0 |= ~R_bits.known1 & rsolvable;
+        L.bits.known0 |= ~L.bits.known1 & lsolvable;
+        R.bits.known0 |= ~R.bits.known1 & rsolvable;
     }
     else
     {
+        L.bits.known1 |= ((carry1 ^ R_bits.known1 ^ result[0].bits.known1) & lsolvable);
         R.bits.known0 |= ((carry1 ^ L.bits.known1 ^ result[0].bits.known1) & rsolvable);
-        R.bits.known1 |= ~R_bits.known1 & rsolvable;
+        L.bits.known0 |= ~L.bits.known1 & lsolvable;
+        R.bits.known1 |= ~R.bits.known1 & rsolvable;
     }
+
+    std::cout << "NAR" << std::endl;
+    std::cout << L << std::endl;
+    std::cout << R << std::endl;
 
     // Move the bounds in after calculating bits.
     L.bounds = intersect(L.bounds, from_bits(L.bits, cm));
     R.bounds = intersect(R.bounds, from_bits(R.bits, cm));
+
+    std::cout << "NAR" << std::endl;
+    std::cout << L << std::endl;
+    std::cout << R << std::endl;
 
     L.normalize(cm);
     R.normalize(cm);

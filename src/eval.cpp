@@ -266,7 +266,7 @@ public:
 
     std::size_t num_vars() const { assert(ir); return num_local_vars() + ir->gmanager.num_locators(); }
 
-    unsigned to_var_i(gmanager_t::index_t index) const { assert(index); return index.id + num_local_vars(); }
+    unsigned to_var_i(gmanager_t::index_t index) const { passert(index, index); return index.id + num_local_vars(); }
     template<typename T>
     unsigned to_var_i(T gvar) const { assert(ir); return to_var_i(ir->gmanager.var_i(gvar)); }
 
@@ -817,6 +817,7 @@ void eval_t::interpret_stmts()
             return;
 
         case STMT_END_FN:
+            if(!fn->iasm)
             {
                 type_t return_type = fn->type().return_type();
                 if(return_type.name() != TYPE_VOID)
@@ -1579,7 +1580,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         if(!v.is_paa)
                             goto at_error;
 
-                        return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), false, false), false);
+                        return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), true, false), false);
                     }
 
                 default: 
@@ -2720,7 +2721,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t array_val = do_expr<D>(ast.children[0]);
 
             bool const is_ptr = ::is_ptr(array_val.type.name());
-            //bool const is_mptr = ::is_mptr(array_val.type.name()); TODO
+            bool const is_mptr = ::is_mptr(array_val.type.name());
 
             if(is_ptr && is_interpret(D))
                 compiler_error(ast.token.pstring, "Pointers cannot be dereferenced at compile-time.");
@@ -2778,6 +2779,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         ssa_value_t(0u, TYPE_U));
                 }
             };
+
+            /* TODO
+            if(precheck_tracked && array_val.is_lval())
+            {
+                lval_t* lval = array_val.is_lval();
+                if(lval->is_global())
+                {
+                    global_t const& global = lval->global();
+                    precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), array_val.pstring);
+                }
+            }
+            */
 
             if(!is_check(D) && array_val.is_lval())
             {
@@ -2850,15 +2863,41 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         //if(auto ptr_i = ir->gmanager.ptr_i(array_val.type))
                             //prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
 
-                        ssa_ht const h = compile_read_ptr(
-                            from_variant<D>(rval[0], array_val.type),
-                            is_banked ? from_variant<D>(rval[1], TYPE_U) : ssa_value_t());
+                        if(is_mptr)
+                        {
+                            // TODO: combine this with deref code above.
 
-                        if(ptr_to_vars(array_val.type))
-                            h->append_daisy();
+                            deref_t deref =
+                            {
+                                .ptr = from_variant<D>(rval[0], array_val.type), 
+                                .bank = is_banked ? from_variant<D>(rval[1], TYPE_U) : ssa_value_t(), 
+                                .index = array_index.ssa()
+                            };
 
-                        rval[0] = h;
-                        rval.resize(1);
+                            if(!is8)
+                            {
+                                 deref.ptr = builder.cfg->emplace_ssa(
+                                    SSA_add, TYPE_APTR, 
+                                    deref.ptr, deref.index,
+                                    ssa_value_t(0u, TYPE_BOOL));
+
+                                 deref.index = ssa_value_t(0u, TYPE_U);
+                            }
+
+                            array_val.val = std::move(deref);
+                        }
+                        else
+                        {
+                            ssa_ht const h = compile_read_ptr(
+                                from_variant<D>(rval[0], array_val.type),
+                                is_banked ? from_variant<D>(rval[1], TYPE_U) : ssa_value_t());
+
+                            if(ptr_to_vars(array_val.type))
+                                h->append_daisy();
+
+                            rval[0] = h;
+                            rval.resize(1);
+                        }
                     }
                     else
                     {
@@ -3352,7 +3391,14 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         else
         {
             if(D == INTERPRET_CE)
-                compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
+            {
+                if(fn && fn->iasm)
+                    throw compiler_error_t(
+                        fmt_error(v.pstring, "Expression cannot be evaluated at compile-time.")
+                        + fmt_note("Did you forget to prefix a variable with '&'?"));
+                else
+                    compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
+            }
         have_var_i:
             rval.resize(num_members);
             type = var_types[lval->var_i()];
@@ -3421,15 +3467,17 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             if(lval->index)
             {
                 assert(is_tea(type.name()));
-                type = type.elem_type();
+                type_t const elem = type.elem_type();
 
                 for(unsigned i = 0; i < num_members; ++i)
                 {
                     // TODO
                     rval[i] = builder.cfg->emplace_ssa(
-                        (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8, type, 
+                        (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8, elem, 
                         from_variant<D>(rval[i], type), ssa_value_t(0u, TYPE_U20), lval->index);
                 }
+
+                type = elem;
             }
 
             if(lval->atom >= 0)
@@ -3453,6 +3501,9 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
         ssa_ht const read = builder.cfg->emplace_ssa(
             SSA_read_ptr, TYPE_U, deref->ptr, ssa_value_t(), deref->bank, deref->index);
+
+        if(ptr_to_vars(deref->ptr->type()))
+            read->append_daisy();
 
         v.val = rval_t{ read };
     }
@@ -3479,6 +3530,26 @@ template<eval_t::do_t D>
 expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
     pstring_t const pstring = concat(lhs.pstring, lhs.pstring);
+
+    lval_t* const lval = lhs.is_lval();
+
+    if(lval && lval->is_global())
+    {
+        global_t const& global = lval->global();
+
+        if(global.gclass() == GLOBAL_VAR)
+        {
+            std::cout << "GVAR " << global.name << std::endl;
+
+            if(!is_check(D))
+                lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
+
+            if(precheck_tracked)
+                precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), lhs.pstring);
+        }
+        else
+            compiler_error(pstring, fmt("Unable to modify %", global.name));
+    }
 
     if(is_check(D))
         return throwing_cast<D>(std::move(rhs), lhs.type, true);
@@ -3510,27 +3581,10 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
     }
 
-    lval_t* const lval = lhs.is_lval();
-
-    if(!lval)
-        compiler_error(pstring, "Expecting lvalue on left side of rhs");
+    if(!is_check(D) && !lval)
+        compiler_error(pstring, "Expecting lvalue on left side of assignment.");
 
     rhs = throwing_cast<D>(std::move(rhs), lhs.type, true);
-
-    if(lval->is_global())
-    {
-        global_t const& global = lval->global();
-
-        if(global.gclass() == GLOBAL_VAR)
-        {
-            lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
-
-            if(precheck_tracked)
-                precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), lhs.pstring);
-        }
-        else
-            compiler_error(pstring, fmt("Unable to modify %", global.name));
-    }
 
     // de-atomize
     if(!is_check(D) && lval->atom >= 0)
@@ -4860,6 +4914,7 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
 
         ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);
         unsigned const length = type.array_length();
+        assert(length);
         h->alloc_input(length);
         for(unsigned i = 0; i < length; ++i)
         {

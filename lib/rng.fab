@@ -7,7 +7,6 @@ vars /rng
 asm fn rand() U
 : vars /rng
 : data
-    vars foo
     default
         lda &rng_state+0
         asl
@@ -29,7 +28,7 @@ asm fn ceil_mask(U num) U
 : data
     default
         ldx #$FF
-        lda num
+        lda &num
     label loop
         inx
         lsr
@@ -38,12 +37,11 @@ asm fn ceil_mask(U num) U
         sta &return
         rts
     label table
-        U[8](%0, %1, %11, %111, %1111, %11111, %111111, %1111111, %11111111)
+        U[9](%0, %1, %11, %111, %1111, %11111, %111111, %1111111, %11111111)
 
 fn randb(U bound) U
     U mask = ceil_mask(bound)
     U result
-    do
+    do while result > bound
         result = rand() & mask
-    while result > max
     return result

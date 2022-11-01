@@ -875,19 +875,22 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
         {
             unsigned const reentry_i = builtin::ctz(reentry_inputs);
             cfg_ht const reentry = header->input(reentry_i);
-            cfg_ht branch_cfg;
+            cfg_ht branch_cfg = {};
             bool is_do = false;
 
             if(header->output_size() == 2 && reentry->output_size() == 1)
                 branch_cfg = header; // simple 'while' loop
-            else if(reentry == header || (header->output_size() == 1 && reentry->output_size() == 2))
+            else if((reentry == header || header->output_size() == 1) && reentry->output_size() == 2)
             {
                 branch_cfg = reentry; // simple 'do' loop
                 is_do = true;
             }
+            else
+                assert(!branch_cfg);
 
             if(branch_cfg)
             {
+                assert(branch_cfg->output_size() == 2);
                 bool const branch_output_i = loop_is_parent_of(header, branch_cfg->output(1));
 
                 ssa_ht const branch = branch_cfg->last_daisy();

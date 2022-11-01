@@ -90,7 +90,7 @@ ssa_ai_d& ai_data(ssa_ht h) { return h.data<ssa_ai_d>(); }
 
 void new_cfg(cfg_ht cfg)
 {
-    cfg_data_pool::resize<ssa_ai_d>(cfg_pool::array_size());
+    cfg_data_pool::resize<cfg_ai_d>(cfg_pool::array_size());
     ai_data(cfg) = {};
 }
 
@@ -502,6 +502,11 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
         return ssa_node;
 
     auto& cd = ai_data(cfg_node);
+
+    std::cout << "SIZE: " << &cd.rebuild_map << std::endl;
+    for(auto const& pair : cd.rebuild_map)
+        std::cout << "PAIR: " << pair.first;
+
     auto lookup = cd.rebuild_map.find(ssa_node);
 
     if(lookup != cd.rebuild_map.end())
@@ -646,7 +651,7 @@ void ai_t::insert_traces()
             {
                 constexpr type_name_t type_name = TYPE_BOOL;
 
-                cfg_ht cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
+                cfg_ht const cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
                 new_cfg(cfg_trace);
                 insert_trace(cfg_trace, condition.handle(), ssa_value_t(i, type_name), 0);
             }
@@ -660,7 +665,7 @@ void ai_t::insert_traces()
                 type_name_t const type_name = condition.type().name();
                 passert(type_name == TYPE_U || type_name == TYPE_S, type_name);
 
-                cfg_ht cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
+                cfg_ht const cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
                 new_cfg(cfg_trace);
                 insert_trace(cfg_trace, condition.handle(), ssa_value_t(ssa_branch.input(j).fixed(), type_name), 0);
             }
@@ -782,6 +787,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         passert(narrow_fn(op), op);
 
         // Call the narrowing op:
+        dprint(log, "--COMPUTE_NARROW", op);
         narrow_fn(op)(c.data(), num_args, parent_trace_d.constraints());
 
         // TODO: remove?
@@ -970,14 +976,15 @@ void ai_t::visit(ssa_ht ssa_node)
     if(!bit_eq(d.constraints().vec, old_constraints.vec))
     {
         assert(old_constraints.cm == d.constraints().cm);
+
         passert(all_subset(old_constraints.vec, d.constraints().vec, d.constraints().cm),
                 ssa_node, ssa_node->op(),
                 old_constraints.vec.size(),
                 d.constraints().vec.size(),
                 '\n', old_constraints.vec[0],
-                '\n', d.constraints().vec[0],
-                '\n', old_constraints.vec[1],
-                '\n', d.constraints().vec[1]
+                '\n', d.constraints().vec[0]
+                //'\n', old_constraints.vec[1],
+                //'\n', d.constraints().vec[1]
                 );
 
         // Update the visited count. 
@@ -1239,15 +1246,17 @@ void ai_t::fold_consts()
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(ssa_it->output_size() == 0 || !has_constraints(ssa_it))
+        if(ssa_it->output_size() == 0)
             continue;
+
+        bool const has_c = has_constraints(ssa_it);
 
         ssa_op_t const op = ssa_it->op();
         auto& d = ai_data(ssa_it);
 
         assert(d.executable_index == EXEC_PROPAGATE);
 
-        if(is_scalar(ssa_it->type().name()) && d.constraints()[0].is_const())
+        if(has_c && is_scalar(ssa_it->type().name()) && d.constraints()[0].is_const())
         {
             fixed_t const constant = { d.constraints()[0].get_const() };
 
@@ -1306,23 +1315,27 @@ void ai_t::fold_consts()
             {
                 assert(same_scalar_layout(v.type().name(), TYPE_U20));
                 auto const c = get_constraints(v);
+                std::cout << "DONKEY " << c[0] << std::endl;
                 return c[0].bounds.min >= 0 && c[0].bounds.max < (256ll << fixed_t::shift);
             };
 
             // If the index fits in a byte, convert to byte-based indexing:
             if(fits_in_byte(index))
             {
+                std::cout << "DONKEY SUCCESS\n";
                 ssa_ht const cast = cfg_node.emplace_ssa(SSA_cast, TYPE_U, index);
                 new_ssa(cast);
                 ssa_it->link_change_input(INDEX, cast);
                 ssa_it->unsafe_set_op(read ? SSA_read_array8 : SSA_write_array8);
                 updated = __LINE__;
+                goto is_8;
             }
         }
         else if(op == SSA_read_array8 || op == SSA_write_array8)
         {
             using namespace ssai::array;
 
+        is_8:
             while(true)
             {
                 ssa_value_t const index = ssa_it->input(INDEX);
@@ -1457,8 +1470,8 @@ void ai_t::fold_consts()
             int const lvec_offset = lhs_vec.size();
             int const rvec_offset = rhs_vec.size();
 
-            assert(int(lhs_vec.size()) == info.maxfrac);
-            assert(int(rhs_vec.size()) == info.maxfrac);
+            //passert(int(lhs_vec.size()) == info.maxfrac, lhs_vec.size(), info.maxfrac, info.lfrac, info.rfrac);
+            //passert(int(rhs_vec.size()) == info.maxfrac, rhs_vec.size(), info.maxfrac, info.lfrac, info.rfrac);
 
             for(int i = 0; i < info.lsize; ++i)
             {
@@ -2456,14 +2469,15 @@ void ai_t::rewrite_loops()
 
 bool o_abstract_interpret(log_t* log, ir_t& ir, bool byteified)
 {
+    bool updated = false;
     resize_ai_prep();
 
-    cfg_data_pool::scope_guard_t<cfg_ai_d> cg(cfg_pool::array_size());
-    ssa_data_pool::scope_guard_t<ssa_ai_d> sg(ssa_pool::array_size());
-    ai_t ai(log, ir, byteified);
-
-    // TODO
-    o_remove_trivial_phis(log, ir); // clean-up phis created by ai_t
+    {
+        cfg_data_pool::scope_guard_t<cfg_ai_d> cg(cfg_pool::array_size());
+        ssa_data_pool::scope_guard_t<ssa_ai_d> sg(ssa_pool::array_size());
+        ai_t ai(log, ir, byteified);
+        updated = ai.updated;
+    }
 
 #ifndef NDEBUG
     for(cfg_node_t const& cfg : ir)
@@ -2474,5 +2488,8 @@ bool o_abstract_interpret(log_t* log, ir_t& ir, bool byteified)
     }
 #endif
 
-    return ai.updated;
+    // clean-up phis created by ai_t
+    o_phis(log, ir);
+
+    return updated;
 }

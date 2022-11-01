@@ -80,6 +80,40 @@ void mods_t::inherit(mods_t const& from)
     }
 }
 
+void mods_t::validate(
+    pstring_t pstring,
+    mod_flags_t accepts_flags, 
+    bool accepts_vars, bool accepts_data, 
+    bool accepts_nmi) const
+{
+    if(!accepts_vars && explicit_group_vars)
+        compiler_error(pstring, "Unexpected vars modifier.");
+
+    if(!accepts_data && explicit_group_data)
+        compiler_error(pstring, "Unexpected data modifier.");
+
+    if(!accepts_nmi && nmi)
+        compiler_error(pstring, "Unexpected nmi modifier.");
+
+    mod_flags_t const bad_enable = enable & ~accepts_flags;
+    mod_flags_t const bad_disable = disable & ~accepts_flags;
+
+    if(bad_enable | bad_disable)
+    {
+        bitset_for_each(bad_enable, [&](unsigned bit)
+        {
+            compiler_warning(pstring, 
+                fmt("Ignoring modifier +%.", to_string(mod_flags_t(1ull << bit))));
+        });
+
+        bitset_for_each(bad_disable, [&](unsigned bit)
+        {
+            compiler_warning(pstring, 
+                fmt("Ignoring modifier -%.", to_string(mod_flags_t(1ull << bit))));
+        });
+    }
+}
+
 void inherit(std::unique_ptr<mods_t>& mods, std::unique_ptr<mods_t> const& from)
 {
     if(!from)
@@ -98,3 +132,4 @@ bool mod_test(flag_mods_t const* mods, mod_flags_t flags, bool enabled)
     else
         return flags & mods->disable;
 }
+

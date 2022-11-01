@@ -12,7 +12,7 @@ std::uint8_t map_grey_alpha(std::uint8_t grey, std::uint8_t alpha)
     return (grey * alpha) >> (6 + 8);
 }
 
-std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size)
+std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, bool chr16)
 {
     unsigned width, height;
     std::vector<std::uint8_t> image; //the raw pixels
@@ -24,7 +24,9 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size)
 
     if(width % 8 != 0)
         throw convert_error_t("Image width is not a multiple of 8.");
-    if(height % 8 != 0)
+    if(chr16 && height % 16 != 0)
+        throw convert_error_t("Image height is not a multiple of 16.");
+    else if(!chr16 && height % 8 != 0)
         throw convert_error_t("Image height is not a multiple of 8.");
 
     switch(state.info_png.color.colortype)
@@ -67,16 +69,41 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size)
 
         unsigned i = 0;
 
-        for(unsigned ty = 0; ty < height; ty += 8)
-        for(unsigned tx = 0; tx < width; tx += 8)
+        if(chr16)
         {
-            for(unsigned y = 0; y < 8; ++y, ++i)
-            for(unsigned x = 0; x < 8; ++x)
-                result[i] |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+            for(unsigned ty = 0; ty < height; ty += 16)
+            for(unsigned tx = 0; tx < width; tx += 8)
+            {
+                for(unsigned y = 0; y < 8; ++y, ++i)
+                for(unsigned x = 0; x < 8; ++x)
+                    result[i] |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
 
-            for(unsigned y = 0; y < 8; ++y, ++i)
-            for(unsigned x = 0; x < 8; ++x)
-                result[i] |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+                for(unsigned y = 0; y < 8; ++y, ++i)
+                for(unsigned x = 0; x < 8; ++x)
+                    result[i] |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+
+                for(unsigned y = 8; y < 16; ++y, ++i)
+                for(unsigned x = 0; x < 8; ++x)
+                    result[i] |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+
+                for(unsigned y = 8; y < 16; ++y, ++i)
+                for(unsigned x = 0; x < 8; ++x)
+                    result[i] |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+            }
+        }
+        else
+        {
+            for(unsigned ty = 0; ty < height; ty += 8)
+            for(unsigned tx = 0; tx < width; tx += 8)
+            {
+                for(unsigned y = 0; y < 8; ++y, ++i)
+                for(unsigned x = 0; x < 8; ++x)
+                    result[i] |= (image[tx + x + (ty + y)*width] & 1) << (7-x);
+
+                for(unsigned y = 0; y < 8; ++y, ++i)
+                for(unsigned x = 0; x < 8; ++x)
+                    result[i] |= (image[tx + x + (ty + y)*width] >> 1) << (7-x);
+            }
         }
 
         assert(i == result.size());

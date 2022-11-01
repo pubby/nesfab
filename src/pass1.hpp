@@ -51,58 +51,6 @@ private:
 
     struct nothing_t {};
 
-    void validate_mods(
-        char const* keyword, pstring_t pstring, std::unique_ptr<mods_t> const& mods, 
-        mod_flags_t accepts_flags = 0, 
-        bool accepts_vars = false, bool accepts_data = false, 
-        bool accepts_nmi = false)
-    {
-        if(!mods)
-            return;
-
-        char const* const title = keyword ? keyword : "Construct";
-
-        if(!accepts_vars && mods->explicit_group_vars)
-        {
-            compiler_error(pstring, 
-                fmt("% does not support vars modifiers.", title), &file);
-        }
-
-        if(!accepts_data && mods->explicit_group_data)
-        {
-            compiler_error(pstring, 
-                fmt("% does not support data modifiers.", title), &file);
-        }
-
-        if(!accepts_nmi && mods->nmi)
-        {
-            compiler_error(pstring, 
-                fmt("% does not support nmi modifier.", title), &file);
-        }
-
-        mod_flags_t const bad_enable = mods->enable & ~accepts_flags;
-        mod_flags_t const bad_disable = mods->disable & ~accepts_flags;
-
-        char const* const in = keyword ? " attached to " : "";
-
-        if(bad_enable | bad_disable)
-        {
-            bitset_for_each(bad_enable, [&](unsigned bit)
-            {
-                compiler_warning(pstring, 
-                    fmt("Ignoring modifier +%%%.", 
-                        to_string(mod_flags_t(1ull << bit)), in, keyword), &file);
-            });
-
-            bitset_for_each(bad_disable, [&](unsigned bit)
-            {
-                compiler_warning(pstring, 
-                    fmt("Ignoring modifier -%%%.", 
-                        to_string(mod_flags_t(1ull << bit)), in, keyword), &file);
-            });
-        }
-    }
-
 public:
     explicit pass1_t(file_contents_t const& file) 
     : file(file)
@@ -239,12 +187,16 @@ public:
             compiler_error(it->first, "Label not in scope.", &file);
         }
 
-        validate_mods(fn_class_keyword(fclass), decl.name, mods, 
-            FN_MODS, // flags
-            fclass != FN_CT, // vars
-            fclass != FN_CT, // data
-            fclass == FN_MODE // nmi
-            );
+        if(mods)
+        {
+            mods->validate(
+                decl.name, 
+                FN_MODS, // flags
+                fclass != FN_CT, // vars
+                fclass != FN_CT, // data
+                fclass == FN_MODE // nmi
+                );
+        }
 
         // Create the global:
         active_global->define_fn(
@@ -296,12 +248,16 @@ public:
         if(fclass != FN_FN && fclass != FN_NMI)
             compiler_error(decl.name, fmt("% does not support inline assembly.", fn_class_keyword(fclass)));
 
-        validate_mods(fn_class_keyword(fclass), decl.name, mods, 
-            FN_MODS, // flags
-            true, // vars
-            true, // data
-            false // nmi
-            );
+        if(mods)
+        {
+            mods->validate(
+                decl.name, 
+                FN_MODS, // flags
+                true, // vars
+                true, // data
+                false // nmi
+                );
+        }
 
         // Create the global:
         active_global->define_fn(
@@ -314,7 +270,13 @@ public:
     [[gnu::always_inline]]
     void asm_fn_var(var_decl_t const& var_decl, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("var", var_decl.name, mods, MOD_zero_page);
+        if(mods)
+        {
+            mods->validate(
+                var_decl.name, 
+                MOD_zero_page // flags
+                );
+        }
 
         _add_symbol(var_decl, false, std::move(mods));
         uses_type(var_decl.src_type.type);
@@ -335,7 +297,8 @@ public:
         else
             fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(label.view(file.source())));
 
-        validate_mods("label", label, mods);
+        if(mods)
+            mods->validate(label);
 
         ast_node_t ast = { .token = { .type = lex::TOK_byte_block_label, .pstring = label, .value = i }};
         if(mods)
@@ -369,16 +332,24 @@ public:
         global_t& g = global_t::lookup(file.source(), pstring);
         ideps.emplace(&g, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
 
-        if(tt == lex::TOK_byte_block_goto_mode)
-            validate_mods("goto mode", pstring, mods, 0, true, false);
-        else if(tt == lex::TOK_byte_block_goto)
-            validate_mods("goto", pstring, mods);
-        else
-            validate_mods("fn", pstring, mods);
-
         ast_node_t ast = { .token = token_t::make_ptr(tt, pstring, &g) };
+
         if(mods)
+        {
+            if(tt == lex::TOK_byte_block_goto_mode)
+            {
+                mods->validate(
+                    pstring, 
+                    0, // flags
+                    true, // vars
+                    false // data
+                    );
+            }
+            else
+                mods->validate(pstring);
+
             ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+        }
 
         return ast;
     }
@@ -388,17 +359,20 @@ public:
     {
         ast_node_t ast = { .token = { .type = lex::TOK_byte_block_wait_nmi, .pstring =pstring }};
 
-        validate_mods("nmi", pstring, mods);
-
         if(mods)
+        {
+            mods->validate(pstring);
             ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+        }
+
         return ast;
     }
 
     [[gnu::always_inline]]
     void local_ct(var_decl_t const& var_decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("ct", var_decl.name, mods);
+        if(mods)
+            mods->validate(var_decl.name);
 
         // We'll save the expr, but *don't* convert it yet.
         _add_symbol(var_decl, true, std::move(mods), &ast);
@@ -485,10 +459,11 @@ public:
     {
         uses_type(var_decl.src_type.type);
 
-        validate_mods("var", var_decl.name, mods, MOD_zero_page);
+        if(mods)
+            mods->validate(var_decl.name, MOD_zero_page | MOD_align);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_var(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(expr), std::move(mods));
+        active_global->define_var(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(expr, IDEP_TYPE), std::move(mods));
         ideps.clear();
     }
 
@@ -496,12 +471,14 @@ public:
     void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, 
                       ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
+        //std::cout << "SHREK " << var_decl.name.view(file.source()) << ' ' << ideps.size() << std::endl;
         uses_type(var_decl.src_type.type);
 
-        validate_mods("ct", var_decl.name, mods);
+        if(mods)
+            mods->validate(var_decl.name);
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_const(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(&expr), std::move(mods));
+        active_global->define_const(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(&expr, IDEP_TYPE), std::move(mods));
         ideps.clear();
     }
 
@@ -533,7 +510,8 @@ public:
     {
         symbol_table.push_scope();
 
-        validate_mods("if", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
         stmt_ht const begin_if = fn_def.push_stmt({ STMT_IF, mods_h, {}, pstring, convert_eternal_expr(&condition) });
@@ -556,7 +534,8 @@ public:
         symbol_table.pop_scope();
         symbol_table.push_scope();
 
-        validate_mods("else", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
         stmt_ht const begin_else = fn_def.push_stmt({ STMT_ELSE, mods_h, {}, pstring });
@@ -583,7 +562,8 @@ public:
         break_stack.emplace_back();
         continue_stack.emplace_back();
 
-        validate_mods("while", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
         stmt_ht begin_while;
 
@@ -642,7 +622,8 @@ public:
         else if(init)
             expr_statement(*init);
 
-        validate_mods("for", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         stmt_ht begin_for;
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
@@ -693,7 +674,8 @@ public:
     [[gnu::always_inline]]
     void return_statement(pstring_t pstring, ast_node_t* expr, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("return", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
         fn_def.push_stmt({ STMT_RETURN, mods_h, {}, pstring, convert_eternal_expr(expr) });
     }
@@ -701,7 +683,8 @@ public:
     [[gnu::always_inline]]
     void break_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("break", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         if(break_stack.empty())
             compiler_error(pstring, "break cannot be used here.");
@@ -713,7 +696,8 @@ public:
     [[gnu::always_inline]]
     void continue_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("continue", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         if(continue_stack.empty())
             compiler_error(pstring, "continue cannot be used here.");
@@ -728,7 +712,8 @@ public:
         symbol_table.push_scope();
         break_stack.emplace_back();
 
-        validate_mods("switch", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
         stmt_ht const begin_switch = fn_def.push_stmt({ STMT_SWITCH, mods_h, {}, pstring, convert_eternal_expr(&condition) });
@@ -764,7 +749,8 @@ public:
     {
         symbol_table.push_scope();
 
-        validate_mods("case", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         // Create a new label
         stmt_ht label = fn_def.push_stmt(
@@ -782,7 +768,8 @@ public:
     {
         symbol_table.push_scope();
 
-        validate_mods("default", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         if(switch_stack.back().default_case)
             compiler_error(pstring, "Multiple default labels inside switch.");
@@ -800,7 +787,8 @@ public:
     {
         symbol_table.push_scope();
 
-        validate_mods("label", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
 
         // Create a new label
         stmt_ht label = fn_def.push_stmt(
@@ -835,7 +823,8 @@ public:
     [[gnu::always_inline]]
     void goto_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("goto", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
         stmt_ht const goto_h = fn_def.push_stmt(
             { STMT_GOTO, fn_def.push_mods(std::move(mods)), {}, pstring });
 
@@ -859,7 +848,8 @@ public:
     [[gnu::always_inline]]
     void goto_mode_statement(pstring_t mode, ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("goto mode", mode, mods, 0, true, false);
+        if(mods)
+            mods->validate(mode, 0, true, false);
 
         if(!mods || !mods->explicit_group_vars)
             compiler_error(mode, "Missing vars modifier.");
@@ -870,14 +860,16 @@ public:
     [[gnu::always_inline]]
     void nmi_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("nmi", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
         fn_def.push_stmt({ STMT_NMI, fn_def.push_mods(std::move(mods)), {}, pstring });
     }
 
     [[gnu::always_inline]]
     void fence_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("fence", pstring, mods);
+        if(mods)
+            mods->validate(pstring);
         fn_def.push_stmt({ STMT_FENCE, fn_def.push_mods(std::move(mods)), {}, pstring });
     }
 
@@ -888,7 +880,8 @@ public:
     {
         using namespace std::literals;
 
-        validate_mods("charmap", charmap_name, mods, 0, false, true);
+        if(mods)
+            mods->validate(charmap_name, 0, false, true);
 
         if(is_default)
             active_global = &global_t::default_charmap(charmap_name);
@@ -917,7 +910,8 @@ public:
 
     void chrrom(pstring_t decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
     {
-        validate_mods("chrrom", decl, mods);
+        if(mods)
+            mods->validate(decl);
 
         active_global = &global_t::chrrom(decl);
         active_global->define_const(decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, convert_eternal_expr(&ast), std::move(mods));

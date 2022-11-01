@@ -209,7 +209,6 @@ void o_remove_redundant_phis(log_t* log,
 
         for(ssa_ht phi_h : scc)
         {
-            std::printf("scc %i %i\n", scc.size(), tarjan.sccs.size());
             ssa_node_t& phi = *phi_h;
             bool is_inner = true;
 

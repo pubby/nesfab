@@ -58,8 +58,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 // Turn array indexes of a constant into an offset.
                 // e.g. foo[5] turns the '5' into an offset.
 
-                unsigned offset = (node.input(OFFSET).whole()
-                                   + index.whole());
+                unsigned offset = (node.input(OFFSET).whole() + index.whole());
 
                 node.link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
                 node.link_change_input(INDEX, ssa_value_t(0u, TYPE_U));
@@ -206,11 +205,14 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     goto replaceWith0;
 
                 // Simplify chains of casts from similar types A -> B
-                if(input.holds_ref() && input->op() == SSA_cast
-                   && same_scalar_layout(from.name(), to.name()))
+                if(input.holds_ref() && input->op() == SSA_cast)
                 {
-                    dprint(log, "--SIMPLE_IDENTITY_SIMPLIFY_CAST");
-                    node.link_change_input(0, input->input(0));
+                    if(same_scalar_layout(from.name(), to.name())
+                       || is_arithmetic_bijection(input->input(0).type().name(), from.name()))
+                    {
+                        dprint(log, "--SIMPLE_IDENTITY_SIMPLIFY_CAST");
+                        node.link_change_input(0, input->input(0));
+                    }
                 }
             }
             break;

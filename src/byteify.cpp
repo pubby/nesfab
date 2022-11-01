@@ -803,6 +803,7 @@ void byteify(ir_t& ir, fn_t const& fn)
         case SSA_and:
         case SSA_or:
         case SSA_xor:
+        case SSA_init_array:
             {
                 unsigned const input_size = ssa_node->input_size();
 

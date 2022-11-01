@@ -1,4 +1,6 @@
+#include "ram_alloc.hpp"
 
+#include <iostream> // TODO
 
 #include "flat/small_set.hpp"
 
@@ -73,6 +75,7 @@ static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_req
     if(size > 1 && (insist_alignment || size <= 256))
     {
         page_bitset_t page = page_bitset_t::filled(0, (size > 256) ? 1 : (257 - size));
+        assert(page.test(0));
         ram_bitset_t aligned = usable_ram;
 
         static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
@@ -80,14 +83,15 @@ static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_req
         for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
             bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
 
-        if(span_t span = try_alloc(aligned, size, zp))
-            return span;
+        int const addr = aligned.lowest_bit_set();
+
+        if(addr >= 0)
+            return { .addr = addr, .size = size };
         else if(insist_alignment)
             return {};
     }
 
     return try_alloc(usable_ram, size, zp);
-
 }
 
 class ram_allocator_t
@@ -362,6 +366,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         std::vector<rank_t> ordered_gmembers_zp;
         std::vector<rank_t> ordered_gmembers;
+        std::vector<rank_t> ordered_gmembers_aligned;
 
         // Track which gvars are unused and use them to generate warning messages.
         fc::vector_set<gvar_t const*> unused_gvars;
@@ -373,20 +378,26 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
             constexpr unsigned size_scale = 256; // arbitrary constant
 
-            if(is_paa(pair.first.gmember()->type().name()))
+            auto const& gmember = *pair.first.gmember();
+            bool const insist_align = mod_test(gmember.gvar.mods(), MOD_align);
+            auto& non_zp_vec = insist_align ? ordered_gmembers_aligned : ordered_gmembers;
+
+            if(is_paa(gmember.type().name()))
             {
                 // PAAs are handled separately, as they won't appear in the code.
-                ordered_gmembers.push_back({ pair.first.mem_size() * size_scale, pair.first });
+                non_zp_vec.push_back({ pair.first.mem_size() * size_scale, pair.first });
             }
             else if(pair.first.mem_zp_only())
                 ordered_gmembers_zp.push_back({ pair.first.mem_size(), pair.first });
             else
-                ordered_gmembers.push_back({ (pair.first.mem_size() * size_scale) + pair.second, pair.first });
+                non_zp_vec.push_back({ (pair.first.mem_size() * size_scale) + pair.second, pair.first });
         }
 
         std::sort(ordered_gmembers_zp.begin(), ordered_gmembers_zp.end(), 
                   [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
         std::sort(ordered_gmembers.begin(), ordered_gmembers.end(), 
+                  [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
+        std::sort(ordered_gmembers_aligned.begin(), ordered_gmembers_aligned.end(), 
                   [](auto const& lhs, auto const& rhs) { return lhs.score > rhs.score; });
 
         // Estimate which locators will go into ZP.
@@ -422,6 +433,9 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             estimate_gmember_loc(rank.loc);
 
         for(rank_t const& rank : ordered_gmembers)
+            estimate_gmember_loc(rank.loc);
+
+        for(rank_t const& rank : ordered_gmembers_aligned)
             estimate_gmember_loc(rank.loc);
 
         // For global vars that have init expressions,
@@ -475,6 +489,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         auto const alloc_gmember_loc = [&](locator_t loc)
         {
+            std::cout << "ALLOC " << loc << std::endl;
             gmember_t& gmember = *loc.gmember();
 
             if(gmember.span(loc.atom())) // Abort if we've already allocated.
@@ -529,6 +544,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
 
             dprint(log, "--RESULT", span);
+            std::cout << "ALLOC " << loc << " = " << span << std::endl;
 
             if(is_ptr)
             {
@@ -549,13 +565,20 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         // Allocate
 
+        std::puts("ALLOC 0");
+        for(rank_t const& rank : ordered_gmembers_aligned)
+            alloc_gmember_loc(rank.loc);
+
+        std::puts("ALLOC 1");
         for(group_inits_t const& inits : ordered_inits)
             for(locator_t loc : inits.init)
                 alloc_gmember_loc(loc);
 
+        std::puts("ALLOC 2");
         for(rank_t const& rank : ordered_gmembers_zp)
             alloc_gmember_loc(rank.loc);
 
+        std::puts("ALLOC 3");
         for(rank_t const& rank : ordered_gmembers)
             alloc_gmember_loc(rank.loc);
     }
@@ -888,6 +911,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
 void alloc_ram(log_t* log, ram_bitset_t const& initial)
 {
+    log = &stdout_log; // TODO
     dprint(log, "ALLOCATING_RAM");
     ram_allocator_t a(log, initial);
 }

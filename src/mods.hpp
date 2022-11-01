@@ -56,6 +56,12 @@ struct mods_t : public flag_mods_t
     void for_each_group_data(std::function<void(group_data_ht)> const& fn) const;
 
     void inherit(mods_t const& from);
+
+    void validate(
+        pstring_t at,
+        mod_flags_t accepts_flags = 0, 
+        bool accepts_vars = false, bool accepts_data = false, 
+        bool accepts_nmi = false) const;
 };
 
 void inherit(std::unique_ptr<mods_t>& mods, std::unique_ptr<mods_t> const& from);
@@ -65,42 +71,6 @@ std::string_view to_string(mod_flags_t flag);
 
 // Used to test if a mod flag is enabled / disabled:
 bool mod_test(flag_mods_t const* mods, mod_flags_t flags, bool enabled = true);
-
-/*
-// (Base class to be inherited.)
-// This tracks *just* mod_flags, allowing one to modify them if needed.
-class flag_modded_t
-{
-public:
-    explicit flag_modded_t(mods_t const* mods) 
-    {
-        assert(!mods || (mods->enable & mods->disable) == 0);
-        if(mods)
-        {
-            m_mflags = mods->enable & ~mods->disable;
-            m_known_mflags = mods->enable | mods->disable;
-        }
-    }
-
-    explicit flag_modded_t(std::unique_ptr<mods_t> mods) 
-    : flag_modded_t(mods.get())
-    {}
-
-    mod_flags_t mflags() const { return m_mflags; }
-    mod_flags_t known_mflags() const { return m_known_mflags; }
-
-    bool mtest(mod_flags_t f, bool set = true) 
-    { 
-        std::printf("mtest %i %i\n", m_mflags, m_known_mflags);
-        if(set)
-            return mflags() & f;
-        return (known_mflags() & f) && !(mflags() & f);
-    }
-protected:
-    mod_flags_t m_mflags = 0;
-    mod_flags_t m_known_mflags = 0;
-};
-*/
 
 // (Base class to be inherited.)
 class modded_t

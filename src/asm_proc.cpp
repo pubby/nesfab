@@ -138,6 +138,23 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         case STY:
             peep_transfer2(LDA, TYA_IMPLIED);
             break;
+        case RTS:
+        case JMP:
+            // Code like:
+            //   rts
+            //   label:
+            //   rts
+            // Becomes:
+            // label:
+            //   rts
+
+            if(c && c->op == a->op && b->op == ASM_LABEL && a->arg == c->arg && a->alt == c->alt)
+            {
+                a->op = ASM_PRUNED;
+                a->arg = c->alt = {};
+                changed = true;
+            }
+            break;
         }
 
         a = b;
@@ -233,7 +250,6 @@ void asm_proc_t::push_inst(asm_inst_t inst)
 
 void asm_proc_t::absolute_to_zp()
 {
-    return; // TODO!
     for(asm_inst_t& inst : code)
     {
         // A hi-byte implies absolute.
@@ -292,10 +308,7 @@ void asm_proc_t::convert_long_branch_ops()
                 continue;
 
             unsigned const label_i = get_label(inst.arg).index;
-            asm_inst_t const* next = next_inst(i);
-            if(!next)
-                continue;
-            int dist = bytes_between(next - code.data(), label_i);
+            int dist = bytes_between(i, label_i) - int(op_size(inst.op));
 
             if(is_relative_branch(inst.op))
             {
@@ -319,8 +332,8 @@ void asm_proc_t::convert_long_branch_ops()
                     inst.op = new_op;
                     progress = true;
 
-                    assert(bytes_between(next - code.data(), label_i) <= 127);
-                    assert(bytes_between(next - code.data(), label_i) >= -128);
+                    passert(bytes_between(i, label_i) - int(op_size(inst.op)) <= 127, bytes_between(i, label_i) - int(op_size(inst.op)));
+                    passert(bytes_between(i, label_i) - int(op_size(inst.op)) >= -128, bytes_between(i, label_i) - int(op_size(inst.op)));
                 }
             }
         }
@@ -680,11 +693,11 @@ void asm_proc_t::relocate(locator_t from)
 
             if(op_addr_mode(inst.op) == MODE_RELATIVE)
             {
-                int const dist = bytes_between(i, label_i) - op_size(inst.op);
+                int const dist = bytes_between(i, label_i) - int(op_size(inst.op));
                 if(dist > 127 || dist < -128)
                 {
-                    std::string what = fmt("Unable to relocate branch instruction %. Destination outside valid range.", 
-                                           op_name(inst.op));
+                    std::string what = fmt("Unable to relocate branch instruction %. Destination outside valid range. (%)", 
+                                           op_name(inst.op), dist);
                     if(fn)
                     {
                         pstring_t pstring = fn->global.pstring();

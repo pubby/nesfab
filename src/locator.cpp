@@ -57,7 +57,7 @@ std::string to_string(locator_t loc)
     case LOC_ASM_LOCAL_VAR:
         str = fmt("asm_local_var", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:
-        str = "rom_array"; break;
+        str = fmt("rom_array %", loc.handle()); break;
     //case LOC_LT_GMEMBER_PTR:
         //str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_GCONST:

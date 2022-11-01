@@ -1,5 +1,7 @@
 #include "rom.hpp"
 
+#include <iostream> // TODO
+
 #include "globals.hpp"
 #include "group.hpp"
 #include "asm_proc.hpp"
@@ -81,8 +83,12 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
     {
         unsigned const input_size = ssa_it->input_size();
 
+        std::cout << "SHREK ROM " << ssa_it << std::endl;
+
         if(ssa_it->op() != SSA_init_array)
             goto next_iter;
+
+        std::cout << "SHREK ROM *PASS* " << ssa_it << std::endl;
         
         // We're looking for SSA_init_arrays of all constants
         // TODO: Also handle arrays of *mostly* constants.
@@ -103,7 +109,7 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
                     vec[i] = input.locator();
                 else if(input.is_num())
                 {
-                    assert(input.whole() % 0xFF == input.whole());
+                    passert((input.whole() & 0xFF) == input.whole(), input.whole());
                     vec[i] = locator_t::const_byte(input.whole());
                 }
                 else

@@ -1432,31 +1432,43 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
         case TOK_file:
             {
                 pstring_t const file_pstring = token.pstring;
-                parse_token(TOK_file);
-
                 pstring_t script;
                 string_literal_t filename;
+                std::vector<convert_arg_t> args;
 
-                unsigned const argn = parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
-                {
-                    std::cout << token_string(token.type) << std::endl;
-                    switch(arg)
+                std::unique_ptr<mods_t> mods = parse_mods_after([&]
+                { 
+                    parse_token(TOK_file);
+
+                    unsigned const argn = parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
                     {
-                    case 0: script = parse_ident(); return true;
-                    case 1: filename = parse_string_literal(true); return true;
-                    default: compiler_error("Wrong number of arguments to 'file'.");
-                    }
+
+                        switch(arg)
+                        {
+                        case 0: script = parse_ident(); return true;
+                        case 1: filename = parse_string_literal(true); return true;
+                        default: 
+                            pstring_t const pstring = token.pstring;
+                            switch(token.type)
+                            {
+                            case TOK_ident: args.push_back({ parse_ident(), pstring }); return true;
+                            case TOK_true:  args.push_back({ true, pstring }); return true;
+                            case TOK_false: args.push_back({ false, pstring }); return true;
+                            case TOK_dquote: args.push_back({ parse_string_literal(true), pstring }); return true;
+                            case TOK_int: args.push_back({ std::uint64_t(token.value), pstring }); return true;
+                            default: compiler_error("Unexpected token."); return false;
+                            }
+                        }
+                    });
+
+                    if(argn < 2)
+                        compiler_error(file_pstring, "Wrong number of arguments to 'file'.");
                 });
-
-                if(argn != 2)
-                    compiler_error(file_pstring, "Wrong number of arguments to 'file'.");
-
-                parse_line_ending();
 
                 fs::path preferred_dir = file.path();
                 preferred_dir.remove_filename();
 
-                conversion_t c = convert_file(source(), script, preferred_dir, filename);
+                conversion_t c = convert_file(source(), script, preferred_dir, filename, mods.get());
 
                 if(auto* vec = std::get_if<std::vector<std::uint8_t>>(&c.data))
                 {

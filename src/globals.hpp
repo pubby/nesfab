@@ -261,14 +261,14 @@ public:
 
     type_t member_type(unsigned member_i) const 
     {
-        assert(global.compiled());
+        passert(global.resolved(), global.name);
         assert(member_i < m_member_types.size());
         return m_member_types[member_i];
     }
 
     std::uint16_t member_offset(unsigned member_i) const
     {
-        assert(global.compiled());
+        assert(global.resolved());
         assert(member_i < m_member_offsets.size());
         return m_member_offsets[member_i];
     }
@@ -516,7 +516,7 @@ public:
     bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
 
     type_t type() const { return m_src_type.type; }
-    rval_t const& rval() const { assert(global.prechecked()); return m_rval; }
+    rval_t const& rval() const { passert(global.resolved(), global.name); return m_rval; }
 
     void dethunkify(bool full);
     void resolve();
@@ -594,7 +594,12 @@ public:
     std::size_t init_size() const;
 
     void alloc_spans();
-    span_t span(unsigned atom) const { assert(compiler_phase() >= PHASE_ALLOC_RAM); return m_spans[atom]; }
+    span_t span(unsigned atom) const 
+    { 
+        assert(compiler_phase() >= PHASE_ALLOC_RAM); 
+        passert(atom < m_spans.size(), atom, m_spans.size(), gvar.global.name); 
+        return m_spans[atom]; 
+    }
     void assign_span(unsigned atom, span_t span) { assert(compiler_phase() == PHASE_ALLOC_RAM); m_spans[atom] = span; }
 
     bool zero_init(unsigned atom) const;

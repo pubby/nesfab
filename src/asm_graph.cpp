@@ -94,8 +94,11 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
         auto const& inst = *it;
         asm_node_t& node = list.back();
 
+        std::cout << "APPEND " << inst << std::endl;
+
         if(inst.op == ASM_LABEL)
         {
+            assert(!node.output_inst.op);
             node.output_inst = { .op = JMP_ABSOLUTE };
             asm_node_t& node = push_back(inst.arg, true);
 
@@ -124,6 +127,7 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
                 for(unsigned i = 0; i < switch_table->size(); ++i)
                     delay_lookup(node, (*switch_table)[i], branch->input(i + 1).whole());
 
+                assert(!node.output_inst.op);
                 node.output_inst = inst;
                 push_back();
             }
@@ -131,6 +135,7 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
             {
                 passert(inst.arg, to_string(inst.op));
 
+                assert(!node.output_inst.op);
                 node.output_inst = inst;
                 delay_lookup(node, inst.arg);
                 push_back();
@@ -139,6 +144,7 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
             {
                 passert(inst.arg, to_string(inst.op));
 
+                assert(!node.output_inst.op);
                 node.output_inst = inst;
                 delay_lookup(node, inst.arg);
                 if(it+1 < end && inst.op == invert_branch((it+1)->op))
@@ -166,6 +172,15 @@ void asm_graph_t::finish_appending()
             throw std::runtime_error(fmt("Missing label % in assembly.", lookup.label));
     }
     to_lookup.clear();
+
+    std::cout << "BEGIN GRAPH\n";
+    for(auto it = list.begin(); it != list.end(); ++it)
+    {
+        std::cout << "GRAPH NODE " << it->inputs().size() << std::endl;
+        for(auto const& inst : it->code)
+            std::cout << inst << std::endl;
+        std::cout << it->output_inst << std::endl;
+    }
 }
 
 asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)
@@ -337,7 +352,7 @@ bool asm_graph_t::o_returns()
     {
         asm_node_t& a = *returns[i];
         asm_node_t& b = *returns[j];
-        if(!a.outputs().empty() || b.outputs().empty())
+        if(!a.outputs().empty() || !b.outputs().empty())
             continue;
 
         if(a.output_inst != b.output_inst)
@@ -511,6 +526,7 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
         asm_node_t* prev = i ? order[i-1] : nullptr;
         asm_node_t* next = i+1 < order.size() ? order[i+1] : nullptr;
 
+        goto insert_label;
         if(node.inputs().size() > 1 
            || (node.inputs().size() == 1 && prev != node.inputs()[0])
            || node.label == m_entry_label)
@@ -526,6 +542,9 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
 
         if(node.output_inst.op)
         {
+            if(node.output_inst.op == JMP_ABSOLUTE)
+                assert(node.outputs().size() == 1);
+
             if(node.is_switch() || node.outputs().empty())
                 code.push_back(node.output_inst);
             else
@@ -579,7 +598,7 @@ struct asm_path_t
 template<typename Set>
 static void build_incoming(Set& incoming, asm_node_t const& node, cfg_ht cfg)
 {
-    if(node.cfg != cfg)
+    if(node.cfg && node.cfg != cfg)
         incoming.insert(node.cfg);
     else if(node.label.lclass() == LOC_CFG_LABEL && node.label.data() > 0)
         for(asm_node_t* input : node.inputs())

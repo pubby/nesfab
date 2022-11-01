@@ -8,6 +8,7 @@
 #include "convert_pb.hpp"
 #include "convert_png.hpp"
 #include "ext_lex_tables.hpp"
+#include "mods.hpp"
 
 namespace fs = ::std::filesystem;
 
@@ -26,8 +27,30 @@ ext_lex::token_type_t lex_extension(char const* str)
     return lexed;
 }
 
+static std::vector<std::uint8_t> convert_spr16(std::vector<std::uint8_t> const& in)
+{
+    std::vector<std::uint8_t> ret(in.size());
 
-conversion_t convert_file(char const* source, pstring_t script, fs::path preferred_dir, string_literal_t const& filename)
+    if(in.size() % (16 * 32) != 0)
+        throw convert_error_t("CHR dimensions are not a multiple of 8x16.");
+
+    unsigned const height = in.size() / (16 * 32);
+    unsigned i = 0;
+
+    for(unsigned ty = 0; ty < height; ++ty)
+    for(unsigned tx = 0; tx < 16; ++tx)
+    {
+        for(unsigned j = 0; j < 16; ++j)
+            ret[i++] = in[tx*16 + ty*(16*32) + j];
+        for(unsigned j = 0; j < 16; ++j)
+            ret[i++] = in[tx*16 + ty*(16*32) + j + (16*16)];
+    }
+
+    return ret;
+}
+
+conversion_t convert_file(char const* source, pstring_t script, fs::path preferred_dir, 
+                          string_literal_t const& filename, mods_t const* mods)
 {
     using namespace std::literals;
 
@@ -58,42 +81,45 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
 
         auto const get_extension = [&]{ return lex_extension(path.extension().c_str()); };
 
-        if(view == "bin"sv)
-            ret.data = read_as_vec();
-        else if(view == "chr"sv)
+        auto const read_chr = [&]
         {
+            if(mods)
+                mods->validate(script, MOD_spr16);
+            bool const spr16 = mod_test(mods, MOD_spr16);
+
             std::vector<std::uint8_t> vec = read_as_vec();
 
             switch(get_extension())
             {
             case ext_lex::TOK_png:
-                vec = png_to_chr(vec.data(), vec.size());
+                vec = png_to_chr(vec.data(), vec.size(), spr16);
                 break;
             case ext_lex::TOK_chr:
             case ext_lex::TOK_bin:
+                if(spr16)
+                    vec = convert_spr16(vec);
                 break;
             default:
                 compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
             }
 
-            ret.data = std::move(vec);
+            return vec;
+        };
+
+        if(view == "bin"sv)
+        {
+            if(mods)
+                mods->validate(script);
+            ret.data = read_as_vec();
+        }
+        else if(view == "chr"sv)
+        {
+            ret.data = read_chr();
         }
         else if(view == "pbz"sv)
         {
-            std::vector<std::uint8_t> vec = read_as_vec();
-
-            switch(get_extension())
-            {
-            case ext_lex::TOK_png:
-                vec = png_to_chr(vec.data(), vec.size());
-                // fall-through
-            case ext_lex::TOK_chr:
-            case ext_lex::TOK_bin:
-                ret = convert_pbz(vec.data(), vec.data() + vec.size());
-                break;
-            default:
-                compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
-            }
+            std::vector<std::uint8_t> vec = read_chr();
+            ret = convert_pbz(vec.data(), vec.data() + vec.size());
         }
         else
             compiler_error(script, fmt("Unknown file type: %", view));

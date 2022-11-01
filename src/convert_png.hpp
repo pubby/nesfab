@@ -6,6 +6,6 @@
 
 #include "convert.hpp"
 
-std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size);
+std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, bool chr16);
 
 #endif

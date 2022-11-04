@@ -244,6 +244,12 @@ constexpr type_name_t type_s(unsigned w, unsigned f)
 constexpr type_name_t type_s_or_u(unsigned w, unsigned f, bool s)
     { return s ? type_s(w, f) : type_u(w, f); }
 
+constexpr type_name_t to_u(type_name_t t)
+    { return type_u(whole_bytes(t), frac_bytes(t)); }
+
+constexpr type_name_t to_s(type_name_t t)
+    { return type_s(whole_bytes(t), frac_bytes(t)); }
+
 constexpr unsigned begin_byte(type_name_t type_name)
     { return max_frac_bytes - frac_bytes(type_name); }
 

@@ -451,6 +451,9 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                             if(!ssa_it->input(i).is_locator() || !ssa_it->input(!i).is_num())
                                 continue;
 
+                            if(carry_used(*ssa_it))
+                                continue;
+
                             locator_t const loc = ssa_it->input(i).locator();
 
                             if(loc.is() == IS_PTR)
@@ -475,6 +478,9 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         if(ssa_it->input(0).is_locator() && ssa_it->input(1).is_num())
                         {
                             locator_t const loc = ssa_it->input(0).locator();
+
+                            if(carry_used(*ssa_it))
+                                continue;
 
                             if(loc.is() == IS_PTR)
                             {
@@ -924,8 +930,9 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
         if(!def_op)
             continue;
         
-        // Carries must be constant numbers:
-        if(def_op == SSA_add && !ssa_it->input(2).is_num())
+        // Carries must be constant numbers.
+        // Likewise, the node's carry can't be used.
+        if(def_op == SSA_add && (!ssa_it->input(2).is_num() || carry_used(*ssa_it)))
             continue;
 
         d.post_dom = bs_pool.alloc(bs_size);

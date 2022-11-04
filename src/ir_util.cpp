@@ -1,6 +1,9 @@
 #include "ir_util.hpp"
 
+#include "flat/small_set.hpp"
+
 #include "globals.hpp"
+#include "worklist.hpp"
 
 bool io_pure(ssa_node_t const& ssa_node)
 {
@@ -57,4 +60,53 @@ unsigned estimate_cost(ssa_node_t const& ssa_node)
     cost = std::max<unsigned>(cost, ssa_node.type().size_of());
 
     return cost;
+}
+
+void steal_ssa_after(ssa_ht ssa, cfg_ht steal_dest)
+{
+    cfg_ht const cfg = ssa->cfg_node();
+
+    // Determine the set of ssa nodes to occur before the branch
+    fc::small_set<ssa_ht, 32> pre;
+    pre.container.reserve(cfg->ssa_size());
+    pre.insert(ssa);
+
+    // All phi nodes are in 'pre':
+    for(ssa_ht ssa_it = cfg->ssa_begin(); ssa_it; ++ssa_it)
+        if(ssa_it->op() == SSA_phi)
+            pre.insert(ssa_it);
+
+    // All inputs to 'ssa' are in pre, recursively:
+    assert(ssa_worklist.empty());
+    ssa_worklist.push(ssa);
+    while(!ssa_worklist.empty())
+    {
+        ssa_ht h = ssa_worklist.pop();
+
+        assert(h);
+        assert(h->cfg_node() == cfg);
+        
+        // Handle inputs: (this modifies 'pre')
+        unsigned const input_size = h->input_size();
+        for(unsigned i = 0; i < input_size; ++i)
+            if(ssa_ht const input = h->input(i).maybe_handle())
+                if(input->cfg_node() == cfg && pre.insert(input).second)
+                    ssa_worklist.push(input);
+
+        // Handle daisy: (this modifies 'h' and 'pre')
+        if(h->in_daisy() && (h = h->prev_daisy()) && pre.insert(h).second)
+            ssa_worklist.push(h);
+    }
+
+    // Transfer the the nodes:
+
+    bc::small_vector<ssa_ht, 32> to_steal;
+    for(ssa_ht h = cfg->ssa_begin(); h; ++h)
+        if(!pre.count(h))
+            to_steal.push_back(h);
+
+    for(ssa_ht h : to_steal)
+        steal_dest->steal_ssa(h, true);
+
+    assert(ssa->cfg_node() == cfg);
 }

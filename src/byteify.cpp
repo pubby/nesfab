@@ -2,11 +2,14 @@
 
 #include <array>
 #include <iostream> // TODO: remove
+#include <fstream> // TODO: remove
+#include "graphviz.hpp" // TODO: remvoe
 
 #include <boost/container/small_vector.hpp>
 
 #include "globals.hpp"
 #include "ir.hpp"
+#include "ir_util.hpp"
 #include "worklist.hpp"
 #include "format.hpp"
 
@@ -148,6 +151,11 @@ static void _split_vanishing(ssa_ht ssa_node)
             ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, data.bm[i - 1]);
             for(; i < end; ++i)
                 data.bm[i] = extension;
+
+            // Created a node, so we have to resize:
+            ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
+            //extension.handle().data<ssa_byteify_d>().bm = zero_bm;
+            //extension.handle().data<ssa_byteify_d>().bm[i] = extension;
         }
 
         std::cout << "CASTY " <<  ssa_node << ssa_node->type() << data.bm[max_frac_bytes] << std::endl;
@@ -199,8 +207,16 @@ static void _split_vanishing(ssa_ht ssa_node)
 void byteify(ir_t& ir, fn_t const& fn)
 {
     // First prepare the IR with some transformations:
+    insert_signed_mul_subtractions(ir);
     shifts_to_rotates(ir);
     // OK! IR prepared.
+
+    {
+        std::ofstream ossa("graphs/shrek.gv");
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+
 
     ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(ssa_pool::array_size());
 
@@ -654,8 +670,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                     if(input.holds_ref() && input.type() != TYPE_VOID)
                     {
                         bm_t const bm = _get_bm(input);
-                        passert(bm[max_frac_bytes], ssa_it, input);
-                        ssa_it->link_change_input(i, bm[max_frac_bytes]);
+                        //passert(bm[max_frac_bytes], ssa_it, input, ssa_it->op(), input.type());
+                        if(bm[max_frac_bytes])
+                            ssa_it->link_change_input(i, bm[max_frac_bytes]);
                     }
                 }
             }
@@ -862,9 +879,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 type_t const lhs_type = lhs.type();
                 type_t const rhs_type = rhs.type();
 
-                // TODO: implement signed
-                assert(!is_signed(lhs_type.name()));
-                assert(!is_signed(rhs_type.name()));
+                cfg_ht const cfg = ssa_node->cfg_node();
 
                 int const lhs_begin = begin_byte(lhs_type.name());
                 int const lhs_end = end_byte(lhs_type.name());
@@ -876,22 +891,20 @@ void byteify(ir_t& ir, fn_t const& fn)
                 int const result_end = end_byte(t);
                 int const sum_begin = result_begin * 2 - max_frac_bytes;
 
-                cfg_ht const cfg = ssa_node->cfg_node();
-
                 std::array<bc::small_vector<ssa_value_t, max_total_bytes>, max_total_bytes + max_frac_bytes> to_sum;
 
                 for(int li = lhs_begin; li < lhs_end; ++li)
                 for(int ri = rhs_begin; ri < rhs_end; ++ri)
                 {
                     int const lo_i = li + ri;
-                    if(lo_i - max_frac_bytes >= result_end)
+                    if(lo_i - int(max_frac_bytes) >= result_end)
                         continue;
 
                     ssa_ht const lo = cfg->emplace_ssa(SSA_mul8_lo, TYPE_U, lhs_bm[li], rhs_bm[ri]);
                     to_sum[lo_i].push_back(lo);
 
                     int const hi_i = lo_i + 1;
-                    if(hi_i - max_frac_bytes >= result_end)
+                    if(hi_i - int(max_frac_bytes) >= result_end)
                         continue;
 
                     ssa_ht const hi = cfg->emplace_ssa(SSA_mul8_hi, TYPE_U, lo);
@@ -1054,6 +1067,97 @@ void byteify(ir_t& ir, fn_t const& fn)
             ssa_it->set_type(TYPE_U);
 }
 
+// Converts signed multiplies to unsigned,
+// which is a necessary prerequisite to byteify.
+bool insert_signed_mul_subtractions(ir_t& ir)
+{
+    bool updated = false;
+
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+    {
+        if(ssa_it->op() != SSA_mul)
+            continue;
+
+        type_t const type = ssa_it->type();
+        if(!is_signed(type.name()))
+            continue;
+
+        ssa_value_t const lhs = ssa_it->input(0);
+        ssa_value_t const rhs = ssa_it->input(1);
+        
+        type_t const lhs_type = lhs.type();
+        type_t const rhs_type = rhs.type();
+
+        assert(is_signed(lhs_type.name()));
+        assert(is_signed(rhs_type.name()));
+
+        unsigned const lhs_whole = whole_bytes(lhs_type.name());
+        unsigned const rhs_whole = whole_bytes(rhs_type.name());
+
+        unsigned const lhs_begin = begin_byte(lhs_type.name());
+        unsigned const rhs_begin = begin_byte(rhs_type.name());
+        unsigned const result_end = end_byte(type.name());
+
+        // Check if negative 'lhs' needs to be handled:
+        bool const handle_lhs = rhs_begin + lhs_whole < result_end;
+
+        // Check if negative 'rhs' needs to be handled:
+        bool const handle_rhs = lhs_begin + rhs_whole < result_end;
+
+        if(!handle_lhs && !handle_rhs)
+            continue;
+
+        cfg_ht prev_cfg = cfg_it;
+        cfg_ht const post_cfg = ir.emplace_cfg();
+
+        ssa_ht prev = ssa_it;
+        ssa_ht const result = prev_cfg->emplace_ssa(SSA_cast, type);
+
+        ssa_it->replace_with(INPUT_VALUE, result);
+
+        post_cfg->steal_outputs(*cfg_it);
+        steal_ssa_after(ssa_it, post_cfg);
+        assert(result->cfg_node() == post_cfg);
+
+        auto const handler = [&](unsigned shift_amount, ssa_value_t self, ssa_value_t other)
+        {
+            cfg_ht const neg_cfg = ir.emplace_cfg();
+            ssa_ht const cast = neg_cfg->emplace_ssa(SSA_cast, type, other);
+            ssa_ht const shift = neg_cfg->emplace_ssa(SSA_shl, type, cast, ssa_value_t(shift_amount * 8u, TYPE_U));
+            ssa_ht const sub = neg_cfg->emplace_ssa(SSA_sub, type, prev, shift, ssa_value_t(1u, TYPE_BOOL));
+
+            cfg_ht const join_cfg = ir.emplace_cfg();
+            ssa_ht const join_phi = join_cfg->emplace_ssa(SSA_phi, type);
+            neg_cfg->link_append_output(join_cfg, [&](ssa_ht phi){ assert(phi == join_phi); return sub; });
+
+            assert(prev_cfg->output_size() == 0);
+            ssa_ht const condition = prev_cfg->emplace_ssa(SSA_sign, TYPE_BOOL, self);
+            ssa_ht const branch = prev_cfg->emplace_ssa(SSA_if, TYPE_VOID, condition);
+            branch->append_daisy();
+            prev_cfg->link_append_output(join_cfg, [&](ssa_ht phi){ assert(phi == join_phi); return prev; });
+            prev_cfg->link_append_output(neg_cfg, [](ssa_ht phi){ assert(false); return ssa_value_t{}; });
+            assert(prev_cfg->output_size() == 2);
+
+            prev = join_phi;
+            prev_cfg = join_cfg;
+        };
+
+        if(handle_lhs)
+            handler(lhs_whole, lhs, rhs);
+        if(handle_rhs)
+            handler(rhs_whole, rhs, lhs);
+
+        result->link_append_input(prev);
+        prev_cfg->link_append_output(post_cfg, [](ssa_ht phi){ assert(false); return ssa_value_t{}; });
+
+        updated = true;
+        ir.assert_valid();
+    }
+
+    return updated;
+}
+
 // Expands shifts into rotates.
 // Returns true if the IR was modified.
 bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
@@ -1112,63 +1216,14 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             continue;
         }
 
-        // Determine the set of ssa nodes to occur before the loop
-        fc::small_set<ssa_ht, 32> pre;
-        pre.container.reserve(cfg_it->ssa_size());
-
-        // All phi nodes are in 'pre':
-        for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
-            if(ssa_it->op() == SSA_phi)
-                pre.insert(ssa_it);
-
-        // All inputs to 'ssa_it' are in pre, recursively:
-        assert(ssa_worklist.empty());
-        ssa_worklist.push(ssa_it);
-        while(!ssa_worklist.empty())
-        {
-            ssa_ht h = ssa_worklist.pop();
-
-            assert(h);
-            assert(h->cfg_node() == cfg_it);
-            
-            // Handle inputs: (this modifies 'pre')
-            unsigned const input_size = h->input_size();
-            for(unsigned i = 0; i < input_size; ++i)
-                if(ssa_ht const input = h->input(i).maybe_handle())
-                    if(input->cfg_node() == cfg_it && pre.insert(input).second)
-                        ssa_worklist.push(input);
-
-            // Handle daisy: (this modifies 'h' and 'pre')
-            if(h->in_daisy() && (h = h->prev_daisy()) && pre.insert(h).second)
-                ssa_worklist.push(h);
-        }
-
-        assert(!pre.count(ssa_it));
-
         // Split the cfg node
         cfg_ht const loop_head = ir.emplace_cfg();
         cfg_ht const loop_body = ir.emplace_cfg();
         cfg_ht const post_node = ir.emplace_cfg();
         cfg_ht const pre_node = cfg_it;
-        
-        // Transfer nodes not in 'pre' to 'post_node', starting with daisy:
-        bc::small_vector<ssa_ht, 32> to_steal;
-        ssa_ht daisy = cfg_it->first_daisy();
-        while(daisy && pre.count(daisy)) // Find the first daisy not in 'pre'
-            daisy = daisy->next_daisy();
-        for(; daisy; daisy = daisy->next_daisy()) // Add the rest to 'post_node'
-        {
-            assert(!pre.count(daisy));
-            to_steal.push_back(daisy);
-        }
 
-        // Transfer the rest of the nodes:
-        for(ssa_ht h = cfg_it->ssa_begin(); h; ++h)
-            if(!pre.count(h))
-                to_steal.push_back(h);
-
-        for(ssa_ht steal : to_steal)
-            post_node->steal_ssa(steal, true);
+        // Transfer nodes occuring after 'ssa_it' to 'post_node':
+        steal_ssa_after(ssa_it, post_node);
 
         // Setup 'loop_head':
         loop_head->alloc_output(2);
@@ -1181,19 +1236,10 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
         assert(loop_head->input(loop_to_head) == loop_body);
 
         // Setup 'post_node':
-        //post_node->alloc_output(pre_node->output_size());
-        for(unsigned i = 0; i < pre_node->output_size(); ++i)
-        {
-            // Copy all of 'pre_node's outputs to 'post_node'.
-            auto const oe = pre_node->output_edge(i);
-            post_node->link_append_output(oe.handle, [&](ssa_ht phi) -> ssa_value_t
-            {
-                return phi->input(oe.index);
-            });
-        }
+        post_node->steal_outputs(*pre_node);
 
         // Setup 'pre_node':
-        pre_node->link_clear_outputs();
+        assert(pre_node->input_size() == 0);
         unsigned const pre_to_head = pre_node->link_append_output(
             loop_head, [](ssa_ht phi) -> ssa_value_t { assert(false); return {}; });
         assert(loop_head->input(pre_to_head) == pre_node);
@@ -1221,7 +1267,7 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
                carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, loop_result);
             loop_shift = loop_body->emplace_ssa(SSA_ror, type, loop_result, carry);
         }
-        ssa_ht const loop_incr  = loop_body->emplace_ssa(
+        ssa_ht const loop_incr = loop_body->emplace_ssa(
             SSA_add, TYPE_U, loop_i_phi, ssa_value_t(1u, TYPE_U), ssa_value_t(0u, TYPE_BOOL));
 
         // Setup phis using indexes saved earlier.

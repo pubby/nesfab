@@ -687,7 +687,6 @@ namespace isel
         }
         else if(cpu.def_eq(REG_X, v))
         {
-            std::cout << "LOADNZ " << v << " | " << cpu.defs[REG_N] << " | "  << cpu.defs[REG_Z] << std::endl;
             chain
             < simple_op<typename Opt::unrestrict<REGF_X>, INX_IMPLIED>
             , simple_op<typename Opt::unrestrict<REGF_X>, DEX_IMPLIED, Def>

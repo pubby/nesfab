@@ -129,6 +129,8 @@ std::size_t constraints_size(ssa_node_t const& node)
     {
     case SSA_add:
     case SSA_sub:
+    case SSA_shl:
+    case SSA_shr:
     case SSA_rol:
     case SSA_ror:
         return 2; // Second constraint is for the carry.

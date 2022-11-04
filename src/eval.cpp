@@ -652,6 +652,8 @@ void eval_t::interpret_stmts()
     {
         check_time();
 
+        std::cout << to_string(stmt->name) << std::endl;
+
         switch(stmt->name)
         {
         default: // Handles var inits
@@ -672,10 +674,7 @@ void eval_t::interpret_stmts()
                     expr_value_t v = do_var_init_expr<D>(var_i, *stmt->expr);
 
                     if(is_interpret(D))
-                    {
-                        assert(interpret_locals[var_i].empty());
                         interpret_locals[var_i] = std::move(v.rval());
-                    }
                 }
                 else if(is_interpret(D))
                 {
@@ -1961,9 +1960,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 case fnv1a<std::uint64_t>::hash('c'): shift =  2; break;
                 case fnv1a<std::uint64_t>::hash('b'): shift =  1; break;
                 case fnv1a<std::uint64_t>::hash('a'): shift =  0; break;
-                case fnv1a<std::uint64_t>::hash('x'): shift = -1; break;
+                case fnv1a<std::uint64_t>::hash('z'): shift = -1; break;
                 case fnv1a<std::uint64_t>::hash('y'): shift = -2; break;
-                case fnv1a<std::uint64_t>::hash('z'): shift = -3; break;
+                case fnv1a<std::uint64_t>::hash('x'): shift = -3; break;
                 default:
                 bad_accessor:
                     file_contents_t file(ast.token.pstring.file_i);
@@ -2131,7 +2130,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 // The [0] argument holds the fn_t ptr.
                 fn_inputs.push_back(fn_expr.ssa());
 
-                
                 // For modes, the [1] argument references the stmt,
                 // otherwise it holds the bank, if necessary.
                 if(call->fclass == FN_MODE)
@@ -2827,6 +2825,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         array_val.lval().flags |= LVALF_INDEX_16;
                     assert(!array_val.lval().index);
                     array_val.lval().index = array_index.ssa();
+                    assert(array_val.lval().index);
                 }
             }
             else if(rval_t* rval_ptr = array_val.is_rval())
@@ -3095,6 +3094,24 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             static ssa_op_t op() { return SSA_lte; }
         };
         return infix(&eval_t::do_compare<lte_p>, ast.token.type == TOK_gte);
+
+    case TOK_asterisk:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        struct multiply_p : do_wrapper_t<D>
+        {
+            static S interpret(S lhs, S rhs) { return fixed_mul(lhs, rhs); }
+            static ssa_op_t op() { return SSA_mul; }
+        };
+        return infix(&eval_t::do_arith<multiply_p>);
+
+    case TOK_times_assign:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_arith<multiply_p>, false, true);
+
 
     case TOK_plus:
         // TODO
@@ -3696,10 +3713,10 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
         else
         {
-            assert(false);
-            /* TODO
-            if(lhs.atom)
+            if(lval->atom >= 0)
             {
+                assert(false);
+                /*
                 assert(local.size() == 1);
 
                 type_t const mt = member_type(var_types[lhs.var_i], lhs.member);
@@ -3725,9 +3742,9 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 u &= ~mask;
                 u |= replace;
                 local[lhs.member] = ssa_value_t(u, mt.name());
+                */
             }
             else
-            */
             {
                 for(unsigned i = 0; i < rval.size(); ++i)
                     local[i + lval->member] = rval[i];

@@ -39,5 +39,12 @@ constexpr bool is_byte(fixed_t fixed)
     return (fixed.value & (0xFFull << fixed_t::shift)) == fixed.value;
 }
 
+inline fixed_sint_t fixed_mul(fixed_sint_t lhs, fixed_sint_t rhs)
+{
+    __int128 lhs128 = lhs;
+    __int128 rhs128 = rhs;
+    return static_cast<fixed_sint_t>((lhs128 * rhs128) >> (fixed_t::shift));
+}
+
 #endif
 

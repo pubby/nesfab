@@ -30,6 +30,7 @@ constexpr unsigned SSAF_PRIO_SCHEDULE  = 1 << 19;
 constexpr unsigned SSAF_CONDITIONAL    = 1 << 20;
 constexpr unsigned SSAF_CHEAP_SCHEDULE = 1 << 21;
 constexpr unsigned SSAF_FREE           = 1 << 22;
+constexpr unsigned SSAF_EXPENSIVE      = 1 << 23;
 
 // Parameter indexes for SSA ops
 namespace ssai

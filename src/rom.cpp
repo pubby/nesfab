@@ -82,8 +82,15 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
     for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it;)
     {
         unsigned const input_size = ssa_it->input_size();
+        unsigned begin = 0;
+        unsigned end = input_size;
 
         std::cout << "SHREK ROM " << ssa_it << std::endl;
+
+        auto const is_uninitialized = [](ssa_value_t v)
+        {
+            return v.holds_ref() && v->op() == SSA_uninitialized;
+        };
 
         if(ssa_it->op() != SSA_init_array)
             goto next_iter;
@@ -93,17 +100,40 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
         // We're looking for SSA_init_arrays of all constants
         // TODO: Also handle arrays of *mostly* constants.
         for(unsigned i = 0; i < input_size; ++i)
-            if(!ssa_it->input(i).is_const())
+        {
+            ssa_value_t const input = ssa_it->input(i);
+            if(!input.is_const() && !is_uninitialized(input))
                 goto next_iter;
+        }
+
+        // If the beginning and/or end of the array is uninitialized,
+        // we don't have to include it.
+
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            ssa_value_t const input = ssa_it->input(i);
+            if(!is_uninitialized(input))
+                break;
+            ++begin;
+        }
+
+        for(unsigned i = input_size-1; i < input_size; --i)
+        {
+            ssa_value_t const input = ssa_it->input(i);
+            if(!is_uninitialized(input))
+                break;
+            --end;
+        }
 
         // Now build the rom_array_t
         {
+            unsigned const size = end - begin;
             loc_vec_t vec;
-            vec.resize(input_size);
+            vec.resize(size);
 
-            for(unsigned i = 0; i < input_size; ++i)
+            for(unsigned i = 0; i < size; ++i)
             {
-                ssa_value_t const input = ssa_it->input(i);
+                ssa_value_t const input = ssa_it->input(begin + i);
 
                 if(input.is_locator())
                     vec[i] = input.locator();
@@ -112,11 +142,16 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
                     passert((input.whole() & 0xFF) == input.whole(), input.whole());
                     vec[i] = locator_t::const_byte(input.whole());
                 }
+                else if(is_uninitialized(input))
+                    vec[i] = locator_t::const_byte(0);
                 else
                     assert(false);
             }
 
-            ssa_it->replace_with(locator_t::rom_array(rom_array_t::make(std::move(vec))));
+            locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec)));
+            loc.advance_offset(-begin);
+
+            ssa_it->replace_with(loc);
             ssa_it = ssa_it->prune();
             continue;
         }

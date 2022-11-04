@@ -850,6 +850,114 @@ void byteify(ir_t& ir, fn_t const& fn)
             }
             break;
 
+        // Multiplying 
+        case SSA_mul:
+            {
+                ssa_value_t const lhs = ssa_node->input(0);
+                ssa_value_t const rhs = ssa_node->input(1);
+
+                bm_t const lhs_bm = _get_bm(lhs);
+                bm_t const rhs_bm = _get_bm(rhs);
+
+                type_t const lhs_type = lhs.type();
+                type_t const rhs_type = rhs.type();
+
+                // TODO: implement signed
+                assert(!is_signed(lhs_type.name()));
+                assert(!is_signed(rhs_type.name()));
+
+                int const lhs_begin = begin_byte(lhs_type.name());
+                int const lhs_end = end_byte(lhs_type.name());
+
+                int const rhs_begin = begin_byte(rhs_type.name());
+                int const rhs_end = end_byte(rhs_type.name());
+
+                int const result_begin = begin_byte(t);
+                int const result_end = end_byte(t);
+                int const sum_begin = result_begin * 2 - max_frac_bytes;
+
+                cfg_ht const cfg = ssa_node->cfg_node();
+
+                std::array<bc::small_vector<ssa_value_t, max_total_bytes>, max_total_bytes + max_frac_bytes> to_sum;
+
+                for(int li = lhs_begin; li < lhs_end; ++li)
+                for(int ri = rhs_begin; ri < rhs_end; ++ri)
+                {
+                    int const lo_i = li + ri;
+                    if(lo_i - max_frac_bytes >= result_end)
+                        continue;
+
+                    ssa_ht const lo = cfg->emplace_ssa(SSA_mul8_lo, TYPE_U, lhs_bm[li], rhs_bm[ri]);
+                    to_sum[lo_i].push_back(lo);
+
+                    int const hi_i = lo_i + 1;
+                    if(hi_i - max_frac_bytes >= result_end)
+                        continue;
+
+                    ssa_ht const hi = cfg->emplace_ssa(SSA_mul8_hi, TYPE_U, lo);
+                    to_sum[hi_i].push_back(hi);
+                }
+
+                // Now sum together all the multiplications:
+
+                for(int i = sum_begin; i < result_end; ++i)
+                {
+                    unsigned const a = i + max_frac_bytes;
+
+                    if(to_sum[a].empty())
+                        to_sum[a].push_back(ssa_value_t(0u, TYPE_U));
+                    else while(to_sum[a].size() >= 2)
+                    {
+                        ssa_value_t prev_carry = ssa_value_t(0u, TYPE_BOOL);
+
+                        for(int j = sum_begin; j < result_end; ++j)
+                        {
+                            unsigned const b = j + max_frac_bytes;
+
+                            ssa_value_t lhs = ssa_value_t(0u, TYPE_U);
+                            ssa_value_t rhs = ssa_value_t(0u, TYPE_U);
+
+                            if(!to_sum[b].empty())
+                            {
+                                lhs = to_sum[b].back();
+                                to_sum[b].pop_back();
+                            }
+
+                            if(!to_sum[b].empty())
+                            {
+                                rhs = to_sum[b].back();
+                                to_sum[b].pop_back();
+                            }
+
+                            ssa_ht const add = cfg->emplace_ssa(SSA_add, TYPE_U, lhs, rhs, prev_carry);
+                            ssa_ht const carry = cfg->emplace_ssa(SSA_carry, TYPE_BOOL, add);
+
+                            to_sum[b].push_back(add);
+                            prev_carry = carry;
+                        }
+                    }
+
+                    assert(to_sum[a].size() == 1);
+                }
+
+                // Now generate the final bm:
+
+                for(int i = result_begin; i < result_end; ++i)
+                {
+                    ssa_ht split = d.bm[i].handle();
+
+                    unsigned const a = i + max_frac_bytes;
+                    assert(to_sum[a].size() == 1);
+
+                    split->alloc_input(1);
+                    split->build_set_input(0, to_sum[a].back());
+                    split->unsafe_set_op(SSA_cast);
+                }
+
+                prune_nodes.push_back(ssa_node);
+            }
+            break;
+
         case SSA_read_array8:
             {
                 using namespace ssai::array;
@@ -908,8 +1016,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 unsigned const end = end_byte(t);
                 for(unsigned i = start; i < end; ++i)
                 {
-                    ssa_value_t split = d.bm[i];
-                    assert(split.holds_ref());
+                    ssa_ht split = d.bm[i].handle();
 
                     loc.set_atom(i - start);
 
@@ -990,14 +1097,14 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             // Otherwise replace with N rotates.
 
             ssa_value_t value = ssa_it->input(0);
-            ssa_value_t prev_carry = ssa_value_t(0u, TYPE_BOOL);
-            if(is_signed(type.name()))
-               prev_carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, ssa_it);
 
             for(unsigned i = 0; i < num_shifts; ++i)
             {
-                value = cfg_it->emplace_ssa(shl ? SSA_rol : SSA_ror, type, value, prev_carry);
-                prev_carry = cfg_it->emplace_ssa(SSA_carry, TYPE_BOOL, value);
+                ssa_value_t carry = ssa_value_t(0u, TYPE_BOOL);
+                if(is_signed(type.name()))
+                   carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, ssa_it);
+
+                value = cfg_it->emplace_ssa(shl ? SSA_rol : SSA_ror, type, value, carry);
             }
 
             ssa_it->replace_with(value);

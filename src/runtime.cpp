@@ -73,11 +73,11 @@ ram_bitset_t alloc_runtime_ram()
     _rtram_spans[RTRAM_nmi_saved_y]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_counter]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_ready]       = {{ a.alloc_zp(1) }};
-    _rtram_spans[RTRAM_buttons_held]    = {{ a.alloc_zp(2) }};
-    _rtram_spans[RTRAM_buttons_pressed] = {{ a.alloc_zp(2) }};
+    //_rtram_spans[RTRAM_buttons_held]    = {{ a.alloc_zp(2) }}; TODO
+    //_rtram_spans[RTRAM_buttons_pressed] = {{ a.alloc_zp(2) }}; TODO
     _rtram_spans[RTRAM_mapper_state] = {{ a.alloc_zp(state_size(mapper().type)) }};
 
-    _rtram_spans[RTRAM_oam] = {{ a.alloc_non_zp(256, 256) }};
+    //_rtram_spans[RTRAM_oam] = {{ a.alloc_non_zp(256, 256) }}; TODO
 
     // Allocate optional stuff last, for a consistent memory layout.
     if(mapper().bankswitches())
@@ -231,10 +231,13 @@ static asm_proc_t make_reset()
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_ready));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
+
+    /* TODO: remove
     for(unsigned i = 0; i < 2; ++i)
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_buttons_held, i));
     for(unsigned i = 0; i < 2; ++i)
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_buttons_pressed, i));
+        */
 
     // Disable DMC IRQ
     proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x4010));
@@ -324,6 +327,49 @@ asm_proc_t make_bnrom_jmp_y_trampoline()
     proc.push_inst(TYA);
     proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
     proc.push_inst(JMP_INDIRECT, locator_t::runtime_ram(RTRAM_ptr_temp));
+
+    proc.initial_optimize();
+    return proc;
+}
+
+// From https://www.nesdev.org/wiki/8-bit_Multiply
+// @param A one factor
+// @param Y another factor
+// @return low 8 bits in A; high 8 bits in Y
+asm_proc_t make_mul8()
+{
+    asm_proc_t proc;
+
+    unsigned next_label_id = 0;
+
+    locator_t const early_return = proc.make_label(++next_label_id);
+    locator_t const prodlo = locator_t::runtime_ram(RTRAM_ptr_temp, 0);
+    locator_t const factor2 = locator_t::runtime_ram(RTRAM_ptr_temp, 1);
+
+    proc.push_inst(LSR_IMPLIED);
+    proc.push_inst(STA_ABSOLUTE, prodlo);
+    proc.push_inst(TYA_IMPLIED);
+    proc.push_inst(BEQ_RELATIVE, early_return);
+    proc.push_inst(DEY_IMPLIED);
+    proc.push_inst(STY_ZERO_PAGE, factor2);
+    proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
+
+    for(unsigned i = 0; i < 8; ++i)
+    {
+        locator_t const label = proc.make_label(++next_label_id);
+        if(i != 0)
+            proc.push_inst(ROR_ZERO_PAGE, prodlo);
+        proc.push_inst(BCC_RELATIVE, label);
+        proc.push_inst(ADC_ZERO_PAGE, factor2);
+        proc.push_inst(ASM_LABEL, label);
+        proc.push_inst(ROR_IMPLIED);
+    }
+
+    proc.push_inst(TAY_IMPLIED);
+    proc.push_inst(LDA_ZERO_PAGE, prodlo);
+    proc.push_inst(ROR_IMPLIED);
+    proc.push_inst(ASM_LABEL, early_return);
+    proc.push_inst(RTS_IMPLIED);
 
     proc.initial_optimize();
     return proc;
@@ -422,7 +468,7 @@ span_allocator_t alloc_runtime_rom()
 
     alloc(RTROM_jsr_y_trampoline, make_bnrom_jsr_y_trampoline(), ROMVF_ALL);
     alloc(RTROM_jmp_y_trampoline, make_bnrom_jmp_y_trampoline(), ROMVF_ALL);
-
+    alloc(RTROM_mul8, make_mul8(), ROMVF_ALL);
 
     auto tables = make_nmi_tables();
     alloc(RTROM_nmi_lo_table, std::move(tables.lo), ROMVF_IN_MODE, tables.alignment);

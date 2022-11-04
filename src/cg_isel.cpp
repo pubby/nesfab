@@ -2757,6 +2757,26 @@ namespace isel
             }
             break;
 
+        case SSA_mul:
+        case SSA_mul8_lo:
+            p_arg<2>::set(locator_t::runtime_rom(RTROM_mul8));
+
+            commutative(h, [&]()
+            {
+                chain
+                < load_A<Opt, p_lhs>
+                , load_Y<Opt, p_rhs>
+                , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<2>>
+                , simple_op<Opt, write_reg_op(REGF_CPU & ~(REGF_X | REGF_B))>
+                , store<Opt::template restrict_to<~REGF_X>, STA, p_def, p_def>
+                >(cpu, prev, cont);
+            });
+            break;
+
+        case SSA_mul8_hi:
+            store<Opt, STY, p_def, p_def>(cpu, prev, cont);
+            break;
+
         case SSA_and:
             commutative(h, [&]()
             {

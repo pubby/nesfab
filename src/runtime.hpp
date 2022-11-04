@@ -21,10 +21,7 @@ RT(nmi_saved_y) \
 RT(nmi_saved_bank) \
 RT(nmi_counter) \
 RT(nmi_ready) \
-RT(buttons_held) \
-RT(buttons_pressed) \
-RT(mapper_state) \
-RT(oam)
+RT(mapper_state)
 
 enum runtime_ram_name_t : std::uint16_t
 {
@@ -47,6 +44,7 @@ RT(reset) \
 RT(jmp_y_trampoline) \
 RT(jsr_y_trampoline) \
 RT(iota) \
+RT(mul8) 
 
 enum runtime_rom_name_t : std::uint16_t
 {

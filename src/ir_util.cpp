@@ -33,6 +33,9 @@ unsigned estimate_cost(ssa_node_t const& ssa_node)
     if(ssa_flags(ssa_node.op()) & SSAF_FREE)
         return 0;
 
+    if(ssa_flags(ssa_node.op()) & SSAF_EXPENSIVE)
+        return 256;
+
     if(ssa_flags(ssa_node.op()) & SSAF_CONDITIONAL)
         return 4; // somewhat arbitrary
 

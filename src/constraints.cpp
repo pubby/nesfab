@@ -531,6 +531,8 @@ ABSTRACT(SSA_replace_byte) = abstract_bottom;
 ABSTRACT(SSA_array_replace_byte) = abstract_bottom;
 ABSTRACT(SSA_read_array16_b) = abstract_bottom;
 ABSTRACT(SSA_write_array16_b) = abstract_bottom;
+ABSTRACT(SSA_mul8_lo) = abstract_bottom;
+ABSTRACT(SSA_mul8_hi) = abstract_bottom;
 
 ABSTRACT(SSA_carry) = ABSTRACT_FN
 {
@@ -850,6 +852,35 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
 ABSTRACT(SSA_add) = abstract_add_sub<true>;
 ABSTRACT(SSA_sub) = abstract_add_sub<false>;
 
+ABSTRACT(SSA_mul) = ABSTRACT_FN
+{
+    assert(argn == 2 && result.vec.size() >= 1);
+
+    if(handle_top(cv, argn, result))
+        return;
+
+    auto const& L = cv[0][0];
+    auto const& R = cv[1][0];
+    
+    fixed_sint_t const a = fixed_mul(L.bounds.min, R.bounds.min);
+    fixed_sint_t const b = fixed_mul(L.bounds.max, R.bounds.min);
+    fixed_sint_t const c = fixed_mul(L.bounds.min, R.bounds.max);
+    fixed_sint_t const d = fixed_mul(L.bounds.max, R.bounds.max);
+
+    fixed_sint_t const min = result[0].bounds.min = std::min({ a, b, c, d });
+    fixed_sint_t const max = result[0].bounds.max = std::max({ a, b, c, d });
+
+    auto const bottom = constraints_t::bottom(result.cm);
+    if(min < bottom.bounds.min || max > bottom.bounds.max)
+    {
+        result[0] = bottom;
+        return;
+    }
+
+    result[0].bits = from_bounds(result[0].bounds, result.cm);
+    assert(result[0].is_normalized(result.cm));
+};
+
 constraints_t abstract_eq(constraints_t lhs, constraints_mask_t lhs_cm, 
                           constraints_t rhs, constraints_mask_t rhs_cm,
                           bool sign_diff)
@@ -1164,6 +1195,15 @@ ABSTRACT(SSA_shl) = ABSTRACT_FN
         bits.known1 &= (bits.known1 << 1ull);
     }
 
+    // Calc the output carry:
+    fixed_uint_t const carry_out_bit = high_bit_only(mask) << 1;
+    result[1].bits = known_bits_t::bottom(CARRY_MASK);
+    if(bits.known0 & carry_out_bit)
+        result[1].bits.known0 |= 1ull << fixed_t::shift;
+    if(bits.known1 & carry_out_bit)
+        result[1].bits.known1 |= 1ull << fixed_t::shift;
+    result[1].bounds = from_bits(result[1].bits, CARRY_MASK);
+
     bits.known0 |= ~mask;
     bits.known1 &= mask;
 
@@ -1178,6 +1218,7 @@ ABSTRACT(SSA_shl) = ABSTRACT_FN
         bounds.max = from_bits(bits, result.cm).max;
 
     result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
+
 };
 
 ABSTRACT(SSA_shr) = ABSTRACT_FN
@@ -1207,13 +1248,13 @@ ABSTRACT(SSA_shr) = ABSTRACT_FN
     // Calc known bits
 
     known_bits_t bits = L.bits;
-    bits.known0 = (bits.known0 & mask) >> R_min;
-    bits.known1 = (bits.known1 & mask) >> R_min;
+    bits.known0 = ((bits.known0 & mask) << 1) >> R_min;
+    bits.known1 = ((bits.known1 & mask) << 1) >> R_min;
 
     if(L.bounds.min >= 0)
-        bits.known0 |= ~(mask >> R_min) & mask;
+        bits.known0 |= (~(mask >> R_min) & mask);
     else if(L.bounds.max < 0)
-        bits.known1 |= ~(mask >> R_min) & mask;
+        bits.known1 |= (~(mask >> R_min) & mask);
 
     for(unsigned i = R_min; i < R_max; ++i)
     {
@@ -1233,6 +1274,10 @@ ABSTRACT(SSA_shr) = ABSTRACT_FN
     assert(bounds.min <= bounds.max);
 
     result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
+
+    // For now, don't calculate the carry.
+    // TODO: calculate carry.
+    result[1] = constraints_t::bottom(CARRY_MASK);
 };
 
 ABSTRACT(SSA_rol) = ABSTRACT_FN
@@ -1260,7 +1305,7 @@ ABSTRACT(SSA_rol) = ABSTRACT_FN
     assert(V.is_normalized(V_cm));
     assert(C.is_normalized(cv[1].cm));
 
-    // Calc the out carry:
+    // Calc the output carry:
     fixed_uint_t const carry_out_bit = high_bit_only(mask);
     result[1].bits = known_bits_t::bottom(CARRY_MASK);
     if(V.bits.known0 & carry_out_bit)
@@ -1320,7 +1365,7 @@ ABSTRACT(SSA_ror) = ABSTRACT_FN
     assert(V.is_normalized(V_cm));
     assert(C.is_normalized(cv[1].cm));
 
-    // Calc the out carry:
+    // Calc the output carry:
     fixed_uint_t const carry_out_bit = low_bit_only(mask);
     result[1].bits = known_bits_t::bottom(CARRY_MASK);
     if(V.bits.known0 & carry_out_bit)
@@ -1792,6 +1837,8 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
 
 NARROW(SSA_add) = narrow_add_sub<true>;
 NARROW(SSA_sub) = narrow_add_sub<false>;
+
+NARROW(SSA_mul) = narrow_bottom;
 
 template<bool Eq>
 static void narrow_eq(constraints_def_t* cv, unsigned argn, constraints_def_t const& result)

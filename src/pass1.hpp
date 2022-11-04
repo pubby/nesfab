@@ -649,12 +649,12 @@ public:
         stmt_ht exit;
         if(is_do)
         {
-            fn_def.push_stmt({ STMT_END_DO_FOR, d.mods, d.begin, d.pstring, convert_eternal_expr(d.condition) });
+            exit = fn_def.push_stmt({ STMT_END_DO_FOR, d.mods, d.begin, d.pstring, convert_eternal_expr(d.condition) });
             fn_def[d.begin].link = exit;
         }
         else
         {
-            fn_def.push_stmt({ STMT_END_FOR, d.mods, d.begin });
+            exit = fn_def.push_stmt({ STMT_END_FOR, d.mods, d.begin });
             fn_def[d.begin].link = exit + 1;
         }
 

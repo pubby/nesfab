@@ -138,8 +138,8 @@ SSA_DEF(resize_array, 1, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_READ_ARRAY)
 // (array dest, new locator, array src) TODO
 // SSA_DEF(copy_array, 2, INPUT_ORDER, SSAF_WRITE_ARRAY | SSAF_READ_ARRAY) TODO
 
-// (value) TODO
-// SSA_DEF(fill_array, 3, INPUT_ORDER, 0) TODO
+// (value) - inits all elements of an array with 'value'
+SSA_DEF(fill_array, 1, INPUT_VALUE, 0)
 
 // (values...)
 SSA_DEF(init_array, -1, INPUT_VALUE, 0)

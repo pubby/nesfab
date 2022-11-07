@@ -148,14 +148,19 @@ static void _split_vanishing(ssa_ht ssa_node)
             // We have to sign extend!
             unsigned i = end_byte(input_type.name());
             assert(i > 0);
+            assert(data.bm[i - 1]);
             ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, data.bm[i - 1]);
+            if(data.bm[i - 1].holds_ref())
+                std::cout << "SHREK " << data.bm[i - 1] << ' ' << data.bm[i - 1]->op() << ' ' << extension << std::endl;
             for(; i < end; ++i)
                 data.bm[i] = extension;
+
+            extension->set_flags(FLAG_PROCESSED);
 
             // Created a node, so we have to resize:
             ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
             //extension.handle().data<ssa_byteify_d>().bm = zero_bm;
-            //extension.handle().data<ssa_byteify_d>().bm[i] = extension;
+            //extension.handle().data<ssa_byteify_d>().bm[max_frac_bytes] = extension;
         }
 
         std::cout << "CASTY " <<  ssa_node << ssa_node->type() << data.bm[max_frac_bytes] << std::endl;
@@ -658,6 +663,9 @@ void byteify(ir_t& ir, fn_t const& fn)
             assert(!(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS));
             assert(!fn_like(ssa_it->op()));
 
+            if(ssa_it->test_flags(FLAG_PROCESSED))
+                break;
+
             type_t const type = ssa_it->type();
             if(is_byteified(type.name()))
             {
@@ -1055,6 +1063,7 @@ void byteify(ir_t& ir, fn_t const& fn)
     // Prune nodes that are now unnecessary:
     for(ssa_ht h : prune_nodes)
     {
+        std::cout << "PRUNE " << h << std::endl;
         if(h->type() == TYPE_U)
             h->replace_with(h.data<ssa_byteify_d>().bm[max_frac_bytes]);
         h->prune();
@@ -1079,18 +1088,19 @@ bool insert_signed_mul_subtractions(ir_t& ir)
         if(ssa_it->op() != SSA_mul)
             continue;
 
-        type_t const type = ssa_it->type();
-        if(!is_signed(type.name()))
-            continue;
-
         ssa_value_t const lhs = ssa_it->input(0);
         ssa_value_t const rhs = ssa_it->input(1);
         
         type_t const lhs_type = lhs.type();
         type_t const rhs_type = rhs.type();
 
-        assert(is_signed(lhs_type.name()));
-        assert(is_signed(rhs_type.name()));
+        bool const lhs_signed = is_signed(lhs_type.name());
+        bool const rhs_signed = is_signed(rhs_type.name());
+
+        if(!lhs_signed && !rhs_signed)
+            continue;
+
+        type_t const type = ssa_it->type();
 
         unsigned const lhs_whole = whole_bytes(lhs_type.name());
         unsigned const rhs_whole = whole_bytes(rhs_type.name());
@@ -1100,10 +1110,10 @@ bool insert_signed_mul_subtractions(ir_t& ir)
         unsigned const result_end = end_byte(type.name());
 
         // Check if negative 'lhs' needs to be handled:
-        bool const handle_lhs = rhs_begin + lhs_whole < result_end;
+        bool const handle_lhs = lhs_signed && (rhs_begin + lhs_whole < result_end);
 
         // Check if negative 'rhs' needs to be handled:
-        bool const handle_rhs = lhs_begin + rhs_whole < result_end;
+        bool const handle_rhs = rhs_signed && (lhs_begin + rhs_whole < result_end);
 
         if(!handle_lhs && !handle_rhs)
             continue;

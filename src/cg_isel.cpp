@@ -3583,6 +3583,11 @@ namespace isel
             }
             break;
 
+        case SSA_fill_array:
+            // TODO
+            assert(0);
+            break;
+
         case SSA_read_ptr:
         case SSA_read_ptr_hw:
         case SSA_write_ptr:

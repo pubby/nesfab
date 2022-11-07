@@ -44,6 +44,8 @@ bool is_lt(rval_t const& rval);
 // Appends 'rval' onto 'vec'
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring);
 
+rval_t default_init(type_t type, pstring_t at);
+
 using lval_flags_t = std::uint8_t;
 constexpr lval_flags_t LVALF_IS_GLOBAL = 1 << 0;
 constexpr lval_flags_t LVALF_DID_PERIOD  = 1 << 1; // if operator '.' was used on the value

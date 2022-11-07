@@ -896,11 +896,9 @@ cfg_ht ir_t::prune_cfg(cfg_ht cfg_node)
     if(cfg_node->next)
         cfg_node->next->prev = cfg_node->prev;
 
-    // Dealt with root/exit handle.
+    // Dealt with root handle.
     if(cfg_node == root)
         root = {};
-    if(cfg_node == exit)
-        exit = {};
 
     // Free it
     cfg_node->destroy();
@@ -1016,6 +1014,13 @@ void ir_t::assert_valid() const
             {
                 // Currently unimplemented: links with daisy.
                 assert(ssa_input0_class(ssa_it->op()) != INPUT_LINK);
+            }
+
+            // phi checks
+            if(ssa_it->op() == SSA_phi)
+            {
+                for(unsigned i = 0; i < ssa_it->input_size(); ++i)
+                    passert(ssa_it->input(i).type() == ssa_it->type(), ssa_it->input(i).type(), ssa_it->type());
             }
 
             // Multi checks

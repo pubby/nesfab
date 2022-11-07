@@ -349,7 +349,6 @@ public:
     ir_t& operator=(ir_t&&) = delete;
 
     cfg_ht root = {};
-    cfg_ht exit = {};
 
     gmanager_t gmanager;
 

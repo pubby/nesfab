@@ -10,6 +10,10 @@ static constexpr unsigned max_frac_bytes = 3;
 static constexpr unsigned max_whole_bytes = 4;
 static constexpr unsigned max_total_bytes = max_frac_bytes + max_whole_bytes;
 
+static constexpr unsigned max_rt_frac_bytes = 3;
+static constexpr unsigned max_rt_whole_bytes = 3;
+static constexpr unsigned max_rt_total_bytes = max_rt_frac_bytes + max_rt_whole_bytes;
+
 #define FRAC_X \
     FIXED(0,1) FIXED(0,2) FIXED(0,3)\
 
@@ -173,7 +177,8 @@ constexpr unsigned whole_bytes(type_name_t type_name)
 {
     switch(type_name)
     {
-    default: return 0;
+    default: 
+        return 0;
     case TYPE_BOOL: 
         return 1;
     case TYPE_APTR:

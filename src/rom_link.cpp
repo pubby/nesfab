@@ -22,11 +22,6 @@ static void write_linked(
 
     for(std::size_t i = 0; i < size; ++i)
     {
-        std::cout << vec[i] << std::endl;
-    }
-
-    for(std::size_t i = 0; i < size; ++i)
-    {
         locator_t const loc = vec[i].link(romv, {}, bank);
 
         if(!is_const(loc.lclass()))

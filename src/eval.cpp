@@ -205,6 +205,9 @@ public:
     template<typename Policy>
     expr_value_t do_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
+    template<typename Policy>
+    expr_value_t do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& token);
+
     //template<typename Policy>
     //expr_value_t interpret_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
@@ -213,6 +216,9 @@ public:
 
     template<typename Policy>
     expr_value_t do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
+
+    template<typename Policy>
+    expr_value_t do_assign_mul(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     template<do_t D>
     expr_value_t do_logical(ast_node_t const& ast);
@@ -522,11 +528,11 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, local_const_t const* local_cons
         builder.return_values.push_back(std::move(array));
     }
 
-    ir->exit = insert_cfg(true);
+    cfg_ht const exit = insert_cfg(true);
 
     for(cfg_ht node : builder.return_jumps)
-        node->build_set_output(0, ir->exit);
-    end->build_set_output(0, ir->exit);
+        node->build_set_output(0, exit);
+    end->build_set_output(0, exit);
 
     // Write all globals at the exit:
     std::vector<ssa_value_t> return_inputs;
@@ -538,12 +544,12 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, local_const_t const* local_cons
 
         for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
         {
-            return_inputs.push_back(var_lookup(ir->exit, var_i, m->member()));
+            return_inputs.push_back(var_lookup(exit, var_i, m->member()));
             return_inputs.push_back(locator_t::gmember(m, 0));
         }
     });
 
-    ssa_ht ret = ir->exit->emplace_ssa(SSA_return, TYPE_VOID);
+    ssa_ht ret = exit->emplace_ssa(SSA_return, TYPE_VOID);
 
     // Append the return value, if it exists:
     if(return_type != TYPE_VOID)
@@ -551,7 +557,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t const& fn_ref, local_const_t const* local_cons
         unsigned const num_m = ::num_members(return_type);
         for(unsigned m = 0; m < num_m; ++m)
         {
-            ssa_ht phi = ir->exit->emplace_ssa(SSA_phi, member_type(return_type, m));
+            ssa_ht phi = exit->emplace_ssa(SSA_phi, member_type(return_type, m));
             
             unsigned const size = builder.return_values.size();
             phi->alloc_input(size);
@@ -813,10 +819,13 @@ void eval_t::interpret_stmts()
                         "Expecting return expression of type %.", return_type));
                 }
             }
-            return;
+            if(!is_check(D))
+                return;
+            ++stmt;
+            break;
 
         case STMT_END_FN:
-            if(!fn->iasm)
+            if(!is_check(D) && !fn->iasm)
             {
                 type_t return_type = fn->type().return_type();
                 if(return_type.name() != TYPE_VOID)
@@ -1481,6 +1490,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             case GLOBAL_VAR:
                 {
+                    std::cout << "CHOCK " << global->name << std::endl;
                     expr_value_t result =
                     {
                         .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
@@ -2568,6 +2578,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //if(!is_aggregate(type.name()) && handle_lt<D>(rpn_stack, argn, token-1, token+1))
                 //break;
 
+            if(num_args == 0)
+            {
+                expr_value_t result = { .type = type, .pstring = ast.token.pstring };
+                if(!is_check(D))
+                    result.val = default_init(type, ast.token.pstring);
+                return result;
+            }
+
             auto const check_argn = [&](unsigned size)
             { 
                 if(num_args != size)
@@ -2583,6 +2601,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(type.name() == TYPE_STRUCT)
                 {
                     struct_t const& s = type.struct_();
+
                     check_argn(s.fields().size());
 
                     type_t* const types = ALLOCA_T(type_t, s.fields().size());
@@ -2621,12 +2640,47 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
                 else if(type.name() == TYPE_TEA)
                 {
-                    if(num_args == 1 && args[0].type.name() == TYPE_TEA)
+                    if(num_args == 1)
                     {
-                        if(type.size() == 0)
-                            type.unsafe_set_size(args[0].type.size());
+                        if(args[0].type.name() == TYPE_TEA)
+                        {
+                            if(type.size() == 0)
+                                type.unsafe_set_size(args[0].type.size());
 
-                        return throwing_cast<D>(std::move(args[0]), type, false);
+                            return throwing_cast<D>(std::move(args[0]), type, false);
+                        }
+                        else if(type.size() != 0)
+                        {
+                            // Generate a fill.
+
+                            expr_value_t fill_with = throwing_cast<D>(std::move(args[0]), type.elem_type(), false);
+
+                            unsigned const num_m = num_members(type);
+                            unsigned const size = type.size();
+                            assert(size);
+                            assert(num_m == num_members(type.elem_type()));
+
+                            if(!is_check(D))
+                            {
+                                passert(num_m == fill_with.rval().size(), num_m, fill_with.rval().size());
+
+                                rval_t new_rval;
+                                new_rval.reserve(num_m);
+
+                                for(unsigned m = 0; m < num_m; ++m)
+                                {
+                                    ct_array_t array = make_ct_array(size);
+                                    for(unsigned i = 0; i < size; ++i)
+                                        array[i] = std::get<ssa_value_t>(fill_with.rval()[m]);
+                                    new_rval.push_back(std::move(array));
+                                }
+
+                                result.val = std::move(new_rval);
+                            }
+
+                            result.type = type;
+                            return result;
+                        }
                     }
 
                     if(type.size() == 0)
@@ -3058,7 +3112,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct eq_p : do_wrapper_t<D>
         {
-            static bool interpret(S lhs, S rhs) { return lhs == rhs; }
+            static bool interpret(S lhs, S rhs, pstring_t) { return lhs == rhs; }
             static ssa_op_t op() { return SSA_eq; }
         };
         return infix(&eval_t::do_compare<eq_p>);
@@ -3068,7 +3122,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct not_eq_p : do_wrapper_t<D>
         {
-            static bool interpret(S lhs, S rhs) { return lhs != rhs; }
+            static bool interpret(S lhs, S rhs, pstring_t) { return lhs != rhs; }
             static ssa_op_t op() { return SSA_not_eq; }
         };
         return infix(&eval_t::do_compare<not_eq_p>);
@@ -3079,7 +3133,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct lt_p : do_wrapper_t<D>
         {
-            static bool interpret(S lhs, S rhs) { return lhs < rhs; }
+            static bool interpret(S lhs, S rhs, pstring_t) { return lhs < rhs; }
             static ssa_op_t op() { return SSA_lt; }
         };
         return infix(&eval_t::do_compare<lt_p>, ast.token.type == TOK_gt);
@@ -3090,7 +3144,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct lte_p : do_wrapper_t<D>
         {
-            static bool interpret(S lhs, S rhs) { return lhs <= rhs; }
+            static bool interpret(S lhs, S rhs, pstring_t) { return lhs <= rhs; }
             static ssa_op_t op() { return SSA_lte; }
         };
         return infix(&eval_t::do_compare<lte_p>, ast.token.type == TOK_gte);
@@ -3101,17 +3155,38 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct multiply_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, S rhs) { return fixed_mul(lhs, rhs); }
+            static S interpret(S lhs, S rhs, pstring_t) { return fixed_mul(lhs, rhs); }
             static ssa_op_t op() { return SSA_mul; }
         };
-        return infix(&eval_t::do_arith<multiply_p>);
+        return infix(&eval_t::do_mul<multiply_p>);
 
     case TOK_times_assign:
         // TODO
         //if(handle_lt<D>(rpn_stack, 2, *token))
             //break;
-        return infix(&eval_t::do_assign_arith<multiply_p>, false, true);
+        return infix(&eval_t::do_assign_mul<multiply_p>, false, true);
 
+    case TOK_fslash:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        struct div_p : do_wrapper_t<D>
+        {
+            static S interpret(S lhs, S rhs, pstring_t at) 
+            { 
+                if(!rhs)
+                    compiler_error(at, "Division by zero.");
+                return fixed_div(lhs, rhs); 
+            }
+            static ssa_op_t op() { return SSA_null; }
+        };
+        return infix(&eval_t::do_arith<div_p>);
+
+    case TOK_div_assign:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_arith<div_p>, false, true);
 
     case TOK_plus:
         // TODO
@@ -3119,7 +3194,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct plus_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, S rhs) { return lhs + rhs; }
+            static S interpret(S lhs, S rhs, pstring_t) { return lhs + rhs; }
             static ssa_op_t op() { return SSA_add; }
         };
         return infix(&eval_t::do_arith<plus_p>);
@@ -3136,7 +3211,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct minus_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, S rhs) { return lhs - rhs; }
+            static S interpret(S lhs, S rhs, pstring_t) { return lhs - rhs; }
             static ssa_op_t op() { return SSA_sub; }
         };
         return infix(&eval_t::do_arith<minus_p>);
@@ -3152,7 +3227,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct bitwise_and_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, S rhs) { return lhs & rhs; }
+            static S interpret(S lhs, S rhs, pstring_t) { return lhs & rhs; }
             static ssa_op_t op() { return SSA_and; }
         };
         return infix(&eval_t::do_arith<bitwise_and_p>);
@@ -3168,7 +3243,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct bitwise_or_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, S rhs) { return lhs | rhs; }
+            static S interpret(S lhs, S rhs, pstring_t) { return lhs | rhs; }
             static ssa_op_t op() { return SSA_or; }
         };
         return infix(&eval_t::do_arith<bitwise_or_p>);
@@ -3184,7 +3259,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct bitwise_xor_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, S rhs) { return lhs ^ rhs; }
+            static S interpret(S lhs, S rhs, pstring_t) { return lhs ^ rhs; }
             static ssa_op_t op() { return SSA_xor; }
         };
         return infix(&eval_t::do_arith<bitwise_xor_p>);
@@ -3200,7 +3275,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct lshift_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, std::uint8_t shift) { return lhs << shift; }
+            static S interpret(S lhs, std::uint8_t shift, pstring_t) { return lhs << shift; }
             static ssa_op_t op() { return SSA_shl; }
         };
         return infix(&eval_t::do_shift<lshift_p>);
@@ -3216,7 +3291,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         struct rshift_p : do_wrapper_t<D>
         {
-            static S interpret(S lhs, std::uint8_t shift) { return lhs >> shift; }
+            static S interpret(S lhs, std::uint8_t shift, pstring_t) { return lhs >> shift; }
             static ssa_op_t op() { return SSA_shr; }
         };
         return infix(&eval_t::do_shift<rshift_p>);
@@ -3375,7 +3450,10 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             case GLOBAL_VAR:
                 if(precheck_tracked)
+                {
                     precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), v.pstring);
+                    std::cout << "CHECKOV " << global.name << std::endl;
+                }
                 if(is_compile(D))
                 {
                     lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
@@ -3556,8 +3634,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
         if(global.gclass() == GLOBAL_VAR)
         {
-            std::cout << "GVAR " << global.name << std::endl;
-
             if(!is_check(D))
                 lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
 
@@ -3758,22 +3834,24 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
         if(lval->index)
         {
-            type_t const mt = member_type(var_types[lval->var_i()], lval->member);
-            assert(mt.name() == TYPE_TEA);
-
             for(unsigned i = 0; i < rval.size(); ++i)
             {
                 //ssa_ht read = lhs.ssa(i).handle();
                 //assert(read->op() == SSA_read_array);
 
+                type_t const mt = member_type(var_types[lval->var_i()], lval->member + i);
+                assert(mt.name() == TYPE_TEA);
+
                 passert(rhs.type.name() != TYPE_TEA, rhs.type);
-                type_t const type = type_t::tea(rhs.type, mt.size(), rhs.pstring);
+                //passert(rhs.type == mt.elem_type(), rhs.type, mt.elem_type());
+
+                //type_t const type = type_t::tea(rhs.type, mt.size(), rhs.pstring);
                 //assert(type.name() == TYPE_TEA);
 
                 ssa_value_t const prev_array = var_lookup(builder.cfg, lval->var_i(), i);
 
                 ssa_ht write = builder.cfg->emplace_ssa(
-                    (lval->flags & LVALF_INDEX_16) ? SSA_write_array16 : SSA_write_array8, type,
+                    (lval->flags & LVALF_INDEX_16) ? SSA_write_array16 : SSA_write_array8, mt,
                     prev_array, ssa_value_t(0u, TYPE_U20), lval->index, std::get<ssa_value_t>(rval[i]));
 
                 local[i + lval->member] = write;
@@ -4065,7 +4143,7 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
     }
 
     if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
-        result.val = rval_t{ ssa_value_t(Policy::interpret(lhs.s(), rhs.s()), TYPE_BOOL) };
+        result.val = rval_t{ ssa_value_t(Policy::interpret(lhs.s(), rhs.s(), result.pstring), TYPE_BOOL) };
     else if(Policy::D == COMPILE)
     {
         // The implementation is kept simpler if both types being compared have the same size.
@@ -4274,12 +4352,17 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
             assert(is_masked(lhs.fixed(), lhs.type.name()));
             assert(is_masked(rhs.fixed(), rhs.type.name()));
 
-            fixed_t f = { Policy::interpret(lhs.s(), rhs.s()) };
+            fixed_t f = { Policy::interpret(lhs.s(), rhs.s(), result.pstring) };
             f.value &= numeric_bitmask(result.type.name());
             result.val = rval_t{ ssa_value_t(f, result.type.name()) };
         }
         else if(Policy::D == COMPILE)
+        {
+            if(!Policy::op())
+                compiler_error(result.pstring, "Cannot perform division at run-time.");
+
             return compile_binary_operator(lhs, rhs, Policy::op(), result.type, ssa_argn(Policy::op()) > 2);
+        }
     }
 
     return result;
@@ -4310,7 +4393,7 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
         assert(is_masked(lhs.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
 
-        fixed_t f = { Policy::interpret(lhs.s(), rhs.whole()) };
+        fixed_t f = { Policy::interpret(lhs.s(), rhs.whole(), result.pstring) };
         f.value &= numeric_bitmask(result_type.name());
         result.val = rval_t{ ssa_value_t(f, result_type.name()) };
     }
@@ -4324,6 +4407,59 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
         }
         return compile_binary_operator(std::move(lhs), std::move(rhs), Policy::op(), result_type);
     }
+
+    return result;
+}
+
+template<typename Policy>
+expr_value_t eval_t::do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+{
+    req_quantity(token, lhs, rhs);
+
+    expr_value_t result = { .pstring = concat(lhs.pstring, rhs.pstring) };
+
+    if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
+    {
+        result.type = rhs.type;
+        lhs = throwing_cast<Policy::D>(std::move(lhs), result.type, true);
+    }
+    else if(is_ct(rhs.type) && can_cast(rhs.type, lhs.type, true))
+    {
+        result.type = lhs.type;
+        rhs = throwing_cast<Policy::D>(std::move(rhs), result.type, true);
+    }
+    else
+    {
+        // Multiplications result in larger types:
+
+        unsigned const lhs_whole = whole_bytes(lhs.type.name());
+        unsigned const lhs_frac  =  frac_bytes(lhs.type.name());
+
+        unsigned const rhs_whole = whole_bytes(rhs.type.name());
+        unsigned const rhs_frac  =  frac_bytes(rhs.type.name());
+
+        unsigned const result_whole = std::min<unsigned>(lhs_whole + rhs_whole, max_rt_whole_bytes);
+        unsigned const result_frac  = std::min<unsigned>(lhs_frac  + rhs_frac,  max_rt_frac_bytes);
+
+        bool const result_sign = is_signed(lhs.type.name()) || is_signed(rhs.type.name());
+
+        result.type = type_s_or_u(result_whole, result_frac, result_sign);
+        passert(is_arithmetic(result.type.name()), result_whole, result_frac, result_sign);
+    }
+
+    passert(is_arithmetic(result.type.name()), result.type.name());
+
+    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+    {
+        assert(is_masked(lhs.fixed(), lhs.type.name()));
+        assert(is_masked(rhs.fixed(), rhs.type.name()));
+
+        fixed_t f = { Policy::interpret(lhs.s(), rhs.s(), result.pstring) };
+        f.value &= numeric_bitmask(result.type.name());
+        result.val = rval_t{ ssa_value_t(f, result.type.name()) };
+    }
+    else if(Policy::D == COMPILE)
+        return compile_binary_operator(std::move(lhs), std::move(rhs), Policy::op(), result.type);
 
     return result;
 }
@@ -4345,6 +4481,12 @@ template<typename Policy>
 expr_value_t eval_t::do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
     return do_assign<Policy::D>(std::move(lhs), do_shift<Policy>(to_rval<Policy::D>(lhs), rhs, token), token);
+}
+
+template<typename Policy>
+expr_value_t eval_t::do_assign_mul(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+{
+    return do_assign<Policy::D>(std::move(lhs), throwing_cast<Policy::D>(do_mul<Policy>(to_rval<Policy::D>(lhs), rhs, token), lhs.type, false), token);
 }
 
 template<eval_t::do_t D>
@@ -4929,9 +5071,20 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
             throw std::runtime_error("Cannot convert ct_array_t to ssa_value_t.");
         assert(num_members(type) == 1);
 
-        ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);
         unsigned const length = type.array_length();
         assert(length);
+
+        // Determine if the array is a fill.
+        ssa_value_t const first = (*array)[0];
+        for(unsigned i = 1; i < length; ++i)
+            if((*array)[i] != first)
+                goto not_fill;
+
+        // Fill:
+        return builder.cfg->emplace_ssa(SSA_fill_array, type, first);
+
+    not_fill:
+        ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);
         h->alloc_input(length);
         for(unsigned i = 0; i < length; ++i)
         {

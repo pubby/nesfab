@@ -189,6 +189,25 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     ssa_it->replace_with(array->input(ASSIGNMENT));
                     goto prune;
                 }
+
+                // Reading a fill replaces with the fill.
+                if(array.holds_ref() && array->op() == SSA_fill_array)
+                {
+                    ssa_it->replace_with(array->input(0));
+                    goto prune;
+                }
+
+                // Reading an init with a constant index can be replaced.
+                if(array.holds_ref() && array->op() == SSA_init_array
+                   && ssa_it->input(INDEX).is_num())
+                {
+                    std::uint16_t const index = ssa_it->input(INDEX).whole() + ssa_it->input(OFFSET).whole();
+                    if(index < array->type().array_length())
+                    {
+                        ssa_it->replace_with(array->input(index));
+                        goto prune;
+                    }
+                }
             }
             break;
 
@@ -533,8 +552,6 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 {
                     ssa_value_t const input = ssa_it->input(i);
                     ssa_value_t const other = ssa_it->input(!i);
-                    assert(is_signed(input.type().name()) == is_signed(other.type().name()));
-                    assert(is_signed(input.type().name()) == is_signed(ssa_it->type().name()));
 
                     if(!input.is_num())
                         continue;

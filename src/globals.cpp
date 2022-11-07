@@ -26,7 +26,9 @@
 
 global_t& global_t::lookup(char const* source, pstring_t name)
 {
-    return lookup_sourceless(name, name.view(source));
+    auto& global = lookup_sourceless(name, name.view(source));
+    std::cout << "LOOKUP " << name.view(source) << ' ' << global.name << std::endl;
+    return global;
 }
 
 global_t& global_t::lookup_sourceless(pstring_t name, std::string_view key)
@@ -1328,6 +1330,7 @@ void fn_t::compile()
 
     byteify(ir, *this);
     save_graph(ir, "4_byteify");
+    ir.assert_valid();
 
     optimize_suite(true);
     save_graph(ir, "5_o2");

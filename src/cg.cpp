@@ -1,6 +1,8 @@
 #include "cg.hpp"
 
 #include <map>
+#include <fstream> // TODO
+#include "graphviz.hpp" // TODO
 
 #include "flat/small_map.hpp"
 
@@ -223,24 +225,34 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     ////////////////
 
     locate_rom_arrays(ir, fn.rom_proc());
+    ir.assert_valid();
 
     ///////////////////
     // DUPLICATE RTS //
     ///////////////////
 
-    if(ir.exit && ir.exit != ir.root)
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it;)
     {
+        if(cfg_it == ir.root
+           || cfg_it->output_size() != 0
+           || !cfg_it->last_daisy() 
+           || cfg_it->last_daisy()->op() != SSA_return)
+        {
+            ++cfg_it;
+            continue;
+        }
+
         dupe_exit_t duper;
-        while(ir.exit->input_size())
+        while(cfg_it->input_size())
         {
             cfg_ht duped_cfg = ir.emplace_cfg();
-            duper.run(ir.exit, 0, duped_cfg);
+            duper.run(cfg_it, 0, duped_cfg);
 
-            auto ie = ir.exit->input_edge(0);
+            auto ie = cfg_it->input_edge(0);
             ie.handle->link_change_output(ie.index, duped_cfg,
                 [](ssa_ht phi) { assert(false); return ssa_value_t(0u, TYPE_VOID); });
         }
-        ir.prune_cfg(ir.exit);
+        cfg_it = ir.prune_cfg(cfg_it);
     }
 
     ///////////////////

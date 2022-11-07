@@ -102,8 +102,12 @@ void steal_ssa_after(ssa_ht ssa, cfg_ht steal_dest)
 
     bc::small_vector<ssa_ht, 32> to_steal;
     for(ssa_ht h = cfg->ssa_begin(); h; ++h)
+    {
+        if(ssa_input0_class(h->op()) == INPUT_LINK)
+            continue;
         if(!pre.count(h))
             to_steal.push_back(h);
+    }
 
     for(ssa_ht h : to_steal)
         steal_dest->steal_ssa(h, true);

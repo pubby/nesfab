@@ -74,8 +74,9 @@ bool o_merge_basic_blocks(log_t* log, ir_t& ir)
 
         assert(output != ir.root);
 
-        if(output == ir.exit)
-            ir.exit = cfg_it;
+        // TODO
+        //if(output == ir.exit)
+            //ir.exit = cfg_it;
 
         ir.prune_cfg(output);
 

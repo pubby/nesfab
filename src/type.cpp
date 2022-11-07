@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <string>
+#include <iostream> // TODO
 
 #include "robin/hash.hpp"
 #include "robin/collection.hpp"
@@ -47,6 +48,8 @@ namespace  // Anonymous
             std::size_t size = end - begin;
             std::size_t hash = size;
 
+            assert(size < 65536);
+
             for(T const* it = begin; it < end; ++it)
             {
                 std::hash<T> hasher;
@@ -66,6 +69,7 @@ namespace  // Anonymous
                     return { size, eternal_new<T>(begin, end) };
                 });
 
+            std::cout << "TAIL GET " << *begin << ' ' << *result.first->tail << std::endl;
             assert(std::equal(begin, end, result.first->tail));
 
             return result.first->tail;
@@ -78,7 +82,13 @@ namespace  // Anonymous
     thread_local tails_manager_t<group_ht> group_tails;
 } // end anonymous namespace
 
-type_t const* type_t::new_type(type_t const& type) { return type_tails.get(type); }
+type_t const* type_t::new_type(type_t const& type) 
+{ 
+    type_t const* result = type_tails.get(type);
+    assert(type.name() == result->name());
+    assert(type == *result);
+    return result;
+}
 
 bool type_t::operator==(type_t o) const
 {
@@ -89,6 +99,8 @@ bool type_t::operator==(type_t o) const
         return std::equal(types(), types() + type_tail_size(), o.types());
     else if(has_group_tail(name()))
         return std::equal(groups(), groups() + group_tail_size(), o.groups());
+    else if(has_tail(name()))
+        return m_tail == o.m_tail;
 
     return true;
 }
@@ -279,7 +291,11 @@ std::string to_string(type_t type)
     switch(type.name())
     {
     default: 
-        str = to_string(type.name()); break;
+        str = to_string(type.name()); 
+        break;
+    case TYPE_STRUCT_THUNK:
+        str = fmt("STRUCT THUNK % %", type.global().name, &type.global());
+        break;
     case TYPE_STRUCT:
         str = type.struct_().global.name;
         break;

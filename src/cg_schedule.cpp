@@ -515,6 +515,7 @@ void scheduler_t::append_schedule(ssa_ht h)
     [this](ssa_ht link)
     {
         //assert(ready<true>(link, scheduled));
+        assert(link->cfg_node() == cfg_node);
         append_schedule(link);
     });
 }
@@ -526,6 +527,8 @@ void scheduler_t::run()
 
     carry_input_waiting = {};
     ssa_ht candidate = {};
+
+    assert(schedule.empty());
 
     // Always schedule the entry first:
     if(ssa_ht h = cfg_node->first_daisy())
@@ -558,18 +561,15 @@ void scheduler_t::run()
         append_schedule(candidate);
 
         // If this node inputs or clobbers a carry, stop tracking it:
-        if(candidate == carry_input_waiting 
-           || (ssa_flags(candidate->op()) & SSAF_CLOBBERS_CARRY))
-        {
+        if(candidate == carry_input_waiting || (ssa_flags(candidate->op()) & SSAF_CLOBBERS_CARRY))
             carry_input_waiting = {};
-        }
 
         // If this node outputs a carry, track it:
         if(d.carry_user)
             carry_input_waiting = d.carry_user;
     }
 
-    assert(schedule.size() == cfg_node->ssa_size());
+    passert(schedule.size() == cfg_node->ssa_size(), schedule.size(), cfg_node->ssa_size());
 
     // Finally, re-assign 'index' to hold the position in the schedule:
 

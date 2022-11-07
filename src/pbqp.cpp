@@ -37,6 +37,8 @@ void pbqp_t::solve(std::vector<pbqp_node_t*> order)
 
         std::swap(order, next_order);
 
+        assert(!order.empty());
+
         // If nothing was reduced optimally, reduce 1 node suboptimally.
         if(optimal_reductions == 0)
         {
@@ -44,8 +46,9 @@ void pbqp_t::solve(std::vector<pbqp_node_t*> order)
 
             // We'll reduce the node with the highest degree.
             // Find it here:
-            for(unsigned i = 0; i < order.size(); ++i)
+            for(unsigned i = 1; i < order.size(); ++i)
                 if(order[i]->degree > order[best_i]->degree)
+                    best_i = i;
 
             heuristic_reduction(*order[best_i]);
             order[best_i] = nullptr;
@@ -72,15 +75,15 @@ void pbqp_t::solve(std::vector<pbqp_node_t*> order)
         }
         else
         {
-            assert(node.degree == 2);
+            passert(node.degree == 2, node.degree);
 
             pbqp_edge_t* edge_a = node.edges[0];
             pbqp_edge_t* edge_b = node.edges[1];
             pbqp_node_t& other_a = *edge_a->nodes[!edge_a->index(node)];
             pbqp_node_t& other_b = *edge_b->nodes[!edge_b->index(node)];
 
-            assert(other_a.sel >= 0);
-            assert(other_b.sel >= 0);
+            passert(other_a.sel >= 0, other_a.sel, other_b.sel, other_a.degree, other_b.degree);
+            passert(other_b.sel >= 0, other_b.sel, other_a.sel, other_b.degree, other_a.degree);
 
             unsigned const index = other_a.sel + (other_b.sel * other_a.num_sels());
             passert(index < node.bp_proof.size(), index, node.bp_proof.size());
@@ -235,7 +238,9 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
         other_a.dec_degree(edge_a);
         other_b.dec_degree(edge_b);
         add_edge(other_a, other_b, std::move(new_matrix));
+
         assert(node.degree == 2);
+
         return true;
     }
 
@@ -279,7 +284,7 @@ void pbqp_t::heuristic_reduction(pbqp_node_t& node)
         }
     }
 
-    assert(best_i != ~0u);
     node.sel = best_i;
+    assert(node.sel >= 0);
 }
 

@@ -125,6 +125,9 @@ std::size_t constraints_size(ssa_node_t const& node)
         return 0;
     };
 
+    if(ssa_ht mapping = ai_data(node.handle()).rebuild_mapping)
+        return constraints_size(*mapping);
+
     switch(node.op())
     {
     case SSA_add:
@@ -135,7 +138,7 @@ std::size_t constraints_size(ssa_node_t const& node)
     case SSA_ror:
         return 2; // Second constraint is for the carry.
     case SSA_trace:
-        return constraints_size(*node.input(0));
+        assert(false); // handled earlier
         /* TODO
     case SSA_phi:
         {
@@ -769,12 +772,12 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         // Due to how traces are inserted, this *could* be a trace,
         // so we'll have to iterate up until it's not.
         ssa_ht narrowing_op = parent_trace->input(0).handle();
-        while(narrowing_op->op() == SSA_trace)
-            narrowing_op = narrowing_op->input(0).handle();
+        while(ai_data(narrowing_op).rebuild_mapping)
+            narrowing_op = ai_data(narrowing_op).rebuild_mapping;
 
         unsigned const arg_i = trace->input(i+1).whole();
         unsigned const num_args = narrowing_op->input_size();
-        passert(arg_i < num_args, arg_i, num_args);
+        passert(arg_i < num_args, arg_i, num_args, narrowing_op->op(), narrowing_op);
 
         // The narrow function expects a mutable array of constraints
         // that it modifies. Create that array here.

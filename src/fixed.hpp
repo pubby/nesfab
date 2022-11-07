@@ -43,7 +43,15 @@ inline fixed_sint_t fixed_mul(fixed_sint_t lhs, fixed_sint_t rhs)
 {
     __int128 lhs128 = lhs;
     __int128 rhs128 = rhs;
-    return static_cast<fixed_sint_t>((lhs128 * rhs128) >> (fixed_t::shift));
+    return static_cast<fixed_sint_t>(fixed_uint_t((lhs128 * rhs128) >> (fixed_t::shift)));
+}
+
+inline fixed_sint_t fixed_div(fixed_sint_t lhs, fixed_sint_t rhs)
+{
+    __int128 lhs128 = lhs;
+    __int128 rhs128 = rhs;
+    lhs128 <<= fixed_t::shift;
+    return static_cast<fixed_sint_t>(fixed_uint_t(lhs128 / rhs128));
 }
 
 #endif

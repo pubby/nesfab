@@ -197,3 +197,38 @@ std::string const& strval_t::get_string() const
 {
     return sl_manager.get_string(&charmap->global, index, compressed);
 }
+
+rval_t default_init(type_t type, pstring_t at)
+{
+    unsigned const num_m = num_members(type);
+
+    rval_t new_rval;
+    new_rval.reserve(num_m);
+    for(unsigned i = 0; i < num_m; ++i)
+    {
+        type_t const mt = member_type(type, i);
+
+        if(mt.name() == TYPE_TEA)
+        {
+            unsigned const size = mt.size();
+
+            if(size == 0)
+                compiler_error(at, "Default initializing array of size 0.");
+
+            if(!is_scalar(mt.elem_type().name()))
+                compiler_error(at, "Unable to default initialize.");
+
+            ct_array_t array = make_ct_array(size);
+            for(unsigned i = 0; i < size; ++i)
+                array[i] = ssa_value_t(0u, mt.elem_type().name());
+
+            new_rval.push_back(std::move(array));
+        }
+        else if(is_scalar(mt.name()))
+            new_rval.push_back({ ssa_value_t(0u, mt.name()) });
+        else
+            compiler_error(at, "Unable to default initialize.");
+    }
+
+    return new_rval;
+}

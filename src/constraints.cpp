@@ -1073,6 +1073,15 @@ ABSTRACT(SSA_init_array) = ABSTRACT_FN
     }
 };
 
+ABSTRACT(SSA_fill_array) = ABSTRACT_FN
+{
+    if(handle_top(cv, argn, result))
+        return;
+
+    constraints_t const value = cv[0][0];
+    result.vec.assign(result.vec.size(), value);
+};
+
 auto const read_array = ABSTRACT_FN
 {
     using namespace ssai::array;
@@ -1414,14 +1423,6 @@ ABSTRACT(SSA_copy_array) = ABSTRACT_FN
     result = input_array;
 };
 
-ABSTRACT(SSA_fill_array) = ABSTRACT_FN
-{
-    if(handle_top(cv, argn, result))
-        return;
-
-    constraints_t const value = cv[2][0];
-    result.vec.assign(result.vec.size(), value);
-};
 */
 
 
@@ -1571,7 +1572,7 @@ NARROW(SSA_phi) = NARROW_FN
     for(unsigned j = 0; j < argn; ++j)
     {
         assert(cv[j].vec.size() >= result.vec.size());
-        assert(cv[j].cm.mask == result.cm.mask);
+        passert(cv[j].cm.mask == result.cm.mask, cv[j].cm.mask, result.cm.mask);
         cv[j][i] = intersect(cv[j][i], result[i]);
     }
 };
@@ -1657,7 +1658,8 @@ NARROW(SSA_xor) = NARROW_FN
 template<bool Add>
 void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t const& result)
 {
-    assert(argn == 3 && result.vec.size() >= 2);
+    passert(argn == 3, argn);
+    passert(result.vec.size() >= 2, result.vec.size());
     assert(result.cm == cv[0].cm);
     assert(result.cm == cv[1].cm);
     assert(CARRY_MASK == cv[2].cm);

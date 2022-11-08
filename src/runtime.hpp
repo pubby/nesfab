@@ -65,6 +65,10 @@ span_t runtime_span(runtime_rom_name_t name, romv_t romv);
 
 rom_data_ht runtime_data(runtime_rom_name_t name);
 
+extern rom_proc_ht reset_proc;
+void create_reset_proc();
+void set_reset_proc();
+
 std::string to_string(runtime_ram_name_t name);
 std::string to_string(runtime_rom_name_t name);
 

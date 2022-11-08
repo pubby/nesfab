@@ -756,7 +756,7 @@ namespace isel
 
             if(cpu.is_known(REG_A))
             {
-                unsigned mask = value.data() << 1;
+                unsigned const mask = byte << 1;
                 if((mask & cpu.known[REG_A] & 0xFF) == mask)
                 {
                     assert(mask < 0x100);
@@ -767,7 +767,7 @@ namespace isel
                         locator_t const arg = locator_t::const_byte(mask | i);
                         cpu_copy = cpu;
                         if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, {}, arg) && cpu_copy.is_known(REG_A, byte))
-                            cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(cpu, prev, value));
+                            cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(cpu, prev, arg));
 
                         // No point in doing the second iteration if it can't set the carry:
                         if(!(cpu.known[REG_A] & 1))
@@ -1941,7 +1941,7 @@ namespace isel
         if(iter)
         {
             loop_label::set(state.minor_label());
-            p_arg<0>::set(locator_t::const_byte(iter));
+            p_arg<0>::set(locator_t::const_byte(iter - 1));
             p_arg<1>::set(def, (start + len - left));
             p_arg<2>::set(def,  (start + len - left) + iter);
 

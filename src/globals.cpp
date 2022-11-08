@@ -2090,17 +2090,17 @@ std::string to_string(global_class_t gclass)
     }
 }
 
-fn_t const& get_main_entry()
+fn_t const& get_main_mode()
 {
     assert(compiler_phase() > PHASE_PARSE);
 
     using namespace std::literals;
-    global_t const* main_entry = global_t::lookup_sourceless("main"sv);
+    global_t const* main_mode = global_t::lookup_sourceless("main"sv);
 
-    if(!main_entry || main_entry->gclass() != GLOBAL_FN || main_entry->impl<fn_t>().fclass != FN_MODE)
+    if(!main_mode || main_mode->gclass() != GLOBAL_FN || main_mode->impl<fn_t>().fclass != FN_MODE)
         throw compiler_error_t(fmt_error("Missing definition of mode main. Program has no entry point."));
 
-    fn_t const& main_fn = main_entry->impl<fn_t>();
+    fn_t const& main_fn = main_mode->impl<fn_t>();
     if(main_fn.def().num_params > 0)
         compiler_error(main_fn.def().local_vars[0].decl.name, "Mode main cannot have parameters.");
 

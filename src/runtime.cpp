@@ -1,4 +1,4 @@
-
+#include "runtime.hpp"
 
 #include <vector>
 
@@ -9,6 +9,9 @@
 #include "hw_reg.hpp"
 #include "pow2.hpp"
 #include "globals.hpp"
+#include "group.hpp"
+
+rom_proc_ht reset_proc = {};
 
 namespace // anonymous
 {
@@ -210,17 +213,27 @@ static asm_proc_t make_irq()
 
 static asm_proc_t make_reset()
 {
-    // TODO: the bulk of this should go in a single bank
+    asm_proc_t proc;
 
+    // Turn off decimal mode, just in case the code gets run on wonky hardware.
+    proc.push_inst(CLD);
+
+    // Jump to the init proc:
+    _bankswitch_ax(proc, locator_t(LOC_RESET_PROC).with_is(IS_BANK));
+    proc.push_inst(JMP_ABSOLUTE, LOC_RESET_PROC);
+
+    proc.initial_optimize();
+    return proc;
+}
+
+static asm_proc_t make_reset_proc()
+{
     unsigned next_label = 0;
     asm_proc_t proc;
 
     // Ignore IRQs:
     proc.push_inst(SEI);
     
-    // Turn off decimal mode, just in case the code gets run on wonky hardware.
-    proc.push_inst(CLD);
-
     // Disable NMI and rendering:
     proc.push_inst(LDA, 0);
     proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUCTRL));
@@ -231,13 +244,6 @@ static asm_proc_t make_reset()
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_ready));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
-
-    /* TODO: remove
-    for(unsigned i = 0; i < 2; ++i)
-        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_buttons_held, i));
-    for(unsigned i = 0; i < 2; ++i)
-        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_buttons_pressed, i));
-        */
 
     // Disable DMC IRQ
     proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x4010));
@@ -271,29 +277,37 @@ static asm_proc_t make_reset()
     proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
     proc.push_inst(BPL_RELATIVE, wait_frame_2);
 
-    // Init the NMI pointer
-    /* TODO
-    proc.push_inst(LDA_IMMEDIATE, locator_t::runtime_rom(RTROM_nmi_exit).with_is(IS_PTR));
-    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_call_ptr, 0));
-    proc.push_inst(LDA_IMMEDIATE, locator_t::runtime_rom(RTROM_nmi_exit).with_is(IS_PTR_HI));
-    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_call_ptr, 1));
-    if(bankswitch_addr(mapper().type))
+    // Reset mode state:
+    fn_t const& main = get_main_mode();
+    main.precheck_group_vars().for_each([&](group_vars_ht gv)
     {
-        proc.push_inst(LDA, 0);
-        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_call_bank));
-    }
-    */
-
+        if(gv->has_init())
+        {
+            proc.push_inst(LDY_IMMEDIATE, locator_t::reset_group_vars(gv).with_is(IS_BANK));
+            proc.push_inst(BANKED_Y_JSR, locator_t::reset_group_vars(gv));
+        }
+    });
+    
     // Init the NMI index
-    proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(get_main_entry().mode_nmi()));
+    proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
     // Jump to our entry point.
-    _bankswitch_ax(proc, locator_t::fn(get_main_entry().handle()).with_is(IS_BANK));
-    proc.push_inst(JMP_ABSOLUTE, locator_t::fn(get_main_entry().handle()));
+    _bankswitch_ax(proc, locator_t::fn(main.handle()).with_is(IS_BANK));
+    proc.push_inst(JMP_ABSOLUTE, locator_t::fn(main.handle()));
 
     proc.initial_optimize();
     return proc;
+}
+
+void create_reset_proc()
+{
+    reset_proc = rom_proc_ht::pool_make(romv_allocs_t{}, ROMVF_IN_MODE);
+}
+
+void set_reset_proc()
+{
+    reset_proc.safe().assign(make_reset_proc());
 }
 
 asm_proc_t make_bnrom_jsr_y_trampoline()

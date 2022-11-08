@@ -400,6 +400,8 @@ void parser_t<P>::mill_eol()
 template<typename P>
 bool parser_t<P>::parse_indented_token()
 {
+retry:
+
     do
     {
         ++line_number;
@@ -414,6 +416,31 @@ bool parser_t<P>::parse_indented_token()
         }
     }
     while(token.type == TOK_eol); // Ignore blank lines.
+
+    if(token.type == TOK_ml_comment_begin)
+    {
+        while(true)
+        {
+            if(*next_char == '*')
+            {
+                ++next_char;
+
+                if(*next_char == '\0')
+                    compiler_error("Unterminated multi-line comment.");
+
+                if(*next_char == '/')
+                    break;
+            }
+
+            ++next_char;
+        }
+
+        ++next_char;
+        parse_token();
+        if(token.type != TOK_eol)
+            compiler_error("Unexpected token. Expecting line ending following multi-line comment.");
+        goto retry;
+    }
 
     return false;
 }
@@ -1208,8 +1235,6 @@ ast_node_t parser_t<P>::parse_cast(src_type_t& src_type, int open_parens)
     bc::small_vector<ast_node_t, 16> children = { ast_node_t{ .token = token_t::make_ptr( 
         TOK_cast_type, src_type.pstring, type_t::new_type(src_type.type)) }};
 
-    std::cout << "CASTY CAST " << src_type.type << ' ' << *type_t::new_type(src_type.type) << std::endl;
-
     unsigned argument_count = parse_args<true>(TOK_lparen, TOK_rparen,
         [&](unsigned){ children.push_back(parse_expr(cast_indent, open_parens+1)); });
 
@@ -1223,9 +1248,6 @@ ast_node_t parser_t<P>::parse_cast(src_type_t& src_type, int open_parens)
     ast.token.pstring = { begin - source(), end - begin, file_i() };
     ast.token.value = children.size();
     ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
-    
-    std::cout << "CASTY CAST " << src_type.type << std::endl;
-    std::cout << "CASTY CAST " << *ast.children[0].token.ptr<type_t>() << std::endl;
 
     return ast;
 }
@@ -1324,7 +1346,6 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
     case TOK_type_ident:
         {
             global_t const& global = global_t::lookup(source(), token.pstring);
-            std::cout << "CASTY TI " << &global << ' ' << global.name << std::endl;
             parse_token();
             result.type = type_t::struct_thunk(global);
             break;

@@ -69,7 +69,6 @@ namespace  // Anonymous
                     return { size, eternal_new<T>(begin, end) };
                 });
 
-            std::cout << "TAIL GET " << *begin << ' ' << *result.first->tail << std::endl;
             assert(std::equal(begin, end, result.first->tail));
 
             return result.first->tail;

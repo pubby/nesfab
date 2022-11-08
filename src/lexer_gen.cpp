@@ -614,7 +614,8 @@ int main()
     std::deque<nfa_node_t> nfa_nodes;
     nfa_t nfa = gen_nfa(*uor(
         accept("eof", "file ending", eof()),
-        accept("comment", "comment", cat(word("//"), kleene(comchar()), uor(eof(), newline()))),
+        accept("comment", "single-line comment", cat(word("//"), kleene(comchar()), uor(eof(), newline()))),
+        accept("ml_comment_begin", "multi-line comment", cat(word("/*"), kleene(comchar()), uor(eof(), newline()))),
         accept("eol", "line ending", newline()),
         accept("whitespace", "space", many1(whitespace())),
 

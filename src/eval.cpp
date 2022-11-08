@@ -3848,7 +3848,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 //type_t const type = type_t::tea(rhs.type, mt.size(), rhs.pstring);
                 //assert(type.name() == TYPE_TEA);
 
-                ssa_value_t const prev_array = var_lookup(builder.cfg, lval->var_i(), i);
+                ssa_value_t const prev_array = var_lookup(builder.cfg, lval->var_i(), lval->member + i);
 
                 ssa_ht write = builder.cfg->emplace_ssa(
                     (lval->flags & LVALF_INDEX_16) ? SSA_write_array16 : SSA_write_array8, mt,
@@ -3860,7 +3860,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         else
         {
             for(unsigned i = 0; i < rval.size(); ++i)
-                local[i + lval->member] = from_variant<D>(rval[i], member_type(rhs.type, i));
+                local[i + lval->member] = from_variant<D>(rval[i], member_type(rhs.type, i + lval->member));
         }
     }
 

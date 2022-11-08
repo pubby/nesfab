@@ -72,7 +72,8 @@ enum locator_class_t : std::uint8_t
     LAST_LOC_LT = LOC_LT_EXPR,
 
     LOC_THIS_BANK, // Resolves to the bank its in
-    LOC_MAIN_ENTRY,
+    LOC_RESET_PROC,
+    LOC_MAIN_MODE,
 
     LOC_RESET_GROUP_VARS,
 

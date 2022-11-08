@@ -307,7 +307,7 @@ int main(int argc, char** argv)
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);
-        get_main_entry(); // This throws an error if 'main' isn't proper.
+        get_main_mode(); // This throws an error if 'main' isn't proper.
 
         global_t::parse_cleanup();
         output_time("parse:  ");
@@ -324,6 +324,7 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_RUNTIME);
         auto static_used_ram = alloc_runtime_ram();
         auto rom_allocator = alloc_runtime_rom();
+        create_reset_proc();
         output_time("runtime:  ");
 
         set_compiler_phase(PHASE_CONVERT_STRINGS);
@@ -356,6 +357,9 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_COMPILE);
         global_t::compile_all();
         output_time("compile:  ");
+
+        set_compiler_phase(PHASE_RESET_PROC);
+        set_reset_proc();
 
         set_compiler_phase(PHASE_ALLOC_RAM);
         alloc_ram(nullptr, ~static_used_ram);

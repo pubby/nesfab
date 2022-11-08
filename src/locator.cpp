@@ -9,6 +9,7 @@
 #include "ir.hpp"
 #include "lt.hpp"
 #include "rom.hpp"
+#include "runtime.hpp"
 
 std::string to_string(locator_t loc)
 {
@@ -66,8 +67,10 @@ std::string to_string(locator_t loc)
         str = fmt("lt_expr % %", loc.handle(), loc.lt().safe().type); break;
     case LOC_THIS_BANK:
         str = "this bank"; break;
-    case LOC_MAIN_ENTRY:
-        str = "main entry"; break;
+    case LOC_RESET_PROC:
+        str = "reset proc"; break;
+    case LOC_MAIN_MODE:
+        str = "main mode"; break;
     case LOC_RESET_GROUP_VARS:
         str = fmt("reset group vars %", loc.group_vars()->group.name); break;
     case LOC_RUNTIME_ROM:
@@ -351,8 +354,10 @@ rom_data_ht locator_t::rom_data() const
         return fn()->rom_proc();
     case LOC_ROM_ARRAY:
         return rom_array();
-    case LOC_MAIN_ENTRY:
-        return get_main_entry().rom_proc();
+    case LOC_RESET_PROC:
+        return ::reset_proc;
+    case LOC_MAIN_MODE:
+        return get_main_mode().rom_proc();
     case LOC_GCONST:
         return const_()->rom_array();
     case LOC_RESET_GROUP_VARS:

@@ -139,25 +139,8 @@ std::size_t constraints_size(ssa_node_t const& node)
         return 2; // Second constraint is for the carry.
     case SSA_trace:
         assert(false); // handled earlier
-        /* TODO
-    case SSA_phi:
-        {
-            std::size_t min_size = std::size_t(~0ull);
-            unsigned const input_size = node.input_size();
-            for(unsigned i = 0; i < input_size; ++i)
-                if(node.input(i).holds_ref())
-                    min_size = std::min(min_size, constraints_size(*node.input(i)));
-            if(min_size != std::size_t(~0ull))
-                return min_size;
-        }
-        // fall-through
-        */
+        return 1;
     default:
-        // TODO
-        //if(is_array_like(node.type()))
-            //return node.type().size();
-        //if(!is_numeric(node.type()))
-            //std::printf("not numeric: %s\n", to_string(node.op()).data());
         return type_size(node.type().name());
     }
 }
@@ -499,7 +482,6 @@ void ai_t::remove_skippable()
 //   Simple and Efficient Construction of Static Single Assignment Form
 ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
 {
-    std::cout << "LOOKUP " << cfg_node << std::endl;
     assert(cfg_node);
     assert(ssa_node);
 
@@ -507,10 +489,6 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
         return ssa_node;
 
     auto& cd = ai_data(cfg_node);
-
-    std::cout << "SIZE: " << &cd.rebuild_map << std::endl;
-    for(auto const& pair : cd.rebuild_map)
-        std::cout << "PAIR: " << pair.first;
 
     auto lookup = cd.rebuild_map.find(ssa_node);
 
@@ -693,7 +671,6 @@ void ai_t::insert_traces()
             ssa_bck_edge_t edge = h->output_edge(i);
             assert(edge.handle->op() != SSA_trace || edge.index == 0);
 
-            std::cout << "LOOKUP START " << h << std::endl;
             ssa_ht const lookup = local_lookup(edge.handle->input_cfg(edge.index), look_for);
             assert(lookup);
 
@@ -1320,14 +1297,12 @@ void ai_t::fold_consts()
             {
                 assert(same_scalar_layout(v.type().name(), TYPE_U20));
                 auto const c = get_constraints(v);
-                std::cout << "DONKEY " << c[0] << std::endl;
                 return c[0].bounds.min >= 0 && c[0].bounds.max < (256ll << fixed_t::shift);
             };
 
             // If the index fits in a byte, convert to byte-based indexing:
             if(fits_in_byte(index))
             {
-                std::cout << "DONKEY SUCCESS\n";
                 ssa_ht const cast = cfg_node.emplace_ssa(SSA_cast, TYPE_U, index);
                 new_ssa(cast);
                 ssa_it->link_change_input(INDEX, cast);
@@ -1356,12 +1331,6 @@ void ai_t::fold_consts()
 
                 constraints_t const carry_out_c = get_constraints(index)[1];
                 constraints_t const carry_in_c = get_constraints(index->input(2))[0];
-
-                std::cout << "READX _ " << ssa_it << carry_out_c << std::endl;
-                std::cout << "READX I " << ssa_it << get_constraints(index)[0] << std::endl;
-                std::cout << "READX L " << ssa_it << get_constraints(index->input(0))[0] << std::endl;
-                std::cout << "READX R " << ssa_it << get_constraints(index->input(1))[0] << std::endl;
-                std::cout << "READX C " << ssa_it << get_constraints(index->input(2))[0] << std::endl;
 
                 if(!carry_out_c.is_const() || !carry_in_c.is_const())
                     break;
@@ -2452,7 +2421,6 @@ void ai_t::rewrite_loops()
         {
             if(cfg_it->input(i) == cfg_it)
                 goto next_iter; // Don't optimize self-loops.
-            std::cout << "TEST " << cfg_it << cfg_it->input(i) << loop_is_parent_of(cfg_it, cfg_it->input(i)) << std::endl;
             if(loop_is_parent_of(cfg_it, cfg_it->input(i)))
                 back_edges |= 1 << i;
         }
@@ -2462,10 +2430,7 @@ void ai_t::rewrite_loops()
 
         // Try to rewrite:
         assert(exit_i <= 1);
-        if(try_rewrite_loop(cfg_it, back_edges, exit_i))
-            std::puts("HEADER SUCCESS");
-        else
-            std::puts("HEADER FAIL");
+        try_rewrite_loop(cfg_it, back_edges, exit_i);
     next_iter:;
     }
 }

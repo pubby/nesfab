@@ -150,8 +150,6 @@ static void _split_vanishing(ssa_ht ssa_node)
             assert(i > 0);
             assert(data.bm[i - 1]);
             ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, data.bm[i - 1]);
-            if(data.bm[i - 1].holds_ref())
-                std::cout << "SHREK " << data.bm[i - 1] << ' ' << data.bm[i - 1]->op() << ' ' << extension << std::endl;
             for(; i < end; ++i)
                 data.bm[i] = extension;
 
@@ -162,8 +160,6 @@ static void _split_vanishing(ssa_ht ssa_node)
             //extension.handle().data<ssa_byteify_d>().bm = zero_bm;
             //extension.handle().data<ssa_byteify_d>().bm[max_frac_bytes] = extension;
         }
-
-        std::cout << "CASTY " <<  ssa_node << ssa_node->type() << data.bm[max_frac_bytes] << std::endl;
     }
     else if(ssa_node->op() == SSA_get_byte)
     {
@@ -215,13 +211,6 @@ void byteify(ir_t& ir, fn_t const& fn)
     insert_signed_mul_subtractions(ir);
     shifts_to_rotates(ir);
     // OK! IR prepared.
-
-    {
-        std::ofstream ossa("graphs/shrek.gv");
-        if(ossa.is_open())
-            graphviz_ssa(ossa, ir);
-    }
-
 
     ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(ssa_pool::array_size());
 
@@ -1063,7 +1052,6 @@ void byteify(ir_t& ir, fn_t const& fn)
     // Prune nodes that are now unnecessary:
     for(ssa_ht h : prune_nodes)
     {
-        std::cout << "PRUNE " << h << std::endl;
         if(h->type() == TYPE_U)
             h->replace_with(h.data<ssa_byteify_d>().bm[max_frac_bytes]);
         h->prune();

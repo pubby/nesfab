@@ -2765,6 +2765,7 @@ namespace isel
                 chain
                 < load_A<Opt, p_lhs>
                 , load_Y<Opt, p_rhs>
+                , simple_op<Opt, read_reg_op(REGF_A | REGF_Y)>
                 , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<2>>
                 , simple_op<Opt, write_reg_op(REGF_CPU & ~(REGF_X | REGF_B))>
                 , store<Opt::template restrict_to<~REGF_X>, STA, p_def, p_def>
@@ -4019,7 +4020,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
         unsigned const max_sels = std::min<unsigned>(1 + loop_depth(cfg), 4) * BASE_SEL_SIZE;
 
-        std::cout << "REBUILTSIZEOLD " << d.sels.size() << cfg << max_sels << std::endl;
+        //std::cout << "REBUILTSIZEOLD " << d.sels.size() << cfg << max_sels << std::endl;
 
         /*
         unsigned good = 0;
@@ -4143,6 +4144,14 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         }
 
         state.max_map_size = std::min<unsigned>(1 + loop_depth(cfg), 4) * BASE_MAP_SIZE;
+
+        // Shrink the map size for large CFG nodes:
+        if(cfg->ssa_size() > 64)
+        {
+            state.max_map_size *= 64;
+            state.max_map_size /= cfg->ssa_size();
+            state.max_map_size = std::max<unsigned>(BASE_MAP_SIZE / 2, state.max_map_size);
+        }
 
         // Modes get stack instructions:
         if(cfg == ir.root && state.fn->fclass == FN_MODE)
@@ -4534,12 +4543,9 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
-        std::cout << "REBUILTS CFG " << cfg << std::endl;
+        //std::cout << "REBUILTS CFG " << cfg << std::endl;
         shrink_sels(cfg);
     }
-
-    std::printf("computed = %u\n", computed);
-
 
 #ifndef NDEBUG
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
@@ -4675,11 +4681,11 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     {
         auto& d = data(cfg);
         assert(d.sel >= 0 && d.sel < int(d.sels.size()));
-        std::cout << "SEL = " << d.sel << " / " << d.sels.size() << ' ' << cfg << std::endl;
+        //std::cout << "SEL = " << d.sel << " / " << d.sels.size() << ' ' << cfg << std::endl;
         a += d.sel;
         b += d.sels.size();
     }
-    std::cout << "TOTAL SEL = " << a << " / " << b << std::endl;
+    //std::cout << "TOTAL SEL = " << a << " / " << b << std::endl;
 #endif
 
     ///////////////////////////
@@ -4940,9 +4946,9 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
     asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()), graph.entry_label());
 
-    std::cout << "SHREK " << fn.global.name << std::endl;
-    for(auto const& inst : asm_proc.code)
-        std::cout << inst << std::endl;
+    //std::cout << "SHREK " << fn.global.name << std::endl;
+    //for(auto const& inst : asm_proc.code)
+        //std::cout << inst << std::endl;
 
     asm_proc.initial_optimize();
     asm_proc.build_label_offsets();

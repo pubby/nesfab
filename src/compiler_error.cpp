@@ -176,7 +176,7 @@ void compiler_warning(pstring_t pstring, std::string const& what,
 
 void compiler_warning(std::string const& what, bool formatted)
 {
-    std::string msg = formatted ? what : fmt(CONSOLE_YEL CONSOLE_BOLD "warning: " CONSOLE_RESET "%", what);
+    std::string msg = formatted ? what : fmt(CONSOLE_YEL CONSOLE_BOLD "warning: " CONSOLE_RESET "%\n", what);
 
     if(compiler_options().werror)
     {

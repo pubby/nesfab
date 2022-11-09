@@ -471,7 +471,6 @@ public:
     void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, 
                       ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
-        //std::cout << "SHREK " << var_decl.name.view(file.source()) << ' ' << ideps.size() << std::endl;
         uses_type(var_decl.src_type.type);
 
         if(mods)

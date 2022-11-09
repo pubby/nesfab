@@ -27,7 +27,6 @@
 global_t& global_t::lookup(char const* source, pstring_t name)
 {
     auto& global = lookup_sourceless(name, name.view(source));
-    std::cout << "LOOKUP " << name.view(source) << ' ' << global.name << std::endl;
     return global;
 }
 
@@ -313,7 +312,6 @@ void global_t::do_all(Fn const& fn)
     }
     ready_cv.notify_all();
 
-    //std::cout << "DOING\n"i
     // Spawn threads to compile in parallel:
     parallelize(compiler_options().num_threads,
     [&fn](std::atomic<bool>& exception_thrown)
@@ -321,9 +319,12 @@ void global_t::do_all(Fn const& fn)
         while(!exception_thrown)
         {
             global_t* global = await_ready_global();
+
             if(!global)
                 return;
-            fn(*global);
+
+            do global = fn(*global);
+            while(global);
         }
     },
     []
@@ -342,7 +343,7 @@ void global_t::resolve_all()
 {
     assert(compiler_phase() == PHASE_RESOLVE);
 
-    do_all([&](global_t& g){ g.resolve(nullptr); });
+    do_all([&](global_t& g){ return g.resolve(nullptr); });
 }
 
 // This function isn't thread-safe.
@@ -351,7 +352,7 @@ void global_t::precheck_all()
 {
     assert(compiler_phase() == PHASE_PRECHECK);
 
-    do_all([&](global_t& g){ g.precheck(nullptr); });
+    do_all([&](global_t& g){ return g.precheck(nullptr); });
 
     for(fn_t const* fn : modes())
         fn->precheck_finish_mode();
@@ -496,7 +497,7 @@ void global_t::count_members()
 // Call from a single thread only.
 void global_t::build_order()
 {
-    idep_class_t pass;
+    idep_class_t pass = {};
     switch(compiler_phase())
     {
     case PHASE_ORDER_RESOLVE:
@@ -602,43 +603,40 @@ void global_t::build_order()
     assert(ready.size());
 }
 
-void global_t::resolve(log_t* log)
+global_t* global_t::resolve(log_t* log)
 {
-    log = &stdout_log;
     assert(compiler_phase() == PHASE_RESOLVE);
 
     dprint(log, "RESOLVING", name);
     delegate([](auto& g){ g.resolve(); });
 
     m_resolved = true;
-    completed();
+    return completed();
 }
 
-void global_t::precheck(log_t* log)
+global_t* global_t::precheck(log_t* log)
 {
-    log = &stdout_log;
     assert(compiler_phase() == PHASE_PRECHECK);
 
     dprint(log, "PRECHECKING", name);
     delegate([](auto& g){ g.precheck(); });
 
     m_prechecked = true;
-    completed();
+    return completed();
 }
 
-void global_t::compile(log_t* log)
+global_t* global_t::compile(log_t* log)
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    log = &stdout_log; // TODO
     dprint(log, "COMPILING", name, m_ideps.size());
     delegate([](auto& g){ g.compile(); });
 
     m_compiled = true;
-    completed();
+    return completed();
 }
 
-void global_t::completed()
+global_t* global_t::completed()
 {
     // OK! The global is done.
     // Now add all its dependents onto the ready list:
@@ -649,6 +647,11 @@ void global_t::completed()
     for(global_t* iuse : m_iuses)
         if(--iuse->m_ideps_left == 0)
             *(newly_ready_end++) = iuse;
+
+    std::size_t const newly_ready_size = newly_ready_end - newly_ready;
+
+    if(newly_ready_size > 0)
+        --newly_ready_end; // We'll return the last global, not insert it.
 
     unsigned new_globals_left;
 
@@ -662,8 +665,18 @@ void global_t::completed()
         new_globals_left = globals_left;
     }
 
-    if(newly_ready_end != newly_ready || new_globals_left == 0)
+    if(new_globals_left == 0 || newly_ready_size > 2)
         ready_cv.notify_all();
+    else if(newly_ready_size == 2)
+        ready_cv.notify_one();
+
+    if(newly_ready_size > 0)
+    {
+        assert(*newly_ready_end);
+        return *newly_ready_end;
+    }
+    else
+        return nullptr;
 }
 
 global_t* global_t::await_ready_global()
@@ -683,7 +696,7 @@ void global_t::compile_all()
 {
     assert(compiler_phase() == PHASE_COMPILE);
 
-    do_all([&](global_t& g){ g.compile(nullptr); });
+    do_all([&](global_t& g){ return g.compile(nullptr); });
 }
 
 global_datum_t* global_t::datum() const
@@ -1256,10 +1269,14 @@ void fn_t::compile()
 
     auto const optimize_suite = [&](bool post_byteified)
     {
-#define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { changed = true; std::printf("DID_O %s\n", #o); } ir.assert_valid(); } while(false)
+#define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { changed = true; /*assert((std::printf("DID_O %s\n", #o), true));*/ } ir.assert_valid(); } while(false)
 
         unsigned iter = 0;
         bool changed;
+
+        // Do this first, to reduce the size of the IR:
+        o_remove_unused_ssa(log, ir);
+
         do
         {
             changed = false;
@@ -1269,7 +1286,7 @@ void fn_t::compile()
             RUN_O(o_defork, log, ir);
             RUN_O(o_fork, log, ir);
 
-            RUN_O(o_phis, &stdout_log, ir);
+            RUN_O(o_phis, log, ir);
 
             RUN_O(o_merge_basic_blocks, log, ir);
 
@@ -1285,7 +1302,7 @@ void fn_t::compile()
             save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
             RUN_O(o_loop, log, ir, post_byteified);
             save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
-            RUN_O(o_abstract_interpret, &stdout_log, ir, post_byteified);
+            RUN_O(o_abstract_interpret, log, ir, post_byteified);
             save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_remove_unused_ssa, log, ir);
@@ -1301,8 +1318,6 @@ void fn_t::compile()
             // Enable this to debug:
             save_graph(ir, fmt("during_o_%", iter).c_str());
             ++iter;
-
-            std::puts("pass");
 
             // TODO:
             //if(iter == 3)
@@ -1691,7 +1706,6 @@ void global_datum_t::dethunkify(bool full)
 {
     assert(compiler_phase() == PHASE_RESOLVE || compiler_phase() == PHASE_COUNT_MEMBERS);
     m_src_type.type = ::dethunkify(m_src_type, full);
-    std::cout << "SHREK TYPE " << global.name << ' ' << m_src_type.type << std::endl;
 }
 
 void global_datum_t::resolve()

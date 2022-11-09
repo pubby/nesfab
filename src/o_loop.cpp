@@ -105,7 +105,6 @@ struct mutual_iv_t : public iv_base_t
     virtual bool has_ssa(ssa_ht match) const { return arith == match; }
     virtual ssa_value_t make_init(cfg_ht cfg) const
     {
-        std::cout << "MAKE INIT" << arith << std::endl;
         assert(cfg);
 
         ssa_value_t const parent_init = parent->make_init(cfg);
@@ -649,8 +648,6 @@ bool rewrite_loop(bool is_do, bool is_byteified, iv_t& root,
 // Returns times unrolled, or 0 if nothing happened.
 fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
 {
-    std::cout << "UNROLL ENTER\n";
-
     auto const& hd = header_data(header);
 
     if(!hd.simple_unroll_body)
@@ -683,15 +680,11 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
         if(!calc_cost_per_iter(body))
             return 0;
 
-    std::cout << "UNROLL COST " << cost_per_iter << std::endl;
-
     if(cost_per_iter == 0)
         return 0;
 
     unsigned const unroll_amount = estimate_unroll_divisor(iterations, MAX_COST / cost_per_iter);
     passert(iterations % unroll_amount == 0, iterations, unroll_amount);
-
-    std::cout << "UNROLL " << header << ' ' << iterations << " / " << unroll_amount << std::endl;
 
     if(unroll_amount <= 1)
         return 0;
@@ -1214,8 +1207,6 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
             {
                 fixed_sint_t signed_init = sign_extend(init, numeric_bitmask(root->ssa(true)->type().name()));
 
-                std::cout << "SHREK " << (init >> 24) << ' ' << (increment >> 24) << std::endl;
-
                 if(signed_init >= 0 && increment >= 0)
                     increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));
 
@@ -1232,8 +1223,6 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 
                 if(iterations <= 0)
                     goto fail;
-
-                std::cout << "SHREK " << iterations << std::endl;
             }
             else
             {
@@ -1322,7 +1311,6 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                 constraints_t c = {};
                 c.bounds.min = std::min(init, last);
                 c.bounds.max = std::max(init, last);
-                std::cout << "SHREK " << d.simple_do << ' ' << (last >> 24) << ' ' << iterations << c << std::endl;
 
                 assert(increment);
                 fixed_uint_t const b = (1ull << builtin::ctz(fixed_uint_t(increment))) - 1ull;

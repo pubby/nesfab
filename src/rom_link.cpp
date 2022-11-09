@@ -77,7 +77,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             // This is slower than necessary, but safer to code.
             asm_proc = rom_proc->asm_proc();
 
-            //asm_proc.write_assembly(std::cout, alloc.romv);
+            asm_proc.write_assembly(std::cout, alloc.romv);
 
             asm_proc.link(alloc.romv, alloc.only_bank());
             asm_proc.relocate(locator_t::addr(alloc.span.addr));
@@ -101,27 +101,29 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
     if(chr_rom_size)
     {
         if(!global_t::chrrom() || global_t::chrrom()->gclass() != GLOBAL_CONST)
-            throw compiler_error_t(fmt_error(fmt("Mapper % requires chrrom, but none was defined.", mapper().name())));
-
-        const_t const& chrrom = global_t::chrrom()->impl<const_t>();
-        rom_array_ht const rom_array = chrrom.rom_array();
-        assert(rom_array);
-        std::size_t const size = rom_array->data().size();
-
-        if(size > chr_rom_size)
+            compiler_warning(fmt("Mapper % requires chrrom, but none was defined.", mapper().name()));
+        else
         {
-            compiler_error(chrrom.global.pstring(), 
-                fmt("chrrom of size % is greater than the mapper's expected size of %.", 
-                    size, chr_rom_size));
-        }
-        else if(size < chr_rom_size)
-        {
-            compiler_warning(chrrom.global.pstring(), 
-                fmt("chrrom of size % is smaller the mapper's expected size of %.", 
-                    size, chr_rom_size));
-        }
+            const_t const& chrrom = global_t::chrrom()->impl<const_t>();
+            rom_array_ht const rom_array = chrrom.rom_array();
+            assert(rom_array);
+            std::size_t const size = rom_array->data().size();
 
-        write_linked(rom_array->data(), ROMV_MODE, 0, rom.data() + chr_rom_start);
+            if(size > chr_rom_size)
+            {
+                compiler_error(chrrom.global.pstring(), 
+                    fmt("chrrom of size % is greater than the mapper's expected size of %.", 
+                        size, chr_rom_size));
+            }
+            else if(size < chr_rom_size)
+            {
+                compiler_warning(chrrom.global.pstring(), 
+                    fmt("chrrom of size % is smaller the mapper's expected size of %.", 
+                        size, chr_rom_size));
+            }
+
+            write_linked(rom_array->data(), ROMV_MODE, 0, rom.data() + chr_rom_start);
+        }
     }
     else if(global_t::chrrom())
         compiler_warning(global_t::chrrom()->pstring(), fmt("Mapper % ignores chrrom. Data will not appear in ROM.", mapper().name()));

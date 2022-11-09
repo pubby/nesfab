@@ -176,6 +176,7 @@ enum cast_result_t : char
 {
     CAST_FAIL,
     CAST_NOP,
+    CAST_NOP_RETYPE,
     CAST_TRUNCATE,
     CAST_PROMOTE,
     CAST_BOOLIFY,

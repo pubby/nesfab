@@ -658,8 +658,6 @@ void eval_t::interpret_stmts()
     {
         check_time();
 
-        std::cout << to_string(stmt->name) << std::endl;
-
         switch(stmt->name)
         {
         default: // Handles var inits
@@ -1451,8 +1449,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
 
             unsigned const var_i = ast.token.value;
-            if(fn && fn->iasm)
-                std::printf("asm var_i %i\n", var_i);
             assert(var_i < var_types.size());
             assert(var_i < num_local_vars());
 
@@ -1490,7 +1486,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             case GLOBAL_VAR:
                 {
-                    std::cout << "CHOCK " << global->name << std::endl;
                     expr_value_t result =
                     {
                         .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
@@ -2366,6 +2361,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             if(is_compile(D))
             {
+                assert(addr.type == TYPE_APTR);
+                passert(addr.ssa().type() == TYPE_APTR, addr.ssa().type());
+
                 ssa_ht const h = builder.cfg->emplace_ssa(
                     SSA_write_ptr_hw, TYPE_VOID, 
                     addr.ssa(), ssa_value_t(), ssa_value_t(), 
@@ -3452,7 +3450,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 if(precheck_tracked)
                 {
                     precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), v.pstring);
-                    std::cout << "CHECKOV " << global.name << std::endl;
                 }
                 if(is_compile(D))
                 {
@@ -4418,15 +4415,19 @@ expr_value_t eval_t::do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& t
 
     expr_value_t result = { .pstring = concat(lhs.pstring, rhs.pstring) };
 
-    if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
+    if(is_ct(lhs.type) && is_ct(rhs.type))
     {
-        result.type = rhs.type;
-        lhs = throwing_cast<Policy::D>(std::move(lhs), result.type, true);
-    }
-    else if(is_ct(rhs.type) && can_cast(rhs.type, lhs.type, true))
-    {
-        result.type = lhs.type;
-        rhs = throwing_cast<Policy::D>(std::move(rhs), result.type, true);
+        if(can_cast(lhs.type, rhs.type, true))
+        {
+            result.type = rhs.type;
+            lhs = throwing_cast<Policy::D>(std::move(lhs), result.type, true);
+        }
+        else
+        {
+            assert(can_cast(rhs.type, lhs.type, true));
+            result.type = lhs.type;
+            rhs = throwing_cast<Policy::D>(std::move(rhs), result.type, true);
+        }
     }
     else
     {
@@ -4445,9 +4446,12 @@ expr_value_t eval_t::do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& t
 
         result.type = type_s_or_u(result_whole, result_frac, result_sign);
         passert(is_arithmetic(result.type.name()), result_whole, result_frac, result_sign);
-    }
 
-    passert(is_arithmetic(result.type.name()), result.type.name());
+        if(is_ct(lhs.type))
+            lhs = throwing_cast<Policy::D>(std::move(lhs), result.type, true);
+        if(is_ct(rhs.type))
+            rhs = throwing_cast<Policy::D>(std::move(rhs), result.type, true);
+    }
 
     if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
     {
@@ -4653,7 +4657,7 @@ expr_value_t eval_t::force_ptrify_int(expr_value_t value, expr_value_t* bank, ty
     if(is_interpret(D))
     {
         assert(value.rval().size() == 1);
-        result.val = value.val;
+        result.val = rval_t{ ssa_value_t(value.fixed(), to_type.name()) };
     add_bank:
         if(bank)
         {
@@ -4661,7 +4665,7 @@ expr_value_t eval_t::force_ptrify_int(expr_value_t value, expr_value_t* bank, ty
             result.rval().push_back(bank->rval()[0]);
         }
     }
-    else if(D == COMPILE)
+    else if(is_compile(D))
     {
         ssa_value_t first_cast = value.ssa();
 
@@ -4853,6 +4857,14 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
     case CAST_NOP:
         value.type = to_type;
         value = to_rval<D>(std::move(value));
+        return true;
+    case CAST_NOP_RETYPE:
+        value.type = to_type;
+        value = to_rval<D>(std::move(value));
+        if(is_interpret(D) || (is_compile(D) && value.is_ct()))
+            value.val = rval_t{ ssa_value_t(value.fixed(), to_type.name()) };
+        else if(is_compile(D))
+            value.val = rval_t{ builder.cfg->emplace_ssa(SSA_cast, to_type, value.ssa()) };
         return true;
     case CAST_PROMOTE:
         value = force_promote<D>(std::move(value), to_type, cast_pstring);

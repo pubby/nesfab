@@ -167,11 +167,6 @@ bounds_t from_bits(known_bits_t bits, constraints_mask_t cm)
             
             ret = { pos.min - complement, pos.max - complement };
 
-            //std::cout << "from bits" << std::endl;
-            //std::cout << complement << std::endl;
-            //std::cout << pos << std::endl;
-            //std::cout << ret << std::endl;
-
             passert(ret.min < 0, ret.min);
             passert(ret.max < 0, ret.max);
             assert(ret.min <= ret.max);
@@ -217,21 +212,11 @@ known_bits_t from_bounds(bounds_t bounds, constraints_mask_t cm)
 
     if(x)
         low_mask = ~((1ull << (fixed_uint_t)builtin::rclz(x)) - 1ull);
-    //std::cout << x << std::endl;
-    //std::cout << low_mask << std::endl;
-    //std::cout << (x & low_mask) << std::endl;
     assert((x & low_mask) == 0ull);
 
     known_bits_t ret;
     ret.known0 = (~bounds.min & low_mask) | ~cm.mask;
     ret.known1 = (bounds.min & low_mask) & cm.mask;
-
-    //std::cout << "ret: " << bounds << std::endl;
-    //std::cout << "ret: " << x << std::endl;
-    //std::cout << ret << std::endl;
-    //ret.known0 |= ~cm.mask;
-    //ret.known1 &= cm.mask;
-    //std::cout << ret << std::endl;
 
     if(cm.signed_ && bounds.min < 0 && bounds.max >= 0)
         assert(ret.bit_eq(known_bits_t::bottom(cm)));
@@ -317,8 +302,6 @@ bool is_subset(constraints_t small, constraints_t big, constraints_mask_t cm)
 // e.g. if bounds are [1, 5] and bit 0 is known to be 0, narrows to [2, 4].
 bounds_t tighten_bounds(constraints_t c, constraints_mask_t cm)
 {
-    //std::cout << "tighten:" << std::endl;
-    //std::cout << c << std::endl;
     fixed_uint_t const known = c.bits.known() & cm.mask;
 
     if(!known)
@@ -1676,12 +1659,6 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
     constraints_t& R = cv[1][0];
     constraints_t& C = cv[2][0];
 
-    std::cout << "NAR OG" << Add << std::endl;
-    std::cout << L << std::endl;
-    std::cout << R << std::endl;
-    std::cout << C << std::endl;
-    std::cout << result[0] << std::endl;
-
     known_bits_t R_bits = R.bits;
     if(!Add)
         std::swap(R_bits.known0, R_bits.known1);
@@ -1737,17 +1714,9 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
         R.bits.known1 |= ~R.bits.known1 & rsolvable;
     }
 
-    std::cout << "NAR" << std::endl;
-    std::cout << L << std::endl;
-    std::cout << R << std::endl;
-
     // Move the bounds in after calculating bits.
     L.bounds = intersect(L.bounds, from_bits(L.bits, cm));
     R.bounds = intersect(R.bounds, from_bits(R.bits, cm));
-
-    std::cout << "NAR" << std::endl;
-    std::cout << L << std::endl;
-    std::cout << R << std::endl;
 
     L.normalize(cm);
     R.normalize(cm);

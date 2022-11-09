@@ -393,7 +393,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(is_ptr(from.name()) && is_aptr(to.name()) 
        && (is_banked_ptr(from.name()) || !is_banked_ptr(to.name())))
     {
-        return CAST_NOP;
+        return CAST_NOP_RETYPE;
     }
 
     // Any int can convert to AA.
@@ -413,7 +413,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
        && (is_mptr(from.name()) || !is_mptr(to.name()))
        && can_cast_groups(from, to))
     {
-        return CAST_NOP;
+        return CAST_NOP_RETYPE;
     }
 
     // Otherwise you can't cast different pointers.

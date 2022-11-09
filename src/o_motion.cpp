@@ -232,8 +232,6 @@ static bool o_hoist(log_t* log, ir_t& ir)
                     goto next_iter;
             }
 
-            std::cout << "steal " << hoist_to << ssa << std::endl;
-
             // Move the node:
             hoist_to->steal_ssa(ssa, true);
             dprint(log, "-HOIST_STEAL", ssa, hoist_to);

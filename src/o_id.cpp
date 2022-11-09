@@ -534,18 +534,73 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     goto replaceWith0;
                 break;
 
-            case SSA_mul:
             case SSA_mul8_lo:
+            case SSA_mul:
                 for(unsigned i = 0; i < 2; ++i)
                 {
-                    if(ssa_it->input(i).eq_whole(0))
+                    ssa_value_t const input = ssa_it->input(i);
+                    ssa_value_t const other = ssa_it->input(!i);
+
+                    if(input.eq_whole(0))
+                    {
+                        if(ssa_ht hi = mul8_output(*ssa_it))
+                        {
+                            hi->replace_with(ssa_value_t(0u, hi->type().name()));
+                            hi->prune();
+                        }
+
                         goto *replaceWith[i];
-                    if(ssa_it->input(i).eq_whole(1))
+                    }
+
+                    if(input.eq_whole(1))
+                    {
+                        if(ssa_ht hi = mul8_output(*ssa_it))
+                        {
+                            if(is_signed(other.type().name()))
+                            {
+                                ssa_ht const extend = hi->cfg_node()->emplace_ssa(
+                                    SSA_sign_extend, hi->type(), other);
+                                hi->replace_with(extend);
+                            }
+                            else
+                                hi->replace_with(ssa_value_t(0u, hi->type().name()));
+                            hi->prune();
+                        }
+
                         goto *replaceWith[!i];
+                    }
+
+                    if(is_signed(input.type().name()) && input.eq_signed_whole(-1))
+                    {
+                        if(ssa_ht hi = mul8_output(*ssa_it))
+                        {
+                            if(is_signed(other.type().name()))
+                            {
+                                ssa_ht const extend = hi->cfg_node()->emplace_ssa(
+                                    SSA_sign_extend, hi->type(), ssa_it);
+                                hi->replace_with(extend);
+                            }
+                            else
+                                hi->replace_with(ssa_value_t(0xFF, hi->type().name()));
+                        }
+
+                        ssa_ht const sub = ssa_it->cfg_node()->emplace_ssa(
+                            SSA_sub, other.type(), ssa_value_t(0u, other.type().name()), other);
+
+                        ssa_it->link_remove_input(i);
+                        ssa_it->link_change_input(0, sub);
+                        ssa_it->unsafe_set_op(SSA_cast);
+
+                        updated = true;
+                        goto done_mul;
+                    }
                 }
 
                 if(ssa_it->op() != SSA_mul)
+                {
+                done_mul:
                     break;
+                }
 
                 // Convert to shifts
                 for(unsigned i = 0; i < 2; ++i)
@@ -708,8 +763,10 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
 
     ssa_worklist.push(initial);
     
+    unsigned iters = 0;
     while(!ssa_worklist.empty())
     {
+        ++iters;
         ssa_ht h = ssa_worklist.pop();
 
         bool process_inputs = true;
@@ -729,7 +786,7 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
         if(h->cfg_node() != cfg || h->in_daisy() || h->op() == SSA_phi)
             process_inputs = false;
 
-        if(process_inputs)
+        if(process_inputs && iters < 8)
         {
             for(unsigned i = 0; i < h->input_size(); ++i)
             {
@@ -741,6 +798,8 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
             }
         }
     }
+
+    //std::cout << "ITERS " << iters << std::endl;
 
     // Sort by use count. Most used comes first.
     std::sort(banks.container.begin(), banks.container.end(), [](auto const& l, auto const& r)
@@ -1438,7 +1497,6 @@ void run_monoid_t::build(ssa_op_t def_op, ssa_ht h, bool negative)
 
 bool o_identities(log_t* log, ir_t& ir)
 {
-    log = &stdout_log; // TODO
     auto const simple_repeated = [&]
     {
         bool updated = false;

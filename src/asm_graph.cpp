@@ -94,8 +94,6 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
         auto const& inst = *it;
         asm_node_t& node = list.back();
 
-        std::cout << "APPEND " << inst << std::endl;
-
         if(inst.op == ASM_LABEL)
         {
             assert(!node.output_inst.op);
@@ -173,7 +171,7 @@ void asm_graph_t::finish_appending()
     }
     to_lookup.clear();
 
-    std::cout << "BEGIN GRAPH\n";
+    /*
     for(auto it = list.begin(); it != list.end(); ++it)
     {
         std::cout << "GRAPH NODE " << it->inputs().size() << std::endl;
@@ -181,6 +179,7 @@ void asm_graph_t::finish_appending()
             std::cout << inst << std::endl;
         std::cout << it->output_inst << std::endl;
     }
+    */
 }
 
 asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)

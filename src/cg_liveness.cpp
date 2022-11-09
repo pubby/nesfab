@@ -120,10 +120,7 @@ bool live_at_def(ssa_ht range, ssa_ht def)
     {
         // Interfere if range is also live-out at def.
         if(bitset_test(def_live.out, range.id))
-        {
-            std::puts("live 1");
             return true;
-        }
 
         // Test to see if a use occurs after def:
         for(unsigned i = 0; i < range->output_size(); ++i)
@@ -136,11 +133,7 @@ bool live_at_def(ssa_ht range, ssa_ht def)
 
             ssa_ht const output = oe.handle;
             if(output->cfg_node() == def->cfg_node() && cg_data(def).schedule.index < cg_data(output).schedule.index)
-            {
-                std::puts("live 2");
-                std::cout << range << ' ' << def << output << ' ' << cg_data(def).schedule.index <<  ' ' << cg_data(output).schedule.index << std::endl;
                 return true;
-            }
         }
     }
 

@@ -1041,6 +1041,13 @@ void ir_t::assert_valid() const
                 assert(ssa_it->input(OFFSET).type() == TYPE_U20);
             }
 
+            // Mul checks
+            if(ssa_it->op() == SSA_mul8_hi)
+            {
+                assert(ssa_it->input(0).holds_ref());
+                assert(ssa_it->input(0)->op() == SSA_mul8_lo);
+            }
+
             /* TODO
             if(ssa_it->op() == SSA_multi_lt)
             {

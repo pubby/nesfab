@@ -188,13 +188,13 @@ private:
     template<typename Fn>
     static void do_all(Fn const& fn);
 
-    void resolve(log_t* log);
-    void precheck(log_t* log);
-    void compile(log_t* log);
+    global_t* resolve(log_t* log);
+    global_t* precheck(log_t* log);
+    global_t* compile(log_t* log);
 
     // Call on completion of compile or precheck.
     // Updates the ready list.
-    void completed();
+    global_t* completed();
 
     template<typename Fn>
     void delegate(Fn const& fn)

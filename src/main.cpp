@@ -47,8 +47,6 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
             fs::path const path = dir / fs::path(name);
             std::string const ext = fs::path(path).extension();
 
-            std::cout << path << std::endl;
-
             if(ext == ".cfg")
             {
                 std::ifstream ifs(path.string(), std::ios::in);
@@ -114,6 +112,8 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
 int main(int argc, char** argv)
 {
+    auto entry_time = std::chrono::system_clock::now();
+
 #ifdef NDEBUG
     try
 #endif
@@ -176,7 +176,6 @@ int main(int argc, char** argv)
             {
                 po::options_description visible;
                 visible.add(cmdline).add(basic).add(mapper_opt);
-                std::cout << visible << '\n';
                 return EXIT_SUCCESS;
             }
 
@@ -278,11 +277,13 @@ int main(int argc, char** argv)
 
         auto const output_time = [&time](char const* desc)
         {
-            auto now = std::chrono::system_clock::now();
-            unsigned long long const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - time).count();
             if(compiler_options().build_time)
-                std::printf("time %s %lli ms\n", desc, ms);
-            time = std::chrono::system_clock::now();
+            {
+                auto now = std::chrono::system_clock::now();
+                unsigned long long const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - time).count();
+                std::printf("time %s %8lli ms\n", desc, ms);
+                time = std::chrono::system_clock::now();
+            }
         };
 
         global_t::init();
@@ -310,7 +311,7 @@ int main(int argc, char** argv)
         get_main_mode(); // This throws an error if 'main' isn't proper.
 
         global_t::parse_cleanup();
-        output_time("parse:  ");
+        output_time("parse:    ");
 
         // Count and arrange struct members:
         set_compiler_phase(PHASE_COUNT_MEMBERS);
@@ -363,10 +364,7 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_ALLOC_RAM);
         alloc_ram(nullptr, ~static_used_ram);
-        // TODO: remove
-        //for(fn_t const& fn : impl_deque<fn_t>)
-            //fn.proc().write_assembly(std::cout, fn.handle());
-        print_ram(std::cout);
+        //print_ram(std::cout);
         output_time("alloc ram:");
 
         set_compiler_phase(PHASE_INITIAL_VALUES);
@@ -375,8 +373,8 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
-        alloc_rom(&stdout_log, rom_allocator, mapper().num_32k_banks);
-        print_rom(std::cout);
+        alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
+        //print_rom(std::cout);
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);
@@ -392,8 +390,6 @@ int main(int argc, char** argv)
         std::fclose(of);
         output_time("link:     ");
 
-        //std::cout << "init at " << static_span(RTROM_reset).addr << std::endl;
-
         //for(unsigned i = 0; i < 1; ++i)
         //{
             //globals.debug_print();
@@ -408,6 +404,13 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 #endif
+
+    if(compiler_options().build_time)
+    {
+        auto now = std::chrono::system_clock::now();
+        unsigned long long const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - entry_time).count();
+        std::printf("time total:     %8lli ms\n", ms);
+    }
 
     return EXIT_SUCCESS;
 }

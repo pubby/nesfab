@@ -30,14 +30,14 @@ bool pure(ssa_node_t const& ssa_node)
 
 unsigned estimate_cost(ssa_node_t const& ssa_node)
 {
+    if(ssa_flags(ssa_node.op()) & SSAF_EXPENSIVE)
+        return 1024;
+
     if(ssa_input0_class(ssa_node.op()) == INPUT_LINK)
         return 0;
 
     if(ssa_flags(ssa_node.op()) & SSAF_FREE)
         return 0;
-
-    if(ssa_flags(ssa_node.op()) & SSAF_EXPENSIVE)
-        return 256;
 
     if(ssa_flags(ssa_node.op()) & SSAF_CONDITIONAL)
         return 4; // somewhat arbitrary

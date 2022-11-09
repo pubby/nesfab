@@ -65,7 +65,6 @@ void build_order(ir_t const& ir)
 // until everything nests nicely.
 static void _tag_loop_header(cfg_ht node, cfg_ht header)
 {
-    std::cout << "TAG LOOP " << node << header << std::endl;
     if(node == header || !header)
         return;
 
@@ -96,23 +95,16 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
 
         if(iloop_header_u.dfsp < header_u.dfsp)
         {
-            std::cout << "TAG LOOP SET " << node << header << std::endl;
             algo(node).iloop_header = header;
             node = header;
             header = iloop_header;
         }
         else
-        {
-            std::cout << "TAG LOOP SET2 " << node << header << std::endl;
             node = iloop_header;
-        }
-
-        std::cout << "LOOP " << node << std::endl;
     }
 
     //if(node.id == 1 && header) TODO REMOVE
         //assert(false);
-    std::cout << "TAG LOOP SET3 " << node << header << std::endl;
     algo(node).iloop_header = header;
 }
 
@@ -125,8 +117,6 @@ static cfg_ht _visit_loops(cfg_ht node, unsigned dfsp = 1)
     u.dfsp = dfsp;
     u.preorder_i = preorder.size(); // Marks as traversed.
     preorder.push_back(node);
-
-    std::cout << "VISIT " << node << std::endl;
 
     auto const in_dfsp = [](auto& d) -> bool
     {
@@ -230,20 +220,6 @@ void build_loops_and_order(ir_t& ir)
 
     assert(preorder.empty() || preorder.front() == ir.root);
     assert(postorder.empty() || postorder.back() == ir.root);
-
-    std::cout << "HEADER BEGIN\n";
-    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
-    {
-        std::cout << "HEADER " << cfg << algo(cfg).iloop_header << ' ' << algo(cfg).is_loop_header 
-        << ' ' << algo(cfg).is_irreducible
-        << ' ' << !!algo(cfg).reentry_in << ' ' << !!algo(cfg).reentry_out;
-        for(cfg_ht i = algo(cfg).iloop_header; i; i = algo(i).iloop_header)
-        {
-            std::cout << i;
-            std::flush(std::cout);
-        }
-        std::cout << std::endl;
-    }
 }
 
 cfg_ht this_loop_header(cfg_ht h)

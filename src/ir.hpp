@@ -490,21 +490,33 @@ inline ssa_value_t orig_ssa(ssa_value_t v)
 }
 */
 
-// Searches for this node's carry output node.
+// Searches for this node's output node matching 'Op'.
 // Returns -1 if it doesn't exist.
-inline int carry_output_i(ssa_node_t const& node)
+template<ssa_op_t Op>
+int find_output_i(ssa_node_t const& node)
 {
     for(unsigned i = 0; i < node.output_size(); ++i)
-        if(node.output(i)->op() == SSA_carry)
+        if(node.output(i)->op() == Op)
             return i;
     return -1;
 }
 
-inline ssa_ht carry_output(ssa_node_t const& node)
+// Searches for this node's output node matching 'Op'.
+// Returns a null handle if it doesn't exist.
+template<ssa_op_t Op>
+ssa_ht find_output(ssa_node_t const& node)
 {
-    int i = carry_output_i(node);
-    return i >= 0 ? node.output(i) : ssa_ht{};
+    for(unsigned i = 0; i < node.output_size(); ++i)
+        if(node.output(i)->op() == Op)
+            return node.output(i);
+    return {};
 }
+
+inline ssa_ht carry_output(ssa_node_t const& node) { return find_output<SSA_carry>(node); }
+inline ssa_ht mul8_output(ssa_node_t const& node) { return find_output<SSA_mul8_hi>(node); }
+
+inline int carry_output_i(ssa_node_t const& node) { return find_output_i<SSA_carry>(node); }
+inline int mul8_output_i(ssa_node_t const& node) { return find_output_i<SSA_mul8_hi>(node); }
 
 inline bool carry_used(ssa_node_t const& node)
 {

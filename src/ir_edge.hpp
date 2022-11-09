@@ -87,8 +87,12 @@ public:
 
     bool eq_whole(unsigned w) const 
         { return is_num() && fixed() == fixed_t::whole(w); }
+    bool eq_signed_whole(unsigned w) const 
+        { return is_num() && fixed_uint_t(signed_fixed()) == fixed_t::whole(w).value; }
     bool eq_fixed(fixed_t f) const 
         { return is_num() && fixed() == f; }
+    bool eq_signed_fixed(fixed_t f) const 
+        { return is_num() && fixed_uint_t(signed_fixed()) == f.value; }
 
     constexpr void set(fixed_t fixed, type_name_t type_name) 
     { 

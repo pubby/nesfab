@@ -489,7 +489,6 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         auto const alloc_gmember_loc = [&](locator_t loc)
         {
-            std::cout << "ALLOC " << loc << std::endl;
             gmember_t& gmember = *loc.gmember();
 
             if(gmember.span(loc.atom())) // Abort if we've already allocated.
@@ -544,7 +543,6 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
 
             dprint(log, "--RESULT", span);
-            std::cout << "ALLOC " << loc << " = " << span << std::endl;
 
             if(is_ptr)
             {
@@ -565,20 +563,16 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         // Allocate
 
-        std::puts("ALLOC 0");
         for(rank_t const& rank : ordered_gmembers_aligned)
             alloc_gmember_loc(rank.loc);
 
-        std::puts("ALLOC 1");
         for(group_inits_t const& inits : ordered_inits)
             for(locator_t loc : inits.init)
                 alloc_gmember_loc(loc);
 
-        std::puts("ALLOC 2");
         for(rank_t const& rank : ordered_gmembers_zp)
             alloc_gmember_loc(rank.loc);
 
-        std::puts("ALLOC 3");
         for(rank_t const& rank : ordered_gmembers)
             alloc_gmember_loc(rank.loc);
     }
@@ -911,7 +905,6 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
 void alloc_ram(log_t* log, ram_bitset_t const& initial)
 {
-    log = &stdout_log; // TODO
     dprint(log, "ALLOCATING_RAM");
     ram_allocator_t a(log, initial);
 }

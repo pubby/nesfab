@@ -49,7 +49,6 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, romv_allocs_t 
     std::hash<loc_vec_t> hasher;
     auto const hash = hasher(vec);
 
-    rom_array_t* rom_array;
     rom_array_ht ret = rom_array_ht::with_pool([&, hash](auto& pool)
     {
         rh::apair<rom_array_ht*, bool> result = m_pool_map.emplace(hash,
@@ -61,7 +60,7 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, romv_allocs_t 
             [&]()
             { 
                 rom_array_ht const ret = { pool.size() };
-                rom_array = &pool.emplace_back(std::move(vec), a, rom_key_t());
+                &pool.emplace_back(std::move(vec), a, rom_key_t());
                 return ret;
             });
 
@@ -69,7 +68,7 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, romv_allocs_t 
     });
 
     if(gd)
-        rom_array->mark_used_by(gd);
+        ret.safe().mark_used_by(gd);
 
     return ret;
 }
@@ -85,8 +84,6 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
         unsigned begin = 0;
         unsigned end = input_size;
 
-        std::cout << "SHREK ROM " << ssa_it << std::endl;
-
         auto const is_uninitialized = [](ssa_value_t v)
         {
             return v.holds_ref() && v->op() == SSA_uninitialized;
@@ -94,8 +91,6 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
 
         if(ssa_it->op() != SSA_init_array)
             goto next_iter;
-
-        std::cout << "SHREK ROM *PASS* " << ssa_it << std::endl;
         
         // We're looking for SSA_init_arrays of all constants
         // TODO: Also handle arrays of *mostly* constants.

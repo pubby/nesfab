@@ -486,13 +486,13 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         });
     }
 
-    std::cout << "sched start " << std::endl;
+    //std::cout << "sched start " << std::endl;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
-        std::cout << "sched cfg " << cfg_it << std::endl;
+        //std::cout << "sched cfg " << cfg_it << std::endl;
         auto& d = cg_data(cfg_it);
-        for(ssa_ht h : d.schedule)
-            std::cout << "sched " << h->op() << ' ' << h.id << '\n';
+        //for(ssa_ht h : d.schedule)
+            //std::cout << "sched " << h->op() << ' ' << h.id << '\n';
     }
 
     ///////////////////////////
@@ -525,7 +525,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         unsigned const index = cg_data(store).schedule.index;
         auto& schedule = cg_data(store->cfg_node()).schedule;
-        std::cout << store << ' ' << parent << ' ' << index << ' ' << schedule.size() << std::endl;
+        //std::cout << store << ' ' << parent << ' ' << index << ' ' << schedule.size() << std::endl;
         assert(schedule.begin() + index < schedule.end());
         assert(schedule[index] == store);
         for(unsigned i = index+1; i < schedule.size(); ++i)
@@ -699,7 +699,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     }
 
     // Coalesce phis:
-    std::puts("coalesce phis");
+    //std::puts("coalesce phis");
 
     // First try to coalesce 'SSA_phi's with their input 'SSA_phi_copy's.
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -727,7 +727,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 
-    std::puts("coalesce phis 2");
+    //std::puts("coalesce phis 2");
 
     // Prioritize less busy ranges over larger ones.
     for(copy_t& copy : phi_copies)
@@ -757,7 +757,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             prune_early_store(candidate);
     }
 
-    std::puts("coalesce phis 3");
+    //std::puts("coalesce phis 3");
 
     // Coalesce early stores with their parent
     for(cfg_node_t& cfg_node : ir)
@@ -769,7 +769,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             continue;
         }
 
-        std::printf("try alias %i\n", store.id);
+        //std::printf("try alias %i\n", store.id);
 
         assert(store->input(0).holds_ref());
         ssa_ht parent = store->input(0).handle();
@@ -797,7 +797,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         else
         {
         fail:
-            std::printf("can't alias %i\n", store.id);
+            //std::printf("can't alias %i\n", store.id);
 
             assert(store->output_size() == 1);
             ssa_ht use = store->output(0);
@@ -805,7 +805,8 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             if(is_array(store->type().name())
                || loop_depth(store->cfg_node()) > loop_depth(use->cfg_node()))
             {
-                std::printf("depth diff! %i\n", store.id);
+                //std::printf("depth diff! %i\n", store.id);
+
                 // The early store is either an array copy, or inside a loop, 
                 // meaning it will likely slow the code down.
                 // Thus, let's remove it.
@@ -834,18 +835,18 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             ssa_ht const this_cset = cset_head(h);
             ssa_ht const parent_cset = cset_head(parent);
 
-            std::cout << "TRY ARRAY COAL " << h << std::endl;
+            //std::cout << "TRY ARRAY COAL " << h << std::endl;
 
             if(ssa_ht last = csets_appendable(fn.handle(), ir, this_cset, parent_cset, cache))
             {
-                std::cout << "SUCCCESS ARRAY COAL " << h << std::endl;
+                //std::cout << "SUCCCESS ARRAY COAL " << h << std::endl;
                 cset_append(last, parent_cset);
                 assert(cset_head(h) == cset_head(parent));
             }
         }
     }
 
-    std::puts("coalesce phis 4");
+    //std::puts("coalesce phis 4");
 
     // Now update the IR.
     // (Liveness checks can't be done after this.)
@@ -861,24 +862,24 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             if(h->op() != SSA_read_array8 || !h->input(0).holds_ref())
                 continue;
 
-            std::printf("trying read %i\n", h.id);
+            //std::printf("trying read %i\n", h.id);
 
             ssa_ht const array = h->input(0).handle();
 
             unsigned const size = h->output_size();
             for(unsigned i = 0; i < size; ++i)
             {
-                std::printf("output %i\n", i);
+                //std::printf("output %i\n", i);
                 ssa_ht const output = h->output(i);
                 if(output->cfg_node() != cfg_it)
                 {
-                    std::printf("failed cfg %i\n", i);
+                    //std::printf("failed cfg %i\n", i);
                     goto next_read_array_iter;
                 }
 
                 if(!live_at_def(array, output))
                 {
-                    std::printf("failed liveness %i %i\n", array.id, output.id);
+                    //std::printf("failed liveness %i %i\n", array.id, output.id);
                     goto next_read_array_iter;
                 }
 
@@ -1085,7 +1086,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
             if(!valid_ptr_locs(head_input_loc, head_opposite_loc))
                 continue;
 
-            std::puts("coal ptr 1");
+            //std::puts("coal ptr 1");
 
             // If either is defined with the opposite parity, we can't coalesce.
             if(cg_data(head_opposite).has_ptr(hi) || cg_data(head_input).has_ptr(!hi))
@@ -1094,7 +1095,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         assert(cg_data(ssa_it).ptr_alt);
 
-        std::puts("coal ptr 2");
+        //std::puts("coal ptr 2");
 
         ssa_ht const head_ssa = cset_head(ssa_it);
         assert(cg_data(head_ssa).ptr_alt);
@@ -1106,7 +1107,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(!last) // If they interfere
             continue;
 
-        std::puts("coal ptr 3");
+        //std::puts("coal ptr 3");
 
         ssa_ht const head_ssa_alt = cset_head(cg_data(head_ssa).ptr_alt);
         assert(cg_data(head_ssa_alt).ptr_alt);
@@ -1124,7 +1125,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 continue;
         }
 
-        std::puts("coal ptr 4");
+        //std::puts("coal ptr 4");
 
         // Coalesce the main input.
         assert(csets_appendable(fn.handle(), ir, head_input, head_ssa, cache));
@@ -1134,7 +1135,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         //assert(head_opposite == cset_head(head_opposite));
         assert(cg_data(head_input).ptr_alt);
 
-        std::cout << "coal ptr " << ssa_it.id << std::endl;
+        //std::cout << "coal ptr " << ssa_it.id << std::endl;
     }
 
 

@@ -15,6 +15,7 @@
 #include "flags.hpp"
 #include "array_pool.hpp"
 #include "switch.hpp"
+#include "worklist.hpp"
 
 struct asm_inst_t;
 class locator_t;
@@ -117,6 +118,7 @@ public:
     void optimize();
 
     void remove_maybes(fn_t const& fn);
+    void optimize_live_registers();
     lvars_manager_t build_lvars(fn_t const& fn);
 
     template<typename Fn>
@@ -142,6 +144,9 @@ private:
 
     unsigned calc_liveness(fn_t const& fn, rh::batman_set<locator_t> const& map);
 
+    template<typename Fn>
+    void liveness_dataflow(Fn const& fn);
+
     array_pool_t<bitset_uint_t> bitset_pool;
     array_pool_t<asm_node_t> node_pool;
     list_t list;
@@ -157,6 +162,8 @@ private:
     };
 
     std::vector<delayed_lookup_t> to_lookup;
+
+    inline static thread_local worklist_t<asm_node_t*> worklist;
 
     log_t* log;
 };

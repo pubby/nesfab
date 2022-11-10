@@ -469,6 +469,14 @@ inline bool is_orig_def(ssa_value_t v)
     return v == orig_def(v);
 }
 
+// Recurses through copies until finding the original use.
+inline ssa_ht orig_use(ssa_ht h)
+{
+    while((ssa_flags(h->op()) & SSAF_COPY) && h->output_size() == 1)
+        h = h->output(0);
+    return h;
+}
+
 /* TODO
 inline ssa_value_t orig_ssa(ssa_ht h)
 {

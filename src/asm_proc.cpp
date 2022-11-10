@@ -2,6 +2,8 @@
 
 #include <iostream> // TODO
 
+#include "flat/small_set.hpp"
+
 #include "format.hpp"
 #include "globals.hpp"
 #include "runtime.hpp"
@@ -19,6 +21,102 @@ bool mem_inst(asm_inst_t const& inst)
 {
     return (op_input_regs(inst.op) | op_output_regs(inst.op)) & REGF_M;
 }
+
+/* TODO: remove
+bool o_redundant_loads(asm_inst_t* begin, asm_inst_t* end)
+{
+    bool updated = false;
+
+    constexpr unsigned MAX_SIZE = 8;
+
+    static_assert(REG_A < 3);
+    static_assert(REG_X < 3);
+    static_assert(REG_Y < 3);
+    std::array<fc::small_set<locator_t, MAX_SIZE>, 3> regs = {};
+
+    auto const replace = [&](asm_inst_t& inst, op_t op)
+    {
+        std::cout << "REPLACE " << inst.op << ' ' << op << std::endl;
+        inst.op = op;
+        inst.arg = inst.alt = {};
+        updated = true;
+    };
+
+    for(auto it = begin; it != end; ++it)
+    {
+        if(it->op == ASM_LABEL || (op_flags(it->op) & (ASMF_JUMP | ASMF_RETURN)))
+        {
+            regs = {};
+            continue;
+        }
+
+        if(!it->alt) switch(it->op)
+        {
+        case STA_ZERO_PAGE:
+        case STA_ABSOLUTE:
+            if(regs[REG_A].size() < MAX_SIZE)
+                regs[REG_A].insert(it->arg);
+            break;
+
+        case STX_ZERO_PAGE:
+        case STX_ABSOLUTE:
+            if(regs[REG_X].size() < MAX_SIZE)
+                regs[REG_X].insert(it->arg);
+            break;
+
+        case STY_ZERO_PAGE:
+        case STY_ABSOLUTE:
+            if(regs[REG_Y].size() < MAX_SIZE)
+                regs[REG_Y].insert(it->arg);
+            break;
+
+        case LDA_ZERO_PAGE:
+        case LDA_ABSOLUTE:
+            if(regs[REG_A].count(it->arg))
+                replace(*it, ASM_PRUNED);
+            else if(regs[REG_X].count(it->arg))
+            {
+                replace(*it, TXA_IMPLIED);
+                regs[REG_A] = regs[REG_X];
+            }
+            else if(regs[REG_Y].count(it->arg))
+                replace(*it, TYA_IMPLIED);
+            break;
+
+        case LDX_ZERO_PAGE:
+        case LDX_ABSOLUTE:
+            std::cout << " REGS SIZE " << regs[REG_X].size() << ' ' << int(outputs) << std::endl;
+            if(regs[REG_X].count(it->arg))
+                replace(*it, ASM_PRUNED);
+            else if(regs[REG_A].count(it->arg))
+                replace(*it, TAX_IMPLIED);
+            break;
+
+        case LDY_ZERO_PAGE:
+        case LDY_ABSOLUTE:
+            if(regs[REG_Y].count(it->arg))
+                replace(*it, ASM_PRUNED);
+            else if(regs[REG_A].count(it->arg))
+                replace(*it, TAY_IMPLIED);
+            break;
+
+        default:
+            break;
+        }
+
+        regs_t const outputs = op_output_regs(it->op);
+
+        if(outputs & REGF_A)
+            regs[REG_A].clear();
+        if(outputs & REGF_X)
+            regs[REG_X].clear();
+        if(outputs & REGF_Y)
+            regs[REG_Y].clear();
+    }
+
+    return updated;
+}
+*/
 
 bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 {
@@ -49,16 +147,35 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
     {
         c = next_inst(b);
 
+        // Converts RMW operations to their illegal versions.
+        // e.g.:
+        //     DEC foo
+        //     CMP foo
+        // becomes:
+        //     DCP foo 
         auto const peep_rmw = [&](op_name_t second, op_name_t replace)
         {
             if(b->op == get_op(second, op_addr_mode(a->op))
                && a->arg == b->arg && a->alt == b->alt)
             {
                 if(op_t new_op = get_op(replace, op_addr_mode(a->op)))
+                {
                     replace_op(new_op);
+                    return true;
+                }
             }
+
+            return false;
         };
 
+        // Converts load, increment, store, into a RMW operation.
+        // e.g.:
+        //     LDX foo
+        //     INX
+        //     STX foo
+        // becomes:
+        //     INC foo
+        //     LDX foo
         auto const peep_inxy = [&](op_name_t second, op_name_t store, op_name_t replace)
         {
             if(c && op_name(b->op) == second && op_name(c->op) == store 
@@ -69,10 +186,20 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 {
                     c->op = a->op;
                     replace_op(new_op);
+                    return true;
                 }
             }
+
+            return false;
         };
 
+        // Converts load, load, into a transfer
+        // e.g.:
+        //     LDX foo
+        //     LDA foo
+        // becomes:
+        //     LDX foo
+        //     TXA
         auto const peep_transfer = [&](op_name_t second, op_t replace)
         {
             if(op_name(b->op) == second 
@@ -80,10 +207,39 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && a->arg == b->arg
                && a->alt == b->alt)
             {
-                replace_op(replace);
+                b->op = replace;
+                b->arg = b->alt = {};
+                changed = true;
+                return true;
             }
+
+            return false;
         };
 
+        auto const peep_lax = [&](op_name_t second)
+        {
+            op_t replace = get_op(LAX, op_addr_mode(a->op));
+
+            if(replace
+               && op_name(b->op) == second 
+               && op_addr_mode(a->op) == op_addr_mode(b->op)
+               && a->arg == b->arg
+               && a->alt == b->alt)
+            {
+                replace_op(replace);
+                return true;
+            }
+
+            return false;
+        };
+
+        // Converts store, load, into a transfer
+        // e.g.:
+        //     STX foo
+        //     LDA foo
+        // becomes:
+        //     STX foo
+        //     TXA
         auto const peep_transfer2 = [&](op_name_t second, op_t replace)
         {
             if(op_name(b->op) == second 
@@ -94,9 +250,25 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 b->op = replace;
                 b->arg = b->alt = {};
                 changed = true;
+                return true;
             }
+            else if(c && op_name(c->op) == second 
+               && (op_addr_mode(c->op) == MODE_ZERO_PAGE || op_addr_mode(c->op) == MODE_ABSOLUTE)
+               && a->arg == c->arg
+               && a->alt == c->alt
+               && b->op != ASM_LABEL
+               && !(op_output_regs(b->op) & op_input_regs(replace)))
+            {
+                c->op = replace;
+                c->arg = c->alt = {};
+                changed = true;
+                return true;
+            }
+
+            return false;
         };
 
+    retry:
         switch(op_name(a->op))
         {
         default: break;
@@ -111,32 +283,48 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 replace_op(ALR_IMMEDIATE);
             break;
         case LDX:
-            peep_inxy(INX, STX, INC);
-            peep_inxy(DEX, STX, DEC);
-            peep_transfer(LDA, TXA_IMPLIED);
+            if(peep_inxy(INX, STX, INC)) 
+                goto retry;
+            if(peep_inxy(DEX, STX, DEC)) 
+                goto retry;
+            if(peep_lax(LDA)) 
+                goto retry;
             break;
         case LDY:
-            peep_inxy(INY, STY, INC);
-            peep_inxy(DEY, STY, DEC);
-            peep_transfer(LDA, TYA_IMPLIED);
+            if(peep_inxy(INY, STY, INC))
+                goto retry;
+            if(peep_inxy(DEY, STY, DEC))
+                goto retry;
+            if(peep_transfer(LDA, TYA_IMPLIED))
+                goto retry;
             break;
         case LDA:
-            peep_inxy(ASL, STA, ASL);
-            peep_inxy(LSR, STA, LSR);
-            peep_inxy(ROL, STA, ROL);
-            peep_inxy(ROR, STA, ROR);
-            peep_transfer(LDX, TAX_IMPLIED);
-            peep_transfer(LDY, TAY_IMPLIED);
+            if(peep_inxy(ASL, STA, ASL))
+                goto retry;
+            if(peep_inxy(LSR, STA, LSR))
+                goto retry;
+            if(peep_inxy(ROL, STA, ROL))
+                goto retry;
+            if(peep_inxy(ROR, STA, ROR))
+                goto retry;
+            if(peep_lax(LDX))
+                goto retry;
+            if(peep_transfer(LDY, TAY_IMPLIED))
+                goto retry;
             break;
         case STA:
-            peep_transfer2(LDX, TAX_IMPLIED);
-            peep_transfer2(LDY, TAY_IMPLIED);
+            if(peep_transfer2(LDX, TAX_IMPLIED))
+                goto retry;
+            if(peep_transfer2(LDY, TAY_IMPLIED))
+                goto retry;
             break;
         case STX:
-            peep_transfer2(LDA, TXA_IMPLIED);
+            if(peep_transfer2(LDA, TXA_IMPLIED))
+                goto retry;
             break;
         case STY:
-            peep_transfer2(LDA, TYA_IMPLIED);
+            if(peep_transfer2(LDA, TYA_IMPLIED))
+                goto retry;
             break;
         case RTS:
         case JMP:

@@ -114,6 +114,21 @@ int main(int argc, char** argv)
 {
     auto entry_time = std::chrono::system_clock::now();
 
+    /* TODO: remove
+    asm_proc_t proc;
+    proc.push_inst(STX_ABSOLUTE, locator_t::addr(0));
+    proc.push_inst(STX_ABSOLUTE, locator_t::addr(1));
+    proc.push_inst(STX_ABSOLUTE, locator_t::addr(1));
+    proc.push_inst(STX_ABSOLUTE, locator_t::addr(1));
+    proc.push_inst(LDA_ABSOLUTE, locator_t::addr(0));
+    
+    proc.initial_optimize();
+
+    proc.write_assembly(std::cout, ROMV_MODE);
+
+    return 0;
+    */
+
 #ifdef NDEBUG
     try
 #endif

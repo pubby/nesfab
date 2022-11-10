@@ -93,7 +93,6 @@ public:
 
     static bool is_this_lvar(fn_ht fn, locator_t arg);
     static bool is_call_lvar(fn_ht fn, locator_t arg);
-    static bool is_tracked(fn_ht fn, locator_t arg);
     static bool is_lvar(fn_ht fn, locator_t arg) { return is_this_lvar(fn, arg) || is_call_lvar(fn, arg); }
 
     template<typename Fn>

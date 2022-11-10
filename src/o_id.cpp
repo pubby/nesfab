@@ -34,7 +34,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
         auto const replace_carry = [log](ssa_node_t& node, ssa_value_t carry_replacement)
         {
-            assert(!carry_output(node) || carry_replacement);
+            passert(!carry_output(node) || carry_replacement, node.op());
             if(carry_replacement)
             {
                 if(ssa_ht carry = carry_output(node))
@@ -519,11 +519,17 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             case SSA_xor:
                 if(ssa_it->input(0).eq_fixed({0}))
                     goto replaceWith1;
-                // fall through
+                if(ssa_it->input(1).eq_fixed({0}))
+                    goto replaceWith0;
+                break;
+
             case SSA_shl:
             case SSA_shr:
                 if(ssa_it->input(1).eq_fixed({0}))
+                {
+                    carry_replacement = ssa_value_t(0u, TYPE_BOOL);
                     goto replaceWith0;
+                }
                 break;
 
             case SSA_and:
@@ -785,6 +791,9 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
 
         if(h->cfg_node() != cfg || h->in_daisy() || h->op() == SSA_phi)
             process_inputs = false;
+
+        // TODO: remove the iteration cap. It's WRONG
+        std::puts("TODO REMOVE ITER CAP");
 
         if(process_inputs && iters < 8)
         {

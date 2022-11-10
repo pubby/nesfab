@@ -88,6 +88,25 @@ enum locator_class_t : std::uint8_t
 // We have a limited number of bits to use.
 static_assert(NUM_LCLASS < 1 << 6);
 
+constexpr bool is_var_like(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_GMEMBER:
+    case LOC_ARG:
+    case LOC_RETURN:
+    case LOC_PHI: remove:
+    case LOC_SSA:
+    case LOC_MINOR_VAR:
+    case LOC_LVAR:
+    case LOC_ASM_LOCAL_VAR:
+    case LOC_RUNTIME_RAM:
+        return true;
+    default:
+        return false;
+    }
+}
+
 constexpr bool is_label(locator_class_t lclass)
 {
     return (lclass == LOC_CFG_LABEL || lclass == LOC_MINOR_LABEL

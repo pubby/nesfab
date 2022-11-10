@@ -67,6 +67,7 @@ inline asm_inst_t* next_inst(asm_inst_t* code, asm_inst_t* end, asm_inst_t* inst
     return nullptr;
 }
 
+bool o_redundant_loads(asm_inst_t* begin, asm_inst_t* end);
 bool o_peephole(asm_inst_t* begin, asm_inst_t* end);
 
 // A relocatable sequence of assembly instructions, 

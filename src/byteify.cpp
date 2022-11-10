@@ -212,6 +212,14 @@ void byteify(ir_t& ir, fn_t const& fn)
     shifts_to_rotates(ir);
     // OK! IR prepared.
 
+    /* TODO REMOVE
+    {
+        std::ofstream ossa("graphs/shrek.gv");
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+    */
+
     ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(ssa_pool::array_size());
 
     ssa_workvec.clear();
@@ -742,6 +750,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                 int const begin = begin_byte(t);
                 int const end = end_byte(t);
 
+                ssa_value_t prev_carry(0u, TYPE_BOOL);
+
                 if(ssa_node->op() == SSA_shl)
                 {
                     for(int i = end - 1; i >= begin; --i)
@@ -754,7 +764,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     for(int s = 0; s < bit_shifts; ++s)
                     {
-                        ssa_value_t prev_carry(0u, TYPE_BOOL);
                         for(int i = begin + byte_shifts; i < end; ++i)
                         {
                             values[i] = ssa_node->cfg_node()->emplace_ssa(
@@ -778,7 +787,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     for(int s = 0; s < bit_shifts; ++s)
                     {
-                        ssa_value_t prev_carry(0u, TYPE_BOOL);
                         if(is_signed(t))
                            prev_carry = ssa_node->cfg_node()->emplace_ssa(
                                SSA_sign, TYPE_BOOL, values[end - 1]);
@@ -799,6 +807,12 @@ void byteify(ir_t& ir, fn_t const& fn)
                     split->alloc_input(1);
                     split->build_set_input(0, values[i]);
                     split->unsafe_set_op(SSA_cast);
+
+                    if(ssa_ht carry = carry_output(*split))
+                    {
+                        carry->replace_with(prev_carry);
+                        prune_nodes.push_back(carry);
+                    }
                 }
 
                 prune_nodes.push_back(ssa_node);
@@ -1176,6 +1190,8 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             continue;
 
         assert(ssa_it->input(1).type() == TYPE_U);
+        
+        ssa_ht const carry_output = ::carry_output(*ssa_it);
 
         if(ssa_it->input(1).is_num())
         {
@@ -1188,8 +1204,21 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             if(num_shifts > type.size_of_bits())
             {
                 ssa_value_t replacement = ssa_value_t(0u, type.name());
-                if(is_signed(type.name()))
+                if(shr && is_signed(type.name()))
                    replacement = cfg_it->emplace_ssa(SSA_sign_extend, type, ssa_it->input(0));
+
+                if(carry_output)
+                {
+                    if(shr && is_signed(type.name()))
+                    {
+                        ssa_ht const new_carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, ssa_it->input(0));
+                        carry_output->replace_with(new_carry);
+                    }
+                    else
+                        carry_output->replace_with(ssa_value_t(0u, TYPE_BOOL));
+
+                    to_prune.push_back(carry_output);
+                }
 
                 ssa_it->replace_with(replacement);
                 to_prune.push_back(ssa_it);
@@ -1209,8 +1238,22 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
                 value = cfg_it->emplace_ssa(shl ? SSA_rol : SSA_ror, type, value, carry);
             }
 
+            if(carry_output)
+            {
+                if(num_shifts == 0)
+                    carry_output->replace_with(ssa_value_t(0u, TYPE_BOOL));
+                else
+                {
+                    ssa_ht const new_carry = cfg_it->emplace_ssa(SSA_carry, TYPE_BOOL, value);
+                    carry_output->replace_with(new_carry);
+                }
+
+                to_prune.push_back(carry_output);
+            }
+
             ssa_it->replace_with(value);
             to_prune.push_back(ssa_it);
+
             continue;
         }
 
@@ -1244,6 +1287,8 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
 
         // Create 'loop_head's SSA nodes:
         assert(ssa_it->input(1).type() == TYPE_U);
+
+        ssa_ht const carry_result = carry_output ? loop_head->emplace_ssa(SSA_phi, TYPE_BOOL) : ssa_ht{};
         ssa_ht const loop_result = loop_head->emplace_ssa(SSA_phi, type);
         ssa_ht const loop_i_phi  = loop_head->emplace_ssa(SSA_phi, TYPE_U);
         ssa_ht const loop_cond   = loop_head->emplace_ssa(
@@ -1269,6 +1314,16 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             SSA_add, TYPE_U, loop_i_phi, ssa_value_t(1u, TYPE_U), ssa_value_t(0u, TYPE_BOOL));
 
         // Setup phis using indexes saved earlier.
+        
+        if(carry_output)
+        {
+            ssa_ht const new_carry = loop_body->emplace_ssa(
+                SSA_carry, TYPE_BOOL, loop_shift);
+
+            carry_result->alloc_input(2);
+            carry_result->build_set_input(loop_to_head, new_carry);
+            carry_result->build_set_input(pre_to_head, ssa_value_t(0u, TYPE_BOOL));
+        }
 
         loop_result->alloc_input(2);
         loop_result->build_set_input(loop_to_head, loop_shift);
@@ -1279,7 +1334,14 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
         loop_i_phi->build_set_input(pre_to_head, ssa_value_t(0u, TYPE_U));
 
         // OK! Now replace 'ssa_it':
-        assert(ssa_it->cfg_node() == post_node);
+
+        if(carry_output)
+        {
+            carry_output->replace_with(carry_result);
+            to_prune.push_back(carry_output);
+        }
+
+        assert(ssa_it->cfg_node() == pre_node);
         assert(ssa_it->type() == loop_result->type());
         ssa_it->replace_with(loop_result);
         to_prune.push_back(ssa_it); // Schedule for pruning later.

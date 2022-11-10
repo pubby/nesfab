@@ -423,6 +423,14 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
 
                 if(ssa_value_t const inc = def.root().non_neg())
                 {
+                    // Can't handle carries:
+                    if(carry_used(*oe.handle))
+                        break;
+
+                    // Don't bother converting small shifts; they are efficient enough already.
+                    if(type.size_of() == 1 && inc.is_num() && inc.whole() <= 2)
+                        break;
+
                     step_t step = reduce(header, oe.handle->cfg_node(), def.root(), type, SSA_shl, SSA_add);
 
                     ssa_value_t cast_inc = inc;
@@ -453,6 +461,10 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
 
                 if(ssa_value_t const inc = def.root().non_neg())
                 {
+                    // Can't handle carries:
+                    if(carry_used(*oe.handle))
+                        break;
+
                     step_t step = reduce(header, oe.handle->cfg_node(), def.root(), type, SSA_shl, SSA_shl);
 
                     step.init->link_append_input(oe.handle->input(0));

@@ -3274,6 +3274,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         struct lshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift, pstring_t) { return lhs << shift; }
+            static bool interpret_carry(S lhs, std::uint8_t shift, fixed_uint_t mask, pstring_t) 
+            {
+                assert(high_bit_only(mask) << 1ull); 
+                return (lhs << shift) & (high_bit_only(mask) << 1ull); 
+            }
             static ssa_op_t op() { return SSA_shl; }
         };
         return infix(&eval_t::do_shift<lshift_p>);
@@ -3290,6 +3295,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         struct rshift_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, std::uint8_t shift, pstring_t) { return lhs >> shift; }
+            static bool interpret_carry(S lhs, std::uint8_t shift, fixed_uint_t mask, pstring_t) 
+            {
+                assert(low_bit_only(mask)); 
+                return ((lhs << 1ull) >> shift) & (low_bit_only(mask)); 
+            }
             static ssa_op_t op() { return SSA_shr; }
         };
         return infix(&eval_t::do_shift<rshift_p>);
@@ -4484,7 +4494,28 @@ expr_value_t eval_t::do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t
 template<typename Policy>
 expr_value_t eval_t::do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
-    return do_assign<Policy::D>(std::move(lhs), do_shift<Policy>(to_rval<Policy::D>(lhs), rhs, token), token);
+    expr_value_t result =
+    {
+        .type = TYPE_BOOL, 
+        .pstring = concat(lhs.pstring, rhs.pstring)
+    };
+
+    expr_value_t shift = do_shift<Policy>(to_rval<Policy::D>(lhs), rhs, token);
+
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
+    {
+        assert(is_masked(lhs.fixed(), lhs.type.name()));
+        assert(is_masked(rhs.fixed(), rhs.type.name()));
+
+        bool b = Policy::interpret_carry(lhs.s(), rhs.whole(), numeric_bitmask(shift.type.name()), result.pstring);
+        result.val = rval_t{ ssa_value_t(b, TYPE_BOOL) };
+    }
+    else if(is_compile(Policy::D))
+        result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, shift.ssa()) };
+
+    do_assign<Policy::D>(std::move(lhs), std::move(shift), token);
+
+    return result;
 }
 
 template<typename Policy>

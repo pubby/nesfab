@@ -7,7 +7,6 @@
 
 #include "intrusive_pool.hpp"
 #include "lvar.hpp"
-#include "worklist.hpp"
 #include "globals.hpp"
 #include "ir.hpp"
 #include "ir_algo.hpp"
@@ -401,51 +400,6 @@ bool asm_graph_t::o_peephole()
 
     return changed;
 }
-
-/* TODO: implement
-{
-    // 1. look for LOAD STORE
-    // 2. make sure the register value isn't used afterwards
-    // 3. look for an identical load above it
-    // 4. make sure no JSR occurs between
-    // 5. make sure no fence occurs between
-    // 6. make sure the memory value isn't used between
-
-
-    // for each node, we need to 
-
-
-    // Setup 'regs_in' with the GEN set,
-    // and 'regs_out' with the KILL set, bitwise inverted.
-    // This mimics 'cg_liveness.cpp"
-    for(asm_node_t* h = first_h; h; h = h.next(pool))
-    {
-        asm_node_t& node = h.get(pool);
-
-        regs_t gen = 0;
-        regs_t kill = 0;
-        for(asm_inst_t const& inst : node.code)
-        {
-            gen |= op_input_regs(inst.op) & ~written;
-            if(!(op_flags(inst.op) & ASMF_MAYBE_STORE))
-                kill |= op_output_regs(inst.op);
-        }
-
-        node.regs_in = gen;
-        node.regs_out = ~kill;
-    }
-
-    std::vector<
-
-    regs_t succ_union = 0;
-    for(asm_node_t* output_h : node.outputs)
-    {
-        asm_node_t& output = output_h.get(pool);
-        succ_union |= output.regs_in;
-    }
-    node.regs_in |= succ_union & node.regs_out;
-}
-*/
 
 std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
 {
@@ -868,6 +822,477 @@ std::vector<asm_node_t*> asm_graph_t::order()
 // LIVENESS //
 //////////////
 
+template<typename Fn>
+void asm_graph_t::liveness_dataflow(Fn const& fn)
+{
+    for(asm_node_t& node : list)
+        node.clear_flags(FLAG_IN_WORKLIST | FLAG_PROCESSED);
+
+    worklist.clear();
+
+    for(asm_node_t& node : list)
+        if(node.outputs().empty())
+            worklist.push(&node);
+
+    while(!worklist.empty())
+    {
+    reenter:
+        asm_node_t& node = *worklist.pop();
+
+        bool const changed = fn(node);
+
+        // Add all predecessors to worklist:
+        if(changed || !node.test_flags(FLAG_PROCESSED))
+        {
+            node.set_flags(FLAG_PROCESSED);
+            for(asm_node_t* input : node.inputs())
+                worklist.push(input);
+        }
+    }
+
+    // Some nodes (infinite loops, etc) might not be reachable travelling
+    // backwards from the exit. Handle those now:
+    for(asm_node_t& node : list)
+        if(!node.test_flags(FLAG_PROCESSED))
+           worklist.push(&node);
+           
+    if(!worklist.empty())
+        goto reenter;
+}
+
+void asm_graph_t::optimize_live_registers()
+{
+    for(asm_node_t& node : list)
+    {
+        regs_t gen = 0;
+        regs_t kill = 0;
+        for(asm_inst_t const& inst : node.code)
+        {
+            gen |= op_input_regs(inst.op) & ~kill;
+            kill |= op_output_regs(inst.op);
+        }
+
+        // Set 'vregs.in's initial value to be the set of variables used in
+        // this cfg node before an assignment.
+        // (This set is sometimes called 'GEN')
+        //
+        // Also set 'vregs.out' to temporarily hold all variables *NOT* defined
+        // in this node.
+        // (This set's inverse is sometimes called 'KILL')
+        node.vregs.in = gen;
+        node.vregs.out = ~kill;
+    }
+
+    liveness_dataflow([&](asm_node_t& node)
+    {
+        // Calculate the real live-out set, storing it in 'temp_set'.
+        // The live-out set is the union of the successor's live-in sets.
+        regs_t temp = 0;
+        for(auto const& output : node.outputs())
+            temp |= output.node->vregs.in;
+
+        // Now use that to calculate a new live-in set:
+        temp &= node.vregs.out; // vregs.out holds inverted KILL
+        temp |= node.vregs.in;
+
+        if(!node.test_flags(FLAG_PROCESSED) || temp != node.vregs.in)
+        {
+            node.set_flags(FLAG_PROCESSED);
+            for(asm_node_t* input : node.inputs())
+                worklist.push(input);
+        }
+
+        // If 'vlive.in' is changing:
+        bool const changing = temp != node.vregs.in;
+
+        // Assign 'vregs.in':
+        node.vregs.in = temp;
+
+        return changing;
+    });
+
+    // Now properly set 'out' to be the union of all successor inputs:
+    for(asm_node_t& node : list)
+    {
+        // Might as well clear flags.
+        node.clear_flags(FLAG_IN_WORKLIST | FLAG_PROCESSED);
+
+        node.vregs.out = 0;
+        for(auto const& output : node.outputs())
+            node.vregs.out |= output.node->vregs.in;
+    }
+
+    // OK! Register liveness has been calculated per-node.
+
+    // Calculate per-op liveness next:
+    thread_local std::vector<regs_t> live_regs;
+    for(asm_node_t& node : list)
+    {
+        live_regs.clear();
+        live_regs.resize(node.code.size(), 0);
+
+        regs_t live = node.vregs.out;
+
+        for(int i = int(node.code.size()) - 1; i >= 0; --i)
+        {
+            asm_inst_t const& inst = node.code[i];
+
+            regs_t const outputs = op_output_regs(inst.op);
+            regs_t const inputs  = op_input_regs(inst.op);
+
+            live_regs[i] = live;
+
+            live &= ~outputs;
+            live |= inputs;
+
+        }
+    }
+
+    // Now attempt to optimize out redundant loads following stores.
+    // e.g. in:
+    //     STX foo
+    //     . . .
+    //     LDX foo
+    // The LDX can be removed in some circumstances.
+
+    for(asm_node_t& node : list)
+    {
+        constexpr unsigned MAX_SET_SIZE = 8;
+        using set_t = fc::small_set<locator_t, MAX_SET_SIZE>;
+        set_t a_set;
+        set_t x_set;
+        set_t y_set;
+
+        auto const replace = [&](asm_inst_t& inst, op_t op)
+        {
+            inst.op = op;
+            inst.arg = inst.alt = {};
+        };
+
+        std::size_t const code_size = node.code.size();
+        for(unsigned i = 0; i < code_size; ++i)
+        {
+            asm_inst_t& inst = node.code[i];
+
+            if(inst.op == ASM_LABEL 
+               || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH)))
+            {
+                a_set.clear();
+                x_set.clear();
+                y_set.clear();
+                continue;
+            }
+
+            if(!inst.alt && is_var_like(inst.arg.lclass())) 
+            {
+                switch(inst.op)
+                {
+                case STA_ZERO_PAGE:
+                case STA_ABSOLUTE:
+                    if(a_set.size() < MAX_SET_SIZE)
+                    {
+                        a_set.insert(inst.arg);
+                        continue;
+                    }
+                    break;
+
+                case STX_ZERO_PAGE:
+                case STX_ABSOLUTE:
+                    if(x_set.size() < MAX_SET_SIZE)
+                    {
+                        x_set.insert(inst.arg);
+                        continue;
+                    }
+                    break;
+
+                case STY_ZERO_PAGE:
+                case STY_ABSOLUTE:
+                    if(y_set.size() < MAX_SET_SIZE)
+                    {
+                        y_set.insert(inst.arg);
+                        continue;
+                    }
+                    break;
+
+                case LDA_ZERO_PAGE:
+                case LDA_ABSOLUTE:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && a_set.count(inst.arg))
+                    {
+                        replace(inst, ASM_PRUNED);
+                        continue;
+                    }
+                    else if(x_set.count(inst.arg))
+                    {
+                        replace(inst, TXA_IMPLIED);
+                        a_set = std::move(x_set);
+                        x_set.clear();
+                        continue;
+                    }
+                    else if(y_set.count(inst.arg))
+                    {
+                        replace(inst, TYA_IMPLIED);
+                        a_set = std::move(y_set);
+                        y_set.clear();
+                        continue;
+                    }
+                    break;
+
+                case LDX_ZERO_PAGE:
+                case LDX_ABSOLUTE:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && x_set.count(inst.arg))
+                    {
+                        replace(inst, ASM_PRUNED);
+                        continue;
+                    }
+                    else if(a_set.count(inst.arg))
+                    {
+                        replace(inst, TAX_IMPLIED);
+                        x_set = std::move(a_set);
+                        a_set.clear();
+                        continue;
+                    }
+                    break;
+
+                case LDY_ZERO_PAGE:
+                case LDY_ABSOLUTE:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && y_set.count(inst.arg))
+                    {
+                        replace(inst, ASM_PRUNED);
+                        continue;
+                    }
+                    else if(a_set.count(inst.arg))
+                    {
+                        replace(inst, TAY_IMPLIED);
+                        y_set = std::move(a_set);
+                        a_set.clear();
+                        continue;
+                    }
+                    break;
+
+                default:
+                    break;
+                }
+            }
+
+            regs_t const outputs = op_output_regs(inst.op);
+
+            if(outputs & REGF_A)
+                a_set.clear();
+            if(outputs & REGF_X)
+                x_set.clear();
+            if(outputs & REGF_Y)
+                y_set.clear();
+        }
+    }
+
+    // TODO
+
+    for(asm_node_t& node : list)
+    {
+        if(node.code.empty())
+            continue;
+
+        auto const replace = [&](asm_inst_t& inst, op_t op)
+        {
+            inst.op = op;
+            inst.arg = inst.alt = {};
+        };
+
+        asm_inst_t* a, *b;
+
+        a = node.code.data();
+        if(op_size(a->op) == 0)
+            if(!(a = next_inst(&*node.code.begin(), &*node.code.end(), a)))
+                continue;
+
+        b = next_inst(&*node.code.begin(), &*node.code.end(), a);
+
+        while(b)
+        {
+            unsigned const bi = b - node.code.data();
+
+            switch(op_name(a->op))
+            {
+            case LDA:
+                if(b->op == TAX_IMPLIED && !(live_regs[bi] & REGF_A))
+                {
+                    a->op = get_op(LDX, op_addr_mode(a->op));
+                    b->op = ASM_PRUNED;
+                }
+                else if(b->op == TAY_IMPLIED && !(live_regs[bi] & REGF_A))
+                {
+                    a->op = get_op(LDY, op_addr_mode(a->op));
+                    b->op = ASM_PRUNED;
+                }
+                break;
+
+            case LDX:
+                if(b->op == TXA_IMPLIED && !(live_regs[bi] & REGF_X))
+                {
+                    a->op = get_op(LDA, op_addr_mode(a->op));
+                    b->op = ASM_PRUNED;
+                }
+                break;
+
+            case LDY:
+                if(b->op == TYA_IMPLIED && !(live_regs[bi] & REGF_Y))
+                {
+                    a->op = get_op(LDA, op_addr_mode(a->op));
+                    b->op = ASM_PRUNED;
+                }
+                break;
+
+            default:
+                break;
+            }
+
+            a = b;
+            b = next_inst(&*node.code.begin(), &*node.code.end(), b);
+        }
+    }
+
+    // Now attempt to optimize out redundant loads following loads.
+    // e.g. in:
+    //     LDX #0
+    //     . . .
+    //     LDA #0
+    // The LDA can be removed in some circumstances.
+
+    //idea: 
+    // first identify every constant load,
+    // then for each constant load, iterate forwards to the next constant loads,
+    // (this determines if the load can be moved)
+
+#if 0
+
+    assert(0);
+
+
+    for(asm_node_t& node : list)
+    {
+        constexpr unsigned MAX_SET_SIZE = 8;
+        using set_t = fc::small_set<locator_t, MAX_SET_SIZE>;
+        set_t a_set;
+        set_t x_set;
+        set_t y_set;
+
+        auto const replace = [&](asm_inst_t& inst, op_t op)
+        {
+            inst.op = op;
+            inst.arg = inst.alt = {};
+        };
+
+        std::size_t const code_size = node.code.size();
+        for(unsigned i = 0; i < code_size; ++i)
+        {
+            asm_inst_t& inst = node.code[i];
+
+            if(inst.op == ASM_LABEL 
+               || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH)))
+            {
+                a_set.clear();
+                x_set.clear();
+                y_set.clear();
+                continue;
+            }
+
+            if(!inst.alt && is_var_like(inst.arg.lclass())) 
+            {
+                switch(inst.op)
+                {
+                case STA_ZERO_PAGE:
+                case STA_ABSOLUTE:
+                    if(a_set.size() < MAX_SET_SIZE)
+                        a_set.insert(inst.arg);
+                    break;
+
+                case STX_ZERO_PAGE:
+                case STX_ABSOLUTE:
+                    if(x_set.size() < MAX_SET_SIZE)
+                        x_set.insert(inst.arg);
+                    break;
+
+                case STY_ZERO_PAGE:
+                case STY_ABSOLUTE:
+                    if(y_set.size() < MAX_SET_SIZE)
+                        y_set.insert(inst.arg);
+                    break;
+
+                case LDA_ZERO_PAGE:
+                case LDA_ABSOLUTE:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && a_set.count(inst.arg))
+                    {
+                        replace(inst, ASM_PRUNED);
+                        continue;
+                    }
+                    else if(x_set.count(inst.arg))
+                    {
+                        replace(inst, TXA_IMPLIED);
+                        a_set = std::move(x_set);
+                        x_set.clear();
+                        continue;
+                    }
+                    else if(y_set.count(inst.arg))
+                    {
+                        replace(inst, TYA_IMPLIED);
+                        a_set = std::move(y_set);
+                        y_set.clear();
+                        continue;
+                    }
+                    break;
+
+                case LDX_ZERO_PAGE:
+                case LDX_ABSOLUTE:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && x_set.count(inst.arg))
+                    {
+                        replace(inst, ASM_PRUNED);
+                        continue;
+                    }
+                    else if(a_set.count(inst.arg))
+                    {
+                        replace(inst, TAX_IMPLIED);
+                        x_set = std::move(a_set);
+                        a_set.clear();
+                        continue;
+                    }
+                    break;
+
+                case LDY_ZERO_PAGE:
+                case LDY_ABSOLUTE:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && y_set.count(inst.arg))
+                    {
+                        replace(inst, ASM_PRUNED);
+                        continue;
+                    }
+                    else if(a_set.count(inst.arg))
+                    {
+                        replace(inst, TAY_IMPLIED);
+                        y_set = std::move(a_set);
+                        a_set.clear();
+                        continue;
+                    }
+                    break;
+
+                default:
+                    break;
+                }
+            }
+
+            regs_t const outputs = op_output_regs(inst.op);
+
+            if(outputs & REGF_A)
+                a_set.clear();
+            if(outputs & REGF_X)
+                x_set.clear();
+            if(outputs & REGF_Y)
+                y_set.clear();
+        }
+    }
+#endif
+
+}
+
+
 template<typename ReadWrite>
 void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t const& inst, ReadWrite rw)
 {
@@ -942,7 +1367,6 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
     {
         node.vlive.in  = bitset_pool.alloc(bs_size);
         node.vlive.out = bitset_pool.alloc(bs_size);
-        node.clear_flags(FLAG_IN_WORKLIST | FLAG_PROCESSED);
     }
 
     // Call this before 'do_write'.
@@ -973,7 +1397,7 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
         //
         // Also set 'd.out' to temporarily hold all variables *NOT* defined
         // in this node.
-        // (This set is sometimes called 'KILL')
+        // (This set's inverse is sometimes called 'KILL')
 
         bitset_set_all(bs_size, node.vlive.out);
 
@@ -993,18 +1417,8 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
     // temp_set will hold a node's actual out-set while the algorithm is running.
     auto* temp_set = ALLOCA_T(bitset_uint_t, bs_size);
 
-    thread_local worklist_t<asm_node_t*> worklist;
-    worklist.clear();
-
-    for(asm_node_t& node : list)
-        if(node.outputs().empty())
-            worklist.push(&node);
-
-    while(!worklist.empty())
+    liveness_dataflow([&](asm_node_t& node)
     {
-    reenter:
-        asm_node_t& node = *worklist.pop();
-
         // Calculate the real live-out set, storing it in 'temp_set'.
         // The live-out set is the union of the successor's live-in sets.
         bitset_clear_all(bs_size, temp_set);
@@ -1012,29 +1426,17 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
             bitset_or(bs_size, temp_set, output.node->vlive.in);
 
         // Now use that to calculate a new live-in set:
-        bitset_and(bs_size, temp_set, node.vlive.out); // (vlive.out holds KILL)
+        bitset_and(bs_size, temp_set, node.vlive.out); // (vlive.out holds inverted KILL)
         bitset_or(bs_size, temp_set, node.vlive.in);
 
-        // If 'vlive.in' is changing, add all predecessors to the worklist.
-        if(!node.test_flags(FLAG_PROCESSED) || !bitset_eq(bs_size, temp_set, node.vlive.in))
-        {
-            node.set_flags(FLAG_PROCESSED);
-            for(asm_node_t* input : node.inputs())
-                worklist.push(input);
-        }
+        // If 'vlive.in' is changing:
+        bool const changing = !bitset_eq(bs_size, temp_set, node.vlive.in);
 
         // Assign 'vlive.in':
         bitset_copy(bs_size, node.vlive.in, temp_set);
-    }
 
-    // Some nodes (infinite loops, etc) might not be reachable travelling
-    // backwards from the exit. Handle those now:
-    for(asm_node_t& node : list)
-        if(!node.test_flags(FLAG_PROCESSED))
-           worklist.push(&node);
-           
-    if(!worklist.empty())
-        goto reenter;
+        return changing;
+    });
 
     // Now properly set 'out' to be the union of all successor inputs:
     for(asm_node_t& node : list)

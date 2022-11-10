@@ -120,32 +120,16 @@ bool o_redundant_loads(asm_inst_t* begin, asm_inst_t* end)
 
 bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 {
-    if(begin == end)
-        return false;
-
     bool changed = false;
 
-    asm_inst_t* a, *b, *c;
-
-    auto const next_inst = [&](asm_inst_t* inst) { return ::next_inst(begin, end, inst); };
-
-    auto const replace_op = [&](op_t op)
+    for_each_peephole(begin, end, [&](asm_inst_t& a, asm_inst_t& b, asm_inst_t* c)
     {
-        a->op = op;
-        b->op = ASM_PRUNED;
-        changed = true;
-    };
-
-    a = begin;
-    if(op_size(a->op) == 0)
-        if(!(a = next_inst(a)))
-            return false;
-
-    b = next_inst(a);
-
-    while(b)
-    {
-        c = next_inst(b);
+        auto const replace_op = [&](op_t op)
+        {
+            a.op = op;
+            b.op = ASM_PRUNED;
+            changed = true;
+        };
 
         // Converts RMW operations to their illegal versions.
         // e.g.:
@@ -155,10 +139,10 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         //     DCP foo 
         auto const peep_rmw = [&](op_name_t second, op_name_t replace)
         {
-            if(b->op == get_op(second, op_addr_mode(a->op))
-               && a->arg == b->arg && a->alt == b->alt)
+            if(b.op == get_op(second, op_addr_mode(a.op))
+               && a.arg == b.arg && a.alt == b.alt)
             {
-                if(op_t new_op = get_op(replace, op_addr_mode(a->op)))
+                if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
                 {
                     replace_op(new_op);
                     return true;
@@ -178,13 +162,13 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         //     LDX foo
         auto const peep_inxy = [&](op_name_t second, op_name_t store, op_name_t replace)
         {
-            if(c && op_name(b->op) == second && op_name(c->op) == store 
-               && op_addr_mode(a->op) == op_addr_mode(c->op)
-               && a->arg == c->arg && a->alt == c->alt)
+            if(c && op_name(b.op) == second && op_name(c->op) == store 
+               && op_addr_mode(a.op) == op_addr_mode(c->op)
+               && a.arg == c->arg && a.alt == c->alt)
             {
-                if(op_t new_op = get_op(replace, op_addr_mode(a->op)))
+                if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
                 {
-                    c->op = a->op;
+                    c->op = a.op;
                     replace_op(new_op);
                     return true;
                 }
@@ -202,13 +186,13 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         //     TXA
         auto const peep_transfer = [&](op_name_t second, op_t replace)
         {
-            if(op_name(b->op) == second 
-               && op_addr_mode(a->op) == op_addr_mode(b->op)
-               && a->arg == b->arg
-               && a->alt == b->alt)
+            if(op_name(b.op) == second 
+               && op_addr_mode(a.op) == op_addr_mode(b.op)
+               && a.arg == b.arg
+               && a.alt == b.alt)
             {
-                b->op = replace;
-                b->arg = b->alt = {};
+                b.op = replace;
+                b.arg = b.alt = {};
                 changed = true;
                 return true;
             }
@@ -218,13 +202,13 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 
         auto const peep_lax = [&](op_name_t second)
         {
-            op_t replace = get_op(LAX, op_addr_mode(a->op));
+            op_t replace = get_op(LAX, op_addr_mode(a.op));
 
             if(replace
-               && op_name(b->op) == second 
-               && op_addr_mode(a->op) == op_addr_mode(b->op)
-               && a->arg == b->arg
-               && a->alt == b->alt)
+               && op_name(b.op) == second 
+               && op_addr_mode(a.op) == op_addr_mode(b.op)
+               && a.arg == b.arg
+               && a.alt == b.alt)
             {
                 replace_op(replace);
                 return true;
@@ -242,22 +226,26 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         //     TXA
         auto const peep_transfer2 = [&](op_name_t second, op_t replace)
         {
-            if(op_name(b->op) == second 
-               && (op_addr_mode(b->op) == MODE_ZERO_PAGE || op_addr_mode(b->op) == MODE_ABSOLUTE)
-               && a->arg == b->arg
-               && a->alt == b->alt)
+            if(op_name(b.op) == second 
+               && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
+               && a.arg == b.arg
+               && a.alt == b.alt)
             {
-                b->op = replace;
-                b->arg = b->alt = {};
+                b.op = replace;
+                b.arg = b.alt = {};
                 changed = true;
                 return true;
             }
+
+            return false;
+
+            /* TODO
             else if(c && op_name(c->op) == second 
                && (op_addr_mode(c->op) == MODE_ZERO_PAGE || op_addr_mode(c->op) == MODE_ABSOLUTE)
-               && a->arg == c->arg
-               && a->alt == c->alt
-               && b->op != ASM_LABEL
-               && !(op_output_regs(b->op) & op_input_regs(replace)))
+               && a.arg == c->arg
+               && a.alt == c->alt
+               && b.op != ASM_LABEL
+               && !(op_output_regs(b.op) & op_input_regs(replace)))
             {
                 c->op = replace;
                 c->arg = c->alt = {};
@@ -266,10 +254,11 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             }
 
             return false;
+            */
         };
 
     retry:
-        switch(op_name(a->op))
+        switch(op_name(a.op))
         {
         default: break;
         case DEC: peep_rmw(CMP, DCP); break;
@@ -279,7 +268,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         case ASL: peep_rmw(ORA, SLO); break;
         case LSR: peep_rmw(EOR, SRE); break;
         case AND:
-            if(a->op == AND_IMMEDIATE && b->op == LSR_IMPLIED)
+            if(a.op == AND_IMMEDIATE && b.op == LSR_IMPLIED)
                 replace_op(ALR_IMMEDIATE);
             break;
         case LDX:
@@ -336,19 +325,15 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             // label:
             //   rts
 
-            if(c && c->op == a->op && b->op == ASM_LABEL && a->arg == c->arg && a->alt == c->alt)
+            if(c && c->op == a.op && b.op == ASM_LABEL && a.arg == c->arg && a.alt == c->alt)
             {
-                a->op = ASM_PRUNED;
-                a->arg = c->alt = {};
+                a.op = ASM_PRUNED;
+                a.arg = c->alt = {};
                 changed = true;
             }
             break;
         }
-
-        a = b;
-        b = c;
-        assert(b == next_inst(a));
-    }
+    });
 
     return changed;
 }

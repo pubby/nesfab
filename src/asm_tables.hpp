@@ -1081,7 +1081,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .size = 1,
         .cycles = 3,
         .input_regs = REGF_A,
-        .output_regs = 0,
+        .output_regs = REGF_M,
     },
 
     // PHP
@@ -1091,7 +1091,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .size = 1,
         .cycles = 3,
         .input_regs = REGF_C,
-        .output_regs = 0,
+        .output_regs = REGF_M,
     },
 
     // PLA
@@ -1100,7 +1100,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 104,
         .size = 1,
         .cycles = 4,
-        .input_regs = 0,
+        .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_A,
     },
 
@@ -1110,7 +1110,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 40,
         .size = 1,
         .cycles = 4,
-        .input_regs = 0,
+        .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_C,
     },
 
@@ -1204,7 +1204,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 64,
         .size = 1,
         .cycles = 6,
-        .input_regs = 0,
+        .input_regs = REGF_M,
         .output_regs = REGF_C | REGF_NZ,
         .flags = ASMF_RETURN,
     },
@@ -1215,7 +1215,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 96,
         .size = 1,
         .cycles = 6,
-        .input_regs = 0,
+        .input_regs = REGF_M,
         .output_regs = 0,
         .flags = ASMF_RETURN,
     },
@@ -1500,7 +1500,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 186,
         .size = 1,
         .cycles = 2,
-        .input_regs = 0,
+        .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_X,
     },
 
@@ -1521,7 +1521,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .size = 1,
         .cycles = 2,
         .input_regs = REGF_X,
-        .output_regs = 0,
+        .output_regs = REGF_M,
     },
 
     // TYA

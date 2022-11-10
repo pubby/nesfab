@@ -924,6 +924,21 @@ void asm_graph_t::optimize_live_registers()
 
     // OK! Register liveness has been calculated per-node.
 
+    auto const simple_addr_mode = [](addr_mode_t addr_mode)
+    {
+        switch(addr_mode)
+        {
+        case MODE_IMPLIED:
+        case MODE_IMMEDIATE:
+        case MODE_ZERO_PAGE:
+        case MODE_ABSOLUTE:
+        case MODE_RELATIVE:
+            return true;
+        default:
+            return false;
+        }
+    };
+
     // Calculate per-op liveness next:
     thread_local std::vector<regs_t> live_regs;
     for(asm_node_t& node : list)
@@ -946,350 +961,326 @@ void asm_graph_t::optimize_live_registers()
             live |= inputs;
 
         }
-    }
 
-    // Now attempt to optimize out redundant loads following stores.
-    // e.g. in:
-    //     STX foo
-    //     . . .
-    //     LDX foo
-    // The LDX can be removed in some circumstances.
+        // Now attempt to optimize out redundant loads following stores.
+        // e.g. in:
+        //     STX foo
+        //     . . .
+        //     LDX foo
+        // The LDX can be removed in some circumstances.
 
-    for(asm_node_t& node : list)
-    {
-        constexpr unsigned MAX_SET_SIZE = 8;
-        using set_t = fc::small_set<locator_t, MAX_SET_SIZE>;
-        set_t a_set;
-        set_t x_set;
-        set_t y_set;
-
-        auto const replace = [&](asm_inst_t& inst, op_t op)
         {
-            inst.op = op;
-            inst.arg = inst.alt = {};
-        };
+            constexpr unsigned MAX_SET_SIZE = 8;
+            using set_t = fc::small_set<locator_t, MAX_SET_SIZE>;
+            set_t a_set;
+            set_t x_set;
+            set_t y_set;
 
-        std::size_t const code_size = node.code.size();
-        for(unsigned i = 0; i < code_size; ++i)
-        {
-            asm_inst_t& inst = node.code[i];
-
-            if(inst.op == ASM_LABEL 
-               || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH)))
+            auto const replace = [&](asm_inst_t& inst, op_t op)
             {
-                a_set.clear();
-                x_set.clear();
-                y_set.clear();
-                continue;
-            }
+                dprint(log, "REGLIVE_PRUNE_1", inst.op);
+                inst.op = op;
+                inst.arg = inst.alt = {};
+            };
 
-            if(!inst.alt && is_var_like(inst.arg.lclass())) 
+            std::size_t const code_size = node.code.size();
+            for(unsigned i = 0; i < code_size; ++i)
             {
-                switch(inst.op)
+                asm_inst_t& inst = node.code[i];
+
+                assert(inst.op != ASM_LABEL);
+                if((op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH))
+                   || !simple_addr_mode(op_addr_mode(inst.op)))
                 {
-                case STA_ZERO_PAGE:
-                case STA_ABSOLUTE:
-                    if(a_set.size() < MAX_SET_SIZE)
+                    a_set.clear();
+                    x_set.clear();
+                    y_set.clear();
+                    continue;
+                }
+
+                if(!inst.alt && is_var_like(inst.arg.lclass())) 
+                {
+                    switch(inst.op)
                     {
-                        a_set.insert(inst.arg);
-                        continue;
+                    case STA_ZERO_PAGE:
+                    case STA_ABSOLUTE:
+                        if(a_set.size() < MAX_SET_SIZE)
+                        {
+                            a_set.insert(inst.arg);
+                            continue;
+                        }
+                        break;
+
+                    case STX_ZERO_PAGE:
+                    case STX_ABSOLUTE:
+                        if(x_set.size() < MAX_SET_SIZE)
+                        {
+                            x_set.insert(inst.arg);
+                            continue;
+                        }
+                        break;
+
+                    case STY_ZERO_PAGE:
+                    case STY_ABSOLUTE:
+                        if(y_set.size() < MAX_SET_SIZE)
+                        {
+                            y_set.insert(inst.arg);
+                            continue;
+                        }
+                        break;
+
+                    case LDA_ZERO_PAGE:
+                    case LDA_ABSOLUTE:
+                        if(!(live_regs[i] & (REGF_N | REGF_Z)) && a_set.count(inst.arg))
+                        {
+                            replace(inst, ASM_PRUNED);
+                            continue;
+                        }
+                        else if(x_set.count(inst.arg))
+                        {
+                            replace(inst, TXA_IMPLIED);
+                            a_set = x_set;
+                            continue;
+                        }
+                        else if(y_set.count(inst.arg))
+                        {
+                            replace(inst, TYA_IMPLIED);
+                            a_set = y_set;
+                            continue;
+                        }
+                        break;
+
+                    case LDX_ZERO_PAGE:
+                    case LDX_ABSOLUTE:
+                        if(!(live_regs[i] & (REGF_N | REGF_Z)) && x_set.count(inst.arg))
+                        {
+                            replace(inst, ASM_PRUNED);
+                            continue;
+                        }
+                        else if(a_set.count(inst.arg))
+                        {
+                            replace(inst, TAX_IMPLIED);
+                            x_set = a_set;
+                            continue;
+                        }
+                        break;
+
+                    case LDY_ZERO_PAGE:
+                    case LDY_ABSOLUTE:
+                        if(!(live_regs[i] & (REGF_N | REGF_Z)) && y_set.count(inst.arg))
+                        {
+                            replace(inst, ASM_PRUNED);
+                            continue;
+                        }
+                        else if(a_set.count(inst.arg))
+                        {
+                            replace(inst, TAY_IMPLIED);
+                            y_set = a_set;
+                            continue;
+                        }
+                        break;
+
+                    default:
+                        break;
+                    }
+                }
+
+                regs_t const outputs = op_output_regs(inst.op);
+
+                if(outputs & REGF_A)
+                    a_set.clear();
+                if(outputs & REGF_X)
+                    x_set.clear();
+                if(outputs & REGF_Y)
+                    y_set.clear();
+                if(outputs & REGF_M)
+                {
+                    if(inst.arg)
+                    {
+                        a_set.erase(inst.arg);
+                        x_set.erase(inst.arg);
+                        y_set.erase(inst.arg);
+                    }
+
+                    if(inst.alt)
+                    {
+                        a_set.erase(inst.alt);
+                        x_set.erase(inst.alt);
+                        y_set.erase(inst.alt);
+                    }
+                }
+            }
+        }
+
+        // Perform some peep-hole optimization using the liveness analysis:
+
+        {
+            auto const replace = [](asm_inst_t& inst, op_t op)
+            {
+                inst.op = op;
+                inst.arg = inst.alt = {};
+            };
+
+            for_each_peephole(&*node.code.begin(), &*node.code.end(), 
+                              [&](asm_inst_t& a, asm_inst_t& b, asm_inst_t* c)
+            {
+                unsigned const ai = &a - node.code.data();
+                unsigned const bi = &b - node.code.data();
+
+                // Prune ops that have no effect:
+                if(!(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FAKE))
+                   && a.op < NUM_NORMAL_OPS
+                   && !(REGF_M & op_output_regs(a.op))
+                   && !(live_regs[ai] & op_output_regs(a.op))
+                   && (!a.arg || is_var_like(a.arg.lclass()))
+                   && !a.alt)
+                {
+                    a.prune();
+                }
+
+                // Convert code like:
+                //     LDA foo
+                //     TAY
+                // To:
+                //     LDY foo
+                switch(op_name(a.op))
+                {
+                case LDA:
+                    if(b.op == TAX_IMPLIED && !(live_regs[bi] & REGF_A))
+                    {
+                        a.op = get_op(LDX, op_addr_mode(a.op));
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
+                    }
+                    else if(b.op == TAY_IMPLIED && !(live_regs[bi] & REGF_A))
+                    {
+                        a.op = get_op(LDY, op_addr_mode(a.op));
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
                     }
                     break;
 
-                case STX_ZERO_PAGE:
-                case STX_ABSOLUTE:
-                    if(x_set.size() < MAX_SET_SIZE)
+                case LDX:
+                    if(b.op == TXA_IMPLIED && !(live_regs[bi] & REGF_X))
                     {
-                        x_set.insert(inst.arg);
-                        continue;
+                        a.op = get_op(LDA, op_addr_mode(a.op));
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
                     }
                     break;
 
-                case STY_ZERO_PAGE:
-                case STY_ABSOLUTE:
-                    if(y_set.size() < MAX_SET_SIZE)
+                case LDY:
+                    if(b.op == TYA_IMPLIED && !(live_regs[bi] & REGF_Y))
                     {
-                        y_set.insert(inst.arg);
-                        continue;
-                    }
-                    break;
-
-                case LDA_ZERO_PAGE:
-                case LDA_ABSOLUTE:
-                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && a_set.count(inst.arg))
-                    {
-                        replace(inst, ASM_PRUNED);
-                        continue;
-                    }
-                    else if(x_set.count(inst.arg))
-                    {
-                        replace(inst, TXA_IMPLIED);
-                        a_set = std::move(x_set);
-                        x_set.clear();
-                        continue;
-                    }
-                    else if(y_set.count(inst.arg))
-                    {
-                        replace(inst, TYA_IMPLIED);
-                        a_set = std::move(y_set);
-                        y_set.clear();
-                        continue;
-                    }
-                    break;
-
-                case LDX_ZERO_PAGE:
-                case LDX_ABSOLUTE:
-                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && x_set.count(inst.arg))
-                    {
-                        replace(inst, ASM_PRUNED);
-                        continue;
-                    }
-                    else if(a_set.count(inst.arg))
-                    {
-                        replace(inst, TAX_IMPLIED);
-                        x_set = std::move(a_set);
-                        a_set.clear();
-                        continue;
-                    }
-                    break;
-
-                case LDY_ZERO_PAGE:
-                case LDY_ABSOLUTE:
-                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && y_set.count(inst.arg))
-                    {
-                        replace(inst, ASM_PRUNED);
-                        continue;
-                    }
-                    else if(a_set.count(inst.arg))
-                    {
-                        replace(inst, TAY_IMPLIED);
-                        y_set = std::move(a_set);
-                        a_set.clear();
-                        continue;
+                        a.op = get_op(LDA, op_addr_mode(a.op));
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
                     }
                     break;
 
                 default:
                     break;
                 }
-            }
+            });
+        }
 
-            regs_t const outputs = op_output_regs(inst.op);
+        // Now attempt to optimize out redundant loads following loads.
+        // e.g. in:
+        //     LDX #0
+        //     . . .
+        //     LDA #0
+        // The LDA can be removed in some circumstances.
 
-            if(outputs & REGF_A)
-                a_set.clear();
-            if(outputs & REGF_X)
-                x_set.clear();
-            if(outputs & REGF_Y)
-                y_set.clear();
+        {
+            using map_t = fc::small_map<locator_t, unsigned, 16>;
+            map_t map;
+
+            auto const replace = [&](asm_inst_t& inst, op_t op)
+            {
+                inst.op = op;
+                inst.arg = inst.alt = {};
+            };
+
+            auto const store_name = [](op_t op) -> op_name_t
+            {
+                switch(op)
+                {
+                case LDA_IMMEDIATE: return STA;
+                case LDX_IMMEDIATE: return STX;
+                case LDY_IMMEDIATE: return STY;
+                default: return {};
+                }
+            };
+
+            for_each_peephole(&*node.code.begin(), &*node.code.end(), 
+                              [&](asm_inst_t& a, asm_inst_t& b, asm_inst_t* c)
+            {
+                unsigned const ai = &a - node.code.data();
+                unsigned const bi = &b - node.code.data();
+
+                assert(a.op != ASM_LABEL);
+                if(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH))
+                {
+                    map.clear();
+                    return;
+                }
+
+                if(a.alt || b.alt)
+                    return;
+
+                if(op_name_t store = store_name(a.op))
+                {
+                    auto result = map.emplace(a.arg, ai);
+
+                    if(!result.second)
+                    {
+                        // See if we can map.
+
+                        // - next ops must be STA
+                        // - no mention of the store in-between
+
+                        unsigned const prev_i = result.first->second;
+                        assert(prev_i < ai);
+
+                        if(op_name(b.op) == store 
+                           && !(live_regs[bi] & op_output_regs(a.op))
+                           && is_var_like(b.arg.lclass()))
+                        {
+                            for(unsigned i = prev_i; i < ai; ++i)
+                            {
+                                auto const& inst = node.code[i];
+                                if(inst.arg == b.arg || inst.alt == b.arg
+                                   || !simple_addr_mode(op_addr_mode(inst.op)))
+                                {
+                                    goto fail;
+                                }
+                            }
+
+                            // OK! We can relocate.
+
+                            // Prune 'a':
+                            a.prune();
+
+                            // Shift every op forwards one:
+                            std::move(node.code.begin() + prev_i + 1, node.code.begin() + ai, 
+                                      node.code.begin() + prev_i + 2);
+
+                            // Move 'b' into the new hole:
+                            dprint(log, "REGLIVE_PRUNE_3", b);
+                            auto& b_dest = node.code[prev_i + 1];
+                            b.op = get_op(store_name(node.code[prev_i].op), op_addr_mode(b.op));
+                            b_dest = b;
+                            b.prune();
+                            return;
+                        }
+
+                    fail:
+                        result.first.underlying->second = ai;
+                    }
+                }
+            });
         }
     }
-
-    // TODO
-
-    for(asm_node_t& node : list)
-    {
-        if(node.code.empty())
-            continue;
-
-        auto const replace = [&](asm_inst_t& inst, op_t op)
-        {
-            inst.op = op;
-            inst.arg = inst.alt = {};
-        };
-
-        asm_inst_t* a, *b;
-
-        a = node.code.data();
-        if(op_size(a->op) == 0)
-            if(!(a = next_inst(&*node.code.begin(), &*node.code.end(), a)))
-                continue;
-
-        b = next_inst(&*node.code.begin(), &*node.code.end(), a);
-
-        while(b)
-        {
-            unsigned const bi = b - node.code.data();
-
-            switch(op_name(a->op))
-            {
-            case LDA:
-                if(b->op == TAX_IMPLIED && !(live_regs[bi] & REGF_A))
-                {
-                    a->op = get_op(LDX, op_addr_mode(a->op));
-                    b->op = ASM_PRUNED;
-                }
-                else if(b->op == TAY_IMPLIED && !(live_regs[bi] & REGF_A))
-                {
-                    a->op = get_op(LDY, op_addr_mode(a->op));
-                    b->op = ASM_PRUNED;
-                }
-                break;
-
-            case LDX:
-                if(b->op == TXA_IMPLIED && !(live_regs[bi] & REGF_X))
-                {
-                    a->op = get_op(LDA, op_addr_mode(a->op));
-                    b->op = ASM_PRUNED;
-                }
-                break;
-
-            case LDY:
-                if(b->op == TYA_IMPLIED && !(live_regs[bi] & REGF_Y))
-                {
-                    a->op = get_op(LDA, op_addr_mode(a->op));
-                    b->op = ASM_PRUNED;
-                }
-                break;
-
-            default:
-                break;
-            }
-
-            a = b;
-            b = next_inst(&*node.code.begin(), &*node.code.end(), b);
-        }
-    }
-
-    // Now attempt to optimize out redundant loads following loads.
-    // e.g. in:
-    //     LDX #0
-    //     . . .
-    //     LDA #0
-    // The LDA can be removed in some circumstances.
-
-    //idea: 
-    // first identify every constant load,
-    // then for each constant load, iterate forwards to the next constant loads,
-    // (this determines if the load can be moved)
-
-#if 0
-
-    assert(0);
-
-
-    for(asm_node_t& node : list)
-    {
-        constexpr unsigned MAX_SET_SIZE = 8;
-        using set_t = fc::small_set<locator_t, MAX_SET_SIZE>;
-        set_t a_set;
-        set_t x_set;
-        set_t y_set;
-
-        auto const replace = [&](asm_inst_t& inst, op_t op)
-        {
-            inst.op = op;
-            inst.arg = inst.alt = {};
-        };
-
-        std::size_t const code_size = node.code.size();
-        for(unsigned i = 0; i < code_size; ++i)
-        {
-            asm_inst_t& inst = node.code[i];
-
-            if(inst.op == ASM_LABEL 
-               || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH)))
-            {
-                a_set.clear();
-                x_set.clear();
-                y_set.clear();
-                continue;
-            }
-
-            if(!inst.alt && is_var_like(inst.arg.lclass())) 
-            {
-                switch(inst.op)
-                {
-                case STA_ZERO_PAGE:
-                case STA_ABSOLUTE:
-                    if(a_set.size() < MAX_SET_SIZE)
-                        a_set.insert(inst.arg);
-                    break;
-
-                case STX_ZERO_PAGE:
-                case STX_ABSOLUTE:
-                    if(x_set.size() < MAX_SET_SIZE)
-                        x_set.insert(inst.arg);
-                    break;
-
-                case STY_ZERO_PAGE:
-                case STY_ABSOLUTE:
-                    if(y_set.size() < MAX_SET_SIZE)
-                        y_set.insert(inst.arg);
-                    break;
-
-                case LDA_ZERO_PAGE:
-                case LDA_ABSOLUTE:
-                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && a_set.count(inst.arg))
-                    {
-                        replace(inst, ASM_PRUNED);
-                        continue;
-                    }
-                    else if(x_set.count(inst.arg))
-                    {
-                        replace(inst, TXA_IMPLIED);
-                        a_set = std::move(x_set);
-                        x_set.clear();
-                        continue;
-                    }
-                    else if(y_set.count(inst.arg))
-                    {
-                        replace(inst, TYA_IMPLIED);
-                        a_set = std::move(y_set);
-                        y_set.clear();
-                        continue;
-                    }
-                    break;
-
-                case LDX_ZERO_PAGE:
-                case LDX_ABSOLUTE:
-                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && x_set.count(inst.arg))
-                    {
-                        replace(inst, ASM_PRUNED);
-                        continue;
-                    }
-                    else if(a_set.count(inst.arg))
-                    {
-                        replace(inst, TAX_IMPLIED);
-                        x_set = std::move(a_set);
-                        a_set.clear();
-                        continue;
-                    }
-                    break;
-
-                case LDY_ZERO_PAGE:
-                case LDY_ABSOLUTE:
-                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && y_set.count(inst.arg))
-                    {
-                        replace(inst, ASM_PRUNED);
-                        continue;
-                    }
-                    else if(a_set.count(inst.arg))
-                    {
-                        replace(inst, TAY_IMPLIED);
-                        y_set = std::move(a_set);
-                        a_set.clear();
-                        continue;
-                    }
-                    break;
-
-                default:
-                    break;
-                }
-            }
-
-            regs_t const outputs = op_output_regs(inst.op);
-
-            if(outputs & REGF_A)
-                a_set.clear();
-            if(outputs & REGF_X)
-                x_set.clear();
-            if(outputs & REGF_Y)
-                y_set.clear();
-        }
-    }
-#endif
-
 }
 
 

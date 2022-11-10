@@ -37,6 +37,12 @@ struct asm_inst_t
         { return op == o.op && arg == o.arg && alt == o.alt; }
     bool operator!=(asm_inst_t const& o) const
         { return !operator==(o); }
+
+    void prune()
+    {
+        op = ASM_PRUNED;
+        arg = alt = {};
+    }
 };
 
 bool is_return(asm_inst_t const& inst);
@@ -65,6 +71,35 @@ inline asm_inst_t* next_inst(asm_inst_t* code, asm_inst_t* end, asm_inst_t* inst
         if(inst->op != ASM_PRUNED)
             return inst;
     return nullptr;
+}
+
+template<typename Fn>
+void for_each_peephole(asm_inst_t* begin, asm_inst_t* end, Fn const& fn)
+{
+    if(begin == end)
+        return;
+
+    asm_inst_t* a, *b, *c;
+
+    auto const next_inst = [&](asm_inst_t* inst) { return ::next_inst(begin, end, inst); };
+
+    a = begin;
+    if(op_size(a->op) == 0)
+        if(!(a = next_inst(a)))
+            return;
+
+    b = next_inst(a);
+
+    while(b)
+    {
+        c = next_inst(b);
+
+        fn(*a, *b, c);
+
+        a = b;
+        b = c;
+        assert(b == next_inst(a));
+    }
 }
 
 bool o_redundant_loads(asm_inst_t* begin, asm_inst_t* end);

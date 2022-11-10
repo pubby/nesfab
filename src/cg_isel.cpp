@@ -728,53 +728,63 @@ namespace isel
     [[gnu::noinline]]
     void load_A_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(value.is_const_num())
+        assert(value.is_const_num());
+        std::uint8_t const byte = value.data();
+
+        cpu_t cpu_copy;
+
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, {}, value) && cpu_copy.is_known(REG_A, byte))
+            cont->call(cpu_copy, &alloc_sel<ANC_IMMEDIATE>(cpu, prev, value));
+
+        if(cpu.is_known(REG_A))
         {
-            std::uint8_t const byte = value.data();
-
-            cpu_t cpu_copy;
-
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, {}, value) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ANC_IMMEDIATE>(cpu, prev, value));
-
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<LSR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<LSR_IMPLIED>(cpu, prev));
-
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<ASL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ASL_IMPLIED>(cpu, prev));
-
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<ROL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ROL_IMPLIED>(cpu, prev));
-
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<ROR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
-                cont->call(cpu_copy, &alloc_sel<ROR_IMPLIED>(cpu, prev));
-
-            if(cpu.is_known(REG_A))
+            unsigned const mask = byte << 1;
+            if((mask & cpu.known[REG_A] & 0xFF) == mask)
             {
-                unsigned const mask = byte << 1;
-                if((mask & cpu.known[REG_A] & 0xFF) == mask)
+                assert(mask < 0x100);
+                // ALR can set the carry, or clear the carry.
+                // We'll try to find both:
+                for(unsigned i = 0; i < 2; ++i)
                 {
-                    assert(mask < 0x100);
-                    // ALR can set the carry, or clear the carry.
-                    // We'll try to find both:
-                    for(unsigned i = 0; i < 2; ++i)
-                    {
-                        locator_t const arg = locator_t::const_byte(mask | i);
-                        cpu_copy = cpu;
-                        if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, {}, arg) && cpu_copy.is_known(REG_A, byte))
-                            cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(cpu, prev, arg));
+                    locator_t const arg = locator_t::const_byte(mask | i);
+                    cpu_copy = cpu;
+                    if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, {}, arg) && cpu_copy.is_known(REG_A, byte))
+                        cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(cpu, prev, arg));
 
-                        // No point in doing the second iteration if it can't set the carry:
-                        if(!(cpu.known[REG_A] & 1))
-                            break;
-                    }
+                    // No point in doing the second iteration if it can't set the carry:
+                    if(!(cpu.known[REG_A] & 1))
+                        break;
                 }
             }
+        }
+
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<LSR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
+        {
+            cont->call(cpu_copy, &alloc_sel<LSR_IMPLIED>(cpu, prev));
+            return;
+        }
+
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<ASL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
+        {
+            cont->call(cpu_copy, &alloc_sel<ASL_IMPLIED>(cpu, prev));
+            return;
+        }
+
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<ROL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
+        {
+            cont->call(cpu_copy, &alloc_sel<ROL_IMPLIED>(cpu, prev));
+            return;
+        }
+
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<ROR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
+        {
+            cont->call(cpu_copy, &alloc_sel<ROR_IMPLIED>(cpu, prev));
+            return;
         }
     }
 
@@ -797,27 +807,26 @@ namespace isel
 
             pick_op<Opt, LAX, Def, Def>(cpu, prev, cont);
 
-            load_A_impl(Opt::template valid_for<REGF_A | REGF_NZ>::to_struct, v, cpu, prev, cont);
+            if(v.is_const_num())
+                load_A_impl(Opt::template valid_for<REGF_A | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
     [[gnu::noinline]]
     void load_X_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(value.is_const_num())
-        {
-            std::uint8_t const byte = value.data();
+        assert(value.is_const_num());
+        std::uint8_t const byte = value.data();
 
-            cpu_t cpu_copy;
+        cpu_t cpu_copy;
 
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<INX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
-                cont->call(cpu_copy, &alloc_sel<INX_IMPLIED>(cpu, prev));
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<INX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
+            cont->call(cpu_copy, &alloc_sel<INX_IMPLIED>(cpu, prev));
 
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<DEX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
-                cont->call(cpu_copy, &alloc_sel<DEX_IMPLIED>(cpu, prev));
-        }
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<DEX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
+            cont->call(cpu_copy, &alloc_sel<DEX_IMPLIED>(cpu, prev));
     }
 
     template<typename Opt, typename Def> [[gnu::noinline]]
@@ -845,27 +854,26 @@ namespace isel
 
             pick_op<Opt, LAX, Def, Def>(cpu, prev, cont);
 
-            load_X_impl(Opt::template valid_for<REGF_X | REGF_NZ>::to_struct, v, cpu, prev, cont);
+            if(v.is_const_num())
+                load_X_impl(Opt::template valid_for<REGF_X | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
     [[gnu::noinline]]
     void load_Y_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        if(value.is_const_num())
-        {
-            std::uint8_t const byte = value.data();
+        assert(value.is_const_num());
+        std::uint8_t const byte = value.data();
 
-            cpu_t cpu_copy;
+        cpu_t cpu_copy;
 
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
-                cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(cpu, prev));
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
+            cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(cpu, prev));
 
-            cpu_copy = cpu;
-            if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
-                cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(cpu, prev));
-        }
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
+            cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(cpu, prev));
     }
 
     template<typename Opt, typename Def> [[gnu::noinline]]
@@ -891,7 +899,8 @@ namespace isel
 
             pick_op<Opt, LDY, Def, Def>(cpu, prev, cont);
 
-            load_Y_impl(Opt::template valid_for<REGF_Y | REGF_NZ>::to_struct, v, cpu, prev, cont);
+            if(v.is_const_num())
+                load_Y_impl(Opt::template valid_for<REGF_Y | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
@@ -4464,6 +4473,8 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             }
         }
     }
+
+    std::cout << "AGE " << age << ' ' << ir.cfg_size() << std::endl;
 
     // TODO
     /*

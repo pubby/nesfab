@@ -191,6 +191,7 @@ int main(int argc, char** argv)
             {
                 po::options_description visible;
                 visible.add(cmdline).add(basic).add(mapper_opt);
+                std::cout << visible << std::endl;
                 return EXIT_SUCCESS;
             }
 

@@ -108,6 +108,7 @@ struct cpu_t
 
     // Keep in sync with 'operator=='.
     // DO NOT HASH 'conditional_regs'!
+    [[gnu::noinline]]
     std::size_t hash() const
     {
         std::size_t h = req_store;
@@ -228,8 +229,6 @@ struct cpu_t
             set_def_impl<REG_Z>(opt, value, keep_value);
         if(Regs & REGF_N)
             set_def_impl<REG_N>(opt, value, keep_value);
-        if(Regs & REGF_B)
-            set_def_impl<REG_B>(opt, value, keep_value);
         assert(known_array_valid());
     }
 

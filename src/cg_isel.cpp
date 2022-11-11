@@ -319,6 +319,8 @@ namespace isel
 
         isel_cost_t const cutoff = state.best_cost + cost_cutoff(state.map.size());
 
+        std::size_t const prev_pool_size = state.sel_pool.size();
+
         // Run every selection step:
         if(state.map.size() > state.max_map_size)
         {
@@ -358,7 +360,13 @@ namespace isel
             throw isel_no_progress_error_t{};
 
         dprint(state.log, "--SELECT_STEP_POOL_SIZE", state.sel_pool.size());
-        dprint(state.log, "--SELECT_STEP_MAP_SIZE", state.next_map.size());
+        dprint(state.log, "--SELECT_STEP_MAP_SIZE", state.next_map.size(), state.map.size());
+        if(state.ssa_node)
+        {
+            dprint(state.log, "--SELECT_STEP_POOL_DIFF", state.sel_pool.size() - prev_pool_size, state.ssa_node->op());
+            dprint(state.log, "--SELECT_STEP_MAP_DIFF", int(state.next_map.size()) - std::min<int>(state.max_map_size, state.map.size()), 
+                                                        state.ssa_node->op());
+        }
 
         state.map.swap(state.next_map);
         /* TODO: remove?
@@ -974,29 +982,57 @@ namespace isel
     template<typename Opt, typename A, typename X> [[gnu::noinline]]
     void load_AX(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        chain
-        < load_A<Opt, A>
-        , load_X<typename Opt::restrict_to<~REGF_A>, X>
-        >(cpu, prev, cont);
+        locator_t const a = A::value();
+        locator_t const x = X::value();
 
-        chain
-        < load_X<Opt, X>
-        , load_A<typename Opt::restrict_to<~REGF_X>, A>
-        >(cpu, prev, cont);
+        if(cpu.value_eq(REG_A, a))
+        {
+            if(cpu.value_eq(REG_X, x))
+                cont->call(cpu, prev);
+            load_X<typename Opt::restrict_to<~REGF_A>, X>(cpu, prev, cont);
+        }
+        else if(cpu.value_eq(REG_X, x))
+            load_A<typename Opt::restrict_to<~REGF_X>, A>(cpu, prev, cont);
+        else
+        {
+            chain
+            < load_A<Opt, A>
+            , load_X<typename Opt::restrict_to<~REGF_A>, X>
+            >(cpu, prev, cont);
+
+            chain
+            < load_X<Opt, X>
+            , load_A<typename Opt::restrict_to<~REGF_X>, A>
+            >(cpu, prev, cont);
+        }
     };
 
     template<typename Opt, typename A, typename Y> [[gnu::noinline]]
     void load_AY(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        chain
-        < load_A<Opt, A>
-        , load_Y<typename Opt::restrict_to<~REGF_A>, Y>
-        >(cpu, prev, cont);
+        locator_t const a = A::value();
+        locator_t const y = Y::value();
 
-        chain
-        < load_Y<Opt, Y>
-        , load_A<typename Opt::restrict_to<~REGF_Y>, A>
-        >(cpu, prev, cont);
+        if(cpu.value_eq(REG_A, a))
+        {
+            if(cpu.value_eq(REG_Y, y))
+                cont->call(cpu, prev);
+            load_Y<typename Opt::restrict_to<~REGF_A>, Y>(cpu, prev, cont);
+        }
+        else if(cpu.value_eq(REG_Y, y))
+            load_A<typename Opt::restrict_to<~REGF_Y>, A>(cpu, prev, cont);
+        else
+        {
+            chain
+            < load_A<Opt, A>
+            , load_Y<typename Opt::restrict_to<~REGF_A>, Y>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, Y>
+            , load_A<typename Opt::restrict_to<~REGF_Y>, A>
+            >(cpu, prev, cont);
+        }
     };
 
     template<typename Opt, typename A, typename C> [[gnu::noinline]]
@@ -1046,7 +1082,6 @@ namespace isel
 
             locator_t const index = array_index<Arg>::value();
 
-
             if(Absolute != BAD_OP && index.is_const_num())
             {
                 locator_t mem = array_mem<Arg>::trans();
@@ -1058,20 +1093,27 @@ namespace isel
             }
             else
             {
-                if(AbsoluteX != BAD_OP)
+                if(AbsoluteX != BAD_OP && cpu.value_eq(REG_X, index))
+                    exact_op<Opt, AbsoluteX, Def, array_mem<Arg>>(cpu, prev, cont);
+                else if(AbsoluteY != BAD_OP && cpu.value_eq(REG_Y, index))
+                    exact_op<Opt, AbsoluteY, Def, array_mem<Arg>>(cpu, prev, cont);
+                else
                 {
-                    chain
-                    < load_X<OptN, array_index<Arg>>
-                    , exact_op<Opt, AbsoluteX, Def, array_mem<Arg>>
-                    >(cpu, prev, cont);
-                }
+                    if(AbsoluteX != BAD_OP)
+                    {
+                        chain
+                        < load_X<OptN, array_index<Arg>>
+                        , exact_op<OptN, AbsoluteX, Def, array_mem<Arg>>
+                        >(cpu, prev, cont);
+                    }
 
-                if(AbsoluteY != BAD_OP)
-                {
-                    chain
-                    < load_Y<OptN, array_index<Arg>>
-                    , exact_op<Opt, AbsoluteY, Def, array_mem<Arg>>
-                    >(cpu, prev, cont);
+                    if(AbsoluteY != BAD_OP)
+                    {
+                        chain
+                        < load_Y<OptN, array_index<Arg>>
+                        , exact_op<OptN, AbsoluteY, Def, array_mem<Arg>>
+                        >(cpu, prev, cont);
+                    }
                 }
             }
         }
@@ -1186,20 +1228,31 @@ namespace isel
             return;
         }
 
-        chain
-        < load_A<Opt, Load>
-        , store<Opt, STA, Def, Store, Maybe, KeepValue>
-        >(cpu, prev, cont);
+        locator_t const v = Load::value();
 
-        chain
-        < load_X<Opt, Load>
-        , store<Opt, STX, Def, Store, Maybe, KeepValue>
-        >(cpu, prev, cont);
+        if(cpu.value_eq(REG_A, v))
+            store<Opt, STA, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
+        else if(cpu.value_eq(REG_X, v))
+            store<Opt, STX, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
+        else if(cpu.value_eq(REG_Y, v))
+            store<Opt, STY, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
+        else
+        {
+            chain
+            < load_A<Opt, Load>
+            , store<Opt, STA, Def, Store, Maybe, KeepValue>
+            >(cpu, prev, cont);
 
-        chain
-        < load_Y<Opt, Load>
-        , store<Opt, STY, Def, Store, Maybe, KeepValue>
-        >(cpu, prev, cont);
+            chain
+            < load_X<Opt, Load>
+            , store<Opt, STX, Def, Store, Maybe, KeepValue>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, Load>
+            , store<Opt, STY, Def, Store, Maybe, KeepValue>
+            >(cpu, prev, cont);
+        }
     };
 
     template<typename Opt, typename Def> [[gnu::noinline]]
@@ -1209,10 +1262,8 @@ namespace isel
 
         std::uint16_t const bs_addr = bankswitch_addr(mapper().type);
 
-        if(!mapper().bankswitches() || cpu.value_eq(REG_B, v))
+        if(!mapper().bankswitches())
             cont->call(cpu, prev);
-        else if(!(Opt::can_set & REGF_B))
-            return;
         else
         {
             if(has_bus_conflicts(mapper().type))
@@ -1220,13 +1271,11 @@ namespace isel
                 chain
                 < load_AX<Opt, Def, Def>
                 , iota_op<Opt, STA_ABSOLUTE_X, null_>
-                , set_defs<Opt, REGF_B, true, Def>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AY<Opt, Def, Def>
                 , iota_op<Opt, STA_ABSOLUTE_Y, null_>
-                , set_defs<Opt, REGF_B, true, Def>
                 >(cpu, prev, cont);
             }
             else if(state_size(mapper().type))
@@ -1241,7 +1290,6 @@ namespace isel
                 < load_A<Opt, Def>
                 , exact_op<Opt, ORA_ABSOLUTE, null_, state>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
-                , set_defs<Opt, REGF_B, true, Def>
                 >(cpu, prev, cont);
             }
             else
@@ -1249,10 +1297,7 @@ namespace isel
                 using addr = param<struct load_B_addr_tag>;
                 addr::set(locator_t::addr(bs_addr));
 
-                chain
-                < load_then_store<Opt, Def, Def, addr, false>
-                , set_defs<Opt, REGF_B, true, Def>
-                >(cpu, prev, cont);
+                load_then_store<Opt, Def, Def, addr, false>(cpu, prev, cont);
             }
         }
     }
@@ -2789,7 +2834,7 @@ namespace isel
                 < load_AY<Opt, p_lhs, p_rhs>
                 , simple_op<Opt, read_reg_op(REGF_A | REGF_Y)>
                 , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<2>>
-                , simple_op<Opt, write_reg_op(REGF_CPU & ~(REGF_X | REGF_B))>
+                , simple_op<Opt, write_reg_op(REGF_CPU & ~REGF_X)>
                 , store<Opt::template restrict_to<~REGF_X>, STA, p_def, p_def>
                 >(cpu, prev, cont);
             });
@@ -3291,6 +3336,7 @@ namespace isel
                     >(cpu, prev, cont);
                 }
             }
+
             break;
 
         case SSA_make_ptr_lo:
@@ -3312,7 +3358,7 @@ namespace isel
             < load_Y<Opt, p_arg<1>>
             , simple_op<Opt, read_reg_op(REGF_Y)>
             , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-            , simple_op<Opt, write_reg_op(REGF_CPU & ~REGF_B)> // Clobbers most everything
+            , simple_op<Opt, write_reg_op(REGF_CPU)> // Clobbers most everything
             >(cpu, prev, cont);
             break;
 
@@ -3367,7 +3413,7 @@ namespace isel
 
             chain
             < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
-            , simple_op<Opt, write_reg_op(REGF_CPU & ~(REGF_X | REGF_Y | REGF_B))>
+            , simple_op<Opt, write_reg_op(REGF_CPU & ~(REGF_X | REGF_Y))>
             >(cpu, prev, cont);
 
             break;
@@ -3999,6 +4045,7 @@ void select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     using namespace isel;
 
     state.log = log;
+    //state.log = &stdout_log; // TODO
     state.fn = fn.handle();
     state.ssa_node = {};
 

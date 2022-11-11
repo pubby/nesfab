@@ -195,7 +195,7 @@ asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)
     {
         auto result = label_map.insert({ label, &node });
         if(!result.second)
-            throw std::runtime_error("Duplicate label.");
+            throw std::runtime_error(fmt("Duplicate label. %", label));
     }
 
     list.push_back(node);

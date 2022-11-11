@@ -18,10 +18,9 @@ constexpr unsigned NUM_CROSS_REGS = 4; // Registers that propagate across CFG no
 constexpr regs_t REG_Z   = 4;
 constexpr regs_t REG_N   = 5;
 constexpr unsigned NUM_KNOWN_REGS = 6; // Registers that isel::cpu_t tracks constants of
-constexpr regs_t REG_B   = 6; // Bank
-constexpr unsigned NUM_CPU_REGS = 7;
-constexpr regs_t REG_M   = 7; // RAM
-constexpr unsigned NUM_REGS = 8;
+constexpr unsigned NUM_CPU_REGS = 6;
+constexpr regs_t REG_M   = 6; // RAM
+constexpr unsigned NUM_REGS = 7;
 
 // Works like a bitset.
 constexpr regs_t REGF_A = 1 << REG_A;
@@ -30,7 +29,6 @@ constexpr regs_t REGF_Y = 1 << REG_Y;
 constexpr regs_t REGF_C = 1 << REG_C;
 constexpr regs_t REGF_Z = 1 << REG_Z;
 constexpr regs_t REGF_N = 1 << REG_N;
-constexpr regs_t REGF_B = 1 << REG_B;
 constexpr regs_t REGF_M = 1 << REG_M;
 
 constexpr regs_t REGF_AX   = REGF_A | REGF_X;
@@ -40,7 +38,7 @@ constexpr regs_t REGF_NZ   = REGF_N | REGF_Z;
 constexpr regs_t REGF_ACNZ = REGF_A | REGF_C | REGF_N | REGF_Z;
 constexpr regs_t REGF_CNZ  = REGF_C | REGF_NZ;
 constexpr regs_t REGF_CROSS = REGF_A | REGF_X | REGF_Y | REGF_C;
-constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_N | REGF_Z | REGF_B;
+constexpr regs_t REGF_CPU = REGF_A | REGF_X | REGF_Y | REGF_C | REGF_N | REGF_Z;
 
 enum addr_mode_t : std::uint8_t
 {

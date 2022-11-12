@@ -45,12 +45,17 @@ namespace isel
     {
         double sort_by = 0; // TODO
         isel_cost_t cost = 0;
-        unsigned age = 0; // TODO
+        //unsigned age = 0; // TODO
         std::shared_ptr<std::vector<asm_inst_t>> code;
     };
 
     // TODO
     //using preprep_bitset_t = static_bitset_t<256>;
+
+    using preprep_flags_t = std::uint8_t;
+    constexpr preprep_flags_t PREPREP_A_0 = 1 << 0;
+    constexpr preprep_flags_t PREPREP_X_0 = 1 << 1;
+    constexpr preprep_flags_t PREPREP_Y_0 = 1 << 2;
 
     struct memoized_input_t
     {
@@ -60,7 +65,7 @@ namespace isel
 
     struct cfg_d : public pbqp_node_t
     {
-        //std::vector<preprep_bitset_t> preprep;
+        std::vector<preprep_flags_t> preprep;
         std::vector<unsigned> to_compute;
         rh::batman_set<cross_cpu_t> in_states;
         rh::batman_map<cross_transition_t, result_t> sels;

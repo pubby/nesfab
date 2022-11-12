@@ -360,6 +360,9 @@ void ssa_node_t::link_swap_inputs(unsigned ai, unsigned bi)
     assert(ai < input_size());
     assert(bi < input_size());
 
+    if(ai == bi)
+        return;
+
     ssa_fwd_edge_t& ae = m_io.input(ai);
     ssa_fwd_edge_t& be = m_io.input(bi);
 
@@ -755,6 +758,9 @@ void cfg_node_t::link_clear_outputs()
 
 void cfg_node_t::link_swap_inputs(unsigned ai, unsigned bi)
 {
+    if(ai == bi)
+        return;
+
     cfg_fwd_edge_t& ae = m_io.input(ai);
     cfg_fwd_edge_t& be = m_io.input(bi);
 
@@ -767,6 +773,9 @@ void cfg_node_t::link_swap_inputs(unsigned ai, unsigned bi)
 
 void cfg_node_t::link_swap_outputs(unsigned ai, unsigned bi)
 {
+    if(ai == bi)
+        return;
+
     cfg_bck_edge_t& ae = m_io.output(ai);
     cfg_bck_edge_t& be = m_io.output(bi);
 

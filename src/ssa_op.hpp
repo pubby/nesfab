@@ -213,7 +213,8 @@ constexpr unsigned ssa_switch_cases(ssa_op_t op)
 constexpr bool is_switch(ssa_op_t op) 
     { return op == SSA_switch_full || op == SSA_switch_partial; }
 
-constexpr int carry_input_i(ssa_op_t op)
+template<bool Possible>
+constexpr int carry_input_i_impl(ssa_op_t op)
 {
     switch(op)
     {
@@ -222,10 +223,15 @@ constexpr int carry_input_i(ssa_op_t op)
     case SSA_rol:
     case SSA_ror:
         return 2;
+    case SSA_if:
+        return Possible ? 0 : -1;
     default:
         return -1;
     }
 }
+
+constexpr int carry_input_i(ssa_op_t op) { return carry_input_i_impl<false>(op); }
+constexpr int possible_carry_input_i(ssa_op_t op) { return carry_input_i_impl<true>(op); }
 
 constexpr bool is_basic_comparison(ssa_op_t op)
 {

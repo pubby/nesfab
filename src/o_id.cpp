@@ -249,6 +249,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 }
             }
             // fall-through
+        check_not_eq:
         case SSA_lt:
             if(ssa_it->input(0) == ssa_it->input(1))
             {
@@ -306,15 +307,35 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
         case SSA_eq:
             for(unsigned i = 0; i < 2; ++i)
             {
-                if(ssa_it->input(i) == ssa_value_t(1u, TYPE_BOOL))
+                auto ie = ssa_it->input_edge(i);
+
+                if(ie.targets_eq(ssa_value_t(1u, TYPE_BOOL)))
                     goto *replaceWith[!i];
 
-                if(ssa_it->input(i) == ssa_value_t(0u, TYPE_BOOL))
+                if(ie.targets_eq(ssa_value_t(0u, TYPE_BOOL)))
                 {
                     ssa_it->unsafe_set_op(SSA_xor);
                     ssa_it->link_change_input(i, ssa_value_t(1u, TYPE_BOOL));
                     updated = true;
                     goto check_xor;
+                }
+
+                ssa_value_t const other = ssa_it->input(!i);
+
+                // Look for expressions like:
+                //     (foo & C) == C
+                // Where C is a single, constant bit.
+                // We can replace this with the more efficient: (foo & C) != 0
+                if(ie.holds_ref() 
+                   && ie.handle()->op() == SSA_and 
+                   && other.is_num()
+                   && builtin::popcount(fixed_uint_t(other.signed_fixed())) == 1
+                   && other == ie.handle()->input(!ie.index()))
+                {
+                    ssa_it->unsafe_set_op(SSA_not_eq);
+                    ssa_it->link_change_input(!i, ssa_value_t(0u, other.num_type_name()));
+                    updated = true;
+                    goto check_not_eq;
                 }
             }
             // fall-through
@@ -430,6 +451,19 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
             break;
 
+        case SSA_rol:
+        case SSA_ror:
+            // If only the carry is used, ignore our carry input.
+            if(ssa_it->output_size() == 1 
+               && ssa_it->output(0)->op() == SSA_carry
+               && !ssa_it->input(1).eq_whole(0))
+            {
+                updated = true;
+                ssa_it->link_change_input(1, ssa_value_t(0u, TYPE_BOOL));
+                break;
+            }
+            break;
+
         default:
             break;
         }
@@ -538,6 +572,98 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         goto *replaceWith[!i];
                 if(ssa_it->input(0) == ssa_it->input(1))
                     goto replaceWith0;
+
+                if(ssa_it->output_size() == 1)
+                {
+                    auto oe = ssa_it->output_edge(0);
+
+                    if(oe.handle->cfg_node() == ssa_it->cfg_node()
+                       && oe.handle->op() == SSA_not_eq
+                       && oe.handle->input(!oe.index).eq_whole(0u))
+                    {
+                        fixed_uint_t const mask = numeric_bitmask(ssa_it->type().name());
+                        fixed_uint_t const one  =  1ull << fixed_t::shift;
+                        fixed_uint_t const two  =  2ull << fixed_t::shift;
+
+                        // AND'ing with the lowest bit, or the highest bit,
+                        // then converting to Bool,
+                        // can be replaced with a rotate.
+
+                        // Don't do this optimization unless we can use the carry:
+                        unsigned const output_size = oe.handle->output_size();
+                        for(unsigned i = 0; i < output_size; ++i)
+                        {
+                            auto const ooe = oe.handle->output_edge(i);
+                            if(possible_carry_input_i(ooe.handle->op()) != int(ooe.index))
+                                goto done_and_to_rotate;
+                        }
+
+                        {
+                            fixed_uint_t const low  =  low_bit_only(mask);
+                            fixed_uint_t const high = high_bit_only(mask);
+                            for(unsigned i = 0; i < 2; ++i)
+                            {
+                                if(ssa_it->input(i).eq_fixed({ low }))
+                                {
+                                    ssa_it->unsafe_set_op(SSA_ror);
+                                    ssa_it->link_change_input(i, ssa_value_t(0u, TYPE_BOOL));
+                                    ssa_it->link_swap_inputs(1, i);
+
+                                    oe.handle->unsafe_set_op(SSA_carry);
+                                    oe.handle->link_remove_input(!oe.index);
+
+                                    updated = true;
+                                    goto done_and;
+                                }
+                                else if(ssa_it->input(i).eq_fixed({ high }))
+                                {
+                                    ssa_it->unsafe_set_op(SSA_rol);
+                                    ssa_it->link_change_input(i, ssa_value_t(0u, TYPE_BOOL));
+                                    ssa_it->link_swap_inputs(1, i);
+
+                                    oe.handle->unsafe_set_op(SSA_carry);
+                                    oe.handle->link_remove_input(!oe.index);
+
+                                    updated = true;
+                                    goto done_and;
+                                }
+                            }
+                        }
+
+                    done_and_to_rotate:
+
+                        // AND'ing with 1, then converting to bool via 'not_eq',
+                        // can be replaced with a cast.
+                        // Likewise, AND'ing with 2 can do this, 
+                        // but first it must be shifted right 1.
+                        // (This often compiles down to a single ALR instruction.)
+                        for(unsigned i = 0; i < 2; ++i)
+                        {
+                            if(ssa_it->input(i).eq_fixed({ one }))
+                            {
+                                oe.handle->unsafe_set_op(SSA_cast);
+                                oe.handle->link_remove_input(!oe.index);
+
+                                updated = true;
+                                goto done_and;
+                            }
+                            else if(ssa_it->input(i).eq_fixed({ two }))
+                            {
+                                ssa_ht const ror = ssa_it->cfg_node()->emplace_ssa(
+                                    SSA_ror, ssa_it->type(), 
+                                    ssa_it, ssa_value_t(0u, TYPE_BOOL));
+
+                                oe.handle->unsafe_set_op(SSA_cast);
+                                oe.handle->link_change_input(oe.index, ror);
+                                oe.handle->link_remove_input(!oe.index);
+
+                                updated = true;
+                                goto done_and;
+                            }
+                        }
+                    }
+                }
+            done_and:
                 break;
 
             case SSA_mul8_lo:

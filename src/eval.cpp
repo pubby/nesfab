@@ -206,6 +206,9 @@ public:
     expr_value_t do_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     template<typename Policy>
+    expr_value_t do_rotate(expr_value_t lhs, expr_value_t rhs, token_t const& token);
+
+    template<typename Policy>
     expr_value_t do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     //template<typename Policy>
@@ -216,6 +219,9 @@ public:
 
     template<typename Policy>
     expr_value_t do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
+
+    template<typename Policy>
+    expr_value_t do_assign_rotate(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     template<typename Policy>
     expr_value_t do_assign_mul(expr_value_t lhs, expr_value_t rhs, token_t const& token);
@@ -1390,6 +1396,7 @@ void eval_t::compile_block()
 template<eval_t::do_t D>
 expr_value_t eval_t::do_expr(ast_node_t const& ast)
 {
+    using U = fixed_uint_t;
     using S = fixed_sint_t;
 
     auto const make_ptr = [&](locator_t loc, type_t type, bool banked) -> expr_value_t
@@ -1408,12 +1415,16 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     auto const infix = [&](auto const& fn, bool flipped = false, bool lhs_lval = false) -> expr_value_t
     {
-        expr_value_t lhs = do_expr<D>(ast.children[0]);
+        auto* ast_lhs = &ast.children[0];
+        auto* ast_rhs = &ast.children[1];
+
+        if(flipped)
+            std::swap(ast_lhs, ast_rhs);
+
+        expr_value_t lhs = do_expr<D>(*ast_lhs);
         if(!lhs_lval)
             lhs = to_rval<D>(std::move(lhs));
-        expr_value_t rhs = to_rval<D>(do_expr<D>(ast.children[1]));
-        if(flipped)
-            std::swap(lhs, rhs);
+        expr_value_t rhs = to_rval<D>(do_expr<D>(*ast_rhs));
         return (this->*fn)(std::move(lhs), std::move(rhs), ast.token);
     };
 
@@ -3267,6 +3278,53 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             //break;
         return infix(&eval_t::do_assign_arith<bitwise_xor_p>, false, true);
 
+    case TOK_rol:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        struct rol_p : do_wrapper_t<D>
+        {
+            static U interpret(U operand, bool carry, U mask, pstring_t) 
+            { 
+                return (operand << 1) | (carry * low_bit_only(mask)); 
+            }
+            static bool interpret_carry(U operand, U mask, pstring_t) 
+            {
+                return operand & high_bit_only(mask); 
+            }
+            static ssa_op_t op() { return SSA_rol; }
+        };
+        return infix(&eval_t::do_rotate<rol_p>);
+    case TOK_rol_assign:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_rotate<rol_p>, false, true);
+
+    case TOK_ror:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        struct ror_p : do_wrapper_t<D>
+        {
+            static U interpret(U operand, bool carry, fixed_uint_t mask, pstring_t) 
+            { 
+                return (operand >> 1) | (carry * high_bit_only(mask)); 
+            }
+            static bool interpret_carry(U operand, U mask, pstring_t) 
+            {
+                return operand & low_bit_only(mask); 
+            }
+            static ssa_op_t op() { return SSA_ror; }
+        };
+        return infix(&eval_t::do_rotate<ror_p>, true);
+    case TOK_ror_assign:
+        // TODO
+        //if(handle_lt<D>(rpn_stack, 2, *token))
+            //break;
+        return infix(&eval_t::do_assign_rotate<ror_p>, true, true);
+
+
     case TOK_lshift:
         // TODO
         //if(handle_lt<D>(rpn_stack, 2, *token))
@@ -4376,6 +4434,19 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 }
 
 template<typename Policy>
+expr_value_t eval_t::do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+{
+    ssa_op_t const op = Policy::op();
+
+    if((op == SSA_add || op == SSA_sub) && is_ptr(lhs.type.name()))
+        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
+    else
+        rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+    expr_value_t lhs_copy = to_rval<Policy::D>(lhs);
+    return do_assign<Policy::D>(std::move(lhs), do_arith<Policy>(std::move(lhs_copy), rhs, token), token);
+}
+
+template<typename Policy>
 expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
     req_quantity(token, lhs, rhs);
@@ -4414,6 +4485,101 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
         }
         return compile_binary_operator(std::move(lhs), std::move(rhs), Policy::op(), result_type);
     }
+
+    return result;
+}
+
+template<typename Policy>
+expr_value_t eval_t::do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+{
+    expr_value_t result =
+    {
+        .type = TYPE_BOOL, 
+        .pstring = concat(lhs.pstring, rhs.pstring)
+    };
+
+    expr_value_t shift = do_shift<Policy>(to_rval<Policy::D>(lhs), rhs, token);
+
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
+    {
+        assert(is_masked(lhs.fixed(), lhs.type.name()));
+        assert(is_masked(rhs.fixed(), rhs.type.name()));
+
+        bool b = Policy::interpret_carry(lhs.s(), rhs.whole(), numeric_bitmask(shift.type.name()), result.pstring);
+        result.val = rval_t{ ssa_value_t(b, TYPE_BOOL) };
+    }
+    else if(is_compile(Policy::D))
+        result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, shift.ssa()) };
+
+    do_assign<Policy::D>(std::move(lhs), std::move(shift), token);
+
+    return result;
+}
+
+template<typename Policy>
+expr_value_t eval_t::do_rotate(expr_value_t operand, expr_value_t carry, token_t const& token)
+{
+    req_quantity(token, operand);
+
+    if(carry.type.name() != TYPE_BOOL)
+        compiler_error(carry.pstring, fmt("Ride-hand side of operator % must be type Bool.", 
+                                          token_string(token.type)));
+
+    type_t const result_type = operand.type;
+    assert(is_arithmetic(result_type.name()));
+
+    expr_value_t result =
+    {
+        .type = result_type, 
+        .pstring = concat(operand.pstring, carry.pstring)
+    };
+
+    if(is_interpret(Policy::D) || (Policy::D == COMPILE && operand.is_ct() && carry.is_ct()))
+    {
+        assert(is_masked(operand.fixed(), operand.type.name()));
+        assert(is_masked(carry.fixed(), carry.type.name()));
+
+        fixed_t f = { Policy::interpret(operand.u(), carry.whole(), numeric_bitmask(result_type.name()), result.pstring) };
+        f.value &= numeric_bitmask(result_type.name());
+        result.val = rval_t{ ssa_value_t(f, result_type.name()) };
+    }
+    else if(Policy::D == COMPILE)
+    {
+        if(is_ct(result_type.name()))
+        {
+            throw compiler_error_t(
+                fmt_error(operand.pstring, fmt("Cannot rotate expression of type % at run-time.", result_type))
+                + fmt_note("Addding an explicit cast will fix."));
+        }
+        return compile_binary_operator(std::move(operand), std::move(carry), Policy::op(), result_type);
+    }
+
+    return result;
+}
+
+template<typename Policy>
+expr_value_t eval_t::do_assign_rotate(expr_value_t operand, expr_value_t carry, token_t const& token)
+{
+    expr_value_t result =
+    {
+        .type = TYPE_BOOL, 
+        .pstring = concat(operand.pstring, carry.pstring)
+    };
+
+    expr_value_t rotate = do_rotate<Policy>(to_rval<Policy::D>(operand), carry, token);
+
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && operand.is_ct() && carry.is_ct()))
+    {
+        assert(is_masked(operand.fixed(), operand.type.name()));
+        assert(is_masked(carry.fixed(), carry.type.name()));
+
+        bool b = Policy::interpret_carry(operand.u(), numeric_bitmask(rotate.type.name()), result.pstring);
+        result.val = rval_t{ ssa_value_t(b, TYPE_BOOL) };
+    }
+    else if(is_compile(Policy::D))
+        result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, rotate.ssa()) };
+
+    do_assign<Policy::D>(std::move(operand), std::move(rotate), token);
 
     return result;
 }
@@ -4474,46 +4640,6 @@ expr_value_t eval_t::do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& t
     }
     else if(Policy::D == COMPILE)
         return compile_binary_operator(std::move(lhs), std::move(rhs), Policy::op(), result.type);
-
-    return result;
-}
-
-template<typename Policy>
-expr_value_t eval_t::do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token)
-{
-    ssa_op_t const op = Policy::op();
-
-    if((op == SSA_add || op == SSA_sub) && is_ptr(lhs.type.name()))
-        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
-    else
-        rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
-    expr_value_t lhs_copy = to_rval<Policy::D>(lhs);
-    return do_assign<Policy::D>(std::move(lhs), do_arith<Policy>(std::move(lhs_copy), rhs, token), token);
-}
-
-template<typename Policy>
-expr_value_t eval_t::do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token)
-{
-    expr_value_t result =
-    {
-        .type = TYPE_BOOL, 
-        .pstring = concat(lhs.pstring, rhs.pstring)
-    };
-
-    expr_value_t shift = do_shift<Policy>(to_rval<Policy::D>(lhs), rhs, token);
-
-    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
-    {
-        assert(is_masked(lhs.fixed(), lhs.type.name()));
-        assert(is_masked(rhs.fixed(), rhs.type.name()));
-
-        bool b = Policy::interpret_carry(lhs.s(), rhs.whole(), numeric_bitmask(shift.type.name()), result.pstring);
-        result.val = rval_t{ ssa_value_t(b, TYPE_BOOL) };
-    }
-    else if(is_compile(Policy::D))
-        result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, shift.ssa()) };
-
-    do_assign<Policy::D>(std::move(lhs), std::move(shift), token);
 
     return result;
 }

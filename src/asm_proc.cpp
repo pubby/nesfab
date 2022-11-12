@@ -22,102 +22,6 @@ bool mem_inst(asm_inst_t const& inst)
     return (op_input_regs(inst.op) | op_output_regs(inst.op)) & REGF_M;
 }
 
-/* TODO: remove
-bool o_redundant_loads(asm_inst_t* begin, asm_inst_t* end)
-{
-    bool updated = false;
-
-    constexpr unsigned MAX_SIZE = 8;
-
-    static_assert(REG_A < 3);
-    static_assert(REG_X < 3);
-    static_assert(REG_Y < 3);
-    std::array<fc::small_set<locator_t, MAX_SIZE>, 3> regs = {};
-
-    auto const replace = [&](asm_inst_t& inst, op_t op)
-    {
-        std::cout << "REPLACE " << inst.op << ' ' << op << std::endl;
-        inst.op = op;
-        inst.arg = inst.alt = {};
-        updated = true;
-    };
-
-    for(auto it = begin; it != end; ++it)
-    {
-        if(it->op == ASM_LABEL || (op_flags(it->op) & (ASMF_JUMP | ASMF_RETURN)))
-        {
-            regs = {};
-            continue;
-        }
-
-        if(!it->alt) switch(it->op)
-        {
-        case STA_ZERO_PAGE:
-        case STA_ABSOLUTE:
-            if(regs[REG_A].size() < MAX_SIZE)
-                regs[REG_A].insert(it->arg);
-            break;
-
-        case STX_ZERO_PAGE:
-        case STX_ABSOLUTE:
-            if(regs[REG_X].size() < MAX_SIZE)
-                regs[REG_X].insert(it->arg);
-            break;
-
-        case STY_ZERO_PAGE:
-        case STY_ABSOLUTE:
-            if(regs[REG_Y].size() < MAX_SIZE)
-                regs[REG_Y].insert(it->arg);
-            break;
-
-        case LDA_ZERO_PAGE:
-        case LDA_ABSOLUTE:
-            if(regs[REG_A].count(it->arg))
-                replace(*it, ASM_PRUNED);
-            else if(regs[REG_X].count(it->arg))
-            {
-                replace(*it, TXA_IMPLIED);
-                regs[REG_A] = regs[REG_X];
-            }
-            else if(regs[REG_Y].count(it->arg))
-                replace(*it, TYA_IMPLIED);
-            break;
-
-        case LDX_ZERO_PAGE:
-        case LDX_ABSOLUTE:
-            std::cout << " REGS SIZE " << regs[REG_X].size() << ' ' << int(outputs) << std::endl;
-            if(regs[REG_X].count(it->arg))
-                replace(*it, ASM_PRUNED);
-            else if(regs[REG_A].count(it->arg))
-                replace(*it, TAX_IMPLIED);
-            break;
-
-        case LDY_ZERO_PAGE:
-        case LDY_ABSOLUTE:
-            if(regs[REG_Y].count(it->arg))
-                replace(*it, ASM_PRUNED);
-            else if(regs[REG_A].count(it->arg))
-                replace(*it, TAY_IMPLIED);
-            break;
-
-        default:
-            break;
-        }
-
-        regs_t const outputs = op_output_regs(it->op);
-
-        if(outputs & REGF_A)
-            regs[REG_A].clear();
-        if(outputs & REGF_X)
-            regs[REG_X].clear();
-        if(outputs & REGF_Y)
-            regs[REG_Y].clear();
-    }
-
-    return updated;
-}
-*/
-
 bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 {
     bool changed = false;
@@ -164,7 +68,9 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         {
             if(c && op_name(b.op) == second && op_name(c->op) == store 
                && op_addr_mode(a.op) == op_addr_mode(c->op)
-               && a.arg == c->arg && a.alt == c->alt)
+               && a.arg == c->arg && a.alt == c->alt
+               && (!a.arg || is_var_like(a.arg.lclass()))
+               && (!a.alt || is_var_like(a.alt.lclass())))
             {
                 if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
                 {
@@ -189,7 +95,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(op_name(b.op) == second 
                && op_addr_mode(a.op) == op_addr_mode(b.op)
                && a.arg == b.arg
-               && a.alt == b.alt)
+               && a.alt == b.alt
+               && (!a.arg || is_var_like(a.arg.lclass())))
             {
                 b.op = replace;
                 b.arg = b.alt = {};
@@ -229,7 +136,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(op_name(b.op) == second 
                && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
                && a.arg == b.arg
-               && a.alt == b.alt)
+               && a.alt == b.alt
+               && (!a.arg || is_var_like(a.arg.lclass())))
             {
                 b.op = replace;
                 b.arg = b.alt = {};
@@ -315,6 +223,12 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer2(LDA, TYA_IMPLIED))
                 goto retry;
             break;
+
+        case ALR:
+            if(!a.alt && a.arg == locator_t::const_byte(1) && b.op == ROL_IMPLIED)
+                replace_op(ANC_IMMEDIATE);
+            break;
+
         case RTS:
         case JMP:
             // Code like:

@@ -108,7 +108,6 @@ struct cpu_t
 
     // Keep in sync with 'operator=='.
     // DO NOT HASH 'conditional_regs'!
-    [[gnu::noinline]]
     std::size_t hash() const
     {
         std::size_t h = req_store;
@@ -116,8 +115,6 @@ struct cpu_t
             h = rh::hash_combine(h, v.to_uint());
         for(unsigned i = 0; i < known.size(); ++i)
             h ^= known[i] << i * 8;
-        for(std::uint8_t k : known)
-            h = rh::hash_combine(h, k);
         h = rh::hash_combine(h, known_mask);
         return h;
     }

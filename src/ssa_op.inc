@@ -26,7 +26,14 @@ SSA_DEF(uninitialized, 0, INPUT_NONE, SSAF_CG_UNLIVE | SSAF_NO_GVN | SSAF_FREE) 
 SSA_DEF(carry, 1, INPUT_LINK, SSAF_TRACE_INPUTS)
 
 SSA_DEF(trace, -1, INPUT_VALUE, 0)
-SSA_DEF(cast,   1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_FREE)
+
+// (value)
+SSA_DEF(cast,   1, INPUT_VALUE, SSAF_FREE)
+
+// (value) - 'SSA_cast' can't convert to bool, but this NOP can. Just make sure values are in range [0, 1].
+SSA_DEF(as_bool,1, INPUT_VALUE, SSAF_FREE)
+
+// (value) - Creates all zeroes or all ones, depending on input.
 SSA_DEF(sign_extend, 1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_BRANCHY_CG)
 
 // (lhs, rhs, carry)

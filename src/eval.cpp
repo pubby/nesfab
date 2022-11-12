@@ -3740,7 +3740,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
     }
 
     if(!is_check(D) && !lval)
-        compiler_error(pstring, "Expecting lvalue on left side of assignment.");
+        compiler_error(pstring, "Expecting lvalue as operand to assignment.");
 
     rhs = throwing_cast<D>(std::move(rhs), lhs.type, true);
 

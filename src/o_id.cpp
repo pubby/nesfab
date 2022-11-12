@@ -578,8 +578,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     auto oe = ssa_it->output_edge(0);
 
                     if(oe.handle->cfg_node() == ssa_it->cfg_node()
-                       && oe.handle->op() == SSA_not_eq
-                       && oe.handle->input(!oe.index).eq_whole(0u))
+                       && (oe.handle->op() == SSA_not_eq || (oe.handle->op() == SSA_multi_not_eq && oe.handle->input_size() == 2))
+                       && oe.handle->input(oe.index ^ 1).eq_whole(0u))
                     {
                         fixed_uint_t const mask = numeric_bitmask(ssa_it->type().name());
                         fixed_uint_t const one  =  1ull << fixed_t::shift;
@@ -610,7 +610,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                                     ssa_it->link_swap_inputs(1, i);
 
                                     oe.handle->unsafe_set_op(SSA_carry);
-                                    oe.handle->link_remove_input(!oe.index);
+                                    oe.handle->link_clear_inputs();
+                                    oe.handle->link_append_input(ssa_it);
 
                                     updated = true;
                                     goto done_and;
@@ -622,7 +623,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                                     ssa_it->link_swap_inputs(1, i);
 
                                     oe.handle->unsafe_set_op(SSA_carry);
-                                    oe.handle->link_remove_input(!oe.index);
+                                    oe.handle->link_clear_inputs();
+                                    oe.handle->link_append_input(ssa_it);
 
                                     updated = true;
                                     goto done_and;
@@ -641,21 +643,22 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         {
                             if(ssa_it->input(i).eq_fixed({ one }))
                             {
-                                oe.handle->unsafe_set_op(SSA_cast);
-                                oe.handle->link_remove_input(!oe.index);
+                                oe.handle->unsafe_set_op(SSA_as_bool);
+                                oe.handle->link_clear_inputs();
+                                oe.handle->link_append_input(ssa_it);
 
                                 updated = true;
                                 goto done_and;
                             }
                             else if(ssa_it->input(i).eq_fixed({ two }))
                             {
-                                ssa_ht const ror = ssa_it->cfg_node()->emplace_ssa(
+                                ssa_ht const ror = oe.handle->cfg_node()->emplace_ssa(
                                     SSA_ror, ssa_it->type(), 
                                     ssa_it, ssa_value_t(0u, TYPE_BOOL));
 
-                                oe.handle->unsafe_set_op(SSA_cast);
-                                oe.handle->link_change_input(oe.index, ror);
-                                oe.handle->link_remove_input(!oe.index);
+                                oe.handle->unsafe_set_op(SSA_as_bool);
+                                oe.handle->link_clear_inputs();
+                                oe.handle->link_append_input(ror);
 
                                 updated = true;
                                 goto done_and;

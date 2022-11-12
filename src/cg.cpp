@@ -163,6 +163,22 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     }
     */
 
+    ///////////////////////
+    // REMOVE 'as_bool's //
+    ///////////////////////
+
+    for(cfg_node_t& cfg : ir)
+    for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it;)
+    {
+        if(ssa_it->op() == SSA_as_bool)
+        {
+            ssa_it->replace_with(ssa_it->input(0));
+            ssa_it = ssa_it->prune();
+        }
+        else
+            ++ssa_it;
+    }
+
     /////////////////////////
     // BRANCH INSTRUCTIONS //
     /////////////////////////
@@ -170,6 +186,7 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // Replace 'SSA_if's with 'SSA_branch's, if possible:
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
+
         if(cfg_it->output_size() == 1)
         {
             ssa_ht h = cfg_it->emplace_ssa(SSA_jump, TYPE_VOID);

@@ -1057,6 +1057,12 @@ void ir_t::assert_valid() const
                 assert(ssa_it->input(0)->op() == SSA_mul8_lo);
             }
 
+            // Cast Checks
+            if(ssa_it->op() == SSA_cast)
+            {
+                assert(ssa_it->type() != TYPE_BOOL);
+            }
+
             /* TODO
             if(ssa_it->op() == SSA_multi_lt)
             {

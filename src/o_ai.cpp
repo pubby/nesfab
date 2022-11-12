@@ -873,7 +873,7 @@ void ai_t::visit(ssa_ht ssa_node)
         assert(ssa_node->cfg_node()->output_size() == 2);
 
         constraints_def_t def = get_constraints(condition);
-        assert(def.vec.size() == 1);
+        passert(def.vec.size() <= 2, def.vec.size());
         assert(def.cm == BOOL_MASK);
 
         constraints_t const& c = def[0];

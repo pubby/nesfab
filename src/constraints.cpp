@@ -547,6 +547,16 @@ ABSTRACT(SSA_cast) = ABSTRACT_FN
     }
 };
 
+ABSTRACT(SSA_as_bool) = ABSTRACT_FN
+{
+    assert(argn == 1);
+    assert(result.vec.size() <= 2);
+    assert(cv[0].vec.size() >= 1);
+    assert(result.cm == BOOL_MASK);
+
+    result[0] = apply_mask(cv[0][0], result.cm); // handles top itself
+};
+
 constraints_t abstract_sign_extend(constraints_t c, constraints_mask_t cm)
 {
     fixed_uint_t const sign_bit = high_bit_only(cm.mask);
@@ -1507,7 +1517,8 @@ static constexpr auto narrow_bottom = NARROW_FN
 
 NARROW(SSA_uninitialized) = narrow_bottom;
 NARROW(SSA_fn_call) = narrow_bottom;
-NARROW(SSA_cast) = narrow_bottom;
+//NARROW(SSA_cast) = narrow_bottom;
+//NARROW(SSA_as_bool) = narrow_bottom;
 
 // TODO: implement
 NARROW(SSA_get_byte) = narrow_bottom;

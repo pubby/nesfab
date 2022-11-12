@@ -663,8 +663,10 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(ssa_it->test_flags(FLAG_PROCESSED))
                 break;
 
+            assert(ssa_it->op() != SSA_cast);
+
             type_t const type = ssa_it->type();
-            if(is_byteified(type.name()))
+            if(type.name() == TYPE_VOID || is_byteified(type.name()))
             {
                 unsigned const input_size = ssa_it->input_size();
                 for(unsigned i = 0; i < input_size; ++i)

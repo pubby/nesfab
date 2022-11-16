@@ -65,6 +65,8 @@ namespace isel
 
     struct cfg_d : public pbqp_node_t
     {
+        unsigned iter = 0;
+
         std::vector<preprep_flags_t> preprep;
         std::vector<unsigned> to_compute;
         rh::batman_set<cross_cpu_t> in_states;

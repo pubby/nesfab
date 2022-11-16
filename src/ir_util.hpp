@@ -5,6 +5,7 @@
 
 bool io_pure(ssa_node_t const& ssa_node);
 bool pure(ssa_node_t const& ssa_node);
+bool ct_pure(ssa_node_t const& ssa_node);
 
 // Loosely approximates the cost of each ssa node, proportional to (but not equal to) cycles.
 unsigned estimate_cost(ssa_node_t const& ssa_node);

@@ -612,7 +612,7 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
         result[i] = constraints_t::top();
         for(unsigned j = 0; j < argn; ++j)
         {
-            assert(cv[j].vec.size());
+            passert(cv[j].vec.size(), result.vec.size());
             assert(cv[j].vec.size() >= result.vec.size());
             result[i] = union_(result[i], cv[j][i]);
             //std::cout << "PHI UNION " << cv[j][i] << std::endl;

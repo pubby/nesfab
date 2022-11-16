@@ -756,6 +756,24 @@ xbitset_t<fn_ht> const& fn_t::nmi_used_in_modes() const
     return pimpl<nmi_impl_t>().used_in_modes;
 }
 
+bool fn_t::ct_pure() const
+{
+    switch(fclass)
+    {
+    case FN_CT:
+        return true;
+    case FN_FN:
+        assert(global.compiled());
+        return (ir_io_pure() 
+                && ir_deref_groups().all_clear()
+                && ir_reads().all_clear()
+                && ir_writes().all_clear());
+    default:
+        return false;
+    }
+
+}
+
 void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 {
     xbitset_t<gmember_ht>  reads(0);
@@ -1312,7 +1330,7 @@ void fn_t::compile()
             if(post_byteified)
             {
                 // Once byteified, keep shifts out of the IR and only use rotates.
-                changed |= shifts_to_rotates(ir);
+                changed |= shifts_to_rotates(ir, true);
             }
 
             // Enable this to debug:

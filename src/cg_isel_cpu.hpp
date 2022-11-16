@@ -7,6 +7,7 @@
 #include "asm.hpp"
 #include "locator.hpp"
 #include "ir.hpp"
+#include "carry.hpp"
 
 namespace isel
 {
@@ -18,8 +19,8 @@ constexpr options_flags_t OPT_NO_DIRECT   = 0b10; // Works as a 2-bit counter
 // Options, to be passed to various construction functions:
 struct options_t
 {
-    regs_t can_set = REGF_CPU;
-    regs_t set_mask = REGF_CPU;
+    regs_t can_set = REGF_ISEL;
+    regs_t set_mask = REGF_ISEL;
     options_flags_t flags = 0;
 
     // Restricted registers CANNOT be modified.
@@ -35,7 +36,7 @@ struct options_t
 // A compile-time version of the above.
 // (TODO: in C++20 we should be able to use just options_t as a template value param,
 //  but as of writing GCC is buggy and ICEs, and clang doesn't have the feature.)
-template<regs_t CanSet = REGF_CPU, regs_t SetMask = REGF_CPU, options_flags_t Flags = 0>
+template<regs_t CanSet = REGF_ISEL, regs_t SetMask = REGF_ISEL, options_flags_t Flags = 0>
 struct options
 {
     static constexpr regs_t can_set = CanSet;
@@ -66,27 +67,43 @@ struct options
 // An approximation of the CPU's state at a given position.
 struct cpu_t
 {
-    std::array<locator_t, NUM_CPU_REGS> defs = {};
+    std::array<locator_t, NUM_ISEL_REGS> defs = {};
 
     // Sometimes the register will known to hold a specific constant value.
     // These vars track that:
     std::array<std::uint8_t, NUM_KNOWN_REGS> known = {};
     regs_t known_mask = 0; // If bit is set, known_values holds constant.
 
+    // The highest bit of 'known_mask' is repurposed.
+    // It tracks if the 'Z' register holds the opposite value it says.
+    static constexpr regs_t REG_INVERTED_Z = 7;
+    static constexpr regs_t REGF_INVERTED_Z = 1 << REG_INVERTED_Z;
+
+    // The second bit of 'known_mask' is repurposed.
+    // It tracks if the 'N' register holds a boolean value.
+    static constexpr regs_t REG_BOOL_IN_N = 6;
+    static constexpr regs_t REGF_BOOL_IN_N = 1 << REG_BOOL_IN_N;
+
+    static_assert((REGF_ISEL & REGF_INVERTED_Z) == 0);
+    static_assert((REGF_ISEL & REGF_BOOL_IN_N) == 0);
+
     // When implementing minor branches (such as in multi-byte comparisons),
     // some registers will be conditionally set.
     // These flags track which registers are conditional.
     regs_t conditional_regs = 0;
 
-    // The high bit of 'conditional_regs' is repurposed,
+    // The highest bit of 'conditional_regs' is repurposed,
     // and tracks if conditional execution is happening.
     static constexpr regs_t CONDITIONAL_EXEC = 1 << 7;
-    static_assert((REGF_CPU & CONDITIONAL_EXEC) == 0);
+    static_assert((REGF_ISEL & CONDITIONAL_EXEC) == 0);
 
     // This bitset keeps track of which variables must be stored.
     // To shrink the size down to 64 bits, a rolling window is used
     // based around the live ranges occuring within a single CFG node.
     std::uint64_t req_store = 0;
+
+    bool inverted_z() const { return known_mask & REGF_INVERTED_Z; }
+    bool bool_in_n() const { return known_mask & REGF_BOOL_IN_N; }
 
     // Debug function used to ensure 'known' holds zeroes for unknown values.
     bool known_array_valid() const
@@ -103,7 +120,10 @@ struct cpu_t
     bool operator==(cpu_t const& o) const 
     { 
         assert(known_array_valid() && o.known_array_valid());
-        return (req_store == o.req_store && defs == o.defs && known_mask == o.known_mask && known == o.known); 
+        return (req_store == o.req_store 
+                && defs == o.defs 
+                && known_mask == o.known_mask
+                && known == o.known);
     }
 
     // Keep in sync with 'operator=='.
@@ -120,10 +140,12 @@ struct cpu_t
     }
     
     // If we know the value of a register:
-    bool is_known(regs_t reg) const { return known_mask & (1 << reg); }
+    bool is_known(regs_t reg) const 
+        { assert(reg < known.size()); return known_mask & (1 << reg); }
     bool is_known(regs_t reg, std::uint8_t value) const 
         { assert(reg < known.size()); return is_known(reg) && known[reg] == value; }
-    bool are_known(regs_t regs) const { return (regs & known_mask) == regs; }
+    bool are_known(regs_t regs) const 
+        { return (regs & known_mask) == regs; }
 
     void set_known(regs_t reg, std::uint8_t value)
     {
@@ -137,26 +159,35 @@ struct cpu_t
 
     void clear_known(regs_t reg)
     {
+        assert(reg < known.size());
         known_mask &= ~(1 << reg);
         known[reg] = 0; // Must do this to ensure operator== works.
         assert(known_array_valid());
     }
 
+    template<regs_t Special = 0> [[gnu::always_inline]]
     bool def_eq(regs_t reg, locator_t v) const
     {
+        static_assert(!(Special & REGF_ISEL));
+
         assert(reg < defs.size());
         assert(v);
         assert(v.lclass() != 0xFF);
         assert(defs[reg].lclass() != 0xFF);
         assert(is_orig_def(defs[reg]));
         assert(is_orig_def(v));
+        if(reg == REG_Z && inverted_z() == !(Special & REGF_INVERTED_Z))
+            return false;
+        if(reg == REG_N && bool_in_n() == !(Special & REGF_BOOL_IN_N))
+            return false;
         return defs[reg] == v;
     }
 
+    template<regs_t Special = 0> [[gnu::always_inline]]
     bool value_eq(regs_t reg, locator_t v) const
     {
         assert(reg < defs.size());
-        if(def_eq(reg, v))
+        if(def_eq<Special>(reg, v))
            return true;
         if(v.is_const_num())
             return is_known(reg, v.data());
@@ -166,16 +197,19 @@ struct cpu_t
     template<regs_t Reg> [[gnu::noinline]]
     bool set_def(options_t opt, locator_t value, bool keep_value = false)
     {
-        if(!(opt.can_set & (1 << Reg)))
+        if(!((1 << Reg) & ((opt.can_set & REGF_ISEL) | REGF_INVERTED_Z | REGF_BOOL_IN_N)))
             return false;
-        conditional_regs |= 1 << Reg;
+        if(Reg < NUM_ISEL_REGS)
+            conditional_regs |= 1 << Reg;
         set_def_impl<Reg>(opt, value, keep_value);
         return true;
     }
 
-    template<regs_t Reg> [[gnu::always_inline]]
+    template<regs_t R> [[gnu::always_inline]]
     void set_def_impl(options_t opt, locator_t value, bool keep_value = false)
     {
+        constexpr regs_t Reg = (R == REG_BOOL_IN_N) ? REG_N : ((R == REG_INVERTED_Z) ? REG_Z : R);
+
         assert(value.lclass() != 0xFF);
 
         if(!(opt.set_mask & (1 << Reg)))
@@ -188,6 +222,10 @@ struct cpu_t
 
         if(value.is_const_num())
         {
+            assert(R != REG_BOOL_IN_N);
+            assert(R != REG_INVERTED_Z);
+            assert(R == Reg);
+
             defs[Reg] = locator_t{};
 
             if(Reg == REG_Z)
@@ -202,6 +240,16 @@ struct cpu_t
         else
         {
             defs[Reg] = value;
+
+            if(R == REG_BOOL_IN_N)
+                known_mask |= REGF_BOOL_IN_N;
+            else if(R == REG_INVERTED_Z)
+                known_mask |= REGF_INVERTED_Z;
+            else if(R == REG_Z)
+                known_mask &= ~REGF_INVERTED_Z;
+            else if(R == REG_N)
+                known_mask &= ~REGF_BOOL_IN_N;
+
             if(!keep_value)
                 clear_known(Reg);
         }
@@ -226,17 +274,24 @@ struct cpu_t
             set_def_impl<REG_Z>(opt, value, keep_value);
         if(Regs & REGF_N)
             set_def_impl<REG_N>(opt, value, keep_value);
+        if(Regs & REGF_INVERTED_Z)
+            set_def_impl<REG_INVERTED_Z>(opt, value, keep_value);
+        if(Regs & REGF_BOOL_IN_N)
+            set_def_impl<REG_BOOL_IN_N>(opt, value, keep_value);
         assert(known_array_valid());
     }
 
     template<regs_t Regs> [[gnu::noinline]]
     bool set_defs(options_t opt, locator_t value, bool keep_value = false)
     {
+        static_assert(!(Regs & REGF_INVERTED_Z) | !(Regs & REGF_Z));
+        static_assert(!(Regs & REGF_BOOL_IN_N) | !(Regs & REGF_N));
+
         assert(value.lclass() != 0xFF);
 
-        if((Regs & opt.can_set) != Regs)
+        if((Regs & ((opt.can_set & REGF_ISEL) | REGF_INVERTED_Z | REGF_BOOL_IN_N)) != Regs)
             return false;
-        conditional_regs |= Regs;
+        conditional_regs |= (Regs & REGF_ISEL);
         set_defs_impl<Regs>(opt, value, keep_value);
         return true;
     }
@@ -244,7 +299,7 @@ struct cpu_t
     template<op_t Op>
     bool set_output_defs_impl(options_t opt, locator_t value)
     {
-        constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
+        constexpr regs_t Regs = op_output_regs(Op) & REGF_ISEL;
         //assert(!value.is_const_num());
         return set_defs<Regs>(opt, value);
     }
@@ -254,12 +309,12 @@ struct cpu_t
     template<op_t Op>
     bool set_output_defs(options_t opt, locator_t value)
     {
-        constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
+        constexpr regs_t Regs = op_output_regs(Op) & REGF_ISEL;
         if((Regs & opt.can_set) != Regs)
             return false;
         if((op_flags(Op) & ASMF_BRANCH) && !(conditional_regs & CONDITIONAL_EXEC))
             conditional_regs = CONDITIONAL_EXEC;
-        conditional_regs |= Regs;
+        conditional_regs |= Regs & REGF_ISEL;
         return set_defs<Regs>(opt, value);
     }
 
@@ -281,7 +336,7 @@ struct cpu_t
 struct cross_cpu_t
 {
     cross_cpu_t() = default;
-    explicit cross_cpu_t(cpu_t const& cpu, bool strip_phi = false);
+    explicit cross_cpu_t(cpu_t const& cpu, carry_t carry0, carry_t carry1, bool strip_phi = false);
 
     auto operator<=>(cross_cpu_t const&) const = default;
     bool has(locator_t loc) const { return std::find(defs.begin(), defs.end(), loc) != defs.end(); }

@@ -17,7 +17,7 @@ struct set_defs_for_impl<ADC_IMMEDIATE>
 {
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
-        static_assert(op_output_regs(ADC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_N | REGF_C));
+        static_assert(op_output_regs(ADC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_N | REGF_C | REGF_V));
 
         if(arg.is_const_num() && cpu.are_known(REGF_A | REGF_C))
         {
@@ -496,7 +496,7 @@ struct set_defs_for_impl<SBC_IMMEDIATE>
 {
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
-        static_assert(op_output_regs(SBC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_N | REGF_C));
+        static_assert(op_output_regs(SBC_IMMEDIATE) == (REGF_A | REGF_Z | REGF_N | REGF_C | REGF_V));
 
         if(arg.is_const_num() && cpu.are_known(REGF_A | REGF_C))
         {
@@ -868,12 +868,12 @@ std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, l
     assert(def.lclass() != 0xFF);
     assert(arg.lclass() != 0xFF);
 
-    constexpr regs_t Regs = op_output_regs(Op) & REGF_CPU;
+    constexpr regs_t Regs = op_output_regs(Op) & REGF_ISEL;
     if((Regs & opt.can_set) != Regs)
         return false;
     if((op_flags(Op) & ASMF_BRANCH) && !(conditional_regs & CONDITIONAL_EXEC))
         conditional_regs = CONDITIONAL_EXEC;
-    conditional_regs |= Regs;
+    conditional_regs |= Regs & REGF_ISEL;
     set_defs_for_impl<Op>::call(opt, *this, def, arg);
     return true;
 }
@@ -887,7 +887,7 @@ std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, l
 // CROSS //
 ///////////
 
-cross_cpu_t::cross_cpu_t(cpu_t const& cpu, bool strip_phi)
+cross_cpu_t::cross_cpu_t(cpu_t const& cpu, carry_t carry0, carry_t carry1, bool strip_phi)
 {
     auto const convert = [&](regs_t reg) -> locator_t
     {
@@ -903,7 +903,17 @@ cross_cpu_t::cross_cpu_t(cpu_t const& cpu, bool strip_phi)
     for(regs_t reg = 0; reg < NUM_CROSS_REGS; ++reg)
         defs[reg] = convert(reg);
     if(defs[REG_C].lclass() != LOC_CONST_BYTE)
-        defs[REG_C] = LOC_NONE;
+    {
+        if(carry_const(carry0) || carry_const(carry1))
+        {
+            if(carry0 == carry1)
+                defs[REG_C] = locator_t::const_byte(carry0 == CARRY_SET);
+            else
+                defs[REG_C] = locator_t::carry_pair(carry0, carry1);
+        }
+        else
+            defs[REG_C] = LOC_NONE;
+    }
 }
 
 cpu_t cross_cpu_t::to_cpu() const

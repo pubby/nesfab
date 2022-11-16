@@ -281,13 +281,13 @@ bool parser_t<P>::parse_token()
                     {
                         frac_scale *= base;
                         frac *= base;
-                        frac += *it - '0';
+                        frac += char_to_int[*it];
                     }
                 }
 
                 frac *= 1ull << fixed_t::shift;
                 frac /= frac_scale;
-                assert(frac < 1ull << fixed_t::shift);
+                passert(frac < 1ull << fixed_t::shift, frac, 1ull << fixed_t::shift);
 
                 token.type = TOK_real;
                 goto not_int;

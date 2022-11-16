@@ -166,6 +166,19 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         };
 
     retry:
+
+        // Prepare for ALR
+        if(a.op == LDA_IMMEDIATE && op_name(b.op) == AND && !a.alt && !b.alt)
+        {
+            locator_t const imm = a.arg;
+
+            a.op = get_op(LDA, op_addr_mode(b.op));
+            a.arg = b.arg;
+            b.op = AND_IMMEDIATE;
+            b.arg = imm;
+            changed = true;
+        }
+
         switch(op_name(a.op))
         {
         default: break;
@@ -632,6 +645,19 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
             fn(asm_inst_t{ .op = PLA_IMPLIED });
             fn(asm_inst_t{ .op = PLP_IMPLIED });
             // total bytes: 1+1+1+1+2+3+1+1 = 11
+            break;
+
+        case STORE_N_ABSOLUTE:
+            fn(asm_inst_t{ .op = PHP_IMPLIED });
+            fn(asm_inst_t{ .op = PHA_IMPLIED });
+            fn(asm_inst_t{ .op = PHP_IMPLIED });
+            fn(asm_inst_t{ .op = PLA_IMPLIED });
+            fn(asm_inst_t{ .op = ANC_IMMEDIATE, .arg = locator_t::const_byte(0x80) });
+            fn(asm_inst_t{ .op = ROL_IMPLIED });
+            fn(asm_inst_t{ .op = STA_ABSOLUTE, .arg = inst.arg });
+            fn(asm_inst_t{ .op = PLA_IMPLIED });
+            fn(asm_inst_t{ .op = PLP_IMPLIED });
+            // total bytes: 1+1+1+1+2+1+3+1+1 = 12
             break;
 
         case BANKED_Y_JSR:

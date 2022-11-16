@@ -163,20 +163,40 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     }
     */
 
-    ///////////////////////
-    // REMOVE 'as_bool's //
-    ///////////////////////
+    ////////////////
+    // PREPARE IR //
+    ////////////////
 
     for(cfg_node_t& cfg : ir)
     for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it;)
     {
-        if(ssa_it->op() == SSA_as_bool)
+        switch(ssa_it->op())
         {
+        case SSA_as_bool:
+            // Remove 'SSA_as_bool' nodes:
             ssa_it->replace_with(ssa_it->input(0));
             ssa_it = ssa_it->prune();
-        }
-        else
+            break;
+
+            /* TODO: remove
+        case SSA_sign:
+            {
+                ssa_value_t const input = ssa_it->input(0);
+                if(input.holds_ref() && input->op() == SSA_sign_extend 
+                   && input->cfg_node() == ssa_it->cfg_node())
+                {
+                    ssa_it->unsafe_set_op(SSA_carry);
+                    input->unsafe_set_op(SSA_sign_extend_carry);
+                }
+
+                goto next_iter;
+            }
+            */
+
+        default:
+        next_iter:
             ++ssa_it;
+        }
     }
 
     /////////////////////////
@@ -503,14 +523,16 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         });
     }
 
-    //std::cout << "sched start " << std::endl;
+#if 1
+    std::cout << "sched start " << std::endl;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
-        //std::cout << "sched cfg " << cfg_it << std::endl;
+        std::cout << "sched cfg " << cfg_it << std::endl;
         auto& d = cg_data(cfg_it);
-        //for(ssa_ht h : d.schedule)
-            //std::cout << "sched " << h->op() << ' ' << h.id << '\n';
+        for(ssa_ht h : d.schedule)
+            std::cout << "sched " << h->op() << ' ' << h.id << '\n';
     }
+#endif
 
     ///////////////////////////
     // LIVENESS SET CREATION //

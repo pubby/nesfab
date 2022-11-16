@@ -464,6 +464,27 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
             break;
 
+        case SSA_shr:
+            {
+                ssa_value_t const cast = ssa_it->input(0);
+                if(cast.holds_ref() && cast->op() == SSA_cast)
+                {
+                    type_t const from_type = cast->input(0).type();
+                    if(is_arithmetic_subset(from_type.name(), ssa_it->type().name()))
+                    {
+                        ssa_ht const new_cast = ssa_it->cfg_node()->emplace_ssa(SSA_cast, ssa_it->type());
+
+                        ssa_it->link_change_input(0, cast->input(0));
+                        ssa_it->set_type(from_type);
+                        ssa_it->replace_with(INPUT_VALUE, new_cast);
+                        new_cast->link_append_input(ssa_it);
+
+                        updated = true;
+                    }
+                }
+            }
+            break;
+
         default:
             break;
         }

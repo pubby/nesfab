@@ -218,10 +218,11 @@ constexpr int carry_input_i_impl(ssa_op_t op)
 {
     switch(op)
     {
-    case SSA_add:
-    case SSA_sub:
     case SSA_rol:
     case SSA_ror:
+        return 1;
+    case SSA_add:
+    case SSA_sub:
         return 2;
     case SSA_if:
         return Possible ? 0 : -1;

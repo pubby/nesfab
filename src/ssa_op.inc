@@ -36,6 +36,10 @@ SSA_DEF(as_bool,1, INPUT_VALUE, SSAF_FREE)
 // (value) - Creates all zeroes or all ones, depending on input.
 SSA_DEF(sign_extend, 1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_BRANCHY_CG)
 
+// TODO: remove?
+// Same as above, but outputs a carry too.
+//SSA_DEF(sign_extend_carry, 1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_BRANCHY_CG)
+
 // (lhs, rhs, carry)
 SSA_DEF(add,    3, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY | SSAF_COMMUTATIVE)
 SSA_DEF(sub,    3, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)

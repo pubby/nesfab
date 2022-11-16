@@ -1178,8 +1178,35 @@ void asm_graph_t::optimize_live_registers()
                     }
                     break;
 
+                case LAX:
+                    // Convert LAX to either LDA or LDX:
+                    if(!(live_regs[ai] & REGF_A))
+                        a.op = get_op(LDX, op_addr_mode(a.op));
+                    else if(!(live_regs[ai] & REGF_X))
+                        a.op = get_op(LDA, op_addr_mode(a.op));
+                    break;
+
                 default:
                     break;
+                }
+
+                // Convert code like:
+                //    CMP #$80
+                //    ROR
+                //    CMP #$80
+                // To:
+                //    CMP #$80
+                //    ARR #$FF
+                if(c && a.op == CMP_IMMEDIATE 
+                   && b.op == ROR_IMPLIED
+                   && !a.alt  && a.arg  == locator_t::const_byte(0x80)
+                   && !c->alt && c->arg == locator_t::const_byte(0x80)
+                   && !(live_regs[ai] & REGF_V))
+                {
+                    b = a;
+                    c->op = ARR_IMMEDIATE;
+                    c->arg = locator_t::const_byte(0xFF);
+                    a.prune();
                 }
             });
         }
@@ -1278,6 +1305,7 @@ void asm_graph_t::optimize_live_registers()
                         result.first.underlying->second = ai;
                     }
                 }
+
             });
         }
     }

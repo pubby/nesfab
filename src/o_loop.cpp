@@ -695,11 +695,14 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
     if(cost_per_iter == 0)
         return 0;
 
-    unsigned const unroll_amount = estimate_unroll_divisor(iterations, MAX_COST / cost_per_iter);
+    unsigned unroll_amount = estimate_unroll_divisor(iterations, MAX_COST / cost_per_iter);
     passert(iterations % unroll_amount == 0, iterations, unroll_amount);
 
     if(unroll_amount <= 1)
         return 0;
+
+    if(unroll_amount * 2 >= iterations)
+        unroll_amount = iterations;
 
     auto const in_unroll = [&](cfg_ht cfg) { return cfg == header || cfg == body; };
 
@@ -1031,9 +1034,6 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
             ssa_value_t const operand = arith->input(!phi_input);
             if(def_in_loop(header, operand))
                 continue;
-
-            // TODO
-            //data(header).ivs.push_back(ivs.size());
 
             auto& new_iv = ivs.emplace_back(iv_t{});
             new_iv.init = init;

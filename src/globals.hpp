@@ -404,6 +404,7 @@ public:
     auto const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
+    bool ct_pure() const;
 
     // TODO: remove?
     //auto const& avail_reads(bool known_compiled) const { return known_compiled ? ir_reads() : precheck_rw(); }

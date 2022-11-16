@@ -88,18 +88,23 @@ struct ssa_ai_d
 cfg_ai_d& ai_data(cfg_ht h) { return h.data<cfg_ai_d>(); }
 ssa_ai_d& ai_data(ssa_ht h) { return h.data<ssa_ai_d>(); }
 
+static void init_constraint(ssa_ht ssa);
+
 void new_cfg(cfg_ht cfg)
 {
     cfg_data_pool::resize<cfg_ai_d>(cfg_pool::array_size());
     ai_data(cfg) = {};
 }
 
+template<bool InitConstraint>
 void new_ssa(ssa_ht ssa)
 {
     ssa_data_pool::resize<ssa_ai_d>(ssa_pool::array_size());
     resize_ai_prep();
     ai_data(ssa) = {};
     ai_prep(ssa) = {};
+    if(InitConstraint)
+        init_constraint(ssa);
 }
 
 
@@ -346,34 +351,37 @@ void ai_t::queue_node(executable_index_t exec_i, ssa_ht h)
 // INIT CONSTRAINTS                   //
 ////////////////////////////////////////
 
+static void init_constraint(ssa_ht ssa)
+{
+    type_t const type = ssa->type();
+    unsigned const size = constraints_size(*ssa);
+
+    constraints_mask_t cm = {};
+    if(size > 0)
+    {
+        if(type.name() == TYPE_TEA)
+            cm = type_constraints_mask(type.elem_type().name());
+        else if(type.name() == TYPE_PAA)
+            cm = type_constraints_mask(TYPE_U);
+        else if(is_banked_ptr(type.name()))
+            cm = type_constraints_mask(type.with_banked(false).name());
+        else
+            cm = type_constraints_mask(type.name());
+    }
+
+    for(auto& constraints : ai_data(ssa).constraints_array)
+    {
+        constraints.vec.clear();
+        constraints.vec.resize(size, constraints_t::top());
+        constraints.cm = cm;
+    }
+}
+
 void ai_t::init_constraints()
 {
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
-    {
-        type_t const type = ssa_it->type();
-        unsigned const size = constraints_size(*ssa_it);
-
-        constraints_mask_t cm = {};
-        if(size > 0)
-        {
-            if(type.name() == TYPE_TEA)
-                cm = type_constraints_mask(type.elem_type().name());
-            else if(type.name() == TYPE_PAA)
-                cm = type_constraints_mask(TYPE_U);
-            else if(is_banked_ptr(type.name()))
-                cm = type_constraints_mask(type.with_banked(false).name());
-            else
-                cm = type_constraints_mask(type.name());
-        }
-
-        for(auto& constraints : ai_data(ssa_it).constraints_array)
-        {
-            constraints.vec.clear();
-            constraints.vec.resize(size, constraints_t::top());
-            constraints.cm = cm;
-        }
-    }
+        init_constraint(ssa_it);
 }
 
 ////////////////////////////////////////
@@ -510,7 +518,7 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
             return local_lookup(cfg_node->input(0), ssa_node);
         default:
             ssa_ht phi = cfg_node->emplace_ssa(SSA_phi, ssa_node->type());
-            new_ssa(phi);
+            new_ssa<false>(phi);
 
             ai_data(phi).rebuild_mapping = ssa_node;
             cd.rebuild_map.emplace(ssa_node, phi);
@@ -559,7 +567,7 @@ void ai_t::insert_trace(cfg_ht cfg_trace, ssa_ht original,
     }
 
     ssa_ht trace = cfg_trace->emplace_ssa(SSA_trace, original->type());
-    new_ssa(trace);
+    new_ssa<false>(trace);
     // All references to SSA nodes have been invalidated by the new node!!
 
     rebuild_map.insert({ original, trace });
@@ -835,8 +843,8 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
 
                 if(edge_d.output_executable[exec_i].test(edge.index))
                 {
-                    dprint(log, "-COMPUTE_CONSTRAINTS_PHI", ssa_node, i, ssa_node->input(i));
                     copy_constraints(ssa_node->input(i), c[i]);
+                    dprint(log, "-COMPUTE_CONSTRAINTS_PHI", ssa_node, i, ssa_node->input(i), c[i].vec.size());
                 }
                 else
                     c[i].vec.assign(d.constraints().vec.size(), constraints_t::top());
@@ -1304,7 +1312,7 @@ void ai_t::fold_consts()
             if(fits_in_byte(index))
             {
                 ssa_ht const cast = cfg_node.emplace_ssa(SSA_cast, TYPE_U, index);
-                new_ssa(cast);
+                new_ssa<true>(cast);
                 ssa_it->link_change_input(INDEX, cast);
                 ssa_it->unsafe_set_op(read ? SSA_read_array8 : SSA_write_array8);
                 updated = __LINE__;
@@ -2147,8 +2155,8 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
                 header_to_new_exit.emplace(phi, new_exit_phi);
                 new_exit_to_new_header.emplace(new_exit_phi, new_header_phi);
 
-                new_ssa(new_header_phi);
-                new_ssa(new_exit_phi);
+                new_ssa<true>(new_header_phi);
+                new_ssa<true>(new_exit_phi);
             }
 
             bitset_for_each(back_edge_inputs, [&](unsigned input)
@@ -2168,7 +2176,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
             // Create a new branch:
             ssa_ht const new_condition = new_header_cfg->emplace_ssa(condition->op(), condition->type());
-            new_ssa(new_condition);
+            new_ssa<true>(new_condition);
             new_condition->alloc_input(2);
             for(unsigned i = 0; i < 2; ++i)
                 new_condition->build_set_input(i, condition->input(i));
@@ -2277,7 +2285,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
         if(realloc_phis)
         {
             ssa_ht const new_phi = new_branch_cfg->emplace_ssa(SSA_phi, phi->type());
-            new_ssa(new_phi);
+            new_ssa<true>(new_phi);
             return new_phi;
         }
         else

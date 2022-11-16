@@ -3,9 +3,6 @@
 
 // LT = linktime
 
-#include <deque>
-#include <mutex>
-
 #include "type.hpp"
 #include "handle.hpp"
 #include "parser_decl.hpp"

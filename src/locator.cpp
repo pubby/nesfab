@@ -79,6 +79,8 @@ std::string to_string(locator_t loc)
         str = fmt("runtime_ram %", loc.runtime_ram()); break;
     case LOC_NMI_INDEX:
         str = fmt("nmi_index %", loc.fn()->global.name); break;
+    case LOC_CARRY_PAIR:
+        str = fmt("carry_pair % %", loc.first_carry(), loc.second_carry()); break;
     }
 
     if(has_arg_member_atom(loc.lclass()))

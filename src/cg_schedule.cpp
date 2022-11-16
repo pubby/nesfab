@@ -292,11 +292,25 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         // Determine if this node produces a carry used by a single output.
 
         ssa_ht const carry = carry_output(*ssa_node);
-        if(!carry || carry->output_size() != 1)
+        ssa_ht carry_user = {};
+
+        if(carry && carry->output_size() == 1)
+            carry_user = carry->output(0);
+        else if(ssa_node->type().name() == TYPE_BOOL 
+                && (ssa_flags(ssa_node->op()) & SSAF_CLOBBERS_CARRY)
+                && ssa_node->output_size() == 1)
+        {
+            auto oe = ssa_node->output_edge(0);
+            if(carry_input_i(oe.handle->op()) != oe.index)
+                continue;
+            carry_user = oe.handle;
+        }
+        else
             continue;
-        ssa_ht const carry_user = carry->output(0);
 
         // OK! This node produces a carry used by a single output.
+
+        assert(carry_user);
 
         auto& d = data(ssa_node);
         unsigned const index_ = index(ssa_node);

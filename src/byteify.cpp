@@ -209,16 +209,17 @@ void byteify(ir_t& ir, fn_t const& fn)
 {
     // First prepare the IR with some transformations:
     insert_signed_mul_subtractions(ir);
-    shifts_to_rotates(ir);
+    shifts_to_rotates(ir, false);
     // OK! IR prepared.
 
-    /* TODO REMOVE
+    // TODO REMOVE
+#if 1
     {
         std::ofstream ossa("graphs/shrek.gv");
         if(ossa.is_open())
             graphviz_ssa(ossa, ir);
     }
-    */
+#endif
 
     ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(ssa_pool::array_size());
 
@@ -706,6 +707,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             {
                 bm_t const lhs_bm = _get_bm(ssa_node->input(0));
                 bm_t const rhs_bm = _get_bm(ssa_node->input(1));
+                ssa_ht prev_carry = {};
 
                 int begin, end, incr;
 
@@ -722,19 +724,29 @@ void byteify(ir_t& ir, fn_t const& fn)
                     incr = -1;
                 }
 
-                ssa_value_t prev_carry = rhs_bm[max_frac_bytes];
+                ssa_value_t carry = rhs_bm[max_frac_bytes];
 
                 for(int i = begin; i != end; i += incr)
                 {
                     ssa_ht split = d.bm[i].handle();
                     split->alloc_input(2);
                     split->build_set_input(0, lhs_bm[i]);
-                    split->build_set_input(1, prev_carry);
-                    prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                    split->build_set_input(1, carry);
+
+                    if(ssa_ht c = carry_output(*split))
+                        prev_carry = c;
+
+                    carry = ssa_node->cfg_node()->emplace_ssa(
                         SSA_carry, TYPE_BOOL, split);
 
                 }
                 prune_nodes.push_back(ssa_node);
+
+                if(prev_carry)
+                {
+                    prev_carry->replace_with(carry);
+                    prune_nodes.push_back(prev_carry);
+                }
             }
             break;
 
@@ -752,7 +764,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 int const begin = begin_byte(t);
                 int const end = end_byte(t);
 
-                ssa_value_t prev_carry(0u, TYPE_BOOL);
+                ssa_value_t carry(0u, TYPE_BOOL);
 
                 if(ssa_node->op() == SSA_shl)
                 {
@@ -769,8 +781,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                         for(int i = begin + byte_shifts; i < end; ++i)
                         {
                             values[i] = ssa_node->cfg_node()->emplace_ssa(
-                                SSA_rol, TYPE_U, values[i], prev_carry);
-                            prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                                SSA_rol, TYPE_U, values[i], carry);
+                            carry = ssa_node->cfg_node()->emplace_ssa(
                                 SSA_carry, TYPE_BOOL, values[i]);
                         }
                     }
@@ -790,14 +802,14 @@ void byteify(ir_t& ir, fn_t const& fn)
                     for(int s = 0; s < bit_shifts; ++s)
                     {
                         if(is_signed(t))
-                           prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                           carry = ssa_node->cfg_node()->emplace_ssa(
                                SSA_sign, TYPE_BOOL, values[end - 1]);
 
                         for(int i = end - 1 - byte_shifts; i >= int(begin); --i)
                         {
                             values[i] = ssa_node->cfg_node()->emplace_ssa(
-                                SSA_ror, TYPE_U, values[i], prev_carry);
-                            prev_carry = ssa_node->cfg_node()->emplace_ssa(
+                                SSA_ror, TYPE_U, values[i], carry);
+                            carry = ssa_node->cfg_node()->emplace_ssa(
                                 SSA_carry, TYPE_BOOL, values[i]);
                         }
                     }
@@ -810,10 +822,10 @@ void byteify(ir_t& ir, fn_t const& fn)
                     split->build_set_input(0, values[i]);
                     split->unsafe_set_op(SSA_cast);
 
-                    if(ssa_ht carry = carry_output(*split))
+                    if(ssa_ht prev_carry = carry_output(*split))
                     {
-                        carry->replace_with(prev_carry);
-                        prune_nodes.push_back(carry);
+                        prev_carry->replace_with(carry);
+                        prune_nodes.push_back(prev_carry);
                     }
                 }
 
@@ -862,6 +874,7 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                 assert(ssa_node->input_size() == 3);
                 ssa_value_t carry = ssa_node->input(2);
+                ssa_ht prev_carry = {};
 
                 unsigned const end = end_byte(t);
                 for(unsigned i = begin_byte(t); i < end; ++i)
@@ -873,10 +886,19 @@ void byteify(ir_t& ir, fn_t const& fn)
                     split->build_set_input(1, rhs_bm[i]);
                     split->build_set_input(2, carry);
 
+                    if(ssa_ht c = carry_output(*split))
+                        prev_carry = c;
+
                     carry = ssa_node->cfg_node()->emplace_ssa(
                         SSA_carry, TYPE_BOOL, split);
                 }
                 prune_nodes.push_back(ssa_node);
+
+                if(prev_carry)
+                {
+                    prev_carry->replace_with(carry);
+                    prune_nodes.push_back(prev_carry);
+                }
             }
             break;
 
@@ -1074,10 +1096,12 @@ void byteify(ir_t& ir, fn_t const& fn)
     }
 
     // Fix up types
+    /* TODO: this breaks SHL
     for(cfg_node_t& cfg : ir)
     for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it; ++ssa_it)
         if(ssa_it->type().name() == TYPE_S)
             ssa_it->set_type(TYPE_U);
+            */
 }
 
 // Converts signed multiplies to unsigned,
@@ -1182,14 +1206,13 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        type_t const type = ssa_it->type();
-        if(type.name() != TYPE_U)
-            continue;
-
         bool const shl = ssa_it->op() == SSA_shl;
         bool const shr = ssa_it->op() == SSA_shr;
         if(!shl && !shr)
             continue;
+
+        type_t const type = ssa_it->type();
+        type_t const unsigned_type = to_u(type.name());
 
         assert(ssa_it->input(1).type() == TYPE_U);
         
@@ -1235,9 +1258,9 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             {
                 ssa_value_t carry = ssa_value_t(0u, TYPE_BOOL);
                 if(is_signed(type.name()))
-                   carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, ssa_it);
+                   carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, value);
 
-                value = cfg_it->emplace_ssa(shl ? SSA_rol : SSA_ror, type, value, carry);
+                value = cfg_it->emplace_ssa(shl ? SSA_rol : SSA_ror, unsigned_type, value, carry);
             }
 
             if(carry_output)

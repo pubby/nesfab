@@ -203,6 +203,9 @@ public:
     expr_value_t do_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     template<typename Policy>
+    expr_value_t do_add(expr_value_t lhs, expr_value_t rhs, token_t const& token);
+
+    template<typename Policy>
     expr_value_t do_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     template<typename Policy>
@@ -216,6 +219,9 @@ public:
 
     template<typename Policy>
     expr_value_t do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token);
+
+    template<typename Policy>
+    expr_value_t do_assign_add(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     template<typename Policy>
     expr_value_t do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t const& token);
@@ -2139,7 +2145,19 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 if(call->fclass == FN_CT)
                     goto interpret_fn;
-                // TODO: Interpret in other situations, too.
+
+
+                // Interpret when possible:
+                if(call->ct_pure())
+                {
+                    for(unsigned i = 0; i < num_args; ++i)
+                        if(!args[i].is_ct())
+                            goto compile_fn;
+
+                    goto interpret_fn;
+                }
+
+            compile_fn:
 
                 bc::small_vector<ssa_value_t, 32> fn_inputs;
 
@@ -2333,7 +2351,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_read_hw:
         {
             if(is_interpret(D))
-                compiler_error(stmt->pstring, "Hardware expression cannot be evaluated at compile-time.");
+                compiler_error(ast.token.pstring, "Hardware read expression cannot be evaluated at compile-time.");
 
             expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
 
@@ -2359,7 +2377,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_write_hw:
         {
             if(is_interpret(D))
-                compiler_error(stmt->pstring, "Hardware expression cannot be evaluated at compile-time.");
+                compiler_error(ast.token.pstring, "Hardware write expression cannot be evaluated at compile-time.");
 
             expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
             expr_value_t arg  = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_U, true);
@@ -3204,15 +3222,19 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         struct plus_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, S rhs, pstring_t) { return lhs + rhs; }
+            static bool interpret_carry(U lhs, U rhs, U mask, pstring_t) 
+            {
+                return (lhs + rhs) & (high_bit_only(mask) << 1);
+            }
             static ssa_op_t op() { return SSA_add; }
         };
-        return infix(&eval_t::do_arith<plus_p>);
+        return infix(&eval_t::do_add<plus_p>);
 
     case TOK_plus_assign:
         // TODO
         //if(handle_lt<D>(rpn_stack, 2, *token))
             //break;
-        return infix(&eval_t::do_assign_arith<plus_p>, false, true);
+        return infix(&eval_t::do_assign_add<plus_p>, false, true);
 
     case TOK_minus: 
         // TODO
@@ -3221,14 +3243,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         struct minus_p : do_wrapper_t<D>
         {
             static S interpret(S lhs, S rhs, pstring_t) { return lhs - rhs; }
+            static bool interpret_carry(U lhs, U rhs, U mask, pstring_t) 
+            {
+                return !((lhs - rhs) & (high_bit_only(mask) << 1));
+            }
             static ssa_op_t op() { return SSA_sub; }
         };
-        return infix(&eval_t::do_arith<minus_p>);
+        return infix(&eval_t::do_add<minus_p>);
     case TOK_minus_assign:
         // TODO
         //if(handle_lt<D>(rpn_stack, 2, *token))
             //break;
-        return infix(&eval_t::do_assign_arith<minus_p>, false, true);
+        return infix(&eval_t::do_assign_add<minus_p>, false, true);
 
     case TOK_bitwise_and: 
         // TODO
@@ -4263,129 +4289,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 
     expr_value_t result = { .pstring = concat(lhs.pstring, rhs.pstring) };
 
-    if(summable)
     {
-        bool const lptr = is_ptr(lhs.type.name());
-        bool const rptr = is_ptr(rhs.type.name());
-        
-        if(lptr)
-        {
-            if(rptr)
-            {
-                if(op == SSA_sub)
-                {
-                    result.type = TYPE_U20;
-
-                    if(!is_check(Policy::D))
-                    {
-                        // If both are locators with the same handle,
-                        // we can calculate this at CT
-                        locator_t const l = _loc_ptr(lhs.rval());
-                        locator_t const r = _loc_ptr(rhs.rval());
-                        // TODO: check for interpret
-                        if(l && r && l.with_offset(0) == r.with_offset(0))
-                        {
-                            std::uint16_t const diff = l.offset() - r.offset();
-                            result.val = rval_t{ ssa_value_t(diff, TYPE_U20) };
-                        }
-                        else
-                        {
-                            if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
-                            {
-                                // Create a link-time expression.
-                                // TODO
-                                assert(false);
-                                //make_lt(rpn_stack, 2, { .type = TOK_minus, .pstring = token.pstring });
-                                //return;
-                            }
-                            else if(Policy::D == COMPILE)
-                            {
-                                return compile_binary_operator(
-                                    throwing_cast<Policy::D>(std::move(lhs), result.type, false),
-                                    throwing_cast<Policy::D>(std::move(rhs), result.type, false),
-                                    Policy::op(), result.type, ssa_argn(Policy::op()) > 2);
-                            }
-                        }
-                    }
-                }
-                else
-                    goto invalid_input;
-            }
-            else
-            {
-            ptr_int:
-                result.type = lhs.type;
-                assert(is_ptr(result.type.name()));
-                assert(!is_ptr(rhs.type.name()));
-
-                bool const banked = is_banked_ptr(result.type.name());
-
-                rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
-
-                if(!is_check(Policy::D))
-                {
-                    locator_t const l = _loc_ptr(lhs.rval());
-
-                    if(l && rhs.is_ct())
-                    {
-                        locator_t const new_l = l.with_advance_offset(rhs.whole());
-                        result.val = rval_t{ new_l };
-                        if(banked)
-                            result.rval().push_back(new_l.with_is(IS_BANK));
-                    }
-                    else
-                    {
-                        if(is_interpret(Policy::D))
-                        {
-                            // Create a link-time expression.
-                            // TODO
-                            assert(false);
-                            //make_lt(rpn_stack, 2, { .type = op == SSA_add ? TOK_plus : TOK_minus, .pstring = token.pstring });
-                            //return;
-                        }
-                        else if(Policy::D == COMPILE)
-                        {
-                            ct_variant_t bank;
-                            if(banked)
-                            {
-                                assert(lhs.rval().size() == 2);
-                                bank = lhs.rval()[1];
-                            }
-
-                            lhs = throwing_cast<Policy::D>(std::move(lhs), TYPE_U20, false);
-                            rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
-
-                            ssa_ht const sum = builder.cfg->emplace_ssa(
-                                Policy::op(), TYPE_U20, 
-                                lhs.ssa(0), rhs.ssa(0), 
-                                ssa_value_t(Policy::op() == SSA_sub, TYPE_BOOL));
-
-                            ssa_ht const cast = builder.cfg->emplace_ssa(
-                                SSA_cast, result.type.with_banked(false), sum);
-
-                            if(banked)
-                                result.val = rval_t{ cast, bank };
-                            else
-                                result.val = rval_t{ cast };
-                        }
-                    }
-                }
-            }
-        }
-        else if(rptr)
-        {
-            if(op != SSA_add)
-                goto invalid_input;
-
-            std::swap(lhs, rhs);
-            goto ptr_int;
-        }
-        else
-            goto no_ptrs;
-    }
-    else
-    {
-    no_ptrs:
         if(lhs.type != rhs.type)
         {
             if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
@@ -4436,14 +4340,180 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 template<typename Policy>
 expr_value_t eval_t::do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
+    rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+    expr_value_t lhs_copy = to_rval<Policy::D>(lhs);
+    return do_assign<Policy::D>(std::move(lhs), do_arith<Policy>(std::move(lhs_copy), rhs, token), token);
+}
+
+template<typename Policy>
+expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+{
+    assert(lhs.is_rval() && rhs.is_rval());
+
     ssa_op_t const op = Policy::op();
 
-    if((op == SSA_add || op == SSA_sub) && is_ptr(lhs.type.name()))
+    if(!is_summable(lhs.type.name()) || !is_summable(rhs.type.name()))
+    {
+    invalid_input:
+        pstring_t pstring = concat(lhs.pstring, rhs.pstring);
+        compiler_error(pstring, fmt("Operator % is not defined for these types. (Operands are % and %)", 
+                                    token_string(token.type), lhs.type, rhs.type));
+    }
+
+    expr_value_t result = { .pstring = concat(lhs.pstring, rhs.pstring) };
+
+    bool const lptr = is_ptr(lhs.type.name());
+    bool const rptr = is_ptr(rhs.type.name());
+    
+    if(lptr)
+    {
+        if(rptr)
+        {
+            if(op == SSA_sub)
+            {
+                result.type = TYPE_U20;
+
+                if(!is_check(Policy::D))
+                {
+                    // If both are locators with the same handle,
+                    // we can calculate this at CT
+                    locator_t const l = _loc_ptr(lhs.rval());
+                    locator_t const r = _loc_ptr(rhs.rval());
+                    // TODO: check for interpret
+                    if(l && r && l.with_offset(0) == r.with_offset(0))
+                    {
+                        std::uint16_t const diff = l.offset() - r.offset();
+                        result.val = rval_t{ ssa_value_t(diff, TYPE_U20) };
+                    }
+                    else
+                    {
+                        if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+                        {
+                            // Create a link-time expression.
+                            // TODO
+                            assert(false);
+                            //make_lt(rpn_stack, 2, { .type = TOK_minus, .pstring = token.pstring });
+                            //return;
+                        }
+                        else if(Policy::D == COMPILE)
+                        {
+                            return compile_binary_operator(
+                                throwing_cast<Policy::D>(std::move(lhs), result.type, false),
+                                throwing_cast<Policy::D>(std::move(rhs), result.type, false),
+                                Policy::op(), result.type, ssa_argn(Policy::op()) > 2);
+                        }
+                    }
+                }
+            }
+            else
+                goto invalid_input;
+        }
+        else
+        {
+        ptr_int:
+            result.type = lhs.type;
+            assert(is_ptr(result.type.name()));
+            assert(!is_ptr(rhs.type.name()));
+
+            bool const banked = is_banked_ptr(result.type.name());
+
+            rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
+
+            if(!is_check(Policy::D))
+            {
+                locator_t const l = _loc_ptr(lhs.rval());
+
+                if(l && rhs.is_ct())
+                {
+                    locator_t const new_l = l.with_advance_offset(rhs.whole());
+                    result.val = rval_t{ new_l };
+                    if(banked)
+                        result.rval().push_back(new_l.with_is(IS_BANK));
+                }
+                else
+                {
+                    if(is_interpret(Policy::D))
+                    {
+                        // Create a link-time expression.
+                        // TODO
+                        assert(false);
+                        //make_lt(rpn_stack, 2, { .type = op == SSA_add ? TOK_plus : TOK_minus, .pstring = token.pstring });
+                        //return;
+                    }
+                    else if(Policy::D == COMPILE)
+                    {
+                        ct_variant_t bank;
+                        if(banked)
+                        {
+                            assert(lhs.rval().size() == 2);
+                            bank = lhs.rval()[1];
+                        }
+
+                        lhs = throwing_cast<Policy::D>(std::move(lhs), TYPE_U20, false);
+                        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
+
+                        ssa_ht const sum = builder.cfg->emplace_ssa(
+                            Policy::op(), TYPE_U20, 
+                            lhs.ssa(0), rhs.ssa(0), 
+                            ssa_value_t(Policy::op() == SSA_sub, TYPE_BOOL));
+
+                        ssa_ht const cast = builder.cfg->emplace_ssa(
+                            SSA_cast, result.type.with_banked(false), sum);
+
+                        if(banked)
+                            result.val = rval_t{ cast, bank };
+                        else
+                            result.val = rval_t{ cast };
+                    }
+                }
+            }
+        }
+    }
+    else if(rptr)
+    {
+        if(op != SSA_add)
+            goto invalid_input;
+
+        std::swap(lhs, rhs);
+        goto ptr_int;
+    }
+    else
+        return do_arith<Policy>(std::move(lhs), std::move(rhs), token);
+
+    return result;
+}
+
+template<typename Policy>
+expr_value_t eval_t::do_assign_add(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+{
+    expr_value_t result =
+    {
+        .type = TYPE_BOOL, 
+        .pstring = concat(lhs.pstring, rhs.pstring)
+    };
+
+    if(is_ptr(lhs.type.name()))
         rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
     else
         rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
-    expr_value_t lhs_copy = to_rval<Policy::D>(lhs);
-    return do_assign<Policy::D>(std::move(lhs), do_arith<Policy>(std::move(lhs_copy), rhs, token), token);
+    
+    expr_value_t lhs_rval = to_rval<Policy::D>(lhs);
+    expr_value_t add = do_add<Policy>(lhs_rval, rhs, token);
+
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs_rval.is_ct() && rhs.is_ct()))
+    {
+        assert(is_masked(lhs_rval.fixed(), lhs.type.name()));
+        assert(is_masked(rhs.fixed(), rhs.type.name()));
+
+        bool b = Policy::interpret_carry(lhs_rval.s(), rhs.s(), numeric_bitmask(add.type.name()), result.pstring);
+        result.val = rval_t{ ssa_value_t(b, TYPE_BOOL) };
+    }
+    else if(is_compile(Policy::D))
+        result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, add.ssa()) };
+
+    do_assign<Policy::D>(std::move(lhs), std::move(add), token);
+
+    return result;
 }
 
 template<typename Policy>
@@ -4468,7 +4538,7 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
 
     if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
     {
-        assert(is_masked(lhs.fixed(), lhs.type.name()));
+        assert(is_masked(to_rval<Policy::D>(lhs).fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
 
         fixed_t f = { Policy::interpret(lhs.s(), rhs.whole(), result.pstring) };
@@ -4498,14 +4568,15 @@ expr_value_t eval_t::do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
-    expr_value_t shift = do_shift<Policy>(to_rval<Policy::D>(lhs), rhs, token);
+    expr_value_t lhs_rval = to_rval<Policy::D>(lhs);
+    expr_value_t shift = do_shift<Policy>(lhs_rval, rhs, token);
 
-    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs_rval.is_ct() && rhs.is_ct()))
     {
-        assert(is_masked(lhs.fixed(), lhs.type.name()));
+        assert(is_masked(lhs_rval.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
 
-        bool b = Policy::interpret_carry(lhs.s(), rhs.whole(), numeric_bitmask(shift.type.name()), result.pstring);
+        bool b = Policy::interpret_carry(lhs_rval.s(), rhs.whole(), numeric_bitmask(shift.type.name()), result.pstring);
         result.val = rval_t{ ssa_value_t(b, TYPE_BOOL) };
     }
     else if(is_compile(Policy::D))
@@ -4570,7 +4641,7 @@ expr_value_t eval_t::do_assign_rotate(expr_value_t operand, expr_value_t carry, 
 
     if(is_interpret(Policy::D) || (is_compile(Policy::D) && operand.is_ct() && carry.is_ct()))
     {
-        assert(is_masked(operand.fixed(), operand.type.name()));
+        assert(is_masked(to_rval<Policy::D>(operand).fixed(), operand.type.name()));
         assert(is_masked(carry.fixed(), carry.type.name()));
 
         bool b = Policy::interpret_carry(operand.u(), numeric_bitmask(rotate.type.name()), result.pstring);

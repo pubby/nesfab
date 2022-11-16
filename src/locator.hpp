@@ -20,6 +20,7 @@
 #include "phase.hpp"
 #include "stmt.hpp"
 #include "runtime.hpp"
+#include "carry.hpp"
 
 class type_t;
 struct ssa_value_t;
@@ -43,6 +44,9 @@ enum locator_class_t : std::uint8_t
 
     // This behaves like LOC_GMEMBER_SET, but for pointer group vars.
     LOC_PTR_SET,
+
+    // Used by isel to track carry outputs:
+    LOC_CARRY_PAIR,
 
     LOC_STMT,
 
@@ -521,6 +525,9 @@ public:
     constexpr static locator_t nmi_index(fn_ht fn)
         { return fn ? locator_t(LOC_NMI_INDEX, fn.id, 0, 0).with_is(IS_PTR) : const_byte(0); }
 
+    constexpr static locator_t carry_pair(carry_t first, carry_t second)
+        { return locator_t(LOC_CARRY_PAIR, 0, (first << 8) | second, 0).with_is(IS_PTR); }
+
     static locator_t from_ssa_value(ssa_value_t v);
 
     bool operator==(locator_t const& o) const 
@@ -540,6 +547,9 @@ public:
     type_t type() const;
 
     locator_t link(romv_t romv, fn_ht fn = {}, int bank = -1) const;
+
+    carry_t first_carry() const {  return carry_t(data() >> 8); }
+    carry_t second_carry() const { return carry_t(data() & 0xFF); }
 
 
 private:

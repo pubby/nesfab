@@ -1442,12 +1442,6 @@ namespace isel
         , store<Opt, STY, Def, Def>
         >(cpu, prev, cont);
 
-                    chain
-                    < load_A<Opt, p_arg<0>>
-                    , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
-                    , store_C<Opt, p_def>
-                    >(cpu, prev, cont);
-
         chain
         < load_A<Opt, const_<0>>
         , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>

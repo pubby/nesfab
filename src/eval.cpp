@@ -307,6 +307,7 @@ public:
     // link-specific //
     ///////////////////
 
+    // TODO: remove this shit
     //void make_lt(rpn_stack_t& rpn_stack, unsigned argn,
                  //token_t const* op_begin, token_t const* op_end);
 
@@ -324,6 +325,24 @@ public:
 
     //template<eval_t::do_t D>
     //bool handle_lt(rpn_stack_t& rpn_stack, unsigned argn, token_t const& op);
+
+    template<do_t D>
+    locator_t handle_lt(
+        type_t const& type, token_t const& token, 
+        expr_value_t const* begin, expr_value_t const* end);
+
+    template<do_t D>
+    locator_t handle_lt(
+        type_t const& type, token_t const& token, 
+        std::initializer_list<expr_value_t> args);
+
+    locator_t make_lt(
+        type_t const& type, token_t const& token, 
+        expr_value_t const* begin, expr_value_t const* end);
+
+    locator_t make_lt(
+        type_t const& type, token_t const& token, 
+        std::initializer_list<expr_value_t> args);
 };
 
 thread_local eval_t::ir_builder_t eval_t::builder;
@@ -414,7 +433,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t const& fn_ref,
     for(unsigned i = 0; i < nlocals; ++i)
         var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
 
-    if(D == COMPILE)
+    if(is_compile(D))
     {
         // Reset the static thread-local state:
         builder.clear();
@@ -866,6 +885,18 @@ void eval_t::interpret_stmts()
 
 static ssa_value_t _interpret_shift_atom(ssa_value_t v, int shift)
 {
+    if(v.type().name() == TYPE_U && shift == 0)
+        return v;
+
+    if(v.is_locator() && is_ptr(v.type().name()) && v.locator().is() == IS_PTR)
+    {
+        if(shift == 0)
+            return v.locator().with_is(IS_PTR).with_byteified(true);
+        else if(shift == 1)
+            return v.locator().with_is(IS_PTR_HI).with_byteified(true);
+    }
+
+    // TODO: handle linktime
     fixed_t result = { v.fixed() };
     if(shift < 0)
         result.value <<= -shift * 8;
@@ -1798,6 +1829,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 elem_type = elem_type.elem_type();
             }
 
+            // Used later on:
+            int member = -1;
+            int atom = -1;
+            int shift = -1;
+            type_t result_type = TYPE_U;
+
             if(lval_t const* lval = lhs.is_lval())
             {
                 if(lval->is_global()) switch(lval->global().gclass())
@@ -1974,9 +2011,43 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                 }
             }
-            else if(is_scalar(elem_type.name()) || is_banked_ptr(elem_type.name()))
+            else if(is_banked_ptr(elem_type.name()))
             {
-                int shift;
+                using namespace std::literals;
+
+                switch(hash)
+                {
+                case fnv1a<std::uint64_t>::hash('c'):
+                case fnv1a<std::uint64_t>::hash("bank"sv):
+                    member = 1;
+                    atom = 0;
+                    break;
+
+                case fnv1a<std::uint64_t>::hash("ptr"sv):
+                    member = 0;
+                    atom = -1;
+                    result_type = elem_type.with_banked(false);
+                    goto have_member;
+
+                case fnv1a<std::uint64_t>::hash('b'):
+                    member = 0;
+                    atom = 1;
+                    break;
+
+                case fnv1a<std::uint64_t>::hash('a'):
+                    member = 0;
+                    atom = 0;
+                    break;
+
+                default:
+                    goto bad_accessor;
+                }
+
+                shift = atom;
+                goto have_member_atom;
+            }
+            else if(is_scalar(elem_type.name()))
+            {
                 switch(hash)
                 {
                 case fnv1a<std::uint64_t>::hash('c'): shift =  2; break;
@@ -1993,42 +2064,63 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         ast.token.pstring.view(file.source()), lhs.type), &file);
                 }
 
-                int const atom = shift + frac_bytes(lhs.type.name());
+                member = 0;
+                atom = shift + frac_bytes(lhs.type.name());
 
-                type_t result_type = TYPE_U;
-                if(is_tea)
-                    result_type = type_t::tea(TYPE_U, tea_length);
+            have_member_atom:
 
-                if(atom < 0 || atom >= int(total_bytes(elem_type.name())))
+                if(member < 0 || atom < 0 || atom >= int(total_bytes(elem_type.name())))
                     goto bad_accessor;
+
+                if(is_tea)
+                    result_type = type_t::tea(result_type, tea_length);
+
+                assert(shift >= 0);
+
+            have_member:
+
+                if(lhs.is_strval())
+                    lhs = to_rval<D>(std::move(lhs));
 
                 if(lhs.is_lval())
                 {
                     assert(lhs.lval().atom < 0 || atom == 0);
                     lhs.lval().atom = atom;
+                    lhs.lval().member = member;
                 }
                 else if(is_interpret(D) && lhs.is_rval())
                 {
-                    if(tea_length > 0)
-                    {
-                        ct_array_t const& from = std::get<ct_array_t>(lhs.rval()[0]);
-                        ct_array_t to = make_ct_array(tea_length);
-
-                        for(unsigned i = 0; i < tea_length; ++i)
-                            to[i] = _interpret_shift_atom(from[i], shift);
-
-                        lhs.rval() = { std::move(to) };
-                    }
+                    if(atom < 0)
+                        lhs.rval() = { lhs.rval()[member] };
                     else
-                        lhs.rval() = { _interpret_shift_atom(lhs.ssa(), shift) };
+                    {
+                        if(tea_length > 0)
+                        {
+                            ct_array_t const& from = std::get<ct_array_t>(lhs.rval()[member]);
+                            ct_array_t to = make_ct_array(tea_length);
+
+                            for(unsigned i = 0; i < tea_length; ++i)
+                                to[i] = _interpret_shift_atom(from[i], shift);
+
+                            lhs.rval() = { std::move(to) };
+                        }
+                        else
+                            lhs.rval() = { _interpret_shift_atom(lhs.ssa(member), shift) };
+                    }
                 }
                 else if(is_compile(D) && lhs.is_rval())
                 {
-                    ssa_ht const h = builder.cfg->emplace_ssa(
-                        tea_length ? SSA_array_get_byte : SSA_get_byte, 
-                        result_type, 
-                        lhs.ssa(), ssa_value_t(atom, TYPE_U));
-                    lhs.rval() = { h };
+                    if(atom < 0)
+                        lhs.rval() = { lhs.rval()[member] };
+                    else
+                    {
+                        ssa_value_t const array = from_variant<D>(lhs.rval()[member], result_type);
+                        ssa_ht const h = builder.cfg->emplace_ssa(
+                            tea_length ? SSA_array_get_byte : SSA_get_byte, 
+                            result_type, 
+                            array, ssa_value_t(atom, TYPE_U));
+                        lhs.rval() = { h };
+                    }
                 }
 
                 lhs.type = result_type;
@@ -2738,7 +2830,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         result.val = std::move(new_rval);
                     }
-                    else if(D == COMPILE)
+                    else if(is_compile(D))
                     {
                         unsigned const num_mem = num_members(type);
 
@@ -3457,7 +3549,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             if(is_interpret(D) || (is_compile(D) && is_ct(v.type.name())))
                 v.ssa().set(mask_numeric(fixed_t{ ~v.fixed().value }, v.type.name()), v.type.name());
-            else if(D == COMPILE)
+            else if(is_compile(D))
             {
                 // Must be two lines; reference invalidation lurks.
                 ssa_ht const ssa = builder.cfg->emplace_ssa(
@@ -3918,7 +4010,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
             }
         }
     }
-    else if(D == COMPILE)
+    else if(is_compile(D))
     {
         ssa_value_array_t& local = builder.cfg.data<block_d>().vars[lval->var_i()];
         rval_t& rval = rhs.rval();
@@ -4235,7 +4327,7 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
 
     if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
         result.val = rval_t{ ssa_value_t(Policy::interpret(lhs.s(), rhs.s(), result.pstring), TYPE_BOOL) };
-    else if(Policy::D == COMPILE)
+    else if(is_compile(Policy::D))
     {
         // The implementation is kept simpler if both types being compared have the same size.
         if((Policy::op() == SSA_eq || Policy::op() == SSA_not_eq) 
@@ -4303,11 +4395,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
                 rhs = throwing_cast<Policy::D>(std::move(rhs), result.type, true);
             }
             else
-            {
-                compiler_error(result.pstring, 
-                    fmt("% isn't defined for this type combination. (% and %)",
-                        token_string(token.type), lhs.type, rhs.type));
-            }
+                goto invalid_input;
         }
         else
             result.type = lhs.type;
@@ -4316,7 +4404,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
         assert(lhs.type == result.type);
         assert(rhs.type == result.type);
 
-        if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+        if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
         {
             assert(is_masked(lhs.fixed(), lhs.type.name()));
             assert(is_masked(rhs.fixed(), rhs.type.name()));
@@ -4325,7 +4413,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
             f.value &= numeric_bitmask(result.type.name());
             result.val = rval_t{ ssa_value_t(f, result.type.name()) };
         }
-        else if(Policy::D == COMPILE)
+        else if(is_compile(Policy::D))
         {
             if(!Policy::op())
                 compiler_error(result.pstring, "Cannot perform division at run-time.");
@@ -4379,7 +4467,7 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
                     // we can calculate this at CT
                     locator_t const l = _loc_ptr(lhs.rval());
                     locator_t const r = _loc_ptr(rhs.rval());
-                    // TODO: check for interpret
+
                     if(l && r && l.with_offset(0) == r.with_offset(0))
                     {
                         std::uint16_t const diff = l.offset() - r.offset();
@@ -4387,15 +4475,15 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
                     }
                     else
                     {
-                        if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+                        if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
                         {
                             // Create a link-time expression.
-                            // TODO
-                            assert(false);
-                            //make_lt(rpn_stack, 2, { .type = TOK_minus, .pstring = token.pstring });
-                            //return;
+                            locator_t const lt = eval_t::make_lt(
+                                TYPE_U20, token_t{ .type = TOK_minus, .pstring = result.pstring }, { lhs, rhs });
+                            result.val = rval_t{ lt };
+                            result.time = LT;
                         }
-                        else if(Policy::D == COMPILE)
+                        else if(is_compile(Policy::D))
                         {
                             return compile_binary_operator(
                                 throwing_cast<Policy::D>(std::move(lhs), result.type, false),
@@ -4440,7 +4528,7 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
                         //make_lt(rpn_stack, 2, { .type = op == SSA_add ? TOK_plus : TOK_minus, .pstring = token.pstring });
                         //return;
                     }
-                    else if(Policy::D == COMPILE)
+                    else if(is_compile(Policy::D))
                     {
                         ct_variant_t bank;
                         if(banked)
@@ -4536,7 +4624,7 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
-    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
     {
         assert(is_masked(to_rval<Policy::D>(lhs).fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
@@ -4545,7 +4633,7 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
         f.value &= numeric_bitmask(result_type.name());
         result.val = rval_t{ ssa_value_t(f, result_type.name()) };
     }
-    else if(Policy::D == COMPILE)
+    else if(is_compile(Policy::D))
     {
         if(is_ct(result_type.name()))
         {
@@ -4605,7 +4693,7 @@ expr_value_t eval_t::do_rotate(expr_value_t operand, expr_value_t carry, token_t
         .pstring = concat(operand.pstring, carry.pstring)
     };
 
-    if(is_interpret(Policy::D) || (Policy::D == COMPILE && operand.is_ct() && carry.is_ct()))
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && operand.is_ct() && carry.is_ct()))
     {
         assert(is_masked(operand.fixed(), operand.type.name()));
         assert(is_masked(carry.fixed(), carry.type.name()));
@@ -4614,7 +4702,7 @@ expr_value_t eval_t::do_rotate(expr_value_t operand, expr_value_t carry, token_t
         f.value &= numeric_bitmask(result_type.name());
         result.val = rval_t{ ssa_value_t(f, result_type.name()) };
     }
-    else if(Policy::D == COMPILE)
+    else if(is_compile(Policy::D))
     {
         if(is_ct(result_type.name()))
         {
@@ -4700,7 +4788,7 @@ expr_value_t eval_t::do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& t
             rhs = throwing_cast<Policy::D>(std::move(rhs), result.type, true);
     }
 
-    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
     {
         assert(is_masked(lhs.fixed(), lhs.type.name()));
         assert(is_masked(rhs.fixed(), rhs.type.name()));
@@ -4709,7 +4797,7 @@ expr_value_t eval_t::do_mul(expr_value_t lhs, expr_value_t rhs, token_t const& t
         f.value &= numeric_bitmask(result.type.name());
         result.val = rval_t{ ssa_value_t(f, result.type.name()) };
     }
-    else if(Policy::D == COMPILE)
+    else if(is_compile(Policy::D))
         return compile_binary_operator(std::move(lhs), std::move(rhs), Policy::op(), result.type);
 
     return result;
@@ -4781,9 +4869,9 @@ expr_value_t eval_t::force_truncate(expr_value_t value, type_t to_type, pstring_
         .pstring = cast_pstring ? concat(value.pstring, cast_pstring) : value.pstring,
     };
 
-    if(is_interpret(D) || (D == COMPILE && value.is_ct()))
+    if(is_interpret(D) || (is_compile(D) && value.is_ct()))
         result.val = rval_t{ ssa_value_t(mask_numeric(value.fixed(), to_type.name()), to_type.name()) };
-    else if(D == COMPILE)
+    else if(is_compile(D))
         result.val = rval_t{ builder.cfg->emplace_ssa(SSA_cast, to_type, value.ssa()) };
 
     return result;
@@ -4803,9 +4891,9 @@ expr_value_t eval_t::force_promote(expr_value_t value, type_t to_type, pstring_t
         .pstring = cast_pstring ? concat(value.pstring, cast_pstring) : value.pstring,
     };
 
-    if(is_interpret(D) || (D == COMPILE && value.is_ct()))
+    if(is_interpret(D) || (is_compile(D) && value.is_ct()))
         result.val = rval_t{ ssa_value_t(mask_numeric({ value.s() }, to_type.name()), to_type.name()) };
-    else if(D == COMPILE)
+    else if(is_compile(D))
     {
         if(is_ct(to_type))
             compiler_error(value.pstring, fmt("Cannot promote type % to type % at run-time.", value.type, to_type));
@@ -4850,7 +4938,7 @@ expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstrin
         result.val = rval_t{ prep_lt<D>(rpn_value, &*tokens.begin(), &*tokens.end()) };
         */
     }
-    else if(D == COMPILE)
+    else if(is_compile(D))
     {
         ssa_value_t first_cast = value.ssa(0);
 
@@ -5004,7 +5092,7 @@ expr_value_t eval_t::force_boolify(expr_value_t value, pstring_t cast_pstring)
         if(is_arithmetic(value.type.name()))
             result.val = rval_t{ ssa_value_t(boolify(value.fixed()), TYPE_BOOL) };
     }
-    else if(D == COMPILE)
+    else if(is_compile(D))
     {
         result.val = rval_t{ builder.cfg->emplace_ssa(
             SSA_not_eq, TYPE_BOOL, value.ssa(), ssa_value_t(0u, value.type.name())) };
@@ -5389,120 +5477,77 @@ cfg_ht eval_t::compile_goto()
     return dead_branch;
 }
 
-#if 0
-
-static token_t _make_token(rpn_value_t const& rpn)
+static token_t _make_token(expr_value_t const& value)
 {
-    if(rpn.is_ct())
+    assert(value.is_rval());
+
+    if(value.is_ct())
     {
-        if(rpn.type == TYPE_INT)
-            return { .type = TOK_Int, .pstring = rpn.pstring, .value = rpn.s() };
-        if(rpn.type == TYPE_REAL)
-            return { .type = TOK_Real, .pstring = rpn.pstring, .value = rpn.s() };
+        if(value.type == TYPE_INT)
+            return { .type = TOK_Int, .pstring = value.pstring, .value = value.s() };
+        if(value.type == TYPE_REAL)
+            return { .type = TOK_Real, .pstring = value.pstring, .value = value.s() };
     }
 
-    token_t tok = { .type = TOK_rpair, .pstring = rpn.pstring };
-    tok.set_ptr(eternal_emplace<rpair_t>(rpn.rval, rpn.type));
+    token_t tok = { .type = TOK_rpair, .pstring = value.pstring };
+    tok.set_ptr(eternal_emplace<rpair_t>(value.rval(), value.type));
     return tok;
 }
 
-static void _expr_vec_append(expr_vec_t& vec, rpn_value_t const& rpn)
-{
-    expr_vec_t const* sub;
-    if(rpn.rval.size() == 1 && (sub = std::get_if<expr_vec_t>(&rpn.rval[0])))
-        vec.insert(vec.end(), sub->begin(), sub->end());
-    else
-        vec.push_back(_make_token(rpn));
-}
-
-static expr_vec_t _make_expr_vec(rpn_stack_t& rpn_stack, unsigned argn)
-{
-    expr_vec_t ret;
-    ret.reserve(argn * 2 + 2);
-    
-    for(unsigned i = 0; i < argn; ++i)
-        _expr_vec_append(ret, rpn_stack.peek(argn - i - 1));
-
-    return ret;
-}
-
-void eval_t::make_lt(rpn_stack_t& rpn_stack, unsigned argn,
-                     token_t const* op_begin, token_t const* op_end)
-{
-    expr_vec_t vec = _make_expr_vec(rpn_stack, argn);
-    vec.insert(vec.end(), op_begin, op_end);
-
-    // Use CHECK to update the stack:
-    token_t const* token = do_token<CHECK>(rpn_stack, op_begin);
-    assert(token == op_end);
-
-    // Now add our expr_vec:
-    rpn_stack.peek(0).rval = { vec };
-}
-
-void eval_t::make_lt(rpn_stack_t& rpn_stack, unsigned argn, token_t const& op)
-{
-    make_lt(rpn_stack, argn, &op, &op + 1);
-}
-
 template<eval_t::do_t D>
-rval_t eval_t::prep_lt(rpn_value_t const& rpn_value, token_t const* op_begin, token_t const* op_end)
+locator_t eval_t::handle_lt(
+    type_t const& type, token_t const& token, 
+    expr_value_t const* begin, expr_value_t const* end)
 {
-    expr_vec_t vec;
-    _expr_vec_append(vec, rpn_value);
-    vec.insert(vec.end(), op_begin, op_end);
-
-    return { vec };
-}
-
-template<eval_t::do_t D>
-rval_t eval_t::prep_lt(rpn_value_t const& rpn_value, token_t const& token)
-{
-    return prep_lt<D>(rpn_value, &token, &token + 1);
-}
-
-template<eval_t::do_t D>
-bool eval_t::handle_lt(rpn_stack_t& rpn_stack, unsigned argn,
-                       token_t const* op_begin, token_t const* op_end)
-{
-    if(is_check(D) || D == LINK)
-        return false;
+    if(is_check(D) || is_link(D))
+        return {};
 
     bool has_lt_arg = false;
 
     // Every arg must either be a LT value, or a CT value,
     // and we need to find at least one LT value.
-    assert(rpn_stack.size() >= argn);
-    for(unsigned i = 0; i < argn; ++i)
+    for(auto it = begin; it != end; ++it)
     {
-        if(rpn_stack.peek(i).is_lt())
+        if(it->is_lt())
             has_lt_arg = true;
-        else if(!rpn_stack.peek(i).is_ct())
-        {
-            if(D == COMPILE)
-            {
-                // Convert the rval to SSA values:
-                for(unsigned j = 0; j < argn; ++j)
-                {
-                    rpn_value_t& rpn = rpn_stack.peek(j);
-                    for(unsigned k = 0; k < rpn.rval.size(); ++k)
-                        rpn.rval[k] = from_variant<D>(rpn.rval[k], member_type(rpn.type, k));
-                }
-            }
-
-            return false;
-        }
+        else if(!it->is_ct())
+            return {};
     }
 
-    if(has_lt_arg)
-        make_lt(rpn_stack, argn, op_begin, op_end);
+    if(!has_lt_arg)
+        return {};
 
-    return has_lt_arg;
+    return make_lt(type, token, begin, end);
 }
 
 template<eval_t::do_t D>
-bool eval_t::handle_lt(rpn_stack_t& rpn_stack, unsigned argn, token_t const& op)
+locator_t eval_t::handle_lt(
+    type_t const& type, token_t const& token, 
+    std::initializer_list<expr_value_t> args)
 {
-    return handle_lt<D>(rpn_stack, argn, &op, &op + 1);
+    return handle_lt<D>(type, token, args.begin(), args.end());
 }
-#endif
+
+locator_t eval_t::make_lt(
+    type_t const& type, token_t const& token, 
+    expr_value_t const* begin, expr_value_t const* end)
+{
+    std::size_t const argn = end - begin;
+
+    ast_node_t* children = eternal_new<ast_node_t>(argn);
+    for(unsigned i = 0; i < argn; ++i)
+        children[i] = { .token = _make_token(begin[i]), .children = nullptr };
+
+    ast_node_t new_ast = { .token = token };
+    new_ast.children = children;
+    assert(new_ast.num_children() == argn);
+
+    return locator_t::lt_expr(alloc_lt_value(type, std::move(new_ast)));
+}
+
+locator_t eval_t::make_lt(
+    type_t const& type, token_t const& token, 
+    std::initializer_list<expr_value_t> args)
+{
+    return make_lt(type, token, args.begin(), args.end());
+}

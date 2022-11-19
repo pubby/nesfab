@@ -56,6 +56,15 @@ bool o_merge_basic_blocks(log_t* log, ir_t& ir)
 
         dprint(log, "MERGE_BB", cfg_it, "<-", output);
 
+        if(ssa_ht const last = cfg_it->last_daisy())
+        {
+            if(ssa_flags(last->op()) & SSAF_CONDITIONAL)
+            {
+                assert(last->output_size() == 0);
+                last->prune();
+            }
+        }
+
         cfg_it->steal_ssa_nodes(output);
         assert(output->ssa_size() == 0);
         assert(!output->ssa_begin());

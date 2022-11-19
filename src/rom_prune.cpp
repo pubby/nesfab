@@ -1,7 +1,33 @@
 #include "rom_prune.hpp"
 
+#include <iostream> // TODO
+
 #include "rom.hpp"
 #include "runtime.hpp"
+#include "lt.hpp"
+
+static void rom_mark_emits(rom_data_ht data);
+
+static void locator_mark_emits(locator_t loc)
+{
+    if(rom_data_ht h = loc.rom_data())
+    {
+        std::cout << "EMIT " << loc << std::endl;
+        ::rom_mark_emits(h); // Recurse
+    }
+
+    if(loc.lclass() == LOC_LT_EXPR)
+    {
+        lt_value_t& value = *loc.lt();
+
+        if(value.prune_processed)
+            return;
+
+        value.prune_processed = true;
+
+        value.for_each_locator(locator_mark_emits);
+    }
+}
 
 static void rom_mark_emits(rom_data_ht data)
 {
@@ -9,12 +35,8 @@ static void rom_mark_emits(rom_data_ht data)
         return;
 
     data.get()->mark_emits();
-        
-    data.for_each_locator([](locator_t loc)
-    {
-        if(rom_data_ht h = loc.rom_data())
-            ::rom_mark_emits(h); // Recurse
-    });
+
+    data.for_each_locator(locator_mark_emits);
 }
 
 void prune_rom_data()

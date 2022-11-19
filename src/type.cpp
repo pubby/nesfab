@@ -396,6 +396,10 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
         return CAST_NOP_RETYPE;
     }
 
+    // Ints can convert to ptrs
+    if(!implicit && is_arithmetic(from.name()) && is_ptr(to.name()))
+        return CAST_PTRIFY_INT;
+
     // Any int can convert to AA.
     if(is_arithmetic(from.name()) 
        && to.name() == TYPE_APTR

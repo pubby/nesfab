@@ -2492,15 +2492,12 @@ void parser_t<P>::parse_case()
 template<typename P>
 void parser_t<P>::parse_default()
 {
-    assert(false);
-    /* TODO
     int const label_indent = indent;
     pstring_t const at = token.pstring;
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_default); });
     policy().begin_default_label(at, std::move(mods));
     parse_block_statement(label_indent);
     policy().end_label();
-    */
 }
 
 template<typename P>

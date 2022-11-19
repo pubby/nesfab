@@ -343,6 +343,28 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
     case LOC_NMI_INDEX:
         return locator_t::const_byte(fn()->nmi_index() + 1);
+
+    case LOC_LT_EXPR:
+        // Check if the LT expression has been evaluated yet:
+        lt_value_t& v = *lt();
+
+        if(!v.resolved(romv))
+        {
+            v.resolve(romv);
+            assert(v.resolved(romv));
+        }
+
+        unsigned index = atom();
+        if(member())
+        {
+            assert(is_banked_ptr(lt().safe().type.name()));
+            assert(member() == 1);
+            index += 2;
+        }
+
+        passert(index < v.results[romv].bytes.size(), int(index), v.results[romv].bytes.size());
+
+        return v.results[romv].bytes[index].link(romv);
     };
 }
 
@@ -373,3 +395,24 @@ rom_alloc_ht locator_t::rom_alloc(romv_t romv) const
         return d.get()->find_alloc(romv);
     return {};
 }
+
+std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors)
+{
+    if(!is_const(linked.lclass()) || linked.is() == IS_BANK)
+    {
+        if(ignore_errors)
+            return 0;
+        else
+            throw std::runtime_error(fmt("Unable to link locator %", linked));
+    }
+    assert(!linked.offset());
+
+    std::uint16_t data = linked.data();
+
+    if(linked.is() == IS_PTR_HI)
+        data >>= 8;
+
+    return data;
+}
+
+

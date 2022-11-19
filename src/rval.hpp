@@ -21,7 +21,7 @@ struct ast_node_t;
 class global_t;
 
 using ct_array_t = std::shared_ptr<ssa_value_t[]>;
-using ct_variant_t = std::variant<ssa_value_t, ct_array_t, ast_node_t const*>;
+using ct_variant_t = std::variant<ssa_value_t, ct_array_t>;
 using rval_t = bc::small_vector<ct_variant_t, 1>;
 struct rpair_t { rval_t value; type_t type; };
 
@@ -40,6 +40,7 @@ inline ssa_value_t const* ct_array(ct_variant_t const& variant)
 
 bool is_ct(rval_t const& rval);
 bool is_lt(rval_t const& rval);
+bool is_rt(rval_t const& rval);
 
 // Appends 'rval' onto 'vec'
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring);
@@ -140,6 +141,13 @@ struct expr_value_t
 
     bool is_ct() const { return time == CT && is_rval() && ::is_ct(rval()); }
     bool is_lt() const { return time == LT || (is_rval() && ::is_lt(rval())); }
+    bool is_rt() const { return (is_rval() && ::is_rt(rval())); }
+};
+
+struct lt_pair_t
+{
+    rval_t value;
+    type_t type;
 };
 
 #endif

@@ -596,6 +596,9 @@ rptr digit() { return pred(isdigit); }
 rptr hex_digit() { return pred(isxdigit); }
 rptr bin_digit() { return pred([](unsigned char c) { return c == '0' || c == '1'; }); }
 
+rptr dummy(char const* name) 
+    { return cat(eof(), rptr(new regex_t{ ACCEPT, nullptr, nullptr, name, name, 0 })); }
+
 rptr either_case_keyword(char const* a) 
 { 
     std::string lower(a);
@@ -713,6 +716,7 @@ int main()
 
         op(12, "rol", "<-<"),
         op(13 | RIGHT_ASSOC, "ror", ">->"),
+        accept(13, "ror_flip", "ror_flip", eof()), // dummy
 
         op(14, "lshift", "<<"),
         op(14, "rshift", ">>"),
@@ -736,6 +740,7 @@ int main()
 
         op(28 | RIGHT_ASSOC, "rol_assign", "<=<"),
         op(29, "ror_assign", ">=>"),
+        accept(29, "ror_assign_flip", "ror_assign_flip", eof()), // dummy
         op(30 | RIGHT_ASSOC, "assign", "="),
         op(30 | RIGHT_ASSOC, "plus_assign", "+="),
         op(30 | RIGHT_ASSOC, "minus_assign", "-="),
@@ -814,6 +819,15 @@ int main()
         accept("group_set", "group set", eof()),
         accept("rpair", "rpair", eof()),
 
+        /*
+        dummy("force_truncate"),
+        dummy("force_promote"),
+        dummy("force_intify_ptr"),
+        dummy("force_round_real"),
+        dummy("force_boolify"),
+        */
+        dummy("implicit_cast"),
+        dummy("shift_atom"),
 
         // string/char literals:
         accept("character", "character literal", eof()),

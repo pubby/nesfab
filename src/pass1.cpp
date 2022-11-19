@@ -63,7 +63,8 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
     switch(ast.token.type)
     {
     case TOK_weak_ident:
-        depends_on = IDEP_TYPE;
+        if(depends_on)
+            depends_on = IDEP_TYPE;
         // fall-through
     case TOK_ident:
         if(int const* handle = symbol_table.find(ast.token.pstring.view(source())))
@@ -75,7 +76,8 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         else
         {
             global_t& g = global_t::lookup(file.source(), ast.token.pstring);
-            add_idep(ideps, &g, { .calc = calc, .depends_on = depends_on });
+            if(depends_on)
+                add_idep(ideps, &g, { .calc = calc, .depends_on = depends_on });
             ast.token.type = TOK_global_ident;
             ast.token.set_ptr(&g);
         }
@@ -104,6 +106,9 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
 
     case TOK_at:
     case TOK_unary_ref:
+        depends_on = BAD_IDEP;
+        goto do_children;
+
     case TOK_sizeof_expr:
     case TOK_len_expr:
         depends_on = IDEP_TYPE;

@@ -10,6 +10,7 @@ unsigned ast_node_t::num_children() const
     {
     case TOK_apply:
     case TOK_cast:
+    case TOK_implicit_cast:
     case TOK_byte_block_proc:
     case TOK_byte_block_data:
         assert(!token.value || children);
@@ -52,6 +53,7 @@ unsigned ast_node_t::num_children() const
     case TOK_character:
     case TOK_string_compressed:
     case TOK_string_uncompressed:
+    case TOK_shift_atom:
         return 0;
     }
 }

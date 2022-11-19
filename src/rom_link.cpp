@@ -21,22 +21,7 @@ static void write_linked(
     std::size_t const size = vec.size();
 
     for(std::size_t i = 0; i < size; ++i)
-    {
-        locator_t const loc = vec[i].link(romv, {}, bank);
-
-        if(!is_const(loc.lclass()))
-            throw std::runtime_error(fmt("Unable to link locator %", loc));
-        //std::cout << loc << std::endl;
-        //passert(loc.is_immediate(), loc);
-        assert(!loc.offset());
-
-        std::uint16_t data = loc.data();
-
-        if(loc.is() == IS_PTR_HI)
-            data >>= 8;
-
-        *at++ = data;
-    }
+        *at++ = linked_to_rom(vec[i].link(romv, {}, bank));
 }
 
 std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
@@ -82,7 +67,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             asm_proc.link(alloc.romv, alloc.only_bank());
             asm_proc.relocate(locator_t::addr(alloc.span.addr));
 
-            //asm_proc.write_assembly(std::cout, alloc.romv);
+            asm_proc.write_assembly(std::cout, alloc.romv);
 
             alloc.for_each_bank([&](unsigned bank)
             {

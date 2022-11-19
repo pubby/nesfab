@@ -49,21 +49,23 @@ struct fn_not_rt_t : public std::exception
     pstring_t pstring;
 };
 
-void check_local_const(pstring_t pstring, fn_t const* fn, ast_node_t const& expr,
+void check_local_const(pstring_t pstring, fn_t* fn, ast_node_t const& expr,
                        local_const_t const* local_consts);
 
-rpair_t interpret_local_const(pstring_t pstring, fn_t const* fn, ast_node_t const& expr,
+rpair_t interpret_local_const(pstring_t pstring, fn_t* fn, ast_node_t const& expr,
                               type_t expected_type, local_const_t const* local_consts);
 
 rpair_t interpret_expr(pstring_t pstring, ast_node_t const& ast,
                        type_t expected_type, eval_t* env = nullptr);
 
 byte_block_data_t interpret_byte_block(
-    pstring_t pstring, ast_node_t const& ast, fn_t const* fn = nullptr, 
+    pstring_t pstring, ast_node_t const& ast, fn_t* fn = nullptr, 
     local_const_t const* local_consts = nullptr);
 
-precheck_tracked_t build_tracked(fn_t const& fn, local_const_t const* local_consts);
+rpair_t interpret_lt(romv_t romv, ast_node_t const& ast, type_t expected_type);
 
-void build_ir(ir_t& ir, fn_t const& fn, local_const_t const* local_consts);
+precheck_tracked_t build_tracked(fn_t& fn, local_const_t const* local_consts);
+
+void build_ir(ir_t& ir, fn_t& fn, local_const_t const* local_consts);
 
 #endif

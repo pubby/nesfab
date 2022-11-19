@@ -344,6 +344,8 @@ int main(int argc, char** argv)
         create_reset_proc();
         output_time("runtime:  ");
 
+        set_compiler_phase(PHASE_CHARMAP_GROUPS);
+        charmap_t::set_all_group_data();
         set_compiler_phase(PHASE_CONVERT_STRINGS);
         sl_manager.convert_all();
         set_compiler_phase(PHASE_COMPRESS_STRINGS);
@@ -390,7 +392,7 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
         alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
-        //print_rom(std::cout);
+        print_rom(std::cout);
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);

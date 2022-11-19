@@ -1012,6 +1012,9 @@ void ir_t::assert_valid() const
             for(ssa_ht daisy = ssa_node.next_daisy(); daisy; ++daisy)
                 assert(daisy->cfg_node() == cfg_it);
 
+            if(ssa_flags(ssa_it->op()) & SSAF_CONDITIONAL)
+                assert(ssa_it == cfg_node.last_daisy());
+
             if(ssa_it->op() == SSA_if)
             {
                 assert(ssa_it == cfg_node.last_daisy());

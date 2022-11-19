@@ -1358,7 +1358,8 @@ void fn_t::compile()
     assert(ir_reads());
 
     // Convert switches:
-    switch_partial_to_full(ir);
+    if(switch_partial_to_full(ir))
+        optimize_suite(false);
     save_graph(ir, "3_switch");
 
     byteify(ir, *this);
@@ -2089,8 +2090,10 @@ int charmap_t::convert(char32_t ch) const
     return -1;
 }
 
-void charmap_t::resolve()
+void charmap_t::set_group_data()
 {
+    assert(compiler_phase() == PHASE_CHARMAP_GROUPS);
+
     if(mods() && mods()->group_data.size())
     {
         if(mods()->group_data.size() > 1)
@@ -2105,6 +2108,14 @@ void charmap_t::resolve()
 
         m_group_data = h->handle<group_data_ht>();
     }
+}
+
+void charmap_t::set_all_group_data()
+{
+    assert(compiler_phase() == PHASE_CHARMAP_GROUPS);
+
+    for(charmap_t& charmap : charmap_ht::values())
+        charmap.set_group_data();
 }
 
 ////////////////////

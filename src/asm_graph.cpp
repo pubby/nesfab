@@ -116,7 +116,7 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
                 cfg_ht const cfg = inst.arg.cfg_node();
 
                 switch_table_t const* switch_table = switch_tables.mapped(cfg);
-                passert(switch_table, cfg);
+                passert(switch_table, cfg, switch_tables.size());
 
                 ssa_ht const branch = cfg->last_daisy();
                 assert(branch && branch->op() == SSA_switch_full);

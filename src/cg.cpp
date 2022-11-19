@@ -1201,6 +1201,16 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     fn.assign_first_bank_switch(cg_calc_bank_switches(fn.handle(), ir));
 
+
+    // TODO REMOVE
+#if 1
+    {
+        std::ofstream ossa("graphs/pre_cg.gv");
+        if(ossa.is_open())
+            graphviz_ssa(ossa, ir);
+    }
+#endif
+
     ///////////////////////////
     // INSTRUCTION SELECTION //
     ///////////////////////////

@@ -656,9 +656,11 @@ public:
     int convert(char32_t ch) const; // Returns negative on failure.
     int sentinel() const { return m_sentinel; }
 
-    group_data_ht group_data() const { assert(global.resolved()); return m_group_data; }
+    group_data_ht group_data() const { assert(compiler_phase() > PHASE_CHARMAP_GROUPS); return m_group_data; }
+    void set_group_data();
+    static void set_all_group_data();
 
-    void resolve();
+    void resolve() {}
     void precheck() {}
     void compile() {}
 private:

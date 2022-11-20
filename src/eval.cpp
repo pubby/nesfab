@@ -3519,7 +3519,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             else if(is_compile(D))
             {
                 // Must be two lines; reference invalidation lurks.
-                ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_eq, TYPE_BOOL, v.ssa(), ssa_value_t(0u, TYPE_BOOL));
+                ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_xor, TYPE_BOOL, v.ssa(), ssa_value_t(1u, TYPE_BOOL));
                 v.ssa() = ssa;
             }
 
@@ -3783,7 +3783,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     int const shift = lval->atom - frac_bytes(type.elem_type().name());
 
                     unsigned const tea_length = type.array_length();
-                    ct_array_t const& from = std::get<ct_array_t>(rval[lval->member]);
+                    ct_array_t const& from = std::get<ct_array_t>(rval[0]);
                     ct_array_t to = make_ct_array(tea_length);
 
                     for(unsigned i = 0; i < tea_length; ++i)
@@ -3795,7 +3795,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 {
                     assert(v.type == TYPE_U);
                     int const shift = lval->atom - frac_bytes(type.name());
-                    rval = { _interpret_shift_atom(std::get<ssa_value_t>(rval[lval->member]), shift, v.pstring) };
+                    rval = { _interpret_shift_atom(std::get<ssa_value_t>(rval[0]), shift, v.pstring) };
                 }
             }
         }
@@ -3823,11 +3823,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             if(lval->atom >= 0)
             {
-                assert(rval.size() > lval->member);
+                passert(rval.size() > 0, rval.size(), lval->member);
                 ssa_ht const h = builder.cfg->emplace_ssa(
                     is_tea(type.name()) ? SSA_array_get_byte : SSA_get_byte, 
                     is_tea(type.name()) ? type_t::tea(TYPE_U, type.size()) : TYPE_U, 
-                    std::get<ssa_value_t>(rval[lval->member]), 
+                    std::get<ssa_value_t>(rval[0]), 
                     ssa_value_t(lval->atom, TYPE_U));
                 rval = { h };
             }

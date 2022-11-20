@@ -1217,6 +1217,7 @@ namespace isel
     void maybe_carry_label_clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         carry_label_clear_conditional<Opt, Label, Sec>(cpu, prev, cont);
+
         chain<label<Label>, clear_conditional>(cpu, prev, cont);
     }
 
@@ -2481,8 +2482,8 @@ namespace isel
             < load_X<Opt, const_<0>>
             , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
             , simple_op<Opt, INX_IMPLIED>
-            , carry_label_clear_conditional<Opt, p_label<0>, false>
-            , set_defs<Opt, REGF_X | REGF_C | REGF_N | REGF_Z, true, p_def>
+            , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
+            , set_defs<Opt, REGF_X | REGF_N | REGF_Z, true, p_def>
             , exact_op<Opt, STX_LIKELY, null_, p_def>
             >(cpu, prev, cont);
 
@@ -2490,8 +2491,8 @@ namespace isel
             < load_Y<Opt, const_<0>>
             , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
             , exact_op<Opt, INY_IMPLIED>
-            , carry_label_clear_conditional<Opt, p_label<0>, false>
-            , set_defs<Opt, REGF_Y | REGF_C | REGF_N | REGF_Z, true, p_def>
+            , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
+            , set_defs<Opt, REGF_Y | REGF_N | REGF_Z, true, p_def>
             , exact_op<Opt, STY_LIKELY, null_, p_def>
             >(cpu, prev, cont);
         }

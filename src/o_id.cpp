@@ -469,15 +469,34 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 ssa_value_t const cast = ssa_it->input(0);
                 if(cast.holds_ref() && cast->op() == SSA_cast)
                 {
-                    type_t const from_type = cast->input(0).type();
-                    if(is_arithmetic_subset(from_type.name(), ssa_it->type().name()))
-                    {
-                        ssa_ht const new_cast = ssa_it->cfg_node()->emplace_ssa(SSA_cast, ssa_it->type());
+                    ssa_value_t const from = cast->input(0);
 
-                        ssa_it->link_change_input(0, cast->input(0));
-                        ssa_it->set_type(from_type);
-                        ssa_it->replace_with(INPUT_VALUE, new_cast);
-                        new_cast->link_append_input(ssa_it);
+                    type_t const from_type = from.type();
+                    type_t const to_type = ssa_it->type();
+
+                    unsigned const from_whole = whole_bytes(from_type.name());
+                    unsigned const from_frac  = frac_bytes(from_type.name());
+                    unsigned const from_signed = is_signed(from_type.name());
+
+                    unsigned const to_whole = whole_bytes(to_type.name());
+                    unsigned const to_frac  = frac_bytes(to_type.name());
+                    unsigned const to_signed = is_signed(to_type.name());
+
+                    if(from_whole < to_whole && (!from_signed || to_signed))
+                    {
+                        type_t const new_from_type = type_s_or_u(from_whole, to_frac, from_signed & to_signed);
+
+                        ssa_value_t new_from = from;
+                        if(new_from_type != from_type)
+                            new_from = ssa_it->cfg_node()->emplace_ssa(SSA_cast, new_from_type, from);
+
+                        ssa_ht const new_to = ssa_it->cfg_node()->emplace_ssa(SSA_cast, to_type);
+
+                        ssa_it->link_change_input(0, new_from);
+                        ssa_it->set_type(new_from_type);
+                        ssa_it->replace_with(INPUT_VALUE, new_to);
+
+                        new_to->link_append_input(ssa_it);
 
                         updated = true;
                     }
@@ -517,25 +536,51 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         if((carry_replacement = add_sub_impl(ssa_it->input(i), ssa_it->input(2).fixed(), false)))
                             goto *replaceWith[!i];
 
-
-                    if(frac_bytes(ssa_it->type().name()) == 0 && !carry_used(*ssa_it))
+                    if(frac_bytes(ssa_it->type().name()) == 0)
                     {
+                        // Fold pointer additions 
+                        if(!carry_used(*ssa_it))
+                        {
+                            for(unsigned i = 0; i < 2; ++i)
+                            {
+                                ssa_value_t const input = ssa_it->input(i);
+
+                                if(!input.is_locator() || !input.is_num())
+                                    continue;
+
+                                if(carry_used(*ssa_it))
+                                    continue;
+
+                                locator_t const loc = input.locator();
+
+                                if(loc.is() == IS_PTR)
+                                {
+                                    unsigned const offset = ssa_it->input(!i).whole() + ssa_it->input(2).whole();
+                                    ssa_it->link_change_input(i, loc.with_advance_offset(offset));
+                                    goto *replaceWith[i];
+                                }
+                            }
+                        }
+                    }
+
+                    if(ssa_it->input(2).eq_whole(0))
+                    {
+                        // When adding a casted carry, we can remove the cast.
                         for(unsigned i = 0; i < 2; ++i)
                         {
-                            if(!ssa_it->input(i).is_locator() || !ssa_it->input(!i).is_num())
+                            ssa_value_t const cast = ssa_it->input(i);
+
+                            if(!cast.holds_ref() || cast->op() != SSA_cast)
                                 continue;
 
-                            if(carry_used(*ssa_it))
+                            ssa_value_t const carry = cast->input(0);
+                            if(!carry.holds_ref() || carry->op() != SSA_carry)
                                 continue;
 
-                            locator_t const loc = ssa_it->input(i).locator();
+                            ssa_it->link_change_input(i, ssa_value_t(0u, ssa_it->type().name()));
+                            ssa_it->link_change_input(2, carry);
 
-                            if(loc.is() == IS_PTR)
-                            {
-                                unsigned const offset = ssa_it->input(!i).whole() + ssa_it->input(2).whole();
-                                ssa_it->link_change_input(i, loc.with_advance_offset(offset));
-                                goto *replaceWith[i];
-                            }
+                            updated = true;
                         }
                     }
                 }
@@ -547,9 +592,10 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     if((carry_replacement = add_sub_impl(ssa_it->input(1), ssa_it->input(2).fixed(), true)))
                         goto *replaceWith[0];
 
-                    if(frac_bytes(ssa_it->type().name()) == 0 && !carry_used(*ssa_it))
+                    if(frac_bytes(ssa_it->type().name()) == 0)
                     {
-                        if(ssa_it->input(0).is_locator() && ssa_it->input(1).is_num())
+                        // Fold pointer subtractions
+                        if(!carry_used(*ssa_it) && ssa_it->input(0).is_locator() && ssa_it->input(1).is_num())
                         {
                             locator_t const loc = ssa_it->input(0).locator();
 
@@ -564,6 +610,36 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                             }
                         }
                     }
+
+                    if(ssa_it->input(2).eq_whole(1))
+                    {
+                        // When subtracting a casted carry, we can remove the cast.
+                        auto const cast = ssa_it->input(1);
+
+                        if(!cast.holds_ref() || cast->op() != SSA_cast)
+                            goto done_sub_carry;
+
+                        ssa_value_t const xor_ = cast->input(0);
+                        if(!xor_.holds_ref() || xor_->op() != SSA_xor)
+                            goto done_sub_carry;
+
+                        for(unsigned i = 0; i < 2; ++i)
+                        {
+                            if(!xor_->input(!i).eq_whole(1)) // Looking for XOR as negation.
+                                continue;
+
+                            ssa_value_t const carry = xor_->input(0);
+                            if(!carry.holds_ref() || carry->op() != SSA_carry)
+                                continue;
+
+                            ssa_it->link_change_input(1, ssa_value_t(0u, ssa_it->type().name()));
+                            ssa_it->link_change_input(2, carry);
+
+                            updated = true;
+                            break;
+                        }
+                    }
+                done_sub_carry:;
                 }
                 break;
 

@@ -172,8 +172,9 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     {
         switch(ssa_it->op())
         {
+        case SSA_cast:
         case SSA_as_bool:
-            // Remove 'SSA_as_bool' nodes:
+            // Remove 'SSA_cast' and 'SSA_as_bool' nodes:
             ssa_it->replace_with(ssa_it->input(0));
             ssa_it = ssa_it->prune();
             break;

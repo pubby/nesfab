@@ -108,21 +108,35 @@ static bm_t _get_bm(ssa_value_t value)
 }
 
 // If the op gets entirely removed during byteify.
-bool _vanishes(ssa_op_t op)
+bool _vanishes(ssa_ht h)
 {
-    return (op == SSA_cast || op == SSA_get_byte || op == SSA_array_get_byte
-            || op == SSA_replace_byte || op == SSA_array_replace_byte);
+    ssa_op_t const op = h->op();
+
+    switch(op)
+    {
+    case SSA_cast:
+        return !(is_byteified(h->type().name()) && is_byteified(h->input(0).type().name()));
+
+    case SSA_get_byte:
+    case SSA_array_get_byte:
+    case SSA_replace_byte:
+    case SSA_array_replace_byte:
+        return true;
+
+    default:
+        return false;
+    }
 }
 
 // Used in 'byteify' to remove casts, etc.
 static void _split_vanishing(ssa_ht ssa_node)
 {
     assert(ssa_node);
-    assert(_vanishes(ssa_node->op()));
+    assert(_vanishes(ssa_node));
 
     auto const split_input = [](ssa_value_t input)
     {
-        if(input.holds_ref() && !input->test_flags(FLAG_PROCESSED) && _vanishes(input->op()))
+        if(input.holds_ref() && !input->test_flags(FLAG_PROCESSED) && _vanishes(input.handle()))
             _split_vanishing(input.handle());
     };
 
@@ -239,7 +253,7 @@ void byteify(ir_t& ir, fn_t const& fn)
 
             type_t const type = _bm_type(ssa_it->type());
 
-            if(_vanishes(ssa_it->op()))
+            if(_vanishes(ssa_it))
             {
                 // Casts will just forward their input(s) to their output(s),
                 // and will be removed entirely.
@@ -664,7 +678,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(ssa_it->test_flags(FLAG_PROCESSED))
                 break;
 
-            assert(ssa_it->op() != SSA_cast);
+            assert(!_vanishes(ssa_it));
 
             type_t const type = ssa_it->type();
             if(type.name() == TYPE_VOID || is_byteified(type.name()))

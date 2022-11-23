@@ -1,0 +1,1624 @@
+= NESFab
+Copyright (c) 2022, Pubby
+Version TODO
+:sectnums:
+:toc2:
+:toclevels: 3
+:toc-title: Table of Contents
+                                                                    
+:description: Example AsciiDoc document                             
+:keywords: AsciiDoc
+:imagesdir: ./img
+
+This is the optional preamble (an untitled section body). Useful for
+writing simple sectionless documents consisting only of a preamble.
+AsciiDoc is kool
+
+== What is NESFab?
+
+=== Limitations
+
+- NESFab supports a limited number of cartridge mappers. 
+  Some mappers, like Nintendo's MMC5, will likely never be supported.
+- Although assembly language can be mixed with NESFab code,
+  there are restrictions and inefficiencies by doing so.
+
+  TODO
+
+=== Mappers
+
+=== NESFab vs Assembly
+
+Assembly languages get a bad rap these days, 
+but it's important to understand that not all assembly lanaguages are the same.
+The NES's 6502 processor hails from the 1970s, 
+back when assembly languages were designed to be written by humans, not compilers.
+It has a simple instruction set with only 3 registers, 
+and that keeps the code readable and sprinkled with identifiers.
+
+For many simple NES games, assembly language is an excellent choice,
+but as the games get bigger and more complicated, warts in 6502 assembly language do begin to appear:
+
+- It's not viable to store data on the hardware stack, 
+  meaning all variables must be declared as globals.
+  Due to the small amount of RAM, this leads to variables
+  being reused for different purposes, which is a very error-prone way to code.
+  With complicated call graphs, it's a total mess!
+- The NES is an 8-bit system, but many games desire 16, 24, or 32 bits of precision for math,
+  and this requires chaining together multiple 8-bit operations.
+  If you have to do this for an entire program, it gets exhausting.
+  Macros help somewhat, but generate poor code on a system that demands efficiency.
+- Larger programs require the use of *banks* to extend the program's address space.
+  These have to be defined by hand, with the programmer carefully laying out
+  what snippets of code goes where. If you happen to change your mind later on,
+  see you in several hours as it's it's a chore to relocate large swathes of code from bank to bank.
+
+NESFab was created to solve these three problems:
+
+- The compiler analyzes functions and efficiently allocates local variables for you.
+- The compiler produces efficient code for high-precision math, with no extra verbosity on the programming side.
+- Banks are abstracted away. One need not worry about what code goes where.
+
+TODO: remove?
+
+=== NESFab vs C
+
+C is sometimes referred to as a portable assembly language, 
+with the belief that C closely describes how the underlying hardware works.
+This wasn't really true in the past, 
+as old architectures like the NES's 6502 don't map cleanly to C's features.
+It's also not so true in the present, 
+as modern CPUs are abstracted to mimic C's interface, not the other way around.
+But the phrase still gets tossed around.
+
+Regarding the 6502's compatability with C, a few issues arrise:
+
+- C defines `int` as 16-bits and promotes most math, but the NES's 6502 is an 8-bit system where 16-bit math is slow.
+- C demands fast addressing modes for array access, with arrays stored contigious in memory. 
+  The 6502 struggles with both of these.
+- C has no concept of banks. Writing multi-bank programs in C requires complicated linker scripts,
+  and is often more difficult than doing so in assembly.
+
+Pros
+- 
+- NESFab comes "batteries included", 
+  with support for importing all sorts of different game data formats.
+
+Cons
+
+- There is only one NESFab compiler, but multiple C compilers.
+- C is more portable. This is less significant for writing NES games than say, writing modern apps.
+
+TODO
+
+
+- Useful behavior is undefined or unspecified. 
+  You can't overflow signed values for example, and interfacing with hardware is non-obvious and error-prone.
+
+
+=== NESFab for Language Nerds
+
+TODO
+
+== Prerequisites
+
+This tutorial assumes you know the basics of computer programming.
+If you are new to the field, you'll likely want to learn another language - like Python or C - first.
+Do not worry about wasted effort, as even if you're writing NES games, 
+you'll want to write tools and conversion scripts in other languages - like Python or C.
+
+=== Installation Guide
+
+To get started with NESFab, download it from TODO and install it. 
+You will also want a NES emulator, like https://fceux.com/[FCEUX] or https://fceux.com/[Mesen].
+
+The `nesfab` tool compiles `.fab` source code files into `.nes` ROMs. 
+It can be used with the command-line, or by clicking and dragging a source code or configuration file onto the executable.
+
+Let's test that now.  Create a file called `hello.fab` and save it with code below.
+
+----
+// TODO: hello world
+----
+
+Now let's compile it. If using the command-line, run:
+
+`nesfab hello.fab`
+
+Otherwise, drag the `hello.fab` file onto the `nesfab` executable.
+
+When done, the compiler should have produced a `a.nes` file in the same directory,
+which is the default name of all compiled binaries. 
+Try running `a.nes` in your NES emulator.
+You should see the screen flash with colors.
+
+=== Options and Configuration Files
+
+The `nesfab` compiler accepts options both on the command-line, and via configuration files.
+For most projects, a single configuration file is the ideal, so this tutorial will focus on that.
+
+Below is an example configuration file: `config.cfg`. The `output` option determines the name of the `.nes` file, while `input` lists a single source file.
+----
+output = "game.nes"
+input = "hello.fab"
+----
+To compile using this configuration file, either run:
+
+`nesfab config.cfg`
+
+Otherwise, drag the `config.cfg` file onto the `nesfab` executable.
+
+It should produce the same result as before, but save the binary as `game.nes` instead of `a.nes`,
+as the `output` option was set.
+
+For more details about configuration files, see the reference page. TODO
+
+----
+# This is a comment
+
+# Cause all warnings to become errors:
+error-on-warning = true
+
+# Set the output file name:
+output = "game.nes"
+
+# To use multiple source code files, use multiple input options:
+input = "hello.fab"
+input = "another_file.fab"
+input = "a_third_file.fab"
+----
+
+
+== Basic Concepts
+
+=== Value Semantics
+
+== Operators
+
+=== Operator Tables
+
+==== Unary Operators
+
+[NOTE]
+Operators with lower precedence numbers come earlier in the order of operations.
+
+[cols="1,1,4"]
+|===
+|Operator |Precedence |Description
+
+| `@`
+| 4
+| <<get_pointer>>
+
+| `&`
+| 8
+| <<get_hw_addr>>
+
+| `+`
+| 8
+| <<unary_plus>>
+
+| `-`
+| 8
+| <<unary_negate>>
+
+| `~`
+| 8
+| <<unary_bitwise_not>>
+
+| `!`
+| 8
+| <<unary_logical_not>>
+
+|===
+
+
+==== Binary Operators
+
+[NOTE]
+Operators with lower precedence numbers come earlier in the order of operations.
+
+[cols="1,1,1,3"]
+|===
+|Operator |Precedence |Associativity |Description
+
+| `.`
+| 5
+| Left
+| <<member_access>>
+
+| `*`
+| 10
+| Left
+| <<multiply>>
+
+| `+`
+| 11
+| Left
+| <<add>>
+
+| `-`
+| 11
+| Left
+| <<subtract>>
+
+| `+<-<+`
+| 12
+| Left
+| <<rotate_left>>
+
+| `+>->+`
+| 13
+| Right
+| <<rotate_right>>
+
+| `+<<+`
+| 14
+| Left
+| <<shift_left>>
+
+| `+>>+`
+| 14
+| Left
+| <<shift_right>>
+
+| `+&+`
+| 15
+| Left
+| <<bitwise_and>>
+
+| `+^+`
+| 16
+| Left
+| <<bitwise_xor>>
+
+| `+\|+`
+| 17
+| Left
+| <<bitwise_or>>
+
+| `+<+`
+| 18
+| Left
+| <<less_than>>
+
+| `+<=+`
+| 18
+| Left
+| <<less_than_or_equal_to>>
+
+| `+>+`
+| 18
+| Left
+| <<greater_than>>
+
+| `+>=+`
+| 18
+| Left
+| <<greater_than_or_equal_to>>
+
+| `+==+`
+| 19
+| Left
+| <<equal_to>>
+
+| `+!=+`
+| 19
+| Left
+| <<not_equal_to>>
+
+| `+&&+`
+| 20
+| Left
+| <<logical_and>>
+
+| `+\|\|+`
+| 21
+| Left
+| <<logical_or>>
+
+| `+<=<+`
+| 28
+| Right
+| <<assign_rotate_left>>
+
+| `+>=>+`
+| 29
+| Left
+| <<assign_rotate_right>>
+
+| `*=`
+| 30
+| Right
+| <<assign_multiply>>
+
+| `+=`
+| 30
+| Right
+| <<assign_add>>
+
+| `-=`
+| 30
+| Right
+| <<assign_subtract>>
+
+| `+<<=+`
+| 30
+| Right
+| <<assign_shift_left>>
+
+| `+>>=+`
+| 30
+| Right
+| <<assign_shift_right>>
+
+| `&=`
+| 30
+| Right
+| <<assign_bitwise_and>>
+
+| `^=`
+| 30
+| Right
+| <<assign_bitwise_xor>>
+
+| `\|=`
+| 30
+| Right
+| <<assign_bitwise_or>>
+
+| `=`
+| 30
+| Right
+| <<assign>>
+
+|===
+
+==== Function-like Operators
+
+[NOTE]
+All function-like operators have left associativity and evaluate first in the order of operations.
+
+[cols="3,3"]
+|===
+|Operator |Description
+
+| `_expression_(_arguments_...)`
+| Function Call
+
+| `_Type_(_arguments_...)`
+| Type Cast
+
+| `sizeof _Type_`
+| Size of a Type
+
+| `sizeof(_expression_)`
+| Size of a Value
+
+| `len _Type_`
+| Array Length of a Type
+
+| `len(_expression_)`
+| Array Length of a Value
+
+| `_expression_[_expression_]`
+| U-Indexed Array Access
+
+| `_expression_{_expression_}`
+| UU-Indexed Array Access
+
+| `[_expression_]()`
+| U-Indexed Hardware Read
+
+| `[_expression_](_expression_)`
+| U-Indexed Hardware Write
+
+| `{_expression_}()`
+| UU-Indexed Hardware Read
+
+| `{_expression_}(_expression_)`
+| UU-Indexed Hardware Write
+
+|===
+
+=== Operator Listings
+
+==== Get Pointer `@` [[get_pointer]]
+
+Converts an lvalue <<paa, pointer-addressable array>> into a corresponding pointer.
+
+==== Get Hardware Address `&` [[get_hw_addr]]
+
+Converts an lvalue into its corresponding hardware address, of type `AA` or `AAA`.
+
+This operator is intended to be used with inline assembly code. 
+Although this operator by itself is safe, dereferencing the addresses it returns can easily cause undefined behavior.
+For regular code, it's recommended to use <<get_pointer>> instead.
+
+==== Unary Plus `+` [[unary_plus]]
+
+Returns its operand, type and value unchanged. The operand must be an <<arithmetic_type, arithmetic type>>.
+
+----
++100 // Equivalent to 100
+----
+
+==== Unary Negate `-` [[unary_negate]]
+
+Returns its operand subtracted from zero, type unchanged. The operand must be an <<arithmetic_type, arithmetic type>>.
+
+----
+-100 // Equivalent to (0 - 100)
+----
+
+==== Unary Bitwise NOT `~` [[unary_bitwise_not]]
+
+Returns its operand with every bit flipped (1 becomes 0, and vice versa), type unchanged. The operand must be an <<arithmetic_type, arithmetic type>>.
+
+----
+U bits = %1010
+~bits // Equivalent to %11110101
+----
+
+==== Unary Logical NOT `!` [[unary_logical_not]]
+
+Returns its operand, converted to type `Bool`, then negated (`true` becomes `false` and vice versa). The operand must be an <<arithmetic_type, arithmetic type>>.
+
+----
+!0     // Equivalent to true
+!5     // Equivalent to false
+!true  // Equivalent to false
+!false // Equivalent to true
+----
+
+==== Member Access `.` [[member_access]]
+
+TODO
+
+==== Multiply `*` [[multiply]]
+
+Returns its operands multiplied together, of a type large enough to hold the product. 
+If either operand is signed, the return type is signed too, but otherwise it is unsigned.
+The operands must be <<quantity_type, quantity types>>.
+
+To be more precise, if the operand types have `F` and `F'` fractional bytes, the return type will have `F + F'`.
+Likewise, if the operand types have `W` and `W'` whole bytes, the return type will have `W + W'`.
+The return type will be truncated to fit the compiler's available types.
+
+----
+5 * 3             // Equivalent to 15, of type Int
+U(5) * U(8)       // Equivalent to 40, of type UU
+UF(5.5) * SS(-10) // Equivalent to -55, of type SSSF
+----
+
+[NOTE]
+Multiplying two variables together is a very slow operation, as the NES lacks a hardware multiplier,
+but multiplying a variable by a constant is faster, as the compiler can convert the expression to a sequence of shifts and adds.
+However, if you need to do lots of multiplications, consider using lookup tables instead.
+
+==== Assign by Multiply (`*=`) [[assign_multiply]]
+
+Multiplies its operands together, then assigns the value to the lvalue left operand. 
+Returns the left operand's new value.
+
+----
+U a
+a *= b // Equivalent to a = U(a * b)
+----
+
+==== Add `+` [[add]]
+
+Returns the sum of its operands. 
+The operands must be of the same <<quantity_type, quantity type>>, although `Int` and `Real` will convert.
+
+----
+3 + 7 // Equivalent to 10
+----
+
+==== Assign by Add `+=` [[assign_add]]
+
+Converts the right operand to the left operand's type, then performs an addition using both operands and assigns the value to the lvalue left operand.
+Return the carry: a value of type `Bool` that is `true` when the resulting sum overflowed, and `false` otherwise. 
+
+----
+U x = 200
+x += 50  // 'x' is now equal to 50. The expression returns 'false'.
+x += 100 // 'x' is now equal to 94 due to overflow. The expression returns 'true'.
+----
+
+[NOTE]
+Unlike in other languages, this operator doesn't return its left operand.
+
+==== Subtract `-` [[subtract]]
+
+Returns the difference of its operands (the right operand subtracted from the left). 
+The operands must be of the same <<quantity_type, quantity type>>, although `Int` and `Real` will convert.
+
+----
+10 - 7 // Equivalent to 3
+----
+
+==== Assign by Subtract `-=` [[assign_subtract]]
+
+Converts the right operand to the left operand's type, then performs a subtraction using both operands and assigns the value to the lvalue left operand.
+Return the carry: a value of type `Bool` that is `false` when the resulting sum underflowed, and `true` otherwise. 
+
+----
+U x = 200
+x -= 50  // 'x' is now equal to 150. The expression returns 'true'.
+x -= 300 // 'x' is now equal to 106 due to underflow. The expression returns 'false'.
+----
+
+==== Rotate Left `+<-<+` [[rotate_left]]
+
+Moves each of the bits of the left operand one place to the left, with the lowest bit being filled with the value of the right operand.
+The left operand must be a <<quantity_type, quantity_type>>, and the right operand must be type `Bool`.
+The return type matches the left operand's type.
+
+----
+U(%11001010) <-< false // Equivalent to U(%10010100)
+U(%11001010) <-< true  // Equivalent to U(%10010101)
+U(%01111111) <-< false // Equivalent to U(%11111110)
+----
+
+==== Assign by Rotate Left `+<=<+` [[assign_rotate_left]]
+
+Performs a left rotation using both operands, then assigns the value to the lvalue left operand.
+Returns the carry: a value of type `Bool` equal to left operand's highest bit prior to the operation.
+
+----
+U foo = %11001010
+foo <=< false // Sets 'foo' to U(%10010100). Returns true.
+----
+
+==== Rotate Right `+>->+` [[rotate_right]]
+
+Moves each of the bits of the right operand one place to the right, with the highest bit being filled with the value of the left operand.
+The right operand must be a <<quantity_type, quantity_type>>, and the left operand must be type `Bool`.
+The return type matches the right operand's type.
+
+----
+false >-> U(%11001010) // Equivalent to U(%01100101)
+true  >-> U(%11001010) // Equivalent to U(%11100101)
+false >-> U(%11111110) // Equivalent to U(%01111111)
+----
+
+[NOTE]
+This operation corresponds to the 6502 assembly instruction `ROR`.
+
+==== Assign by Rotate Right `+>=>+` [[assign_rotate_right]]
+
+Performs a right rotation using both operands, then assigns the value to the lvalue right operand.
+Returns the carry: a value of type `Bool` equal to right operand's lowest bit prior to the operation.
+
+----
+U foo = %11001010
+false >=> foo // Sets 'foo' to %01100101. Returns false.
+----
+
+[NOTE]
+This operator requires an lvalue on the right side of the operator, which is unlike other assignment operators.
+
+==== Shift Left `<<` [[shift_left]]
+
+Moves each of the bits of the left operand to the left N places, where N is the right operand of type `U`, 
+and filling blank spaces with `0`.
+The return type matches the left operand's type.
+
+----
+U(%11110001) << 1 // Equivalent to U(%11100010)
+U(%11110001) << 3 // Equivalent to U(%10001000)
+----
+
+See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operations]
+
+[NOTE]
+The NES performs shifts one bit at a time, meaning `x << 1` is five times faster than `x << 5`,
+and shifting by a variable (`x << y)` generates a loop in the assembly.
+
+==== Assign by Shift Left `+<<=+` [[assign_shift_left]]
+
+Performs a left shift using both operands, then assigns the value to the lvalue left operand.
+Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occured).
+
+----
+U foo = %11001010
+foo <<= 2 // Sets 'foo' to U(%00101000). Returns true.
+----
+
+[NOTE]
+Unlike in other languages, this operator doesn't return its left operand.
+
+==== Shift Right `>>` [[shift_right]]
+
+Moves each of the bits of the left operand to the right N places, where N is the right operand of type `U`.
+If the left operand is unsigned, the blank spaces are filled with `0`, 
+otherwise the blank spaces are filled with the highest bit of the left operand (this is called sign extension).
+The return type matches the left operand's type.
+
+----
+U(%11110001) >> 1 // Equivalent to U(%01111000)
+S(%11110001) >> 1 // Equivalent to S(%11111000)
+U(%11110001) >> 3 // Equivalent to U(%00011110)
+S(%11110001) >> 3 // Equivalent to S(%11111110)
+S(%01110001) >> 3 // Equivalent to S(%00001110)
+----
+
+See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operations]
+
+[NOTE]
+The NES performs shifts one bit at a time, meaning `x >> 1` is five times faster than `x >> 5`,
+and shifting by a variable (`x >> y)` generates a loop in the assembly.
+
+==== Assign by Shift Right `+>>=+` [[assign_shift_right]]
+
+Performs a right shift using both operands, then assigns the value to the lvalue left operand.
+Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occured).
+
+----
+U foo = %11001010
+foo >>= 2 // Sets 'foo' to U(%00110010). Returns true.
+----
+
+[NOTE]
+Unlike in other languages, this operator doesn't return its left operand.
+
+==== Bitwise AND `&` [[bitwise_and]]
+
+Applies the AND operation across each bit of the operands, returning the result.
+The operands must be of the same <<arithmetic_type, arithmetic type>>, although `Int` and `Real` will convert.
+
+----
+U(%11110000) & U(%10101010) // Equivalent to U(%10100000)
+----
+
+See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operations]
+
+==== Assign by Bitwise AND `&=` [[assign_bitwise_and]]
+
+Converts the right operand to the left operand's type, then performs a bitwise AND using both operands and assigns the value to the lvalue left operand.
+Returns the left operand's new value.
+
+----
+U foo = %11110000
+foo &= %10101010 // Sets 'foo' to U(%10100000)
+----
+
+==== Bitwise XOR `^` [[bitwise_xor]]
+
+Applies the XOR operation across each bit of the operands, returning the result.
+The operands must be of the same <<arithmetic_type, arithmetic type>>, although `Int` and `Real` will convert.
+
+----
+U(%11110000) ^ U(%10101010) // Equivalent to U(%01011010)
+----
+
+See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operations]
+
+==== Assign by Bitwise XOR `^=` [[assign_bitwise_xor]]
+
+Converts the right operand to the left operand's type, then performs a bitwise XOR using both operands and assigns the value to the lvalue left operand.
+Returns the left operand's new value.
+
+----
+U foo = %11110000
+foo ^= %10101010 // Sets 'foo' to U(%01011010)
+----
+
+==== Bitwise OR `|` [[bitwise_or]]
+
+Applies the OR operation across each bit of the operands, returning the result.
+The operands must be of the same <<arithmetic_type, arithmetic type>>, although `Int` and `Real` will convert.
+
+----
+U(%11110000) | U(%10101010) // Equivalent to U(%11111010)
+----
+
+See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operations]
+
+==== Assign by Bitwise OR `|=` [[assign_bitwise_or]]
+
+Converts the right operand to the left operand's type, then performs a bitwise OR using both operands and assigns the value to the lvalue left operand.
+Returns the left operand's new value.
+
+----
+U foo = %11110000
+foo |= %10101010 // Sets 'foo' to U(%11111010)
+----
+
+==== Logical AND `&&` [[logical_and]]
+
+Implements the https://en.wikipedia.org/wiki/Short-circuit_evaluation["short-circuit"] version of the AND operation from boolean logic.
+
+Evaluates the left operand and converts it to `Bool`. If it is `false`, the operator returns `false`. 
+Otherwise, it evaluates the right operand and returns its value converted to `Bool`.
+
+----
+false && false  // Returns false
+true  && false  // Returns false
+false && true   // Returns false
+true  && true   // Returns true
+----
+
+==== Logical OR `||` [[logical_or]]
+
+Implements the https://en.wikipedia.org/wiki/Short-circuit_evaluation["short-circuit"] version of the OR operation from boolean logic.
+
+Evaluates the left operand and converts it to `Bool`. If it is `true`, the operator returns `true`. 
+Otherwise, it evaluates the right operand and returns its value converted to `Bool`.
+
+----
+false || false  // Returns false
+true  || false  // Returns true
+false || true   // Returns true
+true  || true   // Returns true
+----
+
+==== Less Than `<` [[less_than]]
+
+Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is less than the right and `false` otherwise.
+The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+----
+3 <  10 // Returns true
+3 < -10 // Returns false
+----
+
+==== Less Than or Equal To `+<=+` [[less_than_or_equal_to]]
+
+Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is less than or equal to the right and `false` otherwise.
+The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+----
+3 <= 3   // Returns true
+3 <= -10 // Returns false
+----
+
+==== Greater Than `>` [[greater_than]]
+
+Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is greater than the right and `false` otherwise.
+The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+----
+3 >  10 // Returns false
+3 > -10 // Returns true
+----
+
+==== Greater Than or Equal To `>=` [[greater_than_or_equal_to]]
+
+Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is greater than or equal to the right and `false` otherwise.
+The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+----
+3 >= 3  // Returns true
+3 >= 10 // Returns false
+----
+
+==== Equal To `==` [[equal_to]]
+
+Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
+The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+----
+3 == 3  // Returns true
+3 == 10 // Returns false
+----
+
+==== Not Equal To `!=` [[not_equal_to]]
+
+Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
+The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+----
+3 != 3  // Returns false
+3 != 10 // Returns true
+----
+
+==== Assign `=` [[assign]]
+
+Stores the right operand into the left and returns the new value of the left operand.
+The right operand must have the same type as the left operand, although `Int` and `Real` will convert.
+
+----
+U foo
+foo = 10 // 'foo' is now equal to 10
+----
+
+=== Arithmetic Type [[arithmetic_type]]
+=== Quantity Type [[quantity_type]]
+=== PAA [[paa]]
+
+
+
+=== Explicit Type Casts [[casts]]
+
+Type casts convert values into different types.
+
+Basic syntax:
+----
+Type(value)
+----
+Where `type` is any type name, and `value` is any expression.
+
+Example:
+
+----
+fn example()
+    U some_u = 10
+    SS some_ss = SS(some_u)    // An explicit cast to SS
+    UUF some_uuf = UUF(some_u) // An explicit cast to UUF
+----
+
+==== Zero Initializations
+
+A type cast with no arguments is called a zero initialization.
+The value, its struct members, and its array elements are initialized to zero.
+
+----
+U()          // equivalent to U(0)
+UF()         // equivalent to U(0.0)
+U[3]()       // equivalent to U[3](0, 0, 0)
+SomeStruct() // equivalent to SomeStruct(0, 0)
+----
+
+==== Array Fills
+
+Array fills are used to create arrays where every element holds identical values.
+They are specified as an array cast, where the cast's singular argument can be converted to the element type.
+
+----
+S[2](50) // equivalent to S[2](50, 50)
+U[5](11) // equivalent to U[5](11, 11, 11, 11, 11)
+----
+
+=== Comments
+
+NESFab supports two kinds of https://en.wikipedia.org/wiki/Comment_(computer_programming)[comments]: single-line and multi-line.
+
+==== Single-Line Comments
+
+Single-line comments begin with the character sequence `//`, and terminate at the end of the line.
+
+----
+// This is a single-line comment.
+
+ct U foo = 10 // You can put them after lines of code to document it.
+----
+
+==== Multi-Line Comments
+
+Multi-line comments begin with the character sequence `/\*` on a new line, and terminate with the character sequence `*/`, followed by a line ending.
+
+[NOTE]
+Unlike other languages, multi-line comments cannot share lines with code.
+
+----
+/*
+   This is a multi-line
+   comment!
+*/
+
+/* This is also a 
+   multi-line comment! */
+
+ct U foo = 10 /* This won't compile. 
+Multi-line comments cannot share lines with code. */
+
+/*
+   This won't compile.
+   Multi-line comments cannot share lines with code.
+*/ ct U foo = 10
+----
+
+=== Indentation
+
+Indentation refers to the spaces at the beginning of each line.
+In NESFab, indentation is significant and alters the behavior of code.
+
+Indentation is used to create **code blocks**, where every line but the first is indented using spaces (not tabs).
+The amount of spaces is up to you, but it must be consistent throughout the block.
+----
+FIRST LINE
+    INDENTED LINE
+    INDENTED LINE
+    INDENTED LINE
+----
+*Code blocks* can be nested:
+----
+FIRST BLOCK
+    INDENTED LINE
+    INDENTED LINE
+    SECOND BLOCK
+        INDENTED LINE
+        INDENTED LINE
+    THIRD BLOCK
+        INDENTED LINE
+        INDENTED LINE
+
+----
+
+The meaning of the indentation is determined by the first line - it might be a construct like `if` or `else`, 
+a definition like a function, or something else.
+
+=== Top Level
+
+=== Values and Types
+
+Some text
+
+=== Boolean Literals
+
+There are two boolean literals:
+
+- `true`
+- `false`
+
+Boolean literals have the type `Bool`.
+
+=== Numeric Literals
+
+Numeric literals can be either decimal, hexadecimal, or or binary. Hexadecimal literals are prefixed with a `$` character, while binary with `%`:
+
+----
+1234  // Decimal
+$89AB // Hexadecimal
+%1010 // Binary
+----
+
+Literals can use decimal points:
+
+----
+12.34  // Decimal
+$.89AB // Hexadecimal
+%1010. // Binary
+----
+
+Literals with decimal points have the type `Real`, while those without are `Int`.
+
+=== String and Character Literals
+
+==== Syntax and Semantics
+
+Basic syntax:
+
+----
+'c'   // Character using the default charmap
+"NES" // Uncompressed string using the default charmap
+`NES` // Compressed string using the default charmap
+
+'c'some_charmap   // Character using a specific charmap
+"NES"some_charmap // Uncompressed string using a specific charmap
+`NES`some_charmap // Compressed string using a specific charmap
+----
+
+Character literals have the type `U`. String literals have the type `U[N]`, where `N` is the length of the string.
+
+Each string and character literal uses a `charmap` 
+to translate the characters from Unicode into the `charmap`'s range.
+The `charmap` is set by an identifier following the literal.
+If no identifier follows, the default `charmap` is used.
+
+Strings can be uncompressed or compressed. 
+Compressed strings use a https://en.wikipedia.org/wiki/Byte_pair_encoding[byte-pair encoding], 
+where unused values in the charmap represent pairs of bytes.
+These pairs are expanded recursively to decompress the string.
+
+The nice thing about byte-pair encoding is that uncompressed strings are valid under the encoding too.
+This means functions for compressed strings also work with uncompressed strings.
+
+TODO: explain how to use.
+
+
+==== Escape Sequences
+
+Escape sequences denote characters that are either impossible or unwiedly to write otherwise.
+Every escape sequence begins with backslash character `\`, followed by one or more characters.
+
+For example, to denote the apostrophe character, you must use an escape sequence, as `'''` is not valid syntax.
+Likewise, to write a string containing line breaks, you must use escape sequences.
+
+----
+'\''            // An apostrophe character literal
+"Hello\nWorld!" // A multi-line string literal
+----
+
+The valid escape sequences are listed below.
+
+[cols="1,1,2"]
+|===
+|Escape Sequence |Unicode Code Point |Description
+
+|`\0`
+|$00
+| Sentinel
+
+|`\a`
+|$07
+| Bell or alert
+
+|`\b`
+|$08
+| Backspace
+
+|`\t`
+|$09
+| Tab
+
+|`\n`
+|$0A
+| Newline
+
+|`\v`
+|$0B
+| Vertical tab
+
+|`\f`
+|$0C
+| Form feed
+
+|`\r`
+|$0D
+| Carriage return
+
+|`\"`
+|$22
+| Quotation mark
+
+|`\'`
+|$27
+| Apostrophe
+
+|`\\`
+|$5C
+| Backslash
+
+|`\``
+|$60
+| Backtick
+
+|`\/`
+|$FFFFFFFF
+| Special meaning for `charmap` definitions
+|===
+
+Unicode code points can also be specified directly. Below, each N character represents any hexadecimal digit.
+
+[cols="1,1"]
+|===
+|Escape Sequence |Unicode Code Point
+
+|`\xNN`
+|$NN
+
+|`\uNNNN`
+|$NNNN
+
+|`\UNNNNNNNN`
+|$NNNNNNNN
+|===
+
+
+== Types
+
+=== Scalar Types
+
+==== Integer Types
+
+Unsigned integer types are expressed using the character `U`, while signed integer types use `S`.
+The values of signed integers are expressed in https://en.wikipedia.org/wiki/Two%27s_complement[two's complement] form.
+
+The 6 integer types are listed below.
+
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+|`U`
+|1
+|[0, 255]
+
+|`S`
+|1
+|[-128, 127]
+
+|`UU`
+|2
+|[0, 65535]
+
+|`SS`
+|2
+|[-32768, 32767]
+
+|`UUU`
+|3
+|[0, 16777215]
+
+|`SSS`
+|3
+|[-8388608, 8388607]
+|===
+
+==== Unit-Fractional Types
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+|`F`
+|1
+|[$0.00, $0.FF]
+
+|`FF`
+|2
+|[$0.0000, $0.FFFF]
+
+|`FFF`
+|3
+|[$0.000000, $0.FFFFFF]
+|===
+
+==== Fixed-point Types
+
+An integer type and a unit-fractional type can be combined to form a fixed-point type, merging the ranges of both.
+The syntax is the integer type, followed by the unit-fractional type, without no other characters in-between.
+
+*There are 18 possible fixed-point types, but only 3 are listed below.* The rest can be inferred from the tables above.
+
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+|`UF`
+|1
+|[$00.00, $FF.FF]
+
+|`SSF`
+|3
+|[-$8000.00, $7FFF.FF]
+
+|`UFFF`
+|4
+|[$00.000000, $FF.FFFFFF]
+|===
+
+==== Numeric Constant Types
+
+`Int` and `Real` are used for compile-time constants.
+
+Literal expressions denoting integers, like `1234` or `$40`, have the type `Int`.
+Likewise, literal expressions with a `.` to denote fractions, like `3.14`, `0.5`, or `100.0`, have the type `Real`.
+
+Values of these types can only exist at compile-time. 
+Any attempt to use them at run-time will error.
+
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+|`Int`
+|4
+|[-2147483648, 2147483647]
+
+|`Real`
+|7
+|[-$80000000.000000, $7FFFFFFF.FFFFFF]
+|===
+
+In many cases, `Int` and `Real` implicitly convert to other numeric types based on context.
+For example, when using `Int` or `Real` in an operator like `+`, 
+the value converts to match the other operand's type.
+
+----
+U(a) + Int(b) // 'b' will implicitly convert to type U.
+----
+
+When converting `Real` to a smaller representation, the value will be rounded.
+This is in contrast to other type conversions, which truncate.
+The purpose of this rounding is to improve the accuracy of `Real` constants.
+
+----
+U x = U(1.75)     // 'x' is set to 2 via rounding, NOT 1.
+U x = U(UF(1.75)) // 'x' is set to 1 via truncation, NOT 2.
+----
+
+Although `Int` and `Real` cannot be used at run-time, 
+it is very useful to use them at compile-time.
+For example, you may use them to define numeric constants:
+
+----
+ct Int MEANING_OF_LIFE = 42
+ct Real PI = 3.14159265359 
+ct Real GOLDEN_RATIO= 1.61803398875
+----
+
+==== Bool
+
+The type `Bool` is short for "boolean", and represents the values `true` and `false`.
+
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+| `Bool`
+| 1
+| [`false`, `true`]
+|===
+
+The `Bool` type is space-inefficient, as each value takes a byte if stored in memory.
+If you need lots of boolean values, it's recommended to combine them into bit-field flags using an integer type:
+
+----
+ct U IS_ALIVE  = 1 << 0
+ct U IS_MOVING = 1 << 1
+ct U IS_HAPPY  = 1 << 2
+
+fn example()
+    U flags = 0
+    flags |= IS_ALIVE   // set flags
+    flags &= ~IS_MOVING // clear flags
+    if flags & IS_HAPPY // test flags
+        // . . .
+----
+
+==== Void
+
+The type `Void` represents no value. 
+Its purpose is to represent the return type of functions that return no value.
+
+Note that you do not have to use the `Void` keyword, 
+as leaving the return type off of a function implies `Void`.
+
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+| `Void`
+| 0
+| N/A
+|===
+
+==== Pointer Types
+
+TODO
+
+==== Address Types
+
+The address type `AA` is used for 16-bit hardware addresses, 
+and has the same representation as pointers, ignoring groups.
+This type is used for inline assembly and hardware expressions.
+
+`AAA` behaves like `AA`, but has an additional byte which tracks the address's bank.
+
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+| `AA`
+| 2
+| [$0000, $FFFF]
+
+| `AAA`
+| 3
+| [$00:$0000, $FF:$FFFF]
+
+|===
+
+When serializing, the bank byte comes TODO after? before?
+
+TODO
+
+=== Arrays
+
+NESFab has two kinds of https://en.wikipedia.org/wiki/Array_(data_structure)[array] types with different restrictions for each.
+The first has value semantics and behaves like arrays do in other languages, but cannot be referenced by pointers. 
+The second can, but it very limited otherwise and can only represent elements of type U.
+
+==== Typed Element Arrays (TEAs)
+
+A TEA is an array of a specified type, of any size between 1 and 65536. Two TEA variables are shown below.
+
+----
+fn example()
+    // Syntax is TYPE[SIZE]
+    UU[10] a_tea_variable
+    SomeStruct[1500] another_tea_variable
+----
+
+At the type level, TEAs are strictly one-dimensional.
+That is, one cannot have a TEA of a TEA.
+The compiler will enforce this even if TEAs are hidden inside structs.
+
+----
+struct SomeStruct
+    U[30] struct_tea
+
+fn foo()
+    U[10][20]      // Error! Can't have multi-dimensional TEAs
+    SomeStruct[50] // Error! Can't have multi-dimensional TEAs
+----
+
+A TEA value can be created using a cast. 
+The size can be left blank and the compiler will infer it.
+
+----
+fn example()
+    U[3] small_tea = U[3](10, 20, 30) // Initialize with value
+    U[] inferred_tea = U[](3, 1, 4)   // Inferred size
+----
+
+TEAs are always copied by value.
+To copy more or fewer elements, the TEA can be cast to a different size before copying.
+When casting to a larger TEA, the new elements at the end of the TEA are zero-initialized.
+
+----
+fn example()
+    U[3] small_tea = U[3](10, 20, 30)
+    U[3] copied_tea = small_array
+    U[2] smaller_tea = U[2](small_tea)
+    U[5] larger_tea  = U[5](small_tea)
+----
+
+
+Operator `[]` or operator `{}` can be used to read or write the elements of a TEA value. 
+The indexing is zero-based.
+
+- `[]` expects an index argument of type `U`, limiting it to the first 256 elements.
+- `{}` expects an index argument of type `UU`.
+
+----
+fn example()
+    UU[1500] a_tea_variable
+    a_tea_variable[4] = 64   // Set the 5th element to 64.
+    a_tea_variable{999} = 10 // Set the 1000th element to 10.
+    a_tea_variable[999] = 10 // Error! 999 can't convert to type U.
+----
+
+The rationale for two different indexing operators is performance; 
+in general, `[]` executes significantly faster than `{}`, 
+as the NES only supports 8-bit indexing natively.
+
+Note that in some cases, the compiler will be able to optimize operator `{}` to take advantage of 8-bit indexing on the NES's hardware.
+One such pattern it recognizes is:
+
+----
+tea{U(index) + CONSTANT}
+----
+
+But in general, one should prefer to use `[]`, with TEAs of size 256 or less.
+
+==== Pointer-Addressable Arrays (PAAs)
+
+PAAs only support a single element type: `U`, and can only be defined at global scope. 
+Like TEAs, they can be any size from 1 to 65536.
+
+----
+vars /example
+    // Syntax is [SIZE]
+    // (You do not specify a type, as it is always type U)
+    [10] a_paa
+    [1500] another_paa
+
+fn example([100] bad_param) // Error! Cannot use PAAs as fn parameters
+    [100] bad_variable      // Error! Cannot use PAAs as local variables
+----
+
+PAAs cannot be created using casts and there is no support for copying them.
+
+Like TEAs, operator `[]` or operator `{}` can be used to read or write the elements of a TEA value. 
+The indexing is zero-based.
+
+- `[]` expects an index argument of type `U`, limiting it to the first 256 elements.
+- `{}` expects an index argument of type `UU`.
+
+----
+vars /example
+    [10] a_paa
+
+fn example()
+    MM/example ptr = @a_paa // Get a pointer to 'a_paa'
+----
+
+=== Structures
+
+Structures (or "structs"), 
+
+           TODO
+
+== TODO
+
+=== TODO
+
+==== fn keyword [[fn]]
+
+`fn` is used to define functions.
+
+==== ct keyword [[ct]]
+
+=== charmap keyword [[charmap]]
+
+The `charmap` keyword defines character maps,
+which are sets of characters along with a mapping from each character to byte values.
+It is used to specify text encoding, like 
+https://en.wikipedia.org/wiki/ASCII[ASCII],
+https://en.wikipedia.org/wiki/EBCDIC[EBCDIC],
+or https://en.wikipedia.org/wiki/MIK_(character_set)[MIK].
+
+*Top-level syntax:*
+
+----
+charmap identifier_name("string", 's')
+----
+
+- *Optional:* `identifier_name` is the name of the charmap. 
+  When left out, the default `charmap` is defined.
+- *Mandatory:* `"string"` is a string literal, defining the characters of the charmap. 
+  The first character in the string will map to a value of zero, 
+  with other characters mapping to one higher than the character preceding them. 
+- *Optional:* `'s'` is a charcter literal, defining the sentinel. 
+  When left out, no sentinel is defined.
+
+*Example:*
+
+----
+charmap foo(" ,.!?ABCDEFGHIJKLMNOPQRSTUVWXYZ\0", '\0')
+
+// Defines the mapping:
+// ' ' = 0
+// ',' = 1
+// '.' = 2
+// '!' = 3
+// '?' = 4
+// 'A' = 5
+// 'B' = 6
+// 'C' = 7
+// ... and so on
+// with the sentinel being: '\0'
+
+
+charmap bar("abcd")
+
+// Defines the default charmap mapping:
+// 'a' = 0
+// 'b' = 1
+// 'c' = 2
+// 'd' = 3
+// with no sentinel.
+----
+
+==== Shared Characters
+
+The escape sequence `\/` has a special meaning inside of `charmap` definitions.
+A charcter preceding `\/` will map to the same value as the character following it.
+
+Commonly, `\/` is used when multiple characters can use the same glyph,
+such as `0` and `O`, or `1` and `I`.
+
+----
+charmap foo("_0\/O1\/I\/|X", '\0')
+
+// Defines the mapping:
+// '_' = 0
+// '0' = 1
+// 'O' = 1
+// '1' = 2
+// '|' = 2
+// 'I' = 2
+// 'X' = 3
+----
+
+==== Sizes and Members
+
+The number of unique values in a `charmap` can be accessed using the `size` member,
+which is of type `Int`.
+
+----
+charmap foo("abc")
+
+// The member 'size' is defined as:
+// foo.size = 3
+
+// Example use:
+ct U last_foo_char = foo.size - 1
+----
+
+To access the members of the default `charmap`, the expression `charmap` is used:
+
+----
+// Define the default charmap:
+charmap("xyz")
+
+// Access the default charmap using 'charmap':
+ct U last_default_char = charmap.size - 1
+----
+
+==== Sentinels
+
+For `charmaps` that define a sentinel character, two things occur:
+
+- String literals using the `charmap` have the sentinel character appended onto the end.
+- The member `sentinel` of type `U` is defined for `charmap`.
+
+The intention behind sentinel characters is to mark the end of strings.
+This can be used to mimic the behavior of the C programming language's https://en.wikipedia.org/wiki/Null-terminated_string[null-terminated strings].
+
+----
+charmap foo("abc", 'b') 
+
+// String literals have 'b' tacked on:
+// "string"foo[6] = 'b'
+// len("string"foo) = 7
+
+// The member 'sentinel' is defined for 'foo':
+// foo.sentinel = 1
+
+charmap c_string("\0abc", '\0') 
+
+// This literal is terminated by the value 0:
+// "hello world"c_string
+
+// The member 'sentinel' is defined for 'c_string':
+// c_string.sentinel = 0
+----
+
+Note that sentinels must have a mapping defined in the `charmap`.
+Doing so otherwise is an error.
+
+----
+charmap bad_charmap("abc", 'z') // Error! 'z' is not in the charmap!
+----
+
+==== Default `data` Groups
+
+`charmap` accepts a single group in its `data` <<modifiers, modifiers>>.
+If defined, string literals using the `charmap` become valid operands to <<at, operator `@`>> and <<amper, operator `&`>>.
+When using these operators, the contents of the string literal will exist in the group as data.
+
+Example:
+
+----
+charmap foo("ABCD")
+: data /strings
+
+// Can now reference strings using literals:
+ct CCC/strings some_ptr = @"AAA"
+
+// This is akin to defining the string inside a 'data' block first:
+data /strings
+    [] some_string
+        ("AAA")
+// ... and then referencing it:
+ct CCC/strings another_ptr = @some_string
+----
+
+=== Modifiers [[modifiers]]
+
+TODO
+
+
+
+
+
+Example usage:
+
+----
+// A charmap of decimal digits:
+charmap foo("0123456789")
+
+// A charmap of uppercase letters, a few punctuation marks, with a sentinel:
+charmap bar(" ,.!ABCDEFGHIJKLMNOPQRSTUVWXZY\0", '\0)
+----
+
+Following the `charmap` keyword, 
+
+ASCII, EBDIC, 
+https://en.wikipedia.org/wiki/MIK_(character_set)
+A character is a [https://en.wikipedia.org/wiki/Unicode[Unicode] code point.
+This 
+
+On modern systems, 
+a format like  or https://en.wikipedia.org/wiki/Unicode[Unicode] 
+is used to encode text,
+but these are undesirable on simpler systems like the NES.
+
+== Second section
+
+More test

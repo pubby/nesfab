@@ -26,13 +26,26 @@ void gmanager_t::init(fn_ht fn)
         bitset_uint_t* const named_set = bitset_pool.alloc(set_size);
         assert(bitset_all_clear(set_size, named_set));
 
-        // TODO: handle inlining
-        for(auto const& pair : fn->precheck_tracked().gvars_used)
+        auto const add_gvar = [&](gvar_ht gvar)
         {
-            gvar_ht gvar = pair.first;
-            gvar_set.container.push_back(gvar);
+            gvar_set.insert(gvar);
             bitset_set_n(set_size, named_set, gvar->begin().id, gvar->num_members());
-        }
+        };
+
+        fn->for_each_inlined([&](fn_t const& fn)
+        {
+            for(auto const& pair : fn.precheck_tracked().gvars_used)
+                add_gvar(pair.first);
+
+            if(fn.mods() && (fn.mods()->explicit_lists & MODL_EMPLOYS))
+            {
+                fn.mods()->for_each_list_vars(MODL_EMPLOYS, [&](group_vars_ht gv, pstring_t)
+                {
+                    for(gvar_ht gvar : gv->gvars())
+                        add_gvar(gvar);
+                });
+            }
+        });
 
         // Start out with a single equivalence class, containing all the
         // globals possibly used in this fn (including fn calls).
@@ -42,32 +55,38 @@ void gmanager_t::init(fn_ht fn)
         bitset_uint_t* const initial_set = bitset_pool.alloc(set_size);
         assert(bitset_all_clear(set_size, initial_set));
 
-        for(auto const& pair : fn->precheck_tracked().calls)
+        fn->for_each_inlined([&](fn_t const& fn)
         {
-            fn_t const& call = *pair.first;
-
-            if(call.fclass == FN_CT)
-                continue;
-            assert(call.fclass != FN_MODE);
-
-            assert(set_size == call.ir_reads().size());
-            bitset_or(set_size, initial_set, call.ir_reads().data());
-            bitset_or(set_size, initial_set, call.ir_writes().data());
-        }
-
-        for(auto const& pair : fn->precheck_tracked().goto_modes)
-        {
-            if(mods_t const* mods = pair.second.mods)
+            for(auto const& pair : fn.precheck_tracked().calls)
             {
-                mods->for_each_group_vars([&](group_vars_ht gv)
-                {
-                    bitset_or(set_size, initial_set, gv->gmembers().data());
-                });
-            }
-        }
+                fn_t const& call = *pair.first;
 
-        // Needed as we used 'push_back' to generate the set:
-        std::sort(gvar_set.container.begin(), gvar_set.container.end());
+                if(call.fclass == FN_CT)
+                    continue;
+
+                assert(call.fclass != FN_MODE);
+                assert(call.global.compiled());
+
+                if(call.always_inline())
+                    continue;
+
+                assert(set_size == call.ir_reads().size());
+                bitset_or(set_size, initial_set, call.ir_reads().data());
+                bitset_or(set_size, initial_set, call.ir_writes().data());
+            }
+
+            for(auto const& pair : fn.precheck_tracked().goto_modes)
+            {
+                if(mods_t const* mods = pair.second.mods)
+                {
+                    mods->for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
+                    {
+                        bitset_or(set_size, initial_set, gv->gmembers().data());
+                    });
+                }
+            }
+
+        });
 
         // The eq classes won't involve any global named in the fn.
         bitset_difference(set_size, initial_set, named_set);
@@ -116,39 +135,46 @@ void gmanager_t::init(fn_ht fn)
         // TODO: remove
         //bitset_uint_t* const temp = ALLOCA_T(bitset_uint_t, set_size);
 
-        // Split calls.
-        for(auto const& pair : fn->precheck_tracked().calls)
+        fn->for_each_inlined([&](fn_t const& fn)
         {
-            fn_t const& call = *pair.first;
-
-            if(call.fclass == FN_CT)
-                continue;
-            assert(call.fclass != FN_MODE);
-            assert(call.global.compiled());
-
-            split(set_size, call.ir_reads().data(), call.ir_writes().data());
-
-            // If it waits on an NMI, split using the NMI's reads and writes.
-            if(call.precheck_fences())
+            // Split calls.
+            for(auto const& pair : fn.precheck_tracked().calls)
             {
-                // TODO: remove
-                //bitset_copy(bitset_size(), temp, call.fence_reads().data());
-                //bitset_or(bitset_size(), temp, call.fence_writes().data());
-                split(set_size, call.fence_rw().data(), call.fence_rw().data());
-            }
-        }
+                fn_t const& call = *pair.first;
 
-        // Split goto modes.
-        for(auto const& pair : fn->precheck_tracked().goto_modes)
-        {
-            if(mods_t const* mods = pair.second.mods)
-            {
-                mods->for_each_group_vars([&](group_vars_ht gv)
+                if(call.fclass == FN_CT)
+                    continue;
+
+                assert(call.fclass != FN_MODE);
+                assert(call.global.compiled());
+
+                if(call.always_inline())
+                    continue;
+
+                split(set_size, call.ir_reads().data(), call.ir_writes().data());
+
+                // If it waits on an NMI, split using the NMI's reads and writes.
+                if(call.precheck_fences())
                 {
-                    split(set_size, gv->gmembers().data(), gv->gmembers().data());
-                });
+                    // TODO: remove
+                    //bitset_copy(bitset_size(), temp, call.fence_reads().data());
+                    //bitset_or(bitset_size(), temp, call.fence_writes().data());
+                    split(set_size, call.fence_rw().data(), call.fence_rw().data());
+                }
             }
-        }
+
+            // Split goto modes.
+            for(auto const& pair : fn.precheck_tracked().goto_modes)
+            {
+                if(mods_t const* mods = pair.second.mods)
+                {
+                    mods->for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
+                    {
+                        split(set_size, gv->gmembers().data(), gv->gmembers().data());
+                    });
+                }
+            }
+        });
 
         assert(eq_classes.size() >= 1);
 
@@ -164,7 +190,6 @@ void gmanager_t::init(fn_ht fn)
             });
             gmember_sets.push_back(eq_classes[i]);
         }
-
     }
 
     //////////////////

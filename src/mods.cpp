@@ -24,54 +24,98 @@ std::string_view to_string(mod_flags_t flag)
     }
 }
 
+std::string_view mod_list_name(mod_list_t list)
+{
+    using namespace std::literals;
+    switch(list)
+    {
+    case MODL_VARS: return "vars"sv;
+    case MODL_DATA: return "data"sv;
+    case MODL_EMPLOYS: return "employs"sv;
+    case MODL_PRESERVES: return "preserves"sv;
+    case MODL_STOWS: return "stows"sv;
+    default: return "bad list modifier"sv;
+    }
+}
+
 void mods_t::validate_groups() const
 {
-    auto const validate = [&](group_class_t gclass, auto const& pair)
+    for(auto const& pair : lists)
     {
-        if(pair.first->gclass() == gclass)
-            return;
+        switch(pair.first->gclass())
+        {
+        case GROUP_DATA:
+            if(pair.second.lists & ~(MODL_DATA | MODL_EMPLOYS | MODL_STOWS))
+                goto error;
+            break;
 
-        pstring_t const mod_pstring = pair.second;
-        pstring_t const def_pstring = pair.first->pstring();
+        case GROUP_VARS:
+            if(pair.second.lists & ~(MODL_VARS | MODL_EMPLOYS | MODL_PRESERVES))
+                goto error;
+            break;
 
-        throw compiler_error_t(
-            fmt_error(mod_pstring, fmt("% is not a % group.", pair.first->name, group_class_keyword(gclass)))
-            + fmt_note(def_pstring, fmt("% was declared here.", pair.first->name)));
-    };
-
-    for(auto const& pair : group_vars)
-        validate(GROUP_VARS, pair);
-    for(auto const& pair : group_data)
-        validate(GROUP_DATA, pair);
+        default:
+        error:
+            throw compiler_error_t(
+                fmt_error(pair.second.pstring, fmt("% is not compatible with this modifier.", pair.first->name))
+                + fmt_note(pair.first->pstring(), fmt("% was declared here.", pair.first->name)));
+        }
+    }
 }
 
-void mods_t::for_each_group_vars(std::function<void(group_vars_ht)> const& fn) const
+void mods_t::for_each_list(mod_list_t listf, std::function<void(group_ht, pstring_t)> const& fn) const
 {
-    for(auto const& pair : group_vars)
-        if(pair.first->gclass() == GROUP_VARS)
-            fn(pair.first->handle<group_vars_ht>());
+    if(explicit_lists & listf)
+        for(auto const& pair : lists)
+            if(pair.second.lists & listf)
+                fn(pair.first, pair.second.pstring);
 }
 
-void mods_t::for_each_group_data(std::function<void(group_data_ht)> const& fn) const
+void mods_t::for_each_list_vars(mod_list_t listf, std::function<void(group_vars_ht, pstring_t)> const& fn) const
 {
-    for(auto const& pair : group_data)
-        if(pair.first->gclass() == GROUP_DATA)
-            fn(pair.first->handle<group_data_ht>());
+    if(explicit_lists & listf)
+        for(auto const& pair : lists)
+            if(pair.second.lists & listf)
+                if(pair.first->gclass() == GROUP_VARS)
+                    fn(pair.first->handle<group_vars_ht>(), pair.second.pstring);
+}
+
+void mods_t::for_each_list_data(mod_list_t listf, std::function<void(group_data_ht, pstring_t)> const& fn) const
+{
+    if(explicit_lists & listf)
+        for(auto const& pair : lists)
+            if(pair.second.lists & listf)
+                if(pair.first->gclass() == GROUP_DATA)
+                    fn(pair.first->handle<group_data_ht>(), pair.second.pstring);
+}
+
+bool mods_t::in_lists(mod_list_t listf, group_ht g) const
+{
+    if(!(explicit_lists & listf))
+        return false;
+
+    auto it = lists.find(g);
+    if(it == lists.end())
+        return false;
+
+    return it->second.lists & listf;
 }
 
 void mods_t::inherit(mods_t const& from)
 {
-    explicit_group_vars |= from.explicit_group_vars;
-    explicit_group_data |= from.explicit_group_data;
+    explicit_lists |= from.explicit_lists;
 
     mod_flags_t const flag_mask = (from.enable | from.disable) & ~(enable | disable);
     enable |= from.enable & flag_mask;
     disable |= from.disable & flag_mask;
 
-    for(auto const& pair : from.group_vars)
-        group_vars.insert(pair);
-    for(auto const& pair : from.group_data)
-        group_data.insert(pair);
+    for(auto const& pair : from.lists)
+    {
+        auto& mapped = lists[pair.first];
+        mapped.lists |= pair.second.lists;
+        if(!mapped.pstring)
+            mapped.pstring = pair.second.pstring;
+    }
 
     if(from.nmi && !nmi)
     {
@@ -83,14 +127,22 @@ void mods_t::inherit(mods_t const& from)
 void mods_t::validate(
     pstring_t pstring,
     mod_flags_t accepts_flags, 
-    bool accepts_vars, bool accepts_data, 
+    mod_list_t accepts_lists,
     bool accepts_nmi) const
 {
-    if(!accepts_vars && explicit_group_vars)
-        compiler_error(pstring, "Unexpected vars modifier.");
+    if(~accepts_lists & explicit_lists)
+    {
+        mod_list_t const wrong_flags = ~accepts_lists & explicit_lists;
+        std::string wrong_str;
 
-    if(!accepts_data && explicit_group_data)
-        compiler_error(pstring, "Unexpected data modifier.");
+        bitset_for_each(wrong_flags, [&](unsigned bit)
+        {
+            wrong_str.push_back(' ');
+            wrong_str += mod_list_name(1 << bit);
+        });
+
+        compiler_error(pstring, fmt("Unexpected modifiers:%.", wrong_str));
+    }
 
     if(!accepts_nmi && nmi)
         compiler_error(pstring, "Unexpected nmi modifier.");

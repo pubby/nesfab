@@ -22,6 +22,9 @@ constexpr unsigned MAX_ATOMS = 8;
 constexpr unsigned MAX_PAA_SIZE = 16384;
 constexpr unsigned MAX_CFG_INPUT = 256;
 constexpr unsigned MAX_CFG_OUTPUT = 256;
+constexpr unsigned INLINE_SIZE_GOAL  = 32;
+constexpr unsigned INLINE_SIZE_LIMIT = 64;
+constexpr unsigned INLINE_SIZE_ONCE  = 128;
 
 struct group_t;
 class global_t;

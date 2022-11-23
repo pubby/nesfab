@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2022, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for reading and handling gamepad button presses.
+// See: https://www.nesdev.org/wiki/Standard_controller
+
 // Gamepad button flags:
 ct U BUTTON_A      = %10000000
 ct U BUTTON_B      = %01000000
@@ -9,6 +18,8 @@ ct U BUTTON_LEFT   = %00000010
 ct U BUTTON_RIGHT  = %00000001
 ct U BUTTON_DPAD   = BUTTON_UP | BUTTON_DOWN | BUTTON_LEFT | BUTTON_RIGHT
 
+// This struct provides an interface to a single gamepad.
+// To use, AND the fields with the button flags above.
 struct Pad
     U held
     U pressed
@@ -16,12 +27,11 @@ struct Pad
 
 vars /pad
     // [0] for the first controller, [1] for the second
-    Pad[2] pads
+    Pad[2] pads = Pad[2]()
 
 // Reads the current gamepad state into 'pads'.
 asm fn read_pads()
-: vars /pad
-: data
+: employs /pad
     default
         ldx &pads.held+0
         ldy #1

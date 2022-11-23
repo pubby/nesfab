@@ -1,4 +1,4 @@
-
+// TODO
 
 vars /decompress_string_vars
     CC/strings decompress_string_ptr
@@ -15,8 +15,7 @@ charmap foo("\0\n", "abcdefghijklmnopqrstuvwxyz
 // Decompresses a single character of the string, returning it.
 // 
 asm fn decompress_string() U
-: vars /decompress_string_vars
-: data /strings
+: employs /strings /decompress_string_vars
     vars
         U stack
 

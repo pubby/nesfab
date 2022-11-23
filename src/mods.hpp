@@ -38,13 +38,44 @@ struct flag_mods_t
     }
 };
 
+/* TODO: remove?
+enum handle_variant_class_t
+{
+    V_GLOBAL,
+    V_GROUP,
+};
+
+struct handle_variant_t
+{
+    handle_variant_class_t vclass;
+    std::uint32_t handle;
+
+    global_ht global() const { assert(vclass == V_GLOBAL); return { handle }; }
+    group_ht group() const { assert(vclass == V_GROUP); return { handle }; }
+};
+*/
+
+using mod_list_t = std::uint8_t;
+// !!! Don't forget to update 'mod_list_name' when adding lists !!!
+constexpr mod_list_t MODL_VARS      = 1 << 0;
+constexpr mod_list_t MODL_DATA      = 1 << 1;
+constexpr mod_list_t MODL_EMPLOYS   = 1 << 2;
+constexpr mod_list_t MODL_PRESERVES = 1 << 3;
+constexpr mod_list_t MODL_STOWS     = 1 << 4;
+
+std::string_view mod_list_name(mod_list_t list);
+
 struct mods_t : public flag_mods_t
 {
-    bool explicit_group_vars = false;
-    bool explicit_group_data = false;
+    mod_list_t explicit_lists = 0;
 
-    fc::vector_map<group_ht, pstring_t> group_vars;
-    fc::vector_map<group_ht, pstring_t> group_data;
+    struct list_mentioned_t
+    {
+        mod_list_t lists = 0;
+        pstring_t pstring = {};
+    };
+
+    fc::vector_map<group_ht, list_mentioned_t> lists;
 
     global_t const* nmi = nullptr;
     pstring_t nmi_pstring = {};
@@ -52,15 +83,18 @@ struct mods_t : public flag_mods_t
     // Ensures groups match their group_class.
     void validate_groups() const;
 
-    void for_each_group_vars(std::function<void(group_vars_ht)> const& fn) const;
-    void for_each_group_data(std::function<void(group_data_ht)> const& fn) const;
+    void for_each_list(mod_list_t lists, std::function<void(group_ht, pstring_t)> const& fn) const;
+    void for_each_list_vars(mod_list_t lists, std::function<void(group_vars_ht, pstring_t)> const& fn) const;
+    void for_each_list_data(mod_list_t lists, std::function<void(group_data_ht, pstring_t)> const& fn) const;
+
+    bool in_lists(mod_list_t lists, group_ht g) const;
 
     void inherit(mods_t const& from);
 
     void validate(
         pstring_t at,
         mod_flags_t accepts_flags = 0, 
-        bool accepts_vars = false, bool accepts_data = false, 
+        mod_list_t accepts_lists = 0,
         bool accepts_nmi = false) const;
 };
 

@@ -31,6 +31,8 @@ namespace sc = std::chrono;
 namespace bc = boost::container;
 using namespace lex;
 
+class eval_t;
+
 using ssa_value_array_t = bc::small_vector<ssa_value_t, 1>;
 
 // Data associated with each block node, to be used when making IRs.
@@ -38,20 +40,34 @@ struct block_d
 {
     using vector_t = std::vector<ssa_value_array_t>;
 
-    // An array of size 'num_ssa_vars()'
+    ssa_value_array_t& var(var_ht v) { assert(v.id < vars.size()); return vars[v.id]; }
+    ssa_value_array_t& unsealed_phi(var_ht v) { assert(v.id < unsealed_phis.size()); return unsealed_phis[v.id]; }
+
+    // An array of size 'num_vars()'
     // Keeps track of which ssa node a var refers to.
     // A handle of {} means the local var isn't in the block.
     vector_t vars;
 
-    // An array of size 'num_ssa_vars()'
+    // An array of size 'num_vars()'
     // Phi nodes in the block which have yet to be sealed.
     vector_t unsealed_phis;
 
     // Only used for labels.
     pstring_t label_name = {};
 
+    // The exit of an inline call points to the entrance,
+    // allowing lookup function to skip over the inlined bits.
+    cfg_ht pre_inline = {};
+
     // A CFG node is sealed when all its predecessors are set.
     bool sealed = false;
+
+    // A root node represents the start of a function (including inlined functions).
+    bool is_root = false;
+
+#ifndef NDEBUG
+    eval_t* creator = nullptr;
+#endif
 };
 
 class eval_t
@@ -126,14 +142,17 @@ private:
             label_map.clear();
         }
     };
+    
+    static thread_local ir_builder_t default_builder;
+    ir_builder_t& builder = default_builder;
 
-    static thread_local ir_builder_t builder;
 public:
     rpair_t final_result;
     byte_block_data_t byte_block_data; // Only used when defining byte blocks
     local_const_t const* local_consts = nullptr;
     precheck_tracked_t* precheck_tracked = nullptr; // Various things callers of 'eval_t' may want.
     romv_t romv = {};
+    unsigned num_globals = 0;
 
     enum do_t
     {
@@ -149,6 +168,9 @@ public:
     static constexpr bool is_interpret(do_t d) { return d == INTERPRET_CE || d == INTERPRET_ASM || d == INTERPRET || d == INTERPRET_LINK; }
     static constexpr bool is_compile(do_t d) { return d == COMPILE; }
     static constexpr bool is_link(do_t d) { return d == INTERPRET_LINK; }
+
+    type_t const& var_type(var_ht v) const { assert(v.id < var_types.size()); return var_types[v.id]; }
+    type_t& var_type(var_ht v) { assert(v.id < var_types.size()); return var_types[v.id]; }
 
     stmt_ht stmt_handle() const { return { stmt - fn->def().stmts.data() }; }
     pstring_mods_t stmt_pstring_mods() const { return { stmt->pstring, fn->def().mods_of(stmt_handle()) }; }
@@ -166,7 +188,11 @@ public:
            precheck_tracked_t* tracked, rval_t const* args, unsigned num_args,
            local_const_t const* local_consts = nullptr);
 
-    eval_t(ir_t& ir_ref, fn_t& fn_ref, local_const_t const* local_consts);
+    eval_t(ir_t& ir_ref, fn_t& fn_ref);
+
+    // Inline version:
+    eval_t(eval_t const& parent, ir_t& ir_ref, fn_t& fn_ref, ir_builder_t& builder,
+           cfg_ht pre_entry, cfg_ht& exit, expr_value_t const* args, rval_t& return_rval);
 
     struct access_t
     {
@@ -183,7 +209,7 @@ public:
     void compile_block();
 
     template<do_t D>
-    expr_value_t do_var_init_expr(unsigned var_i, ast_node_t const& expr);
+    expr_value_t do_var_init_expr(var_ht var_i, ast_node_t const& expr);
 
     template<eval_t::do_t D>
     expr_value_t do_expr(ast_node_t const& ast);
@@ -268,11 +294,11 @@ public:
 
     std::size_t num_local_vars() const { assert(fn); return fn->def().local_vars.size(); }
 
-    type_t var_i_type(unsigned var_i) const;
+    type_t var_i_type(var_ht var_i) const;
     void init_rval(access_t a, rval_t& rval);
     //access_t access(rpn_value_t const& rpn_value) const;
-    ssa_value_t const& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index) const;
-    ssa_value_t& get_local(pstring_t pstring, unsigned var_i, unsigned member, unsigned index);
+    ssa_value_t const& get_local(pstring_t pstring, var_ht var_i, unsigned member, unsigned index) const;
+    ssa_value_t& get_local(pstring_t pstring, var_ht var_i, unsigned member, unsigned index);
 
     template<eval_t::do_t D>
     ssa_value_t from_variant(ct_variant_t const& v, type_t type);
@@ -284,17 +310,29 @@ public:
     // compiler-specific //
     ///////////////////////
 
-    std::size_t num_vars() const { assert(ir); return num_local_vars() + ir->gmanager.num_locators(); }
+    std::size_t num_global_vars() const { return num_globals; }
+    std::size_t num_vars() const { return num_local_vars() + num_global_vars(); }
 
-    unsigned to_var_i(gmanager_t::index_t index) const { passert(index, index); return index.id + num_local_vars(); }
-    template<typename T>
-    unsigned to_var_i(T gvar) const { assert(ir); return to_var_i(ir->gmanager.var_i(gvar)); }
+    var_ht to_var_i(unsigned i) const { return { i + num_global_vars() }; }
+    var_ht to_var_i(gmanager_t::index_t index) const 
+    { 
+        passert(index, index); 
+        assert(index.id < num_global_vars());
+        return { index.id }; 
+    }
+    var_ht to_var_i(gvar_ht gvar) const { assert(ir); return to_var_i(ir->gmanager.var_i(gvar)); }
+    var_ht to_var_i(gmember_ht gmember) const { assert(ir); return to_var_i(ir->gmanager.var_i(gmember)); }
+
+    unsigned to_local_i(var_ht var_i) const { assert(var_i.id >= num_global_vars()); return var_i.id - num_global_vars(); }
+    bool is_param(var_ht var_i) const { return var_i >= to_var_i(0) && var_i < to_var_i(fn->def().num_params); }
+    bool is_local(var_ht var_i) const { return var_i >= to_var_i(0); }
+    bool is_global(var_ht var_i) const { return var_i < to_var_i(0); }
 
     // Block and local variable functions
     void seal_block(block_d& block_data);
-    void fill_phi_args(ssa_ht phi, unsigned var_i, unsigned member);
-    ssa_value_t var_lookup(cfg_ht node, unsigned var_i, unsigned member);
-    rval_t var_lookup(cfg_ht node, unsigned var_i);
+    void fill_phi_args(ssa_ht phi, var_ht var_i, unsigned member);
+    ssa_value_t var_lookup(cfg_ht node, var_ht var_i, unsigned member);
+    rval_t var_lookup(cfg_ht node, var_ht var_i);
     ssa_value_array_t from_rval(rval_t const& rval, type_t type);
     ssa_value_array_t from_rval(expr_value_t const& value);
 
@@ -329,7 +367,7 @@ public:
         Args const&...);
 };
 
-thread_local eval_t::ir_builder_t eval_t::builder;
+thread_local eval_t::ir_builder_t eval_t::default_builder;
 
 static token_t _make_token(expr_value_t const& value);
 static rval_t _lt_rval(type_t const& type, locator_t loc);
@@ -382,18 +420,20 @@ precheck_tracked_t build_tracked(fn_t& fn, local_const_t const* local_consts)
     return tracked;
 }
 
-void build_ir(ir_t& ir, fn_t& fn, local_const_t const* local_consts)
+void build_ir(ir_t& ir, fn_t& fn)
 {
     assert(cfg_data_pool::array_size() == 0);
     assert(ssa_data_pool::array_size() == 0);
+    
     cfg_data_pool::scope_guard_t<block_d> cg(0);
 
-    eval_t eval(ir, fn, local_consts);
+    eval_t eval(ir, fn);
 }
 
 template<eval_t::do_t D>
 eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t* fn_ref,
-               ast_node_t const& expr, type_t expected_type, local_const_t const* local_consts,
+               ast_node_t const& expr, type_t expected_type, 
+               local_const_t const* local_consts,
                romv_t romv)
 : pstring(pstring)
 , fn(fn_ref)
@@ -403,9 +443,10 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t* fn_ref,
 {
     if(fn)
     {
-        unsigned const nlocals = num_local_vars();
-        var_types.resize(nlocals);
-        for(unsigned i = 0; i < nlocals; ++i)
+        std::size_t const num_locals = num_local_vars();
+
+        var_types.resize(num_locals);
+        for(unsigned i = 0; i < num_locals; ++i)
             var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
     }
     do_expr_result<D>(expr, expected_type);
@@ -422,68 +463,58 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t& fn_ref,
 , local_consts(local_consts)
 , precheck_tracked(tracked)
 {
-    unsigned const nlocals = num_local_vars();
+    std::size_t const num_locals = num_local_vars();
 
-    var_types.resize(nlocals);
-    for(unsigned i = 0; i < nlocals; ++i)
+    var_types.resize(num_locals);
+    for(unsigned i = 0; i < num_locals; ++i)
         var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
 
-    if(is_compile(D))
-    {
-        // Reset the static thread-local state:
-        builder.clear();
+    static_assert(!is_compile(D));
 
-        // Add global vars to 'var_types':
-        var_types.reserve(var_types.size() + ir->gmanager.num_gvar_locators());
-        ir->gmanager.for_each_gvar([&](gvar_ht gvar, auto) { var_types.push_back(gvar->type()); });
-        assert(num_vars() >= var_types.size());
-        var_types.resize(num_vars(), TYPE_VOID);
-    }
-    else
+    if(!is_check(D))
     {
-        if(!is_check(D))
+        interpret_locals.resize(num_locals);
+
+        assert(args);
+        assert(num_args <= num_locals);
+        for(unsigned i = 0; i < num_args; ++i)
         {
-            interpret_locals.resize(nlocals);
-
-            assert(args);
-            assert(num_args <= nlocals);
-            for(unsigned i = 0; i < num_args; ++i)
-            {
-                assert(args[i].size() == num_members(var_types[i]));
-                interpret_locals[i] = args[i];
-            }
+            assert(args[i].size() == num_members(var_types[i]));
+            interpret_locals[i] = args[i];
         }
-
-        interpret_stmts<D>();
     }
+
+    interpret_stmts<D>();
 }
 
-eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref, local_const_t const* local_consts)
+eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
 : fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , ir(&ir_ref)
 , start_time(clock::now())
-, local_consts(local_consts)
+, local_consts(fn_ref.def().local_consts.data())
 {
     // Reset the static thread-local state:
     builder.clear(); // TODO: make sure this isn't called in recursion
     ir->gmanager.init(fn->handle());
+    num_globals = ir->gmanager.num_locators();
 
-    unsigned const nlocals = num_local_vars();
+    std::size_t const num_locals = num_local_vars();
 
-    var_types.resize(nlocals);
-    for(unsigned i = 0; i < nlocals; ++i)
-        var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
+    var_types.resize(num_vars(), TYPE_VOID);
+
+    // Add local vars to 'var_types':
+    for(unsigned i = 0; i < num_locals; ++i)
+        var_type(to_var_i(i)) = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
 
     // Add global vars to 'var_types':
     var_types.reserve(num_vars());
-    ir->gmanager.for_each_gvar([&](gvar_ht gvar, auto) { var_types.push_back(gvar->type()); });
-    assert(num_vars() >= var_types.size());
-    var_types.resize(num_vars(), TYPE_VOID);
+    ir->gmanager.for_each_gvar([&](gvar_ht gvar, auto) { var_type(to_var_i(gvar)) = gvar->type(); });
 
     // OK! var_types is built.
 
     ir->root = builder.cfg = insert_cfg(true);
+    ir->root.data<block_d>().is_root = true;
 
     ssa_ht const entry = ir->root->emplace_ssa(SSA_entry, TYPE_VOID);
     entry->append_daisy();
@@ -492,14 +523,16 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref, local_const_t const* local_consts)
     unsigned const nparams = fn->def().num_params;
     for(unsigned i = 0; i < nparams; ++i)
     {
-        type_t const type = var_types[i];
+        var_ht const var_i = to_var_i(i);
+        type_t const type = var_type(var_i);
         unsigned nmember = ::num_members(type);
 
-        assert(ir->root.data<block_d>().vars[i].size() == nmember);
+        passert(ir->root.data<block_d>().var(var_i).size() == nmember, 
+                ir->root.data<block_d>().var(var_i).size(), nmember);
 
         for(unsigned m = 0; m < nmember; ++m)
         {
-            ir->root.data<block_d>().vars[i][m] = ir->root->emplace_ssa(
+            ir->root.data<block_d>().var(var_i)[m] = ir->root->emplace_ssa(
                 SSA_read_global, member_type(type, m), entry, 
                 locator_t::arg(fn->handle(), i, m, 0));
         }
@@ -508,17 +541,16 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref, local_const_t const* local_consts)
     // Insert nodes for gmember reads
     ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t i)
     {
-        unsigned const var_i = to_var_i(i);
-        auto& vars = ir->root.data<block_d>().vars;
-        assert(vars.size() == var_types.size());
+        var_ht const var_i = to_var_i(i);
+        auto& block = ir->root.data<block_d>();
+        assert(block.vars.size() == var_types.size());
 
         for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
         {
-            assert(var_i < vars.size());
-            assert(m->member() < vars[var_i].size());
+            assert(m->member() < block.var(var_i).size());
 
-            vars[var_i][m->member()] = ir->root->emplace_ssa(
-                SSA_read_global, member_type(var_types[var_i], m->member()), entry, locator_t::gmember(m, 0));
+            block.var(var_i)[m->member()] = ir->root->emplace_ssa(
+                SSA_read_global, member_type(var_type(var_i), m->member()), entry, locator_t::gmember(m, 0));
         }
     });
 
@@ -526,13 +558,13 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref, local_const_t const* local_consts)
     ir->gmanager.for_each_gmember_set(fn->handle(),
     [&](bitset_uint_t const* gmember_set, gmanager_t::index_t i, locator_t locator)
     {
-        unsigned const var_i = to_var_i(i);
-        auto& vars = ir->root.data<block_d>().vars;
-        assert(vars.size() == var_types.size());
-        assert(vars[var_i].size() == 1);
+        var_ht const var_i = to_var_i(i);
+        auto& block = ir->root.data<block_d>();
+        assert(block.vars.size() == var_types.size());
+        assert(block.var(var_i).size() == 1);
 
-        vars[var_i][0] = ir->root->emplace_ssa(
-            SSA_read_global, var_types[var_i], entry, locator);
+        block.var(var_i)[0] = ir->root->emplace_ssa(
+            SSA_read_global, var_type(var_i), entry, locator);
     });
 
     // Create all of the SSA graph, minus the exit node:
@@ -566,7 +598,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref, local_const_t const* local_consts)
 
     ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t i)
     {
-        unsigned const var_i = to_var_i(i);
+        var_ht const var_i = to_var_i(i);
 
         for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
         {
@@ -620,6 +652,108 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref, local_const_t const* local_consts)
     }
 }
 
+// Inline version
+#if 1
+eval_t::eval_t(eval_t const& parent, ir_t& ir_ref, fn_t& fn_ref, ir_builder_t& builder,
+               cfg_ht pre_entry, cfg_ht& exit, expr_value_t const* args, rval_t& return_rval)
+: fn(&fn_ref)
+, stmt(fn_ref.def().stmts.data())
+, ir(&ir_ref)
+, start_time(clock::now())
+, builder(builder)
+, local_consts(fn_ref.def().local_consts.data())
+, num_globals(parent.num_globals)
+{
+    var_types.resize(num_vars(), TYPE_VOID);
+
+    // Copy global var types from 'parent':
+    std::copy_n(parent.var_types.begin(), num_global_vars(), var_types.begin());
+
+    // Add local vars to 'var_types':
+    std::size_t const num_locals = num_local_vars();
+    for(unsigned i = 0; i < num_locals; ++i)
+        var_type(to_var_i(i)) = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
+
+    // OK! var_types is built.
+
+    cfg_ht const entry = builder.cfg = insert_cfg(true);
+    pre_entry->build_set_output(0, entry);
+
+    // Map arguments to the entry block:
+    unsigned const nparams = fn->def().num_params;
+    for(unsigned i = 0; i < nparams; ++i)
+    {
+        var_ht const var_i = to_var_i(i);
+        type_t const type = var_type(var_i);
+        unsigned nmember = ::num_members(type);
+
+        assert(ir->root.data<block_d>().var(var_i).size() == nmember);
+        assert(nmember == args[i].rval().size());
+
+        for(unsigned m = 0; m < nmember; ++m)
+            entry.data<block_d>().var(var_i)[m] = from_variant<COMPILE>(args[i].rval()[m], member_type(type, m));
+    }
+
+    // Create all of the SSA graph, minus the exit node:
+    compile_block();
+    cfg_exits_with_jump();
+    cfg_ht const end = builder.cfg;
+
+    // Now create the exit block.
+    // All return statements create a jump, which will jump to the exit node.
+    type_t const return_type = fn->type().return_type();
+    if(return_type != TYPE_VOID)
+    {
+        ssa_value_array_t array;
+
+        unsigned const num_m = ::num_members(return_type);
+        for(unsigned m = 0; m < num_m; ++m)
+            array.push_back(end->emplace_ssa(SSA_uninitialized, ::member_type(return_type, m)));
+
+        builder.return_values.push_back(std::move(array));
+    }
+
+    exit = insert_cfg(true);
+
+    for(cfg_ht node : builder.return_jumps)
+        node->build_set_output(0, exit);
+    end->build_set_output(0, exit);
+
+    // Write all globals at the exit:
+    // Append the return value, if it exists:
+    if(return_type != TYPE_VOID)
+    {
+        unsigned const num_m = ::num_members(return_type);
+        for(unsigned m = 0; m < num_m; ++m)
+        {
+            ssa_ht phi = exit->emplace_ssa(SSA_phi, member_type(return_type, m));
+            
+            unsigned const size = builder.return_values.size();
+            phi->alloc_input(size);
+
+            for(unsigned i = 0; i < size; ++i)
+                phi->build_set_input(i, builder.return_values[i][m]);
+
+            return_rval.push_back(phi);
+        }
+    }
+
+    // Handle exhaustive switches
+    for(cfg_ht switch_cfg : builder.exhaustive_switches)
+    {
+        ssa_ht const switch_ssa = switch_cfg->last_daisy();
+        assert(switch_ssa->input_size() == MAX_CFG_OUTPUT + 1);
+        assert(switch_cfg->output_size() == MAX_CFG_OUTPUT + 1);
+        passert(switch_ssa->op() == SSA_switch_partial, switch_ssa->op());
+
+        switch_partial_to_full(*switch_ssa);
+
+        assert(switch_ssa->input_size() == MAX_CFG_OUTPUT + 1);
+        assert(switch_cfg->output_size() == MAX_CFG_OUTPUT);
+    }
+}
+#endif
+
 template<eval_t::do_t D>
 void eval_t::do_expr_result(ast_node_t const& expr, type_t expected_type)
 {
@@ -657,14 +791,14 @@ void eval_t::check_time()
 ///////////////////////////////////////////////////////////////////////////////
 
 template<eval_t::do_t D>
-expr_value_t eval_t::do_var_init_expr(unsigned var_i, ast_node_t const& expr)
+expr_value_t eval_t::do_var_init_expr(var_ht var_i, ast_node_t const& expr)
 {
     expr_value_t v = do_expr<D>(expr);
 
-    if(can_size_unsized_array(v.type, var_types[var_i]))
-        var_types[var_i].set_array_length(v.type.array_length(), v.pstring);
+    if(can_size_unsized_array(v.type, var_type(var_i)))
+        var_type(var_i).set_array_length(v.type.array_length(), v.pstring);
 
-    return throwing_cast<D>(std::move(v), var_types[var_i], true);
+    return throwing_cast<D>(std::move(v), var_type(var_i), true);
 }
 
 template<eval_t::do_t D>
@@ -692,23 +826,23 @@ void eval_t::interpret_stmts()
                 if(D == INTERPRET_CE)
                     compiler_error(stmt->pstring, "Expression cannot be evaluated at compile-time.");
 
-                unsigned const var_i = ::get_local_var_i(stmt->name);
+                unsigned const local_i = ::get_local_i(stmt->name);
+                var_ht const var_i = to_var_i(local_i);
 
                 // Prepare the type.
-                assert(var_i < var_types.size());
-                if(var_types[var_i].name() == TYPE_VOID)
-                    var_types[var_i] = dethunkify(fn->def().local_vars[var_i].decl.src_type, true, this);
+                if(var_type(var_i).name() == TYPE_VOID)
+                    var_type(var_i) = dethunkify(fn->def().local_vars[local_i].decl.src_type, true, this);
 
                 if(stmt->expr)
                 {
                     expr_value_t v = do_var_init_expr<D>(var_i, *stmt->expr);
 
                     if(is_interpret(D))
-                        interpret_locals[var_i] = std::move(v.rval());
+                        interpret_locals[local_i] = std::move(v.rval());
                 }
                 else if(is_interpret(D))
                 {
-                    type_t const type = var_types[var_i];
+                    type_t const type = var_type(var_i);
                     unsigned const num = num_members(type);
                     assert(num > 0);
 
@@ -724,7 +858,7 @@ void eval_t::interpret_stmts()
                             rval.emplace_back();
                     }
 
-                    interpret_locals[var_i] = std::move(rval);
+                    interpret_locals[local_i] = std::move(rval);
                 }
 
                 ++stmt;
@@ -909,7 +1043,6 @@ static ssa_value_t _interpret_shift_atom(ssa_value_t v, int shift, pstring_t pst
     }
 
     fixed_t result = { v.fixed() };
-    std::cout << "ISA " << (result.value >> 24) << std::endl;
     if(shift < 0)
         result.value <<= -shift * 8;
     else
@@ -927,8 +1060,9 @@ void eval_t::compile_block()
     default: // Handles var inits
         if(is_var_init(stmt->name))
         {
-            unsigned const var_i = get_local_var_i(stmt->name);
-            type_t const type = var_types[var_i];
+            unsigned const local_i = get_local_i(stmt->name);
+            var_ht const var_i = to_var_i(local_i);
+            type_t const type = var_type(var_i);
 
             if(is_ct(type))
                 compiler_error(stmt->pstring, fmt("Variables of type % are only valid inside ct functions.", type));
@@ -951,7 +1085,7 @@ void eval_t::compile_block()
                 }
             }
 
-            builder.cfg.data<block_d>().vars[var_i] = std::move(value);
+            builder.cfg.data<block_d>().var(var_i) = std::move(value);
             ++stmt;
         }
         else
@@ -1396,7 +1530,7 @@ void eval_t::compile_block()
             {
                 for(gmember_ht m : gvar->handles())
                 {
-                    if(fn->fence_rw().test(m.id))
+                    //if(fn->fence_rw().test(m.id))
                     {
                         inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                         inputs.push_back(locator_t::gmember(m, 0));
@@ -1404,7 +1538,7 @@ void eval_t::compile_block()
                         // Create writes after reads:
                         ssa_ht const read = builder.cfg->emplace_ssa(
                             SSA_read_global, m->type(), fenced, locator_t::gmember(m, 0));
-                        block_data.vars[to_var_i(index)][m->member()] = read;
+                        block_data.var(to_var_i(index))[m->member()] = read;
                     }
                 }
             });
@@ -1426,7 +1560,7 @@ void eval_t::compile_block()
                     // Create writes after reads:
                     ssa_ht const read = builder.cfg->emplace_ssa(
                         SSA_read_global, TYPE_VOID, fenced, locator);
-                    block_data.vars[to_var_i(index)][0] = read;
+                    block_data.var(to_var_i(index))[0] = read;
                 }
             });
 
@@ -1489,8 +1623,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             rval_t rval = rpair->value;
 
-            std::cout << "SHREK RPAIR " << rval.size() << std::endl;
-
             for(unsigned i = 0; i < rval.size(); ++i)
             {
                 ssa_value_t* ssa = std::get_if<ssa_value_t>(&rval[i]);
@@ -1543,20 +1675,23 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(is_link(D)) // TODO: perhaps this should move to 'to_rval'.
                 compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
 
-            unsigned const var_i = ast.token.value;
-            assert(var_i < var_types.size());
-            assert(var_i < num_local_vars());
+            unsigned const local_i = ast.token.value;
+            var_ht var_i = to_var_i(local_i);
+
+            // TODO
+            //assert(var_i < var_types.size());
+            //assert(var_i < num_local_vars());
 
             expr_value_t result =
             {
                 .val = lval_t{ .vvar_i = var_i },
-                .type = var_types[var_i],
+                .type = var_type(var_i),
                 .pstring = ast.token.pstring,
             };
 
             if(is_compile(D))
                 result.time = RT;
-            else if(D == INTERPRET && interpret_locals[var_i].empty())
+            else if(D == INTERPRET && interpret_locals[local_i].empty())
             {
                 compiler_error(ast.token.pstring, 
                     "Variable is invalid because goto jumped past its initialization.");
@@ -1809,16 +1944,17 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
 
                     locator_t loc;
-                    unsigned const var_i = lval->var_i();
+                    var_ht const var_i = lval->var_i();
 
-                    if(var_i < fn->def().num_params)
+                    if(is_param(var_i))
                     {
                         // Referencing a parameter.
-                        fn->mark_referenced_param(lval->var_i());
-                        loc = locator_t::arg(fn->handle(), lval->var_i(), lval->member, lval->uatom());
+                        unsigned const local_i = to_local_i(var_i);
+                        fn->mark_referenced_param(local_i);
+                        loc = locator_t::arg(fn->handle(), local_i, lval->member, lval->uatom());
                     }
                     else if(fn->iasm)
-                        loc = locator_t::asm_local_var(fn->handle(), lval->var_i(), lval->member, lval->uatom());
+                        loc = locator_t::asm_local_var(fn->handle(), to_local_i(var_i), lval->member, lval->uatom());
                     else
                         goto cannot_get_address;
 
@@ -1840,6 +1976,19 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 compiler_error(ast.token.pstring, "lvalue or string literal required as unary '&' operand.");
         }
         break;
+
+    case TOK_ready:
+        {
+            expr_value_t result = { .type = TYPE_BOOL, .pstring = ast.token.pstring };
+            if(is_interpret(D))
+                compiler_error(ast.token.pstring, "Cannot evaluate ready at compile-time.");
+            else if(is_compile(D))
+            {
+                ssa_ht const h = builder.cfg->emplace_ssa(SSA_ready, TYPE_BOOL);
+                result.val = rval_t{ h };
+            }
+            return result;
+        }
 
     case TOK_true:
     case TOK_false:
@@ -2146,7 +2295,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     assert(lhs.lval().atom < 0 || atom == 0);
                     lhs.lval().atom = atom;
                     lhs.lval().member += member;
-                    std::cout << "LVAL " << atom << ' ' << member << std::endl;
                 }
                 else if(is_interpret(D) && lhs.is_rval())
                 {
@@ -2298,7 +2446,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(call->fclass == FN_CT)
                     goto interpret_fn;
 
-
                 // Interpret when possible:
                 if(call->ct_pure())
                 {
@@ -2311,180 +2458,208 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             compile_fn:
 
-                bc::small_vector<ssa_value_t, 32> fn_inputs;
-
-                // The [0] argument holds the fn_t ptr.
-                fn_inputs.push_back(fn_expr.ssa());
-
-                // For modes, the [1] argument references the stmt,
-                // otherwise it holds the bank, if necessary.
-                if(call->fclass == FN_MODE)
-                    fn_inputs.push_back(locator_t::stmt(stmt_handle()));
-                else
-                    fn_inputs.push_back({});
-
-                // Prepare the input globals
-
-                //bool const is_idep = fn->global.ideps().count(&call->global);
-                //assert(is_idep || call->fclass == FN_MODE);
-
-                std::size_t const gmember_bs_size = gmanager_t::bitset_size();
-                bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
-
-                // Prepare global inputs:
-
-                if(call->fclass == FN_MODE)
+                if(call->fclass == FN_FN && call->always_inline())
                 {
-                    // 'goto mode's use their modifiers to determine inputs.
+                    cfg_exits_with_jump();
+                    cfg_ht const pre_entry = builder.cfg;
+                    cfg_ht const post_exit = insert_cfg(true);
 
-                    assert(stmt->name == STMT_GOTO_MODE);
-                    mods_t const& mods = fn->def()[stmt->mods];
+                    cfg_ht exit = {};
 
-                    bitset_uint_t* const preserved_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
-                    bitset_clear_all(gmember_bs_size, preserved_bs);
-                    mods.for_each_group_vars([&](group_vars_ht gv)
-                    {
-                        assert(gmember_bs_size == gv->gmembers().size());
-                        bitset_or(gmember_bs_size, preserved_bs, gv->gmembers().data());
-                    });
+                    ir_builder_t call_builder;
+                    rval_t return_rval;
 
-                    ir->gmanager.for_each_gmember_set(fn->handle(),
-                    [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
-                    {
-                        bitset_copy(gmember_bs_size, temp_bs, preserved_bs);
-                        bitset_and(gmember_bs_size, temp_bs, gmember_set);
-                        if(bitset_all_clear(gmember_bs_size, temp_bs))
-                            return;
-                        fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
-                        fn_inputs.push_back(locator);
-                    });
+                    eval_t inline_eval(
+                        *this, *ir, *call, call_builder, 
+                        pre_entry, exit, args, return_rval);
+                    assert(exit);
+                    
+                    builder.cfg = post_exit;
+                    exit->alloc_output(1);
+                    exit->build_set_output(0, post_exit);
 
-                    ir->gmanager.for_each_gvar(
-                    [&](gvar_ht gvar, gmanager_t::index_t index)
-                    {
-                        if(!mods.group_vars.count(gvar->group()))
-                            return;
+                    post_exit.data<block_d>().pre_inline = pre_entry;
 
-                        for(gmember_ht m : gvar->handles())
-                        {
-                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
-                            fn_inputs.push_back(locator_t::gmember(m, 0));
-                        }
-                    });
+                    assert(post_exit.data<block_d>().creator == this);
+                    assert(pre_entry.data<block_d>().creator == this);
                 }
                 else
                 {
-                    assert(call->ir_reads().size() == gmember_bs_size);
+                    bc::small_vector<ssa_value_t, 32> fn_inputs;
 
-                    // Use 'ir_reads()' to determine which members are needed by the called fn.
+                    // The [0] argument holds the fn_t ptr.
+                    fn_inputs.push_back(fn_expr.ssa());
 
-                    ir->gmanager.for_each_gmember_set(fn->handle(),
-                    [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+                    // For modes, the [1] argument references the stmt,
+                    // otherwise it holds the bank, if necessary.
+                    if(call->fclass == FN_MODE)
+                        fn_inputs.push_back(locator_t::stmt(stmt_handle()));
+                    else
+                        fn_inputs.push_back({});
+
+                    // Prepare the input globals
+
+                    //bool const is_idep = fn->global.ideps().count(&call->global);
+                    //assert(is_idep || call->fclass == FN_MODE);
+
+                    std::size_t const gmember_bs_size = gmanager_t::bitset_size();
+                    bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
+
+                    // Prepare global inputs:
+
+                    if(call->fclass == FN_MODE)
                     {
-                        bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
-                        bitset_and(gmember_bs_size, temp_bs, gmember_set);
-                        if(bitset_all_clear(gmember_bs_size, temp_bs))
-                            return;
-                        fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
-                        fn_inputs.push_back(locator);
-                    });
+                        // 'goto mode's use their modifiers to determine inputs.
 
-                    ir->gmanager.for_each_gvar(
-                    [&](gvar_ht gvar, gmanager_t::index_t index)
-                    {
-                        for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
+                        assert(stmt->name == STMT_GOTO_MODE);
+                        mods_t const& mods = fn->def()[stmt->mods];
+
+                        bitset_uint_t* const preserved_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
+                        bitset_clear_all(gmember_bs_size, preserved_bs);
+                        mods.for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
                         {
-                            if(call->ir_reads().test(m.id))
+                            assert(gmember_bs_size == gv->gmembers().size());
+                            bitset_or(gmember_bs_size, preserved_bs, gv->gmembers().data());
+                        });
+
+                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+                        {
+                            bitset_copy(gmember_bs_size, temp_bs, preserved_bs);
+                            bitset_and(gmember_bs_size, temp_bs, gmember_set);
+                            if(bitset_all_clear(gmember_bs_size, temp_bs))
+                                return;
+                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
+                            fn_inputs.push_back(locator);
+                        });
+
+                        ir->gmanager.for_each_gvar(
+                        [&](gvar_ht gvar, gmanager_t::index_t index)
+                        {
+                            if(!mods.in_lists(MODL_PRESERVES, gvar->group()))
+                                return;
+
+                            for(gmember_ht m : gvar->handles())
                             {
                                 fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                                 fn_inputs.push_back(locator_t::gmember(m, 0));
                             }
-                        }
-                    });
-                }
-
-                locator_t first_bank = {};
-                if(call->fclass == FN_FN)
-                    first_bank = call->first_bank_switch().mem_head();
-
-                // Prepare the arguments
-                for(unsigned i = 0; i < num_params; ++i)
-                {
-                    type_t const param_type = call->type().type(i);
-                    unsigned const num_param_members = ::num_members(param_type);
-
-                    for(unsigned j = 0; j < num_param_members; ++j)
-                    {
-                        locator_t const loc = locator_t::arg(call, i, j, 0);
-
-                        type_t const member_type = ::member_type(param_type, j);
-
-                        ssa_value_t arg = from_variant<COMPILE>(args[i].rval()[j], member_type);
-
-                        fn_inputs.push_back(arg);
-                        fn_inputs.push_back(loc);
-
-                        // Set the bank:
-                        if(loc == first_bank)
-                        {
-                            assert(!fn_inputs[1]);
-                            assert(call->fclass == FN_FN);
-                            fn_inputs[1] = arg;
-                        }
+                        });
                     }
-                }
-
-                // Create the dependent node.
-                ssa_op_t const op = (call->fclass == FN_MODE) ? SSA_goto_mode : SSA_fn_call;
-                ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
-                fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
-
-                if(call->fclass == FN_MODE || !call->ir_io_pure()/* || ir->gmanager.num_locators() > 0*/)
-                    fn_node->append_daisy();
-
-                if(call->fclass != FN_MODE)
-                {
-                    assert(fn->global.ideps().count(&call->global));
-
-                    // After the fn is called, read all the globals it has written to:
-
-                    ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
+                    else
                     {
-                        for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
+                        assert(call->ir_reads().size() == gmember_bs_size);
+
+                        // Use 'ir_reads()' to determine which members are needed by the called fn.
+
+                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
                         {
-                            if(call->ir_writes().test(m.id))
+                            bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
+                            bitset_and(gmember_bs_size, temp_bs, gmember_set);
+                            if(bitset_all_clear(gmember_bs_size, temp_bs))
+                                return;
+                            fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
+                            fn_inputs.push_back(locator);
+                        });
+
+                        ir->gmanager.for_each_gvar(
+                        [&](gvar_ht gvar, gmanager_t::index_t index)
+                        {
+                            for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                             {
-                                ssa_ht read = builder.cfg->emplace_ssa(
-                                    SSA_read_global, m->type(), fn_node, locator_t::gmember(m, 0));
-                                block_d& block_data = builder.cfg.data<block_d>();
-                                block_data.vars[to_var_i(index)][m->member()] = read;
+                                if(call->ir_reads().test(m.id))
+                                {
+                                    fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
+                                    fn_inputs.push_back(locator_t::gmember(m, 0));
+                                }
+                            }
+                        });
+                    }
+
+                    locator_t first_bank = {};
+                    if(call->fclass == FN_FN)
+                        first_bank = call->first_bank_switch().mem_head();
+
+                    // Prepare the arguments
+                    for(unsigned i = 0; i < num_params; ++i)
+                    {
+                        type_t const param_type = call->type().type(i);
+                        unsigned const num_param_members = ::num_members(param_type);
+
+                        for(unsigned j = 0; j < num_param_members; ++j)
+                        {
+                            locator_t const loc = locator_t::arg(call, i, j, 0);
+
+                            type_t const member_type = ::member_type(param_type, j);
+
+                            ssa_value_t arg = from_variant<COMPILE>(args[i].rval()[j], member_type);
+
+                            fn_inputs.push_back(arg);
+                            fn_inputs.push_back(loc);
+
+                            // Set the bank:
+                            if(loc == first_bank)
+                            {
+                                assert(!fn_inputs[1]);
+                                assert(call->fclass == FN_FN);
+                                fn_inputs[1] = arg;
                             }
                         }
-                    });
+                    }
 
-                    ir->gmanager.for_each_gmember_set(fn->handle(),
-                    [&](bitset_uint_t const* gvar_set, gmanager_t::index_t index, locator_t locator)
+                    // Create the dependent node.
+                    ssa_op_t const op = (call->fclass == FN_MODE) ? SSA_goto_mode : SSA_fn_call;
+                    ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
+                    fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
+
+                    if(call->fclass == FN_MODE || !call->ir_io_pure()/* || ir->gmanager.num_locators() > 0*/)
+                        fn_node->append_daisy();
+
+                    if(call->fclass != FN_MODE)
                     {
-                        bitset_copy(gmember_bs_size, temp_bs, gvar_set);
-                        bitset_and(gmember_bs_size, temp_bs, call->ir_writes().data());
-                        if(!bitset_all_clear(gmember_bs_size, temp_bs))
+                        assert(fn->global.ideps().count(&call->global));
+
+                        // After the fn is called, read all the globals it has written to:
+
+                        ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
                         {
-                            ssa_ht read = builder.cfg->emplace_ssa(
-                                SSA_read_global, TYPE_VOID, fn_node, locator);
-                            block_d& block_data = builder.cfg.data<block_d>();
-                            block_data.vars[to_var_i(index)][0] = read;
+                            for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
+                            {
+                                if(call->ir_writes().test(m.id))
+                                {
+                                    ssa_ht read = builder.cfg->emplace_ssa(
+                                        SSA_read_global, m->type(), fn_node, locator_t::gmember(m, 0));
+                                    block_d& block_data = builder.cfg.data<block_d>();
+                                    block_data.var(to_var_i(index))[m->member()] = read;
+                                }
+                            }
+                        });
+
+                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        [&](bitset_uint_t const* gvar_set, gmanager_t::index_t index, locator_t locator)
+                        {
+                            bitset_copy(gmember_bs_size, temp_bs, gvar_set);
+                            bitset_and(gmember_bs_size, temp_bs, call->ir_writes().data());
+                            if(!bitset_all_clear(gmember_bs_size, temp_bs))
+                            {
+                                ssa_ht read = builder.cfg->emplace_ssa(
+                                    SSA_read_global, TYPE_VOID, fn_node, locator);
+                                block_d& block_data = builder.cfg.data<block_d>();
+                                block_data.var(to_var_i(index))[0] = read;
+                            }
+                        });
+
+                        type_t const return_type = fn_expr.type.return_type();
+                        unsigned const return_members = ::num_members(return_type);
+
+                        for(unsigned m = 0; m < return_members; ++m)
+                        {
+                            ssa_ht ret = builder.cfg->emplace_ssa(
+                                SSA_read_global, member_type(return_type, m), fn_node, locator_t::ret(call, m, 0));
+
+                            result.rval().push_back(ret);
                         }
-                    });
-
-                    type_t const return_type = fn_expr.type.return_type();
-                    unsigned const return_members = ::num_members(return_type);
-
-                    for(unsigned m = 0; m < return_members; ++m)
-                    {
-                        ssa_ht ret = builder.cfg->emplace_ssa(
-                            SSA_read_global, member_type(return_type, m), fn_node, locator_t::ret(call, m, 0));
-
-                        result.rval().push_back(ret);
                     }
                 }
             }
@@ -2741,7 +2916,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         {
             static int count = 0;
             int const cc = count++;
-            std::cout << "SHREK CAST " << cc << std::endl;
             // TOK_cast are pseudo tokens used to implement type casts.
 
             bool const implicit = ast.token.type == TOK_implicit_cast;
@@ -2778,8 +2952,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         "Too % arguments to %. Expecting %.", 
                         num_args < size ? "few" : "many", type, size));
             };
-
-            std::cout << "SHREK CAST 2 " << std::endl;
 
             if(is_aggregate(type.name()))
             {
@@ -2939,10 +3111,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             }
             else if(is_scalar(type.name()) || is_banked_ptr(type.name()))
             {
-                if(args[0].is_rval())
-                    std::cout << "SHREK YES " << cc << ' ' << args[0].rval().size() << std::endl;
-                else
-                    std::cout << "SHREK NOT " << std::endl;
                 check_argn(1);
                 return throwing_cast<D>(args[0], type, implicit);
             }
@@ -3743,7 +3911,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
             }
         have_var_i:
-            type = var_types[lval->var_i()];
+            type = var_type(lval->var_i());
             rval.resize(num_members);
         }
 
@@ -3759,7 +3927,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         {
             if(lval->is_var())
                 for(unsigned i = 0; i < num_members; ++i)
-                    rval[i] = interpret_locals[lval->var_i()][lval->member + i];
+                    rval[i] = interpret_locals[to_local_i(lval->var_i())][lval->member + i];
 
             if(lval->index)
             {
@@ -3932,7 +4100,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         without_atom.lval().atom = -1;
         without_atom = to_rval<D>(without_atom);
 
-        type_t new_type = member_type(var_types[lval->var_i()], lval->member);
+        type_t new_type = member_type(var_type(lval->var_i()), lval->member);
         if(lval->index)
         {
             assert(is_tea(new_type.name()));
@@ -3998,18 +4166,19 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
     if(is_check(D))
         goto finish;
 
-    assert(lval->var_i() < var_types.size());
+    // TODO
+    //assert(lval->var_i() < var_types.size());
 
     // Remap the identifier to point to the new value.
     if(is_interpret(D) && D != INTERPRET_CE)
     {
-        assert(lval->var_i() < interpret_locals.size());
-        rval_t& local = interpret_locals[lval->var_i()];
+        //assert(lval->var_i() < interpret_locals.size()); TODO
+        rval_t& local = interpret_locals[to_local_i(lval->var_i())];
         rval_t& rval = rhs.rval();
 
         if(lval->index)
         {
-            type_t const mt = member_type(var_types[lval->var_i()], lval->member);
+            type_t const mt = member_type(var_type(lval->var_i()), lval->member);
             assert(mt.name() == TYPE_TEA);
 
             unsigned const array_size = mt.array_length();
@@ -4075,7 +4244,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
     }
     else if(is_compile(D))
     {
-        ssa_value_array_t& local = builder.cfg.data<block_d>().vars[lval->var_i()];
+        ssa_value_array_t& local = builder.cfg.data<block_d>().var(lval->var_i());
         rval_t& rval = rhs.rval();
 
         if(lval->index)
@@ -4085,7 +4254,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 //ssa_ht read = lhs.ssa(i).handle();
                 //assert(read->op() == SSA_read_array);
 
-                type_t const mt = member_type(var_types[lval->var_i()], lval->member + i);
+                type_t const mt = member_type(var_type(lval->var_i()), lval->member + i);
                 assert(mt.name() == TYPE_TEA);
 
                 passert(rhs.type.name() != TYPE_TEA, rhs.type);
@@ -4113,215 +4282,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 finish:
     return rhs;
 }
-
-/* TODO remove
-template<eval_t::do_t D>
-void eval_t::do_assign(rpn_stack_t& rpn_stack, token_t const& token)
-{
-    rpn_value_t& assignee = rpn_stack.peek(1);
-    rpn_value_t& assignment = rpn_stack.peek(0);
-
-    pstring_t const pstring = concat(assignee.pstring, assignee.pstring);
-
-    if(assignee.category == LVAL_PTR)
-    {
-        assert(assignee.atom <= 0); // anything else is unimplemented.
-
-        if(D == INTERPRET)
-        {
-            assert(assignee.index);
-            assert(false); // TODO: implement
-        }
-        else if(D == COMPILE)
-        {
-            assert(assignee.index);
-
-            throwing_cast<D>(assignment, TYPE_U, true);
-
-            ssa_ht const read = assignee.ssa(0).handle();
-            assert(read->op() == SSA_read_ptr);
-
-            // TODO
-            //ssa_value_t prev_in_order = {};
-            //if(auto ptr_i = ir->gmanager.ptr_i(assignee.derefed_from))
-                //prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
-
-            ssa_ht const write = builder.cfg->emplace_ssa(
-                SSA_write_ptr, TYPE_VOID,
-                read->input(0), read->input(1), 
-                read->input(2), read->input(3), 
-                std::get<ssa_value_t>(assignment.rval[0]));
-            write->append_daisy();
-
-            assignee.rval = std::move(assignment.rval);
-
-            goto finish;
-        }
-    }
-
-    if(assignee.type.name() == TYPE_PAA)
-        compiler_error(pstring, "Cannot assign pointer-addressible arrays.");
-
-    if(assignee.is_lt())
-        compiler_error(pstring, "Expression cannot be evaluated at link-time.");
-
-    if(!is_lval(assignee.category))
-        compiler_error(pstring, "Expecting lvalue on left side of assignment.");
-
-    throwing_cast<D>(assignment, assignee.type, true);
-
-    if(assignee.atom >= 0)
-        deatomize();
-
-    // deatomize
-    {
-        rpn_value_t& assignee = rpn_stack.peek(1);
-
-        if(!is_link(D))
-        {
-            type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
-
-            // - get 'i' before the
-            
-            assignee.
-        }
-
-        if()
-        {
-            make_lt<Policy::D>(rpn_stack, 2, { .type = TOK_deatomize, .pstring = token.pstring });
-        }
-    }
-
-    if(is_check(D))
-        goto finish;
-
-    assert(assignee.rval.size() == assignment.rval.size());
-    assert(assignee.var_i < var_types.size());
-
-    // Remap the identifier to point to the new value.
-    if(is_interpret(D) && D != INTERPRET_CE)
-    {
-        assert(assignee.var_i < interpret_locals.size());
-        rval_t& local = interpret_locals[assignee.var_i];
-
-        if(assignee.category == LVAL_ARRAY)
-        {
-            assert(assignee.index);
-
-            type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
-            assert(mt.name() == TYPE_TEA);
-            assert(mt.elem_type() == assignee.type);
-
-            unsigned const array_size = mt.array_length();
-            unsigned const index = assignee.index.whole();
-            assert(index <= array_size);
-
-            for(unsigned i = 0; i < assignment.rval.size(); ++i)
-            {
-                ct_array_t& shared = std::get<ct_array_t>(local[i + assignee.member]);
-
-                // If the array has multiple owners, copy it, creating a new one.
-                if(shared.use_count() > 1)
-                {
-                    ct_array_t new_shared = make_ct_array(array_size);
-                    std::copy(shared.get(), shared.get() + array_size, new_shared.get());
-                    shared = std::move(new_shared);
-                }
-
-                // TODO
-                //from_variant(assignment.rval[i], member_type(mt, i));
-
-                shared[index] = std::get<ssa_value_t>(assignment.rval[i]);
-                //else if(expr_vec_t const* vec = std::get_if<expr_vec_t>(&v))
-                    //return locator_t::lt_expr(alloc_lt_value(type, *vec));
-            }
-        }
-        else
-        {
-            assert(!assignee.index);
-            if(assignee.atom)
-            {
-                assert(local.size() == 1);
-
-                type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
-                int const shift = assignee.atom - frac_bytes(mt.name());
-                assert(shift >= 0);
-
-                fixed_uint_t mask = numeric_bitmask(assignment.type.name());
-                fixed_uint_t replace = assignment.rval[i].u();
-                assert((replace & mask) == replace);
-
-                if(shift < 0)
-                {
-                    mask >>= (-shift * 8);
-                    replace >>= (-shift * 8);
-                }
-                else
-                {
-                    mask <<= (shift * 8);
-                    replace <<= (shift * 8);
-                }
-
-                fixed_uint_t u = local[assignee.member].u();
-                u &= ~mask;
-                u |= replace;
-                local[assignee.member] = ssa_value_t(u, mt.name());
-            }
-            else
-            {
-                for(unsigned i = 0; i < assignment.rval.size(); ++i)
-                    local[i + assignee.member] = assignment.rval[i];
-            }
-        }
-
-        assignee.rval = std::move(assignment.rval);
-    }
-    else if(D == COMPILE)
-    {
-        ssa_value_array_t& local = builder.cfg.data<block_d>().vars[assignee.var_i];
-
-        if(assignee.category == LVAL_ARRAY)
-        {
-            assert(assignee.index);
-
-            type_t const mt = member_type(var_types[assignee.var_i], assignee.member);
-            assert(mt.name() == TYPE_TEA);
-            assert(mt.elem_type() == assignee.type);
-
-            for(unsigned i = 0; i < assignment.rval.size(); ++i)
-            {
-                ssa_ht read = assignee.ssa(i).handle();
-                assert(read->op() == SSA_read_array);
-
-                assert(assignment.type.name() != TYPE_TEA);
-                type_t const type = type_t::tea(member_type(assignment.type, i), mt.size(), assignment.pstring);
-                assert(type.name() == TYPE_TEA);
-
-                ssa_value_t const prev_array = var_lookup(builder.cfg, assignee.var_i, i);
-
-                ssa_ht write = builder.cfg->emplace_ssa(
-                    SSA_write_array, type,
-                    prev_array, locator_t(), read->input(2), std::get<ssa_value_t>(assignment.rval[i]));
-
-                local[i + assignee.member] = write;
-            }
-        }
-        else
-        {
-            assert(!assignee.index);
-            for(unsigned i = 0; i < assignment.rval.size(); ++i)
-                local[i + assignee.member] = from_variant<D>(assignment.rval[i], member_type(assignment.type, i));
-        }
-
-        assignee.rval = std::move(assignment.rval);
-    }
-
-    // Leave the assignee on the stack, slightly modified.
-finish:
-    assignee.category = RVAL;
-    rpn_stack.pop();
-}
-*/
 
 void eval_t::req_quantity(token_t const& token, expr_value_t const& value)
 {
@@ -5079,7 +5039,6 @@ expr_value_t eval_t::force_promote(expr_value_t value, type_t to_type, pstring_t
 template<eval_t::do_t D>
 expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstring_t cast_pstring)
 {
-    std::cout << "SHREK INTIFY" << std::endl;
     assert(!is_ct(value.type));
     assert(!is_ct(to_type));
     assert(is_arithmetic(to_type.name()) && is_ptr(value.type.name()));
@@ -5433,7 +5392,6 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
 template<eval_t::do_t D>
 expr_value_t eval_t::throwing_cast(expr_value_t value, type_t to_type, bool implicit, pstring_t cast_pstring)
 {
-    std::cout << "SHREK TC " << std::endl;
     if(!cast<D>(value, to_type, implicit, cast_pstring))
     {
         compiler_error(value.pstring, fmt(
@@ -5474,6 +5432,10 @@ cfg_ht eval_t::insert_cfg(bool seal, pstring_t label_name)
     block_data.label_name = label_name;
     block_data.sealed = seal;
 
+#ifndef NDEBUG
+    block_data.creator = this;
+#endif
+
     auto const init_vector = [this](block_d::vector_t& vec)
     {
         assert(num_vars() == var_types.size());
@@ -5499,22 +5461,24 @@ void eval_t::seal_block(block_d& block_data)
     for(unsigned i = 0; i < num_vars(); ++i)
         for(unsigned member = 0; member < block_data.unsealed_phis[i].size(); ++member)
             if((v = block_data.unsealed_phis[i][member]) && v.holds_ref())
-                fill_phi_args(v->handle(), i, member);
+                fill_phi_args(v->handle(), var_ht{ i }, member);
     block_data.unsealed_phis.clear();
     block_data.sealed = true;
 }
 
 // Relevant paper:
 //   Simple and Efficient Construction of Static Single Assignment Form
-ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
+ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
 {
     block_d& block_data = cfg_node.data<block_d>();
 
-    assert(var_i < block_data.vars.size());
-    assert(block_data.vars.size() == var_types.size());
-    assert(member < block_data.vars[var_i].size());
+    passert(block_data.creator, cfg_node);
+    passert(is_global(var_i) || block_data.creator == this, cfg_node, block_data.creator, this);
+    assert(var_i.id < block_data.vars.size());
+    passert(is_global(var_i) || block_data.vars.size() == var_types.size(), block_data.vars.size(), var_types.size());
+    assert(member < block_data.var(var_i).size());
 
-    if(ssa_value_t lookup = from_variant<COMPILE>(block_data.vars[var_i][member], member_type(var_types[var_i], member)))
+    if(ssa_value_t lookup = from_variant<COMPILE>(block_data.var(var_i)[member], member_type(var_type(var_i), member)))
         return lookup;
     else if(block_data.sealed)
     {
@@ -5523,6 +5487,12 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
         // If there are multiple predecessors, a phi node will be created.
         try
         {
+            if(block_data.is_root)
+                throw var_lookup_error_t();
+
+            if(block_data.pre_inline && is_local(var_i))
+                return var_lookup(block_data.pre_inline, var_i, member);
+
             switch(cfg_node->input_size())
             {
             case 0:
@@ -5530,8 +5500,8 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
             case 1:
                 return var_lookup(cfg_node->input(0), var_i, member);
             default:
-                ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, ::member_type(var_types[var_i], member));
-                block_data.vars[var_i][member] = phi;
+                ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, ::member_type(var_type(var_i), member));
+                block_data.var(var_i)[member] = phi;
                 fill_phi_args(phi, var_i, member);
             #ifndef NDEBUG
                 for(unsigned i = 0; i < phi->input_size(); ++i)
@@ -5543,9 +5513,10 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
         }
         catch(var_lookup_error_t&)
         {
-            if(block_data.label_name.size && var_i < num_local_vars())
+            if(block_data.label_name.size && is_local(var_i))
             {
-                pstring_t var_name = fn->def().local_vars[var_i].decl.name;
+                unsigned const local_i = to_local_i(var_i);
+                pstring_t var_name = fn->def().local_vars[local_i].decl.name;
                 file_contents_t file(var_name.file_i);
                 throw compiler_error_t(
                     fmt_error(block_data.label_name, fmt(
@@ -5563,34 +5534,32 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i, unsigned member)
         // To work around this, an incomplete phi node can be created, which
         // will then be filled when the node is sealed.
         assert(block_data.unsealed_phis.size() == block_data.vars.size());
-        ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, ::member_type(var_types[var_i], member));
-        block_data.vars[var_i][member] = phi;
-        block_data.unsealed_phis[var_i][member] = phi;
+        ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, ::member_type(var_type(var_i), member));
+        block_data.var(var_i)[member] = phi;
+        block_data.unsealed_phi(var_i)[member] = phi;
         assert(phi);
         return phi;
     }
 }
 
-rval_t eval_t::var_lookup(cfg_ht cfg_node, unsigned var_i)
+rval_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i)
 {
     block_d& block_data = cfg_node.data<block_d>();
 
-    assert(var_i < block_data.vars.size());
+    rval_t rval(block_data.var(var_i).size());
 
-    rval_t rval(block_data.vars[var_i].size());
-
-    assert(rval.size() == num_members(var_types[var_i]));
+    assert(rval.size() == num_members(var_type(var_i)));
 
     for(unsigned member = 0; member < rval.size(); ++member)
     {
-        assert(member < block_data.vars[var_i].size());
+        assert(member < block_data.var(var_i).size());
         rval[member] = var_lookup(cfg_node, var_i, member);
     }
 
     return rval;
 }
 
-void eval_t::fill_phi_args(ssa_ht phi, unsigned var_i, unsigned member)
+void eval_t::fill_phi_args(ssa_ht phi, var_ht var_i, unsigned member)
 {
     // Input must be an empty phi node.
     assert(phi->op() == SSA_phi);
@@ -5598,6 +5567,7 @@ void eval_t::fill_phi_args(ssa_ht phi, unsigned var_i, unsigned member)
 
     // Fill the input array using local lookups.
     cfg_ht const cfg_node = phi->cfg_node();
+
     unsigned const input_size = cfg_node->input_size();
     phi->alloc_input(input_size);
     for(unsigned i = 0; i < input_size; ++i)

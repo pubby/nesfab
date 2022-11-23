@@ -68,7 +68,6 @@ bool is_rt(rval_t const& rval)
 
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t const type, pstring_t pstring)
 {
-    std::cout << "DONKEY " << type << std::endl;
     std::size_t const total_size_of = type.size_of();
 
     if(total_size_of == 0)
@@ -81,12 +80,12 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
     {
         type_t const mt = ::member_type(type, i);
 
+        // TODO
         //if(!is_scalar(mt.name()))
             //compiler_error(pstring, "Invalid type in pointer-addressable array. (Not scalar.)");
 
         auto const push_bytes = [&](ssa_value_t v, type_t subtype)
         {
-            std::cout << "DONKEY PUSH " << subtype << std::endl;
             //passert(subtype == v.type(), subtype, v.type());
 
             if(!is_scalar(subtype.name()))
@@ -100,7 +99,6 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
             {
                 for(unsigned i = 0; i < size_of; ++i)
                 {
-                    std::cout << "DONKEY PUSH 1" << std::endl;
                     vec.push_back(locator_t::const_byte(v.fixed().value >> ((i + frac_shift) * 8)));
                 }
             }
@@ -110,15 +108,12 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
 
                 if(loc.byteified())
                 {
-                    std::cout << "DONKEY PUSH 1" << std::endl;
                     vec.push_back(loc);
                     return;
                 }
 
                 if(loc.is() == IS_PTR)
                 {
-                    std::cout << "DONKEY PUSH 1" << std::endl;
-                    std::cout << "DONKEY PUSH 1" << std::endl;
                     vec.push_back(loc);
                     vec.push_back(loc.with_is(IS_PTR_HI));
                     return;
@@ -146,7 +141,6 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
                             loc.advance_offset(k);
                         }
 
-                        std::cout << "DONKEY PUSH 1" << std::endl;
                         vec.push_back(loc);
                     }
                 }
@@ -176,8 +170,6 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
         }
         */
     }
-
-    std::cout << "DONKEY SIZE " << vec.size() << std::endl;
 }
 
 fixed_t expr_value_t::fixed() const

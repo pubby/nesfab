@@ -105,16 +105,20 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 {
      std::unique_ptr<mods_t> mods;
 
-    auto const handle_groups = [this](bool& explicit_group, auto& map)
+    auto const handle_group_list = [this, &mods](mod_list_t listf)
     {
         parse_token();
-        explicit_group = true;
+        mods->explicit_lists |= listf;
         while(token.type == TOK_fslash)
         {
             pstring_t const group_ident = parse_group_ident();
-            auto result = map.emplace(group_t::lookup(source(), group_ident).handle(), group_ident);
-            if(!result.second)
+            auto& mapped = mods->lists[group_t::lookup(source(), group_ident).handle()];
+
+            if(mapped.lists & listf)
                 compiler_warning("Duplicate group modifier.");
+
+            mapped.pstring = group_ident;
+            mapped.lists |= listf;
         }
     };
 
@@ -129,13 +133,11 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 
             switch(token.type)
             {
-            case TOK_vars:
-                handle_groups(mods->explicit_group_vars, mods->group_vars);
-                break;
-
-            case TOK_data:
-                handle_groups(mods->explicit_group_data, mods->group_data);
-                break;
+            case TOK_vars: handle_group_list(MODL_VARS); break;
+            case TOK_data: handle_group_list(MODL_DATA); break;
+            case TOK_employs: handle_group_list(MODL_EMPLOYS); break;
+            case TOK_preserves: handle_group_list(MODL_PRESERVES); break;
+            case TOK_stows: handle_group_list(MODL_STOWS); break;
 
             case TOK_omni:
                 compiler_error("Unknown modifier. Did you mean 'data'?");
@@ -697,6 +699,7 @@ retry:
     case TOK_real:
     case TOK_true:
     case TOK_false:
+    case TOK_ready:
         {
             ast_node_t ast = { .token = token };
             parse_token();

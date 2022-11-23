@@ -1,12 +1,24 @@
+/*
+ * Copyright (c) 2022, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
 // RNG means random number generator.
 // This file contains code for generating random numbers.
 
 vars /rng
     U[2] rng_state = U[2](1, 1)
 
+// Helper function for setting 'rng_state'.
+fn seed(UU nonzero)
+: +inline
+    rng_state[0] = nonzero.a
+    rng_state[1] = nonzero.b
+
+// Returns a pseudo-random 8-bit value.
 asm fn rand() U
-: vars /rng
-: data
+: employs /rng
     default
         lda &rng_state+0
         asl
@@ -23,9 +35,17 @@ asm fn rand() U
         sta &return
         rts
 
+// Returns a pseudo-random 16-bit value.
+fn rand16() UU
+: +inline
+    UU result
+    result.a = rand()
+    result.b = rand()
+    return result
+
+// Returns a bitmask that can hold any value less than or equal to argument 'num'.
 asm fn ceil_mask(U num) U
-: vars
-: data
+: employs
     default
         ldx #$FF
         lda &num

@@ -165,7 +165,7 @@ public:
         return { { pstring, fn_type }, fn_name };
     }
 
-    static constexpr mod_flags_t FN_MODS = MOD_zero_page;
+    static constexpr mod_flags_t FN_MODS = MOD_zero_page | MOD_inline;
 
     [[gnu::always_inline]]
     void end_fn(var_decl_t decl, fn_class_t fclass, std::unique_ptr<mods_t> mods)
@@ -192,8 +192,7 @@ public:
             mods->validate(
                 decl.name, 
                 FN_MODS, // flags
-                fclass != FN_CT, // vars
-                fclass != FN_CT, // data
+                fclass == FN_CT ? 0 : (MODL_VARS | MODL_DATA | MODL_EMPLOYS), // lists
                 fclass == FN_MODE // nmi
                 );
         }
@@ -253,8 +252,7 @@ public:
             mods->validate(
                 decl.name, 
                 FN_MODS, // flags
-                true, // vars
-                true, // data
+                MODL_VARS | MODL_DATA | MODL_EMPLOYS, // lists
                 false // nmi
                 );
         }
@@ -341,8 +339,7 @@ public:
                 mods->validate(
                     pstring, 
                     0, // flags
-                    true, // vars
-                    false // data
+                    MODL_PRESERVES // lists
                     );
             }
             else
@@ -848,9 +845,15 @@ public:
     void goto_mode_statement(pstring_t mode, ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
         if(mods)
-            mods->validate(mode, 0, true, false);
+        {
+            mods->validate(
+                mode, 
+                0, // flags
+                MODL_PRESERVES // list
+                );
+        }
 
-        if(!mods || !mods->explicit_group_vars)
+        if(!mods || !(mods->explicit_lists & MODL_PRESERVES))
             compiler_error(mode, "Missing vars modifier.");
 
         fn_def.push_stmt({ STMT_GOTO_MODE, fn_def.push_mods(std::move(mods)), {}, mode, convert_eternal_expr(&expr) });
@@ -880,7 +883,13 @@ public:
         using namespace std::literals;
 
         if(mods)
-            mods->validate(charmap_name, 0, false, true);
+        {
+            mods->validate(
+                charmap_name, 
+                0, // flags
+                MODL_STOWS // lists
+                );
+        }
 
         if(is_default)
             active_global = &global_t::default_charmap(charmap_name);

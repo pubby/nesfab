@@ -20,6 +20,7 @@ namespace bc = boost::container;
 struct ast_node_t;
 class global_t;
 
+struct var_ht : handle_t<var_ht, std::uint32_t, ~0u> {};
 using ct_array_t = std::shared_ptr<ssa_value_t[]>;
 using ct_variant_t = std::variant<ssa_value_t, ct_array_t>;
 using rval_t = bc::small_vector<ct_variant_t, 1>;
@@ -63,15 +64,15 @@ struct lval_t
     std::uint16_t label = -1;
     union
     {
-        unsigned vvar_i = ~0u;
+        var_ht vvar_i = {};
         global_t const* vglobal;
     };
     ssa_value_t index = {};
 
-    unsigned var_i() const { assert(is_var()); return vvar_i; }
+    var_ht var_i() const { assert(is_var()); return vvar_i; }
     global_t const& global() const { assert(is_global()); assert(vglobal); return *vglobal; }
 
-    void set_var_i(unsigned i) { flags &= ~LVALF_IS_GLOBAL; vvar_i = i; }
+    void set_var_i(var_ht i) { flags &= ~LVALF_IS_GLOBAL; vvar_i = i; }
     void set_global(global_t const* g) { flags |= LVALF_IS_GLOBAL; vglobal = g; }
 
     bool is_global() const { return (flags & LVALF_IS_GLOBAL); }

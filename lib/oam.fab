@@ -1,0 +1,65 @@
+/*
+ * Copyright (c) 2022, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for manipulating OAM (Object Attribute Memory),
+// which is the memory that represents sprites.
+// See: https://www.nesdev.org/wiki/PPU_OAM
+
+vars /oam
+    // This array represents the CPU-side copy of OAM.
+    // Make your modifications to it, then call 'ppu_upload_oam' during VBLANK.
+    U[256] oam
+    : +align
+
+// Offsets into OAM, as determined by the hardware:
+ct Int OAM_Y = 0
+ct Int OAM_P = 1
+ct Int OAM_A = 2
+ct Int OAM_X = 3
+
+// Copies 'oam' into PPU memory. Call during VBLANK only.
+fn ppu_upload_oam(U offset)
+: employs /oam
+: +inline
+    fence
+    {OAMADDR}(offset)
+    {OAMDMA}((&oam).b)
+
+// !!! For the following functions: !!!
+// 'index' must be a multiple of 4, otherwise the behavior is undefined.
+
+// Hides every sprite, starting from 'index':
+fn hide_oam(U index)
+: +inline
+    do for(; index; index += 4)
+        oam{OAM_Y + index} = $FF
+
+// The 'set_oam' functions use the '{}' operator for array indexing 
+// instead of '[]', as it's more efficient in this case.
+
+fn set_oam_x(U index, U x)
+: +inline
+    oam{OAM_X + index} = x
+
+fn set_oam_y(U index, U y)
+: +inline
+    oam{OAM_Y + index} = y
+
+fn set_oam_p(U index, U p)
+: +inline
+    oam{OAM_P + index} = p
+
+fn set_oam_a(U index, U a)
+: +inline
+    oam{OAM_A + index} = a
+
+fn set_oam(U index, U x, U y, U p, U a)
+: +inline
+    oam{OAM_Y + index} = y
+    oam{OAM_P + index} = p
+    oam{OAM_A + index} = a
+    oam{OAM_X + index} = x
+

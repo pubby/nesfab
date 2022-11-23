@@ -412,11 +412,20 @@ void global_t::precheck_all()
         nmi->m_precheck_romv |= ROMVF_IN_NMI;
     }
 
-    // Allocate rom procs:
     for(fn_t& fn : fn_ht::values())
     {
+        // Allocate rom procs:
         assert(!fn.m_rom_proc);
         fn.m_rom_proc = rom_proc_ht::pool_make(romv_allocs_t{}, fn.m_precheck_romv);
+
+        // Determine each 'm_precheck_called':
+        if(fn.m_precheck_calls)
+        {
+            fn.m_precheck_calls.for_each([&](fn_ht call)
+            {
+                call->m_precheck_called += 1;
+            });
+        }
     }
 }
 
@@ -767,7 +776,8 @@ bool fn_t::ct_pure() const
         return (ir_io_pure() 
                 && ir_deref_groups().all_clear()
                 && ir_reads().all_clear()
-                && ir_writes().all_clear());
+                && ir_writes().all_clear()
+                && !ir_tests_ready());
     default:
         return false;
     }
@@ -781,6 +791,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     xbitset_t<group_vars_ht> group_vars(0);
     xbitset_t<group_ht> deref_groups(0);
     xbitset_t<fn_ht> calls(0);
+    bool tests_ready = false;
     bool io_pure = true;
     bool fences = false;
 
@@ -789,7 +800,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     {
         if(mods_t const* goto_mods = fn_stmt.second.mods)
         {
-            goto_mods->for_each_group_vars([&](group_vars_ht gv)
+            goto_mods->for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
             {
                 group_vars.set(gv.id);
                 reads |= gv->gmembers();
@@ -797,25 +808,31 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
         }
     }
 
+    // Handle 'employs':
+    if(mods())
+    {
+        mods()->for_each_list(MODL_EMPLOYS, [&](group_ht g, pstring_t)
+        {
+            deref_groups.set(g.id);
+
+            if(g->gclass() == GROUP_VARS)
+            {
+                auto const& gv = g->impl<group_vars_t>();
+                reads  |= gv.gmembers();
+                writes |= gv.gmembers();
+            }
+        });
+    }
+
     if(iasm)
     {
         assert(!ir_ptr);
         assert(mods());
-        assert(mods()->explicit_group_vars);
-        assert(mods()->explicit_group_data);
+        assert(mods()->explicit_lists & MODL_EMPLOYS);
 
         io_pure = false;
         fences = true;
         group_vars = m_precheck_group_vars;
-
-        for(auto const& pair : mods()->group_vars)
-        {
-            deref_groups.set(pair.first->handle().id);
-            reads |= pair.first->impl<group_vars_t>().gmembers();
-            writes |= pair.first->impl<group_vars_t>().gmembers();
-        }
-        for(auto const& pair : mods()->group_data)
-            deref_groups.set(pair.first->handle().id);
 
         for(auto const& pair : precheck_tracked().calls)
         {
@@ -837,6 +854,9 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
         {
             if(ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE)
                 io_pure = false;
+
+            if(ssa_it->op() == SSA_ready)
+                tests_ready = true;
 
             if(ssa_it->op() == SSA_fn_call)
             {
@@ -933,6 +953,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     m_ir_group_vars = std::move(group_vars);
     m_ir_calls = std::move(calls);
     m_ir_deref_groups = std::move(deref_groups);
+    m_ir_tests_ready = tests_ready;
     m_ir_io_pure = io_pure;
     m_ir_fences = fences;
 }
@@ -1038,10 +1059,8 @@ void fn_t::resolve()
 
     if(iasm)
     {
-        if(!mods() || !mods()->explicit_group_vars)
-            compiler_error(global.pstring(), "Missing vars modifier.");
-        if(!mods() || !mods()->explicit_group_data)
-            compiler_error(global.pstring(), "Missing data modifier.");
+        if(!mods() || !(mods()->explicit_lists & MODL_EMPLOYS))
+            compiler_error(global.pstring(), "Missing employs modifier.");
     }
 
     // Resolve local constants:
@@ -1269,7 +1288,7 @@ void fn_t::compile()
     ssa_pool::clear();
     cfg_pool::clear();
     ir_t ir;
-    build_ir(ir, *this, m_def.local_consts.data());
+    build_ir(ir, *this);
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {
@@ -1369,8 +1388,56 @@ void fn_t::compile()
     optimize_suite(true);
     save_graph(ir, "5_o2");
 
-    code_gen(log, ir, *this);
+    std::size_t const proc_size = code_gen(log, ir, *this);
     save_graph(ir, "6_cg");
+
+    // Calculate inline-ability
+    assert(m_always_inline == false);
+    if(fclass == FN_FN && !mod_test(mods(), MOD_inline, false))
+    {
+        if(mod_test(mods(), MOD_inline, true))
+            m_always_inline = true;
+        else if(precheck_called() == 1)
+        {
+            if(proc_size < INLINE_SIZE_ONCE)
+            {
+                std::cout << "INLINE ONCE " << global.name << ' ' << proc_size << std::endl;
+                m_always_inline = true;
+            }
+        }
+        else if(proc_size < INLINE_SIZE_LIMIT)
+        {
+            // TODO
+            std::cout << "INLINE " << global.name << ' ' << proc_size << std::endl;
+
+            bool const no_banks = ir_deref_groups().for_each_test([&](group_ht group) -> bool
+            {
+                return group->gclass() != GROUP_DATA || !group->impl<group_data_t>().once;
+            });
+
+            if(no_banks)
+            {
+                unsigned call_cost = 0;
+
+                m_lvars.for_each_lvar(true, [&](locator_t loc, unsigned)
+                {
+                    if(loc.lclass() == LOC_ARG || loc.lclass() == LOC_RETURN)
+                    {
+                        assert(loc.fn() == handle());
+                        ++call_cost;
+                    }
+                });
+
+                constexpr unsigned CALL_PENALTY = 3;
+
+                if(proc_size < INLINE_SIZE_GOAL + (call_cost * CALL_PENALTY))
+                {
+                    m_always_inline = true;
+                    std::puts("INLINE");
+                }
+            }
+        }
+    }
 }
 
 void fn_t::precheck_finish_mode() const
@@ -1461,11 +1528,22 @@ void fn_t::calc_precheck_bitsets()
     bitset_uint_t* mod_group_vars = ALLOCA_T(bitset_uint_t, gv_bs_size);
 
     bitset_clear_all(gv_bs_size, mod_group_vars);
-    if(mods() && mods()->explicit_group_vars)
+    if(mods() && (mods()->explicit_lists & MODL_VARS))
     {
-        for(auto const& pair : mods()->group_vars)
-            bitset_set(mod_group_vars, pair.first->impl_id());
+        mods()->for_each_list_vars(MODL_VARS, [&](group_vars_ht gv, pstring_t)
+        {
+            bitset_set(mod_group_vars, gv.id);
+        });
+
         bitset_or(gv_bs_size, m_precheck_group_vars.data(), mod_group_vars);
+    }
+
+    if(mods() && (mods()->explicit_lists & MODL_EMPLOYS))
+    {
+        mods()->for_each_list_vars(MODL_EMPLOYS, [&](group_vars_ht gv, pstring_t)
+        {
+            bitset_set(m_precheck_group_vars.data(), gv.id);
+        });
     }
 
     auto const group_vars_to_string = [gv_bs_size](bitset_uint_t const* bs)
@@ -1476,18 +1554,19 @@ void fn_t::calc_precheck_bitsets()
         return str;
     };
 
-    auto const group_map_to_string = [](auto const& map)
+    auto const group_map_to_string = [this](mod_list_t lists)
     {
         std::string str;
-        for(auto const& pair : map)
-            str += pair.first->name;
+        for(auto const& pair : mods()->lists)
+            if(pair.second.lists & lists)
+                str += pair.first->name;
         return str;
     };
 
     // Handle accesses through pointers:
     for(auto const& pair : m_precheck_tracked->deref_groups)
     {
-        auto const error = [&](group_class_t gclass, auto& groups)
+        auto const error = [&](group_class_t gclass, mod_list_t lists)
         {
             type_t const type = pair.second.type;
 
@@ -1495,13 +1574,13 @@ void fn_t::calc_precheck_bitsets()
 
             std::string const msg = fmt(
                 "% access requires groups that are excluded from % (% %).",
-                type, global.name, keyword, group_map_to_string(groups));
+                type, global.name, keyword, group_map_to_string(lists));
 
             std::string missing = "";
             for(unsigned i = 0; i < type.group_tail_size(); ++i)
             {
                 group_ht const group = type.group(i);
-                if(group->gclass() == gclass && !groups.count(group))
+                if(group->gclass() == gclass && !mods()->in_lists(lists, group))
                     missing += group->name;
             }
 
@@ -1512,15 +1591,15 @@ void fn_t::calc_precheck_bitsets()
 
         if(pair.first->gclass() == GROUP_VARS)
         {
-            if(mods() && mods()->explicit_group_vars && !mods()->group_vars.count(pair.first))
-                error(GROUP_VARS, mods()->group_vars);
+            if(mods() && (mods()->explicit_lists & MODL_VARS) && !mods()->in_lists(MODL_VARS, pair.first))
+                error(GROUP_VARS, MODL_VARS);
 
             m_precheck_group_vars.set(pair.first->impl_id());
         }
         else if(pair.first->gclass() == GROUP_DATA)
         {
-            if(mods() && mods()->explicit_group_data && !mods()->group_data.count(pair.first))
-                error(GROUP_DATA, mods()->group_data);
+            if(mods() && (mods()->explicit_lists & MODL_DATA) && !mods()->in_lists(MODL_DATA, pair.first))
+                error(GROUP_DATA, MODL_DATA);
         }
     }
 
@@ -1530,9 +1609,9 @@ void fn_t::calc_precheck_bitsets()
         pstring_t pstring = fn_stmt.second.pstring;
         mods_t const* goto_mods = fn_stmt.second.mods;
 
-        if(!goto_mods || !goto_mods->explicit_group_vars)
+        if(!goto_mods || !(goto_mods->explicit_lists & MODL_PRESERVES))
             compiler_error(pstring ? pstring : global.pstring(), 
-                           "Missing vars modifier.");
+                           "Missing preserves modifier.");
 
         if(!goto_mods)
             continue;
@@ -1541,34 +1620,38 @@ void fn_t::calc_precheck_bitsets()
         auto& call_pimpl = fn_stmt.first->pimpl<mode_impl_t>();
         {
             std::lock_guard<std::mutex> lock(call_pimpl.incoming_preserved_groups_mutex);
-            call_pimpl.incoming_preserved_groups.insert(
-                goto_mods->group_vars.begin(), goto_mods->group_vars.end());
+            goto_mods->for_each_list(MODL_PRESERVES, [&](group_ht g, pstring_t pstring)
+            {
+                call_pimpl.incoming_preserved_groups.emplace(g, pstring);
+            });
         }
 
         // Handle our own groups:
-        for(auto const& pair : goto_mods->group_vars)
+        goto_mods->for_each_list(MODL_PRESERVES, [&](group_ht g, pstring_t)
         {
-            if(pair.first->gclass() == GROUP_VARS)
+            if(g->gclass() == GROUP_VARS)
             {
-                if(mods() && mods()->explicit_group_vars && !mods()->group_vars.count(pair.first))
+                if(mods() && (mods()->explicit_lists & MODL_PRESERVES) && !mods()->in_lists(MODL_PRESERVES, g))
                 {
                     std::string const msg = fmt(
                         "Preserved groups are excluded from % (vars %).",
-                        global.name, group_map_to_string(mods()->group_vars));
+                        global.name, group_map_to_string(MODL_VARS));
 
                     std::string missing = "";
-                    for(auto const& pair : goto_mods->group_vars)
-                        if(pair.first->gclass() == GROUP_VARS && !mods()->group_vars.count(pair.first))
-                            missing += pair.first->name;
+                    goto_mods->for_each_list(MODL_PRESERVES, [&](group_ht g, pstring_t)
+                    {
+                        if(g->gclass() == GROUP_VARS && !mods()->in_lists(MODL_PRESERVES, g))
+                            missing += g->name;
+                    });
 
                     throw compiler_error_t(
                         fmt_error(pstring, msg)
                         + fmt_note(fmt("Excluded groups: vars %", missing)));
                 }
 
-                m_precheck_group_vars.set(pair.first->impl_id());
+                m_precheck_group_vars.set(g->impl_id());
             }
-        }
+        });
     }
 
     // Handle direct dependencies.
@@ -1598,7 +1681,7 @@ void fn_t::calc_precheck_bitsets()
             gvar_ht const gvar = pair.first;
             group_ht const group = gvar->group();
 
-            if(mods() && mods()->explicit_group_vars && !mods()->group_vars.count(group))
+            if(mods() && (mods()->explicit_lists & MODL_VARS) && !mods()->in_lists(MODL_VARS, group))
                 error(pair.first->global, group->name, group->name);
 
             m_precheck_group_vars.set(group->impl_id());
@@ -1617,7 +1700,7 @@ void fn_t::calc_precheck_bitsets()
             bitset_copy(gv_bs_size, temp_bs, call.m_precheck_group_vars.data());
             bitset_difference(gv_bs_size, temp_bs, mod_group_vars);
 
-            if(mods() && mods()->explicit_group_vars && !bitset_all_clear(gv_bs_size, temp_bs))
+            if(mods() && (mods()->explicit_lists & MODL_VARS) && !bitset_all_clear(gv_bs_size, temp_bs))
             {
                 error(call.global,
                       group_vars_to_string(call.precheck_group_vars().data()),
@@ -2093,20 +2176,20 @@ int charmap_t::convert(char32_t ch) const
 void charmap_t::set_group_data()
 {
     assert(compiler_phase() == PHASE_CHARMAP_GROUPS);
+    assert(!m_group_data);
 
-    if(mods() && mods()->group_data.size())
+    if(mods() && (mods()->explicit_lists & MODL_STOWS))
     {
-        if(mods()->group_data.size() > 1)
-            compiler_error(global.pstring(), "Too many 'data' mods. Expecting one or zero.");
+        mods()->for_each_list_data(MODL_STOWS, [&](group_data_ht gd, pstring_t pstring)
+        {
+            if(m_group_data)
+                compiler_error(pstring, "Too many 'stores' mods. Expecting one or zero.");
 
-        if(mods()->group_data.size() != 1)
-            return;
+            m_group_data = gd;
+        });
 
-        group_ht h = mods()->group_data.begin()->first;
-        if(h->gclass() != GROUP_DATA)
-            compiler_error(global.pstring(), fmt("% is not a data group.", h->name));
-
-        m_group_data = h->handle<group_data_ht>();
+        if(!m_group_data)
+            compiler_error(global.pstring(), "Invalid 'stores' mod.");
     }
 }
 

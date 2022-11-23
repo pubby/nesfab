@@ -138,7 +138,7 @@ private:
 };
 }// end anon namespace
 
-void code_gen(log_t* log, ir_t& ir, fn_t& fn)
+std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 {
     ////////////////////////
     // CFG EDGE SPLITTING //
@@ -1216,11 +1216,12 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // INSTRUCTION SELECTION //
     ///////////////////////////
 
+    std::size_t proc_size = 0;
     {
         // REQUIRES LOOP INFORMATION BUILT!!!
 
         // TODO: Calculate loops here, not in 'select_instructions'.
-        select_instructions(log, fn, ir);
+        proc_size = select_instructions(log, fn, ir);
 
         /*
 #ifndef NDEBUG
@@ -1256,5 +1257,6 @@ void code_gen(log_t* log, ir_t& ir, fn_t& fn)
         */
     }
 
+    return proc_size;
 }
 

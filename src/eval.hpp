@@ -66,6 +66,6 @@ rpair_t interpret_lt(romv_t romv, ast_node_t const& ast, type_t expected_type);
 
 precheck_tracked_t build_tracked(fn_t& fn, local_const_t const* local_consts);
 
-void build_ir(ir_t& ir, fn_t& fn, local_const_t const* local_consts);
+void build_ir(ir_t& ir, fn_t& fn);
 
 #endif

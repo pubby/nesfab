@@ -1,7 +1,9 @@
+// TODO
+
+data /pbz
 
 asm fn load_pbz(CC/pbz ptr, U tiles)
-: vars
-: data /pbz
+: employs /pbz
     vars
         U run_mask
     label write_plane

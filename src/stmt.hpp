@@ -47,7 +47,7 @@ struct stmt_mods_ht : handle_t<stmt_mods_ht, std::uint16_t, ~0> {};
 
 // Negative values represent var inits, where the negated value 
 // holds the bitwise negated index of the fn variable.
-// (See 'get_local_var_i')
+// (See 'get_local_i')
 enum stmt_name_t : std::int16_t
 {
     STMT_MIN_VAR_DECL = std::numeric_limits<std::int16_t>::min(),
@@ -66,7 +66,7 @@ constexpr bool is_var_init(stmt_name_t stmt_name)
     return std::underlying_type_t<stmt_name_t>(stmt_name) < 0;
 }
 
-constexpr unsigned get_local_var_i(stmt_name_t stmt_name)
+constexpr unsigned get_local_i(stmt_name_t stmt_name)
 {
     assert(is_var_init(stmt_name));
     return ~static_cast<unsigned>(stmt_name);

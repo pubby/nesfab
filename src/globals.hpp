@@ -373,9 +373,14 @@ public:
     precheck_tracked_t const& precheck_tracked() const { assert(m_precheck_tracked); return *m_precheck_tracked; }
     auto const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
     auto const& precheck_parent_modes() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_parent_modes; }
-    auto const& precheck_rw() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_rw; }
+
+    // TODO: is this used?
+    auto const& precheck_rw() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_rw; }
+
+    auto const& precheck_calls() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_calls; }
     auto precheck_romv() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_romv; }
     bool precheck_fences() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_fences; }
+    unsigned precheck_called() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_called; }
 
     /* TODO
     template<typename Fn>
@@ -402,6 +407,7 @@ public:
     auto const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
     auto const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
     auto const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
+    bool ir_tests_ready() const { assert(m_ir_writes); return m_ir_tests_ready; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
     bool ct_pure() const;
@@ -415,6 +421,8 @@ public:
 
     //bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
     //bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
+
+    bool always_inline() const { assert(global.compiled()); return m_always_inline; }
 
     locator_t first_bank_switch() const { assert(global.compiled()); return m_first_bank_switch; }
     void assign_first_bank_switch(locator_t loc) { assert(compiler_phase() == PHASE_COMPILE); m_first_bank_switch = loc; }
@@ -431,6 +439,37 @@ public:
     void mark_referenced_param(unsigned param);
     std::uint64_t referenced_params() const { return m_referenced_params.load(); }
     void for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const;
+
+    // Iterates this function, and every inline function it calls, once each.
+    template<typename Fn>
+    void for_each_inlined(Fn const& fn) const
+    {
+        std::size_t const bs_size = fn_ht::bitset_size();
+        bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, bs_size);
+
+        bitset_clear_all(bs_size, bs);
+
+        for_each_inlined_impl(fn, bs);
+    }
+    
+private:
+    template<typename Fn>
+    void for_each_inlined_impl(Fn const& fn, bitset_uint_t* bs) const
+    {
+        if(bitset_test(bs, handle().id))
+           return;
+
+        fn(*this);
+        bitset_set(bs, handle().id);
+
+        precheck_calls().for_each([&](fn_ht h)
+        {
+            if(h->fclass == FN_FN && h->always_inline())
+            {
+                h->for_each_inlined_impl(fn, bs);
+            }
+        });
+    }
 
 public:
     global_t& global;
@@ -462,6 +501,7 @@ private:
     // If the function (or a called fn) waits on NMI
     bool m_precheck_wait_nmi = false; // TODO: remove?
     bool m_precheck_fences = false; // TODO: remove?
+    std::atomic<unsigned> m_precheck_called = 0; // Counts how many times this has been called.
 
     // TODO: describe
     xbitset_t<gmember_ht> m_fence_rw;
@@ -475,6 +515,9 @@ private:
     xbitset_t<group_ht> m_ir_deref_groups;
     xbitset_t<fn_ht> m_ir_calls;
 
+    // If the function uses a 'SSA_ready' node:
+    bool m_ir_tests_ready = false;
+
     // If the function (and called fns) doesn't do I/O.
     // (Using mutable memory state is OK.)
     // Gets set by 'calc_reads_writes_purity'.
@@ -482,6 +525,9 @@ private:
 
     // If the function (or a called fn) waits on NMI
     bool m_ir_fences = false;
+
+    // If the function should be inlined:
+    bool m_always_inline = false;
 
     // The first, dominating bank switch in this function.
     // (This is the bank the fn should be called from.)

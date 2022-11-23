@@ -645,11 +645,14 @@ int main()
         keyword("asm"),
         keyword("ready"),
         keyword("fence"),
-        keyword("switch"), // TODO
-        keyword("case"), // TODO
-        keyword("default"), // TODO
+        keyword("switch"),
+        keyword("case"),
+        keyword("default"),
         keyword("charmap"),
         keyword("chrrom"),
+        keyword("employs"),
+        keyword("preserves"),
+        keyword("stows"),
 
         keyword("true"),
         keyword("false"),

@@ -101,6 +101,7 @@ inline void cg_data_resize()
     ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
 }
 
-void code_gen(log_t* log, ir_t& ir, fn_t& fn);
+// Returns size in bytes of proc:
+std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn);
 
 #endif

@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2022, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for working with palettes,
+// i.e. the limited set of colors the NES can display at once.
+// See: https://www.nesdev.org/wiki/PPU_palettes
+
 // Copies the global variable 'palette' into the PPU's internal palette memory.
 fn ppu_upload_palette()
     {PPUSTATUS}()
@@ -76,3 +86,4 @@ ct U[25] example_palette = U[25](
     $08, $1A, $2C,
 
     $0F)
+

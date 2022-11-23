@@ -501,6 +501,7 @@ static constexpr auto abstract_bottom = ABSTRACT_FN
         constraint = constraints_t::bottom(result.cm);
 };
 
+ABSTRACT(SSA_ready) = abstract_bottom;
 ABSTRACT(SSA_read_global) = abstract_bottom;
 ABSTRACT(SSA_fn_call) = abstract_bottom;
 ABSTRACT(SSA_uninitialized) = abstract_bottom;

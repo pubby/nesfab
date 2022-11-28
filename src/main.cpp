@@ -153,7 +153,6 @@ int main(int argc, char** argv)
                 ("code-dir,I", po::value<std::vector<std::string>>(), "search directory for code files")
                 ("resource-dir,R", po::value<std::vector<std::string>>(), "search directory for resource files")
                 ("output,o", po::value<std::string>(), "output file")
-                ("config,c", po::value<std::string>(), "configuration file")
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("error-on-warning,W", "turn warnings into errors")
             ;
@@ -161,9 +160,9 @@ int main(int argc, char** argv)
             po::options_description mapper_opt("Mapper options");
             mapper_opt.add_options()
                 ("mapper,M", po::value<std::string>(), "name of cartridge mapper")
-                ("mirroring", po::value<std::string>(), "mirroring of mapper (V, H, 4)")
-                ("prg-size", po::value<unsigned>(), "size of mapper PRG in KiB")
-                ("chr-size", po::value<unsigned>(), "size of mapper CHR in KiB")
+                ("mirroring,m", po::value<std::string>(), "mirroring of mapper (V, H, 4)")
+                ("prg-size,p", po::value<unsigned>(), "size of mapper PRG in KiB")
+                ("chr-size,c", po::value<unsigned>(), "size of mapper CHR in KiB")
             ;
 
             po::options_description basic_hidden("Hidden options");
@@ -248,18 +247,11 @@ int main(int argc, char** argv)
                 throw std::runtime_error(fmt("Invalid mapper mirroring: \"%\"", _options.raw_mm));
             };
 
-            auto const get_prg_size = [&]() -> unsigned
+            mapper_params_t const mapper_params = 
             {
-                if((_options.raw_mp % 32) != 0)
-                    throw std::runtime_error(fmt("Invalid mapper PRG size: \"%\"", _options.raw_mp));
-                return _options.raw_mp / 32;
-            };
-
-            auto const get_chr_size = [&]() -> unsigned
-            {
-                if((_options.raw_mc % 8) != 0)
-                    throw std::runtime_error(fmt("Invalid mapper CHR size: \"%\"", _options.raw_mp));
-                return _options.raw_mc / 8;
+                .mirroring = get_mirroring(),
+                .prg_size = _options.raw_mp,
+                .chr_size = _options.raw_mc,
             };
 
             auto const to_lower = [](std::string str)
@@ -270,17 +262,17 @@ int main(int argc, char** argv)
             };
 
             if(to_lower(compiler_options().raw_mn) == "nrom"sv || compiler_options().raw_mn.empty())
-                _options.mapper = mapper_t::nrom(get_mirroring());
+                _options.mapper = mapper_t::nrom(mapper_params);
             else if(to_lower(compiler_options().raw_mn) == "cnrom"sv)
-                _options.mapper = mapper_t::cnrom(get_mirroring(), get_chr_size());
+                _options.mapper = mapper_t::cnrom(mapper_params);
             else if(to_lower(compiler_options().raw_mn) == "anrom"sv)
-                _options.mapper = mapper_t::anrom(get_prg_size());
+                _options.mapper = mapper_t::anrom(mapper_params);
             else if(to_lower(compiler_options().raw_mn) == "bnrom"sv)
-                _options.mapper = mapper_t::bnrom(get_mirroring(), get_prg_size());
+                _options.mapper = mapper_t::bnrom(mapper_params);
             else if(to_lower(compiler_options().raw_mn) == "gnrom"sv)
-                _options.mapper = mapper_t::gnrom(get_mirroring(), get_prg_size(), get_chr_size());
+                _options.mapper = mapper_t::gnrom(mapper_params);
             else if(to_lower(compiler_options().raw_mn) == "gtrom"sv)
-                _options.mapper = mapper_t::gtrom();
+                _options.mapper = mapper_t::gtrom(mapper_params);
             else
                 throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
         }

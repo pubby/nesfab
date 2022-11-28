@@ -203,8 +203,6 @@ namespace isel
         case ROR:
         // Very slighty penalize LAX, to prefer LDA or LDX:
         case LAX: 
-        // Same with SAX and AND:
-        case SAX: 
         // Same with ALR and LSR:
         case ALR:
             penalty += 2;
@@ -795,7 +793,7 @@ namespace isel
     }
     
     [[gnu::noinline]]
-    void load_A_impl(options_t opt, locator_t value, locator_t def, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_A_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         assert(value.is_const_num());
         std::uint8_t const byte = value.data();
@@ -803,7 +801,7 @@ namespace isel
         cpu_t cpu_copy;
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, def, value) && cpu_copy.is_known(REG_A, byte))
+        if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, {}, value) && cpu_copy.is_known(REG_A, byte))
             cont->call(cpu_copy, &alloc_sel<ANC_IMMEDIATE>(cpu, prev, value));
 
         if(cpu.is_known(REG_A))
@@ -818,7 +816,7 @@ namespace isel
                 {
                     locator_t const arg = locator_t::const_byte(mask | i);
                     cpu_copy = cpu;
-                    if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, def, arg) && cpu_copy.is_known(REG_A, byte))
+                    if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, {}, arg) && cpu_copy.is_known(REG_A, byte))
                         cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(cpu, prev, arg));
 
                     // No point in doing the second iteration if it can't set the carry:
@@ -829,28 +827,28 @@ namespace isel
         }
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<LSR_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_A, byte))
+        if(cpu_copy.set_defs_for<LSR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
             cont->call(cpu_copy, &alloc_sel<LSR_IMPLIED>(cpu, prev));
             return;
         }
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<ASL_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_A, byte))
+        if(cpu_copy.set_defs_for<ASL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
             cont->call(cpu_copy, &alloc_sel<ASL_IMPLIED>(cpu, prev));
             return;
         }
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<ROL_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_A, byte))
+        if(cpu_copy.set_defs_for<ROL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
             cont->call(cpu_copy, &alloc_sel<ROL_IMPLIED>(cpu, prev));
             return;
         }
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<ROR_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_A, byte))
+        if(cpu_copy.set_defs_for<ROR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
             cont->call(cpu_copy, &alloc_sel<ROR_IMPLIED>(cpu, prev));
             return;
@@ -861,6 +859,8 @@ namespace isel
     void load_A(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         locator_t const v = Load::value();
+        assert(v);
+        assert(Def::value());
 
         if(cpu.value_eq(REG_A, v))
             cont->call(cpu, prev);
@@ -868,7 +868,7 @@ namespace isel
             return;
         else if(cpu.value_eq(REG_X, v))
             simple_op<TXA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
-        else if(cpu.value_eq(REG_Y, Def::value()))
+        else if(cpu.value_eq(REG_Y, v))
             simple_op<TYA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
         else
         {
@@ -877,12 +877,12 @@ namespace isel
             pick_op<Opt, LAX, Def, Load>(cpu, prev, cont);
 
             if(v.is_const_num())
-                load_A_impl(Opt::template valid_for<REGF_A | REGF_NZ>::to_struct, v, Def::value(), cpu, prev, cont);
+                load_A_impl(Opt::template valid_for<REGF_A | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
     [[gnu::noinline]]
-    void load_X_impl(options_t opt, locator_t value, locator_t def, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_X_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         assert(value.is_const_num());
         std::uint8_t const byte = value.data();
@@ -890,11 +890,11 @@ namespace isel
         cpu_t cpu_copy;
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<INX_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_X, byte))
+        if(cpu_copy.set_defs_for<INX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
             cont->call(cpu_copy, &alloc_sel<INX_IMPLIED>(cpu, prev));
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<DEX_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_X, byte))
+        if(cpu_copy.set_defs_for<DEX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
             cont->call(cpu_copy, &alloc_sel<DEX_IMPLIED>(cpu, prev));
     }
 
@@ -924,12 +924,12 @@ namespace isel
             pick_op<Opt, LAX, Def, Load>(cpu, prev, cont);
 
             if(v.is_const_num())
-                load_X_impl(Opt::template valid_for<REGF_X | REGF_NZ>::to_struct, v, Def::value(), cpu, prev, cont);
+                load_X_impl(Opt::template valid_for<REGF_X | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
     [[gnu::noinline]]
-    void load_Y_impl(options_t opt, locator_t value, locator_t def, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_Y_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         assert(value.is_const_num());
         std::uint8_t const byte = value.data();
@@ -937,11 +937,11 @@ namespace isel
         cpu_t cpu_copy;
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_Y, byte))
+        if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
             cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(cpu, prev));
 
         cpu_copy = cpu;
-        if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, def, {}) && cpu_copy.is_known(REG_Y, byte))
+        if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
             cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(cpu, prev));
     }
 
@@ -969,7 +969,7 @@ namespace isel
             pick_op<Opt, LDY, Def, Def>(cpu, prev, cont);
 
             if(v.is_const_num())
-                load_Y_impl(Opt::template valid_for<REGF_Y | REGF_NZ>::to_struct, v, Def::value(), cpu, prev, cont);
+                load_Y_impl(Opt::template valid_for<REGF_Y | REGF_NZ>::to_struct, v, cpu, prev, cont);
         }
     }
 
@@ -2215,7 +2215,7 @@ namespace isel
             {
                 p_arg<0>::set(from, i + start);
                 p_def::set(def, i + start);
-                select_step<false>(load_then_store<Opt, null_, p_arg<0>, p_def, false>);
+                select_step<false>(load_then_store<Opt, p_arg<0>, p_arg<0>, p_def, false>);
             }
         }
 
@@ -3874,7 +3874,7 @@ namespace isel
                         {
                             // Reset the nmi handler until we've reset all group vars.
                             p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
-                            select_step<false>(load_then_store<Opt, null_, const_<0>, p_arg<0>, false>);
+                            select_step<false>(load_then_store<Opt, const_<0>, const_<0>, p_arg<0>, false>);
                             did_reset_nmi = true;
                         }
 
@@ -3906,7 +3906,7 @@ namespace isel
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
                     p_arg<1>::set(locator_t::nmi_index(call.mode_nmi()));
-                    select_step<false>(load_then_store<Opt, null_, p_arg<1>, p_arg<0>, false>);
+                    select_step<false>(load_then_store<Opt, p_arg<1>, p_arg<1>, p_arg<0>, false>);
                 }
 
                 // Do the jump:

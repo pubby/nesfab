@@ -16,6 +16,10 @@ AsciiDoc is kool
 
 == What is NESFab?
 
+NESFab is a statically-typed, procedural programming language for creating NES games. 
+Designed with 8-bit limitations in mind, the language is more ergonomic to use than C, while also producing faster assembly code. 
+It's easy to get started with, and has a useful set of libraries for making your first -- or hundredth -- NES game.
+
 === Limitations
 
 - NESFab supports a limited number of cartridge mappers. 
@@ -28,6 +32,11 @@ AsciiDoc is kool
 === Mappers
 
 === NESFab vs Assembly
+
+Assembly Pros
+
+- Smaller, more consistent
+- Smaller
 
 Assembly languages get a bad rap these days, 
 but it's important to understand that not all assembly lanaguages are the same.
@@ -100,56 +109,84 @@ TODO
 
 TODO
 
-== Prerequisites
-
 This tutorial assumes you know the basics of computer programming.
-If you are new to the field, you'll likely want to learn another language - like Python or C - first.
+If you are new to the field, you'll likely want to learn another language -- like Python or C -- first.
 Do not worry about wasted effort, as even if you're writing NES games, 
-you'll want to write tools and conversion scripts in other languages - like Python or C.
+it can be helpful to write tools and conversion scripts in other languages.
 
-=== Installation Guide
+== Surprises
 
-To get started with NESFab, download it from TODO and install it. 
-You will also want a NES emulator, like https://fceux.com/[FCEUX] or https://fceux.com/[Mesen].
+=== Operators
+
+==== Precedence of `&`, `|`, and `^`
+
+In many programming languages, operators for bitwise math have a very low precedence.
+This tradition dates back to the https://en.wikipedia.org/wiki/B_(programming_language)[B programming language],
+where bitwise operators were used in place of logical operators (like `&&` and `||`).
+NESFab bucks this tradition and uses a <<binop, higher precedence for these operators>>.
+
+This means that code like: `A & B == C` is parsed as `(A & B) == C`, instead of `A & (B == C)`.
+
+==== Value of assignment operators
+
+=== Pointers
+
+=== Control Flow
+
+== Getting Started
+
+=== Installation
+
+To get started with NESFab, download it from TODO and extract it. 
+You will also want a NES emulator with debugging features, like 
+https://fceux.com/[FCEUX], https://www.mesen.ca/[Mesen], or https://www.qmtpro.com/~nes/nintendulator/[Nintendulator].
+
+TODO: more installation
+
+TODO: syntax highlighting
+
+=== Compiling your first ROM [[firstrom]]
 
 The `nesfab` tool compiles `.fab` source code files into `.nes` ROMs. 
-It can be used with the command-line, or by clicking and dragging a source code or configuration file onto the executable.
+It can be used with the command-line, or by clicking and dragging a file onto the executable.
 
-Let's test that now.  Create a file called `hello.fab` and save it with code below.
+To compile your first ROM, create a file called `hello.fab` and save it with code below:
 
 ----
 // TODO: hello world
 ----
 
-Now let's compile it. If using the command-line, run:
+If using the command-line, you can compile it using the command:
 
 `nesfab hello.fab`
 
 Otherwise, drag the `hello.fab` file onto the `nesfab` executable.
 
-When done, the compiler should have produced a `a.nes` file in the same directory,
-which is the default name of all compiled binaries. 
+When done, the compiler should have produced an `a.nes` file in the same directory,
+which is the default name of compiled binaries. 
 Try running `a.nes` in your NES emulator.
-You should see the screen flash with colors.
+You should see the screen flash with colors TODO.
 
-=== Options and Configuration Files
+=== Your first configuration file
 
 The `nesfab` compiler accepts options both on the command-line, and via configuration files.
-For most projects, a single configuration file is the ideal, so this tutorial will focus on that.
+For most projects, a single configuration file is the ideal, so this section will focus on that.
 
-Below is an example configuration file: `config.cfg`. The `output` option determines the name of the `.nes` file, while `input` lists a single source file.
+Below is an example configuration file: `config.cfg`: 
 ----
 output = "game.nes"
 input = "hello.fab"
 ----
+The `output` option determines the name of the `.nes` file, while `input` lists a single source file.
+
 To compile using this configuration file, either run:
 
 `nesfab config.cfg`
 
-Otherwise, drag the `config.cfg` file onto the `nesfab` executable.
+Or drag the `config.cfg` file onto the `nesfab` executable.
 
-It should produce the same result as before, but save the binary as `game.nes` instead of `a.nes`,
-as the `output` option was set.
+It should produce the same result as <<firstrom, before>>, but the ROM will be saved as `game.nes` instead of `a.nes`
+because the `output` option was set.
 
 For more details about configuration files, see the reference page. TODO
 
@@ -168,6 +205,349 @@ input = "another_file.fab"
 input = "a_third_file.fab"
 ----
 
+=== Beginner roadmap
+
+TODO!
+
+== Configuration Options
+
+=== `help` (`-h`)
+
+Prints a list of command-line options.
+
+This option is only available via the command-line.
+
+*Command-line usage:*
+----
+nesfab --help
+----
+
+=== `version` (`-v`)
+
+Prints information about the NESFab executable, including its version history.
+
+This option is only available via the command-line.
+
+*Command-line usage:*
+----
+nesfab --version
+----
+
+=== `input` (`-i`)
+
+Specifies a file to be compiled, which can either be a source file with extension `.fab`, 
+or a configuration file with extension `.cfg`.
+This option can be used multiple times to compile multiple files.
+
+Note: the flags `--input` and `-i` are optional when using the command line,
+as any argument not belonging to another option will be interpreted as an `input`.
+
+*Command-line usage:*
+----
+nesfab --input "file1.fab" --input "file2.fab" --input "another_config.cfg"
+----
+
+or:
+
+----
+nesfab "file1.fab" "file2.fab" "another_config.cfg"
+----
+
+*Configuration file usage:*
+----
+input = "file1.fab"
+input = "util/file2.fab"
+input = "another_config.cfg"
+----
+
+=== `output` (`-o`)
+
+Specifies the name of the executable `.nes` file the compiler will produce.
+This option can only be specified once.
+
+By default, the value is `"a.nes"`.
+
+*Command-line usage:*
+----
+nesfab --output "game.nes"
+----
+
+*Configuration file usage:*
+----
+output = "game.nes"
+----
+
+=== `code-dir` (`-I`) [[codedir]]
+
+Specifies a directory to be searched when compiling source code files.
+This option can be used multiple times to specify multiple directories.
+
+Commonly, this option is used when several source files exist in the same directory.
+`code-dir` can specify this directory, then `input` can specify the files inside it
+without having to reference the directory name.
+
+*Command-line usage:*
+----
+nesfab --code-dir "some_directory/"
+----
+
+*Configuration file usage:*
+----
+code-dir = "some_directory/"
+----
+
+=== `resource-dir` (`-R`)
+
+Specifies a directory to be searched when importing data files.
+This option can be used multiple times to specify multiple directories.
+
+This behaves like <<codedir,`code-dir`>>, but applies to the files imported by the `file` keyword. TODO: write about file
+
+*Command-line usage:*
+----
+nesfab --resource-dir "some_directory/"
+----
+
+*Configuration file usage:*
+----
+resource-dir = "some_directory/"
+----
+
+=== `mapper` (`-M`) [[mapperopt]]
+
+Specifies the mapper used. The argument is a <<mappers,mapper name>>.
+This option can only be specified once.
+
+By default, the value is `nrom`.
+
+*Command-line usage:*
+----
+nesfab --mapper bnrom
+----
+
+*Configuration file usage:*
+----
+mapper = bnrom
+----
+
+=== `mirroring` (`-m`) [[mirroringopt]]
+
+Specifies the mirroring used for <<mappers,mappers with fixed mirrorings>>.
+This option can only be specified once.
+
+This option expects one argument. Any of the following arguments are valid:
+
+|===
+|Argument |Description
+
+| V
+| Vertical Mirroring
+
+| H
+| Horizontal Mirroring
+
+| 4
+| 4-Way Mirroring
+
+|===
+
+If the mapper supports multiple mirrorings, the default value is `V`.
+
+*Command-line usage:*
+----
+nesfab --mirroring H
+----
+
+*Configuration file usage:*
+----
+mirroring = H
+----
+
+=== `prg-size` (`-p`) [[prgopt]]
+
+Specifies the size of PRG (the amount of memory for code) in increments of 1 KiB.
+This option can only be specified once.
+
+The default value depends on the mapper. 
+These values correspond with common cartridge designs.
+
+|===
+|Name (HTML link) |Default Value
+
+| https://www.nesdev.org/wiki/NROM[`nrom`]
+| 32
+
+| https://www.nesdev.org/wiki/AxROM[`anrom`]
+| 256
+
+| https://www.nesdev.org/wiki/BNROM[`bnrom`]
+| 128
+
+| https://www.nesdev.org/wiki/CNROM[`cnrom`]
+| 32
+
+| https://www.nesdev.org/wiki/GxROM[`gnrom`]
+| 128
+
+| https://www.nesdev.org/wiki/GTROM[`gtrom`]
+| 512
+
+|===
+
+[NOTE]
+Just because the compiler accepts a `prg-size` does not mean that corresponding hardware exists in the real world.
+Only the default size is asserted to be commonly available.
+
+*Command-line usage:*
+----
+nesfab --prg-size 128
+----
+
+*Configuration file usage:*
+----
+prg-size = 128
+----
+
+=== `chr-size` (`-c`) [[chropt]]
+
+Specifies the size of CHR (the amount of memory for tilesets) in increments of 1 KiB.
+This option can only be specified once.
+
+The default value depends on the mapper. 
+These values correspond with common cartridge designs.
+
+|===
+|Name (HTML link) |Default Value
+
+| https://www.nesdev.org/wiki/NROM[`nrom`]
+| 8
+
+| https://www.nesdev.org/wiki/AxROM[`anrom`]
+| 8
+
+| https://www.nesdev.org/wiki/BNROM[`bnrom`]
+| 8
+
+| https://www.nesdev.org/wiki/CNROM[`cnrom`]
+| 32
+
+| https://www.nesdev.org/wiki/GxROM[`gnrom`]
+| 32
+
+| https://www.nesdev.org/wiki/GTROM[`gtrom`]
+| 2
+
+|===
+
+[NOTE]
+Just because the compiler accepts a `chr-size` does not mean that corresponding hardware exists in the real world.
+Only the default size is asserted to be commonly available.
+
+*Command-line usage:*
+----
+nesfab --chr-size 32
+----
+
+*Configuration file usage:*
+----
+chr-size = 32
+----
+
+=== `threads` (`-j`)
+
+Specifies how many threads the compiler can use, enabling parallel compilation.
+This option expects an integer argument, and can only be specified once.
+
+By default, the value is 1.
+
+In general, a value slightly above the number of CPU cores available is ideal.
+Performance may degrade if the number is too high.
+
+*Command-line usage:*
+----
+nesfab --threads 4
+----
+
+*Configuration file usage:*
+----
+threads = 4
+----
+
+=== `error-on-warning` (`-W`)
+
+This option turns warnings into errors and halts compilation whenever a warning occurs.
+This option expects no arguments and can only be specified once.
+
+*Command-line usage:*
+----
+nesfab --error-on-warning
+----
+
+*Configuration file usage:*
+----
+error-on-warning = 1
+----
+
+
+== Supported Mappers [[mappers]]
+
+NESFab supports a small set of https://www.nesdev.org/wiki/Mapper[mappers],
+which determine the capabilities of a cartridge.
+The choice of mapper determines the amount of space available for code, the https://www.nesdev.org/wiki/Mirroring[nametable mirroring], and https://www.nesdev.org/wiki/CHR_ROM_vs._CHR_RAM[whether CHR data is stored in RAM or ROM].
+
+*For beginners:* It is recommended to start with `nrom` (the default), 
+and only consider switching once your program grows too large for it.
+
+[NOTE]
+The mapper names in the table below are links.
+
+|===
+|Name |Max PRG (Code) |Max CHR (Tilesets) | Nametable VRAM |Mirroring
+
+| https://www.nesdev.org/wiki/NROM[`nrom`]
+| 32 KiB
+| 8 KiB
+| 2 KiB
+| Fixed H or V
+
+| https://www.nesdev.org/wiki/AxROM[`anrom`]
+| 512 KiB
+| 8 KiB (RAM)
+| 2 KiB
+| Switchable H or V
+
+| https://www.nesdev.org/wiki/BNROM[`bnrom`]
+| 8192 KiB
+| 8 KiB (RAM)
+| 2 KiB
+| Fixed H or V
+
+| https://www.nesdev.org/wiki/CNROM[`cnrom`]
+| 32 KiB
+| 2048 KiB
+| 2 KiB
+| Fixed H or V
+
+| https://www.nesdev.org/wiki/GxROM[`gnrom`]
+| 512 KiB
+| 128 KiB
+| 2 KiB
+| Fixed H or V
+
+| https://www.nesdev.org/wiki/GTROM[`gtrom`]
+| 512 KiB
+| 16 KiB (RAM)
+| 8 KiB
+| Fixed 4
+
+|===
+
+For information on how to configure NESFab for a specific mapper, see:
+
+- <<mapperopt>>
+- <<mirroringopt>>
+- <<prgopt>>
+- <<chropt>>
 
 == Basic Concepts
 
@@ -177,7 +557,7 @@ input = "a_third_file.fab"
 
 === Operator Tables
 
-==== Unary Operators
+==== Unary Operators [[unop]]
 
 [NOTE]
 Operators with lower precedence numbers come earlier in the order of operations.
@@ -213,7 +593,7 @@ Operators with lower precedence numbers come earlier in the order of operations.
 |===
 
 
-==== Binary Operators
+==== Binary Operators [[binop]]
 
 [NOTE]
 Operators with lower precedence numbers come earlier in the order of operations.
@@ -374,7 +754,7 @@ Operators with lower precedence numbers come earlier in the order of operations.
 
 |===
 
-==== Function-like Operators
+==== Function-like Operators [[fnop]]
 
 [NOTE]
 All function-like operators have left associativity and evaluate first in the order of operations.
@@ -383,10 +763,10 @@ All function-like operators have left associativity and evaluate first in the or
 |===
 |Operator |Description
 
-| `_expression_(_arguments_...)`
+| `_fn expression_(_argument expressions_...)`
 | Function Call
 
-| `_Type_(_arguments_...)`
+| `_Type_(_argument expressions_...)`
 | Type Cast
 
 | `sizeof _Type_`
@@ -401,22 +781,22 @@ All function-like operators have left associativity and evaluate first in the or
 | `len(_expression_)`
 | Array Length of a Value
 
-| `_expression_[_expression_]`
+| `_array expression_[_index expression_]`
 | U-Indexed Array Access
 
-| `_expression_{_expression_}`
+| `_array expression_{_index expression_}`
 | UU-Indexed Array Access
 
 | `[_expression_]()`
 | U-Indexed Hardware Read
 
-| `[_expression_](_expression_)`
+| `[_address expression_](_value expression_)`
 | U-Indexed Hardware Write
 
-| `{_expression_}()`
+| `{_address expression_}()`
 | UU-Indexed Hardware Read
 
-| `{_expression_}(_expression_)`
+| `{_address expression_}(_value expression_)`
 | UU-Indexed Hardware Write
 
 |===
@@ -478,7 +858,7 @@ TODO
 ==== Multiply `*` [[multiply]]
 
 Returns its operands multiplied together, of a type large enough to hold the product. 
-If either operand is signed, the return type is signed too, but otherwise it is unsigned.
+The return type is signed if either operand is signed, but unsigned otherwise.
 The operands must be <<quantity_type, quantity types>>.
 
 To be more precise, if the operand types have `F` and `F'` fractional bytes, the return type will have `F + F'`.
@@ -492,13 +872,13 @@ UF(5.5) * SS(-10) // Equivalent to -55, of type SSSF
 ----
 
 [NOTE]
-Multiplying two variables together is a very slow operation, as the NES lacks a hardware multiplier,
-but multiplying a variable by a constant is faster, as the compiler can convert the expression to a sequence of shifts and adds.
+Multiplying two variables together is a very slow operation,
+but multiplying a variable by a constant is faster since the compiler can convert the expression to a sequence of shifts and adds.
 However, if you need to do lots of multiplications, consider using lookup tables instead.
 
 ==== Assign by Multiply (`*=`) [[assign_multiply]]
 
-Multiplies its operands together, then assigns the value to the lvalue left operand. 
+Multiplies its operands together, then assigns the value to the lvalue left operand, converting as needed. 
 Returns the left operand's new value.
 
 ----

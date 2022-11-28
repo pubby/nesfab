@@ -60,7 +60,7 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, romv_allocs_t 
             [&]()
             { 
                 rom_array_ht const ret = { pool.size() };
-                &pool.emplace_back(std::move(vec), a, rom_key_t());
+                pool.emplace_back(std::move(vec), a, rom_key_t());
                 return ret;
             });
 

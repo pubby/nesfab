@@ -2432,7 +2432,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 try
                 {
                     // NOTE: call as INTERPRET, not D.
-                    eval_t sub(do_wrapper_t<INTERPRET>{}, call_pstring, *call, nullptr, rval_args.data(), rval_args.size());
+                    eval_t sub(do_wrapper_t<INTERPRET>{}, call_pstring, *call, nullptr, rval_args.data(), rval_args.size(),
+                               call->def().local_consts.data());
                     result.val = std::move(sub.final_result.value);
                 }
                 catch(out_of_time_t& e)
@@ -3124,6 +3125,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         {
             bool const is8 = ast.token.type == TOK_index8;
 
+            /* TODO
+            if(locator_t loc = handle_lt<Policy::D>(result.type, { .type = ast.token.type, .pstring = result.pstring }, lhs, rhs))
+            {
+                result.val = _lt_rval(result.type, loc);
+                result.time = LT;
+            }
+                */
+
             // TOK_index is a psuedo token used to implement array indexing. 
 
             // TODO
@@ -3248,11 +3257,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 if(is_interpret(D))
                 {
-                    assert(0); // TODO: implement
-                    /*
                     unsigned const index = array_index.whole();
-                    array_val.index.set(index, TYPE_U);
-                    
+
                     if(index >= array_val.type.array_length())
                     {
                         compiler_error(array_index.pstring, 
@@ -3260,9 +3266,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 index, array_val.type.array_length()));
                     }
 
-                    for(ct_variant_t& v : array_val.rval)
+                    for(auto& v : rval) // TODO: handle link
                         v = std::get<ct_array_t>(v)[index];
-                        */
                 }
                 else if(is_compile(D))
                 {
@@ -4069,23 +4074,18 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
     if(deref_t const* deref = lhs.is_deref())
     {
-        if(is_interpret(D))
-        {
-            //assert(lhs.index);
-            assert(false); // TODO: implement
-        }
-        else if(is_compile(D))
-        {
-            rhs = throwing_cast<D>(std::move(rhs), TYPE_U, true);
+        if(!is_compile(D))
+            compiler_error(pstring, "Can only dereference at compile time.");
 
-            ssa_ht const write = builder.cfg->emplace_ssa(
-                SSA_write_ptr, TYPE_VOID,
-                deref->ptr, ssa_value_t(), deref->bank, deref->index,
-                std::get<ssa_value_t>(rhs.rval()[0]));
-            write->append_daisy();
+        rhs = throwing_cast<D>(std::move(rhs), TYPE_U, true);
 
-            return rhs;
-        }
+        ssa_ht const write = builder.cfg->emplace_ssa(
+            SSA_write_ptr, TYPE_VOID,
+            deref->ptr, ssa_value_t(), deref->bank, deref->index,
+            std::get<ssa_value_t>(rhs.rval()[0]));
+        write->append_daisy();
+
+        return rhs;
     }
 
     if(!is_check(D) && !lval)

@@ -67,6 +67,20 @@ enum mapper_mirroring_t : std::uint8_t
     MIRROR_4,
 };
 
+struct mapper_params_t
+{
+    mapper_mirroring_t mirroring;
+    unsigned prg_size; // in KiB
+    unsigned chr_size; // in KiB
+
+    mapper_mirroring_t mirroring_none(mapper_type_t mt) const;
+    mapper_mirroring_t mirroring_HV(mapper_type_t mt) const;
+    mapper_mirroring_t mirroring_4(mapper_type_t mt) const;
+
+    unsigned num_32k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
+    unsigned num_8k_chr(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
+};
+
 struct mapper_t
 {
     mapper_type_t type;
@@ -77,12 +91,12 @@ struct mapper_t
 
     unsigned num_16k_banks() const { return num_32k_banks * 2; }
 
-    static mapper_t nrom(mapper_mirroring_t mirroring);
-    static mapper_t cnrom(mapper_mirroring_t mirroring, unsigned banks_8k);
-    static mapper_t anrom(unsigned banks_32k);
-    static mapper_t bnrom(mapper_mirroring_t mirroring, unsigned banks_32k);
-    static mapper_t gnrom(mapper_mirroring_t mirroring, unsigned banks_32k, unsigned banks_8k);
-    static mapper_t gtrom();
+    static mapper_t nrom(mapper_params_t const& params);
+    static mapper_t cnrom(mapper_params_t const& params);
+    static mapper_t anrom(mapper_params_t const& params);
+    static mapper_t bnrom(mapper_params_t const& params);
+    static mapper_t gnrom(mapper_params_t const& params);
+    static mapper_t gtrom(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return { 0x8000, 0x8000 }; }

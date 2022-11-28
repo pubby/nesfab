@@ -1336,30 +1336,6 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                 ssa_worklist.push(h->input(i).handle());
     }
 
-    // Sanity checks
-#ifndef NDEBUG
-    for(cfg_node_t const& cfg_node : ir)
-    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
-    {
-        assert(ssa_it->test_flags(FLAG_IN_WORKLIST) == false);
-        
-        auto& d = data(ssa_it);
-        if(!d.post_dom)
-            continue;
-
-        assert(d.sealed_singleton == (bitset_popcount(bs_size, d.post_dom) == 1));
-
-        unsigned count = 0;
-        bitset_for_each(bs_size, d.post_dom, [&](unsigned bit)
-        {
-            if(data(ssa_ht{bit}).sealed_singleton)
-                ++count;
-        });
-
-        assert(count == 1);
-    }
-#endif
-
     std::vector<operand_t> operands;
 
     // These are used at the end to replace the expression's old nodes with the new ones:

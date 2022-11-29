@@ -505,7 +505,7 @@ namespace isel
         cont->call(cpu, &alloc_sel<ASM_LABEL>(cpu, prev, Label::trans()));
     };
 
-    template<typename Opt, regs_t Regs, bool KeepValue, typename Param> [[gnu::noinline]]
+    template<typename Opt, regs_t Regs, bool KeepValue, typename Param>
     void set_defs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
@@ -513,7 +513,7 @@ namespace isel
             cont->call(cpu_copy, prev);
     };
 
-    template<typename Opt, op_t Op, typename Def, typename Arg = null_> [[gnu::noinline]]
+    template<typename Opt, op_t Op, typename Def, typename Arg = null_>
     void set_defs_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
@@ -590,8 +590,8 @@ namespace isel
     // a memory argument, as that argument can't be a SSA_cg_read_array8_direct.
     // Thus, prefer pick_op.
     template<op_t Op> [[gnu::noinline]]
-    void exact_op(options_t opt, locator_t def, locator_t arg, locator_t alt, ssa_value_t ssa_def, ssa_value_t ssa_arg,
-                  cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void exact_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont,
+                  options_t opt, locator_t def, locator_t arg, locator_t alt, ssa_value_t ssa_def, ssa_value_t ssa_arg)
     {
         constexpr auto mode = op_addr_mode(Op);
 
@@ -617,7 +617,7 @@ namespace isel
     template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
     void exact_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
     {
-        exact_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node(), cpu, prev, cont);
+        exact_op<Op>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
     }
 
     // Like exact_op, but with a simplified set of parameters.
@@ -1148,9 +1148,9 @@ namespace isel
                 locator_t mem = array_mem<Arg>::trans();
                 mem.advance_offset(index.data());
 
-                exact_op<Absolute>(
+                exact_op<Absolute>(cpu, prev, cont,
                     OptN::to_struct, Def::value(),  mem, locator_t{}, 
-                    Def::node(), array_mem<Arg>::node(), cpu, prev, cont);
+                    Def::node(), array_mem<Arg>::node());
             }
             else
             {
@@ -1210,7 +1210,7 @@ namespace isel
         else if((absolute_X != BAD_OP || absolute_Y) && read_direct)
             pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y, absolute>::call(cpu, prev, cont);
         else if(absolute != BAD_OP && !Arg::trans().is_immediate() && !read_direct)
-            exact_op<absolute>(Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node(), cpu, prev, cont);
+            exact_op<absolute>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
     }
 
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]

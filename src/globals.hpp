@@ -436,8 +436,12 @@ public:
     span_t lvar_span(romv_t romv, int lvar_i) const;
     span_t lvar_span(romv_t romv, locator_t loc) const;
 
+    void mark_referenced_return();
+    bool referenced_return() const { return m_referenced.load() & 1; }
+
     void mark_referenced_param(unsigned param);
-    std::uint64_t referenced_params() const { return m_referenced_params.load(); }
+    std::uint64_t referenced_params() const { return m_referenced.load() >> 1; }
+    std::uint64_t referenced_param(unsigned param) const { return referenced_params() & param; }
     void for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const;
 
     // Iterates this function, and every inline function it calls, once each.
@@ -541,9 +545,10 @@ private:
     lvars_manager_t m_lvars;
     std::array<std::vector<span_t>, NUM_ROMV> m_lvar_spans;
 
-    // Bitset tracking which parametres have been referenced.
+    // Bitset tracking which parameters and return values have been referenced.
     // (i.e. used with unary operator '&')
-    std::atomic<std::uint64_t> m_referenced_params = 0;
+    // The first bit tracks the return. 
+    std::atomic<std::uint64_t> m_referenced = 0;
 };
 
 // Base class for vars and consts.

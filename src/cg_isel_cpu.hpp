@@ -134,7 +134,7 @@ struct cpu_t
         for(locator_t const& v : defs)
             h = rh::hash_combine(h, v.to_uint());
         for(unsigned i = 0; i < known.size(); ++i)
-            h ^= known[i] << i * 8;
+            h = rh::hash_combine(h, known[i]);
         h = rh::hash_combine(h, known_mask);
         return h;
     }

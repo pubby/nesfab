@@ -265,7 +265,7 @@ namespace isel
     // These determine how extensive the search is.
     constexpr unsigned cost_cutoff(int size)
     {
-        constexpr unsigned BASE = cost_fn(LDY_ABSOLUTE) * 3;
+        constexpr unsigned BASE = cost_fn(LDY_ABSOLUTE) * 2;
         return BASE;
         //return (BASE >> (size >> 4)) + cost_fn(TAY_IMPLIED);
         //return std::max<int>((BASE * (int(MAX_MAP_SIZE*2) - size)) / int(MAX_MAP_SIZE*2), cost_fn(TAY_IMPLIED) * 3 / 2);
@@ -4616,10 +4616,22 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         // Assemble those selections:
         assert(state.map.size());
         new_out_states.clear();
+        unsigned const bound = SELS_COST_BOUND >> d.iter;
         for(auto const& pair : state.map)
         {
-            std::vector<asm_inst_t> code_temp;
+            // TODO
+
             unsigned cost = pair.second->cost;
+
+            unsigned out_reg_count = 0;
+            for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+                if(pair.first.defs[i])
+                    ++out_reg_count;
+
+            if(cost > d.min_sel_cost + bound + (cost_fn(STA_MAYBE) * out_reg_count))
+                continue;
+
+            std::vector<asm_inst_t> code_temp;
             sel_t const* first_sel = pair.second;
 
             // Create the 'code_temp' vector:
@@ -4689,7 +4701,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                     // Reduce the cost of maybe stores when the register is output.
                     for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
                     {
-                        if((op_input_regs(inst.op) & (1 << i)) && inst.alt == transition.out_state.defs[i])
+                        if((op_input_regs(inst.op) & (1 << i)) && inst.alt == transition.out_state.defs[i]) [[unlikely]]
                         {
                             cost -= cost_fn(STA_MAYBE);
                             break;
@@ -4798,8 +4810,6 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         // For efficiency, cap the maximum number of selections tracked:
         // TODO
         //shrink_sels(MAX_SELS_PER_ITER, d);
-
-        unsigned const bound = SELS_COST_BOUND >> d.iter;
 
         // Pass our output CPU states to our output CFG nodes.
         unsigned const output_size = cfg->output_size();

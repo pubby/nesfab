@@ -1339,7 +1339,7 @@ void fn_t::compile()
             save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
             RUN_O(o_loop, log, ir, post_byteified);
             save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
-            RUN_O(o_abstract_interpret, log, ir, post_byteified);
+            RUN_O(o_abstract_interpret, &stdout_log, ir, post_byteified);
             save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_remove_unused_ssa, log, ir);
@@ -1395,7 +1395,9 @@ void fn_t::compile()
     assert(m_always_inline == false);
     if(fclass == FN_FN && !mod_test(mods(), MOD_inline, false))
     {
-        if(mod_test(mods(), MOD_inline, true))
+        if(referenced_return())
+            m_always_inline = false;
+        else if(mod_test(mods(), MOD_inline, true))
             m_always_inline = true;
         else if(precheck_called() == 1)
         {
@@ -1771,13 +1773,21 @@ void fn_t::calc_lang_gvars()
 }
 */
 
+void fn_t::mark_referenced_return()
+{
+    std::uint64_t expected = m_referenced.load() | 1;
+    while(!m_referenced.compare_exchange_weak(expected, expected | 1));
+    assert(referenced_return());
+}
+
 void fn_t::mark_referenced_param(unsigned param)
 {
-    std::uint64_t const mask = 1ull << param;
+    assert(param < 63);
+    std::uint64_t const mask = 0b10ull << param;
     assert(mask);
-    std::uint64_t expected = m_referenced_params.load();
-    while(!m_referenced_params.compare_exchange_weak(expected, expected | mask));
-    assert(m_referenced_params & mask);
+    std::uint64_t expected = m_referenced.load();
+    while(!m_referenced.compare_exchange_weak(expected, expected | mask));
+    assert(m_referenced.load() & mask);
 }
 
 void fn_t::for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const

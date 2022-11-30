@@ -32,6 +32,8 @@ bool switch_partial_to_full(ssa_node_t& switch_node)
     assert(switch_node.cfg_node()->output_size() >= 1);
     switch_node.cfg_node()->link_remove_output(0);
 
+    assert(switch_node.cfg_node()->last_daisy() == switch_node.handle());
+
     return true;
 }
 

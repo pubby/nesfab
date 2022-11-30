@@ -40,8 +40,8 @@ struct block_d
 {
     using vector_t = std::vector<ssa_value_array_t>;
 
-    ssa_value_array_t& var(var_ht v) { assert(v.id < vars.size()); return vars[v.id]; }
-    ssa_value_array_t& unsealed_phi(var_ht v) { assert(v.id < unsealed_phis.size()); return unsealed_phis[v.id]; }
+    ssa_value_array_t& var(var_ht v) { passert(v.id < vars.size(), v.id, vars.size()); return vars[v.id]; }
+    ssa_value_array_t& unsealed_phi(var_ht v) { passert(v.id < unsealed_phis.size(), v.id, vars.size()); return unsealed_phis[v.id]; }
 
     // An array of size 'num_vars()'
     // Keeps track of which ssa node a var refers to.
@@ -649,6 +649,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
 
         assert(switch_ssa->input_size() == MAX_CFG_OUTPUT + 1);
         assert(switch_cfg->output_size() == MAX_CFG_OUTPUT);
+        assert(switch_ssa->in_daisy());
     }
 }
 
@@ -687,7 +688,6 @@ eval_t::eval_t(eval_t const& parent, ir_t& ir_ref, fn_t& fn_ref, ir_builder_t& b
         type_t const type = var_type(var_i);
         unsigned nmember = ::num_members(type);
 
-        assert(ir->root.data<block_d>().var(var_i).size() == nmember);
         assert(nmember == args[i].rval().size());
 
         for(unsigned m = 0; m < nmember; ++m)
@@ -750,6 +750,7 @@ eval_t::eval_t(eval_t const& parent, ir_t& ir_ref, fn_t& fn_ref, ir_builder_t& b
 
         assert(switch_ssa->input_size() == MAX_CFG_OUTPUT + 1);
         assert(switch_cfg->output_size() == MAX_CFG_OUTPUT);
+        assert(switch_ssa->in_daisy());
     }
 }
 #endif
@@ -1335,14 +1336,16 @@ void eval_t::compile_block()
             switch_cfg->alloc_output(1);
             builder.cfg->build_set_output(0, switch_cfg);
 
+            builder.cfg = switch_cfg;
             expr_value_t v = do_expr<COMPILE>(*stmt->expr);
             ++stmt;
             v = throwing_cast<COMPILE>(std::move(v), is_signed(v.type.name()) ? TYPE_S : TYPE_U, true);
+            passert(v.type == TYPE_U || v.type == TYPE_S, v.type);
 
             ssa_ht const switch_ssa = switch_cfg->emplace_ssa(SSA_switch_partial, TYPE_VOID, v.ssa());
             switch_ssa->append_daisy();
 
-            assert(switch_cfg->last_daisy()->op() == SSA_switch_partial);
+            assert(switch_cfg->last_daisy() == switch_ssa);
 
             builder.break_stack.emplace_back();
             builder.switch_stack.push_back({ switch_cfg });
@@ -1363,6 +1366,7 @@ void eval_t::compile_block()
             cfg_ht const switch_cfg = builder.switch_stack.back().cfg;
             ssa_ht const switch_ssa = switch_cfg->last_daisy();
             passert(switch_ssa->op() == SSA_switch_partial, switch_ssa->op());
+            assert(switch_cfg->last_daisy() == switch_ssa);
 
             assert(switch_cfg->output_size() == switch_ssa->input_size());
 
@@ -1886,6 +1890,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                 }
 
+                if(lval->arg == lval_t::READY_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_ready, offset);
+                    return make_ptr(loc, type_t::addr(false), false);
+                }
+
                 if(lval->is_global())
                 {
                     switch(lval->global().gclass())
@@ -1920,11 +1930,20 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             {
                                 locator_t loc;
                                 if(lval->arg == lval_t::RETURN_ARG)
+                                {
+                                    if(is_check(D))
+                                        fn->mark_referenced_return();
+                                    else
+                                        assert(fn->referenced_return());
                                     loc = locator_t::ret(fn, lval->member, lval->uatom(), offset); 
+                                }
                                 else
                                 {
                                     // Referencing a parameter.
-                                    fn->mark_referenced_param(lval->arg);
+                                    if(is_check(D))
+                                        fn->mark_referenced_param(lval->arg);
+                                    else
+                                        assert(fn->referenced_param(lval->arg));
                                     loc = locator_t::arg(fn, lval->arg, lval->member, lval->uatom(), offset); 
                                 }
                                 return make_ptr(loc, type_t::addr(false), false);
@@ -1950,7 +1969,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         // Referencing a parameter.
                         unsigned const local_i = to_local_i(var_i);
-                        fn->mark_referenced_param(local_i);
+                        if(is_check(D))
+                            fn->mark_referenced_param(local_i);
+                        else
+                            assert(fn->referenced_param(local_i));
                         loc = locator_t::arg(fn->handle(), local_i, lval->member, lval->uatom());
                     }
                     else if(fn->iasm)
@@ -1979,14 +2001,20 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_ready:
         {
-            expr_value_t result = { .type = TYPE_BOOL, .pstring = ast.token.pstring };
-            if(is_interpret(D))
-                compiler_error(ast.token.pstring, "Cannot evaluate ready at compile-time.");
-            else if(is_compile(D))
+            if(is_interpret(D)) // TODO: perhaps this should move to 'to_rval'.
+                compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
+
+            expr_value_t result =
             {
-                ssa_ht const h = builder.cfg->emplace_ssa(SSA_ready, TYPE_BOOL);
-                result.val = rval_t{ h };
-            }
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::READY_ARG },
+                .type = TYPE_BOOL,
+                .pstring = ast.token.pstring,
+            };
+
+            if(is_compile(D))
+                result.time = RT;
+
+            assert(result.is_lval());
             return result;
         }
 
@@ -2071,10 +2099,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 case GLOBAL_FN:
                     {
+                        if(lhs.lval().arg == lval_t::RETURN_ARG)
+                            break;
+
                         if(!lhs.is_lval())
                             compiler_error(ast.token.pstring, "Expecting lvalue.");
 
-                        fn_t const& fn = *to_rval<D>(lhs).ssa().locator().fn();
+                        fn_t const& fn = lhs.lval().global().impl<fn_t>();
 
                         using namespace std::literals;
                         if(hash == fnv1a<std::uint64_t>::hash("return"sv))
@@ -2470,10 +2501,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     ir_builder_t call_builder;
                     rval_t return_rval;
 
+                    std::printf("START INLINE %i\n", int(call->def().local_vars.size()));
+
                     eval_t inline_eval(
                         *this, *ir, *call, call_builder, 
                         pre_entry, exit, args, return_rval);
                     assert(exit);
+
+                    std::puts("END INLINE");
                     
                     builder.cfg = post_exit;
                     exit->alloc_output(1);
@@ -2712,7 +2747,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             expr_value_t result = 
             {
-                .type = TYPE_U, 
+                .type = TYPE_VOID, 
                 .pstring = ast.token.pstring,
             };
 
@@ -3847,6 +3882,17 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         unsigned const num_members = ::num_members(v.type);
         type_t type;
         rval_t rval;
+
+        if(lval->arg == lval_t::READY_ARG)
+        {
+            if(is_compile(D))
+                v.val = rval_t{ builder.cfg->emplace_ssa(SSA_ready, TYPE_BOOL) };
+
+            return v;
+        }
+
+        if(lval->arg == lval_t::RETURN_ARG)
+            compiler_error(v.pstring, "Cannot access the value of return.");
 
         if(lval->is_global())
         {

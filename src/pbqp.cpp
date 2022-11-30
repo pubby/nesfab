@@ -2,6 +2,34 @@
 
 #include "debug_print.hpp"
 
+template<typename Fn> [[gnu::flatten]]
+void handle_cases(bool node_a, Fn const& fn)
+{
+    if(node_a)
+        fn(true);
+    else
+        fn(false);
+}
+
+template<typename Fn> [[gnu::flatten]]
+void handle_cases(bool node_a, bool node_b, Fn const& fn)
+{
+    if(node_a)
+    {
+        if(node_b)
+            fn(true, true);
+        else
+            fn(true, false);
+    }
+    else
+    {
+        if(node_b)
+            fn(false, true);
+        else
+            fn(false, false);
+    }
+}
+
 void pbqp_t::solve(std::vector<pbqp_node_t*> order)
 {
     if(order.empty())
@@ -165,26 +193,29 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
 
         node.bp_proof.resize(other.num_sels());
 
-        for(unsigned j = 0; j < other.num_sels(); ++j)
+        handle_cases(node_i, [&](bool node_i) __attribute__((always_inline))
         {
-            pbqp_cost_t min_cost = ~0ull;
-            auto& bp_proof = node.bp_proof[j];
-
-            for(unsigned i = 0; i < node.num_sels(); ++i)
+            for(unsigned j = 0; j < other.num_sels(); ++j)
             {
-                pbqp_cost_t const cost = (edge->cost(i, j, node_i)
-                    + node.cost_vector[i] 
-                    + other.cost_vector[j]);
+                pbqp_cost_t min_cost = ~0ull;
+                auto& bp_proof = node.bp_proof[j];
 
-                if(cost < min_cost)
+                for(unsigned i = 0; i < node.num_sels(); ++i)
                 {
-                    min_cost = cost;
-                    bp_proof = i;
-                }
-            }
+                    pbqp_cost_t const cost = (edge->cost(i, j, node_i)
+                        + node.cost_vector[i] 
+                        + other.cost_vector[j]);
 
-            other.cost_vector[j] = min_cost;
-        }
+                    if(cost < min_cost)
+                    {
+                        min_cost = cost;
+                        bp_proof = i;
+                    }
+                }
+
+                other.cost_vector[j] = min_cost;
+            }
+        });
 
         bp_stack.push_back(&node);
         other.dec_degree(edge);
@@ -211,28 +242,31 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
         node.bp_proof.resize(matrix_size);
         std::vector<pbqp_cost_t> new_matrix(matrix_size);
 
-        for(unsigned a = 0 ; a < other_a.num_sels(); ++a)
-        for(unsigned b = 0 ; b < other_b.num_sels(); ++b)
+        handle_cases(node_a, node_b, [&](bool node_a, bool node_b) __attribute__((always_inline))
         {
-            pbqp_cost_t min_cost = ~0ull;
-            auto& bp_proof = node.bp_proof[a + (other_a.num_sels() * b)];
-
-            for(unsigned i = 0; i < node.num_sels(); ++i)
+            for(unsigned a = 0 ; a < other_a.num_sels(); ++a)
+            for(unsigned b = 0 ; b < other_b.num_sels(); ++b)
             {
-                pbqp_cost_t const cost = (node.cost_vector[i] 
-                    + edge_a->cost(i, a, node_a) 
-                    + edge_b->cost(i, b, node_b));
+                pbqp_cost_t min_cost = ~0ull;
+                auto& bp_proof = node.bp_proof[a + (other_a.num_sels() * b)];
 
-                if(cost < min_cost)
+                for(unsigned i = 0; i < node.num_sels(); ++i)
                 {
-                    min_cost = cost;
-                    bp_proof = i;
-                    node.bp_proof[a + (other_a.num_sels() * b)] = i;
-                }
-            }
+                    pbqp_cost_t const cost = (node.cost_vector[i] 
+                        + edge_a->cost(i, a, node_a) 
+                        + edge_b->cost(i, b, node_b));
 
-            new_matrix[a + (other_a.num_sels() * b)] = min_cost;
-        }
+                    if(cost < min_cost) [[unlikely]]
+                    {
+                        min_cost = cost;
+                        bp_proof = i;
+                        node.bp_proof[a + (other_a.num_sels() * b)] = i;
+                    }
+                }
+
+                new_matrix[a + (other_a.num_sels() * b)] = min_cost;
+            }
+        });
 
         bp_stack.push_back(&node);
         other_a.dec_degree(edge_a);
@@ -267,12 +301,15 @@ void pbqp_t::heuristic_reduction(pbqp_node_t& node)
 
             pbqp_cost_t min_cost = ~0ull;
 
-            for(unsigned j = 0; j < other.num_sels(); ++j)
+            handle_cases(node_i, [&](bool node_i) __attribute__((always_inline))
             {
-                pbqp_cost_t const cost = other.cost_vector[j] + edge->cost(i, j, node_i);
-                if(cost < min_cost)
-                    min_cost = cost;
-            }
+                for(unsigned j = 0; j < other.num_sels(); ++j)
+                {
+                    pbqp_cost_t const cost = other.cost_vector[j] + edge->cost(i, j, node_i);
+                    if(cost < min_cost)
+                        min_cost = cost;
+                }
+            });
 
             i_cost += min_cost;
         }

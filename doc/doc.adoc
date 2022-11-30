@@ -118,20 +118,13 @@ it can be helpful to write tools and conversion scripts in other languages.
 
 === Operators
 
-==== Precedence of `&`, `|`, and `^`
-
-In many programming languages, operators for bitwise math have a very low precedence.
-This tradition dates back to the https://en.wikipedia.org/wiki/B_(programming_language)[B programming language],
-where bitwise operators were used in place of logical operators (like `&&` and `||`).
-NESFab bucks this tradition and uses a <<binop, higher precedence for these operators>>.
-
-This means that code like: `A & B == C` is parsed as `(A & B) == C`, instead of `A & (B == C)`.
-
-==== Value of assignment operators
+- The operators `&`, `|`, and `^` have a <<binop, higher precedence>> than in C.
+- Combined-assignment operators, like `+=` or `<<=`, return a `Bool`: the carry.
 
 === Pointers
 
-=== Control Flow
+- Most values cannot be referenced via pointers.
+
 
 == Getting Started
 
@@ -170,7 +163,7 @@ You should see the screen flash with colors TODO.
 === Your first configuration file
 
 The `nesfab` compiler accepts options both on the command-line, and via configuration files.
-For most projects, a single configuration file is the ideal, so this section will focus on that.
+For most projects, a single configuration file is ideal, so this section will focus on that.
 
 Below is an example configuration file: `config.cfg`: 
 ----
@@ -553,11 +546,438 @@ For information on how to configure NESFab for a specific mapper, see:
 
 === Value Semantics
 
+== Keywords
+
+=== `if`
+
+The `if` <<statement, statement>> allows for conditional execution of <<blocks, code blocks>>.
+It behaves like `if` in most programming languages.
+
+Syntax:
+----
+if expression
+    code block
+----
+
+The conditional expression of `if` will be converted to `Bool`.
+If this evaluates to `true`, the body of the `if` statement will be executed.
+
+=== `else`
+
+The `else` <<statement, statement>> allows for control flow to branch between two <<blocks, code blocks>>.
+It behaves like `else` in most programming languages.
+
+This statement must be paired with a corresponding `if.`
+
+Syntax:
+----
+if expression
+    code block
+else
+    code block
+----
+
+If the corresponding `if` evaluates to `false`, the body of the `else` statement will be executed.
+
+For visual appeal, other statements may follow the `else` keyword on the same line, including `if`, `for`, and `while`.
+This looks like:
+
+----
+if expression
+    code block
+else if expresssion
+    code block
+else
+    code block
+----
+
+=== `while` [[kw_while]]
+
+The `while` <<statement, statement>> allows for looping control flow.
+It behaves like `while` in most programming languages.
+
+Syntax:
+----
+while condition
+    code block
+----
+
+`condition` is an expression converted to `Bool`. While this expression evaluates to `true`, the loop body will execute.
+After the code in `code block` executes, control flow jumps back to the `condition` test.
+
+=== `for` [[kw_for]]
+
+The `for` <<statement, statement>> allows for looping control flow, with more features than <<kw_while>>.
+It behaves like `for` in most programming languages.
+
+Syntax:
+----
+for initialization ; condition ; iteration
+    code block
+----
+
+- `initialization` executes before the loop and can be an expression or a variable initialization.
+- `condition` is an expression converted to `Bool`. While this expression evaluates to `true`, the loop body will execute.
+- `iteration` is an expression to be run at the end of every iteration (following the code block).
+
+Any of these expressions may be empty. An empty `condition` is equivalent to `true`.
+
+After the code in `code block` executes, `iteration` executes, and then control flow jumps back to the `condition` test.
+
+Like `while`, the keywords <<kw_break>> and <<kw_continue>> may be used inside of a `for`.
+
+For visual appeal, the expressions of `for` may be put on separate lines starting with the `;` character, like so:
+
+----
+for initialization
+; condition
+; iteration
+    code block
+----
+
+=== `do` [[kw_do]]
+
+The `do` keyword can be prefixed to either <<kw_while>> or <<kw_for>> to alter their behavior.
+A loop with `do` skips the `condition` check of its first iteration.
+
+Syntax:
+----
+do while condition
+    code block
+
+do for initialization ; condition ; iteration
+    code block
+----
+
+[NOTE]
+Loops written with `do` often have better runtime performance than loops written without.
+
+=== `break` [[kw_break]]
+
+`break` ends the execution of the containing <<kw_while>>, <<kw_for>>, or <<kw_switch>> statement.
+It behaves like `break` in most programming languages.
+
+Syntax:
+----
+break
+----
+
+Example:
+----
+for U i = 0; i < 10; i += 1
+    if array[i] == 0
+        break // Exits the loop
+----
+
+If you want to exit out of multiple nested statements, use <<kw_goto>>.
+
+=== `continue`
+
+`continue` is used inside <<kw_while>> or <<kw_for>> statements,
+and causes control flow to jump to the end of the loop's code block.
+It behaves like `condition` in most programming languages.
+
+Syntax:
+----
+continue
+----
+
+Example:
+----
+for U i = 0; i < 10; i += 1
+    if array[i] == 0
+        continue // If this executes, the line below it won't.
+    array[i] += i
+----
+
+=== `switch` [[kw_switch]]
+
+The `switch` statement branches control flow based on an byte value.
+`switch` is similar to <<kw_if>>, but instead of having a choice between two code blocks, 
+`switch` allows multiple. It behaves like `switch` in most programming languages.
+
+Syntax:
+----
+switch expression
+    code block
+----
+
+`expression` must be of type `U` or `S`.
+
+`switch` is intended to be used with <<kw_case>> and <<kw_default>>.
+Both of these label where control flow will jump.
+
+Example:
+----
+switch player_state
+    case 0
+        do_run()
+        break
+
+    case 1
+        do_jump()
+        break
+
+    case 2
+        do_kick()
+        break
+
+    default:
+        do_nothing()
+        break
+----
+
+=== `case` [[kw_case]]
+
+`case` is used inside of <<kw_switch>> statements as a label.
+Control flow will jump to the `case` from the `switch` if the switch's expression matches the `case` value.
+
+Syntax:
+----
+case constant expression
+    code block
+----
+
+`constant expression` is an expression which can be computed at compile-time.
+
+The `code block` of `case` exists only to provide a scope.
+There is no other difference between the syntax above, and this:
+
+----
+case constant expression
+code block
+----
+
+As stated, `case` is a label.
+It can appear inside other statements such as <<kw_for>> or <<kw_if>>.
+
+See more examples in <<kw_switch>>.
+
+=== `default` [[kw_default]]
+
+`default` is used inside of <<kw_switch>> statements as a label.
+Control flow will jump to the `default` from the `switch` if the switch's expression matches no enclosed <<hw_case>> statemen.
+
+Syntax:
+----
+default
+    code block
+----
+
+The `code block` of `default` exists only to provide a scope.
+There is no other difference between the syntax above, and this:
+
+----
+default
+code block
+----
+
+As stated, `default` is a label.
+It can appear inside other statements such as <<kw_for>> or <<kw_if>>.
+
+See more examples in <<kw_switch>>.
+
+=== `goto` [[kw_goto]]
+
+The keyword `goto` has use in two different types of statements: `goto` and `goto mode`.
+
+==== `goto` statement [[kw_goto_statement]]
+
+The `goto` statement causes control flow to jump to a corresponding <<kw_label>> in the same function.
+It behaves like `goto` in most programming languages.
+
+Syntax:
+----
+goto identifier
+----
+
+`identifier` refers to the name of a label in the enclosing function.
+
+Example:
+
+----
+fn example()
+    U i = 0
+    label loop
+    i += 1
+    if i < 10
+        goto loop
+----
+
+==== `goto mode` statement
+
+The `goto mode` statement causes control flow to jump to a <<TODO_mode>>, 
+discarding the current call stack and starting anew.
+In the process, global variables will be reset to their default value,
+unless they are explicitly preserved using <<kw_preserves>> in the `goto mode` statement.
+
+Syntax:
+----
+goto mode identifier(arguments)
+: preserves /groups
+----
+
+- `identifier` if the name of a <<TODO_mode>> function.
+- `arguments` is a comma-separated list of expressions to be passed to the `mode` function. The list may be blank.
+- `groups` are a comma-separated list of <<kw_vars>> groups, denoting which variables should not be reset. The list may be blank.
+
+Note that `preserves` is a required <<modifier, modifier>> of this statement.
+
+Example:
+
+----
+vars /my_vars
+    U some_var = 10
+
+mode foo()
+    goto mode bar(some_var + 1)
+    : preserves
+
+mode bar(U some_argument)
+    my_vars = some_argument
+
+    goto mode foo()
+    : preserves /my_vars
+----
+
+=== `label` [[kw_label]]
+
+The `label` statement introduces a point which a <<kw_goto_statement>> can jump to . 
+It has no effect otherwise.
+It behaves like labels in most programming languages, albeit with a slightly different syntax.
+
+Syntax:
+----
+label identifier
+    code block
+----
+
+The `code block` of `label` exists only to provide a scope.
+There is no other difference between the syntax above, and this:
+
+----
+label identifier
+code block
+----
+
+=== `return` [[kw_return]]
+
+==== `return` statement [[kw_return_statement]]
+
+The `return` statement ends the execution of the enclosing function,
+using its argument as the function's return value.
+It behaves like `return` in most programming languages.
+
+Syntax:
+----
+return expression
+----
+
+Syntax for functions lacking a return value:
+----
+return
+----
+
+==== `return` expression [[kw_return_expression]]
+
+A `return` expression *does not cause functions to return*. 
+Instead, it provides access to the enclosing function's return value.
+
+This functionality exists because of <<TODO, inline assembly>>.
+
+Example:
+----
+AA return_addr = &return
+----
+
+=== `fence`
+
+=== `true`
+
+`true` is an expression of type `Bool`, and has a compile-time constant value.
+When converted to an integer type, it will have the value `1`.
+
+Syntax:
+----
+true
+----
+
+=== `false`
+
+`false` is an expression of type `Bool`, and has a compile-time constant value.
+When converted to an integer type, it will have the value `0`.
+
+Syntax:
+----
+false
+----
+
+=== `ready`
+
+`ready` is an expression of type `Bool` which returns `true` if both an <<nmi, NMI>> is active and the program was <<kw_nmi, waiting on one>>,
+or `false` otherwise. 
+It is intended to be used as a synchronization primitive (https://en.wikipedia.org/wiki/Lock_(computer_science[mutex])
+to avoid https://en.wikipedia.org/wiki/Race_condition[race conditions] inside of NMI handlers.
+
+Syntax:
+----
+ready
+----
+
+In general, if `ready` is `true`, all global variables are in a stable, thread-safe state.
+Likewise, if `ready` is `false`, either no NMI is happening, or the program is lagging one or more frames.
+
+Example:
+----
+nmi foo()
+    if ready
+        upload_data()
+        poll_controller()
+    play_music()
+----
+
+The address of `ready` can be taken using <<unary_ops, unary operator>> `&`,
+but the pointed-to value must never be modified by the program.
+
+[NOTE]
+There is more than one way to achieve thread safety. See <<kw_fence>>, for example.
+
+=== `fn`
+
+=== `ct`
+
+=== `mode`
+
+=== `nmi`
+
+=== `struct`
+
+=== `vars`
+
+=== `data`
+
+=== `omni`
+
+=== `asm`
+
+=== `charmap`
+
+=== `chrrom`
+
+=== `employs`
+
+=== `preserves`
+
+=== `stows`
+
+=== `file`
+
+
 == Operators
 
 === Operator Tables
 
-==== Unary Operators [[unop]]
+==== Unary Operators [[unary_ops]]
 
 [NOTE]
 Operators with lower precedence numbers come earlier in the order of operations.

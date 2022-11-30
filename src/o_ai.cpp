@@ -170,7 +170,7 @@ void copy_constraints(ssa_value_t value, constraints_def_t& def)
     else if(value.is_num())
     {
         def = { type_constraints_mask(value.num_type_name()), 
-                { constraints_t::const_(to_signed(value.fixed().value, value.num_type_name()),
+                { constraints_t::const_(value.signed_fixed(),
                                         type_constraints_mask(value.num_type_name())) }};
     }
     else if(value.is_locator())
@@ -715,7 +715,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
 
         copy_constraints(trace->input(0), trace_d.constraints());
         assert(trace_d.constraints().vec.size() > 0);
-        trace_d.constraints().vec[0] = constraints_t::const_(trace->input(1).fixed().value, cm);
+        trace_d.constraints().vec[0] = constraints_t::const_(trace->input(1).signed_fixed(), cm);
 
         assert(trace_d.constraints().cm == cm);
         assert(trace_d.constraints()[0].is_const());
@@ -920,7 +920,7 @@ void ai_t::visit(ssa_ht ssa_node)
         unsigned const output_size = ssa_node->cfg_node()->output_size();
         unsigned const cases = ssa_switch_cases(ssa_node->op());
         for(unsigned i = cases, j = 1; i < output_size; ++i, ++j)
-            if(c(ssa_node->input(j).fixed().value, def.cm))
+            if(c(ssa_node->input(j).signed_fixed(), def.cm))
                 queue_edge(ssa_node->cfg_node(), i);
 
         if(ssa_node->op() == SSA_switch_partial)
@@ -1137,10 +1137,13 @@ void ai_t::prune_unreachable_code()
                 case_set.set(std::uint8_t(branch->input(j).whole()));
 
                 // Cases to default can be combined into the single default case.
-                if((partial && branch->input(0) == branch->input(i)))
+                if((partial && cfg_node.output(0) == cfg_node.output(i)))
+                {
+                    dprint(log, "-PRUNE_SWITCH_BRANCH_PARTIAL");
                     goto prune_case;
+                }
 
-                if(c(branch->input(j).fixed().value, def.cm))
+                if(c(branch->input(j).signed_fixed(), def.cm))
                 {
                     ++i;
                     ++j;
@@ -1149,7 +1152,7 @@ void ai_t::prune_unreachable_code()
                 {
                 prune_case:
                     // Prune unreachable branch:
-                    dprint(log, "-PRUNE_SWITCH_BRANCH", cfg_node.handle(), cfg_node.output(i), branch, c, branch->input(j).fixed().value, def.cm);
+                    dprint(log, "-PRUNE_SWITCH_BRANCH", cfg_node.handle(), cfg_node.output(i), branch, c, "case:", branch->input(j).whole(), def.cm);
                     branch->link_remove_input(j);
                     cfg_node.link_remove_output(i);
 
@@ -1803,7 +1806,7 @@ void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
                     unsigned const cases = ssa_switch_cases(branch->op());
                     for(unsigned i = cases, j = 1; i < cfg_node.output_size(); ++i, ++j)
                     {
-                        if(branch->input(j).fixed().value == c.get_const())
+                        if(branch->input(j).signed_fixed() == c.get_const())
                         {
                             branch_i = i;
                             goto branch_skipped;
@@ -1822,7 +1825,7 @@ void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
                     // Any other case will fail.
 
                     for(unsigned j = 1; j < branch->output_size(); ++j)
-                        if(c(branch->input(j).fixed().value, def.cm))
+                        if(c(branch->input(j).signed_fixed(), def.cm))
                             goto no_case;
 
                 default_case:

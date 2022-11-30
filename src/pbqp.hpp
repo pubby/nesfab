@@ -69,6 +69,7 @@ struct pbqp_edge_t
         return nodes[1] == &node;
     }
 
+    [[gnu::always_inline]]
     pbqp_cost_t& cost(unsigned from_sel, unsigned to_sel, bool node_i)
     {
         if(node_i)

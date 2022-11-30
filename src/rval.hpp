@@ -56,6 +56,7 @@ constexpr lval_flags_t LVALF_INDEX_16  = 1 << 2;
 struct lval_t
 {
     static constexpr std::int16_t RETURN_ARG = std::numeric_limits<std::int16_t>::max();
+    static constexpr std::int16_t READY_ARG = RETURN_ARG - 1;
 
     lval_flags_t flags = 0;
     std::int8_t atom = -1; // negative means no atom.

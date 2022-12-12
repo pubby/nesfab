@@ -410,7 +410,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             {
                 std::uint8_t lo = linked_to_rom(v.results[romv].bytes[index].link(romv));
                 std::uint8_t hi = linked_to_rom(v.results[romv].bytes[index+1].link(romv));
-                return locator_t::addr(lo + (hi << 8));
+                return locator_t::addr(lo + (hi << 8) + offset());
             }
             catch(...)
             {

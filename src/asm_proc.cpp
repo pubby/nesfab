@@ -791,27 +791,44 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
 
 void asm_proc_t::relocate(locator_t from)
 {
+    assert(is_const(from.lclass()));
+    std::uint16_t addr = linked_to_rom(from);
+
     for(unsigned i = 0; i < code.size(); ++i)
     {
         asm_inst_t& inst = code[i];
 
         auto const relocate1 = [&](locator_t loc)
         {
+            int dist;
+            unsigned label_i;
+
+            if(op_addr_mode(inst.op) == MODE_RELATIVE
+               && is_const(loc.lclass()))
+            {
+                dist = linked_to_rom(loc) - addr - int(op_size(inst.op));
+                goto have_dist;
+            }
+
             if(!is_label(loc.lclass()))
                 return loc;
 
             if(loc.is() == IS_BANK)
                 return loc;
 
-            auto* mapped = labels.mapped(loc.mem_head());
-            if(!mapped)
-                return loc;
+            {
+                auto* mapped = labels.mapped(loc.mem_head());
+                if(!mapped)
+                    return loc;
 
-            unsigned const label_i = mapped->index;
+                label_i = mapped->index;
+            }
 
             if(op_addr_mode(inst.op) == MODE_RELATIVE)
             {
-                int const dist = bytes_between(i, label_i) - int(op_size(inst.op));
+                dist = bytes_between(i, label_i) - int(op_size(inst.op)) + static_cast<std::int16_t>(loc.offset());
+            have_dist:
+
                 if(dist > 127 || dist < -128)
                 {
                     std::string what = fmt("Unable to relocate branch instruction %. Destination outside valid range. (%)", 
@@ -829,7 +846,7 @@ void asm_proc_t::relocate(locator_t from)
                     }
                     throw relocate_error_t(std::move(what)); // TODO: make it a real compiler_error
                 }
-                return locator_t::const_byte(loc.offset() + dist);
+                return locator_t::const_byte(dist);
             }
             else
                 return from.with_advance_offset(loc.offset() + bytes_between(0, label_i)).with_is(loc.is());
@@ -837,5 +854,6 @@ void asm_proc_t::relocate(locator_t from)
 
         inst.arg = relocate1(inst.arg);
         inst.alt = relocate1(inst.alt);
+        addr += op_size(inst.op);
     }
 }

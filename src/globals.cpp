@@ -1494,6 +1494,9 @@ void fn_t::compile()
             }
         }
     }
+
+    // TODO
+    m_always_inline = false;
 }
 
 void fn_t::precheck_finish_mode() const
@@ -2074,7 +2077,7 @@ void const_t::paa_init(asm_proc_t&& proc)
 {
     try
     {
-        //proc.absolute_to_zp();
+        proc.absolute_to_zp();
         proc.build_label_offsets();
         proc.relocate(locator_t::gconst(handle()));
     }

@@ -989,7 +989,8 @@ void asm_graph_t::optimize_live_registers()
                 asm_inst_t& inst = node.code[i];
 
                 assert(inst.op != ASM_LABEL);
-                if((op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH))
+                if(inst.op == ASM_FENCE
+                   || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH))
                    || !simple_addr_mode(op_addr_mode(inst.op)))
                 {
                     a_set.clear();
@@ -1246,7 +1247,7 @@ void asm_graph_t::optimize_live_registers()
                 unsigned const bi = &b - node.code.data();
 
                 assert(a.op != ASM_LABEL);
-                if(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH))
+                if(a.op == ASM_FENCE || (op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH)))
                 {
                     map.clear();
                     return;

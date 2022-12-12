@@ -27,6 +27,7 @@ fn ppu_upload_oam(U offset)
     fence
     {OAMADDR}(offset)
     {OAMDMA}((&oam).b)
+    fence
 
 // !!! For the following functions: !!!
 // 'index' must be a multiple of 4, otherwise the behavior is undefined.

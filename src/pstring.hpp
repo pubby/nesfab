@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 #include "file.hpp"
@@ -18,6 +19,9 @@ struct pstring_t
 
     std::string_view view(char const* buffer) const 
         { return std::string_view(buffer + offset, size); }
+
+    std::string string(char const* buffer) const 
+        { return std::string(view(buffer)); }
 
     constexpr std::uint32_t end() const { return offset + size; }
 

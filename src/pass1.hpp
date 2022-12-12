@@ -71,17 +71,39 @@ public:
     //ast_node_t process_ast(ast_node_t ast);
     //global_t const* at_ident(pstring_t pstring);
 
-    [[gnu::always_inline]]
+    void begin_global_var()
+    {
+        assert(symbol_table.empty());
+        symbol_table.push_scope();
+    }
+
+    void end_global_var()
+    {
+        symbol_table.pop_scope();
+        assert(symbol_table.empty());
+    }
+
     void prepare_global()
     {
         assert(ideps.empty());
         assert(label_map.empty());
         assert(unlinked_gotos.empty());
-        assert(symbol_table.empty());
     }
 
     [[gnu::always_inline]]
-    void prepare_fn(pstring_t fn_name)
+    global_t* prepare_var_init(pstring_t name)
+    {
+        // Reset the fn_def and iasm:
+        fn_def = fn_def_t();
+
+        // Find the global:
+        active_global = &global_t::lookup(file.source(), name);
+
+        return active_global;
+    }
+
+    [[gnu::always_inline]]
+    global_t* prepare_fn(pstring_t fn_name)
     {
         assert(ideps.empty());
         assert(label_map.empty());
@@ -96,6 +118,8 @@ public:
         // Create a scope for the parameters.
         assert(symbol_table.empty());
         symbol_table.push_scope();
+
+        return active_global;
     }
 
     // implementation detail:
@@ -116,10 +140,15 @@ public:
                 + fmt_note(fn_def.var_decl(*existing).name, 
                            "Previous definition here:", &file));
         }
+
         if(local_const)
-            fn_def.local_consts.emplace_back(var_decl, std::move(mods), convert_eternal_expr(local_const_expr));
+        {
+            fn_def.local_consts.emplace_back(var_decl, std::move(mods), eternal_expr(local_const_expr));
+            fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(var_decl.name.view(file.source())));
+        }
         else
             fn_def.local_vars.emplace_back(var_decl, std::move(mods));
+
         return handle;
     }
 
@@ -165,7 +194,17 @@ public:
         return { { pstring, fn_type }, fn_name };
     }
 
-    static constexpr mod_flags_t FN_MODS = MOD_zero_page | MOD_inline;
+    mod_flags_t fn_mods(fn_class_t fclass)
+    {
+        switch(fclass)
+        {
+        default:      return 0;
+        case FN_CT:   return 0;
+        case FN_FN:   return MOD_zero_page | MOD_inline;
+        case FN_MODE: return MOD_zero_page;
+        case FN_NMI:  return MOD_zero_page;
+        }
+    }
 
     [[gnu::always_inline]]
     void end_fn(var_decl_t decl, fn_class_t fclass, std::unique_ptr<mods_t> mods)
@@ -173,7 +212,7 @@ public:
         // Convert local consts now:
         for(auto& c : fn_def.local_consts)
             if(c.expr)
-                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_VALUE);
+                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_TYPE);
 
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
@@ -191,7 +230,7 @@ public:
         {
             mods->validate(
                 decl.name, 
-                FN_MODS, // flags
+                fn_mods(fclass), // flags
                 fclass == FN_CT ? 0 : (MODL_VARS | MODL_DATA | MODL_EMPLOYS), // lists
                 fclass == FN_MODE // nmi
                 );
@@ -232,7 +271,7 @@ public:
         //Convert all expressions
         for(auto& c : fn_def.local_consts)
             if(c.expr)
-                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_VALUE);
+                convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_TYPE);
         fn_def.push_stmt({ STMT_EXPR, {}, {}, {}, convert_eternal_expr(&ast) });
         fn_def.push_stmt({ STMT_END_FN, {}, {}, decl.name });
 
@@ -251,7 +290,7 @@ public:
         {
             mods->validate(
                 decl.name, 
-                FN_MODS, // flags
+                fn_mods(fclass), // flags
                 MODL_VARS | MODL_DATA | MODL_EMPLOYS, // lists
                 false // nmi
                 );
@@ -261,7 +300,6 @@ public:
         active_global->define_fn(
             decl.name, std::move(ideps),
             decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true);
-
         ideps.clear();
     }
 
@@ -281,9 +319,9 @@ public:
     }
 
     [[gnu::always_inline]]
-    ast_node_t byte_block_label(pstring_t label, bool is_default, std::unique_ptr<mods_t> mods)
+    ast_node_t byte_block_label(pstring_t label, global_ht global, bool is_default, bool is_banked, std::unique_ptr<mods_t> mods)
     {
-        int const i = -_add_symbol({{ label, type_t::addr(false) }, label }, true)-1;
+        int const i = -_add_symbol({{ label, type_t::addr(is_banked) }, label }, true)-1;
         assert(i >= 0);
 
         if(is_default)
@@ -292,13 +330,14 @@ public:
                 compiler_error(label, "Multiple default labels.");
             fn_def.default_label = i;
         }
-        else
-            fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(label.view(file.source())));
 
         if(mods)
             mods->validate(label);
 
-        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_label, .pstring = label, .value = i }};
+        assert(active_global);
+        std::uint64_t const value = i | (std::uint64_t(global.id) << 32);
+
+        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_label, .pstring = label, .value = value }};
         if(mods)
             ast.mods = eternal_emplace<mods_t>(std::move(*mods));
 
@@ -354,7 +393,21 @@ public:
     [[gnu::always_inline]]
     ast_node_t byte_block_wait_nmi(pstring_t pstring, std::unique_ptr<mods_t> mods)
     {
-        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_wait_nmi, .pstring =pstring }};
+        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_wait_nmi, .pstring = pstring }};
+
+        if(mods)
+        {
+            mods->validate(pstring);
+            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+        }
+
+        return ast;
+    }
+
+    [[gnu::always_inline]]
+    ast_node_t byte_block_bank_switch(pstring_t pstring, lex::token_type_t tt, std::unique_ptr<mods_t> mods)
+    {
+        ast_node_t ast = { .token = { .type = tt, .pstring = pstring }};
 
         if(mods)
         {
@@ -393,6 +446,7 @@ public:
     {
         active_global->define_struct(
             struct_name, std::move(ideps), std::move(field_map));
+        ideps.clear();
     }
 
     void struct_field(pstring_t struct_name, var_decl_t const& var_decl, ast_node_t* expr)
@@ -459,8 +513,14 @@ public:
         if(mods)
             mods->validate(var_decl.name, MOD_zero_page | MOD_align);
 
+        std::unique_ptr<paa_def_t> paa_def;
+        if(is_paa(var_decl.src_type.type.name()))
+            paa_def = std::make_unique<paa_def_t>(std::move(fn_def.local_consts), std::move(fn_def.name_hashes));
+
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_var(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(expr, IDEP_TYPE), std::move(mods));
+        active_global->define_var(
+            var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(expr, IDEP_TYPE),
+            std::move(paa_def), std::move(mods));
         ideps.clear();
     }
 
@@ -473,8 +533,14 @@ public:
         if(mods)
             mods->validate(var_decl.name);
 
+        std::unique_ptr<paa_def_t> paa_def;
+        if(is_paa(var_decl.src_type.type.name()))
+            paa_def = std::make_unique<paa_def_t>(std::move(fn_def.local_consts), std::move(fn_def.name_hashes));
+
         active_global = &global_t::lookup(file.source(), var_decl.name);
-        active_global->define_const(var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(&expr, IDEP_TYPE), std::move(mods));
+        active_global->define_const(
+            var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(&expr, IDEP_TYPE), 
+            std::move(paa_def), std::move(mods));
         ideps.clear();
     }
 
@@ -900,6 +966,7 @@ public:
 
         active_global->define_charmap(
             charmap_name, is_default, characters, sentinel, std::move(mods));
+        ideps.clear();
     }
 
     global_t const& lookup_charmap(pstring_t at, pstring_t name = {})
@@ -921,9 +988,50 @@ public:
         if(mods)
             mods->validate(decl);
 
+        std::unique_ptr<paa_def_t> paa_def = std::make_unique<paa_def_t>(
+            std::move(fn_def.local_consts), std::move(fn_def.name_hashes));
+
         active_global = &global_t::chrrom(decl);
-        active_global->define_const(decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, convert_eternal_expr(&ast), std::move(mods));
+        active_global->define_const(
+            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, 
+            convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
+        ideps.clear();
     }
+
+    /* TODO: remove
+    ast_node_t lookup_global_ident(pstring_t pstring)
+    {
+        global_t& g = global_t::lookup(file.source(), pstring);
+
+        return
+        {
+            .token = token_t::make_ptr<global_t>(
+                lex::TOK_global_ident,
+                pstring,
+                &g)
+        };
+    }
+
+    ast_node_t lookup_ident(pstring_t pstring)
+    {
+        if(int const* handle = symbol_table.find(pstring.view(source())))
+        {
+            ast_node_t ast =
+            {
+                .token = 
+                { 
+                    .type = lex::TOK_ident,
+                    .pstring = pstring,
+                    .value = *handle
+                }
+            };
+            assert(ast.token.signed_() == *handle);
+            return ast;
+        }
+
+        return lookup_global_ident(pstring);
+    }
+    */
 };
 
 

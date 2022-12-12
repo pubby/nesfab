@@ -64,7 +64,10 @@ private:
     pstring_t m_pstring = {};
 
     // An index into some storage that holds the global's implementation data
-    unsigned m_impl_id = ~0;
+    unsigned m_impl_id = ~0u;
+
+    // An index referring to this global:
+    unsigned m_this_id = ~0u;
 
     // 'ideps' means "immediate dependencies".
     // AKA any global name that appears in the definition of this global.
@@ -83,9 +86,10 @@ private:
 public:
     global_t() = delete;
 
-    global_t(pstring_t pstring, std::string_view name)
+    global_t(pstring_t pstring, std::string_view name, unsigned id)
     : name(name)
     , m_pstring(pstring)
+    , m_this_id(id)
     {
         assert(m_pstring.size);
     }
@@ -98,6 +102,8 @@ public:
     bool resolved() const { return m_resolved; }
     bool prechecked() const { return m_prechecked; }
     bool compiled() const { return m_compiled; }
+
+    global_ht handle() const { assert(compiler_phase() < PHASE_COMPILE || &global_ht{m_this_id}.safe() == this); return { m_this_id }; }
 
     template<typename T>
     T handle() const
@@ -117,6 +123,7 @@ public:
     }
 
     global_datum_t* datum() const;
+    std::vector<local_const_t> const* local_consts() const;
 
     // Helpers that delegate to 'define':
     fn_t& define_fn(
@@ -125,11 +132,13 @@ public:
     gvar_t& define_var(
         pstring_t pstring, ideps_map_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
-        ast_node_t const* expr, std::unique_ptr<mods_t> mods);
+        ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
+        std::unique_ptr<mods_t> mods);
     const_t& define_const(
         pstring_t pstring, ideps_map_t&& ideps, 
         src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, 
-        ast_node_t const* expr, std::unique_ptr<mods_t> mods);
+        ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
+        std::unique_ptr<mods_t> mods);
     struct_t& define_struct(
         pstring_t pstring, ideps_map_t&& ideps, field_map_t&& map);
     charmap_t& define_charmap(
@@ -436,12 +445,15 @@ public:
     span_t lvar_span(romv_t romv, int lvar_i) const;
     span_t lvar_span(romv_t romv, locator_t loc) const;
 
+    bool referenced() const { return m_referenced.load(); }
+
     void mark_referenced_return();
     bool referenced_return() const { return m_referenced.load() & 1; }
 
     void mark_referenced_param(unsigned param);
     std::uint64_t referenced_params() const { return m_referenced.load() >> 1; }
     std::uint64_t referenced_param(unsigned param) const { return referenced_params() & param; }
+    void for_each_referenced_locator(std::function<void(locator_t)> const& fn) const;
     void for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const;
 
     // Iterates this function, and every inline function it calls, once each.
@@ -505,7 +517,6 @@ private:
     // If the function (or a called fn) waits on NMI
     bool m_precheck_wait_nmi = false; // TODO: remove?
     bool m_precheck_fences = false; // TODO: remove?
-    std::atomic<unsigned> m_precheck_called = 0; // Counts how many times this has been called.
 
     // TODO: describe
     xbitset_t<gmember_ht> m_fence_rw;
@@ -545,27 +556,30 @@ private:
     lvars_manager_t m_lvars;
     std::array<std::vector<span_t>, NUM_ROMV> m_lvar_spans;
 
+    // TODO: false sharing
+
     // Bitset tracking which parameters and return values have been referenced.
     // (i.e. used with unary operator '&')
     // The first bit tracks the return. 
     std::atomic<std::uint64_t> m_referenced = 0;
+
+    std::atomic<unsigned> m_precheck_called = 0; // Counts how many times this has been called.
 };
 
 // Base class for vars and consts.
 class global_datum_t : public modded_t
 {
 public:
-    global_datum_t(global_t& global, src_type_t src_type, ast_node_t const* expr, std::unique_ptr<mods_t> mods)
+    global_datum_t(global_t& global, src_type_t src_type, ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
     : modded_t(std::move(mods))
     , global(global)
     , init_expr(expr)
-    , is_paa(::is_paa(src_type.type.name()))
     , m_src_type(src_type)
+    , m_def(std::move(paa_def))
     {}
     
     global_t& global;
     ast_node_t const* const init_expr = nullptr;
-    bool const is_paa = false; // Cache this so it can be read even before 'type()' is ready.
 
     type_t type() const { return m_src_type.type; }
     rval_t const& rval() const { passert(global.resolved(), global.name); return m_rval; }
@@ -576,6 +590,9 @@ public:
     void compile();
 
     virtual group_ht group() const = 0;
+    paa_def_t const* paa_def() const { return m_def.get(); }
+
+    bool is_paa() const { return paa_def(); }
 
 protected:
     virtual void paa_init(asm_proc_t&& proc) = 0;
@@ -584,6 +601,7 @@ protected:
 
     src_type_t m_src_type = {};
     rval_t m_rval = {};
+    std::unique_ptr<paa_def_t> m_def;
 };
  
 class gvar_t : public global_datum_t
@@ -594,8 +612,9 @@ public:
 
     inline gvar_ht handle() const { return global.handle<gvar_ht>(); }
 
-    gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, ast_node_t const* expr, std::unique_ptr<mods_t> mods)
-    : global_datum_t(global, src_type, expr, std::move(mods))
+    gvar_t(global_t& global, src_type_t src_type, group_vars_ht group_vars, ast_node_t const* expr, 
+           std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
+    : global_datum_t(global, src_type, expr, std::move(paa_def), std::move(mods))
     , group_vars(group_vars)
     {}
 
@@ -670,8 +689,9 @@ public:
 
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
-    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, ast_node_t const* expr, std::unique_ptr<mods_t> mods)
-    : global_datum_t(global, src_type, expr, std::move(mods))
+    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, ast_node_t const* expr, 
+            std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
+    : global_datum_t(global, src_type, expr, std::move(paa_def), std::move(mods))
     , group_data(group_data)
     { assert(init_expr); }
 

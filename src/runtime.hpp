@@ -12,6 +12,7 @@
 #include "span_allocator.hpp"
 
 class locator_t;
+class asm_proc_t;
 
 #define RTRAM_X \
 RT(ptr_temp) \
@@ -74,5 +75,10 @@ std::string to_string(runtime_rom_name_t name);
 
 std::ostream& operator<<(std::ostream& o, runtime_ram_name_t name);
 std::ostream& operator<<(std::ostream& o, runtime_rom_name_t name);
+
+void bankswitch_x(asm_proc_t& proc);
+void bankswitch_y(asm_proc_t& proc);
+void bankswitch_ax(asm_proc_t& proc);
+void bankswitch_ay(asm_proc_t& proc);
 
 #endif

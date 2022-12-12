@@ -75,8 +75,8 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
         }
     });
 
-    // Also add every argument that has been referenced:
-    fn->for_each_referenced_param_locator([&](locator_t loc){ insert_this_lvar(loc); });
+    // Also add every argument / return that has been referenced:
+    fn->for_each_referenced_locator([&](locator_t loc){ insert_this_lvar(loc); });
 
     m_num_this_lvars = m_map.size();
     assert(m_this_lvar_info.size() == m_map.size());
@@ -133,7 +133,7 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
             for(unsigned j = 0; j < num_members; ++j)
             {
                 type_t const member_type = ::member_type(param_type, j);
-                unsigned const num_atoms = ::num_atoms(member_type, j);
+                unsigned const num_atoms = ::num_atoms(member_type, 0);
 
                 for(unsigned k = 0; k < num_atoms; ++k)
                 {
@@ -152,7 +152,7 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
         for(unsigned j = 0; j < num_members; ++j)
         {
             type_t const member_type = ::member_type(return_type, j);
-            unsigned const num_atoms = ::num_atoms(member_type, j);
+            unsigned const num_atoms = ::num_atoms(member_type, 0);
 
             for(unsigned k = 0; k < num_atoms; ++k)
                 insert_lvar(locator_t::ret(fn, j, k), is_this);

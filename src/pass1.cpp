@@ -65,6 +65,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
     case TOK_weak_ident:
         if(depends_on)
             depends_on = IDEP_TYPE;
+
         // fall-through
     case TOK_ident:
         if(int const* handle = symbol_table.find(ast.token.pstring.view(source())))

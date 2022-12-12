@@ -791,7 +791,7 @@ Syntax:
 goto identifier
 ----
 
-`identifier` refers to the name of a label in the enclosing function.
+`identifier` refers to the name of a label in the current function.
 
 Example:
 
@@ -804,7 +804,7 @@ fn example()
         goto loop
 ----
 
-==== `goto mode` statement
+==== `goto mode` statement [[kw_goto_mode_statement]]
 
 The `goto mode` statement causes control flow to jump to a <<TODO_mode>>, 
 discarding the current call stack and starting anew.
@@ -840,6 +840,14 @@ mode bar(U some_argument)
     : preserves /my_vars
 ----
 
+==== `goto` (assembly) [[kw_goto_asm]]
+
+TODO
+
+==== `goto mode` (assembly) [[kw_goto_mode_asm]]
+
+TODO
+
 === `label` [[kw_label]]
 
 The `label` statement introduces a point which a <<kw_goto_statement>> can jump to . 
@@ -864,7 +872,7 @@ code block
 
 ==== `return` statement [[kw_return_statement]]
 
-The `return` statement ends the execution of the enclosing function,
+The `return` statement ends the execution of the current function,
 using its argument as the function's return value.
 It behaves like `return` in most programming languages.
 
@@ -881,18 +889,75 @@ return
 ==== `return` expression [[kw_return_expression]]
 
 A `return` expression *does not cause functions to return*. 
-Instead, it provides access to the enclosing function's return value.
+Instead, it provides a handle to the current function's return value.
+Although the value itself cannot be used, the address of can be taken using <<unary_ops, unary operator>> `&`,
 
 This functionality exists because of <<TODO, inline assembly>>.
+Most often, it is used to allow inline assembly functions to return values
+by storing into the address.
 
 Example:
 ----
 AA return_addr = &return
 ----
 
-=== `fence`
+=== `fence` [[kw_fence]]
 
-=== `true`
+The `fence` statement is used for both writing concurrent code, and for interacting with hardware. 
+It imposes constraints on how global variables are loaded and stored,
+preventing the compiler from re-ordering them.
+
+More precisely:
+
+- Every global variable the function is tracking will be stored before the `fence` executes.
+- Every global variable the function is tracking will be loaded after the `fence` executes.
+
+*Why is `fence` a thing?*
+
+The NESFab compiler performs optimizations which moves loads and stores around.
+This is normally fine, but issues arise due to interrupts.
+
+To illustrate, take a look at the code below:
+----
+foo = 10
+bar = 20
+----
+The compile is free to re-order these global variable assignments, storing into `bar` before `foo`.
+However, imagine if an interrupt were to occur between these stores.
+The interrupt would see that `bar` equals `20`, but not `foo` equals `10`,
+as the store to `foo` hasn't happened yet.
+
+To prevent this re-ordering, a `fence` statement can be used:
+----
+foo = 10
+fence
+bar = 20
+----
+Now if the interurpt sees that `bar` equals `20`, `foo` must equal `10`.
+
+*Another purpose for `fence`:*
+
+`fence` is also used when interacting with the hardware directly.
+When reading or writing a global variable via its hardware address,
+two `fence` statements are required with the hardware access between them.
+These `fence` statements instruct the compiler to store the global before the hardware access,
+and load the value after it.
+
+A common example arises when doing https://www.nesdev.org/wiki/PPU_registers#OAMDMA[OAM DMA]:
+----
+fence
+{OAMDMA}((&oam).b)
+fence
+----
+
+Without these `fence` instructions, the compiler would not recognize that global variables are being read.
+and so the resulting read may have incorrect results.
+
+[NOTE]
+`fence` does not instruct the compiler *which* globals to track.
+To do that, the modifier <<hw_employs>> is required.
+
+=== `true` [[kw_true]]
 
 `true` is an expression of type `Bool`, and has a compile-time constant value.
 When converted to an integer type, it will have the value `1`.
@@ -902,7 +967,7 @@ Syntax:
 true
 ----
 
-=== `false`
+=== `false` [[kw_false]]
 
 `false` is an expression of type `Bool`, and has a compile-time constant value.
 When converted to an integer type, it will have the value `0`.
@@ -912,7 +977,7 @@ Syntax:
 false
 ----
 
-=== `ready`
+=== `ready` [[kw_ready]]
 
 `ready` is an expression of type `Bool` which returns `true` if both an <<nmi, NMI>> is active and the program was <<kw_nmi, waiting on one>>,
 or `false` otherwise. 
@@ -924,7 +989,7 @@ Syntax:
 ready
 ----
 
-In general, if `ready` is `true`, all global variables are in a stable, thread-safe state.
+In general, if `ready` is `true`, all global variables are in a stable, concurrent-safe state.
 Likewise, if `ready` is `false`, either no NMI is happening, or the program is lagging one or more frames.
 
 Example:
@@ -940,21 +1005,234 @@ The address of `ready` can be taken using <<unary_ops, unary operator>> `&`,
 but the pointed-to value must never be modified by the program.
 
 [NOTE]
-There is more than one way to achieve thread safety. See <<kw_fence>>, for example.
+There is more than one way to achieve concurrent safety. See <<kw_fence>>, for example.
 
-=== `fn`
+=== `fn` [[kw_fn]]
 
-=== `ct`
+The `fn` keyword declares a 
+https://en.wikipedia.org/wiki/Function_(computer_programming)[function]
+at global scope.
+
+Syntax:
+----
+fn identifier(parameters) ReturnType
+    code block
+----
+
+- `identifier` is the name of the function.
+- `parameters` is a comma-separated list of variables with the syntax `Type name`.
+- `ReturnType` is a type name, but is optional. Leaving `ReturnType` blank is the same as specifying it as `Void`.
+- `code block` is the block of code which implements the function.
+
+Functions can only be declared at global-scope.
+Unlike other programming languages, functions in NESFab cannot be nested or recursive.
+
+*Modifiers:*
+
+- `employs`: A list of `vars` groups. See <<kw_employs_mod>>.
+- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
+- `data`: A list of `data` groups. See <<kw_data_mod>>.
+- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
+- `+inline`, `-inline`: Force / prevent the function from being inlined.
+
+Example:
+----
+fn foo(U p1, U p2) U
+    return p1 + p2
+----
+
+TODO: inline assembly
+
+=== `ct` [[kw_ct]]
+
+`ct` is short for _compile-time_. 
+The keyword can be prefixed onto value and function declarations to *insist* that their computations occur compile-time.
+
+==== `ct fn`
+
+Syntax:
+----
+ct fn identifier(parameters) ReturnType
+----
+
+`ct fn` has the same syntax as <<kw_fn>>. 
+
+==== `ct` value
+
+Syntax:
+----
+ct TypeName identifier = value
+----
+
+`ct` values are declared with the syntax of regular variables, but must be defined a value.
+
+They can be declared at global scope, or inside functions.
 
 === `mode`
 
+The `mode` keyword declares a mode function at global scope. 
+Modes are similar to <<kw_fn, regular functions>>, but they do not return.
+Instead, the only way to leave a mode function is via a `<<kw_goto_mode_statement>>.
+
+Syntax:
+----
+mode identifier(parameters)
+    code block
+----
+
+- `identifier` is the name of the mode function.
+- `parameters` is a comma-separated list of variables with the syntax `Type name`.
+- `code block` is the block of code which implements the mode function.
+
+Every program is required to have a mode named `main` defined, which takes no parameters.
+When the program starts, execution will begin at `main`.
+This behavior is similar to `main` functions found in other programming languages.
+
+Modes can be assigned a corresponding <<kw_nmi_decl, nmi>> function, using a <<TODO, modifier>>.
+While the mode function is executing, NMIs will be handled using the supplied `nmi` function.
+
+*Modifiers:*
+
+- `nmi`: The name of the `nmi` function to use when executing this `mode`.
+- `employs`: A list of `vars` groups. See <<kw_employs_mod>>.
+- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
+- `data`: A list of `data` groups. See <<kw_data_mod>>.
+- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
+
+Example:
+----
+mode main()
+: nmi my_nmi
+    while true
+        x = x + 1
+----
+
+*Why do modes exist?*
+
+There are two reasons.
+
+First, it is convenient to be able to change what the program is doing deep inside a function call.
+For example, in a video game it can be useful to define one `mode` for the main menu, 
+and another one for the actual gameplay. 
+To switch between the two, a `goto mode` statement can be used anywhere in the program,
+which is nicer than having to use variables and switch-cases.
+
+But more importantly, modes allow the compiler to smartly allocate memory,
+enabling variables used in different modes to share RAM addresses.
+This happens transparently from the programmer; no https://en.wikipedia.org/wiki/Tagged_union[sum types] needed.
+
 === `nmi`
+
+The keyword `nmi` can be used as a statement, or as a declaration.
+
+==== `nmi` statement
+
+The `nmi` statement blocks execution until an <<kw_nmi_function>> occurs.
+Until the `nmi` statement returns, <<kw_ready>> will evaluate to <<kw_true>>.
+
+Syntax:
+----
+nmi
+----
+
+==== `nmi` function [[kw_nmi_function]]
+
+The `nmi` keyword declares an https://www.nesdev.org/wiki/NMI[NMI] interrupt function at global scope. 
+NMI interrupts are similar to <<kw_fn, regular functions>>, but they have no parameters, cannot return, and cannot be called.
+Instead, they execute once per frame at the start of https://en.wikipedia.org/wiki/Vertical_blanking_interval[VBLANK],
+so long as bit 7 of https://www.nesdev.org/wiki/PPU_registers#PPUCTRL[PPUCTRL] is set.
+
+Syntax:
+----
+nmi identifier()
+    code block
+----
+
+- `identifier` is the name of the mode function.
+- `code block` is the block of code which implements the mode function.
+
+*Modifiers:*
+
+- `employs`: A list of `vars` groups. See <<kw_employs_mod>>.
+- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
+- `data`: A list of `data` groups. See <<kw_data_mod>>.
+- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
+
+*Why do NMI interrupt functions exist?*
+
+NMI interrupts provide a way for code to detect the vertical blanking interval (VBLANK).
+This is important, as most modifications to the https://www.nesdev.org/wiki/PPU[PPU's] state
+require that rendering be turned off, and VBLANK is one such time.
+
+Since the NMI interrupt occurs once per frame, it's also convenient to use it as a timer.
+Typically, game updates are run in sync with the NMI, 
+as otherwise the game would speed up or slow down based on how much computation is happening.
 
 === `struct`
 
+The `struct` keyword is used to define new types (https://en.wikipedia.org/wiki/Record_(computer_science)[records]) at global scope.
+It behaves similarly to the `struct` keyword in other languages.
+
+Syntax:
+----
+struct NewTypeName
+    fields
+----
+- `NewTypeName` is the name of the `struct`.
+- `fields` is a newline-separated list of fields, with the syntax `TypeName field_name`.
+
+Example:
+----
+struct Circle
+    S center_x
+    S center_y
+    UF radius
+----
+
+`struct` types may contain arrays and other `struct` types, 
+so long as multi-dimensional arrays are not created.
+
+Like all values in `NESFab`, `struct` types are passed by value.
+
 === `vars`
 
+The `vars` keyword declares a <<TODO_group, group>> and the global variables inside of it.
+
+[NOTE]
+All global variables belong to an associated `vars` group.
+It is not possible to declare a global variable otherwise.
+
+Syntax:
+----
+vars /group_name
+    variables
+----
+
+- `group_name` is the name of the group that the variables will be part of.
+- `variables` are global variables definitions with the syntax `TypeName identifier` or `TypeName identifier = value`.
+
+Assigning to a global variable in a `vars` block sets its default value.
+The variable will reset to this value at the start of the program,
+but also whenever a <<kw_goto_mode_statement>> occurs and the variable's group is not <<kw_preserves, preserved>>
+
+The same group can be declared multiple times,
+with each declaration defining additional global variables.
+The group will be defined as the union of these declarations.
+
+Example:
+----
+vars /my_group
+    U score = 0 // Set a default value for 'score'
+    UU player_x
+    UU player_y
+
+vars /my_group
+    U speed
+----
+
 === `data`
+
+
 
 === `omni`
 
@@ -962,15 +1240,194 @@ There is more than one way to achieve thread safety. See <<kw_fence>>, for examp
 
 === `charmap`
 
+The `charmap` keyword defines character maps,
+which are sets of characters with a mapping from each character to byte values.
+It is used to specify text encoding, like 
+https://en.wikipedia.org/wiki/ASCII[ASCII],
+https://en.wikipedia.org/wiki/EBCDIC[EBCDIC],
+or https://en.wikipedia.org/wiki/MIK_(character_set)[MIK].
+
+*Syntax:*
+
+----
+charmap identifier("string", 's')
+----
+
+- `identifier` is the name of the charmap. This is optional. When left out, the default `charmap` is defined.
+- `"string"` is a string literal, defining the characters of the charmap. 
+  The first character in the string will map to a value of zero, 
+  with other characters mapping to one higher than the character preceding them. 
+- `'s'` is ao optional charcter literal, defining the sentinel. When left out, no sentinel is defined.
+
+*Modifiers:*
+
+- `stows`: A `data` group. String literals using this `charmap` will place their data in this group. See <<kw_stows>>.
+
+*Example:*
+
+----
+charmap foo(" ,.!?ABCDEFGHIJKLMNOPQRSTUVWXYZ\0", '\0')
+
+// Defines the mapping:
+// ' ' = 0
+// ',' = 1
+// '.' = 2
+// '!' = 3
+// '?' = 4
+// 'A' = 5
+// 'B' = 6
+// 'C' = 7
+// ... and so on
+// with the sentinel being: '\0'
+----
+
+*Example:*
+
+----
+charmap bar("abcd")
+: stows /strings
+
+// Defines the default charmap mapping:
+// 'a' = 0
+// 'b' = 1
+// 'c' = 2
+// 'd' = 3
+// with no sentinel,
+// and stowing its literals in group /strings.
+----
+
+*Shared Characters*
+
+The escape sequence `\/` has a special meaning inside of `charmap` definitions.
+A charcter preceding `\/` will map to the same value as the character following it.
+
+Commonly, `\/` is used when multiple characters can use the same glyph,
+such as `0` and `O`, or `1` and `I`.
+
+----
+charmap foo("_0\/O1\/I\/|X", '\0')
+
+// Defines the mapping:
+// '_' = 0
+// '0' = 1
+// 'O' = 1
+// '1' = 2
+// '|' = 2
+// 'I' = 2
+// 'X' = 3
+----
+
+*Sizes and Members*
+
+The number of unique values in a `charmap` can be accessed using the `size` member,
+which is of type `Int`.
+
+----
+charmap foo("abc")
+
+// The member 'size' is defined as:
+// foo.size = 3
+
+// Example use:
+ct U last_foo_char = foo.size - 1
+----
+
+To access the members of the default `charmap`, the expression `charmap` is used:
+
+----
+// Define the default charmap:
+charmap("xyz")
+
+// Access the default charmap using 'charmap':
+ct U last_default_char = charmap.size - 1
+----
+
+*Sentinels*
+
+For `charmaps` that define a sentinel character, two things occur:
+
+- String literals using the `charmap` have the sentinel character appended onto the end.
+- The member `sentinel` of type `U` is defined for `charmap`.
+
+The intention behind sentinel characters is to mark the end of strings.
+This can be used to mimic the behavior of the C programming language's https://en.wikipedia.org/wiki/Null-terminated_string[null-terminated strings].
+
+----
+charmap foo("abc", 'b') 
+
+// String literals have 'b' tacked on:
+// "string"foo[6] = 'b'
+// len("string"foo) = 7
+
+// The member 'sentinel' is defined for 'foo':
+// foo.sentinel = 1
+
+charmap c_string("\0abc", '\0') 
+
+// This literal is terminated by the value 0:
+// "hello world"c_string
+
+// The member 'sentinel' is defined for 'c_string':
+// c_string.sentinel = 0
+----
+
+Note that sentinels must have a mapping defined in the `charmap`.
+Doing so otherwise is an error.
+
+----
+charmap bad_charmap("abc", 'z') // Error! 'z' is not in the charmap!
+----
+
+*`stows` Group*
+
+`charmap` accepts a single group in its `stows` <<modifiers, modifiers>>.
+If defined, string literals using the `charmap` become valid operands to <<op_at_TODO, operator `@`>> and <<op_amper_TODO, operator `&`>>.
+When using these operators, the contents of the string literal will exist in the group as data.
+
+Example:
+
+----
+charmap foo("ABCD")
+: stows /strings
+
+// Can now reference strings using literals:
+ct CCC/strings some_ptr = @"AAA"
+
+// This is akin to defining the string inside a 'data' block first:
+data /strings
+    [] some_string
+        ("AAA")
+// ... and then referencing it:
+ct CCC/strings another_ptr = @some_string
+----
+
 === `chrrom`
+
+The `chrrom` keyword is only used for <<mappers, mappers>> which use CHR ROM (as opposed to CHR RAM).
+It specifies the data of the CHR ROM using a <<TODO, byte-block>> syntax.
+
+Syntax:
+----
+chrrom
+    byte block
+----
+
+Example:
+----
+chrrom
+    file(chr, "sprites.png") 
+    file(chr, "bg.png") 
+----
+
+The compiler will issue a warning if the supplied data does not match what the mapper expects.
+
+=== `file`
 
 === `employs`
 
 === `preserves`
 
 === `stows`
-
-=== `file`
 
 
 == Operators
@@ -2232,163 +2689,6 @@ Structures (or "structs"),
 `fn` is used to define functions.
 
 ==== ct keyword [[ct]]
-
-=== charmap keyword [[charmap]]
-
-The `charmap` keyword defines character maps,
-which are sets of characters along with a mapping from each character to byte values.
-It is used to specify text encoding, like 
-https://en.wikipedia.org/wiki/ASCII[ASCII],
-https://en.wikipedia.org/wiki/EBCDIC[EBCDIC],
-or https://en.wikipedia.org/wiki/MIK_(character_set)[MIK].
-
-*Top-level syntax:*
-
-----
-charmap identifier_name("string", 's')
-----
-
-- *Optional:* `identifier_name` is the name of the charmap. 
-  When left out, the default `charmap` is defined.
-- *Mandatory:* `"string"` is a string literal, defining the characters of the charmap. 
-  The first character in the string will map to a value of zero, 
-  with other characters mapping to one higher than the character preceding them. 
-- *Optional:* `'s'` is a charcter literal, defining the sentinel. 
-  When left out, no sentinel is defined.
-
-*Example:*
-
-----
-charmap foo(" ,.!?ABCDEFGHIJKLMNOPQRSTUVWXYZ\0", '\0')
-
-// Defines the mapping:
-// ' ' = 0
-// ',' = 1
-// '.' = 2
-// '!' = 3
-// '?' = 4
-// 'A' = 5
-// 'B' = 6
-// 'C' = 7
-// ... and so on
-// with the sentinel being: '\0'
-
-
-charmap bar("abcd")
-
-// Defines the default charmap mapping:
-// 'a' = 0
-// 'b' = 1
-// 'c' = 2
-// 'd' = 3
-// with no sentinel.
-----
-
-==== Shared Characters
-
-The escape sequence `\/` has a special meaning inside of `charmap` definitions.
-A charcter preceding `\/` will map to the same value as the character following it.
-
-Commonly, `\/` is used when multiple characters can use the same glyph,
-such as `0` and `O`, or `1` and `I`.
-
-----
-charmap foo("_0\/O1\/I\/|X", '\0')
-
-// Defines the mapping:
-// '_' = 0
-// '0' = 1
-// 'O' = 1
-// '1' = 2
-// '|' = 2
-// 'I' = 2
-// 'X' = 3
-----
-
-==== Sizes and Members
-
-The number of unique values in a `charmap` can be accessed using the `size` member,
-which is of type `Int`.
-
-----
-charmap foo("abc")
-
-// The member 'size' is defined as:
-// foo.size = 3
-
-// Example use:
-ct U last_foo_char = foo.size - 1
-----
-
-To access the members of the default `charmap`, the expression `charmap` is used:
-
-----
-// Define the default charmap:
-charmap("xyz")
-
-// Access the default charmap using 'charmap':
-ct U last_default_char = charmap.size - 1
-----
-
-==== Sentinels
-
-For `charmaps` that define a sentinel character, two things occur:
-
-- String literals using the `charmap` have the sentinel character appended onto the end.
-- The member `sentinel` of type `U` is defined for `charmap`.
-
-The intention behind sentinel characters is to mark the end of strings.
-This can be used to mimic the behavior of the C programming language's https://en.wikipedia.org/wiki/Null-terminated_string[null-terminated strings].
-
-----
-charmap foo("abc", 'b') 
-
-// String literals have 'b' tacked on:
-// "string"foo[6] = 'b'
-// len("string"foo) = 7
-
-// The member 'sentinel' is defined for 'foo':
-// foo.sentinel = 1
-
-charmap c_string("\0abc", '\0') 
-
-// This literal is terminated by the value 0:
-// "hello world"c_string
-
-// The member 'sentinel' is defined for 'c_string':
-// c_string.sentinel = 0
-----
-
-Note that sentinels must have a mapping defined in the `charmap`.
-Doing so otherwise is an error.
-
-----
-charmap bad_charmap("abc", 'z') // Error! 'z' is not in the charmap!
-----
-
-==== Default `data` Groups
-
-`charmap` accepts a single group in its `data` <<modifiers, modifiers>>.
-If defined, string literals using the `charmap` become valid operands to <<at, operator `@`>> and <<amper, operator `&`>>.
-When using these operators, the contents of the string literal will exist in the group as data.
-
-Example:
-
-----
-charmap foo("ABCD")
-: data /strings
-
-// Can now reference strings using literals:
-ct CCC/strings some_ptr = @"AAA"
-
-// This is akin to defining the string inside a 'data' block first:
-data /strings
-    [] some_string
-        ("AAA")
-// ... and then referencing it:
-ct CCC/strings another_ptr = @some_string
-----
-
 === Modifiers [[modifiers]]
 
 TODO

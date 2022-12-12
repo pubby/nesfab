@@ -10,6 +10,7 @@
 
 // Copies the global variable 'palette' into the PPU's internal palette memory.
 fn ppu_upload_palette()
+: -inline
     {PPUSTATUS}()
     {PPUADDR}($3F)
     {PPUADDR}($00)

@@ -67,7 +67,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             asm_proc.link(alloc.romv, alloc.only_bank());
             asm_proc.relocate(locator_t::addr(alloc.span.addr));
 
-            //asm_proc.write_assembly(std::cout, alloc.romv);
+            asm_proc.write_assembly(std::cout, alloc.romv);
 
             alloc.for_each_bank([&](unsigned bank)
             {

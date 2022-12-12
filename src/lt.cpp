@@ -16,6 +16,7 @@ void lt_value_t::resolve(romv_t romv)
 
     assert(rpair.type == type);
     passert(rpair.value.size(), lex::token_name(ast.token.type));
+    passert(rpair.value.size() == num_members(type), rpair.value.size(), type);
 
     results[romv].bytes.clear();
     append_locator_bytes(results[romv].bytes, rpair.value, type, ast.token.pstring);

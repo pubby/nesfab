@@ -105,7 +105,7 @@ static loc_vec_t make_vectors()
     return ret;
 }
 
-static void _bankswitch_ax(asm_proc_t& proc, locator_t load)
+static void _load_bankswitch_ax(asm_proc_t& proc, locator_t load)
 {
     if(!mapper().bankswitches())
         return;
@@ -126,6 +126,64 @@ static void _bankswitch_ax(asm_proc_t& proc, locator_t load)
 
     if(has_bus_conflicts(mapper().type))
         proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
+    else
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
+}
+
+void bankswitch_x(asm_proc_t& proc)
+{
+    if(!mapper().bankswitches())
+        return;
+
+    std::uint16_t const addr = bankswitch_addr(mapper().type);
+
+    if(has_bus_conflicts(mapper().type))
+    {
+        proc.push_inst(TXA_IMPLIED);
+        proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
+    }
+    else
+        proc.push_inst(STX_ABSOLUTE, locator_t::addr(addr));
+}
+
+void bankswitch_y(asm_proc_t& proc)
+{
+    if(!mapper().bankswitches())
+        return;
+
+    std::uint16_t const addr = bankswitch_addr(mapper().type);
+
+    if(has_bus_conflicts(mapper().type))
+    {
+        proc.push_inst(TYA_IMPLIED);
+        proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
+    }
+    else
+        proc.push_inst(STY_ABSOLUTE, locator_t::addr(addr));
+}
+
+void bankswitch_ax(asm_proc_t& proc)
+{
+    if(!mapper().bankswitches())
+        return;
+
+    std::uint16_t const addr = bankswitch_addr(mapper().type);
+
+    if(has_bus_conflicts(mapper().type))
+        proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
+    else
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
+}
+
+void bankswitch_ay(asm_proc_t& proc)
+{
+    if(!mapper().bankswitches())
+        return;
+
+    std::uint16_t const addr = bankswitch_addr(mapper().type);
+
+    if(has_bus_conflicts(mapper().type))
+        proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
     else
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
 }
@@ -170,7 +228,7 @@ static asm_proc_t make_nmi_exit()
 {
     asm_proc_t proc;
 
-    _bankswitch_ax(proc, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
+    _load_bankswitch_ax(proc, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
 
     proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
     proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_x));
@@ -219,7 +277,7 @@ static asm_proc_t make_reset()
     proc.push_inst(CLD);
 
     // Jump to the init proc:
-    _bankswitch_ax(proc, locator_t(LOC_RESET_PROC).with_is(IS_BANK));
+    _load_bankswitch_ax(proc, locator_t(LOC_RESET_PROC).with_is(IS_BANK));
     proc.push_inst(JMP_ABSOLUTE, LOC_RESET_PROC);
 
     proc.initial_optimize();
@@ -293,7 +351,7 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
     // Jump to our entry point.
-    _bankswitch_ax(proc, locator_t::fn(main.handle()).with_is(IS_BANK));
+    _load_bankswitch_ax(proc, locator_t::fn(main.handle()).with_is(IS_BANK));
     proc.push_inst(JMP_ABSOLUTE, locator_t::fn(main.handle()));
 
     proc.initial_optimize();

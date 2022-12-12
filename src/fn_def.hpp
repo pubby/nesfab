@@ -45,10 +45,22 @@ struct local_const_t : public local_t
     bool is_label() const { return !expr; }
 };
 
-// Represents function data right after parsing
-class fn_def_t
+struct paa_def_t
 {
-public:
+    std::vector<local_const_t> local_consts;
+
+    // Used to implement operator '.'.
+    // Elements are local consts.
+    std::vector<std::uint64_t> name_hashes;
+
+    // Offsets of labels, pairing with 'local_consts'.
+    std::vector<std::uint16_t> offsets;
+};
+
+
+// Represents function data right after parsing
+struct fn_def_t
+{
     std::uint16_t num_params = 0;
     std::uint16_t default_label = ENTRY_LABEL;
     src_type_t return_type;
@@ -59,7 +71,7 @@ public:
 
     // Used to implement operator '.' for fns.
     // The first elements are the parameters, in order (size 'num_params').
-    // Following that, assembly labels in the order they appear in 'local_consts'.
+    // Following that, local consts.
     std::vector<std::uint64_t> name_hashes;
 
     var_decl_t const& var_decl(int i) const
@@ -88,6 +100,7 @@ public:
     // Returns the first pstring matching 'global'.
     // Intended to be used for error messages.
     pstring_t find_global(global_t const* global) const;
+
 };
 
 #endif

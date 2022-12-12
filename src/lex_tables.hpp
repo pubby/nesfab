@@ -182,9 +182,13 @@ constexpr token_type_t TOK_byte_block_call = 175;
 constexpr token_type_t TOK_byte_block_goto = 176;
 constexpr token_type_t TOK_byte_block_goto_mode = 177;
 constexpr token_type_t TOK_byte_block_wait_nmi = 178;
-constexpr token_type_t TOK_byte_block_byte_array = 179;
-constexpr token_type_t TOK_byte_block_locator_array = 180;
-constexpr token_type_t TOK_END = 181;
+constexpr token_type_t TOK_byte_block_bank_switch_x = 179;
+constexpr token_type_t TOK_byte_block_bank_switch_y = 180;
+constexpr token_type_t TOK_byte_block_bank_switch_ax = 181;
+constexpr token_type_t TOK_byte_block_bank_switch_ay = 182;
+constexpr token_type_t TOK_byte_block_byte_array = 183;
+constexpr token_type_t TOK_byte_block_locator_array = 184;
+constexpr token_type_t TOK_END = 185;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -369,6 +373,10 @@ inline std::string_view token_name(token_type_t type)
     case TOK_byte_block_goto: return "byte_block_goto"sv;
     case TOK_byte_block_goto_mode: return "byte_block_goto_mode"sv;
     case TOK_byte_block_wait_nmi: return "byte_block_wait_nmi"sv;
+    case TOK_byte_block_bank_switch_x: return "byte_block_bank_switch_x"sv;
+    case TOK_byte_block_bank_switch_y: return "byte_block_bank_switch_y"sv;
+    case TOK_byte_block_bank_switch_ax: return "byte_block_bank_switch_ax"sv;
+    case TOK_byte_block_bank_switch_ay: return "byte_block_bank_switch_ay"sv;
     case TOK_byte_block_byte_array: return "byte_block_byte_array"sv;
     case TOK_byte_block_locator_array: return "byte_block_locator_array"sv;
     }
@@ -552,11 +560,15 @@ inline std::string_view token_string(token_type_t type)
     case TOK_byte_block_proc: return "byte block"sv;
     case TOK_byte_block_data: return "byte block"sv;
     case TOK_byte_block_asm_op: return "assembly instruction"sv;
-    case TOK_byte_block_label: return "assembly instruction"sv;
+    case TOK_byte_block_label: return "assembly label"sv;
     case TOK_byte_block_call: return "assembly fn call"sv;
     case TOK_byte_block_goto: return "assembly goto"sv;
     case TOK_byte_block_goto_mode: return "assembly goto mode"sv;
     case TOK_byte_block_wait_nmi: return "assembly wait nmi"sv;
+    case TOK_byte_block_bank_switch_x: return "assembly bank switch X"sv;
+    case TOK_byte_block_bank_switch_y: return "assembly bank switch Y"sv;
+    case TOK_byte_block_bank_switch_ax: return "assembly bank switch AX"sv;
+    case TOK_byte_block_bank_switch_ay: return "assembly bank switch AY"sv;
     case TOK_byte_block_byte_array: return "byte block array"sv;
     case TOK_byte_block_locator_array: return "byte block bbc array"sv;
     }
@@ -676,6 +688,10 @@ constexpr unsigned char token_precedence_table[] =
     158,
     158,
     1,
+    0,
+    0,
+    0,
+    0,
     0,
     0,
     0,
@@ -928,6 +944,10 @@ constexpr bool token_right_assoc_table[] =
     0,
     0,
     0,
+    0,
+    0,
+    0,
+    0,
 };
 #define lex_TOK_KEY_CASES \
     case TOK_if:\
@@ -1036,8 +1056,8 @@ constexpr bool token_right_assoc_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 180;
-constexpr token_type_t TOK_START = 184;
+constexpr token_type_t TOK_LAST_STATE = 184;
+constexpr token_type_t TOK_START = 189;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[40240];
+extern token_type_t const lexer_transition_table[40560];
 } // namespace lex

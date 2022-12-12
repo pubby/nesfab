@@ -24,12 +24,13 @@ class static_any_pool_t
 {
 private:
     inline static thread_local std::unique_ptr<char, c_delete> storage = {};
+    inline static thread_local char* data_ptr; // Keep this pointing to 'storage.data()'
     inline static thread_local std::size_t bytes_capacity = 0;
     inline static thread_local std::size_t allocated_size = 0;
 public:
     template<typename T> [[gnu::always_inline]]
     static T* data() 
-        { assert(storage); return reinterpret_cast<T*>(storage.get()); }
+        { assert(storage); return reinterpret_cast<T*>(data_ptr); }
 
     template<typename T> [[gnu::always_inline]]
     static T& get(std::size_t i) 
@@ -56,6 +57,7 @@ public:
                     get<T>(i).~T();
             storage = std::move(new_storage);
             bytes_capacity = new_capacity;
+            data_ptr = storage.get();
         }
 
         if(!std::is_trivially_constructible<T>::value)
@@ -97,23 +99,30 @@ class static_intrusive_pool_t
 public:
     struct handle_t : public intrusive_pool_t<T>::handle_t
     {
-        T& operator*() const { return this->get(pool); }
-        T* operator->() const { return &this->get(pool); }
+        T& operator*() const { assert(valid()); return this->get(*pool_ptr); }
+        T* operator->() const { assert(valid()); return &this->get(*pool_ptr); }
 
         handle_t& operator++() { *this = next(); return *this; }
         handle_t operator++(int) { auto x = *this; operator++(); return x; }
         handle_t& operator--() { *this = prev(); return *this; }
         handle_t operator--(int) { auto x = *this; operator--(); return x; }
 
-        handle_t next() const { return { intrusive_pool_t<T>::handle_t::next(pool).id }; }
-        handle_t prev() const { return { intrusive_pool_t<T>::handle_t::prev(pool).id }; }
+        handle_t next() const { assert(valid()); return { intrusive_pool_t<T>::handle_t::next(*pool_ptr).id }; }
+        handle_t prev() const { assert(valid()); return { intrusive_pool_t<T>::handle_t::prev(*pool_ptr).id }; }
 
         template<typename U>
         U& data() const { assert(this->id < pool.array_size()); return static_any_pool_t<Tag>::template get<U>(this->id); }
+
+        static bool valid() { return &pool == pool_ptr; }
     };
 private:
     inline static thread_local intrusive_pool_t<T> pool;
+
+    // Points to 'pool'. Call 'init' to set this.
+    // (This exists to reduce penalty of __tls_init)
+    inline static thread_local intrusive_pool_t<T>* pool_ptr;
 public:
+    static void init() { pool_ptr = &pool; (void)pool.data(); }
     static handle_t alloc() { return { pool.alloc().id }; }
     static void free(handle_t h) { pool.free({ h.id }); }
     static void clear() { pool.clear(); }

@@ -43,7 +43,7 @@ global_t& global_t::lookup_sourceless(pstring_t name, std::string_view key)
             },
             [&pool, name, key]() -> global_t*
             { 
-                return &pool.emplace_back(name, key);
+                return &pool.emplace_back(name, key, pool.size());
             });
 
         return *result.first;
@@ -138,14 +138,14 @@ fn_t& global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
 
 gvar_t& global_t::define_var(pstring_t pstring, ideps_map_t&& ideps, 
                              src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
-                             ast_node_t const* expr, std::unique_ptr<mods_t> mods)
+                             ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
 {
     gvar_t* ret;
 
     // Create the var
     gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), [&](global_t& g)
     { 
-        return gvar_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(mods)).id;
+        return gvar_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(paa_def), std::move(mods)).id;
     })};
 
     // Add it to the group
@@ -157,14 +157,15 @@ gvar_t& global_t::define_var(pstring_t pstring, ideps_map_t&& ideps,
 
 const_t& global_t::define_const(pstring_t pstring, ideps_map_t&& ideps, 
                                 src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
-                                ast_node_t const* expr, std::unique_ptr<mods_t> mods)
+                                ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
+                                std::unique_ptr<mods_t> mods)
 {
     const_t* ret;
 
     // Create the const
     const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
     { 
-        return const_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(mods)).id;
+        return const_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(paa_def), std::move(mods)).id;
     })};
 
     // Add it to the group
@@ -316,6 +317,9 @@ void global_t::do_all(Fn const& fn)
     parallelize(compiler_options().num_threads,
     [&fn](std::atomic<bool>& exception_thrown)
     {
+        ssa_pool::init();
+        cfg_pool::init();
+
         while(!exception_thrown)
         {
             global_t* global = await_ready_global();
@@ -424,6 +428,9 @@ void global_t::precheck_all()
             fn.m_precheck_calls.for_each([&](fn_ht call)
             {
                 call->m_precheck_called += 1;
+
+                if(fn.iasm)
+                    call->mark_referenced_return(); // Used to disable inlining.
             });
         }
     }
@@ -583,30 +590,48 @@ void global_t::build_order()
     // Build the order:
     for(global_t& global : global_ht::values())
     {
-        // 'm_ideps_left' was set by 'detect_cycles',
+        // 'm_ideps_left' was set by 'detect_cycle',
         // and holds the level of calculation required:
         idep_class_t const calc = idep_class_t(global.m_ideps_left.load());
+
+        std::cout << "CALC " << global.name << ' ' << (int)calc << std::endl;
 
         unsigned ideps_left = 0;
         for(auto const& pair : global.m_ideps)
         {
+            std::cout << "    " << pair.first->name << ' ' << (int)pair.second.calc << ' ' << (int)pair.second.depends_on << std::endl;
+
             // If we can calcalate:
             if(pair.second.calc > calc)
+            {
+                std::puts("c1");
                 continue;
+            }
 
             // If the the idep was computed in a previous pass:
             if(pair.second.calc < pass || pair.second.depends_on < pass)
+            {
+                std::puts("c2");
                 continue;
+            }
 
             ++ideps_left;
             assert(pair.first != &global);
             pair.first->m_iuses.insert(&global);
         }
 
-        global.m_ideps_left.store(ideps_left, std::memory_order_relaxed);
+        global.m_ideps_left.store(ideps_left);
 
         if(ideps_left == 0)
             ready.push_back(&global);
+    }
+
+    std::cout << "ORDERING " << (int)pass << std::endl;
+    for(global_t& global : global_ht::values())
+    {
+        std::cout << global.name << ' ' << global.m_ideps_left << std::endl;
+        for(auto const& idep : global.m_ideps)
+            std::cout << "    " << idep.first->name << ' ' << (int)idep.second.calc << ' ' << (int)idep.second.depends_on << std::endl;
     }
 
     assert(ready.size());
@@ -616,6 +641,7 @@ global_t* global_t::resolve(log_t* log)
 {
     assert(compiler_phase() == PHASE_RESOLVE);
 
+    log = &stdout_log; // TODO
     dprint(log, "RESOLVING", name);
     delegate([](auto& g){ g.resolve(); });
 
@@ -716,6 +742,16 @@ global_datum_t* global_t::datum() const
     case GLOBAL_CONST: return &impl<const_t>();
     default: return nullptr;
     }
+}
+
+std::vector<local_const_t> const* global_t::local_consts() const
+{
+    if(gclass() == GLOBAL_FN)
+        return &impl<fn_t>().def().local_consts;
+    if(auto* dat = datum())
+        if(auto* def = dat->paa_def())
+            return &def->local_consts;
+    return nullptr;
 }
 
 //////////
@@ -1033,6 +1069,31 @@ void alloc_args(ir_t const& ir)
 }
 */
 
+static void _resolve_local_consts(global_ht global, std::vector<local_const_t>& local_consts, fn_t* fn = nullptr)
+{
+    for(unsigned i = 0; i < local_consts.size(); ++i)
+    {
+        auto& c = local_consts[i];
+        if(c.expr)
+        {
+            c.value = interpret_local_const(
+                c.decl.name, fn, *c.expr, 
+                c.decl.src_type.type, local_consts.data()).value;
+        }
+        else
+        {
+            locator_t const label = locator_t::named_label(global, i);
+
+            if(is_banked_ptr(c.type().name()))
+                c.value = { label, label.with_is(IS_BANK) };
+            else
+                c.value = { label };
+
+            assert(c.value.size() == num_members(c.type()));
+        }
+    }
+}
+
 void fn_t::resolve()
 {
     // Dethunkify the fn type:
@@ -1065,18 +1126,7 @@ void fn_t::resolve()
 
     // Resolve local constants:
 resolve_ct:
-    for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
-    {
-        auto& c = m_def.local_consts[i];
-        if(c.expr)
-        {
-            c.value = interpret_local_const(
-                c.decl.name, this, *c.expr, 
-                c.decl.src_type.type, m_def.local_consts.data()).value;
-        }
-        else
-            c.value = { locator_t::minor_label(i) };
-    }
+    _resolve_local_consts(global.handle(), m_def.local_consts, this);
 }
 
 void fn_t::precheck()
@@ -1339,7 +1389,7 @@ void fn_t::compile()
             save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
             RUN_O(o_loop, log, ir, post_byteified);
             save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
-            RUN_O(o_abstract_interpret, &stdout_log, ir, post_byteified);
+            RUN_O(o_abstract_interpret, log, ir, post_byteified);
             save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_remove_unused_ssa, log, ir);
@@ -1395,8 +1445,12 @@ void fn_t::compile()
     assert(m_always_inline == false);
     if(fclass == FN_FN && !mod_test(mods(), MOD_inline, false))
     {
-        if(referenced_return())
+        if(referenced())
+        {
             m_always_inline = false;
+            if(mod_test(mods(), MOD_inline, true))
+                compiler_warning(global.pstring(), fmt("Unable to inline % as its being addressed.", global.name));
+        }
         else if(mod_test(mods(), MOD_inline, true))
             m_always_inline = true;
         else if(precheck_called() == 1)
@@ -1775,7 +1829,7 @@ void fn_t::calc_lang_gvars()
 
 void fn_t::mark_referenced_return()
 {
-    std::uint64_t expected = m_referenced.load() | 1;
+    std::uint64_t expected = m_referenced.load();
     while(!m_referenced.compare_exchange_weak(expected, expected | 1));
     assert(referenced_return());
 }
@@ -1790,6 +1844,27 @@ void fn_t::mark_referenced_param(unsigned param)
     assert(m_referenced.load() & mask);
 }
 
+void fn_t::for_each_referenced_locator(std::function<void(locator_t)> const& fn) const
+{
+    type_t const return_type = type().return_type();
+
+    if(return_type.name() != TYPE_VOID && referenced_return())
+    {
+        unsigned const num_members = ::num_members(return_type);
+
+        for(unsigned j = 0; j < num_members; ++j)
+        {
+            type_t const member_type = ::member_type(return_type, j);
+            unsigned const num_atoms = ::num_atoms(member_type, 0);
+
+            for(unsigned k = 0; k < num_atoms; ++k)
+                fn(locator_t::ret(handle(), j, k));
+        }
+    }
+
+    for_each_referenced_param_locator(fn);
+}
+
 void fn_t::for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const
 {
     bitset_for_each(referenced_params(), [&](unsigned param)
@@ -1801,7 +1876,7 @@ void fn_t::for_each_referenced_param_locator(std::function<void(locator_t)> cons
         for(unsigned j = 0; j < num_members; ++j)
         {
             type_t const member_type = ::member_type(param_type, j);
-            unsigned const num_atoms = ::num_atoms(member_type, j);
+            unsigned const num_atoms = ::num_atoms(member_type, 0);
 
             for(unsigned k = 0; k < num_atoms; ++k)
                 fn(locator_t::arg(handle(), param, j, k));
@@ -1830,7 +1905,10 @@ void global_datum_t::resolve()
 
     if(m_src_type.type.name() == TYPE_PAA)
     {
-        auto data = interpret_byte_block(global.pstring(), *init_expr);
+        passert(paa_def(), global.name);
+        _resolve_local_consts(global.handle(), m_def->local_consts);
+
+        auto data = interpret_byte_block(global.pstring(), *init_expr, nullptr, paa_def()->local_consts.data());
         std::size_t data_size = 0;
 
         if(auto const* proc = std::get_if<asm_proc_t>(&data))
@@ -1994,8 +2072,29 @@ void const_t::paa_init(loc_vec_t&& vec)
 
 void const_t::paa_init(asm_proc_t&& proc)
 {
-    proc.relocate(locator_t::gconst(handle()));
-    proc.absolute_to_zp();
+    try
+    {
+        //proc.absolute_to_zp();
+        proc.build_label_offsets();
+        proc.relocate(locator_t::gconst(handle()));
+    }
+    catch(relocate_error_t const& e)
+    {
+        compiler_error(global.pstring(), e.what());
+    }
+
+    //proc.write_assembly(std::cout, ROMV_MODE);
+
+    assert(m_def);
+    auto& def = *m_def;
+
+    // Copy the offsets from 'proc' into 'def.offsets',
+    // as proc won't stick around.
+    def.offsets.resize(def.local_consts.size(), 0);
+    for(auto const& pair : proc.labels)
+        if(pair.first.lclass() == LOC_NAMED_LABEL && pair.first.global() == global.handle())
+            def.offsets[pair.first.data()] = pair.second.offset;
+
     paa_init(proc.loc_vec());
 }
 

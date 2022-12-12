@@ -62,7 +62,7 @@ struct lval_t
     std::int8_t atom = -1; // negative means no atom.
     std::uint16_t member = 0;
     std::int16_t arg = -1;
-    std::uint16_t label = -1;
+    std::int16_t label = -1;
     union
     {
         var_ht vvar_i = {};

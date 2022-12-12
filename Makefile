@@ -113,7 +113,7 @@ rval.cpp \
 type_name.cpp \
 cg_isel_cpu.cpp \
 convert.cpp \
-convert_pb.cpp \
+convert_compress.cpp \
 lt.cpp \
 o_arg.cpp \
 o_id.cpp \

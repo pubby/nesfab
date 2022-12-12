@@ -63,6 +63,7 @@ enum locator_class_t : std::uint8_t
     // Labels are used during code gen. They map to assembly terms.
     LOC_CFG_LABEL,
     LOC_MINOR_LABEL,
+    LOC_NAMED_LABEL,
 
     LOC_CONST_BYTE,
     LOC_ADDR,
@@ -113,8 +114,17 @@ constexpr bool is_var_like(locator_class_t lclass)
 
 constexpr bool is_label(locator_class_t lclass)
 {
-    return (lclass == LOC_CFG_LABEL || lclass == LOC_MINOR_LABEL
-            || lclass == LOC_SWITCH_LO_TABLE || lclass == LOC_SWITCH_HI_TABLE);
+    switch(lclass)
+    {
+    case LOC_CFG_LABEL:
+    case LOC_MINOR_LABEL:
+    case LOC_NAMED_LABEL:
+    case LOC_SWITCH_LO_TABLE:
+    case LOC_SWITCH_HI_TABLE:
+        return true;
+    default:
+        return false;
+    }
 }
 
 constexpr bool is_const(locator_class_t lclass)
@@ -137,6 +147,17 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     //case LOC_LT_GMEMBER_PTR:
     case LOC_GCONST:
     case LOC_LT_EXPR:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool has_global(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_NAMED_LABEL:
         return true;
     default:
         return false;
@@ -344,6 +365,12 @@ public:
         return loc;
     }
 
+    global_ht global() const
+    {
+        assert(has_global(lclass()));
+        return { handle() };
+    }
+
     gmember_ht gmember() const 
     { 
         assert(has_gmember(lclass()));
@@ -470,6 +497,9 @@ public:
 
     constexpr static locator_t minor_label(std::uint16_t id)
         { return locator_t(LOC_MINOR_LABEL, 0, id, 0); }
+
+    constexpr static locator_t named_label(global_ht global, std::uint16_t id)
+        { return locator_t(LOC_NAMED_LABEL, global.id, id, 0); }
 
     constexpr static locator_t const_byte(std::uint8_t value)
         { return locator_t(LOC_CONST_BYTE, 0, value, 0).with_is(IS_PTR); }

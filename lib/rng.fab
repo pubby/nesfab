@@ -59,6 +59,7 @@ asm fn ceil_mask(U num) U
     label table
         U[9](%0, %1, %11, %111, %1111, %11111, %111111, %1111111, %11111111)
 
+// Returns a random value less than 'bound'.
 fn randb(U bound) U
     U mask = ceil_mask(bound)
     U result

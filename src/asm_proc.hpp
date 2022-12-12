@@ -4,6 +4,7 @@
 #include <ostream>
 #include <list>
 #include <vector>
+#include <exception>
 
 #include "robin/map.hpp"
 
@@ -186,5 +187,14 @@ private:
 };
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst);
+
+struct relocate_error_t : public std::exception
+{
+    explicit relocate_error_t(std::string const& msg)
+    : msg(msg) {}
+
+    virtual const char* what() const noexcept { return msg.c_str(); }
+    std::string msg;
+};
 
 #endif

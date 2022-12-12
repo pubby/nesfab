@@ -38,7 +38,7 @@ namespace isel
         // Is reset at the start of the algorithm.
         array_pool_t<sel_t, 4098> sel_pool;
 
-        using map_t = rh::batman_map<cpu_t, sel_t const*>;
+        using map_t = rh::batman_map<cpu_t, sel_pair_t>;
 
         // These track the in-flight selections:
         map_t map;
@@ -159,7 +159,7 @@ namespace isel
 
         // Pass-thru
         template<typename Cont>
-        static void run(cpu_t const& cpu, sel_t const* prev) { Cont::run(cpu, prev); }
+        static void run(cpu_t const& cpu, sel_pair_t sel) { Cont::run(cpu, sel); }
     };
 
     template<std::uint8_t I>
@@ -218,15 +218,15 @@ namespace isel
     // This is used to write code in continuation-passing style (CPS).
     struct cons_t
     {
-        std::type_identity_t<void(cpu_t const&, sel_t const*, cons_t const*)>* fn;
+        std::type_identity_t<void(cpu_t const&, sel_pair_t, cons_t const*)>* fn;
         cons_t const* next;
 
         [[gnu::always_inline]]
-        void call(cpu_t const& cpu, sel_t const* sel) const { fn(cpu, sel, next); }
+        void call(cpu_t const& cpu, sel_pair_t sel) const { fn(cpu, sel, next); }
     };
 
     // The function pointer type of all our selection steps:
-    using cont_t = std::type_identity_t<void(cpu_t const&, sel_t const*, cons_t const*)>*;
+    using cont_t = std::type_identity_t<void(cpu_t const&, sel_pair_t, cons_t const*)>*;
 
     template<cont_t Head, cont_t... Conts>
     struct chain_t
@@ -254,7 +254,7 @@ namespace isel
 
     // Combines multiple CPS functions into a single one.
     template<cont_t... Conts> [[gnu::noinline]]
-    void chain(cpu_t const& cpu, sel_t const* sel, cons_t const* cont)
+    void chain(cpu_t const& cpu, sel_pair_t sel, cons_t const* cont)
     {
         chain_t<Conts...> c(cont);
         c.cons.call(cpu, sel);
@@ -274,14 +274,14 @@ namespace isel
     // Finishes the selection step.
     // This adds it to the map and potentially updates the current best.
     template<bool FinishNode>
-    void finish(cpu_t const& cpu, sel_t const* sel, cons_t const*)
+    void finish(cpu_t const& cpu, sel_pair_t sp, cons_t const*)
     {
-        isel_cost_t const sel_cost = sel->cost;
+        isel_cost_t const sel_cost = sp.cost;
 
         if(sel_cost > state.next_best_cost + cost_cutoff(state.next_map.size()))
             return;
 
-        state_t::map_t::value_type insertion = { cpu, sel };
+        state_t::map_t::value_type insertion = { cpu, sp };
 
         // If this completes a node's operations, we'll release 'req_store'.
         if(FinishNode)
@@ -289,8 +289,8 @@ namespace isel
 
         auto result = state.next_map.insert(std::move(insertion));
 
-        if(!result.second && sel_cost < result.first->second->cost)
-            result.first->second = sel;
+        if(!result.second && sel_cost < result.first->second.cost)
+            result.first->second = sp;
 
         if(sel_cost < state.next_best_cost)
             state.next_best_cost = sel_cost;
@@ -332,8 +332,9 @@ namespace isel
             
             auto comp = [&](unsigned a, unsigned b)
             { 
-                unsigned ac = state.map.begin()[a].second->cost + heuristic_penalty(state.map.begin()[a].first.defs.data());
-                unsigned bc = state.map.begin()[b].second->cost + heuristic_penalty(state.map.begin()[b].first.defs.data());
+                // TODO: optimize this
+                unsigned ac = state.map.begin()[a].second.cost + heuristic_penalty(state.map.begin()[a].first.defs.data());
+                unsigned bc = state.map.begin()[b].second.cost + heuristic_penalty(state.map.begin()[b].first.defs.data());
                 return ac > bc;
                 //return state.map.begin()[a].second->cost > state.map.begin()[b].second->cost; 
             };
@@ -345,7 +346,7 @@ namespace isel
             {
                 std::pop_heap(begin, end, comp);
                 auto const& pair = state.map.begin()[*(--end)];
-                if(pair.second->cost > cutoff)
+                if(pair.second.cost > cutoff)
                     break;
                 fn(pair.first, pair.second, &cont);
             }
@@ -353,7 +354,7 @@ namespace isel
         else
         {
             for(auto const& pair : state.map)
-                if(pair.second->cost <= cutoff)
+                if(pair.second.cost <= cutoff)
                     fn(pair.first, pair.second, &cont);
         }
 
@@ -404,16 +405,16 @@ namespace isel
     }
 
     template<op_t Op>
-    sel_t& alloc_sel(cpu_t const& cpu, sel_t const* prev, 
-                     locator_t arg = {}, locator_t alt = {}, isel_cost_t extra_cost = 0)
+    sel_pair_t alloc_sel(cpu_t const& cpu, sel_pair_t sp, 
+                         locator_t arg = {}, locator_t alt = {}, isel_cost_t extra_cost = 0)
     {
         assert(Op != BAD_OP);
         isel_cost_t total_cost = cost_fn(Op);
         if(cpu.conditional_regs & cpu_t::CONDITIONAL_EXEC)
             total_cost = (total_cost * 3) / 4; // Conditional ops are arbitrarily cheaper.
-        total_cost += prev->cost + extra_cost;
+        total_cost += sp.cost + extra_cost;
 
-        return state.sel_pool.emplace(prev, total_cost, 
+        sel_t& sel =  state.sel_pool.emplace(sp.sel,
             asm_inst_t
             { 
                 .op = Op, 
@@ -426,17 +427,20 @@ namespace isel
             .cost = total_cost,
 #endif
             });
+
+        return { &sel, total_cost };
     }
 
     template<op_t Op, op_t NextOp, op_t... Ops, typename... Args>
-    sel_t& alloc_sel(cpu_t const& cpu, sel_t const* prev, locator_t arg, Args... args)
+    sel_pair_t alloc_sel(cpu_t const& cpu, sel_pair_t sp, locator_t arg, Args... args)
     {
-        return alloc_sel<NextOp, Ops...>(cpu, alloc_sel<Op>(cpu, prev, arg), args...);
+        return alloc_sel<NextOp, Ops...>(cpu, alloc_sel<Op>(cpu, sp, arg), args...);
     }
 
     // Adds a penalty to the selection's cost.
+    /* TODO
     template<isel_cost_t ExtraCost = 0>
-    void penalize(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void penalize(cpu_t const& cpu, sel_pair_t sp, cons_t const* cont)
     {
         isel_cost_t const total_cost = prev->cost + ExtraCost;
         cont->call(cpu, &state.sel_pool.emplace(prev, total_cost, 
@@ -449,11 +453,12 @@ namespace isel
 #endif
             }));
     }
+    */
 
     // Marks the node as stored without any cost.
     // This is used when a node has been aliased and doesn't need a MAYBE_STORE at all.
     template<typename Def>
-    void ignore_req_store(cpu_t const& cpu, sel_t const* sel, cons_t const* cont)
+    void ignore_req_store(cpu_t const& cpu, sel_pair_t sp, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
 
@@ -461,7 +466,7 @@ namespace isel
         if(n.holds_ref())
             cpu_copy.req_store |= cg_data(n.handle()).isel.store_mask;
 
-        cont->call(cpu_copy, sel);
+        cont->call(cpu_copy, sp);
     }
 
     template<op_t Op>
@@ -500,13 +505,13 @@ namespace isel
 ///////////////////////////////////////////////////////////////////////////////
 
     template<typename Label> [[gnu::noinline]]
-    void label(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void label(cpu_t const& cpu, sel_pair_t sp, cons_t const* cont)
     {
-        cont->call(cpu, &alloc_sel<ASM_LABEL>(cpu, prev, Label::trans()));
+        cont->call(cpu, alloc_sel<ASM_LABEL>(cpu, sp, Label::trans()));
     };
 
     template<typename Opt, regs_t Regs, bool KeepValue, typename Param>
-    void set_defs(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void set_defs(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs<Regs>(Opt::to_struct, Param::value(), KeepValue))
@@ -514,7 +519,7 @@ namespace isel
     };
 
     template<typename Opt, op_t Op, typename Def, typename Arg = null_>
-    void set_defs_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void set_defs_for(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs_for<Op>(Opt::to_struct, Def::value(), Arg::trans()))
@@ -527,7 +532,7 @@ namespace isel
     }
 
     [[gnu::noinline]]
-    void clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void clear_conditional(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         if(!(cpu.conditional_regs & cpu_t::CONDITIONAL_EXEC))
         {
@@ -552,7 +557,7 @@ namespace isel
 
     // Generates an op, picking the addressing mode based on its parameters.
     template<typename Opt, op_name_t OpName, typename Def, typename Arg> [[gnu::noinline]]
-    void pick_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont);
+    void pick_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont);
 
 #ifndef NDEBUG
     template<op_t Op>
@@ -590,7 +595,7 @@ namespace isel
     // a memory argument, as that argument can't be a SSA_cg_read_array8_direct.
     // Thus, prefer pick_op.
     template<op_t Op> [[gnu::noinline]]
-    void exact_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont,
+    void exact_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont,
                   options_t opt, locator_t def, locator_t arg, locator_t alt, ssa_value_t ssa_def, ssa_value_t ssa_arg)
     {
         constexpr auto mode = op_addr_mode(Op);
@@ -610,12 +615,12 @@ namespace isel
                 penalty = handle_req_store_penalty<Op>(cpu_copy, ssa_def, ssa_arg);
             }
 
-            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, arg, alt, penalty));
+            cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, arg, alt, penalty));
         }
     }
 
     template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
-    void exact_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void exact_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         exact_op<Op>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
     }
@@ -623,26 +628,26 @@ namespace isel
     // Like exact_op, but with a simplified set of parameters.
     // Only supports a few addressing modes.
     template<op_t Op>
-    void simple_op(options_t opt, locator_t def, locator_t arg, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void simple_op(options_t opt, locator_t def, locator_t arg, cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
 #ifndef NDEBUG
         constexpr auto mode = op_addr_mode(Op);
-        assert(Op >= NUM_NORMAL_OPS || mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE);
+        assert(Op >= NUM_NORMAL_OPS || mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE || mode == MODE_BAD);
         passert(valid_arg<Op>(arg), arg, Op);
 #endif
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_defs_for<Op>(opt, def, arg))
-            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, arg, {}, 0));
+            cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, arg, {}, 0));
     }
 
     template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
-    void simple_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void simple_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         simple_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
     }
 
     template<typename Opt, op_name_t Op, typename Arg> [[gnu::noinline]]
-    void branch_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void branch_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         switch(Op)
         {
@@ -681,16 +686,16 @@ namespace isel
 
     // Generates an op using the 0..255 table.
     template<typename Opt, op_t Op, typename Def = null_> [[gnu::noinline]]
-    void iota_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void iota_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_output_defs<Op>(Opt::to_struct, Def::value()))
-            cont->call(cpu_copy, &alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota), {}, /*-cost_fn(STA_MAYBE) / 2*/ 0));
+            cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota), {}, /*-cost_fn(STA_MAYBE) / 2*/ 0));
     };
 
     template<typename Opt, typename Def>
-    void load_NZ_for_impl(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_NZ_for_impl(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
 
@@ -746,7 +751,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def> [[gnu::noinline]]
-    void load_NZ_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_NZ_for(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
 
@@ -760,7 +765,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def> [[gnu::noinline]]
-    void load_Z_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_Z_for(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
 
@@ -773,7 +778,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def> [[gnu::noinline]]
-    void load_N_for(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_N_for(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
 
@@ -793,7 +798,7 @@ namespace isel
     }
     
     [[gnu::noinline]]
-    void load_A_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_A_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         assert(value.is_const_num());
         std::uint8_t const byte = value.data();
@@ -802,7 +807,7 @@ namespace isel
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, {}, value) && cpu_copy.is_known(REG_A, byte))
-            cont->call(cpu_copy, &alloc_sel<ANC_IMMEDIATE>(cpu, prev, value));
+            cont->call(cpu_copy, alloc_sel<ANC_IMMEDIATE>(cpu, prev, value));
 
         if(cpu.is_known(REG_A))
         {
@@ -817,7 +822,7 @@ namespace isel
                     locator_t const arg = locator_t::const_byte(mask | i);
                     cpu_copy = cpu;
                     if(cpu_copy.set_defs_for<ALR_IMMEDIATE>(opt, {}, arg) && cpu_copy.is_known(REG_A, byte))
-                        cont->call(cpu_copy, &alloc_sel<ALR_IMMEDIATE>(cpu, prev, arg));
+                        cont->call(cpu_copy, alloc_sel<ALR_IMMEDIATE>(cpu, prev, arg));
 
                     // No point in doing the second iteration if it can't set the carry:
                     if(!(cpu.known[REG_A] & 1))
@@ -829,34 +834,34 @@ namespace isel
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<LSR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
-            cont->call(cpu_copy, &alloc_sel<LSR_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<LSR_IMPLIED>(cpu, prev));
             return;
         }
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<ASL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
-            cont->call(cpu_copy, &alloc_sel<ASL_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<ASL_IMPLIED>(cpu, prev));
             return;
         }
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<ROL_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
-            cont->call(cpu_copy, &alloc_sel<ROL_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<ROL_IMPLIED>(cpu, prev));
             return;
         }
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<ROR_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
         {
-            cont->call(cpu_copy, &alloc_sel<ROR_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<ROR_IMPLIED>(cpu, prev));
             return;
         }
     }
 
     template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
-    void load_A(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_A(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Load::value();
         assert(v);
@@ -882,7 +887,7 @@ namespace isel
     }
 
     [[gnu::noinline]]
-    void load_X_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_X_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         assert(value.is_const_num());
         std::uint8_t const byte = value.data();
@@ -891,15 +896,15 @@ namespace isel
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<INX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
-            cont->call(cpu_copy, &alloc_sel<INX_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<INX_IMPLIED>(cpu, prev));
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<DEX_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_X, byte))
-            cont->call(cpu_copy, &alloc_sel<DEX_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<DEX_IMPLIED>(cpu, prev));
     }
 
     template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
-    void load_X(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_X(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Load::value();
 
@@ -929,7 +934,7 @@ namespace isel
     }
 
     [[gnu::noinline]]
-    void load_Y_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_Y_impl(options_t opt, locator_t value, cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         assert(value.is_const_num());
         std::uint8_t const byte = value.data();
@@ -938,15 +943,15 @@ namespace isel
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<INY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
-            cont->call(cpu_copy, &alloc_sel<INY_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<INY_IMPLIED>(cpu, prev));
 
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<DEY_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_Y, byte))
-            cont->call(cpu_copy, &alloc_sel<DEY_IMPLIED>(cpu, prev));
+            cont->call(cpu_copy, alloc_sel<DEY_IMPLIED>(cpu, prev));
     }
 
     template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
-    void load_Y(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_Y(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
 
@@ -974,7 +979,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def> [[gnu::noinline]]
-    void load_C(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_C(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
 
@@ -1041,7 +1046,7 @@ namespace isel
     }
 
     template<typename Opt, typename A, typename X> [[gnu::noinline]]
-    void load_AX(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_AX(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const a = A::value();
         locator_t const x = X::value();
@@ -1069,7 +1074,7 @@ namespace isel
     };
 
     template<typename Opt, typename A, typename Y> [[gnu::noinline]]
-    void load_AY(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_AY(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const a = A::value();
         locator_t const y = Y::value();
@@ -1097,7 +1102,7 @@ namespace isel
     };
 
     template<typename Opt, typename A, typename C> [[gnu::noinline]]
-    void load_AC(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_AC(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         chain
         < load_C<Opt, C>
@@ -1106,7 +1111,7 @@ namespace isel
     }
 
     template<typename Opt, typename A> [[gnu::noinline]]
-    void load_ANZ(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_ANZ(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         chain
         < load_A<Opt, A>
@@ -1115,7 +1120,7 @@ namespace isel
     }
 
     template<typename Opt, typename A> [[gnu::noinline]]
-    void load_XNZ(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_XNZ(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         chain
         < load_X<Opt, A>
@@ -1124,7 +1129,7 @@ namespace isel
     }
 
     template<typename Opt, typename A> [[gnu::noinline]]
-    void load_YNZ(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_YNZ(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         chain
         < load_Y<Opt, A>
@@ -1137,7 +1142,7 @@ namespace isel
     struct pick_op_xy
     {
         [[gnu::noinline]]
-        static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont, unsigned offset = 0)
+        static void call(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont, unsigned offset = 0)
         {
             using OptN = typename Opt::inc_no_direct;
 
@@ -1184,13 +1189,13 @@ namespace isel
     struct pick_op_xy<Opt, Def, Arg, AbsoluteX, AbsoluteY, Absolute, false>
     {
         [[gnu::noinline]]
-        static void call(cpu_t const& cpu, sel_t const* prev, cons_t const* cont) {}
+        static void call(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont) {}
     };
 
 
     // pick_op impl
     template<typename Opt, op_name_t OpName, typename Def, typename Arg> [[gnu::noinline]]
-    void pick_op(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void pick_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         constexpr op_t implied    = get_op(OpName, MODE_IMPLIED);
         constexpr op_t relative   = get_op(OpName, MODE_RELATIVE);
@@ -1214,7 +1219,7 @@ namespace isel
     }
 
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
-    void maybe_carry_label_clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void maybe_carry_label_clear_conditional(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         carry_label_clear_conditional<Opt, Label, Sec>(cpu, prev, cont);
 
@@ -1222,7 +1227,7 @@ namespace isel
     }
 
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
-    void carry_label_clear_conditional(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void carry_label_clear_conditional(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         chain
         < load_C<Opt, const_<Sec>>
@@ -1237,7 +1242,7 @@ namespace isel
     // 'Maybe' means the store may not be required in the final code;
     // such instructions can be pruned later.
     template<typename Opt, op_name_t StoreOp, typename Def, typename Param, bool Maybe = true, bool KeepValue = true> [[gnu::noinline]]
-    void store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void store(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         // Conditional stores break cg_liveness
         assert(!(cpu.conditional_regs & cpu_t::CONDITIONAL_EXEC));
@@ -1258,13 +1263,13 @@ namespace isel
             {
                 constexpr auto LikelyOp = get_op(StoreOp, MODE_LIKELY);
                 static_assert(LikelyOp);
-                cont->call(cpu_copy, &alloc_sel<LikelyOp>(cpu_copy, prev, Param::trans(), Param::value()));
+                cont->call(cpu_copy, alloc_sel<LikelyOp>(cpu_copy, prev, Param::trans(), Param::value()));
             }
             else
             {
                 constexpr auto MaybeOp = get_op(StoreOp, MODE_MAYBE);
                 static_assert(MaybeOp);
-                cont->call(cpu_copy, &alloc_sel<MaybeOp>(cpu_copy, prev, Param::trans(), Param::value()));
+                cont->call(cpu_copy, alloc_sel<MaybeOp>(cpu_copy, prev, Param::trans(), Param::value()));
             }
         }
         else
@@ -1278,13 +1283,13 @@ namespace isel
                     cpu_copy.req_store |= d.isel.store_mask;
             }
 
-            cont->call(cpu_copy, &alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(cpu_copy, prev, Param::trans()));
+            cont->call(cpu_copy, alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(cpu_copy, prev, Param::trans()));
         }
     }
 
     template<typename Opt, typename Def, typename Load, typename Store, 
              bool Maybe = true, bool KeepValue = true> [[gnu::noinline]]
-    void load_then_store(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_then_store(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         if(Load::trans() == Store::trans())
         {
@@ -1320,7 +1325,7 @@ namespace isel
     };
 
     template<typename Opt, typename Def> [[gnu::noinline]]
-    void load_B(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void load_B(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         std::uint16_t const bs_addr = bankswitch_addr(mapper().type);
 
@@ -1364,7 +1369,7 @@ namespace isel
         }
     }
 
-    static void no_effect(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    static void no_effect(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         cont->call(cpu, prev);
     }
@@ -1372,7 +1377,7 @@ namespace isel
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Waddress"
     template<typename Opt, typename Condition, cont_t Then, cont_t Else = nullptr> [[gnu::noinline]]
-    static void if_(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    static void if_(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         cons_t c = { nullptr, cont };
         
@@ -1408,7 +1413,7 @@ namespace isel
     using p_condition = condition<struct condition_tag>;
 
     template<typename Opt, typename Def, typename Value> [[gnu::noinline]]
-    void sign_extend(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void sign_extend(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         using this_label = param<i_tag<struct sign_extend_label_tag, 0>>;
         this_label::set(state.minor_label());
@@ -1488,7 +1493,7 @@ namespace isel
             // The last comparison cares about sign.
             sign_check::set(i + 2 == h->input_size());
 
-            select_step<false>([&, i](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+            select_step<false>([&, i](cpu_t const& cpu, sel_pair_t const prev, cons_t const* cont)
             {
                 last_iter::set(i + 2 >= h->input_size());
 
@@ -1604,7 +1609,7 @@ namespace isel
         else
             eq_branch<O::restrict_to<~REGF_X>, success, fail>(h);
 
-        select_step<true>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+        select_step<true>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
         {
             // Explicitly instantiate the labels.
             // (For some reason, GCC can't link without these lines. Likely a compiler bug.)
@@ -1753,7 +1758,7 @@ namespace isel
             }
             else if(info.lsigned)
             {
-                select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                 {
                     chain
                     < load_ANZ<Opt, p_lhs>
@@ -1807,7 +1812,7 @@ namespace isel
             {
                 assert(info.rsigned);
 
-                select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                 {
                     chain
                     < load_ANZ<Opt, p_rhs>
@@ -1902,7 +1907,7 @@ namespace isel
                     }
                     else if(info.lsigned && info.rsigned) // If we're signed.
                     {
-                        select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                        select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                         {
                             chain
                             < load_AC<Opt, p_lhs, const_<1>>
@@ -1929,7 +1934,7 @@ namespace isel
                 {
                 cmp_first:
                     // We can use CMP for the first iteration:
-                    select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                    select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                     {
                         chain
                         < load_A<Opt, p_lhs>
@@ -1960,7 +1965,7 @@ namespace isel
             }
             else // This isn't the first iteration
             {
-                select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                 {
                     chain
                     < load_A<Opt, p_lhs>
@@ -2035,7 +2040,7 @@ namespace isel
 
         lt_branch<O::restrict_to<~REGF_X>, fail, success, LTE>(h);
 
-        select_step<true>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+        select_step<true>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
         {
             // Explicitly instantiate the labels.
             // (For some reason, GCC can't link without these lines. Could be a compiler bug.)
@@ -2182,7 +2187,7 @@ namespace isel
             p_arg<4>::set(def,  1 * iter + start);
             loop_label::set(state.minor_label());
             
-            select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+            select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
             {
                 chain
                 < load_X<Opt, p_arg<0>>
@@ -2245,7 +2250,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def, typename Array, typename Index>
-    void read_array(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void read_array(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const index = Index::value();
 
@@ -2302,7 +2307,7 @@ namespace isel
     }
 
     template<typename Opt, typename Array, typename Index, typename Assignment>
-    void write_array(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void write_array(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const index = Index::value();
 
@@ -2332,7 +2337,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def, bool InvertZ>
-    void store_Z_impl(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void store_Z_impl(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         ssa_value_t v = Def::node();
 
@@ -2379,12 +2384,12 @@ namespace isel
         {
             cpu_t new_cpu = cpu;
             if(new_cpu.set_def<InvertZ ? cpu_t::REG_INVERTED_Z : REG_Z>(Opt::to_struct, Def::value(), true))
-                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_Z>(cpu, prev, Def::trans()));
+                cont->call(new_cpu, alloc_sel<MAYBE_STORE_Z>(cpu, prev, Def::trans()));
         }
     }
 
     template<typename Opt, typename Def>
-    void store_Z(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void store_Z(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         if(cpu.inverted_z()) [[unlikely]]
             store_Z_impl<Opt, Def, true>(cpu, prev, cont);
@@ -2393,7 +2398,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def>
-    void store_N(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void store_N(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         ssa_value_t v = Def::node();
 
@@ -2441,18 +2446,18 @@ namespace isel
             if(cpu.bool_in_n())
             {
                 if(new_cpu.set_def<cpu_t::REG_BOOL_IN_N>(Opt::to_struct, Def::value(), true))
-                    cont->call(new_cpu, &alloc_sel<MAYBE_STORE_N>(cpu, prev, Def::trans()));
+                    cont->call(new_cpu, alloc_sel<MAYBE_STORE_N>(cpu, prev, Def::trans()));
             }
             else
             {
                 if(new_cpu.set_def<REG_N>(Opt::to_struct, Def::value(), true))
-                    cont->call(new_cpu, &alloc_sel<MAYBE_STORE_N>(cpu, prev, Def::trans()));
+                    cont->call(new_cpu, alloc_sel<MAYBE_STORE_N>(cpu, prev, Def::trans()));
             }
         }
     }
 
     template<typename Opt, typename Def>
-    void store_C(cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void store_C(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         ssa_value_t const h = Def::node();
 
@@ -2500,11 +2505,11 @@ namespace isel
         {
             cpu_t new_cpu = cpu;
             if(new_cpu.set_def<REG_C>(Opt::to_struct, Def::value(), true))
-                cont->call(new_cpu, &alloc_sel<MAYBE_STORE_C>(cpu, prev, Def::trans()));
+                cont->call(new_cpu, alloc_sel<MAYBE_STORE_C>(cpu, prev, Def::trans()));
         }
     }
 
-    void isel_node_simple(ssa_ht h, cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+    void isel_node_simple(ssa_ht h, cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         auto const commutative = [](ssa_ht h, auto fn)
         {
@@ -3843,6 +3848,7 @@ namespace isel
 
         case SSA_fence:
             write_globals<Opt>(h);
+            select_step<true>(simple_op<Opt, ASM_FENCE>);
             break;
 
         case SSA_goto_mode:
@@ -4049,7 +4055,7 @@ namespace isel
 
                 if(h->op() == SSA_read_array16_b)
                 {
-                    select_step<true>([](cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+                    select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                     {
                         chain
                         < load_Y<Opt, const_<0>>
@@ -4070,7 +4076,7 @@ namespace isel
 
                     p_assignment::set(h->input(ASSIGNMENT));
 
-                    select_step<true>([](cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+                    select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                     {
                         chain
                         < load_AY<Opt, p_assignment, const_<0>>
@@ -4091,7 +4097,7 @@ namespace isel
 
         default: 
         simple:
-            select_step<true>([h](cpu_t const& cpu, sel_t const* prev, cons_t const* cont)
+            select_step<true>([h](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
             {
                 isel_node_simple(h, cpu, prev, cont);
             });
@@ -4515,7 +4521,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 #endif
             state.map.insert({ 
                 d.in_states.begin()[index].to_cpu(),
-                &state.sel_pool.emplace(nullptr, 0, 
+                &state.sel_pool.emplace(nullptr,
                     asm_inst_t{ .op = ASM_PRUNED, .arg = locator_t::index(index) }) });
         }
 
@@ -4553,7 +4559,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 
                 if(d.preprep[i])
                 {
-                    select_step<false>([&](cpu_t const& cpu, sel_t const* const prev, cons_t const* cont)
+                    select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                     {
                         cont->call(cpu, prev);
 
@@ -4621,7 +4627,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         {
             // TODO
 
-            unsigned cost = pair.second->cost;
+            unsigned cost = pair.second.cost;
 
             unsigned out_reg_count = 0;
             for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
@@ -4632,7 +4638,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 continue;
 
             std::vector<asm_inst_t> code_temp;
-            sel_t const* first_sel = pair.second;
+            sel_t const* first_sel = pair.second.sel;
 
             // Create the 'code_temp' vector:
             {
@@ -4641,7 +4647,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 for(;first_sel->prev; first_sel = first_sel->prev)
                     ++size;
                 code_temp.resize(size);
-                for(sel_t const* sel = pair.second; sel; sel = sel->prev)
+                for(sel_t const* sel = pair.second.sel; sel; sel = sel->prev)
                     code_temp[--size] = sel->inst;
                 assert(size == 0);
                 assert(code_temp[0].op == ASM_PRUNED);

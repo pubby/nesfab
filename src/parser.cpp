@@ -19,6 +19,7 @@
 #include "asm.hpp"
 #include "loop_test.hpp"
 #include "text.hpp"
+#include "string.hpp"
 
 namespace fs = ::std::filesystem;
 using namespace lex;
@@ -689,8 +690,8 @@ retry:
             return ast;
         }
 
-    case TOK_return:
     case TOK_ident:
+    case TOK_return:
 #ifndef NDEBUG
         token.value = ~0ull; // May catch a bug if the AST isn't properly converted.
 #endif
@@ -1401,8 +1402,9 @@ var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group, bool all
 
 template<typename P>
 template<typename Children>
-bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& children)
+bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht global, bool is_banked, Children& children)
 {
+    assert(global);
     bool proc = false;
 
     auto const call = [&](token_type_t tt)
@@ -1411,6 +1413,9 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
         std::unique_ptr<mods_t> mods = parse_mods_after([&]{ call = parse_ident(); });
         children.push_back(policy().byte_block_call(tt, call, std::move(mods)));
     };
+
+    auto const is_reg = [this](pstring_t pstring, char ch)
+        { return pstring.size == 1 && std::tolower(pstring.view(source())[0]) == ch; };
 
     maybe_parse_block(block_indent, [&]
     { 
@@ -1442,6 +1447,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
         case TOK_label:
         case TOK_default:
             {
+                proc = true;
                 unsigned const label_indent = indent;
                 bool const is_default = token.type == TOK_default;
 
@@ -1453,9 +1459,9 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
                     parse_token(TOK_ident);
                 }
                 parse_line_ending();
-                children.push_back(policy().byte_block_label(name, is_default, nullptr));
+                children.push_back(policy().byte_block_label(name, global, is_default, is_banked, nullptr));
 
-                proc |= parse_byte_block(decl, label_indent, children);
+                proc |= parse_byte_block(decl, label_indent, global, is_banked, children);
             }
             return;
 
@@ -1540,10 +1546,37 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
         case TOK_nmi:
             {
                 proc = true;
-                int const nmi_indent = indent;
                 pstring_t const pstring = token.pstring;
                 parse_token();
                 children.push_back(policy().byte_block_wait_nmi(pstring, parse_mods(indent)));
+                parse_line_ending();
+            }
+            break;
+
+        case TOK_switch:
+            {
+                using namespace std::literals;
+
+                pstring_t const pstring = token.pstring;
+                parse_token();
+
+                token_type_t tt;
+
+                if(!is_ident(token.type))
+                    compiler_error("Expecting X or Y.");
+                if(is_reg(token.pstring, 'x'))
+                    tt = TOK_byte_block_bank_switch_x;
+                else if(is_reg(token.pstring, 'y'))
+                    tt = TOK_byte_block_bank_switch_y;
+                else if(to_lower(token.pstring.string(source())) == "ax"sv)
+                    tt = TOK_byte_block_bank_switch_ax;
+                else if(to_lower(token.pstring.string(source())) == "ay"sv)
+                    tt = TOK_byte_block_bank_switch_ay;
+                else
+                    compiler_error("Expecting X, Y, AX, or AY.");
+
+                parse_token();
+                children.push_back(policy().byte_block_bank_switch(pstring, tt, parse_mods(indent)));
                 parse_line_ending();
             }
             break;
@@ -1574,9 +1607,6 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
 #undef OP_NAME
                 default: name = BAD_OP_NAME; break;
                 }
-
-                auto const is_reg = [this](pstring_t pstring, char ch)
-                    { return pstring.size == 1 && std::tolower(pstring.view(source())[0]) == ch; };
 
                 addr_mode_t mode;
                 ast_node_t expr = {}, *maybe_expr = nullptr;
@@ -1665,11 +1695,13 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, Children& c
 }
 
 template<typename P>
-ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent)
+ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht global, bool is_banked)
 {
+    assert(global);
+
     bc::small_vector<ast_node_t, 32> children;
 
-    bool const proc = parse_byte_block(decl, block_indent, children);
+    bool const proc = parse_byte_block(decl, block_indent, global, is_banked, children);
 
     return
     {
@@ -1686,10 +1718,19 @@ ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent)
 
 // Returns true if the var init contains an expression.
 template<typename P>
-bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, bool block_init, group_ht group)
+bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, global_t** block_init_global, group_ht group, bool is_banked)
 {
+    bool const block_init = block_init_global;
     int const var_indent = indent;
+
+    if(block_init)
+        policy().prepare_global();
+
     var_decl = parse_var_decl(block_init, group);
+
+    if(block_init)
+        *block_init_global = policy().prepare_var_init(var_decl.name);
+
     if(token.type == TOK_assign)
     {
         parse_token();
@@ -1701,7 +1742,7 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, bool bl
     else if(block_init && is_paa(var_decl.src_type.type.name()))
     {
         parse_line_ending();
-        expr = parse_byte_block(var_decl.name, var_indent);
+        expr = parse_byte_block(var_decl.name, var_indent, (*block_init_global)->handle(), is_banked);
         return expr.num_children();
     }
     else if(block_init)
@@ -1757,7 +1798,8 @@ void parser_t<P>::parse_chrrom()
 
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_chrrom); });
 
-    ast_node_t ast = parse_byte_block(decl, chrrom_indent);
+    global_ht const chrrom_global = global_t::chrrom(decl).handle();
+    ast_node_t ast = parse_byte_block(decl, chrrom_indent, chrrom_global, false);
 
     policy().chrrom(decl, ast, std::move(mods));
 }
@@ -1812,7 +1854,6 @@ void parser_t<P>::parse_charmap()
 template<typename P>
 void parser_t<P>::parse_struct()
 {
-    policy().prepare_global();
     int const struct_indent = indent;
 
     pstring_t struct_name;
@@ -1830,10 +1871,11 @@ void parser_t<P>::parse_struct()
     { 
         var_decl_t var_decl;
         ast_node_t expr;
-        if(parse_var_init(var_decl, expr, true, {})) // TODO: Allow default values in structs.
+        if(parse_var_init(var_decl, expr, {}, {}, false)) // TODO: Allow default values in structs.
             compiler_error(var_decl.name, "Variables in struct block cannot have an initial value.");
         else
             policy().struct_field(struct_, var_decl, nullptr);
+        parse_line_ending();
     });
 
     policy().end_struct(struct_);
@@ -1842,7 +1884,6 @@ void parser_t<P>::parse_struct()
 template<typename P>
 void parser_t<P>::parse_group_vars()
 {
-    policy().prepare_global();
     int const vars_indent = indent;
 
     // Parse the declaration
@@ -1858,15 +1899,17 @@ void parser_t<P>::parse_group_vars()
     maybe_parse_block(vars_indent, 
     [&]{ 
         int const decl_indent = indent;
-        policy().prepare_global();
+        global_t* global;
         var_decl_t var_decl;
         ast_node_t expr;
-        bool const has_expr = parse_var_init(var_decl, expr, true, group.first->group.handle());
+        policy().begin_global_var();
+        bool const has_expr = parse_var_init(var_decl, expr, &global, group.first->group.handle(), false);
 
         std::unique_ptr<mods_t> mods = parse_mods(decl_indent);
         inherit(mods, base_mods);
 
         policy().global_var(group, var_decl, has_expr ? &expr : nullptr, std::move(mods));
+        policy().end_global_var();
     });
 
     policy().end_group();
@@ -1875,7 +1918,6 @@ void parser_t<P>::parse_group_vars()
 template<typename P>
 void parser_t<P>::parse_group_data()
 {
-    policy().prepare_global();
     int const group_indent = indent;
 
     bool once = true;
@@ -1898,16 +1940,18 @@ void parser_t<P>::parse_group_data()
     maybe_parse_block(group_indent, [&]
     { 
         int const decl_indent = indent;
-        policy().prepare_global();
+        global_t* global;
         var_decl_t var_decl;
         ast_node_t expr;
-        if(!parse_var_init(var_decl, expr, true, group.first->group.handle()))
+        policy().begin_global_var();
+        if(!parse_var_init(var_decl, expr, &global, group.first->group.handle(), once))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
 
         std::unique_ptr<mods_t> mods = parse_mods(decl_indent);
         inherit(mods, base_mods);
 
         policy().global_const(group, var_decl, expr, std::move(mods));
+        policy().end_global_var();
     });
 
     policy().end_group();
@@ -1916,19 +1960,22 @@ void parser_t<P>::parse_group_data()
 template<typename P>
 void parser_t<P>::parse_const()
 {
-    policy().prepare_global();
+    global_t* global;
     var_decl_t var_decl;
     ast_node_t expr;
 
     int const const_indent = indent;
 
-    if(!parse_var_init(var_decl, expr, true, {}))
+    policy().begin_global_var();
+
+    if(!parse_var_init(var_decl, expr, &global, {}, true))
         compiler_error(var_decl.name, "Constants must be assigned a value.");
 
     if(var_decl.src_type.type.name() == TYPE_PAA)
         compiler_error(var_decl.name, "Pointer-addressable arrays cannot be defined at top-level.");
 
     policy().global_const({}, var_decl, expr, parse_mods(const_indent));
+    policy().end_global_var();
 }
 
 template<typename P>
@@ -1951,6 +1998,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
 
     int const fn_indent = indent;
 
+    global_t* global;
     pstring_t fn_name;
     bc::small_vector<var_decl_t, 8> params;
     src_type_t return_type = {};
@@ -1961,7 +2009,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
         // Parse the declaration
         parse_token();
         fn_name = parse_ident();
-        policy().prepare_fn(fn_name);
+        global = policy().prepare_fn(fn_name);
 
         // Parse the arguments
         if(fclass == FN_NMI)
@@ -2002,7 +2050,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
             });
         }
 
-        ast_node_t ast = parse_byte_block(fn_name, fn_indent);
+        ast_node_t ast = parse_byte_block(fn_name, fn_indent, global->handle(), false);
 
         policy().end_asm_fn(std::move(state), fclass, ast, std::move(mods));
     }
@@ -2261,10 +2309,11 @@ void parser_t<P>::parse_var_init_statement()
 {
     var_decl_t var_decl;
     ast_node_t expr;
-    if(parse_var_init(var_decl, expr, true, {}))
+    if(parse_var_init(var_decl, expr, {}, {}, false))
         policy().local_var(var_decl, &expr);
     else
         policy().local_var(var_decl, nullptr);
+    parse_line_ending();
 }
 
 template<typename P>
@@ -2363,7 +2412,7 @@ void parser_t<P>::parse_for(bool is_do)
         {
             if(is_type_prefix(token.type))
             {
-                if(parse_var_init(var_init, init_expr, false, {}))
+                if(parse_var_init(var_init, init_expr, {}, {}, false))
                     maybe_init_expr = &init_expr;
                 maybe_var_init = &var_init;
             }
@@ -2543,7 +2592,7 @@ void parser_t<P>::parse_local_ct()
 
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
-        if(!parse_var_init(var_decl, expr, false, {}))
+        if(!parse_var_init(var_decl, expr, {}, {}, true))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
     });
 

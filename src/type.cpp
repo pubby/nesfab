@@ -386,6 +386,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(((!implicit && is_ptr(from.name())) || is_aptr(from.name()))
        && is_arithmetic(to.name()) && !is_ct(to.name()))
     {
+        assert(!is_ptr(to.name()));
         return CAST_INTIFY_PTR;
     }
 
@@ -541,7 +542,7 @@ unsigned num_atoms(type_t type, unsigned member)
                 return 2;
         }
         passert(is_scalar(type.name()), type);
-        assert(member == 0);
+        passert(member == 0, member, type);
         return type.size_of();
     }
 }

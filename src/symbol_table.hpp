@@ -32,6 +32,7 @@ public:
 
     void clear();
     bool empty() const { return scope_stack.empty(); }
+    std::size_t size() const { return scope_stack.size(); }
 
 private:
     symbol_table_t const* const_this() const { return this; }

@@ -1,8 +1,28 @@
-// TODO
+/*
+ * Copyright (c) 2022, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
 
+// Code for decompressing the PBZ format.
+// PBZ is a simple run-length encoding based on PB53 by Damian Yerrick.
+// The decompressed size must be a multiple of 16 bytes, meaning it can't work with arbitrary data.
+// It is most useful for storing CHR data.
+
+// PBZ format:
+// -----------
+// A sequence of chunks that decompress to 8 bytes each.
+// The first byte of a chunk encodes its run-length encoding in a unary-encoded format.
+// For each bit of this byte, starting from the high bit:
+// -  A '0' bit means read a byte from the stream and output it.
+// -  A '1' bit means output the previous byte outputted for this chunk, or $00 if none was.
+
+// Feel free to change which group(s) these functions use.
 data /pbz
 
-asm fn load_pbz(CC/pbz ptr, U tiles)
+// Reads from 'ptr' and uploads to PPUDATA for ('tiles' * 16) bytes of data.
+// A 'tiles' value of 0 is treated as a value of 256.
+asm fn load_pbz(CCC/pbz ptr, U tiles)
 : employs /pbz
     vars
         U run_mask
@@ -29,8 +49,11 @@ asm fn load_pbz(CC/pbz ptr, U tiles)
     label done_inc
         rts
     default plane_loop
+        lax &ptr.bank
+        switch ax
         jsr write_plane
         jsr write_plane
         dec &tiles
         bne plane_loop
         rts
+

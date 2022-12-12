@@ -5,7 +5,7 @@
 #include "compiler_error.hpp"
 #include "format.hpp"
 
-#include "convert_pb.hpp"
+#include "convert_compress.hpp"
 #include "convert_png.hpp"
 #include "ext_lex_tables.hpp"
 #include "mods.hpp"
@@ -81,10 +81,8 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
 
         auto const get_extension = [&]{ return lex_extension(path.extension().c_str()); };
 
-        auto const read_chr = [&]
+        auto const read_file = [&]
         {
-            if(mods)
-                mods->validate(script, MOD_spr16);
             bool const spr16 = mod_test(mods, MOD_spr16);
 
             std::vector<std::uint8_t> vec = read_as_vec();
@@ -92,13 +90,20 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             switch(get_extension())
             {
             case ext_lex::TOK_png:
+                if(mods)
+                    mods->validate(script, MOD_spr16);
                 vec = png_to_chr(vec.data(), vec.size(), spr16);
                 break;
+
             case ext_lex::TOK_chr:
             case ext_lex::TOK_bin:
+            case ext_lex::TOK_nam:
+                if(mods)
+                    mods->validate(script, MOD_spr16);
                 if(spr16)
                     vec = convert_spr16(vec);
                 break;
+
             default:
                 compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
             }
@@ -114,12 +119,17 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         }
         else if(view == "chr"sv)
         {
-            ret.data = read_chr();
+            ret.data = read_file();
         }
         else if(view == "pbz"sv)
         {
-            std::vector<std::uint8_t> vec = read_chr();
+            std::vector<std::uint8_t> vec = read_file();
             ret = convert_pbz(vec.data(), vec.data() + vec.size());
+        }
+        else if(view == "rlz"sv)
+        {
+            std::vector<std::uint8_t> vec = read_file();
+            ret = convert_rlz(vec.data(), vec.data() + vec.size());
         }
         else
             compiler_error(script, fmt("Unknown file type: %", view));

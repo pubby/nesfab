@@ -26,6 +26,7 @@
 #include "text.hpp"
 #include "switch.hpp"
 #include "rom_decl.hpp"
+#include "runtime.hpp"
 
 namespace sc = std::chrono;
 namespace bc = boost::container;
@@ -1805,7 +1806,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         const_t const& c = lval->global().impl<const_t>();
                         bool const banked = c.group_data->banked_ptrs();
 
-                        if(!c.is_paa)
+                        if(!c.is_paa())
                             goto at_error;
 
                         return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), false, banked), banked);
@@ -1815,7 +1816,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         gvar_t const& v = lval->global().impl<gvar_t>();
 
-                        if(!v.is_paa)
+                        if(!v.is_paa())
                             goto at_error;
 
                         return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), true, false), false);
@@ -1931,7 +1932,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 locator_t loc;
                                 if(lval->arg == lval_t::RETURN_ARG)
                                 {
-                                    if(is_check(D))
+                                    if(is_check(D) || this->fn->iasm)
                                         fn->mark_referenced_return();
                                     else
                                         assert(fn->referenced_return());
@@ -1940,7 +1941,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 else
                                 {
                                     // Referencing a parameter.
-                                    if(is_check(D))
+                                    if(is_check(D) || this->fn->iasm)
                                         fn->mark_referenced_param(lval->arg);
                                     else
                                         assert(fn->referenced_param(lval->arg));
@@ -1969,10 +1970,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         // Referencing a parameter.
                         unsigned const local_i = to_local_i(var_i);
-                        if(is_check(D))
+                        if(is_check(D) || this->fn->iasm)
                             fn->mark_referenced_param(local_i);
                         else
-                            assert(fn->referenced_param(local_i));
+                            passert(fn->referenced_param(local_i), local_i, fn->global.name);
                         loc = locator_t::arg(fn->handle(), local_i, lval->member, lval->uatom());
                     }
                     else if(fn->iasm)
@@ -2236,19 +2237,57 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         assert(fn.iasm);
 
-                        // Determine the corresponding 'local_consts' index to this label:
-
                         i -= fn.def().num_params;
-                        for(unsigned j = 0; j < fn.def().local_consts.size(); ++j)
+                        assert(i < fn.def().local_consts.size());
+
+                        auto const& local_const = fn.def().local_consts[i];
+
+                        if(local_const.is_label())
+                            lhs.lval().label = i;
+                        else
                         {
-                            if(fn.def().local_consts[j].is_label() && i-- == 0)
-                            {
-                                lhs.lval().label = j; // OK! Found the label.
-                                break;
-                            }
+                            lhs.type = local_const.type();
+                            lhs.val = local_const.value;
                         }
                     }
                 }
+            }
+            else if(lhs.type.name() == TYPE_PAA)
+            {
+                std::puts("PAA PERIOD");
+
+                if(lval_t* lval = lhs.is_lval())
+                {
+                    if(!lval->is_global())
+                        goto bad_accessor;
+
+                    global_datum_t const* gd = lval->global().datum();
+                    if(!gd)
+                        goto bad_accessor;
+
+                    passert(gd->global.resolved(), gd->global.name, fn->global.name);
+
+                    auto const& hashes = gd->paa_def()->name_hashes;
+                    auto it = std::find(hashes.begin(), hashes.end(), hash);
+
+                    if(it == hashes.end())
+                        goto bad_accessor;
+
+                    unsigned i = it - hashes.begin();
+
+                    // Determine the corresponding 'local_consts' index to this label:
+
+                    auto const& local_consts = gd->paa_def()->local_consts;
+                    assert(i < local_consts.size());
+                    auto const& local_const = local_consts[i];
+
+                    assert(local_const.value.size());
+
+                    lhs.type = local_const.type();
+                    lhs.val = local_const.value;
+                }
+                else
+                    compiler_error(ast.token.pstring, "Expecting lvalue.");
             }
             else if(is_banked_ptr(elem_type.name()))
             {
@@ -2754,7 +2793,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(is_compile(D))
             {
                 assert(addr.type == TYPE_APTR);
-                passert(addr.ssa().type() == TYPE_APTR, addr.ssa().type());
+                //passert(addr.ssa().type() == TYPE_APTR, addr.ssa().type(), addr.ssa());
+
+                assert(addr.is_rval());
+                assert(arg.is_rval());
 
                 ssa_ht const h = builder.cfg->emplace_ssa(
                     SSA_write_ptr_hw, TYPE_VOID, 
@@ -2813,11 +2855,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         return {};
 
     case TOK_byte_block_proc:
-        if(!is_check(D))
         {
             asm_proc_t proc;
-            proc.entry_label = locator_t::minor_label(ENTRY_LABEL);
-            proc.push_inst({ .op = ASM_LABEL, .arg = proc.entry_label });
+
+            if(!is_check(D))
+            {
+                proc.entry_label = locator_t::minor_label(ENTRY_LABEL);
+                proc.push_inst({ .op = ASM_LABEL, .arg = proc.entry_label });
+            }
 
             unsigned const n = ast.num_children();
             for(unsigned i = 0; i < n; ++i)
@@ -2861,13 +2906,20 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             }
                         }
 
-                        proc.push_inst({ .op = asm_op, .iasm_child = i, .arg = value });
-                        
+                        if(!is_check(D))
+                            proc.push_inst({ .op = asm_op, .iasm_child = i, .arg = value });
                     }
                     break;
 
                 case TOK_byte_block_label:
-                    proc.push_inst({ .op = ASM_LABEL, .iasm_child = i, .arg = locator_t::minor_label(sub.token.value) });
+                    if(!is_check(D))
+                    {
+                        global_ht const global = { sub.token.value >> 32 };
+                        unsigned const index = sub.token.value & 0xFFFFFFFF;
+
+                        assert(global);
+                        proc.push_inst({ .op = ASM_LABEL, .iasm_child = i, .arg = locator_t::named_label(global, index) });
+                    }
                     break;
 
                 case TOK_byte_block_call:
@@ -2881,9 +2933,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         if(precheck_tracked)
                             precheck_tracked->calls.emplace(g->handle<fn_ht>(), sub.token.pstring);
 
-                        op_t const op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
-                        proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()).with_is(IS_BANK) });
-                        proc.push_inst({ .op = op, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()) });
+                        if(!is_check(D))
+                        {
+                            op_t const op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
+                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()).with_is(IS_BANK) });
+                            proc.push_inst({ .op = op, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()) });
+                        }
                     }
                     break;
 
@@ -2906,10 +2961,32 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 case TOK_byte_block_wait_nmi:
                     if(precheck_tracked)
                         precheck_tracked->wait_nmis.push_back({ sub.token.pstring, sub.mods });
-                    proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = i, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
+                    if(!is_check(D))
+                        proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = i, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
+                    break;
+
+                case TOK_byte_block_bank_switch_x:
+                    if(!is_check(D))
+                        bankswitch_x(proc);
+                    break;
+
+                case TOK_byte_block_bank_switch_y:
+                    if(!is_check(D))
+                        bankswitch_y(proc);
+                    break;
+
+                case TOK_byte_block_bank_switch_ax:
+                    if(!is_check(D))
+                        bankswitch_ax(proc);
+                    break;
+
+                case TOK_byte_block_bank_switch_ay:
+                    if(!is_check(D))
+                        bankswitch_ay(proc);
                     break;
 
                 case TOK_byte_block_byte_array:
+                    if(!is_check(D))
                     {
                         auto const* data = sub.token.ptr<std::vector<std::uint8_t>>();
                         proc.code.reserve(proc.code.size() + data->size());
@@ -2919,6 +2996,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     break;
 
                 case TOK_byte_block_locator_array:
+                    if(!is_check(D))
                     {
                         auto const* data = sub.token.ptr<std::vector<locator_t>>();
                         proc.code.reserve(proc.code.size() + data->size());
@@ -2928,6 +3006,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     break;
 
                 default:
+                    if(!is_check(D))
                     {
                         // TODO! this is SLOWW
                         std::puts("TODO: FIX SLOW");
@@ -2943,7 +3022,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             }
 
-            byte_block_data = std::move(proc);
+            if(!is_check(D))
+                byte_block_data = std::move(proc);
         }
         return {};
 
@@ -3898,12 +3978,18 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         {
             global_t const& global = lval->global();
 
+            if(auto const* datum = global.datum())
+                if(datum->is_paa())
+                    compiler_error(v.pstring, "Cannot access pointer-addressable array.");
+
+
             switch(global.gclass())
             {
             case GLOBAL_CONST:
                 if(!is_check(D))
                 {
                     const_t const& c = global.impl<const_t>();
+
                     rval = c.rval();
                     type = c.type();
 
@@ -5139,7 +5225,7 @@ expr_value_t eval_t::force_ptrify_int(expr_value_t value, type_t to_type, pstrin
     bool const is_banked = is_banked_ptr(to_type.name());
     type_t const unbanked_type = to_type.with_banked(false);
 
-    value = throwing_cast<D>(std::move(value), is_banked ? TYPE_U30 : TYPE_U20, true, pstring);
+    value = throwing_cast<D>(std::move(value), is_banked ? TYPE_U30 : TYPE_U20, false, pstring);
 
     expr_value_t result =
     {
@@ -5400,10 +5486,17 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
             type_t t = to_type;
             if(is_banked_ptr(to_type.name()))
                t.set_banked(false);
+            else if(!is_check(D))
+                value.rval().resize(1);
             assert(!is_banked_ptr(t.name()));
 
+
             if(is_interpret(D) || (is_compile(D) && value.is_ct()))
+            {
+                std::cout << "RETYPE " << D << ' ' << value.ssa(0) << std::endl;
                 value.rval()[0] = ssa_value_t(value.ssa(0).fixed(), t.name());
+                std::cout << "RETYPE " << D << ' ' << value.ssa(0) << std::endl;
+            }
             else if(is_compile(D))
                 value.rval()[0] = builder.cfg->emplace_ssa(SSA_cast, t, value.ssa(0));
         }

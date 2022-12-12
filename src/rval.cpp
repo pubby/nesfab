@@ -121,7 +121,7 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
 
                 unsigned const member = loc.maybe_member();
                 type_t const mt = ::member_type(subtype, member);
-                unsigned const num_atoms = ::num_atoms(mt, member);
+                unsigned const num_atoms = ::num_atoms(mt, 0);
                 assert(num_atoms);
                 for(unsigned j = 0; j < num_atoms; ++j)
                 {

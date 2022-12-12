@@ -39,6 +39,8 @@ std::string to_string(locator_t loc)
         str = fmt("cfg label %", loc.cfg_node()); break;
     case LOC_MINOR_LABEL:
         str = fmt("minor label"); break;
+    case LOC_NAMED_LABEL:
+        str = fmt("named label %", loc.global()->name); break;
     case LOC_CONST_BYTE:
         str = "const byte"; break;
     case LOC_ADDR:
@@ -225,6 +227,13 @@ type_t locator_t::type() const
     case LOC_PHI:
         assert(compiler_phase() == PHASE_COMPILE);
         return byteify(ssa_node()->type());
+    case LOC_NAMED_LABEL:
+        if(auto const* lc = global()->local_consts())
+        {
+            assert(data() < lc->size());
+            return (*lc)[data()].type();
+        }
+        break;
     default:
         break;
     }
@@ -248,29 +257,9 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         return *this;
     };
 
-    int span_offset = 0;
-
-    switch(lclass())
+    auto const from_offset = [&](rom_alloc_ht a, int span_offset) -> locator_t
     {
-    case LOC_FN:
-        // Functions with a known first bank must be called using that bank:
-        if(is() == IS_BANK && fn()->first_bank_switch())
-            return fn()->first_bank_switch().link(romv, fn_h, bank);
-
-        {
-            auto const& proc = fn()->rom_proc()->asm_proc();
-            locator_t const label = 
-                data() == ENTRY_LABEL ? proc.entry_label : locator_t::minor_label(data());
-
-            if(auto const* info = proc.lookup_label(label))
-                span_offset = info->offset;
-            else // Likely a compiler bug:
-                throw std::runtime_error(fmt("Missing label during link: % / % ", label, *this));
-        }
-
-        // fall-through
-    default:
-        if(rom_alloc_ht a = rom_alloc(romv))
+        if(a)
         {
             if(is() == IS_BANK)
             {
@@ -281,9 +270,63 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             }
             else if(rom_alloc_t* alloc = a.get())
                 return from_span(offset_span(alloc->span, span_offset));
-            return *this;
         }
         return *this;
+    };
+
+    int span_offset = 0;
+
+    switch(lclass())
+    {
+    case LOC_NAMED_LABEL:
+        {
+            global_t const& g = *global();
+
+            if(g.gclass() == GLOBAL_FN)
+            {
+                auto const& proc = g.impl<fn_t>().rom_proc()->asm_proc();
+
+                if(auto const* info = proc.lookup_label(*this))
+                    return from_offset(rom_alloc(romv), info->offset);
+                else // Likely a compiler bug:
+                    throw std::runtime_error(fmt("Missing label during link: %", *this));
+            }
+            else if(g.gclass() == GLOBAL_VAR)
+            {
+                auto const& proc = std::get<asm_proc_t>(g.impl<gvar_t>().init_data());
+
+                if(auto const* info = proc.lookup_label(*this))
+                    return from_offset(rom_alloc(romv), info->offset);
+                else // Likely a compiler bug:
+                    throw std::runtime_error(fmt("Missing label during link: %", *this));
+            }
+            else if(g.gclass() == GLOBAL_CONST)
+            {
+                auto const& c = g.impl<const_t>();
+                return from_offset(c.rom_array()->find_alloc(romv), c.paa_def()->offsets[data()]);
+            }
+        }
+        return *this;
+
+    case LOC_FN:
+        // Functions with a known first bank must be called using that bank:
+        if(is() == IS_BANK && fn()->first_bank_switch())
+            return fn()->first_bank_switch().link(romv, fn_h, bank);
+
+        {
+            auto const& proc = fn()->rom_proc()->asm_proc();
+            locator_t const label = 
+                data() == ENTRY_LABEL ? proc.entry_label : locator_t::named_label(fn()->global.handle(), data());
+
+            if(auto const* info = proc.lookup_label(label))
+                span_offset = info->offset;
+            else // Likely a compiler bug:
+                throw std::runtime_error(fmt("Missing label during link: % / % ", label, *this));
+        }
+
+        // fall-through
+    default:
+        return from_offset(rom_alloc(romv), span_offset);
 
     case LOC_ADDR: // Remove the offset.
         return locator_t::addr(data() + offset()).with_is(is());
@@ -361,6 +404,19 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             assert(member() == 1);
             index += 2;
         }
+        else if(!byteified() && is_ptr(lt().safe().type.name()))
+        {
+            try
+            {
+                std::uint8_t lo = linked_to_rom(v.results[romv].bytes[index].link(romv));
+                std::uint8_t hi = linked_to_rom(v.results[romv].bytes[index+1].link(romv));
+                return locator_t::addr(lo + (hi << 8));
+            }
+            catch(...)
+            {
+                return *this;
+            }
+        }
 
         passert(index < v.results[romv].bytes.size(), int(index), v.results[romv].bytes.size());
 
@@ -386,6 +442,19 @@ rom_data_ht locator_t::rom_data() const
         return const_()->rom_array();
     case LOC_RESET_GROUP_VARS:
         return group_vars()->init_proc();
+    case LOC_NAMED_LABEL:
+        {
+            global_t const& g = *global();
+            switch(g.gclass())
+            {
+            default: 
+                return {};
+            case GLOBAL_FN:
+                return g.impl<fn_t>().rom_proc();
+            case GLOBAL_CONST:
+                return g.impl<const_t>().rom_array();
+            }
+        }
     };
 }
 

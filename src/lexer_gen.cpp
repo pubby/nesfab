@@ -841,11 +841,15 @@ int main()
         accept("byte_block_proc", "byte block", eof()),
         accept("byte_block_data", "byte block", eof()),
         accept("byte_block_asm_op", "assembly instruction", eof()),
-        accept("byte_block_label", "assembly instruction", eof()),
+        accept("byte_block_label", "assembly label", eof()),
         accept("byte_block_call", "assembly fn call", eof()),
         accept("byte_block_goto", "assembly goto", eof()),
         accept("byte_block_goto_mode", "assembly goto mode", eof()),
         accept("byte_block_wait_nmi", "assembly wait nmi", eof()),
+        accept("byte_block_bank_switch_x", "assembly bank switch X", eof()),
+        accept("byte_block_bank_switch_y", "assembly bank switch Y", eof()),
+        accept("byte_block_bank_switch_ax", "assembly bank switch AX", eof()),
+        accept("byte_block_bank_switch_ay", "assembly bank switch AY", eof()),
         accept("byte_block_byte_array", "byte block array", eof()),
         accept("byte_block_locator_array", "byte block bbc array", eof())
 
@@ -871,6 +875,7 @@ int main()
     nfa_t ext_nfa = gen_nfa(*uor(
         either_case_keyword("bin"),
         either_case_keyword("chr"),
+        either_case_keyword("nam"),
         either_case_keyword("png"),
         either_case_keyword("txt")
         ),

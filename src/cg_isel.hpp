@@ -30,15 +30,19 @@ namespace isel
 {
     struct sel_t
     {
-        sel_t(sel_t const* prev, unsigned cost, asm_inst_t inst)
+        sel_t(sel_t const* prev, asm_inst_t const& inst)
         : prev(prev)
-        , cost(cost)
         , inst(inst)
         {}
 
         sel_t const* prev = nullptr;
-        isel_cost_t cost = 0;
         asm_inst_t inst = {};
+    };
+
+    struct sel_pair_t
+    {
+        sel_t const* sel = nullptr;
+        isel_cost_t cost = 0;
     };
 
     struct result_t

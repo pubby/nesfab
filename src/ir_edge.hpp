@@ -50,6 +50,13 @@ public:
     constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t const&) = default;
     constexpr ssa_fwd_edge_t& operator=(ssa_fwd_edge_t&&) = default;
 
+    static ssa_fwd_edge_t from_uint(std::uint64_t v)
+    {
+        ssa_fwd_edge_t ret;
+        ret.value = v;
+        return ret;
+    }
+
     constexpr bool is_const() const { return value & const_flag; }
     constexpr bool is_num() const 
         { return (value & const_flag) == const_flag; }

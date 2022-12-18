@@ -821,6 +821,7 @@ int main()
         //accept("end_paa", "end paa", eof()),
         accept("group_set", "group set", eof()),
         accept("rpair", "rpair", eof()),
+        accept("ssa", "ssa", eof()),
 
         /*
         dummy("force_truncate"),
@@ -851,7 +852,8 @@ int main()
         accept("byte_block_bank_switch_ax", "assembly bank switch AX", eof()),
         accept("byte_block_bank_switch_ay", "assembly bank switch AY", eof()),
         accept("byte_block_byte_array", "byte block array", eof()),
-        accept("byte_block_locator_array", "byte block bbc array", eof())
+        accept("byte_block_locator_array", "byte block locator array", eof()),
+        accept("byte_block_sub_proc", "byte block sub proc", eof())
 
         ),
         nfa_nodes);

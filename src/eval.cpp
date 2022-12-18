@@ -1658,6 +1658,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
         }
 
+    case TOK_ssa:
+        {
+            ssa_value_t v = ssa_value_t::from_uint(ast.token.value);
+
+            return 
+            {
+                .val = rval_t{ v },
+                .type = v.type(),
+                .pstring = ast.token.pstring,
+            };
+        }
+
     case TOK_ident:
         if(ast.token.signed_() < 0) // If we have a local const
         {

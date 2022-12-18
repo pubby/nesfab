@@ -849,7 +849,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     {
         mods()->for_each_list(MODL_EMPLOYS, [&](group_ht g, pstring_t)
         {
-            deref_groups.set(g.id);
+            deref_groups.set(g.id); // Handles data and vars
 
             if(g->gclass() == GROUP_VARS)
             {
@@ -1603,6 +1603,14 @@ void fn_t::calc_precheck_bitsets()
         {
             bitset_set(m_precheck_group_vars.data(), gv.id);
         });
+
+        /* TODO
+        mods()->for_each_list_data(MODL_EMPLOYS, [&](group_data_ht gv, pstring_t)
+        {
+            // TODO
+            //bitset_set(m_precheck_group_vars.data(), gv.id);
+        });
+        */
     }
 
     auto const group_vars_to_string = [gv_bs_size](bitset_uint_t const* bs)

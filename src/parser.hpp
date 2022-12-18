@@ -100,8 +100,8 @@ private:
     bool parse_var_init(var_decl_t& var_decl, ast_node_t& expr, global_t** block_init_global, group_ht group, bool is_banked);
 
     template<typename Children>
-    bool parse_byte_block(pstring_t decl, int block_indent, global_ht global, bool is_banked, Children& children);
-    ast_node_t parse_byte_block(pstring_t decl, int block_indent, global_ht global, bool is_banked);
+    bool parse_byte_block(pstring_t decl, int block_indent, global_t& global, bool is_banked, Children& children);
+    ast_node_t parse_byte_block(pstring_t decl, int block_indent, global_t& global, bool is_banked);
 
     std::unique_ptr<mods_t> parse_mods(int base_indent);
 

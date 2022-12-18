@@ -10,6 +10,7 @@
 #include "locator.hpp"
 #include "parser_decl.hpp"
 #include "ir_edge.hpp"
+#include "asm_proc.hpp"
 
 struct mods_t;
 
@@ -32,16 +33,18 @@ struct conversion_named_values_t
 {
     char const* name;
     ssa_value_t value;
+    //bool is_label = false; TODO
 };
 
 struct conversion_t
 {
-    std::variant<std::vector<std::uint8_t>, std::vector<locator_t>> data;
+    std::variant<std::vector<std::uint8_t>, std::vector<locator_t>, asm_proc_t> data;
     bc::small_vector<conversion_named_values_t, 2> named_values;
 };
 
 conversion_t convert_file(char const* source, pstring_t script, fs::path preferred_dir, 
-                          string_literal_t const& filename, mods_t const* mods);
+                          string_literal_t const& filename, mods_t const* mods,
+                          convert_arg_t* args, std::size_t argn);
 
 template<typename T>
 struct convert_u8_impl_t 

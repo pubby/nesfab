@@ -20,6 +20,7 @@
 #include "loop_test.hpp"
 #include "text.hpp"
 #include "string.hpp"
+#include "hex.hpp"
 
 namespace fs = ::std::filesystem;
 using namespace lex;
@@ -253,23 +254,6 @@ bool parser_t<P>::parse_token()
 {
     auto const parse_int = [this](int base)
     {
-        static constexpr auto char_to_int = []
-        {
-            std::array<std::uint8_t, 256> table = {};
-
-            for(unsigned i = 0; i < 10; ++i)
-                table['0'+i] = i;
-
-            table['a'] = table['A'] = 10;
-            table['b'] = table['B'] = 11;
-            table['c'] = table['C'] = 12;
-            table['d'] = table['D'] = 13;
-            table['e'] = table['E'] = 14;
-            table['f'] = table['F'] = 15;
-
-            return table;
-        }();
-
         token_t::int_type value = 0;
         token_t::int_type frac = 0;
         unsigned frac_scale = 1;
@@ -284,7 +268,9 @@ bool parser_t<P>::parse_token()
                     {
                         frac_scale *= base;
                         frac *= base;
-                        frac += char_to_int[*it];
+                        char const x = char_to_int(*it);
+                        assert(x >= 0);
+                        frac += x;
                     }
                 }
 
@@ -298,7 +284,9 @@ bool parser_t<P>::parse_token()
             else
             {
                 value *= base;
-                value += char_to_int[*it];
+                char const x = char_to_int(*it);
+                assert(x >= 0);
+                value += x;
                 if(value >= (1ull << 31))
                     compiler_error("Integer literal is too large.");
             }
@@ -1402,9 +1390,8 @@ var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group, bool all
 
 template<typename P>
 template<typename Children>
-bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht global, bool is_banked, Children& children)
+bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, bool is_banked, Children& children)
 {
-    assert(global);
     bool proc = false;
 
     auto const call = [&](token_type_t tt)
@@ -1459,7 +1446,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht g
                     parse_token(TOK_ident);
                 }
                 parse_line_ending();
-                children.push_back(policy().byte_block_label(name, global, is_default, is_banked, nullptr));
+                children.push_back(policy().byte_block_label(name, global.handle(), is_default, is_banked, nullptr));
 
                 proc |= parse_byte_block(decl, label_indent, global, is_banked, children);
             }
@@ -1504,7 +1491,8 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht g
                 fs::path preferred_dir = file.path();
                 preferred_dir.remove_filename();
 
-                conversion_t c = convert_file(source(), script, preferred_dir, filename, mods.get());
+                conversion_t c = convert_file(source(), script, preferred_dir, filename, mods.get(),
+                                              args.data(), args.size());
 
                 if(auto* vec = std::get_if<std::vector<std::uint8_t>>(&c.data))
                 {
@@ -1521,6 +1509,24 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht g
                             TOK_byte_block_locator_array, filename.pstring, 
                             eternal_emplace<std::vector<locator_t>>(std::move(*vec)))
                     });
+                }
+                else if(auto* asm_proc = std::get_if<asm_proc_t>(&c.data))
+                {
+                    proc = true;
+
+                    // Prepare the proc:
+                    policy().byte_block_sub_proc(filename.pstring, *asm_proc, global.handle());
+
+                    children.push_back({ 
+                        .token = token_t::make_ptr(
+                            TOK_byte_block_sub_proc, filename.pstring, 
+                            eternal_emplace<asm_proc_t>(std::move(*asm_proc)))
+                    });
+                }
+
+                for(auto const& named_value : c.named_values)
+                {
+                    policy().byte_block_named_value(file_pstring, named_value.name, named_value.value);
                 }
             }
             break;
@@ -1695,10 +1701,8 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht g
 }
 
 template<typename P>
-ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_ht global, bool is_banked)
+ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, bool is_banked)
 {
-    assert(global);
-
     bc::small_vector<ast_node_t, 32> children;
 
     bool const proc = parse_byte_block(decl, block_indent, global, is_banked, children);
@@ -1742,7 +1746,7 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, global_
     else if(block_init && is_paa(var_decl.src_type.type.name()))
     {
         parse_line_ending();
-        expr = parse_byte_block(var_decl.name, var_indent, (*block_init_global)->handle(), is_banked);
+        expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, is_banked);
         return expr.num_children();
     }
     else if(block_init)
@@ -1798,7 +1802,7 @@ void parser_t<P>::parse_chrrom()
 
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_chrrom); });
 
-    global_ht const chrrom_global = global_t::chrrom(decl).handle();
+    global_t& chrrom_global = global_t::chrrom(decl);
     ast_node_t ast = parse_byte_block(decl, chrrom_indent, chrrom_global, false);
 
     policy().chrrom(decl, ast, std::move(mods));
@@ -2050,7 +2054,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
             });
         }
 
-        ast_node_t ast = parse_byte_block(fn_name, fn_indent, global->handle(), false);
+        ast_node_t ast = parse_byte_block(fn_name, fn_indent, *global, false);
 
         policy().end_asm_fn(std::move(state), fclass, ast, std::move(mods));
     }

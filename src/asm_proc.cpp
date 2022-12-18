@@ -791,8 +791,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
 
 void asm_proc_t::relocate(locator_t from)
 {
-    assert(is_const(from.lclass()));
-    std::uint16_t addr = linked_to_rom(from);
+    std::uint16_t addr = linked_to_rom(from, true);
 
     for(unsigned i = 0; i < code.size(); ++i)
     {
@@ -806,6 +805,8 @@ void asm_proc_t::relocate(locator_t from)
             if(op_addr_mode(inst.op) == MODE_RELATIVE
                && is_const(loc.lclass()))
             {
+                if(!is_const(from.lclass()))
+                   throw std::runtime_error(fmt("Unable to relocate %", from));
                 dist = linked_to_rom(loc) - addr - int(op_size(inst.op));
                 goto have_dist;
             }

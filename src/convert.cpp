@@ -7,8 +7,10 @@
 
 #include "convert_compress.hpp"
 #include "convert_png.hpp"
+#include "convert_penguin.hpp"
 #include "ext_lex_tables.hpp"
 #include "mods.hpp"
+#include "globals.hpp"
 
 namespace fs = ::std::filesystem;
 
@@ -50,7 +52,8 @@ static std::vector<std::uint8_t> convert_spr16(std::vector<std::uint8_t> const& 
 }
 
 conversion_t convert_file(char const* source, pstring_t script, fs::path preferred_dir, 
-                          string_literal_t const& filename, mods_t const* mods)
+                          string_literal_t const& filename, mods_t const* mods,
+                          convert_arg_t* args, std::size_t argn)
 {
     using namespace std::literals;
 
@@ -83,7 +86,7 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
 
         auto const read_file = [&]
         {
-            bool const spr16 = mod_test(mods, MOD_spr16);
+            bool const spr16 = mod_test(mods, MOD_spr_8x16);
 
             std::vector<std::uint8_t> vec = read_as_vec();
 
@@ -91,15 +94,16 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             {
             case ext_lex::TOK_png:
                 if(mods)
-                    mods->validate(script, MOD_spr16);
+                    mods->validate(script, MOD_spr_8x16);
                 vec = png_to_chr(vec.data(), vec.size(), spr16);
                 break;
 
             case ext_lex::TOK_chr:
             case ext_lex::TOK_bin:
             case ext_lex::TOK_nam:
+            case ext_lex::TOK_txt:
                 if(mods)
-                    mods->validate(script, MOD_spr16);
+                    mods->validate(script, MOD_spr_8x16);
                 if(spr16)
                     vec = convert_spr16(vec);
                 break;
@@ -111,25 +115,51 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             return vec;
         };
 
+        auto const check_argn = [&](unsigned expected)
+        {
+            if(argn != expected)
+                compiler_error(filename.pstring, fmt("Wrong number of arguments. Expecting %.", expected + 2));
+        };
+
         if(view == "bin"sv)
         {
+            check_argn(0);
             if(mods)
                 mods->validate(script);
             ret.data = read_as_vec();
         }
         else if(view == "chr"sv)
         {
+            check_argn(0);
             ret.data = read_file();
         }
         else if(view == "pbz"sv)
         {
+            check_argn(0);
             std::vector<std::uint8_t> vec = read_file();
             ret = convert_pbz(vec.data(), vec.data() + vec.size());
         }
         else if(view == "rlz"sv)
         {
+            check_argn(0);
             std::vector<std::uint8_t> vec = read_file();
             ret = convert_rlz(vec.data(), vec.data() + vec.size());
+        }
+        else if(view == "penguin_music"sv)
+        {
+            check_argn(1);
+
+            global_ht global = {};
+            if(auto* p = std::get_if<pstring_t>(&args[0].value))
+                global = global_t::lookup(source, *p).handle();
+            else
+                compiler_error(args[0].pstring, "Expecting identifier.");
+
+            assert(global);
+
+            std::vector<std::uint8_t> vec = read_file();
+            ret = convert_penguin(reinterpret_cast<char const*>(vec.data()), vec.size(), global);
+
         }
         else
             compiler_error(script, fmt("Unknown file type: %", view));
@@ -139,6 +169,8 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             size = vec->size();
         else if(auto const* vec = std::get_if<std::vector<locator_t>>(&ret.data))
             size = vec->size();
+        else if(auto const* proc = std::get_if<asm_proc_t>(&ret.data))
+            size = proc->size();
         if(size > MAX_PAA_SIZE)
             compiler_error(filename.pstring, fmt("Data is of size % is too large to handle. Maximum size: %.", size, MAX_PAA_SIZE));
 

@@ -808,7 +808,7 @@ fn example()
 
 The `goto mode` statement causes control flow to jump to a <<TODO_mode>>, 
 discarding the current call stack and starting anew.
-In the process, global variables will be reset to their default value,
+In the process, global variables will be reset to their initial value,
 unless they are explicitly preserved using <<kw_preserves>> in the `goto mode` statement.
 
 Syntax:
@@ -1029,7 +1029,7 @@ Unlike other programming languages, functions in NESFab cannot be nested or recu
 
 *Modifiers:*
 
-- `employs`: A list of `vars` groups. See <<kw_employs_mod>>.
+- `employs`: A list of groups. See <<kw_employs_mod>>.
 - `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
 - `data`: A list of `data` groups. See <<kw_data_mod>>.
 - `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
@@ -1094,7 +1094,7 @@ While the mode function is executing, NMIs will be handled using the supplied `n
 *Modifiers:*
 
 - `nmi`: The name of the `nmi` function to use when executing this `mode`.
-- `employs`: A list of `vars` groups. See <<kw_employs_mod>>.
+- `employs`: A list of groups. See <<kw_employs_mod>>.
 - `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
 - `data`: A list of `data` groups. See <<kw_data_mod>>.
 - `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
@@ -1153,7 +1153,7 @@ nmi identifier()
 
 *Modifiers:*
 
-- `employs`: A list of `vars` groups. See <<kw_employs_mod>>.
+- `employs`: A list of groups. See <<kw_employs_mod>>.
 - `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
 - `data`: A list of `data` groups. See <<kw_data_mod>>.
 - `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
@@ -1168,7 +1168,60 @@ Since the NMI interrupt occurs once per frame, it's also convenient to use it as
 Typically, game updates are run in sync with the NMI, 
 as otherwise the game would speed up or slow down based on how much computation is happening.
 
-=== `struct`
+=== `asm` [[kw_asm]]
+
+The `asm` keyword declares an function at global scope using <<TODO_byte_block, byte block>> inline assembly syntax. 
+
+Syntax:
+----
+asm fn identifier(parameters) ReturnType
+: employs /groups
+    vars
+        local vars
+    byte block
+----
+
+- `identifier` is the name of the function.
+- `parameters` is a comma-separated list of variables with the syntax `Type name`.
+- `ReturnType` is a type name, but is optional. Leaving `ReturnType` blank is the same as specifying it as `Void`.
+- `/groups` is an optional list of groups that the function uses. See <<kw_employs>>.
+- `local vars` is a line-separated list of variables with the syntax `Type name`.
+- `byte block` is the <<TODO_byte_block, byte block>> of code which implements the function.
+
+A special `default` label is required in each `asm` function,
+and specifies the entry point to the function.
+
+Example:
+----
+asm fn waste_time()
+: employs
+    vars
+        U counter
+    default
+        lda #0
+    label loop
+        sta &counter
+        inc &countner
+        bne loop
+        rts
+----
+
+*Modifiers:*
+
+- `employs`: A list of groups. See <<kw_employs_mod>>.
+- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
+- `data`: A list of `data` groups. See <<kw_data_mod>>.
+- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
+
+The labels of an `asm` function are visible using the <<TODO, `.` operator>>.
+Although the address cannot be taken of these labels, it is possible to call them like functions.
+
+Example:
+----
+waste_time.loop()
+----
+
+=== `struct` [[kw_struct]]
 
 The `struct` keyword is used to define new types (https://en.wikipedia.org/wiki/Record_(computer_science)[records]) at global scope.
 It behaves similarly to the `struct` keyword in other languages.
@@ -1194,7 +1247,7 @@ so long as multi-dimensional arrays are not created.
 
 Like all values in `NESFab`, `struct` types are passed by value.
 
-=== `vars`
+=== `vars` [[kw_vars]]
 
 The `vars` keyword declares a <<TODO_group, group>> and the global variables inside of it.
 
@@ -1211,7 +1264,7 @@ vars /group_name
 - `group_name` is the name of the group that the variables will be part of.
 - `variables` are global variables definitions with the syntax `TypeName identifier` or `TypeName identifier = value`.
 
-Assigning to a global variable in a `vars` block sets its default value.
+Assigning to a global variable in a `vars` block sets its initial value.
 The variable will reset to this value at the start of the program,
 but also whenever a <<kw_goto_mode_statement>> occurs and the variable's group is not <<kw_preserves, preserved>>
 
@@ -1219,10 +1272,17 @@ The same group can be declared multiple times,
 with each declaration defining additional global variables.
 The group will be defined as the union of these declarations.
 
+*Varibale modifiers:*
+
+The following modifiers are per-variable, not per-group.
+
+- `+align`: Aligns the data to fit inside a page (or to 256 bytes otherwise).
+- `+zero_page`, `-zero_page`: Forces / prevents the variable from using fast zero-page RAM.
+
 Example:
 ----
 vars /my_group
-    U score = 0 // Set a default value for 'score'
+    U score = 0 // Set an initial value for 'score'
     UU player_x
     UU player_y
 
@@ -1230,13 +1290,66 @@ vars /my_group
     U speed
 ----
 
-=== `data`
+=== `data` [[kw_data]]
 
+The `data` keyword declares a <<TODO_group, group>> and the pointer-addressable global constants inside of it.
 
+Syntax:
+----
+data /group_name
+    constants
+----
+
+- `group_name` is the name of the group that the constants will be part of.
+- `constants` are global constant definitions with the syntax `[optional_size] identifier`, followed by a <<TODO_byte_block, byte block>>.
+
+The same group can be declared multiple times,
+with each declaration defining additional global variables.
+The group will be defined as the union of these declarations.
+
+*Constant modifiers:*
+
+The following modifiers are per-constant, not per-group.
+
+- `+align`: Aligns the data to fit inside a page (or to 256 bytes otherwise).
+
+Example:
+----
+data /my_group
+    [4] player_speeds
+        U(1)
+        U(4)
+        U(8)
+        U(20)
+
+    [4] player_attacks
+        U(10)
+        U(20)
+        U(30)
+        U(40)
+----
 
 === `omni`
 
-=== `asm`
+The `omni` keyword can be prefixed to <<kw_data>> to alter its behavior.
+Groups declared using `omni` will have their data duplicated across every bank of the ROM.
+Pointers to data inside this group will not include a bank field (e.g. type `CC` instead of `CCC`).
+
+Syntax:
+----
+omni data /group_name
+    constants
+----
+
+- `group_name` is the name of the group that the constants will be part of.
+- `constants` are global constant definitions with the syntax `[optional_size] identifier`, followed by a <<TODO_byte_block, byte block>>.
+
+*Why use `omni`?*
+
+Data inside an `omni` block can be accessed slightly quicker, at the expense of ROM size.
+Additionally, pointers to `omni` data take up only two bytes, as opposed to three.
+
+When using a <<mappers, mapper>> without PRG banks (such as NROM), it is strictly better to use `omni data` instead of `data`.
 
 === `charmap`
 
@@ -1423,12 +1536,61 @@ The compiler will issue a warning if the supplied data does not match what the m
 
 === `file`
 
-=== `employs`
+=== `employs` <<kw_employs>>
+
+The `employs` <<modifiers, modifier>> instructs a function to be dependent on a group.
+From the time the function is called to the time the function returns,
+the memory associated with that group will be usable by the function.
+
+Normally, the compiler automatically infers the groups a function depends on.
+The `employs` modifier is only required in these circumstances:
+
+- A value is read or written using a hardware address (type `AA` or `AAA`).
+
+Syntax:
+----
+: employs /group_names
+----
+
+- `/group_names is an optional list of groups.
 
 === `preserves`
 
+The `preserves` <<modifiers, modifier>> is used inside a <<kw_goto_mode_statement>>
+to specify which variables are kept, and which are reset to their initial value.
+
+Syntax:
+----
+: syntax /group_names
+----
+
+- `/group_names is an optional list of `vars` groups.
+
+If a global variable is not in a preserved group, it will be reset to its initial value if one exists.
+If no initial value was specified, the value will enter an undefined (garbage) state.
+
 === `stows`
 
+The `stows` <<modifiers, modifier>> is used inside `<<key_charmap>> definitions
+to enable string literals to use said `charmap`.
+
+Syntax:
+----
+: employs /group_name
+----
+
+- `/group_name is a single `data` group.
+
+== Modifiers
+
+TODO
+
+=== Modifier Flags
+
+- `+inline`, `-inline`: Force / prevent the function from being inlined.
+- `+align`: Aligns the data to fit inside a page (or to 256 bytes otherwise).
+- `+zero_page`, `-zero_page`: Force / prevent variables from using fast zero-page RAM.
+- `+spr_8x16`: Reorders <<kw_file>> CHR data from 8x16 tiles to 8x8 tiles.
 
 == Operators
 

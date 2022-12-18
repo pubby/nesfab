@@ -46,6 +46,11 @@ struct asm_inst_t
     }
 };
 
+inline void push_byte(std::vector<asm_inst_t>& vec, std::uint8_t data)
+{
+    vec.push_back({ .op = ASM_DATA, .arg = locator_t::const_byte(data) });
+}
+
 bool is_return(asm_inst_t const& inst);
 bool mem_inst(asm_inst_t const& inst);
 

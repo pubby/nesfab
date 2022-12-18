@@ -34,6 +34,8 @@ private:
     ideps_map_t ideps;
     fn_def_t fn_def;
     field_map_t field_map;
+    std::string_view prev_label_name;
+    unsigned num_minor_labels = 0;
 
     symbol_table_t symbol_table;
     fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
@@ -75,6 +77,7 @@ public:
     {
         assert(symbol_table.empty());
         symbol_table.push_scope();
+        prev_label_name = {};
     }
 
     void end_global_var()
@@ -95,6 +98,7 @@ public:
     {
         // Reset the fn_def and iasm:
         fn_def = fn_def_t();
+        num_minor_labels = 0;
 
         // Find the global:
         active_global = &global_t::lookup(file.source(), name);
@@ -111,6 +115,7 @@ public:
 
         // Reset the fn_def and iasm:
         fn_def = fn_def_t();
+        num_minor_labels = 0;
 
         // Find the global
         active_global = &global_t::lookup(file.source(), fn_name);
@@ -143,6 +148,7 @@ public:
 
         if(local_const)
         {
+            assert(fn_def.local_consts.size() == fn_def.name_hashes.size());
             fn_def.local_consts.emplace_back(var_decl, std::move(mods), eternal_expr(local_const_expr));
             fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(var_decl.name.view(file.source())));
         }
@@ -318,9 +324,91 @@ public:
         uses_type(var_decl.src_type.type);
     }
 
+    void byte_block_named_value(pstring_t at, char const* orig_name, ssa_value_t value)
+    {
+        char const* name;
+        std::string name_str;
+
+        if(prev_label_name.size())
+        {
+            name_str = prev_label_name;
+            name_str.push_back('_');
+            name_str += orig_name;
+            name = name_str.data();
+        }
+        else
+            name = orig_name;
+
+        int const handle = -int(fn_def.local_consts.size())-1;
+
+        if(int const* existing = symbol_table.new_def(handle, name))
+        {
+            // Already have a variable defined in this scope.
+            throw compiler_error_t(
+                fmt_error(at, fmt("Identifier % (defined from file) already in use.", name, &file))
+                + fmt_note(fn_def.var_decl(*existing).name, "Previous definition here:", &file));
+        }
+
+        /* TODO
+        if(is_label)
+        {
+            value = locator_t::named_label(TODO, value.whole());
+        }
+        */
+
+        var_decl_t const decl = {{ at, value.type() }, at };
+        ast_node_t const ast = {{ .type = lex::TOK_ssa, .pstring = at, .value = value.target() }};
+
+        assert(fn_def.local_consts.size() == fn_def.name_hashes.size());
+        fn_def.local_consts.emplace_back(std::move(decl), std::unique_ptr<mods_t>(), eternal_expr(&ast));
+        fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(name));
+    }
+
+    [[gnu::always_inline]]
+    void byte_block_sub_proc(pstring_t at, asm_proc_t& proc, global_ht global)
+    {
+        assert(fn_def.local_consts.size() == fn_def.name_hashes.size());
+
+        unsigned const prev_minor = num_minor_labels;
+        unsigned new_minor = prev_minor;
+
+        unsigned const prev_size = fn_def.local_consts.size();
+        unsigned new_size = prev_size;
+
+        for(asm_inst_t& inst : proc.code)
+        {
+            assert(inst.alt.lclass() != LOC_MINOR_LABEL);
+            assert(inst.alt.lclass() != LOC_NAMED_LABEL);
+
+            if(inst.arg.lclass() == LOC_MINOR_LABEL)
+            {
+                unsigned const i = prev_minor + inst.arg.data();
+                new_minor = std::max(new_minor, i);
+                inst.arg.set_data(i);
+            }
+            else if(inst.arg.lclass() == LOC_NAMED_LABEL && inst.arg.global() == global)
+            {
+                unsigned const i = prev_size + inst.arg.data();
+                new_size = std::max(new_size, i);
+                inst.arg.set_data(i);
+            }
+        }
+
+        var_decl_t const decl = {{ at, type_t::addr(true) }, at };
+
+        assert(new_size >= prev_size);
+        while(fn_def.local_consts.size() < new_size)
+            fn_def.local_consts.emplace_back(decl, std::unique_ptr<mods_t>());
+        fn_def.name_hashes.resize(new_size, 0);
+
+        num_minor_labels = new_minor;
+    }
+
     [[gnu::always_inline]]
     ast_node_t byte_block_label(pstring_t label, global_ht global, bool is_default, bool is_banked, std::unique_ptr<mods_t> mods)
     {
+        prev_label_name = label.view(source());
+
         int const i = -_add_symbol({{ label, type_t::addr(is_banked) }, label }, true)-1;
         assert(i >= 0);
 
@@ -528,6 +616,9 @@ public:
     void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, 
                       ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
+        if(group.first && !is_paa(var_decl.src_type.type.name()))
+            compiler_error(var_decl.name, "Expecting pointer-addressable array inside 'data' block.");
+
         uses_type(var_decl.src_type.type);
 
         if(mods)
@@ -1032,6 +1123,7 @@ public:
         return lookup_global_ident(pstring);
     }
     */
+
 };
 
 

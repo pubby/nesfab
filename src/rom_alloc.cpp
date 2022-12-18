@@ -273,6 +273,9 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
     for(group_data_ht gd : group_data_ht::handles())
     for(const_ht c : gd->consts())
     {
+        if(!c->rom_array())
+            continue;
+
         auto const& rom_array = *c->rom_array();
 
         if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_ONCE)
@@ -686,6 +689,9 @@ void print_rom(std::ostream& o)
 
     for(const_t const& c : const_ht::values())
     {
+        if(!c.rom_array())
+            continue;
+
         o << "\n\n" << c.global.name << " / " << c.rom_array() << ": \n";
         for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {

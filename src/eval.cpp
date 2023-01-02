@@ -2934,6 +2934,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                     break;
 
+                case TOK_byte_block_sub_proc:
+                    if(!is_check(D))
+                    {
+                        asm_proc_t const& sub_proc = *sub.token.ptr<asm_proc_t>();
+
+                        if(proc.code.empty())
+                            proc = sub_proc;
+                        else
+                        {
+                            for(asm_inst_t const& inst : sub_proc.code)
+                                proc.push_inst(inst);
+                        }
+                    }
+                    break;
+
                 case TOK_byte_block_call:
                 case TOK_byte_block_goto:
                     {

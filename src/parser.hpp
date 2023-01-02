@@ -97,7 +97,8 @@ private:
                           bool allow_groupless_paa = false);
 
     var_decl_t parse_var_decl(bool block_init, group_ht group, bool allow_groupless_paa = false);
-    bool parse_var_init(var_decl_t& var_decl, ast_node_t& expr, global_t** block_init_global, group_ht group, bool is_banked);
+    bool parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::unique_ptr<mods_t>* mods, 
+                        global_t** block_init_global, group_ht group, bool is_banked);
 
     template<typename Children>
     bool parse_byte_block(pstring_t decl, int block_indent, global_t& global, bool is_banked, Children& children);

@@ -2087,6 +2087,7 @@ void const_t::paa_init(asm_proc_t&& proc)
     {
         proc.absolute_to_zp();
         proc.build_label_offsets();
+        proc.write_assembly(std::cout, ROMV_MODE);
         proc.relocate(locator_t::gconst(handle()));
     }
     catch(relocate_error_t const& e)

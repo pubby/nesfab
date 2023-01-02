@@ -308,8 +308,8 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
 
     auto parse_hex_pair = [](std::string_view str) -> int
     {
-        if(str.size() != 2)
-            throw convert_error_t("Invalid hex pair.");
+        if(str.size() < 2)
+            throw convert_error_t(fmt("Invalid hex pair. (%)", str));
 
         int d1 = char_to_int(str[0]);
         int d2 = char_to_int(str[1]);
@@ -382,7 +382,7 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
         }
         else if(words[0] == "ORDER"sv)
         {
-            if(words.size() < 9)
+            if(words.size() < 7)
                 throw convert_error_t("Invalid order.");
 
             active_track->order.push_back({});
@@ -607,6 +607,8 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
         for(unsigned i = 0; i < tracks.size(); ++i)
             push_byte(code, tracks[i].speed);
 
+        bucket.size += tracks.size() * 3 + 3;
+        assert(bucket.size);
         buckets.push_back(std::move(bucket));
     }
 
@@ -621,6 +623,7 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
 
         code.push_back({ .op = ASM_LABEL, .arg = minor_label(PATTERN_LABEL, i) });
         push_byte(code, pattern_mask(pattern));
+        bucket.size += 1;
 
         for(std::size_t j = 0; j < 8; ++j)
         {
@@ -633,6 +636,7 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
             }
         }
 
+        assert(bucket.size);
         buckets.push_back(std::move(bucket));
     }
 
@@ -718,6 +722,7 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
                 bucket.size += 1;
             }
 
+            assert(bucket.size);
             buckets.push_back(std::move(bucket));
         }
 
@@ -732,6 +737,7 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
                 bucket.size += 1;
             }
 
+            assert(bucket.size);
             buckets.push_back(std::move(bucket));
         }
     }
@@ -757,6 +763,8 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
             code.push_back({ .op = JMP_ABSOLUTE,   .arg = vol_duty_return_label(k) });
 
             bucket.size += (3+2+2+2+3+3);
+
+            assert(bucket.size);
             buckets.push_back(std::move(bucket));
         }
 
@@ -775,6 +783,8 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
             code.push_back({ .op = JMP_ABSOLUTE,   .arg = pitch_return_label(k) });
 
             bucket.size += (3+2+2+2+3+3);
+
+            assert(bucket.size);
             buckets.push_back(std::move(bucket));
         }
 
@@ -836,6 +846,7 @@ conversion_t convert_penguin(char const* const begin, std::size_t size, global_h
             bucket.size += 1;
         }
 
+        assert(bucket.size);
         buckets.push_back(std::move(bucket));
     }
 

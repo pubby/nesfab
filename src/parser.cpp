@@ -269,8 +269,8 @@ bool parser_t<P>::parse_token()
                         frac_scale *= base;
                         frac *= base;
                         char const x = char_to_int(*it);
-                        assert(x >= 0);
-                        frac += x;
+                        if(x >= 0)
+                            frac += x;
                     }
                 }
 
@@ -285,8 +285,8 @@ bool parser_t<P>::parse_token()
             {
                 value *= base;
                 char const x = char_to_int(*it);
-                assert(x >= 0);
-                value += x;
+                if(x >= 0)
+                    value += x;
                 if(value >= (1ull << 31))
                     compiler_error("Integer literal is too large.");
             }
@@ -1722,7 +1722,8 @@ ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, globa
 
 // Returns true if the var init contains an expression.
 template<typename P>
-bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, global_t** block_init_global, group_ht group, bool is_banked)
+bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::unique_ptr<mods_t>* mods,
+                                 global_t** block_init_global, group_ht group, bool is_banked)
 {
     bool const block_init = block_init_global;
     int const var_indent = indent;
@@ -1739,18 +1740,28 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, global_
     {
         parse_token();
         expr = parse_expr();
+
         if(block_init)
             parse_line_ending();
+
+        if(mods)
+            *mods = parse_mods(var_indent);
+
         return true;
     }
-    else if(block_init && is_paa(var_decl.src_type.type.name()))
+    else if(block_init)
     {
         parse_line_ending();
-        expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, is_banked);
-        return expr.num_children();
+
+        if(mods)
+            *mods = parse_mods(var_indent);
+
+        if(is_paa(var_decl.src_type.type.name()))
+        {
+            expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, is_banked);
+            return expr.num_children();
+        }
     }
-    else if(block_init)
-        parse_line_ending();
     return false;
 }
 
@@ -1875,7 +1886,7 @@ void parser_t<P>::parse_struct()
     { 
         var_decl_t var_decl;
         ast_node_t expr;
-        if(parse_var_init(var_decl, expr, {}, {}, false)) // TODO: Allow default values in structs.
+        if(parse_var_init(var_decl, expr, nullptr, {}, {}, false)) // TODO: Allow default values in structs.
             compiler_error(var_decl.name, "Variables in struct block cannot have an initial value.");
         else
             policy().struct_field(struct_, var_decl, nullptr);
@@ -1907,9 +1918,10 @@ void parser_t<P>::parse_group_vars()
         var_decl_t var_decl;
         ast_node_t expr;
         policy().begin_global_var();
-        bool const has_expr = parse_var_init(var_decl, expr, &global, group.first->group.handle(), false);
 
-        std::unique_ptr<mods_t> mods = parse_mods(decl_indent);
+        std::unique_ptr<mods_t> mods;
+        bool const has_expr = parse_var_init(var_decl, expr, &mods, &global, group.first->group.handle(), false);
+
         inherit(mods, base_mods);
 
         policy().global_var(group, var_decl, has_expr ? &expr : nullptr, std::move(mods));
@@ -1948,10 +1960,11 @@ void parser_t<P>::parse_group_data()
         var_decl_t var_decl;
         ast_node_t expr;
         policy().begin_global_var();
-        if(!parse_var_init(var_decl, expr, &global, group.first->group.handle(), once))
+
+        std::unique_ptr<mods_t> mods;
+        if(!parse_var_init(var_decl, expr, &mods, &global, group.first->group.handle(), once))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
 
-        std::unique_ptr<mods_t> mods = parse_mods(decl_indent);
         inherit(mods, base_mods);
 
         policy().global_const(group, var_decl, expr, std::move(mods));
@@ -1972,7 +1985,7 @@ void parser_t<P>::parse_const()
 
     policy().begin_global_var();
 
-    if(!parse_var_init(var_decl, expr, &global, {}, true))
+    if(!parse_var_init(var_decl, expr, nullptr, &global, {}, true))
         compiler_error(var_decl.name, "Constants must be assigned a value.");
 
     if(var_decl.src_type.type.name() == TYPE_PAA)
@@ -2313,7 +2326,7 @@ void parser_t<P>::parse_var_init_statement()
 {
     var_decl_t var_decl;
     ast_node_t expr;
-    if(parse_var_init(var_decl, expr, {}, {}, false))
+    if(parse_var_init(var_decl, expr, nullptr, {}, {}, false))
         policy().local_var(var_decl, &expr);
     else
         policy().local_var(var_decl, nullptr);
@@ -2416,7 +2429,7 @@ void parser_t<P>::parse_for(bool is_do)
         {
             if(is_type_prefix(token.type))
             {
-                if(parse_var_init(var_init, init_expr, {}, {}, false))
+                if(parse_var_init(var_init, init_expr, nullptr, {}, {}, false))
                     maybe_init_expr = &init_expr;
                 maybe_var_init = &var_init;
             }
@@ -2596,7 +2609,7 @@ void parser_t<P>::parse_local_ct()
 
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
-        if(!parse_var_init(var_decl, expr, {}, {}, true))
+        if(!parse_var_init(var_decl, expr, nullptr, {}, {}, true))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
     });
 

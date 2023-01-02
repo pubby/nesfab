@@ -95,26 +95,12 @@ enum locator_class_t : std::uint8_t
 
 enum penguin_label_t
 {
-    PENGUIN_square1_instrument_assign_return,
-    PENGUIN_square2_instrument_assign_return,
-    PENGUIN_triangle_instrument_assign_return,
-    PENGUIN_noise_instrument_assign_return,
-
-    PENGUIN_square1_instrument_pitch_return,
-    PENGUIN_square2_instrument_pitch_return,
-    PENGUIN_triangle_instrument_pitch_return,
-    PENGUIN_noise_instrument_pitch_return,
-
-    PENGUIN_square1_instrument_vol_duty_return,
-    PENGUIN_square2_instrument_vol_duty_return,
-    PENGUIN_triangle_instrument_vol_duty_return,
-    PENGUIN_noise_instrument_vol_duty_return,
-
-    PENGUIN_square1_instrument_arpeggio_return,
-    PENGUIN_square2_instrument_arpeggio_return,
-    PENGUIN_triangle_instrument_arpeggio_return,
-    PENGUIN_noise_instrument_arpeggio_return,
+#define PENGUIN(name) PENGUIN_##name,
+#include "penguin_labels.inc"
+#undef PENGUIN
 };
+
+char const* to_string(penguin_label_t label);
 
 // We have a limited number of bits to use.
 static_assert(NUM_LCLASS < 1 << 6);

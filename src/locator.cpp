@@ -10,6 +10,8 @@
 #include "lt.hpp"
 #include "rom.hpp"
 #include "runtime.hpp"
+#include "fnv1a.hpp"
+#include "compiler_error.hpp"
 
 std::string to_string(locator_t loc)
 {
@@ -83,6 +85,8 @@ std::string to_string(locator_t loc)
         str = fmt("nmi_index %", loc.fn()->global.name); break;
     case LOC_CARRY_PAIR:
         str = fmt("carry_pair % %", loc.first_carry(), loc.second_carry()); break;
+    case LOC_PENGUIN:
+        str = fmt("penguin % %", loc.global(), loc.data()); break;
     }
 
     if(has_arg_member_atom(loc.lclass()))
@@ -387,6 +391,43 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
     case LOC_NMI_INDEX:
         return locator_t::const_byte(fn()->nmi_index() + 1);
 
+    case LOC_PENGUIN:
+        {
+            global_t const& g = global().safe();
+
+            if(g.gclass() != GLOBAL_FN)
+                compiler_error(g.pstring(), "Is not a valid Penguin function.");
+
+            fn_t const& fn = g.impl<fn_t>();
+            auto const& names = fn.def().name_hashes;
+            std::uint64_t hash = 0;
+
+            using namespace std::literals;
+
+            switch(penguin())
+            {
+#define PENGUIN(name) case PENGUIN_##name: hash = fnv1a<std::uint64_t>::hash(#name ""sv); break;
+#include "penguin_labels.inc"
+#undef PENGUIN
+            default: throw std::runtime_error("Unexpected Penguin label.");
+            }
+
+            auto it = std::find(names.begin(), names.end(), hash);
+
+            if(it == names.end())
+                compiler_error(g.pstring(), fmt("Is not a valid Penguin function. Missing label %.", to_string(penguin())));
+
+            try
+            {
+                return locator_t::named_label(global(), it - names.begin()).with_is(is()).with_offset(offset()).link(romv, fn_h, bank);
+            }
+            catch(...)
+            {
+                compiler_error(g.pstring(), fmt("Is not a valid Penguin function. Missing label %.", to_string(penguin())));
+            }
+        }
+        break;
+
     case LOC_LT_EXPR:
         // Check if the LT expression has been evaluated yet:
         lt_value_t& v = *lt();
@@ -484,4 +525,13 @@ std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors)
     return data;
 }
 
-
+char const* to_string(penguin_label_t label)
+{
+    switch(label)
+    {
+#define PENGUIN(name) case PENGUIN_##name: return #name;
+#include "penguin_labels.inc"
+#undef PENGUIN
+    default: return "unknown label";
+    }
+}

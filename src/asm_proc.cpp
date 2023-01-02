@@ -802,8 +802,7 @@ void asm_proc_t::relocate(locator_t from)
             int dist;
             unsigned label_i;
 
-            if(op_addr_mode(inst.op) == MODE_RELATIVE
-               && is_const(loc.lclass()))
+            if(op_addr_mode(inst.op) == MODE_RELATIVE && loc.lclass() == LOC_ADDR)
             {
                 if(!is_const(from.lclass()))
                    throw std::runtime_error(fmt("Unable to relocate %", from));

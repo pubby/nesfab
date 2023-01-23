@@ -322,6 +322,11 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             locator_t const label = 
                 data() == ENTRY_LABEL ? proc.entry_label : locator_t::named_label(fn()->global.handle(), data());
 
+            // TODO
+            //for(auto const& pair : proc.labels)
+                //std::cout << pair.first << " = " << pair.second.offset << std::endl;
+            //std::cout << "ID = " << label << std::endl;
+
             if(auto const* info = proc.lookup_label(label))
                 span_offset = info->offset;
             else // Likely a compiler bug:

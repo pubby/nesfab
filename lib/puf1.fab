@@ -1,0 +1,793 @@
+/*
+ * Copyright (c) 2022, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code implementing the puf music engine.
+
+vars /puf_vars
+    AA puf_ptr_temp
+    AA puf_track_ptr
+    AA puf_note_table_ptr
+    AA puf_square1_pattern_ptr
+    AA puf_square2_pattern_ptr
+    AA puf_triangle_pattern_ptr
+    AA puf_noise_pattern_ptr
+    AA puf_dpcm_pattern_ptr
+
+// $100 to $10F: Instrument pointers
+ct AA puf_instrument_ptrs = $100
+
+ct AA puf_stack_mem = $110
+ct AA puf_pattern_left        = puf_stack_mem +  0
+ct AA puf_track_step          = puf_stack_mem +  1
+
+ct AA puf_square1_note        = puf_stack_mem +  2
+ct AA puf_square1_vol_duty_y  = puf_stack_mem +  3
+ct AA puf_square1_arpeggio_y  = puf_stack_mem +  4
+ct AA puf_square1_pitch_y     = puf_stack_mem +  5
+ct AA puf_square1_pitch_bend  = puf_stack_mem +  6 // 2 bytes
+ct AA puf_square1_pitch_hi    = puf_stack_mem +  8
+ct AA puf_square1_stack       = puf_stack_mem +  9
+ 
+ct AA puf_square2_note        = puf_stack_mem + 10
+ct AA puf_square2_vol_duty_y  = puf_stack_mem + 11
+ct AA puf_square2_arpeggio_y  = puf_stack_mem + 12
+ct AA puf_square2_pitch_y     = puf_stack_mem + 13
+ct AA puf_square2_pitch_bend  = puf_stack_mem + 14 // 2 bytes
+ct AA puf_square2_pitch_hi    = puf_stack_mem + 16
+ct AA puf_square2_stack       = puf_stack_mem + 17
+
+ct AA puf_triangle_note       = puf_stack_mem + 18
+ct AA puf_triangle_vol_duty_y = puf_stack_mem + 19
+ct AA puf_triangle_arpeggio_y = puf_stack_mem + 20
+ct AA puf_triangle_pitch_y    = puf_stack_mem + 21
+ct AA puf_triangle_pitch_bend = puf_stack_mem + 22 // 2 bytes
+ct AA puf_triangle_stack      = puf_stack_mem + 24
+
+ct AA puf_noise_note          = puf_stack_mem + 25
+ct AA puf_noise_vol_duty_y    = puf_stack_mem + 26
+ct AA puf_noise_arpeggio_y    = puf_stack_mem + 27
+ct AA puf_noise_stack         = puf_stack_mem + 28
+
+ct AA puf_dpcm_mask           = puf_stack_mem + 29
+ct AA puf_noise_mask          = puf_stack_mem + 30
+ct AA puf_triangle_mask       = puf_stack_mem + 31
+ct AA puf_square2_mask        = puf_stack_mem + 32
+ct AA puf_square1_mask        = puf_stack_mem + 33
+
+ct AA puf_noise_stack_next    = puf_stack_mem + 34
+ct AA puf_triangle_stack_next = puf_stack_mem + 35
+ct AA puf_square1_stack_next  = puf_stack_mem + 36
+ct AA puf_square2_stack_next  = puf_stack_mem + 37
+
+ct AA puf_track_speed         = puf_stack_mem + 38
+ct AA puf_track_start         = puf_stack_mem + 39 // 2 bytes
+ct AA puf_track_end           = puf_stack_mem + 41 // 2 bytes
+ct AA puf_temp                = puf_stack_mem + 43
+
+ct AA puf_silent_instrument = &puf_instrument_0
+
+data /puf_data
+
+omni data /puf_omni
+    [] puf_ntsc_note_table
+    : +align
+        UU[]($07F1,$077F,$0713,$06AD,$064D,$05F3,$059D,$054C,$0500,$04B8,$0474,$0434)
+        UU[]($03F8,$03BF,$0389,$0356,$0326,$02F9,$02CE,$02A6,$0280,$025C,$023A,$021A)
+        UU[]($01FB,$01DF,$01C4,$01AB,$0193,$017C,$0167,$0152,$013F,$012D,$011C,$010C)
+        UU[]($00FD,$00EF,$00E1,$00D5,$00C9,$00BD,$00B3,$00A9,$009F,$0096,$008E,$0086)
+        UU[]($007E,$0077,$0070,$006A,$0064,$005E,$0059,$0054,$004F,$004B,$0046,$0042)
+        UU[]($003F,$003B,$0038,$0034,$0031,$002F,$002C,$0029,$0027,$0025,$0023,$0021)
+        UU[]($001F,$001D,$001B,$001A,$0018,$0017,$0015,$0014,$0013,$0012,$0011,$0010)
+        UU[]($000F,$000E,$000D)
+        label track_step_function_lo
+            // TODO
+            //U(&puf_update_variables.a)
+            //U(&puf_update_triangle_noise.a)
+            //U(&puf_update_squares.a)
+            //U(&puf_update_pattern_ptrs.a)
+            //U[78](&puf_update_null.a)
+
+    [] puf_pal_note_table
+    : +align
+        UU[]($0760,$06F6,$0692,$0634,$05DB,$0586,$0537,$04EC,$04A5,$0462,$0423,$03E8)
+        UU[]($03B0,$037B,$0349,$0319,$02ED,$02C3,$029B,$0275,$0252,$0231,$0211,$01F3)
+        UU[]($01D7,$01BD,$01A4,$018C,$0176,$0161,$014D,$013A,$0129,$0118,$0108,$00F9)
+        UU[]($00EB,$00DE,$00D1,$00C6,$00BA,$00B0,$00A6,$009D,$0094,$008B,$0084,$007C)
+        UU[]($0075,$006E,$0068,$0062,$005D,$0057,$0052,$004E,$0049,$0045,$0041,$003E)
+        UU[]($003A,$0037,$0034,$0031,$002E,$002B,$0029,$0026,$0024,$0022,$0020,$001E)
+        UU[]($001D,$001B,$0019,$0018,$0016,$0015,$0014,$0013,$0012,$0011,$0010,$000F)
+        UU[]($000E,$000D,$000C)
+        label track_step_function_hi
+            // TODO
+            //U(&puf_update_variables.b)
+            //U(&puf_update_triangle_noise.b)
+            //U(&puf_update_squares.b)
+            //U(&puf_update_pattern_ptrs.b)
+            //U[78](&puf_update_null.b)
+
+ct AA puf_track_step_function_lo = puf_ntsc_note_table.track_step_function_lo
+ct AA puf_track_step_function_hi = puf_pal_note_table.track_step_function_hi
+
+
+/*
+silent_instrument:
+    .byt 3
+    .byt 2
+    .byt %00110000
+
+    .byt 3
+    .byt 2
+    .byt 0
+
+    .byt 3
+    .byt 2
+    .byt 0
+*/
+
+asm fn puf_set_song()
+: employs /puf_data /puf_omni /puf_vars
+    default
+    label foo
+        //lda &song_id
+        sta puf_temp
+        rts
+        //goto puf.set_song
+
+asm fn puf()
+: employs /puf_data /puf_omni /puf_vars
+    label play_sfx
+        sta &puf_ptr_temp.a
+        stx &puf_ptr_temp.b
+
+        ldy #0
+        lda (&puf_ptr_temp.a), y
+        lsr
+        sta puf_temp
+        iny
+        bcc play_sfx_done_square1
+        ldx #0
+        stx puf_square1_stack_next
+        ldx puf_square1_stack
+        jsr write_sfx
+        sta puf_square1_note
+        jsr reset_square1
+    label play_sfx_done_square1
+        lsr puf_temp
+        bcc play_sfx_done_square2
+        ldx #0
+        stx puf_square2_stack_next
+        ldx puf_square2_stack
+        jsr write_sfx
+        sta puf_square2_note
+        jsr reset_square2
+    label play_sfx_done_square2
+        lsr puf_temp
+        bcc play_sfx_done_triangle
+        ldx #0
+        stx puf_triangle_stack_next
+        ldx puf_triangle_stack
+        jsr write_sfx
+        sta puf_triangle_note
+        jsr reset_triangle
+    label play_sfx_done_triangle
+        lsr puf_temp
+        bcc play_sfx_done_noise
+        ldx #0
+        stx puf_noise_stack_next
+        ldx puf_noise_stack
+        jsr write_sfx
+        sta puf_noise_note
+        jsr reset_noise
+    label play_sfx_done_noise
+        rts
+
+
+    label write_sfx
+        lda (&puf_ptr_temp.a), y
+        sta $100, x
+        iny
+        lda (&puf_ptr_temp.a), y
+        sta $101, x
+        iny
+        lda (&puf_ptr_temp.a), y
+        iny
+        rts
+
+
+    label reset_square1
+        ldx #$FF
+        stx puf_square1_pitch_hi
+        inx
+        stx puf_square1_pitch_bend+1
+        stx puf_square1_pitch_bend+0
+        inx
+        stx puf_square1_pitch_y
+        stx puf_square1_arpeggio_y
+        stx puf_square1_vol_duty_y
+        rts
+
+
+    label reset_square2
+        ldx #$FF
+        stx puf_square2_pitch_hi
+        inx
+        stx puf_square2_pitch_bend+1
+        stx puf_square2_pitch_bend+0
+        inx
+        stx puf_square2_pitch_y
+        stx puf_square2_arpeggio_y
+        stx puf_square2_vol_duty_y
+        rts
+
+
+    label reset_triangle
+        ldx #0
+        stx puf_triangle_pitch_bend+1
+        stx puf_triangle_pitch_bend+0
+        inx
+        stx puf_triangle_pitch_y
+        stx puf_triangle_arpeggio_y
+        stx puf_triangle_vol_duty_y
+        rts
+
+
+    label reset_noise
+        ldx #1
+        stx puf_noise_arpeggio_y
+        stx puf_noise_vol_duty_y
+        rts
+
+
+    label read_macro
+        ldx #0
+        iny
+        tya
+        cmp (&puf_ptr_temp.a, x) // Length
+        bcc read_macro_done_loop
+        ldy #1
+        lda (&puf_ptr_temp.a), y // Loop
+        tay
+    label read_macro_done_loop
+        lda (&puf_ptr_temp.a), y // Value
+    label do_skip
+        pha
+        clc
+        lda &puf_ptr_temp.a
+        adc (&puf_ptr_temp.a, x)
+        sta &puf_ptr_temp.a
+        bcc read_macro_done_inc
+        inc &puf_ptr_temp.b
+        clc // leave carry clear
+    label read_macro_done_inc
+        pla
+        rts
+
+
+    label skip_macro
+        ldx #0
+        jmp do_skip
+
+
+    label update_variables
+        ldy #0
+
+        // Noise
+        lda puf_noise_stack_next
+        beq done_update_noise
+        cmp puf_noise_stack
+        beq done_update_noise
+        sta puf_noise_stack
+        lda (&puf_noise_pattern_ptr.a), y
+        sta puf_noise_note
+        jsr reset_noise
+    label done_update_noise
+
+        // Triangle
+        lda puf_triangle_stack_next
+        beq done_update_triangle
+        cmp puf_triangle_stack
+        beq done_update_triangle
+        sta puf_triangle_stack
+        lda (&puf_triangle_pattern_ptr.a), y
+        sta puf_triangle_note
+        jsr reset_triangle
+    label done_update_triangle
+            
+        // Square2
+        lda puf_square2_stack_next
+        beq done_update_square2
+        cmp puf_square2_stack
+        beq done_update_square2
+        sta puf_square2_stack
+        lda (&puf_square2_pattern_ptr.a), y
+        sta puf_square2_note
+        jsr reset_square2
+    label done_update_square2
+
+        // Square
+        lda puf_square1_stack_next
+        beq done_update_square1
+        cmp puf_square1_stack
+        beq done_update_square1
+        sta puf_square1_stack
+        lda (&puf_square1_pattern_ptr.a), y
+        sta puf_square1_note
+        jsr reset_square1
+    label done_update_square1
+
+        // DPCM
+    /* TODO
+        lsr puf_dpcm_mask
+        bcc done_dpcm
+
+        inc &puf_dpcm_pattern_ptr.a
+        lax (&puf_dpcm_pattern_ptr.a), y
+        beq silence_dpcm
+        lda dpcm_rate-1, x
+        and #%1111
+        sta $4010
+        lda dpcm_addr-1, x
+        sta $4012
+        lda dpcm_length-1, x
+        sta $4013
+        lda #32
+        sta $4011
+        lda #%00011111
+    silence_dpcm:
+        sta $4015
+    done_dpcm:
+    .endif
+    */
+
+        lda puf_track_speed
+        sta puf_track_step
+
+        jmp track_step_return
+
+
+    label write_instrument
+        lda &puf_instrument_lo, x
+        sta $100, y
+        lda &puf_instrument_hi, x
+        sta $101, y
+        rts
+
+    label update_triangle_noise
+        // Triangle
+        lsr puf_triangle_mask
+        bcc done_triangle
+
+        lda puf_triangle_stack_next
+        beq done_triangle
+        eor #%00000010
+        sta puf_triangle_stack_next
+        inc &puf_triangle_pattern_ptr.a
+        ldy #0
+        lax (&puf_triangle_pattern_ptr.a), y
+        ldy puf_triangle_stack_next
+        jsr write_instrument
+        inc &puf_triangle_pattern_ptr.a
+    label done_triangle
+
+        // Noise
+        lsr puf_noise_mask
+        bcc done_noise
+
+        lda puf_noise_stack_next
+        beq done_noise
+        eor #%00000010
+        sta puf_noise_stack_next
+        inc &puf_noise_pattern_ptr.a
+        ldy #0
+        lax (&puf_noise_pattern_ptr.a), y
+        ldy puf_noise_stack_next
+        jsr write_instrument
+        inc &puf_noise_pattern_ptr.a
+    label done_noise
+
+        jmp track_step_return
+
+
+    label update_squares
+        ldy #0
+
+        // Square1
+        lsr puf_square1_mask
+        bcc done_square1
+
+        lda puf_square1_stack_next
+        beq done_square1
+        eor #%00000010
+        sta puf_square1_stack_next
+        inc &puf_square1_pattern_ptr.a
+        ldy #0
+        lax (&puf_square1_pattern_ptr.a), y
+        ldy puf_square1_stack_next
+        jsr write_instrument
+        inc &puf_square1_pattern_ptr.a
+    label done_square1
+
+        // Square2
+        lsr puf_square2_mask
+        bcc done_square2
+
+        lda puf_square2_stack_next
+        beq done_square2
+        eor #%00000010
+        sta puf_square2_stack_next
+        inc &puf_square2_pattern_ptr.a
+        ldy #0
+        lax (&puf_square2_pattern_ptr.a), y
+        ldy puf_square2_stack_next
+        jsr write_instrument
+        inc &puf_square2_pattern_ptr.a
+    label done_square2
+
+        jmp track_step_return
+
+
+    label update_pattern_ptrs
+        ldy puf_pattern_left
+        beq update_pattern_ptrs_dont_dec
+        dec puf_pattern_left
+        jmp track_step_return
+    label update_pattern_ptrs_dont_dec
+
+        lda (&puf_track_ptr.a), y
+        sta &puf_square1_pattern_ptr.a
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_square1_pattern_ptr.b
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_square2_pattern_ptr.a
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_square2_pattern_ptr.b
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_triangle_pattern_ptr.a
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_triangle_pattern_ptr.b
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_noise_pattern_ptr.a
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_noise_pattern_ptr.b
+        sty puf_pattern_left // Y = 7
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_dpcm_pattern_ptr.a
+        iny
+        lda (&puf_track_ptr.a), y
+        sta &puf_dpcm_pattern_ptr.b
+
+        lax &puf_track_ptr.a
+        axs #-10
+        lda #0
+        tay              // Set Y = 0 for mask loads.              
+        adc &puf_track_ptr.b
+        cmp puf_track_end+1
+        bne store_track
+        cpx puf_track_end+0
+        bne store_track
+        ldx puf_track_start+0
+        lda puf_track_start+1
+    label store_track
+        stx &puf_track_ptr.a
+        sta &puf_track_ptr.b
+
+        lda (&puf_square1_pattern_ptr.a), y
+        sta puf_square1_mask
+        lda (&puf_square2_pattern_ptr.a), y
+        sta puf_square2_mask
+        lda (&puf_triangle_pattern_ptr.a), y
+        sta puf_triangle_mask
+        lda (&puf_noise_pattern_ptr.a), y
+        sta puf_noise_mask
+        lda (&puf_dpcm_pattern_ptr.a), y
+        sta puf_dpcm_mask
+
+        // Fall-through
+
+    label track_step_return
+    label update_null
+
+        // Square1
+
+        ldx puf_square1_stack
+        lda $100, x
+        sta &puf_ptr_temp.a
+        lda $101, x
+        sta &puf_ptr_temp.b
+
+        ldy puf_square1_vol_duty_y
+        jsr read_macro
+        sty puf_square1_vol_duty_y
+        cpy #0
+        bne sta_4000
+        ldx puf_square1_stack
+        stx puf_square1_stack_next
+        jsr write_silence
+        jsr reset_square1
+        lda #%00110000
+    label sta_4000
+        sta $4000
+
+        ldy puf_square1_pitch_y
+        jsr read_macro
+        sty puf_square1_pitch_y
+        bpl done_square1_pitch_y
+        dex
+    label done_square1_pitch_y
+        adc puf_square1_pitch_bend+0
+        sta puf_square1_pitch_bend+0
+        txa
+        adc puf_square1_pitch_bend+1
+        sta puf_square1_pitch_bend+1
+
+        ldy puf_square1_arpeggio_y
+        jsr read_macro
+        sty puf_square1_arpeggio_y
+        adc puf_square1_note
+        tay
+        clc
+        lda (&puf_note_table_ptr.a), y
+        adc puf_square1_pitch_bend+0
+        sta $4002
+        iny
+        lda (&puf_note_table_ptr.a), y
+        adc puf_square1_pitch_bend+1
+        and #%00000111
+        cmp puf_square1_pitch_hi
+        beq done_sta_4003
+        sta $4003
+    label done_sta_4003
+        sta puf_square1_pitch_hi
+
+        // Square2
+
+        ldx puf_square2_stack
+        lda $100, x
+        sta &puf_ptr_temp.a
+        lda $101, x
+        sta &puf_ptr_temp.b
+
+        ldy puf_square2_vol_duty_y
+        jsr read_macro
+        sty puf_square2_vol_duty_y
+        cpy #0
+        bne sta_4004
+        ldx puf_square2_stack
+        stx puf_square2_stack_next
+        jsr write_silence
+        jsr reset_square2
+        lda #%00110000
+    label sta_4004
+        sta $4004
+
+        ldy puf_square2_pitch_y
+        jsr read_macro
+        sty puf_square2_pitch_y
+        bpl done_square2_pitch_y
+        dex
+    label done_square2_pitch_y
+        adc puf_square2_pitch_bend+0
+        sta puf_square2_pitch_bend+0
+        txa
+        adc puf_square2_pitch_bend+1
+        sta puf_square2_pitch_bend+1
+
+        ldy puf_square2_arpeggio_y
+        jsr read_macro
+        sty puf_square2_arpeggio_y
+        adc puf_square2_note
+        tay
+        clc
+        lda (&puf_note_table_ptr.a), y
+        adc puf_square2_pitch_bend+0
+        sta $4006
+        iny
+        lda (&puf_note_table_ptr.a), y
+        adc puf_square2_pitch_bend+1
+        and #%00000111
+        cmp puf_square2_pitch_hi
+        beq done_sta_4007
+        sta $4007
+    label done_sta_4007
+        sta puf_square2_pitch_hi
+
+        // Triangle
+
+        ldx puf_triangle_stack
+        lda $100, x
+        sta &puf_ptr_temp.a
+        lda $101, x
+        sta &puf_ptr_temp.b
+
+        ldy puf_triangle_vol_duty_y
+        jsr read_macro
+        sty puf_triangle_vol_duty_y
+        and #%1111
+        ora #%10000000
+        cpy #0
+        bne sta_4008
+        ldx puf_triangle_stack
+        stx puf_triangle_stack_next
+        jsr write_silence
+        jsr reset_triangle
+        lda #%00000000
+    label sta_4008
+        sta $4008
+
+        ldy puf_triangle_pitch_y
+        jsr read_macro
+        sty puf_triangle_pitch_y
+        bpl done_triangle_pitch_y
+        dex
+    label done_triangle_pitch_y
+        adc puf_triangle_pitch_bend+0
+        sta puf_triangle_pitch_bend+0
+        txa
+        adc puf_triangle_pitch_bend+1
+        sta puf_triangle_pitch_bend+1
+
+        ldy puf_triangle_arpeggio_y
+        jsr read_macro
+        sty puf_triangle_arpeggio_y
+        adc puf_triangle_note
+        tay
+        clc
+        lda (&puf_note_table_ptr.a), y
+        adc puf_triangle_pitch_bend+0
+        sta $400A
+        iny
+        lda (&puf_note_table_ptr.a), y
+        adc puf_triangle_pitch_bend+1
+        and #%00000111
+        sta $400B
+
+        // Noise
+
+        ldx puf_noise_stack
+        lda $100, x
+        sta &puf_ptr_temp.a
+        lda $101, x
+        sta &puf_ptr_temp.b
+
+        ldy puf_noise_vol_duty_y
+        jsr read_macro
+        and #%1111
+        ora #%00110000
+        cpy #0
+        bne sta_400c
+        ldx puf_noise_stack
+        stx puf_noise_stack_next
+        jsr write_silence
+        jsr reset_noise
+        lda #%00000000
+    label sta_400c
+        sty puf_noise_vol_duty_y
+        sta $400C
+
+        jsr skip_macro
+
+        ldy puf_noise_arpeggio_y
+        jsr read_macro
+        sty puf_noise_arpeggio_y
+        lsr
+        adc puf_noise_note
+        and #%1111
+        sta $400E
+
+        rts
+
+    label write_silence
+        lda #puf_silent_instrument.a
+        sta $100, x
+        lda #puf_silent_instrument.b
+        sta $101, x
+        rts
+
+    // Call this function every frame in your NMI or whatever to play the music
+    //default
+    label process
+        dec puf_track_step
+        ldx puf_track_step
+        lda puf_track_step_function_lo, x
+        sta &puf_ptr_temp.a
+        lda puf_track_step_function_hi, x
+        sta &puf_ptr_temp.b
+        jmp (&puf_ptr_temp.a)
+
+    label init_ntsc
+        lda #(&puf_ntsc_note_table).a
+        ldx #(&puf_ntsc_note_table).b
+    label store_init
+        sta &puf_note_table_ptr.a
+        stx &puf_note_table_ptr.b
+    label finish_init
+        ldx #puf_stack_mem.a + 0
+        stx puf_noise_stack
+        ldx #puf_stack_mem.a + 2
+        stx puf_noise_stack_next
+        ldx #puf_stack_mem.a + 4
+        stx puf_triangle_stack
+        ldx #puf_stack_mem.a + 6
+        stx puf_triangle_stack_next
+        ldx #puf_stack_mem.a + 6
+        stx puf_square2_stack
+        ldx #puf_stack_mem.a + 8
+        stx puf_square2_stack_next
+        ldx #puf_stack_mem.a + 12
+        stx puf_square1_stack
+        ldx #puf_stack_mem.a + 14
+        stx puf_square1_stack_next
+
+        lda #puf_silent_instrument.a
+        sta puf_stack_mem+2
+        sta puf_stack_mem+6
+        sta puf_stack_mem+10
+        sta puf_stack_mem+14
+        lda #puf_silent_instrument.b
+        sta puf_stack_mem+3
+        sta puf_stack_mem+7
+        sta puf_stack_mem+11
+        sta puf_stack_mem+15
+
+        jsr reset_square1
+        jsr reset_square2
+        jsr reset_triangle
+        jmp reset_noise
+
+    label init_pal
+        lda #(&puf_pal_note_table).a
+        ldx #(&puf_pal_note_table).b
+        jmp store_init
+
+
+    label set_song
+        ldx puf_temp
+        lda &puf_tracks_speed, x
+        sta puf_track_speed
+        sta puf_track_step
+
+        lda &puf_tracks_begin_lo, x
+        sta &puf_track_ptr.a
+        sta puf_track_start+0
+        lda &puf_tracks_begin_hi, x
+        sta &puf_track_ptr.b
+        sta puf_track_start+1
+
+        lda &puf_tracks_end_lo, x
+        sta puf_track_end+0
+        lda &puf_tracks_end_hi, x
+        sta puf_track_end+1
+
+        lda #%00001000
+        sta $4001
+        sta $4005
+
+        lda #%00001111
+        sta $4015
+
+        ldx #%10000000
+        stx $4008
+
+        // TODO
+        ldx #%11110000
+        stx $400C
+
+        // SAX = store 0
+        sax $400F
+        sax puf_pattern_left
+        // sax sfx_noise_play ; TODO
+
+        jsr finish_init // TODO
+        jmp update_variables
+

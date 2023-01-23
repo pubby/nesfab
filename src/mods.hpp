@@ -30,6 +30,13 @@ struct flag_mods_t
     mod_flags_t enable = 0;
     mod_flags_t disable = 0;
 
+    flag_mods_t() = default;
+
+    explicit flag_mods_t(mod_flags_t enable, mod_flags_t disable = 0) 
+    : enable(enable)
+    , disable(disable)
+    {}
+
     void remove_conflicting_flags()
     {
         mod_flags_t const conflicting = enable & disable;
@@ -79,6 +86,12 @@ struct mods_t : public flag_mods_t
 
     global_t const* nmi = nullptr;
     pstring_t nmi_pstring = {};
+
+    mods_t() = default;
+
+    explicit mods_t(mod_flags_t enable, mod_flags_t disable = 0) 
+    : flag_mods_t(enable, disable)
+    {}
 
     // Ensures groups match their group_class.
     void validate_groups() const;

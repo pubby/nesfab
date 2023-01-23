@@ -437,6 +437,50 @@ retry:
 }
 
 template<typename P>
+template<typename Fn>
+auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
+{
+    pstring_t const file_pstring = token.pstring;
+    pstring_t script;
+    string_literal_t filename;
+    std::vector<convert_arg_t> args;
+
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    { 
+        parse_token(tt);
+
+        unsigned const argn = parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
+        {
+
+            switch(arg)
+            {
+            case 0: script = parse_ident(); return true;
+            case 1: filename = parse_string_literal(true); return true;
+            default: 
+                pstring_t const pstring = token.pstring;
+                switch(token.type)
+                {
+                case TOK_ident: args.push_back({ parse_ident(), pstring }); return true;
+                case TOK_true:  args.push_back({ true, pstring }); return true;
+                case TOK_false: args.push_back({ false, pstring }); return true;
+                case TOK_dquote: args.push_back({ parse_string_literal(true), pstring }); return true;
+                case TOK_int: args.push_back({ std::uint64_t(token.value), pstring }); return true;
+                default: compiler_error("Unexpected token."); return false;
+                }
+            }
+        });
+
+        if(argn < 2)
+            compiler_error(file_pstring, "Wrong number of arguments.");
+    });
+
+    fs::path preferred_dir = file.path();
+    preferred_dir.remove_filename();
+
+    fn(file_pstring, script, preferred_dir, filename, std::move(mods), std::move(args));
+}
+
+template<typename P>
 pstring_t parser_t<P>::parse_ident()
 {
     pstring_t ident = token.pstring;
@@ -1453,44 +1497,9 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
             return;
 
         case TOK_file:
+            parse_file(TOK_file, [&](pstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, string_literal_t const& filename, 
+                           std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
             {
-                pstring_t const file_pstring = token.pstring;
-                pstring_t script;
-                string_literal_t filename;
-                std::vector<convert_arg_t> args;
-
-                std::unique_ptr<mods_t> mods = parse_mods_after([&]
-                { 
-                    parse_token(TOK_file);
-
-                    unsigned const argn = parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
-                    {
-
-                        switch(arg)
-                        {
-                        case 0: script = parse_ident(); return true;
-                        case 1: filename = parse_string_literal(true); return true;
-                        default: 
-                            pstring_t const pstring = token.pstring;
-                            switch(token.type)
-                            {
-                            case TOK_ident: args.push_back({ parse_ident(), pstring }); return true;
-                            case TOK_true:  args.push_back({ true, pstring }); return true;
-                            case TOK_false: args.push_back({ false, pstring }); return true;
-                            case TOK_dquote: args.push_back({ parse_string_literal(true), pstring }); return true;
-                            case TOK_int: args.push_back({ std::uint64_t(token.value), pstring }); return true;
-                            default: compiler_error("Unexpected token."); return false;
-                            }
-                        }
-                    });
-
-                    if(argn < 2)
-                        compiler_error(file_pstring, "Wrong number of arguments to 'file'.");
-                });
-
-                fs::path preferred_dir = file.path();
-                preferred_dir.remove_filename();
-
                 conversion_t c = convert_file(source(), script, preferred_dir, filename, mods.get(),
                                               args.data(), args.size());
 
@@ -1528,7 +1537,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 {
                     policy().byte_block_named_value(file_pstring, named_value.name, named_value.value);
                 }
-            }
+            });
             break;
 
         case TOK_fn:
@@ -1800,6 +1809,8 @@ void parser_t<P>::parse_top_level_def()
             return parse_fn(TOK_ct);
         else
             return parse_const();
+    case TOK_audio:
+        return parse_audio();
     default:
         compiler_error("Unexpected token at top level.");
     }
@@ -1817,6 +1828,27 @@ void parser_t<P>::parse_chrrom()
     ast_node_t ast = parse_byte_block(decl, chrrom_indent, chrrom_global, false);
 
     policy().chrrom(decl, ast, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_audio()
+{
+    parse_file(TOK_audio, [&](pstring_t audio_pstring, pstring_t script, fs::path const& preferred_dir, string_literal_t const& filename, 
+                              std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
+    {
+        fs::path path;
+        if(!resource_path(preferred_dir, fs::path(filename.string), path))
+            compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
+
+        policy().audio(audio_pstring, path, std::move(mods));
+    });
+
+
+    //policy().audio(decl, {});
+
+    /* TODO: implement
+    parse_args(TOK_lparen, TOK_rparen, [&](unsigned){ params.push_back(parse_var_decl(false, {})); });
+    */
 }
 
 template<typename P>

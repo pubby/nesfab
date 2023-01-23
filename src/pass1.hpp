@@ -23,6 +23,7 @@
 #include "mods.hpp"
 #include "iasm.hpp"
 #include "eternal_new.hpp"
+#include "puf.hpp"
 
 namespace bc = boost::container;
 
@@ -148,7 +149,10 @@ public:
 
         if(local_const)
         {
-            assert(fn_def.local_consts.size() == fn_def.name_hashes.size());
+            /* TODO
+            passert(fn_def.local_consts.size() == fn_def.name_hashes.size(), 
+                    fn_def.local_consts.size(), fn_def.name_hashes.size());
+                    */
             fn_def.local_consts.emplace_back(var_decl, std::move(mods), eternal_expr(local_const_expr));
             fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(var_decl.name.view(file.source())));
         }
@@ -1087,6 +1091,54 @@ public:
             decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, 
             convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
         ideps.clear();
+    }
+
+    void audio(pstring_t decl, fs::path path, std::unique_ptr<mods_t> mods)
+    {
+        if(mods)
+            mods->validate(decl);
+
+        pstring_t at = decl;
+
+        /* TODO
+        auto const define = [&](std::string_view name, asm_proc_t&& proc, group_data_t& group, bool align)
+        {
+            using namespace lex;
+
+            std::unique_ptr<mods_t> mods;
+            if(align)
+                mods = std::make_unique<mods_t>(MOD_align);
+
+            ast_node_t* sub_proc = eternal_emplace<ast_node_t>(ast_node_t{
+                .token = token_t::make_ptr(TOK_byte_block_sub_proc, at, 
+                                           eternal_emplace<asm_proc_t>(std::move(proc))),
+                .children = nullptr,
+            });
+
+            ast_node_t* expr = eternal_emplace<ast_node_t>(ast_node_t{
+                .token = { .type = TOK_byte_block_proc, .pstring = at, .value = 1 },
+                .children = sub_proc,
+            });
+
+            auto& global = global_t::lookup_sourceless(at, name);
+            global.define_const(
+                at, {}, { at, type_t::paa(0, group.group.handle()) }, std::make_pair(&group, group.handle()), 
+                expr, {}, std::move(mods));
+        };
+        */
+
+        std::vector<std::uint8_t> file_data = read_binary_file(path.string(), at);
+
+        convert_puf(reinterpret_cast<char const*>(file_data.data()), file_data.size(), at);
+
+
+        /*
+        active_global = &global_t::chrrom(decl);
+        active_global->define_const(
+            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, 
+            convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
+        ideps.clear();
+        */
     }
 
     /* TODO: remove

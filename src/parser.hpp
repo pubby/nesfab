@@ -106,6 +106,9 @@ private:
 
     std::unique_ptr<mods_t> parse_mods(int base_indent);
 
+    template<typename Fn>
+    auto parse_file(lex::token_type_t tt, Fn const& fn);
+
     void parse_top_level();
     void parse_top_level_def();
 
@@ -117,6 +120,7 @@ private:
     void parse_struct();
     void parse_charmap();
     void parse_chrrom();
+    void parse_audio();
 
     void parse_statement();
     void parse_flow_statement();

@@ -109,18 +109,18 @@ static unsigned _append_to_vec(Args&&... args)
 }
 */
 
-fn_t& global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
+fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
                           type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
                           fn_class_t fclass, bool iasm)
 {
     fn_t* ret;
 
     // Create the fn
-    define(pstring, GLOBAL_FN, std::move(ideps), [&](global_t& g)
+    fn_ht h = { define(pstring, GLOBAL_FN, std::move(ideps), [&](global_t& g)
     { 
         return fn_ht::pool_emplace(
             ret, g, type, std::move(fn_def), std::move(mods), fclass, iasm).id; 
-    });
+    }) };
 
     if(fclass == FN_MODE)
     {
@@ -133,10 +133,10 @@ fn_t& global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
         nmi_vec.push_back(ret);
     }
 
-    return *ret;
+    return h;
 }
 
-gvar_t& global_t::define_var(pstring_t pstring, ideps_map_t&& ideps, 
+gvar_ht global_t::define_var(pstring_t pstring, ideps_map_t&& ideps, 
                              src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
                              ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
 {
@@ -152,10 +152,10 @@ gvar_t& global_t::define_var(pstring_t pstring, ideps_map_t&& ideps,
     assert(group.first);
     group.first->add_gvar(h);
     
-    return *ret;
+    return h;
 }
 
-const_t& global_t::define_const(pstring_t pstring, ideps_map_t&& ideps, 
+const_ht global_t::define_const(pstring_t pstring, ideps_map_t&& ideps, 
                                 src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
                                 ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
                                 std::unique_ptr<mods_t> mods)
@@ -172,25 +172,25 @@ const_t& global_t::define_const(pstring_t pstring, ideps_map_t&& ideps,
     if(group.first)
         group.first->add_const(h);
     
-    return *ret;
+    return h;
 }
 
-struct_t& global_t::define_struct(pstring_t pstring, ideps_map_t&& ideps,
+struct_ht global_t::define_struct(pstring_t pstring, ideps_map_t&& ideps,
                                   field_map_t&& fields)
                                 
 {
     struct_t* ret;
 
     // Create the struct
-    define(pstring, GLOBAL_STRUCT, std::move(ideps), [&](global_t& g)
+    struct_ht h = { define(pstring, GLOBAL_STRUCT, std::move(ideps), [&](global_t& g)
     { 
         return struct_ht::pool_emplace(ret, g, std::move(fields)).id;
-    });
+    }) };
     
-    return *ret;
+    return h;
 }
 
-charmap_t& global_t::define_charmap(
+charmap_ht global_t::define_charmap(
         pstring_t pstring, bool is_default, 
         string_literal_t const& characters, 
         string_literal_t const& sentinel,
@@ -199,12 +199,12 @@ charmap_t& global_t::define_charmap(
     charmap_t* ret;
 
     // Create the charmap
-    define(pstring, GLOBAL_CHARMAP, {}, [&](global_t& g)
+    charmap_ht h = { define(pstring, GLOBAL_CHARMAP, {}, [&](global_t& g)
     { 
         return charmap_ht::pool_emplace(ret, g, is_default, characters, sentinel, std::move(mods)).id;
-    });
+    }) };
 
-    return *ret;
+    return h;
 }
 
 global_t& global_t::default_charmap(pstring_t at)

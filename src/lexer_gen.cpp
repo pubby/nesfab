@@ -653,6 +653,7 @@ int main()
         keyword("employs"),
         keyword("preserves"),
         keyword("stows"),
+        keyword("audio"),
 
         keyword("true"),
         keyword("false"),

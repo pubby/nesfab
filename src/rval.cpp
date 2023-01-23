@@ -10,7 +10,7 @@
 
 unsigned lval_t::ulabel() const
 { 
-    if(label != ENTRY_LABEL && (flags & LVALF_IS_GLOBAL) && global().gclass() == GLOBAL_FN && global().impl<fn_t>().iasm)
+    if(label == ENTRY_LABEL && is_global() && global().gclass() == GLOBAL_FN && global().impl<fn_t>().iasm)
         return global().impl<fn_t>().def().default_label;
 
     return label;

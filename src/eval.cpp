@@ -2946,6 +2946,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             for(asm_inst_t const& inst : sub_proc.code)
                                 proc.push_inst(inst);
                         }
+                        std::cout << "BYTE SUB " << sub_proc.code.size() << ' ' << proc.code.size() << std::endl;
                     }
                     break;
 
@@ -4048,6 +4049,9 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     assert(lval->member == 0);
                     assert(lval->atom < 0);
                     assert(!lval->index);
+                    assert(lval->is_global());
+
+                    std::cout << "GRACK " << global.name << ' ' << global.impl<fn_t>().iasm << ' ' << lval->ulabel() << ' ' << lval->label << std::endl;
 
                     v.val = rval_t{ ssa_value_t(locator_t::fn(global.handle<fn_ht>(), lval->ulabel())) };
                     type = v.type;

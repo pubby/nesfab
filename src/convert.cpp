@@ -66,22 +66,7 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         std::string_view const view = script.view(source);
         conversion_t ret;
 
-        auto const read_as_vec = [&]
-        {
-            std::vector<std::uint8_t> vec;
-
-            if(!read_binary_file(path.c_str(), [&](std::size_t size)
-            {
-                vec.resize(size);
-                return vec.data();
-            }))
-            {
-                compiler_error(filename.pstring, fmt("Unable to read: %", filename.string));
-            }
-
-            return vec;
-        };
-
+        auto const read_as_vec = [&]{ return read_binary_file(path.string(), filename.pstring); };
         auto const get_extension = [&]{ return lex_extension(path.extension().c_str()); };
 
         auto const read_file = [&]

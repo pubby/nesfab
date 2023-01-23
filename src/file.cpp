@@ -16,6 +16,7 @@
 
 #include "guard.hpp"
 #include "format.hpp"
+#include "compiler_error.hpp"
 
 /* TODO
 fs::path source_dir(unsigned file_i)
@@ -46,8 +47,7 @@ bool resource_path(fs::path preferred_dir, fs::path name, fs::path& result)
 
 bool read_binary_file(char const* filename, std::function<void*(std::size_t)> const& alloc)
 {
-//#ifdef PLATFORM_UNIX
-#if 0
+#ifdef PLATFORM_UNIX
     int fd = open(filename, O_RDONLY);
     auto scope_guard = make_scope_guard([&]{ close(fd); });
 
@@ -79,6 +79,22 @@ bool read_binary_file(char const* filename, std::function<void*(std::size_t)> co
 
     return data;
 #endif
+}
+
+std::vector<std::uint8_t> read_binary_file(std::string filename, pstring_t at)
+{
+    std::vector<std::uint8_t> vec;
+
+    if(!read_binary_file(filename.c_str(), [&](std::size_t size)
+    {
+        vec.resize(size);
+        return vec.data();
+    }))
+    {
+        compiler_error(at, fmt("Unable to read: %", filename));
+    }
+
+    return vec;
 }
 
 void file_contents_t::reset(unsigned file_i)

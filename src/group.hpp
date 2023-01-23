@@ -60,9 +60,11 @@ public:
     std::pair<group_data_t*, group_data_ht> define_data(pstring_t pstring, bool once);
 
     static group_t& lookup(char const* source, pstring_t name);
+    static group_t& lookup_sourceless(pstring_t at, std::string_view key);
+    static group_t* lookup_sourceless(std::string_view name);
 
-    group_t(pstring_t pstring, char const* source, unsigned handle)
-    : name(pstring.view(source))
+    group_t(pstring_t pstring, std::string_view view, unsigned handle)
+    : name(view)
     , m_pstring(pstring)
     , m_handle{ handle }
     {}

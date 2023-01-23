@@ -126,22 +126,22 @@ public:
     std::vector<local_const_t> const* local_consts() const;
 
     // Helpers that delegate to 'define':
-    fn_t& define_fn(
+    fn_ht define_fn(
         pstring_t pstring, ideps_map_t&& ideps,
         type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass, bool iasm);
-    gvar_t& define_var(
+    gvar_ht define_var(
         pstring_t pstring, ideps_map_t&& ideps, 
         src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
-    const_t& define_const(
+    const_ht define_const(
         pstring_t pstring, ideps_map_t&& ideps, 
         src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, 
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
-    struct_t& define_struct(
+    struct_ht define_struct(
         pstring_t pstring, ideps_map_t&& ideps, field_map_t&& map);
-    charmap_t& define_charmap(
+    charmap_ht define_charmap(
         pstring_t pstring, bool is_default, 
         string_literal_t const& characters, 
         string_literal_t const& sentinel,

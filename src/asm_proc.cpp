@@ -342,7 +342,7 @@ void asm_proc_t::push_inst(asm_inst_t inst)
     if(inst.op == ASM_LABEL)
     {
         auto result = labels.insert({ inst.arg.mem_head(), { .index = code.size() }});
-        assert(result.second);
+        passert(result.second, inst);
     }
 
     code.push_back(inst);

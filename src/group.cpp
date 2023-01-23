@@ -7,25 +7,43 @@
 
 group_t& group_t::lookup(char const* source, pstring_t name)
 {
-    assert(compiler_phase() <= PHASE_PARSE);
+    auto& group = lookup_sourceless(name, name.view(source));
+    return group;
+}
 
-    std::string_view view = name.view(source);
-    auto const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
+group_t& group_t::lookup_sourceless(pstring_t at, std::string_view key)
+{
+    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(key.data(), key.size());
 
-    return *group_ht::with_pool([&, hash, view, source](auto& pool)
+    return *group_ht::with_pool([&, hash, key](auto& pool)
     {
         rh::apair<group_t**, bool> result = group_map.emplace(hash,
-            [view](group_t* ptr) -> bool
+            [key](group_t* ptr) -> bool
             {
-                return std::equal(view.begin(), view.end(), 
-                                  ptr->name.begin(), ptr->name.end());
+                return std::equal(key.begin(), key.end(), ptr->name.begin(), ptr->name.end());
             },
-            [&pool, name, source]() -> group_t*
+            [&pool, at, key]() -> group_t*
             { 
-                return &pool.emplace_back(name, source, pool.size());
+                return &pool.emplace_back(at, key, pool.size());
             });
 
         return *result.first;
+    });
+}
+
+group_t* group_t::lookup_sourceless(std::string_view view)
+{
+    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
+
+    return group_ht::with_const_pool([&, hash, view](auto const&)
+    {
+        auto result = group_map.lookup(hash,
+            [view](group_t* ptr) -> bool
+            {
+                return std::equal(view.begin(), view.end(), ptr->name.begin(), ptr->name.end());
+            });
+
+        return result.second ? *result.second : nullptr;
     });
 }
 
@@ -39,7 +57,11 @@ unsigned group_t::define(pstring_t pstring, group_class_t gclass,
         std::lock_guard<std::mutex> group_lock(m_define_mutex);
 
         if(m_gclass == gclass && valid_same(*this)) // Groups can have multiple definition points.
+        {
+            if(!m_pstring)
+                m_pstring = pstring;
             return m_impl_id;
+        }
 
         if(m_gclass != GROUP_UNDEFINED)
         {
@@ -56,7 +78,8 @@ unsigned group_t::define(pstring_t pstring, group_class_t gclass,
         }
 
         m_gclass = gclass;
-        m_pstring = pstring; // Not necessary but useful for error reporting.
+        if(pstring)
+            m_pstring = pstring; // Not necessary but useful for error reporting.
         m_impl_id = ret = create_impl(*this);
     }
     return ret;

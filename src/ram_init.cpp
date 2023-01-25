@@ -182,7 +182,7 @@ void gen_group_var_inits()
                     vec.insert(vec.end(), data, data + (256 - vec.size()));
                     assert(vec.size() == 256);
 
-                    value_combined.push_back({ span_t{ span_left.addr, 256 }, rom_array_t::make(std::move(vec)) });
+                    value_combined.push_back({ span_t{ span_left.addr, 256 }, rom_array_t::make(std::move(vec), false, false) });
                     reset_vec();
 
                     span_left.addr += 256;
@@ -196,7 +196,7 @@ void gen_group_var_inits()
             passert(vec.size() == span_left.size, vec.size(), span_left.size);
 
             if(vec.size() > 0)
-                value_combined.push_back({ span_left, rom_array_t::make(std::move(vec)) });
+                value_combined.push_back({ span_left, rom_array_t::make(std::move(vec), false, false) });
         }
 
         assert(!zero_combined.empty() || !value_combined.empty());
@@ -293,7 +293,7 @@ void gen_group_var_inits()
         proc.initial_optimize();
 
         // Attach it to the group as a ROM proc:
-        group.assign_init_proc(rom_proc_ht::pool_make(std::move(proc), romv_allocs_t{}, ROMVF_IN_MODE));
+        group.assign_init_proc(rom_proc_ht::pool_make(std::move(proc), romv_allocs_t{}, ROMVF_IN_MODE, false));
     }
 }
 

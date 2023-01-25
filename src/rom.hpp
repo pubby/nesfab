@@ -36,9 +36,10 @@ class rom_key_t
 class rom_data_t
 {
 public:
-    rom_data_t(romv_allocs_t const& a, romv_flags_t desired_romv) 
+    rom_data_t(romv_allocs_t const& a, romv_flags_t desired_romv, bool align) 
     : m_allocs(a)
     , m_desired_romv(desired_romv)
+    , m_align(align)
     {}
 
     rom_alloc_ht get_alloc(romv_t romv) const 
@@ -60,13 +61,19 @@ public:
         { assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM); m_allocs[romv] = alloc; }
 
     romv_flags_t desired_romv() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_desired_romv; }
+    bool align() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_align; }
+    bool dpcm() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_dpcm; }
     bool emits() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_emits; }
     void mark_emits() { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); m_emits.store(true); }
+    void mark_aligned() { m_align.store(true); }
+    void mark_dpcm() { m_dpcm.store(true); }
 
 protected:
     // These are used later on, when the rom is actually allocated.
     romv_allocs_t m_allocs = {};
 
+    std::atomic<bool> m_align = false;
+    std::atomic<bool> m_dpcm = false;
     std::atomic<bool> m_emits = false;
     std::atomic<romv_flags_t> m_desired_romv = 0;
 };
@@ -76,7 +83,7 @@ protected:
 class rom_array_t : public rom_data_t
 {
 public:
-    rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t const&);
+    rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t const&, bool align);
 
     void mark_used_by(group_data_ht group);
 
@@ -86,7 +93,7 @@ public:
     auto const& used_in_group_data() const { assert(compiler_phase() > rom_array_ht::phase); return m_used_in_group_data; }
 
     // Use this to construct globally:
-    static rom_array_ht make(loc_vec_t&& vec, group_data_ht={}, romv_allocs_t const& a={});
+    static rom_array_ht make(loc_vec_t&& vec, bool align, bool dpcm, group_data_ht={}, romv_allocs_t const& a={});
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 private:
@@ -106,12 +113,12 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc);
 class rom_proc_t : public rom_data_t
 {
 public:
-    rom_proc_t(romv_allocs_t const& a, romv_flags_t desired_romv) 
-    : rom_data_t(a, desired_romv) 
+    rom_proc_t(romv_allocs_t const& a, romv_flags_t desired_romv, bool align) 
+    : rom_data_t(a, desired_romv, align) 
     {}
 
-    rom_proc_t(asm_proc_t&& asm_proc, romv_allocs_t const& a, romv_flags_t desired_romv)
-    : rom_data_t(a, desired_romv)
+    rom_proc_t(asm_proc_t&& asm_proc, romv_allocs_t const& a, romv_flags_t desired_romv, bool align)
+    : rom_data_t(a, desired_romv, align)
     { assign(std::move(asm_proc)); }
 
     // Sets the proc's state.
@@ -133,8 +140,8 @@ private:
 };
 
 // Generic construction functions:
-rom_data_ht to_rom_data(loc_vec_t&& rom_array, romv_allocs_t const& a={});
-rom_data_ht to_rom_data(asm_proc_t&& asm_proc, romv_allocs_t const& a={}, romv_flags_t desired_romv = 0);
+rom_data_ht to_rom_data(loc_vec_t&& rom_array, bool align, romv_allocs_t const& a={});
+rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, romv_allocs_t const& a={}, romv_flags_t desired_romv = 0);
 
 ///////////////
 // ROM alloc //
@@ -161,7 +168,8 @@ struct rom_alloc_t
 
 struct rom_static_t : public rom_alloc_t
 {
-    rom_static_t(romv_t romv, span_t span) { this->romv = romv; this->span = span; }
+    rom_static_t(romv_t romv, span_t span, rom_data_ht data = {}) 
+        { this->romv = romv; this->span = span; this->data = data; }
 
     int only_bank() const { return mapper().num_32k_banks == 1 ? 0 : -1; }
 

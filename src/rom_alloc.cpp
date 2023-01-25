@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <vector>
+#include <iostream> // TODO
 
 #include "rom.hpp"
 #include "handle.hpp"
@@ -68,6 +69,9 @@ private:
 
     // Tries to allocate an existing many in a new bank.
     bool try_include_many(rom_many_ht many_h, unsigned bank_i);
+
+    // Allocate a DPCM span
+    span_t alloc_dpcm(unsigned size);
 };
 
 rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsigned num_banks)
@@ -164,7 +168,18 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             continue;
         }
 
-        unsigned const alignment = 0; // TODO
+        if(rom_array.dpcm())
+        {
+            span_t const span = allocator.alloc_linear(rom_array.data().size(), 64, 0xC000);
+            if(!span)
+                throw std::runtime_error("Unable to allocate DPCM address (out of ROM space).");
+            rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, span, rom_array_h), rom_key_t());
+            continue;
+        }
+
+        unsigned alignment = 1;
+        if(rom_array.align())
+            alignment = std::min<unsigned>(256, std::bit_ceil(rom_array.data().size()));
 
         dprint(log, "--PREPPED", rom_array_h);
         if(once)
@@ -193,7 +208,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
         // Check if the proc uses any 'ONCE'.
         // If it does, the proc has to be MANY, otherwise its ONCE.
 
-        unsigned const alignment = 0; // TODO
+        unsigned const alignment = rom_proc.align() ? 256 : 1;
         bitset_t const* groups;
         bool once = true;
 
@@ -610,7 +625,8 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     span_allocator_t::bitset_t free = {};
     in_banks.for_each([&](unsigned bank_i){ free |= banks[bank_i].allocator.allocated_bitset(); });
     bitset_flip_all(free.size(), free.data());
-    bitset_mark_consecutive(free.size(), free.data(), many.data.max_size() / span_allocator_t::bytes_per_bit(initial_span));
+    unsigned const bpb = span_allocator_t::bytes_per_bit(initial_span);
+    bitset_mark_consecutive(free.size(), free.data(), (many.data.max_size() + bpb - 1) / bpb);
 
     int const highest_bit = bitset_highest_bit_set(free.size(), free.data());
     if(highest_bit < 0)
@@ -620,24 +636,37 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     // We'll find the highest possible address to allocate at.
 
     unsigned const free_addr = highest_bit * span_allocator_t::bytes_per_bit(initial_span) + initial_span.addr;
+    unsigned max_start = 0;
     unsigned min_end = ~0u;
 
     in_banks.for_each([&](unsigned bank_i)
     {
         span_t const span = banks[bank_i].allocator.unallocated_span_at(free_addr);
+        assert(span);
         assert(span.size >= many.data.max_size());
+        max_start = std::max<unsigned>(max_start, span.addr);
         min_end = std::min<unsigned>(min_end, span.end());
     });
     assert(min_end != ~0u);
 
     // Here's where our many will be stored:
-    span_t const alloc_at = { min_end - many.data.max_size(), many.data.max_size() };
+    // TODO
+    //unsigned const store_addr = std::max<unsigned>(max_start, min_end - many.data.max_size());
+    span_t const range = { max_start, min_end - max_start };
+    span_t alloc_at;
+
+    if(!(alloc_at = aligned(range, many.data.max_size(), many.desired_alignment)))
+    {
+        std::cout << "PANIC " << range << many.data.max_size() << ' ' << many.desired_alignment << std::endl;
+        return false;
+    }
 
     // Now allocate in each bank:
     in_banks.for_each([&](unsigned bank_i)
     {
         span_t const allocated_span = banks[bank_i].allocator.alloc_at(alloc_at);
-        assert(allocated_span);
+
+        passert(allocated_span, alloc_at);
         assert(allocated_span.contains(alloc_at));
 
         auto result = banks[bank_i].many_spans.insert({ many_h, allocated_span });
@@ -698,7 +727,11 @@ void print_rom(std::ostream& o)
             if(!c.rom_array())
                 continue;
             if(auto a = c.rom_array()->get_alloc(romv_t(romv)))
+            {
                 o << romv << ' ' << a.get()->span << ' ' << a.first_bank() << std::endl;
+                for(auto const& d : c.rom_array()->data())
+                    o << d << std::endl;
+            }
             else
                 o << romv << " PRUNED\n";
         }

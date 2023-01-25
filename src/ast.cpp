@@ -26,6 +26,9 @@ unsigned ast_node_t::num_children() const
     case TOK_len_expr:
     case TOK_period:
     case TOK_read_hw:
+    case TOK_byte_block_call:
+    case TOK_byte_block_goto:
+    case TOK_byte_block_goto_mode:
         assert(children);
         return 1;
 
@@ -47,9 +50,6 @@ unsigned ast_node_t::num_children() const
         passert(!children, token_string(token.type));
         // fall-through
         // These use other pointers in the union instead of 'children':
-    case TOK_byte_block_call:
-    case TOK_byte_block_goto:
-    case TOK_byte_block_goto_mode:
     case TOK_character:
     case TOK_string_compressed:
     case TOK_string_uncompressed:

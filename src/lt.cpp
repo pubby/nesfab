@@ -24,11 +24,12 @@ void lt_value_t::resolve(romv_t romv)
 
     results[romv].rval = std::move(rpair.value);
 
-    /* TODO
+    // TODO
+#ifndef NDEBUG
     std::cout << "LT\n";
-    for(auto loc : result[romv])
+    for_each_locator([&](locator_t loc)
+    {
         std::cout << loc << std::endl;
-    std::cout << "\n";
-    */
-
+    });
+#endif
 }

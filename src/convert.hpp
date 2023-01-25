@@ -20,6 +20,8 @@ struct convert_arg_t
 
     variant_t value;
     pstring_t pstring;
+
+    string_literal_t filename() const;
 };
 
 class convert_error_t : public std::runtime_error

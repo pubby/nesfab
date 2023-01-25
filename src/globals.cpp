@@ -81,8 +81,7 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
             {
                 file_contents_t file(pstring.file_i);
                 throw compiler_error_t(
-                    fmt_error(pstring, fmt("Global identifier % already in use.", 
-                                           pstring.view(file.source())), &file)
+                    fmt_error(pstring, fmt("Global identifier % already in use.", name), &file)
                     + fmt_note(m_pstring, "Previous definition here:"));
             }
             else
@@ -420,7 +419,7 @@ void global_t::precheck_all()
     {
         // Allocate rom procs:
         assert(!fn.m_rom_proc);
-        fn.m_rom_proc = rom_proc_ht::pool_make(romv_allocs_t{}, fn.m_precheck_romv);
+        fn.m_rom_proc = rom_proc_ht::pool_make(romv_allocs_t{}, fn.m_precheck_romv, mod_test(fn.mods(), MOD_align));
 
         // Determine each 'm_precheck_called':
         if(fn.m_precheck_calls)
@@ -2077,7 +2076,7 @@ group_ht const_t::group() const { return group_data->group.handle(); }
 
 void const_t::paa_init(loc_vec_t&& vec)
 {
-    m_rom_array = rom_array_t::make(std::move(vec), group_data);
+    m_rom_array = rom_array_t::make(std::move(vec), mod_test(mods(), MOD_align), mod_test(mods(), MOD_dpcm), group_data);
     assert(m_rom_array);
 }
 

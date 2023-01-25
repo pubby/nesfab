@@ -442,7 +442,6 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
 {
     pstring_t const file_pstring = token.pstring;
     pstring_t script;
-    string_literal_t filename;
     std::vector<convert_arg_t> args;
 
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
@@ -455,7 +454,6 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
             switch(arg)
             {
             case 0: script = parse_ident(); return true;
-            case 1: filename = parse_string_literal(true); return true;
             default: 
                 pstring_t const pstring = token.pstring;
                 switch(token.type)
@@ -477,7 +475,7 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
     fs::path preferred_dir = file.path();
     preferred_dir.remove_filename();
 
-    fn(file_pstring, script, preferred_dir, filename, std::move(mods), std::move(args));
+    fn(file_pstring, script, preferred_dir, std::move(mods), std::move(args));
 }
 
 template<typename P>
@@ -1440,9 +1438,12 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 
     auto const call = [&](token_type_t tt)
     {
-        pstring_t call;
-        std::unique_ptr<mods_t> mods = parse_mods_after([&]{ call = parse_ident(); });
-        children.push_back(policy().byte_block_call(tt, call, std::move(mods)));
+        pstring_t pstring = token.pstring;
+        ast_node_t expr;
+
+        std::unique_ptr<mods_t> mods = parse_mods_after([&]{ expr = parse_expr(block_indent, 0); });
+
+        children.push_back(policy().byte_block_call(tt, pstring, std::move(expr), std::move(mods)));
     };
 
     auto const is_reg = [this](pstring_t pstring, char ch)
@@ -1497,11 +1498,16 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
             return;
 
         case TOK_file:
-            parse_file(TOK_file, [&](pstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, string_literal_t const& filename, 
+            parse_file(TOK_file, [&](pstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, 
                            std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
             {
+                if(args.empty())
+                    compiler_error(file_pstring, "Expecting filename.");
+
+                string_literal_t const filename = args[0].filename();
+
                 conversion_t c = convert_file(source(), script, preferred_dir, filename, mods.get(),
-                                              args.data(), args.size());
+                                              args.data() + 1, args.size() - 1);
 
                 if(auto* vec = std::get_if<std::vector<std::uint8_t>>(&c.data))
                 {
@@ -1833,14 +1839,10 @@ void parser_t<P>::parse_chrrom()
 template<typename P>
 void parser_t<P>::parse_audio()
 {
-    parse_file(TOK_audio, [&](pstring_t audio_pstring, pstring_t script, fs::path const& preferred_dir, string_literal_t const& filename, 
+    parse_file(TOK_audio, [&](pstring_t audio_pstring, pstring_t script, fs::path const& preferred_dir,
                               std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
     {
-        fs::path path;
-        if(!resource_path(preferred_dir, fs::path(filename.string), path))
-            compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
-
-        policy().audio(audio_pstring, path, std::move(mods));
+        policy().audio(audio_pstring, script, preferred_dir, std::move(args), std::move(mods));
     });
 
 

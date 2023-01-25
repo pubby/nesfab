@@ -47,7 +47,7 @@ private:
     struct upper_func
     {
         bool operator()(std::uint16_t lhs, treap_node_t const& rhs) const
-            { return lhs > rhs.span.addr; }
+            { return lhs < rhs.span.addr; }
     };
 
     struct lower_func
@@ -82,7 +82,9 @@ public:
 
     span_t alloc_at(span_t span);
 
-    span_t alloc(std::uint16_t size, std::uint16_t alignment = 1, bool insist_alignment = false);
+    span_t alloc(std::uint16_t size, std::uint16_t alignment = 1, bool insist_alignment = true);
+
+    span_t alloc_linear(std::uint16_t size, std::uint16_t alignment = 1, unsigned after = 0);
 
     void free(span_t span);
 

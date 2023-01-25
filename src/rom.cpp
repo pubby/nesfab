@@ -16,8 +16,8 @@
 // rom_array_t //
 /////////////////
 
-rom_array_t::rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t const&)
-: rom_data_t(a, ROMVF_IN_MODE)
+rom_array_t::rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t const&, bool align)
+: rom_data_t(a, ROMVF_IN_MODE, align)
 , m_used_in_group_data(group_data_ht::bitset_size())
 {
     assert(compiler_phase() <= rom_array_ht::phase);
@@ -44,7 +44,7 @@ void rom_array_t::for_each_locator(std::function<void(locator_t)> const& fn) con
         fn(loc);
 }
 
-rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, romv_allocs_t const& a)
+rom_array_ht rom_array_t::make(loc_vec_t&& vec, bool align, bool dpcm, group_data_ht gd, romv_allocs_t const& a)
 {
     std::hash<loc_vec_t> hasher;
     auto const hash = hasher(vec);
@@ -60,12 +60,18 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, group_data_ht gd, romv_allocs_t 
             [&]()
             { 
                 rom_array_ht const ret = { pool.size() };
-                pool.emplace_back(std::move(vec), a, rom_key_t());
+                pool.emplace_back(std::move(vec), a, rom_key_t(), align);
                 return ret;
             });
 
         return *result.first;
     });
+
+    if(align)
+        ret.safe().mark_aligned();
+
+    if(dpcm)
+        ret.safe().mark_dpcm();
 
     if(gd)
         ret.safe().mark_used_by(gd);
@@ -143,7 +149,7 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
                     assert(false);
             }
 
-            locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec)));
+            locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec), false, false));
             loc.advance_offset(-begin);
 
             ssa_it->replace_with(loc);
@@ -194,14 +200,14 @@ void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) cons
 // rom data generic //
 //////////////////////
 
-rom_data_ht to_rom_data(loc_vec_t&& data, romv_allocs_t const& a)
+rom_data_ht to_rom_data(loc_vec_t&& data, bool align, romv_allocs_t const& a)
 {
-    return rom_array_t::make(std::move(data), {}, a);
+    return rom_array_t::make(std::move(data), align, false, {}, a);
 }
 
-rom_data_ht to_rom_data(asm_proc_t&& asm_proc, romv_allocs_t const& a, romv_flags_t desired_romv)
+rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, romv_allocs_t const& a, romv_flags_t desired_romv)
 {
-    return rom_proc_ht::pool_make(std::move(asm_proc), a, desired_romv);
+    return rom_proc_ht::pool_make(std::move(asm_proc), a, desired_romv, align);
 }
 
 /////////////////

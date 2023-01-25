@@ -1884,12 +1884,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         + fmt_note(fmt("Use the '.' operator to get a single byte %.", s)));
                 }
 
+                /* TODO
                 if(!is_arithmetic(base_type.name()))
                 {
                     throw compiler_error_t(
                         fmt_error(value.pstring, "Cannot get address of non-arithmetic value using unary '&'.")
                         + fmt_note(fmt("Type is %.", base_type)));
                 }
+                */
 
                 std::uint16_t offset = 0;
                 if(lval->index)
@@ -2156,9 +2158,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                     if(fn.def().local_consts[j].is_label() && i-- == 0)
                                     {
                                         lhs.lval().label = j; // OK! Found the label.
-                                        break;
+                                        goto finish_period;
                                     }
                                 }
+
+                                compiler_error(ast.token.pstring, "Missing label.");
                             }
                         }
                     }
@@ -2953,25 +2957,34 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 case TOK_byte_block_call:
                 case TOK_byte_block_goto:
                     {
-                        global_t const* g = sub.token.ptr<global_t>();
+                        expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
 
-                        if(g->gclass() != GLOBAL_FN || g->impl<fn_t>().fclass != FN_FN)
-                            compiler_error(sub.token.pstring, fmt("% is not a callable function.", g->name));
+                        if(!fn_val.is_lval() || !fn_val.lval().is_global())
+                            compiler_error(sub.token.pstring, "Expression is not a callable function.");
+
+                        global_t const& g = fn_val.lval().global();
+
+                        if(g.gclass() != GLOBAL_FN || g.impl<fn_t>().fclass != FN_FN)
+                            compiler_error(sub.token.pstring, fmt("% is not a callable function.", g.name));
 
                         if(precheck_tracked)
-                            precheck_tracked->calls.emplace(g->handle<fn_ht>(), sub.token.pstring);
+                            precheck_tracked->calls.emplace(g.handle<fn_ht>(), sub.token.pstring);
 
                         if(!is_check(D))
                         {
                             op_t const op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
-                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()).with_is(IS_BANK) });
-                            proc.push_inst({ .op = op, .iasm_child = i, .arg = locator_t::fn(g->handle<fn_ht>()) });
+                            locator_t const loc = locator_t::fn(g.handle<fn_ht>(), fn_val.lval().ulabel());
+                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = i, .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = op, .iasm_child = i, .arg = loc });
                         }
                     }
                     break;
 
                 case TOK_byte_block_goto_mode:
                     {
+                        assert(false);
+                        throw std::runtime_error("unimplemented");
+                        // TODO
                         global_t const* g = sub.token.ptr<global_t>();
 
                         if(g->gclass() != GLOBAL_FN || g->impl<fn_t>().fclass != FN_MODE)

@@ -14,6 +14,14 @@
 
 namespace fs = ::std::filesystem;
 
+string_literal_t convert_arg_t::filename() const
+{
+    if(auto* p = std::get_if<string_literal_t>(&value))
+        return *p;
+    else
+        compiler_error(pstring, "Expecting filename.");
+}
+
 ext_lex::token_type_t lex_extension(char const* str)
 {
     if(*str == '.')

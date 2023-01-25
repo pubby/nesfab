@@ -24,6 +24,7 @@
 #include "iasm.hpp"
 #include "eternal_new.hpp"
 #include "puf.hpp"
+#include "convert.hpp"
 
 namespace bc = boost::container;
 
@@ -453,16 +454,18 @@ public:
     }
 
     [[gnu::always_inline]]
-    ast_node_t byte_block_call(lex::token_type_t tt, pstring_t pstring, std::unique_ptr<mods_t> mods)
+    ast_node_t byte_block_call(lex::token_type_t tt, pstring_t pstring, ast_node_t call, std::unique_ptr<mods_t> mods)
     {
-        if(symbol_table.find(pstring.view(source())))
-            compiler_error(pstring, "Cannot call a local variable.");
+        // TODO
+        //if(symbol_table.find(pstring.view(source())))
+            //compiler_error(pstring, "Cannot call a local variable.");
 
-        global_t& g = global_t::lookup(file.source(), pstring);
-        ideps.emplace(&g, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
+        //global_t& g = global_t::lookup(file.source(), pstring);
+        //ideps.emplace(&g, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
 
-        ast_node_t ast = { .token = token_t::make_ptr(tt, pstring, &g) };
+        ast_node_t ast = { .token = token_t::make_ptr(tt, pstring, &mods), .children = eternal_expr(&call) };
 
+        // TODO
         if(mods)
         {
             if(tt == lex::TOK_byte_block_goto_mode)
@@ -476,7 +479,7 @@ public:
             else
                 mods->validate(pstring);
 
-            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+            //ast.mods = eternal_emplace<mods_t>(std::move(*mods));
         }
 
         return ast;
@@ -626,7 +629,7 @@ public:
         uses_type(var_decl.src_type.type);
 
         if(mods)
-            mods->validate(var_decl.name);
+            mods->validate(var_decl.name, MOD_align | MOD_dpcm);
 
         std::unique_ptr<paa_def_t> paa_def;
         if(is_paa(var_decl.src_type.type.name()))
@@ -1093,52 +1096,48 @@ public:
         ideps.clear();
     }
 
-    void audio(pstring_t decl, fs::path path, std::unique_ptr<mods_t> mods)
+    void audio(pstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
     {
+        using namespace std::literals;
+
         if(mods)
             mods->validate(decl);
 
-        pstring_t at = decl;
-
-        /* TODO
-        auto const define = [&](std::string_view name, asm_proc_t&& proc, group_data_t& group, bool align)
+        auto const get_path = [&](convert_arg_t const& v)
         {
-            using namespace lex;
-
-            std::unique_ptr<mods_t> mods;
-            if(align)
-                mods = std::make_unique<mods_t>(MOD_align);
-
-            ast_node_t* sub_proc = eternal_emplace<ast_node_t>(ast_node_t{
-                .token = token_t::make_ptr(TOK_byte_block_sub_proc, at, 
-                                           eternal_emplace<asm_proc_t>(std::move(proc))),
-                .children = nullptr,
-            });
-
-            ast_node_t* expr = eternal_emplace<ast_node_t>(ast_node_t{
-                .token = { .type = TOK_byte_block_proc, .pstring = at, .value = 1 },
-                .children = sub_proc,
-            });
-
-            auto& global = global_t::lookup_sourceless(at, name);
-            global.define_const(
-                at, {}, { at, type_t::paa(0, group.group.handle()) }, std::make_pair(&group, group.handle()), 
-                expr, {}, std::move(mods));
+            string_literal_t filename = v.filename();
+            fs::path path;
+            if(!resource_path(preferred_dir, fs::path(filename.string), path))
+                compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
+            std::cout << "PATH = " << path << std::endl;
+            return path;
         };
-        */
 
-        std::vector<std::uint8_t> file_data = read_binary_file(path.string(), at);
+        auto const check_argn = [&](unsigned expected)
+        {
+            if(args.size() != expected)
+                compiler_error(decl, fmt("Wrong number of arguments. Expecting %.", expected + 1));
+        };
 
-        convert_puf(reinterpret_cast<char const*>(file_data.data()), file_data.size(), at);
+        std::string_view const view = script.view(source());
 
-
-        /*
-        active_global = &global_t::chrrom(decl);
-        active_global->define_const(
-            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, 
-            convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
-        ideps.clear();
-        */
+        if(view == "puf1_music"sv)
+        {
+            check_argn(1);
+            std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
+            convert_puf_music(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), decl);
+        }
+        else if(view == "puf1_sfx"sv)
+        {
+            check_argn(2);
+            std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
+            std::vector<std::uint8_t> nsf_data = read_binary_file(get_path(args[1]).string(), decl);
+            convert_puf_sfx(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), 
+                            nsf_data.data(), nsf_data.size(), 
+                            decl);
+        }
+        else
+            compiler_error(script, fmt("Unknown audio format: %", view));
     }
 
     /* TODO: remove

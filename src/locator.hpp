@@ -34,6 +34,7 @@ enum locator_class_t : std::uint8_t
     LOC_FN, // A function.
     LOC_GMEMBER, // A global member.
     LOC_GCONST, // A global const.
+    LOC_DPCM, // Like GCONST, but for DPCM
 
     // When a function calls another function, 
     // the IR tracks which gmembers are used in that function.
@@ -158,6 +159,7 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_ASM_LOCAL_VAR:
     //case LOC_LT_GMEMBER_PTR:
     case LOC_GCONST:
+    case LOC_DPCM:
     case LOC_LT_EXPR:
         return true;
     default:
@@ -201,6 +203,7 @@ constexpr bool has_const(locator_class_t lclass)
     switch(lclass)
     {
     case LOC_GCONST:
+    case LOC_DPCM:
         return true;
     default:
         return false;
@@ -555,6 +558,9 @@ public:
 
     constexpr static locator_t gconst(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_GCONST, c.id, 0, member, atom, offset).with_is(IS_PTR); }
+
+    constexpr static locator_t dpcm(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
+        { return locator_t(LOC_DPCM, c.id, 0, member, atom, offset).with_is(IS_PTR); }
 
     constexpr static locator_t lt_expr(lt_ht lt, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_LT_EXPR, lt.id, 0, member, atom, offset); }

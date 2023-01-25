@@ -17,9 +17,9 @@ vars /puf_vars
     AA puf_dpcm_pattern_ptr
 
 // $100 to $10F: Instrument pointers
-ct AA puf_instrument_ptrs = $100
+ct AA puf_instrument_ptrs = $104
 
-ct AA puf_stack_mem = $110
+ct AA puf_stack_mem = $120
 ct AA puf_pattern_left        = puf_stack_mem +  0
 ct AA puf_track_step          = puf_stack_mem +  1
 
@@ -73,7 +73,6 @@ data /puf_data
 
 omni data /puf_omni
     [] puf_ntsc_note_table
-    : +align
         UU[]($07F1,$077F,$0713,$06AD,$064D,$05F3,$059D,$054C,$0500,$04B8,$0474,$0434)
         UU[]($03F8,$03BF,$0389,$0356,$0326,$02F9,$02CE,$02A6,$0280,$025C,$023A,$021A)
         UU[]($01FB,$01DF,$01C4,$01AB,$0193,$017C,$0167,$0152,$013F,$012D,$011C,$010C)
@@ -82,16 +81,8 @@ omni data /puf_omni
         UU[]($003F,$003B,$0038,$0034,$0031,$002F,$002C,$0029,$0027,$0025,$0023,$0021)
         UU[]($001F,$001D,$001B,$001A,$0018,$0017,$0015,$0014,$0013,$0012,$0011,$0010)
         UU[]($000F,$000E,$000D)
-        label track_step_function_lo
-            // TODO
-            //U(&puf_update_variables.a)
-            //U(&puf_update_triangle_noise.a)
-            //U(&puf_update_squares.a)
-            //U(&puf_update_pattern_ptrs.a)
-            //U[78](&puf_update_null.a)
 
     [] puf_pal_note_table
-    : +align
         UU[]($0760,$06F6,$0692,$0634,$05DB,$0586,$0537,$04EC,$04A5,$0462,$0423,$03E8)
         UU[]($03B0,$037B,$0349,$0319,$02ED,$02C3,$029B,$0275,$0252,$0231,$0211,$01F3)
         UU[]($01D7,$01BD,$01A4,$018C,$0176,$0161,$014D,$013A,$0129,$0118,$0108,$00F9)
@@ -100,47 +91,45 @@ omni data /puf_omni
         UU[]($003A,$0037,$0034,$0031,$002E,$002B,$0029,$0026,$0024,$0022,$0020,$001E)
         UU[]($001D,$001B,$0019,$0018,$0016,$0015,$0014,$0013,$0012,$0011,$0010,$000F)
         UU[]($000E,$000D,$000C)
-        label track_step_function_hi
-            // TODO
-            //U(&puf_update_variables.b)
-            //U(&puf_update_triangle_noise.b)
-            //U(&puf_update_squares.b)
-            //U(&puf_update_pattern_ptrs.b)
-            //U[78](&puf_update_null.b)
 
-ct AA puf_track_step_function_lo = puf_ntsc_note_table.track_step_function_lo
-ct AA puf_track_step_function_hi = puf_pal_note_table.track_step_function_hi
-
-
-/*
-silent_instrument:
-    .byt 3
-    .byt 2
-    .byt %00110000
-
-    .byt 3
-    .byt 2
-    .byt 0
-
-    .byt 3
-    .byt 2
-    .byt 0
-*/
-
-asm fn puf_set_song()
+asm fn puf_set_song(U song_id)
 : employs /puf_data /puf_omni /puf_vars
     default
     label foo
-        //lda &song_id
+        lda &song_id
         sta puf_temp
-        rts
-        //goto puf.set_song
+        goto puf.set_song
+
+asm fn puf_play_sfx(U sfx_id)
+: employs /puf_data /puf_omni /puf_vars
+    default
+    label foo
+        lda &sfx_id
+        sta puf_temp
+        goto puf.play_sfx
 
 asm fn puf()
 : employs /puf_data /puf_omni /puf_vars
+    label track_step_function_lo
+        U(update_variables.a)
+        U(update_triangle_noise.a)
+        U(update_squares.a)
+        U(update_pattern_ptrs.a)
+        U[12](update_null.a)
+
+    label track_step_function_hi
+        U(update_variables.b)
+        U(update_triangle_noise.b)
+        U(update_squares.b)
+        U(update_pattern_ptrs.b)
+        U[12](update_null.b)
+
     label play_sfx
+        ldx puf_temp
+        lda &puf_sfx_lo, x
         sta &puf_ptr_temp.a
-        stx &puf_ptr_temp.b
+        lda &puf_sfx_hi, x
+        sta &puf_ptr_temp.b
 
         ldy #0
         lda (&puf_ptr_temp.a), y
@@ -319,28 +308,25 @@ asm fn puf()
     label done_update_square1
 
         // DPCM
-    /* TODO
         lsr puf_dpcm_mask
         bcc done_dpcm
 
         inc &puf_dpcm_pattern_ptr.a
         lax (&puf_dpcm_pattern_ptr.a), y
         beq silence_dpcm
-        lda dpcm_rate-1, x
+        lda &puf_dpcm_rate-1, x
         and #%1111
         sta $4010
-        lda dpcm_addr-1, x
+        lda &puf_dpcm_addr-1, x
         sta $4012
-        lda dpcm_length-1, x
+        lda &puf_dpcm_length-1, x
         sta $4013
         lda #32
         sta $4011
         lda #%00011111
-    silence_dpcm:
+    label silence_dpcm
         sta $4015
-    done_dpcm:
-    .endif
-    */
+    label done_dpcm
 
         lda puf_track_speed
         sta puf_track_step
@@ -354,6 +340,7 @@ asm fn puf()
         lda &puf_instrument_hi, x
         sta $101, y
         rts
+
 
     label update_triangle_noise
         // Triangle
@@ -699,9 +686,9 @@ asm fn puf()
     label process
         dec puf_track_step
         ldx puf_track_step
-        lda puf_track_step_function_lo, x
+        lda track_step_function_lo, x
         sta &puf_ptr_temp.a
-        lda puf_track_step_function_hi, x
+        lda track_step_function_hi, x
         sta &puf_ptr_temp.b
         jmp (&puf_ptr_temp.a)
 
@@ -712,33 +699,33 @@ asm fn puf()
         sta &puf_note_table_ptr.a
         stx &puf_note_table_ptr.b
     label finish_init
-        ldx #puf_stack_mem.a + 0
+        ldx #(puf_instrument_ptrs.a + 0)
         stx puf_noise_stack
-        ldx #puf_stack_mem.a + 2
+        ldx #(puf_instrument_ptrs.a + 0) ^ 2
         stx puf_noise_stack_next
-        ldx #puf_stack_mem.a + 4
+        ldx #(puf_instrument_ptrs.a + 4)
         stx puf_triangle_stack
-        ldx #puf_stack_mem.a + 6
+        ldx #(puf_instrument_ptrs.a + 4) ^ 2
         stx puf_triangle_stack_next
-        ldx #puf_stack_mem.a + 6
+        ldx #(puf_instrument_ptrs.a + 8)
         stx puf_square2_stack
-        ldx #puf_stack_mem.a + 8
+        ldx #(puf_instrument_ptrs.a + 8) ^ 2
         stx puf_square2_stack_next
-        ldx #puf_stack_mem.a + 12
+        ldx #(puf_instrument_ptrs.a + 12)
         stx puf_square1_stack
-        ldx #puf_stack_mem.a + 14
+        ldx #(puf_instrument_ptrs.a + 12) ^ 2
         stx puf_square1_stack_next
 
         lda #puf_silent_instrument.a
-        sta puf_stack_mem+2
-        sta puf_stack_mem+6
-        sta puf_stack_mem+10
-        sta puf_stack_mem+14
+        sta UU(puf_instrument_ptrs+0) ^ 2
+        sta UU(puf_instrument_ptrs+4) ^ 2
+        sta UU(puf_instrument_ptrs+8) ^ 2
+        sta UU(puf_instrument_ptrs+12) ^ 2
         lda #puf_silent_instrument.b
-        sta puf_stack_mem+3
-        sta puf_stack_mem+7
-        sta puf_stack_mem+11
-        sta puf_stack_mem+15
+        sta UU(puf_instrument_ptrs+1) ^ 2
+        sta UU(puf_instrument_ptrs+5) ^ 2
+        sta UU(puf_instrument_ptrs+9) ^ 2
+        sta UU(puf_instrument_ptrs+13) ^ 2
 
         jsr reset_square1
         jsr reset_square2

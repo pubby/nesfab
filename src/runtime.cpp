@@ -360,7 +360,7 @@ static asm_proc_t make_reset_proc()
 
 void create_reset_proc()
 {
-    reset_proc = rom_proc_ht::pool_make(romv_allocs_t{}, ROMVF_IN_MODE);
+    reset_proc = rom_proc_ht::pool_make(romv_allocs_t{}, ROMVF_IN_MODE, false);
 }
 
 void set_reset_proc()
@@ -514,7 +514,7 @@ span_allocator_t alloc_runtime_rom()
             allocs[romv] = rom_static_ht::pool_make(romv_t(romv), _rtrom_spans[name][romv]);
         });
 
-        _rtrom_data[name] = to_rom_data(std::move(data), allocs);
+        _rtrom_data[name] = to_rom_data(std::move(data), false, allocs);
 
         bitset_for_each(flags, [&](unsigned romv)
         {

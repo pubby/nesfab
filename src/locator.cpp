@@ -67,6 +67,8 @@ std::string to_string(locator_t loc)
         //str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_GCONST:
         str = fmt("gconst %", loc.const_()->global.name); break;
+    case LOC_DPCM:
+        str = fmt("dpcm %", loc.const_()->global.name); break;
     case LOC_LT_EXPR:
         str = fmt("lt_expr % %", loc.handle(), loc.lt().safe().type); break;
     case LOC_THIS_BANK:
@@ -238,6 +240,8 @@ type_t locator_t::type() const
             return (*lc)[data()].type();
         }
         break;
+    case LOC_DPCM:
+        return TYPE_U;
     default:
         break;
     }
@@ -282,6 +286,14 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
     switch(lclass())
     {
+    case LOC_DPCM:
+        if(rom_alloc_t* alloc = rom_alloc(romv).get())
+        {
+            assert(alloc->span.addr >= 0xC000);
+            return locator_t::const_byte((alloc->span.addr - 0xC000) / 64);
+        }
+        return *this;
+
     case LOC_NAMED_LABEL:
         {
             global_t const& g = *global();
@@ -485,6 +497,7 @@ rom_data_ht locator_t::rom_data() const
     case LOC_MAIN_MODE:
         return get_main_mode().rom_proc();
     case LOC_GCONST:
+    case LOC_DPCM:
         return const_()->rom_array();
     case LOC_RESET_GROUP_VARS:
         return group_vars()->init_proc();

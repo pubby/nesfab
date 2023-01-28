@@ -187,6 +187,60 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         }
     };
 
+    // Reads should be used before they're rewritten
+    for(ssa_ht ssa_node : toposorted)
+    {
+        if(ssa_node->op() != SSA_read_global)
+            continue;
+
+        locator_t const read_loc = ssa_node->input(1).locator();
+
+        ssa_ht const writer = ssa_node->input(0).handle();
+        if(writer->cfg_node() != cfg_node)
+            continue;
+
+        auto& d = data(writer);
+        unsigned const index_ = index(writer);
+
+        // - identify if the writer depends on other writes
+
+        bool updated = false;
+
+        bitset_for_each(set_size, d.deps, 
+        [&](unsigned bit)
+        { 
+            ssa_ht dep = toposorted[bit];
+
+            assert(dep != ssa_node);
+
+            if(dep->cfg_node() != cfg_node || dep->op() != SSA_read_global || dep->input(1).locator() != read_loc)
+                return;
+
+            for(unsigned i = 0; i < dep->output_size(); ++i)
+            {
+                ssa_ht const o = orig_use(dep->output(i));
+
+                if(o->cfg_node() != cfg_node || o == writer)
+                    continue;
+
+                auto& od = data(o);
+
+                // Can't add a dep if a cycle would be created:
+                if(bitset_test(od.deps, index_))
+                    return;
+
+                // Add a dep!
+                bitset_set(d.deps, index(o));
+                bitset_or(set_size, d.deps, od.deps);
+                updated = true;
+            }
+        });
+
+        if(updated)
+            propagate_deps_change(ssa_node);
+    }
+
+
 #if 0
     // In chains of carry operations, setup deps to avoid cases where
     // a carry would need to be stored.
@@ -412,7 +466,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             if(!is_locator_write(oe))
                 continue;
 
-            // We can only do this when everythings in the same CFG node
+            // We can only do this when everything is in the same CFG node:
             if(oe.handle->cfg_node() != cfg_node)
                 continue;
 

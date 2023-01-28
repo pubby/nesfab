@@ -7,6 +7,7 @@
 #include <filesystem>
 
 #include "mapper.hpp"
+#include "nes_system.hpp"
 
 namespace fs = ::std::filesystem;
 
@@ -17,6 +18,8 @@ struct options_t
     bool graphviz = false;
     bool build_time = false;
     bool werror = false;
+
+    nes_system_t nes_system = NES_SYSTEM_UNKNOWN;
 
     // Raw mapper settings.
     // (These will get converted to a 'mapper_t' eventually)

@@ -11,8 +11,12 @@
 unsigned lval_t::ulabel() const
 { 
     if(label == ENTRY_LABEL && is_global() && global().gclass() == GLOBAL_FN && global().impl<fn_t>().iasm)
+    {
+        std::cout << global().name << " ULABEL " << global().impl<fn_t>().def().default_label << std::endl;
         return global().impl<fn_t>().def().default_label;
+    }
 
+    std::cout << global().name << " ULABEL " << label << std::endl;
     return label;
 }
 

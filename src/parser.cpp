@@ -468,7 +468,7 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
             }
         });
 
-        if(argn < 2)
+        if(argn < 1)
             compiler_error(file_pstring, "Wrong number of arguments.");
     });
 
@@ -678,6 +678,14 @@ ast_node_t parser_t<P>::parse_expr_atom(int starting_indent, int open_parens)
         }
     };
 
+    auto const system = [this](nes_system_t s)
+    {
+        pstring_t at = token.pstring;
+        ast_node_t ast = { .token = { .type = TOK_int, .pstring = at, .value = NES_SYSTEM_NTSC } };
+        parse_token();
+        return ast;
+    };
+
 retry:
     if(indent < starting_indent)
         compiler_error("Multi-line expressions must be indented. "
@@ -731,12 +739,17 @@ retry:
     case TOK_true:
     case TOK_false:
     case TOK_ready:
+    case TOK_system:
         {
             ast_node_t ast = { .token = token };
             parse_token();
             return ast;
         }
 
+    case TOK_SYSTEM_NTSC:    return system(NES_SYSTEM_NTSC);
+    case TOK_SYSTEM_PAL:     return system(NES_SYSTEM_PAL);
+    case TOK_SYSTEM_DENDY:   return system(NES_SYSTEM_DENDY);
+    case TOK_SYSTEM_UNKNOWN: return system(NES_SYSTEM_UNKNOWN);
 
         /* TODO: remove
     case TOK_at:

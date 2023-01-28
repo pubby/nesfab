@@ -304,7 +304,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
         else if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_MANY)
         {
             unsigned const many_i = rom_array.get_alloc(ROMV_MODE).handle();
-            assert(many_i < num_onces);
+            passert(many_i < num_manys, many_i, num_manys);
             bitset_set(gd_many_bs(gd.id), many_i);
         }
     }

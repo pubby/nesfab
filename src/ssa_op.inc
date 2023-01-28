@@ -25,6 +25,9 @@ SSA_DEF(uninitialized, 0, INPUT_NONE, SSAF_CG_UNLIVE | SSAF_NO_GVN | SSAF_FREE) 
 // ()
 SSA_DEF(ready, 0, INPUT_NONE, SSAF_NO_GVN)
 
+// ()
+SSA_DEF(system, 0, INPUT_NONE, SSAF_NO_GVN)
+
 // (op)
 SSA_DEF(carry, 1, INPUT_LINK, SSAF_TRACE_INPUTS)
 

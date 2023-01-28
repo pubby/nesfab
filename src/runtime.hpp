@@ -22,7 +22,8 @@ RT(nmi_saved_y) \
 RT(nmi_saved_bank) \
 RT(nmi_counter) \
 RT(nmi_ready) \
-RT(mapper_state)
+RT(mapper_state) \
+RT(system) \
 
 enum runtime_ram_name_t : std::uint16_t
 {

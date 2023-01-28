@@ -680,7 +680,7 @@ namespace isel
             simple_op<Opt, get_op(Op, MODE_RELATIVE), null_, Arg>(cpu, prev, cont);
             break;
         jmp:
-            simple_op<Opt, JMP_ABSOLUTE, null_, Arg>(cpu, prev, cont);
+            exact_op<Opt, JMP_ABSOLUTE, null_, Arg>(cpu, prev, cont);
         }
     }
 
@@ -1654,7 +1654,7 @@ namespace isel
                         assert(!info.lsigned);
 
                         if(p_rhs::value().eq_const_byte(0))
-                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, FailLabel>>);
+                            select_step<false>(if_<Opt, last_comp, exact_op<Opt, JMP_ABSOLUTE, null_, FailLabel>>);
                         else
                         {
                             select_step<false>(
@@ -1669,7 +1669,7 @@ namespace isel
                     else
                     {
                         if(p_rhs::value().eq_const_byte(0))
-                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, FailLabel>>);
+                            select_step<false>(if_<Opt, last_comp, exact_op<Opt, JMP_ABSOLUTE, null_, FailLabel>>);
                         else
                         {
                             select_step<false>(
@@ -1695,7 +1695,7 @@ namespace isel
                         assert(!info.rsigned);
 
                         if(p_lhs::value().eq_const_byte(0))
-                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, SuccessLabel>>);
+                            select_step<false>(if_<Opt, last_comp, exact_op<Opt, JMP_ABSOLUTE, null_, SuccessLabel>>);
                         else
                         {
                             select_step<false>(
@@ -1710,7 +1710,7 @@ namespace isel
                     else
                     {
                         if(p_lhs::value().eq_const_byte(0))
-                            select_step<false>(if_<Opt, last_comp, simple_op<Opt, JMP_ABSOLUTE, null_, SuccessLabel>>);
+                            select_step<false>(if_<Opt, last_comp, exact_op<Opt, JMP_ABSOLUTE, null_, SuccessLabel>>);
                         else
                         {
                             select_step<false>(
@@ -2359,7 +2359,7 @@ namespace isel
             chain
             < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
             , simple_op<Opt, LDX_IMMEDIATE, null_, const_<0>>
-            , simple_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
+            , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
             , label<p_label<0>>
             , simple_op<Opt, LDX_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
@@ -2371,7 +2371,7 @@ namespace isel
             chain
             < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
             , simple_op<Opt, LDY_IMMEDIATE, null_, const_<0>>
-            , simple_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
+            , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
             , label<p_label<0>>
             , simple_op<Opt, LDY_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
@@ -2419,7 +2419,7 @@ namespace isel
             chain
             < simple_op<Opt, BPL_RELATIVE, null_, p_label<0>>
             , simple_op<Opt, LDX_IMMEDIATE, null_, const_<0>>
-            , simple_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
+            , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
             , label<p_label<0>>
             , simple_op<Opt, LDX_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
@@ -2431,7 +2431,7 @@ namespace isel
             chain
             < simple_op<Opt, BPL_RELATIVE, null_, p_label<0>>
             , simple_op<Opt, LDY_IMMEDIATE, null_, const_<0>>
-            , simple_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
+            , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
             , label<p_label<0>>
             , simple_op<Opt, LDY_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
@@ -2532,6 +2532,11 @@ namespace isel
         {
         case SSA_ready:
             p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_ready));
+            load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
+            break;
+
+        case SSA_system:
+            p_arg<0>::set(locator_t::runtime_ram(RTRAM_system));
             load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
             break;
 

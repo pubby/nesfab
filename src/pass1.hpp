@@ -259,6 +259,8 @@ public:
         var_decl_t decl, fn_class_t fclass, ast_node_t ast,
         std::unique_ptr<mods_t> mods)
     {
+        std::cout << active_global->name << " LABEL = " << fn_def.default_label << std::endl;
+
         // Set the default label
         /* TODO: remove?
         if(fn_def.default_label < 0)
@@ -1121,23 +1123,44 @@ public:
 
         std::string_view const view = script.view(source());
 
-        if(view == "puf1_music"sv)
+        try
         {
-            check_argn(1);
-            std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
-            convert_puf_music(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), decl);
+            if(view == "puf1_music"sv)
+            {
+                if(args.empty())
+                    convert_puf_music(nullptr, 0, decl);
+                else
+                {
+                    check_argn(1);
+                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
+                    convert_puf_music(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), decl);
+                }
+            }
+            else if(view == "puf1_sfx"sv)
+            {
+                if(args.empty())
+                    convert_puf_sfx(nullptr, 0, nullptr, 0, decl);
+                else
+                {
+                    check_argn(2);
+                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
+                    std::vector<std::uint8_t> nsf_data = read_binary_file(get_path(args[1]).string(), decl);
+                    convert_puf_sfx(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), 
+                                    nsf_data.data(), nsf_data.size(), 
+                                    decl);
+                }
+            }
+            else
+                compiler_error(script, fmt("Unknown audio format: %", view));
         }
-        else if(view == "puf1_sfx"sv)
+        catch(compiler_error_t const& e)
         {
-            check_argn(2);
-            std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
-            std::vector<std::uint8_t> nsf_data = read_binary_file(get_path(args[1]).string(), decl);
-            convert_puf_sfx(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), 
-                            nsf_data.data(), nsf_data.size(), 
-                            decl);
+            throw e;
         }
-        else
-            compiler_error(script, fmt("Unknown audio format: %", view));
+        catch(std::exception const& e)
+        {
+            compiler_error(script, e.what());
+        }
     }
 
     /* TODO: remove

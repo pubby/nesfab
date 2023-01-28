@@ -86,6 +86,9 @@ ram_bitset_t alloc_runtime_ram()
     if(mapper().bankswitches())
         _rtram_spans[RTRAM_nmi_saved_bank] = {{ a.alloc_zp(1) }};
 
+    if(compiler_options().nes_system == NES_SYSTEM_UNKNOWN)
+        _rtram_spans[RTRAM_system] = {{ a.alloc_zp(1) }};
+
     return a.allocated;
 }
 
@@ -350,9 +353,46 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
+    if(false && compiler_options().nes_system == NES_SYSTEM_UNKNOWN)
+    {
+        proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0x80));
+        proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUCTRL));
+
+        proc.push_inst(LDX_IMMEDIATE, locator_t::const_byte(0));
+        proc.push_inst(LDY_IMMEDIATE, locator_t::const_byte(0));
+
+        proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_wait_nmi));
+        proc.push_inst(LDA_ZERO_PAGE, locator_t::runtime_ram(RTRAM_nmi_counter));
+
+        locator_t const wait = proc.push_label(next_label++);
+        // Each iteration takes 11 cycles.
+        // NTSC NES: 29780 cycles or 2707 = $A93 iterations
+        // PAL NES:  33247 cycles or 3022 = $BCE iterations
+        // Dendy:    35464 cycles or 3224 = $C98 iterations
+        // so we can divide by $100 (rounding down), subtract ten,
+        // and end up with 0=ntsc, 1=pal, 2=dendy, 3=unknown
+        proc.push_inst(INX_IMPLIED);
+        proc.push_inst(BNE_RELATIVE, locator_t::const_byte(1));
+        proc.push_inst(INY_IMPLIED);
+        proc.push_inst(CMP_ZERO_PAGE, locator_t::runtime_ram(RTRAM_nmi_counter));
+        proc.push_inst(BEQ_RELATIVE, wait);
+        proc.push_inst(TYA_IMPLIED);
+        proc.push_inst(SEC_IMPLIED);
+        proc.push_inst(SBC_IMMEDIATE, locator_t::const_byte(10));
+        proc.push_inst(CMP_IMMEDIATE, locator_t::const_byte(3));
+        proc.push_inst(BCC_RELATIVE, locator_t::const_byte(2));
+        proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(3));
+    notAbove3:
+        proc.push_inst(STA_ZERO_PAGE, locator_t::runtime_ram(RTRAM_system));
+
+        proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUCTRL));
+    }
+
     // Jump to our entry point.
-    _load_bankswitch_ax(proc, locator_t::fn(main.handle()).with_is(IS_BANK));
-    proc.push_inst(JMP_ABSOLUTE, locator_t::fn(main.handle()));
+    proc.push_inst(LDY_IMMEDIATE, locator_t::fn(main.handle()).with_is(IS_BANK));
+    proc.push_inst(BANKED_Y_JMP, locator_t::fn(main.handle()));
 
     proc.initial_optimize();
     return proc;
@@ -366,6 +406,7 @@ void create_reset_proc()
 void set_reset_proc()
 {
     reset_proc.safe().assign(make_reset_proc());
+    reset_proc.safe().mark_aligned();
 }
 
 asm_proc_t make_bnrom_jsr_y_trampoline()

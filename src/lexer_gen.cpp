@@ -654,6 +654,7 @@ int main()
         keyword("preserves"),
         keyword("stows"),
         keyword("audio"),
+        keyword("system"),
 
         keyword("true"),
         keyword("false"),
@@ -667,6 +668,11 @@ int main()
         keyword("OAMADDR"),
         keyword("OAMDATA"),
         keyword("OAMDMA"),
+
+        keyword("SYSTEM_NTSC"),
+        keyword("SYSTEM_PAL"),
+        keyword("SYSTEM_DENDY"),
+        keyword("SYSTEM_UNKNOWN"),
 
         // Symbols
 

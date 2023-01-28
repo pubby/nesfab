@@ -2033,6 +2033,25 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return result;
         }
 
+    case TOK_system:
+        {
+            if(is_interpret(D)) // TODO: perhaps this should move to 'to_rval'.
+                compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
+
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::SYSTEM_ARG },
+                .type = TYPE_U,
+                .pstring = ast.token.pstring,
+            };
+
+            if(is_compile(D))
+                result.time = RT;
+
+            assert(result.is_lval());
+            return result;
+        }
+
     case TOK_true:
     case TOK_false:
         {
@@ -2876,8 +2895,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             if(!is_check(D))
             {
-                proc.entry_label = locator_t::minor_label(ENTRY_LABEL);
-                proc.push_inst({ .op = ASM_LABEL, .arg = proc.entry_label });
+                if(fn && fn->def().default_label != ENTRY_LABEL)
+                    proc.entry_label = locator_t::named_label(fn->global.handle(), fn->def().default_label);
+                else
+                {
+                    proc.entry_label = locator_t::minor_label(ENTRY_LABEL);
+                    proc.push_inst({ .op = ASM_LABEL, .arg = proc.entry_label });
+                }
             }
 
             unsigned const n = ast.num_children();
@@ -4008,6 +4032,18 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         {
             if(is_compile(D))
                 v.val = rval_t{ builder.cfg->emplace_ssa(SSA_ready, TYPE_BOOL) };
+
+            return v;
+        }
+        else if(lval->arg == lval_t::SYSTEM_ARG)
+        {
+            if(compiler_options().nes_system == NES_SYSTEM_UNKNOWN)
+            {
+                if(is_compile(D))
+                    v.val = rval_t{ builder.cfg->emplace_ssa(SSA_system, TYPE_U) };
+            }
+            else
+                v.val = rval_t{ ssa_value_t(unsigned(compiler_options().nes_system), TYPE_U) };
 
             return v;
         }

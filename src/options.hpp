@@ -20,6 +20,7 @@ struct options_t
     bool werror = false;
 
     nes_system_t nes_system = NES_SYSTEM_UNKNOWN;
+    std::string raw_system;
 
     // Raw mapper settings.
     // (These will get converted to a 'mapper_t' eventually)

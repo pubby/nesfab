@@ -601,9 +601,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
         else
         {
-            for(ssa_ht node : cache.special)
-                if(special_interferes(fn.handle(), ir, loc, node))
-                    if(live_at_def(node, node))
+            for(ssa_ht s : cache.special)
+                if(special_interferes(fn.handle(), ir, loc, s))
+                    if(live_at_def(node, s))
                         return false;
 
             // It can be coalesced; create a new set out of it;

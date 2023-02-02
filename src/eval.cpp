@@ -1910,6 +1910,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_ready, offset);
                     return make_ptr(loc, type_t::addr(false), false);
                 }
+                else if(lval->arg == lval_t::SYSTEM_ARG)
+                {
+                    if(compiler_options().nes_system != NES_SYSTEM_DETECT)
+                        compiler_error(value.pstring, "System is known at compile-time; it has no address.");
+                    locator_t const loc = locator_t::runtime_ram(RTRAM_system, offset);
+                    return make_ptr(loc, type_t::addr(false), false);
+                }
 
                 if(lval->is_global())
                 {
@@ -2016,18 +2023,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_ready:
         {
-            if(is_interpret(D)) // TODO: perhaps this should move to 'to_rval'.
-                compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
-
             expr_value_t result =
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::READY_ARG },
                 .type = TYPE_BOOL,
                 .pstring = ast.token.pstring,
+                .time = RT,
             };
-
-            if(is_compile(D))
-                result.time = RT;
 
             assert(result.is_lval());
             return result;
@@ -2035,9 +2037,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_system:
         {
-            if(is_interpret(D)) // TODO: perhaps this should move to 'to_rval'.
-                compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
-
             expr_value_t result =
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::SYSTEM_ARG },
@@ -2045,8 +2044,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 .pstring = ast.token.pstring,
             };
 
-            if(is_compile(D))
+            if(compiler_options().nes_system == NES_SYSTEM_DETECT)
                 result.time = RT;
+            else
+                result.time = CT;
 
             assert(result.is_lval());
             return result;
@@ -4032,15 +4033,19 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         {
             if(is_compile(D))
                 v.val = rval_t{ builder.cfg->emplace_ssa(SSA_ready, TYPE_BOOL) };
+            else if(is_interpret(D))
+                compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
 
             return v;
         }
         else if(lval->arg == lval_t::SYSTEM_ARG)
         {
-            if(compiler_options().nes_system == NES_SYSTEM_UNKNOWN)
+            if(compiler_options().nes_system == NES_SYSTEM_DETECT)
             {
                 if(is_compile(D))
                     v.val = rval_t{ builder.cfg->emplace_ssa(SSA_system, TYPE_U) };
+                else if(is_interpret(D))
+                    compiler_error(v.pstring, "Expression cannot be evaluated at compile-time because the system is set to \"detect\".");
             }
             else
                 v.val = rval_t{ ssa_value_t(unsigned(compiler_options().nes_system), TYPE_U) };

@@ -86,7 +86,7 @@ ram_bitset_t alloc_runtime_ram()
     if(mapper().bankswitches())
         _rtram_spans[RTRAM_nmi_saved_bank] = {{ a.alloc_zp(1) }};
 
-    if(compiler_options().nes_system == NES_SYSTEM_UNKNOWN)
+    if(compiler_options().nes_system == NES_SYSTEM_DETECT)
         _rtram_spans[RTRAM_system] = {{ a.alloc_zp(1) }};
 
     return a.allocated;
@@ -353,7 +353,7 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
-    if(false && compiler_options().nes_system == NES_SYSTEM_UNKNOWN)
+    if(compiler_options().nes_system == NES_SYSTEM_DETECT)
     {
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0x80));
         proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));

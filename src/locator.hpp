@@ -88,20 +88,8 @@ enum locator_class_t : std::uint8_t
 
     LOC_NMI_INDEX,
 
-    // Used when converting penguin songs
-    LOC_PENGUIN,
-
     NUM_LCLASS,
 };
-
-enum penguin_label_t
-{
-#define PENGUIN(name) PENGUIN_##name,
-#include "penguin_labels.inc"
-#undef PENGUIN
-};
-
-char const* to_string(penguin_label_t label);
 
 // We have a limited number of bits to use.
 static_assert(NUM_LCLASS < 1 << 6);
@@ -172,7 +160,6 @@ constexpr bool has_global(locator_class_t lclass)
     switch(lclass)
     {
     case LOC_NAMED_LABEL:
-    case LOC_PENGUIN:
         return true;
     default:
         return false;
@@ -419,12 +406,6 @@ public:
         return { handle() }; 
     }
 
-    penguin_label_t penguin() const
-    {
-        assert(lclass() == LOC_PENGUIN);
-        return penguin_label_t(data());
-    }
-
     lt_ht lt() const
     {
         assert(lclass() == LOC_LT_EXPR);
@@ -582,9 +563,6 @@ public:
 
     constexpr static locator_t carry_pair(carry_t first, carry_t second)
         { return locator_t(LOC_CARRY_PAIR, 0, (first << 8) | second, 0).with_is(IS_PTR); }
-
-    constexpr static locator_t penguin(global_ht global, penguin_label_t label)
-        { return locator_t(LOC_PENGUIN, global.id, label, 0); }
 
     static locator_t from_ssa_value(ssa_value_t v);
 

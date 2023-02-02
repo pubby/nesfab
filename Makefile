@@ -139,7 +139,6 @@ switch.cpp \
 o_loop.cpp \
 o_defork.cpp \
 unroll_divisor.cpp \
-convert_penguin.cpp \
 puf.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))

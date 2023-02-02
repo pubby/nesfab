@@ -1,0 +1,73 @@
+ct U SCROLL_HEIGHT = 60
+
+struct Cliff
+    U begin_hole
+    U end_hole
+
+vars /game
+    U cliff_hole = 4
+    U cliff_midpoint = 15
+    U cliff_index = 0
+    U cliff_y = 30
+    Cliff[16] cliffs
+
+
+fn update_cliff()
+    cliff_y += 1
+
+    if cliff_y == SCROLL_HEIGHT
+        cliff_y = 0
+
+    cliff_index += 1
+
+    if cliff_index & %1
+        return
+
+    U i = (cliff_index & %11111) >> 1
+
+    if cliff_index & %1110
+        cliffs[i].begin_hole = 1
+        cliffs[i].end_hole = 31
+    else
+        U move_amount = randb(16 - cliff_hole)
+
+        if cliff_midpoint < 16
+            cliff_midpoint += move_amount
+        else
+            cliff_midpoint -= move_amount
+
+        if rand() & %111 == 0
+            cliffs[i].begin_hole = cliff_midpoint - cliff_hole
+            cliffs[i].end_hole   = cliff_midpoint + cliff_hole
+        else if cliff_index & %10000
+            cliffs[i].begin_hole = cliff_midpoint - cliff_hole
+            cliffs[i].end_hole   = 31
+        else
+            cliffs[i].begin_hole = 1
+            cliffs[i].end_hole   = cliff_midpoint + cliff_hole
+
+        
+
+ct fn cliff_ppuaddr_table() UU[SCROLL_HEIGHT]
+    UU[60] ret
+    for U i = 0; i < 30; i += 1
+        ret[i] = $2000 + (UU(i) << 5)
+    for U i = 0; i < 30; i += 1
+        ret[i+30] = $2800 + (UU(i) << 5)
+    return ret
+
+fn ppu_upload_cliff()
+    {PPUSTATUS}()
+    {PPUADDR}(cliff_ppuaddr_table()[cliff_y].b)
+    {PPUADDR}(cliff_ppuaddr_table()[cliff_y].a)
+
+    Cliff cliff = cliffs[(cliff_index & %11111) >> 1]
+    U i = 0
+
+    for ; i < cliff.begin_hole; i += 1
+        {PPUDATA}($01)
+    for ; i < cliff.end_hole; i += 1
+        {PPUDATA}($00)
+    for ; i < 32; i += 1
+        {PPUDATA}($01)
+

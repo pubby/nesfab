@@ -82,8 +82,6 @@ locator_t cset_locator(ssa_ht const h, bool convert_ssa)
 
 bool cset_locators_mergable(locator_t loc_a, locator_t loc_b)
 {
-    //if(loc_a.lclass() == LOC_CALL_ARG || loc_b.lclass() == LOC_CALL_ARG)
-        //return false;
     return (!loc_a || !loc_b 
             || loc_a.lclass() == LOC_PHI || loc_b.lclass() == LOC_PHI
             || loc_a == loc_b);
@@ -229,7 +227,7 @@ bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
             }
         case LOC_ARG:
         case LOC_RETURN:
-            return loc.fn() == called || called->ir_calls().test(loc.fn().id);
+            return loc.fn() != called || called->ir_calls().test(loc.fn().id);
         default: 
             return false;
         }

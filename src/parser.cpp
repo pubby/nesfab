@@ -458,12 +458,27 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
                 pstring_t const pstring = token.pstring;
                 switch(token.type)
                 {
-                case TOK_ident: args.push_back({ parse_ident(), pstring }); return true;
-                case TOK_true:  args.push_back({ true, pstring }); return true;
-                case TOK_false: args.push_back({ false, pstring }); return true;
-                case TOK_dquote: args.push_back({ parse_string_literal(true), pstring }); return true;
-                case TOK_int: args.push_back({ std::uint64_t(token.value), pstring }); return true;
-                default: compiler_error("Unexpected token."); return false;
+                case TOK_ident: 
+                    args.push_back({ parse_ident(), pstring }); 
+                    return true;
+                case TOK_true:
+                    args.push_back({ true, pstring });
+                    parse_token(); 
+                    return true;
+                case TOK_false: 
+                    args.push_back({ false, pstring });
+                    parse_token();
+                    return true;
+                case TOK_dquote:
+                    args.push_back({ parse_string_literal(true), pstring }); 
+                    return true;
+                case TOK_int: 
+                    args.push_back({ std::uint64_t(token.value), pstring }); 
+                    parse_token();
+                    return true;
+                default: 
+                    compiler_error("Unexpected token."); 
+                    return false;
                 }
             }
         });
@@ -681,7 +696,7 @@ ast_node_t parser_t<P>::parse_expr_atom(int starting_indent, int open_parens)
     auto const system = [this](nes_system_t s)
     {
         pstring_t at = token.pstring;
-        ast_node_t ast = { .token = { .type = TOK_int, .pstring = at, .value = NES_SYSTEM_NTSC } };
+        ast_node_t ast = { .token = { .type = TOK_int, .pstring = at, .value = s } };
         parse_token();
         return ast;
     };

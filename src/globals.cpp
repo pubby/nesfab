@@ -1073,8 +1073,11 @@ static void _resolve_local_consts(global_ht global, std::vector<local_const_t>& 
     for(unsigned i = 0; i < local_consts.size(); ++i)
     {
         auto& c = local_consts[i];
+
         if(c.expr)
         {
+            c.decl.src_type.type = ::dethunkify(c.decl.src_type, true);
+
             c.value = interpret_local_const(
                 c.decl.name, fn, *c.expr, 
                 c.decl.src_type.type, local_consts.data()).value;
@@ -1114,6 +1117,7 @@ void fn_t::resolve()
         if(is_ct(decl.src_type.type))
             compiler_error(decl.src_type.pstring, fmt("Function must be declared as ct to use type %.", decl.src_type.type));
     }
+
     if(is_ct(def().return_type.type))
         compiler_error(def().return_type.pstring, fmt("Function must be declared as ct to use type %.", def().return_type.type));
 

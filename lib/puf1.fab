@@ -15,6 +15,7 @@ vars /puf_vars
     AA puf_triangle_pattern_ptr
     AA puf_noise_pattern_ptr
     AA puf_dpcm_pattern_ptr
+    Bool puf_lock = false
 
 ct AA puf_temp                = $100
 ct AA puf_bank                = $101
@@ -67,7 +68,7 @@ ct AA puf_square2_stack_next  = puf_stack_mem + 35
 ct AA puf_track_speed         = puf_stack_mem + 36
 ct AA puf_track_start         = puf_stack_mem + 37 // 2 bytes
 ct AA puf_track_end           = puf_stack_mem + 39 // 2 bytes
-ct AA puf_pattern_size      = puf_stack_mem + 41
+ct AA puf_pattern_size        = puf_stack_mem + 41
 
 ct AAA puf_silent_instrument = &puf_instrument_0
 
@@ -133,6 +134,7 @@ asm fn puf_process()
         U[12](update_null.b)
 
     label play_sfx
+        inc &puf_lock
         ldx puf_temp
         lda &puf_sfx_lo, x
         sta &puf_ptr_temp.a
@@ -181,7 +183,7 @@ asm fn puf_process()
         sta puf_noise_note
         jsr reset_noise
     label play_sfx_done_noise
-        rts
+        jmp unlock
 
 
     label write_sfx
@@ -702,11 +704,15 @@ asm fn puf_process()
         sta $108, x
         lda #puf_silent_instrument.bank
         sta $110, x
+    label fail_lock
         rts
 
     // Call this function every frame in your NMI or whatever to play the music
     default
     label process
+        lda &puf_lock
+        bne fail_lock
+
         ldy puf_bank
         switch y
         dec puf_track_step
@@ -718,10 +724,11 @@ asm fn puf_process()
         jmp (&puf_ptr_temp.a)
 
     label init_ntsc
-        lda #(&puf_ntsc_note_table).a
+        ldy #(&puf_ntsc_note_table).a
         ldx #(&puf_ntsc_note_table).b
     label store_init
-        sta &puf_note_table_ptr.a
+        inc &puf_lock
+        sty &puf_note_table_ptr.a
         stx &puf_note_table_ptr.b
     label finish_init
         ldx #puf_instrument_ptrs.a
@@ -763,12 +770,14 @@ asm fn puf_process()
         jmp reset_noise
 
     label init_pal
-        lda #(&puf_pal_note_table).a
+        ldy #(&puf_pal_note_table).a
         ldx #(&puf_pal_note_table).b
         jmp store_init
 
 
     label set_song
+        inc &puf_lock
+    
         ldx puf_temp
         lda &puf_tracks_speed, x
         sta puf_track_speed
@@ -813,5 +822,11 @@ asm fn puf_process()
         // sax sfx_noise_play ; TODO
 
         jsr finish_init // TODO
-        jmp update_variables
+        jsr update_variables
+        // fall-through
+        dec &puf_lock
+    label unlock
+        dec &puf_lock
+        //dec &puf_lock
+        rts
 

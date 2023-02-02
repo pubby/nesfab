@@ -1,5 +1,5 @@
 = NESFab
-Copyright (c) 2022, Pubby
+Copyright (c) 2023, Pubby
 Version TODO
 :sectnums:
 :toc2:
@@ -119,7 +119,7 @@ it can be helpful to write tools and conversion scripts in other languages.
 === Operators
 
 - The operators `&`, `|`, and `^` have a <<binop, higher precedence>> than in C.
-- Combined-assignment operators, like `+=` or `<<=`, return a `Bool`: the carry.
+- Combined-assignment operators, like `+=` or `<<=`, return a value of type `Bool`, representing the carry.
 
 === Pointers
 
@@ -446,6 +446,46 @@ nesfab --chr-size 32
 chr-size = 32
 ----
 
+=== `system` (`-S`) [[opt_system]]
+
+Specifies the target NES system, which will be accessible using the <<kw_system, `system` keyword>>.
+This option can only be specified once.
+
+By default, the value is `detect`.
+
+*Command-line usage:*
+----
+nesfab --system ntsc
+----
+
+*Configuration file usage:*
+----
+system = ntsc
+----
+
+|===
+|Argument |Description
+
+| <<kw_system_ntsc, `ntsc`>>
+| https://en.wikipedia.org/wiki/NTSC[USA and Japanese systems]
+
+| <<kw_system_pal, `pal`>>
+| https://en.wikipedia.org/wiki/PAL[European systems]
+
+| <<kw_system_dendy, `dendy`>>
+| https://en.wikipedia.org/wiki/Dendy_(console)[Russian systems]
+
+| <<kw_system_unknown, `unknown`>>
+| Other systems
+
+| `detect`
+| Detect system at runtime
+
+|===
+
+[NOTE]
+`detect` has a small runtime penalty.
+
 === `threads` (`-j`)
 
 Specifies how many threads the compiler can use, enabling parallel compilation.
@@ -495,7 +535,7 @@ and only consider switching once your program grows too large for it.
 The mapper names in the table below are links.
 
 |===
-|Name |Max PRG (Code) |Max CHR (Tilesets) | Nametable VRAM |Mirroring
+|Name |Max PRG (Code) |Max CHR (Tilesets) |Nametable VRAM |Mirroring
 
 | https://www.nesdev.org/wiki/NROM[`nrom`]
 | 32 KiB
@@ -981,7 +1021,7 @@ false
 
 `ready` is an expression of type `Bool` which returns `true` if both an <<nmi, NMI>> is active and the program was <<kw_nmi, waiting on one>>,
 or `false` otherwise. 
-It is intended to be used as a synchronization primitive (https://en.wikipedia.org/wiki/Lock_(computer_science[mutex])
+It is intended to be used as a synchronization primitive (https://en.wikipedia.org/wiki/Lock_(computer_science)[mutex])
 to avoid https://en.wikipedia.org/wiki/Race_condition[race conditions] inside of NMI handlers.
 
 Syntax:
@@ -1006,6 +1046,224 @@ but the pointed-to value must never be modified by the program.
 
 [NOTE]
 There is more than one way to achieve concurrent safety. See <<kw_fence>>, for example.
+
+=== `system` [[kw_system]]
+
+`system` is an expression of type `U` which returns the <<opt_system, current NES system>>.
+
+Syntax:
+----
+system
+----
+
+The possible return values are listed below:
+
+|===
+|Enumeration |Value
+
+| <<kw_system_ntsc>>
+| 0
+
+| <<kw_system_pal>>
+| 1
+
+| <<kw_system_dendy>>
+| 2
+
+| <<kw_system_unknown>>
+| 3
+
+|===
+
+Example:
+----
+fn foo()
+    if system == SYSTEM_NTSC
+        speed = 1.0
+    else
+        speed = 1.2
+----
+
+When the <<opt_system, `system` option>> is set to `detect`, the value will be determined at program startup.
+Additionally, the address of `system` can be taken using <<unary_ops, unary operator>> `&`,
+but the pointed-to value must never be modified by the program.
+
+When the <<opt_system, `system` option>> is not set to `detect`, the expression is a compile-time constant
+and its address cannot be taken.
+
+==== `SYSTEM_NTSC` [[kw_system_ntsc]]
+
+`SYSTEM_NTSC` is an expression of type `Int`, and has a compile-time constant value of `0`.
+
+Syntax:
+----
+SYSTEM_NTSC
+----
+
+==== `SYSTEM_PAL` [[kw_system_pal]]
+
+`SYSTEM_PAL` is an expression of type `Int`, and has a compile-time constant value of `1`.
+
+Syntax:
+----
+SYSTEM_PAL
+----
+
+==== `SYSTEM_DENDY` [[kw_system_dendy]]
+
+`SYSTEM_DENDY` is an expression of type `Int`, and has a compile-time constant value of `2`.
+
+Syntax:
+----
+SYSTEM_DENDY
+----
+
+==== `SYSTEM_UNKNOWN` [[kw_system_unknown]]
+
+`SYSTEM_UNKNOWN` is an expression of type `Int`, and has a compile-time constant value of `3`.
+
+Syntax:
+----
+SYSTEM_UNKNOWN
+----
+
+=== PPU Registers [[kw_ppu_regs]]
+
+The following https://www.nesdev.org/wiki/PPU_registers[PPU registers] have keywords.
+All of these are expressions of type `AA` with compile-time constant values.
+
+
+|===
+|Enumeration |Value
+
+| <<kw_ppuctrl>>
+| $2000
+
+| <<kw_ppumask>>
+| $2001
+
+| <<kw_ppustatus>>
+| $2002
+
+| <<kw_oamaddr>>
+| $2003
+
+| <<kw_oamdata>>
+| $2004
+
+| <<kw_ppuscroll>>
+| $2005
+
+| <<kw_ppuaddr>>
+| $2006
+
+| <<kw_ppudata>>
+| $2007
+
+| <<kw_oamdma>>
+| $4014
+
+|===
+
+
+==== `PPUCTRL` [[kw_ppuctrl]]
+
+`PPUCTRL` is an expression of type `AA`, and has a compile-time constant value of `$2000`.
+
+Syntax:
+----
+PPUCTRL
+----
+
+https://www.nesdev.org/wiki/PPU_registers#Controller_($2000)_%3E_write[Wiki page for this PPU register].
+
+==== `PPUMASK` [[kw_ppumask]]
+
+`PPUMASK` is an expression of type `AA`, and has a compile-time constant value of `$2001`.
+
+Syntax:
+----
+PPUMASK
+----
+
+https://www.nesdev.org/wiki/PPU_registers#Mask_($2001)_%3E_write[Wiki page for this PPU register].
+
+==== `PPUSTATUS` [[kw_ppustatus]]
+
+`PPUSTATUS` is an expression of type `AA`, and has a compile-time constant value of `$2002`.
+
+Syntax:
+----
+PPUSTATUS
+----
+
+https://www.nesdev.org/wiki/PPU_registers#Status_($2002)_%3C_read[Wiki page for this PPU register].
+
+==== `OAMADDR` [[kw_oamaddr]]
+
+`OAMADDR` is an expression of type `AA`, and has a compile-time constant value of `$2003`.
+
+Syntax:
+----
+OAMADDR
+----
+
+https://www.nesdev.org/wiki/PPU_registers#OAM_address_($2003)_%3E_write[Wiki page for this PPU register].
+
+==== `OAMDATA` [[kw_oamdata]]
+
+`OAMDATA` is an expression of type `AA`, and has a compile-time constant value of `$2004`.
+
+Syntax:
+----
+OAMDATA
+----
+
+https://www.nesdev.org/wiki/PPU_registers#OAM_data_($2004)_%3C%3E_read/write[Wiki page for this PPU register].
+
+==== `PPUSCROLL` [[kw_ppuscroll]]
+
+`PPUSCROLL` is an expression of type `AA`, and has a compile-time constant value of `$2005`.
+
+Syntax:
+----
+PPUSCROLL
+----
+
+https://www.nesdev.org/wiki/PPU_registers#Scroll_($2005)_%3E%3E_write_x2[Wiki page for this PPU register].
+
+==== `PPUADDR` [[kw_ppuaddr]]
+
+`PPUADDR` is an expression of type `AA`, and has a compile-time constant value of `$2006`.
+
+Syntax:
+----
+PPUADDR
+----
+
+https://www.nesdev.org/wiki/PPU_registers#Address_($2006)_%3E%3E_write_x2[Wiki page for this PPU register].
+
+==== `PPUDATA` [[kw_ppudata]]
+
+`PPUDATA` is an expression of type `AA`, and has a compile-time constant value of `$2007`.
+
+Syntax:
+----
+PPUDATA
+----
+
+https://www.nesdev.org/wiki/PPU_registers#Data_($2007)_%3C%3E_read/write[Wiki page for this PPU register].
+
+==== `OAMDMA` [[kw_oamdma]]
+
+`OAMDMA` is an expression of type `AA`, and has a compile-time constant value of `$4014`.
+
+Syntax:
+----
+OAMDMA
+----
+
+https://www.nesdev.org/wiki/PPU_registers#OAM_DMA_($4014)_%3E_write[Wiki page for this PPU register].
 
 === `fn` [[kw_fn]]
 
@@ -1370,14 +1628,13 @@ charmap identifier("string", 's')
 - `"string"` is a string literal, defining the characters of the charmap. 
   The first character in the string will map to a value of zero, 
   with other characters mapping to one higher than the character preceding them. 
-- `'s'` is ao optional charcter literal, defining the sentinel. When left out, no sentinel is defined.
+- `'s'` is an optional charcter literal, defining the sentinel. When left out, no sentinel is defined.
 
 *Modifiers:*
 
 - `stows`: A `data` group. String literals using this `charmap` will place their data in this group. See <<kw_stows>>.
 
-*Example:*
-
+Example:
 ----
 charmap foo(" ,.!?ABCDEFGHIJKLMNOPQRSTUVWXYZ\0", '\0')
 
@@ -1394,8 +1651,7 @@ charmap foo(" ,.!?ABCDEFGHIJKLMNOPQRSTUVWXYZ\0", '\0')
 // with the sentinel being: '\0'
 ----
 
-*Example:*
-
+Example:
 ----
 charmap bar("abcd")
 : stows /strings
@@ -1433,7 +1689,7 @@ charmap foo("_0\/O1\/I\/|X", '\0')
 *Sizes and Members*
 
 The number of unique values in a `charmap` can be accessed using the `size` member,
-which is of type `Int`.
+which is a compile-time constant value of type `Int`.
 
 ----
 charmap foo("abc")
@@ -1534,7 +1790,250 @@ chrrom
 
 The compiler will issue a warning if the supplied data does not match what the mapper expects.
 
-=== `file`
+=== `file` [[kw_file]]
+
+The `file` keyword imports and converts data from an external file.
+It is only usable inside of a <<todo, byte-block>>.
+
+Syntax:
+----
+file(target, "filename", args...)
+----
+
+- `target` specifies the output conversion target to use.
+- `"filename"` is a string literal path to the file.
+- `args...` is a list of arguments that the conversion script will use. (Most conversion scripts do not use arguments.)
+
+Example:
+----
+chrrom
+    file(chr, "sprites.png") 
+    file(chr, "bg.png") 
+----
+
+*Input Filetype Conversions*
+
+When loading a file, its data is first interpreted based on its https://en.wikipedia.org/wiki/Filename_extension[filename extension].
+The following filenames are accepted:
+
+[cols="1,3"]
+|===
+|File Format |Description
+
+| <<file_bin, `.bin`>>
+| Raw binary data
+
+| <<file_bin, `.chr`>>
+| Raw binary data
+
+| <<file_bin, `.nam`>>
+| Raw binary data
+
+| <<file_txt, `.txt`>>
+| Textual data
+
+| <<file_png, `.png`>>
+| https://en.wikipedia.org/wiki/PNG[PNG image]
+
+|===
+
+*Output Target Conversions*
+
+Once a file has been loaded, it is then converted based on its target.
+The following targets are accepted:
+
+[cols="1,1,2"]
+|===
+|Conversion Target |Arguments |Description
+
+| <<file_raw, `raw`>>
+| None
+| Raw binary data
+
+| <<file_fmt, `fmt`>>
+| None
+| Formatted data
+
+| <<file_pbz, `pbz`>>
+| None
+| Compressed graphical data
+
+| <<file_rlz, `rlz`>>
+| None
+| Compressed data
+
+|===
+
+*Accessory Definitions*
+
+In addition to defining a byte sequence, the `file` keyword may define compile-time constants in the byte block's namespace.
+These constants will have names prefixed by the previous label and the character `_`, if such a label exists.
+
+Example:
+----
+[] compressed_data
+    file(pbz, "sprites.png") 
+    label bg
+    file(pbz, "bg.png") 
+----
+
+In the example above, the <<file_pbz, `pbz` target>> is used.
+This target has two accessory definitions: `chunks` and `tiles`.
+Thus, `compressed_data` would gain the following members:
+
+- `compressed_data.chunks`
+- `compressed_data.tiles`
+- `compressed_data.bg_chunks`
+- `compressed_data.bg_tiles`
+
+Note that the first two refer to the first `file`, while the second two refer to the second `file`.
+The second two are prefixed with `bg_`, as the previous label is `bg`.
+
+==== Binary file formats [[file_bin]]
+
+The filetypes `.bin`, `.chr`, and `.nam` are loaded as raw binary data, with no conversions happening.
+
+==== `.txt` format [[file_txt]]
+
+The filetype `.txt` is interpreted as ASCII data, with newline sequences replaced with a single newline character.
+
+The following newline sequences are replaced with `\n`:
+
+- `\r`
+- `\r\n`
+- `\n\r`
+
+Where `\r` has an ASCII value of `$0D`, and `\n` has an ASCII value of `$0A`.
+
+==== `.png` format [[file_png]]
+
+The filetype `.png` is interpreted as a https://en.wikipedia.org/wiki/PNG[PNG image] representing CHR tileset data.
+The input image must have dimensions that are multiples of 8 x 8 pixels.
+
+If the PNG image is encoded using a palette, the resulting CHR will use the palette indexes as each pixel's color, modulo 4.
+Otherwise, the PNG will be converted to a grayscale image with pixel values in the range [0, 3]; 
+black represents color 0 and white represents color 3.
+
+==== `raw` target [[file_raw]]
+
+The `raw` target imports raw binary data, without performing any filetype conversions.
+It accepts no arguments.
+
+Example:
+----
+[] sin_table
+    file(raw, "sin_table.bin") 
+----
+
+*Accessory Definitions*
+
+There are no accessory definitions for `raw`.
+
+==== `fmt` target [[file_fmt]]
+
+The `fmt` target imports data after first processing it using filetype conversions.
+It accepts no arguments.
+
+Example:
+----
+chrrom
+    file(fmt, "tiles.png") 
+----
+
+*Accessory Definitions*
+
+There are no accessory definitions for `fmt`.
+
+==== `pbz` target [[file_pbz]]
+
+The `pbz` target compresses the data into the PBZ encoding after first processing it using filetype conversions.
+It accepts no arguments.
+
+Example:
+----
+[] compressed_data
+    file(pbz, "sprites.png") 
+----
+
+*Accessory Definitions*
+
+- `chunks`: An `Int` equal to the decompressed size divided by 8.
+- `tiles`: An `Int` equal to the decompressed size divided by 16. If the size is not a multiple of 16, the value is left undefined.
+
+*Decompressing*
+
+The standard library file `pbz.fab` can be used to decompress PBZ-encoded data.
+
+*Encoding Description*
+
+PBZ is a simple run-length encoding that is good for representing graphical data.
+As it decompresses into chunks of 8 bytes, it can't work with arbitrary data.
+
+The data is formatted as a sequence of compressed 8-byte chunks.
+The first byte of a chunk encodes it run-length encoding in a unary-encoded format.
+For each bit of this byte, starting from the highest bit:
+
+-  `0` bit: Read a byte from the sequence and output it.
+-  `1` bit: Output the previous byte outputted for this chunk, or `$00` if none was.
+
+For example, given the sequence:
+
+----
+$AF $11 $22
+----
+
+The unary-encoded byte is `$AF`, which has the binary representation `%10101111`.
+Starting from the highest bit and working to the lowest bit, the decompressed sequence is:
+
+----
+$00 $11 $11 $22 $22 $22 $22 $22
+----
+
+==== `rlz` target [[file_rlz]]
+
+The `rlz` target compresses the data into the RLZ encoding after first processing it using filetype conversions.
+
+*Arguments*
+
+- 1st (optional): Include terminator. If `true`, the byte sequence will have a `$00` byte appended onto the end. 
+  If `false`, no `$00` will be appended. By default, the value is `true`.
+
+Example:
+----
+[] compressed_data
+    file(rlz, "sprites.png", false)
+    file(rlz, "sprites2.png")
+----
+
+*Accessory Definitions*
+
+There are no accessory definitions for `rlz`.
+
+*Decompressing*
+
+The standard library file `rlz.fab` can be used to decompress RLZ-encoded data.
+
+*Encoding Description*
+
+RLZ is a simple run-length encoding that's good for data with long sequences of repeating bytes.
+
+The data is formatted as a sequence of runs, where the first byte, N, of a run determines the effect.
+
+-  `$00` byte: Terminate the data sequence.
+-  `$01` to `$7F` byte: Copy the next byte, (N + 2) times.
+-  `$80` to `$FF` byte: Copy the next (N - 127) bytes verbatim.
+
+For example, given the sequence:
+
+----
+$03 $11 $81 $22 $33 $02 $44 $00
+----
+
+The decompressed sequence is:
+
+----
+$01 $01 $01 $01 $01 $22 $33 $44 $44 $44 $44
+----
 
 === `employs` <<kw_employs>>
 

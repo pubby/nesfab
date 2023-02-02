@@ -7,10 +7,10 @@
 
 #include "convert_compress.hpp"
 #include "convert_png.hpp"
-#include "convert_penguin.hpp"
 #include "ext_lex_tables.hpp"
 #include "mods.hpp"
 #include "globals.hpp"
+#include "text.hpp"
 
 namespace fs = ::std::filesystem;
 
@@ -91,10 +91,12 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
                 vec = png_to_chr(vec.data(), vec.size(), spr16);
                 break;
 
+            case ext_lex::TOK_txt:
+                vec.resize(normalize_line_endings(reinterpret_cast<char*>(vec.data()), vec.size()));
+                //fall-through
             case ext_lex::TOK_chr:
             case ext_lex::TOK_bin:
             case ext_lex::TOK_nam:
-            case ext_lex::TOK_txt:
                 if(mods)
                     mods->validate(script, MOD_spr_8x16);
                 if(spr16)
@@ -114,14 +116,14 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
                 compiler_error(filename.pstring, fmt("Wrong number of arguments. Expecting %.", expected + 2));
         };
 
-        if(view == "bin"sv)
+        if(view == "raw"sv)
         {
             check_argn(0);
             if(mods)
                 mods->validate(script);
             ret.data = read_as_vec();
         }
-        else if(view == "chr"sv)
+        else if(view == "fmt"sv)
         {
             check_argn(0);
             ret.data = read_file();
@@ -134,25 +136,17 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         }
         else if(view == "rlz"sv)
         {
-            check_argn(0);
+            bool terminate = true;
+            if(argn != 0)
+            {
+                check_argn(1);
+                if(bool* b = std::get_if<bool>(&args[0].value))
+                    terminate = *b;
+                else
+                    compiler_error(args[0].pstring, "Expecting true or false.");
+            }
             std::vector<std::uint8_t> vec = read_file();
-            ret = convert_rlz(vec.data(), vec.data() + vec.size());
-        }
-        else if(view == "penguin_music"sv)
-        {
-            check_argn(1);
-
-            global_ht global = {};
-            if(auto* p = std::get_if<pstring_t>(&args[0].value))
-                global = global_t::lookup(source, *p).handle();
-            else
-                compiler_error(args[0].pstring, "Expecting identifier.");
-
-            assert(global);
-
-            std::vector<std::uint8_t> vec = read_file();
-            ret = convert_penguin(reinterpret_cast<char const*>(vec.data()), vec.size(), global);
-
+            ret = convert_rlz(vec.data(), vec.data() + vec.size(), terminate);
         }
         else
             compiler_error(script, fmt("Unknown file type: %", view));

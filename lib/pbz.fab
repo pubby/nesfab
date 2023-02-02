@@ -20,9 +20,11 @@
 // Feel free to change which group(s) these functions use.
 data /pbz
 
+group /PBZ = /pbz
+
 // Reads from 'ptr' and uploads to PPUDATA for ('tiles' * 16) bytes of data.
 // A 'tiles' value of 0 is treated as a value of 256.
-asm fn load_pbz(CCC/pbz ptr, U tiles)
+asm fn load_pbz_tiles(CCC/pbz ptr, U tiles)
 : employs /pbz
     vars
         U run_mask
@@ -48,12 +50,47 @@ asm fn load_pbz(CCC/pbz ptr, U tiles)
         inc &ptr.b
     label done_inc
         rts
-    default plane_loop
+    default
         lax &ptr.bank
         switch ax
+    label plane_loop
         jsr write_plane
         jsr write_plane
         dec &tiles
         bne plane_loop
+        rts
+
+// Reads from 'ptr' and uploads to PPUDATA for ('chunks' * 8) bytes of data.
+// A 'chunks' value of 0 is treated as a value of 256.
+asm fn load_pbz_chunks(CCC/pbz ptr, U chunks)
+: employs /pbz
+    vars
+        U run_mask
+    default
+        lax &ptr.bank
+        switch ax
+    label write_plane
+        ldy #0
+        lda (&ptr.a), y
+        sec
+        rol
+        sta &run_mask
+        tya
+    label pb8_loop
+        bcs no_new_byte
+        iny
+        lda (&ptr.a), y
+    label no_new_byte
+        sta PPUDATA
+        asl &run_mask
+        bne pb8_loop
+        tya
+        adc &ptr.a
+        sta &ptr.a
+        bcc done_inc
+        inc &ptr.b
+    default plane_loop
+        dec &chunks
+        bne write_plane
         rts
 

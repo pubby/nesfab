@@ -108,6 +108,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("chr-size"))
         _options.raw_mc = vm["chr-size"].as<unsigned>();
+
+    if(vm.count("system"))
+        _options.raw_system = vm["system"].as<std::string>();
 }
 
 int main(int argc, char** argv)
@@ -163,6 +166,7 @@ int main(int argc, char** argv)
                 ("mirroring,m", po::value<std::string>(), "mirroring of mapper (V, H, 4)")
                 ("prg-size,p", po::value<unsigned>(), "size of mapper PRG in KiB")
                 ("chr-size,c", po::value<unsigned>(), "size of mapper CHR in KiB")
+                ("system,S", po::value<std::string>(), "target NES system")
             ;
 
             po::options_description basic_hidden("Hidden options");
@@ -261,20 +265,41 @@ int main(int argc, char** argv)
                 return str;
             };
 
-            if(to_lower(compiler_options().raw_mn) == "nrom"sv || compiler_options().raw_mn.empty())
-                _options.mapper = mapper_t::nrom(mapper_params);
-            else if(to_lower(compiler_options().raw_mn) == "cnrom"sv)
-                _options.mapper = mapper_t::cnrom(mapper_params);
-            else if(to_lower(compiler_options().raw_mn) == "anrom"sv)
-                _options.mapper = mapper_t::anrom(mapper_params);
-            else if(to_lower(compiler_options().raw_mn) == "bnrom"sv)
-                _options.mapper = mapper_t::bnrom(mapper_params);
-            else if(to_lower(compiler_options().raw_mn) == "gnrom"sv)
-                _options.mapper = mapper_t::gnrom(mapper_params);
-            else if(to_lower(compiler_options().raw_mn) == "gtrom"sv)
-                _options.mapper = mapper_t::gtrom(mapper_params);
-            else
-                throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
+            {
+                std::string const str = to_lower(compiler_options().raw_mn);
+
+                if(str.empty() || str == "nrom"sv)
+                    _options.mapper = mapper_t::nrom(mapper_params);
+                else if(str == "cnrom"sv)
+                    _options.mapper = mapper_t::cnrom(mapper_params);
+                else if(str == "anrom"sv)
+                    _options.mapper = mapper_t::anrom(mapper_params);
+                else if(str == "bnrom"sv)
+                    _options.mapper = mapper_t::bnrom(mapper_params);
+                else if(str == "gnrom"sv)
+                    _options.mapper = mapper_t::gnrom(mapper_params);
+                else if(str == "gtrom"sv)
+                    _options.mapper = mapper_t::gtrom(mapper_params);
+                else
+                    throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
+            }
+
+            {
+                std::string const str = to_lower(compiler_options().raw_system);
+
+                if(str.empty() || str == "detect"sv)
+                    _options.nes_system = NES_SYSTEM_DETECT;
+                else if(str == "ntsc"sv)
+                    _options.nes_system = NES_SYSTEM_NTSC;
+                else if(str == "pal"sv)
+                    _options.nes_system = NES_SYSTEM_PAL;
+                else if(str == "dendy"sv)
+                    _options.nes_system = NES_SYSTEM_DENDY;
+                else if(str == "unknown"sv)
+                    _options.nes_system = NES_SYSTEM_UNKNOWN;
+                else
+                    throw std::runtime_error(fmt("Invalid system: '%'", compiler_options().raw_system));
+            }
         }
 
         ////////////////////////////////////

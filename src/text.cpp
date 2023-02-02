@@ -117,6 +117,29 @@ char32_t escaped_utf8_to_utf32(pstring_t pstring, char const*& str)
     return result;
 }
 
+std::size_t normalize_line_endings(char* const data, std::size_t size)
+{
+    std::size_t o = 0;
+
+    for(std::size_t i = 0; i < size; ++i, ++o)
+    {
+        char c = data[i];
+
+        if(c == '\r')
+        {
+            c = '\n';
+            if(i+1 != size && data[i+1] == '\n')
+                ++i;
+        }
+        else if(c == '\n' && i+1 != size && data[i+1] == '\r')
+            ++i;
+
+        data[i] = c;
+    }
+
+    return o;
+}
+
 //////////////////////////////
 // string_literal_manager_t //
 //////////////////////////////

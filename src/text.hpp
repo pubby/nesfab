@@ -24,6 +24,9 @@ char32_t utf8_to_utf32(pstring_t pstring, char const*& str);
 char32_t escaped_utf8_to_utf32(char const*& str);
 char32_t escaped_utf8_to_utf32(pstring_t pstring, char const*& str);
 
+// Converts cr/crlf/lfcr nonsense to lf.
+std::size_t normalize_line_endings(char* const data, std::size_t size);
+
 using byte_pair_t = std::array<std::uint8_t, 2>;
 
 class string_literal_manager_t

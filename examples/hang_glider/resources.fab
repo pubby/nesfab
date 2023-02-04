@@ -1,3 +1,6 @@
 chrrom
     file(fmt, "plane.png") 
     file(fmt, "title.png") 
+
+audio(puf1_music, "music.txt")
+audio(puf1_sfx)

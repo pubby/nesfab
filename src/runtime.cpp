@@ -387,6 +387,7 @@ static asm_proc_t make_reset_proc()
         proc.push_inst(STA_ZERO_PAGE, locator_t::runtime_ram(RTRAM_system));
 
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
+        proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUCTRL));
     }
 

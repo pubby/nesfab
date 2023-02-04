@@ -1345,7 +1345,7 @@ void fn_t::compile()
 
     auto const save_graph = [&](ir_t& ir, char const* suffix)
     {
-        if(!compiler_options().graphviz)
+        if(!compiler_options().graphviz && !mod_test(mods(), MOD_graphviz))
             return;
 
         std::ofstream ocfg(fmt("graphs/cfg__%__%.gv", global.name, suffix));

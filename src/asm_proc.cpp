@@ -839,7 +839,7 @@ void asm_proc_t::relocate(locator_t from)
                         if(inst.iasm_child >= 0)
                         {
                             // TODO: properly implement
-                            assert(false);
+                            passert(false, inst);
                             //pstring = fn->def().stmts[inst.iasm_child].pstring;
                         }
                         compiler_error(pstring, std::move(what));

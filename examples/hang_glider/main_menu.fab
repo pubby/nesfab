@@ -1,5 +1,5 @@
 ct U[25] main_menu_palette = U[25](
-    $11, $2B, $39,
+    $11, $26, $39,
     $13, $21, $3B,
     $15, $23, $31,
     $17, $25, $33,
@@ -9,7 +9,7 @@ ct U[25] main_menu_palette = U[25](
     $06, $18, $2A,
     $08, $1A, $2C,
 
-    $15)
+    $0F)
 
 data /rlz
     [] main_menu_nt
@@ -19,11 +19,16 @@ nmi main_menu_nmi()
     {PPUSCROLL}(0)
     {PPUSCROLL}(0)
     {PPUMASK}(PPUMASK_BG_ON)
+    puf.process($F)
 
 mode main()
 : nmi main_menu_nmi
+: +graphviz
     {PPUCTRL}(0)
     {PPUMASK}(0)
+
+    puf.init(system)
+    puf.set_track(puf_track_title)
 
     palette = main_menu_palette
     ppu_upload_palette()
@@ -36,9 +41,10 @@ mode main()
     {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_BG_PT_1000)
 
     while true
+        rand()
         read_pads()
         if pads[0].pressed & BUTTON_START
             goto mode game()
-            : preserves
+            : preserves /puf_vars /rng
         nmi
 

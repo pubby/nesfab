@@ -1,18 +1,14 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version TODO
+Version 0.1
 :sectnums:
 :toc2:
 :toclevels: 3
 :toc-title: Table of Contents
                                                                     
-:description: Example AsciiDoc document                             
-:keywords: AsciiDoc
+:description: Documentation for NESFab
+:keywords: 
 :imagesdir: ./img
-
-This is the optional preamble (an untitled section body). Useful for
-writing simple sectionless documents consisting only of a preamble.
-AsciiDoc is kool
 
 == What is NESFab?
 
@@ -189,7 +185,7 @@ For more details about configuration files, see the reference page. TODO
 # Cause all warnings to become errors:
 error-on-warning = true
 
-# Set the output file name:
+# Set the output filename:
 output = "game.nes"
 
 # To use multiple source code files, use multiple input options:
@@ -294,7 +290,7 @@ code-dir = "some_directory/"
 Specifies a directory to be searched when importing data files.
 This option can be used multiple times to specify multiple directories.
 
-This behaves like <<codedir,`code-dir`>>, but applies to the files imported by the `file` keyword. TODO: write about file
+This behaves like <<codedir,`code-dir`>>, but applies to the files imported by the <<kw_file, `file` keyword>>.
 
 *Command-line usage:*
 ----
@@ -849,7 +845,7 @@ fn example()
 The `goto mode` statement causes control flow to jump to a <<TODO_mode>>, 
 discarding the current call stack and starting anew.
 In the process, global variables will be reset to their initial value,
-unless they are explicitly preserved using <<kw_preserves>> in the `goto mode` statement.
+unless they are explicitly preserved using <<mod_preserves>> in the `goto mode` statement.
 
 Syntax:
 ----
@@ -1287,11 +1283,12 @@ Unlike other programming languages, functions in NESFab cannot be nested or recu
 
 *Modifiers:*
 
-- `employs`: A list of groups. See <<kw_employs_mod>>.
-- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
-- `data`: A list of `data` groups. See <<kw_data_mod>>.
-- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
-- `+inline`, `-inline`: Force / prevent the function from being inlined.
+- <<mod_employs>>.
+- <<mod_data>>.
+- <<mod_vars>>.
+- <<mod_flags, `+zero_page`, `-zero_page`>>
+- <<mod_flags, `+inline`, `-inline`>>
+- <<mod_flags, `+graphviz`>>
 
 Example:
 ----
@@ -1304,7 +1301,7 @@ TODO: inline assembly
 === `ct` [[kw_ct]]
 
 `ct` is short for _compile-time_. 
-The keyword can be prefixed onto value and function declarations to *insist* that their computations occur compile-time.
+The keyword can be prefixed onto value and function declarations to *insist* that their computations occur at compile-time.
 
 ==== `ct fn`
 
@@ -1326,7 +1323,7 @@ ct TypeName identifier = value
 
 They can be declared at global scope, or inside functions.
 
-=== `mode`
+=== `mode` [[kw_mode]]
 
 The `mode` keyword declares a mode function at global scope. 
 Modes are similar to <<kw_fn, regular functions>>, but they do not return.
@@ -1351,11 +1348,12 @@ While the mode function is executing, NMIs will be handled using the supplied `n
 
 *Modifiers:*
 
-- `nmi`: The name of the `nmi` function to use when executing this `mode`.
-- `employs`: A list of groups. See <<kw_employs_mod>>.
-- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
-- `data`: A list of `data` groups. See <<kw_data_mod>>.
-- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
+- <<mod_nmi>>.
+- <<mod_employs>>.
+- <<mod_data>>.
+- <<mod_vars>>.
+- <<mod_flags, `+zero_page`, `-zero_page`>>
+- <<mod_flags, `+graphviz`>>
 
 Example:
 ----
@@ -1411,10 +1409,11 @@ nmi identifier()
 
 *Modifiers:*
 
-- `employs`: A list of groups. See <<kw_employs_mod>>.
-- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
-- `data`: A list of `data` groups. See <<kw_data_mod>>.
-- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
+- <<mod_employs>>.
+- <<mod_data>>.
+- <<mod_vars>>.
+- <<mod_flags, `+zero_page`, `-zero_page`>>
+- <<mod_flags, `+graphviz`>>
 
 *Why do NMI interrupt functions exist?*
 
@@ -1466,10 +1465,11 @@ asm fn waste_time()
 
 *Modifiers:*
 
-- `employs`: A list of groups. See <<kw_employs_mod>>.
-- `vars`: A list of `vars` groups. See <<kw_vars_mod>>.
-- `data`: A list of `data` groups. See <<kw_data_mod>>.
-- `+zero_page`, `-zero_page`: Allocate local variables using fast zero-page RAM.
+- <<mod_employs>>.
+- <<mod_data>>.
+- <<mod_vars>>.
+- <<mod_flags, `+zero_page`, `-zero_page`>>
+- <<mod_flags, `+graphviz`>>
 
 The labels of an `asm` function are visible using the <<TODO, `.` operator>>.
 Although the address cannot be taken of these labels, it is possible to call them like functions.
@@ -1524,7 +1524,7 @@ vars /group_name
 
 Assigning to a global variable in a `vars` block sets its initial value.
 The variable will reset to this value at the start of the program,
-but also whenever a <<kw_goto_mode_statement>> occurs and the variable's group is not <<kw_preserves, preserved>>
+but also whenever a <<kw_goto_mode_statement>> occurs and the variable's group is not <<mod_preserves, preserved>>
 
 The same group can be declared multiple times,
 with each declaration defining additional global variables.
@@ -1534,8 +1534,8 @@ The group will be defined as the union of these declarations.
 
 The following modifiers are per-variable, not per-group.
 
-- `+align`: Aligns the data to fit inside a page (or to 256 bytes otherwise).
-- `+zero_page`, `-zero_page`: Forces / prevents the variable from using fast zero-page RAM.
+- <<mod_flags, `+align`>>
+- <<mod_flags, `+zero_page`>>
 
 Example:
 ----
@@ -1569,7 +1569,8 @@ The group will be defined as the union of these declarations.
 
 The following modifiers are per-constant, not per-group.
 
-- `+align`: Aligns the data to fit inside a page (or to 256 bytes otherwise).
+- <<mod_flags, `+align`>>
+- <<mod_flags, `+dpcm`>>
 
 Example:
 ----
@@ -1609,7 +1610,7 @@ Additionally, pointers to `omni` data take up only two bytes, as opposed to thre
 
 When using a <<mappers, mapper>> without PRG banks (such as NROM), it is strictly better to use `omni data` instead of `data`.
 
-=== `charmap`
+=== `charmap` [[kw_charmap]]
 
 The `charmap` keyword defines character maps,
 which are sets of characters with a mapping from each character to byte values.
@@ -1632,7 +1633,7 @@ charmap identifier("string", 's')
 
 *Modifiers:*
 
-- `stows`: A `data` group. String literals using this `charmap` will place their data in this group. See <<kw_stows>>.
+- <<mod_stows>>
 
 Example:
 ----
@@ -1811,6 +1812,10 @@ chrrom
     file(chr, "bg.png") 
 ----
 
+*Modifiers:*
+
+- <<mod_file, `+spr_8x16`>>
+
 *Input Filetype Conversions*
 
 When loading a file, its data is first interpreted based on its https://en.wikipedia.org/wiki/Filename_extension[filename extension].
@@ -1842,24 +1847,20 @@ The following filenames are accepted:
 Once a file has been loaded, it is then converted based on its target.
 The following targets are accepted:
 
-[cols="1,1,2"]
+[cols="1,3"]
 |===
-|Conversion Target |Arguments |Description
+|Conversion Target |Description
 
 | <<file_raw, `raw`>>
-| None
 | Raw binary data
 
 | <<file_fmt, `fmt`>>
-| None
 | Formatted data
 
 | <<file_pbz, `pbz`>>
-| None
 | Compressed graphical data
 
 | <<file_rlz, `rlz`>>
-| None
 | Compressed data
 
 |===
@@ -2035,7 +2036,190 @@ The decompressed sequence is:
 $01 $01 $01 $01 $01 $22 $33 $44 $44 $44 $44
 ----
 
-=== `employs` <<kw_employs>>
+=== `audio` [[kw_audio]]
+
+The `audio` keyword imports and converts audio data from an external file,
+converting the data into code definitions.
+It is only usable at top-level scope.
+
+Syntax:
+----
+audio(target, args...)
+----
+
+- `target` specifies the output target to use.
+- `args...` is a list of arguments that the conversion script will use.
+
+Example:
+----
+audio(puf1_music, "music.txt") 
+----
+
+*Output Targets*
+
+The following targets are accepted:
+
+[cols="1,1,2"]
+|===
+|Conversion Target |Description
+
+| <<audio_puf1_music, `puf1_music`>>
+| Music
+
+| <<audio_puf1_music, `puf1_sfx`>>
+| Sound Effects
+
+|===
+
+==== `puf1_music` target [[audio_puf1_music]]
+
+The `puf1_music` target converts music data and generates code compatible with the PUF music engine.
+
+Example:
+----
+audio(puf1_music, "music.txt") 
+----
+
+*Arguments*
+
+- 1st (optional): Filename as a string literal.  
+  The file should be a `.txt` file exported by http://famitracker.com/[FamiTracker].
+  If this argument is left out, definitions will still be generated, albeit with zero tracks.
+
+*Definitions*
+
+Every generated definition will be prefixed with `puf_`, and will have `/puf_data` or `/puf_omni` as its group.
+
+Because tracks are indexed by number, `puf1_music` enumerates each track with a compile-time constant definition.
+The names of these definitions are prefixed with `puf_track_`, followed by the track's name converted to lowercase,
+with `_` characters replacing spaces and other special characters.
+
+For example, if the tracks are:
+----
+Main Menu
+Game Play 1
+Death
+----
+
+The following definitions would be defined by `puf1_music`:
+----
+ct U puf_track_main_menu   = 0
+ct U puf_track_game_play_1 = 1
+ct U puf_track_death       = 2
+----
+
+*Use*
+
+The standard library file `puf1.fab` can be used to play the converted music.
+
+[NOTE]
+You will also need a `puf1_sfx` audio target.
+
+==== `puf1_sfx` target [[audio_puf1_sfx]]
+
+The `puf1_sfx` target converts sound effect data and generates code compatible with the PUF music engine.
+
+Example:
+----
+audio(puf1_sfx, "music.txt", "music.nsf") 
+----
+
+*Arguments*
+
+- 1st (optional): Filename as a string literal.  
+  The file should be a `.txt` file exported by http://famitracker.com/[FamiTracker].
+  If this argument is left out, definitions will still be generated, albeit with zero sound effects.
+
+- 2nd (optional): Filename as a string literal.  
+  The file should be a `.nsf` file exported by http://famitracker.com/[FamiTracker],
+  from the same project as the `.txt`.
+  If both arguments are left out, definitions will still be generated, albeit with zero sound effects.
+
+*Definitions*
+
+Every generated definition will be prefixed with `puf_`, and will have `/puf_data` or `/puf_omni` as its group.
+
+Because sound effects are indexed by number, `puf1_sfx` enumerates each track with a compile-time constant definition.
+The names of these definitions are prefixed with `puf_sfx_`, followed by the sound effect track's name converted to lowercase,
+with `_` characters replacing spaces and other special characters.
+
+For example, if the sound effect tracks are:
+----
+Attack
+Double Jump
+Death
+----
+
+The following definitions would be defined by `puf1_sfx`:
+----
+ct U puf_sfx_attack      = 0
+ct U puf_sfx_double_jump = 1
+ct U puf_sfx_death       = 2
+----
+
+*Use*
+
+The standard library file `puf1.fab` can be used to play the converted sound effects.
+
+[NOTE]
+You will also need a `puf1_music` audio target.
+
+=== `stows` [[kw_stows]]
+
+See <<mod_stows>>.
+
+=== `employs` [[kw_employs]]
+
+See <<mod_employs>>.
+
+== Modifiers [[modifiers]]
+
+Modifiers add additional metadata to definitions.
+
+Example:
+----
+fn foo(U x) U
+: employs /bar
+: +align
+    return x + x
+----
+
+=== Modifier Flags [[mod_flags]]
+
+Modifier flags are specified prefixed with a `-` or `+` character.
+`-` is used to disable the modifier, while `+` is used to enable it.
+
+The following flags exist:
+
+- `+inline`, `-inline`: Force / prevent the function from being inlined.
+- `+align`: Aligns the data to fit inside a 256-byte page (or to 256 bytes otherwise).
+- `+zero_page`, `-zero_page`: Force / prevent variables from using fast zero-page RAM.
+- `+spr_8x16`: Reorders <<kw_file>> CHR data from 8x16 tiles to 8x8 tiles.
+- `+graphviz`: Output the function's intermediate representation in a graphviz file.
+- `+dpcm`: Align and store the data in a ROM location suitable for DPCM.
+
+Example:
+----
+fn foo(U x) U
+: -inline
+: +align
+: +graphviz
+    return x + x
+----
+
+=== `stows` [[mod_stows]]
+
+The `stows` <<modifiers, modifier>> is used inside <<kw_charmap>> definitions
+to enable string literals to use said `charmap`.
+
+Syntax:
+----
+: stows /group_name
+----
+
+- `/group_name` is a single `data` group which string literals will be stored in.
+
+=== `employs` [[mod_employs]]
 
 The `employs` <<modifiers, modifier>> instructs a function to be dependent on a group.
 From the time the function is called to the time the function returns,
@@ -2045,51 +2229,55 @@ Normally, the compiler automatically infers the groups a function depends on.
 The `employs` modifier is only required in these circumstances:
 
 - A value is read or written using a hardware address (type `AA` or `AAA`).
+- The modified function is an <<kw_asm, `asm fn`>>.
 
 Syntax:
 ----
 : employs /group_names
 ----
 
-- `/group_names is an optional list of groups.
+- `/group_names` is an optional list of groups.
 
-=== `preserves`
+=== `preserves` [[mod_preserves]]
 
 The `preserves` <<modifiers, modifier>> is used inside a <<kw_goto_mode_statement>>
 to specify which variables are kept, and which are reset to their initial value.
 
 Syntax:
 ----
-: syntax /group_names
+: preserves /group_names
 ----
 
-- `/group_names is an optional list of `vars` groups.
+- `/group_names` is an optional list of `vars` groups.
 
 If a global variable is not in a preserved group, it will be reset to its initial value if one exists.
 If no initial value was specified, the value will enter an undefined (garbage) state.
 
-=== `stows`
+=== `data` [[mod_data]]
 
-The `stows` <<modifiers, modifier>> is used inside `<<key_charmap>> definitions
-to enable string literals to use said `charmap`.
+The `data` <<modifiers, modifier>> is used to document which `data` <<TODO group, groups>> a function uses.
 
 Syntax:
 ----
-: employs /group_name
+: data /group_names
 ----
 
-- `/group_name is a single `data` group.
+- `/group_names` is an optional list of `data` groups.
 
-== Modifiers
+The function will be checked by the compiler to ensure it only uses data from the listed groups.
 
-TODO
+=== `vars` [[mod_vars]]
 
-=== Modifier Flags
+The `vars` <<modifiers, modifier>> is used to document which `vars` <<TODO group, groups>> a function uses.
 
-- `+inline`, `-inline`: Force / prevent the function from being inlined.
-- `+align`: Aligns the data to fit inside a page (or to 256 bytes otherwise).
-- `+zero_page`, `-zero_page`: Force / prevent variables from using fast zero-page RAM.
-- `+spr_8x16`: Reorders <<kw_file>> CHR data from 8x16 tiles to 8x8 tiles.
+Syntax:
+----
+: vars /group_names
+----
+
+- `/group_names` is an optional list of `data` groups.
+
+The function will be checked by the compiler to ensure it only uses variables from the listed groups.
 
 == Operators
 
@@ -2355,7 +2543,7 @@ For regular code, it's recommended to use <<get_pointer>> instead.
 
 ==== Unary Plus `+` [[unary_plus]]
 
-Returns its operand, type and value unchanged. The operand must be an <<arithmetic_type, arithmetic type>>.
+Returns its operand, type and value unchanged. The operand must be an <<type_arithmetic, arithmetic type>>.
 
 ----
 +100 // Equivalent to 100
@@ -2363,7 +2551,7 @@ Returns its operand, type and value unchanged. The operand must be an <<arithmet
 
 ==== Unary Negate `-` [[unary_negate]]
 
-Returns its operand subtracted from zero, type unchanged. The operand must be an <<arithmetic_type, arithmetic type>>.
+Returns its operand subtracted from zero, type unchanged. The operand must be an <<type_arithmetic, arithmetic type>>.
 
 ----
 -100 // Equivalent to (0 - 100)
@@ -2371,7 +2559,7 @@ Returns its operand subtracted from zero, type unchanged. The operand must be an
 
 ==== Unary Bitwise NOT `~` [[unary_bitwise_not]]
 
-Returns its operand with every bit flipped (1 becomes 0, and vice versa), type unchanged. The operand must be an <<arithmetic_type, arithmetic type>>.
+Returns its operand with every bit flipped (1 becomes 0, and vice versa), type unchanged. The operand must be an <<type_arithmetic, arithmetic type>>.
 
 ----
 U bits = %1010
@@ -2380,7 +2568,7 @@ U bits = %1010
 
 ==== Unary Logical NOT `!` [[unary_logical_not]]
 
-Returns its operand, converted to type `Bool`, then negated (`true` becomes `false` and vice versa). The operand must be an <<arithmetic_type, arithmetic type>>.
+Returns its operand, converted to type `Bool`, then negated (`true` becomes `false` and vice versa). The operand must be an <<type_arithmetic, arithmetic type>>.
 
 ----
 !0     // Equivalent to true
@@ -2397,7 +2585,7 @@ TODO
 
 Returns its operands multiplied together, of a type large enough to hold the product. 
 The return type is signed if either operand is signed, but unsigned otherwise.
-The operands must be <<quantity_type, quantity types>>.
+The operands must be <<type_quantity, quantity types>>.
 
 To be more precise, if the operand types have `F` and `F'` fractional bytes, the return type will have `F + F'`.
 Likewise, if the operand types have `W` and `W'` whole bytes, the return type will have `W + W'`.
@@ -2427,7 +2615,7 @@ a *= b // Equivalent to a = U(a * b)
 ==== Add `+` [[add]]
 
 Returns the sum of its operands. 
-The operands must be of the same <<quantity_type, quantity type>>, although `Int` and `Real` will convert.
+The operands must be of the same <<type_quantity, quantity type>>, although `Int` and `Real` will convert.
 
 ----
 3 + 7 // Equivalent to 10
@@ -2450,7 +2638,7 @@ Unlike in other languages, this operator doesn't return its left operand.
 ==== Subtract `-` [[subtract]]
 
 Returns the difference of its operands (the right operand subtracted from the left). 
-The operands must be of the same <<quantity_type, quantity type>>, although `Int` and `Real` will convert.
+The operands must be of the same <<type_quantity, quantity type>>, although `Int` and `Real` will convert.
 
 ----
 10 - 7 // Equivalent to 3
@@ -2470,7 +2658,7 @@ x -= 300 // 'x' is now equal to 106 due to underflow. The expression returns 'fa
 ==== Rotate Left `+<-<+` [[rotate_left]]
 
 Moves each of the bits of the left operand one place to the left, with the lowest bit being filled with the value of the right operand.
-The left operand must be a <<quantity_type, quantity_type>>, and the right operand must be type `Bool`.
+The left operand must be a <<type_quantity, type_quantity>>, and the right operand must be type `Bool`.
 The return type matches the left operand's type.
 
 ----
@@ -2492,7 +2680,7 @@ foo <=< false // Sets 'foo' to U(%10010100). Returns true.
 ==== Rotate Right `+>->+` [[rotate_right]]
 
 Moves each of the bits of the right operand one place to the right, with the highest bit being filled with the value of the left operand.
-The right operand must be a <<quantity_type, quantity_type>>, and the left operand must be type `Bool`.
+The right operand must be a <<type_quantity, type_quantity>>, and the left operand must be type `Bool`.
 The return type matches the right operand's type.
 
 ----
@@ -2584,7 +2772,7 @@ Unlike in other languages, this operator doesn't return its left operand.
 ==== Bitwise AND `&` [[bitwise_and]]
 
 Applies the AND operation across each bit of the operands, returning the result.
-The operands must be of the same <<arithmetic_type, arithmetic type>>, although `Int` and `Real` will convert.
+The operands must be of the same <<type_arithmetic, arithmetic type>>, although `Int` and `Real` will convert.
 
 ----
 U(%11110000) & U(%10101010) // Equivalent to U(%10100000)
@@ -2605,7 +2793,7 @@ foo &= %10101010 // Sets 'foo' to U(%10100000)
 ==== Bitwise XOR `^` [[bitwise_xor]]
 
 Applies the XOR operation across each bit of the operands, returning the result.
-The operands must be of the same <<arithmetic_type, arithmetic type>>, although `Int` and `Real` will convert.
+The operands must be of the same <<type_arithmetic, arithmetic type>>, although `Int` and `Real` will convert.
 
 ----
 U(%11110000) ^ U(%10101010) // Equivalent to U(%01011010)
@@ -2626,7 +2814,7 @@ foo ^= %10101010 // Sets 'foo' to U(%01011010)
 ==== Bitwise OR `|` [[bitwise_or]]
 
 Applies the OR operation across each bit of the operands, returning the result.
-The operands must be of the same <<arithmetic_type, arithmetic type>>, although `Int` and `Real` will convert.
+The operands must be of the same <<type_arithmetic, arithmetic type>>, although `Int` and `Real` will convert.
 
 ----
 U(%11110000) | U(%10101010) // Equivalent to U(%11111010)
@@ -2674,7 +2862,7 @@ true  || true   // Returns true
 
 ==== Less Than `<` [[less_than]]
 
-Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is less than the right and `false` otherwise.
+Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is less than the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
 ----
@@ -2684,7 +2872,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 
 ==== Less Than or Equal To `+<=+` [[less_than_or_equal_to]]
 
-Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is less than or equal to the right and `false` otherwise.
+Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is less than or equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
 ----
@@ -2694,7 +2882,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 
 ==== Greater Than `>` [[greater_than]]
 
-Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is greater than the right and `false` otherwise.
+Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is greater than the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
 ----
@@ -2704,7 +2892,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 
 ==== Greater Than or Equal To `>=` [[greater_than_or_equal_to]]
 
-Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is greater than or equal to the right and `false` otherwise.
+Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is greater than or equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
 ----
@@ -2714,7 +2902,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 
 ==== Equal To `==` [[equal_to]]
 
-Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
+Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
 ----
@@ -2724,7 +2912,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 
 ==== Not Equal To `!=` [[not_equal_to]]
 
-Compares the <<arithmetic_type, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
+Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
 ----
@@ -2741,12 +2929,6 @@ The right operand must have the same type as the left operand, although `Int` an
 U foo
 foo = 10 // 'foo' is now equal to 10
 ----
-
-=== Arithmetic Type [[arithmetic_type]]
-=== Quantity Type [[quantity_type]]
-=== PAA [[paa]]
-
-
 
 === Explicit Type Casts [[casts]]
 
@@ -2868,8 +3050,8 @@ Some text
 
 There are two boolean literals:
 
-- `true`
-- `false`
+- <<kw_true>>
+- <<kw_false>>
 
 Boolean literals have the type `Bool`.
 
@@ -3020,7 +3202,7 @@ Unicode code points can also be specified directly. Below, each N character repr
 
 === Scalar Types
 
-==== Integer Types
+==== Integer Types [[type_integer]]
 
 Unsigned integer types are expressed using the character `U`, while signed integer types use `S`.
 The values of signed integers are expressed in https://en.wikipedia.org/wiki/Two%27s_complement[two's complement] form.
@@ -3074,7 +3256,7 @@ The 6 integer types are listed below.
 |[$0.000000, $0.FFFFFF]
 |===
 
-==== Fixed-point Types
+==== Fixed-point Types [[type_fixed]]
 
 An integer type and a unit-fractional type can be combined to form a fixed-point type, merging the ranges of both.
 The syntax is the integer type, followed by the unit-fractional type, without no other characters in-between.
@@ -3148,7 +3330,7 @@ ct Real PI = 3.14159265359
 ct Real GOLDEN_RATIO= 1.61803398875
 ----
 
-==== Bool
+==== Bool [[type_bool]]
 
 The type `Bool` is short for "boolean", and represents the values `true` and `false`.
 
@@ -3194,14 +3376,76 @@ as leaving the return type off of a function implies `Void`.
 | N/A
 |===
 
-==== Pointer Types
+=== Arithmetic Types [[type_arithmetic]]
 
-TODO
+Arithmetic types are defined as all <<type_integer, integer types>>, <<type_fixed, fixed-point types>>, and <<type_bool, `Bool`>>.
+
+=== Quantity Types [[type_quantity]]
+
+Quantity types are types which can represent quantities.
+They are defined as all <<type_integer, integer types>>, <<type_fixed, fixed-point types>>.
+
+
+==== Pointer Types [[type_ptr]]
+
+https://en.wikipedia.org/wiki/Pointer_(computer_programming)[Pointer] types represent addresses.
+Unlike pointers in other languages, pointers in NESFab can only point to <<type_paa, pointer-addressible arrays>>.
+
+There are four types of pointers, listed below:
+
+[cols="1,1,1,1"]
+|===
+|Type |Size (bytes) |Value range |Pointed-to Memory
+
+| `CC`
+| 2
+| [$0000, $FFFF]
+| Constant
+
+| `CCC`
+| 3
+| [$00:$0000, $FF:$FFFF]
+| Constant
+
+| `MM`
+| 2
+| [$0000, $FFFF]
+| Mutable
+
+| `MMM`
+| 3
+| [$00:$0000, $FF:$FFFF]
+| Mutable
+
+|===
+
+*Banked vs Unbanked*
+
+The two-letter pointers represent a 16-bit address, 
+while the three-letter pointers represent a 16-bit address along with an 8-bit bank.
+
+*Mutable vs Constant*
+
+The letter `C` in the names stands for "constant", while `M` stands for "mutable".
+It is possible to modify memory using `M` pointers, but not `C` pointers.
+Commonly, `C` pointers are used for ROM data, while `M` pointers are used for RAM data.
+
+*Groups*
+
+Pointer types are associated with one or more groups,
+and their values can only point to values of those groups.
+
+To include a group in a pointer type, append the group name onto it.
+For example, to create a pointer that can reference values belonging to the groups `/foo` and `/bar`, the syntax is:
+----
+CC/foo/bar
+----
+
 
 ==== Address Types
 
 The address type `AA` is used for 16-bit hardware addresses, 
-and has the same representation as pointers, ignoring groups.
+and has the same representation as <<type_ptr, pointers>>, ignoring <<TODO, groups>>.
 This type is used for inline assembly and hardware expressions.
 
 `AAA` behaves like `AA`, but has an additional byte which tracks the address's bank.
@@ -3220,17 +3464,13 @@ This type is used for inline assembly and hardware expressions.
 
 |===
 
-When serializing, the bank byte comes TODO after? before?
-
-TODO
-
 === Arrays
 
 NESFab has two kinds of https://en.wikipedia.org/wiki/Array_(data_structure)[array] types with different restrictions for each.
 The first has value semantics and behaves like arrays do in other languages, but cannot be referenced by pointers. 
 The second can, but it very limited otherwise and can only represent elements of type U.
 
-==== Typed Element Arrays (TEAs)
+==== Typed Element Arrays (TEAs) [[type_tea]]
 
 A TEA is an array of a specified type, of any size between 1 and 65536. Two TEA variables are shown below.
 
@@ -3303,7 +3543,7 @@ tea{U(index) + CONSTANT}
 
 But in general, one should prefer to use `[]`, with TEAs of size 256 or less.
 
-==== Pointer-Addressable Arrays (PAAs)
+==== Pointer-Addressable Arrays (PAAs) [[type_paa]]
 
 PAAs only support a single element type: `U`, and can only be defined at global scope. 
 Like TEAs, they can be any size from 1 to 65536.
@@ -3337,49 +3577,10 @@ fn example()
 
 === Structures
 
-Structures (or "structs"), 
+Structures (or "structs") are https://en.wikipedia.org/wiki/Record_(computer_science)[record types],
+which allows one to aggregate multiple types into a single one.
 
-           TODO
-
-== TODO
-
-=== TODO
-
-==== fn keyword [[fn]]
-
-`fn` is used to define functions.
-
-==== ct keyword [[ct]]
-=== Modifiers [[modifiers]]
-
-TODO
+See <<kw_struct>>.
 
 
-
-
-
-Example usage:
-
-----
-// A charmap of decimal digits:
-charmap foo("0123456789")
-
-// A charmap of uppercase letters, a few punctuation marks, with a sentinel:
-charmap bar(" ,.!ABCDEFGHIJKLMNOPQRSTUVWXZY\0", '\0)
-----
-
-Following the `charmap` keyword, 
-
-ASCII, EBDIC, 
-https://en.wikipedia.org/wiki/MIK_(character_set)
-A character is a [https://en.wikipedia.org/wiki/Unicode[Unicode] code point.
-This 
-
-On modern systems, 
-a format like  or https://en.wikipedia.org/wiki/Unicode[Unicode] 
-is used to encode text,
-but these are undesirable on simpler systems like the NES.
-
-== Second section
-
-More test
+== Groups [[groups]]

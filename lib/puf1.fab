@@ -69,6 +69,7 @@ ct AA puf_track_speed         = puf_stack_mem + 36
 ct AA puf_track_start         = puf_stack_mem + 37 // 2 bytes
 ct AA puf_track_end           = puf_stack_mem + 39 // 2 bytes
 ct AA puf_pattern_size        = puf_stack_mem + 41
+ct AA puf_enable              = puf_stack_mem + 42
 
 ct AAA puf_silent_instrument = &puf_instrument_0
 
@@ -95,29 +96,7 @@ omni data /puf_omni
         UU[]($001D,$001B,$0019,$0018,$0016,$0015,$0014,$0013,$0012,$0011,$0010,$000F)
         UU[]($000E,$000D,$000C)
 
-asm fn puf_set_song(U song_id)
-: employs /puf_data /puf_omni /puf_vars
-    default
-    label foo
-        lda &song_id
-        sta puf_temp
-        goto puf_process.set_song
-
-asm fn puf_play_sfx(U sfx_id)
-: employs /puf_data /puf_omni /puf_vars
-    default
-    label foo
-        lda &sfx_id
-        sta puf_temp
-        goto puf_process.play_sfx
-
-fn puf_init(U system_id)
-    if system_id == SYSTEM_PAL
-        puf_process.init_pal()
-    else
-        puf_process.init_ntsc()
-
-asm fn puf_process()
+asm fn puf(U arg)
 : employs /puf_data /puf_omni /puf_vars
     label track_step_function_lo
         U(update_variables.a)
@@ -135,7 +114,7 @@ asm fn puf_process()
 
     label play_sfx
         inc &puf_lock
-        ldx puf_temp
+        ldx &arg
         lda &puf_sfx_lo, x
         sta &puf_ptr_temp.a
         lda &puf_sfx_hi, x
@@ -276,7 +255,6 @@ asm fn puf_process()
 
 
     label update_variables
-        sta $400
         ldy #0
 
         // Noise
@@ -289,7 +267,6 @@ asm fn puf_process()
         sta puf_noise_note
         jsr reset_noise
     label done_update_noise
-        sta $400
 
         // Triangle
         lda puf_triangle_stack_next
@@ -301,7 +278,6 @@ asm fn puf_process()
         sta puf_triangle_note
         jsr reset_triangle
     label done_update_triangle
-        sta $400
             
         // Square2
         lda puf_square2_stack_next
@@ -313,7 +289,6 @@ asm fn puf_process()
         sta puf_square2_note
         jsr reset_square2
     label done_update_square2
-        sta $400
 
         // Square
         lda puf_square1_stack_next
@@ -325,7 +300,6 @@ asm fn puf_process()
         sta puf_square1_note
         jsr reset_square1
     label done_update_square1
-        sta $400
 
         // DPCM
         lsr puf_dpcm_mask
@@ -348,12 +322,10 @@ asm fn puf_process()
         sta $4015
     label done_dpcm
 
-        sta $400
-
         lda puf_track_speed
         sta puf_track_step
 
-        jmp track_step_return
+        rts
 
 
     label write_instrument
@@ -399,7 +371,7 @@ asm fn puf_process()
         inc &puf_noise_pattern_ptr.a
     label done_noise
 
-        jmp track_step_return
+        rts
 
 
     label update_squares
@@ -437,14 +409,14 @@ asm fn puf_process()
         inc &puf_square2_pattern_ptr.a
     label done_square2
 
-        jmp track_step_return
+        rts
 
 
     label update_pattern_ptrs
         ldy puf_pattern_left
         beq update_pattern_ptrs_dont_dec
         dec puf_pattern_left
-        jmp track_step_return
+        rts
     label update_pattern_ptrs_dont_dec
 
         lda (&puf_track_ptr.a), y
@@ -505,13 +477,36 @@ asm fn puf_process()
         sta puf_noise_mask
         lda (&puf_dpcm_pattern_ptr.a), y
         sta puf_dpcm_mask
+    label early_return
+        rts
 
-        // Fall-through
+    // Call this function every frame in your NMI or whatever to play the music
+    default
+    label process
+        lda &puf_lock
+        bne early_return
 
+        lda &arg
+        sta puf_enable
+
+        ldy puf_bank
+        switch y
+        dec puf_track_step
+        ldx puf_track_step
+        lda track_step_function_lo, x
+        sta &puf_ptr_temp.a
+        lda track_step_function_hi, x
+        sta &puf_ptr_temp.b
+        jsr do_jump
+        // fall-through
     label track_step_return
     label update_null
 
         // Square1
+
+        lda puf_enable
+        and #%0001
+        beq disable_square1
 
         ldx puf_square1_stack
         jsr load_ptr_from_stack
@@ -559,8 +554,13 @@ asm fn puf_process()
         sta $4003
     label done_sta_4003
         sta puf_square1_pitch_hi
+    label disable_square1
 
         // Square2
+
+        lda puf_enable
+        and #%0010
+        beq disable_square2
 
         ldx puf_square2_stack
         jsr load_ptr_from_stack
@@ -608,8 +608,13 @@ asm fn puf_process()
         sta $4007
     label done_sta_4007
         sta puf_square2_pitch_hi
+    label disable_square2
 
         // Triangle
+
+        lda puf_enable
+        and #%0100
+        beq disable_triangle
 
         ldx puf_triangle_stack
         jsr load_ptr_from_stack
@@ -655,8 +660,13 @@ asm fn puf_process()
         adc puf_triangle_pitch_bend+1
         and #%00000111
         sta $400B
+    label disable_triangle
 
         // Noise
+
+        lda puf_enable
+        and #%1000
+        beq disable_noise
 
         ldx puf_noise_stack
         jsr load_ptr_from_stack
@@ -685,6 +695,7 @@ asm fn puf_process()
         adc puf_noise_note
         and #%1111
         sta $400E
+    label disable_noise
 
         rts
 
@@ -707,22 +718,14 @@ asm fn puf_process()
     label fail_lock
         rts
 
-    // Call this function every frame in your NMI or whatever to play the music
-    default
-    label process
-        lda &puf_lock
-        bne fail_lock
-
-        ldy puf_bank
-        switch y
-        dec puf_track_step
-        ldx puf_track_step
-        lda track_step_function_lo, x
-        sta &puf_ptr_temp.a
-        lda track_step_function_hi, x
-        sta &puf_ptr_temp.b
+    label do_jump
         jmp (&puf_ptr_temp.a)
 
+    label init
+        lda &arg
+        cmp #SYSTEM_PAL
+        beq init_pal
+        // fall-through
     label init_ntsc
         ldy #(&puf_ntsc_note_table).a
         ldx #(&puf_ntsc_note_table).b
@@ -731,21 +734,17 @@ asm fn puf_process()
         sty &puf_note_table_ptr.a
         stx &puf_note_table_ptr.b
     label finish_init
-        ldx #puf_instrument_ptrs.a
+        ldx #puf_instrument_ptrs.a+1
         stx puf_noise_stack
-        inx
         stx puf_noise_stack_next
-        inx
+        ldx #puf_instrument_ptrs.a+3
         stx puf_triangle_stack
-        inx
         stx puf_triangle_stack_next
-        inx
+        ldx #puf_instrument_ptrs.a+5
         stx puf_square2_stack
-        inx
         stx puf_square2_stack_next
-        inx
+        ldx #puf_instrument_ptrs.a+7
         stx puf_square1_stack
-        inx
         stx puf_square1_stack_next
 
         lda #puf_silent_instrument.a
@@ -767,7 +766,8 @@ asm fn puf_process()
         jsr reset_square1
         jsr reset_square2
         jsr reset_triangle
-        jmp reset_noise
+        jsr reset_noise
+        jmp unlock
 
     label init_pal
         ldy #(&puf_pal_note_table).a
@@ -775,20 +775,20 @@ asm fn puf_process()
         jmp store_init
 
 
-    label set_song
+    label set_track
         inc &puf_lock
-    
-        ldx puf_temp
+        ldx &arg
+
+        ldy &puf_tracks_bank, x
+        sty puf_bank
+        switch y
+
         lda &puf_tracks_speed, x
         sta puf_track_speed
         sta puf_track_step
 
         lda &puf_tracks_pattern_size, x
         sta puf_pattern_size
-
-        ldy &puf_tracks_bank, x
-        sty puf_bank
-        switch y
 
         lda &puf_tracks_begin_lo, x
         sta &puf_track_ptr.a
@@ -812,21 +812,31 @@ asm fn puf_process()
         ldx #%10000000
         stx $4008
 
-        // TODO
-        ldx #%11110000
-        stx $400C
-
         // SAX = store 0
         sax $400F
         sax puf_pattern_left
+        sax puf_track_step
+
+        //lda #80
+        //sta puf_square1_note
         // sax sfx_noise_play ; TODO
 
+        // TODO
+        // ldx #%11110000
+        // stx $400C
+
+        inc &puf_lock
         jsr finish_init // TODO
+
+        jsr update_pattern_ptrs
+        jsr update_squares
+        jsr update_triangle_noise
         jsr update_variables
         // fall-through
         dec &puf_lock
     label unlock
         dec &puf_lock
-        //dec &puf_lock
+        lda #0
+        sta &puf_lock
         rts
 

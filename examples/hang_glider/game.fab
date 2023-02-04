@@ -6,7 +6,7 @@ ct U MIN_DIR = 0
 
 ct U PLAYER_Y = 64
 
-ct U dead_color = $5F
+ct U dead_color = $16
 ct U[25] game_palette = U[25](
     $11, $2B, $39,
     $13, $21, $3B,
@@ -46,7 +46,6 @@ nmi game_nmi()
 
         if rotated && !pdead
             {$400F}(0)
-            {$4015}(%01000)
             noise_vol = noise_volume_table[pdir]
             {$400E}(noise_pitch_table[pdir])
 
@@ -60,6 +59,8 @@ nmi game_nmi()
     {PPUSCROLL}(pscroll.a)
     {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
     {PPUCTRL}(PPUCTRL_NMI_ON | pscroll_nt)
+
+    puf.process(%0111)
 
 
 fn move_player()
@@ -145,6 +146,8 @@ mode game()
     {PPUCTRL}(0)
     {PPUMASK}(0)
 
+    puf.set_track(puf_track_game)
+
     palette = game_palette
     ppu_upload_palette()
 
@@ -160,6 +163,11 @@ mode game()
 
         if pdead
             palette[PALETTE_UBC] = dead_color
+
+            if pads[0].pressed & BUTTON_START
+                goto mode main()
+                : preserves /puf_vars /rng /pad
+
         else
             move_player()
             pdead = collide_player()

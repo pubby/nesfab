@@ -2,6 +2,7 @@
 
 #include "format.hpp"
 #include "options.hpp"
+#include "assert.hpp"
 
 namespace
 {
@@ -88,6 +89,8 @@ std::string fmt_error(
 
     char const* line_begin = get_line_begin(file->source(), pstring);
     char const* line_end = get_line_end(file->source(), pstring);
+    if(line_end <= line_begin)
+        line_end = line_begin;
 
     std::string pre = fmt(" % | ", get_line_col(file->source(), pstring).line);
 

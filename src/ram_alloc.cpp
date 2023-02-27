@@ -1,7 +1,5 @@
 #include "ram_alloc.hpp"
 
-#include <iostream> // TODO
-
 #include "flat/small_set.hpp"
 
 #include "decl.hpp"
@@ -143,10 +141,6 @@ private:
 
         // Like above, but includes called fns too.
         std::array<ram_bitset_t, NUM_ROMV> recursive_lvar_ram = {};
-
-        // Bitset of functions.
-        // Propagates the allocations to these, as other romvs.
-        //bitset_t romv_propagate; TODO
 
         // Stores indexes into 'romv_allocated'.
         std::array<fc::small_set<unsigned, 2>, NUM_ROMV> romv_self;
@@ -593,19 +587,6 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 for(auto& bs : fn_data[fn.id].usable_ram)
                     bs &= group_vars_data[gv.id].usable_ram;
             });
-
-            // TODO remove?
-            /*
-            fn->ir_calls().for_each([&](fn_ht call)
-            {
-                fn_data[fn.id].maximal_group_vars.for_each([&](group_vars_ht gv)
-                {
-                    std::cout << "MAXIMAL " << fn->global.name << ' ' << gv->group.name << std::endl;
-                    for(auto& bs : fn_data[call.id].usable_ram)
-                        bs &= group_vars_data[gv.id].usable_ram;
-                });
-            });
-            */
         }
 
         // Build an order to allocate fn lvars:
@@ -841,7 +822,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
         if(info.ptr_alt >= 0)
         {
             assert(span.size == 2);
-            assert(lvar_i != info.ptr_alt);
+            assert(static_cast<int>(lvar_i) != info.ptr_alt);
             dprint(log, "---PTR_ALT");
             fn.assign_lvar_span(romv, lvar_i,       { .addr = span.addr,     .size = 1 }); 
             fn.assign_lvar_span(romv, info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 

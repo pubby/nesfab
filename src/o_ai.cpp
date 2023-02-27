@@ -2,9 +2,6 @@
 #include "o.hpp"
 
 #include <array>
-#include <iostream> // TODO
-#include <fstream> // TODO
-#include "graphviz.hpp" // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -26,6 +23,7 @@
 #include "constraints.hpp"
 #include "multi.hpp"
 #include "switch.hpp"
+#include "guard.hpp"
 
 namespace bc = ::boost::container;
 
@@ -302,29 +300,6 @@ ai_t::ai_t(log_t* log, ir_t& ir_, bool byteified)
     rewrite_loops();
     ir.assert_valid();
 }
-
-/* TODO: remove?
-ai_t::debug_print()
-{
-#ifndef NDEBUG
-    if(!log)
-        return;
-
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        *log << " CFG " << cfg_it.index << '\n';
-        *log << "  executable: " << ai_data(cfg_it).executable[0] << ' ' << ai_data(cfg_it).executable[1] << '\n';
-        *log << "  executable out: " << ai_data(cfg_it).output_executable[0] << ' ' << ai_data(cfg_it).output_executable[1] << '\n';
-        for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
-        {
-            *log << "   ssa " << ssa_it.index << '\n';
-            if(ai_data(ssa_it).constraints().vec.size())
-                *log << "    constraints:" << ai_data(ssa_it).constraints()[0] << '\n';
-        }
-    }
-#endif
-}
-*/
 
 ////////////////////////////////////////
 // HELPERS                            //
@@ -780,10 +755,6 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         dprint(log, "--COMPUTE_NARROW", op);
         narrow_fn(op)(c.data(), num_args, parent_trace_d.constraints());
 
-        // TODO: remove?
-        //passert(c[arg_i].vec.size() == narrowed.size(), 
-                //c[arg_i].vec.size(), narrowed.size(), narrowing_op->op(), narrowing_op, arg_i);
-
         // Update narrowed:
         for(unsigned j = 0; j < narrowed.size(); ++j)
             narrowed[j] = intersect(narrowed[j], c[arg_i][j]);
@@ -1086,15 +1057,6 @@ void ai_t::prune_unreachable_code()
         assert(branch->op() != SSA_if || def.cm == BOOL_MASK);
         constraints_t const& c = def[0];
 
-        /* TODO
-#ifndef NDEBUG
-        // If 'c' isn't const, all our outputs should have been executed.
-        if(!c.is_const() && !ai_data(cfg_node.handle()).output_executable[EXEC_PROPAGATE].all_clear())
-            for(unsigned i = 0; i < cfg_node.output_size(); ++i)
-                assert(ai_data(cfg_node.output(i)).executable[EXEC_PROPAGATE]);
-#endif
-*/
-
         if(branch->op() == SSA_if)
         {
             if(!c.is_const())
@@ -1232,7 +1194,7 @@ void ai_t::fold_consts()
 #ifndef NDEBUG
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
-        assert(ai_data(ssa_it).executable_index == EXEC_PROPAGATE);
+        passert(ai_data(ssa_it).executable_index == EXEC_PROPAGATE, ai_data(ssa_it).executable_index);
 #endif
 
     // Replace nodes determined to be constant with a constant ssa_value_t.
@@ -1806,7 +1768,7 @@ void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
                     unsigned const cases = ssa_switch_cases(branch->op());
                     for(unsigned i = cases, j = 1; i < cfg_node.output_size(); ++i, ++j)
                     {
-                        if(branch->input(j).signed_fixed() == c.get_const())
+                        if(branch->input(j).signed_fixed() == static_cast<fixed_sint_t>(c.get_const()))
                         {
                             branch_i = i;
                             goto branch_skipped;
@@ -1901,6 +1863,14 @@ void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
 
 void ai_t::thread_jumps()
 {
+    auto cleanup = make_scope_guard([&]() 
+    {
+        // Cleanup executable indexes, just to be safe
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+            ai_data(ssa_it).executable_index = EXEC_PROPAGATE;
+    });
+
     // Find all jump threads, creating new edges and storing the endpoints in
     // 'threaded_jumps'.
     //threaded_jumps.clear();
@@ -1987,11 +1957,6 @@ void ai_t::thread_jumps()
             ir.prune_cfg(cfg_node);
         }
     }
-
-    // Cleanup executable indexes, just to be safe
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
-        ai_data(ssa_it).executable_index = EXEC_PROPAGATE;
 }
 
 ////////////////////

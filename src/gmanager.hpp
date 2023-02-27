@@ -26,13 +26,10 @@ public:
 
     index_t var_i(gvar_ht gvar) const;
     index_t var_i(gmember_ht gmember) const;
-    //index_t ptr_i(group_vars_ht group_vars) const;
-    //index_t ptr_i(type_t const& type) const;
 
     std::size_t num_gvar_locators() const { return gvar_set.size(); }
     std::size_t num_gmember_set_locators() const { return gmember_sets.size(); }
     std::size_t num_locators() const { return num_gvar_locators() + num_gmember_set_locators(); }
-    //std::size_t num_vars() const { return num_locators() + group_vars_map.size(); }
 
     // Returns a bitset containing every gmember belonging to 'loc'.
     bitset_uint_t const* get_set(locator_t loc) const
@@ -41,15 +38,6 @@ public:
         assert(loc.data() < gmember_sets.size());
         return gmember_sets[loc.data()];
     }
-
-    /* TODO
-    // Returns a locator describing the gmember:
-    locator_t locator(gmember_ht gmember) const;
-    locator_t locator(index_t i) const;
-
-    // Returns the type of the gmember/gmember set.
-    type_t type(index_t index) const;
-    */
 
     template<typename Fn>
     void for_each_gvar(Fn const& fn) const
@@ -72,17 +60,13 @@ public:
             callback(gmember_sets[i], index_t{ i + num_gvar_locators() }, locator_t::gmember_set(fn, i));
     }
 
-    static std::size_t bitset_size(); // TODO: remove this garbage
-
 private:
     fn_ht fn;
     fc::small_set<gvar_ht, 8> gvar_set;
     rh::batman_map<gmember_ht, unsigned> gmember_sets_map;
     std::vector<bitset_uint_t const*> gmember_sets;
-    //rh::batman_map<group_vars_ht, index_t> group_vars_map;
     std::vector<type_t> m_types;
     array_pool_t<bitset_uint_t> bitset_pool;
-    //unsigned first_set = 0; TODO
 };
 
 #endif

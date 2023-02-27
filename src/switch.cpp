@@ -37,45 +37,6 @@ bool switch_partial_to_full(ssa_node_t& switch_node)
     return true;
 }
 
-/* TODO: Remove
-1 2 4 8
-
-0101
-00010001
-0000000100000001
-
-static constexpr std::array<std::uint64_t, 8> _gen_bits()
-{
-    unsigned r = 0;
-    std::array<std::uint64_t, 8> ret;
-
-    for(unsigned j = 1; j < 8; j *= 2)
-    {
-        std::uint64_t bits = 0;
-
-        for(unsigned i = 0; i < 64; i += 1 << j)
-            bits |= 1 << i;
-
-        for(unsigned i = 0; i <= j; ++i)
-            ret[r++] = bits << i;
-    }
-
-    return ret;
-}
-
-std::uint8_t _reverse_bit_order(uint8_t n) 
-{
-    constexpr std::uint8_t table[16] = 
-    {
-        0x0, 0x8, 0x4, 0xC, 0x2, 0xA, 0x6, 0xE,
-        0x1, 0x9, 0x5, 0xD, 0x3, 0xB, 0x7, 0xF, 
-    };
-
-   // Reverse the top and bottom nibble then swap them.
-   return (table[n & 0b1111] << 4) | table[n >> 4];
-}
-*/
-
 bool switch_partial_to_full(ir_t& ir)
 {
     bool updated = false;
@@ -245,56 +206,3 @@ bool switch_partial_to_full(ir_t& ir)
     return updated;
 }
 
-/* TODO: remove
-///////////////////////////////////////////////////////////////////////////////
-
-void switch_table_t::replace_labels(locator_t from, locator_t to)
-{
-    for(locator_t& loc : labels)
-        if(loc == from)
-            loc = to;
-}
-
-switch_manager_t::switch_manager_t(ir_t const& ir)
-{
-    for(cfg_node_t const& cfg_node : ir)
-    {
-        ssa_ht const branch = cfg_node.last_daisy();
-
-        assert(!branch || branch->op() != SSA_switch_partial);
-
-        if(!branch || branch->op() != SSA_switch_full)
-            continue;
-
-        std::uint8_t min = 0xFF;
-        std::uint8_t max = 0;
-
-        unsigned const input_size = branch->input_size();
-        for(unsigned j = 1; j < input_size; ++j)
-        {
-            std::uint8_t const whole = branch->input(j).whole();
-            min = std::min(min, whole);
-            max = std::max(max, whole);
-        }
-
-        unsigned const size = max - min + 1;
-
-        switch_table_t table = { .offset = min };
-        table.labels.resize(size, locator_t::const_byte(0));
-
-        unsigned const cases = ssa_switch_cases(branch->op());
-        for(unsigned i = cases, j = 1; j < input_size; ++i, ++j)
-        {
-            std::uint8_t const whole = branch->input(j).whole();
-            unsigned const k = whole - min;
-            passert(k < table.labels.size(), k, table.labels.size(), whole, min);
-
-            cfg_ht const output = cfg_node.output(i);
-
-            table.labels[k] = locator_t::cfg_label(output);
-        }
-
-        m_map.insert({ cfg_node.handle(), std::move(table) });
-    }
-}
-*/

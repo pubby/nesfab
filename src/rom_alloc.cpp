@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <vector>
-#include <iostream> // TODO
 
 #include "rom.hpp"
 #include "handle.hpp"
@@ -142,7 +141,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
                 }
             }
 
-            if(proc_count == 0) // TODO
+            if(proc_count == 0)
             {
                 dprint(log, "--SKIPPING (UNUSED BY PROCS)", rom_array_h);
                 continue;
@@ -209,7 +208,6 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
         // If it does, the proc has to be MANY, otherwise its ONCE.
 
         unsigned const alignment = rom_proc.align() ? 256 : 1;
-        bitset_t const* groups;
         bool once = true;
 
         for(rom_array_ht use : rom_proc_directly_uses[rom_proc_h.id])
@@ -265,7 +263,6 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
     unsigned const num_onces = rom_once_ht::pool().size();
     unsigned const num_manys = rom_many_ht::pool().size();
 
-    // TODO: replace
     many_bs_size = bitset_size<>(num_manys);
     once_bs_size = bitset_size<>(num_onces);
 
@@ -383,25 +380,6 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
         }
     }
 
-    //////////////////////
-    // Allocate statics //
-    //////////////////////
-
-    /* TODO: remove
-    // Allocate static_addrs
-    for(rom_static_t& sa : rom_vector<rom_static_t>)
-    {
-        if(sa.span)
-        {
-            if(!allocator.alloc_at(sa.span))
-                throw std::runtime_error(fmt("Unable to allocate static address % - % (out of ROM space).", 
-                                             sa.span.addr, sa.span.end() - 1));
-        }
-        else if(!(sa.span = allocator.alloc(sa.desired_size, sa.desired_alignment)))
-            throw std::runtime_error("Unable to allocate static address (out of ROM space).");
-    }
-    */
-
     ////////////////
     // Init banks //
     ////////////////
@@ -471,7 +449,6 @@ float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
     int unrelated = 0;
     if(once.related_onces)
     {
-        //std::puts("RELATED ONCES");
         bitset_uint_t* const onces = ALLOCA_T(bitset_uint_t, once_bs_size);
         bitset_copy(once_bs_size, onces, once.related_onces);
         bitset_and(once_bs_size, onces, bank.allocated_onces.data());
@@ -480,10 +457,7 @@ float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
         unrelated = bitset_popcount(once_bs_size, onces);
     }
 
-    //std::printf("related %i %i\n", related, unrelated);
-
     float const r = bank.allocator.initial_bytes_free() * std::sqrt((float)bank.allocator.spans_free());
-    //std::printf("bank rank %i %i %f\n", unallocated_many_size, related, (bank.allocator.bytes_free() / r));
     return -unallocated_many_size + related - (unrelated * 0.125f) + (bank.allocator.bytes_free() / r);
 }
 
@@ -650,16 +624,11 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     assert(min_end != ~0u);
 
     // Here's where our many will be stored:
-    // TODO
-    //unsigned const store_addr = std::max<unsigned>(max_start, min_end - many.data.max_size());
     span_t const range = { max_start, min_end - max_start };
     span_t alloc_at;
 
     if(!(alloc_at = aligned(range, many.data.max_size(), many.desired_alignment)))
-    {
-        std::cout << "PANIC " << range << many.data.max_size() << ' ' << many.desired_alignment << std::endl;
         return false;
-    }
 
     // Now allocate in each bank:
     in_banks.for_each([&](unsigned bank_i)

@@ -1,7 +1,5 @@
 #include "rom.hpp"
 
-#include <iostream> // TODO
-
 #include "globals.hpp"
 #include "group.hpp"
 #include "asm_proc.hpp"

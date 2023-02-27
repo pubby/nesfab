@@ -1,7 +1,5 @@
 #include "locator.hpp"
 
-#include <iostream> // TODO
-
 #include "format.hpp"
 #include "globals.hpp"
 #include "group.hpp"
@@ -63,8 +61,6 @@ std::string to_string(locator_t loc)
         str = fmt("asm_local_var", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:
         str = fmt("rom_array %", loc.handle()); break;
-    //case LOC_LT_GMEMBER_PTR:
-        //str = fmt("gmember_ptr % %", loc.gmember()->gvar.global.name, loc.gmember()->member()); break;
     case LOC_GCONST:
         str = fmt("gconst %", loc.const_()->global.name); break;
     case LOC_DPCM:
@@ -200,12 +196,6 @@ type_t locator_t::type() const
 
     switch(lclass())
     {
-        /*
-    case LOC_LT_GMEMBER_PTR:
-        if(gmember_ht const m = gmember())
-            return byteify(type_t::ptr(m->gvar.group(), true, false));
-        break;
-        */
     case LOC_GCONST:
         if(const_ht const c = const_())
             c->type();
@@ -332,11 +322,6 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             locator_t const label = 
                 data() == ENTRY_LABEL ? proc.entry_label : locator_t::named_label(fn()->global.handle(), data());
 
-            // TODO
-            //for(auto const& pair : proc.labels)
-                //std::cout << pair.first << " = " << pair.second.offset << std::endl;
-            //std::cout << "ID = " << label << std::endl;
-
             if(auto const* info = proc.lookup_label(label))
                 span_offset = info->offset;
             else // Likely a compiler bug:
@@ -379,9 +364,6 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         if(bank >= 0 && bank < 256)
             return locator_t::const_byte(bank);
         return *this;
-
-    //case LOC_LT_GMEMBER_PTR:
-        //return from_span(gmember()->span(0));
 
     case LOC_RUNTIME_RAM:
         {

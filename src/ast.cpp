@@ -9,6 +9,7 @@ unsigned ast_node_t::num_children() const
     switch(token.type)
     {
     case TOK_apply:
+    case TOK_mode_apply:
     case TOK_cast:
     case TOK_implicit_cast:
     case TOK_byte_block_proc:
@@ -38,6 +39,7 @@ unsigned ast_node_t::num_children() const
     case TOK_write_hw:
     case TOK_index8:
     case TOK_index16:
+    case TOK_replace_atom:
         return 2;
 
     default:

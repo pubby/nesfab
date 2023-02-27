@@ -153,21 +153,6 @@ constexpr bool has_tail(type_name_t name)
             || name == TYPE_STRUCT); 
 }
 
-/*
-constexpr type_name_t remove_bank(type_name_t type_name)
-{
-    switch(type_name)
-    {
-    case TYPE_BANKED_PTR:
-        return TYPE_PTR;
-    case TYPE_BANKED_MPTR:
-        return TYPE_MPTR;
-    default:
-        return type_name;
-    }
-}
-*/
-
 constexpr bool is_simple(type_name_t type_name)
 {
     return !has_tail(type_name);

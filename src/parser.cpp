@@ -1,6 +1,5 @@
 #include "parser.hpp"
 
-#include <iostream> // TODO
 #include <filesystem>
 
 #include <boost/container/static_vector.hpp>
@@ -766,19 +765,6 @@ retry:
     case TOK_SYSTEM_DENDY:   return system(NES_SYSTEM_DENDY);
     case TOK_SYSTEM_UNKNOWN: return system(NES_SYSTEM_UNKNOWN);
 
-        /* TODO: remove
-    case TOK_at:
-        {
-            ast_node_t ast = { .token = token };
-            parse_token();
-            if(token.type != TOK_ident)
-                compiler_error("Unexpected token. Expecting identifier.");
-            ast.token.pstring = token.pstring;
-            parse_token();
-            return ast;
-        }
-        */
-
     case TOK_bitwise_and:
         token.type = TOK_unary_ref;
         goto unary;
@@ -987,305 +973,6 @@ done_loop:
     return result;
 }
 
-/* TODO: remove
-template<typename P>
-expr_temp_t parser_t<P>::parse_expr()
-{
-    expr_temp_t expr_temp;
-    parse_expr(expr_temp, indent, 0);
-    return expr_temp;
-}
-
-template<typename P>
-void parser_t<P>::parse_expr(expr_temp_t& expr_temp, int starting_indent, int open_parens)
-{
-    // Expression parsing is based on the shunting yard algorithm,
-    // with small modifications to support more varied expressions.
-
-    using shunting_yard_t = bc::small_vector<token_t, 16>;
-    shunting_yard_t shunting_yard;
-
-    token_t saved_token; // Used in switch cases
-
-    auto const type_info_impl = [&](token_type_t expr_token, std::size_t(type_t::*fn)() const)
-    {
-        token_t t = token;
-        parse_token();
-
-        if(is_type_prefix(token.type))
-        {
-            type_t const type = parse_type(false, false, {}).type;
-            t.pstring.size = token.pstring.offset - t.pstring.offset;
-
-            std::uint64_t const size = (type.*fn)();
-
-            if(size == 0)
-            {
-                t.set_ptr(type_t::new_type(type));
-                expr_temp.push_back(t);
-            }
-            else
-                expr_temp.push_back({ .type = TOK_int, .pstring = t.pstring, .value = size << fixed_t::shift });
-        }
-        else
-        {
-            int const impl_indent = indent;
-            expr_temp_t impl_temp;
-
-            parse_token(TOK_lparen);
-            parse_expr(impl_temp, impl_indent, open_parens+1);
-            parse_token(TOK_rparen);
-
-            t.pstring.size = token.pstring.offset - t.pstring.offset;
-            t.type = expr_token;
-            t.set_ptr(policy().convert_expr(impl_temp));
-            expr_temp.push_back(t);
-        }
-    };
-
-    // The algorithm toggles between two states: applicable and inapplicable.
-    // An applicable string is one that can be on the left side of an operator.
-    // An inapplicable string is one that can't (e.g. "foo +").
-inapplicable:
-    switch(token.type)
-    {
-    case TOK_int:
-    case TOK_real:
-    case TOK_ident:
-    number:
-        expr_temp.push_back(token);
-        goto applicable_advance;
-
-    case TOK_lparen:
-        shunting_yard.push_back(token);
-        parse_token();
-        if(token.type == TOK_rparen)
-            compiler_error("() is not a valid expr.");
-        ++open_parens;
-        goto inapplicable; // already advanced token
-
-    case TOK_eol:
-        if(open_parens)
-        {
-            parse_indented_token();
-            if(indent <= starting_indent)
-                compiler_error("Multi-line expressions must be indented. "
-                               "(Did you forget to close a parenthesis?)");
-            goto inapplicable;
-        }
-        else
-            compiler_error("Line ended with an incomplete expression.");
-
-    case TOK_minus:
-        {
-            token_t t = token;
-            parse_token();
-
-            // Handling numbers separately may grant a tiny speedup
-            // (note the code would still work without this)
-            if(token.type == TOK_int || token.type == TOK_real)
-            {
-                token.value = -token.value;
-                goto number;
-            }
-
-            t.type = TOK_unary_minus;
-            shunting_yard.push_back(t);
-            goto inapplicable;
-        }
-
-    case TOK_unary_xor:
-    case TOK_unary_negate:
-        shunting_yard.push_back(token);
-        parse_token();
-        goto inapplicable;
-
-    case TOK_sizeof:
-        type_info_impl(TOK_sizeof_expr, &type_t::size_of);
-        goto applicable;
-
-    case TOK_len:
-        type_info_impl(TOK_len_expr, &type_t::array_length);
-        goto applicable;
-
-    case TOK_at:
-        {
-            token_t t = token;
-            parse_token();
-            t.pstring = parse_ident();
-            expr_temp.push_back(std::move(t));
-        }
-        goto applicable;
-
-    case TOK_lbrace:
-        {
-            // lbrackets define a register value
-            pstring_t const pstring = token.pstring;
-            parse_token();
-            expr_temp_t hw_temp;
-            parse_expr(hw_temp, indent, open_parens+1);
-            parse_token(TOK_rbrace);
-
-            saved_token = token_t::make_ptr(
-                TOK_hw_expr, concat(pstring, token.pstring), 
-                policy().convert_expr(hw_temp));
-
-            goto rw_hardware;
-        }
-
-    default:
-        if(is_type_prefix(token.type))
-        {
-            parse_cast(expr_temp, open_parens+1);
-            goto applicable;
-        }
-        else 
-        {
-            if(std::uint16_t hw_reg = get_hw_reg(token.type))
-            {
-                saved_token = { .type = TOK_hw_addr, .pstring = token.pstring, .value = hw_reg };
-                parse_token();
-            }
-            else
-            {
-                compiler_error("Unexpected token while parsing expression.");
-            }
-        rw_hardware:
-            pstring_t const pstring = token.pstring;
-            parse_token(TOK_lparen);
-
-            if(token.type == TOK_rparen)
-            {
-                expr_temp.push_back(saved_token);
-                expr_temp.push_back({ .type = TOK_read_hw, .pstring = concat(pstring, token.pstring) });
-            }
-            else
-            {
-                parse_expr(expr_temp, indent, open_parens+1);
-                expr_temp.push_back(saved_token);
-                expr_temp.push_back({ .type = TOK_write_hw, .pstring = concat(pstring, token.pstring) });
-            }
-
-            parse_token(TOK_rparen);
-
-            goto applicable;
-        }
-    }
-
-applicable_advance:
-    parse_token();
-applicable:
-    switch(token.type)
-    {
-    case TOK_lparen:
-        {
-            char const* begin = token_source;
-            int const fn_indent = indent;
-            unsigned argument_count = parse_args(TOK_lparen, TOK_rparen,
-                [&]() { parse_expr(expr_temp, fn_indent, open_parens+1); });
-            char const* end = token_source;
-            pstring_t pstring = { begin - source(), end - begin, file_i() };
-            expr_temp.push_back({ .type = TOK_apply, .pstring = pstring, .value = argument_count });
-            goto applicable;
-        }
-
-    case TOK_rparen:
-        while(true)
-        {
-            if(shunting_yard.empty())
-                goto finish_expr;
-            else if(shunting_yard.back().type == TOK_lparen)
-            {
-                shunting_yard.pop_back();
-                --open_parens;
-                goto applicable_advance;
-            }
-            expr_temp.push_back(shunting_yard.back());
-            shunting_yard.pop_back();
-        }
-
-    case TOK_lbracket:
-        {
-            char const* begin = token_source;
-            int const bracket_indent = indent;
-            parse_token();
-            parse_expr(expr_temp, bracket_indent, open_parens+1);
-            parse_token(TOK_rbracket);
-            char const* end = token_source;
-            pstring_t pstring = { begin - source(), end - begin, file_i() };
-            expr_temp.push_back({ .type = TOK_index, .pstring = pstring });
-            goto applicable;
-        }
-
-    case TOK_period:
-        {
-            parse_token();
-            pstring_t pstring = token.pstring;
-            parse_token(TOK_ident);
-
-            std::uint64_t const hash = fnv1a<std::uint64_t>::hash(pstring.view(source()));
-            expr_temp.push_back({ .type = TOK_period, .pstring = pstring, .value = hash });
-
-            goto applicable;
-        }
-    
-    case TOK_eol:
-        if(open_parens)
-        {
-            parse_indented_token();
-            if(indent <= starting_indent)
-                compiler_error("Multi-line expressions must be indented. "
-                            "(Did you forget to close a parenthesis?)");
-            goto applicable;
-        }
-        goto finish_expr;
-
-    default:
-        if(is_operator(token.type))
-        {
-            auto const token_precedence = operator_precedence(token.type);
-            auto const token_right_assoc = operator_right_assoc(token.type);
-            
-            while(shunting_yard.size()
-                  && shunting_yard.back().type != TOK_lparen
-                  && ((operator_precedence(shunting_yard.back().type) < token_precedence)
-                      || (token_right_assoc && operator_precedence(shunting_yard.back().type) == token_precedence)))
-            {
-                expr_temp.push_back(shunting_yard.back());
-                shunting_yard.pop_back();
-            }
-
-            if(token.type == TOK_logical_and)
-            {
-                expr_temp.push_back(token);
-                token.type = TOK_end_logical_and;
-            }
-
-            if(token.type == TOK_logical_or)
-            {
-                expr_temp.push_back(token);
-                token.type = TOK_end_logical_or;
-            }
-
-            shunting_yard.push_back(token);
-            parse_token();
-            goto inapplicable;
-        }
-        goto finish_expr;
-    }
-
-finish_expr:
-    while(shunting_yard.size())
-    {
-        if(shunting_yard.back().type == TOK_lparen)
-            compiler_error("Incomplete expression. Expecting ).");
-        expr_temp.push_back(shunting_yard.back());
-        shunting_yard.pop_back();
-    }
-    assert(!expr_temp.empty());
-}
-*/
-
 template<typename P>
 ast_node_t parser_t<P>::parse_cast(src_type_t& src_type, int open_parens)
 {
@@ -1436,7 +1123,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
         else
         {
             int const array_indent = indent;
-            ast_node_t expr = parse_expr(indent, 1);
+            ast_node_t expr = parse_expr(array_indent, 1);
             policy().convert_ast(expr, IDEP_TYPE);
 
             if(expr.token.type == TOK_int)
@@ -1481,15 +1168,6 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
     { 
         switch(token.type)
         {
-            /* TODO: remove?
-        case TOK_quote:
-        case TOK_dquote:
-        case TOK_backtick:
-            children.push_back(parse_string_or_char_expr(false));
-            parse_line_ending();
-            break;
-            */
-            
         case TOK_lparen:
             {
                 int const paren_indent = indent;
@@ -1872,13 +1550,6 @@ void parser_t<P>::parse_audio()
     {
         policy().audio(audio_pstring, script, preferred_dir, std::move(args), std::move(mods));
     });
-
-
-    //policy().audio(decl, {});
-
-    /* TODO: implement
-    parse_args(TOK_lparen, TOK_rparen, [&](unsigned){ params.push_back(parse_var_decl(false, {})); });
-    */
 }
 
 template<typename P>
@@ -1886,7 +1557,6 @@ void parser_t<P>::parse_charmap()
 {
     pstring_t charmap_name;
     bool is_default = false;
-    bool has_sentinel = false;
     string_literal_t characters, sentinel;
         
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
@@ -1922,10 +1592,7 @@ void parser_t<P>::parse_charmap()
 
     });
 
-    std::puts("TODO: HANDLE SENTINEL CORRECTLY");
     policy().charmap(charmap_name, is_default, characters, sentinel, std::move(mods));
-
-    //charmap("\0", 
 }
 
 template<typename P>
@@ -1975,7 +1642,6 @@ void parser_t<P>::parse_group_vars()
 
     maybe_parse_block(vars_indent, 
     [&]{ 
-        int const decl_indent = indent;
         global_t* global;
         var_decl_t var_decl;
         ast_node_t expr;
@@ -2017,7 +1683,6 @@ void parser_t<P>::parse_group_data()
 
     maybe_parse_block(group_indent, [&]
     { 
-        int const decl_indent = indent;
         global_t* global;
         var_decl_t var_decl;
         ast_node_t expr;
@@ -2169,192 +1834,6 @@ void parser_t<P>::parse_statement()
     }
 }
 
-/* TODO: remove
-template<typename P>
-void parser_t<P>::parse_asm_local_const()
-{
-    parse_token(TOK_ct);
-
-    var_decl_t var_decl;
-    ast_node_t expr;
-    if(!parse_var_init(var_decl, expr, false, {}))
-        compiler_error(var_decl.name, "Constants must be assigned a value.");
-    parse_line_ending();
-
-    policy().asm_value(var_decl, expr);
-}
-
-template<typename P>
-void parser_t<P>::parse_asm_label_block()
-{
-    if(token.type == TOK_ct)
-        parse_asm_local_const();
-    else
-    {
-        if(token.type != TOK_default && !is_ident(token.type))
-            compiler_error("Unexpected token. Expecting 'ct' or label.");
-
-        unsigned const label_indent = indent;
-
-        bool const is_default = token.type == TOK_default;
-
-        pstring_t name = token.pstring;
-        parse_token();
-        if(is_default && token.type == TOK_ident)
-        {
-            name = token.pstring;
-            parse_token();
-        }
-        parse_token(TOK_colon);
-        parse_line_ending();
-        policy().asm_label(name, is_default);
-
-        maybe_parse_block(label_indent, [&]{ parse_asm_op(); });
-    }
-}
-
-/* TODO remove
-template<typename P>
-void parser_t<P>::parse_asm_op()
-{
-    auto const call = [this](stmt_name_t stmt)
-    {
-        pstring_t call;
-        std::unique_ptr<mods_t> mods = parse_mods_after([&]{ call = parse_ident(); });
-        policy().asm_call(stmt, call, std::move(mods));
-    };
-
-    switch(token.type)
-    {
-    case TOK_fn:
-        parse_token();
-        return call(STMT_ASM_CALL);
-
-    case TOK_goto:
-        parse_token();
-        if(token.type == TOK_mode)
-        {
-            parse_token();
-            return call(STMT_ASM_GOTO_MODE);
-        }
-        return call(STMT_ASM_GOTO);
-
-    case TOK_nmi:
-        {
-            int const nmi_indent = indent;
-            pstring_t const pstring = token.pstring;
-            parse_token();
-            policy().asm_wait_nmi(pstring, parse_mods(nmi_indent));
-        }
-        return;
-
-    default:
-        if(is_type_prefix(token.type))
-        {
-            assert(0);
-        }
-        else if(!is_ident(token.type))
-            compiler_error("Unexpected token. Expecting assembly instruction or type.");
-    }
-
-    pstring_t const pstring = token.pstring;
-    asm_lex::token_type_t const asm_token = parse_asm_token(token.pstring);
-
-    parse_token();
-
-    op_name_t name;
-    switch(asm_token)
-    {
-#define OP_NAME(NAME) case asm_lex::TOK_##NAME: name = NAME; break;
-#include "lex_op_name.inc"
-#undef OP_NAME
-    default: name = BAD_OP_NAME; break;
-    }
-
-    auto const is_reg = [this](pstring_t pstring, char ch)
-        { return pstring.size == 1 && std::tolower(pstring.view(source())[0]) == ch; };
-
-    addr_mode_t mode;
-    ast_node_t expr = {}, *maybe_expr = nullptr;
-
-    switch(token.type)
-    {
-    case TOK_eol:
-        mode = MODE_IMPLIED;
-        break;
-
-    case TOK_hash:
-        parse_token();
-        expr = parse_expr();
-        maybe_expr = &expr;
-        mode = MODE_IMMEDIATE;
-        break;
-
-    case TOK_lparen:
-        parse_token();
-        expr = parse_expr();
-        maybe_expr = &expr;
-
-        if(token.type == TOK_comma)
-        {
-            parse_token();
-            if(!is_ident(token.type) || !is_reg(token.pstring, 'x'))
-                compiler_error("Expecting X.");
-            parse_token();
-            parse_token(TOK_rparen);
-            mode = MODE_INDIRECT_X;
-        }
-        else
-        {
-            parse_token(TOK_rparen);
-
-            if(token.type == TOK_comma)
-            {
-                parse_token();
-                if(!is_ident(token.type) || !is_reg(token.pstring, 'y'))
-                    compiler_error("Expecting Y.");
-                parse_token();
-                mode = MODE_INDIRECT_Y;
-            }
-            else
-                mode = MODE_INDIRECT;
-        }
-        break;
-
-    default:
-        expr = parse_expr();
-        maybe_expr = &expr;
-
-        if(token.type == TOK_comma)
-        {
-            parse_token();
-            if(!is_ident(token.type))
-                compiler_error("Expecting X or Y.");
-            if(is_reg(token.pstring, 'x'))
-                mode = MODE_ABSOLUTE_X;
-            else if(is_reg(token.pstring, 'y'))
-                mode = MODE_ABSOLUTE_Y;
-            else
-                compiler_error("Expecting X or Y.");
-            parse_token();
-        }
-        else
-        {
-            if(get_op(name, MODE_RELATIVE))
-                mode = MODE_RELATIVE;
-            else
-                mode = MODE_ABSOLUTE;
-        }
-
-        break;
-    }
-
-    parse_line_ending();
-
-    policy().asm_op(pstring, name, mode, maybe_expr);
-}
-*/
-
 template<typename P>
 void parser_t<P>::parse_flow_statement()
 {
@@ -2435,9 +1914,6 @@ void parser_t<P>::parse_if()
 template<typename P>
 void parser_t<P>::parse_do()
 {
-    int const do_indent = indent;
-    pstring_t pstring = token.pstring;
-
     parse_token(TOK_do);
 
     if(token.type == TOK_while)
@@ -2579,7 +2055,7 @@ void parser_t<P>::parse_goto()
 
             char const* end = token_source;
 
-            ast.token.type = TOK_apply; 
+            ast.token.type = TOK_mode_apply; 
             ast.token.pstring = { begin - source(), end - begin, file_i() };
             ast.token.value = children.size();
             ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());

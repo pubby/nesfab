@@ -1,7 +1,5 @@
 #include "lt.hpp"
 
-#include <iostream> // TODO
-
 #include "eval.hpp"
 
 lt_ht alloc_lt_value(type_t type, ast_node_t const& expr)
@@ -23,13 +21,4 @@ void lt_value_t::resolve(romv_t romv)
     assert(resolved(romv));
 
     results[romv].rval = std::move(rpair.value);
-
-    // TODO
-#ifndef NDEBUG
-    std::cout << "LT\n";
-    for_each_locator([&](locator_t loc)
-    {
-        std::cout << loc << std::endl;
-    });
-#endif
 }

@@ -71,16 +71,11 @@ ram_bitset_t alloc_runtime_ram()
 
     _rtram_spans[RTRAM_ptr_temp]        = {{ a.alloc_zp(2), a.alloc_zp(2) }};
     _rtram_spans[RTRAM_nmi_index]       = {{ a.alloc_zp(1) }};
-    //_rtram_spans[RTRAM_nmi_call_ptr]    = {{ a.alloc_zp(2) }}; // TODO
     _rtram_spans[RTRAM_nmi_saved_x]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_saved_y]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_counter]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_ready]       = {{ a.alloc_zp(1) }};
-    //_rtram_spans[RTRAM_buttons_held]    = {{ a.alloc_zp(2) }}; TODO
-    //_rtram_spans[RTRAM_buttons_pressed] = {{ a.alloc_zp(2) }}; TODO
     _rtram_spans[RTRAM_mapper_state] = {{ a.alloc_zp(state_size(mapper().type)) }};
-
-    //_rtram_spans[RTRAM_oam] = {{ a.alloc_non_zp(256, 256) }}; TODO
 
     // Allocate optional stuff last, for a consistent memory layout.
     if(mapper().bankswitches())
@@ -383,7 +378,6 @@ static asm_proc_t make_reset_proc()
         proc.push_inst(CMP_IMMEDIATE, locator_t::const_byte(3));
         proc.push_inst(BCC_RELATIVE, locator_t::const_byte(2));
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(3));
-    notAbove3:
         proc.push_inst(STA_ZERO_PAGE, locator_t::runtime_ram(RTRAM_system));
 
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));

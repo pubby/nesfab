@@ -17,7 +17,6 @@ struct token_t
     static_assert(sizeof(int_type) >= sizeof(std::uintptr_t));
 
     lex::token_type_t type = {};
-    //bool is_rval = false; TODO
     pstring_t pstring = {};
     int_type value = {};
 

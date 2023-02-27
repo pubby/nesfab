@@ -2,7 +2,6 @@
 
 #include <cassert>
 #include <chrono>
-#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -496,7 +495,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
 , local_consts(fn_ref.def().local_consts.data())
 {
     // Reset the static thread-local state:
-    builder.clear(); // TODO: make sure this isn't called in recursion
+    builder.clear();
     ir->gmanager.init(fn->handle());
     num_globals = ir->gmanager.num_locators();
 
@@ -655,7 +654,6 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
 }
 
 // Inline version
-#if 1
 eval_t::eval_t(eval_t const& parent, ir_t& ir_ref, fn_t& fn_ref, ir_builder_t& builder,
                cfg_ht pre_entry, cfg_ht& exit, expr_value_t const* args, rval_t& return_rval)
 : fn(&fn_ref)
@@ -754,7 +752,6 @@ eval_t::eval_t(eval_t const& parent, ir_t& ir_ref, fn_t& fn_ref, ir_builder_t& b
         assert(switch_ssa->in_daisy());
     }
 }
-#endif
 
 template<eval_t::do_t D>
 void eval_t::do_expr_result(ast_node_t const& expr, type_t expected_type)
@@ -1021,15 +1018,13 @@ static ssa_value_t _interpret_shift_atom(ssa_value_t v, int shift, pstring_t pst
 
     if(v.is_locator())
     {
-        /* TODO
-        if(is_ptr(v.type().name()) && v.locator().is() == IS_PTR)
+        if(is_ptr(v.type().name()) && v.locator().is() == IS_PTR && !v.locator().byteified())
         {
             if(shift == 0)
                 return v.locator().with_is(IS_PTR).with_byteified(true);
             else if(shift == 1)
                 return v.locator().with_is(IS_PTR_HI).with_byteified(true);
         }
-        */
 
         // Create linktime:
         ast_node_t new_ast = { 
@@ -1051,6 +1046,29 @@ static ssa_value_t _interpret_shift_atom(ssa_value_t v, int shift, pstring_t pst
         result.value >>= shift * 8;
     result.value &= numeric_bitmask(TYPE_U);
     return ssa_value_t(result, TYPE_U);
+}
+
+static ssa_value_t _interpret_replace_atom(type_t const& type, fixed_uint_t v, fixed_uint_t r, int shift)
+{
+    fixed_uint_t mask = 0xFFull << fixed_t::shift;
+    r &= mask;
+
+    if(shift < 0)
+    {
+        mask >>= (-shift * 8);
+        r >>= (-shift * 8);
+    }
+    else
+    {
+        mask <<= (shift * 8);
+        r <<= (shift * 8);
+    }
+
+    v &= ~mask;
+    v |= r;
+    v &= numeric_bitmask(type.name());
+
+    return ssa_value_t(fixed_t{ v }, type.name());
 }
 
 void eval_t::compile_block()
@@ -1584,11 +1602,31 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     using U = fixed_uint_t;
     using S = fixed_sint_t;
 
-    auto const make_ptr = [&](locator_t loc, type_t type, bool banked) -> expr_value_t
+    auto const make_ptr = [&](locator_t loc, type_t type, bool banked, ssa_value_t offset = {}) -> expr_value_t
     {
         rval_t rval = { loc.with_is(IS_PTR) };
         if(banked)
             rval.push_back(loc.with_is(IS_BANK));
+
+        if(offset) 
+        {
+            if(!is_compile(D))
+                compiler_error(ast.token.pstring, "Unable to make pointer.");
+
+            ssa_ht const cast1 = builder.cfg->emplace_ssa(
+                SSA_cast, TYPE_APTR, loc.with_is(IS_PTR));
+
+            ssa_ht const cast2 = builder.cfg->emplace_ssa(
+                SSA_cast, TYPE_APTR, offset);
+
+            ssa_ht const h = builder.cfg->emplace_ssa(
+                SSA_add, type, 
+                cast1,
+                cast2,
+                ssa_value_t(0u, TYPE_BOOL));
+
+            rval[0] = h;
+        }
 
         return
         {
@@ -1694,10 +1732,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             unsigned const local_i = ast.token.value;
             var_ht var_i = to_var_i(local_i);
-
-            // TODO
-            //assert(var_i < var_types.size());
-            //assert(var_i < num_local_vars());
 
             expr_value_t result =
             {
@@ -1884,38 +1918,33 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         + fmt_note(fmt("Use the '.' operator to get a single byte %.", s)));
                 }
 
-                /* TODO
-                if(!is_arithmetic(base_type.name()))
-                {
-                    throw compiler_error_t(
-                        fmt_error(value.pstring, "Cannot get address of non-arithmetic value using unary '&'.")
-                        + fmt_note(fmt("Type is %.", base_type)));
-                }
-                */
-
                 std::uint16_t offset = 0;
+                ssa_value_t nonconst_index = {};
+
                 if(lval->index)
                 {
                     if(lval->index.is_num())
                         offset = lval->index.whole();
                     else
                     {
-                        // TODO
-                        assert(false);
+                        if(!is_compile(D))
+                            compiler_error(value.pstring, "Cannot get address.");
+
+                        nonconst_index = lval->index;
                     }
                 }
 
                 if(lval->arg == lval_t::READY_ARG)
                 {
                     locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_ready, offset);
-                    return make_ptr(loc, type_t::addr(false), false);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
                 else if(lval->arg == lval_t::SYSTEM_ARG)
                 {
                     if(compiler_options().nes_system != NES_SYSTEM_DETECT)
                         compiler_error(value.pstring, "System is known at compile-time; it has no address.");
                     locator_t const loc = locator_t::runtime_ram(RTRAM_system, offset);
-                    return make_ptr(loc, type_t::addr(false), false);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
 
                 if(lval->is_global())
@@ -1931,23 +1960,22 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                             bool const banked = c.group_data->banked_ptrs();
 
-                            // TODO: not every const has an address. This is buggy.
                             return make_ptr(locator_t::gconst(c.handle(), lval->member, lval->uatom(), offset), 
-                                            type_t::addr(banked), banked);
+                                            type_t::addr(banked), banked, nonconst_index);
                         }
 
                     case GLOBAL_VAR:
                         {
                             gvar_t const& gvar = lval->global().impl<gvar_t>();
                             return make_ptr(locator_t::gmember(gvar.begin() + lval->member, lval->uatom(), offset), 
-                                            type_t::addr(false), false);
+                                            type_t::addr(false), false, nonconst_index);
                         }
 
                     case GLOBAL_FN:
                         {
                             fn_ht const fn = lval->global().handle<fn_ht>();
                             if(lval->arg < 0)
-                                return make_ptr(locator_t::fn(fn, lval->ulabel(), offset), type_t::addr(true), true);
+                                return make_ptr(locator_t::fn(fn, lval->ulabel(), offset), type_t::addr(true), true, nonconst_index);
                             else
                             {
                                 locator_t loc;
@@ -1968,7 +1996,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                         assert(fn->referenced_param(lval->arg));
                                     loc = locator_t::arg(fn, lval->arg, lval->member, lval->uatom(), offset); 
                                 }
-                                return make_ptr(loc, type_t::addr(false), false);
+
+                                return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                             }
                         }
 
@@ -2002,7 +2031,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     else
                         goto cannot_get_address;
 
-                    return make_ptr(loc, type_t::addr(false), false);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
             }
             else if(strval_t const* strval = value.is_strval())
@@ -2290,8 +2319,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             }
             else if(lhs.type.name() == TYPE_PAA)
             {
-                std::puts("PAA PERIOD");
-
                 if(lval_t* lval = lhs.is_lval())
                 {
                     if(!lval->is_global())
@@ -2402,7 +2429,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     lhs.lval().atom = atom;
                     lhs.lval().member += member;
                 }
-                else if(is_interpret(D) && lhs.is_rval())
+                else if((is_interpret(D) && lhs.is_rval())
+                        || (is_compile(D) && (lhs.is_ct() || lhs.is_lt())))
                 {
                     if(atom < 0)
                         lhs.rval() = { lhs.rval()[member] };
@@ -2448,7 +2476,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         }
 
     case TOK_apply:
+    case TOK_mode_apply:
         {
+            bool const mode_apply = ast.token.type == TOK_mode_apply;
+
             // TOK_apply is a psuedo token used to represent application. 
             // The token's 'value' stores the application's arity:
             std::size_t const num_children = ast.token.value;
@@ -2457,9 +2488,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             bc::small_vector<expr_value_t, 8> exprs(num_children);
             for(unsigned i = 0; i < num_children; ++i)
                 exprs[i] = to_rval<D>(do_expr<D>(ast.children[i]));
-
-            //if(handle_lt<D>(rpn_stack, num_args+1, *token)) // TODO
-                //break;
 
             // The first expression is the function:
             expr_value_t& fn_expr = exprs[0];
@@ -2478,9 +2506,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(call->fclass == FN_NMI)
                 compiler_error(call_pstring, "Cannot call nmi function.");
 
-            // TODO: make sure modes can't be called normally.
-            if(call->fclass == FN_MODE && is_interpret(D))
-                compiler_error(call_pstring, "Cannot goto mode at compile-time.");
+            if(call->fclass == FN_MODE)
+            {
+                if(!mode_apply)
+                    compiler_error(call_pstring, "Cannot call modes.");
+
+                if(is_interpret(D))
+                    compiler_error(call_pstring, "Cannot goto mode at compile-time.");
+            }
+            else if(mode_apply)
+            {
+                compiler_error(call_pstring, "Cannot goto non-mode functions.");
+            }
 
             std::size_t const num_params = fn_expr.type.num_params();
             type_t const* const params = fn_expr.type.types();
@@ -2530,7 +2567,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 bc::small_vector<rval_t, 8> rval_args(num_args);
                 for(unsigned i = 0; i < num_args; ++i)
                 {
-                    if(!args[i].is_ct())
+                    if(!args[i].is_ct() && !args[i].is_lt())
                         compiler_error(args[i].pstring, "Expecting compile-time constant value.");
                     rval_args[i] = args[i].rval();
                 }
@@ -2576,20 +2613,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     ir_builder_t call_builder;
                     rval_t return_rval;
 
-                    std::printf("START INLINE %i\n", int(call->def().local_vars.size()));
-
                     eval_t inline_eval(
                         *this, *ir, *call, call_builder, 
                         pre_entry, exit, args, return_rval);
                     assert(exit);
 
-                    std::puts("END INLINE");
-                    
                     builder.cfg = post_exit;
                     exit->alloc_output(1);
                     exit->build_set_output(0, post_exit);
 
                     post_exit.data<block_d>().pre_inline = pre_entry;
+
+                    result.val = std::move(return_rval);
 
                     assert(post_exit.data<block_d>().creator == this);
                     assert(pre_entry.data<block_d>().creator == this);
@@ -2613,7 +2648,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     //bool const is_idep = fn->global.ideps().count(&call->global);
                     //assert(is_idep || call->fclass == FN_MODE);
 
-                    std::size_t const gmember_bs_size = gmanager_t::bitset_size();
+                    std::size_t const gmember_bs_size = gmember_ht::bitset_size();
                     bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
 
                     // Prepare global inputs:
@@ -2909,6 +2944,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             for(unsigned i = 0; i < n; ++i)
             {
                 ast_node_t const& sub = ast.children[i];
+                pstring_t const pstring = ast.children[i].token.pstring;
 
                 switch(ast.children[i].token.type)
                 {
@@ -2942,13 +2978,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             else
                             {
                                 // Likely a bug if this fires:
-                                assert(false);
                                 compiler_error(sub.token.pstring, "Unable to compile assembly instruction.");
                             }
                         }
 
                         if(!is_check(D))
-                            proc.push_inst({ .op = asm_op, .iasm_child = i, .arg = value });
+                            proc.push_inst({ .op = asm_op, .iasm_child = proc.add_pstring(pstring), .arg = value });
                     }
                     break;
 
@@ -2959,7 +2994,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         unsigned const index = sub.token.value & 0xFFFFFFFF;
 
                         assert(global);
-                        proc.push_inst({ .op = ASM_LABEL, .iasm_child = i, .arg = locator_t::named_label(global, index) });
+                        proc.push_inst({ .op = ASM_LABEL, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::named_label(global, index) });
                     }
                     break;
 
@@ -2971,11 +3006,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         if(proc.code.empty())
                             proc = sub_proc;
                         else
-                        {
-                            for(asm_inst_t const& inst : sub_proc.code)
-                                proc.push_inst(inst);
-                        }
-                        std::cout << "BYTE SUB " << sub_proc.code.size() << ' ' << proc.code.size() << std::endl;
+                            proc.append(sub_proc);
                     }
                     break;
 
@@ -2999,8 +3030,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             op_t const op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
                             locator_t const loc = locator_t::fn(g.handle<fn_ht>(), fn_val.lval().ulabel());
-                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = i, .arg = loc.with_is(IS_BANK) });
-                            proc.push_inst({ .op = op, .iasm_child = i, .arg = loc });
+                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = proc.add_pstring(pstring), .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = op, .iasm_child = proc.add_pstring(pstring), .arg = loc });
                         }
                     }
                     break;
@@ -3028,7 +3059,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(precheck_tracked)
                         precheck_tracked->wait_nmis.push_back({ sub.token.pstring, sub.mods });
                     if(!is_check(D))
-                        proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = i, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
+                        proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
                     break;
 
                 case TOK_byte_block_bank_switch_x:
@@ -3057,7 +3088,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         auto const* data = sub.token.ptr<std::vector<std::uint8_t>>();
                         proc.code.reserve(proc.code.size() + data->size());
                         for(std::uint8_t i : *data)
-                            proc.push_inst({ .op = ASM_DATA, .iasm_child = i, .arg = locator_t::const_byte(i) });
+                            proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::const_byte(i) });
                     }
                     break;
 
@@ -3067,15 +3098,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         auto const* data = sub.token.ptr<std::vector<locator_t>>();
                         proc.code.reserve(proc.code.size() + data->size());
                         for(locator_t loc : *data)
-                            proc.push_inst({ .op = ASM_DATA, .iasm_child = i, .arg = loc });
+                            proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = loc });
                     }
                     break;
 
                 default:
                     if(!is_check(D))
                     {
-                        // TODO! this is SLOWW
-                        std::puts("TODO: FIX SLOW");
+                        // TODO! this is SLOW
                         thread_local loc_vec_t vec_temp;
                         vec_temp.clear();
 
@@ -3083,7 +3113,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         ::append_locator_bytes(vec_temp, arg.rval(), arg.type, arg.pstring);
 
                         for(locator_t loc : vec_temp)
-                            proc.push_inst({ .op = ASM_DATA, .iasm_child = i, .arg = loc });
+                            proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = loc });
                     }
                 }
             }
@@ -3096,8 +3126,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_cast:
     case TOK_implicit_cast:
         {
-            static int count = 0;
-            int const cc = count++;
             // TOK_cast are pseudo tokens used to implement type casts.
 
             bool const implicit = ast.token.type == TOK_implicit_cast;
@@ -3113,11 +3141,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             // The first expr holds the type.
             assert(ast.children[0].token.type == TOK_cast_type);
             type_t type = dethunkify({ ast.children[0].token.pstring, *ast.children[0].token.ptr<type_t const>() }, true, this);
-
-            // Only handle LT for non-aggregates.
-            // TODO
-            //if(!is_aggregate(type.name()) && handle_lt<D>(rpn_stack, argn, token-1, token+1))
-                //break;
 
             if(num_args == 0)
             {
@@ -3262,7 +3285,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             assert(mt.name() == TYPE_TEA);
 
                             for(unsigned j = 0; j < num_args; ++j)
-                                if(!args[j].is_ct())
+                                if(!args[j].is_ct() && !args[j].is_lt())
                                     goto isnt_ct;
                         }
                         goto interpret_cast_array;
@@ -3304,21 +3327,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_index8:
     case TOK_index16:
         {
-            bool const is8 = ast.token.type == TOK_index8;
-
-            /* TODO
-            if(locator_t loc = handle_lt<Policy::D>(result.type, { .type = ast.token.type, .pstring = result.pstring }, lhs, rhs))
-            {
-                result.val = _lt_rval(result.type, loc);
-                result.time = LT;
-            }
-                */
-
             // TOK_index is a psuedo token used to implement array indexing. 
 
-            // TODO
-            //if(handle_lt<D>(rpn_stack, 2, *token))
-                //break;
+            bool const is8 = ast.token.type == TOK_index8;
 
             expr_value_t array_val = do_expr<D>(ast.children[0]);
 
@@ -3349,14 +3360,32 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             if(is_ptr && precheck_tracked)
             {
-                // TODO: Update this when inlining is added.
                 unsigned const size = array_val.type.group_tail_size();
                 precheck_tracked->deref_types.insert(array_val.type);
                 for(unsigned i = 0; i < size; ++i)
                     precheck_tracked->deref_groups.emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
             }
 
+            type_t const result_type = is_ptr ? TYPE_U : array_val.type.elem_type();
+
             expr_value_t array_index = throwing_cast<D>(do_expr<D>(ast.children[1]), is8 ? TYPE_U : TYPE_U20, true);
+
+            if(!is_check(D) && array_index.is_lt())
+            {
+                if(is_link(D))
+                    compiler_error(array_val.pstring, "Unable to evaluate at link-time.");
+
+                array_val = to_rval<D>(std::move(array_val));
+                locator_t const loc = make_lt(result_type, ast.token, array_val, array_index);
+
+                return 
+                {
+                    .val = _lt_rval(result_type, loc),
+                    .type = result_type,
+                    .pstring = concat(array_val.pstring, array_index.pstring),
+                    .time = LT,
+                };
+            }
 
             auto const compile_read_ptr = [&](ssa_value_t ptr, ssa_value_t bank)
             {
@@ -3382,17 +3411,17 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             };
 
-            /* TODO
-            if(precheck_tracked && array_val.is_lval())
+            if(is_interpret(D) || is_link(D))
             {
-                lval_t* lval = array_val.is_lval();
-                if(lval->is_global())
+                unsigned const index = array_index.whole();
+                if(index >= array_val.type.array_length())
                 {
-                    global_t const& global = lval->global();
-                    precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), array_val.pstring);
+                    compiler_error(array_index.pstring, 
+                        fmt("Array index is out of bounds. (index: % >= size: %)", 
+                            index, array_val.type.array_length()));
                 }
             }
-            */
+
 
             if(!is_check(D) && array_val.is_lval())
             {
@@ -3428,7 +3457,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(!is8)
                         array_val.lval().flags |= LVALF_INDEX_16;
                     assert(!array_val.lval().index);
+
                     array_val.lval().index = array_index.ssa();
+
                     assert(array_val.lval().index);
                 }
             }
@@ -3439,14 +3470,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(is_interpret(D))
                 {
                     unsigned const index = array_index.whole();
-
-                    if(index >= array_val.type.array_length())
-                    {
-                        compiler_error(array_index.pstring, 
-                            fmt("Array index is out of bounds. (index: % >= size: %)", 
-                                index, array_val.type.array_length()));
-                    }
-
                     for(auto& v : rval) // TODO: handle link
                         v = std::get<ct_array_t>(v)[index];
                 }
@@ -3456,11 +3479,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         bool const is_banked = is_banked_ptr(array_val.type.name());
                         assert(array_val.rval().size() == is_banked ? 2 : 1);
-
-                        // TODO
-                        //ssa_value_t prev_in_order = {};
-                        //if(auto ptr_i = ir->gmanager.ptr_i(array_val.type))
-                            //prev_in_order = var_lookup(builder.cfg, to_var_i(ptr_i), 0);
 
                         if(is_mptr)
                         {
@@ -3532,7 +3550,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
                 else if(is_compile(D))
                 {
-                    // convert to rom data
+                    // Convert to rom data
                     rom_array_ht const rom_array = sl_manager.get_rom_array(&strval->charmap->global, strval->index, strval->compressed);
                     assert(rom_array);
                     assert(strval->charmap->group_data());
@@ -3547,33 +3565,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             }
 
-            if(is_ptr)
-                array_val.type = TYPE_U;
-            else
-                array_val.type = array_val.type.elem_type();
-
+            array_val.type = result_type;
             array_val.pstring = concat(array_val.pstring, array_index.pstring);
 
             return array_val;
         }
-
-        /* TODO: remove
-    case TOK_dquote:
-        {
-            string_literal_t const* literal = token.ptr<string_literal_t>();
-            assert(literal);
-
-            global_t const* charmap = literal->charmap;
-            if(!charmap)
-                TODO;
-
-            if(charmap->gclass() != GLOBAL_CHARMAP)
-                compiler_error(literal->pstring, fmt("% is not a charmap.", charmap->name));
-
-            assert(false);
-        }
-        break;
-        */
 
     case TOK_character:
         {
@@ -3971,51 +3967,30 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 .pstring = ast.token.pstring,
             };
         }
+
+    case TOK_replace_atom:
+        {
+            assert(is_link(D));
+
+            expr_value_t v = to_rval<D>(do_expr<D>(ast.children[0]));
+            expr_value_t r = to_rval<D>(do_expr<D>(ast.children[1]));
+            int const shift = static_cast<int>(ast.token.value);
+
+            passert(v.ssa().is_num(), v.ssa());
+            passert(r.ssa().is_num(), r.ssa());
+
+            return 
+            {
+                .val = rval_t{ _interpret_replace_atom(v.type, v.u(), r.u(), shift) },
+                .type = v.type,
+                .pstring = ast.token.pstring,
+            };
+        }
+
     }
     assert(false);
     return {};
 }
-
-/* TODO
-template<eval_t::do_t D>
-void eval_t::do_expr(rpn_stack_t& rpn_stack, token_t const* expr)
-{
-    check_time();
-
-    rpn_stack.clear(); // Reset the stack.
-
-    assert(expr);
-    for(token_t const* token = expr; token->type;)
-        token = do_token<D>(rpn_stack, token);
-}
-*/
-
-/* TODO
-type_t lval_type(lval_t const& lval)
-{
-    type_t type = var_types[lval.var_i];
-    
-    for(unsigned field : lval.fields)
-    {
-        assert(type.name() == TYPE_STRUCT);
-        struct_t const& s = *type.struct_();
-        type = s.field(type).type();
-
-
-    }
-
-    unsigned member = lval.member;
-    for(unsigned i = 0; i < lval.fields_accesed; ++i)
-    {
-
-        unsigned field = s.member_field(member);
-        member -= 
-        s.field(field).type();
-
-        unsigned field = type.struct_()->member_field(member);
-    }
-}
-*/
 
 template<eval_t::do_t D>
 expr_value_t eval_t::to_rval(expr_value_t v)
@@ -4105,8 +4080,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     assert(!lval->index);
                     assert(lval->is_global());
 
-                    std::cout << "GRACK " << global.name << ' ' << global.impl<fn_t>().iasm << ' ' << lval->ulabel() << ' ' << lval->label << std::endl;
-
                     v.val = rval_t{ ssa_value_t(locator_t::fn(global.handle<fn_ht>(), lval->ulabel())) };
                     type = v.type;
 
@@ -4145,7 +4118,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
         type = ::member_type(type, lval->member);
 
-        if(is_interpret(D))
+        if(is_interpret(D) || (is_compile(D) && (v.is_ct() || v.is_lt())))
         {
             if(lval->is_var())
                 for(unsigned i = 0; i < num_members; ++i)
@@ -4158,7 +4131,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
                 unsigned const index = lval->index.whole();
                 assert(index < type.array_length());
-                for(auto& v : rval) // TODO: handle link
+                for(auto& v : rval)
                     v = std::get<ct_array_t>(v)[index];
 
                 type = type.elem_type();
@@ -4202,7 +4175,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
                 for(unsigned i = 0; i < num_members; ++i)
                 {
-                    // TODO
                     rval[i] = builder.cfg->emplace_ssa(
                         (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8, elem, 
                         from_variant<D>(rval[i], type), ssa_value_t(0u, TYPE_U20), lval->index);
@@ -4313,83 +4285,84 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
     // de-atomize
     if(!is_check(D) && lval->atom >= 0)
     {
-        expr_value_t without_atom = lhs;
-        without_atom.lval().atom = -1;
-        without_atom = to_rval<D>(without_atom);
-
         type_t new_type = member_type(var_type(lval->var_i()), lval->member);
         if(lval->index)
         {
             assert(is_tea(new_type.name()));
             new_type = new_type.elem_type();
         }
-        assert(num_members(new_type) == 1);
-        assert(num_members(rhs.type) == 1);
+        
+        int const shift = lval->atom - frac_bytes(new_type.name());
+
+        expr_value_t wide_lhs = lhs;
+        wide_lhs.type = new_type;
+        wide_lhs.lval().atom = -1;
+        wide_lhs = to_rval<D>(std::move(wide_lhs));
 
         if(is_interpret(D))
         {
-            int const shift = lval->atom - frac_bytes(new_type.name());
-            assert(shift >= 0);
-
-            fixed_uint_t mask = numeric_bitmask(rhs.type.name());
-            if(shift < 0)
-                mask >>= (-shift * 8);
-            else
-                mask <<= (shift * 8);
-
-            auto const convert = [&](ssa_value_t from, ssa_value_t to) -> ssa_value_t
+            auto const convert = [&](type_t const& type, ssa_value_t from, ssa_value_t to) -> ssa_value_t
             {
-                fixed_uint_t replace = to.fixed().value;
-                assert((replace & mask) == replace);
+                if(!from.is_num() || !to.is_num())
+                {
+                    expr_value_t lt_lhs = 
+                    {
+                        .val = rval_t{ from },
+                        .type = type,
+                        .pstring = pstring,
+                        .time = LT
+                    };
 
-                if(shift < 0)
-                    replace >>= (-shift * 8);
+                    expr_value_t lt_rhs = 
+                    {
+                        .val = rval_t{ to },
+                        .type = type,
+                        .pstring = pstring,
+                        .time = LT
+                    };
+
+                    return make_lt(type, { .type = TOK_replace_atom, .pstring = pstring, .value = shift }, lt_lhs, lt_rhs);
+                }
                 else
-                    replace <<= (shift * 8);
-
-                fixed_uint_t u = from.fixed().value;
-                u &= ~mask;
-                u |= replace;
-                return ssa_value_t(u, new_type.name());
+                    return _interpret_replace_atom(type, from.fixed().value, to.fixed().value, shift);
             };
 
             if(is_tea(new_type.name()))
             {
+                assert(is_tea(rhs.type.name()));
+
                 unsigned const tea_length = new_type.array_length();
-                ct_array_t const& from = std::get<ct_array_t>(without_atom.rval()[0]);
+                ct_array_t const& lhs_a = std::get<ct_array_t>(wide_lhs.rval()[0]);
+                ct_array_t const& rhs_a = std::get<ct_array_t>(rhs.rval()[0]);
                 ct_array_t to = make_ct_array(tea_length);
 
+                type_t const elem_type = new_type.elem_type();
+
                 for(unsigned i = 0; i < tea_length; ++i)
-                    to[i] = convert(from[i], to[i]);
+                    to[i] = convert(elem_type, lhs_a[i], rhs_a[i]);
 
                 rhs.rval() = { std::move(to) };
             }
             else
-                rhs.rval() = { convert(without_atom.ssa(), rhs.ssa()) };
-
+                rhs.rval() = { convert(new_type, wide_lhs.ssa(), rhs.ssa()) };
         }
         else if(is_compile(D))
         {
             ssa_ht const h = builder.cfg->emplace_ssa(
                 is_tea(new_type.name()) ? SSA_array_replace_byte : SSA_replace_byte, 
                 new_type, 
-                without_atom.ssa(), ssa_value_t(lval->atom, TYPE_U), rhs.ssa());
+                wide_lhs.ssa(), ssa_value_t(lval->atom, TYPE_U), rhs.ssa());
             rhs.rval() = { h };
         }
-
-        rhs.type = new_type;
     }
 
     if(is_check(D))
         goto finish;
 
-    // TODO
-    //assert(lval->var_i() < var_types.size());
-
     // Remap the identifier to point to the new value.
     if(is_interpret(D) && D != INTERPRET_CE)
     {
-        //assert(lval->var_i() < interpret_locals.size()); TODO
+        assert(to_local_i(lval->var_i()) < interpret_locals.size());
         rval_t& local = interpret_locals[to_local_i(lval->var_i())];
         rval_t& rval = rhs.rval();
 
@@ -4404,7 +4377,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
             for(unsigned i = 0; i < rval.size(); ++i)
             {
-                // TODO: handle linked
                 ct_array_t& shared = std::get<ct_array_t>(local[i + lval->member]);
 
                 // If the array has multiple owners, copy it, creating a new one.
@@ -4415,48 +4387,37 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                     shared = std::move(new_shared);
                 }
 
-                // TODO: handle linked
                 shared[index] = std::get<ssa_value_t>(rval[i]);
             }
         }
         else
         {
+            for(unsigned i = 0; i < rval.size(); ++i)
+                local[i + lval->member] = rval[i];
+            /*
             if(lval->atom >= 0)
             {
-                assert(false);
-                /*
-                assert(local.size() == 1);
+                //assert(false);
 
-                type_t const mt = member_type(var_types[lhs.var_i], lhs.member);
-                int const shift = lhs.atom - frac_bytes(mt.name());
-                assert(shift >= 0);
+                type_t const mt = member_type(var_type(lval->var_i()), lval->member);
+                int const shift = lval->atom - frac_bytes(mt.name());
 
-                fixed_uint_t mask = numeric_bitmask(rhs.type.name());
-                fixed_uint_t replace = rhs.rval[i].u();
-                assert((replace & mask) == replace);
+                expr_value_t wide_lhs = lhs;
+                wide_lhs.type = mt;
+                wide_lhs.lval().atom = -1;
+                wide_lhs = to_rval<D>(std::move(wide_lhs));
 
-                if(shift < 0)
-                {
-                    mask >>= (-shift * 8);
-                    replace >>= (-shift * 8);
-                }
+                //passert(false, og.u());
+
+                if(locator_t loc = handle_lt<D>(mt, { .type = TOK_replace_atom, .pstring = pstring, .value = shift }, wide_lhs, rhs))
+                    local[lval->member] = loc;
                 else
-                {
-                    mask <<= (shift * 8);
-                    replace <<= (shift * 8);
-                }
-
-                fixed_uint_t u = local[lhs.member].u();
-                u &= ~mask;
-                u |= replace;
-                local[lhs.member] = ssa_value_t(u, mt.name());
-                */
+                    local[lval->member] = _interpret_replace_atom(lhs.type, wide_lhs.u(), rhs.u(), shift);
             }
             else
             {
-                for(unsigned i = 0; i < rval.size(); ++i)
-                    local[i + lval->member] = rval[i];
             }
+            */
         }
     }
     else if(is_compile(D))
@@ -5577,11 +5538,7 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
 
 
             if(is_interpret(D) || (is_compile(D) && value.is_ct()))
-            {
-                std::cout << "RETYPE " << D << ' ' << value.ssa(0) << std::endl;
                 value.rval()[0] = ssa_value_t(value.ssa(0).fixed(), t.name());
-                std::cout << "RETYPE " << D << ' ' << value.ssa(0) << std::endl;
-            }
             else if(is_compile(D))
                 value.rval()[0] = builder.cfg->emplace_ssa(SSA_cast, t, value.ssa(0));
         }
@@ -5700,7 +5657,7 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
     passert(is_global(var_i) || block_data.creator == this, cfg_node, block_data.creator, this);
     assert(var_i.id < block_data.vars.size());
     passert(is_global(var_i) || block_data.vars.size() == var_types.size(), block_data.vars.size(), var_types.size());
-    assert(member < block_data.var(var_i).size());
+    passert(member < block_data.var(var_i).size(), member, block_data.var(var_i).size());
 
     if(ssa_value_t lookup = from_variant<COMPILE>(block_data.var(var_i)[member], member_type(var_type(var_i), member)))
         return lookup;
@@ -5839,14 +5796,7 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
 
         return h;
     }
-    /* TODO
-    else if(ast_node_t const* const* ast = std::get_if<ast_node_t const*>(&v))
-    {
-        // TODO
-        assert(false);
-        //return locator_t::lt_expr(alloc_lt_value(type, *vec));
-    }
-    */
+
     return {};
 }
 

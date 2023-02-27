@@ -18,16 +18,6 @@
 #include "format.hpp"
 #include "compiler_error.hpp"
 
-/* TODO
-fs::path source_dir(unsigned file_i)
-{
-    assert(file_i < source_files.size());
-    fs::path path = source_files[file_i];
-    path.remove_filename();
-    return path;
-}
-*/
-
 bool resource_path(fs::path preferred_dir, fs::path name, fs::path& result)
 {
     result = preferred_dir / name;

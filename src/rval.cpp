@@ -1,7 +1,5 @@
 #include "rval.hpp"
 
-#include <iostream> // TODO
-
 #include "locator.hpp"
 #include "compiler_error.hpp"
 #include "lt.hpp"
@@ -11,12 +9,8 @@
 unsigned lval_t::ulabel() const
 { 
     if(label == ENTRY_LABEL && is_global() && global().gclass() == GLOBAL_FN && global().impl<fn_t>().iasm)
-    {
-        std::cout << global().name << " ULABEL " << global().impl<fn_t>().def().default_label << std::endl;
         return global().impl<fn_t>().def().default_label;
-    }
 
-    std::cout << global().name << " ULABEL " << label << std::endl;
     return label;
 }
 
@@ -28,14 +22,7 @@ bool is_ct(rval_t const& rval)
         {
             if(!ssa->is_num())
                 return false;
-            //if(ssa->is_locator() && ssa->locator().lclass() == LOC_LT_EXPR)
-            // TODO
-            //if(ssa->is_locator())
-                //return false;
         }
-        // TODO
-        //else if(!std::holds_alternative<ct_array_t>(v))
-            //return false;
     }
 
     return true;
@@ -45,13 +32,8 @@ bool is_lt(rval_t const& rval)
 {
     for(auto const& v : rval)
     {
-        // TODO
-        //if(std::holds_alternative<ast_node_t const*>(v))
-            //return true;
         if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
         {
-            //if(ssa->is_locator() && ssa->locator().lclass() == LOC_LT_EXPR)
-            // TODO
             if(ssa->is_locator())
                 return true;
         }
@@ -84,14 +66,8 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
     {
         type_t const mt = ::member_type(type, i);
 
-        // TODO
-        //if(!is_scalar(mt.name()))
-            //compiler_error(pstring, "Invalid type in pointer-addressable array. (Not scalar.)");
-
         auto const push_bytes = [&](ssa_value_t v, type_t subtype)
         {
-            //passert(subtype == v.type(), subtype, v.type());
-
             if(!is_scalar(subtype.name()))
                 compiler_error(pstring, "Invalid type in pointer-addressable array. (Not scalar subtype.)");
 
@@ -165,14 +141,6 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
             for(unsigned i = 0; i < length; ++i)
                 push_bytes((*array)[i], elem_type);
         }
-        /* TODO
-        else if(ast_node_t const* const* ast = std::get_if<ast_node_t const*>(&v))
-        {
-            assert(false);
-            // TODO
-            //push_bytes(locator_t::lt_expr(alloc_lt_value(mt, *vec)), mt);
-        }
-        */
     }
 }
 
@@ -195,10 +163,6 @@ fixed_t expr_value_t::sfixed() const
 fixed_t fixed(rval_t const& rval, type_t type, pstring_t pstring)
 { 
     ssa_value_t const* v;
-
-    // TODO: remove?
-    //if(rval.size() != 1)
-        //goto not_cne;
 
     if(rval.size() < 1)
         goto not_cne;

@@ -11,8 +11,8 @@ std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s)
         o << "num " << to_double(s.fixed()) << " [" << s.whole() << "]" << " (" << type_t(s.num_type_name()) << ')';
     else if(s.is_locator())
         o << "locator " << s.locator();
-    //else if(s.is_ptr()) TODO: remove?
-        //o << "ptr " << s.ptr<void>();
+    else if(s.is_ptr())
+        o << "ptr " << s.ptr<void>();
     return o;
 }
 
@@ -84,23 +84,3 @@ std::size_t ssa_fwd_edge_t::mem_size() const
     return 1;
 }
 
-/* TODO: remove?
-ssa_value_t const* ssa_fwd_edge_t::ct_array() const
-{
-    assert(false);
-    /*
-    // TODO
-    if(is_locator())
-    {
-        locator_t const loc = locator();
-        if(loc.lclass() == LOC_GLOBAL_CONST)
-            return ::ct_array(loc.const_()->sval()[loc.arg()]);
-        if(loc.lclass() == LOC_LOCAL_CONST)
-            assert(false); // TODO!!
-    }
-    else if(is_ptr())
-        return ptr<ssa_value_t>();
-    else
-        return nullptr;
-}
-        */

@@ -1,5 +1,4 @@
 #include "ir_algo.hpp"
-#include <iostream> // TODO
 
 #include "ir.hpp"
 
@@ -68,15 +67,6 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
     if(node == header || !header)
         return;
 
-    /* TODO REMOVE
-    auto const dfsp_pos = [](auto& d) -> unsigned
-    {
-        if(d.postorder_i == UNVISITED)
-            return UNVISITED;
-        return d.preorder_i;
-    };
-    */
-
     while(cfg_ht iloop_header = algo(node).iloop_header)
     {
         if(iloop_header == header)
@@ -103,8 +93,6 @@ static void _tag_loop_header(cfg_ht node, cfg_ht header)
             node = iloop_header;
     }
 
-    //if(node.id == 1 && header) TODO REMOVE
-        //assert(false);
     algo(node).iloop_header = header;
 }
 
@@ -364,51 +352,6 @@ void build_dominators_from_order(ir_t& ir)
     }
     while(changed);
 }
-
-/* TODO
-void rebuild_orderless_dominates(cfg_ht cfg)
-{
-    // Recalulate the 'idom' of 'cfg'.
-
-    if(cfg->input_size() == 0)
-        return {};
-    else if(cfg->input_size() == 1)
-        return cfg->input(0);
-
-    // We'll iterate up through the dominator tree, 
-    // storing all nodes with a tree height.
-    fc::small_map<cfg_ht, unsigned, 32> dom_map;
-    for(cfg_ht dom = cfg->input(0); dom; dom = algo(dom).idom)
-        dom_map.emplace(dom, dom_map.size());
-
-    // Then we'll iterate up through the dominator tree with other nodes,
-    // finding where they intersect with our stored map.
-    // The highest intersection is our new idom.
-    unsigned highest_pos = 0;
-    cfg_ht idom = cfg->input(0);
-
-    for(unsigned i = 1; i < cfg->input_size(); ++i)
-    {
-        for(cfg_ht dom = cfg->input(i); dom; dom = algo(dom).idom)
-        {
-            if(dom == cfg)
-                break;
-            if(unsigned* pos = dom_map.has(dom))
-            {
-                if(*pos > highest_pos)
-                {
-                    highest_pos = *pos;
-                    idom = dom;
-                    assert(idom != cfg);
-                }
-                break;
-            }
-        }
-    }
-
-    return idom;
-}
-*/
 
 ////////////////////////////////////////
 // other stuff

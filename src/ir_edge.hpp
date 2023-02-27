@@ -248,5 +248,4 @@ namespace std
     };
 }
 
-
 #endif

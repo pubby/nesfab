@@ -53,7 +53,7 @@ enum locator_class_t : std::uint8_t
 
     LOC_ARG,
     LOC_RETURN,
-    LOC_PHI, // TODO: remove?
+    LOC_PHI,
     LOC_SSA,
     LOC_SWITCH_LO_TABLE,
     LOC_SWITCH_HI_TABLE,
@@ -72,7 +72,6 @@ enum locator_class_t : std::uint8_t
 
     LOC_ROM_ARRAY,
 
-    //LOC_LT_GMEMBER_PTR,
     LOC_LT_EXPR, // link-time expression
     FIRST_LOC_LT = LOC_LT_EXPR,
     LAST_LOC_LT = LOC_LT_EXPR,
@@ -101,7 +100,7 @@ constexpr bool is_var_like(locator_class_t lclass)
     case LOC_GMEMBER:
     case LOC_ARG:
     case LOC_RETURN:
-    case LOC_PHI: remove:
+    case LOC_PHI:
     case LOC_SSA:
     case LOC_MINOR_VAR:
     case LOC_LVAR:
@@ -145,7 +144,6 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_SWITCH_LO_TABLE:
     case LOC_SWITCH_HI_TABLE:
     case LOC_ASM_LOCAL_VAR:
-    //case LOC_LT_GMEMBER_PTR:
     case LOC_GCONST:
     case LOC_DPCM:
     case LOC_LT_EXPR:
@@ -206,12 +204,6 @@ constexpr bool is_lt(locator_class_t lclass)
 {
     return lclass >= FIRST_LOC_LT && lclass <= LAST_LOC_LT;
 }
-
-// what we need:
-// - arg
-// - member
-// - atom
-// - offset
 
 enum locator_is_t: std::uint8_t
 {
@@ -533,9 +525,6 @@ public:
 
     constexpr static locator_t asm_local_var(fn_ht fn, std::uint8_t arg, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_ASM_LOCAL_VAR, fn.id, arg, member, atom, offset); }
-
-    //constexpr static locator_t lt_gmember_ptr(gmember_ht m, std::uint16_t offset=0)
-        //{ return locator_t(LOC_LT_GMEMBER_PTR, m.id, 0, 0, 0, offset); }
 
     constexpr static locator_t gconst(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_GCONST, c.id, 0, member, atom, offset).with_is(IS_PTR); }

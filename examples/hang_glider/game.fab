@@ -102,6 +102,8 @@ fn move_player()
     palette[14] = pal3_table[pdir]
 
 fn collide_player() Bool
+: +inline
+: +graphviz
     if px < 16
         px = 16
         return true
@@ -140,6 +142,12 @@ fn load_level()
         for U x = 0; x < 32; x += 1
             {PPUDATA}($00)
 
+fn pepe()
+: -inline
+: +graphviz
+    Bool b = collide_player()
+    pdead = b
+
 mode game()
 : nmi game_nmi
 
@@ -170,7 +178,7 @@ mode game()
 
         else
             move_player()
-            pdead = collide_player()
+            pepe()
 
         prepare_sprites()
         nmi

@@ -216,7 +216,7 @@ bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
             return called->ir_writes().test(loc.gmember().id);
         case LOC_GMEMBER_SET:
             {
-                std::size_t const size = gmanager_t::bitset_size();
+                std::size_t const size = gmember_ht::bitset_size();
                 assert(size == called->ir_reads().size());
 
                 bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);

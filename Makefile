@@ -40,6 +40,7 @@ override CXXFLAGS+= \
   -std=c++20 \
   -pthread \
   -Wall \
+  -Werror \
   -Wextra \
   -Wno-unused-parameter \
   -Wno-narrowing \
@@ -98,7 +99,6 @@ cg.cpp \
 cg_liveness.cpp \
 cg_schedule.cpp \
 cg_isel.cpp \
-cg_order.cpp \
 byteify.cpp \
 asm_proc.cpp \
 gmanager.cpp \
@@ -129,7 +129,6 @@ rom_prune.cpp \
 cg_ptr.cpp \
 pbqp.cpp \
 asm_graph.cpp \
-iasm.cpp \
 fn_def.cpp \
 ast.cpp \
 multi.cpp \

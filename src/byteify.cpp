@@ -1,9 +1,6 @@
 #include "byteify.hpp"
 
 #include <array>
-#include <iostream> // TODO: remove
-#include <fstream> // TODO: remove
-#include "graphviz.hpp" // TODO: remvoe
 
 #include <boost/container/small_vector.hpp>
 
@@ -225,15 +222,6 @@ void byteify(ir_t& ir, fn_t const& fn)
     insert_signed_mul_subtractions(ir);
     shifts_to_rotates(ir, false);
     // OK! IR prepared.
-
-    // TODO REMOVE
-#if 1
-    {
-        std::ofstream ossa("graphs/shrek.gv");
-        if(ossa.is_open())
-            graphviz_ssa(ossa, ir);
-    }
-#endif
 
     ssa_data_pool::scope_guard_t<ssa_byteify_d> sg(ssa_pool::array_size());
 

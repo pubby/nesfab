@@ -87,10 +87,6 @@ private:
     ast_node_t parse_expr(int starting_indent, int open_parens, int min_precedence = 256);
     ast_node_t parse_expr();
 
-    /*
-    expr_temp_t parse_expr();
-    void parse_expr(expr_temp_t&, int starting_indent, int open_parens);
-    */
     ast_node_t parse_cast(src_type_t& src_type, int open_parens=0);
 
     src_type_t parse_type(bool allow_void, bool allow_bank_size, group_ht group, 
@@ -142,11 +138,6 @@ private:
     void parse_nmi_statement();
     void parse_fence();
     void parse_local_ct();
-
-    // TODO: remove
-    //void parse_asm_local_const();
-    //void parse_asm_label_block();
-    //void parse_asm_op();
 
     [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const
         { ::compiler_error(pstring, what, &file); }

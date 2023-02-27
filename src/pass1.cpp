@@ -2,8 +2,6 @@
 
 #include "alloca.hpp"
 
-#include <iostream> // TODO
-
 using namespace lex;
 
 void pass1_t::uses_type(type_t type, idep_class_t calc)
@@ -43,21 +41,6 @@ ast_node_t* pass1_t::convert_eternal_expr(ast_node_t const* expr, idep_class_t c
     return nullptr;
 }
 
-/* TODO
-global_t const* pass1_t::at_ident(pstring_t pstring)
-{
-    if(symbol_table.find(pstring.view(source())))
-        return nullptr;
-    else
-    {
-        global_t& g = global_t::lookup(file.source(), pstring);
-        ideps.emplace(&g, idep_pair_t{ .calc = , .depends-on = IDEP_TYPE }); TODO
-        //weak_ideps.insert(&g); TODO
-        return &g;
-    }
-}
-    */
-
 void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on)
 {
     switch(ast.token.type)
@@ -83,19 +66,6 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
             ast.token.set_ptr(&g);
         }
         break;
-
-        /* TODO: remove
-    case TOK_at:
-        if(symbol_table.find(ast.token.pstring.view(source())))
-            compiler_error(ast.token.pstring, "Cannot get addresses of local variables.");
-        else
-        {
-            global_t& g = global_t::lookup(file.source(), ast.token.pstring);
-            add_idep(ideps, &g, { .calc = calc, .depends_on = IDEP_TYPE });
-            ast.token.set_ptr(&g);
-        }
-        break;
-        */
 
     case TOK_type_ident:
         {

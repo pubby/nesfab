@@ -835,16 +835,20 @@ void asm_proc_t::relocate(locator_t from)
                                            op_name(inst.op), dist);
                     if(fn)
                     {
-                        pstring_t pstring = fn->global.pstring();
+                        pstring_t pstring = {};
+
                         if(inst.iasm_child >= 0)
                         {
-                            // TODO: properly implement
-                            passert(false, inst);
-                            //pstring = fn->def().stmts[inst.iasm_child].pstring;
+                            assert(std::size_t(inst.iasm_child) < pstrings.size());
+                            pstring = pstrings[inst.iasm_child];
                         }
+
+                        if(!pstring)
+                            pstring = fn->global.pstring();
+
                         compiler_error(pstring, std::move(what));
                     }
-                    throw relocate_error_t(std::move(what)); // TODO: make it a real compiler_error
+                    throw relocate_error_t(std::move(what));
                 }
                 return locator_t::const_byte(dist);
             }
@@ -855,5 +859,26 @@ void asm_proc_t::relocate(locator_t from)
         inst.arg = relocate1(inst.arg);
         inst.alt = relocate1(inst.alt);
         addr += op_size(inst.op);
+    }
+}
+
+unsigned asm_proc_t::add_pstring(pstring_t pstring)
+{
+    unsigned const ret = pstrings.size();
+    pstrings.push_back(pstring);
+    return ret;
+}
+
+void asm_proc_t::append(asm_proc_t const& proc)
+{
+    for(asm_inst_t inst : proc.code)
+    {
+        if(inst.iasm_child >= 0)
+        {
+            assert(std::size_t(inst.iasm_child) < proc.pstrings.size());
+            inst.iasm_child = add_pstring(proc.pstrings[inst.iasm_child]);
+        }
+
+        push_inst(inst);
     }
 }

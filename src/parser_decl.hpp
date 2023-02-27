@@ -26,8 +26,4 @@ struct string_literal_t
     pstring_t pstring;
 };
 
-// TODO
-//using expr_temp_t = bc::small_vector<token_t, 16>;
-//using expr_vec_t = std::vector<token_t>;
-
 #endif

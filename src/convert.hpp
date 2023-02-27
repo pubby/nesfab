@@ -35,7 +35,6 @@ struct conversion_named_values_t
 {
     char const* name;
     ssa_value_t value;
-    //bool is_label = false; TODO
 };
 
 struct conversion_t

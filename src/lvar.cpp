@@ -1,7 +1,5 @@
 #include "lvar.hpp"
 
-#include <iostream> // TODO
-
 #include "asm.hpp"
 #include "ir.hpp"
 #include "cg.hpp"
@@ -91,7 +89,6 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     m_bitset_size = ::bitset_size<>(m_map.size());
     m_lvar_interferences.resize(m_map.size() * m_bitset_size, 0);
     m_fn_interferences.resize(m_map.size());
-    //m_nmi_interferences.reset(m_bitset_size); TODO
 
 #ifndef NDEBUG
     for(auto const& loc : m_map)
@@ -175,7 +172,6 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
     m_bitset_size = ::bitset_size<>(m_map.size());
     m_lvar_interferences.resize(m_map.size() * m_bitset_size, 0);
     m_fn_interferences.resize(m_map.size(), called_fns);
-    //m_nmi_interferences.reset(m_bitset_size); TODO
 
     // Every lvar interferes with every other lvar:
     bitset_uint_t* bs = CALLOCA_T(bitset_uint_t, m_bitset_size);

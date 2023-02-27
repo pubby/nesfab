@@ -7,7 +7,6 @@
 
 struct span_t;
 class span_allocator_t;
-//class asm_proc_t; // TODO
 
 void alloc_rom(log_t* log, span_allocator_t allocator, unsigned num_banks);
 

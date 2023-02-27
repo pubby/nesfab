@@ -23,7 +23,6 @@ nmi main_menu_nmi()
 
 mode main()
 : nmi main_menu_nmi
-: +graphviz
     {PPUCTRL}(0)
     {PPUMASK}(0)
 

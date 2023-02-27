@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <vector>
-#include <iostream> // TODO
 
 #include "robin/map.hpp"
 #include "robin/hash.hpp"

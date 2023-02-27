@@ -4,8 +4,6 @@
 #include "globals.hpp"
 #include "multi.hpp"
 
-#include <iostream> // TODO
-
 // Allocates the specified amount, using small buffer optimization 
 // whenever possible.
 template<typename T, std::size_t StorageSize> 
@@ -724,8 +722,6 @@ ssa_ht cfg_node_t::steal_ssa(ssa_ht ssa, bool steal_linked)
 
 void cfg_node_t::link_remove_output(unsigned i)
 {
-    auto oe = output_edge(i);
-
     link_swap_outputs(i, output_size() - 1);
     link_shrink_outputs(output_size() - 1);
 }
@@ -953,10 +949,7 @@ cfg_ht ir_t::merge_edge(cfg_ht cfg_h)
 #ifndef NDEBUG
 void ir_t::assert_valid() const
 {
-    // TODO
     assert(root);
-    //assert(root->first_daisy());
-    //assert(root->first_daisy()->op() == SSA_entry);
 
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 
@@ -1066,46 +1059,6 @@ void ir_t::assert_valid() const
                 assert(ssa_it->type() != TYPE_BOOL);
             }
 
-            /* TODO
-            if(ssa_it->op() == SSA_multi_lt)
-            {
-                assert(ssa_it->input_size() % 2 == 0);
-
-                multi_lt_info_t const info(ssa_it);
-
-                for(int i = 0; i < info.lsize; ++i)
-                {
-                    assert(info.validl(i + info.loffset));
-                    if(i + 1 == info.lsize)
-                        assert(is_signed(ssa_it->input(i + info.loffset).type().name()) == info.lsigned);
-                    else
-                        assert(ssa_it->input(i + info.loffset).type() == TYPE_U);
-                }
-
-                for(int i = 0; i < info.rsize; ++i)
-                {
-                    assert(info.validr(i + info.roffset));
-                    if(i + 1 == info.rsize)
-                        assert(is_signed(ssa_it->input(i + info.roffset).type().name()) == info.rsigned);
-                    else
-                        assert(ssa_it->input(i + info.roffset).type() == TYPE_U);
-                }
-            }
-            */
-
-            // Array checks.
-
-            /*
-            if(ssa_node.op() == SSA_write_array || ssa_node.op() == SSA_read_array)
-            {
-                std::printf("i = %i\n", ssa_it.index);
-                assert(ssa_node.input(0).holds_ref());
-                ssa_ht const array_input = ssa_node.input(0).handle();
-
-                assert(ssa_node.input(1).is_locator());
-                locator_t const loc = ssa_node.input(1).locator();
-            }
-            */
         }
     }
 }

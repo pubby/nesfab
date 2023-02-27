@@ -93,7 +93,6 @@ public:
     static type_t struct_(struct_t const& s);
     static type_t group_set(group_ht const* begin, group_ht const* end);
     static type_t addr(bool banked);
-    //static type_t asm_value(); // TODO
 
     void set_banked(bool banked);
     type_t with_banked(bool banked) const;
@@ -103,7 +102,6 @@ public:
 
 private:
     type_name_t m_name = TYPE_VOID;
-    //std::uint8_t m_unused; // TODO
 
     // Overloaded; 
     // - Holds tail size for fns and ptrs

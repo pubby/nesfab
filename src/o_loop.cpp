@@ -3,9 +3,6 @@
 #include <cstdint>
 #include <cmath>
 #include <vector>
-#include <iostream> // TODO
-#include <fstream> // TODO
-#include "graphviz.hpp" // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -202,23 +199,6 @@ void for_each_iv(Fn const& fn)
         fn(iv);
 }
 
-/* TODO: remove?
-struct cfg_loop_d
-{
-    // If the iterations can occur in any order:
-    // TODO
-    //bool parallel;
-
-    // 
-
-    // TODO: is this used?
-    //bc::small_vector<unsigned, 1> ivs; // indexes into global 'ivs' vector.
-    //bc::small_vector<iv_t, 1> mutual_ivs;
-
-    // For headers only:
-};
-*/
-
 struct ssa_loop_d
 {
     unsigned unroll_i = 0;
@@ -226,8 +206,6 @@ struct ssa_loop_d
     bc::small_vector<iv_base_t*, 1> ivs;
 };
 
-// TODO
-//cfg_loop_d& data(cfg_ht cfg) { return cfg.data<cfg_loop_d>(); }
 ssa_loop_d& data(ssa_ht ssa) { return ssa.data<ssa_loop_d>(); }
 header_d& header_data(cfg_ht cfg) 
 { 
@@ -268,9 +246,6 @@ step_t reduce(cfg_ht header, cfg_ht step_cfg, iv_t& root, type_t type, ssa_op_t 
 
     cfg_ht const step_init_cfg = algo(header).idom;
     assert(step_init_cfg);
-    // TODO: remove?
-    //assert(!init.holds_ref() || dominates(step_init_cfg, init->cfg_node()));
-    //assert(!iv.init.holds_ref() || dominates(step_init_cfg, iv.init->cfg_node()));
 
     step_t step = {};
     new_ssa(step.init = step_init_cfg->emplace_ssa(init_op, type));
@@ -342,9 +317,6 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
         return false;
 
     bool updated = false;
-
-    // TODO
-    //auto const& hd = header_data(header);
 
     ssa_ht const def_ssa = def.ssa(is_phi);
 
@@ -450,7 +422,7 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
                     step.arith->link_append_input(ssa_value_t(0u, TYPE_BOOL));
 
                     oe.handle->replace_with(is_phi ? step.phi : step.arith);
-                    oe.handle->prune(); // TODO
+                    oe.handle->prune();
                     updated = true;
                     continue;
                 }
@@ -474,7 +446,7 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
                     step.arith->link_append_input(inc);
 
                     oe.handle->replace_with(is_phi ? step.phi : step.arith);
-                    oe.handle->prune(); // TODO
+                    oe.handle->prune();
                     updated = true;
                     continue;
                 }
@@ -876,7 +848,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 
         passert(entry_inputs, header, entry_inputs, cfg_input_size);
         passert(reentry_inputs, header, reentry_inputs, cfg_input_size);
-        passert(builtin::popcount(entry_inputs) != cfg_input_size, entry_inputs, cfg_input_size);
+        passert(unsigned(builtin::popcount(entry_inputs)) != cfg_input_size, entry_inputs, cfg_input_size);
 
         // Look for a simple loop condition:
         if(builtin::popcount(reentry_inputs) == 1)
@@ -1214,7 +1186,6 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 
             fixed_sint_t iterations = 0;
 
-            // TODO
             if(d.simple_condition->op() == SSA_sign)
             {
                 fixed_sint_t signed_init = sign_extend(init, numeric_bitmask(root->ssa(true)->type().name()));
@@ -1349,104 +1320,6 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
     return updated;
 }
 
-/*
-unroll
-{
-    // we need to know the iteration bound
-    // divide that bound evenly
-    // estimate code cost
-
-    // - duplicate every node in the loop
-    // - attach inputs to old header to new header
-
-    // what order should we process?
-    // - innermost to outermost
-
-    // do we need to recalc?
-    // - probably not, just set iloopheader appropriately
-}
-*/
-
-/*
-static bool o_loop_fusion(log_t* log, ir_t& ir)
-{
-    struct header_d
-    {
-        bool can_fuse = true;
-        cfg_ht exit = {};
-    };
-
-    std::vector<header_d> header_data(loop_headers.size());
-
-    // 1. identify loops with a single entry and exit
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        cfg_ht const header = this_loop_header(cfg_it);
-
-        if(!header)
-            continue;
-
-        unsigned const output_size = cfg_it->output_size();
-        for(unsigned i = 0; i < output_size; ++i)
-        {
-            cfg_ht const output = cfg_it->output(i);
-
-            if(loop_is_parent_of(header, output))
-                continue;
-
-            cfg_ht const output_header = this_loop_header(cfg_it->output(i));
-
-            while(cfg_ht h = header; h && h != output_header; h = algo(h).iloop_header)
-            {
-                auto& d = TODO;
-                if(d.exit)
-                    d.can_fuse = false;
-                else
-                    d.exit = cfg_it;
-            }
-        }
-    }
-
-    // 2. for those loops, check if they are adjacent
-
-    // 3. for those loops, check if they have equivalent IVs
-
-    // 4. check if dependencies exist
-
-
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        if(!this_loop_header(cfg_it))
-            continue;
-
-        for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
-        {
-            if(ssa_it->in_daisy())
-            {
-                goto fail;
-            }
-
-            if(
-
-
-        }
-
-
-    fail:
-    }
-
-    for(cfg_ht header : loop_headers)
-    {
-
-    }
-
-    for(iv_t& iv : ivs)
-    {
-
-    }
-}
-*/
-
 } // end anonymous namespace
 
 //////////
@@ -1467,8 +1340,6 @@ bool o_loop(log_t* log, ir_t& ir, bool is_byteified)
 
     bool updated = false;
 
-    // TODO
-    //cfg_data_pool::scope_guard_t<cfg_loop_d> cfg_sg(cfg_pool::array_size());
     ssa_data_pool::scope_guard_t<ssa_loop_d> ssa_sg(ssa_pool::array_size());
 
     updated |= initial_loop_processing(log, ir, is_byteified);

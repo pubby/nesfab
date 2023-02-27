@@ -1,7 +1,6 @@
 #include "asm_graph.hpp"
 
 #include <random>
-#include <iostream> // TODO
 
 #include <boost/container/static_vector.hpp>
 
@@ -169,16 +168,6 @@ void asm_graph_t::finish_appending()
             throw std::runtime_error(fmt("Missing label % in assembly.", lookup.label));
     }
     to_lookup.clear();
-
-    /*
-    for(auto it = list.begin(); it != list.end(); ++it)
-    {
-        std::cout << "GRAPH NODE " << it->inputs().size() << std::endl;
-        for(auto const& inst : it->code)
-            std::cout << inst << std::endl;
-        std::cout << it->output_inst << std::endl;
-    }
-    */
 }
 
 asm_node_t& asm_graph_t::push_back(locator_t label, bool succeed)
@@ -1116,12 +1105,6 @@ void asm_graph_t::optimize_live_registers()
         // Perform some peep-hole optimization using the liveness analysis:
 
         {
-            auto const replace = [](asm_inst_t& inst, op_t op)
-            {
-                inst.op = op;
-                inst.arg = inst.alt = {};
-            };
-
             for_each_peephole(&*node.code.begin(), &*node.code.end(), 
                               [&](asm_inst_t& a, asm_inst_t& b, asm_inst_t* c)
             {
@@ -1222,12 +1205,6 @@ void asm_graph_t::optimize_live_registers()
         {
             using map_t = fc::small_map<locator_t, unsigned, 16>;
             map_t map;
-
-            auto const replace = [&](asm_inst_t& inst, op_t op)
-            {
-                inst.op = op;
-                inst.arg = inst.alt = {};
-            };
 
             auto const store_name = [](op_t op) -> op_name_t
             {

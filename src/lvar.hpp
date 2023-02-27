@@ -62,14 +62,6 @@ public:
         return m_fn_interferences[i];
     }
 
-    /* TODO
-    bool nmi_interferes(unsigned i) const
-    {
-        assert(i < num_locators());
-        return m_nmi_interferences.test(i);
-    }
-    */
-
     void add_lvar_interferences(bitset_uint_t const* bs)
     {
         bitset_for_each(bitset_size(), bs, [this, bs](unsigned i)
@@ -83,13 +75,6 @@ public:
         assert(i < m_fn_interferences.size());
         m_fn_interferences[i].insert(fn); 
     }
-
-    /* TODO
-    void add_nmi_interference(bitset_t const& bs)
-    {
-        m_nmi_interferences |= bs;
-    }
-    */
 
     static bool is_this_lvar(fn_ht fn, locator_t arg);
     static bool is_call_lvar(fn_ht fn, locator_t arg);
@@ -161,7 +146,6 @@ private:
 
     std::vector<bitset_uint_t> m_lvar_interferences;
     std::vector<fc::vector_set<fn_ht>> m_fn_interferences;
-    //bitset_t m_nmi_interferences; TODO
 
     unsigned m_num_this_lvars = 0;
     unsigned m_bitset_size = 0;

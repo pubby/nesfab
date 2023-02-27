@@ -1,7 +1,7 @@
 #ifndef WORKLIST_HPP
 #define WORKLIST_HPP
 
-#include <vector>
+#include <deque>
 
 #include "ir_decl.hpp"
 
@@ -10,7 +10,7 @@ template<typename H>
 class worklist_t
 {
 public:
-    std::vector<H> container;
+    std::deque<H> container;
 
     void push(H h)
     {
@@ -18,6 +18,14 @@ public:
             return;
         h->set_flags(FLAG_IN_WORKLIST);
         container.push_back(h);
+    }
+
+    void queue(H h)
+    {
+        if(h->test_flags(FLAG_IN_WORKLIST))
+            return;
+        h->set_flags(FLAG_IN_WORKLIST);
+        container.push_front(h);
     }
 
     H top() { return container.back(); }

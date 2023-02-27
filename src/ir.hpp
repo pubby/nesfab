@@ -129,13 +129,6 @@ public:
 
     ssa_ht handle() const { return { this - ssa_pool::data() }; }
 
-    //void set_flags(std::uint16_t f) { m_flags |= f; }
-    //void clear_flags(std::uint16_t f) { m_flags &= ~f; }
-    //bool test_flags(std::uint16_t f) const { return (m_flags & f) == f; }
-
-    //void set_mark(mark_t mark) { m_flags &= ~MARK_MASK; m_flags |= mark; }
-    //mark_t get_mark() const { return (mark_t)(m_flags & MARK_MASK); }
-
     cfg_ht cfg_node() const { return m_cfg_h; }
     cfg_ht input_cfg(std::size_t i) const;
     ssa_op_t op() const { return m_op; }
@@ -477,27 +470,6 @@ inline ssa_ht orig_use(ssa_ht h)
     return h;
 }
 
-/* TODO
-inline ssa_value_t orig_ssa(ssa_ht h)
-{
-    if(ssa_flags(h->op()) & SSAF_COPY)
-    {
-        ssa_value_t input = h->input(ssa_copy_input(h->op()));
-        if(input.holds_ref())
-            return orig_ssa(input.handle());
-        return h;
-    }
-    return v;
-}
-
-inline ssa_value_t orig_ssa(ssa_value_t v)
-{
-    if(v.holds_ref())
-        return orig_ssa(v.handle());
-    return v;
-}
-*/
-
 // Searches for this node's output node matching 'Op'.
 // Returns -1 if it doesn't exist.
 template<ssa_op_t Op>
@@ -559,15 +531,6 @@ inline bool is_locator_write(ssa_bck_edge_t e)
     return ((ssa_flags(op) & SSAF_WRITE_GLOBALS)
             && e.index >= write_globals_begin(op));
 }
-
-/* TODO
-inline locator_ht get_locator(ssa_node_t const& node, unsigned i = 0)
-{
-    assert(node.op() == SSA_read_global || node.op() == SSA_write_globals);
-    assert(node.input(i*2 + 1).is_const());
-    return node.input(i*2 + 1).locator();;
-}
-*/
 
 inline int locator_input(ssa_ht h, locator_t loc)
 {

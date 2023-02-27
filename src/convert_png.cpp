@@ -62,8 +62,6 @@ std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, 
 
     // Now convert to CHR
     {
-        std::array<std::uint8_t, 8> plane;
-
         std::vector<std::uint8_t> result;
         result.resize(image.size() / 4);
 

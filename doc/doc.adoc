@@ -582,6 +582,73 @@ For information on how to configure NESFab for a specific mapper, see:
 
 === Value Semantics
 
+== Indentation
+
+Indentation refers to the spaces at the beginning of each line.
+In NESFab, indentation is significant and alters the behavior of code.
+
+Indentation is used to create **code blocks**, where every line but the first is indented using spaces (not tabs).
+The amount of spaces is up to you, but it must be consistent throughout the block.
+----
+FIRST LINE
+    INDENTED LINE
+    INDENTED LINE
+    INDENTED LINE
+----
+*Code blocks* can be nested:
+----
+FIRST BLOCK
+    INDENTED LINE
+    INDENTED LINE
+    SECOND BLOCK
+        INDENTED LINE
+        INDENTED LINE
+    THIRD BLOCK
+        INDENTED LINE
+        INDENTED LINE
+
+----
+
+
+== Comments
+
+NESFab supports two kinds of https://en.wikipedia.org/wiki/Comment_(computer_programming)[comments]: single-line and multi-line.
+
+=== Single-Line Comments
+
+Single-line comments begin with the character sequence `//`, and terminate at the end of the line.
+
+----
+// This is a single-line comment.
+
+ct U foo = 10 // You can put them after lines of code to document it.
+----
+
+=== Multi-Line Comments
+
+Multi-line comments begin with the character sequence `/\*` on a new line, and terminate with the character sequence `*/`, followed by a line ending.
+
+[NOTE]
+Unlike other languages, multi-line comments cannot share lines with code.
+
+----
+/*
+   This is a multi-line
+   comment!
+*/
+
+/* This is also a 
+   multi-line comment! */
+
+ct U foo = 10 /* This won't compile. 
+Multi-line comments cannot share lines with code. */
+
+/*
+   This won't compile.
+   Multi-line comments cannot share lines with code.
+*/ ct U foo = 10
+----
+
 == Keywords
 
 === `if`
@@ -842,7 +909,7 @@ fn example()
 
 ==== `goto mode` statement [[kw_goto_mode_statement]]
 
-The `goto mode` statement causes control flow to jump to a <<TODO_mode>>, 
+The `goto mode` statement causes control flow to jump to a <<kw_mode, `mode`>>, 
 discarding the current call stack and starting anew.
 In the process, global variables will be reset to their initial value,
 unless they are explicitly preserved using <<mod_preserves>> in the `goto mode` statement.
@@ -853,7 +920,7 @@ goto mode identifier(arguments)
 : preserves /groups
 ----
 
-- `identifier` if the name of a <<TODO_mode>> function.
+- `identifier` if the name of a <<kw_mode>> function.
 - `arguments` is a comma-separated list of expressions to be passed to the `mode` function. The list may be blank.
 - `groups` are a comma-separated list of <<kw_vars>> groups, denoting which variables should not be reset. The list may be blank.
 
@@ -1343,7 +1410,7 @@ Every program is required to have a mode named `main` defined, which takes no pa
 When the program starts, execution will begin at `main`.
 This behavior is similar to `main` functions found in other programming languages.
 
-Modes can be assigned a corresponding <<kw_nmi_decl, nmi>> function, using a <<TODO, modifier>>.
+Modes can be assigned a corresponding <<kw_nmi_decl, nmi>> function, using a <<modifiers, modifier>>.
 While the mode function is executing, NMIs will be handled using the supplied `nmi` function.
 
 *Modifiers:*
@@ -1588,7 +1655,7 @@ data /my_group
         U(40)
 ----
 
-=== `omni`
+=== `omni` [[kw_omni]]
 
 The `omni` keyword can be prefixed to <<kw_data>> to alter its behavior.
 Groups declared using `omni` will have their data duplicated across every bank of the ROM.
@@ -1968,7 +2035,7 @@ The standard library file `pbz.fab` can be used to decompress PBZ-encoded data.
 *Encoding Description*
 
 PBZ is a simple run-length encoding that is good for representing graphical data.
-As it decompresses into chunks of 8 bytes, it can't work with arbitrary data.
+As it decompresses into chunks of 8 bytes, it won't work with arbitrarily-sized data.
 
 The data is formatted as a sequence of compressed 8-byte chunks.
 The first byte of a chunk encodes it run-length encoding in a unary-encoded format.
@@ -2255,7 +2322,7 @@ If no initial value was specified, the value will enter an undefined (garbage) s
 
 === `data` [[mod_data]]
 
-The `data` <<modifiers, modifier>> is used to document which `data` <<TODO group, groups>> a function uses.
+The `data` <<modifiers, modifier>> is used to document which `data` <<groups, groups>> a function uses.
 
 Syntax:
 ----
@@ -2268,7 +2335,7 @@ The function will be checked by the compiler to ensure it only uses data from th
 
 === `vars` [[mod_vars]]
 
-The `vars` <<modifiers, modifier>> is used to document which `vars` <<TODO group, groups>> a function uses.
+The `vars` <<modifiers, modifier>> is used to document which `vars` <<groups, groups>> a function uses.
 
 Syntax:
 ----
@@ -2489,41 +2556,35 @@ All function-like operators have left associativity and evaluate first in the or
 |===
 |Operator |Description
 
-| `_fn expression_(_argument expressions_...)`
-| Function Call
+| `_fn_expression_(_argument_expressions_...)`
+| <<fn_call, Function Call>>
 
-| `_Type_(_argument expressions_...)`
-| Type Cast
+| `_Type_(_argument_expressions_...)`
+| <<casts, Explicit Type Cast>>
 
 | `sizeof _Type_`
-| Size of a Type
+| <<sizeof_type, Size of a Type>>
 
 | `sizeof(_expression_)`
-| Size of a Value
+| <<sizeof_expr, Size of an Expression>>
 
 | `len _Type_`
-| Array Length of a Type
+| <<len_type, Array Length of a Type>>
 
 | `len(_expression_)`
-| Array Length of a Value
+| <<len_expr, Array Length of an Expression>>
 
-| `_array expression_[_index expression_]`
-| U-Indexed Array Access
+| `_array_expression_[_index_expression_]`
+| <<array_access_u, U-Indexed Array/Pointer Access>>
 
-| `_array expression_{_index expression_}`
-| UU-Indexed Array Access
+| `_array_expression_{_index_expression_}`
+| <<array_access_uu, UU-Indexed Array/Pointer Access>>
 
-| `[_expression_]()`
-| U-Indexed Hardware Read
+| `{_address_expression_}()`
+| <<hw_read, Hardware Read>>>>
 
-| `[_address expression_](_value expression_)`
-| U-Indexed Hardware Write
-
-| `{_address expression_}()`
-| UU-Indexed Hardware Read
-
-| `{_address expression_}(_value expression_)`
-| UU-Indexed Hardware Write
+| `{_address_expression_}(_value_expression_)`
+| <<hw_write, Hardware Write>>
 
 |===
 
@@ -2930,6 +2991,173 @@ U foo
 foo = 10 // 'foo' is now equal to 10
 ----
 
+=== Array and pointer access [[array_access]]
+
+==== `[]` U-indexed access [[array_access_u]]
+
+Accesses the element value at an offset of type U, with 0-based indexing.
+
+Syntax:
+----
+value[offset]
+----
+
+- `value` is an expression with a <<type_tea, TEA type>> or a pointer to a <<type_paa, PAA type>>.
+- `offset` is an expression of type `U`, used as the offset.
+
+Example:
+----
+array[20] = 10    // Set a TEA element
+x = @paa[10]      // Read a PAA element
+----
+
+==== `{}` UU-indexed access [[array_access_uu]]
+
+Accesses the element value at an offset of type UU, with 0-based indexing.
+
+Syntax:
+----
+value[offset]
+----
+
+- `value` is an expression with a <<type_tea, TEA type>> or a pointer to a <<type_paa, PAA type>>.
+- `offset` is an expression of type `UU`, used as the offset.
+
+Example:
+----
+array{2000} = 10    // Set a TEA element
+x = @paa{1000}      // Read a PAA element
+----
+
+[NOTE] 
+`{}` often has significantly worse performance than `[]`.
+
+=== Hardware operators
+
+==== `{}()` Hardware read [[hw_read]]
+
+Returns the value at a RAM address.
+
+Syntax:
+----
+{address}()
+----
+- `address` is a value of type <<type_address, `AA`>>.
+
+Example:
+----
+U status = {PPUSTATUS}() // Read the PPU's status register
+----
+
+[NOTE]
+To correctly read a NESFab variable this way, a <<kw_fence, `fence`>> is required, along with <<kw_employs, `employs`>>.
+
+==== `{}()` Hardware write [[hw_write]]
+
+Assigns a value at a hardware address.
+
+Syntax:
+----
+{address}(value)
+----
+- `address` is a value of type <<type_address, `AA`>>.
+- `value` is an expression of type `U`.
+
+
+Example:
+----
+{PPUDATA}($80) // Write to the PPU's data register
+----
+
+[NOTE]
+To correctly write a NESFab variable this way, a <<kw_fence, `fence`>> is required, along with <<kw_employs, `employs`>>.
+
+=== Function calls [[fn_call]]
+
+Calls the named function
+It behaves similarly to function calls in other languages.
+
+Syntax:
+----
+fn_expression(argument_expressions...)
+----
+
+- `fn_expression` is the function to be called.
+- `argument_expressions` are a comma-separated list of expressions to be passed to the function as argument.
+
+Example:
+----
+foo(1, 2, 3)
+----
+
+=== `sizeof` [[sizeof]]
+
+`sizeof` expressions return the size in bytes of something.
+
+==== `sizeof` Type [[sizeof_type]]
+
+Returns the size in bytes of values belonging to a type as a compile-time constant value of type `Int`.
+
+Syntax:
+----
+sizeof Type
+----
+- `Type` is a type name.
+
+Example:
+----
+ct Int uu_size = sizeof UU
+----
+
+==== `sizeof`(expression) [[sizeof_expr]]
+
+Returns the size in bytes of an expression's value as a compile-time constant value of type `Int`.
+
+Syntax:
+----
+sizeof(expression)
+----
+- `expression` is an expression to calculate the size of. The expression will not be executed.
+
+Example:
+----
+ct Int expr_size = sizeof(1 + 2 + 3)
+----
+
+=== `len` [[len]]
+
+`len` expressions return the number of array elements.
+
+==== `len` Type [[len_type]]
+
+Returns the number of array elements of values belonging to a type as a compile-time constant value of type `Int`.
+
+Syntax:
+----
+sizeof Type
+----
+- `Type` is a <<type_tea, typed element array type>>.
+
+Example:
+----
+ct Int array_len = len UU[10]
+----
+
+==== `len`(expression) [[len_expr]]
+
+Returns the number of array elements of an expression's value as a compile-time constant value of type `Int`.
+
+Syntax:
+----
+sizeof(expression)
+----
+- `expression` is an array expression to calcalute the length of. The expression will not be executed.
+
+Example:
+----
+ct Int expr_len = sizeof(U[10](3))
+----
+
 === Explicit Type Casts [[casts]]
 
 Type casts convert values into different types.
@@ -2971,80 +3199,11 @@ S[2](50) // equivalent to S[2](50, 50)
 U[5](11) // equivalent to U[5](11, 11, 11, 11, 11)
 ----
 
-=== Comments
-
-NESFab supports two kinds of https://en.wikipedia.org/wiki/Comment_(computer_programming)[comments]: single-line and multi-line.
-
-==== Single-Line Comments
-
-Single-line comments begin with the character sequence `//`, and terminate at the end of the line.
-
-----
-// This is a single-line comment.
-
-ct U foo = 10 // You can put them after lines of code to document it.
-----
-
-==== Multi-Line Comments
-
-Multi-line comments begin with the character sequence `/\*` on a new line, and terminate with the character sequence `*/`, followed by a line ending.
-
-[NOTE]
-Unlike other languages, multi-line comments cannot share lines with code.
-
-----
-/*
-   This is a multi-line
-   comment!
-*/
-
-/* This is also a 
-   multi-line comment! */
-
-ct U foo = 10 /* This won't compile. 
-Multi-line comments cannot share lines with code. */
-
-/*
-   This won't compile.
-   Multi-line comments cannot share lines with code.
-*/ ct U foo = 10
-----
-
-=== Indentation
-
-Indentation refers to the spaces at the beginning of each line.
-In NESFab, indentation is significant and alters the behavior of code.
-
-Indentation is used to create **code blocks**, where every line but the first is indented using spaces (not tabs).
-The amount of spaces is up to you, but it must be consistent throughout the block.
-----
-FIRST LINE
-    INDENTED LINE
-    INDENTED LINE
-    INDENTED LINE
-----
-*Code blocks* can be nested:
-----
-FIRST BLOCK
-    INDENTED LINE
-    INDENTED LINE
-    SECOND BLOCK
-        INDENTED LINE
-        INDENTED LINE
-    THIRD BLOCK
-        INDENTED LINE
-        INDENTED LINE
-
-----
-
 The meaning of the indentation is determined by the first line - it might be a construct like `if` or `else`, 
 a definition like a function, or something else.
 
-=== Top Level
 
-=== Values and Types
-
-Some text
+== Literals
 
 === Boolean Literals
 
@@ -3442,10 +3601,10 @@ CC/foo/bar
 ----
 
 
-==== Address Types
+==== Address Types [[type_address]]
 
 The address type `AA` is used for 16-bit hardware addresses, 
-and has the same representation as <<type_ptr, pointers>>, ignoring <<TODO, groups>>.
+and has the same representation as <<type_ptr, pointers>>, ignoring <<groups, groups>>.
 This type is used for inline assembly and hardware expressions.
 
 `AAA` behaves like `AA`, but has an additional byte which tracks the address's bank.
@@ -3582,5 +3741,55 @@ which allows one to aggregate multiple types into a single one.
 
 See <<kw_struct>>.
 
+== Banks [[banks]]
+
+The NES uses a 16-bit address space, but most games need more data than 16-bits can represent. 
+To overcome this limitation, machine code can be broken up into segments called "banks", 
+and hardware on the cartridge can switch between these banks at runtime.
+
+In NESFab, banks are automatically handled for you, meaning you do not need to worry about them much.
+However, it is still useful to know a bit about them, to clarify how things work under the hood.
+
+*Pointers and Addressing*
+
+When banks are involved, rather than addressing using 16-bit pointers, 24-bit pointers are used instead.
+A 24-bit pointer is simply a 16-bit address paired with an 8-bit integer representing the bank.
+
+When dereferencing a 24-bit pointer, 
+first the bank is swapped into memory using the 8-bit integer,
+then the data is read using the 16-bit address.
+The caveat is, the machine code performing the dereference needs to be in memory too.
+Depending on the <<mappers, mapper>>, this can involve duplicating the machine code across multiple banks,
+or storing the machine code in a specific location which won't be switched out.
 
 == Groups [[groups]]
+
+Groups organize globals together based on how they are used in the program.
+In NESFab, each global variable and <<type_paa, pointer-addressible array>> is associated with a group.
+
+There are two types of groups: `vars` and `data`.
+
+- <<kw_vars, `vars`>> is for variables (RAM).
+- <<kw_data, `data`>> is for read-only data (ROM).
+
+Furthermore, `data` has two variants: `data` and `omni data`.
+
+- <<kw_data, `data`>> is for read-only data that exists at a single address in a single <<banks, bank>>.
+- <<kw_omni, `omni data`>> is for read-only data that exists at a single address, but is duplicated across multiple <<banks, banks>>.
+
+As a guideline, `omni data` uses more ROM space, but has better performance than `data`.
+Typically, it is recommended to use `data` for most everything, and only use `omni data` for small look-up tables that are frequently used.
+
+*Why groups?*
+
+To the programmer, the purpose of groups are:
+
+- To organize code.
+- To specify the storage of a variable.
+
+To the compiler, the purpose of groups are:
+
+- To enable the compiler to smartly allocate variables by reusing RAM addresses.
+- To facilitate <<mappers, mappers>> with multiple banks, enabling smarter linking.
+- To simplify pointer aliasing optimizations.
+

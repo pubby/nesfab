@@ -16,6 +16,7 @@ struct options_t
     int num_threads = 1;
     int time_limit = 1000;
     bool graphviz = false;
+    bool info = false;
     bool build_time = false;
     bool werror = false;
 

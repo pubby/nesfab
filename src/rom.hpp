@@ -38,8 +38,8 @@ class rom_data_t
 public:
     rom_data_t(romv_allocs_t const& a, romv_flags_t desired_romv, bool align) 
     : m_allocs(a)
-    , m_desired_romv(desired_romv)
     , m_align(align)
+    , m_desired_romv(desired_romv)
     {}
 
     rom_alloc_ht get_alloc(romv_t romv) const 

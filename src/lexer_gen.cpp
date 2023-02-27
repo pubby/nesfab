@@ -704,6 +704,7 @@ int main()
 
         keyword(5, "period", "."),
         accept(7, "apply", "apply", eof()), // dummy
+        accept(7, "mode_apply", "mode_apply", eof()), // dummy
         accept(7, "cast", "cast", eof()), // dummy
         accept(7, "cast_type", "cast_type", eof()), // dummy
         accept(7, "index8", "index []", eof()), // dummy
@@ -839,6 +840,7 @@ int main()
         */
         dummy("implicit_cast"),
         dummy("shift_atom"),
+        dummy("replace_atom"),
 
         // string/char literals:
         accept("character", "character literal", eof()),

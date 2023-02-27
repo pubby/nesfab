@@ -47,9 +47,6 @@ void build_order(ir_t const& ir);
 // Does everything 'build_order' does, but also identifies loops.
 void build_loops_and_order(ir_t& ir);
 
-// TODO
-//void rebuild_orderless_dominates(cfg_ht cfg);
-
 bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node);
 
 // If 'h' is a loop header, returns itself.

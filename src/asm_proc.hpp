@@ -127,6 +127,7 @@ struct asm_proc_t
     fn_ht fn = {};
     locator_t entry_label = {};
     std::vector<asm_inst_t> code;
+    std::vector<pstring_t> pstrings;
     rh::batman_map<locator_t, label_info_t> labels;
 
     // Adds 'inst' to 'code':
@@ -148,10 +149,6 @@ struct asm_proc_t
     // Converts absolute instructions to zp, when appropriate
     void absolute_to_zp();
 
-    // Converts identifier-based labels to relocatable ones.
-    // TODO
-    //void make_relocatable();
-
     // Number of bytes between two instruction indexes.
     int bytes_between(unsigned ai, unsigned bi) const;
 
@@ -170,6 +167,9 @@ struct asm_proc_t
     label_info_t const* lookup_label(locator_t loc) const { return labels.mapped(loc.mem_head()); }
     label_info_t* lookup_label(locator_t loc) { return labels.mapped(loc.mem_head()); }
     label_info_t& get_label(locator_t loc) { return labels[loc.mem_head()]; }
+
+    unsigned add_pstring(pstring_t pstring);
+    void append(asm_proc_t const& proc);
 private:
     template<typename Fn>
     void for_each_inst(Fn const& fn) const;

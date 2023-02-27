@@ -83,10 +83,6 @@ bool o_merge_basic_blocks(log_t* log, ir_t& ir)
 
         assert(output != ir.root);
 
-        // TODO
-        //if(output == ir.exit)
-            //ir.exit = cfg_it;
-
         ir.prune_cfg(output);
 
         did_work = true;

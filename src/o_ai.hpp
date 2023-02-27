@@ -34,8 +34,4 @@ inline void resize_ai_prep() { ai_prep_vec.resize(ssa_pool::array_size()); }
 
 bool o_abstract_interpret(log_t* os, ir_t& ir, bool byteified);
 
-// TODO: one day we may implement this
-//std::size_t ai_constraints_size(ssa_value_t value);
-//constraints_t ai_get_constraints(ssa_value_t value, unsigned i = 0);
-
 #endif

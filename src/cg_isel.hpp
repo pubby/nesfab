@@ -53,9 +53,6 @@ namespace isel
         std::shared_ptr<std::vector<asm_inst_t>> code;
     };
 
-    // TODO
-    //using preprep_bitset_t = static_bitset_t<256>;
-
     using preprep_flags_t = std::uint8_t;
     constexpr preprep_flags_t PREPREP_A_0 = 1 << 0;
     constexpr preprep_flags_t PREPREP_X_0 = 1 << 1;

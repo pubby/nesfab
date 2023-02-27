@@ -1,7 +1,6 @@
 #include "o_id.hpp"
 
 #include <cstdint>
-#include <iostream> // TODO: remove
 
 #include <boost/container/small_vector.hpp>
 #include <boost/container/static_vector.hpp>
@@ -475,7 +474,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     type_t const to_type = ssa_it->type();
 
                     unsigned const from_whole = whole_bytes(from_type.name());
-                    unsigned const from_frac  = frac_bytes(from_type.name());
+                    //unsigned const from_frac  = frac_bytes(from_type.name());
                     unsigned const from_signed = is_signed(from_type.name());
 
                     unsigned const to_whole = whole_bytes(to_type.name());
@@ -996,6 +995,8 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
     ssa_worklist.push(initial);
     
     unsigned iters = 0;
+    constexpr unsigned MAX_ITERS = 8;
+
     while(!ssa_worklist.empty())
     {
         ++iters;
@@ -1018,23 +1019,19 @@ banks_and_indexes_t calc_banks_and_indexes(ssa_ht initial)
         if(h->cfg_node() != cfg || h->in_daisy() || h->op() == SSA_phi)
             process_inputs = false;
 
-        // TODO: remove the iteration cap. It's WRONG
-        std::puts("TODO REMOVE ITER CAP");
-
-        if(process_inputs && iters < 8)
+        // TODO: We could do something better than MAX_ITERS.
+        if(process_inputs && iters < MAX_ITERS)
         {
             for(unsigned i = 0; i < h->input_size(); ++i)
             {
                 if(h->input(i).holds_ref())
                 {
                     assert(h != h->input(i).handle());
-                    ssa_worklist.push(h->input(i).handle());
+                    ssa_worklist.queue(h->input(i).handle());
                 }
             }
         }
     }
-
-    //std::cout << "ITERS " << iters << std::endl;
 
     // Sort by use count. Most used comes first.
     std::sort(banks.container.begin(), banks.container.end(), [](auto const& l, auto const& r)
@@ -1523,9 +1520,6 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
         }
 
         // Now use 'operands' to build a replacement for 'h':
-
-        // TODO: remove?
-        //passert(!operands.empty(), incompatible_leafs.size(), compatible_leafs.size(), internals.size(), uses_accum, accum.value);
 
         if(def_op == SSA_add)
         {

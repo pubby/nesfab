@@ -12,7 +12,6 @@
 #include "alloca.hpp"
 #include "cg_isel.hpp"
 #include "cg_liveness.hpp"
-#include "cg_order.hpp"
 #include "cg_schedule.hpp"
 #include "cg_cset.hpp"
 #include "cg_ptr.hpp"
@@ -147,22 +146,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     build_loops_and_order(ir); // Needed for the splitting:
     split_critical_edges(ir, false);
 
-    // Deal with conditional nodes that have both edges going to the same node
-    // by splitting the edge and inserting a new node.
-    /* TODO: remove
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    {
-        cfg_node_t& cfg_node = *cfg_it;
-
-        if(cfg_node.output_size() == 2 
-           && cfg_node.output(0) == cfg_node.output(1))
-        {
-            // Introduce a new node as the fix:
-            ir.split_edge(cfg_node.output_edge(1));
-        }
-    }
-    */
-
     ////////////////
     // PREPARE IR //
     ////////////////
@@ -179,23 +162,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             ssa_it = ssa_it->prune();
             break;
 
-            /* TODO: remove
-        case SSA_sign:
-            {
-                ssa_value_t const input = ssa_it->input(0);
-                if(input.holds_ref() && input->op() == SSA_sign_extend 
-                   && input->cfg_node() == ssa_it->cfg_node())
-                {
-                    ssa_it->unsafe_set_op(SSA_carry);
-                    input->unsafe_set_op(SSA_sign_extend_carry);
-                }
-
-                goto next_iter;
-            }
-            */
-
         default:
-        next_iter:
             ++ssa_it;
         }
     }
@@ -336,7 +303,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     bc::small_vector<copy_t, 32> phi_copies;
     bc::small_vector<ssa_ht, 16> phi_csets;
-    unsigned phi_loc_index = 0;
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
@@ -524,16 +490,18 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         });
     }
 
-#if 1
-    std::cout << "sched start " << std::endl;
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    if(std::ostream* os = fn.info_stream())
     {
-        std::cout << "sched cfg " << cfg_it << std::endl;
-        auto& d = cg_data(cfg_it);
-        for(ssa_ht h : d.schedule)
-            std::cout << "sched " << h->op() << ' ' << h.id << '\n';
+        *os << "\nSCHEDULE_START\n";
+
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        {
+            *os << "  SCHEDULE_CFG " << cfg_it << '\n';
+            auto& d = cg_data(cfg_it);
+            for(ssa_ht h : d.schedule)
+                *os << "    SCHEDULE " << h->op() << ' ' << h.id << '\n';
+        }
     }
-#endif
 
     ///////////////////////////
     // LIVENESS SET CREATION //
@@ -554,7 +522,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     auto const prune_early_store = [&](ssa_ht store) -> ssa_ht
     {
         assert(store->op() == SSA_early_store);
-        //assert(!cg_data(store).cset_head);
 
         ssa_ht const parent = store->input(0).handle();
 
@@ -565,7 +532,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         unsigned const index = cg_data(store).schedule.index;
         auto& schedule = cg_data(store->cfg_node()).schedule;
-        //std::cout << store << ' ' << parent << ' ' << index << ' ' << schedule.size() << std::endl;
         assert(schedule.begin() + index < schedule.end());
         assert(schedule[index] == store);
         for(unsigned i = index+1; i < schedule.size(); ++i)
@@ -739,7 +705,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     }
 
     // Coalesce phis:
-    //std::puts("coalesce phis");
 
     // First try to coalesce 'SSA_phi's with their input 'SSA_phi_copy's.
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -766,8 +731,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             break;
         }
     }
-
-    //std::puts("coalesce phis 2");
 
     // Prioritize less busy ranges over larger ones.
     for(copy_t& copy : phi_copies)
@@ -797,8 +760,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             prune_early_store(candidate);
     }
 
-    //std::puts("coalesce phis 3");
-
     // Coalesce early stores with their parent
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht store = cfg_node.ssa_begin(); store;)
@@ -808,8 +769,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             ++store;
             continue;
         }
-
-        //std::printf("try alias %i\n", store.id);
 
         assert(store->input(0).holds_ref());
         ssa_ht parent = store->input(0).handle();
@@ -836,17 +795,12 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
         else
         {
-        fail:
-            //std::printf("can't alias %i\n", store.id);
-
             assert(store->output_size() == 1);
             ssa_ht use = store->output(0);
 
             if(is_array(store->type().name())
                || loop_depth(store->cfg_node()) > loop_depth(use->cfg_node()))
             {
-                //std::printf("depth diff! %i\n", store.id);
-
                 // The early store is either an array copy, or inside a loop, 
                 // meaning it will likely slow the code down.
                 // Thus, let's remove it.
@@ -864,7 +818,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         auto& d = cg_data(cfg_it);
         for(ssa_ht h : d.schedule)
         {
-            if(!(ssa_flags(h->op()) & SSAF_WRITE_ARRAY)/* || h->op() == SSA_copy_array*/) // TODO
+            if(!(ssa_flags(h->op()) & SSAF_WRITE_ARRAY))
                 continue;
 
             if(!h->input(0).holds_ref())
@@ -875,18 +829,13 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             ssa_ht const this_cset = cset_head(h);
             ssa_ht const parent_cset = cset_head(parent);
 
-            //std::cout << "TRY ARRAY COAL " << h << std::endl;
-
             if(ssa_ht last = csets_appendable(fn.handle(), ir, this_cset, parent_cset, cache))
             {
-                //std::cout << "SUCCCESS ARRAY COAL " << h << std::endl;
                 cset_append(last, parent_cset);
                 assert(cset_head(h) == cset_head(parent));
             }
         }
     }
-
-    //std::puts("coalesce phis 4");
 
     // Now update the IR.
     // (Liveness checks can't be done after this.)
@@ -899,31 +848,23 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         auto& d = cg_data(cfg_it);
         for(ssa_ht h : d.schedule)
         {
+            assert(h->cfg_node() == cfg_it);
+
             if(h->op() != SSA_read_array8 || !h->input(0).holds_ref())
                 continue;
-
-            //std::printf("trying read %i\n", h.id);
 
             ssa_ht const array = h->input(0).handle();
 
             unsigned const size = h->output_size();
             for(unsigned i = 0; i < size; ++i)
             {
-                //std::printf("output %i\n", i);
                 ssa_ht const output = h->output(i);
                 if(output->cfg_node() != cfg_it)
-                {
-                    //std::printf("failed cfg %i\n", i);
                     goto next_read_array_iter;
-                }
 
                 if(!live_at_def(array, output))
-                {
-                    //std::printf("failed liveness %i %i\n", array.id, output.id);
                     goto next_read_array_iter;
-                }
 
-                /* TODO
                 // It's not ideal to use direct reads if there's high X/Y register pressure.
                 // Thus, we'll try to estimate register pressure here,
                 // and only use direct reads when there's little pressure.
@@ -936,21 +877,20 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                     assert(j < schedule.size());
                     ssa_ht const node = schedule[j];
 
-                    if(ssa_flags(node->op()) & SSAF_INDEXES_ARRAY)
-                        indexers.insert(node->input(2));
+                    if(ssa_indexes8(node->op()))
+                        indexers.insert(node->input(ssa_index8_input(node->op())));
                     else
                     {
                         for_each_node_input(node, [&](ssa_ht input)
                         {
-                            if(input->op() == SSA_cg_read_array_direct)
-                                indexers.insert(input->input(2));
+                            if(input->op() == SSA_cg_read_array8_direct)
+                                indexers.insert(input->input(ssa_index8_input(SSA_cg_read_array8_direct)));
                         });
                     }
 
                     if(indexers.size() > 2) // Two registers: X, Y
                         goto next_read_array_iter;
                 }
-                */
             }
 
             // Success! Make it direct:
@@ -1126,16 +1066,12 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             if(!valid_ptr_locs(head_input_loc, head_opposite_loc))
                 continue;
 
-            //std::puts("coal ptr 1");
-
             // If either is defined with the opposite parity, we can't coalesce.
             if(cg_data(head_opposite).has_ptr(hi) || cg_data(head_input).has_ptr(!hi))
                 continue;
         }
 
         assert(cg_data(ssa_it).ptr_alt);
-
-        //std::puts("coal ptr 2");
 
         ssa_ht const head_ssa = cset_head(ssa_it);
         assert(cg_data(head_ssa).ptr_alt);
@@ -1146,8 +1082,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         ssa_ht const last = csets_appendable(fn.handle(), ir, head_input, head_ssa, cache);
         if(!last) // If they interfere
             continue;
-
-        //std::puts("coal ptr 3");
 
         ssa_ht const head_ssa_alt = cset_head(cg_data(head_ssa).ptr_alt);
         assert(cg_data(head_ssa_alt).ptr_alt);
@@ -1165,8 +1099,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 continue;
         }
 
-        //std::puts("coal ptr 4");
-
         // Coalesce the main input.
         assert(csets_appendable(fn.handle(), ir, head_input, head_ssa, cache));
         cset_append(last, head_ssa);
@@ -1174,8 +1106,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         assert(head_input == cset_head(head_input));
         //assert(head_opposite == cset_head(head_opposite));
         assert(cg_data(head_input).ptr_alt);
-
-        //std::cout << "coal ptr " << ssa_it.id << std::endl;
     }
 
 
@@ -1203,60 +1133,11 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     fn.assign_first_bank_switch(cg_calc_bank_switches(fn.handle(), ir));
 
-
-    // TODO REMOVE
-#if 1
-    {
-        std::ofstream ossa("graphs/pre_cg.gv");
-        if(ossa.is_open())
-            graphviz_ssa(ossa, ir);
-    }
-#endif
-
     ///////////////////////////
     // INSTRUCTION SELECTION //
     ///////////////////////////
 
-    std::size_t proc_size = 0;
-    {
-        // REQUIRES LOOP INFORMATION BUILT!!!
-
-        // TODO: Calculate loops here, not in 'select_instructions'.
-        proc_size = select_instructions(log, fn, ir);
-
-        /*
-#ifndef NDEBUG
-        for(cfg_ht h : postorder | std::views::reverse)
-            for(asm_inst_t const& inst : cg_data(h).code)
-                std::cout << inst << std::endl;
-#endif
-
-        asm_graph_t graph(log, locator_t::cfg_label(ir.root));
-        for(cfg_ht h : postorder | std::views::reverse)
-            graph.append_code(cg_data(h).code);
-        graph.finish_appending();
-
-        graph.optimize();
-        graph.remove_maybes(fn);
-
-        lvars_manager_t lvars = graph.build_lvars(fn);
-
-        asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()), graph.entry_label());
-        asm_proc.initial_optimize();
-        asm_proc.build_label_offsets();
-
-
-#ifndef NDEBUG
-        //for(asm_inst_t const& inst : asm_proc.code)
-            //std::cout << inst << std::endl;
-#endif
-
-
-        // Add the lvars to the fn
-        fn.assign_lvars(std::move(lvars));
-        fn.rom_proc().safe().assign(std::move(asm_proc));
-        */
-    }
+    std::size_t const proc_size = select_instructions(log, fn, ir);
 
     return proc_size;
 }

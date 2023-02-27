@@ -6,7 +6,6 @@
 #include <map>
 #include <string_view>
 #include <charconv>
-#include <iostream> // TODO
 
 #include "globals.hpp"
 #include "group.hpp"
@@ -37,11 +36,7 @@ enum channel_t
 
 struct macro_t
 {
-    //int type;
-    //int index;
     int loop;
-    //int release;
-    //int setting;
     std::vector<int> sequence;
 
     auto operator<=>(macro_t const&) const = default;
@@ -374,7 +369,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
                 // int const release = parse_int(words[4]);
                 // int const setting = parse_int(words[5]);
 
-                for(int i = 7; i < words.size(); ++i)
+                for(unsigned i = 7; i < words.size(); ++i)
                     macro.sequence.push_back(parse_int(words[i]));
 
                 // Force macro to loop.
@@ -533,7 +528,6 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         for(std::size_t t = 0; t < tracks.size(); ++t)
         {
-            unsigned next_label = 0;
             buckets.clear();
 
             track_t& track = tracks[t];
@@ -596,7 +590,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
                     {
                         penguin_pattern_t penguin_pattern = { 0 };
 
-                        for(std::size_t j = 0; j < track.pattern_size; ++j)
+                        for(int j = 0; j < track.pattern_size; ++j)
                         {
                             channel_data_t cd = pv[i*track.pattern_size+j].chan[k];
 
@@ -610,8 +604,6 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
                             {
                                 if(k == CHAN_DPCM)
                                 {
-                                    // TODO
-                                    //auto it = instruments.at(cd.instrument).dpcm_keys.find(cd.note);
                                     auto const& key = instruments.at(cd.instrument).dpcm_keys.at(cd.note);
                                     auto result = penguin_dpcm_map.emplace(key, penguin_dpcm_vector.size());
                                     if(result.second)
@@ -840,7 +832,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         // tracks_begin_lo
         asm_proc_t proc;
-        for(int i = 0; i < tracks.size(); ++i)
+        for(unsigned i = 0; i < tracks.size(); ++i)
         {
             passert(tracks[i].gconst, i, tracks[i].gconst);
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR) });
@@ -852,7 +844,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         // tracks_begin_hi
         asm_proc_t proc;
-        for(int i = 0; i < tracks.size(); ++i)
+        for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR_HI) });
 
         define_const(at, "puf_tracks_begin_hi"sv, std::move(proc), omni_group_pair, 0);
@@ -861,7 +853,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         // tracks_bank
         asm_proc_t proc;
-        for(int i = 0; i < tracks.size(); ++i)
+        for(unsigned i = 0; i < tracks.size(); ++i)
         {
             passert(tracks[i].gconst, i, tracks[i].gconst);
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(tracks[i].gconst).with_is(IS_BANK) });
@@ -873,7 +865,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         // tracks_end_lo
         asm_proc_t proc;
-        for(int i = 0; i < tracks.size(); ++i)
+        for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg
                 = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR).with_offset(tracks[i].num_columns * 2 * NUM_CHAN) });
         define_const(at, "puf_tracks_end_lo"sv, std::move(proc), omni_group_pair, 0);
@@ -882,7 +874,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         // tracks_end_hi
         asm_proc_t proc;
-        for(int i = 0; i < tracks.size(); ++i)
+        for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg
                 = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR_HI).with_offset(tracks[i].num_columns * 2 * NUM_CHAN) });
         define_const(at, "puf_tracks_end_hi"sv, std::move(proc), omni_group_pair, 0);
@@ -891,7 +883,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         // tracks_speed
         asm_proc_t proc;
-        for(int i = 0; i < tracks.size(); ++i)
+        for(unsigned i = 0; i < tracks.size(); ++i)
             push_byte(proc.code, tracks[i].speed);
         define_const(at, "puf_tracks_speed"sv, std::move(proc), omni_group_pair, 0);
     }
@@ -899,7 +891,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         // tracks_pattern_size
         asm_proc_t proc;
-        for(int i = 0; i < tracks.size(); ++i)
+        for(unsigned i = 0; i < tracks.size(); ++i)
             push_byte(proc.code, tracks[i].pattern_size - 1);
         define_const(at, "puf_tracks_pattern_size"sv, std::move(proc), omni_group_pair, 0);
     }
@@ -935,9 +927,6 @@ struct nsf_t
 
 bool fill_blank_notes(std::vector<int>& notes)
 {
-    for(int i : notes)
-        std::cout << i << std::endl;
-
     if(notes.empty())
         return true;
 
@@ -971,7 +960,7 @@ std::array<unsigned char, 1 << 16> memory;
 std::array<int, 32> apu_registers;
 std::array<int, 32> prev_apu_registers;
 std::array<int, NUM_SFX_CHAN> volume;
-bool log;
+bool log_cpu;
 bool effect_stop;
 
 bool register_allowed(unsigned address)
@@ -1017,7 +1006,7 @@ void mem_wr(unsigned address, unsigned char data)
     } 
 
     // APU registers:
-    if(log && address < 0x4018)
+    if(log_cpu && address < 0x4018)
     {
         if((address == 0x4001 || address == 0x4005) && (data & 0x80))
             throw std::runtime_error("sweep effects are not supported.\n");
@@ -1074,7 +1063,7 @@ const_ht convert_effect(pstring_t at,
     CPU.A = song;
     CPU.X = mode;
     CPU.PC.hl = nsf.init_addr;
-    log = false;
+    log_cpu = false;
     for(unsigned i = 0; i < 2000; ++i) 
         cpu_tick(); // 2000 is enough for FT init
     cpu_reset();
@@ -1082,7 +1071,7 @@ const_ht convert_effect(pstring_t at,
     std::vector<std::array<int, 32>> apu_register_log;
     std::vector<std::array<int, 4>> volume_log;
 
-    log = true;
+    log_cpu = true;
 
     for(effect_stop = false; !effect_stop;)
     {
@@ -1259,13 +1248,13 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
 
     std::vector<const_ht> gconsts;
 
-    for(int i = 0; i < nsf.songs; ++i)
+    for(unsigned i = 0; i < nsf.songs; ++i)
         gconsts.push_back(convert_effect(at, nsf_data, nsf_size, nsf, i, 0, nsf_tracks, data_group_pair));
 
     {
         // puf_sfx_lo
         asm_proc_t proc;
-        for(int i = 0; i < nsf.songs; ++i)
+        for(unsigned i = 0; i < nsf.songs; ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(gconsts[i]).with_is(IS_PTR) });
 
         define_const(at, "puf_sfx_lo"sv, std::move(proc), omni_group_pair, 0);
@@ -1274,7 +1263,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
     {
         // puf_sfx_hi
         asm_proc_t proc;
-        for(int i = 0; i < nsf.songs; ++i)
+        for(unsigned i = 0; i < nsf.songs; ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(gconsts[i]).with_is(IS_PTR_HI) });
 
         define_const(at, "puf_sfx_hi"sv, std::move(proc), omni_group_pair, 0);
@@ -1283,7 +1272,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
     {
         // puf_sfx_bank
         asm_proc_t proc;
-        for(int i = 0; i < nsf.songs; ++i)
+        for(unsigned i = 0; i < nsf.songs; ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(gconsts[i]).with_is(IS_BANK) });
 
         define_const(at, "puf_sfx_bank"sv, std::move(proc), omni_group_pair, 0);

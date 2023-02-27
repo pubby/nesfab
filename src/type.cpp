@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <string>
-#include <iostream> // TODO
 
 #include "robin/hash.hpp"
 #include "robin/collection.hpp"
@@ -459,22 +458,6 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
 
     return CAST_FAIL;
 }
-
-/* TODO
-type_name_t smallest_representable(fixed_t fixed)
-{
-    if(!fixed)
-        return TYPE_BYTE;
-
-    int const min = builtin::ctz(fixed.value) / 8;
-    int const max = builtin::rclz(fixed.value) / 8;
-
-    int const whole = std::max(max - 3, 1);
-    int const frac  = std::max(3 - min, 0);
-
-    return TYPE_arithmetic(whole, frac);
-}
-*/
 
 bool is_ct(type_t type)
 {

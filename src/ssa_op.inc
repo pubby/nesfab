@@ -42,7 +42,6 @@ SSA_DEF(as_bool,1, INPUT_VALUE, SSAF_FREE)
 // (value) - Creates all zeroes or all ones, depending on input.
 SSA_DEF(sign_extend, 1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_BRANCHY_CG)
 
-// TODO: remove?
 // Same as above, but outputs a carry too.
 //SSA_DEF(sign_extend_carry, 1, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_BRANCHY_CG)
 
@@ -151,9 +150,6 @@ SSA_DEF(write_array16_b, 4, INPUT_VALUE, SSAF_INDEXES_ARRAY16 | SSAF_WRITE_ARRAY
 
 // (array) - uses type as resize target
 SSA_DEF(resize_array, 1, INPUT_VALUE, SSAF_WRITE_ARRAY | SSAF_READ_ARRAY)
-
-// (array dest, new locator, array src) TODO
-// SSA_DEF(copy_array, 2, INPUT_ORDER, SSAF_WRITE_ARRAY | SSAF_READ_ARRAY) TODO
 
 // (value) - inits all elements of an array with 'value'
 SSA_DEF(fill_array, 1, INPUT_VALUE, 0)

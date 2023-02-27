@@ -22,13 +22,6 @@
 #include "ram_init.hpp"
 #include "cg_isel.hpp"
 #include "text.hpp"
-#include "eternal_new.hpp" // TODO: remove?
-#include "ir.hpp" // TODO: remove?
-#include "convert_png.hpp" // TODO: remove?
-
-#include "eval.hpp" // TODO: remove?
-
-#include "assert.hpp" // TODO: remove?
 
 extern char __GIT_COMMIT;
 
@@ -117,21 +110,6 @@ int main(int argc, char** argv)
 {
     auto entry_time = std::chrono::system_clock::now();
 
-    /* TODO: remove
-    asm_proc_t proc;
-    proc.push_inst(STX_ABSOLUTE, locator_t::addr(0));
-    proc.push_inst(STX_ABSOLUTE, locator_t::addr(1));
-    proc.push_inst(STX_ABSOLUTE, locator_t::addr(1));
-    proc.push_inst(STX_ABSOLUTE, locator_t::addr(1));
-    proc.push_inst(LDA_ABSOLUTE, locator_t::addr(0));
-    
-    proc.initial_optimize();
-
-    proc.write_assembly(std::cout, ROMV_MODE);
-
-    return 0;
-    */
-
 #ifdef NDEBUG
     try
 #endif
@@ -173,6 +151,7 @@ int main(int argc, char** argv)
             basic_hidden.add_options()
                 ("input,i", po::value<std::vector<std::string>>()->multitoken(), "input file")
                 ("graphviz,g", "output graphviz files")
+                ("ir-info", "output intermediate info")
                 ("time-limit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
                 ("build-time,B", "print compiler execution time")
             ;
@@ -409,7 +388,7 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
         alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
-        print_rom(std::cout);
+        //print_rom(std::cout);
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);
@@ -424,12 +403,6 @@ int main(int argc, char** argv)
         }
         std::fclose(of);
         output_time("link:     ");
-
-        //for(unsigned i = 0; i < 1; ++i)
-        //{
-            //globals.debug_print();
-            //globals.finish();
-        //}
 
     }
 #ifdef NDEBUG // In debug mode, we get better stack traces without catching.

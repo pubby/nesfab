@@ -45,23 +45,6 @@ struct flag_mods_t
     }
 };
 
-/* TODO: remove?
-enum handle_variant_class_t
-{
-    V_GLOBAL,
-    V_GROUP,
-};
-
-struct handle_variant_t
-{
-    handle_variant_class_t vclass;
-    std::uint32_t handle;
-
-    global_ht global() const { assert(vclass == V_GLOBAL); return { handle }; }
-    group_ht group() const { assert(vclass == V_GROUP); return { handle }; }
-};
-*/
-
 using mod_list_t = std::uint8_t;
 // !!! Don't forget to update 'mod_list_name' when adding lists !!!
 constexpr mod_list_t MODL_VARS      = 1 << 0;

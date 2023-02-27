@@ -1,6 +1,5 @@
 #include "span_allocator.hpp"
 
-#include <iostream> // TODO
 #include "assert.hpp"
 
 span_t span_allocator_t::alloc_at(span_t span)

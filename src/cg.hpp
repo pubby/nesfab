@@ -57,8 +57,6 @@ struct ssa_isel_d
     bool likely_store = false;
 };
 
-//
-
 struct cfg_cg_d
 {
     cfg_liveness_d live;
@@ -89,8 +87,6 @@ struct ssa_cg_d
     ssa_schedule_d schedule;
     ssa_isel_d isel;
 };
-
-//
 
 inline cfg_cg_d& cg_data(cfg_ht h) { return h.data<cfg_cg_d>(); }
 inline ssa_cg_d& cg_data(ssa_ht h) { return h.data<ssa_cg_d>(); }

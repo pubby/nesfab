@@ -1,6 +1,5 @@
 #include "cg_schedule.hpp"
 
-#include <iostream> // TODO
 #include <vector>
 
 #include "flat/small_set.hpp"
@@ -30,8 +29,10 @@ private:
 
     ssa_ht carry_input_waiting;
     fc::small_set<ssa_ht, 16> unused_global_reads;
-    std::array<ssa_value_t, 2> array_indexers = {};
     ssa_value_t ptr_banker = {};
+
+    // All the SSA nodes that are used to index arrays.
+    std::array<ssa_value_t, 2> array_indexers = {};
 
     // Some successor searches will restart from this:
     ssa_ht retry_from = {};
@@ -41,10 +42,6 @@ private:
 
     // All the SSA nodes that maybe clobber the carry.
     bitset_uint_t* carry_clobberers = nullptr;
-
-    // All the SSA nodes that are used to index arrays.
-    // TODO
-    //bitset_uint_t* array_indexers = nullptr;
 
     ssa_schedule_d& data(ssa_ht h) const { return cg_data(h).schedule; }
     unsigned& index(ssa_ht h) const { return data(h).index; }
@@ -240,102 +237,6 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             propagate_deps_change(ssa_node);
     }
 
-
-#if 0
-    // In chains of carry operations, setup deps to avoid cases where
-    // a carry would need to be stored.
-    for(auto it = toposorted.rbegin(); it != toposorted.rend(); ++it)
-    {
-        ssa_ht ssa_node = *it;
-
-        // Determine if this node produces a carry used by a single output.
-
-        ssa_ht const carry = carry_output(*ssa_node);
-        if(!carry || carry->output_size() != 1)
-            continue;
-        ssa_ht const carry_user = carry->output(0);
-
-        // OK! This node produces a carry used by a single output.
-
-        auto& d = data(ssa_node);
-        unsigned const index_ = index(ssa_node);
-
-        d.carry_user = carry_user;
-
-        // 'ssa_node' should depend on each input to the user.
-        // This ensures that when 'ssa_node' is scheduled, 'carry_user' will be ready next.
-        for(unsigned i = 0; i < carry_user->input_size(); ++i)
-        {
-            ssa_value_t const input = carry_user->input(i);
-            if(!input.holds_ref())
-                continue;
-            ssa_ht const input_h = input.handle();
-
-            if(input_h == carry || input_h == ssa_node)
-                continue;
-
-            auto& id = data(input_h);
-
-            // Can't add a dep if a cycle would be created:
-            if(bitset_test(id.deps, index_))
-                continue;
-
-            // Add a dep!
-            bitset_set(d.deps, index(input_h));
-            bitset_or(set_size, d.deps, id.deps);
-            propagate_deps_change(ssa_node);
-        }
-    }
-
-    // Add more carry deps:
-    bitset_uint_t* temp_set = ALLOCA_T(bitset_uint_t, set_size);
-    for(auto it = toposorted.rbegin(); it != toposorted.rend(); ++it)
-    {
-        ssa_ht ssa_node = *it;
-
-        // Determine if this node produces a carry used by a single output.
-
-        ssa_ht const carry = carry_output(*ssa_node);
-        if(!carry || carry->output_size() != 1)
-            continue;
-
-        // OK! This node produces a carry used by a single output.
-
-        auto& carry_d = data(carry);
-        auto& d = data(ssa_node);
-        unsigned const index_ = index(ssa_node);
-
-        // When a node outputs a carry, 
-        // make that node depend on other carry-clobering ops.
-        // This makes it unlikely that a carry-clobbering op will get scheduled
-        // in-between the generation of the carry, and its use.
-
-        // 'temp_set' will hold all deps we'll try adding to 'd.deps'.
-        for(unsigned i = 0; i < set_size; ++i)
-            temp_set[i] = ~carry_d.deps[i] & carry_clobberers[i];
-
-        assert(!bitset_test(temp_set, index_));
-        assert(!bitset_test(temp_set, index(carry)));
-
-        bitset_for_each(set_size, temp_set, 
-        [&](unsigned bit)
-        { 
-            assert(bit < toposorted.size());
-            assert(index(toposorted[bit]) == bit);
-            auto& od = data(toposorted[bit]);
-            assert(od.deps);
-
-            // Can't add a dep if a cycle would be created:
-            if(bitset_test(od.deps, index_))
-                return;
-
-            // Add a dep!
-            bitset_set(d.deps, bit);
-            bitset_or(set_size, d.deps, od.deps);
-            propagate_deps_change(ssa_node);
-        });
-    }
-#else
     // In chains of carry operations, setup deps to avoid cases where
     // a carry would need to be stored.
     bitset_uint_t* temp_set = ALLOCA_T(bitset_uint_t, set_size);
@@ -355,7 +256,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                 && ssa_node->output_size() == 1)
         {
             auto oe = ssa_node->output_edge(0);
-            if(carry_input_i(oe.handle->op()) != oe.index)
+            if(carry_input_i(oe.handle->op()) != static_cast<int>(oe.index))
                 continue;
             carry_user = oe.handle;
         }
@@ -452,7 +353,6 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         if(updated)
             propagate_deps_change(ssa_node);
     }
-#endif
 
     // If a node's result will be stored in a locator eventually,
     // it should come after previous writes/reads to that locator.
@@ -708,7 +608,6 @@ void scheduler_t::append_schedule(ssa_ht h)
         unused_global_reads.insert(h);
     if(fn_like(h->op()))
     {
-        //std::puts("unused_glob clear");
         // When calling a function, clear our set:
         unused_global_reads.clear();
     }
@@ -926,7 +825,6 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled)
             }
 
             // Otherwise find the best successor node by comparing path lengths:
-        search:
             int score = path_length(0, succ, this->scheduled);
             score += indexer_score(succ);
             score += banker_score(succ);

@@ -4,7 +4,6 @@
 #include <memory>
 #include <variant>
 #include <vector>
-#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -21,7 +20,6 @@
 #include "symbol_table.hpp"
 #include "type.hpp"
 #include "mods.hpp"
-#include "iasm.hpp"
 #include "eternal_new.hpp"
 #include "puf.hpp"
 #include "convert.hpp"
@@ -66,14 +64,9 @@ public:
     char const* source() { return file.source(); }
     void uses_type(type_t type, idep_class_t calc = IDEP_TYPE);
     void uses_charmap(global_t const* charmap, idep_class_t calc = IDEP_TYPE);
-    //token_t* eternal_expr(expr_temp_t& expr); TODO
-    //void convert_expr(token_t* begin); TODO
-    //token_t const* convert_expr(expr_temp_t& expr); TODO
     ast_node_t* eternal_expr(ast_node_t const* expr);
     ast_node_t* convert_eternal_expr(ast_node_t const* expr, idep_class_t calc = IDEP_VALUE);
     void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
-    //ast_node_t process_ast(ast_node_t ast);
-    //global_t const* at_ident(pstring_t pstring);
 
     void begin_global_var()
     {
@@ -150,10 +143,6 @@ public:
 
         if(local_const)
         {
-            /* TODO
-            passert(fn_def.local_consts.size() == fn_def.name_hashes.size(), 
-                    fn_def.local_consts.size(), fn_def.name_hashes.size());
-                    */
             fn_def.local_consts.emplace_back(var_decl, std::move(mods), eternal_expr(local_const_expr));
             fn_def.name_hashes.push_back(fnv1a<std::uint64_t>::hash(var_decl.name.view(file.source())));
         }
@@ -259,24 +248,6 @@ public:
         var_decl_t decl, fn_class_t fclass, ast_node_t ast,
         std::unique_ptr<mods_t> mods)
     {
-        std::cout << active_global->name << " LABEL = " << fn_def.default_label << std::endl;
-
-        // Set the default label
-        /* TODO: remove?
-        if(fn_def.default_label < 0)
-        {
-            for(unsigned i = 0; i < fn_def.local_consts.size(); ++i)
-            {
-                if(fn_def.local_consts[i].is_label())
-                {
-                    fn_def.default_label = i;
-                    goto found_default_label;
-                }
-            }
-        found_default_label:;
-        }
-        */
-
         assert(ast.token.type == lex::TOK_byte_block_proc
                || ast.token.type == lex::TOK_byte_block_data);
         ast.token.type = lex::TOK_byte_block_proc;
@@ -355,13 +326,6 @@ public:
                 fmt_error(at, fmt("Identifier % (defined from file) already in use.", name, &file))
                 + fmt_note(fn_def.var_decl(*existing).name, "Previous definition here:", &file));
         }
-
-        /* TODO
-        if(is_label)
-        {
-            value = locator_t::named_label(TODO, value.whole());
-        }
-        */
 
         var_decl_t const decl = {{ at, value.type() }, at };
         ast_node_t const ast = {{ .type = lex::TOK_ssa, .pstring = at, .value = value.target() }};
@@ -458,16 +422,8 @@ public:
     [[gnu::always_inline]]
     ast_node_t byte_block_call(lex::token_type_t tt, pstring_t pstring, ast_node_t call, std::unique_ptr<mods_t> mods)
     {
-        // TODO
-        //if(symbol_table.find(pstring.view(source())))
-            //compiler_error(pstring, "Cannot call a local variable.");
-
-        //global_t& g = global_t::lookup(file.source(), pstring);
-        //ideps.emplace(&g, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
-
         ast_node_t ast = { .token = token_t::make_ptr(tt, pstring, &mods), .children = eternal_expr(&call) };
 
-        // TODO
         if(mods)
         {
             if(tt == lex::TOK_byte_block_goto_mode)
@@ -481,7 +437,7 @@ public:
             else
                 mods->validate(pstring);
 
-            //ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
         }
 
         return ast;
@@ -1020,7 +976,7 @@ public:
         }
 
         if(!mods || !(mods->explicit_lists & MODL_PRESERVES))
-            compiler_error(mode, "Missing vars modifier.");
+            compiler_error(mode, "Missing preserves modifier.");
 
         fn_def.push_stmt({ STMT_GOTO_MODE, fn_def.push_mods(std::move(mods)), {}, mode, convert_eternal_expr(&expr) });
     }
@@ -1111,7 +1067,6 @@ public:
             fs::path path;
             if(!resource_path(preferred_dir, fs::path(filename.string), path))
                 compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
-            std::cout << "PATH = " << path << std::endl;
             return path;
         };
 
@@ -1163,42 +1118,6 @@ public:
         }
     }
 
-    /* TODO: remove
-    ast_node_t lookup_global_ident(pstring_t pstring)
-    {
-        global_t& g = global_t::lookup(file.source(), pstring);
-
-        return
-        {
-            .token = token_t::make_ptr<global_t>(
-                lex::TOK_global_ident,
-                pstring,
-                &g)
-        };
-    }
-
-    ast_node_t lookup_ident(pstring_t pstring)
-    {
-        if(int const* handle = symbol_table.find(pstring.view(source())))
-        {
-            ast_node_t ast =
-            {
-                .token = 
-                { 
-                    .type = lex::TOK_ident,
-                    .pstring = pstring,
-                    .value = *handle
-                }
-            };
-            assert(ast.token.signed_() == *handle);
-            return ast;
-        }
-
-        return lookup_global_ident(pstring);
-    }
-    */
-
 };
-
 
 #endif

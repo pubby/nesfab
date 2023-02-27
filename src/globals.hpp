@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <ostream>
+#include <sstream>
 
 #include "robin/collection.hpp"
 #include "robin/set.hpp"
@@ -28,7 +29,6 @@
 #include "locator.hpp"
 #include "mods.hpp"
 #include "debug_print.hpp"
-#include "iasm.hpp"
 #include "byte_block.hpp"
 
 struct rom_array_t;
@@ -42,8 +42,6 @@ std::string to_string(global_class_t gclass);
 struct field_t
 {
     var_decl_t decl;
-    //token_t const* init_expr = nullptr; TODO
-    //rval_t default_rval; TODO
 
     type_t& type() { return decl.src_type.type; }
     type_t const& type() const { return decl.src_type.type; }
@@ -345,14 +343,6 @@ struct precheck_tracked_t
     std::vector<std::pair<fn_ht, pstring_mods_t>> goto_modes;
     fc::vector_map<fn_ht, pstring_t> calls;
     fc::vector_map<gvar_ht, pstring_t> gvars_used;
-
-    //bitset_t non_inlined_calls = bitset_t(fn_ht::bitset_size());
-    //bitset_t group_vars_used = bitset_t(group_vars_ht::bitset_size());
-    //bitset_t gmembers_used = bitset_t(gmember_ht::bitset_size());
-    // TODO
-    //bitset_t gvars_required = bitset_t(gvars_ht::bitset_size());
-
-    //bool propagated = false;
 };
 
 class fn_t : public modded_t
@@ -383,32 +373,11 @@ public:
     auto const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
     auto const& precheck_parent_modes() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_parent_modes; }
 
-    // TODO: is this used?
     auto const& precheck_rw() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_rw; }
-
     auto const& precheck_calls() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_calls; }
     auto precheck_romv() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_romv; }
     bool precheck_fences() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_fences; }
     unsigned precheck_called() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_called; }
-
-    /* TODO
-    template<typename Fn>
-    void precheck_for_each_fenced_nmi(Fn const& fn)
-    {
-        if(!precheck_fences())
-            return;
-        for(fn_ht mode : precheck_called_from_modes())
-            fn(mode->mode_nmi());
-    }
-    */
-
-    /*
-    bitset_t const& lang_preserves_group_vars() const 
-    { 
-        assert(m_lang_gvars); // as it's lazily allocated, check this instead.
-        return m_lang_preserves_group_vars; 
-    }
-    */
 
     // These are only valid after 'calc_ir_reads_writes_purity' has ran.
     auto const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
@@ -421,15 +390,7 @@ public:
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
     bool ct_pure() const;
 
-    // TODO: remove?
-    //auto const& avail_reads(bool known_compiled) const { return known_compiled ? ir_reads() : precheck_rw(); }
-    //auto const& avail_writes(bool known_compiled) const { return known_compiled ? ir_writes() : precheck_rw(); }
-
     auto const& fence_rw() const { assert(m_fence_rw); return m_fence_rw; }
-    //auto const& fence_writes() const { assert(m_fence_writes); return m_fence_writes; }
-
-    //bool ir_reads(gmember_ht gmember)  const { return ir_reads().test(gmember.id); }
-    //bool ir_writes(gmember_ht gmember) const { return ir_writes().test(gmember.id); }
 
     bool always_inline() const { assert(global.compiled()); return m_always_inline; }
 
@@ -467,6 +428,8 @@ public:
 
         for_each_inlined_impl(fn, bs);
     }
+
+    std::ostream* info_stream() { return m_info_stream.get(); }
     
 private:
     template<typename Fn>
@@ -507,18 +470,16 @@ private:
     // This enables different fclasses to store different data.
     std::unique_ptr<fn_impl_base_t> m_pimpl;
 
-    // TODO
     std::unique_ptr<precheck_tracked_t> m_precheck_tracked;
     xbitset_t<group_vars_ht> m_precheck_group_vars;
     xbitset_t<gmember_ht> m_precheck_rw; // TODO: replace with more accurate reads and writes
-    xbitset_t<fn_ht> m_precheck_calls; // TODO: remove?
+    xbitset_t<fn_ht> m_precheck_calls;
     fc::vector_set<fn_ht> m_precheck_parent_modes;
     romv_flags_t m_precheck_romv = 0;
     // If the function (or a called fn) waits on NMI
-    bool m_precheck_wait_nmi = false; // TODO: remove?
-    bool m_precheck_fences = false; // TODO: remove?
+    bool m_precheck_wait_nmi = false;
+    bool m_precheck_fences = false;
 
-    // TODO: describe
     xbitset_t<gmember_ht> m_fence_rw;
 
     // Bitsets of all global vars read/written in fn (deep)
@@ -546,7 +507,6 @@ private:
 
     // The first, dominating bank switch in this function.
     // (This is the bank the fn should be called from.)
-    // TODO: finish implementing this feature
     locator_t m_first_bank_switch = {};
 
     // Holds the assembly code generated.
@@ -556,7 +516,10 @@ private:
     lvars_manager_t m_lvars;
     std::array<std::vector<span_t>, NUM_ROMV> m_lvar_spans;
 
-    // TODO: false sharing
+    // Used for debuggable output.
+    std::unique_ptr<std::stringstream> m_info_stream;
+
+    // TODO: Alter layout for less false sharing
 
     // Bitset tracking which parameters and return values have been referenced.
     // (i.e. used with unary operator '&')

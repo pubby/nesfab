@@ -14,7 +14,6 @@ namespace isel
 
 using options_flags_t = std::uint8_t;
 constexpr options_flags_t OPT_NO_DIRECT   = 0b10; // Works as a 2-bit counter
-//constexpr options_flags_t OPT_CONDITIONAL = 1 << 2; TODO: remove
 
 // Options, to be passed to various construction functions:
 struct options_t

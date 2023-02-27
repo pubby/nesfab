@@ -1,8 +1,7 @@
 #include "globals.hpp"
 
-#include <iostream> // TODO remove?
-#include <fstream> // TODO remove?
-#include "ir_algo.hpp" // TODO: remove
+#include <ostream>
+#include <fstream>
 
 #include "alloca.hpp"
 #include "bitset.hpp"
@@ -20,6 +19,7 @@
 #include "eval.hpp"
 #include "rom.hpp"
 #include "ir_util.hpp"
+#include "ir_algo.hpp"
 #include "debug_print.hpp"
 #include "text.hpp"
 #include "switch.hpp"
@@ -97,16 +97,6 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
     ideps.clear();
     return ret;
 }
-
-/* TODO
-template<typename T, typename... Args>
-static unsigned _append_to_vec(Args&&... args)
-{
-    std::lock_guard<std::mutex> lock(global_impl_vec_mutex<T>);
-    global_impl_vec<T>.emplace_back(std::forward<Args>(args)...);
-    return global_impl_vec<T>.size() - 1;
-}
-*/
 
 fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
                           type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
@@ -234,17 +224,6 @@ global_t* global_t::chrrom()
 void global_t::init()
 {
     assert(compiler_phase() == PHASE_INIT);
-
-    /* TODO
-    using namespace std::literals;
-    default_charmap_ = lookup_sourceless("charmap"sv);
-
-    lookup_sourceless("(universal vbank)"sv).define({}, GLOBAL_VBANK, {}, {}, [](global_t& g)
-    {
-        assert(global_impl_vec<vbank_t>.empty());
-        return _append_to_vec<vbank_t>(g); 
-    });
-    */
 }
 
 // This function isn't thread-safe.
@@ -526,59 +505,6 @@ void global_t::build_order()
         assert(false);
     }
 
-    /*
-    if(compiler_phase() == PHASE_ORDER_COMPILE)
-    {
-        // Add additional ideps
-        for(fn_t& fn : fn_ht::values())
-        {
-            if(fn.iasm || fn.fclass == FN_CT)
-                continue;
-
-            // fns that fence for nmis should depend on said nmis
-            if(fn.precheck_tracked().wait_nmis.size() > 0)
-            {
-                for(fn_ht mode : fn.precheck_parent_modes())
-                {
-                    if(fn_ht nmi = mode->mode_nmi())
-                    {
-                        global_t* new_dep = &nmi->global;
-                        //assert(!new_dep->has_dep(fn.global)); TODO
-                        fn.global.m_ideps.emplace(new_dep, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
-                    }
-                }
-            }
-            // TODO
-            //else if(fn.precheck_tracked().fences.size() > 0)
-                //for(fn_ht mode : fn.precheck_parent_modes())
-                    //if(fn_ht nmi = mode->mode_nmi())
-                        //fn.global.m_weak_ideps.insert(&nmi->global); // weak ideps
-        }
-    }
-    */
-
-
-
-    // Convert weak ideps
-    /* TODO : remove?
-    for(global_t& global : global_ht::values())
-    {
-        if(global.gclass() == GLOBAL_FN && global.impl<fn_t>().iasm())
-        {
-            // 'iasm' fns will convert all weak_ideps to regular ideps:
-            global.m_ideps.insert(global.m_weak_ideps.begin(),
-                                  global.m_weak_ideps.end());
-        }
-        else
-        for(global_t* idep : global.m_weak_ideps)
-            if(!idep->has_dep(global)) // Avoid loops.
-                global.m_ideps.insert(idep);
-
-        global.m_weak_ideps.clear();
-        global.m_weak_ideps.container.shrink_to_fit();
-    }
-    */
-
     // Detect cycles and clear 'm_iuses':
     for(global_t& global : global_ht::values())
     {
@@ -593,26 +519,16 @@ void global_t::build_order()
         // and holds the level of calculation required:
         idep_class_t const calc = idep_class_t(global.m_ideps_left.load());
 
-        std::cout << "CALC " << global.name << ' ' << (int)calc << std::endl;
-
         unsigned ideps_left = 0;
         for(auto const& pair : global.m_ideps)
         {
-            std::cout << "    " << pair.first->name << ' ' << (int)pair.second.calc << ' ' << (int)pair.second.depends_on << std::endl;
-
             // If we can calcalate:
             if(pair.second.calc > calc)
-            {
-                std::puts("c1");
                 continue;
-            }
 
             // If the the idep was computed in a previous pass:
             if(pair.second.calc < pass || pair.second.depends_on < pass)
-            {
-                std::puts("c2");
                 continue;
-            }
 
             ++ideps_left;
             assert(pair.first != &global);
@@ -625,14 +541,6 @@ void global_t::build_order()
             ready.push_back(&global);
     }
 
-    std::cout << "ORDERING " << (int)pass << std::endl;
-    for(global_t& global : global_ht::values())
-    {
-        std::cout << global.name << ' ' << global.m_ideps_left << std::endl;
-        for(auto const& idep : global.m_ideps)
-            std::cout << "    " << idep.first->name << ' ' << (int)idep.second.calc << ' ' << (int)idep.second.depends_on << std::endl;
-    }
-
     assert(ready.size());
 }
 
@@ -640,7 +548,6 @@ global_t* global_t::resolve(log_t* log)
 {
     assert(compiler_phase() == PHASE_RESOLVE);
 
-    log = &stdout_log; // TODO
     dprint(log, "RESOLVING", name);
     delegate([](auto& g){ g.resolve(); });
 
@@ -766,6 +673,9 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mod
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
 {
+    if(compiler_options().info || mod_test(this->mods(), MOD_info))
+        m_info_stream.reset(new std::stringstream());
+
     switch(fclass)
     {
     default:
@@ -1004,14 +914,6 @@ void fn_t::assign_lvars(lvars_manager_t&& lvars)
     }
 }
 
-/*
-void fn_t::mask_usable_ram(ram_bitset_t const& mask)
-{
-    assert(compiler_phase() == PHASE_ALLOC_RAM);
-    m_usable_ram &= mask;
-}
-*/
-
 void fn_t::assign_lvar_span(romv_t romv, unsigned lvar_i, span_t span)
 {
     assert(lvar_i < m_lvar_spans[romv].size()); 
@@ -1050,23 +952,6 @@ span_t fn_t::lvar_span(romv_t romv, locator_t loc) const
 {
     return lvar_span(romv, m_lvars.index(loc));
 }
-
-/* TODO: remove
-void alloc_args(ir_t const& ir)
-{
-    // Calculate which arg RAM is used by called fns:
-    m_recursive_arg_ram = {};
-    for(global_t* idep : global.ideps())
-        if(idep->gclass() == GLOBAL_FN)
-            m_recursive_arg_ram |= idep->impl<fn_t>().m_recursive_arg_ram;
-
-    // Now allocate RAM for our args:
-
-    // QUESTION: how do we determine what to allocate in ZP?
-    // - ptrs should always go in ZP
-    // - arrays should never go in ZP, I guess?
-}
-*/
 
 static void _resolve_local_consts(global_ht global, std::vector<local_const_t>& local_consts, fn_t* fn = nullptr)
 {
@@ -1141,38 +1026,6 @@ void fn_t::precheck()
     {
         assert(def().stmts.size() == 2);
         assert(def().stmts[0].name == STMT_EXPR);
-
-        /*
-        m_precheck_tracked.reset(new precheck_tracked_t());
-        auto& pt = *m_precheck_tracked;
-
-        for(stmt_ht h = {0}; h.id != def().stmts.size(); ++h)
-        {
-            stmt_t const& stmt = def()[h];
-
-            switch(stmt.name)
-            {
-            case STMT_ASM_OP:
-                if(stmt.expr)
-                    check_local_const(stmt.pstring, this, *stmt.expr, m_def.local_consts.data());
-                break;
-            case STMT_ASM_LABEL:
-                break;
-            case STMT_ASM_CALL:
-            case STMT_ASM_GOTO:
-                pt.calls.emplace(stmt.global->handle<fn_ht>(), stmt.pstring);
-                break;
-            case STMT_ASM_GOTO_MODE:
-                pt.goto_modes.emplace_back(stmt.global->handle<fn_ht>(), h);
-                break;
-            case STMT_ASM_NMI:
-                pt.wait_nmis.emplace_back(h);
-                break;
-            default:
-                throw std::runtime_error("Unexpected stmt in inline assembly.");
-            }
-        }
-        */
         assert(!m_precheck_tracked);
         m_precheck_tracked.reset(new precheck_tracked_t(build_tracked(*this, def().local_consts.data())));
     }
@@ -1187,46 +1040,9 @@ void fn_t::precheck()
     calc_precheck_bitsets();
 }
 
-/* TODO
-void fn_t::compile()
-{
-    for each value expr
-        compile value expr
-
-    for each code expr
-        compile code expr
-        assign loc to '.code'
-}
-*/
-
 void fn_t::compile_iasm()
 {
     assert(iasm);
-
-    // First resolve local constants:
-    /*
-    for(unsigned i = 0; i < m_def.local_consts.size(); ++i)
-    {
-        auto& c = m_def.local_consts[i];
-        if(c.expr)
-        {
-            c.value = interpret_local_const(
-                c.var_decl.name, this, *c.expr, 
-                c.var_decl.src_type.type, m_def.local_consts.data()).value;
-        }
-        else
-            c.value = { locator_t::minor_label(i) };
-    }
-    */
-    
-    /*
-    for(unsigned i = 0; i < m_iasm->code.size(); ++i)
-    {
-        // TODO
-        //if(token_t const* expr = m_iasm->code[i])
-            //interpret_expr({}, expr, 
-    }
-    */
 
     calc_ir_bitsets(nullptr);
 
@@ -1238,80 +1054,8 @@ void fn_t::compile_iasm()
                                                                 this, def().local_consts.data()));
     proc.fn = handle();
 
-#if 0
-    for(unsigned i = 0; i < def().stmts.size(); ++i)
-    {
-        stmt_t const& stmt = def().stmts[i];
-
-        switch(stmt.name)
-        {
-        case STMT_ASM_OP:
-            {
-                locator_t value = {};
-
-                if(stmt.expr)
-                {
-                    assert(op_addr_mode(stmt.asm_op) != MODE_IMPLIED);
-
-                    rval_t rval = interpret_local_const(
-                        stmt.pstring, this, *stmt.expr, 
-                        op_addr_mode(stmt.asm_op) == MODE_IMMEDIATE ? TYPE_U : TYPE_APTR, 
-                        m_def.local_consts.data()).value;
-
-                    assert(rval.size() == 1);
-
-                    ssa_value_t v = std::get<ssa_value_t>(rval[0]);
-
-                    if(v.is_locator())
-                        value = v.locator();
-                    else if(v.is_num())
-                    {
-                        if(op_addr_mode(stmt.asm_op) == MODE_IMMEDIATE)
-                            value = locator_t::const_byte(v.whole());
-                        else
-                            value = locator_t::addr(v.whole());
-                    }
-                    else
-                        assert(false);
-                }
-
-                proc.push_inst({ .op = stmt.asm_op, .iasm_stmt = i, .arg = value });
-            }
-            break;
-
-        case STMT_ASM_LABEL:
-            proc.push_inst({ .op = ASM_LABEL, .iasm_stmt = i, .arg = locator_t::minor_label(stmt.asm_label) });
-            break;
-
-        case STMT_ASM_CALL:
-        case STMT_ASM_GOTO:
-            {
-                if(stmt.global->gclass() != GLOBAL_FN || stmt.global->impl<fn_t>().fclass != FN_FN)
-                    compiler_error(stmt.pstring, fmt("% is not a callable function.", stmt.global->name));
-                op_t const op = stmt.name == STMT_ASM_CALL ? BANKED_Y_JSR : BANKED_Y_JMP;
-                proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_stmt = i, .arg = locator_t::fn(stmt.global->handle<fn_ht>()).with_is(IS_BANK) });
-                proc.push_inst({ .op = op, .iasm_stmt = i, .arg = locator_t::fn(stmt.global->handle<fn_ht>()) });
-            }
-            break;
-        case STMT_ASM_GOTO_MODE:
-            // TODO: implement
-            assert(0);
-            throw 0;
-            break;
-        case STMT_ASM_NMI:
-            proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_stmt = i, .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
-            break;
-        default:
-            throw std::runtime_error("Unexpected stmt in inline assembly.");
-        }
-    }
-#endif
-
-
     assign_lvars(lvars_manager_t(*this));
 
-    // TODO
-    //proc.write_assembly(std::cout, ROMV_MODE);
     proc.build_label_offsets();
     rom_proc().safe().assign(std::move(proc));
 }
@@ -1362,6 +1106,7 @@ void fn_t::compile()
 #define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { changed = true; /*assert((std::printf("DID_O %s\n", #o), true));*/ } ir.assert_valid(); } while(false)
 
         unsigned iter = 0;
+        constexpr unsigned MAX_ITER = 100;
         bool changed;
 
         // Do this first, to reduce the size of the IR:
@@ -1409,9 +1154,8 @@ void fn_t::compile()
             save_graph(ir, fmt("during_o_%", iter).c_str());
             ++iter;
 
-            // TODO:
-            //if(iter == 3)
-                //break;
+            if(iter >= MAX_ITER)
+                break;
         }
         while(changed);
     };
@@ -1420,9 +1164,6 @@ void fn_t::compile()
     ir.assert_valid();
 
     optimize_suite(false);
-    // TODO: remove
-    //if(global.name == "load_level")
-        //o_identities(&stdout_log, ir);
     save_graph(ir, "2_o1");
 
     // Set the global's 'read' and 'write' bitsets:
@@ -1459,16 +1200,10 @@ void fn_t::compile()
         else if(precheck_called() == 1)
         {
             if(proc_size < INLINE_SIZE_ONCE)
-            {
-                std::cout << "INLINE ONCE " << global.name << ' ' << proc_size << std::endl;
                 m_always_inline = true;
-            }
         }
         else if(proc_size < INLINE_SIZE_LIMIT)
         {
-            // TODO
-            std::cout << "INLINE " << global.name << ' ' << proc_size << std::endl;
-
             bool const no_banks = ir_deref_groups().for_each_test([&](group_ht group) -> bool
             {
                 return group->gclass() != GROUP_DATA || !group->impl<group_data_t>().once;
@@ -1490,16 +1225,10 @@ void fn_t::compile()
                 constexpr unsigned CALL_PENALTY = 3;
 
                 if(proc_size < INLINE_SIZE_GOAL + (call_cost * CALL_PENALTY))
-                {
                     m_always_inline = true;
-                    std::puts("INLINE");
-                }
             }
         }
     }
-
-    // TODO
-    m_always_inline = false;
 }
 
 void fn_t::precheck_finish_mode() const
@@ -1515,7 +1244,7 @@ void fn_t::precheck_finish_mode() const
 
         if(!precheck_group_vars().test(pair.first->impl_id()))
         {
-            std::string groups = "";
+            std::string groups;
             precheck_group_vars().for_each([&groups](group_vars_ht gv)
             {
                 groups += gv->group.name;
@@ -1606,14 +1335,6 @@ void fn_t::calc_precheck_bitsets()
         {
             bitset_set(m_precheck_group_vars.data(), gv.id);
         });
-
-        /* TODO
-        mods()->for_each_list_data(MODL_EMPLOYS, [&](group_data_ht gv, pstring_t)
-        {
-            // TODO
-            //bitset_set(m_precheck_group_vars.data(), gv.id);
-        });
-        */
     }
 
     auto const group_vars_to_string = [gv_bs_size](bitset_uint_t const* bs)
@@ -1791,56 +1512,6 @@ void fn_t::calc_precheck_bitsets()
     }
 }
 
-/*
-void fn_t::calc_lang_gvars()
-{
-    assert(0); // TODO: handle global_modes
-    assert(compiler_phase() < PHASE_COMPILE);
-
-    if(m_lang_gvars)
-        return;
-
-    m_lang_gvars.reset(gvar_ht::bitset_size());
-
-    for(global_t* idep : global.ideps())
-    {
-        if(idep->gclass() == GLOBAL_VAR)
-            m_lang_gvars.set(idep->impl_id());
-        else if(idep->gclass() == GLOBAL_FN)
-        {
-            fn_t& fn = idep->impl<fn_t>();
-
-            if(fn.fclass == FN_MODE)
-                continue;
-
-            // Recurse to ensure the called fn is calculated:
-            fn.calc_lang_gvars();
-            assert(fn.m_lang_gvars);
-
-            m_lang_gvars |= fn.m_lang_gvars;
-        }
-    }
-
-    // For every 'goto mode' statement, track preserved groups.
-    for(stmt_t const& stmt : def().stmts)
-    {
-        if(stmt.name != STMT_GOTO_MODE)
-            continue;
-
-        if(mods_t const* mods = def()[stmt.mods])
-        {
-            if(!mods->explicit_group_vars)
-                continue;
-
-            // Lazily allocate.
-            if(!m_lang_preserves_group_vars)
-                m_lang_preserves_group_vars.reset(group_vars_ht::bitset_size());
-            m_lang_preserves_group_vars.set(pair.first->impl_id());
-        }
-    }
-}
-*/
-
 void fn_t::mark_referenced_return()
 {
     std::uint64_t expected = m_referenced.load();
@@ -1938,10 +1609,6 @@ void global_datum_t::resolve()
 
         m_src_type.type.set_array_length(data_size);
         std::visit([this](auto&& v){ paa_init(std::move(v)); }, data);
-        //m_rom_array = lookup_rom_array({}, group(), std::move(paa));
-
-        // TODO : remove?
-        //m_rval = { m_paa };
     }
     else
     {
@@ -2021,16 +1688,6 @@ void gmember_t::alloc_spans()
 locator_t const* gmember_t::init_data(unsigned atom, loc_vec_t const& vec) const
 {
     unsigned const size = init_size();
-
-    /*
-    if(is_ptr(type().name()))
-    {
-        assert(atom <= 1);
-        assert(size == 2);
-        atom = 0;
-    }
-    */
-
     unsigned const offset = ::member_offset(gvar.type(), member());
     return vec.data() + offset + (atom * size);
 }
@@ -2042,13 +1699,6 @@ locator_t const* gmember_t::init_data(unsigned atom) const
 
 std::size_t gmember_t::init_size() const
 {
-    /*
-    if(is_ptr(type().name()))
-    {
-        assert(!is_banked_ptr(type().name()));
-        return 2;
-    }
-    */
     return ::num_offsets(type());
 }
 
@@ -2090,15 +1740,13 @@ void const_t::paa_init(asm_proc_t&& proc)
     {
         proc.absolute_to_zp();
         proc.build_label_offsets();
-        proc.write_assembly(std::cout, ROMV_MODE);
+        //proc.write_assembly(std::cout, ROMV_MODE);
         proc.relocate(locator_t::gconst(handle()));
     }
     catch(relocate_error_t const& e)
     {
         compiler_error(global.pstring(), e.what());
     }
-
-    //proc.write_assembly(std::cout, ROMV_MODE);
 
     assert(m_def);
     auto& def = *m_def;

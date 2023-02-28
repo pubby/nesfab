@@ -535,9 +535,8 @@ inline bool is_locator_write(ssa_bck_edge_t e)
 inline int locator_input(ssa_ht h, locator_t loc)
 {
     assert(ssa_flags(h->op()) & SSAF_WRITE_GLOBALS);
-    unsigned const begin = write_globals_begin(h->op());
     unsigned const input_size = h->input_size();
-    assert((input_size - begin) % 2 == 0);
+    assert((input_size - write_globals_begin(h->op())) % 2 == 0);
     for(unsigned i = write_globals_begin(h->op()); i < input_size; i += 2)
         if(h->input(i+1).locator() == loc)
             return i;

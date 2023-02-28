@@ -695,7 +695,7 @@ ast_node_t parser_t<P>::parse_expr_atom(int starting_indent, int open_parens)
     auto const system = [this](nes_system_t s)
     {
         pstring_t at = token.pstring;
-        ast_node_t ast = { .token = { .type = TOK_int, .pstring = at, .value = s } };
+        ast_node_t ast = { .token = { .type = TOK_int, .pstring = at, .value = s << fixed_t::shift } };
         parse_token();
         return ast;
     };
@@ -1457,7 +1457,9 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
     if(block_init)
         *block_init_global = policy().prepare_var_init(var_decl.name);
 
-    if(token.type == TOK_assign)
+    bool const is_paa = ::is_paa(var_decl.src_type.type.name());
+
+    if(token.type == TOK_assign && !is_paa)
     {
         parse_token();
         expr = parse_expr();
@@ -1477,12 +1479,13 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
         if(mods)
             *mods = parse_mods(var_indent);
 
-        if(is_paa(var_decl.src_type.type.name()))
+        if(is_paa)
         {
             expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, is_banked);
             return expr.num_children();
         }
     }
+
     return false;
 }
 
@@ -1631,11 +1634,12 @@ void parser_t<P>::parse_group_vars()
     int const vars_indent = indent;
 
     // Parse the declaration
-    pstring_t group_name;
+    pstring_t group_name = {};
     std::unique_ptr<mods_t> base_mods = parse_mods_after([&]
     {
         parse_token(TOK_vars);
-        group_name = parse_group_ident();
+        if(token.type != TOK_eol)
+            group_name = parse_group_ident();
     });
 
     auto group = policy().begin_group_vars(group_name);

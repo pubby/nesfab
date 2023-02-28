@@ -1,10 +1,10 @@
 .PHONY: all debug release profile tests deps cleandeps clean run
-debug: compiler
-release: compiler
-profile: compiler
-all: compiler tests
-run: compiler
-	./compiler
+debug: nesfab
+release: nesfab
+profile: nesfab
+all: nesfab tests
+run: nesfab
+	./nesfab
 test: tests
 	./tests
 
@@ -40,7 +40,6 @@ override CXXFLAGS+= \
   -std=c++20 \
   -pthread \
   -Wall \
-  -Werror \
   -Wextra \
   -Wno-unused-parameter \
   -Wno-narrowing \
@@ -159,7 +158,7 @@ catch/catch.cpp
 TESTS_OBJS := $(foreach o,$(TESTS_SRCS),$(OBJDIR)/$(o:.cpp=.o))
 TESTS_DEPS := $(foreach o,$(TESTS_SRCS),$(OBJDIR)/$(o:.cpp=.d))
 
-compiler: $(OBJS)
+nesfab: $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDLIBS) 
 	echo 'LINK'
 tests: $(TESTS_OBJS)
@@ -221,5 +220,5 @@ cleandeps:
 
 clean: cleandeps
 	rm -f $(wildcard $(OBJDIR)/*.o)
-	rm -f compiler
+	rm -f nesfab
 

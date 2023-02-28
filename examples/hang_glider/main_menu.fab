@@ -25,7 +25,8 @@ nmi main_menu_nmi()
     {PPUSCROLL}(0)
     {PPUSCROLL}(0)
     {PPUMASK}(PPUMASK_BG_ON)
-    puf.process($F)
+    ppu_upload_oam_poll_pads(0)
+    puf.process(PUF_DEFAULT)
 
 mode main()
 : nmi main_menu_nmi
@@ -46,8 +47,8 @@ mode main()
     {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_BG_PT_1000)
 
     while true
+        update_pads()
         rand()
-        read_pads()
         if pads[0].pressed & BUTTON_START
             goto mode game()
             : preserves /puf_vars /rng

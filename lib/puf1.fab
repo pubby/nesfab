@@ -6,6 +6,9 @@
 
 // Code implementing the puf music engine.
 
+ct U PUF_LOOP = %10000000
+ct U PUF_DEFAULT = $FF
+
 vars /puf_vars
     AA puf_ptr_temp
     AA puf_track_ptr
@@ -302,6 +305,9 @@ asm fn puf(U arg)
     label done_update_square1
 
         // DPCM
+        lda puf_enable
+        and #%10000
+        beq done_dpcm
         lsr puf_dpcm_mask
         bcc done_dpcm
 
@@ -461,6 +467,10 @@ asm fn puf(U arg)
         bne store_track
         cpx puf_track_end+0
         bne store_track
+        lda puf_enable
+        bmi loop_track
+        jmp reset_init
+    label loop_track
         ldx puf_track_start+0
         lda puf_track_start+1
     label store_track
@@ -485,6 +495,8 @@ asm fn puf(U arg)
     label process
         lda &puf_lock
         bne early_return
+        lda puf_track_speed
+        beq early_return
 
         lda &arg
         sta puf_enable
@@ -653,6 +665,7 @@ asm fn puf(U arg)
         tay
         clc
         lda (&puf_note_table_ptr.a), y
+        sec
         adc puf_triangle_pitch_bend+0
         sta $400A
         iny
@@ -733,7 +746,10 @@ asm fn puf(U arg)
         inc &puf_lock
         sty &puf_note_table_ptr.a
         stx &puf_note_table_ptr.b
-    label finish_init
+        jsr reset_init
+        jmp unlock
+
+    label reset_init
         ldx #puf_instrument_ptrs.a+1
         stx puf_noise_stack
         stx puf_noise_stack_next
@@ -763,13 +779,17 @@ asm fn puf(U arg)
         sta puf_instrument_ptrs+5+16
         sta puf_instrument_ptrs+7+16
 
+        lda #0
+        sta puf_track_speed
+        sta puf_track_step
+
         jsr reset_square1
         jsr reset_square2
         jsr reset_triangle
-        jsr reset_noise
-        jmp unlock
+        jmp reset_noise
 
     label init_pal
+        jmp init_pal
         ldy #(&puf_pal_note_table).a
         ldx #(&puf_pal_note_table).b
         jmp store_init
@@ -777,8 +797,10 @@ asm fn puf(U arg)
 
     label set_track
         inc &puf_lock
-        ldx &arg
 
+        jsr reset_init
+
+        ldx &arg
         ldy &puf_tracks_bank, x
         sty puf_bank
         switch y
@@ -812,31 +834,19 @@ asm fn puf(U arg)
         ldx #%10000000
         stx $4008
 
+        lda #%11111
+        sta puf_enable
+
         // SAX = store 0
         sax $400F
         sax puf_pattern_left
-        sax puf_track_step
-
-        //lda #80
-        //sta puf_square1_note
-        // sax sfx_noise_play ; TODO
-
-        // TODO
-        // ldx #%11110000
-        // stx $400C
-
-        inc &puf_lock
-        jsr finish_init // TODO
 
         jsr update_pattern_ptrs
         jsr update_squares
         jsr update_triangle_noise
         jsr update_variables
         // fall-through
-        dec &puf_lock
     label unlock
         dec &puf_lock
-        lda #0
-        sta &puf_lock
         rts
 

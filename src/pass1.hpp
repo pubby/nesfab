@@ -200,9 +200,9 @@ public:
         {
         default:      return 0;
         case FN_CT:   return 0;
-        case FN_FN:   return MOD_zero_page | MOD_inline | MOD_graphviz;
-        case FN_MODE: return MOD_zero_page | MOD_graphviz;
-        case FN_NMI:  return MOD_zero_page | MOD_graphviz;
+        case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz;
+        case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz;
+        case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz;
         }
     }
 

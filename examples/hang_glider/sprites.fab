@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
 
 fn prepare_sprites()
     ct U[9] plane_patterns = U[]($40, $44, $48, $4C, $1C, $7C, $78, $74, $70)

@@ -2,13 +2,14 @@
 
 NESFab is a new programming language for creating NES games.
 
-**Website:** http://pubby.games/nesfab.html
+- **Website:** http://pubby.games/nesfab.html
+- **Documentation:** http://pubby.games/nesfab/doc.html
+- **Discord:** https://discord.gg/RUrYmC5ZeE
 
 ## License
 
-- The compiler (files in `src/`) is licensed under GPL 3.0 (see `COPYING`).
-- The NESFab standard library (files in `lib/`) is licensed under the Boost Software License 1.0 (See `lib/LICENSE_1_0.txt`).
-- The NESFab examples (files in `examples/`) are licensed under the Boost Software License 1.0 (See `examples/LICENSE_1_0.txt`).
+- The NESFab compiler (`src/`) is licensed under GPL 3.0 (see `COPYING`).
+- The NESFab standard library (`lib/`), examples (`examples/`), and documentation (`doc/`) are licensed under the Boost Software License 1.0 (See `lib/LICENSE_1_0.txt`).
 
 ## Building
 
@@ -40,3 +41,7 @@ When testing bugs, use the debug-mode compiler. It gives far better diagnostics.
 
 Small fixes are welcome and can be submitted as Github pull requests.
 For anything larger, open a Github issue with what you'd like to do, and await approval before starting.
+
+## Made Something?
+
+If you made a project using NESFab, please get in touch! It would be great to hear about.

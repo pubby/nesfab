@@ -8,7 +8,7 @@ endif
 
 syn keyword nesfabKeyword if else for while do break continue return fn 
     \ ct nmi mode goto label file struct vars data omni ready fence 
-    \ default switch case asm charmap chrrom
+    \ default switch case asm charmap chrrom true false audio system stows employs preserves
 
 syntax match nesfabId "\l\k*"
 syntax match nesfabType "\u\k*"

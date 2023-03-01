@@ -3887,6 +3887,26 @@ namespace isel
             }
             break;
 
+        case SSA_phi_copy:
+            if(!orig_def(h->input(0)).holds_ref() || cset_head(h) != cset_head(h->input(0).handle()))
+            {
+                if(is_tea(h->type().name()))
+                    copy_array<Opt>(h->input(0), h);
+                else
+                {
+                    p_arg<0>::set(h->input(0));
+
+                    locator_t const loc = cset_locator(h);
+                    if(loc.lclass() == LOC_SSA || loc.lclass() == LOC_PHI)
+                        select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, true>);
+                    else
+                        select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
+                }
+            }
+            else
+                select_step<true>(ignore_req_store<p_def>);
+            break;
+
         case SSA_read_global:
             if(h->output_size() > 0 && h->input(1).locator().mem_head() != cset_locator(h))
             {
@@ -3896,21 +3916,6 @@ namespace isel
                 {
                     p_arg<0>::set(h->input(1));
                     select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def>);
-                }
-            }
-            else
-                select_step<true>(ignore_req_store<p_def>);
-            break;
-
-        case SSA_phi_copy:
-            if(!orig_def(h->input(0)).holds_ref() || cset_head(h) != cset_head(h->input(0).handle()))
-            {
-                if(is_tea(h->type().name()))
-                    copy_array<Opt>(h->input(0), h);
-                else
-                {
-                    p_arg<0>::set(h->input(0));
-                    select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
                 }
             }
             else

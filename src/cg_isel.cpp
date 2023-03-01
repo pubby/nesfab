@@ -3957,15 +3957,15 @@ namespace isel
                 p_index_lo::set(h->input(INDEX));
                 p_index_hi::set(h->input(INDEX_HI));
 
-                p_ptr_lo::set(locator_t::runtime_ram(RTRAM_ptr_temp).with_is(IS_PTR));
-                p_ptr_hi::set(locator_t::runtime_ram(RTRAM_ptr_temp).with_is(IS_PTR_HI));
+                p_ptr_lo::set(locator_t::runtime_ram(RTRAM_ptr_temp));
+                p_ptr_hi::set(locator_t::runtime_ram(RTRAM_ptr_temp), 1);
 
                 select_step<false>(
                     chain
                     < load_AC<Opt, p_index_lo, const_<0>>
                     , pick_op<Opt, ADC, null_, p_array_lo>
                     , exact_op<Opt, STA_ABSOLUTE, null_, p_ptr_lo>
-                    , load_A<Opt, p_index_hi>
+                    , load_A<Opt::restrict_to<~REGF_C>, p_index_hi>
                     , pick_op<Opt, ADC, null_, p_array_hi>
                     , exact_op<Opt, STA_ABSOLUTE, null_, p_ptr_hi>
                     >);
@@ -5079,12 +5079,21 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
     graph.finish_appending();
     graph.optimize();
+    graph.optimize_live_registers();
     graph.remove_maybes(fn);
     graph.optimize_live_registers();
 
     lvars_manager_t lvars = graph.build_lvars(fn);
 
     asm_proc_t asm_proc(fn.handle(), graph.to_linear(graph.order()), graph.entry_label());
+
+    if(std::ostream* os = fn.info_stream())
+    {
+        *os << "\nPROC " << fn.global.name << '\n';
+        for(asm_inst_t const& inst : asm_proc.code)
+            if(inst.op != ASM_PRUNED)
+                *os << "    " << inst << std::endl;
+    }
 
     asm_proc.initial_optimize();
     asm_proc.build_label_offsets();
@@ -5093,7 +5102,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
     if(std::ostream* os = fn.info_stream())
     {
-        *os << "\nPROC " << fn.global.name << '\n';
+        *os << "\nPROC_OPT " << fn.global.name << '\n';
         for(asm_inst_t const& inst : asm_proc.code)
             if(inst.op != ASM_PRUNED)
                 *os << "    " << inst << std::endl;

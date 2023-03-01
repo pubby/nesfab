@@ -967,7 +967,7 @@ void asm_graph_t::optimize_live_registers()
 
             auto const replace = [&](asm_inst_t& inst, op_t op)
             {
-                dprint(log, "REGLIVE_PRUNE_1", inst.op);
+                dprint(log, "REGLIVE_PRUNE_1", inst);
                 inst.op = op;
                 inst.arg = inst.alt = {};
             };
@@ -1119,6 +1119,7 @@ void asm_graph_t::optimize_live_registers()
                    && (!a.arg || is_var_like(a.arg.lclass()))
                    && !a.alt)
                 {
+                    dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
                     a.prune();
                 }
 
@@ -1297,30 +1298,32 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
     bool const is_jump = op_flags(inst.op) & ASMF_JUMP;
     bool const is_return = ::is_return(inst);
 
-    if(is_call || is_jump || is_return)
+    bool const is_fn = (is_call || is_jump || is_return) && (inst.arg.lclass() == LOC_FN);
+
+    if(inst.op == ASM_PRUNED)
+        return;
+
+    if(is_fn)
     {
-        if(inst.arg.lclass() == LOC_FN)
+        fn_ht const call_h = inst.arg.fn();
+        fn_t const& call = *call_h;
+
+        for(locator_t const& loc : map)
         {
-            fn_ht const call_h = inst.arg.fn();
-            fn_t const& call = *call_h;
+            unsigned const i = &loc - map.begin();
 
-            for(locator_t const& loc : map)
+            if(has_fn(loc.lclass()) && loc.fn() == call_h)
+                rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
+
+            if(loc.lclass() == LOC_GMEMBER)
             {
-                unsigned const i = &loc - map.begin();
-
-                if(has_fn(loc.lclass()) && loc.fn() == call_h)
-                    rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
-
-                if(loc.lclass() == LOC_GMEMBER)
+                if(call.fclass == FN_MODE)
                 {
-                    if(call.fclass == FN_MODE)
-                    {
-                        group_vars_ht gv = loc.gmember()->gvar.group_vars;
-                        rw(i, gv && call.precheck_group_vars().test(gv.id), false);
-                    }
-                    else
-                        rw(i, call.ir_reads().test(loc.gmember().id), call.ir_writes().test(loc.gmember().id));
+                    group_vars_ht gv = loc.gmember()->gvar.group_vars;
+                    rw(i, gv && call.precheck_group_vars().test(gv.id), false);
                 }
+                else
+                    rw(i, call.ir_reads().test(loc.gmember().id), call.ir_writes().test(loc.gmember().id));
             }
         }
     }
@@ -1340,7 +1343,7 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
                 rw(i, fn.ir_writes().test(loc.gmember().id), false);
         }
     }
-    else if(inst.arg.lclass() != LOC_FN) // fns handled earlier.
+    else if(!is_fn) // fns handled earlier.
     {
         auto test_loc = [&](locator_t loc)
         {
@@ -1374,6 +1377,7 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
     {
         node.vlive.in  = bitset_pool.alloc(bs_size);
         node.vlive.out = bitset_pool.alloc(bs_size);
+        bitset_set_all(bs_size, node.vlive.out);
     }
 
     // Call this before 'do_write'.
@@ -1393,7 +1397,7 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
     for(locator_t const& loc : map)
     {
         if(loc.lclass() == LOC_ARG)
-            do_read(root, &loc - map.begin());
+            bitset_set(root.vlive.in, &loc - map.begin());
     }
 
     for(asm_node_t& node : list)
@@ -1405,8 +1409,6 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
         // Also set 'd.out' to temporarily hold all variables *NOT* defined
         // in this node.
         // (This set's inverse is sometimes called 'KILL')
-
-        bitset_set_all(bs_size, node.vlive.out);
 
         for(asm_inst_t const& inst : node.code)
         {
@@ -1440,7 +1442,8 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
         bool const changing = !bitset_eq(bs_size, temp_set, node.vlive.in);
 
         // Assign 'vlive.in':
-        bitset_copy(bs_size, node.vlive.in, temp_set);
+        if(changing)
+            bitset_copy(bs_size, node.vlive.in, temp_set);
 
         return changing;
     });
@@ -1473,6 +1476,8 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
         // Since we're going backwards, reset 'live' to the node's output state.
         bitset_copy(bs_size, live, node.vlive.out);
 
+        // Variables that are live together interfere with each other.
+        // Update the interference graph here:
         lvars.add_lvar_interferences(live);
 
         for(asm_inst_t& inst : node.code | std::views::reverse)
@@ -1484,19 +1489,32 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
                 {
                     lvars.add_fn_interference(i, inst.arg.fn());
                 });
+
+                // Variables that are live together interfere with each other.
+                // Update the interference graph here:
+                lvars.add_lvar_interferences(live);
             }
 
             do_inst_rw(fn, lvars.map(), inst, [&](unsigned i, bool read, bool write)
             {
+                if(write)
+                {
+                    // We have to set the value here temporarily,
+                    // to ensure the interference will be marked.
+                    // It usually gets cleared right after.
+                    bitset_set(live, i);
+
+                    // Variables that are live together interfere with each other.
+                    // Update the interference graph here:
+                    lvars.add_lvar_interferences(live);
+                }
+
                 if(read)
                     bitset_set(live, i);
                 else if(write) // Only occurs if 'read' is false.
                     bitset_clear(live, i);
             });
 
-            // Variables that are live together interfere with each other.
-            // Update the interference graph here:
-            lvars.add_lvar_interferences(live);
         }
     }
 

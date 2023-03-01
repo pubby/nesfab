@@ -343,7 +343,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         {
             if(!fn_h)
                 return *this;
-            span_t span = {};
+            span_t span = fn_h->lvar_span(romv, mem_head());
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
                 span = fn_h->lvar_span(romv_t(i), mem_head());
             return from_span(fn_h->lvar_span(romv, mem_head()));
@@ -354,7 +354,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
     case LOC_RETURN:
     case LOC_MINOR_VAR:
         {
-            span_t span = {};
+            span_t span = fn()->lvar_span(romv, mem_head());
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
                 span = fn()->lvar_span(romv_t(i), mem_head());
             return from_span(fn()->lvar_span(romv, mem_head()));
@@ -369,7 +369,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         {
             if(is() == IS_BANK)
                 return locator_t::const_byte(0);
-            span_t span = {};
+            span_t span = runtime_span(runtime_ram(), romv);
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
                 span = runtime_span(runtime_ram(), romv_t(i));
             return from_span(span);
@@ -379,7 +379,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         {
             if(is() == IS_BANK)
                 return locator_t::const_byte(0);
-            span_t span = {};
+            span_t span = runtime_span(runtime_rom(), romv);
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
                 span = runtime_span(runtime_rom(), romv_t(i));
             return from_span(span);

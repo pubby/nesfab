@@ -1497,21 +1497,20 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
 
             do_inst_rw(fn, lvars.map(), inst, [&](unsigned i, bool read, bool write)
             {
+                // We have to set the value here temporarily,
+                // to ensure the interference will be marked.
+                // It usually gets cleared right after.
                 if(write)
-                {
-                    // We have to set the value here temporarily,
-                    // to ensure the interference will be marked.
-                    // It usually gets cleared right after.
                     bitset_set(live, i);
-
-                    // Variables that are live together interfere with each other.
-                    // Update the interference graph here:
-                    lvars.add_lvar_interferences(live);
-                }
 
                 if(read)
                     bitset_set(live, i);
-                else if(write) // Only occurs if 'read' is false.
+
+                // Variables that are live together interfere with each other.
+                // Update the interference graph here:
+                lvars.add_lvar_interferences(live);
+
+                if(!read && write)
                     bitset_clear(live, i);
             });
 

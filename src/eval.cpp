@@ -2126,6 +2126,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(is_tea)
             {
                 tea_length = elem_type.size();
+                passert(tea_length > 0, lhs.type, " | ", elem_type);
                 elem_type = elem_type.elem_type();
             }
 
@@ -2157,6 +2158,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         case fnv1a<std::uint64_t>::hash("pairs"sv): 
                             {
                                 auto array = sl_manager.get_byte_pairs(&charmap.global);
+                                assert(array.second > 0);
                                 lhs.type = type_t::tea(TYPE_U20, array.second);
                                 lhs.val = rval_t{ std::move(array.first) };
                             }

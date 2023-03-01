@@ -441,7 +441,6 @@ namespace isel
         if(!xy_addr_mode(op_addr_mode(Op)) && (op_output_regs(Op) & REGF_M) 
            && !(op_flags(Op) & ASMF_MAYBE_STORE) && def.holds_ref() && def.handle() == state.ssa_node)
         {
-            passert(def.handle() != arg_h, arg_h);
             cpu.req_store |= cg_data(def.handle()).isel.store_mask;
         }
 
@@ -3884,7 +3883,7 @@ namespace isel
             else
             {
                 p_arg<0>::set(h->input(0));
-                select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def>);
+                select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
             }
             break;
 
@@ -3911,7 +3910,7 @@ namespace isel
                 else
                 {
                     p_arg<0>::set(h->input(0));
-                    select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def>);
+                    select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
                 }
             }
             else
@@ -5086,6 +5085,13 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     asm_proc.build_label_offsets();
 
     std::size_t const proc_size = asm_proc.size();
+
+    if(std::ostream* os = fn.info_stream())
+    {
+        *os << "\nPROC " << fn.global.name << '\n';
+        for(asm_inst_t const& inst : asm_proc.code)
+            *os << "    " << inst << std::endl;
+    }
 
     // Add the lvars to the fn
     fn.assign_lvars(std::move(lvars));

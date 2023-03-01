@@ -216,16 +216,21 @@ std::pair<ct_array_t, unsigned> string_literal_manager_t::get_byte_pairs(global_
 
     if(auto* result = m_map.mapped(charmap))
     {
-        ct_array_t array = make_ct_array(result->byte_pairs.size());
-        for(unsigned i = 0; i < result->byte_pairs.size(); ++i)
-        {
-            unsigned bp;
-            bp  = result->byte_pairs[i][0];
-            bp |= result->byte_pairs[i][1] << 8;
-            array[i] = ssa_value_t(bp, TYPE_U20);
-        }
+        std::size_t const size = result->byte_pairs.size();
 
-        return { std::move(array), result->byte_pairs.size() };
+        if(size > 0)
+        {
+            ct_array_t array = make_ct_array(size);
+            for(unsigned i = 0; i < size; ++i)
+            {
+                unsigned bp;
+                bp  = result->byte_pairs[i][0];
+                bp |= result->byte_pairs[i][1] << 8;
+                array[i] = ssa_value_t(bp, TYPE_U20);
+            }
+
+            return { std::move(array), size };
+        }
     }
 
     ct_array_t array = make_ct_array(1);

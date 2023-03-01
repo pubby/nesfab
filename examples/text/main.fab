@@ -1,0 +1,77 @@
+ct U WRITING_DONE  = 0
+ct U WRITING_WAIT  = 1
+ct U WRITING_READY = 2
+
+vars
+    U writing = WRITING_WAIT
+    U char
+    UU row_addr = $2106
+    UU cur_addr = $2106
+
+chrrom
+    file(fmt, "font.png")
+
+charmap(" !\"#$%&'()*+,-./0123456789:;<=>?\nABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\0", '\0')
+: stows /strings
+
+data /strings
+    [] the_string
+        (`Hello world!\n`
+         `How are you today?\n`
+         `This is an example\n`
+         `of compressed text.\n`
+         `I hope you like it,\n`
+         `my friend, because\n`
+         `compressed text is\n`
+         `really cool!\n`
+         `Anyway, that's all\n`
+         `I have to tell you.\n`
+         `Goodbye!`)
+
+nmi main_nmi()
+    if ready && writing == WRITING_READY
+        // Upload the decompressed character:
+        {PPUSTATUS}()
+        {PPUADDR}(cur_addr.b)
+        {PPUADDR}(cur_addr.a)
+        {PPUDATA}(char)
+        cur_addr += 1
+        writing = WRITING_WAIT
+
+    {PPUSCROLL}(0)
+    {PPUSCROLL}(0)
+    {PPUMASK}(PPUMASK_ON)
+
+mode main()
+: nmi main_nmi
+: +graphviz
+    palette = example_palette
+    ppu_upload_palette()
+
+    // Clear the screen
+    {PPUSTATUS}()
+    {PPUADDR}($20)
+    {PPUADDR}($00)
+    for UU i = 0; i != 1024; i += 1
+        {PPUDATA}(0)
+
+    // Prepare the decompressor
+    decompress_string_init(@the_string)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+
+    while true
+        // Decompress one character
+        if writing == WRITING_WAIT
+            char = decompress_string()
+            if char == charmap.sentinel
+                writing = WRITING_DONE
+            else if char == '\n'
+                row_addr += 32
+                cur_addr = row_addr
+            else
+                writing = WRITING_READY
+
+        // Wait 3 frames
+        nmi
+        nmi
+        nmi

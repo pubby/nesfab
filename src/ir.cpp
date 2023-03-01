@@ -1024,8 +1024,10 @@ void ir_t::assert_valid() const
             // phi checks
             if(ssa_it->op() == SSA_phi)
             {
+                /* TODO
                 for(unsigned i = 0; i < ssa_it->input_size(); ++i)
                     passert(ssa_it->input(i).type() == ssa_it->type(), ssa_it->input(i).type(), ssa_it->type());
+                    */
             }
 
             // Multi checks

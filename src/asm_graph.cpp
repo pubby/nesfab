@@ -1293,32 +1293,39 @@ void asm_graph_t::optimize_live_registers()
 template<typename ReadWrite>
 void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t const& inst, ReadWrite rw)
 {
-    if(inst.arg.lclass() == LOC_FN)
+    bool const is_call = op_flags(inst.op) & ASMF_CALL;
+    bool const is_jump = op_flags(inst.op) & ASMF_JUMP;
+    bool const is_return = ::is_return(inst);
+
+    if(is_call || is_jump || is_return)
     {
-        fn_ht const call_h = inst.arg.fn();
-        fn_t const& call = *call_h;
-
-        for(locator_t const& loc : map)
+        if(inst.arg.lclass() == LOC_FN)
         {
-            unsigned const i = &loc - map.begin();
+            fn_ht const call_h = inst.arg.fn();
+            fn_t const& call = *call_h;
 
-            if(has_fn(loc.lclass()) && loc.fn() == call_h)
-                rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
-
-            if(loc.lclass() == LOC_GMEMBER)
+            for(locator_t const& loc : map)
             {
-                if(call.fclass == FN_MODE)
+                unsigned const i = &loc - map.begin();
+
+                if(has_fn(loc.lclass()) && loc.fn() == call_h)
+                    rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
+
+                if(loc.lclass() == LOC_GMEMBER)
                 {
-                    group_vars_ht gv = loc.gmember()->gvar.group_vars;
-                    rw(i, gv && call.precheck_group_vars().test(gv.id), false);
+                    if(call.fclass == FN_MODE)
+                    {
+                        group_vars_ht gv = loc.gmember()->gvar.group_vars;
+                        rw(i, gv && call.precheck_group_vars().test(gv.id), false);
+                    }
+                    else
+                        rw(i, call.ir_reads().test(loc.gmember().id), call.ir_writes().test(loc.gmember().id));
                 }
-                else
-                    rw(i, call.ir_reads().test(loc.gmember().id), call.ir_writes().test(loc.gmember().id));
             }
         }
     }
 
-    if(is_return(inst))
+    if(is_return)
     {
         for(locator_t const& loc : map)
         {

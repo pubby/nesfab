@@ -134,7 +134,6 @@ vars
     Pad[2] pads = Pad[2]()
 
     [2] raw_pads
-    : +zero_page
         U[2](0)
 
 // Polls the current gamepad state into 'raw_pads'.
@@ -149,6 +148,9 @@ fn poll_pads()
 asm fn ppu_upload_oam_poll_pads(U oam_offset)
 : employs
 : +align
+    vars
+        [2] polled
+        : +zero_page
     default
         lda &oam_offset
         sta OAMADDR
@@ -156,18 +158,23 @@ asm fn ppu_upload_oam_poll_pads(U oam_offset)
         sta OAMDMA
     label done_oam
         ldx #1
-        stx &raw_pads+0
+        stx &polled+0
         stx $4016
         dex
         stx $4016
     label loop
         lda $4017
         lsr
-        rol &raw_pads+1, x
+        rol &polled+1, x
         lda $4016
         lsr
-        rol &raw_pads+0
+        rol &polled+0
         bcc loop
+
+        lda &polled+0
+        sta &raw_pads+0
+        lda &polled+1
+        sta &raw_pads+1
 
         rts
 

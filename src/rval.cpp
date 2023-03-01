@@ -69,7 +69,7 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
         auto const push_bytes = [&](ssa_value_t v, type_t subtype)
         {
             if(!is_scalar(subtype.name()))
-                compiler_error(pstring, "Invalid type in pointer-addressable array. (Not scalar subtype.)");
+                compiler_error(pstring, fmt("Invalid type in pointer-addressable array. (% is not a scalar subtype.)", subtype));
 
             unsigned const size_of = subtype.size_of();
             assert(size_of);

@@ -4,6 +4,7 @@
 
 #include "compiler_error.hpp"
 #include "globals.hpp"
+#include "group.hpp"
 #include "rom.hpp"
 
 string_literal_manager_t sl_manager;
@@ -208,6 +209,30 @@ rom_array_ht string_literal_manager_t::get_rom_array(global_t const* charmap, un
     throw std::runtime_error("Bad or unknown charmap. Cannot get rom array.");
 }
 
+std::pair<ct_array_t, unsigned> string_literal_manager_t::get_byte_pairs(global_t const* charmap)
+{
+    assert(compiler_phase() > PHASE_COMPRESS_STRINGS);
+    assert(charmap);
+
+    if(auto* result = m_map.mapped(charmap))
+    {
+        ct_array_t array = make_ct_array(result->byte_pairs.size());
+        for(unsigned i = 0; i < result->byte_pairs.size(); ++i)
+        {
+            unsigned bp;
+            bp  = result->byte_pairs[i][0];
+            bp |= result->byte_pairs[i][1] << 8;
+            array[i] = ssa_value_t(bp, TYPE_U20);
+        }
+
+        return { std::move(array), result->byte_pairs.size() };
+    }
+
+    ct_array_t array = make_ct_array(1);
+    array[0] = ssa_value_t(0, TYPE_U20);
+    return { std::move(array), 1 };
+}
+
 // Single-threaded
 void string_literal_manager_t::convert_all()
 {
@@ -299,7 +324,7 @@ void string_literal_manager_t::compress(charmap_t const& charmap, charmap_info_t
 
     // As the assembly decompressor uses recursion, 
     // we should limit the depth to prevent stack overflows.
-    constexpr unsigned MAX_DEPTH = 64;
+    constexpr unsigned MAX_DEPTH = 32;
 
     while(info.byte_pairs.size() < max_byte_pairs)
     {

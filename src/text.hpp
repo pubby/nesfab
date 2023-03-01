@@ -10,6 +10,7 @@
 
 #include "pstring.hpp"
 #include "rom_decl.hpp"
+#include "rval.hpp"
 
 class global_t;
 class charmap_t;
@@ -35,6 +36,7 @@ public:
     unsigned add_string(global_t const* charmap, pstring_t at, std::string string, bool compressed);
     std::string const& get_string(global_t const* charmap, unsigned index, bool compressed) const;
     rom_array_ht get_rom_array(global_t const* charmap, unsigned index, bool compressed);
+    std::pair<ct_array_t, unsigned> get_byte_pairs(global_t const* charmap);
 
     void convert_all();
     void compress_all();
@@ -65,7 +67,7 @@ private:
     void compress(charmap_t const& charmap, charmap_info_t& info);
 
     std::mutex mutex;
-    rh::batman_map<global_t const*, charmap_info_t> m_map;
+    rh::joker_map<global_t const*, charmap_info_t> m_map;
 };
 
 extern string_literal_manager_t sl_manager;

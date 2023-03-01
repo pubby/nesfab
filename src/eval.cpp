@@ -2154,6 +2154,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             lhs.type = TYPE_U;
                             lhs.val = rval_t{ ssa_value_t(charmap.sentinel(), TYPE_U) };
                             break;
+                        case fnv1a<std::uint64_t>::hash("pairs"sv): 
+                            {
+                                auto array = sl_manager.get_byte_pairs(&charmap.global);
+                                lhs.type = type_t::tea(TYPE_U20, array.second);
+                                lhs.val = rval_t{ std::move(array.first) };
+                            }
+                            break;
                         default:
                             goto bad_global_accessor;
                         }

@@ -708,6 +708,7 @@ private:
     unsigned m_num_unique = 0;
     int m_sentinel = -1;
     group_data_ht m_group_data = {};
+    rom_array_ht m_byte_pairs = {};
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

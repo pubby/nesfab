@@ -464,13 +464,13 @@ public:
     template<typename K>
     value_type const* lookup(K const& k) const
     { 
-        unique_ptr_type* ptr = collection.lookup(k);
+        unique_ptr_type const* ptr = collection.lookup(k);
         return ptr ? ptr->get() : nullptr;
     }
 
     template<typename K>
     value_type* lookup(K const& k)
-        { return const_cast<value_type*>(const_this()->lookp(k)); }
+        { return const_cast<value_type*>(const_this()->lookup(k)); }
 
     // For values that might be in the container.
     template<typename K>

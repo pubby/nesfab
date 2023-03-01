@@ -544,13 +544,19 @@ public:
     [[gnu::always_inline]]
     std::pair<group_vars_t*, group_vars_ht> begin_group_vars(pstring_t group_name)
     {
-        return group_t::lookup(file.source(), group_name).define_vars(group_name);
+        if(group_t* group = group_t::lookup(file.source(), group_name))
+            return group->define_vars(group_name);
+        else
+            return {};
     }
 
     [[gnu::always_inline]]
     std::pair<group_data_t*, group_data_ht> begin_group_data(pstring_t group_name, bool once)
     {
-        return group_t::lookup(file.source(), group_name).define_data(group_name, once);
+        if(group_t* group = group_t::lookup(file.source(), group_name))
+            return group->define_data(group_name, once);
+        else
+            return {};
     }
 
     [[gnu::always_inline]]
@@ -578,10 +584,10 @@ public:
     }
 
     [[gnu::always_inline]]
-    void global_const(std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, 
+    void global_const(bool in_group, std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, 
                       ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
-        if(group.first && !is_paa(var_decl.src_type.type.name()))
+        if(in_group && !is_paa(var_decl.src_type.type.name()))
             compiler_error(var_decl.name, "Expecting pointer-addressable array inside 'data' block.");
 
         uses_type(var_decl.src_type.type);

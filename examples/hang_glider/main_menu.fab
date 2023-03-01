@@ -34,7 +34,7 @@ mode main()
     {PPUMASK}(0)
 
     puf.init(system)
-    puf.set_track(puf_track_title)
+    puf.play_track(puf_track_title)
 
     palette = main_menu_palette
     ppu_upload_palette()
@@ -51,6 +51,6 @@ mode main()
         rand()
         if pads[0].pressed & BUTTON_START
             goto mode game()
-            : preserves /puf_vars /rng
+            : preserves
         nmi
 

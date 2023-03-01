@@ -33,6 +33,13 @@ class rom_key_t
     rom_key_t(rom_key_t const&) {}
 };
 
+enum rom_rule_t : std::uint8_t
+{
+    ROMR_NORMAL,
+    ROMR_DPCM,
+    ROMR_STATIC
+};
+
 class rom_data_t
 {
 public:
@@ -62,19 +69,19 @@ public:
 
     romv_flags_t desired_romv() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_desired_romv; }
     bool align() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_align; }
-    bool dpcm() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_dpcm; }
     bool emits() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_emits; }
+    rom_rule_t rule() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_rule; }
     void mark_emits() { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); m_emits.store(true); }
     void mark_aligned() { m_align.store(true); }
-    void mark_dpcm() { m_dpcm.store(true); }
+    void mark_rule(rom_rule_t rule) { m_rule.store(rule); }
 
 protected:
     // These are used later on, when the rom is actually allocated.
     romv_allocs_t m_allocs = {};
 
     std::atomic<bool> m_align = false;
-    std::atomic<bool> m_dpcm = false;
     std::atomic<bool> m_emits = false;
+    std::atomic<rom_rule_t> m_rule = ROMR_NORMAL;
     std::atomic<romv_flags_t> m_desired_romv = 0;
 };
 
@@ -93,7 +100,7 @@ public:
     auto const& used_in_group_data() const { assert(compiler_phase() > rom_array_ht::phase); return m_used_in_group_data; }
 
     // Use this to construct globally:
-    static rom_array_ht make(loc_vec_t&& vec, bool align, bool dpcm, group_data_ht={}, romv_allocs_t const& a={});
+    static rom_array_ht make(loc_vec_t&& vec, bool align, rom_rule_t rule, group_data_ht={}, romv_allocs_t const& a={});
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 private:

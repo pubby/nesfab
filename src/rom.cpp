@@ -42,7 +42,7 @@ void rom_array_t::for_each_locator(std::function<void(locator_t)> const& fn) con
         fn(loc);
 }
 
-rom_array_ht rom_array_t::make(loc_vec_t&& vec, bool align, bool dpcm, group_data_ht gd, romv_allocs_t const& a)
+rom_array_ht rom_array_t::make(loc_vec_t&& vec, bool align, rom_rule_t rule, group_data_ht gd, romv_allocs_t const& a)
 {
     std::hash<loc_vec_t> hasher;
     auto const hash = hasher(vec);
@@ -68,8 +68,8 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, bool align, bool dpcm, group_dat
     if(align)
         ret.safe().mark_aligned();
 
-    if(dpcm)
-        ret.safe().mark_dpcm();
+    if(rule)
+        ret.safe().mark_rule(rule);
 
     if(gd)
         ret.safe().mark_used_by(gd);
@@ -147,7 +147,7 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
                     assert(false);
             }
 
-            locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec), false, false));
+            locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec), false, ROMR_NORMAL));
             loc.advance_offset(-begin);
 
             ssa_it->replace_with(loc);
@@ -200,7 +200,7 @@ void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) cons
 
 rom_data_ht to_rom_data(loc_vec_t&& data, bool align, romv_allocs_t const& a)
 {
-    return rom_array_t::make(std::move(data), align, false, {}, a);
+    return rom_array_t::make(std::move(data), align, ROMR_NORMAL, {}, a);
 }
 
 rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, romv_allocs_t const& a, romv_flags_t desired_romv)

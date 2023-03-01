@@ -400,27 +400,47 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         auto const estimate_gmember_loc = [&](locator_t loc)
         {
-            gmember_t& gmember = *loc.gmember();
-            group_vars_d& d = data(gmember.gvar.group_vars);
-
-            unsigned const size = loc.mem_size();
-
             dprint(log, "-ALLOC_RAM_ESTIMATE", loc);
 
-            if(!d.interferences.for_each_test([&](group_vars_ht gv) -> bool
-                { return group_vars_data[gv.id].zp_estimate >= size; }))
+            gmember_t& gmember = *loc.gmember();
+            unsigned const size = loc.mem_size();
+
+            if(gmember.gvar.group_vars)
             {
-                dprint(log, "--FAILED_ESTIMATE");
-                return;
+                group_vars_d& d = data(gmember.gvar.group_vars);
+
+                if(!d.interferences.for_each_test([&](group_vars_ht gv) -> bool
+                    { return group_vars_data[gv.id].zp_estimate >= size; }))
+                {
+                    dprint(log, "--FAILED_ESTIMATE");
+                    return;
+                }
+
+                dprint(log, "--SUCCEEDED_ESTIMATE");
+                estimated_in_zp.insert(loc);
+
+                d.interferences.for_each([&](group_vars_ht gv)
+                {
+                    group_vars_data[gv.id].zp_estimate -= size;
+                });
             }
-
-            dprint(log, "--SUCCEEDED_ESTIMATE");
-            estimated_in_zp.insert(loc);
-
-            d.interferences.for_each([&](group_vars_ht gv)
+            else
             {
-                group_vars_data[gv.id].zp_estimate -= size;
-            });
+                for(group_vars_d& d : group_vars_data)
+                {
+                    if(d.zp_estimate < size)
+                    {
+                        dprint(log, "--FAILED_ESTIMATE");
+                        return;
+                    }
+                }
+
+                dprint(log, "--SUCCEEDED_ESTIMATE");
+                estimated_in_zp.insert(loc);
+
+                for(group_vars_d& d : group_vars_data)
+                    d.zp_estimate -= size;
+            }
         };
 
         for(rank_t const& rank : ordered_gmembers_zp)
@@ -440,7 +460,6 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         struct group_inits_t
         {
-            group_vars_ht group_vars = {};
             unsigned score = 0;
             std::vector<locator_t> init;
         };
@@ -448,29 +467,46 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
         std::vector<group_inits_t> ordered_inits;
         ordered_inits.reserve(group_vars_ht::pool().size());
 
+        auto const check_init = [&](gvar_ht v, group_inits_t& zero_inits, group_inits_t& value_inits)
+        {
+            if(v->init_expr)
+            {
+                v->for_each_locator([&](locator_t loc)
+                { 
+                    group_inits_t* inits = &value_inits;
+                    if(loc.gmember()->zero_init(loc.atom()))
+                        inits = &zero_inits;
+
+                    assert(gmember_count.count(loc));
+
+                    // Score is the largest gmember_count
+                    inits->score = std::max(inits->score, gmember_count[loc]);
+                    inits->init.push_back(loc);
+                });
+            }
+        };
+
         for(group_vars_ht g : group_vars_ht::handles())
         {
-            group_inits_t zero_inits  = { g };
-            group_inits_t value_inits = { g };
+            group_inits_t zero_inits  = {};
+            group_inits_t value_inits = {};
 
             for(gvar_ht v : g->gvars())
-            {
-                if(v->init_expr)
-                {
-                    v->for_each_locator([&](locator_t loc)
-                    { 
-                        group_inits_t* inits = &value_inits;
-                        if(loc.gmember()->zero_init(loc.atom()))
-                            inits = &zero_inits;
+                check_init(v, zero_inits, value_inits);
 
-                        assert(gmember_count.count(loc));
+            if(!zero_inits.init.empty())
+                ordered_inits.push_back(std::move(zero_inits));
+            if(!value_inits.init.empty())
+                ordered_inits.push_back(std::move(value_inits));
+        }
 
-                        // Score is the largest gmember_count
-                        inits->score = std::max(inits->score, gmember_count[loc]);
-                        inits->init.push_back(loc);
-                    });
-                }
-            }
+        // Vars with no group:
+        {
+            group_inits_t zero_inits  = {};
+            group_inits_t value_inits = {};
+
+            for(gvar_ht v : gvar_t::groupless_gvars())
+                check_init(v, zero_inits, value_inits);
 
             if(!zero_inits.init.empty())
                 ordered_inits.push_back(std::move(zero_inits));
@@ -498,40 +534,46 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 size = 2;
             }
 
-            group_vars_d& d = data(gmember.gvar.group_vars);
-            assert((d.usable_ram & initial_usable_ram) == d.usable_ram);
-
             dprint(log, "-RAM_GMEMBER_ALLOCATION", loc, loc.mem_size(), loc.mem_zp_only());
 
             zp_request_t const zp = zp_request(loc.mem_zp_valid() && estimated_in_zp.count(loc), loc.mem_zp_only());
-
-            // Try to allocate in a position that minimizes the amount of 
-            // 'usable_ram' changed in interfering group vars bitsets.
-            //
-            // To approximate this, we'll calculate two sets: 'all' and 'any'.
-            // 'all' represents ram locations that do not modify interfering bitsets.
-            // 'any' represents ram locations that does not modify at least 1 interfering bitset.
-
-            ram_bitset_t all;
-            ram_bitset_t any;
-            all.clear_all();
-            any.set_all();
-            d.interferences.for_each([&](group_vars_ht gv)
-            {
-                all |= group_vars_data[gv.id].usable_ram;
-                any &= group_vars_data[gv.id].usable_ram;
-            });
-            all.flip_all();
-            any.flip_all();
-
             bool const insist_align = mod_test(gmember.gvar.mods(), MOD_align);
 
-            // Allocate, prioritizing 'all', then 'any', then just 'd.usable_ram'.
-            span_t span = alloc_ram(d.usable_ram & all, size, zp, insist_align);
-            if(!span)
-                span = alloc_ram(d.usable_ram & any, size, zp, insist_align);
-            if(!span)
-                span = alloc_ram(d.usable_ram, size, zp, insist_align);
+            span_t span;
+
+            if(gmember.gvar.group_vars)
+            {
+                // Try to allocate in a position that minimizes the amount of 
+                // 'usable_ram' changed in interfering group vars bitsets.
+                //
+                // To approximate this, we'll calculate two sets: 'all' and 'any'.
+                // 'all' represents ram locations that do not modify interfering bitsets.
+                // 'any' represents ram locations that does not modify at least 1 interfering bitset.
+
+                ram_bitset_t all;
+                ram_bitset_t any;
+                all.clear_all();
+                any.set_all();
+
+                group_vars_d& d = data(gmember.gvar.group_vars);
+
+                // Allocate, prioritizing 'all', then 'any', then just 'd.usable_ram'.
+                span = alloc_ram(d.usable_ram & all, size, zp, insist_align);
+                if(!span)
+                    span = alloc_ram(d.usable_ram & any, size, zp, insist_align);
+                if(!span)
+                    span = alloc_ram(d.usable_ram, size, zp, insist_align);
+            }
+            else
+            {
+                ram_bitset_t all;
+                all.set_all();
+
+                for(group_vars_d const& d : group_vars_data)
+                    all &= d.usable_ram;
+
+                span = alloc_ram(initial_usable_ram & all, size, zp, insist_align);
+            }
 
             if(!span)
                 throw std::runtime_error("Unable to allocate global variable (out of RAM).");
@@ -549,10 +591,20 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
             ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
 
-            d.interferences.for_each([&](group_vars_ht gv)
+            if(gmember.gvar.group_vars)
             {
-                group_vars_data[gv.id].usable_ram &= mask;
-            });
+                group_vars_d& d = data(gmember.gvar.group_vars);
+
+                d.interferences.for_each([&](group_vars_ht gv)
+                {
+                    group_vars_data[gv.id].usable_ram &= mask;
+                });
+            }
+            else
+            {
+                for(group_vars_d& d : group_vars_data)
+                    d.usable_ram &= mask;
+            }
         };
 
         // Allocate
@@ -894,9 +946,23 @@ void print_ram(std::ostream& o)
 {
     o << "Global variable RAM:\n\n";
 
+    o << fmt("  /:\n");
+
+    for(gvar_ht v : gvar_t::groupless_gvars())
+    {
+        o << fmt("    %: (%)\n", v->global.name, v->type());
+
+        v->for_each_locator([&](locator_t loc)
+        { 
+            o << fmt("      % = %\n", loc, loc.gmember()->span(loc.atom()));
+        });
+
+        o << '\n';
+    }
+
     for(group_vars_ht g : group_vars_ht::handles())
     {
-        o << fmt("  /%:\n", g->group.name);
+        o << fmt("  %:\n", g->group.name);
 
         for(gvar_ht v : g->gvars())
         {
@@ -916,7 +982,7 @@ void print_ram(std::ostream& o)
     o << "fn RAM:\n\n";
     for(fn_t const& fn : fn_ht::values())
     {
-        o << fmt("  /%:\n", fn.global.name);
+        o << fmt("  %:\n", fn.global.name);
         fn.lvars().for_each_lvar(true, [&](locator_t loc, int i)
         {
             o << fmt("    %:", loc);

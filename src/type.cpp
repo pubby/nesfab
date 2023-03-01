@@ -140,7 +140,13 @@ type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, ast_node_t const& 
     return type_t(TYPE_TEA_THUNK, 0, eternal_emplace<tea_thunk_t>(pstring, ast, elem_type));
 }
 
-type_t type_t::ptr(group_ht group, bool muta, bool banked) { return ptr(&group, &group + 1, muta, banked); }
+type_t type_t::ptr(group_ht group, bool muta, bool banked) 
+{ 
+    if(group)
+        return ptr(&group, &group + 1, muta, banked); 
+    else
+        return ptr(nullptr, nullptr, muta, banked); 
+}
 
 type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool muta, bool banked)
 {

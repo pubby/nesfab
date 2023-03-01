@@ -5,17 +5,19 @@
 #include "compiler_error.hpp"
 #include "globals.hpp"
 
-group_t& group_t::lookup(char const* source, pstring_t name)
+group_t* group_t::lookup(char const* source, pstring_t name)
 {
-    auto& group = lookup_sourceless(name, name.view(source));
-    return group;
+    return lookup_sourceless(name, name.view(source));
 }
 
-group_t& group_t::lookup_sourceless(pstring_t at, std::string_view key)
+group_t* group_t::lookup_sourceless(pstring_t at, std::string_view key)
 {
+    if(key.empty())
+        return nullptr;
+
     std::uint64_t const hash = fnv1a<std::uint64_t>::hash(key.data(), key.size());
 
-    return *group_ht::with_pool([&, hash, key](auto& pool)
+    return group_ht::with_pool([&, hash, key](auto& pool)
     {
         rh::apair<group_t**, bool> result = group_map.emplace(hash,
             [key](group_t* ptr) -> bool
@@ -33,6 +35,9 @@ group_t& group_t::lookup_sourceless(pstring_t at, std::string_view key)
 
 group_t* group_t::lookup_sourceless(std::string_view view)
 {
+    if(view.empty())
+        return nullptr;
+
     std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
     return group_ht::with_const_pool([&, hash, view](auto const&)

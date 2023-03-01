@@ -113,7 +113,7 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
         while(token.type == TOK_fslash)
         {
             pstring_t const group_ident = parse_group_ident();
-            auto& mapped = mods->lists[group_t::lookup(source(), group_ident).handle()];
+            auto& mapped = mods->lists[group_t::lookup(source(), group_ident)->handle()];
 
             if(mapped.lists & listf)
                 compiler_warning("Duplicate group modifier.");
@@ -1055,7 +1055,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             bc::small_vector<group_ht, 8> groups;
 
             while(token.type == TOK_fslash)
-                groups.push_back(group_t::lookup(source(), parse_group_ident()).handle());
+                groups.push_back(group_t::lookup(source(), parse_group_ident())->handle());
 
             result.type = type_t::ptr(&*groups.begin(), &*groups.end(), muta, banked);
             break;
@@ -1447,12 +1447,13 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
                                  global_t** block_init_global, group_ht group, bool is_banked)
 {
     bool const block_init = block_init_global;
+    bool const allow_groupless_paa = !group && block_init_global;
     int const var_indent = indent;
 
     if(block_init)
         policy().prepare_global();
 
-    var_decl = parse_var_decl(block_init, group);
+    var_decl = parse_var_decl(block_init, group, allow_groupless_paa);
 
     if(block_init)
         *block_init_global = policy().prepare_var_init(var_decl.name);
@@ -1652,7 +1653,8 @@ void parser_t<P>::parse_group_vars()
         policy().begin_global_var();
 
         std::unique_ptr<mods_t> mods;
-        bool const has_expr = parse_var_init(var_decl, expr, &mods, &global, group.first->group.handle(), false);
+        group_ht const group_h = group.first ? group.first->group.handle() : group_ht{};
+        bool const has_expr = parse_var_init(var_decl, expr, &mods, &global, group_h, false);
 
         inherit(mods, base_mods);
 
@@ -1676,11 +1678,12 @@ void parser_t<P>::parse_group_data()
     }
 
     // Parse the declaration
-    pstring_t group_name;
+    pstring_t group_name = {};
     std::unique_ptr<mods_t> base_mods = parse_mods_after([&]
     {
         parse_token(TOK_data);
-        group_name = parse_group_ident();
+        if(once || token.type != TOK_eol)
+            group_name = parse_group_ident();
     });
 
     auto group = policy().begin_group_data(group_name, once);
@@ -1693,12 +1696,13 @@ void parser_t<P>::parse_group_data()
         policy().begin_global_var();
 
         std::unique_ptr<mods_t> mods;
-        if(!parse_var_init(var_decl, expr, &mods, &global, group.first->group.handle(), once))
+        group_ht const group_h = group.first ? group.first->group.handle() : group_ht{};
+        if(!parse_var_init(var_decl, expr, &mods, &global, group_h, once))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
 
         inherit(mods, base_mods);
 
-        policy().global_const(group, var_decl, expr, std::move(mods));
+        policy().global_const(true, group, var_decl, expr, std::move(mods));
         policy().end_global_var();
     });
 
@@ -1722,7 +1726,7 @@ void parser_t<P>::parse_const()
     if(var_decl.src_type.type.name() == TYPE_PAA)
         compiler_error(var_decl.name, "Pointer-addressable arrays cannot be defined at top-level.");
 
-    policy().global_const({}, var_decl, expr, parse_mods(const_indent));
+    policy().global_const(false, {}, var_decl, expr, parse_mods(const_indent));
     policy().end_global_var();
 }
 

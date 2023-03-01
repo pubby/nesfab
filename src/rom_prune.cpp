@@ -30,6 +30,7 @@ static void rom_mark_emits(rom_data_ht data)
         return;
 
     data.get()->mark_emits();
+    assert(data.get()->emits());
 
     data.for_each_locator(locator_mark_emits);
 }

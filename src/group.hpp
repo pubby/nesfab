@@ -59,8 +59,8 @@ public:
     std::pair<group_vars_t*, group_vars_ht> define_vars(pstring_t pstring);
     std::pair<group_data_t*, group_data_ht> define_data(pstring_t pstring, bool once);
 
-    static group_t& lookup(char const* source, pstring_t name);
-    static group_t& lookup_sourceless(pstring_t at, std::string_view key);
+    static group_t* lookup(char const* source, pstring_t name);
+    static group_t* lookup_sourceless(pstring_t at, std::string_view key);
     static group_t* lookup_sourceless(std::string_view name);
 
     group_t(pstring_t pstring, std::string_view view, unsigned handle)

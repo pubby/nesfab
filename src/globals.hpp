@@ -429,7 +429,8 @@ public:
         for_each_inlined_impl(fn, bs);
     }
 
-    std::ostream* info_stream() { return m_info_stream.get(); }
+    std::stringstream const* info_stream() const { return m_info_stream.get(); }
+    std::stringstream* info_stream() { return m_info_stream.get(); }
     
 private:
     template<typename Fn>
@@ -569,6 +570,7 @@ protected:
  
 class gvar_t : public global_datum_t
 {
+friend class global_t;
 public:
     static constexpr global_class_t global_class = GLOBAL_VAR;
     using handle_t = gvar_ht;
@@ -597,6 +599,7 @@ public:
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
+    static std::vector<gvar_ht> const& groupless_gvars() { assert(compiler_phase() > PHASE_PARSE); return m_groupless_gvars; }
 private:
     virtual void paa_init(asm_proc_t&& proc);
     virtual void paa_init(loc_vec_t&& vec);
@@ -606,6 +609,9 @@ private:
 
     gmember_ht m_begin_gmember = {};
     gmember_ht m_end_gmember = {};
+
+    inline static std::mutex m_groupless_gvars_lock;
+    inline static std::vector<gvar_ht> m_groupless_gvars;
 };
 
 class gmember_t

@@ -138,8 +138,13 @@ gvar_ht global_t::define_var(pstring_t pstring, ideps_map_t&& ideps,
     })};
 
     // Add it to the group
-    assert(group.first);
-    group.first->add_gvar(h);
+    if(group.first)
+        group.first->add_gvar(h);
+    else
+    {
+        std::lock_guard lock(gvar_t::m_groupless_gvars_lock);
+        gvar_t::m_groupless_gvars.push_back(h);
+    }
     
     return h;
 }
@@ -673,7 +678,7 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mod
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
 {
-    if(compiler_options().info || mod_test(this->mods(), MOD_info))
+    if(compiler_options().ir_info || mod_test(this->mods(), MOD_info))
         m_info_stream.reset(new std::stringstream());
 
     switch(fclass)
@@ -835,7 +840,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
                            || def->input(1).locator() != loc)
                         {
                             writes.set(written.index);
-                            group_vars.set(written.gvar.group_vars.id);
+                            if(written.gvar.group_vars)
+                                group_vars.set(written.gvar.group_vars.id);
                         }
                     }
                 });
@@ -858,7 +864,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
                         if(!is_locator_write(oe) || oe.handle->input(oe.index + 1) != loc)
                         {
                             reads.set(read.index);
-                            group_vars.set(read.gvar.group_vars.id);
+                            if(read.gvar.group_vars)
+                                group_vars.set(read.gvar.group_vars.id);
                             break;
                         }
                     }
@@ -1091,6 +1098,8 @@ void fn_t::compile()
     {
         if(!compiler_options().graphviz && !mod_test(mods(), MOD_graphviz))
             return;
+
+        std::filesystem::create_directory("graphs/");
 
         std::ofstream ocfg(fmt("graphs/cfg__%__%.gv", global.name, suffix));
         if(ocfg.is_open())
@@ -1470,13 +1479,15 @@ void fn_t::calc_precheck_bitsets()
         for(auto const& pair : m_precheck_tracked->gvars_used)
         {
             gvar_ht const gvar = pair.first;
-            group_ht const group = gvar->group();
-
-            if(mods() && (mods()->explicit_lists & MODL_VARS) && !mods()->in_lists(MODL_VARS, group))
-                error(pair.first->global, group->name, group->name);
-
-            m_precheck_group_vars.set(group->impl_id());
             m_precheck_rw.set_n(gvar->begin().id, gvar->num_members());
+
+            if(group_ht const group = gvar->group())
+            {
+                if(mods() && (mods()->explicit_lists & MODL_VARS) && !mods()->in_lists(MODL_VARS, group))
+                    error(pair.first->global, group->name, group->name);
+
+                m_precheck_group_vars.set(group->impl_id());
+            }
         }
 
         for(auto const& pair : m_precheck_tracked->calls)
@@ -1632,7 +1643,7 @@ void global_datum_t::compile()
 // gvar_t //
 ////////////
 
-group_ht gvar_t::group() const { return group_vars->group.handle(); }
+group_ht gvar_t::group() const { return group_vars ? group_vars->group.handle() : group_ht{}; }
 
 void gvar_t::paa_init(loc_vec_t&& paa) { m_init_data = std::move(paa); }
 void gvar_t::paa_init(asm_proc_t&& proc) { m_init_data = std::move(proc); }
@@ -1726,11 +1737,17 @@ bool gmember_t::zero_init(unsigned atom) const
 // const_t //
 /////////////
 
-group_ht const_t::group() const { return group_data->group.handle(); }
+group_ht const_t::group() const { return group_data ? group_data->group.handle() : group_ht{}; }
 
 void const_t::paa_init(loc_vec_t&& vec)
 {
-    m_rom_array = rom_array_t::make(std::move(vec), mod_test(mods(), MOD_align), mod_test(mods(), MOD_dpcm), group_data);
+    rom_rule_t rule = ROMR_NORMAL;
+    if(mod_test(mods(), MOD_dpcm))
+        rule = ROMR_DPCM;
+    else if(!group_data)
+        rule = ROMR_STATIC;
+
+    m_rom_array = rom_array_t::make(std::move(vec), mod_test(mods(), MOD_align), rule, group_data);
     assert(m_rom_array);
 }
 

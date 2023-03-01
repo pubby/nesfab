@@ -322,10 +322,10 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     std::vector<bucket_t> buckets;
     std::vector<bucket_t> allocated;
 
-    group_t& data_group = group_t::lookup_sourceless(at, "puf_data"sv);
+    group_t& data_group = *group_t::lookup_sourceless(at, "puf_data"sv);
     auto data_group_pair = data_group.define_data({}, true);
 
-    group_t& omni_group = group_t::lookup_sourceless(at, "puf_omni"sv);
+    group_t& omni_group = *group_t::lookup_sourceless(at, "puf_omni"sv);
     auto omni_group_pair = omni_group.define_data({}, false);
 
     if(begin)
@@ -1240,10 +1240,10 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
             throw std::runtime_error("Expansion chips in NSF file are not supported.");
     }
 
-    group_t& data_group = group_t::lookup_sourceless(at, "puf_data"sv);
+    group_t& data_group = *group_t::lookup_sourceless(at, "puf_data"sv);
     auto data_group_pair = data_group.define_data({}, true);
 
-    group_t& omni_group = group_t::lookup_sourceless(at, "puf_omni"sv);
+    group_t& omni_group = *group_t::lookup_sourceless(at, "puf_omni"sv);
     auto omni_group_pair = omni_group.define_data({}, false);
 
     std::vector<const_ht> gconsts;

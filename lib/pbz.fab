@@ -20,8 +20,6 @@
 // Feel free to change which group(s) these functions use.
 data /pbz
 
-group /PBZ = /pbz
-
 // Reads from 'ptr' and uploads to PPUDATA for ('tiles' * 16) bytes of data.
 // A 'tiles' value of 0 is treated as a value of 256.
 asm fn load_pbz_tiles(CCC/pbz ptr, U tiles)

@@ -137,6 +137,7 @@ struct asm_proc_t
     void push_inst(op_name_t op_name, std::uint8_t i) { push_inst(get_op(op_name, MODE_IMMEDIATE), locator_t::const_byte(i)); }
     locator_t push_label(unsigned id) { auto l = make_label(id); push_inst(ASM_LABEL, l); return l; }
     locator_t make_label(unsigned id) const { return locator_t::minor_label(id); }
+    unsigned next_label_id() const;
 
     asm_inst_t* prev_inst(int i);
     asm_inst_t* next_inst(int i);

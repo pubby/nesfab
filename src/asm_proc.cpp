@@ -882,3 +882,15 @@ void asm_proc_t::append(asm_proc_t const& proc)
         push_inst(inst);
     }
 }
+
+unsigned asm_proc_t::next_label_id() const
+{
+    unsigned next_id = 0;
+
+    for(auto const& inst : code)
+        if(inst.op == ASM_LABEL && inst.arg.lclass() == LOC_MINOR_LABEL)
+            next_id = std::max<unsigned>(next_id, inst.arg.data() + 1);
+
+    return next_id;
+}
+

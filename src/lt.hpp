@@ -38,6 +38,13 @@ struct lt_value_t
     template<typename Fn>
     void for_each_locator(Fn const fn) const
     {
+        for_each_locator(ast, fn);
+    }
+
+private:
+    template<typename Fn>
+    static void for_each_locator(ast_node_t const& ast, Fn const fn)
+    {
         if(ast.token.type == lex::TOK_shift_atom)
         {
             fn(locator_t::from_uint(ast.uint));
@@ -49,13 +56,15 @@ struct lt_value_t
         {
             ast_node_t const& child = ast.children[i];
 
-            if(child.token.type != lex::TOK_rpair)
-                continue;
-
-            for(auto const& v : child.token.ptr<rpair_t>()->value)
-                if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
-                    if(ssa->is_locator())
-                        fn(ssa->locator());
+            if(child.token.type == lex::TOK_rpair)
+            {
+                for(auto const& v : child.token.ptr<rpair_t>()->value)
+                    if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
+                        if(ssa->is_locator())
+                            fn(ssa->locator());
+            }
+            else
+                for_each_locator(child, fn);
         }
     }
 };

@@ -492,14 +492,14 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     if(std::ostream* os = fn.info_stream())
     {
-        *os << "\nSCHEDULE_START\n";
+        *os << "\nSCHEDULE_START " << fn.global.name << '\n';
 
         for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
         {
-            *os << "  SCHEDULE_CFG " << cfg_it << '\n';
+            *os << "  SCHEDULE_CFG " << cfg_it.id << '\n';
             auto& d = cg_data(cfg_it);
             for(ssa_ht h : d.schedule)
-                *os << "    SCHEDULE " << h->op() << ' ' << h.id << '\n';
+                *os << "    " << h->op() << ' ' << h.id << '\n';
         }
     }
 

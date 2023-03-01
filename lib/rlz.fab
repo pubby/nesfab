@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2022, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for decompressing the RLZ format.
+// RLZ is a simple run-length encoding ideal for data with repeated values.
+// It is most useful for storing nametable data.
+
+// RLZ format:
+// -----------
+// A sequence of runs, where the first byte of a run (N) determines the effect:
+// N = $00:        Terminate stream
+// N = $01 to $7F: Copy the next byte (N + 2) times
+// N = $80 to $FF: Copy the next (N - 127) bytes verbatim
+
+// Feel free to change which group(s) these functions use.
+data /rlz
+
+// Reads from 'ptr' and uploads to PPUDATA until the stream is terminated by a $00 byte.
+asm fn ppu_upload_rlz(CCC/rlz ptr)
+: employs /rlz
+    default
+        lax &ptr.bank
+        switch ax
+    label loop
+        ldy #0
+        lax (&ptr.a), y
+        beq done
+        bpl same_run
+    label unique_run
+        iny
+        lda (&ptr.a), y
+        sta PPUDATA
+        dex
+        bmi unique_run
+    label increment_ptr
+        tya
+        sec
+        adc &ptr.a
+        sta &ptr.a
+        bcc loop
+        inc &ptr.b
+        bcs loop
+    label same_run
+        inx
+        iny
+        lda (&ptr.a), y
+    label same_run_loop
+        sta PPUDATA
+        dex
+        bpl same_run_loop
+        bmi increment_ptr
+    label done
+        rts
+

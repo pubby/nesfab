@@ -1850,7 +1850,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 case GLOBAL_CONST:
                     {
                         const_t const& c = lval->global().impl<const_t>();
-                        bool const banked = c.group_data->banked_ptrs();
+                        bool const banked = c.group_data && c.group_data->banked_ptrs();
 
                         if(!c.is_paa())
                             goto at_error;
@@ -1955,10 +1955,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             const_t const& c = lval->global().impl<const_t>();
 
-                            if(!c.group_data)
-                                compiler_error(value.pstring, "Cannot get address of a constant that doesn't belong to a group.");
+                            if(!is_paa(c.type().name()))
+                                compiler_error(value.pstring, "Cannot get address of a constant that isn't a pointer-addressible array.");
 
-                            bool const banked = c.group_data->banked_ptrs();
+                            bool const banked = c.group_data && c.group_data->banked_ptrs();
 
                             return make_ptr(locator_t::gconst(c.handle(), lval->member, lval->uatom(), offset), 
                                             type_t::addr(banked), banked, nonconst_index);

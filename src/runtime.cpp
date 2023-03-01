@@ -10,6 +10,7 @@
 #include "pow2.hpp"
 #include "globals.hpp"
 #include "group.hpp"
+#include "ram_init.hpp"
 
 rom_proc_ht reset_proc = {};
 
@@ -384,6 +385,9 @@ static asm_proc_t make_reset_proc()
         proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUCTRL));
     }
+
+    // Init vars
+    gen_group_var_inits(gvar_t::groupless_gvars(), proc);
 
     // Jump to our entry point.
     proc.push_inst(LDY_IMMEDIATE, locator_t::fn(main.handle()).with_is(IS_BANK));

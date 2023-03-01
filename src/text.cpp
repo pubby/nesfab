@@ -198,7 +198,7 @@ rom_array_ht string_literal_manager_t::get_rom_array(global_t const* charmap, un
             if(!gd)
                 compiler_error(data.pstring, fmt("Invalid use of string literal. % has no data modifier.", charmap->name));
 
-            data.rom_array = rom_array_t::make(std::move(vec), false, false, gd);
+            data.rom_array = rom_array_t::make(std::move(vec), false, ROMR_NORMAL, gd);
         }
 
         assert(data.rom_array);

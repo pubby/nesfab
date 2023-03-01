@@ -162,7 +162,7 @@ mode game()
     {PPUCTRL}(0)
     {PPUMASK}(0)
 
-    puf.set_track(puf_track_game)
+    puf.play_track(puf_track_game)
 
     palette = game_palette
     ppu_upload_palette()
@@ -182,13 +182,13 @@ mode game()
 
             if pads[0].pressed & BUTTON_START
                 goto mode main()
-                : preserves /puf_vars /rng /pad
+                : preserves
 
         else
             move_player()
             pdead = collide_player()
             if pdead
-                puf.set_track(puf_track_death)
+                puf.play_track(puf_track_death)
 
         prepare_sprites()
         nmi

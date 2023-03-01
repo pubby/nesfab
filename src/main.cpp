@@ -104,6 +104,15 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("system"))
         _options.raw_system = vm["system"].as<std::string>();
+
+    if(vm.count("info") || vm.count("ir-info"))
+        _options.ir_info = true;
+
+    if(vm.count("info") || vm.count("ram-info"))
+        _options.ram_info = true;
+
+    if(vm.count("info") || vm.count("rom-info"))
+        _options.rom_info = true;
 }
 
 int main(int argc, char** argv)
@@ -151,7 +160,10 @@ int main(int argc, char** argv)
             basic_hidden.add_options()
                 ("input,i", po::value<std::vector<std::string>>()->multitoken(), "input file")
                 ("graphviz,g", "output graphviz files")
+                ("info", "output every info")
                 ("ir-info", "output intermediate info")
+                ("ram-info", "output RAM info")
+                ("rom-info", "output ROM info")
                 ("time-limit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
                 ("build-time,B", "print compiler execution time")
             ;
@@ -337,7 +349,6 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_RUNTIME);
         auto static_used_ram = alloc_runtime_ram();
         auto rom_allocator = alloc_runtime_rom();
-        create_reset_proc();
         output_time("runtime:  ");
 
         set_compiler_phase(PHASE_CHARMAP_GROUPS);
@@ -373,13 +384,34 @@ int main(int argc, char** argv)
         global_t::compile_all();
         output_time("compile:  ");
 
-        set_compiler_phase(PHASE_RESET_PROC);
-        set_reset_proc();
+        for(fn_t const& fn : fn_ht::values())
+        {
+            std::filesystem::create_directory("info/");
+
+            if(std::stringstream const* ss = fn.info_stream())
+            {
+                std::ofstream of(fmt("info/%.txt", fn.global.name));
+                if(of.is_open())
+                    of << ss->str() << std::endl;
+            }
+        }
 
         set_compiler_phase(PHASE_ALLOC_RAM);
         alloc_ram(nullptr, ~static_used_ram);
-        //print_ram(std::cout);
+
+        if(compiler_options().ram_info)
+        {
+            std::filesystem::create_directory("info/");
+
+            std::ofstream of(fmt("info/RAM_info.txt"));
+            if(of.is_open())
+                print_ram(of);
+        }
         output_time("alloc ram:");
+
+        set_compiler_phase(PHASE_RESET_PROC);
+        create_reset_proc();
+        set_reset_proc();
 
         set_compiler_phase(PHASE_INITIAL_VALUES);
         gen_group_var_inits();
@@ -388,7 +420,14 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
         alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
-        //print_rom(std::cout);
+        if(compiler_options().ram_info)
+        {
+            std::filesystem::create_directory("info/");
+
+            std::ofstream of(fmt("info/ROM_info.txt"));
+            if(of.is_open())
+                print_rom(of);
+        }
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);

@@ -7,7 +7,7 @@
 // RNG means random number generator.
 // This file contains code for generating random numbers.
 
-vars /rng
+vars
     U[2] rng_state = U[2](1, 1)
 
 // Helper function for setting 'rng_state'.
@@ -18,7 +18,7 @@ fn seed(UU nonzero)
 
 // Returns a pseudo-random 8-bit value.
 asm fn rand() U
-: employs /rng
+: employs
     default
         lda &rng_state+0
         asl

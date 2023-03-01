@@ -4,12 +4,37 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
-// Code implementing the puf music engine.
+// Code implementing the puf music engine, version 1.
+
+//////////////////////////////////////////////////////////////////////////////
+// The following functions are defined:
+
+// puf.init(U system_type)
+// - Initializes the puf library. 
+// - 'system_type' is one of the standard system enumeration values, e.g. SYSTEM_NTSC.
+
+// puf.play_track(U track_id)
+// - Changes the current track to be played.
+
+// puf.stop(U unused)
+// - Halts the current track.
+// - 'unused' is a parameter which has no effect. It can be any value.
+
+// puf.play_sfx(U sfx_id)
+// - Assigns the specified sound effect to be played.
+
+// puf.process(U enable)
+// - Call this once per frame to play the audio, ideally at the end of your NMI function.
+// - 'enable' is a bitmask of which channels to play, along with a few other options:
+// --- If enable has 'PUF_LOOP' set, the song will loop after completion.
+// - If you want the typical behavior, pass 'PUF_DEFAULT' as the 'enable' parameter.
+
+//////////////////////////////////////////////////////////////////////////////
 
 ct U PUF_LOOP = %10000000
 ct U PUF_DEFAULT = $FF
 
-vars /puf_vars
+vars
     AA puf_ptr_temp
     AA puf_track_ptr
     AA puf_note_table_ptr
@@ -100,7 +125,7 @@ omni data /puf_omni
         UU[]($000E,$000D,$000C)
 
 asm fn puf(U arg)
-: employs /puf_data /puf_omni /puf_vars
+: employs /puf_data /puf_omni
     label track_step_function_lo
         U(update_variables.a)
         U(update_triangle_noise.a)
@@ -749,6 +774,11 @@ asm fn puf(U arg)
         jsr reset_init
         jmp unlock
 
+    label stop
+        inc &puf_lock
+        jsr reset_init
+        jmp unlock
+
     label reset_init
         ldx #puf_instrument_ptrs.a+1
         stx puf_noise_stack
@@ -795,7 +825,7 @@ asm fn puf(U arg)
         jmp store_init
 
 
-    label set_track
+    label play_track
         inc &puf_lock
 
         jsr reset_init

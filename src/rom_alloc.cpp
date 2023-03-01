@@ -69,6 +69,9 @@ private:
     // Tries to allocate an existing many in a new bank.
     bool try_include_many(rom_many_ht many_h, unsigned bank_i);
 
+    // Allocate a static span
+    span_t alloc_static(unsigned size);
+
     // Allocate a DPCM span
     span_t alloc_dpcm(unsigned size);
 };
@@ -141,12 +144,6 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
                 }
             }
 
-            if(proc_count == 0)
-            {
-                dprint(log, "--SKIPPING (UNUSED BY PROCS)", rom_array_h);
-                continue;
-            }
-
             once = (float(summed_size) / float(proc_count)) < float(rom_array.data().size());
         }
         else
@@ -167,7 +164,11 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             continue;
         }
 
-        if(rom_array.dpcm())
+        unsigned alignment = 1;
+        if(rom_array.align())
+            alignment = std::min<unsigned>(256, std::bit_ceil(rom_array.data().size()));
+
+        if(rom_array.rule() == ROMR_DPCM)
         {
             span_t const span = allocator.alloc_linear(rom_array.data().size(), 64, 0xC000);
             if(!span)
@@ -175,10 +176,14 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, span, rom_array_h), rom_key_t());
             continue;
         }
-
-        unsigned alignment = 1;
-        if(rom_array.align())
-            alignment = std::min<unsigned>(256, std::bit_ceil(rom_array.data().size()));
+        else if(rom_array.rule() == ROMR_STATIC)
+        {
+            span_t const span = allocator.alloc(rom_array.data().size(), alignment);
+            if(!span)
+                throw std::runtime_error("Unable to allocate ROM (out of ROM space).");
+            rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, span, rom_array_h), rom_key_t());
+            continue;
+        }
 
         dprint(log, "--PREPPED", rom_array_h);
         if(once)
@@ -668,7 +673,7 @@ void print_rom(std::ostream& o)
         o << std::endl;
     }
     for(auto const& once : rom_once_ht::values())
-        o << "ONCE " << once.span << ' ' << once.bank << ' ' << once.data.rclass() << std::endl;
+        o << "ONCE " << once.span << ' ' << once.bank << ' ' << (int)once.data.rclass() << std::endl;
 
     for(fn_t const& fn : fn_ht::values())
     {

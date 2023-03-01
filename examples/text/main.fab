@@ -44,7 +44,6 @@ nmi main_nmi()
 
 mode main()
 : nmi main_nmi
-: +graphviz
     palette = example_palette
     ppu_upload_palette()
 

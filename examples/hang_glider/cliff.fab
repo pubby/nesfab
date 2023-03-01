@@ -15,7 +15,7 @@ vars /game
     U cliff_midpoint = 15
     U cliff_index = 0
     U cliff_y = 30
-    Cliff[16] cliffs
+    Cliff[16] cliffs = Cliff[16](Cliff(1, 31))
 
 
 fn update_cliff()

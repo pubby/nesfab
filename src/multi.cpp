@@ -4,8 +4,8 @@
 
 multi_lt_info_t::multi_lt_info_t(ssa_ht h, bool flip)
 {
-    lt = type_name_t(h->input(0).whole());
-    rt = type_name_t(h->input(1).whole());
+    lt = type_name_t(h->input(flip).whole());
+    rt = type_name_t(h->input(!flip).whole());
 
     lwhole = whole_bytes(lt);
     rwhole = whole_bytes(rt);

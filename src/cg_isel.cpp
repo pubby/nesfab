@@ -5095,7 +5095,8 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     {
         *os << "\nPROC " << fn.global.name << '\n';
         for(asm_inst_t const& inst : asm_proc.code)
-            *os << "    " << inst << std::endl;
+            if(inst.op != ASM_PRUNED)
+                *os << "    " << inst << std::endl;
     }
 
     // Add the lvars to the fn

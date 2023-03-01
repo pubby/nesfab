@@ -111,7 +111,6 @@ fn move_player()
 
 fn collide_player() Bool
 : +inline
-: +graphviz
     if px < 16
         px = 16
         return true
@@ -122,7 +121,7 @@ fn collide_player() Bool
 
     U i = ((cliff_index + 9) & %11111) >> 1
 
-    if px < (cliffs[i].begin_hole << 3) + 4
+    if px <= (cliffs[i].begin_hole << 3) + 4
         return true
 
     if px > (cliffs[i].end_hole << 3) - 4
@@ -151,10 +150,6 @@ fn load_level()
         for U x = 0; x < 30; x += 1
             {PPUDATA}($00)
         {PPUDATA}($1)
-
-fn pepe()
-: -inline
-: +graphviz
 
 mode game()
 : nmi game_nmi

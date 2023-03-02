@@ -32,114 +32,42 @@ It's easy to get started with, and has a useful set of libraries for making your
   NESFab does support mixing assembly and procederal code together, but there are limitations to doing so. 
 - NESFab is not as tried-and-true as the alternatives. They may be bugs and missing features.
 
-=== Mappers
+== Quirks and Surprises
 
-=== NESFab vs Assembly
+If you're coming from another language, you might be surprised by a few of NESFab's quirks. 
+The most flagrant ones are listed before.
 
-Assembly Pros
+=== Types and Values
 
-- Smaller, more consistent
-- Smaller
-
-Assembly languages get a bad rap these days, 
-but it's important to understand that not all assembly lanaguages are the same.
-The NES's 6502 processor hails from the 1970s, 
-back when assembly languages were designed to be written by humans, not compilers.
-It has a simple instruction set with only 3 registers, 
-and that keeps the code readable and sprinkled with identifiers.
-
-For many simple NES games, assembly language is an excellent choice,
-but as the games get bigger and more complicated, warts in 6502 assembly language do begin to appear:
-
-- It's not viable to store data on the hardware stack, 
-  meaning all variables must be declared as globals.
-  Due to the small amount of RAM, this leads to variables
-  being reused for different purposes, which is a very error-prone way to code.
-  With complicated call graphs, it's a total mess!
-- The NES is an 8-bit system, but many games desire 16, 24, or 32 bits of precision for math,
-  and this requires chaining together multiple 8-bit operations.
-  If you have to do this for an entire program, it gets exhausting.
-  Macros help somewhat, but generate poor code on a system that demands efficiency.
-- Larger programs require the use of *banks* to extend the program's address space.
-  These have to be defined by hand, with the programmer carefully laying out
-  what snippets of code goes where. If you happen to change your mind later on,
-  see you in several hours as it's it's a chore to relocate large swathes of code from bank to bank.
-
-NESFab was created to solve these three problems:
-
-- The compiler analyzes functions and efficiently allocates local variables for you.
-- The compiler produces efficient code for high-precision math, with no extra verbosity on the programming side.
-- Banks are abstracted away. One need not worry about what code goes where.
-
-TODO: remove?
-
-=== NESFab vs C
-
-C is sometimes referred to as a portable assembly language, 
-with the belief that C closely describes how the underlying hardware works.
-This wasn't really true in the past, 
-as old architectures like the NES's 6502 don't map cleanly to C's features.
-It's also not so true in the present, 
-as modern CPUs are abstracted to mimic C's interface, not the other way around.
-But the phrase still gets tossed around.
-
-Regarding the 6502's compatability with C, a few issues arrise:
-
-- C defines `int` as 16-bits and promotes most math, but the NES's 6502 is an 8-bit system where 16-bit math is slow.
-- C demands fast addressing modes for array access, with arrays stored contigious in memory. 
-  The 6502 struggles with both of these.
-- C has no concept of banks. Writing multi-bank programs in C requires complicated linker scripts,
-  and is often more difficult than doing so in assembly.
-
-Pros
-- 
-- NESFab comes "batteries included", 
-  with support for importing all sorts of different game data formats.
-
-Cons
-
-- There is only one NESFab compiler, but multiple C compilers.
-- C is more portable. This is less significant for writing NES games than say, writing modern apps.
-
-TODO
-
-
-- Useful behavior is undefined or unspecified. 
-  You can't overflow signed values for example, and interfacing with hardware is non-obvious and error-prone.
-
-
-=== NESFab for Language Nerds
-
-TODO
-
-This tutorial assumes you know the basics of computer programming.
-If you are new to the field, you'll likely want to learn another language -- like Python or C -- first.
-Do not worry about wasted effort, as even if you're writing NES games, 
-it can be helpful to write tools and conversion scripts in other languages.
-
-== Surprises
+- Everything is a value type. Nothing is passed by reference.
+- While arrays are supported, multi-dimensional arrays are not. 
+- Most values cannot be addressed via pointers. 
+  Instead, only global variables of a <<type_paa, specific type>> can be addressed.
+- Global variables and data are partitioned into used-defined <<groups, groups>>.  
 
 === Operators
 
 - The operators `&`, `|`, and `^` have a <<binop, higher precedence>> than in C.
 - Combined-assignment operators, like `+=` or `<<=`, return a value of type `Bool`, representing the carry.
-
-=== Pointers
-
-- Most values cannot be referenced via pointers.
-
+- Division is unsupported.
+- Array operators (`[]` and `{}`) are split into 8-bit and 16-bit versions, with the 8-bit versions having better performance.
+- Types are not implicitly promoted. Different operators have different rules for how differing types are handled.  
 
 == Getting Started
 
 === Installation
 
-To get started with NESFab, download it from TODO and extract it. 
+NESFab is available on https://github.com/pubby/nesfab[Github]. 
+It is best to build it from scratch, but if that is not possible, download one of the https://github.com/pubby/nesfab/releases[releases].
+On Unix systems, is recommended to place the `nesfab` executable in a directory your `PATH` variable searches.
+On Linux, this is typically `/usr/bin`, while on Mac, it is typically `/usr/local/bin`. 
+
 You will also want a NES emulator with debugging features, like 
 https://fceux.com/[FCEUX], https://www.mesen.ca/[Mesen], or https://www.qmtpro.com/~nes/nintendulator/[Nintendulator].
+It is often beneficial to test on multiple emulators, so there is no shame in downloading them all.
 
-TODO: more installation
-
-TODO: syntax highlighting
+Syntax highlighting support can be found in the `syntax_highlighting` directory of repository.
+If your text editor is not supported, consider writing one yourself and submitting it to the repository.
 
 === Compiling your first ROM [[firstrom]]
 

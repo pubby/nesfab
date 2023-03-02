@@ -16,14 +16,21 @@ NESFab is a statically-typed, procedural programming language for creating NES g
 Designed with 8-bit limitations in mind, the language is more ergonomic to use than C, while also producing faster assembly code. 
 It's easy to get started with, and has a useful set of libraries for making your first -- or hundredth -- NES game.
 
-=== Limitations
+=== Strengths of NESFab
 
-- NESFab supports a limited number of cartridge mappers. 
-  Some mappers, like Nintendo's MMC5, will likely never be supported.
-- Although assembly language can be mixed with NESFab code,
-  there are restrictions and inefficiencies by doing so.
+- Performance is generally superior to C and all other compiled langauges.
+- <<mappers, Mapper> banks are handled automatically.
+- Multi-byte and fixed-point arithmetic is well supported.
+- The compiler is easily configured, without needing complex build systems.
+- Some asset loading is built-in. There are less steps to get your ideas onto the screen.
 
-  TODO
+=== Weaknesses of NESFab
+
+- NESFab code is only compatible with the NES. It cannot compile to other systems.
+- Only a select number of cartridge <<mappers, mappers>> are supported. 
+- Although NESFab performance is good, writing assembly by hand can surpass it. 
+  NESFab does support mixing assembly and procederal code together, but there are limitations to doing so. 
+- NESFab is not as tried-and-true as the alternatives. They may be bugs and missing features.
 
 === Mappers
 

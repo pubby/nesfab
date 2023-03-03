@@ -137,6 +137,17 @@ For more details about configuration files, see the <<config, config reference p
 Project examples can be found in the `examples/` directory of the repository. 
 To build each example, compile their `*.cfg` files.
 
+=== Other Resources
+
+The best site for learning to program the NES is https://www.nesdev.org/[NESDev],
+along with its https://www.nesdev.org/wiki/Nesdev_Wiki[wiki].
+A few of the most valuable pages are listed below:
+
+- https://www.nesdev.org/wiki/CPU_memory_map[Memory Map]
+- https://www.nesdev.org/wiki/PPU_registers[PPU Registers]
+- https://www.nesdev.org/wiki/APU_registers[APU Registers]
+- https://www.nesdev.org/obelisk-6502-guide/reference.html[6502 Instruction Listings]
+
 == Configuration Options [[config]]
 
 === Comments

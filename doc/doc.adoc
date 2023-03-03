@@ -541,9 +541,23 @@ For information on how to configure NESFab for a specific mapper, see:
 - <<prgopt>>
 - <<chropt>>
 
-== Basic Concepts
+== Value Semantics
 
-=== Value Semantics
+Values in NESFab are always passed and stored by https://en.wikipedia.org/wiki/Value_type_and_reference_type[value, not by reference].
+This means that when you call a function, its parameters will be copies of the arguments passed.
+
+For example:
+----
+fn foo(U x) U
+    x += 5
+    return x
+
+fn bar()
+    U y = 10
+    U z = foo(y)
+----
+
+At the end of `bar`, variable `y` will have the value `10`, while variable `z` will have the value `15`. 
 
 == Indentation
 

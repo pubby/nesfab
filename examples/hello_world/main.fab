@@ -1,0 +1,19 @@
+// This small program plays a sound effect.
+
+// Variables:
+vars /sound
+    UU pitch = 1000
+
+// Sends 'pitch' variable to the APU, emitting sound:
+fn play_sound()
+    {$4015}(%100)
+    {$4008}($FF)
+    {$400A}(pitch.a)
+    {$400B}(pitch.b & %111)
+
+mode main()
+    {$2000}(%10000000)
+    while true
+        pitch *= 1.01
+        play_sound()
+        nmi

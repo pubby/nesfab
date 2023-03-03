@@ -57,7 +57,7 @@ The most flagrant ones are listed before.
 
 === Installation
 
-NESFab is available on https://github.com/pubby/nesfab[Github]. 
+NESFab is available at https://github.com/pubby/nesfab[Github]. 
 It is best to build it from scratch, but if that is not possible, download one of the https://github.com/pubby/nesfab/releases[releases].
 On Unix systems, is recommended to place the `nesfab` executable in a directory your `PATH` variable searches.
 On Linux, this is typically `/usr/bin`, while on Mac, it is typically `/usr/local/bin`. 
@@ -72,68 +72,85 @@ If your text editor is not supported, consider writing one yourself and submitti
 === Compiling your first ROM [[firstrom]]
 
 The `nesfab` tool compiles `.fab` source code files into `.nes` ROMs. 
-It can be used with the command-line, or by clicking and dragging a file onto the executable.
+It can be used with the command-line, or by clicking and dragging the file you want to compile onto the `nesfab` executable.
 
-To compile your first ROM, create a file called `hello.fab` and save it with code below:
+To compile your first ROM, create a file called `main.fab` and save it with code below:
 
 ----
-// TODO: hello world
+// This small program plays a sound effect.
+
+// Variables:
+vars /sound
+    UU pitch = 1000
+
+// Sends 'pitch' variable to the APU, emitting sound:
+fn play_sound()
+    {$4015}(%100)
+    {$4008}($FF)
+    {$400A}(pitch.a)
+    {$400B}(pitch.b & %111)
+
+mode main()
+    {$2000}(%10000000)
+    while true
+        pitch *= 1.01
+        play_sound()
+        nmi
 ----
 
 If using the command-line, you can compile it using the command:
 
-`nesfab hello.fab`
+`nesfab main.fab`
 
-Otherwise, drag the `hello.fab` file onto the `nesfab` executable.
+Otherwise, drag the `main.fab` file onto the `nesfab` executable.
 
 When done, the compiler should have produced an `a.nes` file in the same directory,
 which is the default name of compiled binaries. 
 Try running `a.nes` in your NES emulator.
-You should see the screen flash with colors TODO.
+You should hear a sweeping tone being played.
 
 === Your first configuration file
 
 The `nesfab` compiler accepts options both on the command-line, and via configuration files.
 For most projects, a single configuration file is ideal, so this section will focus on that.
 
-Below is an example configuration file: `config.cfg`: 
+Below is an example configuration file: `hello_world.cfg`: 
 ----
-output = "game.nes"
-input = "hello.fab"
+output = "hello_world.nes"
+input = "main.fab"
 ----
 The `output` option determines the name of the `.nes` file, while `input` lists a single source file.
 
 To compile using this configuration file, either run:
 
-`nesfab config.cfg`
+`nesfab hello_world.cfg`
 
-Or drag the `config.cfg` file onto the `nesfab` executable.
+Or drag the `hello_world.cfg` file onto the `nesfab` executable.
 
-It should produce the same result as <<firstrom, before>>, but the ROM will be saved as `game.nes` instead of `a.nes`
+It should produce the same result as <<firstrom, before>>, but the ROM will be saved as `hello_world.nes` instead of `a.nes`
 because the `output` option was set.
 
-For more details about configuration files, see the reference page. TODO
+For more details about configuration files, see the <<config, config reference page>>.
+
+=== Included Examples
+
+Project examples can be found in the `examples/` directory of the repository. 
+To build each example, compile their `*.cfg` files.
+
+== Configuration Options [[config]]
+
+=== Comments
+
+Comments in configuration files are specified as lines beginning with `#`.
+Comments are used for documentation; they have no effect on the configuration.
+
+Example:
 
 ----
-# This is a comment
-
-# Cause all warnings to become errors:
-error-on-warning = true
-
-# Set the output filename:
-output = "game.nes"
-
-# To use multiple source code files, use multiple input options:
-input = "hello.fab"
-input = "another_file.fab"
-input = "a_third_file.fab"
+# Hello world! This is a comment!
 ----
 
-=== Beginner roadmap
-
-TODO!
-
-== Configuration Options
+Comments are not available on the command-line.
 
 === `help` (`-h`)
 

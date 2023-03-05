@@ -192,18 +192,6 @@ $(SRCDIR)/add_constraints_table.cpp: add_constraints_table_gen
 	./add_constraints_table_gen > $@
 
 add_constraints_table_gen: $(SRCDIR)/add_constraints_table_gen.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
-# Instructions
-
-# TODO
-
-#$(SRCDIR)/asm_tables.hpp: asm_gen $(SRCDIR)/asm.txt
-	#cat $(SRCDIR)/asm.txt | ./asm_gen > $@
-
-#asm_gen: $(SRCDIR)/asm_gen.cpp $(SRCDIR)/addr_mode.inc $(SRCDIR)/asm_decl.hpp
-	#$(CXX) $(CXXFLAGS) -o $@ $<
-
 
 ifneq ($(MAKECMDGOALS), clean)
 -include $(DEPS)

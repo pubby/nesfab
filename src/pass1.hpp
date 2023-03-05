@@ -424,9 +424,9 @@ public:
     {
         ast_node_t ast = { .token = token_t::make_ptr(tt, pstring, &mods), .children = eternal_expr(&call) };
 
-        if(mods)
+        if(tt == lex::TOK_byte_block_goto_mode)
         {
-            if(tt == lex::TOK_byte_block_goto_mode)
+            if(mods)
             {
                 mods->validate(
                     pstring, 
@@ -434,11 +434,12 @@ public:
                     MODL_PRESERVES // lists
                     );
             }
-            else
-                mods->validate(pstring);
 
-            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+            if(!mods || !(mods->explicit_lists & MODL_PRESERVES))
+                compiler_error(pstring, "Missing preserves modifier.");
         }
+        else if(mods)
+            mods->validate(pstring);
 
         return ast;
     }

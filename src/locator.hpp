@@ -87,6 +87,8 @@ enum locator_class_t : std::uint8_t
 
     LOC_NMI_INDEX,
 
+    LOC_ASM_GOTO_MODE,
+
     NUM_LCLASS,
 };
 
@@ -177,6 +179,7 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_PTR_SET:
     case LOC_NMI_INDEX:
     case LOC_ASM_LOCAL_VAR:
+    case LOC_ASM_GOTO_MODE:
         return true;
     default:
         return false;
@@ -525,6 +528,9 @@ public:
 
     constexpr static locator_t asm_local_var(fn_ht fn, std::uint8_t arg, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_ASM_LOCAL_VAR, fn.id, arg, member, atom, offset); }
+    
+    constexpr static locator_t asm_goto_mode(fn_ht fn, unsigned id=0, std::uint16_t offset=0)
+        { return locator_t(LOC_ASM_GOTO_MODE, fn.id, id, offset); }
 
     constexpr static locator_t gconst(const_ht c, std::uint8_t member=0, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_GCONST, c.id, 0, member, atom, offset).with_is(IS_PTR); }

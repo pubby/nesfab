@@ -3763,7 +3763,6 @@ namespace isel
                 assert(h->input(1).locator().lclass() == LOC_STMT);
 
                 mods_t const* mods = state.fn->def().mods_of(h->input(1).locator().stmt());
-                assert(mods);
 
                 bool did_reset_nmi = false;
 
@@ -3772,7 +3771,7 @@ namespace isel
                     if(!gv->has_init())
                         return;
 
-                    if(!mods->in_lists(MODL_PRESERVES, gv->group.handle()))
+                    if(mods && !mods->in_lists(MODL_PRESERVES, gv->group.handle()))
                     {
                         if(!did_reset_nmi)
                         {

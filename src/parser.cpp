@@ -1151,12 +1151,15 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 {
     bool proc = false;
 
-    auto const call = [&](token_type_t tt)
+    auto const call = [&](token_type_t tt, bool weak = false)
     {
         pstring_t pstring = token.pstring;
         ast_node_t expr;
 
         std::unique_ptr<mods_t> mods = parse_mods_after([&]{ expr = parse_expr(block_indent, 0); });
+
+        if(weak)
+            expr.weaken_idents();
 
         children.push_back(policy().byte_block_call(tt, pstring, std::move(expr), std::move(mods)));
     };
@@ -1165,7 +1168,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
         { return pstring.size == 1 && std::tolower(pstring.view(source())[0]) == ch; };
 
     maybe_parse_block(block_indent, [&]
-    { 
+    {
         switch(token.type)
         {
         case TOK_lparen:
@@ -1264,7 +1267,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
             if(token.type == TOK_mode)
             {
                 parse_token();
-                call(TOK_byte_block_goto_mode);
+                call(TOK_byte_block_goto_mode, true);
             }
             else
                 call(TOK_byte_block_goto);
@@ -2052,9 +2055,9 @@ void parser_t<P>::parse_goto()
         std::unique_ptr<mods_t> mods = parse_mods_after([&]
         {
             bc::small_vector<ast_node_t, 16> children;
-            children.push_back({ .token = { .type = TOK_weak_ident, .pstring = token.pstring }});
-
             mode = parse_ident();
+            children.push_back({ .token = { .type = TOK_weak_ident, .pstring = mode }});
+
             char const* begin = token_source;
             int const mode_indent = indent;
 

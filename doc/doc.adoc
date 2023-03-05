@@ -19,8 +19,8 @@ It's easy to get started with, and has a useful set of libraries for making your
 === Strengths of NESFab
 
 - Performance is generally superior to C and all other compiled langauges.
-- <<mappers, Mapper> banks are handled automatically.
-- Multi-byte and fixed-point arithmetic is well supported.
+- <<mappers, Mapper>> banks are handled automatically and scale up without fuss.
+- Multi-byte and fixed-point arithmetic is well supported and simpler than other languages.
 - The compiler is easily configured, without needing complex build systems.
 - Some asset loading is built-in. There are less steps to get your ideas onto the screen.
 
@@ -28,22 +28,22 @@ It's easy to get started with, and has a useful set of libraries for making your
 
 - NESFab code is only compatible with the NES. It cannot compile to other systems.
 - Only a select number of cartridge <<mappers, mappers>> are supported. 
-- Although NESFab performance is good, writing assembly by hand can surpass it. 
-  NESFab does support mixing assembly and procederal code together, but there are limitations to doing so. 
-- NESFab is not as tried-and-true as the alternatives. They may be bugs and missing features.
+- Although NESFab performance is good, writing assembly by hand can obviously surpass it. 
+- NESFab is not as tried-and-true as other languages. They are likely bugs and missing features.
 
 == Quirks and Surprises
 
 If you're coming from another language, you might be surprised by a few of NESFab's quirks. 
-The most flagrant ones are listed before.
+The most flagrant ones are listed below.
 
 === Types and Values
 
-- Everything is a value type. Nothing is passed by reference.
+- Like C, everything is passed by <<value_semantics, value>>. Nothing is passed by reference.
+
 - While arrays are supported, multi-dimensional arrays are not. 
 - Most values cannot be addressed via pointers. 
   Instead, only global variables of a <<type_paa, specific type>> can be addressed.
-- Global variables and data are partitioned into used-defined <<groups, groups>>.  
+- Global variables and data are partitioned into used-defined <<groups, groups>>; a concept unique to NESFab.
 
 === Operators
 
@@ -57,7 +57,7 @@ The most flagrant ones are listed before.
 
 === Installation
 
-NESFab is available at https://github.com/pubby/nesfab[Github]. 
+NESFab is available on https://github.com/pubby/nesfab[Github]. 
 It is best to build it from scratch, but if that is not possible, download one of the https://github.com/pubby/nesfab/releases[releases].
 On Unix systems, is recommended to place the `nesfab` executable in a directory your `PATH` variable searches.
 On Linux, this is typically `/usr/bin`, while on Mac, it is typically `/usr/local/bin`. 
@@ -116,8 +116,8 @@ For most projects, a single configuration file is ideal, so this section will fo
 
 Below is an example configuration file: `hello_world.cfg`: 
 ----
-output = "hello_world.nes"
-input = "main.fab"
+output = hello_world.nes
+input = main.fab
 ----
 The `output` option determines the name of the `.nes` file, while `input` lists a single source file.
 
@@ -155,13 +155,13 @@ A few of the most valuable pages are listed below:
 Comments in configuration files are specified as lines beginning with `#`.
 Comments are used for documentation; they have no effect on the configuration.
 
+Comments are not available on the command-line.
+
 Example:
 
 ----
 # Hello world! This is a comment!
 ----
-
-Comments are not available on the command-line.
 
 === `help` (`-h`)
 
@@ -207,9 +207,9 @@ nesfab "file1.fab" "file2.fab" "another_config.cfg"
 
 *Configuration file usage:*
 ----
-input = "file1.fab"
-input = "util/file2.fab"
-input = "another_config.cfg"
+input = file1.fab
+input = util/file2.fab
+input = another_config.cfg
 ----
 
 === `output` (`-o`)
@@ -226,7 +226,7 @@ nesfab --output "game.nes"
 
 *Configuration file usage:*
 ----
-output = "game.nes"
+output = game.nes
 ----
 
 === `code-dir` (`-I`) [[codedir]]
@@ -245,7 +245,7 @@ nesfab --code-dir "some_directory/"
 
 *Configuration file usage:*
 ----
-code-dir = "some_directory/"
+code-dir = some_directory/
 ----
 
 === `resource-dir` (`-R`)
@@ -262,7 +262,7 @@ nesfab --resource-dir "some_directory/"
 
 *Configuration file usage:*
 ----
-resource-dir = "some_directory/"
+resource-dir = some_directory/
 ----
 
 === `mapper` (`-M`) [[mapperopt]]
@@ -541,7 +541,7 @@ For information on how to configure NESFab for a specific mapper, see:
 - <<prgopt>>
 - <<chropt>>
 
-== Value Semantics
+== Value Semantics [[value_semantics]]
 
 Values in NESFab are always passed and stored by https://en.wikipedia.org/wiki/Value_type_and_reference_type[value, not by reference].
 This means that when you call a function, its parameters will be copies of the arguments passed.
@@ -585,6 +585,58 @@ FIRST BLOCK
         INDENTED LINE
 
 ----
+
+== Banks [[banks]]
+
+The NES uses a 16-bit address space, but most games need more data than 16-bits can represent. 
+To overcome this limitation, machine code can be broken up into segments called "banks", 
+and hardware on the cartridge can switch between these banks at runtime.
+
+In NESFab, banks are automatically handled for you, meaning you do not need to worry about them much.
+However, it is still useful to know a bit about them, to clarify how things work under the hood.
+
+*Pointers and Addressing: Implementation Details*
+
+When banks are involved, rather than addressing using 16-bit pointers, 24-bit pointers are used instead.
+A 24-bit pointer can be seen as a 16-bit address paired with an 8-bit integer representing the bank.
+
+When dereferencing a 24-bit pointer, 
+first the bank is swapped into memory using the 8-bit integer,
+then the data is read using the 16-bit address.
+The caveat is, the machine code performing the dereference needs to be in memory too.
+Depending on the <<mappers, mapper>>, this can involve duplicating the machine code across multiple banks,
+or storing the machine code in a specific location which won't be switched out.
+
+== Groups [[groups]]
+
+Groups organize globals together based on how they are used in the program.
+In NESFab, each global variable and <<type_paa, pointer-addressible array>> is associated with a group.
+
+There are two types of groups: `vars` and `data`.
+
+- <<kw_vars, `vars`>> is for variables (RAM).
+- <<kw_data, `data`>> is for read-only data (ROM).
+
+Furthermore, `data` has two variants: `data` and `omni data`.
+
+- <<kw_data, `data`>> is for read-only data that exists at a single address in a single <<banks, bank>>.
+- <<kw_omni, `omni data`>> is for read-only data that exists at a single address, but is duplicated across multiple <<banks, banks>>.
+
+As a guideline, `omni data` uses more ROM space, but has better performance than `data`.
+Typically, it is recommended to use `data` for most everything, and only use `omni data` for small look-up tables that are frequently used.
+
+*Why groups?*
+
+To the programmer, the purpose of groups are:
+
+- To organize code.
+- To specify the storage of a variable.
+
+To the compiler, the purpose of groups are:
+
+- To enable the compiler to smartly allocate variables by reusing RAM addresses.
+- To facilitate <<mappers, mappers>> with multiple banks, enabling smarter linking.
+- To simplify pointer aliasing optimizations.
 
 
 == Comments
@@ -899,7 +951,7 @@ goto mode identifier(arguments)
 
 - `identifier` if the name of a <<kw_mode>> function.
 - `arguments` is a comma-separated list of expressions to be passed to the `mode` function. The list may be blank.
-- `groups` are a comma-separated list of <<kw_vars>> groups, denoting which variables should not be reset. The list may be blank.
+- `groups` are a list of <<kw_vars>> groups, denoting which variables should not be reset. The list may be blank.
 
 Note that `preserves` is a required <<modifier, modifier>> of this statement.
 
@@ -922,11 +974,63 @@ mode bar(U some_argument)
 
 ==== `goto` (assembly) [[kw_goto_asm]]
 
-TODO
+In assembly functions, the `goto` statement causes control to switch execution to another function.
+It behaves similar to the <<kw_fn_asm, `fn` assembly statement>>, but does not return.
+
+Syntax:
+----
+goto fn_identifier
+----
+
+- `fn_identifier` is the name of a function.
+
+If the function accepts arguments, those arguments must be set prior to the `goto` statement.
+
+Example:
+----
+asm fn foo(U x)
+    // ...
+
+asm fn bar()
+: employs
+    default
+        lda #5
+        sta &foo.x      // Set the argument
+        goto foo
+----
 
 ==== `goto mode` (assembly) [[kw_goto_mode_asm]]
 
-TODO
+In assembly functions, the `goto mode` statement causes control to switch execution to a mode,
+discarding the current call stack and starting anew.
+In the process, global variables will be reset to their initial value,
+unless they are explicitly preserved using <<mod_preserves>> in the `goto mode` statement.
+It behaves similar to the <<kw_goto_mode, `fn` assembly statement>>.
+
+Syntax:
+----
+goto mode mode_identifier
+: preserves /groups
+----
+
+- `mode_identifier` if the name of a <<kw_mode>> function.
+- `groups` are a list of <<kw_vars>> groups, denoting which variables should not be reset. The list may be blank.
+
+Note that `preserves` is a required <<modifier, modifier>> of this statement.
+
+Example:
+
+----
+vars /my_vars
+    U some_var = 10
+
+mode foo()
+    // ...
+
+asm fn bar()
+    goto mode foo
+    : preserves /my_vars
+----
 
 === `label` [[kw_label]]
 
@@ -3718,56 +3822,3 @@ Structures (or "structs") are https://en.wikipedia.org/wiki/Record_(computer_sci
 which allows one to aggregate multiple types into a single one.
 
 See <<kw_struct>>.
-
-== Banks [[banks]]
-
-The NES uses a 16-bit address space, but most games need more data than 16-bits can represent. 
-To overcome this limitation, machine code can be broken up into segments called "banks", 
-and hardware on the cartridge can switch between these banks at runtime.
-
-In NESFab, banks are automatically handled for you, meaning you do not need to worry about them much.
-However, it is still useful to know a bit about them, to clarify how things work under the hood.
-
-*Pointers and Addressing*
-
-When banks are involved, rather than addressing using 16-bit pointers, 24-bit pointers are used instead.
-A 24-bit pointer is simply a 16-bit address paired with an 8-bit integer representing the bank.
-
-When dereferencing a 24-bit pointer, 
-first the bank is swapped into memory using the 8-bit integer,
-then the data is read using the 16-bit address.
-The caveat is, the machine code performing the dereference needs to be in memory too.
-Depending on the <<mappers, mapper>>, this can involve duplicating the machine code across multiple banks,
-or storing the machine code in a specific location which won't be switched out.
-
-== Groups [[groups]]
-
-Groups organize globals together based on how they are used in the program.
-In NESFab, each global variable and <<type_paa, pointer-addressible array>> is associated with a group.
-
-There are two types of groups: `vars` and `data`.
-
-- <<kw_vars, `vars`>> is for variables (RAM).
-- <<kw_data, `data`>> is for read-only data (ROM).
-
-Furthermore, `data` has two variants: `data` and `omni data`.
-
-- <<kw_data, `data`>> is for read-only data that exists at a single address in a single <<banks, bank>>.
-- <<kw_omni, `omni data`>> is for read-only data that exists at a single address, but is duplicated across multiple <<banks, banks>>.
-
-As a guideline, `omni data` uses more ROM space, but has better performance than `data`.
-Typically, it is recommended to use `data` for most everything, and only use `omni data` for small look-up tables that are frequently used.
-
-*Why groups?*
-
-To the programmer, the purpose of groups are:
-
-- To organize code.
-- To specify the storage of a variable.
-
-To the compiler, the purpose of groups are:
-
-- To enable the compiler to smartly allocate variables by reusing RAM addresses.
-- To facilitate <<mappers, mappers>> with multiple banks, enabling smarter linking.
-- To simplify pointer aliasing optimizations.
-

@@ -429,6 +429,10 @@ public:
         for_each_inlined_impl(fn, bs);
     }
 
+    locator_t new_asm_goto_mode(fn_ht fn, unsigned label, pstring_t pstring, mods_t const* mods); 
+    rom_proc_ht asm_goto_mode_rom_proc(unsigned i) const; 
+    static void implement_asm_goto_modes(); 
+
     std::stringstream const* info_stream() const { return m_info_stream.get(); }
     std::stringstream* info_stream() { return m_info_stream.get(); }
     
@@ -516,6 +520,18 @@ private:
     // Aids in allocating RAM for local variables:
     lvars_manager_t m_lvars;
     std::array<std::vector<span_t>, NUM_ROMV> m_lvar_spans;
+
+    struct asm_goto_mode_t
+    {
+        fn_ht fn;
+        unsigned label;
+        pstring_t pstring;
+        fc::vector_set<group_vars_ht> preserves;
+        rom_proc_ht rom_proc;
+    };
+
+    std::unique_ptr<std::vector<asm_goto_mode_t>> m_asm_goto_modes;
+
 
     // Used for debuggable output.
     std::unique_ptr<std::stringstream> m_info_stream;

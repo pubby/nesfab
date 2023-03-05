@@ -1580,6 +1580,102 @@ void fn_t::for_each_referenced_param_locator(std::function<void(locator_t)> cons
     });
 }
 
+locator_t fn_t::new_asm_goto_mode(fn_ht fn, unsigned label, pstring_t pstring, mods_t const* mods)
+{
+    if(!m_asm_goto_modes)
+        m_asm_goto_modes.reset(new std::vector<asm_goto_mode_t>());
+    auto& vec = *m_asm_goto_modes;
+
+    locator_t const loc = locator_t::asm_goto_mode(handle(), vec.size());
+
+    vec.push_back(asm_goto_mode_t{ 
+        .fn = fn, 
+        .label = label, 
+        .pstring = pstring,
+        .rom_proc = rom_proc_ht::pool_make(romv_allocs_t{}, m_precheck_romv, false)
+    });
+
+    if(mods)
+    {
+        mods->for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
+        {
+            vec.back().preserves.insert(gv);
+        });
+    }
+
+    return loc;
+}
+
+rom_proc_ht fn_t::asm_goto_mode_rom_proc(unsigned i) const
+{
+    assert(compiler_phase() > PHASE_COMPILE);
+    assert(m_asm_goto_modes);
+    assert(i < m_asm_goto_modes->size());
+
+    return (*m_asm_goto_modes)[i].rom_proc;
+}
+
+// Not thread safe.
+void fn_t::implement_asm_goto_modes()
+{
+    for(fn_t& fn : fn_ht::values())
+    {
+        if(auto* vec = fn.m_asm_goto_modes.get())
+        for(auto& d : *vec)
+        {
+            asm_proc_t proc;
+            int const iasm_child = proc.add_pstring(d.pstring);
+
+            // Reset global variables:
+            bool did_reset_nmi = false;
+            d.fn->precheck_group_vars().for_each([&](group_vars_ht gv)
+            {
+                if(!gv->has_init())
+                    return;
+
+                if(!d.preserves.count(gv))
+                {
+                    if(!did_reset_nmi)
+                    {
+                        // Reset the nmi handler until we've reset all group vars.
+                        proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::const_byte(0) });
+                        proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_nmi_index) });
+                        did_reset_nmi = true;
+                    }
+
+                    locator_t const loc = locator_t::reset_group_vars(gv);
+                    proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                    proc.push_inst({ .op = BANKED_Y_JSR, .iasm_child = iasm_child, .arg = loc });
+                }
+            });
+
+            bool same_nmi = true;
+            for(fn_ht mode : fn.precheck_parent_modes())
+            {
+                if(mode->mode_nmi() != d.fn->mode_nmi())
+                {
+                    same_nmi = false;
+                    break;
+                }
+            }
+
+            // Set the NMI
+            if(did_reset_nmi || !same_nmi)
+            {
+                proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::nmi_index(d.fn->mode_nmi()) });
+                proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_nmi_index) });
+            }
+
+            // Do the jump
+            locator_t const loc = locator_t::fn(d.fn, d.label);
+            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+            proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+
+            // Assign the proc:
+            d.rom_proc.safe().assign(std::move(proc));
+        }
+    }
+}
 
 ////////////////////
 // global_datum_t //

@@ -412,6 +412,11 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_RESET_PROC);
         create_reset_proc();
         set_reset_proc();
+        output_time("reset:    ");
+
+        set_compiler_phase(PHASE_ASM_GOTO_MODES);
+        fn_t::implement_asm_goto_modes();
+        output_time("goto mode:");
 
         set_compiler_phase(PHASE_INITIAL_VALUES);
         gen_group_var_inits();

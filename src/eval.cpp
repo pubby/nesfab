@@ -1658,7 +1658,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     switch(ast.token.type)
     {
     default:
-        throw std::runtime_error(fmt("Invalid token '%' in expression.", token_string(ast.token.type)));
+        compiler_error(ast.token.pstring, fmt("Invalid token '%' in expression.", token_string(ast.token.type)));
 
     case TOK_rpair:
         {
@@ -3039,28 +3039,32 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             op_t const op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
                             locator_t const loc = locator_t::fn(g.handle<fn_ht>(), fn_val.lval().ulabel());
-                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = proc.add_pstring(pstring), .arg = loc.with_is(IS_BANK) });
-                            proc.push_inst({ .op = op, .iasm_child = proc.add_pstring(pstring), .arg = loc });
+                            int const iasm_child = proc.add_pstring(pstring);
+                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = op, .iasm_child = iasm_child, .arg = loc });
                         }
                     }
                     break;
 
                 case TOK_byte_block_goto_mode:
                     {
-                        assert(false);
-                        throw std::runtime_error("unimplemented");
-                        // TODO
-                        global_t const* g = sub.token.ptr<global_t>();
+                        expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
+                        global_t const& g = fn_val.lval().global();
 
-                        if(g->gclass() != GLOBAL_FN || g->impl<fn_t>().fclass != FN_MODE)
-                            compiler_error(sub.token.pstring, fmt("% is not a mode.", g->name));
+                        if(g.gclass() != GLOBAL_FN || g.impl<fn_t>().fclass != FN_MODE)
+                            compiler_error(sub.token.pstring, fmt("% is not a mode.", g.name));
 
-                        if(precheck_tracked)
-                            precheck_tracked->goto_modes.push_back({ g->handle<fn_ht>(), { sub.token.pstring, sub.mods }});
+                        if(!is_check(D))
+                        {
+                            fn_ht const call = g.handle<fn_ht>();
+                            mods_t const* mods = sub.token.ptr<mods_t const>();
 
-                        // TODO
-                        assert(false);
-                        throw std::runtime_error("unimplemented");
+                            locator_t const loc = fn->new_asm_goto_mode(call, fn_val.lval().ulabel(), pstring, mods);
+                            int const iasm_child = proc.add_pstring(pstring);
+
+                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+                        }
                     }
                     break;
 

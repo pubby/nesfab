@@ -59,3 +59,16 @@ unsigned ast_node_t::num_children() const
         return 0;
     }
 }
+
+void ast_node_t::weaken_idents()
+{
+    if(token.type == lex::TOK_ident)
+    {
+        token.type = lex::TOK_weak_ident;
+        return;
+    }
+
+    unsigned const n = num_children();
+    for(unsigned i = 0; i < n; ++i)
+        children[i].weaken_idents();
+}

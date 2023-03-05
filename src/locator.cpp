@@ -59,6 +59,8 @@ std::string to_string(locator_t loc)
         str = fmt("minor var %", loc.fn()->global.name); break;
     case LOC_ASM_LOCAL_VAR:
         str = fmt("asm_local_var", loc.fn()->global.name); break;
+    case LOC_ASM_GOTO_MODE:
+        str = fmt("asm_goto_mode", loc.fn()->global.name); break;
     case LOC_ROM_ARRAY:
         str = fmt("rom_array %", loc.handle()); break;
     case LOC_GCONST:
@@ -457,6 +459,8 @@ rom_data_ht locator_t::rom_data() const
                 return g.impl<const_t>().rom_array();
             }
         }
+    case LOC_ASM_GOTO_MODE:
+        return fn()->asm_goto_mode_rom_proc(data());
     };
 }
 

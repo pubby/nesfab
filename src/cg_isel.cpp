@@ -30,6 +30,8 @@ namespace bc = ::boost::container;
 
 namespace isel
 {
+    TLS std::vector<cfg_d> _data_vec;
+
     // Backbone state of the instruction selection algorithm.
     struct state_t
     {
@@ -72,7 +74,7 @@ namespace isel
     };
 
     // Main global state of the instruction selection algorithm.
-    thread_local state_t state;
+    TLS state_t state;
 
     inline locator_t ssa_to_value(ssa_value_t v)
         { return locator_t::from_ssa_value(orig_def(v)); }
@@ -86,9 +88,9 @@ namespace isel
     template<typename Tag>
     struct param
     {
-        static inline thread_local ssa_value_t _node = {};
-        static inline thread_local locator_t _value = {};
-        static inline thread_local locator_t _trans = {};
+        static inline TLS ssa_value_t _node = {};
+        static inline TLS locator_t _value = {};
+        static inline TLS locator_t _trans = {};
 
         static void set(ssa_value_t v)
         {
@@ -1338,7 +1340,7 @@ namespace isel
     template<typename Tag>
     struct condition
     {
-        static inline thread_local bool b;
+        static inline TLS bool b;
         static void set(bool s) { b = s; }
         static bool value() { return b; }
     };
@@ -4295,8 +4297,8 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     // GENERATE SELECTION LIST FOR EACH CFG NODE //
     ///////////////////////////////////////////////
 
-    thread_local rh::batman_map<cross_transition_t, result_t> rebuilt;
-    thread_local std::vector<rh::apair<cross_cpu_t, isel_cost_t>> new_out_states;
+    static TLS rh::batman_map<cross_transition_t, result_t> rebuilt;
+    static TLS std::vector<rh::apair<cross_cpu_t, isel_cost_t>> new_out_states;
 
     constexpr unsigned BASE_SEL_SIZE = 32;
     constexpr unsigned BASE_MAP_SIZE = 128;

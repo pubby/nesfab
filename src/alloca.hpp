@@ -8,15 +8,17 @@
 #include <type_traits>
 #include <algorithm>
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
 // Note that MSVC's alloca can throw something called a structured exception.
 // This is NOT a standard C++ exception. It's something weird and fucky.
 // It's probably easiest to just ignore this fucky exception and let
 // everything crash and burn on error.
-# include <malloc.h>
-# define alloca _alloca // have to use define because alloca is special.
+#  include <malloc.h>
+#  if defined(_MSC_VER)
+#    define alloca _alloca // have to use define because alloca is special.
+#  endif
 #else
-# include <alloca.h>
+#  include <alloca.h>
 #endif
 
 // Have to wrap the assert in a function call to use it in a comma expression.

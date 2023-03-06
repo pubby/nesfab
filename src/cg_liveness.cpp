@@ -8,6 +8,12 @@
 #include "worklist.hpp"
 #include "assert.hpp"
 
+namespace liveness_impl
+{
+    TLS array_pool_t<bitset_uint_t> bitset_pool;
+    TLS unsigned set_size;
+}
+
 //////////////////
 // cfg liveness //
 //////////////////

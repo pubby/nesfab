@@ -16,6 +16,7 @@
 #include "pstring.hpp"
 #include "eval.hpp"
 #include "eternal_new.hpp"
+#include "thread.hpp"
 
 using namespace std::literals;
 
@@ -76,8 +77,8 @@ namespace  // Anonymous
         T const* get(T const& t) { return get(&t, &t+1); }
     };
 
-    thread_local tails_manager_t<type_t> type_tails;
-    thread_local tails_manager_t<group_ht> group_tails;
+    TLS tails_manager_t<type_t> type_tails;
+    TLS tails_manager_t<group_ht> group_tails;
 } // end anonymous namespace
 
 type_t const* type_t::new_type(type_t const& type) 

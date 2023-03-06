@@ -98,7 +98,7 @@ void file_contents_t::reset(unsigned file_i)
     {
         m_path = (dir / input_path());
 
-        if(!read_binary_file(m_path.c_str(), [this](std::size_t size)
+        if(!read_binary_file(m_path.string().c_str(), [this](std::size_t size)
         {
             m_size = size + 2;
             m_source.reset(new char[m_size]);

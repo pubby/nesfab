@@ -1,6 +1,7 @@
-.PHONY: all debug release profile tests deps cleandeps clean run
+.PHONY: all debug release static profile docs tests deps cleandeps clean run
 debug: nesfab
 release: nesfab
+static: nesfab
 profile: nesfab
 all: nesfab tests
 run: nesfab
@@ -53,6 +54,7 @@ override CXXFLAGS+= \
 
 debug: CXXFLAGS += -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG
+static: CXXFLAGS += -static -O3 -DNDEBUG
 profile: CXXFLAGS += -O3 -DNDEBUG -g
 
 ifeq ($(MAKECMDGOALS), all)
@@ -131,13 +133,14 @@ asm_graph.cpp \
 fn_def.cpp \
 ast.cpp \
 multi.cpp \
-lodepng.cpp \
+lodepng/lodepng.cpp \
 convert_png.cpp \
 switch.cpp \
 o_loop.cpp \
 o_defork.cpp \
 unroll_divisor.cpp \
-puf.cpp
+puf.cpp \
+worklist.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -171,27 +174,21 @@ $(OBJDIR)/%.d: $(SRCDIR)/%.cpp
 
 # Lexer
 
-$(SRCDIR)/lex_tables.hpp $(SRCDIR)/asm_lex_tables.hpp $(SRCDIR)/ext_lex_tables.hpp: lexer_gen
-	./lexer_gen && mv lex_tables.hpp $(SRCDIR)/ && mv asm_lex_tables.hpp $(SRCDIR)/ && mv ext_lex_tables.hpp $(SRCDIR)/
-
-$(SRCDIR)/lex_tables.cpp: $(SRCDIR)/lex_tables.hpp
-	mv lex_tables.cpp $(SRCDIR)/
-
-$(SRCDIR)/asm_lex_tables.cpp: $(SRCDIR)/asm_lex_tables.hpp
-	mv asm_lex_tables.cpp $(SRCDIR)/
-
-$(SRCDIR)/ext_lex_tables.cpp: $(SRCDIR)/ext_lex_tables.hpp
+$(SRCDIR)/lex_tables.hpp $(SRCDIR)/asm_lex_tables.hpp $(SRCDIR)/ext_lex_tables.hpp $(SRCDIR)/lex_tables.cpp $(SRCDIR)/asm_lex_tables.cpp $(SRCDIR)/ext_lex_tables.cpp : $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
+	$(CXX) -std=c++17 -O1 -o lexer_gen $<
+	./lexer_gen 
+	mv lex_tables.hpp $(SRCDIR)/ 
+	mv lex_tables.cpp $(SRCDIR)/ 
+	mv asm_lex_tables.hpp $(SRCDIR)/ 
+	mv asm_lex_tables.cpp $(SRCDIR)/ 
+	mv ext_lex_tables.hpp $(SRCDIR)/
 	mv ext_lex_tables.cpp $(SRCDIR)/
-
-lexer_gen: $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
-	$(CXX) -std=c++17 -O2 -o $@ $<
 
 # Other Tables
 
-$(SRCDIR)/add_constraints_table.cpp: add_constraints_table_gen
+$(SRCDIR)/add_constraints_table.cpp: $(SRCDIR)/add_constraints_table_gen.cpp
+	$(CXX) -std=c++17 -O1 -o add_constraints_table_gen $<
 	./add_constraints_table_gen > $@
-
-add_constraints_table_gen: $(SRCDIR)/add_constraints_table_gen.cpp
 
 ifneq ($(MAKECMDGOALS), clean)
 -include $(DEPS)
@@ -209,4 +206,13 @@ cleandeps:
 clean: cleandeps
 	rm -f $(wildcard $(OBJDIR)/*.o)
 	rm -f nesfab
+	rm -f lexer_gen
 
+docs:
+	asciidoctor doc/doc.adoc -o doc/doc.html
+
+# Create directories:
+
+$(info $(shell mkdir -p $(OBJDIR)))
+$(info $(shell mkdir -p $(OBJDIR)/catch))
+$(info $(shell mkdir -p $(OBJDIR)/lodepng))

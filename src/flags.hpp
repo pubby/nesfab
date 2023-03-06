@@ -1,6 +1,8 @@
 #ifndef FLAGS_HPP
 #define FLAGS_HPP
 
+#include <cstdint>
+
 // Flags that are useful among different passes.
 
 enum mark_t : std::uint16_t

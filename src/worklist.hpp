@@ -3,7 +3,9 @@
 
 #include <deque>
 
+#include "flags.hpp"
 #include "ir_decl.hpp"
+#include "thread.hpp"
 
 // Worklists used by several optimization passes.
 template<typename H>
@@ -48,11 +50,11 @@ public:
     bool empty() { return container.empty(); }
 };
 
-inline thread_local worklist_t<cfg_ht> cfg_worklist;
-inline thread_local worklist_t<ssa_ht> ssa_worklist;
+extern TLS worklist_t<cfg_ht> cfg_worklist;
+extern TLS worklist_t<ssa_ht> ssa_worklist;
 
 // These two vectors can also be used by optimization passes, if need be.
-inline thread_local std::vector<cfg_ht> cfg_workvec;
-inline thread_local std::vector<ssa_ht> ssa_workvec;
+extern TLS std::vector<cfg_ht> cfg_workvec;
+extern TLS std::vector<ssa_ht> ssa_workvec;
 
 #endif

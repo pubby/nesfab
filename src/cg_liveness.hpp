@@ -6,13 +6,14 @@
 #include "array_pool.hpp"
 #include "bitset.hpp"
 #include "ir_decl.hpp"
+#include "thread"
 
 class fn_t;
 
 namespace liveness_impl
 {
-    inline thread_local array_pool_t<bitset_uint_t> bitset_pool;
-    inline thread_local unsigned set_size;
+    extern TLS array_pool_t<bitset_uint_t> bitset_pool;
+    extern TLS unsigned set_size;
 }
 
 inline unsigned live_set_size() { return liveness_impl::set_size; }

@@ -13,6 +13,7 @@
 #include "hex.hpp"
 #include "asm_proc.hpp"
 #include "eternal_new.hpp"
+#include "thread.hpp"
 
 using penguin_pattern_t = std::vector<std::uint8_t>;
 using asm_vec_t = std::vector<asm_inst_t>;
@@ -1039,7 +1040,7 @@ const_ht convert_effect(pstring_t at,
                         std::deque<nsf_track_t>& nsf_tracks,
                         std::pair<group_data_t*, group_data_ht> group_pair)
 {
-    thread_local std::mutex cpu_mutex;
+    static TLS std::mutex cpu_mutex;
     std::lock_guard<std::mutex> lock(cpu_mutex);
 
     assert(nsf_data);

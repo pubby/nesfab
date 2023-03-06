@@ -27,6 +27,8 @@
 
 namespace bc = ::boost::container;
 
+TLS std::vector<ai_prep_t> ai_prep_vec;
+
 namespace {
 
 // These are used as indices into 'executable' and 'output_executable' arrays.
@@ -904,7 +906,7 @@ void ai_t::visit(ssa_ht ssa_node)
 
     auto& d = ai_data(ssa_node);
 
-    thread_local constraints_def_t old_constraints;
+    static TLS constraints_def_t old_constraints;
     old_constraints = d.constraints();
     assert(all_normalized(old_constraints));
 
@@ -1626,7 +1628,7 @@ bool ai_t::simple_visit(ssa_ht ssa_node)
 
     auto& d = ai_data(ssa_node);
 
-    thread_local constraints_def_t old_constraints;
+    static TLS constraints_def_t old_constraints;
     old_constraints = d.constraints();
     assert(all_normalized(old_constraints));
 

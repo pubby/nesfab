@@ -8,6 +8,7 @@
 #include "cg.hpp"
 #include "ir.hpp"
 #include "ir_algo.hpp"
+#include "thread.hpp"
 
 namespace { // anon namespace
 
@@ -21,7 +22,7 @@ public:
     scheduler_t(ir_t& ir, cfg_ht cfg_node);
 private:
 
-    static inline thread_local array_pool_t<bitset_uint_t> bitset_pool;
+    static inline TLS array_pool_t<bitset_uint_t> bitset_pool;
 
     ir_t& ir;
     cfg_ht const cfg_node;

@@ -21,18 +21,20 @@ syn match nesfabNumberHex '\$\x\+'
 syn match nesfabNumberBin '%[01]\+'
 
 " Comment
-syn match nesfabComment "//.*$"
+syn match nesfabCommentL "//.*$"
+syn match nesfabComment "/\*\_.\{-}\*/"
 
 " String
 syn region nesfabString start='"' end='"' contained
 
 let b:current_syntax = "nesfab"
 
-hi def link nesfabNumber  Constant
+hi def link nesfabNumber     Constant
 hi def link nesfabNumberHex  Constant
 hi def link nesfabNumberBin  Constant
-hi def link nesfabComment Comment
-hi def link nesfabString  String
-hi def link nesfabKeyword Statement
-hi def link nesfabGroup   Identifier
-hi def link nesfabType    Type
+hi def link nesfabCommentL   Comment
+hi def link nesfabComment    Comment
+hi def link nesfabString     String
+hi def link nesfabKeyword    Statement
+hi def link nesfabGroup      Identifier
+hi def link nesfabType       Type

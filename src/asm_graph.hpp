@@ -16,6 +16,7 @@
 #include "array_pool.hpp"
 #include "switch.hpp"
 #include "worklist.hpp"
+#include "thread.hpp"
 
 struct asm_inst_t;
 class locator_t;
@@ -163,22 +164,9 @@ private:
 
     std::vector<delayed_lookup_t> to_lookup;
 
-    inline static thread_local worklist_t<asm_node_t*> worklist;
+    static TLS worklist_t<asm_node_t*> worklist;
 
     log_t* log;
 };
-
-
-// TODO: 
-
-// - remove useless labels (DONE)
-
-// - reorder CFG (DONE)
-
-// - liveness
-
-// - move stores
-
-// - peephole
 
 #endif

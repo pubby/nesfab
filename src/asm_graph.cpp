@@ -11,6 +11,9 @@
 #include "ir_algo.hpp"
 #include "lvar.hpp"
 #include "asm_proc.hpp"
+#include "thread.hpp"
+
+TLS worklist_t<asm_node_t*> asm_graph_t::worklist;
 
 ////////////////
 // asm_node_t //
@@ -929,7 +932,7 @@ void asm_graph_t::optimize_live_registers()
     };
 
     // Calculate per-op liveness next:
-    thread_local std::vector<regs_t> live_regs;
+    static TLS std::vector<regs_t> live_regs;
     for(asm_node_t& node : list)
     {
         live_regs.clear();

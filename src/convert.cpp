@@ -75,7 +75,7 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         conversion_t ret;
 
         auto const read_as_vec = [&]{ return read_binary_file(path.string(), filename.pstring); };
-        auto const get_extension = [&]{ return lex_extension(path.extension().c_str()); };
+        auto const get_extension = [&]{ return lex_extension(path.extension().string().c_str()); };
 
         auto const read_file = [&]
         {

@@ -26,6 +26,7 @@
 #include "switch.hpp"
 #include "rom_decl.hpp"
 #include "runtime.hpp"
+#include "thread.hpp"
 
 namespace sc = std::chrono;
 namespace bc = boost::container;
@@ -143,7 +144,7 @@ private:
         }
     };
     
-    static thread_local ir_builder_t default_builder;
+    static TLS ir_builder_t default_builder;
     ir_builder_t& builder = default_builder;
 
 public:
@@ -367,7 +368,7 @@ public:
         Args const&...);
 };
 
-thread_local eval_t::ir_builder_t eval_t::default_builder;
+TLS eval_t::ir_builder_t eval_t::default_builder;
 
 static token_t _make_token(expr_value_t const& value);
 static rval_t _lt_rval(type_t const& type, locator_t loc);
@@ -3022,6 +3023,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 case TOK_byte_block_call:
                 case TOK_byte_block_goto:
                     {
+                        if(!fn)
+                            compiler_error(sub.token.pstring, "Cannot call functions outside of a fn context.");
+
                         expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
 
                         if(!fn_val.is_lval() || !fn_val.lval().is_global())
@@ -3048,6 +3052,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 case TOK_byte_block_goto_mode:
                     {
+                        if(!fn)
+                            compiler_error(sub.token.pstring, "Cannot call functions outside of a fn context.");
+
                         expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
                         global_t const& g = fn_val.lval().global();
 
@@ -3119,7 +3126,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(!is_check(D))
                     {
                         // TODO! this is SLOW
-                        thread_local loc_vec_t vec_temp;
+                        static TLS loc_vec_t vec_temp;
                         vec_temp.clear();
 
                         expr_value_t arg = to_rval<D>(do_expr<D>(sub));

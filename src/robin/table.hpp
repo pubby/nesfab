@@ -17,6 +17,8 @@
 #include <type_traits>
 #include <utility>
 
+#include <stdlib.h>
+
 #include "apair.hpp"
 
 #define LIKELY(b) __builtin_expect(bool(b), true)
@@ -47,6 +49,8 @@ T* table_alloc(std::size_t num)
 {
     if(num == 0)
         return nullptr;
+
+#if defined(_POSIX_C_SOURC) && _POSIX_C_SOURCE >= 200112L
     if(Align > sizeof(std::max_align_t))
     {
         constexpr std::size_t alignment = 
@@ -54,8 +58,10 @@ T* table_alloc(std::size_t num)
         void* ptr = nullptr;
         if(!posix_memalign(&ptr, alignment, int_ceil(num, alignment)))
             return reinterpret_cast<T*>(ptr);
+        throw std::bad_alloc();
     }
-    else if(void* ptr = std::malloc(num * sizeof(T)))
+#endif
+    if(void* ptr = std::malloc(num * sizeof(T)))
         return reinterpret_cast<T*>(ptr);
     throw std::bad_alloc();
 }

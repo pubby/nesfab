@@ -14,6 +14,7 @@
 #include "ir.hpp"
 #include "pbqp.hpp"
 #include "cg_isel_cpu.hpp"
+#include "thread.hpp"
 
 struct isel_no_progress_error_t : public std::exception
 {
@@ -47,9 +48,7 @@ namespace isel
 
     struct result_t
     {
-        double sort_by = 0; // TODO
         isel_cost_t cost = 0;
-        //unsigned age = 0; // TODO
         std::shared_ptr<std::vector<asm_inst_t>> code;
     };
 
@@ -74,13 +73,7 @@ namespace isel
         rh::batman_map<cross_transition_t, result_t> sels;
         isel_cost_t min_sel_cost = isel_cost_t(~0ull) / 2;
 
-        // TODO
         std::vector<rh::robin_map<locator_t, memoized_input_t>> memoized_input_maps;
-
-        // TODO:
-        //std::array<rh::batman_map<locator_t, isel_cost_t>, NUM_CROSS_REGS> output_costs;
-
-        // TODO:
 
         std::vector<asm_inst_t> const& final_code() const { return *sels.begin()[sel].second.code; }
         std::vector<asm_inst_t>& final_code() { return *sels.begin()[sel].second.code; }
@@ -90,7 +83,7 @@ namespace isel
         isel_cost_t final_cost() const { return sels.begin()[sel].second.cost; }
     };
 
-    inline thread_local std::vector<cfg_d> _data_vec;
+    extern TLS std::vector<cfg_d> _data_vec;
     inline cfg_d& data(cfg_ht h) { assert(h.id < _data_vec.size()); return _data_vec[h.id]; }
 } // end namespace isel
 

@@ -10,6 +10,14 @@ Version 0.1
 :keywords: 
 :imagesdir: ./img
 
+== About this Document
+
+This documentation is for http://pubby.games/nesfab.html[NESFab].
+It is currently a work in progress, so comments and contributions are welcome.
+
+- Question can be asked on the https://discord.gg/RUrYmC5ZeE[Discord] or via https://pubby.games/email.png[email].
+- Changes can be submitted it via the https://github.com/pubby/nesfab[Github].
+
 == What is NESFab?
 
 NESFab is a statically-typed, procedural programming language for creating NES games. 
@@ -455,6 +463,10 @@ By default, the value is 1.
 In general, a value slightly above the number of CPU cores available is ideal.
 Performance may degrade if the number is too high.
 
+[NOTE]
+This option is currently not supported on MinGW builds of NESFab, 
+due to that platform having a buggy implementation of threads.
+
 *Command-line usage:*
 ----
 nesfab --threads 4
@@ -678,6 +690,177 @@ Multi-line comments cannot share lines with code. */
 */ ct U foo = 10
 ----
 
+== Byte Blocks [[byte_blocks]]
+
+Byte blocks are a special syntax used to define inline assembly code and <<paa_type, PAA>> data.
+
+=== Typed Data [[byte_blocks_typed_data]]
+
+Data can be inserted into byte blocks using a syntax identical to <<casts, casts>>.
+
+Syntax:
+----
+Type(values...)
+----
+
+- `Type` is a type name.
+- `values` are a comma-separated list of expressions.
+
+The value is <<casts, cast>>, then inserted into the byte block with the following order:
+- For numeric types, the bytes are inserted in little-endian order.
+- For <<type_struct, structures>>, the first member is inserted first, then the second, and so on.
+- For <<type_TEA, TEAs>>, the first element is inserted first, then the second, and so on.
+
+Example:
+----
+data /some_group
+    [] some_data
+        U(10)
+        UU(2000)
+        U[3](1,2,3)
+----
+
+=== Untyped Data [[byte_blocks_untyped_data]]
+
+The type name of <<byte_blocks_typed_data, typed data>> can be elided,
+causing the type to inferred from the expression.
+
+Syntax:
+----
+(values)
+----
+
+- `values` is an expression.
+
+The value is inserted into the byte block following the rules of <<byte_blocks_typed_data, typed data>>.
+
+Example:
+----
+data /some_group
+    [] some_data
+        (U(10) + U(20))
+        (UU(300).x)
+----
+
+=== Assembly Instructions
+
+Assembly instructions can be inserted into byte blocks with a syntax similar to 6502 assemblers.
+
+Syntaxes:
+----
+op           // Implied
+op #num      // Immediate
+op addr      // Direct (Zero page or absolute)
+op addr      // Relative
+op (addr)    // Indirect
+op addr, x   // Direct, X
+op addr, y   // Direct, Y
+op (addr, y) // Indirect, X
+op (addr), y // Indirect, Y
+
+- `op` is one of the op codes listed below in all uppercase, or all lowercase letters.
+- `num` is a value of type <<type_integer, `U`>>.
+- `addr` is a value of type <<type_address, `AA`>>.
+
+Valid Op Codes:
+----
+adc
+and
+asl
+bcc
+bcs
+beq
+bit
+bmi
+bne
+bpl
+brk
+bvc
+bvs
+clc
+cld
+cli
+clv
+cmp
+cpx
+cpy
+dec
+dex
+dey
+eor
+inc
+inx
+iny
+jmp
+jsr
+lda
+ldx
+ldy
+lsr
+nop
+ora
+pha
+php
+pla
+plp
+rol
+ror
+rti
+rts
+sbc
+sec
+sed
+sei
+sta
+stx
+sty
+tax
+tay
+tsx
+txa
+txs
+tya
+lax
+axs
+anc
+alr
+arr
+sax
+skb
+ign
+dcp
+isc
+rla
+rra
+slo
+sre
+----
+
+Example:
+----
+data /some_group
+    [] some_data
+        lda #30
+        sta $2003
+        ldy #0
+        lda ($2000), y
+        sta ($00, x)
+----
+
+=== Special Statements
+
+The following statements have special meaning inside of byte blocks:
+
+- <<kw_label_asm, `label`>>
+- <<kw_nmi_asm, `nmi`>>
+
+In addition, the following statements have special meaning inside of <<kw_asm, `asm fn`>> byte blocks:
+
+- <<kw_fn_asm, `fn`>>
+- <<kw_goto_asm, `goto`>>
+- <<kw_goto_mode_asm, `goto mode`>>
+- <<kw_switch_asm, `switch`>>
+
 == Keywords
 
 === `if`
@@ -859,6 +1042,27 @@ switch player_state
         break
 ----
 
+==== `switch` statement (byte block) [[kw_switch_asm]]
+
+In byte blocks, the `switch` statement causes the mapper to bankswitch to a specified <<banks, bank>>.
+
+Syntax:
+----
+switch regs
+----
+
+- `regs` specifies which registers are holding the bank to switch to. The accepted values are `x`, `y`, and `ax`,
+  where `ax` requires registers A and X to hold the same value.
+
+Example:
+----
+ldy &my_bank1 // Load the bank in registers Y
+switch y      // Switch to the bank in that register
+
+lax &my_bank2 // Load the bank in registers A and X
+switch ax     // Switch to the bank in those registers
+----
+
 === `case` [[kw_case]]
 
 `case` is used inside of <<kw_switch>> statements as a label.
@@ -972,9 +1176,10 @@ mode bar(U some_argument)
     : preserves /my_vars
 ----
 
-==== `goto` (assembly) [[kw_goto_asm]]
+==== `goto` (assembly byte block) [[kw_goto_asm]]
 
-In assembly functions, the `goto` statement causes control to switch execution to another function.
+In assembly functions, the `goto` statement causes control to switch execution to another function,
+clobbering all registers in the process.
 It behaves similar to the <<kw_fn_asm, `fn` assembly statement>>, but does not return.
 
 Syntax:
@@ -988,7 +1193,7 @@ If the function accepts arguments, those arguments must be set prior to the `got
 
 Example:
 ----
-asm fn foo(U x)
+fn foo(U x)
     // ...
 
 asm fn bar()
@@ -999,10 +1204,10 @@ asm fn bar()
         goto foo
 ----
 
-==== `goto mode` (assembly) [[kw_goto_mode_asm]]
+==== `goto mode` (assembly byte block) [[kw_goto_mode_asm]]
 
 In assembly functions, the `goto mode` statement causes control to switch execution to a mode,
-discarding the current call stack and starting anew.
+clobbering all registers, discarding the current call stack, and starting anew.
 In the process, global variables will be reset to their initial value,
 unless they are explicitly preserved using <<mod_preserves>> in the `goto mode` statement.
 It behaves similar to the <<kw_goto_mode, `fn` assembly statement>>.
@@ -1041,15 +1246,48 @@ It behaves like labels in most programming languages, albeit with a slightly dif
 Syntax:
 ----
 label identifier
-    code block
+    code_block
 ----
 
-The `code block` of `label` exists only to provide a scope.
+- `identifier` is the unique name of the label.
+- `code_block` is an optional indented code block.
+
+The `code_block` of `label` exists only to provide a scope.
 There is no other difference between the syntax above, and this:
 
 ----
 label identifier
-code block
+code_block
+----
+
+==== `label` statement (byte block) [[kw_label_asm]]
+
+Labels give names to specific addresses inside of byte blocks. 
+They behave similarly to <<kw_ct, `ct`>> definitions, defining values of type <<type_address, `AA` and `AAA`>>.
+
+Syntax:
+----
+label identifier
+    byte_block
+----
+
+- `identifier` is the unique name of the label.
+- `byte_block` is an optional indented byte block to be inserted into the containing byte block.
+
+The `byte_block` of `label` exists only to provide a scope.
+There is no other difference between the syntax above, and this:
+
+----
+label identifier
+byte_block
+----
+
+Example:
+----
+data /some_group
+    [] some_data
+        label foo
+            jmp foo
 ----
 
 === `return` [[kw_return]]
@@ -1076,7 +1314,7 @@ A `return` expression *does not cause functions to return*.
 Instead, it provides a handle to the current function's return value.
 Although the value itself cannot be used, the address of can be taken using <<unary_ops, unary operator>> `&`,
 
-This functionality exists because of <<TODO, inline assembly>>.
+This functionality exists because of <<`asm`, inline assembly>>.
 Most often, it is used to allow inline assembly functions to return values
 by storing into the address.
 
@@ -1445,7 +1683,39 @@ fn foo(U p1, U p2) U
     return p1 + p2
 ----
 
-TODO: inline assembly
+==== `fn` statement (assembly byte block) [[kw_fn_asm]]
+
+In assembly functions, the `fn` statement calls a NESFab function,
+clobbering all registers in the process.
+
+[NOTE]
+Unlike the `JSR` instruction, the `fn` statement correctly handles the NESFab calling convention and runtime.
+
+Syntax:
+----
+fn fn_identifier
+----
+
+- `fn_identifier` is the name of a function.
+
+If the function accepts arguments, those arguments must be set prior to the `fn` statement.
+If the function returns a value, it can be retrieved via <<kw_return_expression, `return`>>.
+
+Example:
+----
+fn foo(U x) U
+    return x + x
+
+asm fn bar()
+: employs
+    default
+        lda #5
+        sta &foo.x       // Set the argument
+        fn foo           // Call the function
+        lda #&foo.return // Read the return value
+        sta PPUDATA
+        rts
+----
 
 === `ct` [[kw_ct]]
 
@@ -1527,13 +1797,24 @@ But more importantly, modes allow the compiler to smartly allocate memory,
 enabling variables used in different modes to share RAM addresses.
 This happens transparently from the programmer; no https://en.wikipedia.org/wiki/Tagged_union[sum types] needed.
 
-=== `nmi`
+=== `nmi` [[kw_nmi]]
 
 The keyword `nmi` can be used as a statement, or as a declaration.
 
-==== `nmi` statement
+==== `nmi` statement [[kw_nmi_statement]]
 
 The `nmi` statement blocks execution until an <<kw_nmi_function>> occurs.
+Until the `nmi` statement returns, <<kw_ready>> will evaluate to <<kw_true>>.
+
+Syntax:
+----
+nmi
+----
+
+==== `nmi` statement (byte block) [[kw_nmi_asm]]
+
+In byte blocks, the `nmi` statement blocks execution until an <<kw_nmi_function>> occurs,
+clobbering all registers in the process.
 Until the `nmi` statement returns, <<kw_ready>> will evaluate to <<kw_true>>.
 
 Syntax:
@@ -1578,7 +1859,7 @@ as otherwise the game would speed up or slow down based on how much computation 
 
 === `asm` [[kw_asm]]
 
-The `asm` keyword declares an function at global scope using <<TODO_byte_block, byte block>> inline assembly syntax. 
+The `asm` keyword declares an function at global scope using <<byte_blocks, byte block>> inline assembly syntax. 
 
 Syntax:
 ----
@@ -1594,7 +1875,7 @@ asm fn identifier(parameters) ReturnType
 - `ReturnType` is a type name, but is optional. Leaving `ReturnType` blank is the same as specifying it as `Void`.
 - `/groups` is an optional list of groups that the function uses. See <<kw_employs>>.
 - `local vars` is a line-separated list of variables with the syntax `Type name`.
-- `byte block` is the <<TODO_byte_block, byte block>> of code which implements the function.
+- `byte block` is the <<byte_blocks, byte block>> of code which implements the function.
 
 A special `default` label is required in each `asm` function,
 and specifies the entry point to the function.
@@ -1623,7 +1904,7 @@ asm fn waste_time()
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 
-The labels of an `asm` function are visible using the <<TODO, `.` operator>>.
+The labels of an `asm` function are visible using the <<member_access, `.` operator>>.
 Although the address cannot be taken of these labels, it is possible to call them like functions.
 
 Example:
@@ -1707,7 +1988,7 @@ data /group_name
 ----
 
 - `group_name` is the mandatory name of the group that the constants will be part of.
-- `constants` are global constant definitions with the syntax `[optional_size] identifier`, followed by a <<TODO_byte_block, byte block>>.
+- `constants` are global constant definitions with the syntax `[optional_size] identifier`, followed by a <<byte_blocks, byte block>>.
 
 The same group can be declared multiple times,
 with each declaration defining additional global variables.
@@ -1749,7 +2030,7 @@ omni data /group_name
 ----
 
 - `group_name` is the optional name of the group that the constants will be part of.
-- `constants` are global constant definitions with the syntax `[optional_size] identifier`, followed by a <<TODO_byte_block, byte block>>.
+- `constants` are global constant definitions with the syntax `[optional_size] identifier`, followed by a <<byte_blocks, byte block>>.
 
 *Why use `omni`?*
 
@@ -1899,7 +2180,7 @@ charmap bad_charmap("abc", 'z') // Error! 'z' is not in the charmap!
 *`stows` Group*
 
 `charmap` accepts a single group in its `stows` <<modifiers, modifiers>>.
-If defined, string literals using the `charmap` become valid operands to <<op_at_TODO, operator `@`>> and <<op_amper_TODO, operator `&`>>.
+If defined, string literals using the `charmap` become valid operands to <<get_ptr, operator `@`>> and <<get_hw_addr, operator `&`>>.
 When using these operators, the contents of the string literal will exist in the group as data.
 
 Example:
@@ -1922,7 +2203,7 @@ ct CCC/strings another_ptr = @some_string
 === `chrrom`
 
 The `chrrom` keyword is only used for <<mappers, mappers>> which use CHR ROM (as opposed to CHR RAM).
-It specifies the data of the CHR ROM using a <<TODO, byte-block>> syntax.
+It specifies the data of the CHR ROM using a <<byte_blocks, byte block>> syntax.
 
 Syntax:
 ----
@@ -1942,7 +2223,7 @@ The compiler will issue a warning if the supplied data does not match what the m
 === `file` [[kw_file]]
 
 The `file` keyword imports and converts data from an external file.
-It is only usable inside of a <<todo, byte-block>>.
+It is only usable inside of a <<byte_blocks, byte block>>.
 
 Syntax:
 ----
@@ -2674,7 +2955,7 @@ All function-like operators have left associativity and evaluate first in the or
 
 ==== Get Pointer `@` [[get_pointer]]
 
-Converts an lvalue <<paa, pointer-addressable array>> into a corresponding pointer.
+Converts an lvalue <<type_paa, pointer-addressable array>> into a corresponding pointer.
 
 ==== Get Hardware Address `&` [[get_hw_addr]]
 
@@ -2688,6 +2969,7 @@ For regular code, it's recommended to use <<get_pointer>> instead.
 
 Returns its operand, type and value unchanged. The operand must be an <<type_arithmetic, arithmetic type>>.
 
+Example:
 ----
 +100 // Equivalent to 100
 ----
@@ -2696,6 +2978,7 @@ Returns its operand, type and value unchanged. The operand must be an <<type_ari
 
 Returns its operand subtracted from zero, type unchanged. The operand must be an <<type_arithmetic, arithmetic type>>.
 
+Example:
 ----
 -100 // Equivalent to (0 - 100)
 ----
@@ -2704,6 +2987,7 @@ Returns its operand subtracted from zero, type unchanged. The operand must be an
 
 Returns its operand with every bit flipped (1 becomes 0, and vice versa), type unchanged. The operand must be an <<type_arithmetic, arithmetic type>>.
 
+Example:
 ----
 U bits = %1010
 ~bits // Equivalent to %11110101
@@ -2713,6 +2997,7 @@ U bits = %1010
 
 Returns its operand, converted to type `Bool`, then negated (`true` becomes `false` and vice versa). The operand must be an <<type_arithmetic, arithmetic type>>.
 
+Example:
 ----
 !0     // Equivalent to true
 !5     // Equivalent to false
@@ -2722,7 +3007,20 @@ Returns its operand, converted to type `Bool`, then negated (`true` becomes `fal
 
 ==== Member Access `.` [[member_access]]
 
-TODO
+Operator `.` is used to access members and nested values, and works similarly to other languages.
+Its behavior depends on the left hand side of the operator:
+
+- For <<type_struct, structure values>>, returns the specified member as an lvalue.
+- For <<kw_fn, `fn` values>> and <<type_paa, PAA values>>, returns the <<kw_ct, `ct`>> value in its scope.
+
+Additionally, if the left hand side is an <<kw_asm, `asm fn`>> and the right hand side is a <<kw_label_asm, `label`>>,
+the result is a callable function with the label being the entry point.
+
+Example:
+----
+foo.bar = 10               // Modify a struct member
+some_asm_fn.some_label(10) // Call an assembly function
+----
 
 ==== Multiply `*` [[multiply]]
 
@@ -2734,6 +3032,7 @@ To be more precise, if the operand types have `F` and `F'` fractional bytes, the
 Likewise, if the operand types have `W` and `W'` whole bytes, the return type will have `W + W'`.
 The return type will be truncated to fit the compiler's available types.
 
+Example:
 ----
 5 * 3             // Equivalent to 15, of type Int
 U(5) * U(8)       // Equivalent to 40, of type UU
@@ -2750,6 +3049,7 @@ However, if you need to do lots of multiplications, consider using lookup tables
 Multiplies its operands together, then assigns the value to the lvalue left operand, converting as needed. 
 Returns the left operand's new value.
 
+Example:
 ----
 U a
 a *= b // Equivalent to a = U(a * b)
@@ -2760,6 +3060,7 @@ a *= b // Equivalent to a = U(a * b)
 Returns the sum of its operands. 
 The operands must be of the same <<type_quantity, quantity type>>, although `Int` and `Real` will convert.
 
+Example:
 ----
 3 + 7 // Equivalent to 10
 ----
@@ -2769,6 +3070,7 @@ The operands must be of the same <<type_quantity, quantity type>>, although `Int
 Converts the right operand to the left operand's type, then performs an addition using both operands and assigns the value to the lvalue left operand.
 Return the carry: a value of type `Bool` that is `true` when the resulting sum overflowed, and `false` otherwise. 
 
+Example:
 ----
 U x = 200
 x += 50  // 'x' is now equal to 50. The expression returns 'false'.
@@ -2783,6 +3085,7 @@ Unlike in other languages, this operator doesn't return its left operand.
 Returns the difference of its operands (the right operand subtracted from the left). 
 The operands must be of the same <<type_quantity, quantity type>>, although `Int` and `Real` will convert.
 
+Example:
 ----
 10 - 7 // Equivalent to 3
 ----
@@ -2792,6 +3095,7 @@ The operands must be of the same <<type_quantity, quantity type>>, although `Int
 Converts the right operand to the left operand's type, then performs a subtraction using both operands and assigns the value to the lvalue left operand.
 Return the carry: a value of type `Bool` that is `false` when the resulting sum underflowed, and `true` otherwise. 
 
+Example:
 ----
 U x = 200
 x -= 50  // 'x' is now equal to 150. The expression returns 'true'.
@@ -2804,6 +3108,7 @@ Moves each of the bits of the left operand one place to the left, with the lowes
 The left operand must be a <<type_quantity, type_quantity>>, and the right operand must be type `Bool`.
 The return type matches the left operand's type.
 
+Example:
 ----
 U(%11001010) <-< false // Equivalent to U(%10010100)
 U(%11001010) <-< true  // Equivalent to U(%10010101)
@@ -2815,6 +3120,7 @@ U(%01111111) <-< false // Equivalent to U(%11111110)
 Performs a left rotation using both operands, then assigns the value to the lvalue left operand.
 Returns the carry: a value of type `Bool` equal to left operand's highest bit prior to the operation.
 
+Example:
 ----
 U foo = %11001010
 foo <=< false // Sets 'foo' to U(%10010100). Returns true.
@@ -2826,6 +3132,7 @@ Moves each of the bits of the right operand one place to the right, with the hig
 The right operand must be a <<type_quantity, type_quantity>>, and the left operand must be type `Bool`.
 The return type matches the right operand's type.
 
+Example:
 ----
 false >-> U(%11001010) // Equivalent to U(%01100101)
 true  >-> U(%11001010) // Equivalent to U(%11100101)
@@ -2840,6 +3147,7 @@ This operation corresponds to the 6502 assembly instruction `ROR`.
 Performs a right rotation using both operands, then assigns the value to the lvalue right operand.
 Returns the carry: a value of type `Bool` equal to right operand's lowest bit prior to the operation.
 
+Example:
 ----
 U foo = %11001010
 false >=> foo // Sets 'foo' to %01100101. Returns false.
@@ -2854,6 +3162,7 @@ Moves each of the bits of the left operand to the left N places, where N is the 
 and filling blank spaces with `0`.
 The return type matches the left operand's type.
 
+Example:
 ----
 U(%11110001) << 1 // Equivalent to U(%11100010)
 U(%11110001) << 3 // Equivalent to U(%10001000)
@@ -2870,6 +3179,7 @@ and shifting by a variable (`x << y)` generates a loop in the assembly.
 Performs a left shift using both operands, then assigns the value to the lvalue left operand.
 Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occured).
 
+Example:
 ----
 U foo = %11001010
 foo <<= 2 // Sets 'foo' to U(%00101000). Returns true.
@@ -2885,6 +3195,7 @@ If the left operand is unsigned, the blank spaces are filled with `0`,
 otherwise the blank spaces are filled with the highest bit of the left operand (this is called sign extension).
 The return type matches the left operand's type.
 
+Example:
 ----
 U(%11110001) >> 1 // Equivalent to U(%01111000)
 S(%11110001) >> 1 // Equivalent to S(%11111000)
@@ -2904,6 +3215,7 @@ and shifting by a variable (`x >> y)` generates a loop in the assembly.
 Performs a right shift using both operands, then assigns the value to the lvalue left operand.
 Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occured).
 
+Example:
 ----
 U foo = %11001010
 foo >>= 2 // Sets 'foo' to U(%00110010). Returns true.
@@ -2917,6 +3229,7 @@ Unlike in other languages, this operator doesn't return its left operand.
 Applies the AND operation across each bit of the operands, returning the result.
 The operands must be of the same <<type_arithmetic, arithmetic type>>, although `Int` and `Real` will convert.
 
+Example:
 ----
 U(%11110000) & U(%10101010) // Equivalent to U(%10100000)
 ----
@@ -2928,6 +3241,7 @@ See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operat
 Converts the right operand to the left operand's type, then performs a bitwise AND using both operands and assigns the value to the lvalue left operand.
 Returns the left operand's new value.
 
+Example:
 ----
 U foo = %11110000
 foo &= %10101010 // Sets 'foo' to U(%10100000)
@@ -2938,6 +3252,7 @@ foo &= %10101010 // Sets 'foo' to U(%10100000)
 Applies the XOR operation across each bit of the operands, returning the result.
 The operands must be of the same <<type_arithmetic, arithmetic type>>, although `Int` and `Real` will convert.
 
+Example:
 ----
 U(%11110000) ^ U(%10101010) // Equivalent to U(%01011010)
 ----
@@ -2949,6 +3264,7 @@ See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operat
 Converts the right operand to the left operand's type, then performs a bitwise XOR using both operands and assigns the value to the lvalue left operand.
 Returns the left operand's new value.
 
+Example:
 ----
 U foo = %11110000
 foo ^= %10101010 // Sets 'foo' to U(%01011010)
@@ -2959,6 +3275,7 @@ foo ^= %10101010 // Sets 'foo' to U(%01011010)
 Applies the OR operation across each bit of the operands, returning the result.
 The operands must be of the same <<type_arithmetic, arithmetic type>>, although `Int` and `Real` will convert.
 
+Example:
 ----
 U(%11110000) | U(%10101010) // Equivalent to U(%11111010)
 ----
@@ -2970,6 +3287,7 @@ See: https://en.wikipedia.org/wiki/Bitwise_operation[Wikipedia on Bitwise Operat
 Converts the right operand to the left operand's type, then performs a bitwise OR using both operands and assigns the value to the lvalue left operand.
 Returns the left operand's new value.
 
+Example:
 ----
 U foo = %11110000
 foo |= %10101010 // Sets 'foo' to U(%11111010)
@@ -2982,6 +3300,7 @@ Implements the https://en.wikipedia.org/wiki/Short-circuit_evaluation["short-cir
 Evaluates the left operand and converts it to `Bool`. If it is `false`, the operator returns `false`. 
 Otherwise, it evaluates the right operand and returns its value converted to `Bool`.
 
+Example:
 ----
 false && false  // Returns false
 true  && false  // Returns false
@@ -2996,6 +3315,7 @@ Implements the https://en.wikipedia.org/wiki/Short-circuit_evaluation["short-cir
 Evaluates the left operand and converts it to `Bool`. If it is `true`, the operator returns `true`. 
 Otherwise, it evaluates the right operand and returns its value converted to `Bool`.
 
+Example:
 ----
 false || false  // Returns false
 true  || false  // Returns true
@@ -3008,6 +3328,7 @@ true  || true   // Returns true
 Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is less than the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
+Example:
 ----
 3 <  10 // Returns true
 3 < -10 // Returns false
@@ -3018,6 +3339,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is less than or equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
+Example:
 ----
 3 <= 3   // Returns true
 3 <= -10 // Returns false
@@ -3028,6 +3350,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is greater than the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
+Example:
 ----
 3 >  10 // Returns false
 3 > -10 // Returns true
@@ -3038,6 +3361,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is greater than or equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
+Example:
 ----
 3 >= 3  // Returns true
 3 >= 10 // Returns false
@@ -3048,6 +3372,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
+Example:
 ----
 3 == 3  // Returns true
 3 == 10 // Returns false
@@ -3058,6 +3383,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
 The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
 
+Example:
 ----
 3 != 3  // Returns false
 3 != 10 // Returns true
@@ -3068,6 +3394,7 @@ The operands may be of different types. No types conversions occur besides `Int`
 Stores the right operand into the left and returns the new value of the left operand.
 The right operand must have the same type as the left operand, although `Int` and `Real` will convert.
 
+Example:
 ----
 U foo
 foo = 10 // 'foo' is now equal to 10
@@ -3346,9 +3673,6 @@ These pairs are expanded recursively to decompress the string.
 
 The nice thing about byte-pair encoding is that uncompressed strings are valid under the encoding too.
 This means functions for compressed strings also work with uncompressed strings.
-
-TODO: explain how to use.
-
 
 ==== Escape Sequences
 
@@ -3816,7 +4140,7 @@ fn example()
     MM/example ptr = @a_paa // Get a pointer to 'a_paa'
 ----
 
-=== Structures
+=== Structures [[type_struct]]
 
 Structures (or "structs") are https://en.wikipedia.org/wiki/Record_(computer_science)[record types],
 which allows one to aggregate multiple types into a single one.

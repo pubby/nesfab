@@ -2,10 +2,10 @@
 
 #include "ir.hpp"
 
-thread_local std::vector<cfg_algo_d> cfg_algo_pool;
-thread_local std::vector<cfg_ht> postorder;
-thread_local std::vector<cfg_ht> preorder;
-thread_local std::vector<cfg_ht> loop_headers;
+TLS std::vector<cfg_algo_d> cfg_algo_pool;
+TLS std::vector<cfg_ht> postorder;
+TLS std::vector<cfg_ht> preorder;
+TLS std::vector<cfg_ht> loop_headers;
 
 ////////////////////////////////////////
 // order

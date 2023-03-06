@@ -8,6 +8,7 @@
 
 #include "bitset.hpp"
 #include "ir_decl.hpp"
+#include "thread.hpp"
 
 constexpr unsigned UNVISITED = -1;
 
@@ -29,10 +30,10 @@ struct cfg_algo_d
     std::unique_ptr<reentry_set_t> reentry_out;
 };
 
-extern thread_local std::vector<cfg_algo_d> cfg_algo_pool;
-extern thread_local std::vector<cfg_ht> postorder;
-extern thread_local std::vector<cfg_ht> preorder;
-extern thread_local std::vector<cfg_ht> loop_headers;
+extern TLS std::vector<cfg_algo_d> cfg_algo_pool;
+extern TLS std::vector<cfg_ht> postorder;
+extern TLS std::vector<cfg_ht> preorder;
+extern TLS std::vector<cfg_ht> loop_headers;
 
 inline cfg_algo_d& algo(cfg_ht h)
 { 

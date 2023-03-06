@@ -1,22 +1,39 @@
 #ifndef THREAD_HPP
 #define THREAD_HPP
 
-#include <atomic>
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define NO_THREAD
+#endif
+
 #include <exception>
-#include <thread>
 #include <vector>
+#include <atomic>
+#ifndef NO_THREAD
+  #include <thread>
+#endif
+
+// MinGW has a buggy thread_local implementation.
+#ifdef NO_THREAD
+#define TLS
+#else
+#define TLS thread_local
+#endif
 
 // Launches a bunch of threads and waits until they finish.
 template<typename Fn, typename OnError>
 void parallelize(unsigned const num_threads, Fn const& fn, OnError const& on_error)
 {
+    std::atomic<bool> exception_thrown = false;
+
+#ifdef NO_THREAD
+    fn(exception_thrown);
+    return;
+#else
     std::vector<std::thread> threads;
     threads.reserve(num_threads);
 
     std::vector<std::exception_ptr> exception_ptrs;
     exception_ptrs.resize(num_threads, nullptr);
-
-    std::atomic<bool> exception_thrown = false;
 
     if(num_threads == 1)
     {
@@ -48,6 +65,7 @@ void parallelize(unsigned const num_threads, Fn const& fn, OnError const& on_err
         if(exception_ptrs[i])
             std::rethrow_exception(exception_ptrs[i]);
     }
+#endif
 }
 
 #endif

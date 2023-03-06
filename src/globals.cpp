@@ -204,7 +204,7 @@ charmap_ht global_t::define_charmap(
 global_t& global_t::default_charmap(pstring_t at)
 {
     using namespace std::literals;
-    thread_local global_t* result = nullptr;
+    static TLS global_t* result = nullptr;
     if(!result)
         result = &lookup_sourceless(at, "charmap"sv);
     return *result;
@@ -213,7 +213,7 @@ global_t& global_t::default_charmap(pstring_t at)
 global_t& global_t::chrrom(pstring_t at)
 {
     using namespace std::literals;
-    thread_local global_t* result = nullptr;
+    static TLS global_t* result = nullptr;
     if(!result)
         result = &lookup_sourceless(at, "chrrom"sv);
     return *result;

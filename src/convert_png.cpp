@@ -5,7 +5,7 @@
 #include <cassert>
 
 #include "format.hpp"
-#include "lodepng.h"
+#include "lodepng/lodepng.h"
 
 std::uint8_t map_grey_alpha(std::uint8_t grey, std::uint8_t alpha)
 {

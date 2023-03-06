@@ -17,6 +17,7 @@
 #include "unroll_divisor.hpp"
 #include "constraints.hpp"
 #include "o_ai.hpp"
+#include "thread.hpp"
 
 namespace bc = ::boost::container;
 
@@ -186,9 +187,9 @@ struct header_d
 };
 
 // iv = induction variable
-thread_local std::deque<iv_t> ivs;
-thread_local std::deque<mutual_iv_t> mutual_ivs;
-thread_local std::vector<header_d> header_data_vec;
+TLS std::deque<iv_t> ivs;
+TLS std::deque<mutual_iv_t> mutual_ivs;
+TLS std::vector<header_d> header_data_vec;
 
 template<typename Fn>
 void for_each_iv(Fn const& fn)

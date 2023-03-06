@@ -1,12 +1,13 @@
 #ifndef ETERNAL_NEW_HPP
 #define ETERNAL_NEW_HPP
 
-#include <mutex>
-
 // Let's you allocate data that persists until program termination.
 // (This could simply be 'return new T', but that triggers leak detectors.)
 
+#include <mutex>
+
 #include "array_pool.hpp"
+#include "thread.hpp"
 
 template<typename T, typename Tag = void>
 class eternal_new_pool_t : public array_pool_t<T> 
@@ -37,7 +38,7 @@ private:
 template<typename T, typename Tag = void>
 inline eternal_new_pool_t<T>& eternal_new_pool()
 {
-    thread_local eternal_new_pool_t<T, Tag> pool;
+    static TLS eternal_new_pool_t<T, Tag> pool;
     return pool;
 }
 

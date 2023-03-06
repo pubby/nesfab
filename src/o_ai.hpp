@@ -20,13 +20,14 @@
 #include "debug_print.hpp"
 #include "ir_decl.hpp"
 #include "constraints.hpp"
+#include "thread.hpp"
 
 struct ai_prep_t
 {
     std::unique_ptr<constraints_t> constraints;
 };
 
-inline thread_local std::vector<ai_prep_t> ai_prep_vec;
+extern TLS std::vector<ai_prep_t> ai_prep_vec;
 
 inline ai_prep_t& ai_prep(ssa_ht ssa) { assert(ssa.id < ai_prep_vec.size()); return ai_prep_vec[ssa.id]; }
 inline void reset_ai_prep() { ai_prep_vec.clear(); }

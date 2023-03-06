@@ -22,6 +22,7 @@
 #include "ram_init.hpp"
 #include "cg_isel.hpp"
 #include "text.hpp"
+#include "compiler_error.hpp"
 
 extern char __GIT_COMMIT;
 
@@ -38,7 +39,7 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         for(std::string const& name : vm["input"].as<std::vector<std::string>>())
         {
             fs::path const path = dir / fs::path(name);
-            std::string const ext = fs::path(path).extension();
+            std::string const ext = fs::path(path).extension().string();
 
             if(ext == ".cfg")
             {
@@ -85,7 +86,13 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         _options.werror = true;
 
     if(vm.count("threads"))
+    {
         _options.num_threads = std::clamp(vm["threads"].as<int>(), 1, 1024); // Clamp to some sufficiently high value
+#ifdef NO_THREAD
+        if(_options.num_threads > 1)
+            compiler_warning("Multiple threads are not supported on this version and platform.");
+#endif
+    }
 
     if(vm.count("timelimit"))
         _options.time_limit = std::max(vm["timelimit"].as<int>(), 0);

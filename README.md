@@ -15,7 +15,7 @@ NESFab is a new programming language for creating NES games.
 
 **Requirements:**
 - [GCC Compiler](https://gcc.gnu.org/), supporting the C++20 standard.
-- [Boost Library](https://www.boost.org/)
+- [Boost Library](https://www.boost.org/) (You may also need the `libboost-program-options-dev` package)
 - [Make](https://www.gnu.org/software/make/)
 
 The NESFab can be built in either debug mode, or release mode.

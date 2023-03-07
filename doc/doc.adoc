@@ -757,6 +757,7 @@ op addr, x   // Direct, X
 op addr, y   // Direct, Y
 op (addr, y) // Indirect, X
 op (addr), y // Indirect, Y
+----
 
 - `op` is one of the op codes listed below in all uppercase, or all lowercase letters.
 - `num` is a value of type <<type_integer, `U`>>.

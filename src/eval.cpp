@@ -1947,6 +1947,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     locator_t const loc = locator_t::runtime_ram(RTRAM_system, offset);
                     return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
+                else if(lval->arg == lval_t::STATE_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_ram(RTRAM_mapper_state, offset);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                }
 
                 if(lval->is_global())
                 {
@@ -2081,6 +2086,53 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             assert(result.is_lval());
             return result;
+        }
+
+    case TOK_state:
+        {
+            if(state_size(mapper().type) == 0)
+                compiler_error(ast.token.pstring, fmt("Mapper % does not have a state.", mapper_name(mapper().type)));
+
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::STATE_ARG },
+                .type = TYPE_U,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            return result;
+        }
+
+    case TOK_write_state:
+        {
+            if(state_size(mapper().type) == 0)
+                compiler_error(ast.token.pstring, fmt("Mapper % does not have a state.", mapper_name(mapper().type)));
+
+            if(is_interpret(D))
+                compiler_error(ast.token.pstring, "Cannot set state at compile-time.");
+
+            expr_value_t arg = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_U, true);
+
+            expr_value_t result = 
+            {
+                .type = TYPE_VOID, 
+                .pstring = ast.token.pstring,
+            };
+
+            if(is_compile(D))
+            {
+                assert(arg.type == TYPE_U);
+                assert(arg.is_rval());
+
+                ssa_ht const h = builder.cfg->emplace_ssa(
+                    SSA_write_mapper_state, TYPE_VOID, arg.ssa());
+                h->append_daisy();
+                result.val = rval_t{ h };
+            }
+
+           return result;
         }
 
     case TOK_true:
@@ -4046,6 +4098,17 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 v.val = rval_t{ ssa_value_t(unsigned(compiler_options().nes_system), TYPE_U) };
 
             return v;
+        }
+        else if(lval->arg == lval_t::STATE_ARG)
+        {
+            if(is_compile(D))
+            {
+                ssa_ht h = builder.cfg->emplace_ssa(SSA_read_mapper_state, TYPE_U);
+                h->append_daisy();
+                v.val = rval_t{ h };
+            }
+            else if(is_interpret(D))
+                compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
         }
 
         if(lval->arg == lval_t::RETURN_ARG)

@@ -175,6 +175,16 @@ SSA_DEF(read_ptr_hw, 4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | 
 SSA_DEF(write_ptr,    5, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT | SSAF_IO_IMPURE | SSAF_CHEAP_SCHEDULE)
 SSA_DEF(write_ptr_hw, 5, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT | SSAF_IO_IMPURE | SSAF_CHEAP_SCHEDULE)
 
+//////////////////
+// MAPPER STATE //
+//////////////////
+
+// ()
+SSA_DEF(read_mapper_state,   0, INPUT_NONE, SSAF_IO_IMPURE)
+
+// (arg)
+SSA_DEF(write_mapper_state, 1, INPUT_VALUE, SSAF_IO_IMPURE)
+
 /////////////
 // GLOBALS //
 /////////////

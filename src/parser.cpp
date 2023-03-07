@@ -811,6 +811,25 @@ retry:
     case TOK_len:
         return type_info_impl(TOK_len_expr, &type_t::array_length);
 
+    case TOK_state:
+        {
+            ast_node_t ast = { .token = token };
+            parse_token();
+            parse_token(TOK_lparen);
+
+            if(token.type != TOK_rparen)
+            {
+                ast.token.type = TOK_write_state;
+                ast_node_t child = parse_expr(indent, open_parens+1);
+                ast.children = eternal_emplace<ast_node_t>(std::move(child));
+            }
+
+            ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
+            parse_token(TOK_rparen);
+
+            return ast;
+        }
+
     case TOK_lbrace:
         {
             bc::static_vector<ast_node_t, 2> children;

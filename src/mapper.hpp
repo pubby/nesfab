@@ -1,6 +1,7 @@
 #ifndef MAPPER_HPP
 #define MAPPER_HPP
 
+#include <cassert>
 #include <cstdint>
 #include <string_view>
 
@@ -51,11 +52,26 @@ constexpr std::uint16_t state_size(mapper_type_t mt)
     switch(mt)
     {
     case MAPPER_ANROM: 
+    case MAPPER_CNROM: 
     case MAPPER_GNROM: 
     case MAPPER_GTROM: 
         return 1;
     default: 
         return 0;
+    }
+}
+
+constexpr bool state_combines_with_banks(mapper_type_t mt)
+{
+    switch(mt)
+    {
+    case MAPPER_ANROM: 
+    case MAPPER_GNROM: 
+    case MAPPER_GTROM: 
+        assert(state_size(mt));
+        return true;
+    default: 
+        return false;
     }
 }
 

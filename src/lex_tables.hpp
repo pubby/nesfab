@@ -41,164 +41,166 @@ constexpr token_type_t TOK_preserves = 34;
 constexpr token_type_t TOK_stows = 35;
 constexpr token_type_t TOK_audio = 36;
 constexpr token_type_t TOK_system = 37;
-constexpr token_type_t TOK_true = 38;
-constexpr token_type_t TOK_false = 39;
-constexpr token_type_t TOK_PPUCTRL = 40;
-constexpr token_type_t TOK_PPUMASK = 41;
-constexpr token_type_t TOK_PPUSTATUS = 42;
-constexpr token_type_t TOK_PPUSCROLL = 43;
-constexpr token_type_t TOK_PPUADDR = 44;
-constexpr token_type_t TOK_PPUDATA = 45;
-constexpr token_type_t TOK_OAMADDR = 46;
-constexpr token_type_t TOK_OAMDATA = 47;
-constexpr token_type_t TOK_OAMDMA = 48;
-constexpr token_type_t TOK_SYSTEM_NTSC = 49;
-constexpr token_type_t TOK_SYSTEM_PAL = 50;
-constexpr token_type_t TOK_SYSTEM_DENDY = 51;
-constexpr token_type_t TOK_SYSTEM_UNKNOWN = 52;
-constexpr token_type_t TOK_colon = 53;
-constexpr token_type_t TOK_hash = 54;
-constexpr token_type_t TOK_backtick = 55;
-constexpr token_type_t TOK_dquote = 56;
-constexpr token_type_t TOK_quote = 57;
-constexpr token_type_t TOK_semicolon = 58;
-constexpr token_type_t TOK_comma = 59;
-constexpr token_type_t TOK_sizeof = 60;
-constexpr token_type_t TOK_sizeof_expr = 61;
-constexpr token_type_t TOK_len = 62;
-constexpr token_type_t TOK_len_expr = 63;
-constexpr token_type_t TOK_unary_plus = 64;
-constexpr token_type_t TOK_unary_minus = 65;
-constexpr token_type_t TOK_unary_xor = 66;
-constexpr token_type_t TOK_unary_negate = 67;
-constexpr token_type_t TOK_unary_ref = 68;
-constexpr token_type_t TOK_at = 69;
-constexpr token_type_t TOK_period = 70;
-constexpr token_type_t TOK_apply = 71;
-constexpr token_type_t TOK_mode_apply = 72;
-constexpr token_type_t TOK_cast = 73;
-constexpr token_type_t TOK_cast_type = 74;
-constexpr token_type_t TOK_index8 = 75;
-constexpr token_type_t TOK_index16 = 76;
-constexpr token_type_t TOK_lbrace = 77;
-constexpr token_type_t TOK_rbrace = 78;
-constexpr token_type_t TOK_lbracket = 79;
-constexpr token_type_t TOK_rbracket = 80;
-constexpr token_type_t TOK_lparen = 81;
-constexpr token_type_t TOK_increment = 82;
-constexpr token_type_t TOK_decrement = 83;
-constexpr token_type_t TOK_asterisk = 84;
-constexpr token_type_t TOK_fslash = 85;
-constexpr token_type_t TOK_plus = 86;
-constexpr token_type_t TOK_minus = 87;
-constexpr token_type_t TOK_rol = 88;
-constexpr token_type_t TOK_ror = 89;
-constexpr token_type_t TOK_ror_flip = 90;
-constexpr token_type_t TOK_lshift = 91;
-constexpr token_type_t TOK_rshift = 92;
-constexpr token_type_t TOK_bitwise_and = 93;
-constexpr token_type_t TOK_bitwise_xor = 94;
-constexpr token_type_t TOK_bitwise_or = 95;
-constexpr token_type_t TOK_lt = 96;
-constexpr token_type_t TOK_lte = 97;
-constexpr token_type_t TOK_gt = 98;
-constexpr token_type_t TOK_gte = 99;
-constexpr token_type_t TOK_eq = 100;
-constexpr token_type_t TOK_not_eq = 101;
-constexpr token_type_t TOK_logical_and = 102;
-constexpr token_type_t TOK_end_logical_and = 103;
-constexpr token_type_t TOK_logical_or = 104;
-constexpr token_type_t TOK_end_logical_or = 105;
-constexpr token_type_t TOK_rol_assign = 106;
-constexpr token_type_t TOK_ror_assign = 107;
-constexpr token_type_t TOK_ror_assign_flip = 108;
-constexpr token_type_t TOK_assign = 109;
-constexpr token_type_t TOK_plus_assign = 110;
-constexpr token_type_t TOK_minus_assign = 111;
-constexpr token_type_t TOK_times_assign = 112;
-constexpr token_type_t TOK_div_assign = 113;
-constexpr token_type_t TOK_bitwise_and_assign = 114;
-constexpr token_type_t TOK_bitwise_or_assign = 115;
-constexpr token_type_t TOK_bitwise_xor_assign = 116;
-constexpr token_type_t TOK_lshift_assign = 117;
-constexpr token_type_t TOK_rshift_assign = 118;
-constexpr token_type_t TOK_rparen = 119;
-constexpr token_type_t TOK_Void = 120;
-constexpr token_type_t TOK_F = 121;
-constexpr token_type_t TOK_FF = 122;
-constexpr token_type_t TOK_FFF = 123;
-constexpr token_type_t TOK_U = 124;
-constexpr token_type_t TOK_UU = 125;
-constexpr token_type_t TOK_UUU = 126;
-constexpr token_type_t TOK_UF = 127;
-constexpr token_type_t TOK_UUF = 128;
-constexpr token_type_t TOK_UUUF = 129;
-constexpr token_type_t TOK_UFF = 130;
-constexpr token_type_t TOK_UUFF = 131;
-constexpr token_type_t TOK_UUUFF = 132;
-constexpr token_type_t TOK_UFFF = 133;
-constexpr token_type_t TOK_UUFFF = 134;
-constexpr token_type_t TOK_UUUFFF = 135;
-constexpr token_type_t TOK_S = 136;
-constexpr token_type_t TOK_SS = 137;
-constexpr token_type_t TOK_SSS = 138;
-constexpr token_type_t TOK_SF = 139;
-constexpr token_type_t TOK_SSF = 140;
-constexpr token_type_t TOK_SSSF = 141;
-constexpr token_type_t TOK_SFF = 142;
-constexpr token_type_t TOK_SSFF = 143;
-constexpr token_type_t TOK_SSSFF = 144;
-constexpr token_type_t TOK_SFFF = 145;
-constexpr token_type_t TOK_SSFFF = 146;
-constexpr token_type_t TOK_SSSFFF = 147;
-constexpr token_type_t TOK_AA = 148;
-constexpr token_type_t TOK_AAA = 149;
-constexpr token_type_t TOK_PP = 150;
-constexpr token_type_t TOK_PPP = 151;
-constexpr token_type_t TOK_CC = 152;
-constexpr token_type_t TOK_CCC = 153;
-constexpr token_type_t TOK_MM = 154;
-constexpr token_type_t TOK_MMM = 155;
-constexpr token_type_t TOK_Int = 156;
-constexpr token_type_t TOK_Real = 157;
-constexpr token_type_t TOK_Bool = 158;
-constexpr token_type_t TOK_ident = 159;
-constexpr token_type_t TOK_type_ident = 160;
-constexpr token_type_t TOK_decimal = 161;
-constexpr token_type_t TOK_hex = 162;
-constexpr token_type_t TOK_binary = 163;
-constexpr token_type_t TOK_int = 164;
-constexpr token_type_t TOK_real = 165;
-constexpr token_type_t TOK_global_ident = 166;
-constexpr token_type_t TOK_weak_ident = 167;
-constexpr token_type_t TOK_hw_addr = 168;
-constexpr token_type_t TOK_read_hw = 169;
-constexpr token_type_t TOK_write_hw = 170;
-constexpr token_type_t TOK_group_set = 171;
-constexpr token_type_t TOK_rpair = 172;
-constexpr token_type_t TOK_ssa = 173;
-constexpr token_type_t TOK_implicit_cast = 174;
-constexpr token_type_t TOK_shift_atom = 175;
-constexpr token_type_t TOK_replace_atom = 176;
-constexpr token_type_t TOK_character = 177;
-constexpr token_type_t TOK_string_uncompressed = 178;
-constexpr token_type_t TOK_string_compressed = 179;
-constexpr token_type_t TOK_byte_block_proc = 180;
-constexpr token_type_t TOK_byte_block_data = 181;
-constexpr token_type_t TOK_byte_block_asm_op = 182;
-constexpr token_type_t TOK_byte_block_label = 183;
-constexpr token_type_t TOK_byte_block_call = 184;
-constexpr token_type_t TOK_byte_block_goto = 185;
-constexpr token_type_t TOK_byte_block_goto_mode = 186;
-constexpr token_type_t TOK_byte_block_wait_nmi = 187;
-constexpr token_type_t TOK_byte_block_bank_switch_x = 188;
-constexpr token_type_t TOK_byte_block_bank_switch_y = 189;
-constexpr token_type_t TOK_byte_block_bank_switch_ax = 190;
-constexpr token_type_t TOK_byte_block_bank_switch_ay = 191;
-constexpr token_type_t TOK_byte_block_byte_array = 192;
-constexpr token_type_t TOK_byte_block_locator_array = 193;
-constexpr token_type_t TOK_byte_block_sub_proc = 194;
-constexpr token_type_t TOK_END = 195;
+constexpr token_type_t TOK_state = 38;
+constexpr token_type_t TOK_true = 39;
+constexpr token_type_t TOK_false = 40;
+constexpr token_type_t TOK_PPUCTRL = 41;
+constexpr token_type_t TOK_PPUMASK = 42;
+constexpr token_type_t TOK_PPUSTATUS = 43;
+constexpr token_type_t TOK_PPUSCROLL = 44;
+constexpr token_type_t TOK_PPUADDR = 45;
+constexpr token_type_t TOK_PPUDATA = 46;
+constexpr token_type_t TOK_OAMADDR = 47;
+constexpr token_type_t TOK_OAMDATA = 48;
+constexpr token_type_t TOK_OAMDMA = 49;
+constexpr token_type_t TOK_SYSTEM_NTSC = 50;
+constexpr token_type_t TOK_SYSTEM_PAL = 51;
+constexpr token_type_t TOK_SYSTEM_DENDY = 52;
+constexpr token_type_t TOK_SYSTEM_UNKNOWN = 53;
+constexpr token_type_t TOK_colon = 54;
+constexpr token_type_t TOK_hash = 55;
+constexpr token_type_t TOK_backtick = 56;
+constexpr token_type_t TOK_dquote = 57;
+constexpr token_type_t TOK_quote = 58;
+constexpr token_type_t TOK_semicolon = 59;
+constexpr token_type_t TOK_comma = 60;
+constexpr token_type_t TOK_sizeof = 61;
+constexpr token_type_t TOK_sizeof_expr = 62;
+constexpr token_type_t TOK_len = 63;
+constexpr token_type_t TOK_len_expr = 64;
+constexpr token_type_t TOK_unary_plus = 65;
+constexpr token_type_t TOK_unary_minus = 66;
+constexpr token_type_t TOK_unary_xor = 67;
+constexpr token_type_t TOK_unary_negate = 68;
+constexpr token_type_t TOK_unary_ref = 69;
+constexpr token_type_t TOK_at = 70;
+constexpr token_type_t TOK_period = 71;
+constexpr token_type_t TOK_apply = 72;
+constexpr token_type_t TOK_mode_apply = 73;
+constexpr token_type_t TOK_cast = 74;
+constexpr token_type_t TOK_cast_type = 75;
+constexpr token_type_t TOK_index8 = 76;
+constexpr token_type_t TOK_index16 = 77;
+constexpr token_type_t TOK_lbrace = 78;
+constexpr token_type_t TOK_rbrace = 79;
+constexpr token_type_t TOK_lbracket = 80;
+constexpr token_type_t TOK_rbracket = 81;
+constexpr token_type_t TOK_lparen = 82;
+constexpr token_type_t TOK_increment = 83;
+constexpr token_type_t TOK_decrement = 84;
+constexpr token_type_t TOK_asterisk = 85;
+constexpr token_type_t TOK_fslash = 86;
+constexpr token_type_t TOK_plus = 87;
+constexpr token_type_t TOK_minus = 88;
+constexpr token_type_t TOK_rol = 89;
+constexpr token_type_t TOK_ror = 90;
+constexpr token_type_t TOK_ror_flip = 91;
+constexpr token_type_t TOK_lshift = 92;
+constexpr token_type_t TOK_rshift = 93;
+constexpr token_type_t TOK_bitwise_and = 94;
+constexpr token_type_t TOK_bitwise_xor = 95;
+constexpr token_type_t TOK_bitwise_or = 96;
+constexpr token_type_t TOK_lt = 97;
+constexpr token_type_t TOK_lte = 98;
+constexpr token_type_t TOK_gt = 99;
+constexpr token_type_t TOK_gte = 100;
+constexpr token_type_t TOK_eq = 101;
+constexpr token_type_t TOK_not_eq = 102;
+constexpr token_type_t TOK_logical_and = 103;
+constexpr token_type_t TOK_end_logical_and = 104;
+constexpr token_type_t TOK_logical_or = 105;
+constexpr token_type_t TOK_end_logical_or = 106;
+constexpr token_type_t TOK_rol_assign = 107;
+constexpr token_type_t TOK_ror_assign = 108;
+constexpr token_type_t TOK_ror_assign_flip = 109;
+constexpr token_type_t TOK_assign = 110;
+constexpr token_type_t TOK_plus_assign = 111;
+constexpr token_type_t TOK_minus_assign = 112;
+constexpr token_type_t TOK_times_assign = 113;
+constexpr token_type_t TOK_div_assign = 114;
+constexpr token_type_t TOK_bitwise_and_assign = 115;
+constexpr token_type_t TOK_bitwise_or_assign = 116;
+constexpr token_type_t TOK_bitwise_xor_assign = 117;
+constexpr token_type_t TOK_lshift_assign = 118;
+constexpr token_type_t TOK_rshift_assign = 119;
+constexpr token_type_t TOK_rparen = 120;
+constexpr token_type_t TOK_Void = 121;
+constexpr token_type_t TOK_F = 122;
+constexpr token_type_t TOK_FF = 123;
+constexpr token_type_t TOK_FFF = 124;
+constexpr token_type_t TOK_U = 125;
+constexpr token_type_t TOK_UU = 126;
+constexpr token_type_t TOK_UUU = 127;
+constexpr token_type_t TOK_UF = 128;
+constexpr token_type_t TOK_UUF = 129;
+constexpr token_type_t TOK_UUUF = 130;
+constexpr token_type_t TOK_UFF = 131;
+constexpr token_type_t TOK_UUFF = 132;
+constexpr token_type_t TOK_UUUFF = 133;
+constexpr token_type_t TOK_UFFF = 134;
+constexpr token_type_t TOK_UUFFF = 135;
+constexpr token_type_t TOK_UUUFFF = 136;
+constexpr token_type_t TOK_S = 137;
+constexpr token_type_t TOK_SS = 138;
+constexpr token_type_t TOK_SSS = 139;
+constexpr token_type_t TOK_SF = 140;
+constexpr token_type_t TOK_SSF = 141;
+constexpr token_type_t TOK_SSSF = 142;
+constexpr token_type_t TOK_SFF = 143;
+constexpr token_type_t TOK_SSFF = 144;
+constexpr token_type_t TOK_SSSFF = 145;
+constexpr token_type_t TOK_SFFF = 146;
+constexpr token_type_t TOK_SSFFF = 147;
+constexpr token_type_t TOK_SSSFFF = 148;
+constexpr token_type_t TOK_AA = 149;
+constexpr token_type_t TOK_AAA = 150;
+constexpr token_type_t TOK_PP = 151;
+constexpr token_type_t TOK_PPP = 152;
+constexpr token_type_t TOK_CC = 153;
+constexpr token_type_t TOK_CCC = 154;
+constexpr token_type_t TOK_MM = 155;
+constexpr token_type_t TOK_MMM = 156;
+constexpr token_type_t TOK_Int = 157;
+constexpr token_type_t TOK_Real = 158;
+constexpr token_type_t TOK_Bool = 159;
+constexpr token_type_t TOK_ident = 160;
+constexpr token_type_t TOK_type_ident = 161;
+constexpr token_type_t TOK_decimal = 162;
+constexpr token_type_t TOK_hex = 163;
+constexpr token_type_t TOK_binary = 164;
+constexpr token_type_t TOK_int = 165;
+constexpr token_type_t TOK_real = 166;
+constexpr token_type_t TOK_global_ident = 167;
+constexpr token_type_t TOK_weak_ident = 168;
+constexpr token_type_t TOK_hw_addr = 169;
+constexpr token_type_t TOK_read_hw = 170;
+constexpr token_type_t TOK_write_hw = 171;
+constexpr token_type_t TOK_group_set = 172;
+constexpr token_type_t TOK_rpair = 173;
+constexpr token_type_t TOK_ssa = 174;
+constexpr token_type_t TOK_implicit_cast = 175;
+constexpr token_type_t TOK_shift_atom = 176;
+constexpr token_type_t TOK_replace_atom = 177;
+constexpr token_type_t TOK_write_state = 178;
+constexpr token_type_t TOK_character = 179;
+constexpr token_type_t TOK_string_uncompressed = 180;
+constexpr token_type_t TOK_string_compressed = 181;
+constexpr token_type_t TOK_byte_block_proc = 182;
+constexpr token_type_t TOK_byte_block_data = 183;
+constexpr token_type_t TOK_byte_block_asm_op = 184;
+constexpr token_type_t TOK_byte_block_label = 185;
+constexpr token_type_t TOK_byte_block_call = 186;
+constexpr token_type_t TOK_byte_block_goto = 187;
+constexpr token_type_t TOK_byte_block_goto_mode = 188;
+constexpr token_type_t TOK_byte_block_wait_nmi = 189;
+constexpr token_type_t TOK_byte_block_bank_switch_x = 190;
+constexpr token_type_t TOK_byte_block_bank_switch_y = 191;
+constexpr token_type_t TOK_byte_block_bank_switch_ax = 192;
+constexpr token_type_t TOK_byte_block_bank_switch_ay = 193;
+constexpr token_type_t TOK_byte_block_byte_array = 194;
+constexpr token_type_t TOK_byte_block_locator_array = 195;
+constexpr token_type_t TOK_byte_block_sub_proc = 196;
+constexpr token_type_t TOK_END = 197;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -242,6 +244,7 @@ inline std::string_view token_name(token_type_t type)
     case TOK_stows: return "stows"sv;
     case TOK_audio: return "audio"sv;
     case TOK_system: return "system"sv;
+    case TOK_state: return "state"sv;
     case TOK_true: return "true"sv;
     case TOK_false: return "false"sv;
     case TOK_PPUCTRL: return "PPUCTRL"sv;
@@ -381,6 +384,7 @@ inline std::string_view token_name(token_type_t type)
     case TOK_implicit_cast: return "implicit_cast"sv;
     case TOK_shift_atom: return "shift_atom"sv;
     case TOK_replace_atom: return "replace_atom"sv;
+    case TOK_write_state: return "write_state"sv;
     case TOK_character: return "character"sv;
     case TOK_string_uncompressed: return "string_uncompressed"sv;
     case TOK_string_compressed: return "string_compressed"sv;
@@ -444,6 +448,7 @@ inline std::string_view token_string(token_type_t type)
     case TOK_stows: return "stows"sv;
     case TOK_audio: return "audio"sv;
     case TOK_system: return "system"sv;
+    case TOK_state: return "state"sv;
     case TOK_true: return "true"sv;
     case TOK_false: return "false"sv;
     case TOK_PPUCTRL: return "PPUCTRL"sv;
@@ -583,6 +588,7 @@ inline std::string_view token_string(token_type_t type)
     case TOK_implicit_cast: return "implicit_cast"sv;
     case TOK_shift_atom: return "shift_atom"sv;
     case TOK_replace_atom: return "replace_atom"sv;
+    case TOK_write_state: return "write_state"sv;
     case TOK_character: return "character literal"sv;
     case TOK_string_uncompressed: return "uncompressed string literal"sv;
     case TOK_string_compressed: return "compressed string literal"sv;
@@ -611,6 +617,7 @@ constexpr unsigned char token_precedence_table[] =
     0,
     0,
     0,
+    1,
     1,
     1,
     1,
@@ -800,6 +807,7 @@ constexpr unsigned char token_precedence_table[] =
     0,
     0,
     0,
+    0,
 };
 constexpr bool token_right_assoc_table[] =
 {
@@ -892,29 +900,27 @@ constexpr bool token_right_assoc_table[] =
     0,
     0,
     0,
-    1,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
     0,
     1,
     0,
     0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
     1,
-    1,
-    1,
+    0,
+    0,
     1,
     1,
     1,
@@ -922,6 +928,10 @@ constexpr bool token_right_assoc_table[] =
     1,
     1,
     1,
+    1,
+    1,
+    1,
+    0,
     0,
     0,
     0,
@@ -1032,6 +1042,7 @@ constexpr bool token_right_assoc_table[] =
     case TOK_stows:\
     case TOK_audio:\
     case TOK_system:\
+    case TOK_state:\
     case TOK_true:\
     case TOK_false:\
     case TOK_PPUCTRL:\
@@ -1113,8 +1124,8 @@ constexpr bool token_right_assoc_table[] =
     case TOK_rshift_assign:\
     case TOK_rparen:\
 
-constexpr token_type_t TOK_LAST_STATE = 194;
-constexpr token_type_t TOK_START = 198;
+constexpr token_type_t TOK_LAST_STATE = 196;
+constexpr token_type_t TOK_START = 202;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[45733];
+extern token_type_t const lexer_transition_table[46148];
 } // namespace lex

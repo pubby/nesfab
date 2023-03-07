@@ -655,6 +655,7 @@ int main()
         keyword("stows"),
         keyword("audio"),
         keyword("system"),
+        keyword("state"),
 
         keyword("true"),
         keyword("false"),
@@ -841,6 +842,7 @@ int main()
         dummy("implicit_cast"),
         dummy("shift_atom"),
         dummy("replace_atom"),
+        dummy("write_state"),
 
         // string/char literals:
         accept("character", "character literal", eof()),

@@ -1292,7 +1292,7 @@ namespace isel
                 , iota_op<Opt, STA_ABSOLUTE_Y, null_>
                 >(cpu, prev, cont);
             }
-            else if(state_size(mapper().type))
+            else if(state_combines_with_banks(mapper().type))
             {
                 using addr = param<struct load_B_addr_tag>;
                 addr::set(locator_t::addr(bs_addr));
@@ -2216,6 +2216,11 @@ namespace isel
             >(cpu, prev, cont);
 
             chain
+            < exact_op<Opt, LAX_ABSOLUTE, Def, temp>
+            , store<Opt, STA, Def, Def>
+            >(cpu, prev, cont);
+
+            chain
             < exact_op<Opt, LDX_ABSOLUTE, Def, temp>
             , store<Opt, STX, Def, Def>
             >(cpu, prev, cont);
@@ -2249,6 +2254,12 @@ namespace isel
             < load_Y<Opt, Index>
             , exact_op<Opt, LDX_ABSOLUTE_Y, Def, Array>
             , store<Opt, STX, Def, Def>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, Index>
+            , exact_op<Opt, LAX_ABSOLUTE_Y, Def, Array>
+            , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
         }
     }
@@ -3523,6 +3534,78 @@ namespace isel
         case SSA_make_ptr_hi:
             p_arg<0>::set(h->input(1));
             load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
+            break;
+
+        case SSA_read_mapper_state:
+            p_arg<0>::set(locator_t::runtime_ram(RTRAM_mapper_state));
+
+            chain
+            < exact_op<Opt, LDA_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STA, p_def, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < exact_op<Opt, LAX_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STA, p_def, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < exact_op<Opt, LDX_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STX, p_def, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < exact_op<Opt, LDY_ABSOLUTE, p_def, p_arg<0>>
+            , store<Opt, STY, p_def, p_def>
+
+            >(cpu, prev, cont);
+            break;
+
+        case SSA_write_mapper_state:
+            p_arg<0>::set(locator_t::runtime_ram(RTRAM_mapper_state));
+            p_arg<1>::set(h->input(0));
+            p_arg<2>::set(locator_t::this_bank());
+            p_arg<3>::set(locator_t::addr(bankswitch_addr(mapper().type)));
+
+            switch(mapper().type)
+            {
+            default:
+                throw std::runtime_error(fmt("Undefined mapper state for %", mapper_name(mapper().type)));
+
+            case MAPPER_CNROM: 
+                chain
+                < load_AX<Opt, p_arg<1>, p_arg<1>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                >(cpu, prev, cont);
+                break;
+
+            case MAPPER_ANROM: 
+            case MAPPER_GNROM: 
+                static_assert(has_bus_conflicts(MAPPER_ANROM));
+                static_assert(has_bus_conflicts(MAPPER_GNROM));
+
+                chain
+                < load_A<Opt, p_arg<1>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                , exact_op<Opt, TAX_IMPLIED, null_>
+                , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                >(cpu, prev, cont);
+                break;
+
+            case MAPPER_GTROM:
+                static_assert(!has_bus_conflicts(MAPPER_GTROM));
+
+                chain
+                < load_A<Opt, p_arg<1>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
+                >(cpu, prev, cont);
+                break;
+            }
+
             break;
 
         case SSA_fn_call:

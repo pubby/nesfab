@@ -63,7 +63,7 @@ fn ppu_reset_addr(UU addr)
 
 // Waits a specified number of NMI frames.
 fn wait(U frames)
-    for(U i = 0; i < frames; ++i)
+    for U i = 0; i < frames; i += 1
         nmi
 
 ///////////////////////////////////////////////////////////////////////////////

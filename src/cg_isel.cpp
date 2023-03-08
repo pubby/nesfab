@@ -900,7 +900,7 @@ namespace isel
     template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
     void load_Y(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
-        locator_t const v = Def::value();
+        locator_t const v = Load::value();
 
         if(cpu.value_eq(REG_Y, v))
             cont->call(cpu, prev);
@@ -918,7 +918,7 @@ namespace isel
                 >(cpu, prev, cont);
             }
 
-            pick_op<Opt, LDY, Def, Def>(cpu, prev, cont);
+            pick_op<Opt, LDY, Def, Load>(cpu, prev, cont);
 
             if(v.is_const_num())
                 load_Y_impl(Opt::template valid_for<REGF_Y | REGF_NZ>::to_struct, v, cpu, prev, cont);
@@ -3960,7 +3960,9 @@ namespace isel
             goto simple;
 
         case SSA_early_store:
-            if(is_tea(h->type().name()))
+            if(cset_head(h) == cset_head(h->input(0).handle()))
+                select_step<true>(ignore_req_store<p_def>);
+            else if(is_tea(h->type().name()))
                 copy_array<Opt>(h->input(0), h);
             else
             {

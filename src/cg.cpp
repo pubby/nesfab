@@ -22,8 +22,6 @@
 #include "rom.hpp"
 #include "asm_graph.hpp" // TODO
 
-#include <iostream> // TODO
-
 // TODO: make this way more efficient
 /*
 static bool _reaching(ssa_ht def, cfg_ht cfg, ssa_ht use, fc::vector_set<cfg_ht>& visited)
@@ -463,8 +461,11 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // Estimate an upper bound for the number of nodes needed here:
     unsigned reserve = 0;
     for(auto& pair : global_loc_map)
-        for(auto& pair : pair.second.const_stores)
-            reserve += pair.second.size() - 1;
+    for(auto& pair : pair.second.const_stores)
+    {
+        assert(pair.second.size() > 0);
+        reserve += pair.second.size() - 1;
+    }
 
     // Then reserve extra space:
     ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size() + reserve);
@@ -508,7 +509,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     ///////////////////////////
 
     calc_ssa_liveness(ir, ssa_pool::array_size() + reserve);
-    
+
     // Note: once the live sets have been built, the IR cannot be modified
     // until all liveness checks are done.
     // Otherwise, the intersection tests will be buggy.
@@ -519,7 +520,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     // Coalesce locators.
 
-    auto const prune_early_store = [&](ssa_ht store) -> ssa_ht
+    auto const prune_early_store = [&](ssa_ht store, ssa_ht* new_head = nullptr) -> ssa_ht
     {
         assert(store->op() == SSA_early_store);
 
@@ -540,6 +541,28 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         clear_liveness_for(ir, parent);
         calc_ssa_liveness(parent);
+
+        // Because parent's liveness changed, it may no longer be compatible with its cset.
+        // Thus, we'll remove it if necessary:
+        for(ssa_ht i = cset_head(parent); i; i = cset_next(i))
+        {
+            if(i == parent)
+                continue;
+
+            for(ssa_ht s : cache.special)
+                if(special_interferes(fn.handle(), ir, cset_locator(i), s))
+                    if(live_at_def(parent, s))
+                        goto remove;
+
+            if(live_at_def(parent, i))
+            {
+            remove:
+                ssa_ht const nh = cset_remove(parent);
+                if(new_head)
+                    *new_head = nh;
+                break;
+            }
+        }
 
         return ret;
     };
@@ -585,7 +608,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // but also with some SSA_phi nodes.
     for(auto& pair : global_loc_map)
     {
-        locator_t const loc = pair.first;
         auto& ld = pair.second;
 
         // Prioritize less busy ranges over larger ones.
@@ -593,12 +615,33 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             copy.cost = live_range_busyness(ir, copy.node);
         std::sort(ld.copies.begin(), ld.copies.end(),
             [](copy_t const& a, copy_t const& b) { return a.cost < b.cost; });
+    }
 
-        // Do the coalescing:
+    // Do the coalescing for early stores first:
+    for(auto& pair : global_loc_map)
+    {
+        locator_t const loc = pair.first;
+        auto& ld = pair.second;
+
         for(copy_t const& copy : ld.copies)
-            if(!coalesce_loc(loc, ld, copy.node))
-                if(copy.node->op() == SSA_early_store)
-                    prune_early_store(copy.node);
+        {
+            if(copy.node->op() == SSA_early_store)
+                if(!coalesce_loc(loc, ld, copy.node))
+                    prune_early_store(copy.node, &ld.cset);
+        }
+    }
+
+    // Then do the coalescing for the others:
+    for(auto& pair : global_loc_map)
+    {
+        locator_t const loc = pair.first;
+        auto& ld = pair.second;
+
+        for(copy_t const& copy : ld.copies)
+        {
+            if(copy.node->op() && copy.node->op() != SSA_early_store)
+                !coalesce_loc(loc, ld, copy.node);
+        }
     }
 
     // Now insert early_stores for constants, trying to minimize the amount of stores needed.

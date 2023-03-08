@@ -32,7 +32,7 @@ locator_t cset_locator(ssa_ht h, bool convert_ssa = false);
 
 bool cset_locators_mergable(locator_t a, locator_t b);
 
-void cset_remove(ssa_ht h);
+ssa_ht cset_remove(ssa_ht h);
 
 ssa_ht cset_append(ssa_value_t last, ssa_ht h);
 

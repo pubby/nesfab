@@ -1,7 +1,5 @@
 #include "asm_proc.hpp"
 
-#include <iostream> // TODO
-
 #include "flat/small_set.hpp"
 
 #include "format.hpp"

@@ -43,7 +43,7 @@ ssa_ht cset_next(ssa_ht h)
 ssa_ht cset_head(ssa_ht h)
 {
     assert(h);
-    assert(h->op());
+    passert(h->op(), h, h->op());
     while(true)
     {
         // TODO: update pointers to point to head.
@@ -70,8 +70,6 @@ locator_t cset_locator(ssa_ht const h, bool convert_ssa)
     if(d.cset_head.is_locator())
     {
         locator_t const loc = d.cset_head.locator();
-        //if(loc.mem_head() != loc)
-            //std::cout << loc << ' ' << loc.mem_head() << std::endl;
         assert(loc.mem_head() == loc);
         return loc;
     }
@@ -111,28 +109,28 @@ static void cset_merge_locators(ssa_ht head_a, ssa_ht head_b)
         assert(false);
 }
 
-void cset_remove(ssa_ht h)
+ssa_ht cset_remove(ssa_ht h)
 {
     assert(h);
     assert(h->op());
 
     ssa_ht const head = cset_head(h);
+    ssa_ht ret;
 
     assert(head);
     assert(head->op());
 
     if(h == head)
     {
-        ssa_ht const next = cset_next(head);
+        ssa_ht const next = ret = cset_next(head);
 
         if(!next)
         {
             cg_data(head).cset_head = {};
-            return;
+            return ret;
         }
 
         assert(next != head);
-        //std::cout << next.index << " : " << cg_data(head).cset_head << '\n';
         for(ssa_ht it = next; it; it = cset_next(it))
             cg_data(it).cset_head = next;
         cg_data(next).cset_head = cg_data(head).cset_head;
@@ -140,6 +138,8 @@ void cset_remove(ssa_ht h)
     }
     else
     {
+        ret = head;
+
         // Re-write the head pointers in case 'h' is a head.
         assert(cset_next(head));
         for(ssa_ht it = cset_next(head); it; it = cset_next(it))
@@ -157,6 +157,8 @@ void cset_remove(ssa_ht h)
     // Clear 'h' data:
     cg_data(h).cset_head = {};
     cg_data(h).cset_next = {};
+
+    return ret;
 }
 
 // Appends 'h' onto the set of 'last'.
@@ -227,7 +229,7 @@ bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
             }
         case LOC_ARG:
         case LOC_RETURN:
-            return loc.fn() != called || called->ir_calls().test(loc.fn().id);
+            return loc.fn() == called || called->ir_calls().test(loc.fn().id);
         default: 
             return false;
         }
@@ -259,6 +261,8 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_i
     assert(a && b);
     assert(cset_is_head(a));
     assert(cset_is_head(b));
+    assert(a->op());
+    assert(b->op());
 
     if(a == b)
     {

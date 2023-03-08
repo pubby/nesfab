@@ -65,7 +65,7 @@ public:
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
         {
             if(ssa_it->in_daisy() 
-               || (ssa_flags(ssa_it->op()) & (SSAF_NO_GVN | SSAF_WRITE_ARRAY)) 
+               || (ssa_flags(ssa_it->op()) & (SSAF_NO_GVN | SSAF_WRITE_ARRAY | SSAF_IO_IMPURE)) 
                || !pure(*ssa_it))
             {
                 data(ssa_it).gvn = m_next_gvn++;

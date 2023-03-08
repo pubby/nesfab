@@ -82,6 +82,7 @@ unsigned calc_ssa_liveness(ir_t const& ir, unsigned pool_size)
     using namespace liveness_impl;
     cg_data_resize();
     bitset_pool.clear();
+    assert(pool_size >= ssa_pool::size());
     set_size = ::bitset_size<>(pool_size);
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)

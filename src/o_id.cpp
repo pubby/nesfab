@@ -450,8 +450,125 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
             break;
 
-        case SSA_rol:
         case SSA_ror:
+            goto rol_ror_common;
+            if(ssa_it->input(1).eq_whole(0)
+               && ssa_it->input(0).holds_ref())
+            {
+                ssa_ht const input = ssa_it->input(0).handle();
+
+                // Handle ROR into ROL, replacing with an AND
+                if(input->op() == SSA_rol 
+                   && input->input(1).eq_whole(0)
+                   && input->output_size() == 1)
+                {
+                    assert(input->output(0) == ssa_it);
+
+                    type_name_t const tn = ssa_it->type().name();
+                    fixed_uint_t const mask = numeric_bitmask(tn);
+                    ssa_it->unsafe_set_op(SSA_and);
+                    ssa_it->link_change_input(0, input->input(0));
+                    ssa_it->link_change_input(1, ssa_value_t(fixed_t{ mask & ~high_bit_only(mask) }, tn));
+
+                    if(ssa_ht carry = carry_output(*ssa_it))
+                        carry->replace_with(ssa_value_t(0, TYPE_BOOL));
+
+                    updated = true;
+                    goto done_rol_ror;
+                }
+
+                // Handle ROR into AND into ROL, replacing with an AND
+                if(input->op() == SSA_and && input->output_size() == 1)
+                {
+                    for(unsigned i = 0; i < 2; ++i)
+                    {
+                        if(!input->input(i).is_num() || !input->input(!i).holds_ref())
+                            continue;
+
+                        ssa_ht const other = input->input(!i).handle();
+
+                        if(other->op() == SSA_rol
+                           && other->input(1).eq_whole(0)
+                           && other->output_size() == 1)
+                        {
+                            type_name_t const tn = ssa_it->type().name();
+                            fixed_uint_t const mask = numeric_bitmask(tn);
+                            input->link_change_input(i, ssa_value_t(fixed_t{ mask & (input->input(i).fixed().value >> 1) }, tn));
+                            input->link_change_input(!i, other->input(0));
+                            
+                            if(ssa_ht carry = carry_output(*ssa_it))
+                                carry->replace_with(ssa_value_t(0, TYPE_BOOL));
+
+                            ssa_it->replace_with(input);
+
+                            updated = true;
+                            goto done_rol_ror;
+                        }
+                    }
+                }
+            }
+
+            goto rol_ror_common;
+
+        case SSA_rol:
+            if(ssa_it->input(1).eq_whole(0)
+               && ssa_it->input(0).holds_ref())
+            {
+                ssa_ht const input = ssa_it->input(0).handle();
+
+                // Handle ROL into ROR, replacing with an AND
+                if(input->op() == SSA_ror
+                   && input->input(1).eq_whole(0)
+                   && input->output_size() == 1)
+                {
+                    assert(input->output(0) == ssa_it);
+
+                    type_name_t const tn = ssa_it->type().name();
+                    fixed_uint_t const mask = numeric_bitmask(tn);
+                    ssa_it->unsafe_set_op(SSA_and);
+                    ssa_it->link_change_input(0, input->input(0));
+                    ssa_it->link_change_input(1, ssa_value_t(fixed_t{ mask & ~low_bit_only(mask) }, tn));
+
+                    if(ssa_ht carry = carry_output(*ssa_it))
+                        carry->replace_with(ssa_value_t(0, TYPE_BOOL));
+
+                    updated = true;
+                    goto done_rol_ror;
+                }
+
+                // Handle ROL into AND into ROR, replacing with an AND
+                if(input->op() == SSA_and && input->output_size() == 1)
+                {
+                    for(unsigned i = 0; i < 2; ++i)
+                    {
+                        if(!input->input(i).is_num() || !input->input(!i).holds_ref())
+                            continue;
+
+                        ssa_ht const other = input->input(!i).handle();
+
+                        if(other->op() == SSA_ror
+                           && other->input(1).eq_whole(0)
+                           && other->output_size() == 1)
+                        {
+                            type_name_t const tn = ssa_it->type().name();
+                            fixed_uint_t const mask = numeric_bitmask(tn);
+                            input->link_change_input(i, ssa_value_t(fixed_t{ mask & (input->input(i).fixed().value << 1) }, tn));
+                            input->link_change_input(!i, other->input(0));
+                            
+                            if(ssa_ht carry = carry_output(*ssa_it))
+                                carry->replace_with(ssa_value_t(0, TYPE_BOOL));
+
+                            ssa_it->replace_with(input);
+
+                            updated = true;
+                            goto done_rol_ror;
+                        }
+                    }
+                }
+            }
+
+            // fall-through
+        rol_ror_common:
             // If only the carry is used, ignore our carry input.
             if(ssa_it->output_size() == 1 
                && ssa_it->output(0)->op() == SSA_carry
@@ -461,6 +578,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 ssa_it->link_change_input(1, ssa_value_t(0u, TYPE_BOOL));
                 break;
             }
+        done_rol_ror:
             break;
 
         case SSA_shr:

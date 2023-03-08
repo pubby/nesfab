@@ -2644,7 +2644,6 @@ namespace isel
                                 < if_<Opt, in_IZ, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
                                                   simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
                                 , pick_op<Opt, DEC, p_def, p_def>
-                                , label<p_label<0>>
                                 , if_<Opt, in_IZ, chain<label<p_label<0>>, clear_conditional>,
                                                   maybe_carry_label_clear_conditional<Opt, p_label<0>, true>>
                                 >(cpu, prev, cont);
@@ -2860,7 +2859,6 @@ namespace isel
                             < if_<Opt, in_IZ, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
                                               simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
                             , simple_op<Opt, INX_IMPLIED>
-                            , label<p_label<0>>
                             , if_<Opt, in_IZ, chain<label<p_label<0>>, clear_conditional>,
                                               maybe_carry_label_clear_conditional<Opt, p_label<0>, false>>
                             , store<Opt, STX, p_def, p_def>

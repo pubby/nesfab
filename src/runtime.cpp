@@ -345,18 +345,17 @@ static asm_proc_t make_reset_proc()
         }
     });
     
-    // Init the NMI index
-    proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
-    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
     if(compiler_options().nes_system == NES_SYSTEM_DETECT)
     {
+        // Use the default NMI handler:
+        proc.push_inst(LDX_IMMEDIATE, locator_t::const_byte(0));
+        proc.push_inst(LDY_IMMEDIATE, locator_t::const_byte(0));
+        proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
+
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0x80));
         proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUCTRL));
-
-        proc.push_inst(LDX_IMMEDIATE, locator_t::const_byte(0));
-        proc.push_inst(LDY_IMMEDIATE, locator_t::const_byte(0));
 
         proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_wait_nmi));
         proc.push_inst(LDA_ZERO_PAGE, locator_t::runtime_ram(RTRAM_nmi_counter));
@@ -384,7 +383,12 @@ static asm_proc_t make_reset_proc()
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
         proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUCTRL));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUMASK));
     }
+
+    // Init the NMI index
+    proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
+    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
     // Init vars
     gen_group_var_inits(gvar_t::groupless_gvars(), proc);

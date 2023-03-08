@@ -21,8 +21,7 @@ bool o_remove_unused_arguments(log_t* log, ir_t& ir, fn_t const& fn, bool byteif
         if(called.fclass == FN_MODE)
             continue;
 
-        assert(fn.global.ideps().count(&called.global));
-        assert(called.global.compiled());
+        passert(called.global.compiled(), fn.global.name, called.global.name);
 
         for(unsigned i = write_globals_begin(ssa_it->op()); i < ssa_it->input_size();)
         {

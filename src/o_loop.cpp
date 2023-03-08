@@ -1277,6 +1277,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 
             if(fixed_sint_t unroll_amount = unroll_loop(header, iterations))
             {
+                dprint(log, "UNROLLED", unroll_amount);
                 iterations /= unroll_amount;
                 increment *= unroll_amount;
                 updated = this_iter_updated = true;
@@ -1344,9 +1345,6 @@ bool o_loop(log_t* log, ir_t& ir, bool is_byteified)
     ssa_data_pool::scope_guard_t<ssa_loop_d> ssa_sg(ssa_pool::array_size());
 
     updated |= initial_loop_processing(log, ir, is_byteified);
-
-    //updated |= o_strength_reduction(log, ir);
-    //updated |= o_loop_index_rewrite(log, ir, false);
 
     return updated;
 }

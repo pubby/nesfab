@@ -532,7 +532,7 @@ unsigned estimate_unroll_divisor(unsigned n, unsigned d)
 
     if(n > 0 && n <= 256)
     {
-        // Usee lookup tables to quickly find a divisor:
+        // Use lookup tables to quickly find a divisor:
         auto const* table = divisors[n-1];
         while(*table > d)
             ++table;
@@ -541,7 +541,7 @@ unsigned estimate_unroll_divisor(unsigned n, unsigned d)
     }
 
     if(n % d == 0)
-        return n;
+        return d;
 
     // It's fast to find a power of 2 divisor:
     unsigned const pow2 = std::min<unsigned>(1 << builtin::ctz(n), std::bit_floor(d));

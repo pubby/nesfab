@@ -1112,7 +1112,11 @@ void fn_t::compile()
 
     auto const optimize_suite = [&](bool post_byteified)
     {
-#define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { changed = true; /*assert((std::printf("DID_O %s\n", #o), true));*/ } ir.assert_valid(); } while(false)
+#define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { \
+    changed = true; \
+    /*assert((std::printf("DID_O %s %s\n", global.name.c_str(), #o), true));*/ } \
+    ir.assert_valid(); \
+    } while(false)
 
         unsigned iter = 0;
         constexpr unsigned MAX_ITER = 100;

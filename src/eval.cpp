@@ -5338,6 +5338,7 @@ expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstrin
         if(is_banked)
             cast = builder.cfg->emplace_ssa(SSA_replace_byte, TYPE_U30, cast, ssa_value_t(2, TYPE_U), value.ssa(1));
 
+        cast = builder.cfg->emplace_ssa(SSA_cast, to_type, cast);
         result.val = rval_t{ cast };
     }
 

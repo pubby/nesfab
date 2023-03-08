@@ -1306,8 +1306,14 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
             auto const& output_d = data(oe.handle);
 
+            if(!output_d.post_dom)
+            {
+                bitset_clear_all(bs_size, temp_bs);
+                break;
+            }
+
             assert(defining_op(h->op()) == defining_op(oe.handle->op()));
-            assert(output_d.post_dom);
+            passert(output_d.post_dom, h, h->op());
             assert(h->type() == oe.handle->type());
 
             bitset_and(bs_size, temp_bs, output_d.post_dom);

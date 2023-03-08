@@ -623,7 +623,7 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
 {
     assert(argn == 3);
     assert(result.cm == cv[0].cm);
-    assert(result.cm == cv[1].cm);
+    passert(result.cm == cv[1].cm, result.cm, cv[1].cm);
     assert(CARRY_MASK == cv[2].cm);
     assert(cv[0].vec.size() >= 1);
     assert(cv[1].vec.size() >= 1);

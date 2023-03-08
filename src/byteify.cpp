@@ -187,7 +187,7 @@ static void _split_vanishing(ssa_ht ssa_node)
     else if(ssa_node->op() == SSA_replace_byte)
     {
         ssa_value_t with = ssa_node->input(2);
-        assert(with->type().name() == TYPE_U);
+        assert(with.type().name() == TYPE_U);
         split_input(with);
 
         bm_t const with_bm = _get_bm(with);

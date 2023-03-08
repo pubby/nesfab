@@ -49,7 +49,7 @@ unsigned estimate_cost(ssa_node_t const& ssa_node)
         return 2; // somewhat arbitrary
 
     if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_ARRAY16)
-        return 8; // somewhat arbitrary
+        return 16; // somewhat arbitrary
 
     unsigned cost = 0;
 

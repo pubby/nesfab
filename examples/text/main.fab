@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
 ct U WRITING_DONE  = 0
 ct U WRITING_WAIT  = 1
 ct U WRITING_READY = 2

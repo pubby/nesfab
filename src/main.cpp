@@ -120,6 +120,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("info") || vm.count("rom-info"))
         _options.rom_info = true;
+
+    if(vm.count("pause"))
+        _options.pause = true;
 }
 
 int main(int argc, char** argv)
@@ -152,6 +155,7 @@ int main(int argc, char** argv)
                 ("output,o", po::value<std::string>(), "output file")
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("error-on-warning,W", "turn warnings into errors")
+                ("pause", "await input on stdin before exiting")
             ;
 
             po::options_description mapper_opt("Mapper options");
@@ -459,6 +463,10 @@ int main(int argc, char** argv)
     catch(std::exception& e)
     {
         std::fprintf(stderr, "%s\n", e.what());
+
+        if(compiler_options().pause)
+            std::fgetc(stdin);
+
         return EXIT_FAILURE;
     }
 #endif
@@ -469,6 +477,9 @@ int main(int argc, char** argv)
         unsigned long long const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - entry_time).count();
         std::printf("time total:     %8lli ms\n", ms);
     }
+
+    if(compiler_options().pause)
+        std::fgetc(stdin);
 
     return EXIT_SUCCESS;
 }

@@ -492,6 +492,21 @@ nesfab --error-on-warning
 error-on-warning = 1
 ----
 
+=== `pause`
+
+This option pauses the compiler before exiting until input is received on stdin.
+It is intended to be used on Windows systems to keep the Command Prompt window open until you're ready to close it.
+This option expects no arguments.
+
+*Command-line usage:*
+----
+nesfab --pause
+----
+
+*Configuration file usage:*
+----
+pause = 1
+----
 
 == Supported Mappers [[mappers]]
 

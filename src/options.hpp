@@ -21,6 +21,7 @@ struct options_t
     bool rom_info = false;
     bool build_time = false;
     bool werror = false;
+    bool pause = false;
 
     nes_system_t nes_system = NES_SYSTEM_UNKNOWN;
     std::string raw_system;

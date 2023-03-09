@@ -3960,7 +3960,7 @@ namespace isel
             goto simple;
 
         case SSA_early_store:
-            if(cset_head(h) == cset_head(h->input(0).handle()))
+            if(h->input(0).holds_ref() && cset_head(h) == cset_head(h->input(0).handle()))
                 select_step<true>(ignore_req_store<p_def>);
             else if(is_tea(h->type().name()))
                 copy_array<Opt>(h->input(0), h);

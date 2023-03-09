@@ -204,7 +204,7 @@ int main(int argc, char** argv)
             {
                 std::cout << "NesFab " << VERSION << " (" << GIT_COMMIT << ", " << __DATE__ << ")\n";
                 std::cout << 
-                    "Copyright (C) 2022, Patrick Bene\n"
+                    "Copyright (C) 2023, Patrick Bene\n"
                     "This is free software. "
                     "There is no warranty.\n";
                 return EXIT_SUCCESS;

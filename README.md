@@ -30,6 +30,11 @@ To build in release mode, run:
 
     make release
 
+By default, the compiler builds excutables for the AMD64 architecture.
+To target others, specify a blank `ARCH` flag:
+
+    make ARCH= release
+
 ## Bug Reports
 
 Post bug reports on the Github issues page and

@@ -34,10 +34,6 @@ GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always --tags)"
 #override CXX:=clang++
 
 override CXXFLAGS+= \
-  -mpopcnt \
-  -msse4 \
-  -mcx16 \
-  -mmovbe \
   -std=c++20 \
   -pthread \
   -Wall \
@@ -51,6 +47,18 @@ override CXXFLAGS+= \
   $(INCS) \
   -DVERSION=\"$(VERSION)\" \
   -DGIT_COMMIT=\"$(GIT_COMMIT)\"
+
+ifndef ARCH
+	ARCH=AMD64
+endif
+
+ifeq ($(ARCH),AMD64)
+override CXXFLAGS+= \
+  -mpopcnt \
+  -msse4 \
+  -mcx16 \
+  -mmovbe
+endif
 
 debug: CXXFLAGS += -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG

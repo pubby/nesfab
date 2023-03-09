@@ -170,8 +170,8 @@ public:
     static constexpr bool is_compile(do_t d) { return d == COMPILE; }
     static constexpr bool is_link(do_t d) { return d == INTERPRET_LINK; }
 
-    type_t const& var_type(var_ht v) const { assert(v.id < var_types.size()); return var_types[v.id]; }
-    type_t& var_type(var_ht v) { assert(v.id < var_types.size()); return var_types[v.id]; }
+    type_t const& var_type(var_ht v) const { passert(v.id < var_types.size(), v.id); return var_types[v.id]; }
+    type_t& var_type(var_ht v) { passert(v.id < var_types.size(), v.id); return var_types[v.id]; }
 
     stmt_ht stmt_handle() const { return { stmt - fn->def().stmts.data() }; }
     pstring_mods_t stmt_pstring_mods() const { return { stmt->pstring, fn->def().mods_of(stmt_handle()) }; }
@@ -4082,6 +4082,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 v.val = rval_t{ builder.cfg->emplace_ssa(SSA_ready, TYPE_BOOL) };
             else if(is_interpret(D))
                 compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
+            else
+            {
+                assert(is_check(D));
+                v.val = rval_t{};
+            }
 
             return v;
         }
@@ -4109,6 +4114,13 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             }
             else if(is_interpret(D))
                 compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
+            else
+            {
+                assert(is_check(D));
+                v.val = rval_t{};
+            }
+
+            return v;
         }
 
         if(lval->arg == lval_t::RETURN_ARG)

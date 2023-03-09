@@ -57,6 +57,19 @@ fn ppu_reset_addr(UU addr)
     {PPUADDR}(addr.b)
     {PPUADDR}(addr.a)
 
+// Assigns PPUSCROLL.
+fn ppu_set_scroll(U x, U y)
+: +inline
+    {PPUSCROLL}(x)
+    {PPUSCROLL}(y)
+
+// Resets the address latch before assigning PPUSCROLL.
+fn ppu_reset_scroll(U x, U y)
+: +inline
+    {PPUSTATUS}()
+    {PPUADDR}(x)
+    {PPUADDR}(y)
+
 ///////////////////////////////////////////////////////////////////////////////
 // NMI ////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

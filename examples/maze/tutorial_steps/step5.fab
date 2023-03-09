@@ -81,7 +81,7 @@ mode main()
         update_pads()
         move_player() 
         update_sprites()
-        nmi
+        nmi // Wait for the next NMI
 
 fn update_sprites()
     // Our stack index into OAM:

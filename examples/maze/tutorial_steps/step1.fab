@@ -1,0 +1,10 @@
+mode main()
+    // Set the palette:
+    palette = example_palette
+    ppu_upload_palette()
+
+    while true
+
+// Define the tileset (commonly called CHR):
+chrrom
+    file(fmt, "tiles.png")

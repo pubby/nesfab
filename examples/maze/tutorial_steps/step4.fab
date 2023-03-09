@@ -1,0 +1,100 @@
+vars /game_vars
+    CCC/levels level_ptr
+    U px = 128
+    U py = 128
+
+// charmaps can be used to get a nice syntax for defining levels.
+charmap(".#")
+
+// The levels are defined here:
+data /levels
+    [] level1
+        ("################################"
+         "################################"
+         "###.#######....#.#......########"
+         "###.#...#.###.##.#...........###"
+         "###...#.#...#..###......####.###"
+         "#######.###.##...#.#########.###"
+         "###.....#....#.###.#########.###"
+         "###.#####.####.###.#########.###"
+         "###.#......#.......#########.###"
+         "###...#.####.#####...........###"
+         "###.###.#........#.#######.#####"
+         "###.....##########....####.#####"
+         "###.#.#....#.#.....##.##.....###"
+         "###.#.######.########.##.....###"
+         "###.#...............#.##.....###"
+         "###.###.#.#.####..#.#.####.#####"
+         "###.#...###.#.##........##.#####"
+         "#####.#.#...#.......###.##.#####"
+         "###...#######.#########.##.#####"
+         "###.###.....#.######....##.#####"
+         "###.....#####.######....##.#####"
+         "###.##.##.........##....##.#####"
+         "######.#..##.#....###.####.#####"
+         "###....#.##..#....###.##....####"
+         "###.####.###.#....###.##....####"
+         "###.#.##.#.#......###.......####"
+         "###.#....#.#......#######.######"
+         "###....#.#.######.#######.######"
+         "################################"
+         "################################")
+
+fn load_level()
+    // Tell the NES which VRAM address we want to upload to:
+    ppu_reset_addr($2000)
+
+    // Upload the tile data:
+    for UU i = 0; i < 960; i += 1
+        {PPUDATA}(level_ptr{i})
+
+    // Then the attributes:
+    for U i = 0; i < 64; i += 1
+        {PPUDATA}(%00011011)
+
+nmi main_nmi()
+    // Update OAM and poll the pads:
+    ppu_upload_oam_poll_pads(0)
+
+    // Turn on rendering:
+    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
+
+    // Reset the scroll
+    ppu_reset_scroll(0, 0)
+
+mode main()
+: nmi main_nmi
+    // Set the palette:
+    palette = example_palette
+    ppu_upload_palette()
+
+    // Set and load the level:
+    level_ptr = @level1
+    load_level()
+
+    // Tell the NES to trigger NMI once per frame:
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+
+    // Wait forever, one frame at a time:
+    while true
+        update_pads()
+        update_sprites()
+        nmi // Wait for the next NMI
+
+fn update_sprites()
+    // Our stack index into OAM:
+    U i = 0
+
+    // Push a sprite:
+    set_oam_x(i, px)     // x-position
+    set_oam_y(i, py - 1) // y-position
+    set_oam_p(i, $10)    // tile
+    set_oam_a(i, 0)      // options
+    i += 4
+
+    // Clear the remainder of OAM
+    hide_oam(i)
+
+// Define the tileset (commonly called CHR):
+chrrom
+    file(fmt, "tiles.png")

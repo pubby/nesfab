@@ -495,7 +495,7 @@ error-on-warning = 1
 === `pause`
 
 This option pauses the compiler before exiting until input is received on stdin.
-It is intended to be used on Windows systems to keep the Command Prompt window open until you're ready to close it.
+It is intended to be used on Microsoft Windows to keep the Command Prompt window open until you're ready to close it.
 This option expects no arguments.
 
 *Command-line usage:*
@@ -507,6 +507,9 @@ nesfab --pause
 ----
 pause = 1
 ----
+
+To make NESFab always pause on Microsoft Windows, first create a shortcut to the NESFab executable.
+Then, in the shortcut's properties, put `--pause` after the target path.
 
 == Supported Mappers [[mappers]]
 

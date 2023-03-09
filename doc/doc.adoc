@@ -533,7 +533,7 @@ The mapper names in the table below are links.
 | 512 KiB
 | 8 KiB (RAM)
 | 2 KiB
-| Switchable H or V
+| Switchable 1-Page
 
 | https://www.nesdev.org/wiki/BNROM[`bnrom`]
 | 8192 KiB

@@ -267,7 +267,7 @@ bool parser_t<P>::parse_token()
                     {
                         frac_scale *= base;
                         frac *= base;
-                        char const x = char_to_int(*it);
+                        int const x = char_to_int(*it);
                         if(x >= 0)
                             frac += x;
                     }
@@ -283,7 +283,7 @@ bool parser_t<P>::parse_token()
             else
             {
                 value *= base;
-                char const x = char_to_int(*it);
+                int const x = char_to_int(*it);
                 if(x >= 0)
                     value += x;
                 if(value >= (1ull << 31))

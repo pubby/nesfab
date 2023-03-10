@@ -203,6 +203,7 @@ public:
         case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz;
         case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz;
         case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz;
+        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz;
         }
     }
 
@@ -232,7 +233,7 @@ public:
                 decl.name, 
                 fn_mods(fclass), // flags
                 fclass == FN_CT ? 0 : (MODL_VARS | MODL_DATA | MODL_EMPLOYS), // lists
-                fclass == FN_MODE // nmi
+                fclass == FN_MODE // nmi / irq
                 );
         }
 
@@ -267,7 +268,7 @@ public:
         label_map.clear();
         assert(symbol_table.empty());
 
-        if(fclass != FN_FN && fclass != FN_NMI)
+        if(fclass != FN_FN)
             compiler_error(decl.name, fmt("% does not support inline assembly.", fn_class_keyword(fclass)));
 
         if(mods)
@@ -994,6 +995,14 @@ public:
         if(mods)
             mods->validate(pstring);
         fn_def.push_stmt({ STMT_NMI, fn_def.push_mods(std::move(mods)), {}, pstring });
+    }
+
+    [[gnu::always_inline]]
+    void irq_statement(pstring_t pstring, ast_node_t const& expr, std::unique_ptr<mods_t> mods)
+    {
+        if(mods)
+            mods->validate(pstring);
+        fn_def.push_stmt({ STMT_IRQ, fn_def.push_mods(std::move(mods)), {}, pstring, convert_eternal_expr(&expr) });
     }
 
     [[gnu::always_inline]]

@@ -1115,7 +1115,7 @@ void asm_graph_t::optimize_live_registers()
                 unsigned const bi = &b - node.code.data();
 
                 // Prune ops that have no effect:
-                if(!(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FAKE))
+                if(!(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FAKE | ASMF_IMPURE))
                    && a.op < NUM_NORMAL_OPS
                    && !(REGF_M & op_output_regs(a.op))
                    && !(live_regs[ai] & op_output_regs(a.op))

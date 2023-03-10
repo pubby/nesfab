@@ -384,6 +384,7 @@ void byteify(ir_t& ir, fn_t const& fn)
         case SSA_return:
         case SSA_fence:
         case SSA_wait_nmi:
+        case SSA_cli:
             {
                 new_input.clear();
 

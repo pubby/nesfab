@@ -352,6 +352,9 @@ These values correspond with common cartridge designs.
 | https://www.nesdev.org/wiki/GTROM[`gtrom`]
 | 512
 
+| https://www.nesdev.org/wiki/INES_Mapper_189[`189`]
+| 512
+
 |===
 
 [NOTE]
@@ -396,6 +399,9 @@ These values correspond with common cartridge designs.
 
 | https://www.nesdev.org/wiki/GTROM[`gtrom`]
 | 2
+
+| https://www.nesdev.org/wiki/INES_Mapper_189[`189`]
+| 32
 
 |===
 
@@ -561,6 +567,12 @@ The mapper names in the table below are links.
 | 16 KiB (RAM)
 | 8 KiB
 | Fixed 4
+
+| https://www.nesdev.org/wiki/INES_Mapper_189[`189`] (https://www.nesdev.org/wiki/MMC3[MMC3] Variant)
+| 512 KiB
+| 256 KiB
+| 2 KiB
+| Switchable H or V
 
 |===
 
@@ -1923,6 +1935,56 @@ require that rendering be turned off, and VBLANK is one such time.
 Since the NMI interrupt occurs once per frame, it's also convenient to use it as a timer.
 Typically, game updates are run in sync with the NMI, 
 as otherwise the game would speed up or slow down based on how much computation is happening.
+
+=== `irq` [[kw_irq]]
+
+The keyword `irq` can be used as a statement, or as a declaration.
+
+==== `irq` statement [[kw_irq_statement]]
+
+The `irq` statement is used to enable or disable IRQ interrupt handling.
+When disabled, no IRQ functions will be called.
+
+Syntax:
+----
+irq expr
+----
+
+- `expr` is an expression of type `Bool`.
+
+Example:
+
+----
+irq true // Enable IRQs
+----
+
+[NOTE]
+The `irq` statement corresponds to assembly instructions `SEI` and `CLI`.
+
+==== `irq` function [[kw_irq_function]]
+
+The `irq` keyword declares an https://www.nesdev.org/wiki/IRQ[irq] interrupt function at global scope. 
+IRQ interrupts are similar to <<kw_fn, regular functions>>, but they have no parameters, cannot return, and cannot be called.
+Instead, they are triggered by hardware such as the https://www.nesdev.org/wiki/APU_Frame_Counter[APU frame counter],
+or https://www.nesdev.org/wiki/MMC3[MMC3] scanline counter.
+
+Syntax:
+----
+irq identifier()
+    code block
+----
+
+- `identifier` is the name of the mode function.
+- `code block` is the block of code which implements the mode function.
+
+*Modifiers:*
+
+- <<mod_employs>>.
+- <<mod_data>>.
+- <<mod_vars>>.
+- <<mod_flags, `+zero_page`, `-zero_page`>>
+- <<mod_flags, `+graphviz`>>
+- <<mod_flags, `+info`>>
 
 === `asm` [[kw_asm]]
 

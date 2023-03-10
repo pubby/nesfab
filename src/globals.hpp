@@ -181,6 +181,7 @@ public:
 
     static std::vector<fn_t*> modes() { assert(compiler_phase() > PHASE_PARSE); return modes_vec; }
     static std::vector<fn_t*> nmis() { assert(compiler_phase() > PHASE_PARSE); return nmi_vec; }
+    static std::vector<fn_t*> irqs() { assert(compiler_phase() > PHASE_PARSE); return irq_vec; }
 
     static global_t& default_charmap(pstring_t at);
     static global_t& chrrom(pstring_t at);
@@ -231,6 +232,10 @@ private:
     // Tracks nmis: 
     inline static std::mutex nmi_vec_mutex;
     inline static std::vector<fn_t*> nmi_vec;
+
+    // Tracks irqs: 
+    inline static std::mutex irq_vec_mutex;
+    inline static std::vector<fn_t*> irq_vec;
 
     // These represent a queue of globals ready to be compiled.
     inline static std::condition_variable ready_cv;
@@ -324,6 +329,13 @@ struct nmi_impl_t : public fn_impl_base_t
     xbitset_t<fn_ht> used_in_modes;
 };
 
+struct irq_impl_t : public fn_impl_base_t
+{
+    static constexpr fn_class_t fclass = FN_IRQ;
+    unsigned index = ~0;
+    xbitset_t<fn_ht> used_in_modes;
+};
+
 struct pstring_mods_t
 {
     pstring_t pstring;
@@ -368,6 +380,10 @@ public:
     fn_ht mode_nmi() const; // Returns the NMI of this mode.
     unsigned nmi_index() const;
     xbitset_t<fn_ht> const& nmi_used_in_modes() const; 
+
+    fn_ht mode_irq() const; // Returns the IRQ of this mode.
+    unsigned irq_index() const;
+    xbitset_t<fn_ht> const& irq_used_in_modes() const; 
 
     precheck_tracked_t const& precheck_tracked() const { assert(m_precheck_tracked); return *m_precheck_tracked; }
     auto const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
@@ -461,7 +477,7 @@ public:
     bool const iasm = false; // if the fn is inline assembly
 private:
     void precheck_finish_mode() const;
-    void precheck_finish_nmi() const;
+    void precheck_finish_nmi_irq() const;
 
     void calc_precheck_bitsets();
     void calc_ir_bitsets(ir_t const* ir);

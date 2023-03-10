@@ -61,7 +61,7 @@ override CXXFLAGS+= \
 endif
 
 debug: CXXFLAGS += -O0 -g
-release: CXXFLAGS += -O3 -DNDEBUG
+release: CXXFLAGS += -O3 -DNDEBUG -Wno-unused-variable
 static: CXXFLAGS += -static -O3 -DNDEBUG
 profile: CXXFLAGS += -O3 -DNDEBUG -g
 

@@ -118,14 +118,16 @@ public:
 enum romv_t
 {
     ROMV_MODE = 0,
-    ROMV_NMI  = 1,
-    NUM_ROMV = 2,
+    ROMV_NMI,
+    ROMV_IRQ,
+    NUM_ROMV,
 };
 
 using romv_flags_t = std::uint8_t;
 constexpr romv_flags_t ROMVF_IN_MODE = 1 << ROMV_MODE;
 constexpr romv_flags_t ROMVF_IN_NMI  = 1 << ROMV_NMI;
-constexpr romv_flags_t ROMVF_ALL = ROMVF_IN_MODE | ROMVF_IN_NMI;
+constexpr romv_flags_t ROMVF_IN_IRQ  = 1 << ROMV_IRQ;
+constexpr romv_flags_t ROMVF_ALL = ROMVF_IN_MODE | ROMVF_IN_NMI | ROMVF_IN_IRQ;
 using romv_allocs_t = std::array<rom_alloc_ht, NUM_ROMV>;
 
 constexpr int next_romv(romv_flags_t flags, unsigned romv)

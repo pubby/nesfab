@@ -83,6 +83,8 @@ std::string to_string(locator_t loc)
         str = fmt("runtime_ram %", loc.runtime_ram()); break;
     case LOC_NMI_INDEX:
         str = fmt("nmi_index %", loc.fn()->global.name); break;
+    case LOC_IRQ_INDEX:
+        str = fmt("irq_index %", loc.fn()->global.name); break;
     case LOC_CARRY_PAIR:
         str = fmt("carry_pair % %", loc.first_carry(), loc.second_carry()); break;
     }
@@ -389,6 +391,9 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
     case LOC_NMI_INDEX:
         return locator_t::const_byte(fn()->nmi_index() + 1);
+
+    case LOC_IRQ_INDEX:
+        return locator_t::const_byte(fn()->irq_index() + 1);
 
     case LOC_LT_EXPR:
         // Check if the LT expression has been evaluated yet:

@@ -282,6 +282,8 @@ int main(int argc, char** argv)
                     _options.mapper = mapper_t::gnrom(mapper_params);
                 else if(str == "gtrom"sv)
                     _options.mapper = mapper_t::gtrom(mapper_params);
+                else if(str == "189"sv)
+                    _options.mapper = mapper_t::ines_189(mapper_params);
                 else
                     throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
             }

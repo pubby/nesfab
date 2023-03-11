@@ -2072,7 +2072,7 @@ namespace isel
     {
         using loop_label = p_label<0>;
 
-        assert(is_tea(from.type().name()));
+        passert(is_tea(from.type().name()), from, from.type());
 
         if(asm_arg(def) == asm_arg(from))
             return;
@@ -3634,6 +3634,10 @@ namespace isel
                 p_label<0>::set(locator_t::runtime_rom(RTROM_nmi_exit));
                 exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
                 break;
+            case FN_IRQ:
+                p_label<0>::set(locator_t::runtime_rom(RTROM_irq_exit));
+                exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
+                break;
             default:
                 simple_op<Opt, RTS_IMPLIED>(cpu, prev, cont);
                 break;
@@ -3691,6 +3695,31 @@ namespace isel
             < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
             , simple_op<Opt, write_reg_op(REGF_ISEL & ~(REGF_X | REGF_Y))>
             >(cpu, prev, cont);
+
+            break;
+
+        case SSA_cli:
+            if(h->input(0).is_const())
+            {
+                if(h->input(0).whole())
+                    exact_op<Opt, CLI_IMPLIED, null_>(cpu, prev, cont);
+                else
+                    exact_op<Opt, SEI_IMPLIED, null_>(cpu, prev, cont);
+            }
+            else
+            {
+                p_arg<0>::set(h->input(0));
+                p_label<0>::set(state.minor_label());
+
+                chain
+                < exact_op<Opt, SEI_IMPLIED, null_>
+                , load_Z_for<Opt, p_arg<0>>
+                , simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
+                , exact_op<Opt, CLI_IMPLIED, null_>
+                , label<p_label<0>>
+                , clear_conditional
+                >(cpu, prev, cont);
+            }
 
             break;
 
@@ -3824,6 +3853,7 @@ namespace isel
         case SSA_return:
         case SSA_fn_call:
         case SSA_wait_nmi:
+        case SSA_cli:
             write_globals<Opt>(h);
             goto simple;
 
@@ -3848,6 +3878,7 @@ namespace isel
                 mods_t const* mods = state.fn->def().mods_of(h->input(1).locator().stmt());
 
                 bool did_reset_nmi = false;
+                bool did_reset_irq = false;
 
                 call.precheck_group_vars().for_each([&](group_vars_ht gv)
                 {
@@ -3864,6 +3895,13 @@ namespace isel
                             did_reset_nmi = true;
                         }
 
+                        if(!did_reset_irq)
+                        {
+                            // Reset the irq handler until we've reset all group vars.
+                            p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
+                            select_step<false>(load_then_store<Opt, const_<0>, const_<0>, p_arg<0>, false>);
+                            did_reset_irq = true;
+                        }
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
                         p_arg<1>::set(locator_t::reset_group_vars(gv).with_is(IS_BANK));
 
@@ -3878,13 +3916,11 @@ namespace isel
                 });
 
                 bool same_nmi = true;
+                bool same_irq = true;
                 for(fn_ht mode : state.fn->precheck_parent_modes())
                 {
-                    if(mode->mode_nmi() != call.mode_nmi())
-                    {
-                        same_nmi = false;
-                        break;
-                    }
+                    same_nmi &= mode->mode_nmi() == call.mode_nmi();
+                    same_irq &= mode->mode_irq() == call.mode_irq();
                 }
                 
                 // Set the nmi handler to its proper value
@@ -3892,6 +3928,14 @@ namespace isel
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
                     p_arg<1>::set(locator_t::nmi_index(call.mode_nmi()));
+                    select_step<false>(load_then_store<Opt, p_arg<1>, p_arg<1>, p_arg<0>, false>);
+                }
+
+                // Set the irq handler to its proper value
+                if(did_reset_irq || !same_irq)
+                {
+                    p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
+                    p_arg<1>::set(locator_t::irq_index(call.mode_irq()));
                     select_step<false>(load_then_store<Opt, p_arg<1>, p_arg<1>, p_arg<0>, false>);
                 }
 
@@ -3960,6 +4004,8 @@ namespace isel
             goto simple;
 
         case SSA_early_store:
+            passert(h->type() == h->input(0).type(), h->type(), h->input(0).type());
+
             if(h->input(0).holds_ref() && cset_head(h) == cset_head(h->input(0).handle()))
                 select_step<true>(ignore_req_store<p_def>);
             else if(is_tea(h->type().name()))
@@ -3995,7 +4041,7 @@ namespace isel
             if(h->output_size() > 0 && h->input(1).locator().mem_head() != cset_locator(h))
             {
                 if(is_tea(h->type().name()))
-                    copy_array<Opt>(h->input(0), h);
+                    copy_array<Opt>(h->input(1), h);
                 else
                 {
                     p_arg<0>::set(h->input(1));

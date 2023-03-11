@@ -136,6 +136,7 @@ private:
     void parse_default();
     void parse_switch();
     void parse_nmi_statement();
+    void parse_irq_statement();
     void parse_fence();
     void parse_local_ct();
 

@@ -22,6 +22,10 @@ RT(nmi_saved_y) \
 RT(nmi_saved_bank) \
 RT(nmi_counter) \
 RT(nmi_ready) \
+RT(irq_index) \
+RT(irq_saved_x) \
+RT(irq_saved_y) \
+RT(irq_saved_bank) \
 RT(mapper_state) \
 RT(system) \
 
@@ -42,6 +46,10 @@ RT(nmi_lo_table) \
 RT(nmi_hi_table) \
 RT(nmi_bank_table) \
 RT(irq) \
+RT(irq_exit) \
+RT(irq_lo_table) \
+RT(irq_hi_table) \
+RT(irq_bank_table) \
 RT(reset) \
 RT(jmp_y_trampoline) \
 RT(jsr_y_trampoline) \

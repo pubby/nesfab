@@ -678,7 +678,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 ssa_value_t const v = pair.first.lclass() == LOC_CONST_BYTE
                                       ? ssa_value_t(pair.first.data(), TYPE_U) 
                                       : ssa_value_t(pair.first);
-                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, TYPE_U, v);
+                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, v.type(), v);
                 assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
                 auto& store_d = cg_data(store);
 

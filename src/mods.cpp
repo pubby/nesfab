@@ -118,17 +118,17 @@ void mods_t::inherit(mods_t const& from)
     }
 
     if(from.nmi && !nmi)
-    {
         nmi = from.nmi;
-        nmi_pstring = from.nmi_pstring;
-    }
+
+    if(from.irq && !irq)
+        irq = from.irq;
 }
 
 void mods_t::validate(
     pstring_t pstring,
     mod_flags_t accepts_flags, 
     mod_list_t accepts_lists,
-    bool accepts_nmi) const
+    bool accepts_nmi_irq) const
 {
     if(~accepts_lists & explicit_lists)
     {
@@ -144,8 +144,11 @@ void mods_t::validate(
         compiler_error(pstring, fmt("Unexpected modifiers:%.", wrong_str));
     }
 
-    if(!accepts_nmi && nmi)
+    if(!accepts_nmi_irq && nmi)
         compiler_error(pstring, "Unexpected nmi modifier.");
+
+    if(!accepts_nmi_irq && irq)
+        compiler_error(pstring, "Unexpected irq modifier.");
 
     mod_flags_t const bad_enable = enable & ~accepts_flags;
     mod_flags_t const bad_disable = disable & ~accepts_flags;

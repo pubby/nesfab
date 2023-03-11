@@ -1002,6 +1002,12 @@ void eval_t::interpret_stmts()
             ++stmt;
             break;
 
+        case STMT_IRQ:
+            if(!is_check(D))
+                compiler_error(stmt->pstring, "Cannot enable/disable irq at compile-time.");
+            ++stmt;
+            break;
+
         case STMT_FENCE:
             if(precheck_tracked)
                 precheck_tracked->fences.push_back(stmt_pstring_mods());
@@ -1074,9 +1080,9 @@ static ssa_value_t _interpret_replace_atom(type_t const& type, fixed_uint_t v, f
 
 void eval_t::compile_block()
 {
-    while(true)
-    {
-    switch(stmt->name)
+    ssa_op_t ssa_op; // Used in fence code
+
+    while(true) switch(stmt->name)
     {
     default: // Handles var inits
         if(is_var_init(stmt->name))
@@ -1530,15 +1536,23 @@ void eval_t::compile_block()
         }
         break;
 
+    case STMT_IRQ:
+        if(precheck_tracked)
+            precheck_tracked->fences.push_back(stmt_pstring_mods());
+        ssa_op = SSA_cli;
+        goto do_fence;
+
     case STMT_NMI:
         if(fn->fclass == FN_NMI)
             compiler_error(stmt->pstring, "Cannot wait for nmi inside nmi.");
         if(precheck_tracked)
             precheck_tracked->wait_nmis.push_back(stmt_pstring_mods());
+        ssa_op = SSA_wait_nmi;
         goto do_fence;
     case STMT_FENCE:
         if(precheck_tracked)
             precheck_tracked->fences.push_back(stmt_pstring_mods());
+        ssa_op = SSA_fence;
         // fall-through
     do_fence:
         {
@@ -1546,9 +1560,15 @@ void eval_t::compile_block()
             bc::small_vector<ssa_value_t, 32> inputs;
 
             block_d& block_data = builder.cfg.data<block_d>();
-            ssa_ht const fenced = builder.cfg->emplace_ssa(
-                stmt->name == STMT_NMI ? SSA_wait_nmi : SSA_fence, TYPE_VOID);
+            ssa_ht const fenced = builder.cfg->emplace_ssa(ssa_op, TYPE_VOID);
             fenced->append_daisy();
+
+            if(ssa_op == SSA_cli)
+            {
+                expr_value_t v = do_expr<COMPILE>(*stmt->expr);
+                v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
+                inputs.push_back(v.ssa());
+            }
 
             ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
             {
@@ -1592,7 +1612,6 @@ void eval_t::compile_block()
         }
         ++stmt;
         break;
-    }
     }
     assert(false);
 }

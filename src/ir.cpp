@@ -1089,6 +1089,7 @@ ssa_ht split_output_edge(ssa_ht ssa_node, bool this_cfg, unsigned output_i, ssa_
     // Finally, update our own output:
     oe = { copy, 0 };
 
+    passert(copy->type() == copy->input(0).type(), copy->type(), copy->input(0).type());
     return copy;
 }
 

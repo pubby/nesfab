@@ -13,7 +13,8 @@ MAPPER(CNROM, 3) \
 MAPPER(ANROM, 7) \
 MAPPER(BNROM, 34) \
 MAPPER(GNROM, 66) \
-MAPPER(GTROM, 111)
+MAPPER(GTROM, 111) \
+MAPPER(189, 189) \
 
 enum mapper_type_t : std::uint16_t // Values are ines mapper numbers
 {
@@ -30,6 +31,7 @@ constexpr std::uint16_t bankswitch_addr(mapper_type_t mt)
     switch(mt)
     {
     case MAPPER_GTROM: return 0x5000;
+    case MAPPER_189: return 0x4120;
     default: return 0x8000;
     }
 }
@@ -41,6 +43,7 @@ constexpr bool has_bus_conflicts(mapper_type_t mt)
     case MAPPER_NROM: 
     case MAPPER_CNROM: 
     case MAPPER_GTROM: 
+    case MAPPER_189: 
         return false;
     default:
         return true;
@@ -113,6 +116,7 @@ struct mapper_t
     static mapper_t bnrom(mapper_params_t const& params);
     static mapper_t gnrom(mapper_params_t const& params);
     static mapper_t gtrom(mapper_params_t const& params);
+    static mapper_t ines_189(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return { 0x8000, 0x8000 }; }

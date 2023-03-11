@@ -128,6 +128,18 @@ mapper_t mapper_t::gtrom(mapper_params_t const& params)
     };
 }
 
+mapper_t mapper_t::ines_189(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_189;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_none(mt),
+        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
+    };
+}
+
 void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
 {
     // https://www.nesdev.org/wiki/NES_2.0

@@ -70,17 +70,23 @@ ram_bitset_t alloc_runtime_ram()
     runtime_ram_allocator_t a;
     a.allocated = stack_bitset; // Don't allocate in stack space.
 
-    _rtram_spans[RTRAM_ptr_temp]        = {{ a.alloc_zp(2), a.alloc_zp(2) }};
+    _rtram_spans[RTRAM_ptr_temp]        = {{ a.alloc_zp(2), a.alloc_zp(2), a.alloc_zp(2) }};
     _rtram_spans[RTRAM_nmi_index]       = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_saved_x]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_saved_y]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_counter]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_ready]       = {{ a.alloc_zp(1) }};
+    _rtram_spans[RTRAM_irq_index]       = {{ a.alloc_zp(1) }};
+    _rtram_spans[RTRAM_irq_saved_x]     = {{ a.alloc_zp(1) }};
+    _rtram_spans[RTRAM_irq_saved_y]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_mapper_state] = {{ a.alloc_zp(state_size(mapper().type)) }};
 
     // Allocate optional stuff last, for a consistent memory layout.
     if(mapper().bankswitches())
+    {
         _rtram_spans[RTRAM_nmi_saved_bank] = {{ a.alloc_zp(1) }};
+        _rtram_spans[RTRAM_irq_saved_bank] = {{ a.alloc_zp(1) }};
+    }
 
     if(compiler_options().nes_system == NES_SYSTEM_DETECT)
         _rtram_spans[RTRAM_system] = {{ a.alloc_zp(1) }};
@@ -187,6 +193,56 @@ void bankswitch_ay(asm_proc_t& proc)
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
 }
 
+static asm_proc_t make_irq()
+{
+    asm_proc_t proc;
+
+    // Store registers:
+    proc.push_inst(PHA);
+    proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_x));
+    proc.push_inst(STY_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_y));
+
+    proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_index));
+    proc.push_inst(LDA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_irq_lo_table));
+    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 0));
+    proc.push_inst(LDA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_irq_hi_table));
+    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 1));
+
+    if(mapper().bankswitches())
+    {
+        std::uint16_t const addr = bankswitch_addr(mapper().type);
+
+        // Save current bank
+        proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
+        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_bank));
+
+        proc.push_inst(LAX_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_irq_bank_table));
+        if(has_bus_conflicts(mapper().type))
+            proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
+        else
+            proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
+    }
+
+    proc.push_inst(JMP_INDIRECT, locator_t::runtime_ram(RTRAM_ptr_temp));
+
+    proc.initial_optimize();
+    return proc;
+}
+
+static asm_proc_t make_irq_exit()
+{
+    asm_proc_t proc;
+
+    _load_bankswitch_ax(proc, locator_t::runtime_ram(RTRAM_irq_saved_bank));
+    proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_x));
+    proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_y));
+    proc.push_inst(PLA);
+    proc.push_inst(RTI);
+
+    proc.initial_optimize();
+    return proc;
+}
+
 static asm_proc_t make_nmi()
 {
     asm_proc_t proc;
@@ -228,7 +284,6 @@ static asm_proc_t make_nmi_exit()
     asm_proc_t proc;
 
     _load_bankswitch_ax(proc, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
-
     proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
     proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_x));
     proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_y));
@@ -258,13 +313,6 @@ static asm_proc_t make_wait_nmi()
     proc.push_inst(RTS);
 
     proc.initial_optimize();
-    return proc;
-}
-
-static asm_proc_t make_irq()
-{
-    asm_proc_t proc;
-    proc.push_inst(RTI);
     return proc;
 }
 
@@ -390,6 +438,10 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
+    // Init the IRQ index
+    proc.push_inst(LDA_IMMEDIATE, locator_t::irq_index(main.mode_irq()));
+    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_index));
+
     // Init vars
     gen_group_var_inits(gvar_t::groupless_gvars(), proc);
 
@@ -412,7 +464,7 @@ void set_reset_proc()
     reset_proc.safe().mark_aligned();
 }
 
-asm_proc_t make_bnrom_jsr_y_trampoline()
+static asm_proc_t make_jsr_y_trampoline()
 {
     asm_proc_t proc;
 
@@ -420,12 +472,16 @@ asm_proc_t make_bnrom_jsr_y_trampoline()
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 1));
     proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
     proc.push_inst(PHA);
-    proc.push_inst(TYA);
-    proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
+    bankswitch_y(proc);
     proc.push_inst(JSR_ABSOLUTE, locator_t::minor_label(0));
     proc.push_inst(PLA);
-    proc.push_inst(TAY);
-    proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
+    if(has_bus_conflicts(mapper().type))
+    {
+        proc.push_inst(TAY);
+        proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
+    }
+    else
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr(mapper().type)));
     proc.push_inst(RTS);
     proc.push_label(0);
     proc.push_inst(JMP_INDIRECT, locator_t::runtime_ram(RTRAM_ptr_temp));
@@ -434,14 +490,13 @@ asm_proc_t make_bnrom_jsr_y_trampoline()
     return proc;
 }
 
-asm_proc_t make_bnrom_jmp_y_trampoline()
+static asm_proc_t make_jmp_y_trampoline()
 {
     asm_proc_t proc;
 
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 0));
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 1));
-    proc.push_inst(TYA);
-    proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
+    bankswitch_y(proc);
     proc.push_inst(JMP_INDIRECT, locator_t::runtime_ram(RTRAM_ptr_temp));
 
     proc.initial_optimize();
@@ -502,7 +557,7 @@ static loc_vec_t make_iota()
 
 namespace 
 {
-    struct nmi_tables_t
+    struct interrupt_tables_t
     {
         loc_vec_t lo;
         loc_vec_t hi;
@@ -511,9 +566,9 @@ namespace
     };
 }
 
-static nmi_tables_t make_nmi_tables()
+static interrupt_tables_t make_nmi_tables()
 {
-    nmi_tables_t t;
+    interrupt_tables_t t;
 
     t.lo.reserve(global_t::nmis().size() + 1);
     t.hi.reserve(global_t::nmis().size() + 1);
@@ -529,6 +584,31 @@ static nmi_tables_t make_nmi_tables()
         t.lo.push_back(locator_t::fn(nmi->handle()).with_is(IS_PTR));
         t.hi.push_back(locator_t::fn(nmi->handle()).with_is(IS_PTR_HI));
         t.bank.push_back(locator_t::fn(nmi->handle()).with_is(IS_BANK));
+    }
+
+    t.alignment = next_pow2(t.lo.size());
+
+    return t;
+}
+
+static interrupt_tables_t make_irq_tables()
+{
+    interrupt_tables_t t;
+
+    t.lo.reserve(global_t::irqs().size() + 1);
+    t.hi.reserve(global_t::irqs().size() + 1);
+    t.bank.reserve(global_t::irqs().size() + 1);
+
+    // Zeroth irq does nothing:
+    t.lo.push_back(locator_t::runtime_rom(RTROM_irq_exit).with_is(IS_PTR));
+    t.hi.push_back(locator_t::runtime_rom(RTROM_irq_exit).with_is(IS_PTR_HI));
+    t.bank.push_back(locator_t::runtime_rom(RTROM_irq_exit).with_is(IS_BANK));
+
+    for(fn_t const* irq : global_t::irqs())
+    {
+        t.lo.push_back(locator_t::fn(irq->handle()).with_is(IS_PTR));
+        t.hi.push_back(locator_t::fn(irq->handle()).with_is(IS_PTR_HI));
+        t.bank.push_back(locator_t::fn(irq->handle()).with_is(IS_BANK));
     }
 
     t.alignment = next_pow2(t.lo.size());
@@ -567,10 +647,12 @@ span_allocator_t alloc_runtime_rom()
     };
 
     // Pre-allocate.
+    auto& iota = _rtrom_spans[RTROM_iota][0];
+    iota = {};
     if(has_bus_conflicts(mapper().type))
-        _rtrom_spans[RTROM_iota][0] = a.alloc_at({ bankswitch_addr(mapper().type), 256 });
-    else
-        _rtrom_spans[RTROM_iota][0] = a.alloc(256, 256);
+        iota = a.alloc_at({ bankswitch_addr(mapper().type), 256 });
+    if(!iota)
+        iota = a.alloc(256, 256);
     _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 });
 
     // These have to be defined in a toposorted order.
@@ -579,19 +661,26 @@ span_allocator_t alloc_runtime_rom()
     alloc(RTROM_nmi_exit, make_nmi_exit());
     alloc(RTROM_wait_nmi, make_wait_nmi());
     alloc(RTROM_irq, make_irq());
+    alloc(RTROM_irq_exit, make_irq_exit());
     alloc(RTROM_reset, make_reset());
     alloc(RTROM_vectors, make_vectors());
 
-    alloc(RTROM_jsr_y_trampoline, make_bnrom_jsr_y_trampoline(), ROMVF_ALL);
-    alloc(RTROM_jmp_y_trampoline, make_bnrom_jmp_y_trampoline(), ROMVF_ALL);
+    alloc(RTROM_jsr_y_trampoline, make_jsr_y_trampoline(), ROMVF_ALL);
+    alloc(RTROM_jmp_y_trampoline, make_jmp_y_trampoline(), ROMVF_ALL);
     alloc(RTROM_mul8, make_mul8(), ROMVF_ALL);
 
-    auto tables = make_nmi_tables();
-    alloc(RTROM_nmi_lo_table, std::move(tables.lo), ROMVF_IN_MODE, tables.alignment);
-    alloc(RTROM_nmi_hi_table, std::move(tables.hi), ROMVF_IN_MODE, tables.alignment);
-    alloc(RTROM_nmi_bank_table, std::move(tables.bank), ROMVF_IN_MODE, tables.alignment);
+    auto nmi_tables = make_nmi_tables();
+    alloc(RTROM_nmi_lo_table, std::move(nmi_tables.lo), ROMVF_IN_MODE, nmi_tables.alignment);
+    alloc(RTROM_nmi_hi_table, std::move(nmi_tables.hi), ROMVF_IN_MODE, nmi_tables.alignment);
+    alloc(RTROM_nmi_bank_table, std::move(nmi_tables.bank), ROMVF_IN_MODE, nmi_tables.alignment);
+
+    auto irq_tables = make_irq_tables();
+    alloc(RTROM_irq_lo_table, std::move(irq_tables.lo), ROMVF_IN_MODE, irq_tables.alignment);
+    alloc(RTROM_irq_hi_table, std::move(irq_tables.hi), ROMVF_IN_MODE, irq_tables.alignment);
+    alloc(RTROM_irq_bank_table, std::move(irq_tables.bank), ROMVF_IN_MODE, irq_tables.alignment);
 
     assert(runtime_span(RTROM_nmi_exit, {}));
+    assert(runtime_span(RTROM_irq_exit, {}));
 
     return a;
 }

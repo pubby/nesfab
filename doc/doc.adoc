@@ -3715,6 +3715,12 @@ fn example()
     UUF some_uuf = UUF(some_u) // An explicit cast to UUF
 ----
 
+When casting between numeric types, the bytes closest to `U` are preserved.
+This means that casting `UUU` to `U` discards the two most significant bytes, while `FFF` to `F` discards the two least.
+
+When casting from signed types to unsigned types of the same size, the bit pattern of the value is unchanged.
+For example, `S(-1)` will cast to `U(255)`.
+
 ==== Zero Initializations
 
 A type cast with no arguments is called a zero initialization.

@@ -55,7 +55,6 @@ constexpr std::uint16_t state_size(mapper_type_t mt)
     switch(mt)
     {
     case MAPPER_ANROM: 
-    case MAPPER_CNROM: 
     case MAPPER_GNROM: 
     case MAPPER_GTROM: 
         return 1;

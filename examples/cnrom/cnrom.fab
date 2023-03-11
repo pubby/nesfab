@@ -4,6 +4,8 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
+// Plays an animation using CNROM
+
 mode main()
     // Set the palette:
     palette = example_palette
@@ -17,11 +19,14 @@ mode main()
     ppu_set_scroll(0, 0)
 
     // Animate the CHRROM:
-    state(0)
+    U frame = 0
+    {$8000}(frame)
     {PPUCTRL}(PPUCTRL_NMI_ON)
     {PPUMASK}(PPUMASK_ON)
     while true
-        state((state() + 1) & %11)
+        {$8000}(frame)
+        frame += 1
+        frame &= %11
         wait(8)
 
 // Define the tileset (commonly called CHR):

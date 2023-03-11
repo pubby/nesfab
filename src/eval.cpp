@@ -2542,7 +2542,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         {
             bool const mode_apply = ast.token.type == TOK_mode_apply;
 
-            // TOK_apply is a psuedo token used to represent application. 
+            // TOK_apply is a pseudo token used to represent application. 
             // The token's 'value' stores the application's arity:
             std::size_t const num_children = ast.token.value;
             std::size_t const num_args = num_children - 1;
@@ -3399,7 +3399,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_index8:
     case TOK_index16:
         {
-            // TOK_index is a psuedo token used to implement array indexing. 
+            // TOK_index is a pseudo token used to implement array indexing. 
 
             bool const is8 = ast.token.type == TOK_index8;
 
@@ -4990,7 +4990,7 @@ expr_value_t eval_t::do_shift(expr_value_t lhs, expr_value_t rhs, token_t const&
         {
             throw compiler_error_t(
                 fmt_error(lhs.pstring, fmt("Cannot shift expression of type % at run-time.", result_type))
-                + fmt_note("Addding an explicit cast will fix."));
+                + fmt_note("Adding an explicit cast will fix."));
         }
         return compile_binary_operator(std::move(lhs), std::move(rhs), Policy::op(), result_type);
     }
@@ -5079,7 +5079,7 @@ expr_value_t eval_t::do_rotate(expr_value_t operand, expr_value_t carry, token_t
         {
             throw compiler_error_t(
                 fmt_error(operand.pstring, fmt("Cannot rotate expression of type % at run-time.", result_type))
-                + fmt_note("Addding an explicit cast will fix."));
+                + fmt_note("Adding an explicit cast will fix."));
         }
         return compile_binary_operator(std::move(operand), std::move(carry), Policy::op(), result_type);
     }

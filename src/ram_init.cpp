@@ -45,7 +45,7 @@ std::vector<merged_span_t> reduce_spans(std::vector<init_span_t>& vec)
     if(vec.size() == 1)
         return {{ vec[0].span(), &vec[0] }};
 
-    // Sorting by address first means we can find mergable spans in linear time next.
+    // Sorting by address first means we can find mergeable spans in linear time next.
     std::sort(vec.begin(), vec.end(), 
         [](init_span_t const& l, init_span_t const& r) { return l.span().addr < r.span().addr; });
 

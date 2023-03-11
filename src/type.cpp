@@ -431,7 +431,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(is_ptr(from.name()) || is_ptr(to.name()))
         return CAST_FAIL;
 
-    // Othewise arithmetic types can be converted to bool using "!= 0".
+    // Otherwise arithmetic types can be converted to bool using "!= 0".
     if(is_arithmetic(from.name()) && to == TYPE_BOOL)
         return CAST_BOOLIFY;
 

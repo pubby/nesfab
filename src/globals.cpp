@@ -435,7 +435,7 @@ global_t* global_t::detect_cycle(global_t& global, idep_class_t pass, idep_class
         assert(pair.second.calc);
         assert(pair.second.depends_on);
 
-        // If we can calcalate:
+        // If we can calculate:
         if(pair.second.calc > calc)
             continue;
 
@@ -527,7 +527,7 @@ void global_t::build_order()
         unsigned ideps_left = 0;
         for(auto const& pair : global.m_ideps)
         {
-            // If we can calcalate:
+            // If we can calculate:
             if(pair.second.calc > calc)
                 continue;
 

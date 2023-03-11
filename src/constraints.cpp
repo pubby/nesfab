@@ -1845,7 +1845,7 @@ NARROW(SSA_shr) = NARROW_FN
 
 NARROW(SSA_rol) = NARROW_FN
 {
-    // We can use abtract 'ror' to implement this.
+    // We can use abstract 'ror' to implement this.
 
     constraints_def_t args[2] = { { result.cm, { result[0] }}, { CARRY_MASK, { result[1] }} };
     args[0][0].normalize(args[0].cm);
@@ -1863,7 +1863,7 @@ NARROW(SSA_rol) = NARROW_FN
 
 NARROW(SSA_ror) = NARROW_FN
 {
-    // We can use abtract 'rol' to implement this.
+    // We can use abstract 'rol' to implement this.
 
     constraints_def_t args[2] = { { result.cm, { result[0] }}, { CARRY_MASK, { result[1] }} };
     args[0][0].normalize(args[0].cm);

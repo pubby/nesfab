@@ -1477,7 +1477,7 @@ namespace Catch {
         //! Called with test cases that are skipped due to the test run aborting
         virtual void skipTest( TestCaseInfo const& testInfo ) = 0;
 
-        //! Called if a fatal error (signal/structured exception) occured
+        //! Called if a fatal error (signal/structured exception) occurred
         virtual void fatalErrorEncountered( StringRef error ) = 0;
 
         //! Writes out information about provided reporters using reporter-specific format
@@ -8519,7 +8519,7 @@ namespace TestCaseTracking {
 
         //! Returns true if tracker run to completion (successfully or not)
         virtual bool isComplete() const = 0;
-        //! Returns true if tracker run to completion succesfully
+        //! Returns true if tracker run to completion successfully
         bool isSuccessfullyCompleted() const;
         //! Returns true if tracker has started but hasn't been completed
         bool isOpen() const;
@@ -9142,7 +9142,7 @@ namespace Catch {
                 // Calculates the length of the current line
                 void calcLength();
 
-                // Returns current indention width
+                // Returns current indentation width
                 size_t indentSize() const;
 
                 // Creates an indented and (optionally) suffixed string from
@@ -11100,7 +11100,7 @@ namespace Catch {
         void listTags( std::vector<TagInfo> const& tags ) override;
 
     protected:
-        //! Should the cumulative base store the assertion expansion for succesful assertions?
+        //! Should the cumulative base store the assertion expansion for successful assertions?
         bool m_shouldStoreSuccesfulAssertions = true;
         //! Should the cumulative base store the assertion expansion for failed assertions?
         bool m_shouldStoreFailedAssertions = true;

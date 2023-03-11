@@ -479,7 +479,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
         }
         else if(op_flags(inst.op) & ASMF_BRANCH)
         {
-            // Prune unecessary branches
+            // Prune unnecessary branches
 
             unsigned const label_i = get_label(inst.arg).index;
             int const dist = bytes_between(next - code.data(), label_i);

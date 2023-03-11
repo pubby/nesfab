@@ -30,7 +30,7 @@ To build in release mode, run:
 
     make release
 
-By default, the compiler builds excutables for the x86-64 architecture.
+By default, the compiler builds executables for the x86-64 architecture.
 To target others, specify a blank `ARCH` flag:
 
     make ARCH= release

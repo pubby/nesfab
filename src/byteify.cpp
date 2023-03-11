@@ -1290,7 +1290,7 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
         cfg_ht const post_node = ir.emplace_cfg();
         cfg_ht const pre_node = cfg_it;
 
-        // Transfer nodes occuring after 'ssa_it' to 'post_node':
+        // Transfer nodes occurring after 'ssa_it' to 'post_node':
         steal_ssa_after(ssa_it, post_node);
 
         // Setup 'loop_head':

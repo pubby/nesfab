@@ -1462,17 +1462,17 @@ There is more than one way to achieve concurrent safety. See <<kw_fence>>, for e
 
 === `state` [[kw_state]]
 
-Some <<mappers, mappers>> have states which can be switched for various effects.
+Some <<mappers, mappers>> have registers which combine bank switching with other functionality.
 For example, `ANROM` uses a bit to track the cartridge's mirroring, and lets the programmer switch it on the fly. 
-`state` expressions read or write these <<mappers, mappers'>> states.
+`state` expressions read or write these <<mappers, mapper>> registers while correctly handling the bank.
 
 [NOTE]
-The NESFab runtime duplicates the mapper's state to a fixed location in RAM.
+The NESFab runtime duplicates the mapper's register state to a fixed location in RAM.
 Reading the state will return this copy instead of polling the hardware.
 
 ==== `state` read
 
-`state` is an expression of type `U` which returns the mapper's last-set state.
+`state` is an expression of type `U` which returns the mapper's last-set register state.
 
 Syntax:
 ----
@@ -1489,7 +1489,7 @@ This address refers to the copy in RAM; modifying it does not notify the hardwar
 
 ==== `state` write
 
-`state` is an expression of type `Void` which sets the mapper's state.
+`state` is an expression of type `Void` which sets the mapper's register state.
 
 Syntax:
 ----
@@ -1505,8 +1505,8 @@ state(5) // The state will have a value of 5
 
 [NOTE]
 
-Mappers often reserve a few bits of their state for their bank.
-You should always leave these bits set to `0`, as otherwise the program may crash.
+You should not alter the bits reserved for the mapper's bank.
+Leave these bits set to `0`, or otherwise the program may crash.
 
 === `system` [[kw_system]]
 

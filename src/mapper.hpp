@@ -64,20 +64,6 @@ constexpr std::uint16_t state_size(mapper_type_t mt)
     }
 }
 
-constexpr bool state_combines_with_banks(mapper_type_t mt)
-{
-    switch(mt)
-    {
-    case MAPPER_ANROM: 
-    case MAPPER_GNROM: 
-    case MAPPER_GTROM: 
-        assert(state_size(mt));
-        return true;
-    default: 
-        return false;
-    }
-}
-
 enum mapper_mirroring_t : std::uint8_t
 {
     MIRROR_NONE,

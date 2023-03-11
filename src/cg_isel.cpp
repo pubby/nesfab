@@ -1292,7 +1292,7 @@ namespace isel
                 , iota_op<Opt, STA_ABSOLUTE_Y, null_>
                 >(cpu, prev, cont);
             }
-            else if(state_combines_with_banks(mapper().type))
+            else if(state_size(mapper().type))
             {
                 using addr = param<struct load_B_addr_tag>;
                 addr::set(locator_t::addr(bs_addr));

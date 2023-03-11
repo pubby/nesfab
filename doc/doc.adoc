@@ -4204,7 +4204,7 @@ When casting to a larger TEA, the new elements at the end of the TEA are zero-in
 ----
 fn example()
     U[3] small_tea = U[3](10, 20, 30)
-    U[3] copied_tea = small_array
+    U[3] copied_tea = small_tea
     U[2] smaller_tea = U[2](small_tea)
     U[5] larger_tea  = U[5](small_tea)
 ----

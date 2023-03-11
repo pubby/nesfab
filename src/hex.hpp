@@ -1,11 +1,14 @@
 #ifndef HEX_HPP
 #define HEX_HPP
 
+#include <cstdint>
+#include <array>
+
 inline int char_to_int(char ch)
 {
     constexpr auto lookup_table = []
     {
-        std::array<std::uint8_t, 256> table;
+        std::array<std::int8_t, 256> table;
 
         table.fill(-1);
 

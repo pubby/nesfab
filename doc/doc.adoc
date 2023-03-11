@@ -26,7 +26,7 @@ It's easy to get started with, and has a useful set of libraries for making your
 
 === Strengths of NESFab
 
-- Performance is generally superior to C and all other compiled langauges.
+- Performance is generally superior to C and all other compiled languages.
 - <<mappers, Mapper>> banks are handled automatically and scale up without fuss.
 - Multi-byte and fixed-point arithmetic is well supported and simpler than other languages.
 - The compiler is easily configured, without needing complex build systems.
@@ -919,7 +919,7 @@ This looks like:
 ----
 if expression
     code block
-else if expresssion
+else if expression
     code block
 else
     code block
@@ -1111,7 +1111,7 @@ See more examples in <<kw_switch>>.
 === `default` [[kw_default]]
 
 `default` is used inside of <<kw_switch>> statements as a label.
-Control flow will jump to the `default` from the `switch` if the switch's expression matches no enclosed <<hw_case>> statemen.
+Control flow will jump to the `default` from the `switch` if the switch's expression matches no enclosed <<hw_case>> statement.
 
 Syntax:
 ----
@@ -2026,7 +2026,7 @@ The same group can be declared multiple times,
 with each declaration defining additional global variables.
 The group will be defined as the union of these declarations.
 
-*Varibale modifiers:*
+*Variable modifiers:*
 
 The following modifiers are per-variable, not per-group.
 
@@ -2125,7 +2125,7 @@ charmap identifier("string", 's')
 - `"string"` is a string literal, defining the characters of the charmap. 
   The first character in the string will map to a value of zero, 
   with other characters mapping to one higher than the character preceding them. 
-- `'s'` is an optional charcter literal, defining the sentinel. When left out, no sentinel is defined.
+- `'s'` is an optional character literal, defining the sentinel. When left out, no sentinel is defined.
 
 *Modifiers:*
 
@@ -2165,7 +2165,7 @@ charmap bar("abcd")
 *Shared Characters*
 
 The escape sequence `\/` has a special meaning inside of `charmap` definitions.
-A charcter preceding `\/` will map to the same value as the character following it.
+A character preceding `\/` will map to the same value as the character following it.
 
 Commonly, `\/` is used when multiple characters can use the same glyph,
 such as `0` and `O`, or `1` and `I`.
@@ -3244,7 +3244,7 @@ and shifting by a variable (`x << y)` generates a loop in the assembly.
 ==== Assign by Shift Left `+<<=+` [[assign_shift_left]]
 
 Performs a left shift using both operands, then assigns the value to the lvalue left operand.
-Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occured).
+Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occurred).
 
 Example:
 ----
@@ -3280,7 +3280,7 @@ and shifting by a variable (`x >> y)` generates a loop in the assembly.
 ==== Assign by Shift Right `+>>=+` [[assign_shift_right]]
 
 Performs a right shift using both operands, then assigns the value to the lvalue left operand.
-Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occured).
+Returns the carry: a value of type `Bool` equal to last bit shifted out (or `false` if no shifting occurred).
 
 Example:
 ----

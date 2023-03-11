@@ -98,7 +98,7 @@ struct cpu_t
 
     // This bitset keeps track of which variables must be stored.
     // To shrink the size down to 64 bits, a rolling window is used
-    // based around the live ranges occuring within a single CFG node.
+    // based around the live ranges occurring within a single CFG node.
     std::uint64_t req_store = 0;
 
     bool inverted_z() const { return known_mask & REGF_INVERTED_Z; }

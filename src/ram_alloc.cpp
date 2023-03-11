@@ -453,7 +453,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             estimate_gmember_loc(rank.loc);
 
         // For global vars that have init expressions,
-        // we want to allocate their group to be contigious,
+        // we want to allocate their group to be contiguous,
         // as this means we can more efficiently init them.
         //
         // To do this, we'll bundle init'd locators into structs.

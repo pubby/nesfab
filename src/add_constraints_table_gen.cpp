@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <cstdio>
 
-// Used in cosntraints.cpp to implement addition of constraints.
+// Used in constraints.cpp to implement addition of constraints.
 
 // Dedicated to the Daily WTF
 // https://thedailywtf.com/articles/What_Is_Truth_0x3f_

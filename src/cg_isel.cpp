@@ -194,7 +194,7 @@ namespace isel
         // Very slightly penalize ROL/ROR, to prefer LSR/ASL:
         case ROL:
         case ROR:
-        // Very slighty penalize LAX, to prefer LDA or LDX:
+        // Very slightly penalize LAX, to prefer LDA or LDX:
         case LAX: 
         // Same with ALR and LSR:
         case ALR:
@@ -4126,10 +4126,10 @@ namespace isel
 
         // A bitset is used to track which variables have been stored.
         // To shrink the bitset size down to 64 bits, a rolling window is used
-        // based around the live ranges occuring within a single CFG node.
+        // based around the live ranges occurring within a single CFG node.
 
         // This code finds that rolling window and allocates each node to a bit:
-        std::uint64_t free = ~0ull; // Set of availible bits to use
+        std::uint64_t free = ~0ull; // Set of available bits to use
         for(ssa_ht h : cd.schedule)
         {
             if(free)

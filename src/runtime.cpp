@@ -79,7 +79,7 @@ ram_bitset_t alloc_runtime_ram()
     _rtram_spans[RTRAM_irq_index]       = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_irq_saved_x]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_irq_saved_y]     = {{ a.alloc_zp(1) }};
-    _rtram_spans[RTRAM_mapper_state] = {{ a.alloc_zp(state_size(mapper().type)) }};
+    _rtram_spans[RTRAM_mapper_state] = {{ a.alloc_zp(state_size()) }};
 
     // Allocate optional stuff last, for a consistent memory layout.
     if(mapper().bankswitches())
@@ -122,14 +122,14 @@ static void _load_bankswitch_ax(asm_proc_t& proc, locator_t load)
         if(load.is_immediate())
         {
             proc.push_inst(LDA_IMMEDIATE, load);
-            if(has_bus_conflicts(mapper().type))
+            if(has_bus_conflicts())
                 proc.push_inst(TAX);
         }
         else
             proc.push_inst(LAX_ABSOLUTE, load);
     }
 
-    if(has_bus_conflicts(mapper().type))
+    if(has_bus_conflicts())
         proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
     else
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
@@ -142,7 +142,7 @@ void bankswitch_x(asm_proc_t& proc)
 
     std::uint16_t const addr = bankswitch_addr(mapper().type);
 
-    if(has_bus_conflicts(mapper().type))
+    if(has_bus_conflicts())
     {
         proc.push_inst(TXA_IMPLIED);
         proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
@@ -158,7 +158,7 @@ void bankswitch_y(asm_proc_t& proc)
 
     std::uint16_t const addr = bankswitch_addr(mapper().type);
 
-    if(has_bus_conflicts(mapper().type))
+    if(has_bus_conflicts())
     {
         proc.push_inst(TYA_IMPLIED);
         proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
@@ -174,7 +174,7 @@ void bankswitch_ax(asm_proc_t& proc)
 
     std::uint16_t const addr = bankswitch_addr(mapper().type);
 
-    if(has_bus_conflicts(mapper().type))
+    if(has_bus_conflicts())
         proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
     else
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
@@ -187,7 +187,7 @@ void bankswitch_ay(asm_proc_t& proc)
 
     std::uint16_t const addr = bankswitch_addr(mapper().type);
 
-    if(has_bus_conflicts(mapper().type))
+    if(has_bus_conflicts())
         proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
     else
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
@@ -217,7 +217,7 @@ static asm_proc_t make_irq()
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_bank));
 
         proc.push_inst(LAX_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_irq_bank_table));
-        if(has_bus_conflicts(mapper().type))
+        if(has_bus_conflicts())
             proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
         else
             proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
@@ -267,7 +267,7 @@ static asm_proc_t make_nmi()
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
 
         proc.push_inst(LAX_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_bank_table));
-        if(has_bus_conflicts(mapper().type))
+        if(has_bus_conflicts())
             proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
         else
             proc.push_inst(STA_ABSOLUTE, locator_t::addr(addr));
@@ -345,7 +345,7 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUMASK));
 
     // Reset runtime vars:
-    if(state_size(mapper().type))
+    if(state_size())
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_ready));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
@@ -475,7 +475,7 @@ static asm_proc_t make_jsr_y_trampoline()
     bankswitch_y(proc);
     proc.push_inst(JSR_ABSOLUTE, locator_t::minor_label(0));
     proc.push_inst(PLA);
-    if(has_bus_conflicts(mapper().type))
+    if(has_bus_conflicts())
     {
         proc.push_inst(TAY);
         proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
@@ -649,7 +649,7 @@ span_allocator_t alloc_runtime_rom()
     // Pre-allocate.
     auto& iota = _rtrom_spans[RTROM_iota][0];
     iota = {};
-    if(has_bus_conflicts(mapper().type))
+    if(has_bus_conflicts())
         iota = a.alloc_at({ bankswitch_addr(mapper().type), 256 });
     if(!iota)
         iota = a.alloc(256, 256);

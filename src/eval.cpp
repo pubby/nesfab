@@ -2109,7 +2109,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_state:
         {
-            if(state_size(mapper().type) == 0)
+            if(state_size() == 0)
                 compiler_error(ast.token.pstring, fmt("Mapper % does not have a state.", mapper_name(mapper().type)));
 
             expr_value_t result =
@@ -2126,7 +2126,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_write_state:
         {
-            if(state_size(mapper().type) == 0)
+            if(state_size() == 0)
                 compiler_error(ast.token.pstring, fmt("Mapper % does not have a state.", mapper_name(mapper().type)));
 
             if(is_interpret(D))

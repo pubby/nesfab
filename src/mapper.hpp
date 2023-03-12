@@ -16,6 +16,8 @@ MAPPER(GNROM, 66) \
 MAPPER(GTROM, 111) \
 MAPPER(189, 189) \
 
+struct mapper_t;
+
 enum mapper_type_t : std::uint16_t // Values are ines mapper numbers
 {
 #define MAPPER(name, value) MAPPER_##name = value,
@@ -23,45 +25,9 @@ enum mapper_type_t : std::uint16_t // Values are ines mapper numbers
 #undef MAPPER
 };
 
+inline mapper_t const& mapper();
+
 std::string_view mapper_name(mapper_type_t mt);
-
-constexpr std::uint16_t bankswitch_addr(mapper_type_t mt)
-{
-    // Try to keep this page-aligned, as the iota table will get allocated here.
-    switch(mt)
-    {
-    case MAPPER_GTROM: return 0x5000;
-    case MAPPER_189: return 0x4120;
-    default: return 0x8000;
-    }
-}
-
-constexpr bool has_bus_conflicts(mapper_type_t mt)
-{
-    switch(mt)
-    {
-    case MAPPER_NROM: 
-    case MAPPER_CNROM: 
-    case MAPPER_GTROM: 
-    case MAPPER_189: 
-        return false;
-    default:
-        return true;
-    }
-}
-
-constexpr std::uint16_t state_size(mapper_type_t mt)
-{
-    switch(mt)
-    {
-    case MAPPER_ANROM: 
-    case MAPPER_GNROM: 
-    case MAPPER_GTROM: 
-        return 1;
-    default: 
-        return 0;
-    }
-}
 
 enum mapper_mirroring_t : std::uint8_t
 {
@@ -111,5 +77,45 @@ struct mapper_t
 
 
 void write_ines_header(std::uint8_t* at, mapper_t const& mapper);
+
+#include "options.hpp" // Define mapper().
+
+constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
+{
+    // Try to keep this page-aligned, as the iota table will get allocated here.
+    switch(mt)
+    {
+    case MAPPER_GTROM: return 0x5000;
+    case MAPPER_189: return 0x4120;
+    default: return 0x8000;
+    }
+}
+
+constexpr bool has_bus_conflicts(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    case MAPPER_NROM: 
+    case MAPPER_CNROM: 
+    case MAPPER_GTROM: 
+    case MAPPER_189: 
+        return false;
+    default:
+        return true;
+    }
+}
+
+constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    case MAPPER_ANROM: 
+    case MAPPER_GNROM: 
+    case MAPPER_GTROM: 
+        return 1;
+    default: 
+        return 0;
+    }
+}
 
 #endif

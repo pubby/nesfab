@@ -1280,7 +1280,7 @@ namespace isel
             cont->call(cpu, prev);
         else
         {
-            if(has_bus_conflicts(mapper().type))
+            if(has_bus_conflicts())
             {
                 chain
                 < load_AX<Opt, Def, Def>
@@ -1292,7 +1292,7 @@ namespace isel
                 , iota_op<Opt, STA_ABSOLUTE_Y, null_>
                 >(cpu, prev, cont);
             }
-            else if(state_size(mapper().type))
+            else if(state_size())
             {
                 using addr = param<struct load_B_addr_tag>;
                 addr::set(locator_t::addr(bs_addr));

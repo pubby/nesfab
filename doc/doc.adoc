@@ -3672,7 +3672,7 @@ Returns the number of array elements of values belonging to a type as a compile-
 
 Syntax:
 ----
-sizeof Type
+len Type
 ----
 - `Type` is a <<type_tea, typed element array type>>.
 
@@ -3687,13 +3687,13 @@ Returns the number of array elements of an expression's value as a compile-time 
 
 Syntax:
 ----
-sizeof(expression)
+len(expression)
 ----
 - `expression` is an array expression to calcalute the length of. The expression will not be executed.
 
 Example:
 ----
-ct Int expr_len = sizeof(U[10](3))
+ct Int expr_len = len(U[10](3))
 ----
 
 === Explicit Type Casts [[casts]]

@@ -542,7 +542,7 @@ void asm_proc_t::link(romv_t romv, int bank)
         inst.alt = inst.alt.link(romv, fn, bank);
     }
 
-    if(!fn || !fn->iasm)
+    if(fn && !fn->iasm)
         optimize(false);
     assert(pre_size >= size());
 }

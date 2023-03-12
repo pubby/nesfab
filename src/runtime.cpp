@@ -80,6 +80,7 @@ ram_bitset_t alloc_runtime_ram()
     _rtram_spans[RTRAM_irq_saved_x]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_irq_saved_y]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_mapper_state] = {{ a.alloc_zp(state_size()) }};
+    _rtram_spans[RTRAM_mapper_detail] = {{ a.alloc_zp(detail_size()) }};
 
     // Allocate optional stuff last, for a consistent memory layout.
     if(mapper().bankswitches())
@@ -142,7 +143,12 @@ void bankswitch_x(asm_proc_t& proc)
 
     std::uint16_t const addr = bankswitch_addr(mapper().type);
 
-    if(has_bus_conflicts())
+    if(mapper().type == MAPPER_MMC1)
+    {
+        proc.push_label(0);
+        // TODO
+    }
+    else if(has_bus_conflicts())
     {
         proc.push_inst(TXA_IMPLIED);
         proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
@@ -253,6 +259,7 @@ static asm_proc_t make_nmi()
     proc.push_inst(STY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_y));
 
     proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
+    proc.push_inst(STY_ABSOLUTE, locator_t::addr(0x500)); // TODO
     proc.push_inst(LDA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_lo_table));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 0));
     proc.push_inst(LDA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_hi_table));
@@ -345,7 +352,7 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUMASK));
 
     // Reset runtime vars:
-    if(state_size())
+    if(state_size(mapper().type))
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_ready));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));

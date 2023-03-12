@@ -357,11 +357,16 @@ void asm_proc_t::absolute_to_zp()
         if(inst.arg.is() != IS_DEREF && inst.arg.is() != IS_PTR)
             continue;
 
-        if(inst.arg.lclass() == LOC_ADDR && inst.arg.data() >= 0x100)
-            continue;
+        locator_t arg = inst.arg;
+        if(compiler_phase() >= PHASE_RUNTIME && inst.arg.lclass() == LOC_RUNTIME_RAM)
+            arg = arg.link(ROMV_MODE, {}, -1);
 
-        // 'zp_only' *has* to go on the zero page:
-        if(!inst.arg.mem_zp_only())
+        if(arg.lclass() == LOC_ADDR)
+        {
+           if(arg.data() + arg.offset() >= 0x100)
+               continue;
+        }
+        else if(compiler_phase() != PHASE_COMPILE || !arg.mem_zp_only())
             continue;
 
         // OK! Replace with zp:
@@ -524,12 +529,6 @@ void asm_proc_t::optimize(bool initial)
     convert_long_branch_ops();
 }
 
-void asm_proc_t::initial_optimize()
-{
-    // Order matters here.
-    optimize(true);
-}
-
 void asm_proc_t::link(romv_t romv, int bank)
 {
 #ifndef NDEBUG
@@ -542,8 +541,23 @@ void asm_proc_t::link(romv_t romv, int bank)
         inst.alt = inst.alt.link(romv, fn, bank);
     }
 
-    if(fn && !fn->iasm)
-        optimize(false);
+    assert(pre_size >= size());
+}
+
+void asm_proc_t::link_variables(romv_t romv)
+{
+#ifndef NDEBUG
+    std::size_t const pre_size = size();
+#endif
+
+    for(asm_inst_t& inst : code)
+    {
+        if(is_var_like(inst.arg.lclass()))
+            inst.arg = inst.arg.link(romv, fn, -1);
+        if(is_var_like(inst.alt.lclass()))
+            inst.alt = inst.alt.link(romv, fn, -1);
+    }
+
     assert(pre_size >= size());
 }
 

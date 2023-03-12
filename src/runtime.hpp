@@ -27,6 +27,7 @@ RT(irq_saved_x) \
 RT(irq_saved_y) \
 RT(irq_saved_bank) \
 RT(mapper_state) \
+RT(mapper_detail) \
 RT(system) \
 
 enum runtime_ram_name_t : std::uint16_t

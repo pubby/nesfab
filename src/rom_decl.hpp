@@ -30,6 +30,40 @@ class locator_t;
 DEF_HANDLE_HASH(rom_array_ht);
 DEF_HANDLE_HASH(rom_proc_ht);
 
+// These are for different (duplicated) versions of the same data.
+// i.e. one for code called from modes, another for code called from nmis
+enum romv_t
+{
+    ROMV_MODE = 0,
+    ROMV_NMI,
+    ROMV_IRQ,
+    NUM_ROMV,
+};
+
+using romv_flags_t = std::uint8_t;
+constexpr romv_flags_t ROMVF_IN_MODE = 1 << ROMV_MODE;
+constexpr romv_flags_t ROMVF_IN_NMI  = 1 << ROMV_NMI;
+constexpr romv_flags_t ROMVF_IN_IRQ  = 1 << ROMV_IRQ;
+constexpr romv_flags_t ROMVF_ALL = ROMVF_IN_MODE | ROMVF_IN_NMI | ROMVF_IN_IRQ;
+
+constexpr int next_romv(romv_flags_t flags, unsigned romv)
+{
+    if(flags & romv)
+        return romv;
+    for(unsigned i = 0; i < NUM_ROMV; ++i)
+        if(flags & (1 << i))
+            return i;
+    return -1;
+}
+
+template<typename Fn>
+void romv_for_each(romv_flags_t flags, Fn const& fn)
+{
+    for(unsigned i = 0; i < NUM_ROMV; ++i)
+        if(flags & (1 << i))
+            fn(romv_t(i));
+}
+
 enum rom_data_class_t : std::uint8_t
 {
     ROMD_NONE = 0,
@@ -89,7 +123,7 @@ public:
 
     rom_data_t* get() const;
 
-    unsigned max_size() const;
+    unsigned max_size(romv_t romv) const;
 
     void visit(std::function<void(rom_array_ht)> const& array_fn, 
                std::function<void(rom_proc_ht)> const& proc_fn) const;
@@ -113,39 +147,5 @@ public:
     int first_bank() const;
 };
 
-// These are for different (duplicated) versions of the same data.
-// i.e. one for code called from modes, another for code called from nmis
-enum romv_t
-{
-    ROMV_MODE = 0,
-    ROMV_NMI,
-    ROMV_IRQ,
-    NUM_ROMV,
-};
-
-using romv_flags_t = std::uint8_t;
-constexpr romv_flags_t ROMVF_IN_MODE = 1 << ROMV_MODE;
-constexpr romv_flags_t ROMVF_IN_NMI  = 1 << ROMV_NMI;
-constexpr romv_flags_t ROMVF_IN_IRQ  = 1 << ROMV_IRQ;
-constexpr romv_flags_t ROMVF_ALL = ROMVF_IN_MODE | ROMVF_IN_NMI | ROMVF_IN_IRQ;
 using romv_allocs_t = std::array<rom_alloc_ht, NUM_ROMV>;
-
-constexpr int next_romv(romv_flags_t flags, unsigned romv)
-{
-    if(flags & romv)
-        return romv;
-    for(unsigned i = 0; i < NUM_ROMV; ++i)
-        if(flags & (1 << i))
-            return i;
-    return -1;
-}
-
-template<typename Fn>
-void romv_for_each(romv_flags_t flags, Fn const& fn)
-{
-    for(unsigned i = 0; i < NUM_ROMV; ++i)
-        if(flags & (1 << i))
-            fn(romv_t(i));
-}
-
 #endif

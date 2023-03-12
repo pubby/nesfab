@@ -135,6 +135,11 @@ constexpr bool is_const(locator_class_t lclass)
     return lclass == LOC_CONST_BYTE || lclass == LOC_ADDR;
 }
 
+constexpr bool is_runtime(locator_class_t lclass)
+{
+    return lclass == LOC_RUNTIME_RAM || lclass == LOC_RUNTIME_ROM;
+}
+
 constexpr bool has_arg_member_atom(locator_class_t lclass)
 {
     switch(lclass)

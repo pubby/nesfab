@@ -3,6 +3,7 @@
 
 #include <ranges>
 #include <vector>
+#include <stdexcept>
 
 #include "robin/map.hpp"
 #include "robin/set.hpp"
@@ -46,7 +47,7 @@ public:
     rom_data_t(romv_allocs_t const& a, romv_flags_t desired_romv, bool align) 
     : m_allocs(a)
     , m_align(align)
-    , m_desired_romv(desired_romv)
+    , m_desired_romv(desired_romv ? desired_romv : ROMVF_IN_MODE)
     {}
 
     rom_alloc_ht get_alloc(romv_t romv) const 
@@ -67,7 +68,7 @@ public:
     void set_alloc(romv_t romv, rom_alloc_ht alloc, rom_key_t) 
         { assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM); m_allocs[romv] = alloc; }
 
-    romv_flags_t desired_romv() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_desired_romv; }
+    romv_flags_t desired_romv() const { return m_desired_romv; }
     bool align() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_align; }
     bool emits() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_emits; }
     rom_rule_t rule() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_rule; }
@@ -82,7 +83,7 @@ protected:
     std::atomic<bool> m_align = false;
     std::atomic<bool> m_emits = false;
     std::atomic<rom_rule_t> m_rule = ROMR_NORMAL;
-    std::atomic<romv_flags_t> m_desired_romv = 0;
+    romv_flags_t const m_desired_romv = 0;
 };
 
 // Tracks a non-code segment of data that is represented as a loc_vec_t,
@@ -131,10 +132,36 @@ public:
     // Sets the proc's state.
     // BE CAREFUL. NO SYNCHRONIZATION!
     void assign(asm_proc_t&& asm_proc);
+    void assign(asm_proc_t&& asm_proc, romv_t romv);
 
     // BE CAREFUL. NO SYNCHRONIZATION!
     asm_proc_t const& asm_proc() const { return m_asm_proc; }
-    unsigned max_size() const { assert(m_max_size < 1 << 16); return m_max_size; }
+    asm_proc_t const& asm_proc(romv_t romv) const 
+    { 
+        assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM);
+        if(m_opt_procs[romv])
+            return *m_opt_procs[romv];
+        for(unsigned i = 0; i < NUM_ROMV; ++i)
+            if(m_opt_procs[i])
+                return *m_opt_procs[i];
+        throw std::runtime_error("Missing ASM proc!");
+    }
+    asm_proc_t& asm_proc(romv_t romv) { return const_cast<asm_proc_t&>(static_cast<const rom_proc_t*>(this)->asm_proc(romv)); }
+
+    //unsigned max_size() const { assert(m_max_size < (1 << 16)); return m_max_size; }
+    unsigned maxest_size() const 
+    { 
+        unsigned m = 0;
+        for(auto const& p : m_opt_procs)
+            if(p)
+                m = std::max(m, p->cached_size);
+        if(!m)
+            m = m_asm_proc.cached_size;
+        assert(m < (1 << 16)); 
+        return m;
+    }
+
+    unsigned max_size(romv_t romv) const { return asm_proc(romv).cached_size; }
 
     xbitset_t<group_ht> const* uses_groups() const;
     bool for_each_group_test(std::function<bool(group_ht)> const& fn);
@@ -143,7 +170,9 @@ public:
 private:
     // BE CAREFUL. NO SYNCHRONIZATION!
     asm_proc_t m_asm_proc;
-    unsigned m_max_size = 0; // Upper-bound on allocation size
+
+    // Procs once optimized for each ROMV:
+    std::array<std::unique_ptr<asm_proc_t>, NUM_ROMV> m_opt_procs;
 };
 
 // Generic construction functions:
@@ -171,6 +200,8 @@ struct rom_alloc_t
     romv_t romv = {};
     span_t span = {};
     rom_data_ht data = {};
+
+    unsigned max_size() const { return data.max_size(romv); }
 }; 
 
 struct rom_static_t : public rom_alloc_t

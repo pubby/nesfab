@@ -5,11 +5,6 @@
 #include "asm_proc.hpp"
 #include "ir.hpp"
 
-//////////////////
-// rom_array_ht //
-//////////////////
-
-
 /////////////////
 // rom_array_t //
 /////////////////
@@ -168,7 +163,14 @@ void rom_proc_t::assign(asm_proc_t&& asm_proc)
 {
     assert(compiler_phase() <= rom_proc_ht::phase);
     m_asm_proc = std::move(asm_proc);
-    m_max_size = m_asm_proc.size();
+    m_asm_proc.cache_size();
+}
+
+void rom_proc_t::assign(asm_proc_t&& asm_proc, romv_t romv)
+{
+    assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM);
+    m_opt_procs[romv].reset(new asm_proc_t(std::move(asm_proc)));
+    m_opt_procs[romv]->cache_size();
 }
 
 xbitset_t<group_ht> const* rom_proc_t::uses_groups() const 
@@ -226,7 +228,7 @@ rom_data_t* rom_data_ht::get() const
     }
 }
 
-unsigned rom_data_ht::max_size() const
+unsigned rom_data_ht::max_size(romv_t romv) const
 {
     switch(rclass())
     {
@@ -236,7 +238,7 @@ unsigned rom_data_ht::max_size() const
         assert(rom_array_ht{ handle() }->data().size() < 1 << 16);
         return rom_array_ht{ handle() }->data().size();
     case ROMD_PROC:
-        return rom_proc_ht{ handle() }->max_size();
+        return rom_proc_ht{ handle() }->max_size(romv);
     }
 }
 

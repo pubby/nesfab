@@ -139,7 +139,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             {
                 if(rom_proc->emits())
                 {
-                    summed_size += rom_proc->max_size();
+                    summed_size += rom_proc->maxest_size();
                     ++proc_count;
                 }
             }
@@ -425,14 +425,14 @@ float rom_allocator_t::once_rank(rom_once_t const& once)
     bitset_for_each(many_bs_size, once.required_manys, [&](unsigned i)
     {
         rom_many_t const& many = *rom_many_ht{i};
-        many_size += many.data.max_size();
+        many_size += many.max_size();
     });
 
     int related = 0;
     if(once.related_onces)
         related = bitset_popcount(once_bs_size, once.related_onces);
 
-    return many_size + once.data.max_size() + related;
+    return many_size + once.max_size() + related;
 }
 
 float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
@@ -446,7 +446,7 @@ float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
     bitset_for_each(many_bs_size, unallocated_manys, [&](unsigned i)
     {
         rom_many_t const& many = *rom_many_ht{ i };
-        unallocated_many_size += many.data.max_size();
+        unallocated_many_size += many.max_size();
     });
 
     // Count related / unrelated onces
@@ -522,7 +522,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
         
         // If we succeeded in allocating manys, try to allocate 'once's span:
         // (conditional has side effect assignment)
-        if(!allocated_manys || !(once.span = bank.allocator.alloc(once.data.max_size(), once.desired_alignment)))
+        if(!allocated_manys || !(once.span = bank.allocator.alloc(once.max_size(), once.desired_alignment)))
         {
             // If we fail, free allocated 'many' memory.
             for(rom_many_ht many_h : realloced_manys)
@@ -586,7 +586,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
 {
     rom_many_t& many = *many_h;
     
-    if(many.data.max_size() == 0)
+    if(many.max_size() == 0)
     {
         many.span = { .addr = 0, .size = 1 };
         return true;
@@ -605,7 +605,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     in_banks.for_each([&](unsigned bank_i){ free |= banks[bank_i].allocator.allocated_bitset(); });
     bitset_flip_all(free.size(), free.data());
     unsigned const bpb = span_allocator_t::bytes_per_bit(initial_span);
-    bitset_mark_consecutive(free.size(), free.data(), (many.data.max_size() + bpb - 1) / bpb);
+    bitset_mark_consecutive(free.size(), free.data(), (many.max_size() + bpb - 1) / bpb);
 
     int const highest_bit = bitset_highest_bit_set(free.size(), free.data());
     if(highest_bit < 0)
@@ -622,7 +622,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     {
         span_t const span = banks[bank_i].allocator.unallocated_span_at(free_addr);
         assert(span);
-        assert(span.size >= many.data.max_size());
+        assert(span.size >= many.max_size());
         max_start = std::max<unsigned>(max_start, span.addr);
         min_end = std::min<unsigned>(min_end, span.end());
     });
@@ -632,7 +632,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     span_t const range = { max_start, min_end - max_start };
     span_t alloc_at;
 
-    if(!(alloc_at = aligned(range, many.data.max_size(), many.desired_alignment)))
+    if(!(alloc_at = aligned(range, many.max_size(), many.desired_alignment)))
         return false;
 
     // Now allocate in each bank:

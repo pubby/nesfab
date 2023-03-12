@@ -9,6 +9,7 @@
 
 #define MAPPER_XENUM \
 MAPPER(NROM, 0) \
+MAPPER(MMC1, 1) \
 MAPPER(CNROM, 3) \
 MAPPER(ANROM, 7) \
 MAPPER(BNROM, 34) \
@@ -118,4 +119,14 @@ constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
     }
 }
 
+constexpr std::uint16_t detail_size(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    case MAPPER_MMC1: 
+        return 1;
+    default: 
+        return 0;
+    }
+}
 #endif

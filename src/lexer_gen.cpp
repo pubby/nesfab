@@ -657,6 +657,7 @@ int main()
         keyword("audio"),
         keyword("system"),
         keyword("state"),
+        keyword("__mapper_detail"),
 
         keyword("true"),
         keyword("false"),

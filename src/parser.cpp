@@ -765,6 +765,7 @@ retry:
     case TOK_false:
     case TOK_ready:
     case TOK_system:
+    case TOK___mapper_detail:
         {
             ast_node_t ast = { .token = token };
             parse_token();

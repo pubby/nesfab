@@ -242,7 +242,9 @@ type_t locator_t::type() const
 
 locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 {
-    assert(compiler_phase() == PHASE_LINK);
+    assert(compiler_phase() == PHASE_LINK
+           || (compiler_phase() == PHASE_PREPARE_ALLOC_ROM && is_var_like(lclass()))
+           || (compiler_phase() >= PHASE_RUNTIME && is_runtime(lclass())));
 
     auto const from_span = [&](span_t span) -> locator_t
     { 
@@ -292,7 +294,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
             if(g.gclass() == GLOBAL_FN)
             {
-                auto const& proc = g.impl<fn_t>().rom_proc()->asm_proc();
+                auto const& proc = g.impl<fn_t>().rom_proc()->asm_proc(romv);
 
                 if(auto const* info = proc.lookup_label(*this))
                     return from_offset(rom_alloc(romv), info->offset);
@@ -322,7 +324,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             return fn()->first_bank_switch().link(romv, fn_h, bank);
 
         {
-            auto const& proc = fn()->rom_proc()->asm_proc();
+            auto const& proc = fn()->rom_proc()->asm_proc(romv);
             locator_t const label = 
                 data() == ENTRY_LABEL ? proc.entry_label : locator_t::named_label(fn()->global.handle(), data());
 

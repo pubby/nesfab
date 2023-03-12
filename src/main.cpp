@@ -425,6 +425,7 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
+        link_variables_optimize();
         alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
         if(compiler_options().ram_info)
         {

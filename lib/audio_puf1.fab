@@ -6,8 +6,9 @@
 
 // Code implementing the puf music engine, version 1.
 
-//////////////////////////////////////////////////////////////////////////////
-// The following functions are defined:
+///////////////////////////////////////////////////////////////////////////////
+// The following functions are defined: ///////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 
 // puf.init(U system_type)
 // - Initializes the puf library. 
@@ -29,7 +30,25 @@
 // --- If enable has 'PUF_LOOP' set, the song will loop after completion.
 // - If you want the typical behavior, pass 'PUF_DEFAULT' as the 'enable' parameter.
 
-//////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+// How to compose PUF music: //////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// PUF audio is composed using Famitracker (http://famitracker.com/).
+// Both music and sound effects are exported via the "export text" feature,
+// but sound effects also require "export nsf".
+
+// Instead of using one .ftm file per song, 
+// PUF expects all songs to be defined in the same file,
+// naming them as desired in the "module properties" page.
+
+// For music specifically, the following restrictions apply:
+// - No effects are supported except D00.
+// - The volume column is not supported.
+// - Hi-pitch is not supported.
+// - Non-absolute arpeggio is not supported.
+
+// Unlike music, sound effects support all effects, but cannot involve the DMC channel.
 
 ct U PUF_LOOP = %10000000
 ct U PUF_DEFAULT = $FF

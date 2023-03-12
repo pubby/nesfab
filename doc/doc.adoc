@@ -2624,7 +2624,7 @@ The following targets are accepted:
 | <<audio_puf1_music, `puf1_music`>>
 | Music
 
-| <<audio_puf1_music, `puf1_sfx`>>
+| <<audio_puf1_sfx, `puf1_sfx`>>
 | Sound Effects
 
 |===
@@ -2669,6 +2669,7 @@ ct U puf_track_death       = 2
 *Use*
 
 The standard library file `puf1.fab` can be used to play the converted music.
+A description of how to compose compatible music can be found in that file.
 
 [NOTE]
 You will also need a `puf1_sfx` audio target.
@@ -2718,6 +2719,7 @@ ct U puf_sfx_death       = 2
 *Use*
 
 The standard library file `puf1.fab` can be used to play the converted sound effects.
+A description of how to compose compatible sound effects can be found in that file.
 
 [NOTE]
 You will also need a `puf1_music` audio target.

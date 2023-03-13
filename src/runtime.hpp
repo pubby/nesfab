@@ -55,7 +55,8 @@ RT(reset) \
 RT(jmp_y_trampoline) \
 RT(jsr_y_trampoline) \
 RT(iota) \
-RT(mul8) 
+RT(mul8) \
+RT(mapper_reset)
 
 enum runtime_rom_name_t : std::uint16_t
 {
@@ -86,9 +87,8 @@ std::string to_string(runtime_rom_name_t name);
 std::ostream& operator<<(std::ostream& o, runtime_ram_name_t name);
 std::ostream& operator<<(std::ostream& o, runtime_rom_name_t name);
 
-void bankswitch_x(asm_proc_t& proc);
-void bankswitch_y(asm_proc_t& proc);
-void bankswitch_ax(asm_proc_t& proc);
-void bankswitch_ay(asm_proc_t& proc);
+unsigned bankswitch_a(asm_proc_t& proc, unsigned next_label, bool x = false);
+unsigned bankswitch_x(asm_proc_t& proc, unsigned next_label);
+unsigned bankswitch_y(asm_proc_t& proc, unsigned next_label);
 
 #endif

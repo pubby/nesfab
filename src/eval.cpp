@@ -1976,6 +1976,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     locator_t const loc = locator_t::runtime_ram(RTRAM_mapper_detail, offset);
                     return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
+                else if(lval->arg == lval_t::MAPPER_RESET_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_rom(RTROM_mapper_reset, offset);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                }
 
                 if(lval->is_global())
                 {
@@ -2102,6 +2107,23 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result =
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_DETAIL_ARG },
+                .type = TYPE_VOID,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            return result;
+        }
+
+    case TOK___mapper_reset:
+        {
+            if(!has_mapper_reset())
+                compiler_error(ast.token.pstring, fmt("Mapper % lacks __mapper_reset.", mapper().name()));
+
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_RESET_ARG },
                 .type = TYPE_VOID,
                 .pstring = ast.token.pstring,
                 .time = RT,
@@ -3177,22 +3199,17 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 case TOK_byte_block_bank_switch_x:
                     if(!is_check(D))
-                        bankswitch_x(proc);
+                        bankswitch_x(proc, proc.next_label_id());
                     break;
 
                 case TOK_byte_block_bank_switch_y:
                     if(!is_check(D))
-                        bankswitch_y(proc);
+                        bankswitch_y(proc, proc.next_label_id());
                     break;
 
                 case TOK_byte_block_bank_switch_ax:
                     if(!is_check(D))
-                        bankswitch_ax(proc);
-                    break;
-
-                case TOK_byte_block_bank_switch_ay:
-                    if(!is_check(D))
-                        bankswitch_ay(proc);
+                        bankswitch_a(proc, proc.next_label_id(), true);
                     break;
 
                 case TOK_byte_block_byte_array:
@@ -4163,8 +4180,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             return v;
         }
-        else if(lval->arg == lval_t::MAPPER_DETAIL_ARG)
+        else if(lval->arg == lval_t::MAPPER_DETAIL_ARG
+                || lval->arg == lval_t::MAPPER_RESET_ARG)
+        {
             compiler_error(v.pstring, "Expression cannot be evaluated.");
+        }
 
         if(lval->arg == lval_t::RETURN_ARG)
             compiler_error(v.pstring, "Cannot access the value of return.");

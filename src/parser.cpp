@@ -766,6 +766,7 @@ retry:
     case TOK_ready:
     case TOK_system:
     case TOK___mapper_detail:
+    case TOK___mapper_reset:
         {
             ast_node_t ast = { .token = token };
             parse_token();
@@ -1331,8 +1332,6 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                     tt = TOK_byte_block_bank_switch_y;
                 else if(to_lower(token.pstring.string(source())) == "ax"sv)
                     tt = TOK_byte_block_bank_switch_ax;
-                else if(to_lower(token.pstring.string(source())) == "ay"sv)
-                    tt = TOK_byte_block_bank_switch_ay;
                 else
                     compiler_error("Expecting X, Y, AX, or AY.");
 

@@ -658,6 +658,7 @@ int main()
         keyword("system"),
         keyword("state"),
         keyword("__mapper_detail"),
+        keyword("__mapper_reset"),
 
         keyword("true"),
         keyword("false"),

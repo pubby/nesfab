@@ -22,6 +22,7 @@ struct options_t
     bool build_time = false;
     bool werror = false;
     bool pause = false;
+    bool unsafe_bank_switch = false;
 
     nes_system_t nes_system = NES_SYSTEM_UNKNOWN;
     std::string raw_system;
@@ -32,6 +33,7 @@ struct options_t
     std::string raw_mm;
     unsigned raw_mc = 0;
     unsigned raw_mp = 0;
+    mapper_bus_conflicts_t raw_bus_conflicts = {};
 
     mapper_t mapper;
     std::string output_file = "a.nes";

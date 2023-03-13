@@ -1276,11 +1276,112 @@ namespace isel
     {
         std::uint16_t const bs_addr = bankswitch_addr(mapper().type);
 
+        using mstate = param<struct load_B_state_tag>;
+        using retry_label = param<struct load_B_retry_label_tag>;
+        using done_label = param<struct load_B_done_label_tag>;
+        using detail = param<struct load_B_detail_tag>;
+        using reset_mapper = param<struct load_B_reset_mapper_tag>;
+        using addr = param<struct load_B_addr_tag>;
+
+        addr::set(locator_t::addr(bs_addr));
+
         if(!mapper().bankswitches())
-            cont->call(cpu, prev);
-        else
         {
-            if(has_bus_conflicts())
+            cont->call(cpu, prev);
+            return;
+        }
+
+        if(mapper().type == MAPPER_MMC1)
+        {
+            if(compiler_options().unsafe_bank_switch)
+            {
+                chain
+                < load_A<Opt, Def>
+                , exact_op<Opt, ASL_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                >(cpu, prev, cont);
+            }
+            else
+            {
+                detail::set(locator_t::runtime_ram(RTRAM_mapper_detail));
+                retry_label::set(state.minor_label());
+                done_label::set(state.minor_label());
+                reset_mapper::set(locator_t::runtime_rom(RTROM_mapper_reset));
+
+                chain
+                < load_A<Opt, Def>
+                , exact_op<Opt, ASL_IMPLIED, null_>
+                , exact_op<Opt, TAX_IMPLIED, null_>
+                , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
+                , label<retry_label>
+                , exact_op<Opt, TXA_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, CPY_ABSOLUTE, null_, detail>
+                , branch_op<Opt, BEQ, done_label>
+                , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
+                , exact_op<Opt, JSR_ABSOLUTE, null_, reset_mapper>
+                , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                , exact_op<Opt, JMP_ABSOLUTE, null_, retry_label>
+                , label<retry_label>
+                , clear_conditional
+                >(cpu, prev, cont);
+            }
+        }
+        else if(mapper().bus_conflicts)
+        {
+            if(state_size())
+            {
+                mstate::set(locator_t::runtime_ram(RTRAM_mapper_state));
+
+                if(compiler_options().unsafe_bank_switch)
+                {
+                    chain
+                    < load_A<Opt, Def>
+                    , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
+                    , exact_op<Opt, TAX_IMPLIED>
+                    , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_A<Opt, Def>
+                    , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
+                    , exact_op<Opt, TAY_IMPLIED>
+                    , iota_op<Opt, STA_ABSOLUTE_Y, null_>
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    retry_label::set(state.minor_label());
+
+                    chain
+                    < label<retry_label>
+                    , load_AX<Opt, mstate, mstate>
+                    , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
+                    , exact_op<Opt, TAY_IMPLIED>
+                    , iota_op<Opt, STA_ABSOLUTE_Y, null_>
+                    , pick_op<Opt, CPX, null_, mstate>
+                    , branch_op<Opt, BNE, retry_label>
+                    , clear_conditional
+                    >(cpu, prev, cont);
+                }
+            }
+            else
             {
                 chain
                 < load_AX<Opt, Def, Def>
@@ -1292,27 +1393,37 @@ namespace isel
                 , iota_op<Opt, STA_ABSOLUTE_Y, null_>
                 >(cpu, prev, cont);
             }
-            else if(state_size())
+        }
+        else if(state_size())
+        {
+            mstate::set(locator_t::runtime_ram(RTRAM_mapper_state));
+
+            if(compiler_options().unsafe_bank_switch)
             {
-                using addr = param<struct load_B_addr_tag>;
-                addr::set(locator_t::addr(bs_addr));
-
-                using state = param<struct load_B_state_tag>;
-                state::set(locator_t::runtime_ram(RTRAM_mapper_state));
-
                 chain
                 < load_A<Opt, Def>
-                , exact_op<Opt, ORA_ABSOLUTE, null_, state>
+                , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 >(cpu, prev, cont);
             }
             else
             {
-                using addr = param<struct load_B_addr_tag>;
-                addr::set(locator_t::addr(bs_addr));
+                retry_label::set(state.minor_label());
 
-                load_then_store<Opt, Def, Def, addr, false>(cpu, prev, cont);
+                chain
+                < label<retry_label>
+                , load_AX<Opt, mstate, mstate>
+                , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , pick_op<Opt, CPX, null_, mstate>
+                , branch_op<Opt, BNE, retry_label>
+                , clear_conditional
+                >(cpu, prev, cont);
             }
+        }
+        else
+        {
+            load_then_store<Opt, Def, Def, addr, false>(cpu, prev, cont);
         }
     }
 
@@ -3562,46 +3673,91 @@ namespace isel
         case SSA_write_mapper_state:
             p_arg<0>::set(locator_t::runtime_ram(RTRAM_mapper_state));
             p_arg<1>::set(h->input(0));
-            p_arg<2>::set(locator_t::this_bank());
-            p_arg<3>::set(locator_t::addr(bankswitch_addr(mapper().type)));
 
             switch(mapper().type)
             {
             default:
-                throw std::runtime_error(fmt("Undefined mapper state for %", mapper_name(mapper().type)));
+                throw std::runtime_error(fmt("Undefined mapper state isel for %", mapper_name(mapper().type)));
 
-            case MAPPER_CNROM: 
+            case MAPPER_MMC1:
+                p_arg<2>::set(locator_t::runtime_rom(RTROM_mapper_reset));
+                p_arg<3>::set(state.minor_label());
+                p_arg<4>::set(locator_t::runtime_ram(RTRAM_mapper_detail));
+
                 chain
-                < load_AX<Opt, p_arg<1>, p_arg<1>>
+                < label<p_arg<3>>
+                , exact_op<Opt, LDY_ABSOLUTE, null_, p_arg<4>>
+                , load_A<Opt, p_arg<1>>
                 , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<2>>
+                , simple_op<Opt, write_reg_op(~(REGF_X | REGF_Y))> // Clobbers everything except X and Y
+                , exact_op<Opt, CPY_ABSOLUTE, null_, p_arg<4>>
+                , branch_op<Opt, BNE, p_arg<3>>
+                , clear_conditional
                 >(cpu, prev, cont);
                 break;
 
             case MAPPER_ANROM: 
             case MAPPER_GNROM: 
-                static_assert(has_bus_conflicts(MAPPER_ANROM));
-                static_assert(has_bus_conflicts(MAPPER_GNROM));
-
-                chain
-                < load_A<Opt, p_arg<1>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
-                , exact_op<Opt, TAX_IMPLIED, null_>
-                , iota_op<Opt, STA_ABSOLUTE_X, null_>
-                >(cpu, prev, cont);
-                break;
-
             case MAPPER_GTROM:
-                static_assert(!has_bus_conflicts(MAPPER_GTROM));
+                p_arg<2>::set(locator_t::this_bank());
+                p_arg<3>::set(locator_t::addr(bankswitch_addr(mapper().type)));
+                p_arg<4>::set(state.minor_label());
 
-                chain
-                < load_A<Opt, p_arg<1>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
-                >(cpu, prev, cont);
-                break;
+                if(mapper().bus_conflicts)
+                {
+                    if(compiler_options().unsafe_bank_switch)
+                    {
+                        chain
+                        < load_A<Opt, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, TAX_IMPLIED, null_>
+                        , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                        >(cpu, prev, cont);
+                    }
+                    else
+                    {
+                        chain
+                        < label<p_arg<4>>
+                        , load_AX<Opt, p_arg<1>, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, TAY_IMPLIED, null_>
+                        , iota_op<Opt, STA_ABSOLUTE_Y, null_>
+                        , exact_op<Opt, CPX_ABSOLUTE, null_, p_arg<0>>
+                        , branch_op<Opt, BNE, p_arg<4>>
+                        , clear_conditional
+                        >(cpu, prev, cont);
+                    }
+                }
+                else
+                {
+                    if(compiler_options().unsafe_bank_switch)
+                    {
+                        chain
+                        < load_A<Opt, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
+                        >(cpu, prev, cont);
+                    }
+                    else
+                    {
+                        chain
+                        < label<p_arg<4>>
+                        , load_AX<Opt, p_arg<1>, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
+                        , exact_op<Opt, CPX_ABSOLUTE, null_, p_arg<0>>
+                        , branch_op<Opt, BNE, p_arg<4>>
+                        , clear_conditional
+                        >(cpu, prev, cont);
+                    }
+
+                    break;
+                }
             }
 
             break;

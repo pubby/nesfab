@@ -44,6 +44,9 @@ span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t alignment, bool
 
 span_t span_allocator_t::alloc_linear(std::uint16_t size, std::uint16_t alignment, unsigned after)
 {
+    if(!after)
+        return alloc(size, alignment);
+
     for(auto it = treap.begin(); it != treap.end(); ++it)
     {
         if(it->span.end() < after)

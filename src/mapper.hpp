@@ -38,15 +38,27 @@ enum mapper_mirroring_t : std::uint8_t
     MIRROR_4,
 };
 
+enum mapper_bus_conflicts_t : std::uint8_t
+{
+    BUSC_DEFAULT,
+    BUSC_NEVER,
+    BUSC_ALWAYS,
+};
+
 struct mapper_params_t
 {
     mapper_mirroring_t mirroring;
     unsigned prg_size; // in KiB
     unsigned chr_size; // in KiB
+    mapper_bus_conflicts_t bus_conflicts;
 
     mapper_mirroring_t mirroring_none(mapper_type_t mt) const;
     mapper_mirroring_t mirroring_HV(mapper_type_t mt) const;
     mapper_mirroring_t mirroring_4(mapper_type_t mt) const;
+
+    bool conflicts(mapper_type_t mt, bool default_) const;
+    bool conflicts(mapper_type_t mt) const;
+    bool no_conflicts(mapper_type_t mt) const;
 
     unsigned num_32k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
     unsigned num_8k_chr(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
@@ -59,6 +71,7 @@ struct mapper_t
     std::uint16_t num_32k_banks;
     std::uint16_t num_8k_chr_rom;
     std::uint16_t num_8k_chr_ram;
+    bool bus_conflicts;
 
     unsigned num_16k_banks() const { return num_32k_banks * 2; }
 
@@ -69,6 +82,7 @@ struct mapper_t
     static mapper_t gnrom(mapper_params_t const& params);
     static mapper_t gtrom(mapper_params_t const& params);
     static mapper_t ines_189(mapper_params_t const& params);
+    static mapper_t mmc1(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return { 0x8000, 0x8000 }; }
@@ -87,22 +101,9 @@ constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
     switch(mt)
     {
     case MAPPER_GTROM: return 0x5000;
-    case MAPPER_189: return 0x4120;
+    case MAPPER_189:   return 0x4120;
+    case MAPPER_MMC1:  return 0xE000;
     default: return 0x8000;
-    }
-}
-
-constexpr bool has_bus_conflicts(mapper_type_t mt = mapper().type)
-{
-    switch(mt)
-    {
-    case MAPPER_NROM: 
-    case MAPPER_CNROM: 
-    case MAPPER_GTROM: 
-    case MAPPER_189: 
-        return false;
-    default:
-        return true;
     }
 }
 
@@ -113,6 +114,7 @@ constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
     case MAPPER_ANROM: 
     case MAPPER_GNROM: 
     case MAPPER_GTROM: 
+    case MAPPER_MMC1: 
         return 1;
     default: 
         return 0;
@@ -129,4 +131,17 @@ constexpr std::uint16_t detail_size(mapper_type_t mt = mapper().type)
         return 0;
     }
 }
+
+
+constexpr std::uint16_t has_mapper_reset(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    case MAPPER_MMC1: 
+        return true;
+    default: 
+        return false;
+    }
+}
+
 #endif

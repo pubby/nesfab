@@ -103,8 +103,17 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("mirroring"))
         _options.raw_mm = vm["mirroring"].as<std::string>();
 
+    if(vm.count("bus-conflicts"))
+        _options.raw_bus_conflicts = BUSC_ALWAYS;
+
+    if(vm.count("no-bus-conflicts"))
+        _options.raw_bus_conflicts = BUSC_NEVER;
+
     if(vm.count("prg-size"))
         _options.raw_mp = vm["prg-size"].as<unsigned>();
+
+    if(vm.count("chr-size"))
+        _options.raw_mc = vm["chr-size"].as<unsigned>();
 
     if(vm.count("chr-size"))
         _options.raw_mc = vm["chr-size"].as<unsigned>();
@@ -123,6 +132,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("pause"))
         _options.pause = true;
+
+    if(vm.count("unsafe-bank-switch"))
+        _options.unsafe_bank_switch = true;
 }
 
 int main(int argc, char** argv)
@@ -164,6 +176,9 @@ int main(int argc, char** argv)
                 ("mirroring,m", po::value<std::string>(), "mirroring of mapper (V, H, 4)")
                 ("prg-size,p", po::value<unsigned>(), "size of mapper PRG in KiB")
                 ("chr-size,c", po::value<unsigned>(), "size of mapper CHR in KiB")
+                ("bus-conflicts", po::value<std::string>(), "enable mapper bus conflicts")
+                ("no-bus-conflicts", po::value<std::string>(), "disable mapper bus conflicts")
+                ("unsafe-bank-switch", po::value<std::string>(), "faster but unsafer bank switches")
                 ("system,S", po::value<std::string>(), "target NES system")
             ;
 
@@ -258,6 +273,7 @@ int main(int argc, char** argv)
                 .mirroring = get_mirroring(),
                 .prg_size = _options.raw_mp,
                 .chr_size = _options.raw_mc,
+                .bus_conflicts = _options.raw_bus_conflicts,
             };
 
             auto const to_lower = [](std::string str)
@@ -284,6 +300,8 @@ int main(int argc, char** argv)
                     _options.mapper = mapper_t::gtrom(mapper_params);
                 else if(str == "189"sv)
                     _options.mapper = mapper_t::ines_189(mapper_params);
+                else if(str == "mmc1"sv)
+                    _options.mapper = mapper_t::mmc1(mapper_params);
                 else
                     throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
             }

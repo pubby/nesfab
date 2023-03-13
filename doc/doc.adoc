@@ -273,7 +273,7 @@ nesfab --resource-dir "some_directory/"
 resource-dir = some_directory/
 ----
 
-=== `mapper` (`-M`) [[mapperopt]]
+=== `mapper` (`-M`) [[opt_mapper]]
 
 Specifies the mapper used. The argument is a <<mappers,mapper name>>.
 This option can only be specified once.
@@ -290,7 +290,7 @@ nesfab --mapper bnrom
 mapper = bnrom
 ----
 
-=== `mirroring` (`-m`) [[mirroringopt]]
+=== `mirroring` (`-m`) [[opt_mirroring]]
 
 Specifies the mirroring used for <<mappers,mappers with fixed mirrorings>>.
 This option can only be specified once.
@@ -323,39 +323,12 @@ nesfab --mirroring H
 mirroring = H
 ----
 
-=== `prg-size` (`-p`) [[prgopt]]
+=== `prg-size` (`-p`) [[opt_prg]]
 
 Specifies the size of PRG (the amount of memory for code) in increments of 1 KiB.
 This option can only be specified once.
 
-The default value depends on the mapper. 
-These values correspond with common cartridge designs.
-
-|===
-|Name (HTML link) |Default Value
-
-| https://www.nesdev.org/wiki/NROM[`nrom`]
-| 32
-
-| https://www.nesdev.org/wiki/AxROM[`anrom`]
-| 256
-
-| https://www.nesdev.org/wiki/BNROM[`bnrom`]
-| 128
-
-| https://www.nesdev.org/wiki/CNROM[`cnrom`]
-| 32
-
-| https://www.nesdev.org/wiki/GxROM[`gnrom`]
-| 128
-
-| https://www.nesdev.org/wiki/GTROM[`gtrom`]
-| 512
-
-| https://www.nesdev.org/wiki/INES_Mapper_189[`189`]
-| 512
-
-|===
+The default value depends on the <<mappers, mapper.>> 
 
 [NOTE]
 Just because the compiler accepts a `prg-size` does not mean that corresponding hardware exists in the real world.
@@ -371,39 +344,12 @@ nesfab --prg-size 128
 prg-size = 128
 ----
 
-=== `chr-size` (`-c`) [[chropt]]
+=== `chr-size` (`-c`) [[opt_chr]]
 
 Specifies the size of CHR (the amount of memory for tilesets) in increments of 1 KiB.
 This option can only be specified once.
 
-The default value depends on the mapper. 
-These values correspond with common cartridge designs.
-
-|===
-|Name (HTML link) |Default Value
-
-| https://www.nesdev.org/wiki/NROM[`nrom`]
-| 8
-
-| https://www.nesdev.org/wiki/AxROM[`anrom`]
-| 8
-
-| https://www.nesdev.org/wiki/BNROM[`bnrom`]
-| 8
-
-| https://www.nesdev.org/wiki/CNROM[`cnrom`]
-| 32
-
-| https://www.nesdev.org/wiki/GxROM[`gnrom`]
-| 32
-
-| https://www.nesdev.org/wiki/GTROM[`gtrom`]
-| 2
-
-| https://www.nesdev.org/wiki/INES_Mapper_189[`189`]
-| 32
-
-|===
+The default value depends on the <<mappers, mapper.>> 
 
 [NOTE]
 Just because the compiler accepts a `chr-size` does not mean that corresponding hardware exists in the real world.
@@ -417,6 +363,52 @@ nesfab --chr-size 32
 *Configuration file usage:*
 ----
 chr-size = 32
+----
+
+=== `bus-conflicts` (`-C`) [[opt_bus_conflicts]]
+
+Specifies whether the mapper has bus conflicts.
+This option can only be specified once.
+
+The following arguments are valid:
+- To disable: `0`, `false,` or `off`.
+- To enable: `1`, `true,` or `on`.
+- For the default value: `default`.
+
+The default value depends on the <<mappers, mapper.>> 
+
+*Command-line usage:*
+----
+nesfab --bus-conflicts true
+----
+
+*Configuration file usage:*
+----
+bus-conflicts = true
+----
+
+=== `unsafe-bank-switch` [[opt_unsafe_bank_switch]]
+
+By default, the compiler generates <<banks, bank>> switching code which is resilient to hardware interrupts.
+For many games, this added safety is unnecessary and slows the code down.
+This option is used to disable safe bank switching behavior.
+
+This option can only be specified once.
+
+[NOTE]
+Unsafe bank switches are best enabled when IRQ is not used and when NMI is always waited for (no lag frames possible).
+
+[NOTE]
+Some mappers, such as BNROM, do not benefit from `unsafe-bank-switch`, as they always switch banks quickly.
+
+*Command-line usage:*
+----
+nesfab --unsafe-bank-switch
+----
+
+*Configuration file usage:*
+----
+unsafe-bank-switch = 1
 ----
 
 === `system` (`-S`) [[opt_system]]
@@ -526,62 +518,461 @@ The choice of mapper determines the amount of space available for code, the http
 *For beginners:* It is recommended to start with `nrom` (the default), 
 and only consider switching once your program grows too large for it.
 
+*For information on how to configure NESFab for a specific mapper, see:*
+
+- <<opt_mapper>>
+- <<opt_mirroring>>
+- <<opt_prg>>
+- <<opt_chr>>
+- <<opt_bus_conflicts>>
+
+=== `nrom` [[mapper_nrom]]
+
+https://www.nesdev.org/wiki/NROM[*NESDev Wiki Page*]
+
+NROM is the simplest mapper.
+It is easy to use and offers good performance, but is lacking in features and memory size.
+
 [NOTE]
-The mapper names in the table below are links.
+16 KiB and 8 KiB variants of NROM are not currently supported.
+
+*Memory Sizes:*
 
 |===
-|Name |Max PRG (Code) |Max CHR (Tilesets) |Nametable VRAM |Mirroring
+|Name |Min |Max |Default
 
-| https://www.nesdev.org/wiki/NROM[`nrom`]
+| <<opt_prg, PRG (Code)>>
 | 32 KiB
-| 8 KiB
-| 2 KiB
-| Fixed H or V
-
-| https://www.nesdev.org/wiki/AxROM[`anrom`]
-| 512 KiB
-| 8 KiB (RAM)
-| 2 KiB
-| Switchable 1-Page
-
-| https://www.nesdev.org/wiki/BNROM[`bnrom`]
-| 8192 KiB
-| 8 KiB (RAM)
-| 2 KiB
-| Fixed H or V
-
-| https://www.nesdev.org/wiki/CNROM[`cnrom`]
 | 32 KiB
-| 2048 KiB
-| 2 KiB
-| Fixed H or V
+| 32 KiB
 
-| https://www.nesdev.org/wiki/GxROM[`gnrom`]
-| 512 KiB
-| 128 KiB
-| 2 KiB
-| Fixed H or V
-
-| https://www.nesdev.org/wiki/GTROM[`gtrom`]
-| 512 KiB
-| 16 KiB (RAM)
+| <<opt_chr, CHR (Tilesets)>>
 | 8 KiB
-| Fixed 4
+| 8 KiB
+| 8 KiB
 
-| https://www.nesdev.org/wiki/INES_Mapper_189[`189`] (https://www.nesdev.org/wiki/MMC3[MMC3] Variant)
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed H or V
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| N/r
+
+|===
+
+=== `anrom` [[mapper_anrom]]
+
+https://www.nesdev.org/wiki/AxROM[*NESDev Wiki Page*]
+
+ANROM is similar to <<mapper_bnrom, BNROM>>, but allows mirroring to be changed on the fly.
+
+[NOTE]
+Related mappers like AMROM can be had using configuration options.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
 | 512 KiB
 | 256 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 8 KiB (RAM)
+| 8 KiB (RAM)
+| 8 KiB (RAM)
+
+| Nametable VRAM
 | 2 KiB
-| Switchable H or V
+| 2 KiB
+| 2 KiB
 
 |===
 
-For information on how to configure NESFab for a specific mapper, see:
+*Other Details:*
 
-- <<mapperopt>>
-- <<mirroringopt>>
-- <<prgopt>>
-- <<chropt>>
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| 1-Page switchable
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| By default, no
+
+| <<kw_state, `state` Register>>
+| Bit 4 changes mirroring
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Acceptable risk
+
+|===
+
+=== `bnrom` [[mapper_bnrom]]
+
+https://www.nesdev.org/wiki/BNROM[*NESDev Wiki Page*]
+
+BNROM supports a huge amount of PRG, making it an excellent choice for large games.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 2048 KiB
+| 128 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 8 KiB (RAM)
+| 8 KiB (RAM)
+| 8 KiB (RAM)
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed H or V
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| By default, yes
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| N/A
+
+|===
+
+=== `cnrom` [[mapper_cnrom]]
+
+https://www.nesdev.org/wiki/CNROM[*NESDev Wiki Page*]
+
+CNROM is similar to <<mapper_nrom, NROM>>, but has multiple CHR banks.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 32 KiB
+| 32 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 8 KiB
+| 2048 KiB
+| 32 KiB
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed H or V
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| N/A
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| N/A
+
+|===
+
+=== `gnrom` [[mapper_gnrom]]
+
+https://www.nesdev.org/wiki/GxROM[*NESDev Wiki Page*]
+
+GNROM offers both PRG and CHR banks.
+
+[NOTE]
+Similar mappers like MHROM can be had using configuration options.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 512 KiB
+| 128 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 8 KiB (RAM)
+| 128 KiB (RAM)
+| 32 KiB (RAM)
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed H or V
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| By default, yes
+
+| <<kw_state, `state` Register>>
+| Low 4 bits switch CHR
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Acceptable risk
+
+|===
+
+=== `colordreams` [[mapper_colordreams]]
+
+https://www.nesdev.org/wiki/Color_Dreams[*NESDev Wiki Page*]
+
+COLORDREAMS is similar to <<mapper_gnrom, GNROM>>, but reverses the bank switching nybbles.
+
+[NOTE]
+PRG above 128 KiB may not be supported on physical cartridges.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 512 KiB
+| 128 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 8 KiB (RAM)
+| 128 KiB (RAM)
+| 128 KiB (RAM)
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed H or V
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| By default, yes
+
+| <<kw_state, `state` Register>>
+| High 4 bits switch CHR
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Acceptable risk
+
+|===
+
+=== `gtrom` [[mapper_gtrom]]
+
+https://www.nesdev.org/wiki/GTROM[*NESDev Wiki Page*]
+
+GTROM is a modern mapper designed to be cheap while offering a wide range of features.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 512 KiB
+| 512 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 16 KiB (RAM)
+| 16 KiB (RAM)
+| 16 KiB (RAM)
+
+| Nametable VRAM
+| 16 KiB
+| 16 KiB
+| 16 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed 4
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<kw_state, `state` Register>>
+| High 4 bits switch nametable and LEDs
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Acceptable risk
+
+|===
+
+=== `mmc1` [[mapper_mmc1]]
+
+https://www.nesdev.org/wiki/MMC1[*NESDev Wiki Page*]
+
+MMC1 is a flexible ASIC mapper with CHR banking and mirroring controls. 
+Unfortunately, MMC1 is very slow to interface.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 256 KiB
+| 256 KiB
+| 256 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 128 KiB
+| 128 KiB
+| 128 KiB
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Switchable H, V, or 1
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<kw_state, `state` Register>>
+| Sets internal $8000 register
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Not recommended
+
+|===
+
+=== `189` (MMC3 Variant) [[mapper_189]]
+
+https://www.nesdev.org/wiki/INES_189[*NESDev Wiki Page*]
+
+Mapper 189 is a https://www.nesdev.org/wiki/MMC3[MMC3] variant originally designed for bootleg games.
+Is it an excellent choice for those wanting MMC3 features in NESFab,
+but has the caveat of being an uncommon mapper.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 512 KiB
+| 128 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 256 KiB
+| 256 KiB
+| 256 KiB
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Switchable H, V, or 4
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| N/A
+
+|===
 
 == Value Semantics [[value_semantics]]
 
@@ -1466,6 +1857,8 @@ Some <<mappers, mappers>> have registers which combine bank switching with other
 For example, `ANROM` uses a bit to track the cartridge's mirroring, and lets the programmer switch it on the fly. 
 `state` expressions read or write these <<mappers, mapper>> registers while correctly handling the bank.
 
+See the <<mappers, mappers page>> what `state` means for each mapper.
+
 [NOTE]
 The NESFab runtime duplicates the mapper's register state to a fixed location in RAM.
 Reading the state will return this copy instead of polling the hardware.
@@ -1755,6 +2148,7 @@ Unlike other programming languages, functions in NESFab cannot be nested or recu
 - <<mod_flags, `+inline`, `-inline`>>
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
+- <<mod_flags, `+static`>>
 
 Example:
 ----
@@ -1853,6 +2247,7 @@ While the mode function is executing, NMIs will be handled using the supplied `n
 - <<mod_flags, `+zero_page`, `-zero_page`>>
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
+- <<mod_flags, `+static`>>
 
 Example:
 ----
@@ -1925,6 +2320,7 @@ nmi identifier()
 - <<mod_flags, `+zero_page`, `-zero_page`>>
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
+- <<mod_flags, `+static`>>
 
 *Why do NMI interrupt functions exist?*
 
@@ -1985,6 +2381,7 @@ irq identifier()
 - <<mod_flags, `+zero_page`, `-zero_page`>>
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
+- <<mod_flags, `+static`>>
 
 === `asm` [[kw_asm]]
 
@@ -2758,6 +3155,9 @@ The following flags exist:
 - `+graphviz`: Output the function's intermediate representation in a graphviz file.
 - `+info`: Output the function's intermediate representation in a text file.
 - `+dpcm`: Align and store the data in a ROM location suitable for DPCM.
+- `+static`: Allocate the function in every bank. 
+             This modifier is incompatible with functions that can return with a different active bank than they started in.
+             For <kw_asm, `asm`> functions, you must validate this yourself.
 
 Example:
 ----

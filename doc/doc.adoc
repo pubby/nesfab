@@ -568,7 +568,7 @@ It is easy to use and offers good performance, but is lacking in features and me
 | Fixed H or V
 
 | <<opt_bus_conflicts, Bus Conflicts>>
-| Never
+| N/A
 
 | <<kw_state, `state` Register>>
 | N/A
@@ -833,6 +833,9 @@ https://www.nesdev.org/wiki/GTROM[*NESDev Wiki Page*]
 
 GTROM is a modern mapper designed to be cheap while offering a wide range of features.
 
+[NOTE]
+See the standard library file `lib/gtrom.fab`.
+
 *Memory Sizes:*
 
 |===
@@ -868,7 +871,7 @@ GTROM is a modern mapper designed to be cheap while offering a wide range of fea
 | Never
 
 | <<kw_state, `state` Register>>
-| High 4 bits switch nametable and LEDs
+| High 4 bits switch nametable, CHR, and LEDs
 
 | <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
 | Acceptable risk
@@ -881,6 +884,9 @@ https://www.nesdev.org/wiki/MMC1[*NESDev Wiki Page*]
 
 MMC1 is a flexible ASIC mapper with CHR banking and mirroring controls. 
 Unfortunately, MMC1 is very slow to interface.
+
+[NOTE]
+See the standard library file `lib/mmc1.fab`.
 
 *Memory Sizes:*
 
@@ -931,6 +937,9 @@ https://www.nesdev.org/wiki/INES_189[*NESDev Wiki Page*]
 Mapper 189 is a https://www.nesdev.org/wiki/MMC3[MMC3] variant originally designed for bootleg games.
 Is it an excellent choice for those wanting MMC3 features in NESFab,
 but has the caveat of being an uncommon mapper.
+
+[NOTE]
+See the standard library file `lib/mmc3.fab`.
 
 *Memory Sizes:*
 

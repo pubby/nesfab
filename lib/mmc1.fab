@@ -1,0 +1,65 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper code for interfacing MMC1 ///////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Registers:
+// (To modify $8000, use the 'state' keyword.)
+ct AA MMC1_CHR_0       = $A000
+ct AA MMC1_CHR_1       = $C000
+
+// Writes the CHR_0 register:
+asm fn mmc1_set_chr_0(U value)
+: employs
+: +static
+    default
+        ldy &__mapper_detail
+    label retry
+        lda &value
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        cpy &__mapper_detail
+        beq done
+        ldy &__mapper_detail
+        jsr &__mapper_reset
+        jmp retry
+    label done
+        rts
+
+// Writes the CHR_1 register:
+asm fn mmc1_set_chr_1(U value)
+: employs
+: +static
+    default
+        ldy &__mapper_detail
+    label retry
+        lda &value
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
+        cpy &__mapper_detail
+        beq done
+        ldy &__mapper_detail
+        jsr &__mapper_reset
+        jmp retry
+    label done
+        rts
+

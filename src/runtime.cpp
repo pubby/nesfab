@@ -418,6 +418,8 @@ static asm_proc_t make_irq()
 {
     asm_proc_t proc;
 
+    unsigned next_label = 0;
+
     // Store registers:
     proc.push_inst(PHA);
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_x));
@@ -426,7 +428,14 @@ static asm_proc_t make_irq()
     if(mapper().type == MAPPER_MMC1)
     {
         proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-        proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
+        if(!compiler_options().unsafe_bank_switch)
+        {
+            locator_t const retry = proc.push_label(next_label++);
+            proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
+            proc.push_inst(CPX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            proc.push_inst(BNE_RELATIVE, retry);
+        }
     }
 
     proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_index));
@@ -442,7 +451,7 @@ static asm_proc_t make_irq()
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_bank));
 
         proc.push_inst(LAX_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_irq_bank_table));
-        bankswitch_a(proc, 0, true);
+        next_label = bankswitch_a(proc, next_label, true);
     }
 
     proc.push_inst(JMP_INDIRECT, locator_t::runtime_ram(RTRAM_ptr_temp));
@@ -473,6 +482,8 @@ static asm_proc_t make_nmi()
 {
     asm_proc_t proc;
 
+    unsigned next_label = 0;
+
     // Store registers:
     proc.push_inst(PHA);
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_x));
@@ -481,7 +492,14 @@ static asm_proc_t make_nmi()
     if(mapper().type == MAPPER_MMC1)
     {
         proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-        proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
+        if(!compiler_options().unsafe_bank_switch)
+        {
+            locator_t const retry = proc.push_label(next_label++);
+            proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
+            proc.push_inst(CPX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            proc.push_inst(BNE_RELATIVE, retry);
+        }
     }
 
     proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
@@ -497,7 +515,7 @@ static asm_proc_t make_nmi()
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
 
         proc.push_inst(LAX_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_bank_table));
-        bankswitch_a(proc, 0, true);
+        next_label = bankswitch_a(proc, next_label, true);
     }
 
     proc.push_inst(JMP_INDIRECT, locator_t::runtime_ram(RTRAM_ptr_temp));

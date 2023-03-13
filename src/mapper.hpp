@@ -14,6 +14,7 @@ MAPPER(CNROM, 3) \
 MAPPER(ANROM, 7) \
 MAPPER(BNROM, 34) \
 MAPPER(GNROM, 66) \
+MAPPER(COLORDREAMS, 11) \
 MAPPER(GTROM, 111) \
 MAPPER(189, 189) \
 
@@ -80,6 +81,7 @@ struct mapper_t
     static mapper_t anrom(mapper_params_t const& params);
     static mapper_t bnrom(mapper_params_t const& params);
     static mapper_t gnrom(mapper_params_t const& params);
+    static mapper_t colordreams(mapper_params_t const& params);
     static mapper_t gtrom(mapper_params_t const& params);
     static mapper_t ines_189(mapper_params_t const& params);
     static mapper_t mmc1(mapper_params_t const& params);
@@ -113,6 +115,7 @@ constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
     {
     case MAPPER_ANROM: 
     case MAPPER_GNROM: 
+    case MAPPER_COLORDREAMS: 
     case MAPPER_GTROM: 
     case MAPPER_MMC1: 
         return 1;

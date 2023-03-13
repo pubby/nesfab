@@ -90,19 +90,6 @@ mapper_t mapper_t::nrom(mapper_params_t const& params)
     };
 }
 
-mapper_t mapper_t::cnrom(mapper_params_t const& params)
-{
-    constexpr mapper_type_t mt = MAPPER_CNROM;
-    return 
-    {
-        .type = mt,
-        .mirroring = params.mirroring_HV(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
-        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 2048, 4),
-        .bus_conflicts = params.no_conflicts(mt),
-    };
-}
-
 mapper_t mapper_t::anrom(mapper_params_t const& params)
 {
     constexpr mapper_type_t mt = MAPPER_ANROM;
@@ -129,6 +116,19 @@ mapper_t mapper_t::bnrom(mapper_params_t const& params)
     };
 }
 
+mapper_t mapper_t::cnrom(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_CNROM;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_HV(mt),
+        .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 2048, 4),
+        .bus_conflicts = params.no_conflicts(mt),
+    };
+}
+
 mapper_t mapper_t::gnrom(mapper_params_t const& params)
 {
     constexpr mapper_type_t mt = MAPPER_GNROM;
@@ -138,6 +138,19 @@ mapper_t mapper_t::gnrom(mapper_params_t const& params)
         .mirroring = params.mirroring_HV(mt),
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 4),
+        .bus_conflicts = params.conflicts(mt, true),
+    };
+}
+
+mapper_t mapper_t::colordreams(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_COLORDREAMS;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_HV(mt),
+        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 16),
         .bus_conflicts = params.conflicts(mt, true),
     };
 }

@@ -23,14 +23,34 @@
 #include "cg_isel.hpp"
 #include "text.hpp"
 #include "compiler_error.hpp"
+#include "string.hpp"
 
 extern char __GIT_COMMIT;
 
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
 
+int option_bool_default(std::string view, std::string_view const default_val)
+{
+    using namespace std::literals;
+    view = to_lower(std::move(view));
+
+    if(view == "0"sv || view == "false"sv || view == "off"sv)
+        return 0;
+
+    if(view == "1"sv || view == "true"sv || view == "on"sv)
+        return 1;
+
+    if(view == default_val)
+        return -1;
+
+    return -2;
+}
+
 void handle_options(fs::path dir, po::options_description const& cfg_desc, po::variables_map const& vm, int depth = 0)
 {
+    using namespace std::literals;
+
     if(depth > 16)
         throw std::runtime_error("Configuration files nested too deeply.");
 
@@ -104,10 +124,24 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         _options.raw_mm = vm["mirroring"].as<std::string>();
 
     if(vm.count("bus-conflicts"))
-        _options.raw_bus_conflicts = BUSC_ALWAYS;
+    {
+        std::string str = vm["bus-conflicts"].as<std::string>();
 
-    if(vm.count("no-bus-conflicts"))
-        _options.raw_bus_conflicts = BUSC_NEVER;
+        switch(option_bool_default(str, "default"sv))
+        {
+        default:
+            throw std::runtime_error(fmt("Unknown bus-conflicts: %", str));
+        case -1:
+            _options.raw_bus_conflicts = BUSC_DEFAULT;
+            break;
+        case 0:
+            _options.raw_bus_conflicts = BUSC_NEVER;
+            break;
+        case 1:
+            _options.raw_bus_conflicts = BUSC_ALWAYS;
+            break;
+        }
+    }
 
     if(vm.count("prg-size"))
         _options.raw_mp = vm["prg-size"].as<unsigned>();
@@ -176,9 +210,8 @@ int main(int argc, char** argv)
                 ("mirroring,m", po::value<std::string>(), "mirroring of mapper (V, H, 4)")
                 ("prg-size,p", po::value<unsigned>(), "size of mapper PRG in KiB")
                 ("chr-size,c", po::value<unsigned>(), "size of mapper CHR in KiB")
-                ("bus-conflicts", po::value<std::string>(), "enable mapper bus conflicts")
-                ("no-bus-conflicts", po::value<std::string>(), "disable mapper bus conflicts")
-                ("unsafe-bank-switch", po::value<std::string>(), "faster but unsafer bank switches")
+                ("bus-conflicts,C", po::value<std::string>(), "enable / disable mapper bus conflicts")
+                ("unsafe-bank-switch", "faster but unsafer bank switches")
                 ("system,S", po::value<std::string>(), "target NES system")
             ;
 

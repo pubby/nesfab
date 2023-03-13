@@ -1,0 +1,16 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper code for interfacing GTROM //////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Flags:
+ct AA GTROM_CHR       = %0001000
+ct AA GTROM_NT        = %0010000
+ct AA GTROM_RED_LED   = %0100000
+ct AA GTROM_GREEN_LED = %1000000
+

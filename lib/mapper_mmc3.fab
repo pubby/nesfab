@@ -1,0 +1,29 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper code for interfacing MMC3 ///////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Registers:
+ct AA MMC3_BANK_SELECT = $8000
+ct AA MMC3_BANK_DATA   = $8001
+ct AA MMC3_MIRRORING   = $A000
+ct AA MMC3_RAM_PROTECT = $A001
+ct AA MMC3_IRQ_LATCH   = $C000
+ct AA MMC3_IRQ_RELOAD  = $C001
+ct AA MMC3_IRQ_DISABLE = $E000
+ct AA MMC3_IRQ_ENABLE  = $E001
+
+// Triggers IRQ after a set number of scanlines: 
+fn mmc3_timer(U scanlines)
+: +inline
+    {MMC3_IRQ_DISABLE}(scanlines)
+    {MMC3_IRQ_LATCH}(scanlines)
+    {MMC3_IRQ_RELOAD}(scanlines)
+    {MMC3_IRQ_DISABLE}(scanlines)
+    {MMC3_IRQ_ENABLE}(scanlines)
+

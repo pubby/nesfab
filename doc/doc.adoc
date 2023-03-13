@@ -834,7 +834,7 @@ https://www.nesdev.org/wiki/GTROM[*NESDev Wiki Page*]
 GTROM is a modern mapper designed to be cheap while offering a wide range of features.
 
 [NOTE]
-See the standard library file `lib/gtrom.fab`.
+See the standard library file `lib/mapper_gtrom.fab`.
 
 *Memory Sizes:*
 
@@ -886,7 +886,7 @@ MMC1 is a flexible ASIC mapper with CHR banking and mirroring controls.
 Unfortunately, MMC1 is very slow to interface.
 
 [NOTE]
-See the standard library file `lib/mmc1.fab`.
+See the standard library file `lib/mapper_mmc1.fab`.
 
 *Memory Sizes:*
 
@@ -939,7 +939,7 @@ Is it an excellent choice for those wanting MMC3 features in NESFab,
 but has the caveat of being an uncommon mapper.
 
 [NOTE]
-See the standard library file `lib/mmc3.fab`.
+See the standard library file `lib/mapper_mmc3.fab`.
 
 *Memory Sizes:*
 

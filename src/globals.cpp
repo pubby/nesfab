@@ -806,6 +806,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     bool io_pure = true;
     bool fences = false;
 
+    bool const is_static = mod_test(mods(), MOD_static);
+
     // Handle preserved groups
     for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
     {
@@ -958,6 +960,15 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
             if(ssa_flags(ssa_it->op()) & SSAF_FENCE)
                 fences = true;
+
+            if(ssa_flags(ssa_it->op()) & SSAF_BANK_INPUT)
+            {
+                using namespace ssai::rw_ptr;
+                ssa_value_t const bank = ssa_it->input(BANK);
+
+                if(bank && is_static && mapper().bankswitches())
+                    compiler_error(global.pstring(), "Function cannot be static if it bankswitches.");
+            }
         }
     }
 

@@ -4363,7 +4363,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         ssa_ht const read = builder.cfg->emplace_ssa(
             SSA_read_ptr, TYPE_U, deref->ptr, ssa_value_t(), deref->bank, deref->index);
 
-        if(ptr_to_vars(deref->ptr->type()))
+        if(ptr_to_vars(deref->ptr.type()))
             read->append_daisy();
 
         v.val = rval_t{ read };

@@ -10,9 +10,14 @@
 #include "locator.hpp"
 #include "guard.hpp"
 #include "worklist.hpp"
+#include "globals.hpp"
 
 locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
 {
+    // Static functions aren't compatible with this optimization.
+    if(mod_test(fn->mods(), MOD_static))
+        return {};
+
 #ifndef NDEBUG
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)

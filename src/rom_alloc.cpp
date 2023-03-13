@@ -209,6 +209,18 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             continue;
         }
 
+        if(rom_proc.rule() == ROMR_STATIC)
+        {
+            romv_for_each(rom_proc.desired_romv(), [&](romv_t romv)
+            {
+                span_t const span = allocator.alloc(rom_proc.max_size(romv));
+                if(!span)
+                    throw std::runtime_error("Unable to allocate ROM (out of ROM space).");
+                rom_proc.set_alloc(romv, rom_static_ht::pool_make(romv, span, rom_proc_h), rom_key_t());
+            });
+            continue;
+        }
+
         // Check if the proc uses any 'ONCE'.
         // If it does, the proc has to be MANY, otherwise its ONCE.
 

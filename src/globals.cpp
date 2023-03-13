@@ -445,6 +445,9 @@ void global_t::precheck_all()
         assert(!fn.m_rom_proc);
         fn.m_rom_proc = rom_proc_ht::pool_make(romv_allocs_t{}, fn.m_precheck_romv, mod_test(fn.mods(), MOD_align));
 
+        if(mod_test(fn.mods(), MOD_static))
+            fn.m_rom_proc.safe().mark_rule(ROMR_STATIC);
+
         // Determine each 'm_precheck_called':
         if(fn.m_precheck_calls)
         {

@@ -44,31 +44,45 @@ ct U PPUSTATUS_SPR_OVERFLOW  = %00100000
 // GENERAL PPU ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// Assigns PPUADDR.
+// Sets PPUADDR.
 fn ppu_set_addr(UU addr)
 : +inline
     {PPUADDR}(addr.b)
     {PPUADDR}(addr.a)
 
-// Resets the address latch before assigning PPUADDR.
+// The same as above, but reset address latch first.
 fn ppu_reset_addr(UU addr)
 : +inline
     {PPUSTATUS}()
-    {PPUADDR}(addr.b)
-    {PPUADDR}(addr.a)
+    ppu_set_addr(addr)
 
-// Assigns PPUSCROLL.
+// Sets PPUSCROLL.
+// When called during rendering mid-frame, only the X scroll will take effect;
+// use 'ppu_set_mid_scroll' to set Y in those cases.
 fn ppu_set_scroll(U x, U y)
 : +inline
     {PPUSCROLL}(x)
     {PPUSCROLL}(y)
 
-// Resets the address latch before assigning PPUSCROLL.
+// The same as above, but reset address latch first.
 fn ppu_reset_scroll(U x, U y)
 : +inline
     {PPUSTATUS}()
-    {PPUADDR}(x)
-    {PPUADDR}(y)
+    ppu_set_scroll(x, y)
+
+// Sets X/Y scroll mid-frame.
+fn ppu_set_mid_scroll(U x, U y, U nt)
+: +inline
+    {PPUADDR}(nt << 2)
+    {PPUSCROLL}(y)
+    {PPUSCROLL}(x)
+    {PPUADDR}(((y & $F8) << 2) | (x >> 3))
+
+// The same as above, but reset address latch first.
+fn ppu_reset_mid_scroll(U x, U y, U nt)
+: +inline
+    {PPUSTATUS}()
+    ppu_set_mid_scroll(x, y, nt)
 
 ///////////////////////////////////////////////////////////////////////////////
 // NMI ////////////////////////////////////////////////////////////////////////
@@ -76,6 +90,8 @@ fn ppu_reset_scroll(U x, U y)
 
 // Waits a specified number of NMI frames.
 fn wait(U frames)
+: -inline
+: +static
     for U i = 0; i < frames; i += 1
         nmi
 
@@ -187,6 +203,7 @@ fn poll_pads()
 asm fn ppu_upload_oam_poll_pads(U oam_offset)
 : employs
 : +align
+: +static
     vars
         [2] polled
         : +zero_page

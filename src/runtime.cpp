@@ -490,7 +490,6 @@ static asm_proc_t make_nmi()
     }
 
     proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
-    proc.push_inst(STY_ABSOLUTE, locator_t::addr(0x500)); // TODO
     proc.push_inst(LDA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_lo_table));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 0));
     proc.push_inst(LDA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_hi_table));

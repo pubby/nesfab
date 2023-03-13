@@ -27,8 +27,6 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
     // Identify all banks:
     rh::batman_set<ssa_value_t> banks;
 
-    bool const is_static = mod_test(fn->mods(), MOD_static);
-
     ssa_value_t prev_bank = {};
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {

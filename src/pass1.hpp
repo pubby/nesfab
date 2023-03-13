@@ -178,7 +178,7 @@ public:
         for(unsigned i = 0; i != fn_def.num_params; ++i)
         {
             types[i] = params_begin[i].src_type.type;
-            pstring = concat(params_begin[i].src_type.pstring, pstring);
+            pstring = pstring ? concat(params_begin[i].src_type.pstring, pstring) : pstring;
         }
         types[fn_def.num_params] = return_type.type;
         type_t fn_type = type_t::fn(types, types + fn_def.num_params + 1);

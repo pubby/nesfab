@@ -732,7 +732,7 @@ https://www.nesdev.org/wiki/GxROM[*NESDev Wiki Page*]
 GNROM offers both PRG and CHR banks.
 
 [NOTE]
-Similar mappers like MHROM can be had using configuration options.
+Related mappers like MHROM can be had using configuration options.
 
 *Memory Sizes:*
 

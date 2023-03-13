@@ -1297,7 +1297,6 @@ namespace isel
             {
                 chain
                 < load_A<Opt, Def>
-                , exact_op<Opt, ASL_IMPLIED, null_>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, LSR_IMPLIED, null_>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
@@ -1317,9 +1316,7 @@ namespace isel
                 reset_mapper::set(locator_t::runtime_rom(RTROM_mapper_reset));
 
                 chain
-                < load_A<Opt, Def>
-                , exact_op<Opt, ASL_IMPLIED, null_>
-                , exact_op<Opt, TAX_IMPLIED, null_>
+                < load_X<Opt, Def, Def>
                 , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
                 , label<retry_label>
                 , exact_op<Opt, TXA_IMPLIED, null_>
@@ -1371,7 +1368,7 @@ namespace isel
 
                     chain
                     < label<retry_label>
-                    , load_AX<Opt, mstate, mstate>
+                    , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
                     , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
                     , exact_op<Opt, TAY_IMPLIED>
                     , iota_op<Opt, STA_ABSOLUTE_Y, null_>
@@ -1412,7 +1409,7 @@ namespace isel
 
                 chain
                 < label<retry_label>
-                , load_AX<Opt, mstate, mstate>
+                , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
                 , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , pick_op<Opt, CPX, null_, mstate>

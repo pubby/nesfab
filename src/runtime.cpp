@@ -123,7 +123,6 @@ unsigned bankswitch_a(asm_proc_t& proc, unsigned next_label, bool x)
     {
         if(compiler_options().unsafe_bank_switch)
         {
-            proc.push_inst(ASL_IMPLIED);
             proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
             for(unsigned i = 0; i < 4; ++i)
             {
@@ -133,8 +132,8 @@ unsigned bankswitch_a(asm_proc_t& proc, unsigned next_label, bool x)
         }
         else
         {
-            proc.push_inst(ASL_IMPLIED);
-            proc.push_inst(TAX_IMPLIED);
+            if(!x)
+                proc.push_inst(TAX_IMPLIED);
             proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
             locator_t const retry = proc.push_label(next_label++);
             proc.push_inst(TXA_IMPLIED);
@@ -221,7 +220,6 @@ unsigned bankswitch_x(asm_proc_t& proc, unsigned next_label)
         if(compiler_options().unsafe_bank_switch)
         {
             proc.push_inst(TXA_IMPLIED);
-            proc.push_inst(ASL_IMPLIED);
             proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
             for(unsigned i = 0; i < 4; ++i)
             {
@@ -234,7 +232,6 @@ unsigned bankswitch_x(asm_proc_t& proc, unsigned next_label)
             proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
             locator_t const retry = proc.push_label(next_label++);
             proc.push_inst(TXA_IMPLIED);
-            proc.push_inst(ASL_IMPLIED);
             proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
             for(unsigned i = 0; i < 4; ++i)
             {
@@ -317,7 +314,6 @@ unsigned bankswitch_y(asm_proc_t& proc, unsigned next_label)
         if(compiler_options().unsafe_bank_switch)
         {
             proc.push_inst(TYA_IMPLIED);
-            proc.push_inst(ASL_IMPLIED);
             proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
             for(unsigned i = 0; i < 4; ++i)
             {
@@ -330,7 +326,6 @@ unsigned bankswitch_y(asm_proc_t& proc, unsigned next_label)
             proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
             locator_t const retry = proc.push_label(next_label++);
             proc.push_inst(TYA_IMPLIED);
-            proc.push_inst(ASL_IMPLIED);
             proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
             for(unsigned i = 0; i < 4; ++i)
             {

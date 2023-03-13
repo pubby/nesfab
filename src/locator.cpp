@@ -265,7 +265,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         {
             if(is() == IS_BANK)
             {
-                int const bank = a.first_bank();
+                int const bank = a.first_bank() << bank_shift();
                 if(bank < 0 || bank >= 256)
                     return *this;
                 return locator_t::const_byte(bank);
@@ -368,7 +368,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
     case LOC_THIS_BANK:
         if(bank >= 0 && bank < 256)
-            return locator_t::const_byte(bank);
+            return locator_t::const_byte(bank << bank_shift());
         return *this;
 
     case LOC_RUNTIME_RAM:

@@ -144,4 +144,17 @@ constexpr std::uint16_t has_mapper_reset(mapper_type_t mt = mapper().type)
     }
 }
 
+constexpr int bank_shift(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    case MAPPER_GNROM:
+        return 4;
+    case MAPPER_MMC1: 
+        return 1;
+    default: 
+        return 0;
+    }
+}
+
 #endif

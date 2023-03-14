@@ -411,7 +411,7 @@ void asm_proc_t::convert_long_branch_ops()
                 continue;
 
             unsigned const label_i = get_label(inst.arg).index;
-            int dist = bytes_between(i, label_i) - int(op_size(inst.op));
+            int dist = bytes_between(i+1, label_i);
 
             if(is_relative_branch(inst.op))
             {
@@ -427,16 +427,14 @@ void asm_proc_t::convert_long_branch_ops()
                 op_t const new_op = get_op(op_name(inst.op), MODE_RELATIVE);
                 int const size_diff = int(op_size(inst.op)) - int(op_size(new_op));
 
-                dist -= size_diff;
-
                 // Change to short instruction when in range
-                if(dist <= 127 && dist >= -128)
+                if(dist <= 127 && dist >= -128 - size_diff)
                 {
                     inst.op = new_op;
                     progress = true;
 
-                    passert(bytes_between(i, label_i) - int(op_size(inst.op)) <= 127, bytes_between(i, label_i) - int(op_size(inst.op)));
-                    passert(bytes_between(i, label_i) - int(op_size(inst.op)) >= -128, bytes_between(i, label_i) - int(op_size(inst.op)));
+                    passert(bytes_between(i+1, label_i) <=  127, bytes_between(i+1, label_i));
+                    passert(bytes_between(i+1, label_i) >= -128, bytes_between(i+1, label_i));
                 }
             }
         }

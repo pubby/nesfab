@@ -148,7 +148,8 @@ o_loop.cpp \
 o_defork.cpp \
 unroll_divisor.cpp \
 puf.cpp \
-worklist.cpp
+worklist.cpp \
+mlb.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

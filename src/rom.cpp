@@ -305,6 +305,24 @@ int rom_alloc_ht::first_bank() const
     }
 }
 
+void rom_alloc_ht::for_each_bank(std::function<void(unsigned)> const& fn)
+{
+    switch(rclass())
+    {
+    default: 
+        break;
+    case ROMA_STATIC:
+        rom_static_ht{handle()}->for_each_bank(fn);
+        break;
+    case ROMA_MANY: 
+        rom_many_ht{handle()}->for_each_bank(fn);
+        break;
+    case ROMA_ONCE: 
+        rom_once_ht{handle()}->for_each_bank(fn);
+        break;
+    }
+}
+
 ////////////////
 // rom_many_t //
 ////////////////

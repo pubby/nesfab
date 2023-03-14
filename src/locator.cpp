@@ -242,7 +242,7 @@ type_t locator_t::type() const
 
 locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 {
-    assert(compiler_phase() == PHASE_LINK
+    assert(compiler_phase() >= PHASE_LINK
            || (compiler_phase() == PHASE_PREPARE_ALLOC_ROM && is_var_like(lclass()))
            || (compiler_phase() >= PHASE_RUNTIME && is_runtime(lclass())));
 

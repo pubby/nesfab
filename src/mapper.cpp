@@ -177,7 +177,7 @@ mapper_t mapper_t::ines_189(mapper_params_t const& params)
         .mirroring = params.mirroring_none(mt),
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
-        .bus_conflicts = params.conflicts(mt, true),
+        .bus_conflicts = params.no_conflicts(mt),
     };
 }
 

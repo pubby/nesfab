@@ -365,7 +365,7 @@ nesfab --chr-size 32
 chr-size = 32
 ----
 
-=== `bus-conflicts` (`-C`) [[opt_bus_conflicts]]
+=== `bus-conflicts` [[opt_bus_conflicts]]
 
 Specifies whether the mapper has bus conflicts.
 This option can only be specified once.
@@ -385,30 +385,6 @@ nesfab --bus-conflicts true
 *Configuration file usage:*
 ----
 bus-conflicts = true
-----
-
-=== `unsafe-bank-switch` [[opt_unsafe_bank_switch]]
-
-By default, the compiler generates <<banks, bank>> switching code which is resilient to hardware interrupts.
-For many games, this added safety is unnecessary and slows the code down.
-This option is used to disable safe bank switching behavior.
-
-This option can only be specified once.
-
-[NOTE]
-Unsafe bank switches are best enabled when IRQ is not used and when NMI is always waited for (no lag frames possible).
-
-[NOTE]
-Some mappers, such as BNROM, do not benefit from `unsafe-bank-switch`, as they always switch banks quickly.
-
-*Command-line usage:*
-----
-nesfab --unsafe-bank-switch
-----
-
-*Configuration file usage:*
-----
-unsafe-bank-switch = 1
 ----
 
 === `system` (`-S`) [[opt_system]]
@@ -450,6 +426,45 @@ system = ntsc
 
 [NOTE]
 `detect` has a small runtime penalty.
+
+=== `unsafe-bank-switch` [[opt_unsafe_bank_switch]]
+
+By default, the compiler generates <<banks, bank>> switching code which is resilient to hardware interrupts.
+For many games, this added safety is unnecessary and slows the code down.
+This option is used to disable safe bank switching behavior.
+
+This option can only be specified once.
+
+[NOTE]
+Unsafe bank switches are best enabled when IRQ is not used and when NMI is always waited for (no lag frames possible).
+
+[NOTE]
+Some mappers, such as BNROM, do not benefit from `unsafe-bank-switch`, as they always switch banks quickly.
+
+*Command-line usage:*
+----
+nesfab --unsafe-bank-switch
+----
+
+*Configuration file usage:*
+----
+unsafe-bank-switch = 1
+----
+
+=== `mlb` [[opt_mlb]]
+
+`mlb` specifies a https://www.mesen.ca/[Mesen] .mlb label file to output.
+This file will contain addresses used by the program, for the purpose of debugging.
+
+*Command-line usage:*
+----
+nesfab --mlb "my_labels.mlb"
+----
+
+*Configuration file usage:*
+----
+mlb = my_labels.mlb
+----
 
 === `threads` (`-j`)
 
@@ -970,7 +985,7 @@ See the standard library file `lib/mapper_mmc3.fab`.
 |Name |Description
 
 | <<opt_mirroring, Mirroring>>
-| Switchable H, V, or 4
+| Switchable H or V
 
 | <<opt_bus_conflicts, Bus Conflicts>>
 | Never
@@ -1475,7 +1490,7 @@ switch player_state
 
 ==== `switch` statement (byte block) [[kw_switch_asm]]
 
-In byte blocks, the `switch` statement causes the mapper to bankswitch to a specified <<banks, bank>>.
+In byte blocks, the `switch` statement causes the mapper to bank switch to a specified <<banks, bank>>.
 
 Syntax:
 ----

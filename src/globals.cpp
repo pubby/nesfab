@@ -1736,7 +1736,7 @@ void fn_t::implement_asm_goto_modes()
 
                     locator_t const loc = locator_t::reset_group_vars(gv);
                     proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                    proc.push_inst({ .op = BANKED_Y_JSR, .iasm_child = iasm_child, .arg = loc });
+                    proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JSR : JSR_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
                 }
             });
 
@@ -1772,7 +1772,7 @@ void fn_t::implement_asm_goto_modes()
             // Do the jump
             locator_t const loc = locator_t::fn(d.fn, d.label);
             proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-            proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+            proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JMP : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
 
             // Assign the proc:
             d.rom_proc.safe().assign(std::move(proc));

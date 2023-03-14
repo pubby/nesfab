@@ -24,6 +24,7 @@
 #include "text.hpp"
 #include "compiler_error.hpp"
 #include "string.hpp"
+#include "mlb.hpp"
 
 extern char __GIT_COMMIT;
 
@@ -169,6 +170,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("unsafe-bank-switch"))
         _options.unsafe_bank_switch = true;
+
+    if(vm.count("mlb"))
+        _options.raw_mlb = vm["mlb"].as<std::string>();
 }
 
 int main(int argc, char** argv)
@@ -210,9 +214,14 @@ int main(int argc, char** argv)
                 ("mirroring,m", po::value<std::string>(), "mirroring of mapper (V, H, 4)")
                 ("prg-size,p", po::value<unsigned>(), "size of mapper PRG in KiB")
                 ("chr-size,c", po::value<unsigned>(), "size of mapper CHR in KiB")
-                ("bus-conflicts,C", po::value<std::string>(), "enable / disable mapper bus conflicts")
-                ("unsafe-bank-switch", "faster but unsafer bank switches")
+                ("bus-conflicts", po::value<std::string>(), "enable / disable mapper bus conflicts")
+            ;
+
+            po::options_description code_opt("Other options");
+            code_opt.add_options()
                 ("system,S", po::value<std::string>(), "target NES system")
+                ("unsafe-bank-switch", "faster but less safe bank switches")
+                ("mlb", po::value<std::string>(), "generate Mesen label file")
             ;
 
             po::options_description basic_hidden("Hidden options");
@@ -228,10 +237,10 @@ int main(int argc, char** argv)
             ;
 
             po::options_description cmdline_full;
-            cmdline_full.add(cmdline).add(cmdline_hidden).add(basic).add(basic_hidden).add(mapper_opt);
+            cmdline_full.add(cmdline).add(cmdline_hidden).add(basic).add(basic_hidden).add(mapper_opt).add(code_opt);
 
             po::options_description config_full;
-            config_full.add(basic).add(basic_hidden).add(mapper_opt);
+            config_full.add(basic).add(basic_hidden).add(mapper_opt).add(code_opt);
 
             po::positional_options_description p;
             p.add("input", -1);
@@ -243,7 +252,7 @@ int main(int argc, char** argv)
             if(vm.count("help")) 
             {
                 po::options_description visible;
-                visible.add(cmdline).add(basic).add(mapper_opt);
+                visible.add(cmdline).add(basic).add(mapper_opt).add(code_opt);
                 std::cout << visible << std::endl;
                 return EXIT_SUCCESS;
             }
@@ -375,6 +384,15 @@ int main(int argc, char** argv)
         };
 
         global_t::init();
+
+        std::ofstream mlb_out;
+        if(!compiler_options().raw_mlb.empty())
+        {
+            mlb_out.open(compiler_options().raw_mlb);
+            if(!mlb_out)
+                throw std::runtime_error(fmt("Unable to write Mesen label file %", compiler_options().raw_mlb));
+        }
+
         output_time("init:     ");
 
         // Parse the files, loading everything into globals:
@@ -512,6 +530,9 @@ int main(int argc, char** argv)
                     of << ss->str() << std::endl;
             }
         }
+
+        if(mlb_out)
+            print_mlb(mlb_out);
     }
 #ifdef NDEBUG // In debug mode, we get better stack traces without catching.
     catch(std::exception& e)

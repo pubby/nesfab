@@ -4,6 +4,7 @@
 // Compiler options.
 
 #include <vector>
+#include <string>
 #include <filesystem>
 
 #include "mapper.hpp"
@@ -23,6 +24,9 @@ struct options_t
     bool werror = false;
     bool pause = false;
     bool unsafe_bank_switch = false;
+
+    // Label files, etc:
+    std::string raw_mlb;
 
     nes_system_t nes_system = NES_SYSTEM_UNKNOWN;
     std::string raw_system;

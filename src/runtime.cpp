@@ -646,7 +646,7 @@ static asm_proc_t make_reset_proc()
         if(gv->has_init())
         {
             proc.push_inst(LDY_IMMEDIATE, locator_t::reset_group_vars(gv).with_is(IS_BANK));
-            proc.push_inst(BANKED_Y_JSR, locator_t::reset_group_vars(gv));
+            proc.push_inst(mapper().bankswitches() ? BANKED_Y_JSR : JSR_ABSOLUTE, locator_t::reset_group_vars(gv));
         }
     });
     
@@ -704,7 +704,7 @@ static asm_proc_t make_reset_proc()
 
     // Jump to our entry point.
     proc.push_inst(LDY_IMMEDIATE, locator_t::fn(main.handle()).with_is(IS_BANK));
-    proc.push_inst(BANKED_Y_JMP, locator_t::fn(main.handle()));
+    proc.push_inst(mapper().bankswitches() ? BANKED_Y_JMP : JMP_ABSOLUTE, locator_t::fn(main.handle()));
 
     proc.initial_optimize();
     return proc;
@@ -919,9 +919,14 @@ span_allocator_t alloc_runtime_rom()
     alloc(RTROM_reset, make_reset());
     alloc(RTROM_vectors, make_vectors());
 
-    alloc(RTROM_jsr_y_trampoline, make_jsr_y_trampoline(), ROMVF_ALL);
-    alloc(RTROM_jmp_y_trampoline, make_jmp_y_trampoline(), ROMVF_ALL);
+    if(mapper().bankswitches())
+    {
+        alloc(RTROM_jsr_y_trampoline, make_jsr_y_trampoline(), ROMVF_ALL);
+        alloc(RTROM_jmp_y_trampoline, make_jmp_y_trampoline(), ROMVF_ALL);
+    }
+
     alloc(RTROM_mul8, make_mul8(), ROMVF_ALL);
+
     if(has_mapper_reset())
     {
         if(mapper().type == MAPPER_MMC1)

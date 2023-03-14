@@ -268,15 +268,13 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             }
         }
 
-        // Init 'maximal_group_vars' and 'fn usable_ram'.
+        // Init 'maximal_group_vars':
         for(fn_ht fn : fn_ht::handles())
         {
             if(fn->fclass == FN_CT)
                 continue;
 
             fn_data[fn.id].maximal_group_vars = fn->ir_group_vars();
-            for(auto& bs : fn_data[fn.id].usable_ram)
-                bs = static_usable_ram;
             assert(fn_data[fn.id].maximal_group_vars);
         }
 
@@ -591,12 +589,19 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 // 'all' represents ram locations that do not modify interfering bitsets.
                 // 'any' represents ram locations that does not modify at least 1 interfering bitset.
 
+                group_vars_d& d = data(gmember.gvar.group_vars);
+
                 ram_bitset_t all;
                 ram_bitset_t any;
                 all.clear_all();
                 any.set_all();
-
-                group_vars_d& d = data(gmember.gvar.group_vars);
+                d.interferences.for_each([&](group_vars_ht gv)
+                {
+                    all |= group_vars_data[gv.id].usable_ram;
+                    any &= group_vars_data[gv.id].usable_ram;
+                });
+                all.flip_all();
+                any.flip_all();
 
                 // Allocate, prioritizing 'all', then 'any', then just 'd.usable_ram'.
                 span = alloc_ram(d.usable_ram & all, size, zp, insist_align);
@@ -675,6 +680,10 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
         {
             if(fn->fclass == FN_CT)
                 continue;
+
+            // Init static_usable_ram:
+            for(auto& bs : fn_data[fn.id].usable_ram)
+                bs = static_usable_ram;
 
             fn_data[fn.id].maximal_group_vars.for_each([&](group_vars_ht gv)
             {
@@ -1037,3 +1046,4 @@ void print_ram(std::ostream& o)
         });
     }
 }
+

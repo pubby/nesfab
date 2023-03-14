@@ -5220,7 +5220,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
                 // Replace the labels of incoming jumps with the new label.
                 for(asm_inst_t& inst : id.final_code())
-                    if(inst.arg == locator_t::cfg_label(cfg))
+                    if(inst.op != ASM_LABEL && inst.arg == locator_t::cfg_label(cfg))
                         inst.arg = label;
 
                 // Handle switch:

@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <deque>
+#include <functional>
 
 #include "handle.hpp"
 #include "phase.hpp"
@@ -145,6 +146,8 @@ public:
 
     // Returns the bank number if it exists, -1 otherwise.
     int first_bank() const;
+
+    void for_each_bank(std::function<void(unsigned)> const& fn);
 };
 
 using romv_allocs_t = std::array<rom_alloc_ht, NUM_ROMV>;

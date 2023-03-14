@@ -1094,7 +1094,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(!ssa_it->input(0).holds_ref())
         {
             // Check if the alt is an immediate constant.
-            if(!ssa_it->input(0).is_locator() || !ssa_it->input(0).locator().is_immediate())
+            if(ssa_it->input(0).is_locator() && !ssa_it->input(0).locator().is_immediate())
                 continue;
         }
         else

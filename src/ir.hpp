@@ -139,6 +139,7 @@ public:
     ssa_value_t input(unsigned i) const { return m_io.input(i); }
     ssa_fwd_edge_t input_edge(unsigned i) const { return m_io.input(i); }
     std::uint32_t input_size() const { return m_io.input_size(); }
+    std::uint32_t input_begin() const { return ssa_input0_class(op()) ? 0 : 1; }
 
     ssa_ht output(unsigned i) const { return m_io.output(i).handle; }
     ssa_bck_edge_t output_edge(unsigned i) const { return m_io.output(i); }

@@ -545,6 +545,53 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         });
     }
 
+    // Try to use make_ptrs immediately.
+    for(ssa_ht ssa_node : toposorted)
+    {
+        if(!is_make_ptr(ssa_node->op()))
+            continue;
+
+        ssa_value_t const copy = ssa_node->input(ssa_copy_input(ssa_node->op()));
+
+        if(!copy.holds_ref())
+            continue;
+
+        unsigned const ptr_outputs = ssa_node->output_size();
+        unsigned const copy_outputs = copy->output_size();
+        for(unsigned i = 0; i < copy_outputs; ++i)
+        {
+            ssa_ht const copy_output = copy->output(i);
+
+            if(copy_output == ssa_node)
+                continue;
+
+            if(copy_output->cfg_node() != cfg_node)
+                continue;
+
+            for(unsigned j = 0; j < ptr_outputs; ++j)
+            {
+                ssa_ht const ptr_output = ssa_node->output(j);
+
+                if(ptr_output->cfg_node() != cfg_node)
+                    continue;
+
+                if(copy_output == ptr_output)
+                    continue;
+
+                auto& d = data(copy_output);
+
+                // Can't add a dep if a cycle would be created:
+                if(bitset_test(data(ptr_output).deps, index(copy_output)))
+                    continue;
+
+                // Add a dep!
+                bitset_set(d.deps, index(ptr_output));
+                bitset_or(set_size, d.deps, data(ptr_output).deps);
+                propagate_deps_change(copy_output);
+            }
+        }
+    }
+
     // Try to use indexers immediately,
     // scheduling other nodes that use them afterwards.
     for(ssa_ht ssa_node : toposorted)

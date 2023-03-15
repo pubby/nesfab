@@ -572,12 +572,14 @@ static asm_proc_t make_reset()
     // Turn off decimal mode, just in case the code gets run on wonky hardware.
     proc.push_inst(CLD);
 
-    if(mapper().type == MAPPER_MMC1)
+    if(state_size())
     {
         proc.push_inst(LDA, 0);
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
-        proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
     }
+
+    if(mapper().type == MAPPER_MMC1)
+        proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
 
     // Jump to the init proc:
     proc.push_inst(LDY_IMMEDIATE, locator_t(LOC_RESET_PROC).with_is(IS_BANK));
@@ -585,6 +587,7 @@ static asm_proc_t make_reset()
     proc.push_inst(JMP_ABSOLUTE, LOC_RESET_PROC);
 
     proc.initial_optimize();
+
     return proc;
 }
 
@@ -602,8 +605,6 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUMASK));
 
     // Reset runtime vars:
-    if(state_size(mapper().type))
-        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_ready));
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
 

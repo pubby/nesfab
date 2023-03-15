@@ -344,6 +344,8 @@ int main(int argc, char** argv)
                     _options.mapper = mapper_t::ines_189(mapper_params);
                 else if(str == "mmc1"sv)
                     _options.mapper = mapper_t::mmc1(mapper_params);
+                else if(str == "colordreams"sv)
+                    _options.mapper = mapper_t::colordreams(mapper_params);
                 else
                     throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
             }

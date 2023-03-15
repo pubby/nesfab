@@ -2,7 +2,7 @@
 
 #include "assert.hpp"
 
-span_t span_allocator_t::alloc_at(span_t span)
+span_allocation_t span_allocator_t::alloc_at(span_t span)
 {
     if(!span)
         return {};
@@ -19,7 +19,7 @@ span_t span_allocator_t::alloc_at(span_t span)
     return {};
 }
 
-span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t alignment, bool insist_alignment)
+span_allocation_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t alignment, bool insist_alignment)
 {
     if(treap.empty())
         return {};
@@ -42,8 +42,11 @@ span_t span_allocator_t::alloc(std::uint16_t size, std::uint16_t alignment, bool
     return did_alloc(it, alloc);
 }
 
-span_t span_allocator_t::alloc_linear(std::uint16_t size, std::uint16_t alignment, unsigned after)
+span_allocation_t span_allocator_t::alloc_linear(std::uint16_t size, std::uint16_t alignment, unsigned after)
 {
+    if(!after)
+        return alloc(size, alignment);
+
     for(auto it = treap.begin(); it != treap.end(); ++it)
     {
         if(it->span.end() < after)
@@ -115,10 +118,12 @@ void span_allocator_t::free(span_t span)
     assert_valid();
 }
 
-span_t span_allocator_t::did_alloc(treap_t::iterator it, span_t alloc)
+span_allocation_t span_allocator_t::did_alloc(treap_t::iterator it, span_t const object)
 {
-    assert(alloc.size > 0);
-    assert(it->span.contains(alloc));
+    assert(object.size > 0);
+    assert(it->span.contains(object));
+
+    span_t alloc = object;
 
     // Update the bitset
 
@@ -162,7 +167,7 @@ span_t span_allocator_t::did_alloc(treap_t::iterator it, span_t alloc)
 
     assert_valid();
 
-    return alloc;
+    return { alloc, object };
 }
 
 span_t span_allocator_t::unallocated_span_at(std::uint16_t addr) const

@@ -68,7 +68,7 @@ struct mods_t : public flag_mods_t
     fc::vector_map<group_ht, list_mentioned_t> lists;
 
     global_t const* nmi = nullptr;
-    pstring_t nmi_pstring = {};
+    global_t const* irq = nullptr;
 
     mods_t() = default;
 
@@ -91,7 +91,7 @@ struct mods_t : public flag_mods_t
         pstring_t at,
         mod_flags_t accepts_flags = 0, 
         mod_list_t accepts_lists = 0,
-        bool accepts_nmi = false) const;
+        bool accepts_nmi_irq = false) const;
 };
 
 void inherit(std::unique_ptr<mods_t>& mods, std::unique_ptr<mods_t> const& from);

@@ -291,9 +291,6 @@ ai_t::ai_t(log_t* log, ir_t& ir_, bool byteified)
     fold_consts();
     ir.assert_valid();
 
-    //if(byteified)
-        //return;
-
     dprint(log, "\nREMOVE SKIP");
     remove_skippable();
     ir.assert_valid();
@@ -321,7 +318,15 @@ void ai_t::queue_edge(cfg_ht h, unsigned out_i)
 void ai_t::queue_node(executable_index_t exec_i, ssa_ht h)
 {
     if(ai_data(h->cfg_node()).executable[exec_i])
+    {
         ssa_worklist.push(h);
+
+        // Also queue any traces:
+        unsigned const output_size = h->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+            if(h->output(i)->op() == SSA_trace)
+                queue_node(exec_i, h->output(i));
+    }
 }
 
 ////////////////////////////////////////
@@ -682,6 +687,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     // The constraints of this is always constant.
     if(trace->input_size() == 2)
     {
+        dprint(log, "--COMPUTE_ROOT_TRACE", trace);
         passert(trace->type().size_of() == 1, trace->type());
         assert(trace->input(1).is_num());
         assert(trace->input(1).num_type_name() == trace->type().name());
@@ -707,6 +713,8 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
     assert(trace->type() == trace->input(0)->type());
     assert(trace_d.constraints().cm == get_constraints(trace->input(0)).cm);
 
+    dprint(log, "--COMPUTE_NON_ROOT_TRACE", trace);
+
     // Do a quick check to make sure all our inputs are non-top.
     unsigned const input_size = trace->input_size();
     for(unsigned i = 1; i < input_size; i += 2)
@@ -714,7 +722,10 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         ssa_ht parent_trace = trace->input(i).handle();
         assert(parent_trace->op() == SSA_trace);
         if(any_top(ai_data(parent_trace).constraints()))
+        {
+            dprint(log, "--ABORT_TOP_TRACE", trace, parent_trace);
             return;
+        }
     }
 
     bc::small_vector<constraints_def_t, 16> c;
@@ -736,6 +747,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         ssa_ht narrowing_op = parent_trace->input(0).handle();
         while(ai_data(narrowing_op).rebuild_mapping)
             narrowing_op = ai_data(narrowing_op).rebuild_mapping;
+        dprint(log, "--NARROWING_NODE", trace, narrowing_op, narrowing_op->op());
 
         unsigned const arg_i = trace->input(i+1).whole();
         unsigned const num_args = narrowing_op->input_size();
@@ -745,7 +757,11 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         // that it modifies. Create that array here.
         c.resize(num_args);
         for(unsigned j = 0; j < num_args; ++j)
+        {
+            dprint(log, "--TRACE_ARG", trace, narrowing_op->input(j));
             copy_constraints(narrowing_op->input(j), c[j]);
+            dprint(log, "--TRACE_C", c[j][0]);
+        }
 
         auto& parent_trace_d = ai_data(parent_trace);
         assert(parent_trace_d.rebuild_mapping);
@@ -754,12 +770,19 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         passert(narrow_fn(op), op);
 
         // Call the narrowing op:
-        dprint(log, "--COMPUTE_NARROW", op);
+        dprint(log, "--COMPUTE_NARROW", op, arg_i);
+        dprint(log, "--TRACE_R", parent_trace_d.constraints()[0]);
+        dprint(log, "--TRACE_X", c[1][0]);
         narrow_fn(op)(c.data(), num_args, parent_trace_d.constraints());
+        dprint(log, "--TRACE_X", c[1][0]);
 
         // Update narrowed:
         for(unsigned j = 0; j < narrowed.size(); ++j)
+        {
+            dprint(log, "--NARROW_RESULT", narrowed[j]);
+            dprint(log, "--C_RESULT", c[arg_i][j]);
             narrowed[j] = intersect(narrowed[j], c[arg_i][j]);
+        }
     }
 
     passert((is_subset(narrowed[0], get_constraints(trace->input(0))[0], trace_d.constraints().cm)),
@@ -824,7 +847,10 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
             }
         }
         else for(unsigned i = 0; i < input_size; ++i)
+        {
+            dprint(log, "-COMPUTE_CONSTRAINTS_INPUT", ssa_node, ssa_node->input(i));
             copy_constraints(ssa_node->input(i), c[i]);
+        }
 
         // Call the ai op:
         passert(abstract_fn(ssa_node->op()), ssa_node->op());
@@ -957,7 +983,10 @@ void ai_t::visit(ssa_ht ssa_node)
         // Queue all outputs
         unsigned const output_size = ssa_node->output_size();
         for(unsigned i = 0; i < output_size; ++i)
+        {
+            dprint(log, "--QUEUE ", ssa_node->output(i));
             queue_node(EXEC_PROPAGATE, ssa_node->output(i));
+        }
     }
 }
 

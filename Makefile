@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "0.2"
+VERSION := "0.3"
 GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always)"
 
 #override CXX:=clang++
@@ -61,7 +61,7 @@ override CXXFLAGS+= \
 endif
 
 debug: CXXFLAGS += -O0 -g
-release: CXXFLAGS += -O3 -DNDEBUG
+release: CXXFLAGS += -O3 -DNDEBUG -Wno-unused-variable
 static: CXXFLAGS += -static -O3 -DNDEBUG
 profile: CXXFLAGS += -O3 -DNDEBUG -g
 
@@ -148,7 +148,8 @@ o_loop.cpp \
 o_defork.cpp \
 unroll_divisor.cpp \
 puf.cpp \
-worklist.cpp
+worklist.cpp \
+mlb.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

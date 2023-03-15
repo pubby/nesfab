@@ -29,6 +29,13 @@ inline constexpr bool priority_order(treap_node_t const& lhs, treap_node_t const
 // Allocates spans inside a larger set of spans.
 // Created to allocate ROM.
 
+struct span_allocation_t
+{
+    span_t allocation; // The size of the allocation, including padding.
+    span_t object;     // The actual object inside the allocation.
+    constexpr explicit operator bool() const { return (bool)allocation; }
+};
+
 class span_allocator_t
 {
 public:
@@ -80,11 +87,11 @@ public:
         assert_valid();
     }
 
-    span_t alloc_at(span_t span);
+    span_allocation_t alloc_at(span_t span);
 
-    span_t alloc(std::uint16_t size, std::uint16_t alignment = 1, bool insist_alignment = true);
+    span_allocation_t alloc(std::uint16_t size, std::uint16_t alignment = 1, bool insist_alignment = true);
 
-    span_t alloc_linear(std::uint16_t size, std::uint16_t alignment = 1, unsigned after = 0);
+    span_allocation_t alloc_linear(std::uint16_t size, std::uint16_t alignment = 1, unsigned after = 0);
 
     void free(span_t span);
 
@@ -102,7 +109,7 @@ public:
 
 
 private:
-    span_t did_alloc(treap_t::iterator it, span_t alloc);
+    span_allocation_t did_alloc(treap_t::iterator it, span_t object);
 
     void assert_valid()
     {

@@ -776,7 +776,7 @@ ABSTRACT(SSA_sub) = abstract_add_sub<false>;
 
 ABSTRACT(SSA_mul) = ABSTRACT_FN
 {
-    assert(argn == 2 && result.vec.size() >= 1);
+    passert(argn >= 2 && result.vec.size() >= 1, argn, result.vec.size());
 
     if(handle_top(cv, argn, result))
         return;
@@ -1179,8 +1179,8 @@ ABSTRACT(SSA_shr) = ABSTRACT_FN
     // Calc known bits
 
     known_bits_t bits = L.bits;
-    bits.known0 = ((bits.known0 & mask) << 1) >> R_min;
-    bits.known1 = ((bits.known1 & mask) << 1) >> R_min;
+    bits.known0 = (bits.known0 & mask) >> R_min;
+    bits.known1 = (bits.known1 & mask) >> R_min;
 
     if(L.bounds.min >= 0)
         bits.known0 |= (~(mask >> R_min) & mask);
@@ -1528,7 +1528,6 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
     fixed_uint_t const lsolvable = R_bits.known() & solvable;
     fixed_uint_t const rsolvable = L.bits.known() & solvable;
 
-
     if(Add)
     {
         L.bits.known1 |= ((carry1 ^ R_bits.known1 ^ result[0].bits.known1) & lsolvable);
@@ -1541,7 +1540,7 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
         L.bits.known1 |= ((carry1 ^ R_bits.known1 ^ result[0].bits.known1) & lsolvable);
         R.bits.known0 |= ((carry1 ^ L.bits.known1 ^ result[0].bits.known1) & rsolvable);
         L.bits.known0 |= ~L.bits.known1 & lsolvable;
-        R.bits.known1 |= ~R.bits.known1 & rsolvable;
+        R.bits.known1 |= ~R.bits.known0 & rsolvable;
     }
 
     // Move the bounds in after calculating bits.
@@ -1551,9 +1550,7 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
     L.normalize(cm);
     R.normalize(cm);
 
-    // Keep moving the bounds in even further, if possible.
-    //if(cm.signed_)
-        //return;
+    // Keep moving the bounds in even further:
 
     constraints_t value = result[0];
     bounds_t const bb = bounds_t::bottom(cm);
@@ -1637,8 +1634,6 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
 NARROW(SSA_add) = narrow_add_sub<true>;
 NARROW(SSA_sub) = narrow_add_sub<false>;
 
-NARROW(SSA_mul) = narrow_bottom;
-
 template<bool Eq>
 static void narrow_eq(constraints_def_t* cv, unsigned argn, constraints_def_t const& result)
 {
@@ -1711,12 +1706,12 @@ NARROW(SSA_lt) = NARROW_FN
     constraints_t& L = cv[0][0];
     constraints_t& R = cv[1][0];
 
-    if(result[0].get_const())
+    if(result[0].get_const()) // L < R
     {
         L.bounds.max = std::min(L.bounds.max, R.bounds.max - static_cast<fixed_sint_t>(low_bit_only(cv[0].cm.mask)));
         R.bounds.min = std::max(R.bounds.min, L.bounds.min + static_cast<fixed_sint_t>(low_bit_only(cv[1].cm.mask)));
     }
-    else
+    else // L >= R
     {
         L.bounds.min = std::max(L.bounds.min, R.bounds.min);
         R.bounds.max = std::min(R.bounds.max, L.bounds.max);
@@ -1734,12 +1729,12 @@ NARROW(SSA_lte) = NARROW_FN
     constraints_t& L = cv[0][0];
     constraints_t& R = cv[1][0];
 
-    if(result[0].get_const())
+    if(result[0].get_const()) // L <= R
     {
         L.bounds.max = std::min(L.bounds.max, R.bounds.max);
         R.bounds.min = std::max(R.bounds.min, L.bounds.min);
     }
-    else
+    else // L > R
     {
         L.bounds.min = std::max(L.bounds.min, R.bounds.min + static_cast<fixed_sint_t>(low_bit_only(cv[0].cm.mask)));
         R.bounds.max = std::min(R.bounds.max, L.bounds.max - static_cast<fixed_sint_t>(low_bit_only(cv[1].cm.mask)));

@@ -11,6 +11,24 @@
 #include "globals.hpp"
 #include "compiler_error.hpp"
 
+void link_variables_optimize()
+{
+    for(rom_proc_t& rom_proc : rom_proc_ht::values())
+    {
+        romv_for_each(rom_proc.desired_romv(), [&](romv_t romv)
+        {
+            asm_proc_t asm_proc = rom_proc.asm_proc();
+            asm_proc.link_variables(romv);
+            if(asm_proc.fn && !asm_proc.fn->iasm)
+            {
+                asm_proc.late_optimize();
+                asm_proc.build_label_offsets();
+            }
+            rom_proc.assign(std::move(asm_proc), romv);
+        });
+    }
+}
+
 static void write_linked(
     std::vector<locator_t> const& vec, romv_t romv, int bank, 
     std::uint8_t* const start)
@@ -38,15 +56,12 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 
     write_ines_header(rom.data() + header_start, mapper());
 
-    // Scratch pad proc used in 'write':
-    asm_proc_t asm_proc;
-
     auto const file_addr = [&](span_t span, unsigned bank) -> std::uint8_t*
     {
         return rom.data() + prg_rom_start + bank * 0x8000 + span.addr - mapper().rom_span().addr;
     };
 
-    auto const write = [&](auto const& alloc)
+    auto const write = [&](auto const& alloc, bool stat = false)
     {
         alloc.data.visit([&](rom_array_ht rom_array)
         {
@@ -59,7 +74,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         {
             // We're copying the proc here.
             // This is slower than necessary, but safer to code.
-            asm_proc = rom_proc->asm_proc();
+            auto& asm_proc = rom_proc->asm_proc(alloc.romv);
 
             asm_proc.link(alloc.romv, alloc.only_bank());
             asm_proc.relocate(locator_t::addr(alloc.span.addr));
@@ -81,7 +96,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
     };
 
     for(rom_static_t const& static_ : rom_static_ht::values())
-        write(static_);
+        write(static_, true);
     for(rom_once_t const& once : rom_once_ht::values())
         write(once);
     for(rom_many_t const& many : rom_many_ht::values())

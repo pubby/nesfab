@@ -56,6 +56,27 @@ unsigned mapper_params_t::num_8k_chr(mapper_type_t mt, unsigned min, unsigned ma
     return chr_size / 8;
 }
 
+bool mapper_params_t::conflicts(mapper_type_t mt, bool default_) const
+{
+    if(bus_conflicts == BUSC_DEFAULT)
+        return default_;
+    return bus_conflicts == BUSC_ALWAYS;
+}
+
+bool mapper_params_t::conflicts(mapper_type_t mt) const
+{
+    if(bus_conflicts == BUSC_NEVER)
+        throw std::runtime_error(fmt("Invalid %: Mapper always has bus conflicts."));
+    return true;
+}
+
+bool mapper_params_t::no_conflicts(mapper_type_t mt) const
+{
+    if(bus_conflicts == BUSC_ALWAYS)
+        throw std::runtime_error(fmt("Invalid %: Mapper never has bus conflicts."));
+    return false;
+}
+
 mapper_t mapper_t::nrom(mapper_params_t const& params)
 {
     constexpr mapper_type_t mt = MAPPER_NROM;
@@ -65,18 +86,7 @@ mapper_t mapper_t::nrom(mapper_params_t const& params)
         .mirroring = params.mirroring_HV(mt),
         .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 8, 1),
-    };
-}
-
-mapper_t mapper_t::cnrom(mapper_params_t const& params)
-{
-    constexpr mapper_type_t mt = MAPPER_CNROM;
-    return 
-    {
-        .type = mt,
-        .mirroring = params.mirroring_HV(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
-        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 2048, 4),
+        .bus_conflicts = params.no_conflicts(mt),
     };
 }
 
@@ -89,6 +99,7 @@ mapper_t mapper_t::anrom(mapper_params_t const& params)
         .mirroring = params.mirroring_none(mt),
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 8),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
+        .bus_conflicts = params.conflicts(mt, false),
     };
 }
 
@@ -101,6 +112,20 @@ mapper_t mapper_t::bnrom(mapper_params_t const& params)
         .mirroring = params.mirroring_HV(mt),
         .num_32k_banks = params.num_32k_banks(mt, 32, 2048, 4),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
+        .bus_conflicts = params.conflicts(mt, true),
+    };
+}
+
+mapper_t mapper_t::cnrom(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_CNROM;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_HV(mt),
+        .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 2048, 4),
+        .bus_conflicts = params.no_conflicts(mt),
     };
 }
 
@@ -113,6 +138,20 @@ mapper_t mapper_t::gnrom(mapper_params_t const& params)
         .mirroring = params.mirroring_HV(mt),
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 4),
+        .bus_conflicts = params.conflicts(mt, true),
+    };
+}
+
+mapper_t mapper_t::colordreams(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_COLORDREAMS;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_HV(mt),
+        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 16),
+        .bus_conflicts = params.conflicts(mt, true),
     };
 }
 
@@ -125,9 +164,35 @@ mapper_t mapper_t::gtrom(mapper_params_t const& params)
         .mirroring = params.mirroring_4(mt),
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 16),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 16, 2),
+        .bus_conflicts = params.no_conflicts(mt),
     };
 }
 
+mapper_t mapper_t::ines_189(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_189;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_none(mt),
+        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
+        .bus_conflicts = params.no_conflicts(mt),
+    };
+}
+
+mapper_t mapper_t::mmc1(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_MMC1;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_none(mt),
+        .num_32k_banks = params.num_32k_banks(mt, 256, 256, 8),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 128, 128, 16),
+        .bus_conflicts = params.no_conflicts(mt),
+    };
+}
 void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
 {
     // https://www.nesdev.org/wiki/NES_2.0

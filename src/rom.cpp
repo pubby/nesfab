@@ -5,11 +5,6 @@
 #include "asm_proc.hpp"
 #include "ir.hpp"
 
-//////////////////
-// rom_array_ht //
-//////////////////
-
-
 /////////////////
 // rom_array_t //
 /////////////////
@@ -150,6 +145,7 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
             locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec), false, ROMR_NORMAL));
             loc.advance_offset(-begin);
 
+            passert(ssa_it->type() == loc.type(), ssa_it->type(), loc.type());
             ssa_it->replace_with(loc);
             ssa_it = ssa_it->prune();
             continue;
@@ -167,7 +163,14 @@ void rom_proc_t::assign(asm_proc_t&& asm_proc)
 {
     assert(compiler_phase() <= rom_proc_ht::phase);
     m_asm_proc = std::move(asm_proc);
-    m_max_size = m_asm_proc.size();
+    m_asm_proc.cache_size();
+}
+
+void rom_proc_t::assign(asm_proc_t&& asm_proc, romv_t romv)
+{
+    assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM);
+    m_opt_procs[romv].reset(new asm_proc_t(std::move(asm_proc)));
+    m_opt_procs[romv]->cache_size();
 }
 
 xbitset_t<group_ht> const* rom_proc_t::uses_groups() const 
@@ -225,7 +228,7 @@ rom_data_t* rom_data_ht::get() const
     }
 }
 
-unsigned rom_data_ht::max_size() const
+unsigned rom_data_ht::max_size(romv_t romv) const
 {
     switch(rclass())
     {
@@ -235,7 +238,7 @@ unsigned rom_data_ht::max_size() const
         assert(rom_array_ht{ handle() }->data().size() < 1 << 16);
         return rom_array_ht{ handle() }->data().size();
     case ROMD_PROC:
-        return rom_proc_ht{ handle() }->max_size();
+        return rom_proc_ht{ handle() }->max_size(romv);
     }
 }
 
@@ -299,6 +302,24 @@ int rom_alloc_ht::first_bank() const
         if(!rom_once_ht{handle()}->span)
             return -1;
         return rom_once_ht{handle()}->bank;
+    }
+}
+
+void rom_alloc_ht::for_each_bank(std::function<void(unsigned)> const& fn)
+{
+    switch(rclass())
+    {
+    default: 
+        break;
+    case ROMA_STATIC:
+        rom_static_ht{handle()}->for_each_bank(fn);
+        break;
+    case ROMA_MANY: 
+        rom_many_ht{handle()}->for_each_bank(fn);
+        break;
+    case ROMA_ONCE: 
+        rom_once_ht{handle()}->for_each_bank(fn);
+        break;
     }
 }
 

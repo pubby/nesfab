@@ -701,6 +701,17 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         }
                     }
                 }
+                else if(ssa_it->input(0).eq_whole(0) && ssa_it->input(1).eq_whole(0))
+                {
+                    // Replace 0 + 0 + C with C
+                    if(frac_bytes(ssa_it->type().name()) == 0)
+                    {
+                        ssa_it->link_remove_input(0);
+                        ssa_it->link_remove_input(0);
+                        ssa_it->unsafe_set_op(SSA_cast);
+                        updated = true;
+                    }
+                }
                 break;
 
             case SSA_sub:

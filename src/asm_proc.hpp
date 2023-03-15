@@ -125,6 +125,7 @@ struct asm_proc_t
     asm_proc_t(fn_ht fn, std::vector<asm_inst_t> code, locator_t entry_label);
 
     fn_ht fn = {};
+    unsigned cached_size = 0;
     locator_t entry_label = {};
     std::vector<asm_inst_t> code;
     std::vector<pstring_t> pstrings;
@@ -145,7 +146,8 @@ struct asm_proc_t
     void rebuild_label_map();   // Sets 'index' of each label_info, not 'offset'.
     void build_label_offsets(); // Sets 'offset'.
 
-    void initial_optimize();
+    void initial_optimize() { optimize(true); }
+    void late_optimize() { optimize(false); }
 
     // Converts absolute instructions to zp, when appropriate
     void absolute_to_zp();
@@ -161,6 +163,7 @@ struct asm_proc_t
 
     // Replaces some locators with linked ones, then optimizes.
     void link(romv_t romv, int bank = -1);
+    void link_variables(romv_t romv = ROMV_MODE);
 
     // Replaces labels with constant addresses.
     void relocate(locator_t from);
@@ -171,6 +174,8 @@ struct asm_proc_t
 
     unsigned add_pstring(pstring_t pstring);
     void append(asm_proc_t const& proc);
+
+    void cache_size() { cached_size = size(); }
 private:
     template<typename Fn>
     void for_each_inst(Fn const& fn) const;

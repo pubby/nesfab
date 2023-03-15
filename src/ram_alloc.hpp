@@ -9,5 +9,6 @@
 void alloc_ram(log_t* log, ram_bitset_t const& initial);
 
 void print_ram(std::ostream& o);
+void print_mlb_ram(std::ostream& o);
 
 #endif

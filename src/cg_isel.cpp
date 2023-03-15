@@ -1276,11 +1276,109 @@ namespace isel
     {
         std::uint16_t const bs_addr = bankswitch_addr(mapper().type);
 
+        using mstate = param<struct load_B_state_tag>;
+        using retry_label = param<struct load_B_retry_label_tag>;
+        using done_label = param<struct load_B_done_label_tag>;
+        using detail = param<struct load_B_detail_tag>;
+        using reset_mapper = param<struct load_B_reset_mapper_tag>;
+        using addr = param<struct load_B_addr_tag>;
+
+        addr::set(locator_t::addr(bs_addr));
+
         if(!mapper().bankswitches())
-            cont->call(cpu, prev);
-        else
         {
-            if(has_bus_conflicts(mapper().type))
+            cont->call(cpu, prev);
+            return;
+        }
+
+        if(mapper().type == MAPPER_MMC1)
+        {
+            if(compiler_options().unsafe_bank_switch)
+            {
+                chain
+                < load_A<Opt, Def>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                >(cpu, prev, cont);
+            }
+            else
+            {
+                detail::set(locator_t::runtime_ram(RTRAM_mapper_detail));
+                retry_label::set(state.minor_label());
+                done_label::set(state.minor_label());
+                reset_mapper::set(locator_t::runtime_rom(RTROM_mapper_reset));
+
+                chain
+                < load_X<Opt, Def, Def>
+                , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
+                , label<retry_label>
+                , exact_op<Opt, TXA_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, LSR_IMPLIED, null_>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, CPY_ABSOLUTE, null_, detail>
+                , branch_op<Opt, BEQ, done_label>
+                , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
+                , exact_op<Opt, JSR_ABSOLUTE, null_, reset_mapper>
+                , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                , exact_op<Opt, JMP_ABSOLUTE, null_, retry_label>
+                , label<retry_label>
+                , clear_conditional
+                >(cpu, prev, cont);
+            }
+        }
+        else if(mapper().bus_conflicts)
+        {
+            if(state_size())
+            {
+                mstate::set(locator_t::runtime_ram(RTRAM_mapper_state));
+
+                if(compiler_options().unsafe_bank_switch)
+                {
+                    chain
+                    < load_A<Opt, Def>
+                    , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
+                    , exact_op<Opt, TAX_IMPLIED>
+                    , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_A<Opt, Def>
+                    , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
+                    , exact_op<Opt, TAY_IMPLIED>
+                    , iota_op<Opt, STA_ABSOLUTE_Y, null_>
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    retry_label::set(state.minor_label());
+
+                    chain
+                    < label<retry_label>
+                    , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
+                    , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
+                    , exact_op<Opt, TAY_IMPLIED>
+                    , iota_op<Opt, STA_ABSOLUTE_Y, null_>
+                    , pick_op<Opt, CPX, null_, mstate>
+                    , branch_op<Opt, BNE, retry_label>
+                    , clear_conditional
+                    >(cpu, prev, cont);
+                }
+            }
+            else
             {
                 chain
                 < load_AX<Opt, Def, Def>
@@ -1292,27 +1390,37 @@ namespace isel
                 , iota_op<Opt, STA_ABSOLUTE_Y, null_>
                 >(cpu, prev, cont);
             }
-            else if(state_combines_with_banks(mapper().type))
+        }
+        else if(state_size())
+        {
+            mstate::set(locator_t::runtime_ram(RTRAM_mapper_state));
+
+            if(compiler_options().unsafe_bank_switch)
             {
-                using addr = param<struct load_B_addr_tag>;
-                addr::set(locator_t::addr(bs_addr));
-
-                using state = param<struct load_B_state_tag>;
-                state::set(locator_t::runtime_ram(RTRAM_mapper_state));
-
                 chain
                 < load_A<Opt, Def>
-                , exact_op<Opt, ORA_ABSOLUTE, null_, state>
+                , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 >(cpu, prev, cont);
             }
             else
             {
-                using addr = param<struct load_B_addr_tag>;
-                addr::set(locator_t::addr(bs_addr));
+                retry_label::set(state.minor_label());
 
-                load_then_store<Opt, Def, Def, addr, false>(cpu, prev, cont);
+                chain
+                < label<retry_label>
+                , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
+                , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , pick_op<Opt, CPX, null_, mstate>
+                , branch_op<Opt, BNE, retry_label>
+                , clear_conditional
+                >(cpu, prev, cont);
             }
+        }
+        else
+        {
+            load_then_store<Opt, Def, Def, addr, false>(cpu, prev, cont);
         }
     }
 
@@ -2072,7 +2180,7 @@ namespace isel
     {
         using loop_label = p_label<0>;
 
-        assert(is_tea(from.type().name()));
+        passert(is_tea(from.type().name()), from, from.type());
 
         if(asm_arg(def) == asm_arg(from))
             return;
@@ -3562,65 +3670,123 @@ namespace isel
         case SSA_write_mapper_state:
             p_arg<0>::set(locator_t::runtime_ram(RTRAM_mapper_state));
             p_arg<1>::set(h->input(0));
-            p_arg<2>::set(locator_t::this_bank());
-            p_arg<3>::set(locator_t::addr(bankswitch_addr(mapper().type)));
 
             switch(mapper().type)
             {
             default:
-                throw std::runtime_error(fmt("Undefined mapper state for %", mapper_name(mapper().type)));
+                throw std::runtime_error(fmt("Undefined mapper state isel for %", mapper_name(mapper().type)));
 
-            case MAPPER_CNROM: 
+            case MAPPER_MMC1:
+                p_arg<2>::set(locator_t::runtime_rom(RTROM_mapper_reset));
+                p_arg<3>::set(state.minor_label());
+                p_arg<4>::set(locator_t::runtime_ram(RTRAM_mapper_detail));
+
                 chain
-                < load_AX<Opt, p_arg<1>, p_arg<1>>
+                < label<p_arg<3>>
+                , exact_op<Opt, LDY_ABSOLUTE, null_, p_arg<4>>
+                , load_A<Opt, p_arg<1>>
                 , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<2>>
+                , simple_op<Opt, write_reg_op(~(REGF_X | REGF_Y))> // Clobbers everything except X and Y
+                , exact_op<Opt, CPY_ABSOLUTE, null_, p_arg<4>>
+                , branch_op<Opt, BNE, p_arg<3>>
+                , clear_conditional
                 >(cpu, prev, cont);
                 break;
 
             case MAPPER_ANROM: 
             case MAPPER_GNROM: 
-                static_assert(has_bus_conflicts(MAPPER_ANROM));
-                static_assert(has_bus_conflicts(MAPPER_GNROM));
-
-                chain
-                < load_A<Opt, p_arg<1>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
-                , exact_op<Opt, TAX_IMPLIED, null_>
-                , iota_op<Opt, STA_ABSOLUTE_X, null_>
-                >(cpu, prev, cont);
-                break;
-
             case MAPPER_GTROM:
-                static_assert(!has_bus_conflicts(MAPPER_GTROM));
+                p_arg<2>::set(locator_t::this_bank());
+                p_arg<3>::set(locator_t::addr(bankswitch_addr(mapper().type)));
+                p_arg<4>::set(state.minor_label());
 
-                chain
-                < load_A<Opt, p_arg<1>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
-                >(cpu, prev, cont);
-                break;
+                if(mapper().bus_conflicts)
+                {
+                    if(compiler_options().unsafe_bank_switch)
+                    {
+                        chain
+                        < load_A<Opt, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, TAX_IMPLIED, null_>
+                        , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                        >(cpu, prev, cont);
+                    }
+                    else
+                    {
+                        chain
+                        < label<p_arg<4>>
+                        , load_AX<Opt, p_arg<1>, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, TAY_IMPLIED, null_>
+                        , iota_op<Opt, STA_ABSOLUTE_Y, null_>
+                        , exact_op<Opt, CPX_ABSOLUTE, null_, p_arg<0>>
+                        , branch_op<Opt, BNE, p_arg<4>>
+                        , clear_conditional
+                        >(cpu, prev, cont);
+                    }
+                }
+                else
+                {
+                    if(compiler_options().unsafe_bank_switch)
+                    {
+                        chain
+                        < load_A<Opt, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
+                        >(cpu, prev, cont);
+                    }
+                    else
+                    {
+                        chain
+                        < label<p_arg<4>>
+                        , load_AX<Opt, p_arg<1>, p_arg<1>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
+                        , exact_op<Opt, CPX_ABSOLUTE, null_, p_arg<0>>
+                        , branch_op<Opt, BNE, p_arg<4>>
+                        , clear_conditional
+                        >(cpu, prev, cont);
+                    }
+
+                    break;
+                }
             }
 
             break;
 
         case SSA_fn_call:
-            assert(h->input(0).is_locator());
-            p_arg<0>::set(h->input(0));
+            {
+                assert(h->input(0).is_locator());
+                p_arg<0>::set(h->input(0));
 
-            if(h->input(1)) // if we have an explicit bank
-                p_arg<1>::set(h->input(1));
-            else
-                p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
+                if(h->input(1)) // if we have an explicit bank
+                    p_arg<1>::set(h->input(1));
+                else
+                    p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
 
-            chain
-            < load_Y<Opt, p_arg<1>>
-            , simple_op<Opt, read_reg_op(REGF_Y)>
-            , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-            , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
-            >(cpu, prev, cont);
+                fn_ht const call = get_fn(*h);
+                if(mapper().bankswitches() && !mod_test(call->mods(), MOD_static))
+                {
+                    chain
+                    < load_Y<Opt, p_arg<1>>
+                    , simple_op<Opt, read_reg_op(REGF_Y)>
+                    , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
+                    , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    chain
+                    < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
+                    , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                    >(cpu, prev, cont);
+                }
+            }
             break;
 
         case SSA_return:
@@ -3632,6 +3798,10 @@ namespace isel
                 break;
             case FN_NMI:
                 p_label<0>::set(locator_t::runtime_rom(RTROM_nmi_exit));
+                exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
+                break;
+            case FN_IRQ:
+                p_label<0>::set(locator_t::runtime_rom(RTROM_irq_exit));
                 exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
                 break;
             default:
@@ -3691,6 +3861,31 @@ namespace isel
             < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
             , simple_op<Opt, write_reg_op(REGF_ISEL & ~(REGF_X | REGF_Y))>
             >(cpu, prev, cont);
+
+            break;
+
+        case SSA_cli:
+            if(h->input(0).is_const())
+            {
+                if(h->input(0).whole())
+                    exact_op<Opt, CLI_IMPLIED, null_>(cpu, prev, cont);
+                else
+                    exact_op<Opt, SEI_IMPLIED, null_>(cpu, prev, cont);
+            }
+            else
+            {
+                p_arg<0>::set(h->input(0));
+                p_label<0>::set(state.minor_label());
+
+                chain
+                < exact_op<Opt, SEI_IMPLIED, null_>
+                , load_Z_for<Opt, p_arg<0>>
+                , simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
+                , exact_op<Opt, CLI_IMPLIED, null_>
+                , label<p_label<0>>
+                , clear_conditional
+                >(cpu, prev, cont);
+            }
 
             break;
 
@@ -3824,6 +4019,7 @@ namespace isel
         case SSA_return:
         case SSA_fn_call:
         case SSA_wait_nmi:
+        case SSA_cli:
             write_globals<Opt>(h);
             goto simple;
 
@@ -3848,6 +4044,7 @@ namespace isel
                 mods_t const* mods = state.fn->def().mods_of(h->input(1).locator().stmt());
 
                 bool did_reset_nmi = false;
+                bool did_reset_irq = false;
 
                 call.precheck_group_vars().for_each([&](group_vars_ht gv)
                 {
@@ -3864,27 +4061,44 @@ namespace isel
                             did_reset_nmi = true;
                         }
 
+                        if(!did_reset_irq)
+                        {
+                            // Reset the irq handler until we've reset all group vars.
+                            p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
+                            select_step<false>(load_then_store<Opt, const_<0>, const_<0>, p_arg<0>, false>);
+                            did_reset_irq = true;
+                        }
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
                         p_arg<1>::set(locator_t::reset_group_vars(gv).with_is(IS_BANK));
 
-                        select_step<false>(
-                            chain
-                            < load_Y<Opt, p_arg<1>>
-                            , simple_op<Opt, read_reg_op(REGF_Y)>
-                            , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-                            , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers everything
-                            >);
+                        select_step<false>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+                        {
+                            if(mapper().bankswitches())
+                            {
+                                chain
+                                < load_Y<Opt, p_arg<1>>
+                                , simple_op<Opt, read_reg_op(REGF_Y)>
+                                , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
+                                , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers everything
+                                >(cpu, prev, cont);
+                            }
+                            else
+                            {
+                                chain
+                                < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
+                                , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers everything
+                                >(cpu, prev, cont);
+                            }
+                        });
                     }
                 });
 
                 bool same_nmi = true;
+                bool same_irq = true;
                 for(fn_ht mode : state.fn->precheck_parent_modes())
                 {
-                    if(mode->mode_nmi() != call.mode_nmi())
-                    {
-                        same_nmi = false;
-                        break;
-                    }
+                    same_nmi &= mode->mode_nmi() == call.mode_nmi();
+                    same_irq &= mode->mode_irq() == call.mode_irq();
                 }
                 
                 // Set the nmi handler to its proper value
@@ -3895,16 +4109,35 @@ namespace isel
                     select_step<false>(load_then_store<Opt, p_arg<1>, p_arg<1>, p_arg<0>, false>);
                 }
 
+                // Set the irq handler to its proper value
+                if(did_reset_irq || !same_irq)
+                {
+                    p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
+                    p_arg<1>::set(locator_t::irq_index(call.mode_irq()));
+                    select_step<false>(load_then_store<Opt, p_arg<1>, p_arg<1>, p_arg<0>, false>);
+                }
+
                 // Do the jump:
                 p_arg<0>::set(h->input(0));
                 p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
-                select_step<true>(
-                    chain
-                    < load_Y<Opt, p_arg<1>>
-                    , simple_op<Opt, read_reg_op(REGF_Y)>
-                    , exact_op<Opt, BANKED_Y_JMP, null_, p_arg<0>>
-                    , set_defs<Opt, REGF_ISEL, false, null_>
-                    >);
+                if(mapper().bankswitches())
+                {
+                    select_step<true>(
+                        chain
+                        < load_Y<Opt, p_arg<1>>
+                        , simple_op<Opt, read_reg_op(REGF_Y)>
+                        , exact_op<Opt, BANKED_Y_JMP, null_, p_arg<0>>
+                        , set_defs<Opt, REGF_ISEL, false, null_>
+                        >);
+                }
+                else
+                {
+                    select_step<true>(
+                        chain
+                        < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
+                        , set_defs<Opt, REGF_ISEL, false, null_>
+                        >);
+                }
             }
             break;
 
@@ -3960,6 +4193,8 @@ namespace isel
             goto simple;
 
         case SSA_early_store:
+            passert(h->type() == h->input(0).type(), h->type(), h->input(0).type());
+
             if(h->input(0).holds_ref() && cset_head(h) == cset_head(h->input(0).handle()))
                 select_step<true>(ignore_req_store<p_def>);
             else if(is_tea(h->type().name()))
@@ -3995,7 +4230,7 @@ namespace isel
             if(h->output_size() > 0 && h->input(1).locator().mem_head() != cset_locator(h))
             {
                 if(is_tea(h->type().name()))
-                    copy_array<Opt>(h->input(0), h);
+                    copy_array<Opt>(h->input(1), h);
                 else
                 {
                     p_arg<0>::set(h->input(1));
@@ -4985,7 +5220,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
                 // Replace the labels of incoming jumps with the new label.
                 for(asm_inst_t& inst : id.final_code())
-                    if(inst.arg == locator_t::cfg_label(cfg))
+                    if(inst.op != ASM_LABEL && inst.arg == locator_t::cfg_label(cfg))
                         inst.arg = label;
 
                 // Handle switch:

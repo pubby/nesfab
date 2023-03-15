@@ -635,6 +635,7 @@ int main()
         keyword("ct"),
         keyword("mode"),
         keyword("nmi"),
+        keyword("irq"),
         keyword("goto"),
         keyword("label"),
         keyword("file"),
@@ -656,6 +657,8 @@ int main()
         keyword("audio"),
         keyword("system"),
         keyword("state"),
+        keyword("__mapper_detail"),
+        keyword("__mapper_reset"),
 
         keyword("true"),
         keyword("false"),

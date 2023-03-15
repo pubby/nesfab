@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper code for interfacing ANROM //////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+ct U ANROM_MIRROR = %10000
+
+// Bits valid to modify using 'state':
+ct U STATE_MASK = %00010000

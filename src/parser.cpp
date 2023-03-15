@@ -155,6 +155,17 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
                 }
                 break;
 
+            case TOK_irq:
+                {
+                    if(mods->irq)
+                        compiler_error("Multiple irq modifiers.");
+
+                    parse_token();
+                    pstring_t const pstring = parse_ident();
+                    mods->irq = &global_t::lookup(source(), pstring);
+                }
+                break;
+
             case TOK_plus:
             case TOK_minus:
                 while(token.type == TOK_plus || token.type == TOK_minus)
@@ -754,6 +765,8 @@ retry:
     case TOK_false:
     case TOK_ready:
     case TOK_system:
+    case TOK___mapper_detail:
+    case TOK___mapper_reset:
         {
             ast_node_t ast = { .token = token };
             parse_token();
@@ -1319,8 +1332,6 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                     tt = TOK_byte_block_bank_switch_y;
                 else if(to_lower(token.pstring.string(source())) == "ax"sv)
                     tt = TOK_byte_block_bank_switch_ax;
-                else if(to_lower(token.pstring.string(source())) == "ay"sv)
-                    tt = TOK_byte_block_bank_switch_ay;
                 else
                     compiler_error("Expecting X, Y, AX, or AY.");
 
@@ -1524,8 +1535,9 @@ void parser_t<P>::parse_top_level_def()
     switch(token.type)
     {
     case TOK_fn: 
-    case TOK_nmi: 
     case TOK_mode: 
+    case TOK_nmi: 
+    case TOK_irq: 
         return parse_fn();
     case TOK_asm: 
         parse_token();
@@ -1765,8 +1777,9 @@ void parser_t<P>::parse_fn(token_type_t prefix)
     else switch(token.type)
     {
     case TOK_fn:   fclass = FN_FN; break;
-    case TOK_nmi:  fclass = FN_NMI; break;
     case TOK_mode: fclass = FN_MODE; break;
+    case TOK_nmi:  fclass = FN_NMI; break;
+    case TOK_irq:  fclass = FN_IRQ; break;
     default: compiler_error("Unknown function prefix.");
     }
 
@@ -1786,7 +1799,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
         global = policy().prepare_fn(fn_name);
 
         // Parse the arguments
-        if(fclass == FN_NMI)
+        if(fclass == FN_NMI || fclass == FN_IRQ)
         {
             parse_token(TOK_lparen);
             parse_token(TOK_rparen);
@@ -1854,6 +1867,7 @@ void parser_t<P>::parse_statement()
     case TOK_case:     return parse_case();
     case TOK_default:  return parse_default();
     case TOK_nmi:      return parse_nmi_statement();
+    case TOK_irq:      return parse_irq_statement();
     case TOK_fence:    return parse_fence();
     case TOK_ct:       return parse_local_ct();
     default: 
@@ -2157,6 +2171,18 @@ void parser_t<P>::parse_nmi_statement()
     pstring_t pstring = token.pstring;
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_nmi); });
     policy().nmi_statement(pstring, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_irq_statement()
+{
+    pstring_t pstring = token.pstring;
+    parse_token(TOK_irq); 
+
+    ast_node_t expr;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ expr = parse_expr(); });
+
+    policy().irq_statement(pstring, expr, std::move(mods));
 }
 
 template<typename P>

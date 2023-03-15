@@ -121,6 +121,11 @@ fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
         std::lock_guard<std::mutex> lock(nmi_vec_mutex);
         nmi_vec.push_back(ret);
     }
+    else if(fclass == FN_IRQ)
+    {
+        std::lock_guard<std::mutex> lock(irq_vec_mutex);
+        irq_vec.push_back(ret);
+    }
 
     return h;
 }
@@ -273,8 +278,16 @@ void global_t::parse_cleanup()
                         + fmt_note(nmi->pstring(), "Declared here."));
                 }
             }
-            else if(fn.fclass == FN_MODE)
-                compiler_error(fn.global.pstring(), "Missing nmi modifier.");
+
+            if(global_t const* irq = fn.mods()->irq)
+            {
+                if(irq->gclass() != GLOBAL_FN || irq->impl<fn_t>().fclass != FN_IRQ)
+                {
+                    throw compiler_error_t(
+                        fmt_error(fn.global.pstring(), fmt("% is not an irq function.", irq->name))
+                        + fmt_note(irq->pstring(), "Declared here."));
+                }
+            }
         }
     }
 
@@ -285,6 +298,10 @@ void global_t::parse_cleanup()
     // Setup NMI indexes:
     for(unsigned i = 0; i < nmis().size(); ++i)
         nmis()[i]->pimpl<nmi_impl_t>().index = i;
+
+    // Setup IRQ indexes:
+    for(unsigned i = 0; i < irqs().size(); ++i)
+        irqs()[i]->pimpl<irq_impl_t>().index = i;
 }
 
 template<typename Fn>
@@ -344,12 +361,17 @@ void global_t::precheck_all()
     for(fn_t const* fn : modes())
         fn->precheck_finish_mode();
     for(fn_t const* fn : nmis())
-        fn->precheck_finish_nmi();
+        fn->precheck_finish_nmi_irq();
+    for(fn_t const* fn : irqs())
+        fn->precheck_finish_nmi_irq();
 
     // Verify fences:
     for(fn_t const* nmi : nmis())
         if(nmi->m_precheck_wait_nmi)
             compiler_error(nmi->global.pstring(), "Waiting for nmi inside nmi handler.");
+    for(fn_t const* irq : irqs())
+        if(irq->m_precheck_wait_nmi)
+            compiler_error(irq->global.pstring(), "Waiting for nmi inside irq handler.");
 
     // Define 'm_precheck_parent_modes'
     for(fn_t* mode : modes())
@@ -364,14 +386,20 @@ void global_t::precheck_all()
         mode->m_precheck_parent_modes.insert(mode_h);
     }
 
-    // Allocate 'used_in_modes' for NMIs:
+    // Allocate 'used_in_modes' for NMIs and IRQs:
     for(fn_t* nmi : nmis())
         nmi->pimpl<nmi_impl_t>().used_in_modes.alloc();
+    for(fn_t* irq : irqs())
+        irq->pimpl<irq_impl_t>().used_in_modes.alloc();
 
     // Then populate 'used_in_modes':
     for(fn_t* mode : modes())
+    {
         if(fn_ht nmi = mode->mode_nmi())
             nmi->pimpl<nmi_impl_t>().used_in_modes.set(mode->handle().id);
+        if(fn_ht irq = mode->mode_irq())
+            irq->pimpl<irq_impl_t>().used_in_modes.set(mode->handle().id);
+    }
 
     // Determine which rom procs each fn should have:
 
@@ -399,11 +427,26 @@ void global_t::precheck_all()
         nmi->m_precheck_romv |= ROMVF_IN_NMI;
     }
 
+    for(fn_t* irq : irqs())
+    {
+        assert(irq->fclass == FN_IRQ);
+
+        irq->m_precheck_calls.for_each([&](fn_ht call)
+        {
+            call->m_precheck_romv |= ROMVF_IN_IRQ;
+        });
+
+        irq->m_precheck_romv |= ROMVF_IN_IRQ;
+    }
+
     for(fn_t& fn : fn_ht::values())
     {
         // Allocate rom procs:
         assert(!fn.m_rom_proc);
         fn.m_rom_proc = rom_proc_ht::pool_make(romv_allocs_t{}, fn.m_precheck_romv, mod_test(fn.mods(), MOD_align));
+
+        if(mod_test(fn.mods(), MOD_static))
+            fn.m_rom_proc.safe().mark_rule(ROMR_STATIC);
 
         // Determine each 'm_precheck_called':
         if(fn.m_precheck_calls)
@@ -685,12 +728,9 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mod
     {
     default:
         break;
-    case FN_MODE:
-        m_pimpl.reset(new mode_impl_t());
-        break;
-    case FN_NMI:
-        m_pimpl.reset(new nmi_impl_t());
-        break;
+    case FN_MODE: m_pimpl.reset(new mode_impl_t()); break;
+    case FN_NMI:  m_pimpl.reset(new nmi_impl_t());  break;
+    case FN_IRQ:  m_pimpl.reset(new irq_impl_t());  break;
     }
 }
 
@@ -698,7 +738,14 @@ fn_ht fn_t::mode_nmi() const
 { 
     assert(fclass == FN_MODE); 
     assert(compiler_phase() > PHASE_PARSE_CLEANUP);
-    return mods() ? mods()->nmi->handle<fn_ht>() : fn_ht{};
+    return (mods() && mods()->nmi) ? mods()->nmi->handle<fn_ht>() : fn_ht{};
+}
+
+fn_ht fn_t::mode_irq() const
+{ 
+    assert(fclass == FN_MODE); 
+    assert(compiler_phase() > PHASE_PARSE_CLEANUP);
+    return (mods() && mods()->irq) ? mods()->irq->handle<fn_ht>() : fn_ht{};
 }
 
 unsigned fn_t::nmi_index() const
@@ -708,11 +755,25 @@ unsigned fn_t::nmi_index() const
     return pimpl<nmi_impl_t>().index;
 }
 
+unsigned fn_t::irq_index() const
+{
+    assert(fclass == FN_IRQ);
+    assert(compiler_phase() > PHASE_PARSE_CLEANUP);
+    return pimpl<irq_impl_t>().index;
+}
+
 xbitset_t<fn_ht> const& fn_t::nmi_used_in_modes() const
 {
     assert(fclass == FN_NMI);
     assert(compiler_phase() > PHASE_PRECHECK);
     return pimpl<nmi_impl_t>().used_in_modes;
+}
+
+xbitset_t<fn_ht> const& fn_t::irq_used_in_modes() const
+{
+    assert(fclass == FN_IRQ);
+    assert(compiler_phase() > PHASE_PRECHECK);
+    return pimpl<irq_impl_t>().used_in_modes;
 }
 
 bool fn_t::ct_pure() const
@@ -744,6 +805,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     bool tests_ready = false;
     bool io_pure = true;
     bool fences = false;
+
+    bool const is_static = mod_test(mods(), MOD_static);
 
     // Handle preserved groups
     for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
@@ -897,6 +960,15 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
             if(ssa_flags(ssa_it->op()) & SSAF_FENCE)
                 fences = true;
+
+            if(ssa_flags(ssa_it->op()) & SSAF_BANK_INPUT)
+            {
+                using namespace ssai::rw_ptr;
+                ssa_value_t const bank = ssa_it->input(BANK);
+
+                if(bank && is_static && mapper().bankswitches())
+                    compiler_error(global.pstring(), "Function cannot be static if it bankswitches.");
+            }
         }
     }
 
@@ -1080,8 +1152,12 @@ void fn_t::compile()
     {
         m_fence_rw.alloc();
         for(fn_ht mode : precheck_parent_modes())
+        {
             if(fn_ht nmi = mode->mode_nmi())
                 m_fence_rw |= nmi->precheck_rw();
+            if(fn_ht irq = mode->mode_irq())
+                m_fence_rw |= irq->precheck_rw();
+        }
         assert(m_fence_rw);
     }
 
@@ -1279,9 +1355,9 @@ void fn_t::precheck_finish_mode() const
     }
 }
 
-void fn_t::precheck_finish_nmi() const
+void fn_t::precheck_finish_nmi_irq() const
 {
-    assert(fclass == FN_NMI);
+    assert(fclass == FN_NMI || fclass == FN_IRQ);
 
     auto const first_goto_mode = [](fn_t const& fn) -> pstring_t
     {
@@ -1291,14 +1367,14 @@ void fn_t::precheck_finish_nmi() const
     };
 
     if(pstring_t pstring = first_goto_mode(*this))
-        compiler_error(pstring, "goto mode inside nmi.");
+        compiler_error(pstring, fmt("goto mode inside %.", fn_class_keyword(fclass)));
 
     m_precheck_calls.for_each([&](fn_ht call)
     {
         if(pstring_t pstring = first_goto_mode(*call))
         {
             throw compiler_error_t(
-                fmt_error(pstring, fmt("goto mode reachable from nmi %", global.name))
+                fmt_error(pstring, fmt("goto mode reachable from % %", fn_class_keyword(fclass), global.name))
                 + fmt_note(global.pstring(), fmt("% declared here.", global.name)));
         }
     });
@@ -1634,6 +1710,7 @@ void fn_t::implement_asm_goto_modes()
 
             // Reset global variables:
             bool did_reset_nmi = false;
+            bool did_reset_irq = false;
             d.fn->precheck_group_vars().for_each([&](group_vars_ht gv)
             {
                 if(!gv->has_init())
@@ -1649,20 +1726,26 @@ void fn_t::implement_asm_goto_modes()
                         did_reset_nmi = true;
                     }
 
+                    if(!did_reset_irq)
+                    {
+                        // Reset the irq handler until we've reset all group vars.
+                        proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::const_byte(0) });
+                        proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_irq_index) });
+                        did_reset_nmi = true;
+                    }
+
                     locator_t const loc = locator_t::reset_group_vars(gv);
                     proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                    proc.push_inst({ .op = BANKED_Y_JSR, .iasm_child = iasm_child, .arg = loc });
+                    proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JSR : JSR_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
                 }
             });
 
             bool same_nmi = true;
+            bool same_irq = true;
             for(fn_ht mode : fn.precheck_parent_modes())
             {
-                if(mode->mode_nmi() != d.fn->mode_nmi())
-                {
-                    same_nmi = false;
-                    break;
-                }
+                same_nmi &= mode->mode_nmi() == d.fn->mode_nmi();
+                same_irq &= mode->mode_irq() == d.fn->mode_irq();
             }
 
             // Set the NMI
@@ -1672,10 +1755,24 @@ void fn_t::implement_asm_goto_modes()
                 proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_nmi_index) });
             }
 
+            // Set the IRQ
+            if(did_reset_irq || !same_irq)
+            {
+                proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::irq_index(d.fn->mode_irq()) });
+                proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_irq_index) });
+            }
+
+            // Set the IRQ
+            if(did_reset_nmi || !same_nmi)
+            {
+                proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::nmi_index(d.fn->mode_nmi()) });
+                proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_nmi_index) });
+            }
+
             // Do the jump
             locator_t const loc = locator_t::fn(d.fn, d.label);
             proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-            proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+            proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JMP : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
 
             // Assign the proc:
             d.rom_proc.safe().assign(std::move(proc));

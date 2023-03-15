@@ -9,6 +9,11 @@ mode main()
     palette = example_palette
     ppu_upload_palette()
 
+    // Set the mapper to a known state:
+    state(%10000)
+    mmc1_set_chr_0(0)
+    mmc1_set_chr_1(0)
+
     // Setup the nametable:
     ppu_reset_addr($2000)
     for U y = 0; y < 30; y += 1
@@ -16,12 +21,13 @@ mode main()
             {PPUDATA}((x & %1111) + ((y & %1111) << 4))
     ppu_set_scroll(0, 0)
 
-    // Animate the CHRROM:
-    state(0)
     {PPUCTRL}(PPUCTRL_NMI_ON)
-    {PPUMASK}(PPUMASK_ON)
+    {PPUMASK}(PPUMASK_BG_ON)
+    U counter = 0
     while true
-        state((state() + 1) & %11)
+        mmc1_set_chr_0(counter)
+        counter += 2
+        counter &= %110
         wait(8)
 
 // Define the tileset (commonly called CHR):

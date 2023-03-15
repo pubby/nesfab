@@ -73,6 +73,28 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
         }
     });
 
+    // For modes, every arg is seen, as compilation may be done out of order:
+    if(fn->fclass == FN_MODE)
+    {
+        m_seen_args = ~0ull;
+
+        for(unsigned i = 0; i < fn->def().num_params; ++i)
+        {
+            var_decl_t const& decl = fn->def().local_vars[i].decl;
+            type_t const param_type = decl.src_type.type;
+            unsigned const num_members = ::num_members(param_type);
+
+            for(unsigned j = 0; j < num_members; ++j)
+            {
+                type_t const member_type = ::member_type(param_type, j);
+                unsigned const num_atoms = ::num_atoms(member_type, 0);
+
+                for(unsigned k = 0; k < num_atoms; ++k)
+                    insert_this_lvar(locator_t::arg(fn, i, j, k));
+            }
+        }
+    }
+
     // Also add every argument / return that has been referenced:
     fn->for_each_referenced_locator([&](locator_t loc){ insert_this_lvar(loc); });
 
@@ -89,6 +111,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     m_bitset_size = ::bitset_size<>(m_map.size());
     m_lvar_interferences.resize(m_map.size() * m_bitset_size, 0);
     m_fn_interferences.resize(m_map.size());
+
 
 #ifndef NDEBUG
     for(auto const& loc : m_map)

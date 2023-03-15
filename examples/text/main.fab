@@ -46,7 +46,7 @@ nmi main_nmi()
 
     {PPUSCROLL}(0)
     {PPUSCROLL}(0)
-    {PPUMASK}(PPUMASK_ON)
+    {PPUMASK}(PPUMASK_BG_ON)
 
 mode main()
 : nmi main_nmi

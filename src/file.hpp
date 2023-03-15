@@ -20,7 +20,6 @@ bool resource_path(fs::path preferred_dir, fs::path name, fs::path& result);
 bool read_binary_file(char const* filename, std::function<void*(std::size_t)> const& alloc);
 std::vector<std::uint8_t> read_binary_file(std::string filename, pstring_t at);
 
-
 // Holds the contents of a file in a buffer and its filename.
 struct file_contents_t
 {

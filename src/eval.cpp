@@ -1002,6 +1002,12 @@ void eval_t::interpret_stmts()
             ++stmt;
             break;
 
+        case STMT_IRQ:
+            if(!is_check(D))
+                compiler_error(stmt->pstring, "Cannot enable/disable irq at compile-time.");
+            ++stmt;
+            break;
+
         case STMT_FENCE:
             if(precheck_tracked)
                 precheck_tracked->fences.push_back(stmt_pstring_mods());
@@ -1074,9 +1080,9 @@ static ssa_value_t _interpret_replace_atom(type_t const& type, fixed_uint_t v, f
 
 void eval_t::compile_block()
 {
-    while(true)
-    {
-    switch(stmt->name)
+    ssa_op_t ssa_op; // Used in fence code
+
+    while(true) switch(stmt->name)
     {
     default: // Handles var inits
         if(is_var_init(stmt->name))
@@ -1530,15 +1536,23 @@ void eval_t::compile_block()
         }
         break;
 
+    case STMT_IRQ:
+        if(precheck_tracked)
+            precheck_tracked->fences.push_back(stmt_pstring_mods());
+        ssa_op = SSA_cli;
+        goto do_fence;
+
     case STMT_NMI:
         if(fn->fclass == FN_NMI)
             compiler_error(stmt->pstring, "Cannot wait for nmi inside nmi.");
         if(precheck_tracked)
             precheck_tracked->wait_nmis.push_back(stmt_pstring_mods());
+        ssa_op = SSA_wait_nmi;
         goto do_fence;
     case STMT_FENCE:
         if(precheck_tracked)
             precheck_tracked->fences.push_back(stmt_pstring_mods());
+        ssa_op = SSA_fence;
         // fall-through
     do_fence:
         {
@@ -1546,9 +1560,15 @@ void eval_t::compile_block()
             bc::small_vector<ssa_value_t, 32> inputs;
 
             block_d& block_data = builder.cfg.data<block_d>();
-            ssa_ht const fenced = builder.cfg->emplace_ssa(
-                stmt->name == STMT_NMI ? SSA_wait_nmi : SSA_fence, TYPE_VOID);
+            ssa_ht const fenced = builder.cfg->emplace_ssa(ssa_op, TYPE_VOID);
             fenced->append_daisy();
+
+            if(ssa_op == SSA_cli)
+            {
+                expr_value_t v = do_expr<COMPILE>(*stmt->expr);
+                v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
+                inputs.push_back(v.ssa());
+            }
 
             ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
             {
@@ -1592,7 +1612,6 @@ void eval_t::compile_block()
         }
         ++stmt;
         break;
-    }
     }
     assert(false);
 }
@@ -1952,6 +1971,16 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     locator_t const loc = locator_t::runtime_ram(RTRAM_mapper_state, offset);
                     return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
+                else if(lval->arg == lval_t::MAPPER_DETAIL_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_ram(RTRAM_mapper_detail, offset);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                }
+                else if(lval->arg == lval_t::MAPPER_RESET_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_rom(RTROM_mapper_reset, offset);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                }
 
                 if(lval->is_global())
                 {
@@ -2070,6 +2099,40 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return result;
         }
 
+    case TOK___mapper_detail:
+        {
+            if(!detail_size())
+                compiler_error(ast.token.pstring, fmt("Mapper % lacks __mapper_detail.", mapper().name()));
+
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_DETAIL_ARG },
+                .type = TYPE_VOID,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            return result;
+        }
+
+    case TOK___mapper_reset:
+        {
+            if(!has_mapper_reset())
+                compiler_error(ast.token.pstring, fmt("Mapper % lacks __mapper_reset.", mapper().name()));
+
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_RESET_ARG },
+                .type = TYPE_VOID,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            return result;
+        }
+
     case TOK_system:
         {
             expr_value_t result =
@@ -2090,7 +2153,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_state:
         {
-            if(state_size(mapper().type) == 0)
+            if(state_size() == 0)
                 compiler_error(ast.token.pstring, fmt("Mapper % does not have a state.", mapper_name(mapper().type)));
 
             expr_value_t result =
@@ -2107,7 +2170,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_write_state:
         {
-            if(state_size(mapper().type) == 0)
+            if(state_size() == 0)
                 compiler_error(ast.token.pstring, fmt("Mapper % does not have a state.", mapper_name(mapper().type)));
 
             if(is_interpret(D))
@@ -3093,7 +3156,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         if(!is_check(D))
                         {
-                            op_t const op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
+                            op_t op; 
+                            if(mapper().bankswitches())
+                                op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
+                            else
+                                op = sub.token.type == TOK_byte_block_call ? JSR_ABSOLUTE : JMP_ABSOLUTE;
+
                             locator_t const loc = locator_t::fn(g.handle<fn_ht>(), fn_val.lval().ulabel());
                             int const iasm_child = proc.add_pstring(pstring);
                             proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
@@ -3122,7 +3190,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             int const iasm_child = proc.add_pstring(pstring);
 
                             proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                            proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+                            proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JMP : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
                         }
                     }
                     break;
@@ -3136,22 +3204,17 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 case TOK_byte_block_bank_switch_x:
                     if(!is_check(D))
-                        bankswitch_x(proc);
+                        bankswitch_x(proc, proc.next_label_id());
                     break;
 
                 case TOK_byte_block_bank_switch_y:
                     if(!is_check(D))
-                        bankswitch_y(proc);
+                        bankswitch_y(proc, proc.next_label_id());
                     break;
 
                 case TOK_byte_block_bank_switch_ax:
                     if(!is_check(D))
-                        bankswitch_ax(proc);
-                    break;
-
-                case TOK_byte_block_bank_switch_ay:
-                    if(!is_check(D))
-                        bankswitch_ay(proc);
+                        bankswitch_a(proc, proc.next_label_id(), true);
                     break;
 
                 case TOK_byte_block_byte_array:
@@ -4122,6 +4185,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             return v;
         }
+        else if(lval->arg == lval_t::MAPPER_DETAIL_ARG
+                || lval->arg == lval_t::MAPPER_RESET_ARG)
+        {
+            compiler_error(v.pstring, "Expression cannot be evaluated.");
+        }
 
         if(lval->arg == lval_t::RETURN_ARG)
             compiler_error(v.pstring, "Cannot access the value of return.");
@@ -4300,7 +4368,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         ssa_ht const read = builder.cfg->emplace_ssa(
             SSA_read_ptr, TYPE_U, deref->ptr, ssa_value_t(), deref->bank, deref->index);
 
-        if(ptr_to_vars(deref->ptr->type()))
+        if(ptr_to_vars(deref->ptr.type()))
             read->append_daisy();
 
         v.val = rval_t{ read };

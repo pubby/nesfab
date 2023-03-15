@@ -39,7 +39,7 @@ inline std::string_view token_string(token_type_t type)
 #define ext_lex_TOK_KEY_CASES \
 
 constexpr token_type_t TOK_LAST_STATE = 5;
-constexpr token_type_t TOK_START = 26;
+constexpr token_type_t TOK_START = 23;
 extern unsigned const lexer_ec_table[256];
 extern token_type_t const lexer_transition_table[800];
 } // namespace ext_lex

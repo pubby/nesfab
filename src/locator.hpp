@@ -86,6 +86,7 @@ enum locator_class_t : std::uint8_t
     LOC_RUNTIME_ROM,
 
     LOC_NMI_INDEX,
+    LOC_IRQ_INDEX,
 
     LOC_ASM_GOTO_MODE,
 
@@ -134,6 +135,11 @@ constexpr bool is_const(locator_class_t lclass)
     return lclass == LOC_CONST_BYTE || lclass == LOC_ADDR;
 }
 
+constexpr bool is_runtime(locator_class_t lclass)
+{
+    return lclass == LOC_RUNTIME_RAM || lclass == LOC_RUNTIME_ROM;
+}
+
 constexpr bool has_arg_member_atom(locator_class_t lclass)
 {
     switch(lclass)
@@ -178,6 +184,7 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_GMEMBER_SET:
     case LOC_PTR_SET:
     case LOC_NMI_INDEX:
+    case LOC_IRQ_INDEX:
     case LOC_ASM_LOCAL_VAR:
     case LOC_ASM_GOTO_MODE:
         return true;
@@ -555,6 +562,8 @@ public:
 
     constexpr static locator_t nmi_index(fn_ht fn)
         { return fn ? locator_t(LOC_NMI_INDEX, fn.id, 0, 0).with_is(IS_PTR) : const_byte(0); }
+    constexpr static locator_t irq_index(fn_ht fn)
+        { return fn ? locator_t(LOC_IRQ_INDEX, fn.id, 0, 0).with_is(IS_PTR) : const_byte(0); }
 
     constexpr static locator_t carry_pair(carry_t first, carry_t second)
         { return locator_t(LOC_CARRY_PAIR, 0, (first << 8) | second, 0).with_is(IS_PTR); }

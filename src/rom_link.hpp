@@ -6,6 +6,7 @@
 
 class locator_t;
 
+void link_variables_optimize();
 std::vector<std::uint8_t> write_rom(std::uint8_t default_fill = 0x00);
 
 #endif

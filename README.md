@@ -45,7 +45,7 @@ When testing bugs, use the debug-mode compiler. It gives far better diagnostics.
 ## Contributing
 
 Small fixes are welcome and can be submitted as Github pull requests.
-For anything larger, open a Github issue with what you'd like to do, and await approval before starting.
+For anything larger, open a Github issue prefixed with "Contrib Request:" and what you'd like to do, and await approval before starting.
 
 ## Made Something?
 

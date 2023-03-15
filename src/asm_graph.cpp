@@ -547,7 +547,8 @@ static void build_incoming(Set& incoming, asm_node_t const& node, cfg_ht cfg)
         incoming.insert(node.cfg);
     else if(node.label.lclass() == LOC_CFG_LABEL && node.label.data() > 0)
         for(asm_node_t* input : node.inputs())
-            build_incoming(incoming, *input, cfg);
+            if(input != &node)
+                build_incoming(incoming, *input, cfg);
 }
 
 std::vector<asm_node_t*> asm_graph_t::order()
@@ -970,6 +971,7 @@ void asm_graph_t::optimize_live_registers()
 
             auto const replace = [&](asm_inst_t& inst, op_t op)
             {
+                assert(op);
                 dprint(log, "REGLIVE_PRUNE_1", inst);
                 inst.op = op;
                 inst.arg = inst.alt = {};
@@ -1115,7 +1117,7 @@ void asm_graph_t::optimize_live_registers()
                 unsigned const bi = &b - node.code.data();
 
                 // Prune ops that have no effect:
-                if(!(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FAKE))
+                if(!(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FAKE | ASMF_IMPURE))
                    && a.op < NUM_NORMAL_OPS
                    && !(REGF_M & op_output_regs(a.op))
                    && !(live_regs[ai] & op_output_regs(a.op))
@@ -1136,42 +1138,60 @@ void asm_graph_t::optimize_live_registers()
                 case LDA:
                     if(b.op == TAX_IMPLIED && !(live_regs[bi] & REGF_A))
                     {
-                        a.op = get_op(LDX, op_addr_mode(a.op));
-                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
-                        b.prune();
+                        if(op_t op = get_op(LDX, op_addr_mode(a.op)))
+                        {
+                            a.op = op;
+                            dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                            b.prune();
+                        }
                     }
                     else if(b.op == TAY_IMPLIED && !(live_regs[bi] & REGF_A))
                     {
-                        a.op = get_op(LDY, op_addr_mode(a.op));
-                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
-                        b.prune();
+                        if(op_t op = get_op(LDY, op_addr_mode(a.op)))
+                        {
+                            a.op = op;
+                            dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                            b.prune();
+                        }
                     }
                     break;
 
                 case LDX:
                     if(b.op == TXA_IMPLIED && !(live_regs[bi] & REGF_X))
                     {
-                        a.op = get_op(LDA, op_addr_mode(a.op));
-                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
-                        b.prune();
+                        if(op_t op = get_op(LDA, op_addr_mode(a.op)))
+                        {
+                            a.op = op;
+                            dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                            b.prune();
+                        }
                     }
                     break;
 
                 case LDY:
                     if(b.op == TYA_IMPLIED && !(live_regs[bi] & REGF_Y))
                     {
-                        a.op = get_op(LDA, op_addr_mode(a.op));
-                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
-                        b.prune();
+                        if(op_t op = get_op(LDA, op_addr_mode(a.op)))
+                        {
+                            a.op = op;
+                            dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                            b.prune();
+                        }
                     }
                     break;
 
                 case LAX:
                     // Convert LAX to either LDA or LDX:
                     if(!(live_regs[ai] & REGF_A))
-                        a.op = get_op(LDX, op_addr_mode(a.op));
+                    {
+                        if(op_t op = get_op(LDX, op_addr_mode(a.op)))
+                            a.op = op;
+                    }
                     else if(!(live_regs[ai] & REGF_X))
-                        a.op = get_op(LDA, op_addr_mode(a.op));
+                    {
+                        if(op_t op = get_op(LDA, op_addr_mode(a.op)))
+                            a.op = op;
+                    }
                     break;
 
                 default:
@@ -1278,6 +1298,7 @@ void asm_graph_t::optimize_live_registers()
                             dprint(log, "REGLIVE_PRUNE_3", b);
                             auto& b_dest = node.code[prev_i + 1];
                             b.op = get_op(store_name(node.code[prev_i].op), op_addr_mode(b.op));
+                            assert(b.op);
                             b_dest = b;
                             b.prune();
                             return;

@@ -2,7 +2,9 @@
 #define TEXT_HPP
 
 #include <array>
+#include <algorithm>
 #include <cstdint>
+#include <cctype>
 #include <mutex>
 #include <functional>
 

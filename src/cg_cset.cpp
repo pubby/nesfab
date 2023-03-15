@@ -157,6 +157,7 @@ ssa_ht cset_remove(ssa_ht h)
     // Clear 'h' data:
     cg_data(h).cset_head = {};
     cg_data(h).cset_next = {};
+    cg_data(h).ptr_alt = {}; 
 
     return ret;
 }

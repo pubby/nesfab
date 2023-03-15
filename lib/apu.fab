@@ -1,0 +1,32 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for interfacing with the NES's APU.
+
+///////////////////////////////////////////////////////////////////////////////
+// REGISTERS //////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+ct AA SQ1_VOL    = $4000
+ct AA SQ1_SWEEP  = $4001
+ct AA SQ1_LO     = $4002
+ct AA SQ1_HI     = $4003
+ct AA SQ2_VOL    = $4004
+ct AA SQ2_SWEEP  = $4005
+ct AA SQ2_LO     = $4006
+ct AA SQ2_HI     = $4007
+ct AA TRI_LINEAR = $4008
+ct AA TRI_LO     = $400A
+ct AA TRI_HI     = $400B
+ct AA NOISE_VOL  = $400C
+ct AA NOISE_LO   = $400E
+ct AA NOISE_HI   = $400F
+ct AA DMC_FREQ   = $4010
+ct AA DMC_RAW    = $4011
+ct AA DMC_START  = $4012
+ct AA DMC_LEN    = $4013
+ct AA SND_CHN    = $4015
+

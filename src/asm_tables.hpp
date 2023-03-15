@@ -470,6 +470,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_C,
+        .flags = ASMF_IMPURE,
     },
 
     // CLD
@@ -480,6 +481,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_IMPURE,
     },
 
     // CLI
@@ -490,6 +492,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_IMPURE,
     },
 
     // CLV
@@ -500,6 +503,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_V,
+        .flags = ASMF_IMPURE,
     },
 
     // CMP
@@ -1313,6 +1317,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_C,
+        .flags = ASMF_IMPURE,
     },
 
     // SED
@@ -1323,6 +1328,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_IMPURE,
     },
 
     // SEI
@@ -1333,6 +1339,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_IMPURE,
     },
 
     // STA

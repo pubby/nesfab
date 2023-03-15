@@ -170,18 +170,19 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
 
         if(rom_array.rule() == ROMR_DPCM)
         {
-            span_t const span = allocator.alloc_linear(rom_array.data().size(), 64, 0xC000);
-            if(!span)
+            span_allocation_t const spans = allocator.alloc_linear(rom_array.data().size(), 64, 0xC000);
+            if(!spans)
                 throw std::runtime_error("Unable to allocate DPCM address (out of ROM space).");
-            rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, span, rom_array_h), rom_key_t());
+            rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, spans.object, rom_array_h), rom_key_t());
             continue;
         }
         else if(rom_array.rule() == ROMR_STATIC)
         {
-            span_t const span = allocator.alloc(rom_array.data().size(), alignment);
-            if(!span)
+            span_allocation_t const spans = allocator.alloc(rom_array.data().size(), alignment);
+            assert(spans.object.addr % alignment == 0);
+            if(!spans)
                 throw std::runtime_error("Unable to allocate ROM (out of ROM space).");
-            rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, span, rom_array_h), rom_key_t());
+            rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, spans.object, rom_array_h), rom_key_t());
             continue;
         }
 
@@ -213,10 +214,10 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
         {
             romv_for_each(rom_proc.desired_romv(), [&](romv_t romv)
             {
-                span_t const span = allocator.alloc(rom_proc.max_size(romv));
-                if(!span)
+                span_allocation_t const spans = allocator.alloc(rom_proc.max_size(romv));
+                if(!spans)
                     throw std::runtime_error("Unable to allocate ROM (out of ROM space).");
-                rom_proc.set_alloc(romv, rom_static_ht::pool_make(romv, span, rom_proc_h), rom_key_t());
+                rom_proc.set_alloc(romv, rom_static_ht::pool_make(romv, spans.object, rom_proc_h), rom_key_t());
             });
             continue;
         }
@@ -534,7 +535,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
         
         // If we succeeded in allocating manys, try to allocate 'once's span:
         // (conditional has side effect assignment)
-        if(!allocated_manys || !(once.span = bank.allocator.alloc(once.max_size(), once.desired_alignment)))
+        if(!allocated_manys || !(once.span = bank.allocator.alloc(once.max_size(), once.desired_alignment).object))
         {
             // If we fail, free allocated 'many' memory.
             for(rom_many_ht many_h : realloced_manys)
@@ -545,6 +546,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
         // If we succeed, update and we're done
         once.bank = bank_i;
         bank.allocated_onces.set(once_h.id);
+        passert(once.span.addr % once.desired_alignment == 0, once.span.addr, once.desired_alignment);
         return;
     }
 
@@ -560,11 +562,11 @@ bool rom_allocator_t::try_include_many(rom_many_ht many_h, unsigned bank_i)
     if(!many.span)
         return false;
 
-    span_t const allocated_span = banks[bank_i].allocator.alloc_at(many.span);
-    if(!allocated_span)
+    span_allocation_t const allocated_spans = banks[bank_i].allocator.alloc_at(many.span);
+    if(!allocated_spans)
         return false;
 
-    auto result = banks[bank_i].many_spans.insert({ many_h, allocated_span });
+    auto result = banks[bank_i].many_spans.insert({ many_h, allocated_spans.allocation });
     assert(result.second);
 
     many.in_banks.set(bank_i);
@@ -650,18 +652,19 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     // Now allocate in each bank:
     in_banks.for_each([&](unsigned bank_i)
     {
-        span_t const allocated_span = banks[bank_i].allocator.alloc_at(alloc_at);
+        span_allocation_t const allocated_spans = banks[bank_i].allocator.alloc_at(alloc_at);
 
-        passert(allocated_span, alloc_at);
-        assert(allocated_span.contains(alloc_at));
+        passert(allocated_spans, alloc_at);
+        assert(allocated_spans.allocation.contains(alloc_at));
 
-        auto result = banks[bank_i].many_spans.insert({ many_h, allocated_span });
+        auto result = banks[bank_i].many_spans.insert({ many_h, allocated_spans.allocation });
         banks[bank_i].allocated_manys.set(many_h.id);
         assert(result.second);
     });
 
     // And store it in the many:
     many.span = alloc_at;
+    assert(many.span.addr % many.desired_alignment == 0);
     many.in_banks = std::move(in_banks);
 
     return true;

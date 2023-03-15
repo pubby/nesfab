@@ -29,7 +29,7 @@ namespace // anonymous
                 return {};
             span_t const ret = { .addr = m_next_zp, .size = size };
             m_next_zp += size;
-            return mark_allocated(ret);
+            return mark_allocated({ ret, ret });
         }
 
         span_t alloc_non_zp(std::uint16_t size, unsigned alignment = 0)
@@ -37,10 +37,10 @@ namespace // anonymous
             return mark_allocated(m_non_zp.alloc(size, alignment));
         }
 
-        span_t mark_allocated(span_t span)
+        span_t mark_allocated(span_allocation_t spans)
         {
-            allocated |= ram_bitset_t::filled(span.addr, span.size);
-            return span;
+            allocated |= ram_bitset_t::filled(spans.allocation.addr, spans.allocation.size);
+            return spans.object;
         }
 
         ram_bitset_t allocated = {};
@@ -881,7 +881,7 @@ span_allocator_t alloc_runtime_rom()
         bitset_for_each(flags, [&](unsigned romv)
         {
             if(!_rtrom_spans[name][romv])
-                _rtrom_spans[name][romv] = a.alloc_linear(max_size, alignment, after);
+                _rtrom_spans[name][romv] = a.alloc_linear(max_size, alignment, after).object;
             if(!_rtrom_spans[name][romv])
                 throw std::runtime_error(fmt("Unable to allocate runtime library %.", name));
         });
@@ -904,10 +904,10 @@ span_allocator_t alloc_runtime_rom()
     auto& iota = _rtrom_spans[RTROM_iota][0];
     iota = {};
     if(mapper().bus_conflicts)
-        iota = a.alloc_at({ bankswitch_addr(mapper().type), 256 });
+        iota = a.alloc_at({ bankswitch_addr(mapper().type), 256 }).object;
     if(!iota)
-        iota = a.alloc(256, 256);
-    _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 });
+        iota = a.alloc(256, 256).object;
+    _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 }).object;
 
     // These have to be defined in a toposorted order.
     alloc(RTROM_iota, make_iota());

@@ -20,7 +20,7 @@ using asm_vec_t = std::vector<asm_inst_t>;
 
 struct bucket_t
 {
-    std::size_t size;
+    std::size_t size = 0;
     std::list<asm_vec_t> code;
 };
 
@@ -285,7 +285,7 @@ macro_t combine_vol_duty(macro_t volume, macro_t duty)
         std::size_t j = i;
         while(j >= volume.sequence.size())
             j -= (volume.sequence.size() - volume.loop);
-        v |= volume.sequence[j];
+        v |= volume.sequence[j] & 0b1111;
 
         std::size_t k = i;
         while(k >= duty.sequence.size())
@@ -529,8 +529,6 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     {
         for(std::size_t t = 0; t < tracks.size(); ++t)
         {
-            buckets.clear();
-
             track_t& track = tracks[t];
             std::array<std::vector<int>, NUM_CHAN> penguin_channels;
 
@@ -641,6 +639,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
             track.num_columns = penguin_channels[0].size();
 
             allocated.clear();
+            buckets.clear();
 
             {
                 bucket_t bucket = {};
@@ -674,6 +673,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
 
                 bucket.size = pair.first.size();
                 buckets.push_back(std::move(bucket));
+                assert(bucket.size <= 256);
             }
 
             std::sort(
@@ -704,6 +704,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
 
             for(bucket_t const& bucket : allocated)
             {
+                assert(proc.size() % 256 == 0);
                 for(auto const& vec : bucket.code)
                     proc.code.insert(proc.code.end(), vec.begin(), vec.end());
 

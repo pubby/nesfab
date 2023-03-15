@@ -532,6 +532,7 @@ asm fn puf(U arg)
         lda (&puf_dpcm_pattern_ptr.a), y
         sta puf_dpcm_mask
     label early_return
+    label update_null
         rts
 
     // Call this function every frame in your NMI or whatever to play the music
@@ -554,12 +555,8 @@ asm fn puf(U arg)
         lda track_step_function_hi, x
         sta &puf_ptr_temp.b
         jsr do_jump
-        // fall-through
-    label track_step_return
-    label update_null
 
         // Square1
-
         lda puf_enable
         and #%0001
         beq disable_square1
@@ -709,7 +706,6 @@ asm fn puf(U arg)
         tay
         clc
         lda (&puf_note_table_ptr.a), y
-        sec
         adc puf_triangle_pitch_bend+0
         sta $400A
         iny
@@ -749,6 +745,8 @@ asm fn puf(U arg)
         jsr read_macro
         sty puf_noise_arpeggio_y
         lsr
+        eor #$FF
+        sec
         adc puf_noise_note
         and #%1111
         sta $400E

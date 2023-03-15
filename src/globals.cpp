@@ -1718,7 +1718,7 @@ void fn_t::implement_asm_goto_modes()
 
                 if(!d.preserves.count(gv))
                 {
-                    if(!did_reset_nmi)
+                    if(!did_reset_nmi && global_t::has_nmi())
                     {
                         // Reset the nmi handler until we've reset all group vars.
                         proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::const_byte(0) });
@@ -1726,7 +1726,7 @@ void fn_t::implement_asm_goto_modes()
                         did_reset_nmi = true;
                     }
 
-                    if(!did_reset_irq)
+                    if(!did_reset_irq && global_t::has_irq())
                     {
                         // Reset the irq handler until we've reset all group vars.
                         proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::const_byte(0) });
@@ -1749,24 +1749,17 @@ void fn_t::implement_asm_goto_modes()
             }
 
             // Set the NMI
-            if(did_reset_nmi || !same_nmi)
+            if(global_t::has_nmi() && (did_reset_nmi || !same_nmi))
             {
                 proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::nmi_index(d.fn->mode_nmi()) });
                 proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_nmi_index) });
             }
 
             // Set the IRQ
-            if(did_reset_irq || !same_irq)
+            if(global_t::has_irq() && (did_reset_irq || !same_irq))
             {
                 proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::irq_index(d.fn->mode_irq()) });
                 proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_irq_index) });
-            }
-
-            // Set the IRQ
-            if(did_reset_nmi || !same_nmi)
-            {
-                proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = locator_t::nmi_index(d.fn->mode_nmi()) });
-                proc.push_inst({ .op = STY_ABSOLUTE, .iasm_child = iasm_child, .arg = locator_t::runtime_ram(RTRAM_nmi_index) });
             }
 
             // Do the jump

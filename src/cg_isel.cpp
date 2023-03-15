@@ -4055,7 +4055,7 @@ namespace isel
 
                     if(mods && !mods->in_lists(MODL_PRESERVES, gv->group.handle()))
                     {
-                        if(!did_reset_nmi)
+                        if(!did_reset_nmi && global_t::has_nmi())
                         {
                             // Reset the nmi handler until we've reset all group vars.
                             p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
@@ -4063,7 +4063,7 @@ namespace isel
                             did_reset_nmi = true;
                         }
 
-                        if(!did_reset_irq)
+                        if(!did_reset_irq && global_t::has_irq())
                         {
                             // Reset the irq handler until we've reset all group vars.
                             p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
@@ -4104,7 +4104,7 @@ namespace isel
                 }
                 
                 // Set the nmi handler to its proper value
-                if(did_reset_nmi || !same_nmi)
+                if(global_t::has_nmi() && (did_reset_nmi || !same_nmi))
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
                     p_arg<1>::set(locator_t::nmi_index(call.mode_nmi()));
@@ -4112,7 +4112,7 @@ namespace isel
                 }
 
                 // Set the irq handler to its proper value
-                if(did_reset_irq || !same_irq)
+                if(global_t::has_irq() && (did_reset_irq || !same_irq))
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
                     p_arg<1>::set(locator_t::irq_index(call.mode_irq()));

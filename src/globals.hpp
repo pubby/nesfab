@@ -183,6 +183,9 @@ public:
     static std::vector<fn_t*> nmis() { assert(compiler_phase() > PHASE_PARSE); return nmi_vec; }
     static std::vector<fn_t*> irqs() { assert(compiler_phase() > PHASE_PARSE); return irq_vec; }
 
+    static bool has_nmi() { return nmis().size(); }
+    static bool has_irq() { return irqs().size(); }
+
     static global_t& default_charmap(pstring_t at);
     static global_t& chrrom(pstring_t at);
     static global_t* chrrom();

@@ -2113,9 +2113,11 @@ namespace isel
     }
 
     template<typename Opt>
-    void fill_array(ssa_value_t def, unsigned start, unsigned len = 0)
+    void fill_array(ssa_value_t def, ssa_value_t val, unsigned start, unsigned len = 0)
     {
         using loop_label = p_label<0>;
+
+        p_arg<0>::set(val);
 
         if(len >= 256)
         {
@@ -2123,14 +2125,14 @@ namespace isel
 
             select_step<false>(
                 chain
-                < load_AX<Opt, const_<0>, const_<0>>
+                < load_AX<Opt, p_arg<0>, const_<0>>
                 , label<loop_label>
                 >);
 
             for(unsigned page = 0; page < len; page += 256)
             {
-                p_arg<0>::set(def,  start + page);
-                select_step<false>(exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<0>>) ;
+                p_arg<1>::set(def,  start + page);
+                select_step<false>(exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>) ;
             }
 
             select_step<false>(
@@ -2147,16 +2149,16 @@ namespace isel
         if(iter)
         {
             loop_label::set(state.minor_label());
-            p_arg<0>::set(locator_t::const_byte(iter - 1));
-            p_arg<1>::set(def, (start + len - left));
-            p_arg<2>::set(def,  (start + len - left) + iter);
+            p_arg<1>::set(locator_t::const_byte(iter - 1));
+            p_arg<2>::set(def, (start + len - left));
+            p_arg<3>::set(def,  (start + len - left) + iter);
 
             select_step<false>(
                 chain
-                < load_AX<Opt, const_<0>, p_arg<0>>
+                < load_AX<Opt, p_arg<0>, p_arg<1>>
                 , label<loop_label>
-                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>
                 , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
+                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<3>>
                 , simple_op<Opt, DEX_IMPLIED>
                 , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                 , clear_conditional
@@ -2166,11 +2168,11 @@ namespace isel
 
         if(left % 2)
         {
-            p_arg<0>::set(def,  start + len - 1);
+            p_arg<1>::set(def,  start + len - 1);
             select_step<false>(
                 chain
-                < load_A<Opt, const_<0>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                < load_A<Opt, p_arg<0>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<1>>
                 >);
         }
     }
@@ -2280,7 +2282,7 @@ namespace isel
         }
 
         if(len < resize_to)
-            fill_array<Opt>(def, len, resize_to - len);
+            fill_array<Opt>(def, ssa_value_t(0, TYPE_U), len, resize_to - len);
     }
 
     template<typename Opt>
@@ -4169,7 +4171,7 @@ namespace isel
             break;
 
         case SSA_fill_array:
-            fill_array<Opt>(h, 0, h->type().array_length());
+            fill_array<Opt>(h, h->input(0), 0, h->type().array_length());
             break;
 
         case SSA_read_ptr:
@@ -4252,7 +4254,7 @@ namespace isel
                 if(!h->input(0).holds_ref() || cset_head(h->input(0).handle()) != cset_head(h))
                     copy_array<Opt>(h->input(0), h, new_size);
                 else if(old_size < new_size)
-                    fill_array<Opt>(h, old_size, new_size - old_size);
+                    fill_array<Opt>(h, ssa_value_t(0, TYPE_U), old_size, new_size - old_size);
             }
             break;
 

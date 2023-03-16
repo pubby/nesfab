@@ -720,46 +720,46 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
             if(!name.empty())
                 define_ct(at, fmt("puf_track_%", name), t);
         }
+    }
 
-        for(auto& pair : instruments)
+    for(auto& pair : instruments)
+    {
+        auto& instrument = pair.second;
+
+        if(instrument.id < 0)
+            continue; // Unused instrument.
+
+        if(!macros.count(std::make_pair(macro_t::volume, instrument.seq_vol))
+        || !macros.count(std::make_pair(macro_t::duty, instrument.seq_dut)))
         {
-            auto& instrument = pair.second;
-
-            if(instrument.id < 0)
-                continue; // Unused instrument.
-
-            if(!macros.count(std::make_pair(macro_t::volume, instrument.seq_vol))
-            || !macros.count(std::make_pair(macro_t::duty, instrument.seq_dut)))
-            {
-                throw std::runtime_error("Missing instrument macro.");
-            }
-
-            macro_t vol_duty = combine_vol_duty(
-                macros.at(std::make_pair(macro_t::volume, instrument.seq_vol)),
-                macros.at(std::make_pair(macro_t::duty, instrument.seq_dut)));
-
-            macro_t const& pit = macros.at(std::make_pair(macro_t::pitch, instrument.seq_pit));
-
-            macro_t const& arp = macros.at(std::make_pair(macro_t::arpeggio, instrument.seq_arp));
-
-            // Append the data:
-
-            asm_proc_t proc;
-
-            auto const append = [&](auto const& macro, int scale = 1)
-            {
-                push_byte(proc.code, macro.sequence.size() + 2);
-                push_byte(proc.code, macro.loop + 2);
-                for(auto b : macro.sequence)
-                    push_byte(proc.code, b * scale);
-            };
-
-            append(vol_duty);
-            append(pit);
-            append(arp, 2);
-
-            instrument.gconst = define_const(at, fmt("puf_instrument_%", instrument.id), std::move(proc), data_group_pair, 0);
+            throw std::runtime_error("Missing instrument macro.");
         }
+
+        macro_t vol_duty = combine_vol_duty(
+            macros.at(std::make_pair(macro_t::volume, instrument.seq_vol)),
+            macros.at(std::make_pair(macro_t::duty, instrument.seq_dut)));
+
+        macro_t const& pit = macros.at(std::make_pair(macro_t::pitch, instrument.seq_pit));
+
+        macro_t const& arp = macros.at(std::make_pair(macro_t::arpeggio, instrument.seq_arp));
+
+        // Append the data:
+
+        asm_proc_t proc;
+
+        auto const append = [&](auto const& macro, int scale = 1)
+        {
+            push_byte(proc.code, macro.sequence.size() + 2);
+            push_byte(proc.code, macro.loop + 2);
+            for(auto b : macro.sequence)
+                push_byte(proc.code, b * scale);
+        };
+
+        append(vol_duty);
+        append(pit);
+        append(arp, 2);
+
+        instrument.gconst = define_const(at, fmt("puf_instrument_%", instrument.id), std::move(proc), data_group_pair, 0);
     }
 
     {
@@ -899,7 +899,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     }
 }
 
-constexpr int ntsc_notes[] = 
+constexpr std::array<int, 87> ntsc_notes = 
 {
     0x07F1,0x077F,0x0713,0x06AD,0x064D,0x05F3,0x059D,0x054C,0x0500,0x04B8,0x0474,0x0434,
     0x03F8,0x03BF,0x0389,0x0356,0x0326,0x02F9,0x02CE,0x02A6,0x0280,0x025C,0x023A,0x021A,
@@ -1061,6 +1061,8 @@ const_ht convert_effect(pstring_t at,
     volume.fill(0);
 
     // Init nsf code.
+    log_cpu = false;
+    effect_stop = false;
     cpu_reset();
     CPU.A = song;
     CPU.X = mode;
@@ -1074,9 +1076,14 @@ const_ht convert_effect(pstring_t at,
     std::vector<std::array<int, 4>> volume_log;
 
     log_cpu = true;
+    effect_stop = false;
 
-    for(effect_stop = false; !effect_stop;)
+    unsigned iter = 0;
+    for(effect_stop = false; !effect_stop; ++iter)
     {
+        if(iter > 250)
+            throw std::runtime_error(fmt("SFX % is too long. Did you forget the C00 effect to mark its end?", song));
+
         CPU.PC.hl = nsf.play_addr;
         CPU.jam = false;
         CPU.S = 0xFF;
@@ -1100,13 +1107,16 @@ const_ht convert_effect(pstring_t at,
             for(unsigned i = 0; i < apu_register_log.size(); ++i)
             {
                 unsigned vol_duty = apu_register_log[i][0x00+k*4] | 0b110000;
-                if(k == 2 && (vol_duty & 0b1111))
+                if(k == CHAN_TRIANGLE && (vol_duty & 0b1111))
                     vol_duty |= 0b1111;
                 push_byte(proc.code, vol_duty);
             }
 
+            auto& notes = nsf_tracks[song].notes[k];
+            notes.clear();
+
             // Pitch
-            if(k == 3)
+            if(k == CHAN_NOISE)
             {
                 push_byte(proc.code, 3);
                 push_byte(proc.code, 2);
@@ -1120,24 +1130,56 @@ const_ht convert_effect(pstring_t at,
                 int pitch_bend = 0;
                 for(unsigned i = 0; i < apu_register_log.size(); ++i)
                 {
-                    int note = nsf_tracks[song].notes[k][i];
-                    unsigned pitch = apu_register_log[i][0x02 + k*4];
+                    int pitch = apu_register_log[i][0x02 + k*4];
                     pitch |= (apu_register_log[i][0x03 + k*4] & 0b111) << 8;
-                    int diff = pitch - ntsc_notes[note] - pitch_bend;
-                    pitch_bend += diff;
-                    push_byte(proc.code, diff);
+
+                    int min_n = 0;
+                    for(unsigned n = 0; n < ntsc_notes.size(); ++n)
+                    {
+                        int const diff = std::abs(ntsc_notes[n] - pitch);
+                        if(diff <= 127)
+                        {
+                            min_n = n;
+                            break;
+                        }
+                    }
+
+                    notes.push_back(min_n);
+
+                    int const diff = pitch - ntsc_notes[min_n];
+                    push_byte(proc.code, diff - pitch_bend);
+                    pitch_bend = diff;
                 }
             }
 
             // Arpeggio
-            push_byte(proc.code, apu_register_log.size() + 2);
-            push_byte(proc.code, 0);
-            for(unsigned i = 0; i < apu_register_log.size(); ++i)
+            if(k == CHAN_NOISE)
             {
-                int change = nsf_tracks[song].notes[k][i];
-                change -= nsf_tracks[song].notes[k].front();
-                change *= 2;
-                push_byte(proc.code, change);
+                push_byte(proc.code, apu_register_log.size() + 2);
+                push_byte(proc.code, 0);
+                for(unsigned i = 0; i < apu_register_log.size(); ++i)
+                {
+                    int pitch = apu_register_log[i][0x02 + k*4];
+                    pitch &= 0b1111;
+                    
+                    notes.push_back(pitch);
+
+                    int change = notes.back() - notes[0];
+                    change *= -2;
+                    push_byte(proc.code, change);
+                }
+            }
+            else
+            {
+                push_byte(proc.code, apu_register_log.size() + 2);
+                push_byte(proc.code, 0);
+                assert(notes.size() == apu_register_log.size());
+                for(unsigned i = 0; i < apu_register_log.size(); ++i)
+                {
+                    int change = notes[i] - notes[0];
+                    change *= 2;
+                    push_byte(proc.code, change);
+                }
             }
         }
 
@@ -1165,7 +1207,8 @@ const_ht convert_effect(pstring_t at,
             proc.code.push_back({ .op = ASM_DATA, .arg = loc.with_is(IS_PTR) });
             proc.code.push_back({ .op = ASM_DATA, .arg = loc.with_is(IS_PTR_HI) });
             proc.code.push_back({ .op = ASM_DATA, .arg = loc.with_is(IS_BANK) });
-            push_byte(proc.code, nsf_tracks[song].notes[k].front()*2);
+            assert(!nsf_tracks[song].notes[k].empty());
+            push_byte(proc.code, nsf_tracks[song].notes[k].front() * (k == CHAN_NOISE ? 1 : 2));
         }
 
         std::string name = convert_name(nsf_tracks[song].name);
@@ -1189,7 +1232,6 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
 
     if(txt_data && nsf_data)
     {
-
         char const* ptr = txt_data;
         char const* end = txt_data + txt_size;
         std::vector<std::string_view> words;

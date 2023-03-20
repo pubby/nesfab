@@ -59,6 +59,35 @@ static std::vector<std::uint8_t> convert_spr16(std::vector<std::uint8_t> const& 
     return ret;
 }
 
+static std::vector<std::uint8_t> convert_pal3(std::vector<std::uint8_t> const& in)
+{
+    std::vector<std::uint8_t> ret;
+    ret.reserve(in.size() * 3 / 4);
+
+    for(unsigned i = 0; i < in.size(); ++i)
+        if(i % 4 != 0)
+            ret.push_back(in[i]);
+
+    return ret;
+}
+
+static std::vector<std::uint8_t> convert_pal25(std::vector<std::uint8_t> const& in)
+{
+    std::vector<std::uint8_t> ret;
+    ret.reserve(in.size());
+
+    for(unsigned i = 0; i < in.size(); ++i)
+    {
+        unsigned j = i % 25;
+        if(j % 4 != 0)
+            ret.push_back(in[i]);
+        if(j == 24)
+            ret.push_back(in[i-24]);
+    }
+
+    return ret;
+}
+
 conversion_t convert_file(char const* source, pstring_t script, fs::path preferred_dir, 
                           string_literal_t const& filename, mods_t const* mods,
                           convert_arg_t* args, std::size_t argn)
@@ -77,9 +106,16 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         auto const read_as_vec = [&]{ return read_binary_file(path.string(), filename.pstring); };
         auto const get_extension = [&]{ return lex_extension(path.extension().string().c_str()); };
 
+        constexpr auto valid_mods = MOD_spr_8x16 | MOD_palette_3 | MOD_palette_25;
+
         auto const read_file = [&]
         {
             bool const spr16 = mod_test(mods, MOD_spr_8x16);
+            bool const pal3 = mod_test(mods, MOD_palette_3);
+            bool const pal25 = mod_test(mods, MOD_palette_25);
+
+            if(pal3 && pal25)
+                compiler_error(filename.pstring, "+palette_3 is incompatible with +palette_25.");
 
             std::vector<std::uint8_t> vec = read_as_vec();
 
@@ -87,7 +123,7 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             {
             case ext_lex::TOK_png:
                 if(mods)
-                    mods->validate(script, MOD_spr_8x16);
+                    mods->validate(script, valid_mods);
                 vec = png_to_chr(vec.data(), vec.size(), spr16);
                 break;
 
@@ -97,8 +133,9 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             case ext_lex::TOK_chr:
             case ext_lex::TOK_bin:
             case ext_lex::TOK_nam:
+            case ext_lex::TOK_pal:
                 if(mods)
-                    mods->validate(script, MOD_spr_8x16);
+                    mods->validate(script, valid_mods);
                 if(spr16)
                     vec = convert_spr16(vec);
                 break;
@@ -106,6 +143,12 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             default:
                 compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
             }
+
+            if(pal3)
+                vec = convert_pal3(vec);
+
+            if(pal25)
+                vec = convert_pal25(vec);
 
             return vec;
         };

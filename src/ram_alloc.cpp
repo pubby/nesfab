@@ -201,70 +201,77 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             romv_allocated[ROMV_NMI].resize(global_t::nmis().size());
             romv_allocated[ROMV_IRQ].resize(global_t::irqs().size());
 
-            rh::batman_map<fn_ht, std::vector<unsigned>> nmi_to_modes;
-            rh::batman_map<fn_ht, std::vector<unsigned>> irq_to_modes;
+            rh::batman_map<fn_ht, unsigned> interrupt_map;
+
+            for(unsigned i = 0; i < global_t::nmis().size(); ++i)
+                interrupt_map.insert({ global_t::nmis()[i]->handle(), i});
+            for(unsigned i = 0; i < global_t::irqs().size(); ++i)
+                interrupt_map.insert({ global_t::irqs()[i]->handle(), i});
+
+            // Setup romv_self:
 
             for(unsigned i = 0; i < global_t::modes().size(); ++i)
             {
                 fn_t const* mode = global_t::modes()[i];
-
-                mode->ir_calls().for_each([&](fn_ht call)
-                {
-                    fn_data[call.id].romv_self[ROMV_MODE].insert(i);
-                });
                 fn_data[mode->handle().id].romv_self[ROMV_MODE].insert(i);
-
-                if(fn_ht nmi = mode->mode_nmi())
-                {
-                    nmi->ir_calls().for_each([&](fn_ht call)
-                    {
-                        fn_data[call.id].romv_interferes[ROMV_NMI].insert(i);
-                    });
-                    fn_data[nmi.id].romv_interferes[ROMV_NMI].insert(i);
-
-                    nmi_to_modes[nmi].push_back(i);
-                }
-
-                if(fn_ht irq = mode->mode_irq())
-                {
-                    irq->ir_calls().for_each([&](fn_ht call)
-                    {
-                        fn_data[call.id].romv_interferes[ROMV_IRQ].insert(i);
-                    });
-                    fn_data[irq.id].romv_interferes[ROMV_IRQ].insert(i);
-
-                    irq_to_modes[irq].push_back(i);
-                }
+                mode->ir_calls().for_each([&](fn_ht call) { fn_data[call.id].romv_self[ROMV_MODE].insert(i); });
             }
 
             for(unsigned i = 0; i < global_t::nmis().size(); ++i)
             {
                 fn_t const* nmi = global_t::nmis()[i];
-                auto const& vec = nmi_to_modes[nmi->handle()];
-
-                nmi->ir_calls().for_each([&](fn_ht call)
-                {
-                    fn_data[call.id].romv_self[ROMV_NMI].insert(i);
-                    fn_data[call.id].romv_interferes[ROMV_MODE].insert(vec.begin(), vec.end());
-                });
-
                 fn_data[nmi->handle().id].romv_self[ROMV_NMI].insert(i);
-                fn_data[nmi->handle().id].romv_interferes[ROMV_MODE].insert(vec.begin(), vec.end());
+                nmi->ir_calls().for_each([&](fn_ht call) { fn_data[call.id].romv_self[ROMV_NMI].insert(i); });
             }
 
             for(unsigned i = 0; i < global_t::irqs().size(); ++i)
             {
                 fn_t const* irq = global_t::irqs()[i];
-                auto const& vec = irq_to_modes[irq->handle()];
-
-                irq->ir_calls().for_each([&](fn_ht call)
-                {
-                    fn_data[call.id].romv_self[ROMV_IRQ].insert(i);
-                    fn_data[call.id].romv_interferes[ROMV_MODE].insert(vec.begin(), vec.end());
-                });
-
                 fn_data[irq->handle().id].romv_self[ROMV_IRQ].insert(i);
-                fn_data[irq->handle().id].romv_interferes[ROMV_MODE].insert(vec.begin(), vec.end());
+                irq->ir_calls().for_each([&](fn_ht call) { fn_data[call.id].romv_self[ROMV_IRQ].insert(i); });
+            }
+
+            // Setup romv_interferes:
+
+            for(unsigned i = 0; i < global_t::modes().size(); ++i)
+            {
+                fn_t const* mode = global_t::modes()[i];
+
+                if(fn_ht nmi = mode->mode_nmi())
+                {
+                    unsigned const nmi_index = *interrupt_map.mapped(nmi);
+
+                    mode->ir_calls().for_each([&](fn_ht call) { fn_data[call.id].romv_interferes[ROMV_NMI].insert(nmi_index); });
+                    fn_data[mode->handle().id].romv_interferes[ROMV_NMI].insert(nmi_index);
+
+                    nmi->ir_calls().for_each([&](fn_ht call){ fn_data[call.id].romv_interferes[ROMV_MODE].insert(i); });
+                    fn_data[nmi.id].romv_interferes[ROMV_MODE].insert(i);
+
+                    if(fn_ht irq = mode->mode_irq())
+                    {
+                        unsigned const irq_index = *interrupt_map.mapped(irq);
+                        nmi->ir_calls().for_each([&](fn_ht call){ fn_data[call.id].romv_interferes[ROMV_IRQ].insert(irq_index); });
+                        fn_data[nmi.id].romv_interferes[ROMV_IRQ].insert(irq_index);
+                    }
+                }
+
+                if(fn_ht irq = mode->mode_irq())
+                {
+                    unsigned const irq_index = *interrupt_map.mapped(irq);
+
+                    mode->ir_calls().for_each([&](fn_ht call) { fn_data[call.id].romv_interferes[ROMV_IRQ].insert(irq_index); });
+                    fn_data[mode->handle().id].romv_interferes[ROMV_IRQ].insert(irq_index);
+
+                    irq->ir_calls().for_each([&](fn_ht call){ fn_data[call.id].romv_interferes[ROMV_MODE].insert(i); });
+                    fn_data[irq.id].romv_interferes[ROMV_MODE].insert(i);
+
+                    if(fn_ht nmi = mode->mode_nmi())
+                    {
+                        unsigned const nmi_index = *interrupt_map.mapped(nmi);
+                        irq->ir_calls().for_each([&](fn_ht call){ fn_data[call.id].romv_interferes[ROMV_NMI].insert(nmi_index); });
+                        fn_data[irq.id].romv_interferes[ROMV_NMI].insert(nmi_index);
+                    }
+                }
             }
         }
 

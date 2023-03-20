@@ -203,11 +203,6 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
             rh::batman_map<fn_ht, unsigned> interrupt_map;
 
-            for(unsigned i = 0; i < global_t::nmis().size(); ++i)
-                interrupt_map.insert({ global_t::nmis()[i]->handle(), i});
-            for(unsigned i = 0; i < global_t::irqs().size(); ++i)
-                interrupt_map.insert({ global_t::irqs()[i]->handle(), i});
-
             // Setup romv_self:
 
             for(unsigned i = 0; i < global_t::modes().size(); ++i)
@@ -222,6 +217,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 fn_t const* nmi = global_t::nmis()[i];
                 fn_data[nmi->handle().id].romv_self[ROMV_NMI].insert(i);
                 nmi->ir_calls().for_each([&](fn_ht call) { fn_data[call.id].romv_self[ROMV_NMI].insert(i); });
+                interrupt_map.insert({ nmi->handle(), i });
             }
 
             for(unsigned i = 0; i < global_t::irqs().size(); ++i)
@@ -229,6 +225,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 fn_t const* irq = global_t::irqs()[i];
                 fn_data[irq->handle().id].romv_self[ROMV_IRQ].insert(i);
                 irq->ir_calls().for_each([&](fn_ht call) { fn_data[call.id].romv_self[ROMV_IRQ].insert(i); });
+                interrupt_map.insert({ irq->handle(), i });
             }
 
             // Setup romv_interferes:

@@ -451,6 +451,7 @@ ABSTRACT(SSA_mul8_lo) = abstract_bottom;
 ABSTRACT(SSA_mul8_hi) = abstract_bottom;
 ABSTRACT(SSA_read_mapper_state) = abstract_bottom;
 ABSTRACT(SSA_write_mapper_state) = abstract_bottom;
+ABSTRACT(SSA_nmi_counter) = abstract_bottom;
 
 ABSTRACT(SSA_carry) = ABSTRACT_FN
 {

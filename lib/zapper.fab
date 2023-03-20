@@ -1,0 +1,66 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// The controller port to use:
+ct AA ZAPPER_ADDR = $4017
+
+// Flags for reading the Zapper input.
+ct U ZAPPER_TRIGGER = %00010000
+ct U ZAPPER_LIGHT   = %00001000
+
+vars
+    // Holds the last polled zapper value:
+    U zapper = 0
+
+// Reads the current zapper state and stores it into 'zapper'.
+// Returns the prior value of 'zapper'.
+fn poll_zapper() U
+: +inline
+    U prev = zapper
+    zapper = {ZAPPER_ADDR}()
+    return prev
+
+// If the zapper button was pressed:
+fn zapper_pressed() Bool
+: +inline
+    U prev = poll_zapper()
+    return zapper & ~prev & ZAPPER_TRIGGER
+
+// If the zapper button was released:
+fn zapper_released() Bool
+: +inline
+    U prev = poll_zapper()
+    return ~zapper & prev & ZAPPER_TRIGGER
+
+// If the zapper button was pressed OR released:
+fn zapper_triggered() Bool
+: +inline
+    U prev = poll_zapper()
+    return (zapper ^ prev) & ZAPPER_TRIGGER
+
+// Spends the rest of the frame (until NMI) reading the zapper.
+// Returns true if the zapper detects light and false otherwise.
+// Note: This function returns *after* the next NMI handler finishes.
+asm fn zapper_lit() Bool
+: employs
+    default
+        ldx #1
+        stx &ready
+        dex
+        ldy &nmi_counter
+    label read_loop
+        stx &return
+        stx $400
+        lda ZAPPER_ADDR
+        and #ZAPPER_LIGHT
+        bne done_load
+        ldx #1
+    label done_load
+        cpy &nmi_counter
+        beq read_loop
+        lda #0
+        sta &ready
+        rts

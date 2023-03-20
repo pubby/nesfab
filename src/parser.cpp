@@ -767,6 +767,7 @@ retry:
     case TOK_system:
     case TOK___mapper_detail:
     case TOK___mapper_reset:
+    case TOK_nmi_counter:
         {
             ast_node_t ast = { .token = token };
             parse_token();

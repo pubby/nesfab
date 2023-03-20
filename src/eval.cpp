@@ -1981,6 +1981,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     locator_t const loc = locator_t::runtime_rom(RTROM_mapper_reset, offset);
                     return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
+                else if(lval->arg == lval_t::NMI_COUNTER_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_counter, offset);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                }
 
                 if(lval->is_global())
                 {
@@ -2125,6 +2130,20 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_RESET_ARG },
                 .type = TYPE_VOID,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            return result;
+        }
+
+    case TOK_nmi_counter:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::NMI_COUNTER_ARG },
+                .type = TYPE_U,
                 .pstring = ast.token.pstring,
                 .time = RT,
             };
@@ -4067,7 +4086,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 // Must be two lines; reference invalidation lurks.
                 ssa_ht const ssa = builder.cfg->emplace_ssa(
-                    SSA_xor, v.type, ssa_value_t(numeric_bitmask(v.type.name()), v.type.name()), v.ssa());
+                    SSA_xor, v.type, ssa_value_t(fixed_t{ numeric_bitmask(v.type.name()) }, v.type.name()), v.ssa());
                 v.ssa() = ssa;
             }
 
@@ -4172,6 +4191,24 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             if(is_compile(D))
             {
                 ssa_ht h = builder.cfg->emplace_ssa(SSA_read_mapper_state, TYPE_U);
+                h->append_daisy();
+                v.val = rval_t{ h };
+            }
+            else if(is_interpret(D))
+                compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
+            else
+            {
+                assert(is_check(D));
+                v.val = rval_t{};
+            }
+
+            return v;
+        }
+        else if(lval->arg == lval_t::NMI_COUNTER_ARG)
+        {
+            if(is_compile(D))
+            {
+                ssa_ht h = builder.cfg->emplace_ssa(SSA_nmi_counter, TYPE_U);
                 h->append_daisy();
                 v.val = rval_t{ h };
             }

@@ -659,6 +659,7 @@ int main()
         keyword("state"),
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
+        keyword("nmi_counter"),
 
         keyword("true"),
         keyword("false"),

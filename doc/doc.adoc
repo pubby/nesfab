@@ -1876,6 +1876,19 @@ but the pointed-to value must never be modified by the program.
 [NOTE]
 There is more than one way to achieve concurrent safety. See <<kw_fence>>, for example.
 
+=== `nmi_counter` [[kw_nmi_counter]]
+
+`nmi_counter` is an expression of type `U` whose value is incremented after each <<nmi, NMI>>.
+It can be used for timing purposes, to create simple animations, or to detect when NMI has occured.
+
+Syntax:
+----
+nmi_counter
+----
+
+The address of `nmi_counter` can be taken using <<unary_ops, unary operator>> `&`,
+but the pointed-to value must never be modified by the program.
+
 === `state` [[kw_state]]
 
 Some <<mappers, mappers>> have registers which combine bank switching with other functionality.

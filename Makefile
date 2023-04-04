@@ -60,6 +60,13 @@ override CXXFLAGS+= \
   -mmovbe
 endif
 
+ifeq ($(ARCH),AMD64_OLD)
+override CXXFLAGS+= \
+  -mpopcnt \
+  -msse4 \
+  -mcx16
+endif
+
 debug: CXXFLAGS += -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG -Wno-unused-variable
 static: CXXFLAGS += -static -O3 -DNDEBUG
@@ -199,11 +206,6 @@ $(SRCDIR)/add_constraints_table.cpp: $(SRCDIR)/add_constraints_table_gen.cpp
 	$(CXX) -std=c++17 -O1 -o add_constraints_table_gen $<
 	./add_constraints_table_gen > $@
 
-ifneq ($(MAKECMDGOALS), clean)
--include $(DEPS)
--include $(TESTS_DEPS)
-endif
-
 ##########################################################################	
 
 deps: $(DEPS)
@@ -225,3 +227,8 @@ docs:
 $(info $(shell mkdir -p $(OBJDIR)))
 $(info $(shell mkdir -p $(OBJDIR)/catch))
 $(info $(shell mkdir -p $(OBJDIR)/lodepng))
+
+ifneq ($(MAKECMDGOALS), clean)
+-include $(DEPS)
+-include $(TESTS_DEPS)
+endif

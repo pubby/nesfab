@@ -657,6 +657,7 @@ int main()
         keyword("audio"),
         keyword("system"),
         keyword("state"),
+        keyword("abs"),
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
         keyword("nmi_counter"),

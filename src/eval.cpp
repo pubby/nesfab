@@ -264,6 +264,9 @@ public:
     template<do_t D>
     expr_value_t do_logical(ast_node_t const& ast);
 
+    template<do_t D>
+    expr_value_t do_abs(ast_node_t const& ast);
+
     void req_quantity(token_t const& token, expr_value_t const& value);
     void req_quantity(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
 
@@ -3795,6 +3798,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             goto push_int;
         }
 
+    case TOK_abs:
+        return do_abs<D>(ast);
+
     case TOK_assign:
         return infix(&eval_t::do_assign<D>, false, true);
 
@@ -5363,6 +5369,53 @@ expr_value_t eval_t::do_logical(ast_node_t const& ast)
 
     expr_value_t const rhs = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
     return { .type = TYPE_BOOL, .pstring = concat(lhs.pstring, rhs.pstring) };
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::do_abs(ast_node_t const& ast)
+{
+    assert(ast.token.type == TOK_abs);
+
+    expr_value_t const value = to_rval<D>(do_expr<D>(ast.children[0]));
+    if(!is_arithmetic(value.type.name()))
+        compiler_error(ast.token.pstring, fmt("Invalid argument of type %. Expecting an arithmetic type.", value.type));
+    if(!is_signed(value.type.name()))
+        return value;
+
+    expr_value_t result =
+    {
+        .type = value.type, 
+        .pstring = ast.token.pstring
+    };
+
+    if(is_interpret(D))
+    {
+        fixed_sint_t const i = value.s();
+        result.val = rval_t{ ssa_value_t(fixed_t{ i < 0 ? -i : i }, result.type.name()) };
+    }
+    else if(is_compile(D))
+    {
+        ssa_ht const condition = builder.cfg->emplace_ssa(SSA_sign, TYPE_BOOL, value.ssa());
+
+        cfg_ht const branch_node = builder.cfg;
+        cfg_exits_with_branch(condition);
+
+        cfg_ht const negate_cfg = builder.cfg = insert_cfg(true);
+        branch_node->build_set_output(1, negate_cfg);
+        ssa_ht const negated = builder.cfg->emplace_ssa(
+            SSA_sub, result.type, 
+            ssa_value_t(0u, result.type.name()), value.ssa(), ssa_value_t(1u, TYPE_BOOL));
+
+        cfg_ht const merge_node = insert_cfg(true);
+        cfg_exits_with_jump();
+        branch_node->build_set_output(0, merge_node);
+        builder.cfg->build_set_output(0, merge_node);
+        builder.cfg = merge_node;
+
+        result.val = rval_t{ merge_node->emplace_ssa(SSA_phi, result.type, value.ssa(), negated) };
+    }
+
+    return result;
 }
 
 template<eval_t::do_t D>

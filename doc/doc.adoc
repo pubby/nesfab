@@ -3506,6 +3506,9 @@ All function-like operators have left associativity and evaluate first in the or
 | `len(_expression_)`
 | <<len_expr, Array Length of an Expression>>
 
+| `abs(_expression_)`
+| <<abs_expr, Absolute Value>>
+
 | `_array_expression_[_index_expression_]`
 | <<array_access_u, U-Indexed Array/Pointer Access>>
 

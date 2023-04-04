@@ -2910,6 +2910,43 @@ namespace isel
                 , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
+                if(p_lhs::node().eq_whole(0))
+                {
+                    chain
+                    < load_AC<Opt, p_rhs, p_carry>
+                    , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                    , exact_op<Opt, ADC_IMMEDIATE, null_, const_<0>>
+                    , store<Opt, STA, p_def, p_def>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
+                    >(cpu, prev, cont);
+
+                    if(!carry_output && p_carry::node().eq_whole(1))
+                    {
+                        chain
+                        < load_AC<Opt, p_rhs, const_<0>>
+                        , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                        , exact_op<Opt, ADC_IMMEDIATE, null_, const_<1>>
+                        , store<Opt, STA, p_def, p_def>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_A<Opt, p_rhs>
+                        , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                        , exact_op<Opt, TAX_IMPLIED, null_>
+                        , exact_op<Opt, INX_IMPLIED, null_>
+                        , store<Opt, STX, p_def, p_def>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_A<Opt, p_rhs>
+                        , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                        , exact_op<Opt, TAY_IMPLIED, null_>
+                        , exact_op<Opt, INY_IMPLIED, null_>
+                        , store<Opt, STY, p_def, p_def>
+                        >(cpu, prev, cont);
+                    }
+                }
+
                 if(p_rhs::value().is_const_num())
                 {
                     p_label<0>::set(state.minor_label());
@@ -4010,12 +4047,35 @@ namespace isel
             p_arg<0>::set(h->input(0));
             p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
             p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
-            select_step<true>(
+            select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+            {
                 chain
                 < load_N_for<Opt, p_arg<0>>
                 , branch_op<Opt, BPL, p_label<0>>
                 , branch_op<Opt, BMI, p_label<1>>
-                >);
+                >(cpu, prev, cont);
+
+                chain
+                < load_A<Opt, p_arg<0>>
+                , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
+                , branch_op<Opt, BCC, p_label<0>>
+                , branch_op<Opt, BCS, p_label<1>>
+                >(cpu, prev, cont);
+
+                chain
+                < load_X<Opt, p_arg<0>>
+                , simple_op<Opt, CPX_IMMEDIATE, null_, const_<0x80>>
+                , branch_op<Opt, BCC, p_label<0>>
+                , branch_op<Opt, BCS, p_label<1>>
+                >(cpu, prev, cont);
+
+                chain
+                < load_Y<Opt, p_arg<0>>
+                , simple_op<Opt, CPY_IMMEDIATE, null_, const_<0x80>>
+                , branch_op<Opt, BCC, p_label<0>>
+                , branch_op<Opt, BCS, p_label<1>>
+                >(cpu, prev, cont);
+            });
             break;
 
         case SSA_return:

@@ -31,6 +31,7 @@ unsigned ast_node_t::num_children() const
     case TOK_byte_block_goto:
     case TOK_byte_block_goto_mode:
     case TOK_write_state:
+    case TOK_abs:
         assert(children);
         return 1;
 

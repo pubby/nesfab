@@ -1900,6 +1900,7 @@ void parser_t<P>::parse_statement()
     case TOK_nmi:      return parse_nmi_statement();
     case TOK_irq:      return parse_irq_statement();
     case TOK_fence:    return parse_fence();
+    case TOK_swap:     return parse_swap();
     case TOK_ct:       return parse_local_ct();
     default: 
         if(is_type_prefix(token.type))
@@ -2222,6 +2223,23 @@ void parser_t<P>::parse_fence()
     pstring_t pstring = token.pstring;
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_fence); });
     policy().fence_statement(pstring, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_swap()
+{
+    pstring_t pstring = token.pstring;
+    ast_node_t a;
+    ast_node_t b;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    { 
+        parse_token(TOK_swap); 
+        a = parse_expr();
+        parse_token(TOK_comma);
+        b = parse_expr();
+        pstring = fast_concat(pstring, token.pstring);
+    });
+    policy().swap_statement(pstring, std::move(mods), a, b);
 }
 
 template<typename P>

@@ -1013,6 +1013,16 @@ public:
         fn_def.push_stmt({ STMT_FENCE, fn_def.push_mods(std::move(mods)), {}, pstring });
     }
 
+    [[gnu::always_inline]]
+    void swap_statement(pstring_t pstring, std::unique_ptr<mods_t> mods, ast_node_t const& a, ast_node_t const& b)
+    {
+        if(mods)
+            mods->validate(pstring);
+        fn_def.push_stmt({ STMT_SWAP_FIRST, fn_def.push_mods(std::move(mods)), {}, pstring, convert_eternal_expr(&a) });
+        fn_def.push_stmt({ STMT_SWAP_SECOND, {}, {}, pstring, convert_eternal_expr(&b) });
+    }
+
+
     void charmap(pstring_t charmap_name, bool is_default, 
                  string_literal_t const& characters, 
                  string_literal_t const& sentinel, 

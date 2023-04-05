@@ -1770,6 +1770,25 @@ Example:
 AA return_addr = &return
 ----
 
+=== `swap` [[kw_swap]]
+
+The `swap` statement exchanges its arguments, assigning the first to the second and the second to the first.
+
+Syntax:
+----
+swap a, b
+----
+- `a` and `b` are lvalue expressions.
+
+Example:
+----
+fn foo()
+    U x = 10
+    U y = 20
+    swap x, y
+    // Now x = 20 and y = 10.
+----
+
 === `fence` [[kw_fence]]
 
 The `fence` statement is used for both writing concurrent code, and for interacting with hardware. 

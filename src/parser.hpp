@@ -138,6 +138,7 @@ private:
     void parse_nmi_statement();
     void parse_irq_statement();
     void parse_fence();
+    void parse_swap();
     void parse_local_ct();
 
     [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const

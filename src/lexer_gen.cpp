@@ -660,6 +660,7 @@ int main()
         keyword("abs"),
         keyword("min"),
         keyword("max"),
+        keyword("swap"),
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
         keyword("nmi_counter"),

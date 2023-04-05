@@ -35,15 +35,17 @@ struct stmt_mods_ht : handle_t<stmt_mods_ht, std::uint16_t, ~0> {};
     X(STMT_BREAK,      0)\
     X(STMT_CONTINUE,   0)\
     X(STMT_LABEL,      0)\
-    X(STMT_GOTO,       0) \
-    X(STMT_GOTO_MODE,  true) \
-    X(STMT_NMI,        0) \
-    X(STMT_IRQ,        true) \
-    X(STMT_FENCE,      0) \
-    X(STMT_SWITCH,     true) \
-    X(STMT_END_SWITCH, true) \
-    X(STMT_CASE,       true) \
-    X(STMT_DEFAULT,    0) \
+    X(STMT_GOTO,       0)\
+    X(STMT_GOTO_MODE,  true)\
+    X(STMT_NMI,        0)\
+    X(STMT_IRQ,        true)\
+    X(STMT_FENCE,      0)\
+    X(STMT_SWITCH,     true)\
+    X(STMT_END_SWITCH, true)\
+    X(STMT_CASE,       true)\
+    X(STMT_DEFAULT,    0)\
+    X(STMT_SWAP_FIRST, true)\
+    X(STMT_SWAP_SECOND,true)
 
 
 // Negative values represent var inits, where the negated value 

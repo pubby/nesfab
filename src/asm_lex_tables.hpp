@@ -237,7 +237,7 @@ inline std::string_view token_string(token_type_t type)
 #define asm_lex_TOK_KEY_CASES \
 
 constexpr token_type_t TOK_LAST_STATE = 71;
-constexpr token_type_t TOK_START = 261;
+constexpr token_type_t TOK_START = 177;
 extern unsigned const lexer_ec_table[256];
 extern token_type_t const lexer_transition_table[12236];
 } // namespace asm_lex

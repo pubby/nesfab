@@ -270,6 +270,9 @@ public:
     template<do_t D>
     expr_value_t do_min_max(ast_node_t const& ast);
 
+    template<do_t D>
+    void do_swap(expr_value_t a, expr_value_t b);
+
     void req_quantity(token_t const& token, expr_value_t const& value);
     void req_quantity(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
 
@@ -1019,6 +1022,17 @@ void eval_t::interpret_stmts()
                 precheck_tracked->fences.push_back(stmt_pstring_mods());
             ++stmt;
             break;
+
+        case STMT_SWAP_FIRST:
+            {
+                expr_value_t a = do_expr<D>(*stmt->expr);
+                ++stmt;
+                assert(stmt->name == STMT_SWAP_SECOND);
+                expr_value_t b = do_expr<D>(*stmt->expr);
+                ++stmt;
+                do_swap<D>(std::move(a), std::move(b));
+            }
+            break;
         }
     }
     assert(false);
@@ -1617,6 +1631,17 @@ void eval_t::compile_block()
             fenced->link_append_input(&*inputs.begin(), &*inputs.end());
         }
         ++stmt;
+        break;
+
+    case STMT_SWAP_FIRST:
+        {
+            expr_value_t a = do_expr<COMPILE>(*stmt->expr);
+            ++stmt;
+            assert(stmt->name == STMT_SWAP_SECOND);
+            expr_value_t b = do_expr<COMPILE>(*stmt->expr);
+            ++stmt;
+            do_swap<COMPILE>(std::move(a), std::move(b));
+        }
         break;
     }
     assert(false);
@@ -4443,7 +4468,28 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 }
 
 template<eval_t::do_t D>
-expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+void eval_t::do_swap(expr_value_t a, expr_value_t b)
+{
+    pstring_t const pstring = concat(a.pstring, b.pstring);
+    lval_t* const al = a.is_lval();
+    lval_t* const bl = b.is_lval();
+
+    if(!al)
+        compiler_error(a.pstring, "Expecting lvalue.");
+    if(!bl)
+        compiler_error(b.pstring, "Expecting lvalue.");
+    if(a.type != b.type)
+        compiler_error(pstring, fmt("Type mismatch. % does not match %.", a.type, b.type));
+
+    token_t const token = { lex::TOK_swap, pstring };
+
+    expr_value_t temp = to_rval<D>(a);
+    do_assign<D>(std::move(a), b, token);
+    do_assign<D>(std::move(b), std::move(temp), token);
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const&)
 {
     pstring_t const pstring = concat(lhs.pstring, lhs.pstring);
 

@@ -267,6 +267,9 @@ public:
     template<do_t D>
     expr_value_t do_abs(ast_node_t const& ast);
 
+    template<do_t D>
+    expr_value_t do_min_max(ast_node_t const& ast);
+
     void req_quantity(token_t const& token, expr_value_t const& value);
     void req_quantity(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
 
@@ -3801,6 +3804,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_abs:
         return do_abs<D>(ast);
 
+    case TOK_min:
+    case TOK_max:
+        return do_min_max<D>(ast);
+
     case TOK_assign:
         return infix(&eval_t::do_assign<D>, false, true);
 
@@ -5388,13 +5395,19 @@ expr_value_t eval_t::do_abs(ast_node_t const& ast)
         .pstring = ast.token.pstring
     };
 
-    if(is_interpret(D))
+    if(locator_t loc = handle_lt<D>(result.type, { .type = TOK_abs, .pstring = result.pstring }, value))
+    {
+        result.val = _lt_rval(result.type, loc);
+        result.time = LT;
+    }
+    else if(is_interpret(D) || (is_compile(D) && value.is_ct()))
     {
         fixed_sint_t const i = value.s();
         result.val = rval_t{ ssa_value_t(fixed_t{ i < 0 ? -i : i }, result.type.name()) };
     }
     else if(is_compile(D))
     {
+        assert(!is_ct(value.type.name()));
         ssa_ht const condition = builder.cfg->emplace_ssa(SSA_sign, TYPE_BOOL, value.ssa());
 
         cfg_ht const branch_node = builder.cfg;
@@ -5413,6 +5426,110 @@ expr_value_t eval_t::do_abs(ast_node_t const& ast)
         builder.cfg = merge_node;
 
         result.val = rval_t{ merge_node->emplace_ssa(SSA_phi, result.type, value.ssa(), negated) };
+    }
+
+    return result;
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::do_min_max(ast_node_t const& ast)
+{
+    assert(ast.token.type == TOK_min || ast.token.type == TOK_max);
+    bool const is_max = ast.token.type == TOK_max;
+
+    bc::small_vector<expr_value_t, 2> values;
+    unsigned const num_children = ast.num_children();
+    for(unsigned i = 0; i < num_children; ++i)
+        values.push_back(to_rval<D>(do_expr<D>(ast.children[i])));
+
+    // We'll calculate if all the arguments have a CT type.
+    bool all_ct = true;
+    type_t result_type = {};
+    for(unsigned i = 0; i < num_children; ++i)
+    {
+        if(all_ct)
+            result_type = values[i].type;
+
+        if(!is_quantity(values[i].type.name()))
+            compiler_error(ast.children[i].token.pstring, fmt("Invalid argument of type %. Expecting a quantity type.", values[i].type));
+
+        if(!is_ct(values[i].type.name()))
+            all_ct = false;
+    }
+
+    if(!all_ct)
+    {
+        for(unsigned i = 0; i < num_children; ++i)
+            if(values[i].type != result_type && is_ct(values[i].type.name()))
+                values[i] = throwing_cast<D>(std::move(values[i]), result_type, true, ast.children[i].token.pstring);
+    }
+
+    // Re-use and recalculate all_ct using rval_t::is_ct():
+    all_ct = true;
+
+    for(unsigned i = 0; i < num_children; ++i)
+    {
+        if(values[i].type != result_type)
+        {
+            compiler_error(
+                ast.children[i].token.pstring, 
+                fmt("Argument type mismatch. % and % are different types.", 
+                    values[i].type, result_type));
+        }
+
+        all_ct &= values[i].is_ct();
+    }
+
+    expr_value_t result =
+    {
+        .type = result_type, 
+        .pstring = ast.token.pstring
+    };
+
+    if(locator_t loc = handle_lt<D>(result.type, ast.token, &*values.cbegin(), &*values.cend()))
+    {
+        result.val = _lt_rval(result.type, loc);
+        result.time = LT;
+    }
+    else if(is_interpret(D) || (is_compile(D) && all_ct))
+    {
+        fixed_sint_t best;
+
+        if(is_max)
+        {
+            best = std::numeric_limits<fixed_sint_t>::min();
+            for(expr_value_t const& value : values)
+                best = std::max(best, value.s());
+
+        }
+        else
+        {
+            best = std::numeric_limits<fixed_sint_t>::max();
+            for(expr_value_t const& value : values)
+                best = std::min(best, value.s());
+        }
+
+        result.val = rval_t{ ssa_value_t(fixed_t{ best }, result.type.name()) };
+    }
+    else if(is_compile(D))
+    {
+        ssa_value_t best = values[0].ssa();
+
+        for(unsigned i = 1; i < num_children; ++i)
+        {
+            ssa_ht const condition = builder.cfg->emplace_ssa(SSA_lt, TYPE_BOOL, best, values[i].ssa());
+
+            cfg_ht const branch_node = builder.cfg;
+            cfg_exits_with_branch(condition);
+
+            cfg_ht const merge_node = builder.cfg = insert_cfg(true);
+            branch_node->build_set_output(!is_max, merge_node);
+            branch_node->build_set_output(is_max, merge_node);
+
+            best = builder.cfg->emplace_ssa(SSA_phi, result_type, best, values[i].ssa());
+        }
+
+        result.val = rval_t{ best };
     }
 
     return result;

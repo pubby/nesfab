@@ -14,6 +14,8 @@ unsigned ast_node_t::num_children() const
     case TOK_implicit_cast:
     case TOK_byte_block_proc:
     case TOK_byte_block_data:
+    case TOK_min:
+    case TOK_max:
         assert(!token.value || children);
         return token.value;
 

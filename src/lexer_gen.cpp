@@ -658,6 +658,8 @@ int main()
         keyword("system"),
         keyword("state"),
         keyword("abs"),
+        keyword("min"),
+        keyword("max"),
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
         keyword("nmi_counter"),

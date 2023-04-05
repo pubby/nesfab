@@ -836,6 +836,26 @@ retry:
             return ast;
         }
 
+    case TOK_min:
+    case TOK_max:
+        {
+            ast_node_t ast = { .token = token };
+            parse_token();
+
+            bc::small_vector<ast_node_t, 2> children;
+            parse_args(TOK_lparen, TOK_rparen,
+                [&](unsigned){ children.push_back(parse_expr(indent, open_parens+1)); });
+
+            ast.token.value = children.size();
+            ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
+            ast.token.pstring = fast_concat(ast.token.pstring, children.back().token.pstring);
+
+            if(children.size() < 2)
+                compiler_error(ast.token.pstring, fmt("Too few arguments to %. Expecting 2 or more.", token_string(ast.token.type)));
+
+            return ast;
+        }
+
     case TOK_state:
         {
             ast_node_t ast = { .token = token };

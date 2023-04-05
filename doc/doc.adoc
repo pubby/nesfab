@@ -3509,6 +3509,12 @@ All function-like operators have left associativity and evaluate first in the or
 | `abs(_expression_)`
 | <<abs_expr, Absolute Value>>
 
+| `min(_expression_)`
+| <<min_expr, Minimum>>
+
+| `max(_expression_)`
+| <<max_expr, Maximum>>
+
 | `_array_expression_[_index_expression_]`
 | <<array_access_u, U-Indexed Array/Pointer Access>>
 
@@ -4137,6 +4143,56 @@ len(expression)
 Example:
 ----
 ct Int expr_len = len(U[10](3))
+----
+
+==== `abs`(expression) [[abs_expr]]
+
+Returns the absolute value of an <<type_arithmetic, arithmetic type>>.
+The return type is equivalent to the argument type.
+
+Syntax:
+----
+abs(expression)
+----
+- `expression` is an expression with an arithmetic type.
+
+Example:
+----
+SS positive = abs(SS(-10))
+----
+
+==== `min`(expression) [[min_expr]]
+
+Returns the minimum value of multiple <<type_quantity, quantity types>>.
+The return type is equivalent to the argument types, which must be the the same,
+although `Int` and `Real` will convert.
+
+Syntax:
+----
+min(expressions...)
+----
+- `expressions` is a comma-separated list of at least two expressions with quantity types.
+
+Example:
+----
+SS smallest = min(10, 20, 30)
+----
+
+==== `max`(expression) [[max_expr]]
+
+Returns the maximum value of multiple <<type_quantity, quantity types>>.
+The return type is equivalent to the argument types, which must be the the same,
+although `Int` and `Real` will convert.
+
+Syntax:
+----
+max(expressions...)
+----
+- `expressions` is a comma-separated list of at least two expressions with quantity types.
+
+Example:
+----
+SS largest = max(10, 20, 30)
 ----
 
 === Explicit Type Casts [[casts]]

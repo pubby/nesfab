@@ -590,11 +590,14 @@ rptr upper() { return pred(&isupper); }
 rptr lower() { return pred(&islower); }
 rptr newline() { return uor(word("\n"), word("\r"), word("\n\r"), word("\r\n")); }
 rptr comchar() { return pred([](unsigned char c) { return c != '\n' && c != '\r' && c; }); }
+rptr nonnull() { return pred([](unsigned char c) { return c; }); }
+rptr notchar(char n) { return pred([n](unsigned char c) { return c != n; }); }
 rptr eof() { return pred([](unsigned char c) { return c == '\0'; }); }
 rptr whitespace() { return pred([](unsigned char c) { return c == ' '; }); }
 rptr digit() { return pred(isdigit); }
 rptr hex_digit() { return pred(isxdigit); }
 rptr bin_digit() { return pred([](unsigned char c) { return c == '0' || c == '1'; }); }
+rptr ident() { return uor(cat(lower(), kleene(idlower())), cat(upper(), kleene(idupper()))); }
 
 rptr dummy(char const* name) 
     { return cat(eof(), rptr(new regex_t{ ACCEPT, nullptr, nullptr, name, name, 0 })); }
@@ -661,6 +664,7 @@ int main()
         keyword("min"),
         keyword("max"),
         keyword("swap"),
+        keyword("macro"),
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
         keyword("nmi_counter"),
@@ -816,8 +820,7 @@ int main()
         accept("Real", "Real type", word("Real")),
         accept("Bool", "Bool type", word("Bool")), // Last type
         //accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
-        accept("ident", "identifier", uor(cat(lower(), kleene(idlower())),
-                                          cat(upper(), kleene(idupper())))),
+        accept("ident", "identifier", ident()),
         accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
         accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
         accept("hex", "number", cat(word("$"), uor(many1(hex_digit()), cat(many1(hex_digit()), word("."), many1(hex_digit()))))),
@@ -904,5 +907,23 @@ int main()
         ext_nfa_nodes);
     dfa_t ext_dfa = nfa_to_dfa(ext_nfa);
     print_output(ext_dfa, minimize_dfa(ext_dfa), "ext_lex", false);
+
+    std::deque<nfa_node_t> macro_nfa_nodes;
+    nfa_t macro_nfa = gen_nfa(*uor(
+        accept("eof", "file ending", eof()),
+        keyword("backtick", "`"),
+        keyword("dquote", "\""),
+        keyword("quote", "'"),
+        accept("comment", "single-line comment", cat(word("//"), kleene(comchar()), uor(eof(), newline()))),
+        accept("ml_comment", "multi-line comment", cat(word("/*"), kleene(uor(notchar('*'), cat(word("*"), notchar('/')))), word("*/"))),
+        accept("ident", "macro identifier", cat(word("#"), ident(), word("#"))),
+        accept("dquote_ident", "quoted macro identifier", cat(word("#\""), ident(), word("\"#"))),
+        accept("quote_ident", "quoted macro identifier", cat(word("#'"), ident(), word("'#"))),
+        accept("backtick_ident", "quoted macro identifier", cat(word("#`"), ident(), word("`#"))),
+        accept("colon_ident", "macro identifier declaration", cat(word("#:"), ident(), word(":#")))
+        ),
+        macro_nfa_nodes);
+    dfa_t macro_dfa = nfa_to_dfa(macro_nfa);
+    print_output(macro_dfa, minimize_dfa(macro_dfa), "macro_lex", false);
 }
 

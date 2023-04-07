@@ -197,7 +197,7 @@ nesfab --version
 === `input` (`-i`)
 
 Specifies a file to be compiled, which can either be a source file with extension `.fab`, 
-or a configuration file with extension `.cfg`.
+a <<kw_macro, macro file>> with extension `.macrofab`, or a configuration file with extension `.cfg`.
 This option can be used multiple times to compile multiple files.
 
 Note: the flags `--input` and `-i` are optional when using the command line,

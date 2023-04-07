@@ -1022,6 +1022,14 @@ public:
         fn_def.push_stmt({ STMT_SWAP_SECOND, {}, {}, pstring, convert_eternal_expr(&b) });
     }
 
+    [[gnu::always_inline]]
+    void macro(pstring_t at, macro_invocation_t&& invoke)
+    {
+        try { invoke_macro(std::move(invoke)); }
+        catch(std::exception const& e) { compiler_error(at, e.what()); }
+        catch(...) { throw; }
+    }
+
 
     void charmap(pstring_t charmap_name, bool is_default, 
                  string_literal_t const& characters, 

@@ -13,19 +13,22 @@
 #include "pstring.hpp"
 #include "rom_decl.hpp"
 #include "rval.hpp"
+#include "parser_decl.hpp"
 
 class global_t;
 class charmap_t;
 
 constexpr char32_t SPECIAL_SLASH = char32_t(~0u);
 
-// Reads one utf32 character from a utf8 string, advancing 'data'.
-// Sets 'data' to nullptr on failure.
+// Reads one utf32 character from a utf8 string, advancing 'str'.
+// Sets 'str' to nullptr on failure.
 char32_t utf8_to_utf32(char const*& str);
 char32_t utf8_to_utf32(pstring_t pstring, char const*& str);
 
 char32_t escaped_utf8_to_utf32(char const*& str);
 char32_t escaped_utf8_to_utf32(pstring_t pstring, char const*& str);
+
+std::string escape(std::string const& str);
 
 // Converts cr/crlf/lfcr nonsense to lf.
 std::size_t normalize_line_endings(char* const data, std::size_t size);
@@ -82,5 +85,7 @@ struct std::hash<byte_pair_t>
         return rh::hash_combine(pair[0], pair[1] << 8);
     }
 };
+
+char const* parse_string_literal(string_literal_t& literal, char const* source, char const* next_char, char last, unsigned file_i);
 
 #endif

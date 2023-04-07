@@ -1012,7 +1012,7 @@ void ir_t::assert_valid() const
             {
                 assert(ssa_it == cfg_node.last_daisy());
                 assert(ssa_it->cfg_node() == cfg_node.handle());
-                passert(cfg_node.output_size() == 2, cfg_node.output_size(), ssa_it->cfg_node(), ssa_it);
+                passert(cfg_node.output_size() == 2, cfg_node.output_size(), cfg_node.output_size(), ssa_it->cfg_node(), ssa_it);
             }
 
             if(ssa_it->in_daisy())

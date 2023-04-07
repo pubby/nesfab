@@ -6,6 +6,7 @@
 #include "globals.hpp"
 #include "group.hpp"
 #include "rom.hpp"
+#include "hex.hpp"
 
 string_literal_manager_t sl_manager;
 
@@ -58,6 +59,21 @@ char32_t utf8_to_utf32(pstring_t pstring, char const*& str)
     return result;
 }
 
+#define SIMPLE_XMACRO \
+    SIMPLE('\'', '\'') \
+    SIMPLE('\"', '\"') \
+    SIMPLE('`', '`') \
+    SIMPLE('\\', '\\') \
+    SIMPLE('a', '\a') \
+    SIMPLE('b', '\b') \
+    SIMPLE('f', '\f') \
+    SIMPLE('n', '\n') \
+    SIMPLE('r', '\r') \
+    SIMPLE('t', '\t') \
+    SIMPLE('v', '\v') \
+    SIMPLE('0', '\0') \
+    SIMPLE('/', SPECIAL_SLASH)
+
 char32_t escaped_utf8_to_utf32(char const*& str)
 {
     char32_t const first = utf8_to_utf32(str);
@@ -69,19 +85,7 @@ char32_t escaped_utf8_to_utf32(char const*& str)
     switch(escape)
     {
 #define SIMPLE(from, to) case from: return to;
-    SIMPLE('\'', '\'')
-    SIMPLE('\"', '\"')
-    SIMPLE('`', '`')
-    SIMPLE('\\', '\\')
-    SIMPLE('a', '\a')
-    SIMPLE('b', '\b')
-    SIMPLE('f', '\f')
-    SIMPLE('n', '\n')
-    SIMPLE('r', '\r')
-    SIMPLE('t', '\t')
-    SIMPLE('v', '\v')
-    SIMPLE('/', SPECIAL_SLASH)
-    SIMPLE('0', '\0')
+    SIMPLE_XMACRO
 #undef SIMPLE
     case 'x':
         xsize = 2;
@@ -139,6 +143,33 @@ std::size_t normalize_line_endings(char* const data, std::size_t size)
     }
 
     return o;
+}
+
+std::string escape(std::string const& str)
+{
+    std::string ret;
+    char32_t utf32;
+
+    for(char const* ptr = str.data(); utf32 = utf8_to_utf32(ptr);)
+    {
+        switch(utf32)
+        {
+#define SIMPLE(from, to) case to: ret.push_back('\\'); ret.push_back(from); break;
+    SIMPLE_XMACRO
+#undef SIMPLE
+        default:
+            if(unsigned(utf32) < 128)
+                ret.push_back(static_cast<char>(utf32));
+            else
+            {
+                ret += "\\U";
+                ret += hex_string(utf32, 8);
+            }
+            break;
+        }
+    }
+
+    return ret;
 }
 
 //////////////////////////////
@@ -390,4 +421,38 @@ void string_literal_manager_t::compress(charmap_t const& charmap, charmap_info_t
         info.byte_pairs.push_back(most_common->first);
         depths.push_back(pair_depth(most_common->first));
     }
+}
+
+char const* parse_string_literal(string_literal_t& literal, char const* source, char const* next_char, char last, unsigned file_i)
+{
+    assert(*next_char == last);
+    char const* begin = ++next_char;
+
+    while(true)
+    {
+        char const ch = *next_char++;
+
+        if(ch == last)
+            break;
+        else if(std::iscntrl(ch))
+            throw std::runtime_error("Unexpected character in string literal.");
+        else if(ch == '\\')
+        {
+            literal.string.push_back(ch);
+            char const e = *next_char++;
+            if(std::iscntrl(e))
+                throw std::runtime_error("Unexpected character in string literal.");
+            literal.string.push_back(e);
+        }
+        else
+            literal.string.push_back(ch);
+    }
+
+    pstring_t const pstring = { begin - source, next_char - begin, file_i };
+    if(literal.pstring)
+        literal.pstring = fast_concat(literal.pstring, pstring);
+    else
+        literal.pstring = pstring;
+
+    return next_char;
 }

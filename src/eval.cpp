@@ -2690,9 +2690,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     compiler_error(call_pstring, "Cannot goto mode at compile-time.");
             }
             else if(mode_apply)
-            {
                 compiler_error(call_pstring, "Cannot goto non-mode functions.");
-            }
 
             std::size_t const num_params = fn_expr.type.num_params();
             type_t const* const params = fn_expr.type.types();
@@ -4193,7 +4191,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
     if(lval_t* lval = v.is_lval())
     {
         unsigned const num_members = ::num_members(v.type);
-        type_t type;
+        type_t type = {};
         rval_t rval;
 
         if(lval->arg == lval_t::READY_ARG)
@@ -4265,8 +4263,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         {
             compiler_error(v.pstring, "Expression cannot be evaluated.");
         }
-
-        if(lval->arg == lval_t::RETURN_ARG)
+        else if(lval->arg == lval_t::RETURN_ARG)
             compiler_error(v.pstring, "Cannot access the value of return.");
 
         if(lval->is_global())
@@ -4297,9 +4294,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             case GLOBAL_VAR:
                 if(precheck_tracked)
-                {
                     precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), v.pstring);
-                }
+
                 if(is_compile(D))
                 {
                     lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
@@ -4354,7 +4350,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             return v;
         }
 
-        type = ::member_type(type, lval->member);
+        assert(type.name());
 
         if(is_interpret(D) || (is_compile(D) && (v.is_ct() || v.is_lt())))
         {
@@ -4377,6 +4373,9 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             if(lval->atom >= 0)
             {
+                assert(num_members == 1);
+                type = ::member_type(type, lval->member);
+
                 if(is_tea(type.name()))
                 {
                     assert(is_tea(v.type.name()));
@@ -4409,20 +4408,23 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             if(lval->index)
             {
                 assert(is_tea(type.name()));
-                type_t const elem = type.elem_type();
 
                 for(unsigned i = 0; i < num_members; ++i)
                 {
                     rval[i] = builder.cfg->emplace_ssa(
-                        (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8, elem, 
+                        (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8,
+                        ::member_type(type.elem_type(), lval->member + i),
                         from_variant<D>(rval[i], type), ssa_value_t(0u, TYPE_U20), lval->index);
                 }
 
-                type = elem;
+                type = type.elem_type();
             }
 
             if(lval->atom >= 0)
             {
+                assert(num_members == 1);
+                type = ::member_type(type, lval->member);
+
                 passert(rval.size() > 0, rval.size(), lval->member);
                 ssa_ht const h = builder.cfg->emplace_ssa(
                     is_tea(type.name()) ? SSA_array_get_byte : SSA_get_byte, 
@@ -4886,7 +4888,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 template<typename Policy>
 expr_value_t eval_t::do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
-    rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+    rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, false);
     expr_value_t lhs_copy = to_rval<Policy::D>(lhs);
     return do_assign<Policy::D>(std::move(lhs), do_arith<Policy>(std::move(lhs_copy), rhs, token), token);
 }
@@ -4988,7 +4990,7 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
 
             bool const banked = is_banked_ptr(result.type.name());
 
-            rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
+            rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
 
             if(!is_check(Policy::D))
             {
@@ -5076,9 +5078,9 @@ expr_value_t eval_t::do_assign_add(expr_value_t lhs, expr_value_t rhs, token_t c
     };
 
     if(is_ptr(lhs.type.name()))
-        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
+        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
     else
-        rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+        rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, false);
     
     expr_value_t lhs_rval = to_rval<Policy::D>(lhs);
     expr_value_t add = do_add<Policy>(lhs_rval, rhs, token);
@@ -6189,7 +6191,7 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
         assert(num_members(type) == 1);
 
         unsigned const length = type.array_length();
-        assert(length);
+        passert(length, type);
 
         // Determine if the array is a fill.
         ssa_value_t const first = (*array)[0];

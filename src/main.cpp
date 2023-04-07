@@ -25,6 +25,7 @@
 #include "compiler_error.hpp"
 #include "string.hpp"
 #include "mlb.hpp"
+#include "macro.hpp"
 
 extern char __GIT_COMMIT;
 
@@ -62,7 +63,22 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
             fs::path const path = dir / fs::path(name);
             std::string const ext = fs::path(path).extension().string();
 
-            if(ext == ".cfg")
+            if(ext == ".fab")
+                _options.source_names.push_back(path);
+            else if(ext == ".macrofab")
+            {
+                fs::path temp = path;
+                temp.replace_extension();
+                std::string name = temp.filename().string();
+
+                if(name.empty())
+                    throw std::runtime_error("Empty macro name.");
+
+                auto result = _options.macro_names.insert({ name, path });
+                if(!result.second)
+                    throw std::runtime_error(fmt("Duplicate macro name: %", name));
+            }
+            else if(ext == ".cfg")
             {
                 std::ifstream ifs(path.string(), std::ios::in);
                 if(ifs)
@@ -79,8 +95,6 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
                 else
                     throw std::runtime_error(fmt("Unable to open configuration file: %", name.c_str()));
             }
-            else if(ext == ".fab")
-                _options.source_names.push_back(path);
             else
                 throw std::runtime_error(fmt("Unknown file type: %", name.c_str()));
         }
@@ -395,22 +409,33 @@ int main(int argc, char** argv)
 
         output_time("init:     ");
 
+        set_compiler_phase(PHASE_PARSE_MACROS);
+
         // Parse the files, loading everything into globals:
         set_compiler_phase(PHASE_PARSE);
         std::atomic<unsigned> next_file_i = 0;
-        parallelize(compiler_options().num_threads,
-        [&next_file_i](std::atomic<bool>& exception_thrown)
+        unsigned end_file_i = compiler_options().source_names.size();
+        do
         {
-            while(!exception_thrown)
+            parallelize(compiler_options().num_threads,
+            [&next_file_i, end_file_i](std::atomic<bool>& exception_thrown)
             {
-                unsigned const file_i = next_file_i++;
-                if(file_i >= compiler_options().source_names.size())
-                    return;
+                while(!exception_thrown)
+                {
+                    unsigned const file_i = next_file_i++;
+                    if(file_i >= end_file_i)
+                        return;
 
-                file_contents_t file(file_i);
-                parse<pass1_t>(file);
-            }
-        }, []{});
+                    file_contents_t file(file_i);
+                    parse<pass1_t>(file);
+                }
+            }, []{});
+
+            auto pair = finalize_macros();
+            next_file_i = pair.first;
+            end_file_i = pair.second;
+        }
+        while(next_file_i < end_file_i);
 
         // Fix various things after parsing:
         set_compiler_phase(PHASE_PARSE_CLEANUP);

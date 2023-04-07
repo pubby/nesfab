@@ -117,6 +117,7 @@ private:
     void parse_charmap();
     void parse_chrrom();
     void parse_audio();
+    void parse_macro();
 
     void parse_statement();
     void parse_flow_statement();

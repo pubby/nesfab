@@ -100,6 +100,7 @@ ssa_op.cpp \
 lex_tables.cpp \
 asm_lex_tables.cpp \
 ext_lex_tables.cpp \
+macro_lex_tables.cpp \
 add_constraints_table.cpp \
 graphviz.cpp \
 carry.cpp \
@@ -156,7 +157,8 @@ o_defork.cpp \
 unroll_divisor.cpp \
 puf.cpp \
 worklist.cpp \
-mlb.cpp
+mlb.cpp \
+macro.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -190,7 +192,17 @@ $(OBJDIR)/%.d: $(SRCDIR)/%.cpp
 
 # Lexer
 
-$(SRCDIR)/lex_tables.hpp $(SRCDIR)/asm_lex_tables.hpp $(SRCDIR)/ext_lex_tables.hpp $(SRCDIR)/lex_tables.cpp $(SRCDIR)/asm_lex_tables.cpp $(SRCDIR)/ext_lex_tables.cpp : $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
+LEX_TABLES:= \
+$(SRCDIR)/lex_tables.hpp \
+$(SRCDIR)/lex_tables.cpp \
+$(SRCDIR)/asm_lex_tables.hpp \
+$(SRCDIR)/asm_lex_tables.cpp \
+$(SRCDIR)/ext_lex_tables.hpp \
+$(SRCDIR)/ext_lex_tables.cpp \
+$(SRCDIR)/macro_lex_tables.hpp \
+$(SRCDIR)/macro_lex_tables.cpp
+
+$(LEX_TABLES): $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
 	$(CXX) -std=c++17 -O1 -o lexer_gen $<
 	./lexer_gen 
 	mv lex_tables.hpp $(SRCDIR)/ 
@@ -199,6 +211,8 @@ $(SRCDIR)/lex_tables.hpp $(SRCDIR)/asm_lex_tables.hpp $(SRCDIR)/ext_lex_tables.h
 	mv asm_lex_tables.cpp $(SRCDIR)/ 
 	mv ext_lex_tables.hpp $(SRCDIR)/
 	mv ext_lex_tables.cpp $(SRCDIR)/
+	mv macro_lex_tables.hpp $(SRCDIR)/
+	mv macro_lex_tables.cpp $(SRCDIR)/
 
 # Other Tables
 

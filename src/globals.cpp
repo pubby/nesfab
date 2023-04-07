@@ -785,9 +785,8 @@ bool fn_t::ct_pure() const
     case FN_FN:
         assert(global.compiled());
         return (ir_io_pure() 
+                && precheck_rw().all_clear()
                 && ir_deref_groups().all_clear()
-                && ir_reads().all_clear()
-                && ir_writes().all_clear()
                 && !ir_tests_ready());
     default:
         return false;

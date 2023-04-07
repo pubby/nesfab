@@ -45,6 +45,16 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
         };
 
+
+        if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_ARRAY8)
+        {
+            using namespace ssai::array;
+
+            // If the array is size 1, the index has to be zero:
+            if(ssa_it->input(ARRAY).type().array_length() == 1)
+                ssa_it->link_change_input(INDEX, ssa_value_t(0u, TYPE_U));
+        }
+
         if(ssa_flags(ssa_it->op()) & SSAF_ARRAY_OFFSET)
         {
             using namespace ssai::array;

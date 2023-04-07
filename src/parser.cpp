@@ -517,40 +517,19 @@ string_literal_t parser_t<P>::parse_string_literal(bool open_parens, token_type_
     expect_token(first);
 
     string_literal_t ret = {};
-
     while(token.type == first)
     {
-        char const* begin = token_source;
-
-        token.pstring.size = 1;
-        while(true)
+        assert(next_char == token_source + 1);
+        try
         {
-            token.pstring.offset = next_char - source();
-
-            char ch = *next_char++;
-
-            if(ch == last)
-                break;
-            else if(std::iscntrl(ch))
-                compiler_error("Unexpected character in string literal.");
-            else if(ch == '\\')
-            {
-                ret.string.push_back(ch);
-                char const e = *next_char++;
-                if(std::iscntrl(e))
-                    compiler_error("Unexpected character in string literal.");
-                ret.string.push_back(e);
-            }
-            else
-                ret.string.push_back(ch);
-
+            next_char = ::parse_string_literal(ret, source(), token_source, last, file_i());
         }
-
-        pstring_t const pstring = { begin - source(), next_char - begin, file_i() };
-        if(ret.pstring)
-            ret.pstring = fast_concat(ret.pstring, pstring);
-        else
-            ret.pstring = pstring;
+        catch(std::exception const& e)
+        {
+            pstring_t const at = { next_char - source(), 1, file_i() };
+            compiler_error(at, e.what());
+        }
+        catch(...) { throw; }
 
         parse_token();
 
@@ -1592,6 +1571,8 @@ void parser_t<P>::parse_top_level_def()
             return parse_const();
     case TOK_audio:
         return parse_audio();
+    case TOK_macro:
+        return parse_macro();
     default:
         compiler_error("Unexpected token at top level.");
     }
@@ -1609,6 +1590,28 @@ void parser_t<P>::parse_chrrom()
     ast_node_t ast = parse_byte_block(decl, chrrom_indent, chrrom_global, false);
 
     policy().chrrom(decl, ast, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_macro()
+{
+    pstring_t pstring = token.pstring;
+    parse_token(TOK_macro);
+    macro_invocation_t invoke;
+
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    { 
+        parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
+        {
+            if(arg == 0)
+                invoke.name = parse_string_literal(true).string; 
+            else
+                invoke.args.push_back(parse_string_literal(true).string); 
+            pstring = fast_concat(pstring, token.pstring);
+        });
+    });
+
+    policy().macro(pstring, std::move(invoke));
 }
 
 template<typename P>

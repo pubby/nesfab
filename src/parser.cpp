@@ -316,7 +316,7 @@ restart:
     while(lexed > TOK_LAST_STATE)
     {
 #if 1 // Enable to debug
-        assert(next_char < source() + file.size());
+        passert(next_char < source() + file.size(), next_char - source(), file.size(), file_i());
         assert(next_char >= source());
 #endif
         unsigned char const c = *next_char;

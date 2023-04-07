@@ -3048,6 +3048,57 @@ The decompressed sequence is:
 $01 $01 $01 $01 $01 $22 $33 $44 $44 $44 $44
 ----
 
+=== `macro` [[kw_macro]]
+
+The `macro` keyword generates and compiles a new source file by substituting its arguments into a `.macrofab` file.
+It is only usable at top-level scope.
+
+Syntax:
+----
+macro("macro_name", "args"...)
+----
+- `"macro_name"` is the string literal name of the macro file being invoked, without the `.macrofile` extension.
+- `"args"` are a comma-separated list of string literals to be substituted into the `.macrofab` file.
+
+*Macro Files:*
+
+Macro (`.macrofab`) files resemble regular `.fab` files, but have additional syntax:
+
+- `\#:identifier:#` declares a macro parameter. The order of these declarations determines the argument order for the `macro` keyword.
+- `\#identifier#` expands a macro argument. 
+- `\#'identifier'#` expands a macro argument, putting it inside `'` quotes and escaping its characters. 
+- `\#"identifier"#` expands a macro argument, putting it inside `"` quotes and escaping its characters. 
+- `pass:[#`test`#]` expands a macro argument, putting it inside `pass:[`]` quotes and escaping its characters. 
+
+Note that macro arguments are not parsed inside comments or string literals.
+
+*Example*:
+----
+// Declare the parameters first:
+#:my_arg:#
+#:another_arg:#
+
+// Now expand them:
+vars
+    U #my_arg# = #another_arg#
+----
+
+If this is saved as `foo.macrofab`, the macro can be invoked in a `.fab` file like so:
+----
+macro("foo", "something", "100")
+----
+
+Which would generate the following source file and compile it:
+----
+// Declare the parameters first:
+
+
+
+// Now expand them:
+vars
+    U something = 100
+----
+
 === `audio` [[kw_audio]]
 
 The `audio` keyword imports and converts audio data from an external file,
@@ -3060,7 +3111,7 @@ audio(target, args...)
 ----
 
 - `target` specifies the output target to use.
-- `args...` is a list of arguments that the conversion script will use.
+- `args...` is a comma-separated list of arguments that the conversion script will use.
 
 Example:
 ----

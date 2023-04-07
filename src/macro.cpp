@@ -6,6 +6,7 @@
 
 #include "macro_lex_tables.hpp"
 #include "text.hpp"
+#include "file.hpp"
 
 namespace bc = ::boost::container;
 using namespace macro_lex;
@@ -24,22 +25,28 @@ static token_type_t do_lex(char const*& str)
     return lexed;
 }
 
-std::string invoke_macro(char const* str, std::vector<std::string> const& args)
+std::string invoke_macro(unsigned file_i, std::vector<std::string> const& args)
 {
+    file_contents_t file(file_i);
+
     std::string ret;
     std::vector<std::string> params;
 
     char quote;
 
+    char const* str = file.source();
+
     while(*str)
     {
         char const* begin = str;
+
+        auto error = [&](std::string const& msg){ throw macro_error_t(msg, { begin - file.source(), str - begin, file_i }); };
         
         auto const find = [&](std::string const& name)
         {
             auto it = std::find(params.begin(), params.end(), name);
             if(it == params.end())
-                throw std::runtime_error(fmt("Macro parameter #%# must be declared before use.", name));
+                error(fmt("Macro parameter #%# must be declared before use.", name));
             return it - params.begin();
         };
 
@@ -48,10 +55,19 @@ std::string invoke_macro(char const* str, std::vector<std::string> const& args)
         case TOK_eof: 
             goto done;
 
-        case TOK_dquote:
-        case TOK_quote:
-        case TOK_backtick:
-            // TODO
+        case TOK_dquote:   quote = '"';  goto quote;
+        case TOK_quote:    quote = '\''; goto quote;
+        case TOK_backtick: quote = '`';  goto quote;
+        quote:
+            {
+                string_literal_t literal = {};
+                try { str = parse_string_literal(literal, file.source(), str-1, quote, file_i); }
+                catch(std::exception const& e) { error(e.what()); }
+                catch(...) { throw; }
+                ret.push_back(quote);
+                ret += literal.string;
+                ret.push_back(quote);
+            }
             break;
 
         case TOK_ident:
@@ -80,7 +96,7 @@ std::string invoke_macro(char const* str, std::vector<std::string> const& args)
                 std::string name(begin+2, str-2);
                 auto it = std::find(params.begin(), params.end(), name);
                 if(it != params.end())
-                    throw std::runtime_error("Macro parameters declared twice.");
+                    error("Macro parameters declared twice.");
                 params.emplace_back(std::move(name));
             }
             break;

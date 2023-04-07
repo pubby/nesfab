@@ -7,6 +7,7 @@
 #include "group.hpp"
 #include "rom.hpp"
 #include "hex.hpp"
+#include "assert.hpp"
 
 string_literal_manager_t sl_manager;
 
@@ -425,7 +426,7 @@ void string_literal_manager_t::compress(charmap_t const& charmap, charmap_info_t
 
 char const* parse_string_literal(string_literal_t& literal, char const* source, char const* next_char, char last, unsigned file_i)
 {
-    assert(*next_char == last);
+    passert(*next_char == last, *next_char);
     char const* begin = ++next_char;
 
     while(true)

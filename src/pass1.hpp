@@ -23,6 +23,7 @@
 #include "eternal_new.hpp"
 #include "puf.hpp"
 #include "convert.hpp"
+#include "macro.hpp"
 
 namespace bc = boost::container;
 
@@ -1026,6 +1027,12 @@ public:
     void macro(pstring_t at, macro_invocation_t&& invoke)
     {
         try { invoke_macro(std::move(invoke)); }
+        catch(macro_error_t const& e) 
+        { 
+            throw compiler_error_t(
+                fmt_error(at, "While parsing macro file...")
+                + fmt_error(e.pstring, e.what()));
+        }
         catch(std::exception const& e) { compiler_error(at, e.what()); }
         catch(...) { throw; }
     }

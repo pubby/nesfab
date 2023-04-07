@@ -7,3 +7,4 @@
 ../nesfab mmc1/mmc1.cfg
 ../nesfab scanline_irq/scanline_irq.cfg
 ../nesfab text/text.cfg
+../nesfab objects/objects.cfg

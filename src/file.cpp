@@ -29,20 +29,19 @@ static std::deque<std::pair<fs::path, std::string>> new_macro_results;
 
 void invoke_macro(macro_invocation_t invoke)
 {
-    auto* path = compiler_options().macro_names.mapped(invoke.name);
+    auto* pair = compiler_options().macro_names.lookup(invoke.name);
 
-    if(!path)
+    if(!pair)
         throw std::runtime_error(fmt("Unknown macro: %", invoke.name));
 
-    auto file = read_binary_file(path->string());
-    file.push_back('\0');
-    std::string str = invoke_macro(reinterpret_cast<char const*>(file.data()), invoke.args);
-    str.push_back('\0'); // Add an extra terminator for parsing safety.
+    unsigned const file_i = (pair - compiler_options().macro_names.begin()) + compiler_options().num_fab;
+    std::string str = invoke_macro(file_i, invoke.args);
+    str.push_back('\0');
 
     {
         std::lock_guard<std::mutex> lock(invoke_mutex);
         if(invoke_set.insert(invoke).second)
-            new_macro_results.emplace_back(*path, std::move(str));
+            new_macro_results.emplace_back(pair->second, std::move(str));
     }
 }
 
@@ -177,7 +176,7 @@ void file_contents_t::reset(unsigned file_i)
         // Load a macro-generated file:
 
         unsigned const index = file_i - compiler_options().source_names.size();
-        assert(index < macro_results.size());
+        passert(index < macro_results.size(), index, macro_results.size());
         auto const& macro = macro_results[index];
 
         m_path = macro.first;

@@ -380,6 +380,11 @@ int main(int argc, char** argv)
             }
         }
 
+        // Append macro_names onto source_names:
+        _options.num_fab = _options.source_names.size();
+        for(auto const& pair : compiler_options().macro_names)
+            _options.source_names.push_back(pair.second);
+
         ////////////////////////////////////
         // OK! Now to do the actual work: //
         ////////////////////////////////////
@@ -414,7 +419,8 @@ int main(int argc, char** argv)
         // Parse the files, loading everything into globals:
         set_compiler_phase(PHASE_PARSE);
         std::atomic<unsigned> next_file_i = 0;
-        unsigned end_file_i = compiler_options().source_names.size();
+        unsigned end_file_i = compiler_options().num_fab;
+
         do
         {
             parallelize(compiler_options().num_threads,

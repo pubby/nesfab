@@ -161,7 +161,7 @@ private:
     // This is used to implement romv.
     std::array<std::vector<ram_bitset_t>, NUM_ROMV> romv_allocated;
 
-    // Handles static alloctions:
+    // Handles static allocations:
     ram_bitset_t static_usable_ram;
 
     log_t* log = nullptr;
@@ -1046,4 +1046,3 @@ void print_ram(std::ostream& o)
         });
     }
 }
-

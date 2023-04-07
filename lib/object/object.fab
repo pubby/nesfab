@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Definitions related to objects.
+// You'll need this file when using the object pool macros.
+
+ct U BAD_OBJECT = $FF
+
+ct U[8] OBJECT_POOL_MASKS         = U[8]( $1,  $2,  $4,  $8, $10, $20, $40, $80)
+ct U[8] INVERSE_OBJECT_POOL_MASKS = U[8]($fe, $fd, $fb, $f7, $ef, $df, $bf, $7f)
+

@@ -1,0 +1,128 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This file contains math for working in screen-space.
+
+ // A Coord (or "Coordinate") represents a position on the screen.
+struct Coord
+    U x // X-position
+    U y // Y-position
+
+ // A Dimen (or "Dimension") represents size.
+struct Dimen
+    U w // Width
+    U h // Height
+
+ // A Rect (or "Rectangle") represents a rectangular region at some position.
+struct Rect
+    Coord c // Position of the upper-left corner.
+    Dimen d
+
+// Element-wise vector addition of Coords.
+fn coord_add(Coord a, Coord b) Coord
+: +inline
+    return Coord(a.x + b.x, a.y + b.y)
+
+// Element-wise vector subtraction of Coords.
+fn coord_sub(Coord a, Coord b) Coord
+: +inline
+    return Coord(a.x - b.x, a.y - b.y)
+
+// Element-wise quality tests.
+fn coord_eq(Coord a, Coord b) Bool
+: +inline
+    return a.x == b.x && a.y == b.y
+
+fn dimen_eq(Dimen a, Dimen b) Bool
+: +inline
+    return a.w == b.w && a.h == b.h
+
+fn rect_eq(Rect a, Rect b) Bool
+: +inline
+    return coord_eq(a.c, b.c) && dimen_eq(a.d, b.d)
+
+// Calculates the point past the diagonal corner of the rect.
+fn rect_end(Rect r) Coord
+: +inline
+    return Coord(r.c.x + r.d.w, r.c.y + r.d.h)
+
+// Returns the area of 'd'.
+fn area(Dimen d) UU
+: +inline
+    return d.w * d.h
+
+// Given a 5x3 rect_t:
+//   -----
+// | xxxxx |
+// | x   x |
+// | xxxxx |
+//   -----
+//   perimeter: number of | and - characters (16)
+//   inner_perimeter: number of x characters (12)
+fn perimeter(Dimen d) U
+    return (d.w + d.h) << 1
+
+fn inner_perimeter(Dimen d) U
+    return (d.w + d.h - 2) << 1
+
+// Also called Chebyshev distance.
+// See: https://en.wikipedia.org/wiki/Chebyshev_distance
+fn chess_distance(Coord from, Coord to) U
+    return max(abs(from.x - to.x), abs(from.y - to.y))
+
+// Also called manhattan distance.
+// See: https://en.wikipedia.org/wiki/Taxicab_geometry
+fn taxi_distance(Coord from, Coord to) U
+    return abs(from.x - to.x) + abs(from.y - to.y)
+
+// Returns true if [a_pos, a_pos+b_width) intersects with [b_pos, b_pos+b_width).
+// This function has an efficient implementation and can be used to build 
+// other intersection tests.
+fn overlap_1d(U a_pos, U a_width, U b_pos, U b_width) Bool
+: +inline
+    Bool c
+    c = (a_pos -= b_pos + 1)
+    c = (a_pos -= b_width - U(c))
+    return a_pos += a_width + b_width - 1 + U(c)
+
+// Returns true if 'a' intersects 'b'.
+// This function can be used for collision checks.
+fn overlap(Rect a, Rect b) Bool
+: +inline
+    return overlap_1d(a.c.x, a.d.w, b.c.x, b.d.w) && overlap_1d(a.c.y, a.d.h, b.c.y, b.d.h)
+
+// Returns true if 'c' is inside 'd'.
+fn coord_in_dimen(Coord c, Dimen d) Bool
+: +inline
+    return c.x < d.w && c.y < d.h
+
+// Returns true if 'c' is inside 'r'.
+fn coord_in_rect(Coord c, Rect r) Bool
+: +inline
+    return overlap_1d(r.c.x, r.d.w, c.x, 1) && overlap_1d(r.c.y, r.d.h, c.y, 1)
+
+// Returns true if 'sub' entirely fits inside 'super'.
+fn rect_in_rect(Rect sub, Rect super) Bool
+    Coord sub_end   = rect_end(sub)
+    Coord super_end = rect_end(super)
+    return (sub.c.x >= super.c.x
+            && sub.c.y >= super.c.y
+            && sub_end.x <= super_end.x
+            && sub_end.y <= super_end.y)
+
+// Minimum bounding box that contains 2 coords
+fn rect_from_2_coords(Coord a, Coord b) Rect
+    if a.x > b.x
+        swap a.x, b.x
+    if a.y > b.y
+        swap a.y, b.y
+    return Rect(a, Dimen(b.x - a.x + 1, b.y - a.y + 1))
+
+// Returns a point centered inside 'r'.
+fn rect_center(Rect r) Coord
+    Coord end = rect_end(r)
+    return Coord((r.c.x + end.x) >> 1, (r.c.y + end.y) >> 1)
+    

@@ -18,6 +18,7 @@ struct log_t
         std::lock_guard<std::mutex> lock(mutex);
         std::fputs(msg.c_str(), stream);
         std::fputc('\n', stream);
+        std::fflush(stream);
     }
 };
 

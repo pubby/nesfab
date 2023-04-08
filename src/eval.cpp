@@ -4714,7 +4714,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         else
         {
             for(unsigned i = 0; i < rval.size(); ++i)
-                local[i + lval->member] = from_variant<D>(rval[i], member_type(rhs.type, i + lval->member));
+                local[i + lval->member] = from_variant<D>(rval[i], member_type(rhs.type, i));
         }
     }
 
@@ -5431,11 +5431,11 @@ expr_value_t eval_t::do_abs(ast_node_t const& ast)
 {
     assert(ast.token.type == TOK_abs);
 
-    expr_value_t const value = to_rval<D>(do_expr<D>(ast.children[0]));
+    expr_value_t value = to_rval<D>(do_expr<D>(ast.children[0]));
     if(!is_arithmetic(value.type.name()))
         compiler_error(ast.token.pstring, fmt("Invalid argument of type %. Expecting an arithmetic type.", value.type));
     if(!is_signed(value.type.name()))
-        return value;
+        value = throwing_cast<D>(std::move(value), to_s(value.type.name()), false, ast.token.pstring);
 
     expr_value_t result =
     {
@@ -5476,7 +5476,7 @@ expr_value_t eval_t::do_abs(ast_node_t const& ast)
         result.val = rval_t{ merge_node->emplace_ssa(SSA_phi, result.type, value.ssa(), negated) };
     }
 
-    return result;
+    return throwing_cast<D>(std::move(result), to_u(result.type.name()), false, ast.token.pstring);
 }
 
 template<eval_t::do_t D>

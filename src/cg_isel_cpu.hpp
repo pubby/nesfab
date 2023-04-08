@@ -344,7 +344,7 @@ struct cross_cpu_t
     std::array<locator_t, NUM_CROSS_REGS> defs = {};
 };
 
-inline int heuristic_penalty(locator_t const* defs, bool in = false)
+inline int heuristic_penalty(locator_t const* defs)
 {
     int count = 0;
 
@@ -380,7 +380,8 @@ struct cross_transition_t
     cross_cpu_t in_state;
     cross_cpu_t out_state;
     auto operator<=>(cross_transition_t const&) const = default;
-    int heuristic_penalty() const { return isel::heuristic_penalty(in_state.defs.data(), true) + isel::heuristic_penalty(out_state.defs.data()); }
+    int heuristic_penalty(bool out) const 
+        { return isel::heuristic_penalty(in_state.defs.data()) + isel::heuristic_penalty(out_state.defs.data()); }
 };
 
 } // end namespace isel

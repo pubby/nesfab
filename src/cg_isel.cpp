@@ -194,6 +194,8 @@ namespace isel
         // Very slightly penalize ROL/ROR, to prefer LSR/ASL:
         case ROL:
         case ROR:
+            penalty += 1;
+            break;
         // Very slightly penalize LAX, to prefer LDA or LDX:
         case LAX: 
         // Same with ALR and LSR:
@@ -4944,12 +4946,15 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 if(op_flags(inst.op) & ASMF_MAYBE_STORE)
                 {
                     // Reduce the cost of maybe stores when the register is output.
-                    for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+                    if(cfg->output_size())
                     {
-                        if((op_input_regs(inst.op) & (1 << i)) && inst.alt == transition.out_state.defs[i]) [[unlikely]]
+                        for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
                         {
-                            cost -= cost_fn(STA_MAYBE);
-                            break;
+                            if((op_input_regs(inst.op) & (1 << i)) && inst.alt == transition.out_state.defs[i]) [[unlikely]]
+                            {
+                                cost -= cost_fn(STA_MAYBE);
+                                break;
+                            }
                         }
                     }
 
@@ -5017,7 +5022,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 { 
                     transition, 
                     {
-                        .cost = cost + sub_transitions[i].heuristic_penalty(),
+                        .cost = cost + sub_transitions[i].heuristic_penalty(cfg->output_size()),
                         .code = code_ptr
                     }
                 };
@@ -5033,11 +5038,11 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 {
                     // Keep the lowest cost:
                     if(insert_result.first->second.cost > new_sel.second.cost)
-                    {
-                        //new_sel.second.age = insert_result.first->second.age;
-                        *insert_result.first = std::move(new_sel);
-                    }
+                        insert_result.first->second = std::move(new_sel.second);
                 }
+
+                dprint(state.log, "ISEL_RESULT_COST", insert_result.first->second.cost);
+                dprint(state.log, "ISEL_RESULT_INDEX", insert_result.first - d.sels.begin());
             }
         }
 
@@ -5235,6 +5240,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         auto& d = data(cfg);
 
         dprint(state.log, "ISEL_GEN_COST", cfg, d.final_cost());
+        dprint(state.log, "ISEL_GEN_SEL", cfg, d.sel);
         dprint(state.log, "ISEL_GEN_IN", cfg, d.final_in_state());
         dprint(state.log, "ISEL_GEN_OUT", cfg, d.final_out_state());
 

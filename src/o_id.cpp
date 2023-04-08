@@ -149,6 +149,22 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
             break;
 
+        case SSA_get_byte:
+            if(ssa_it->input(0).holds_ref())
+            {
+                ssa_ht const input = ssa_it->input(0).handle();
+                if(input->op() == SSA_replace_byte && input->input(1) == ssa_it->input(1))
+                {
+                    if(ssa_it->output_size())
+                    {
+                        ssa_it->replace_with(input->input(2));
+                        ssa_it->prune();
+                        updated = true;
+                    }
+                }
+            }
+            break;
+
         case SSA_write_array8:
         case SSA_write_array16:
             {
@@ -394,6 +410,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
         case SSA_multi_eq:
         case SSA_multi_not_eq:
+            break; // TODO
             {
                 // If we have several inputs comparing to zero,
                 // we'll combine them using SSA_or first.
@@ -708,6 +725,39 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                             ssa_it->link_change_input(2, carry);
 
                             updated = true;
+                            goto done_add;
+                        }
+
+                        // Handle chained adds, where zeroes and carries are involved.
+                        for(unsigned i = 0; i < 2; ++i)
+                        {
+                            if(!ssa_it->input(i).holds_ref())
+                                continue;
+
+                            ssa_ht const input = ssa_it->input(i).handle();
+
+                            if(input->op() == SSA_add)
+                            {
+                                for(unsigned j = 0; j < 2; ++j)
+                                {
+                                    if(input->input(j).eq_whole(0))
+                                    {
+                                        ssa_it->link_change_input(i, input->input(!j));
+                                        ssa_it->link_change_input(2, input->input(2));
+
+                                        updated = true;
+                                        goto done_add;
+                                    }
+                                    else if(input->input(2).eq_whole(0) && input->input(j).eq_low_bit())
+                                    {
+                                        ssa_it->link_change_input(i, input->input(!j));
+                                        ssa_it->link_change_input(2, ssa_value_t(1u, TYPE_BOOL));
+
+                                        updated = true;
+                                        goto done_add;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -720,8 +770,10 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         ssa_it->link_remove_input(0);
                         ssa_it->unsafe_set_op(SSA_cast);
                         updated = true;
+                        goto done_add;
                     }
                 }
+            done_add:
                 break;
 
             case SSA_sub:
@@ -754,31 +806,92 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         // When subtracting a casted carry, we can remove the cast.
                         auto const cast = ssa_it->input(1);
 
-                        if(!cast.holds_ref() || cast->op() != SSA_cast)
-                            goto done_sub_carry;
+                        if(cast.holds_ref() && cast->op() == SSA_cast)
+                        {
+                            ssa_value_t const xor_ = cast->input(0);
+                            if(xor_.holds_ref() && xor_->op() == SSA_xor)
+                            {
+                                for(unsigned i = 0; i < 2; ++i)
+                                {
+                                    if(!xor_->input(!i).eq_whole(1)) // Looking for XOR as negation.
+                                        continue;
 
-                        ssa_value_t const xor_ = cast->input(0);
-                        if(!xor_.holds_ref() || xor_->op() != SSA_xor)
-                            goto done_sub_carry;
+                                    ssa_value_t const carry = xor_->input(0);
+                                    if(!carry.holds_ref() || carry->op() != SSA_carry)
+                                        continue;
 
+                                    ssa_it->link_change_input(1, ssa_value_t(0u, ssa_it->type().name()));
+                                    ssa_it->link_change_input(2, carry);
+
+                                    updated = true;
+                                    goto done_sub;
+                                }
+                            }
+                            else
+                            {
+                                ssa_value_t const carry = cast->input(0);
+                                if(carry.holds_ref() && carry->op() == SSA_carry)
+                                {
+                                    // Alternatively, look for SSA_sub outputs
+                                    unsigned const output_size = ssa_it->output_size();
+                                    for(unsigned i = 0; i < output_size; ++i)
+                                    {
+                                        auto oe = ssa_it->output_edge(i);
+                                        if(oe.handle->op() == SSA_sub 
+                                           && oe.index == 1
+                                           && oe.handle->input(2).eq_whole(1))
+                                        {
+                                            oe.handle->link_change_input(1, ssa_it->input(0));
+                                            oe.handle->link_change_input(2, carry);
+                                            updated = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Handle chained subs and adds, where zeroes and carries are involved.
                         for(unsigned i = 0; i < 2; ++i)
                         {
-                            if(!xor_->input(!i).eq_whole(1)) // Looking for XOR as negation.
+                            if(!ssa_it->input(i).holds_ref())
                                 continue;
 
-                            ssa_value_t const carry = xor_->input(0);
-                            if(!carry.holds_ref() || carry->op() != SSA_carry)
-                                continue;
+                            ssa_ht const input = ssa_it->input(i).handle();
 
-                            ssa_it->link_change_input(1, ssa_value_t(0u, ssa_it->type().name()));
-                            ssa_it->link_change_input(2, carry);
+                            if(i == 0 && input->op() == SSA_sub)
+                            {
+                                for(unsigned j = 0; j < 2; ++j)
+                                {
+                                    if(input->input(j).eq_whole(0))
+                                    {
+                                        ssa_it->link_change_input(i, input->input(!j));
+                                        ssa_it->link_change_input(2, input->input(2));
 
-                            updated = true;
-                            break;
+                                        updated = true;
+                                        goto done_sub;
+                                    }
+                                }
+                            }
+                            else if(i == 1 && input->op() == SSA_add)
+                            {
+                                for(unsigned j = 0; j < 2; ++j)
+                                {
+                                    if((input->input(2).eq_whole(1) && input->input(j).eq_whole(0))
+                                       || (input->input(2).eq_whole(0) && input->input(j).eq_low_bit()))
+                                    {
+                                        ssa_it->link_change_input(i, input->input(!j));
+                                        ssa_it->link_change_input(2, ssa_value_t(0u, TYPE_BOOL));
+
+                                        updated = true;
+                                        goto done_sub;
+                                    }
+                                }
+                            }
                         }
                     }
-                done_sub_carry:;
+
                 }
+            done_sub:
                 break;
 
             case SSA_or:
@@ -1394,14 +1507,19 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
         {
             ++d.total_outputs;
             if(from == ssa_it && def_op == defining_op(output->op()) && type == output->type())
-                ++compatible_outputs;
+                if(def_op != SSA_add || (output->input(2).is_num() && !carry_used(*output)))
+                    ++compatible_outputs;
         });
         assert(compatible_outputs <= d.total_outputs);
+
+        dprint(log, "-MONOID_INITIAL_TEST", ssa_it, d.total_outputs, compatible_outputs);
 
         // If a node has an output that isn't compatible (or no outputs), 
         // set its post-dom set to only itself.
         if(d.total_outputs == 0 || d.total_outputs != compatible_outputs)
         {
+            dprint(log, "-MONOID_INITIAL_SINGLETON", ssa_it);
+
             // Treat the node as a singleton.
             bitset_set(d.post_dom, ssa_it.id);
             mark_singleton(ssa_it);

@@ -231,16 +231,7 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods_after(Fn const& fn)
     parse_line_ending();
 
     pre_line_number = line_number;
-    auto mods = parse_mods(base_indent);
-
-    if(line_break && line_number == pre_line_number)
-    {
-        throw compiler_error_t(
-            fmt_error(token.pstring, "Expecting modifiers line (starting with |) to restore indentation.", &file)
-            + fmt_note(line_break, "Modifier line is required because the previous line was awkwardly indented.", &file));
-    }
-
-    return mods;
+    return parse_mods(base_indent);
 }
 
 template<typename P>

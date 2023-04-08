@@ -728,12 +728,15 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
         value.bounds = apply_mask(value.bounds, cm);
 
         // The bounds can prove the output carry is set:
-        auto const masked_min = (L.bounds.min & cm.mask) + (R.bounds.min & cm.mask) + shifted_C.bounds.min;
-        if((masked_min & cm.mask) != masked_min)
+        if(!cm.signed_)
         {
-            passert((carry_t)j == CARRY_SET || (carry_t)j == CARRY_BOTTOM, j, masked_min >> fixed_t::shift, bounds_t::bottom(cm),
-                    '\n', L, '\n', R);
-            carry = constraints_t::carry(CARRY_SET);
+            auto const masked_min = (L.bounds.min & cm.mask) + (R.bounds.min & cm.mask) + shifted_C.bounds.min;
+            if((masked_min & cm.mask) != masked_min)
+            {
+                passert((carry_t)j == CARRY_SET || (carry_t)j == CARRY_BOTTOM, j, masked_min >> fixed_t::shift, bounds_t::bottom(cm),
+                        '\n', L, '\n', R);
+                carry = constraints_t::carry(CARRY_SET);
+            }
         }
     }
     else
@@ -745,12 +748,15 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
         value.bounds = apply_mask(value.bounds, cm);
 
         // The bounds can prove the output carry is set:
-        auto const masked_max = (L.bounds.max & cm.mask) - (R.bounds.min & cm.mask) - (one - shifted_C.bounds.max);
-        if((masked_max & cm.mask) != masked_max)
+        if(!cm.signed_)
         {
-            passert((carry_t)j == CARRY_CLEAR || (carry_t)j == CARRY_BOTTOM, j, masked_max >> fixed_t::shift, bounds_t::bottom(cm),
-                    '\n', L, '\n', R);
-            carry = constraints_t::carry(CARRY_CLEAR);
+            auto const masked_max = (L.bounds.max & cm.mask) - (R.bounds.min & cm.mask) - (one - shifted_C.bounds.max);
+            if((masked_max & cm.mask) != masked_max)
+            {
+                passert((carry_t)j == CARRY_CLEAR || (carry_t)j == CARRY_BOTTOM, j, masked_max >> fixed_t::shift, bounds_t::bottom(cm),
+                        '\n', L, '\n', R);
+                carry = constraints_t::carry(CARRY_CLEAR);
+            }
         }
     }
 
@@ -1329,21 +1335,6 @@ ABSTRACT(SSA_ror) = ABSTRACT_FN
 
     result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
 };
-
-static constexpr auto narrow_bottom = NARROW_FN
-{
-    constraints_t& input = cv[0][0];
-    input.bits.known0 |= result[0].bits.known0 & cv[0].cm.mask;
-    input.bits.known1 |= result[0].bits.known1 & cv[0].cm.mask;
-};
-
-NARROW(SSA_uninitialized) = narrow_bottom;
-NARROW(SSA_fn_call) = narrow_bottom;
-
-// TODO: implement
-NARROW(SSA_get_byte) = narrow_bottom;
-NARROW(SSA_array_get_byte) = narrow_bottom;
-NARROW(SSA_replace_byte) = narrow_bottom;
 
 NARROW(SSA_sign_extend) = NARROW_FN
 {

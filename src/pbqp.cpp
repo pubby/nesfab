@@ -171,7 +171,6 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
 {
     if(node.degree == 0) // R0
     {
-        dprint(log, "-PBQP R0", &node);
         pbqp_cost_t min_cost = ~0ull;
         for(unsigned i = 0; i < node.num_sels(); ++i)
         {
@@ -182,6 +181,7 @@ bool pbqp_t::optimal_reduction(pbqp_node_t& node)
             }
         }
 
+        dprint(log, "-PBQP R0", &node, min_cost, node.sel);
         return true;
     }
     else if(node.degree == 1) // R1

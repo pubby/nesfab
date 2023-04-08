@@ -1216,7 +1216,7 @@ void fn_t::compile()
             RUN_O(o_remove_unused_arguments, log, ir, *this, post_byteified);
 
             save_graph(ir, fmt("pre_id_%_%", post_byteified, iter).c_str());
-            RUN_O(o_identities, global.name == "coord_in_rect" ? &stdout_log : log, ir);
+            RUN_O(o_identities, log, ir);
             save_graph(ir, fmt("post_id_%_%", post_byteified, iter).c_str());
 
             // 'o_loop' populates 'ai_prep', which feeds into 'o_abstract_interpret'.

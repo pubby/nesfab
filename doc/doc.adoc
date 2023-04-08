@@ -4217,8 +4217,10 @@ ct Int expr_len = len(U[10](3))
 
 ==== `abs`(expression) [[abs_expr]]
 
-Returns the absolute value of an <<type_arithmetic, arithmetic type>>.
-The return type is equivalent to the argument type.
+`abs` first converts the argument to a signed representation, 
+then it returns the absolute value of it.
+The argument must be an <<type_arithmetic, arithmetic type>>.
+The return type is the argument type converted to unsigned.
 
 Syntax:
 ----

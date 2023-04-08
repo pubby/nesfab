@@ -11,7 +11,13 @@ struct Bullet
     SF yspeed
     U life
 
-macro("pool_contiguous", "Bullet", "16", "bullets")
+macro("pool_contiguous", "Bullet", "8", "bullets")
+
+struct Enemy
+    U x
+    U y
+
+macro("pool_contiguous", "Enemy", "32", "enemies")
 
 vars
     // Player variables:
@@ -26,17 +32,24 @@ mode main()
     ppu_upload_palette()
     {PPUCTRL}(PPUCTRL_NMI_ON)
 
+    // Randomly setup some enemies:
+    seed(123)
+    for U i = 0; i < enemies_max; i += 1
+        enemies_new(Enemy(rand(), randb(240)))
+
     while true
         update_pads()
         move_player()
         if pads[0].pressed & BUTTON_A
             bullets_new(Bullet(px, py, SF(pxspeed * 2), SF(pyspeed * 2), 60))
+        collide_bullets()
         move_bullets()
+        move_enemies()
         update_sprites()
         nmi
 
 fn move_player()
-    ct Real ACCEL = 0.25
+    ct Real ACCEL = 0.125
 
     if pads[0].held & BUTTON_LEFT
         pxspeed -= ACCEL
@@ -60,6 +73,30 @@ fn move_bullets()
         else
             bullets_delete(i)
 
+fn move_enemies()
+    for U i = 0; i < enemies_num; i += 1
+        enemies[i].x += 1
+
+// Helper function for geometry.fab library:
+fn bullet_rect(U i) Rect
+    return Rect(Coord(bullets[i].x.a, bullets[i].y.a), Dimen(8, 8))
+
+// Helper function for geometry.fab library:
+fn enemy_rect(U i) Rect
+    return Rect(Coord(enemies[i].x, enemies[i].y), Dimen(8, 8))
+
+fn collide_bullets()
+    for U i = 0; i < bullets_num;
+        for U j = 0; j < enemies_num;
+            if overlap(bullet_rect(i), enemy_rect(j)) // If they collide:
+                bullets_delete(i)
+                enemies_delete(j)
+                goto next_iter
+            else
+                j += 1
+        i += 1
+        label next_iter
+
 fn update_sprites()
     // Our stack index into OAM:
     U o = 0
@@ -71,6 +108,11 @@ fn update_sprites()
     // Bullets:
     for U i = 0; i < bullets_num; i += 1
         set_oam(o, bullets[i].x.a, bullets[i].y.a - 1, $00, 1)
+        o += 4
+
+    // Enemies:
+    for U i = 0; i < enemies_num; i += 1
+        set_oam(o, enemies[i].x.a, enemies[i].y.a - 1, $00, 2)
         o += 4
 
     // Clear the remainder of OAM

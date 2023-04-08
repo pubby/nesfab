@@ -35,7 +35,7 @@ fn update_cliff()
         cliffs[i].begin_hole = 1
         cliffs[i].end_hole = 31
     else
-        U move_amount = randb(16 - cliff_hole)
+        U move_amount = randb(12 - cliff_hole)
 
         if cliff_midpoint < 16
             cliff_midpoint += move_amount

@@ -2827,6 +2827,8 @@ chrrom
 *Modifiers:*
 
 - <<mod_file, `+spr_8x16`>>
+- <<mod_file, `+palette_3`>>
+- <<mod_file, `+palette_25`>>
 
 *Input Filetype Conversions*
 
@@ -3266,6 +3268,8 @@ The following flags exist:
 - `+static`: Allocate the function in every bank. 
              This modifier is incompatible with functions that can return with a different active bank than they started in.
              For <kw_asm, `asm`> functions, you must validate this yourself.
+- `palette_3`: Converts 4-byte palettes into 3-byte palettes.
+- `palette_25`: Converts 32-byte palettes into 25-byte palette.
 
 Example:
 ----

@@ -23,6 +23,7 @@
 #include "eternal_new.hpp"
 #include "puf.hpp"
 #include "convert.hpp"
+#include "macro.hpp"
 
 namespace bc = boost::container;
 
@@ -1012,6 +1013,30 @@ public:
             mods->validate(pstring);
         fn_def.push_stmt({ STMT_FENCE, fn_def.push_mods(std::move(mods)), {}, pstring });
     }
+
+    [[gnu::always_inline]]
+    void swap_statement(pstring_t pstring, std::unique_ptr<mods_t> mods, ast_node_t const& a, ast_node_t const& b)
+    {
+        if(mods)
+            mods->validate(pstring);
+        fn_def.push_stmt({ STMT_SWAP_FIRST, fn_def.push_mods(std::move(mods)), {}, pstring, convert_eternal_expr(&a) });
+        fn_def.push_stmt({ STMT_SWAP_SECOND, {}, {}, pstring, convert_eternal_expr(&b) });
+    }
+
+    [[gnu::always_inline]]
+    void macro(pstring_t at, macro_invocation_t&& invoke)
+    {
+        try { invoke_macro(std::move(invoke)); }
+        catch(macro_error_t const& e) 
+        { 
+            throw compiler_error_t(
+                fmt_error(at, "While parsing macro file...")
+                + fmt_error(e.pstring, e.what()));
+        }
+        catch(std::exception const& e) { compiler_error(at, e.what()); }
+        catch(...) { throw; }
+    }
+
 
     void charmap(pstring_t charmap_name, bool is_default, 
                  string_literal_t const& characters, 

@@ -1,0 +1,51 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This small program plays sound effects when the zapper is fired
+// at the center of the screen.
+
+audio(puf1_sfx, "sfx.txt", "sfx.nsf")
+audio(puf1_music)
+
+mode main()
+: nmi game_nmi
+    puf.init(system)
+
+    ppu_reset_addr($2000)
+    do for U i = 0; i; i += 1
+        {PPUDATA}(0)
+    do for U i = 0; i; i += 1
+        {PPUDATA}((i & %1000) >> 3)
+    do for U i = 0; i; i += 1
+        {PPUDATA}(0)
+    do for U i = 0; i; i += 1
+        {PPUDATA}(0)
+
+    palette = U[25]($24)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+
+    while true
+        if zapper_pressed()
+            palette = U[25]($20)
+            palette[PALETTE_UBC] = $0F
+            nmi
+            if zapper_lit()
+                puf.play_sfx(0)
+            else
+                puf.play_sfx(1)
+            palette = U[25]($24)
+        nmi
+
+nmi game_nmi()
+    ppu_upload_palette()
+    puf.process(PUF_DEFAULT)
+    ppu_reset_scroll(0, 0)
+    {PPUMASK}(PPUMASK_BG_ON)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+
+chrrom
+    U[16]($00)
+    U[16]($FF)

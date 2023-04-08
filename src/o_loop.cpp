@@ -516,7 +516,7 @@ bool reverse_loop(cfg_ht header, iv_t& root, fixed_sint_t init, fixed_sint_t inc
         return false;
     assert(end);
 
-    if(end.is_num() && !(end.fixed().value & high_bit_only(numeric_bitmask(end.num_type_name()))))
+    if(end.is_num() && end.fixed().signed_() > increment && !(end.fixed().value & high_bit_only(numeric_bitmask(end.num_type_name()))))
     {
         end = ssa_value_t(fixed_t{end.signed_fixed() - increment}, end.num_type_name());
 

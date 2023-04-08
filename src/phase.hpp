@@ -11,6 +11,7 @@ enum compiler_phase_t
 {
     PHASE_NONE = 0,
     PHASE_INIT,
+    PHASE_PARSE_MACROS,
     PHASE_PARSE, // threaded
     PHASE_PARSE_CLEANUP,
     PHASE_COUNT_MEMBERS,

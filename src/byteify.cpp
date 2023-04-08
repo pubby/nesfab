@@ -1045,6 +1045,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_ht split = d.bm[i].handle();
 
                     passert(ssa_argn(SSA_write_array8) == 4, ssa_argn(SSA_write_array8));
+                    assert(assign_bm[i]);
                     split->alloc_input(4);
                     split->build_set_input(ARRAY, array_bm[i]);
                     split->build_set_input(OFFSET, ssa_node->input(OFFSET));
@@ -1093,18 +1094,10 @@ void byteify(ir_t& ir, fn_t const& fn)
     // Prune nodes that are now unnecessary:
     for(ssa_ht h : prune_nodes)
     {
-        if(h->type() == TYPE_U)
+        if(is_byteified(h->type().name()))
             h->replace_with(h.data<ssa_byteify_d>().bm[max_frac_bytes]);
         h->prune();
     }
-
-    // Fix up types
-    /* TODO: this breaks SHL
-    for(cfg_node_t& cfg : ir)
-    for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it; ++ssa_it)
-        if(ssa_it->type().name() == TYPE_S)
-            ssa_it->set_type(TYPE_U);
-            */
 }
 
 // Converts signed multiplies to unsigned,

@@ -17,6 +17,7 @@
 template<typename... Args>
 void _passert_impl(char const* expr, char const* file, long long line, char const* fn, Args const&... args)
 {
+    std::fflush(stdout);
     std::fprintf(stderr, "%s\n", 
         ezcat(" ", "assert: ", file, ':', line, ':', fn, ": Assertion `", expr, 
               "' failed. Additional info below.\n", args...).c_str());

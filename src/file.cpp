@@ -3,6 +3,9 @@
 #include <cassert>
 #include <cstdio>
 #include <stdexcept>
+#include <deque>
+
+#include "robin/set.hpp"
 
 #include "platform.hpp"
 
@@ -17,6 +20,39 @@
 #include "guard.hpp"
 #include "format.hpp"
 #include "compiler_error.hpp"
+#include "macro.hpp"
+
+static std::mutex invoke_mutex;
+static rh::batman_set<macro_invocation_t> invoke_set;
+static std::deque<std::pair<fs::path, std::string>> macro_results;
+static std::deque<std::pair<fs::path, std::string>> new_macro_results;
+
+void invoke_macro(macro_invocation_t invoke)
+{
+    auto* pair = compiler_options().macro_names.lookup(invoke.name);
+
+    if(!pair)
+        throw std::runtime_error(fmt("Unknown macro: %", invoke.name));
+
+    unsigned const file_i = (pair - compiler_options().macro_names.begin()) + compiler_options().num_fab;
+    std::string str = invoke_macro(file_i, invoke.args);
+    str.push_back('\0');
+
+    {
+        std::lock_guard<std::mutex> lock(invoke_mutex);
+        if(invoke_set.insert(invoke).second)
+            new_macro_results.emplace_back(pair->second, std::move(str));
+    }
+}
+
+std::pair<unsigned, unsigned> finalize_macros()
+{
+    unsigned const first = macro_results.size() + compiler_options().source_names.size();
+    macro_results.insert(macro_results.end(), new_macro_results.begin(), new_macro_results.end());
+    unsigned const second = macro_results.size() + compiler_options().source_names.size();
+    new_macro_results.clear();
+    return { first, second };
+}
 
 bool resource_path(fs::path preferred_dir, fs::path name, fs::path& result)
 {
@@ -73,6 +109,22 @@ bool read_binary_file(char const* filename, std::function<void*(std::size_t)> co
 
 std::vector<std::uint8_t> read_binary_file(std::string filename, pstring_t at)
 {
+    try
+    {
+        return read_binary_file(std::move(filename));
+    }
+    catch(std::exception const& e)
+    {
+        compiler_error(at, e.what());
+    }
+    catch(...)
+    {
+        throw;
+    }
+}
+
+std::vector<std::uint8_t> read_binary_file(std::string filename)
+{
     std::vector<std::uint8_t> vec;
 
     if(!read_binary_file(filename.c_str(), [&](std::size_t size)
@@ -81,7 +133,7 @@ std::vector<std::uint8_t> read_binary_file(std::string filename, pstring_t at)
         return vec.data();
     }))
     {
-        compiler_error(at, fmt("Unable to read: %", filename));
+        throw std::runtime_error("Unable to read: %" + filename);
     }
 
     return vec;
@@ -89,31 +141,46 @@ std::vector<std::uint8_t> read_binary_file(std::string filename, pstring_t at)
 
 void file_contents_t::reset(unsigned file_i)
 {
-    assert(file_i < compiler_options().source_names.size());
-
     // Set this first so that 'input_path()' can be used.
     m_file_i = file_i;
 
-    for(fs::path const& dir : compiler_options().code_dirs)
+    if(file_i < compiler_options().source_names.size())
     {
-        m_path = (dir / input_path());
+        for(fs::path const& dir : compiler_options().code_dirs)
+        {
+            m_path = (dir / input_path());
 
-        if(!read_binary_file(m_path.string().c_str(), [this](std::size_t size)
-        {
-            m_size = size + 2;
-            m_source.reset(new char[m_size]);
-            return reinterpret_cast<void*>(m_source.get());
-        }))
-        {
-            continue;
+            if(!read_binary_file(m_path.string().c_str(), [this](std::size_t size)
+            {
+                m_size = size + 2;
+                m_alloc.reset(new char[m_size]);
+                return reinterpret_cast<void*>(m_alloc.get());
+            }))
+            {
+                continue;
+            }
+
+            m_alloc[m_size-1] = m_alloc[m_size-2] = '\0';
+            m_source = m_alloc.get();
+            return;
         }
 
-        m_source[m_size-1] = m_source[m_size-2] = '\0';
-        return;
+        m_size = 0;
+        m_alloc.reset();
+        m_source = nullptr;
+        m_path = fs::path();
+        throw std::runtime_error("Unable to open file: " + input_path().string());
     }
+    else
+    {
+        // Load a macro-generated file:
 
-    m_size = 0;
-    m_source.reset();
-    m_path = fs::path();
-    throw std::runtime_error("Unable to open file: " + input_path().string());
+        unsigned const index = file_i - compiler_options().source_names.size();
+        passert(index < macro_results.size(), index, macro_results.size());
+        auto const& macro = macro_results[index];
+
+        m_path = macro.first;
+        m_size = macro.second.size()+1;
+        m_source = macro.second.data();
+    }
 }

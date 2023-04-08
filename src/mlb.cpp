@@ -97,7 +97,7 @@ void print_mlb(std::ostream& o)
             for(unsigned bank = 0; bank < mapper().num_32k_banks; ++bank)
             {
                 unsigned const begin = fix_addr(span.addr,  bank);
-                unsigned const end   = fix_addr(span.end(), bank);
+                unsigned const end   = fix_addr(span.end() - 1, bank);
 
                 o << fmt("NesPrgRom:%-%:runtime_%@%_%:\n", 
                          hex_string(begin, 6), hex_string(end, 6),

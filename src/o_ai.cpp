@@ -772,9 +772,11 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
         // Call the narrowing op:
         dprint(log, "--COMPUTE_NARROW", op, arg_i);
         dprint(log, "--TRACE_R", parent_trace_d.constraints()[0]);
-        dprint(log, "--TRACE_X", c[1][0]);
+        if(c.size() > 1)
+            dprint(log, "--TRACE_X", c[1][0]);
         narrow_fn(op)(c.data(), num_args, parent_trace_d.constraints());
-        dprint(log, "--TRACE_X", c[1][0]);
+        if(c.size() > 1)
+            dprint(log, "--TRACE_X", c[1][0]);
 
         // Update narrowed:
         for(unsigned j = 0; j < narrowed.size(); ++j)
@@ -965,16 +967,6 @@ void ai_t::visit(ssa_ht ssa_node)
     if(!bit_eq(d.constraints().vec, old_constraints.vec))
     {
         assert(old_constraints.cm == d.constraints().cm);
-
-        passert(all_subset(old_constraints.vec, d.constraints().vec, d.constraints().cm),
-                ssa_node, ssa_node->op(),
-                old_constraints.vec.size(),
-                d.constraints().vec.size(),
-                '\n', old_constraints.vec[0],
-                '\n', d.constraints().vec[0]
-                //'\n', old_constraints.vec[1],
-                //'\n', d.constraints().vec[1]
-                );
 
         // Update the visited count. 
         // Traces increment twice as fast, which was chosen to improve widening behavior.

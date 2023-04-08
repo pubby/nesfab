@@ -61,6 +61,7 @@ struct lval_t
     static constexpr std::int16_t STATE_ARG = RETURN_ARG - 3;
     static constexpr std::int16_t MAPPER_DETAIL_ARG = RETURN_ARG - 4;
     static constexpr std::int16_t MAPPER_RESET_ARG = RETURN_ARG - 5;
+    static constexpr std::int16_t NMI_COUNTER_ARG = RETURN_ARG - 6;
 
     lval_flags_t flags = 0;
     std::int8_t atom = -1; // negative means no atom.

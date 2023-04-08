@@ -231,16 +231,7 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods_after(Fn const& fn)
     parse_line_ending();
 
     pre_line_number = line_number;
-    auto mods = parse_mods(base_indent);
-
-    if(line_break && line_number == pre_line_number)
-    {
-        throw compiler_error_t(
-            fmt_error(token.pstring, "Expecting modifiers line (starting with |) to restore indentation.", &file)
-            + fmt_note(line_break, "Modifier line is required because the previous line was awkwardly indented.", &file));
-    }
-
-    return mods;
+    return parse_mods(base_indent);
 }
 
 template<typename P>
@@ -316,7 +307,7 @@ restart:
     while(lexed > TOK_LAST_STATE)
     {
 #if 1 // Enable to debug
-        assert(next_char < source() + file.size());
+        passert(next_char < source() + file.size(), next_char - source(), file.size(), file_i());
         assert(next_char >= source());
 #endif
         unsigned char const c = *next_char;
@@ -517,40 +508,19 @@ string_literal_t parser_t<P>::parse_string_literal(bool open_parens, token_type_
     expect_token(first);
 
     string_literal_t ret = {};
-
     while(token.type == first)
     {
-        char const* begin = token_source;
-
-        token.pstring.size = 1;
-        while(true)
+        assert(next_char == token_source + 1);
+        try
         {
-            token.pstring.offset = next_char - source();
-
-            char ch = *next_char++;
-
-            if(ch == last)
-                break;
-            else if(std::iscntrl(ch))
-                compiler_error("Unexpected character in string literal.");
-            else if(ch == '\\')
-            {
-                ret.string.push_back(ch);
-                char const e = *next_char++;
-                if(std::iscntrl(e))
-                    compiler_error("Unexpected character in string literal.");
-                ret.string.push_back(e);
-            }
-            else
-                ret.string.push_back(ch);
-
+            next_char = ::parse_string_literal(ret, source(), token_source, last, file_i());
         }
-
-        pstring_t const pstring = { begin - source(), next_char - begin, file_i() };
-        if(ret.pstring)
-            ret.pstring = fast_concat(ret.pstring, pstring);
-        else
-            ret.pstring = pstring;
+        catch(std::exception const& e)
+        {
+            pstring_t const at = { next_char - source(), 1, file_i() };
+            compiler_error(at, e.what());
+        }
+        catch(...) { throw; }
 
         parse_token();
 
@@ -767,6 +737,7 @@ retry:
     case TOK_system:
     case TOK___mapper_detail:
     case TOK___mapper_reset:
+    case TOK_nmi_counter:
         {
             ast_node_t ast = { .token = token };
             parse_token();
@@ -824,6 +795,37 @@ retry:
     case TOK_len:
         return type_info_impl(TOK_len_expr, &type_t::array_length);
 
+    case TOK_abs:
+        {
+            ast_node_t ast = { .token = token };
+            parse_token();
+            parse_token(TOK_lparen);
+            ast.children = eternal_emplace<ast_node_t>(parse_expr(indent, open_parens+1));
+            ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
+            parse_token(TOK_rparen);
+            return ast;
+        }
+
+    case TOK_min:
+    case TOK_max:
+        {
+            ast_node_t ast = { .token = token };
+            parse_token();
+
+            bc::small_vector<ast_node_t, 2> children;
+            parse_args(TOK_lparen, TOK_rparen,
+                [&](unsigned){ children.push_back(parse_expr(indent, open_parens+1)); });
+
+            ast.token.value = children.size();
+            ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
+            ast.token.pstring = fast_concat(ast.token.pstring, children.back().token.pstring);
+
+            if(children.size() < 2)
+                compiler_error(ast.token.pstring, fmt("Too few arguments to %. Expecting 2 or more.", token_string(ast.token.type)));
+
+            return ast;
+        }
+
     case TOK_state:
         {
             ast_node_t ast = { .token = token };
@@ -833,8 +835,7 @@ retry:
             if(token.type != TOK_rparen)
             {
                 ast.token.type = TOK_write_state;
-                ast_node_t child = parse_expr(indent, open_parens+1);
-                ast.children = eternal_emplace<ast_node_t>(std::move(child));
+                ast.children = eternal_emplace<ast_node_t>(parse_expr(indent, open_parens+1));
             }
 
             ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
@@ -1561,6 +1562,8 @@ void parser_t<P>::parse_top_level_def()
             return parse_const();
     case TOK_audio:
         return parse_audio();
+    case TOK_macro:
+        return parse_macro();
     default:
         compiler_error("Unexpected token at top level.");
     }
@@ -1578,6 +1581,28 @@ void parser_t<P>::parse_chrrom()
     ast_node_t ast = parse_byte_block(decl, chrrom_indent, chrrom_global, false);
 
     policy().chrrom(decl, ast, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_macro()
+{
+    pstring_t pstring = token.pstring;
+    parse_token(TOK_macro);
+    macro_invocation_t invoke;
+
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    { 
+        parse_args(TOK_lparen, TOK_rparen, [&](unsigned arg)
+        {
+            if(arg == 0)
+                invoke.name = parse_string_literal(true).string; 
+            else
+                invoke.args.push_back(parse_string_literal(true).string); 
+            pstring = fast_concat(pstring, token.pstring);
+        });
+    });
+
+    policy().macro(pstring, std::move(invoke));
 }
 
 template<typename P>
@@ -1869,6 +1894,7 @@ void parser_t<P>::parse_statement()
     case TOK_nmi:      return parse_nmi_statement();
     case TOK_irq:      return parse_irq_statement();
     case TOK_fence:    return parse_fence();
+    case TOK_swap:     return parse_swap();
     case TOK_ct:       return parse_local_ct();
     default: 
         if(is_type_prefix(token.type))
@@ -2191,6 +2217,23 @@ void parser_t<P>::parse_fence()
     pstring_t pstring = token.pstring;
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_fence); });
     policy().fence_statement(pstring, std::move(mods));
+}
+
+template<typename P>
+void parser_t<P>::parse_swap()
+{
+    pstring_t pstring = token.pstring;
+    ast_node_t a;
+    ast_node_t b;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]
+    { 
+        parse_token(TOK_swap); 
+        a = parse_expr();
+        parse_token(TOK_comma);
+        b = parse_expr();
+        pstring = fast_concat(pstring, token.pstring);
+    });
+    policy().swap_statement(pstring, std::move(mods), a, b);
 }
 
 template<typename P>

@@ -49,6 +49,8 @@
 // - Non-absolute arpeggio is not supported.
 
 // Unlike music, sound effects support all effects, but cannot involve the DMC channel.
+// Sound effects must have a short duration (250 frames or less), 
+// and must be terminated using the C00 Famitracker effect.
 
 ct U PUF_LOOP = %10000000
 ct U PUF_DEFAULT = $FF
@@ -540,11 +542,10 @@ asm fn puf(U arg)
     label process
         lda &puf_lock
         bne early_return
-        lda puf_track_speed
-        beq early_return
-
         lda &arg
         sta puf_enable
+        lda puf_track_speed
+        beq play_registers
 
         ldy puf_bank
         switch y
@@ -555,6 +556,7 @@ asm fn puf(U arg)
         lda track_step_function_hi, x
         sta &puf_ptr_temp.b
         jsr do_jump
+    label play_registers
 
         // Square1
         lda puf_enable
@@ -683,7 +685,7 @@ asm fn puf(U arg)
         stx puf_triangle_stack_next
         jsr write_silence
         jsr reset_triangle
-        lda #%00000000
+        lda #%00110000
     label sta_4008
         sta $4008
 
@@ -721,6 +723,9 @@ asm fn puf(U arg)
         and #%1000
         beq disable_noise
 
+        lda #$FF
+        sta $400F
+
         ldx puf_noise_stack
         jsr load_ptr_from_stack
 
@@ -734,7 +739,7 @@ asm fn puf(U arg)
         stx puf_noise_stack_next
         jsr write_silence
         jsr reset_noise
-        lda #%00000000
+        lda #%00110000
     label sta_400c
         sty puf_noise_vol_duty_y
         sta $400C
@@ -885,7 +890,6 @@ asm fn puf(U arg)
         sta puf_enable
 
         // SAX = store 0
-        sax $400F
         sax puf_pattern_left
 
         jsr update_pattern_ptrs

@@ -1,0 +1,62 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This macro implements an object pool represented as two arrays:
+// one for the objects, and another tracking if they're live or not.
+// Indexes to objects in this pool are stable; they won't get invalidated.
+// This version uses one byte per object. See "pool_stable_compact.macrofab"
+// for a version that is more memory efficient.
+
+// Macro parameters:
+#:type:#        // The type of each object (probably a struct type).
+#:max_objects:# // The maximum number of objects that can exist at once
+#:name:#        // The name of the objects (e.g. "enemies")
+#:group:#       // The optional vars group to insert variables in.
+
+ct Int #name#_max = #max_objects#
+
+vars #group#
+    Bool[#max_objects#] #name#_allocated = Bool[#max_objects#](false)
+    #type#[#max_objects#] #name#
+
+// Removes all objects:
+fn #name#_clear()
+: +inline
+    #name#_allocated = Bool[#max_objects#](false)
+
+// Removes the object at position 'index'.
+fn #name#_delete(U index)
+: +inline
+    #name#_allocated[index] = false
+
+// Creates an object, returning its index but not assigning to it.
+// If no more objects can be created, returns BAD_OBJECT.
+fn #name#_alloc() U
+: -inline
+    for U i = 0; i < #name#_max; i += 1
+        if !#name#_allocated[i]
+            #name#[i] = value
+            return i
+    return BAD_OBJECT
+
+// Creates and assigns an object, returning its index.
+// If no more objects can be created, returns BAD_OBJECT.
+fn #name#_new(#type# value) U
+: +inline
+    for U i = 0; i < #name#_max; i += 1
+        if !#name#_allocated[i]
+            #name#_allocated[i] = true
+            #name#[i] = value
+            return i
+    return BAD_OBJECT
+
+// Returns true if the object at position 'index' is allocated:
+fn #name#_exists(U index) Bool
+: +inline
+    return #name#_allocated[index]
+
+
+

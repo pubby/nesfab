@@ -68,8 +68,13 @@ namespace
 
 std::string fmt_source_pos(file_contents_t const& file, pstring_t pstring)
 {
-    line_col_t line_col = get_line_col(file.source(), pstring);
-    return fmt(CONSOLE_BOLD "%:%:%" CONSOLE_RESET, file.name(), line_col.line, line_col.col);
+    return fmt_source_pos(file.name(), file.source(), pstring);
+}
+
+std::string fmt_source_pos(std::string const& filename, char const* source, pstring_t pstring)
+{
+    line_col_t line_col = get_line_col(source, pstring);
+    return fmt(CONSOLE_BOLD "%:%:%" CONSOLE_RESET, filename, line_col.line, line_col.col);
 }
 
 std::string fmt_error(

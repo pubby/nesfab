@@ -117,6 +117,7 @@ private:
     void parse_charmap();
     void parse_chrrom();
     void parse_audio();
+    void parse_macro();
 
     void parse_statement();
     void parse_flow_statement();
@@ -138,6 +139,7 @@ private:
     void parse_nmi_statement();
     void parse_irq_statement();
     void parse_fence();
+    void parse_swap();
     void parse_local_ct();
 
     [[gnu::noreturn]] void compiler_error(pstring_t pstring, std::string const& what) const

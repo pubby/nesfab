@@ -100,6 +100,8 @@ public:
         { return is_num() && fixed() == f; }
     bool eq_signed_fixed(fixed_t f) const 
         { return is_num() && fixed_uint_t(signed_fixed()) == f.value; }
+    bool eq_low_bit() const
+        { return eq_fixed({ low_bit_only(numeric_bitmask(type().name())) }); }
 
     constexpr void set(fixed_t fixed, type_name_t type_name) 
     { 

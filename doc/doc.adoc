@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 0.3
+Version 0.4
 :sectnums:
 :toc2:
 :toclevels: 3
@@ -197,7 +197,7 @@ nesfab --version
 === `input` (`-i`)
 
 Specifies a file to be compiled, which can either be a source file with extension `.fab`, 
-or a configuration file with extension `.cfg`.
+a <<kw_macro, macro file>> with extension `.macrofab`, or a configuration file with extension `.cfg`.
 This option can be used multiple times to compile multiple files.
 
 Note: the flags `--input` and `-i` are optional when using the command line,
@@ -1770,6 +1770,25 @@ Example:
 AA return_addr = &return
 ----
 
+=== `swap` [[kw_swap]]
+
+The `swap` statement exchanges its arguments, assigning the first to the second and the second to the first.
+
+Syntax:
+----
+swap a, b
+----
+- `a` and `b` are lvalue expressions.
+
+Example:
+----
+fn foo()
+    U x = 10
+    U y = 20
+    swap x, y
+    // Now x = 20 and y = 10.
+----
+
 === `fence` [[kw_fence]]
 
 The `fence` statement is used for both writing concurrent code, and for interacting with hardware. 
@@ -1875,6 +1894,19 @@ but the pointed-to value must never be modified by the program.
 
 [NOTE]
 There is more than one way to achieve concurrent safety. See <<kw_fence>>, for example.
+
+=== `nmi_counter` [[kw_nmi_counter]]
+
+`nmi_counter` is an expression of type `U` whose value is incremented after each <<nmi, NMI>>.
+It can be used for timing purposes, to create simple animations, or to detect when NMI has occured.
+
+Syntax:
+----
+nmi_counter
+----
+
+The address of `nmi_counter` can be taken using <<unary_ops, unary operator>> `&`,
+but the pointed-to value must never be modified by the program.
 
 === `state` [[kw_state]]
 
@@ -2795,6 +2827,8 @@ chrrom
 *Modifiers:*
 
 - <<mod_file, `+spr_8x16`>>
+- <<mod_file, `+palette_3`>>
+- <<mod_file, `+palette_25`>>
 
 *Input Filetype Conversions*
 
@@ -3016,6 +3050,57 @@ The decompressed sequence is:
 $01 $01 $01 $01 $01 $22 $33 $44 $44 $44 $44
 ----
 
+=== `macro` [[kw_macro]]
+
+The `macro` keyword generates and compiles a new source file by substituting its arguments into a `.macrofab` file.
+It is only usable at top-level scope.
+
+Syntax:
+----
+macro("macro_name", "args"...)
+----
+- `"macro_name"` is the string literal name of the macro file being invoked, without the `.macrofile` extension.
+- `"args"` are a comma-separated list of string literals to be substituted into the `.macrofab` file.
+
+*Macro Files:*
+
+Macro (`.macrofab`) files resemble regular `.fab` files, but have additional syntax:
+
+- `\#:identifier:#` declares a macro parameter. The order of these declarations determines the argument order for the `macro` keyword.
+- `\#identifier#` expands a macro argument. 
+- `\#'identifier'#` expands a macro argument, putting it inside `'` quotes and escaping its characters. 
+- `\#"identifier"#` expands a macro argument, putting it inside `"` quotes and escaping its characters. 
+- `pass:[#`test`#]` expands a macro argument, putting it inside `pass:[`]` quotes and escaping its characters. 
+
+Note that macro arguments are not parsed inside comments or string literals.
+
+*Example*:
+----
+// Declare the parameters first:
+#:my_arg:#
+#:another_arg:#
+
+// Now expand them:
+vars
+    U #my_arg# = #another_arg#
+----
+
+If this is saved as `foo.macrofab`, the macro can be invoked in a `.fab` file like so:
+----
+macro("foo", "something", "100")
+----
+
+Which would generate the following source file and compile it:
+----
+// Declare the parameters first:
+
+
+
+// Now expand them:
+vars
+    U something = 100
+----
+
 === `audio` [[kw_audio]]
 
 The `audio` keyword imports and converts audio data from an external file,
@@ -3028,7 +3113,7 @@ audio(target, args...)
 ----
 
 - `target` specifies the output target to use.
-- `args...` is a list of arguments that the conversion script will use.
+- `args...` is a comma-separated list of arguments that the conversion script will use.
 
 Example:
 ----
@@ -3183,6 +3268,8 @@ The following flags exist:
 - `+static`: Allocate the function in every bank. 
              This modifier is incompatible with functions that can return with a different active bank than they started in.
              For <kw_asm, `asm`> functions, you must validate this yourself.
+- `palette_3`: Converts 4-byte palettes into 3-byte palettes.
+- `palette_25`: Converts 32-byte palettes into 25-byte palette.
 
 Example:
 ----
@@ -3492,6 +3579,15 @@ All function-like operators have left associativity and evaluate first in the or
 
 | `len(_expression_)`
 | <<len_expr, Array Length of an Expression>>
+
+| `abs(_expression_)`
+| <<abs_expr, Absolute Value>>
+
+| `min(_expression_)`
+| <<min_expr, Minimum>>
+
+| `max(_expression_)`
+| <<max_expr, Maximum>>
 
 | `_array_expression_[_index_expression_]`
 | <<array_access_u, U-Indexed Array/Pointer Access>>
@@ -4121,6 +4217,58 @@ len(expression)
 Example:
 ----
 ct Int expr_len = len(U[10](3))
+----
+
+==== `abs`(expression) [[abs_expr]]
+
+`abs` first converts the argument to a signed representation, 
+then it returns the absolute value of it.
+The argument must be an <<type_arithmetic, arithmetic type>>.
+The return type is the argument type converted to unsigned.
+
+Syntax:
+----
+abs(expression)
+----
+- `expression` is an expression with an arithmetic type.
+
+Example:
+----
+SS positive = abs(SS(-10))
+----
+
+==== `min`(expression) [[min_expr]]
+
+Returns the minimum value of multiple <<type_quantity, quantity types>>.
+The return type is equivalent to the argument types, which must be the the same,
+although `Int` and `Real` will convert.
+
+Syntax:
+----
+min(expressions...)
+----
+- `expressions` is a comma-separated list of at least two expressions with quantity types.
+
+Example:
+----
+SS smallest = min(10, 20, 30)
+----
+
+==== `max`(expression) [[max_expr]]
+
+Returns the maximum value of multiple <<type_quantity, quantity types>>.
+The return type is equivalent to the argument types, which must be the the same,
+although `Int` and `Real` will convert.
+
+Syntax:
+----
+max(expressions...)
+----
+- `expressions` is a comma-separated list of at least two expressions with quantity types.
+
+Example:
+----
+SS largest = max(10, 20, 30)
 ----
 
 === Explicit Type Casts [[casts]]

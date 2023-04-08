@@ -7,6 +7,8 @@
 #include <string>
 #include <filesystem>
 
+#include "robin/map.hpp"
+
 #include "mapper.hpp"
 #include "nes_system.hpp"
 
@@ -42,7 +44,9 @@ struct options_t
     mapper_t mapper;
     std::string output_file = "a.nes";
 
+    unsigned num_fab = 0;
     std::vector<fs::path> source_names;
+    rh::batman_map<std::string, fs::path> macro_names;
     std::vector<fs::path> code_dirs = { fs::current_path() };
     std::vector<fs::path> resource_dirs;
 };

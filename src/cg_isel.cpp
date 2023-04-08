@@ -194,6 +194,8 @@ namespace isel
         // Very slightly penalize ROL/ROR, to prefer LSR/ASL:
         case ROL:
         case ROR:
+            penalty += 1;
+            break;
         // Very slightly penalize LAX, to prefer LDA or LDX:
         case LAX: 
         // Same with ALR and LSR:
@@ -2113,9 +2115,11 @@ namespace isel
     }
 
     template<typename Opt>
-    void fill_array(ssa_value_t def, unsigned start, unsigned len = 0)
+    void fill_array(ssa_value_t def, ssa_value_t val, unsigned start, unsigned len = 0)
     {
         using loop_label = p_label<0>;
+
+        p_arg<0>::set(val);
 
         if(len >= 256)
         {
@@ -2123,14 +2127,14 @@ namespace isel
 
             select_step<false>(
                 chain
-                < load_AX<Opt, const_<0>, const_<0>>
+                < load_AX<Opt, p_arg<0>, const_<0>>
                 , label<loop_label>
                 >);
 
             for(unsigned page = 0; page < len; page += 256)
             {
-                p_arg<0>::set(def,  start + page);
-                select_step<false>(exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<0>>) ;
+                p_arg<1>::set(def,  start + page);
+                select_step<false>(exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>) ;
             }
 
             select_step<false>(
@@ -2147,16 +2151,16 @@ namespace isel
         if(iter)
         {
             loop_label::set(state.minor_label());
-            p_arg<0>::set(locator_t::const_byte(iter - 1));
-            p_arg<1>::set(def, (start + len - left));
-            p_arg<2>::set(def,  (start + len - left) + iter);
+            p_arg<1>::set(locator_t::const_byte(iter - 1));
+            p_arg<2>::set(def, (start + len - left));
+            p_arg<3>::set(def,  (start + len - left) + iter);
 
             select_step<false>(
                 chain
-                < load_AX<Opt, const_<0>, p_arg<0>>
+                < load_AX<Opt, p_arg<0>, p_arg<1>>
                 , label<loop_label>
-                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>
                 , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
+                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<3>>
                 , simple_op<Opt, DEX_IMPLIED>
                 , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                 , clear_conditional
@@ -2166,11 +2170,11 @@ namespace isel
 
         if(left % 2)
         {
-            p_arg<0>::set(def,  start + len - 1);
+            p_arg<1>::set(def,  start + len - 1);
             select_step<false>(
                 chain
-                < load_A<Opt, const_<0>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                < load_A<Opt, p_arg<0>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<1>>
                 >);
         }
     }
@@ -2280,7 +2284,7 @@ namespace isel
         }
 
         if(len < resize_to)
-            fill_array<Opt>(def, len, resize_to - len);
+            fill_array<Opt>(def, ssa_value_t(0, TYPE_U), len, resize_to - len);
     }
 
     template<typename Opt>
@@ -2907,6 +2911,43 @@ namespace isel
                 , store<Opt, STA, p_def, p_def>
                 , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
+
+                if(p_lhs::node().eq_whole(0))
+                {
+                    chain
+                    < load_AC<Opt, p_rhs, p_carry>
+                    , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                    , exact_op<Opt, ADC_IMMEDIATE, null_, const_<0>>
+                    , store<Opt, STA, p_def, p_def>
+                    , set_defs<Opt, REGF_C, true, p_carry_output>
+                    >(cpu, prev, cont);
+
+                    if(!carry_output && p_carry::node().eq_whole(1))
+                    {
+                        chain
+                        < load_AC<Opt, p_rhs, const_<0>>
+                        , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                        , exact_op<Opt, ADC_IMMEDIATE, null_, const_<1>>
+                        , store<Opt, STA, p_def, p_def>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_A<Opt, p_rhs>
+                        , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                        , exact_op<Opt, TAX_IMPLIED, null_>
+                        , exact_op<Opt, INX_IMPLIED, null_>
+                        , store<Opt, STX, p_def, p_def>
+                        >(cpu, prev, cont);
+
+                        chain
+                        < load_A<Opt, p_rhs>
+                        , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                        , exact_op<Opt, TAY_IMPLIED, null_>
+                        , exact_op<Opt, INY_IMPLIED, null_>
+                        , store<Opt, STY, p_def, p_def>
+                        >(cpu, prev, cont);
+                    }
+                }
 
                 if(p_rhs::value().is_const_num())
                 {
@@ -4008,12 +4049,35 @@ namespace isel
             p_arg<0>::set(h->input(0));
             p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
             p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
-            select_step<true>(
+            select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+            {
                 chain
                 < load_N_for<Opt, p_arg<0>>
                 , branch_op<Opt, BPL, p_label<0>>
                 , branch_op<Opt, BMI, p_label<1>>
-                >);
+                >(cpu, prev, cont);
+
+                chain
+                < load_A<Opt, p_arg<0>>
+                , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
+                , branch_op<Opt, BCC, p_label<0>>
+                , branch_op<Opt, BCS, p_label<1>>
+                >(cpu, prev, cont);
+
+                chain
+                < load_X<Opt, p_arg<0>>
+                , simple_op<Opt, CPX_IMMEDIATE, null_, const_<0x80>>
+                , branch_op<Opt, BCC, p_label<0>>
+                , branch_op<Opt, BCS, p_label<1>>
+                >(cpu, prev, cont);
+
+                chain
+                < load_Y<Opt, p_arg<0>>
+                , simple_op<Opt, CPY_IMMEDIATE, null_, const_<0x80>>
+                , branch_op<Opt, BCC, p_label<0>>
+                , branch_op<Opt, BCS, p_label<1>>
+                >(cpu, prev, cont);
+            });
             break;
 
         case SSA_return:
@@ -4053,7 +4117,7 @@ namespace isel
 
                     if(mods && !mods->in_lists(MODL_PRESERVES, gv->group.handle()))
                     {
-                        if(!did_reset_nmi)
+                        if(!did_reset_nmi && global_t::has_nmi())
                         {
                             // Reset the nmi handler until we've reset all group vars.
                             p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
@@ -4061,7 +4125,7 @@ namespace isel
                             did_reset_nmi = true;
                         }
 
-                        if(!did_reset_irq)
+                        if(!did_reset_irq && global_t::has_irq())
                         {
                             // Reset the irq handler until we've reset all group vars.
                             p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
@@ -4102,7 +4166,7 @@ namespace isel
                 }
                 
                 // Set the nmi handler to its proper value
-                if(did_reset_nmi || !same_nmi)
+                if(global_t::has_nmi() && (did_reset_nmi || !same_nmi))
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_index));
                     p_arg<1>::set(locator_t::nmi_index(call.mode_nmi()));
@@ -4110,7 +4174,7 @@ namespace isel
                 }
 
                 // Set the irq handler to its proper value
-                if(did_reset_irq || !same_irq)
+                if(global_t::has_irq() && (did_reset_irq || !same_irq))
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
                     p_arg<1>::set(locator_t::irq_index(call.mode_irq()));
@@ -4169,7 +4233,7 @@ namespace isel
             break;
 
         case SSA_fill_array:
-            fill_array<Opt>(h, 0, h->type().array_length());
+            fill_array<Opt>(h, h->input(0), 0, h->type().array_length());
             break;
 
         case SSA_read_ptr:
@@ -4252,7 +4316,7 @@ namespace isel
                 if(!h->input(0).holds_ref() || cset_head(h->input(0).handle()) != cset_head(h))
                     copy_array<Opt>(h->input(0), h, new_size);
                 else if(old_size < new_size)
-                    fill_array<Opt>(h, old_size, new_size - old_size);
+                    fill_array<Opt>(h, ssa_value_t(0, TYPE_U), old_size, new_size - old_size);
             }
             break;
 
@@ -4882,12 +4946,15 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 if(op_flags(inst.op) & ASMF_MAYBE_STORE)
                 {
                     // Reduce the cost of maybe stores when the register is output.
-                    for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
+                    if(cfg->output_size())
                     {
-                        if((op_input_regs(inst.op) & (1 << i)) && inst.alt == transition.out_state.defs[i]) [[unlikely]]
+                        for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
                         {
-                            cost -= cost_fn(STA_MAYBE);
-                            break;
+                            if((op_input_regs(inst.op) & (1 << i)) && inst.alt == transition.out_state.defs[i]) [[unlikely]]
+                            {
+                                cost -= cost_fn(STA_MAYBE);
+                                break;
+                            }
                         }
                     }
 
@@ -4955,7 +5022,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 { 
                     transition, 
                     {
-                        .cost = cost + sub_transitions[i].heuristic_penalty(),
+                        .cost = cost + sub_transitions[i].heuristic_penalty(cfg->output_size()),
                         .code = code_ptr
                     }
                 };
@@ -4971,11 +5038,11 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 {
                     // Keep the lowest cost:
                     if(insert_result.first->second.cost > new_sel.second.cost)
-                    {
-                        //new_sel.second.age = insert_result.first->second.age;
-                        *insert_result.first = std::move(new_sel);
-                    }
+                        insert_result.first->second = std::move(new_sel.second);
                 }
+
+                dprint(state.log, "ISEL_RESULT_COST", insert_result.first->second.cost);
+                dprint(state.log, "ISEL_RESULT_INDEX", insert_result.first - d.sels.begin());
             }
         }
 
@@ -5173,6 +5240,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         auto& d = data(cfg);
 
         dprint(state.log, "ISEL_GEN_COST", cfg, d.final_cost());
+        dprint(state.log, "ISEL_GEN_SEL", cfg, d.sel);
         dprint(state.log, "ISEL_GEN_IN", cfg, d.final_in_state());
         dprint(state.log, "ISEL_GEN_OUT", cfg, d.final_out_state());
 

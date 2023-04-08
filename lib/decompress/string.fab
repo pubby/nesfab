@@ -4,6 +4,8 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
+// Code for decompressing strings.
+
 data /strings
 
 vars /decompress_string_vars

@@ -264,6 +264,15 @@ public:
     template<do_t D>
     expr_value_t do_logical(ast_node_t const& ast);
 
+    template<do_t D>
+    expr_value_t do_abs(ast_node_t const& ast);
+
+    template<do_t D>
+    expr_value_t do_min_max(ast_node_t const& ast);
+
+    template<do_t D>
+    void do_swap(expr_value_t a, expr_value_t b);
+
     void req_quantity(token_t const& token, expr_value_t const& value);
     void req_quantity(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
 
@@ -1013,6 +1022,17 @@ void eval_t::interpret_stmts()
                 precheck_tracked->fences.push_back(stmt_pstring_mods());
             ++stmt;
             break;
+
+        case STMT_SWAP_FIRST:
+            {
+                expr_value_t a = do_expr<D>(*stmt->expr);
+                ++stmt;
+                assert(stmt->name == STMT_SWAP_SECOND);
+                expr_value_t b = do_expr<D>(*stmt->expr);
+                ++stmt;
+                do_swap<D>(std::move(a), std::move(b));
+            }
+            break;
         }
     }
     assert(false);
@@ -1612,6 +1632,17 @@ void eval_t::compile_block()
         }
         ++stmt;
         break;
+
+    case STMT_SWAP_FIRST:
+        {
+            expr_value_t a = do_expr<COMPILE>(*stmt->expr);
+            ++stmt;
+            assert(stmt->name == STMT_SWAP_SECOND);
+            expr_value_t b = do_expr<COMPILE>(*stmt->expr);
+            ++stmt;
+            do_swap<COMPILE>(std::move(a), std::move(b));
+        }
+        break;
     }
     assert(false);
 }
@@ -1981,6 +2012,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     locator_t const loc = locator_t::runtime_rom(RTROM_mapper_reset, offset);
                     return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
+                else if(lval->arg == lval_t::NMI_COUNTER_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_counter, offset);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                }
 
                 if(lval->is_global())
                 {
@@ -2125,6 +2161,20 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_RESET_ARG },
                 .type = TYPE_VOID,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            return result;
+        }
+
+    case TOK_nmi_counter:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::NMI_COUNTER_ARG },
+                .type = TYPE_U,
                 .pstring = ast.token.pstring,
                 .time = RT,
             };
@@ -2640,9 +2690,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     compiler_error(call_pstring, "Cannot goto mode at compile-time.");
             }
             else if(mode_apply)
-            {
                 compiler_error(call_pstring, "Cannot goto non-mode functions.");
-            }
 
             std::size_t const num_params = fn_expr.type.num_params();
             type_t const* const params = fn_expr.type.types();
@@ -3776,6 +3824,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             goto push_int;
         }
 
+    case TOK_abs:
+        return do_abs<D>(ast);
+
+    case TOK_min:
+    case TOK_max:
+        return do_min_max<D>(ast);
+
     case TOK_assign:
         return infix(&eval_t::do_assign<D>, false, true);
 
@@ -4067,7 +4122,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 // Must be two lines; reference invalidation lurks.
                 ssa_ht const ssa = builder.cfg->emplace_ssa(
-                    SSA_xor, v.type, ssa_value_t(numeric_bitmask(v.type.name()), v.type.name()), v.ssa());
+                    SSA_xor, v.type, ssa_value_t(fixed_t{ numeric_bitmask(v.type.name()) }, v.type.name()), v.ssa());
                 v.ssa() = ssa;
             }
 
@@ -4136,7 +4191,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
     if(lval_t* lval = v.is_lval())
     {
         unsigned const num_members = ::num_members(v.type);
-        type_t type;
+        type_t type = {};
         rval_t rval;
 
         if(lval->arg == lval_t::READY_ARG)
@@ -4185,13 +4240,30 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             return v;
         }
+        else if(lval->arg == lval_t::NMI_COUNTER_ARG)
+        {
+            if(is_compile(D))
+            {
+                ssa_ht h = builder.cfg->emplace_ssa(SSA_nmi_counter, TYPE_U);
+                h->append_daisy();
+                v.val = rval_t{ h };
+            }
+            else if(is_interpret(D))
+                compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
+            else
+            {
+                assert(is_check(D));
+                v.val = rval_t{};
+            }
+
+            return v;
+        }
         else if(lval->arg == lval_t::MAPPER_DETAIL_ARG
                 || lval->arg == lval_t::MAPPER_RESET_ARG)
         {
             compiler_error(v.pstring, "Expression cannot be evaluated.");
         }
-
-        if(lval->arg == lval_t::RETURN_ARG)
+        else if(lval->arg == lval_t::RETURN_ARG)
             compiler_error(v.pstring, "Cannot access the value of return.");
 
         if(lval->is_global())
@@ -4222,9 +4294,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             case GLOBAL_VAR:
                 if(precheck_tracked)
-                {
                     precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), v.pstring);
-                }
+
                 if(is_compile(D))
                 {
                     lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
@@ -4279,7 +4350,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             return v;
         }
 
-        type = ::member_type(type, lval->member);
+        assert(type.name());
 
         if(is_interpret(D) || (is_compile(D) && (v.is_ct() || v.is_lt())))
         {
@@ -4302,6 +4373,9 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             if(lval->atom >= 0)
             {
+                assert(num_members == 1);
+                type = ::member_type(type, lval->member);
+
                 if(is_tea(type.name()))
                 {
                     assert(is_tea(v.type.name()));
@@ -4334,20 +4408,23 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             if(lval->index)
             {
                 assert(is_tea(type.name()));
-                type_t const elem = type.elem_type();
 
                 for(unsigned i = 0; i < num_members; ++i)
                 {
                     rval[i] = builder.cfg->emplace_ssa(
-                        (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8, elem, 
+                        (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8,
+                        ::member_type(type.elem_type(), lval->member + i),
                         from_variant<D>(rval[i], type), ssa_value_t(0u, TYPE_U20), lval->index);
                 }
 
-                type = elem;
+                type = type.elem_type();
             }
 
             if(lval->atom >= 0)
             {
+                assert(num_members == 1);
+                type = ::member_type(type, lval->member);
+
                 passert(rval.size() > 0, rval.size(), lval->member);
                 ssa_ht const h = builder.cfg->emplace_ssa(
                     is_tea(type.name()) ? SSA_array_get_byte : SSA_get_byte, 
@@ -4393,7 +4470,28 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 }
 
 template<eval_t::do_t D>
-expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const& token)
+void eval_t::do_swap(expr_value_t a, expr_value_t b)
+{
+    pstring_t const pstring = concat(a.pstring, b.pstring);
+    lval_t* const al = a.is_lval();
+    lval_t* const bl = b.is_lval();
+
+    if(!al)
+        compiler_error(a.pstring, "Expecting lvalue.");
+    if(!bl)
+        compiler_error(b.pstring, "Expecting lvalue.");
+    if(a.type != b.type)
+        compiler_error(pstring, fmt("Type mismatch. % does not match %.", a.type, b.type));
+
+    token_t const token = { lex::TOK_swap, pstring };
+
+    expr_value_t temp = to_rval<D>(a);
+    do_assign<D>(std::move(a), b, token);
+    do_assign<D>(std::move(b), std::move(temp), token);
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const&)
 {
     pstring_t const pstring = concat(lhs.pstring, lhs.pstring);
 
@@ -4616,7 +4714,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         else
         {
             for(unsigned i = 0; i < rval.size(); ++i)
-                local[i + lval->member] = from_variant<D>(rval[i], member_type(rhs.type, i + lval->member));
+                local[i + lval->member] = from_variant<D>(rval[i], member_type(rhs.type, i));
         }
     }
 
@@ -4790,7 +4888,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 template<typename Policy>
 expr_value_t eval_t::do_assign_arith(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
-    rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+    rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, false);
     expr_value_t lhs_copy = to_rval<Policy::D>(lhs);
     return do_assign<Policy::D>(std::move(lhs), do_arith<Policy>(std::move(lhs_copy), rhs, token), token);
 }
@@ -4892,7 +4990,7 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
 
             bool const banked = is_banked_ptr(result.type.name());
 
-            rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
+            rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
 
             if(!is_check(Policy::D))
             {
@@ -4980,9 +5078,9 @@ expr_value_t eval_t::do_assign_add(expr_value_t lhs, expr_value_t rhs, token_t c
     };
 
     if(is_ptr(lhs.type.name()))
-        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, true);
+        rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
     else
-        rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+        rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, false);
     
     expr_value_t lhs_rval = to_rval<Policy::D>(lhs);
     expr_value_t add = do_add<Policy>(lhs_rval, rhs, token);
@@ -5326,6 +5424,163 @@ expr_value_t eval_t::do_logical(ast_node_t const& ast)
 
     expr_value_t const rhs = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
     return { .type = TYPE_BOOL, .pstring = concat(lhs.pstring, rhs.pstring) };
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::do_abs(ast_node_t const& ast)
+{
+    assert(ast.token.type == TOK_abs);
+
+    expr_value_t value = to_rval<D>(do_expr<D>(ast.children[0]));
+    if(!is_arithmetic(value.type.name()))
+        compiler_error(ast.token.pstring, fmt("Invalid argument of type %. Expecting an arithmetic type.", value.type));
+    if(!is_signed(value.type.name()))
+        value = throwing_cast<D>(std::move(value), to_s(value.type.name()), false, ast.token.pstring);
+
+    expr_value_t result =
+    {
+        .type = value.type, 
+        .pstring = ast.token.pstring
+    };
+
+    if(locator_t loc = handle_lt<D>(result.type, { .type = TOK_abs, .pstring = result.pstring }, value))
+    {
+        result.val = _lt_rval(result.type, loc);
+        result.time = LT;
+    }
+    else if(is_interpret(D) || (is_compile(D) && value.is_ct()))
+    {
+        fixed_sint_t const i = value.s();
+        result.val = rval_t{ ssa_value_t(fixed_t{ i < 0 ? -i : i }, result.type.name()) };
+    }
+    else if(is_compile(D))
+    {
+        assert(!is_ct(value.type.name()));
+        ssa_ht const condition = builder.cfg->emplace_ssa(SSA_sign, TYPE_BOOL, value.ssa());
+
+        cfg_ht const branch_node = builder.cfg;
+        cfg_exits_with_branch(condition);
+
+        cfg_ht const negate_cfg = builder.cfg = insert_cfg(true);
+        branch_node->build_set_output(1, negate_cfg);
+        ssa_ht const negated = builder.cfg->emplace_ssa(
+            SSA_sub, result.type, 
+            ssa_value_t(0u, result.type.name()), value.ssa(), ssa_value_t(1u, TYPE_BOOL));
+
+        cfg_ht const merge_node = insert_cfg(true);
+        cfg_exits_with_jump();
+        branch_node->build_set_output(0, merge_node);
+        builder.cfg->build_set_output(0, merge_node);
+        builder.cfg = merge_node;
+
+        result.val = rval_t{ merge_node->emplace_ssa(SSA_phi, result.type, value.ssa(), negated) };
+    }
+
+    return throwing_cast<D>(std::move(result), to_u(result.type.name()), false, ast.token.pstring);
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::do_min_max(ast_node_t const& ast)
+{
+    assert(ast.token.type == TOK_min || ast.token.type == TOK_max);
+    bool const is_max = ast.token.type == TOK_max;
+
+    bc::small_vector<expr_value_t, 2> values;
+    unsigned const num_children = ast.num_children();
+    for(unsigned i = 0; i < num_children; ++i)
+        values.push_back(to_rval<D>(do_expr<D>(ast.children[i])));
+
+    // We'll calculate if all the arguments have a CT type.
+    bool all_ct = true;
+    type_t result_type = {};
+    for(unsigned i = 0; i < num_children; ++i)
+    {
+        if(all_ct)
+            result_type = values[i].type;
+
+        if(!is_quantity(values[i].type.name()))
+            compiler_error(ast.children[i].token.pstring, fmt("Invalid argument of type %. Expecting a quantity type.", values[i].type));
+
+        if(!is_ct(values[i].type.name()))
+            all_ct = false;
+    }
+
+    if(!all_ct)
+    {
+        for(unsigned i = 0; i < num_children; ++i)
+            if(values[i].type != result_type && is_ct(values[i].type.name()))
+                values[i] = throwing_cast<D>(std::move(values[i]), result_type, true, ast.children[i].token.pstring);
+    }
+
+    // Re-use and recalculate all_ct using rval_t::is_ct():
+    all_ct = true;
+
+    for(unsigned i = 0; i < num_children; ++i)
+    {
+        if(values[i].type != result_type)
+        {
+            compiler_error(
+                ast.children[i].token.pstring, 
+                fmt("Argument type mismatch. % and % are different types.", 
+                    values[i].type, result_type));
+        }
+
+        all_ct &= values[i].is_ct();
+    }
+
+    expr_value_t result =
+    {
+        .type = result_type, 
+        .pstring = ast.token.pstring
+    };
+
+    if(locator_t loc = handle_lt<D>(result.type, ast.token, &*values.cbegin(), &*values.cend()))
+    {
+        result.val = _lt_rval(result.type, loc);
+        result.time = LT;
+    }
+    else if(is_interpret(D) || (is_compile(D) && all_ct))
+    {
+        fixed_sint_t best;
+
+        if(is_max)
+        {
+            best = std::numeric_limits<fixed_sint_t>::min();
+            for(expr_value_t const& value : values)
+                best = std::max(best, value.s());
+
+        }
+        else
+        {
+            best = std::numeric_limits<fixed_sint_t>::max();
+            for(expr_value_t const& value : values)
+                best = std::min(best, value.s());
+        }
+
+        result.val = rval_t{ ssa_value_t(fixed_t{ best }, result.type.name()) };
+    }
+    else if(is_compile(D))
+    {
+        ssa_value_t best = values[0].ssa();
+
+        for(unsigned i = 1; i < num_children; ++i)
+        {
+            ssa_ht const condition = builder.cfg->emplace_ssa(SSA_lt, TYPE_BOOL, best, values[i].ssa());
+
+            cfg_ht const branch_node = builder.cfg;
+            cfg_exits_with_branch(condition);
+
+            cfg_ht const merge_node = builder.cfg = insert_cfg(true);
+            branch_node->build_set_output(!is_max, merge_node);
+            branch_node->build_set_output(is_max, merge_node);
+
+            best = builder.cfg->emplace_ssa(SSA_phi, result_type, best, values[i].ssa());
+        }
+
+        result.val = rval_t{ best };
+    }
+
+    return result;
 }
 
 template<eval_t::do_t D>
@@ -5936,7 +6191,7 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
         assert(num_members(type) == 1);
 
         unsigned const length = type.array_length();
-        assert(length);
+        passert(length, type);
 
         // Determine if the array is a fill.
         ssa_value_t const first = (*array)[0];

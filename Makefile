@@ -10,12 +10,12 @@ test: tests
 	./tests
 
 define compile
-@echo -e '\033[32mCXX $@\033[0m'
+@printf '\033[32mCXX $@\033[0m'
 $(CXX) $(CXXFLAGS) -c -o $@ $<
 endef
 
 define deps
-@echo -e '\033[32mDEPS $@\033[0m'
+@printf '\033[32mDEPS $@\033[0m'
 $(CXX) $(CXXFLAGS) -MM -MP -MT '\
 $(patsubst $(SRCDIR)/%,$(OBJDIR)/%,$(<:.cpp=.o)) \
 $(patsubst $(SRCDIR)/%,$(OBJDIR)/%,$(<:.cpp=.d))\
@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "0.3"
+VERSION := "0.4"
 GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always)"
 
 #override CXX:=clang++
@@ -58,6 +58,13 @@ override CXXFLAGS+= \
   -msse4 \
   -mcx16 \
   -mmovbe
+endif
+
+ifeq ($(ARCH),AMD64_OLD)
+override CXXFLAGS+= \
+  -mpopcnt \
+  -msse4 \
+  -mcx16
 endif
 
 debug: CXXFLAGS += -O0 -g
@@ -93,6 +100,7 @@ ssa_op.cpp \
 lex_tables.cpp \
 asm_lex_tables.cpp \
 ext_lex_tables.cpp \
+macro_lex_tables.cpp \
 add_constraints_table.cpp \
 graphviz.cpp \
 carry.cpp \
@@ -149,7 +157,8 @@ o_defork.cpp \
 unroll_divisor.cpp \
 puf.cpp \
 worklist.cpp \
-mlb.cpp
+mlb.cpp \
+macro.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))
@@ -183,7 +192,17 @@ $(OBJDIR)/%.d: $(SRCDIR)/%.cpp
 
 # Lexer
 
-$(SRCDIR)/lex_tables.hpp $(SRCDIR)/asm_lex_tables.hpp $(SRCDIR)/ext_lex_tables.hpp $(SRCDIR)/lex_tables.cpp $(SRCDIR)/asm_lex_tables.cpp $(SRCDIR)/ext_lex_tables.cpp : $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
+LEX_TABLES:= \
+$(SRCDIR)/lex_tables.hpp \
+$(SRCDIR)/lex_tables.cpp \
+$(SRCDIR)/asm_lex_tables.hpp \
+$(SRCDIR)/asm_lex_tables.cpp \
+$(SRCDIR)/ext_lex_tables.hpp \
+$(SRCDIR)/ext_lex_tables.cpp \
+$(SRCDIR)/macro_lex_tables.hpp \
+$(SRCDIR)/macro_lex_tables.cpp
+
+$(LEX_TABLES): $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
 	$(CXX) -std=c++17 -O1 -o lexer_gen $<
 	./lexer_gen 
 	mv lex_tables.hpp $(SRCDIR)/ 
@@ -192,17 +211,14 @@ $(SRCDIR)/lex_tables.hpp $(SRCDIR)/asm_lex_tables.hpp $(SRCDIR)/ext_lex_tables.h
 	mv asm_lex_tables.cpp $(SRCDIR)/ 
 	mv ext_lex_tables.hpp $(SRCDIR)/
 	mv ext_lex_tables.cpp $(SRCDIR)/
+	mv macro_lex_tables.hpp $(SRCDIR)/
+	mv macro_lex_tables.cpp $(SRCDIR)/
 
 # Other Tables
 
 $(SRCDIR)/add_constraints_table.cpp: $(SRCDIR)/add_constraints_table_gen.cpp
 	$(CXX) -std=c++17 -O1 -o add_constraints_table_gen $<
 	./add_constraints_table_gen > $@
-
-ifneq ($(MAKECMDGOALS), clean)
--include $(DEPS)
--include $(TESTS_DEPS)
-endif
 
 ##########################################################################	
 
@@ -225,3 +241,8 @@ docs:
 $(info $(shell mkdir -p $(OBJDIR)))
 $(info $(shell mkdir -p $(OBJDIR)/catch))
 $(info $(shell mkdir -p $(OBJDIR)/lodepng))
+
+ifneq ($(MAKECMDGOALS), clean)
+-include $(DEPS)
+-include $(TESTS_DEPS)
+endif

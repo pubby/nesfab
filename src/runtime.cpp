@@ -72,14 +72,21 @@ ram_bitset_t alloc_runtime_ram()
 
     unsigned const temp_size = (mapper().bus_conflicts && state_size()) ? 3 : 2;
     _rtram_spans[RTRAM_ptr_temp]        = {{ a.alloc_zp(temp_size), a.alloc_zp(temp_size), a.alloc_zp(temp_size) }};
-    _rtram_spans[RTRAM_nmi_index]       = {{ a.alloc_zp(1) }};
-    _rtram_spans[RTRAM_nmi_saved_x]     = {{ a.alloc_zp(1) }};
-    _rtram_spans[RTRAM_nmi_saved_y]     = {{ a.alloc_zp(1) }};
+    if(global_t::has_nmi())
+    {
+        _rtram_spans[RTRAM_nmi_index]       = {{ a.alloc_zp(1) }};
+        _rtram_spans[RTRAM_nmi_saved_x]     = {{ a.alloc_zp(1) }};
+        _rtram_spans[RTRAM_nmi_saved_y]     = {{ a.alloc_zp(1) }};
+    }
     _rtram_spans[RTRAM_nmi_counter]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_ready]       = {{ a.alloc_zp(1) }};
-    _rtram_spans[RTRAM_irq_index]       = {{ a.alloc_zp(1) }};
-    _rtram_spans[RTRAM_irq_saved_x]     = {{ a.alloc_zp(1) }};
-    _rtram_spans[RTRAM_irq_saved_y]     = {{ a.alloc_zp(1) }};
+
+    if(global_t::has_irq())
+    {
+        _rtram_spans[RTRAM_irq_index]       = {{ a.alloc_zp(1) }};
+        _rtram_spans[RTRAM_irq_saved_x]     = {{ a.alloc_zp(1) }};
+        _rtram_spans[RTRAM_irq_saved_y]     = {{ a.alloc_zp(1) }};
+    }
     _rtram_spans[RTRAM_mapper_state] = {{ a.alloc_zp(state_size()) }};
     _rtram_spans[RTRAM_mapper_detail] = {{ a.alloc_zp(detail_size()) }};
 
@@ -478,6 +485,13 @@ static asm_proc_t make_irq_exit()
     return proc;
 }
 
+static asm_proc_t make_short_irq()
+{
+    asm_proc_t proc;
+    proc.push_inst(RTI);
+    return proc;
+}
+
 static asm_proc_t make_nmi()
 {
     asm_proc_t proc;
@@ -540,6 +554,14 @@ static asm_proc_t make_nmi_exit()
     proc.push_inst(RTI);
 
     proc.initial_optimize();
+    return proc;
+}
+
+static asm_proc_t make_short_nmi()
+{
+    asm_proc_t proc;
+    proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
+    proc.push_inst(RTI);
     return proc;
 }
 
@@ -657,7 +679,8 @@ static asm_proc_t make_reset_proc()
         // Use the default NMI handler:
         proc.push_inst(LDX_IMMEDIATE, locator_t::const_byte(0));
         proc.push_inst(LDY_IMMEDIATE, locator_t::const_byte(0));
-        proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
+        if(global_t::has_nmi())
+            proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
 
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0x80));
         proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
@@ -693,12 +716,18 @@ static asm_proc_t make_reset_proc()
     }
 
     // Init the NMI index
-    proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
-    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
+    if(global_t::has_nmi())
+    {
+        proc.push_inst(LDA_IMMEDIATE, locator_t::nmi_index(main.mode_nmi()));
+        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_index));
+    }
 
     // Init the IRQ index
-    proc.push_inst(LDA_IMMEDIATE, locator_t::irq_index(main.mode_irq()));
-    proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_index));
+    if(global_t::has_irq())
+    {
+        proc.push_inst(LDA_IMMEDIATE, locator_t::irq_index(main.mode_irq()));
+        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_index));
+    }
 
     // Init vars
     gen_group_var_inits(gvar_t::groupless_gvars(), proc);
@@ -912,11 +941,30 @@ span_allocator_t alloc_runtime_rom()
 
     // These have to be defined in a toposorted order.
     alloc(RTROM_iota, make_iota());
-    alloc(RTROM_nmi, make_nmi());
-    alloc(RTROM_nmi_exit, make_nmi_exit());
+
+    if(global_t::has_nmi())
+    {
+        alloc(RTROM_nmi, make_nmi());
+        alloc(RTROM_nmi_exit, make_nmi_exit());
+    }
+    else
+    {
+        alloc(RTROM_nmi, make_short_nmi());
+        _rtrom_spans[RTROM_nmi_exit][0] = _rtrom_spans[RTROM_nmi][0];
+    }
+
+    if(global_t::has_irq())
+    {
+        alloc(RTROM_irq, make_irq());
+        alloc(RTROM_irq_exit, make_irq_exit());
+    }
+    else
+    {
+        alloc(RTROM_irq, make_short_irq());
+        _rtrom_spans[RTROM_irq_exit][0] = _rtrom_spans[RTROM_irq][0];
+    }
+
     alloc(RTROM_wait_nmi, make_wait_nmi());
-    alloc(RTROM_irq, make_irq());
-    alloc(RTROM_irq_exit, make_irq_exit());
     alloc(RTROM_reset, make_reset());
     alloc(RTROM_vectors, make_vectors());
 
@@ -936,15 +984,21 @@ span_allocator_t alloc_runtime_rom()
             assert(false);
     }
 
-    auto nmi_tables = make_nmi_tables();
-    alloc(RTROM_nmi_lo_table, std::move(nmi_tables.lo), ROMVF_IN_MODE, nmi_tables.alignment);
-    alloc(RTROM_nmi_hi_table, std::move(nmi_tables.hi), ROMVF_IN_MODE, nmi_tables.alignment);
-    alloc(RTROM_nmi_bank_table, std::move(nmi_tables.bank), ROMVF_IN_MODE, nmi_tables.alignment);
+    if(global_t::has_nmi())
+    {
+        auto nmi_tables = make_nmi_tables();
+        alloc(RTROM_nmi_lo_table, std::move(nmi_tables.lo), ROMVF_IN_MODE, nmi_tables.alignment);
+        alloc(RTROM_nmi_hi_table, std::move(nmi_tables.hi), ROMVF_IN_MODE, nmi_tables.alignment);
+        alloc(RTROM_nmi_bank_table, std::move(nmi_tables.bank), ROMVF_IN_MODE, nmi_tables.alignment);
+    }
 
-    auto irq_tables = make_irq_tables();
-    alloc(RTROM_irq_lo_table, std::move(irq_tables.lo), ROMVF_IN_MODE, irq_tables.alignment);
-    alloc(RTROM_irq_hi_table, std::move(irq_tables.hi), ROMVF_IN_MODE, irq_tables.alignment);
-    alloc(RTROM_irq_bank_table, std::move(irq_tables.bank), ROMVF_IN_MODE, irq_tables.alignment);
+    if(global_t::has_irq())
+    {
+        auto irq_tables = make_irq_tables();
+        alloc(RTROM_irq_lo_table, std::move(irq_tables.lo), ROMVF_IN_MODE, irq_tables.alignment);
+        alloc(RTROM_irq_hi_table, std::move(irq_tables.hi), ROMVF_IN_MODE, irq_tables.alignment);
+        alloc(RTROM_irq_bank_table, std::move(irq_tables.bank), ROMVF_IN_MODE, irq_tables.alignment);
+    }
 
     assert(runtime_span(RTROM_nmi_exit, {}));
     assert(runtime_span(RTROM_irq_exit, {}));

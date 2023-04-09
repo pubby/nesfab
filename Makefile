@@ -10,12 +10,12 @@ test: tests
 	./tests
 
 define compile
-@printf '\033[32mCXX $@\033[0m'
+@printf '\033[32mCXX $@\033[m\n'
 $(CXX) $(CXXFLAGS) -c -o $@ $<
 endef
 
 define deps
-@printf '\033[32mDEPS $@\033[0m'
+@printf '\033[32mDEPS $@\033[m\n'
 $(CXX) $(CXXFLAGS) -MM -MP -MT '\
 $(patsubst $(SRCDIR)/%,$(OBJDIR)/%,$(<:.cpp=.o)) \
 $(patsubst $(SRCDIR)/%,$(OBJDIR)/%,$(<:.cpp=.d))\

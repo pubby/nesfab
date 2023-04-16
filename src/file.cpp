@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <stdexcept>
 #include <deque>
+#include <mutex>
 
 #include "robin/set.hpp"
 

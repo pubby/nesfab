@@ -110,7 +110,10 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
             _options.resource_dirs.push_back(dir / fs::path(str));
 
     if(vm.count("output"))
-        _options.output_file = vm["output"].as<std::string>();
+        _options.output_file = (dir / fs::path(vm["output"].as<std::string>())).string();
+
+    if(vm.count("mlb"))
+        _options.raw_mlb = (dir / fs::path(vm["mlb"].as<std::string>())).string();
 
     if(vm.count("graphviz"))
         _options.graphviz = true;
@@ -185,9 +188,6 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("unsafe-bank-switch"))
         _options.unsafe_bank_switch = true;
-
-    if(vm.count("mlb"))
-        _options.raw_mlb = vm["mlb"].as<std::string>();
 }
 
 int main(int argc, char** argv)

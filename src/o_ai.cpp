@@ -495,7 +495,7 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
         switch(cfg_node->input_size())
         {
         case 0:
-            throw std::runtime_error(fmt("Local lookup failed. % %", ssa_node, cfg_node));
+            throw std::runtime_error(fmt("Local lookup failed. % % %", ssa_node, cfg_node, cfg_node->input_size()));
         case 1:
             return local_lookup(cfg_node->input(0), ssa_node);
         default:
@@ -625,6 +625,7 @@ void ai_t::insert_traces()
                 constexpr type_name_t type_name = TYPE_BOOL;
 
                 cfg_ht const cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
+                assert(cfg_trace->input_size() == 1 && cfg_trace->output_size() == 1);
                 new_cfg(cfg_trace);
                 insert_trace(cfg_trace, condition.handle(), ssa_value_t(i, type_name), 0);
             }
@@ -639,6 +640,7 @@ void ai_t::insert_traces()
                 passert(type_name == TYPE_U || type_name == TYPE_S, type_name);
 
                 cfg_ht const cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
+                assert(cfg_trace->input_size() == 1 && cfg_trace->output_size() == 1);
                 new_cfg(cfg_trace);
                 insert_trace(cfg_trace, condition.handle(), ssa_value_t(ssa_branch.input(j).fixed(), type_name), 0);
             }
@@ -1809,7 +1811,7 @@ void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
                     // we're only checking if the default case is forced.
                     // Any other case will fail.
 
-                    for(unsigned j = 1; j < branch->output_size(); ++j)
+                    for(unsigned j = 1; j < branch->input_size(); ++j)
                         if(c(branch->input(j).signed_fixed(), def.cm))
                             goto no_case;
 

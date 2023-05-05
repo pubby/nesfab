@@ -26,6 +26,7 @@
 #include "string.hpp"
 #include "mlb.hpp"
 #include "macro.hpp"
+#include "guard.hpp"
 
 extern char __GIT_COMMIT;
 
@@ -192,6 +193,20 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 int main(int argc, char** argv)
 {
     auto entry_time = std::chrono::system_clock::now();
+
+    auto write_info = make_scope_guard([&]() {
+        for(fn_t const& fn : fn_ht::values())
+        {
+            std::filesystem::create_directory("info/");
+
+            if(std::stringstream const* ss = fn.info_stream())
+            {
+                std::ofstream of(fmt("info/%.txt", fn.global.name));
+                if(of.is_open())
+                    of << ss->str() << std::endl;
+            }
+        }
+    });
 
 #ifdef NDEBUG
     try
@@ -551,18 +566,6 @@ int main(int argc, char** argv)
         }
         std::fclose(of);
         output_time("link:     ");
-
-        for(fn_t const& fn : fn_ht::values())
-        {
-            std::filesystem::create_directory("info/");
-
-            if(std::stringstream const* ss = fn.info_stream())
-            {
-                std::ofstream of(fmt("info/%.txt", fn.global.name));
-                if(of.is_open())
-                    of << ss->str() << std::endl;
-            }
-        }
 
         if(mlb_out)
             print_mlb(mlb_out);

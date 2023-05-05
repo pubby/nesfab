@@ -76,6 +76,7 @@ class eval_t
 private:
     pstring_t pstring = {};
     fn_t* fn = nullptr;
+    fn_t* base_fn; // Used for inlining.
     stmt_t const* stmt = nullptr;
     ir_t* ir = nullptr;
     bc::small_vector<rval_t, 8> interpret_locals;
@@ -447,6 +448,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t* fn_ref,
                romv_t romv)
 : pstring(pstring)
 , fn(fn_ref)
+, base_fn(fn_ref)
 , start_time(clock::now())
 , local_consts(local_consts)
 , romv(romv)
@@ -468,6 +470,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t& fn_ref,
                local_const_t const* local_consts)
 : pstring(pstring)
 , fn(&fn_ref)
+, base_fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , start_time(clock::now())
 , local_consts(local_consts)
@@ -499,6 +502,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t& fn_ref,
 
 eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
 : fn(&fn_ref)
+, base_fn(&fn_ref)
 , stmt(fn_ref.def().stmts.data())
 , ir(&ir_ref)
 , start_time(clock::now())
@@ -565,7 +569,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
     });
 
     // Insert nodes for gmember set reads
-    ir->gmanager.for_each_gmember_set(fn->handle(),
+    ir->gmanager.for_each_gmember_set(base_fn->handle(),
     [&](bitset_uint_t const* gmember_set, gmanager_t::index_t i, locator_t locator)
     {
         var_ht const var_i = to_var_i(i);
@@ -573,8 +577,9 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
         assert(block.vars.size() == var_types.size());
         assert(block.var(var_i).size() == 1);
 
-        block.var(var_i)[0] = ir->root->emplace_ssa(
+        ssa_ht const read = ir->root->emplace_ssa(
             SSA_read_global, var_type(var_i), entry, locator);
+        block.var(var_i)[0] = read;
     });
 
     // Create all of the SSA graph, minus the exit node:
@@ -667,6 +672,7 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
 eval_t::eval_t(eval_t const& parent, ir_t& ir_ref, fn_t& fn_ref, ir_builder_t& builder,
                cfg_ht pre_entry, cfg_ht& exit, expr_value_t const* args, rval_t& return_rval)
 : fn(&fn_ref)
+, base_fn(parent.base_fn)
 , stmt(fn_ref.def().stmts.data())
 , ir(&ir_ref)
 , start_time(clock::now())
@@ -1609,7 +1615,7 @@ void eval_t::compile_block()
 
             xbitset_t<gmember_ht> rw(0);
 
-            ir->gmanager.for_each_gmember_set(fn->handle(),
+            ir->gmanager.for_each_gmember_set(base_fn->handle(),
             [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
             {
                 rw = fn->fence_rw();
@@ -2841,7 +2847,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             bitset_or(gmember_bs_size, preserved_bs, gv->gmembers().data());
                         });
 
-                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        ir->gmanager.for_each_gmember_set(base_fn->handle(),
                         [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
                         {
                             bitset_copy(gmember_bs_size, temp_bs, preserved_bs);
@@ -2871,7 +2877,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         // Use 'ir_reads()' to determine which members are needed by the called fn.
 
-                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        ir->gmanager.for_each_gmember_set(base_fn->handle(),
                         [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
                         {
                             bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
@@ -2955,7 +2961,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             }
                         });
 
-                        ir->gmanager.for_each_gmember_set(fn->handle(),
+                        ir->gmanager.for_each_gmember_set(base_fn->handle(),
                         [&](bitset_uint_t const* gvar_set, gmanager_t::index_t index, locator_t locator)
                         {
                             bitset_copy(gmember_bs_size, temp_bs, gvar_set);

@@ -171,6 +171,9 @@ void gmanager_t::init(fn_ht fn)
         // OK! The equivalence classes are built.
         // Now associate each variable with its eq class.
 
+        assert(gmember_sets.empty());
+        assert(gmember_sets_map.empty());
+
         gmember_sets.reserve(gmember_sets.size() + eq_classes.size());
         for(unsigned i = 0; i < eq_classes.size(); ++i)
         {

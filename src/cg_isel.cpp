@@ -4586,7 +4586,7 @@ namespace isel
                     cpu.defs[reg] = m.main;
             }
 
-            if(m.phi)
+            if(m.phi && reg != REG_C)
             {
                 unsigned const size = vec.size();
                 for(unsigned i = 0; i < size; ++i)

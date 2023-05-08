@@ -1889,9 +1889,8 @@ void gmember_t::alloc_spans()
 
 locator_t const* gmember_t::init_data(unsigned atom, loc_vec_t const& vec) const
 {
-    unsigned const size = init_size();
     unsigned const offset = ::member_offset(gvar.type(), member());
-    return vec.data() + offset + (atom * size);
+    return vec.data() + offset + atom;
 }
 
 locator_t const* gmember_t::init_data(unsigned atom) const
@@ -1904,6 +1903,11 @@ std::size_t gmember_t::init_size() const
     return ::num_offsets(type());
 }
 
+std::size_t gmember_t::init_span() const
+{
+    return ::num_atoms(type(), 0);
+}
+
 bool gmember_t::zero_init(unsigned atom) const
 {
     if(!gvar.init_expr)
@@ -1912,10 +1916,11 @@ bool gmember_t::zero_init(unsigned atom) const
     if(loc_vec_t const* vec = std::get_if<loc_vec_t>(&gvar.init_data()))
     {
         std::size_t const size = init_size();
+        std::size_t const span = init_span();
         locator_t const* data = init_data(atom, *vec);
 
         for(unsigned i = 0; i < size; ++i)
-            if(!data[i].eq_const(0))
+            if(!data[i * span].eq_const(0))
                 return false;
 
         return true;

@@ -667,6 +667,7 @@ public:
 
     locator_t const* init_data(unsigned atom) const;
     std::size_t init_size() const;
+    std::size_t init_span() const;
 
     void alloc_spans();
     span_t span(unsigned atom) const 

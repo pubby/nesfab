@@ -174,7 +174,6 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             a.arg = b.arg;
             b.op = AND_IMMEDIATE;
             b.arg = imm;
-            changed = true;
         }
 
         switch(op_name(a.op))

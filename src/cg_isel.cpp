@@ -1153,18 +1153,23 @@ namespace isel
         constexpr op_t absolute_X = get_op(OpName, MODE_ABSOLUTE_X);
         constexpr op_t absolute_Y = get_op(OpName, MODE_ABSOLUTE_Y);
 
-        bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array8_direct;
-
         if(implied != BAD_OP && !Arg::trans())
             simple_op<implied>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
         else if(relative != BAD_OP )
             simple_op<relative>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
-        else if(immediate != BAD_OP && Arg::trans().is_immediate())
-            simple_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
-        else if((absolute_X != BAD_OP || absolute_Y) && read_direct)
-            pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y, absolute>::call(cpu, prev, cont);
-        else if(absolute != BAD_OP && !Arg::trans().is_immediate() && !read_direct)
-            exact_op<absolute>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
+        else if(Arg::trans().is_immediate())
+        {
+            if(immediate != BAD_OP)
+                simple_op<immediate>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
+        } 
+        else 
+        {
+            bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array8_direct;
+            if((absolute_X != BAD_OP || absolute_Y != BAD_OP) && read_direct)
+                pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y, absolute>::call(cpu, prev, cont);
+            else if(absolute != BAD_OP && !read_direct)
+                exact_op<absolute>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
+        }
     }
 
     template<typename Opt, typename Label, bool Sec> [[gnu::noinline]]
@@ -4198,7 +4203,7 @@ namespace isel
                 {
                     select_step<true>(
                         chain
-                        < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
+                        < exact_op<Opt, JMP_ABSOLUTE, null_, p_arg<0>>
                         , set_defs<Opt, REGF_ISEL, false, null_>
                         >);
                 }

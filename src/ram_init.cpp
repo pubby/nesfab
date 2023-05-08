@@ -166,17 +166,26 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
             gmember_t const& gmember = *is->gmember;
             gvar_t const& gvar = gmember.gvar;
 
-            unsigned const size = gmember.init_size();
-            locator_t const* data = gmember.init_data(is->atom);
+            unsigned init_size = gmember.init_size();
+            assert(init_size > 0);
+            unsigned const init_span = gmember.init_span();
+            locator_t const* init_data = gmember.init_data(is->atom);
 
-            passert(size == is->span().size, size, is->span().size, gvar.global.name);
+            passert(init_size == is->span().size, init_size, is->span().size, gvar.global.name);
             assert(vec.size() < 256);
 
-            if(vec.size() + size >= 256)
+            while(vec.size() + init_size >= 256)
             {
                 assert(span_left.size >= 256);
 
-                vec.insert(vec.end(), data, data + (256 - vec.size()));
+                while(vec.size() < 256)
+                {
+                    assert(init_size);
+                    vec.push_back(*init_data);
+                    init_data += init_span;
+                    init_size -= 1;
+                }
+
                 assert(vec.size() == 256);
 
                 value_combined.push_back({ span_t{ span_left.addr, 256 }, rom_array_t::make(std::move(vec), false, ROMR_NORMAL) });
@@ -185,8 +194,9 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
                 span_left.addr += 256;
                 span_left.size -= 256;
             }
-            else
-                vec.insert(vec.end(), data, data + size);
+
+            for(unsigned i = 0; i < init_size; ++i)
+                vec.push_back(init_data[i * init_span]);
         }
 
         assert(span_left.size <= 256);

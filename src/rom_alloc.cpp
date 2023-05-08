@@ -11,6 +11,7 @@
 #include "eternal_new.hpp"
 #include "span_allocator.hpp"
 #include "debug_print.hpp"
+#include "lt.hpp"
 
 class rom_allocator_t
 {
@@ -87,7 +88,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
     std::vector<rh::batman_set<rom_proc_ht>> rom_array_used_by(rom_array_ht::pool().size());
     std::vector<rh::batman_set<rom_array_ht>> rom_proc_directly_uses(rom_proc_ht::pool().size());
 
-    auto const try_insert = [&](rom_proc_ht proc, locator_t loc)
+    std::function<void(rom_proc_ht, locator_t)> try_insert = [&](rom_proc_ht proc, locator_t loc)
     {
         if(rom_data_ht data = loc.rom_data())
         {
@@ -98,10 +99,15 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
                 rom_array_used_by[rom_array.id].insert(proc);
             }
         }
+        else if(loc.lclass() == LOC_LT_EXPR)
+            loc.lt()->for_each_locator([&](locator_t loc) { try_insert(proc, loc); });
     };
 
     for(rom_proc_ht proc : rom_proc_ht::handles())
     {
+        if(!proc->emits())
+            continue;
+
         for(asm_inst_t const& inst : proc->asm_proc().code)
         {
             try_insert(proc, inst.arg);
@@ -334,6 +340,12 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
     for(rom_proc_ht rom_proc_h : rom_proc_ht::handles())
     {
         rom_proc_t& rom_proc = *rom_proc_h;
+
+        if(!rom_proc.emits())
+        {
+            dprint(log, "--SKIPPING (no emit)", rom_proc_h);
+            continue;
+        }
 
         // Build the 'use_many' and 'use_once' bitsets for this function.
 
@@ -692,7 +704,7 @@ void print_rom(std::ostream& o)
 
     for(fn_t const& fn : fn_ht::values())
     {
-        o << "\n\n" << fn.global.name << ": \n";
+        o << "\n\n" << fn.global.name << " / " << fn.rom_proc() << ": \n";
         for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
             if(auto a = fn.rom_proc()->get_alloc(romv_t(romv)))
@@ -710,7 +722,7 @@ void print_rom(std::ostream& o)
         if(!c.rom_array())
             continue;
 
-        o << "\n\n" << c.global.name << " / " << c.rom_array() << ": \n";
+        o << "\n\n" << c.global.name << " / " << c.rom_array() << ": " << "\n";
         for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
             if(!c.rom_array())
@@ -731,7 +743,7 @@ void print_rom(std::ostream& o)
     {
         if(!gv.init_proc())
             continue;
-        o << "\n\n" << gv.group.name << ": \n";
+        o << "\n\n" << gv.group.name << " / " << gv.init_proc() << ": \n";
         for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
             if(auto a = gv.init_proc()->get_alloc(romv_t(romv)))

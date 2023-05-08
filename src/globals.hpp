@@ -323,6 +323,10 @@ struct mode_impl_t : public fn_impl_base_t
     // (This will be used to verify that all preserved groups are valid.)
     std::mutex incoming_preserved_groups_mutex;
     fc::small_map<group_ht, pstring_t, 16> incoming_preserved_groups;
+
+    // Superset of 'm_precheck_group_vars',
+    // defined as that union'd with the NMI and IRQ 'm_precheck_group_vars'.
+    xbitset_t<group_vars_ht> m_precheck_mode_group_vars;
 };
 
 struct nmi_impl_t : public fn_impl_base_t
@@ -391,6 +395,7 @@ public:
     precheck_tracked_t const& precheck_tracked() const { assert(m_precheck_tracked); return *m_precheck_tracked; }
     auto const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
     auto const& precheck_parent_modes() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_parent_modes; }
+    auto const& mode_group_vars() const { assert(fclass == FN_MODE); return pimpl<mode_impl_t>().m_precheck_mode_group_vars; }
 
     auto const& precheck_rw() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_rw; }
     auto const& precheck_calls() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_calls; }

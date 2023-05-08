@@ -401,6 +401,17 @@ void global_t::precheck_all()
             irq->pimpl<irq_impl_t>().used_in_modes.set(mode->handle().id);
     }
 
+    // Set 'precheck_mode_group_vars':
+    for(fn_t* mode : modes())
+    {
+        auto& bs = mode->pimpl<mode_impl_t>().m_precheck_mode_group_vars;
+        bs = mode->m_precheck_group_vars;
+        if(fn_ht nmi = mode->mode_nmi())
+            bs |= nmi->m_precheck_group_vars;
+        if(fn_ht irq = mode->mode_irq())
+            bs |= irq->m_precheck_group_vars;
+    }
+
     // Determine which rom procs each fn should have:
 
     for(fn_t* mode : modes())

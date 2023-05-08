@@ -664,7 +664,7 @@ static asm_proc_t make_reset_proc()
 
     // Reset mode state:
     fn_t const& main = get_main_mode();
-    main.precheck_group_vars().for_each([&](group_vars_ht gv)
+    main.mode_group_vars().for_each([&](group_vars_ht gv)
     {
         if(gv->has_init())
         {

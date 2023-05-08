@@ -4115,7 +4115,7 @@ namespace isel
                 bool did_reset_nmi = false;
                 bool did_reset_irq = false;
 
-                call.precheck_group_vars().for_each([&](group_vars_ht gv)
+                call.mode_group_vars().for_each([&](group_vars_ht gv)
                 {
                     if(!gv->has_init())
                         return;

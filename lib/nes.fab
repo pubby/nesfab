@@ -330,8 +330,8 @@ vars
 
 // To index into 'palette', these constants provide offsets:
 
-ct Int PALETTE_SPR = 0  // First sprite palette entry
-ct Int PALETTE_BG  = 12 // First background palette entry
+ct Int PALETTE_BG  = 0  // First background palette entry
+ct Int PALETTE_SPR = 12 // First sprite palette entry
 
 // UBC means 'universal background color'.
 // It's the 'palette' element mirrored to PPU addresses $3F00, $3F04, $3F08... etc.

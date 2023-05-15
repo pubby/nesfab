@@ -194,20 +194,6 @@ int main(int argc, char** argv)
 {
     auto entry_time = std::chrono::system_clock::now();
 
-    auto write_info = make_scope_guard([&]() {
-        for(fn_t const& fn : fn_ht::values())
-        {
-            std::filesystem::create_directory("info/");
-
-            if(std::stringstream const* ss = fn.info_stream())
-            {
-                std::ofstream of(fmt("info/%.txt", fn.global.name));
-                if(of.is_open())
-                    of << ss->str() << std::endl;
-            }
-        }
-    });
-
 #ifdef NDEBUG
     try
 #endif
@@ -513,6 +499,20 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_COMPILE);
         global_t::compile_all();
         output_time("compile:  ");
+
+        auto write_info = make_scope_guard([&]() {
+            for(fn_t const& fn : fn_ht::values())
+            {
+                std::filesystem::create_directory("info/");
+
+                if(std::stringstream const* ss = fn.info_stream())
+                {
+                    std::ofstream of(fmt("info/%.txt", fn.global.name));
+                    if(of.is_open())
+                        of << ss->str() << std::endl;
+                }
+            }
+        });
 
         set_compiler_phase(PHASE_ALLOC_RAM);
         alloc_ram(nullptr, ~static_used_ram);

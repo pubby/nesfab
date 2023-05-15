@@ -787,7 +787,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
     {
         loc = loc.link(romv, fn, bank);
         if(!is_const(loc.lclass()))
-            throw std::runtime_error(fmt("Unable to link %", loc));
+            throw std::runtime_error(fmt("Unable to link % (This is probably a bug in the compiler)", loc));
         assert(loc.offset() == 0);
 
         if(loc.is() == IS_PTR_HI)

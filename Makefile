@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "0.4"
+VERSION := "0.5"
 GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always)"
 
 #override CXX:=clang++

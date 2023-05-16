@@ -8,3 +8,4 @@
 ../nesfab scanline_irq/scanline_irq.cfg
 ../nesfab text/text.cfg
 ../nesfab objects/objects.cfg
+../nesfab zapper/zapper.cfg

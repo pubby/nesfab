@@ -63,8 +63,7 @@ endif
 ifeq ($(ARCH),AMD64_OLD)
 override CXXFLAGS+= \
   -mpopcnt \
-  -msse4 \
-  -mcx16
+  -msse3
 endif
 
 debug: CXXFLAGS += -O0 -g

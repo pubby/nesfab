@@ -230,7 +230,8 @@ bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
             }
         case LOC_ARG:
         case LOC_RETURN:
-            return loc.fn() == called || called->ir_calls().test(loc.fn().id);
+            // The current RAM allocator expects this behavior:
+            return true;
         default: 
             return false;
         }

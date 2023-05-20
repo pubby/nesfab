@@ -4339,8 +4339,8 @@ namespace isel
                 using p_ptr_hi = p_arg<6>;
                 using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
 
-                p_array_lo::set(asm_arg(h).with_is(IS_PTR));
-                p_array_hi::set(asm_arg(h).with_is(IS_PTR_HI));
+                p_array_lo::set(asm_arg(h->input(ARRAY)).with_is(IS_PTR));
+                p_array_hi::set(asm_arg(h->input(ARRAY)).with_is(IS_PTR_HI));
 
                 p_index_lo::set(h->input(INDEX));
                 p_index_hi::set(h->input(INDEX_HI));

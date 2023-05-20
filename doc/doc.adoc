@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 0.5
+Version 0.6
 :sectnums:
 :toc2:
 :toclevels: 3

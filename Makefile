@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "0.5"
+VERSION := "0.6"
 GIT_COMMIT := "$(shell git describe --abbrev=8 --dirty --always)"
 
 #override CXX:=clang++
@@ -63,7 +63,14 @@ endif
 ifeq ($(ARCH),AMD64_OLD)
 override CXXFLAGS+= \
   -mpopcnt \
-  -msse3
+  -msse4
+endif
+
+ifeq ($(ARCH),MINGW_CROSS)
+override CXX:=x86_64-w64-mingw32-g++
+override CXXFLAGS+= \
+  -mpopcnt \
+  -msse4
 endif
 
 debug: CXXFLAGS += -O0 -g
@@ -229,6 +236,8 @@ cleandeps:
 
 clean: cleandeps
 	rm -f $(wildcard $(OBJDIR)/*.o)
+	rm -f $(wildcard $(OBJDIR)/lodepng/*.o)
+	rm -f $(wildcard $(OBJDIR)/catch/*.o)
 	rm -f nesfab
 	rm -f lexer_gen
 

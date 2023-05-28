@@ -3663,6 +3663,7 @@ Operator `.` is used to access members and nested values, and works similarly to
 Its behavior depends on the left hand side of the operator:
 
 - For <<type_struct, structure values>>, returns the specified member as an lvalue.
+- For <<type_scalar, scalar values>>, returns the specified byte or pointer member as an lvalue.
 - For <<kw_fn, `fn` values>> and <<type_paa, PAA values>>, returns the <<kw_ct, `ct`>> value in its scope.
 
 Additionally, if the left hand side is an <<kw_asm, `asm fn`>> and the right hand side is a <<kw_label_asm, `label`>>,
@@ -3671,7 +3672,61 @@ the result is a callable function with the label being the entry point.
 Example:
 ----
 foo.bar = 10               // Modify a struct member
+some_uu.a = 10             // Modify a byte
 some_asm_fn.some_label(10) // Call an assembly function
+----
+
+*Scalar value members:*
+
+Scalars of types such as `UU`, `SSSF`, or `CCC` have the following members defined for them, when applicable:
+
+[cols="1,1,1"]
+|===
+|Member |Defined For |Byte
+
+| `.a`
+| Scalars
+| 1st (lowest) whole byte
+
+| `.b`
+| Scalars
+| 2nd whole byte
+
+| `.c`
+| Scalars
+| 3d whole byte
+
+| `.z`
+| Scalars
+| 1st (highest) fractional byte
+
+| `.y`
+| Scalars
+| 2nd fractional byte
+
+| `.x`
+| Scalars
+| 3rd fractional byte
+
+| `.bank`
+| Only Pointers
+| Bank byte
+
+| `.ptr`
+| Only Pointers
+| Non-banked pointer
+
+|===
+
+These members can be read or set using operator `.` like struct members can.
+
+Example:
+
+----
+UUU foo = $123456
+foo.a = 0   // Set the low byte.    foo is now $123400
+foo.b = 0   // Set the middle byte. foo is now $120000
+foo.c = 0   // Set the high byte.   foo is now $000000
 ----
 
 ==== Multiply `*` [[multiply]]
@@ -4475,7 +4530,7 @@ Unicode code points can also be specified directly. Below, each N character repr
 
 == Types
 
-=== Scalar Types
+=== Scalar Types [[type_scalar]]
 
 ==== Integer Types [[type_integer]]
 

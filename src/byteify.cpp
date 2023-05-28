@@ -394,11 +394,11 @@ void byteify(ir_t& ir, fn_t const& fn)
                     type_t t;
 
                     if(loc.lclass() == LOC_ARG)
-                        t = loc.fn()->type().types()[loc.arg()];
+                        t = member_type(loc.fn()->type().types()[loc.arg()], loc.member());
                     else if(loc.lclass() == LOC_RETURN)
                     {
                         assert(ssa_it->op() == SSA_return);
-                        t = fn.type().return_type();
+                        t = member_type(fn.type().return_type(), loc.member());
                     }
                     else if(loc.lclass() == LOC_GMEMBER)
                         t = loc.gmember()->type();
@@ -416,6 +416,7 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     unsigned const start = begin_byte(t.name());
                     unsigned const end = end_byte(t.name());
+                    assert(end - start > 0);
                     for(unsigned j = start; j < end; ++j)
                     {
                         locator_t new_loc = loc;

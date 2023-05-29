@@ -4275,6 +4275,14 @@ namespace isel
             }
             break;
 
+        case SSA_phi:
+            if(is_tea(h->type().name()))
+            {
+                copy_array<Opt>(h->input(0), h);
+                break;
+            }
+            goto simple;
+
         case SSA_phi_copy:
             if(!orig_def(h->input(0)).holds_ref() || cset_head(h) != cset_head(h->input(0).handle()))
             {

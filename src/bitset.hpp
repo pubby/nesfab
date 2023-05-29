@@ -283,6 +283,20 @@ bool bitset_for_each_test(std::size_t size, UInt* bitset, Fn fn)
     return true;
 }
 
+// Calls 'fn' for each set bit of the bitset, in reverse order.
+template<typename Bit = unsigned, typename UInt, typename Fn>
+void bitset_for_each_reverse(UInt bitset, Fn fn, unsigned span = 0)
+{
+    while(bitset)
+    {
+        std::size_t bit = builtin::rclz(bitset);
+        assert(bitset & (1ull << bit));
+        bitset ^= 1ull << bit;
+        assert(!(bitset & (1ull << bit)));
+        fn(Bit{bit + span});
+    }
+}
+
 template<typename UInt>
 int bitset_lowest_bit_set(std::size_t size, UInt* bitset)
 {

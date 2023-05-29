@@ -2294,7 +2294,8 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
             return phi->output(0)->input(input);
         });
     });
-    bitset_for_each(back_edge_inputs, [&](unsigned input)
+
+    bitset_for_each_reverse(back_edge_inputs, [&](unsigned input)
     {
         auto ie = header_cfg->input_edge(input);
         ie.handle->link_remove_output(ie.index);
@@ -2326,6 +2327,8 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
     ::build_order(ir);
     ::build_dominators_from_order(ir);
 
+    assert(dominates(header_cfg, new_branch_cfg));
+
     // Rewrite outputs of phi nodes from 'header_cfg'.
     // NOTE: this also rewrites the inputs of stolen nodes in 'new_branch_cfg'.
     assert(new_branch_cfg->output(!exit_output) == header_cfg);
@@ -2334,20 +2337,24 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
     for(ssa_ht phi = back_edge.handle->phi_begin(); phi; ++phi/*, ++i*/)
     {
         ssa_value_t const replace_with = phi->input(back_edge.index);
+        assert(!realloc_phis || replace_with->op() == SSA_phi);
+        assert(!realloc_phis || replace_with->cfg_node() == new_branch_cfg);
 
         for(unsigned i = 0; i < phi->output_size();)
         {
             auto const oe = phi->output_edge(i);
-            if(dominates(new_branch_cfg, oe.handle->cfg_node())
-               || (oe.handle->op() == SSA_phi
-                   && oe.handle->cfg_node()->input(oe.index) == new_branch_cfg))
+
+            if(oe.handle != replace_with 
+               && (dominates(new_branch_cfg, oe.handle->cfg_node())
+                   || (oe.handle->op() == SSA_phi
+                       && oe.handle->cfg_node()->input(oe.index) == new_branch_cfg)))
             {
                 oe.handle->link_change_input(oe.index, replace_with);
-                if(replace_with == phi && phi->output(i) == oe.handle)
-                    ++i;
+                if(replace_with != phi || phi->output(i) != oe.handle)
+                    continue;
             }
-            else
-                ++i;
+
+            ++i;
         }
     }
 

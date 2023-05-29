@@ -2161,7 +2161,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
                     return phi->input(0)->input(input);
                 });
             });
-            bitset_for_each(back_edge_inputs, [&](unsigned input)
+            bitset_for_each_reverse(back_edge_inputs, [&](unsigned input)
             {
                 auto ie = header_cfg->input_edge(input);
                 ie.handle->link_remove_output(ie.index);

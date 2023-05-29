@@ -320,7 +320,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
                 if(ssa_it->input(1).eq_fixed({ type_min(lt) + type_unit(lt) }))
                 {
-                    ssa_it->link_change_input(1, ssa_value_t(type_min(rt), rt));
+                    ssa_it->link_change_input(1, ssa_value_t(type_min(lt), lt));
                     ssa_it->unsafe_set_op(SSA_eq);
                     updated = true;
                     break;
@@ -400,7 +400,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
                 if(ssa_it->input(0).eq_fixed({ type_min(rt) + type_unit(rt) }))
                 {
-                    ssa_it->link_change_input(0, ssa_value_t(type_min(lt), lt));
+                    ssa_it->link_change_input(0, ssa_value_t(type_min(rt), rt));
                     ssa_it->unsafe_set_op(SSA_not_eq);
                     updated = true;
                     break;

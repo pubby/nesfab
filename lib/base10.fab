@@ -1,0 +1,166 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for dealing with base 10 arrays,
+// which are most useful for display numbers on the screen.
+// A base 10 digit is a byte in the range [0, 9].
+
+///////////////////////////////////////////////////////////////////////////////
+// CONVERSION /////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Converts a U value to two base 10 digits, representing [0, 99].
+fn u_to_dd(U v) U[2]
+: +inline
+    base10_input.a = v
+    to_base10.to_99()
+    return U[2](base10_result)
+
+// Converts a U value to three base 10 digits, representing [0, 255].
+fn u_to_ddd(U v) U[3]
+: +inline
+    base10_input.a = v
+    to_base10.to_255()
+    return U[3](base10_result)
+
+// Converts a UU value to three base 10 digits, representing [0, 999].
+fn uu_to_ddd(UU v) U[3]
+: +inline
+    base10_input = v
+    to_base10.to_999()
+    return U[3](base10_result)
+
+// Converts a UU value to five base 10 digits, representing [0, 65535].
+fn uu_to_ddddd(UU v) U[5]
+: +inline
+    base10_input = v
+    to_base10.to_65535()
+    return base10_result
+
+// Implementation details.
+vars /base10
+    UU base10_input
+    U[5] base10_result
+
+// Implementation detail.
+// This routine was originally copyright (c) 2014, Omegamatrix,
+// then modified by Patrick Bene in 2023.
+// Source: https://forums.nesdev.org/viewtopic.php?t=11341&start=15
+asm fn to_base10()
+: employs /base10
+: +align
+    vars
+        U temp
+    label mult_24_table
+         U[]($00,$18,$30,$48,$60,$78,$90,$A8,$C0,$D8)
+         U[]($F0,$09,$21,$39,$51,$69,$81,$99,$B1,$C9)
+         U[]($E1,$F9,$12,$2A,$42,$5A,$72,$8A,$A2,$BA)
+         U[]($D2,$EA,$03,$1B,$33,$4B,$63,$7B,$93,$AB)
+         U[]($C3,$DB,$F3,$0C,$24,$3C,$54,$6C,$84,$9C)
+         U[]($B4,$CC,$E4,$FC,$15,$2D,$45,$5D,$75,$8D)
+         U[]($A5,$BD,$D5,$ED,$06,$1E)
+    label mod_100_table
+        U[](0,56,12,56+12)
+    label shifted_bcd_table
+        U[]($00,$01,$02,$03,$04,$08,$09,$0A,$0B,$0C)
+        U[]($10,$11,$12,$13,$14,$18,$19,$1A,$1B,$1C)
+        U[]($20,$21,$22,$23,$24,$28,$29,$2A,$2B,$2C)
+        U[]($30,$31,$32,$33,$34,$38,$39,$3A,$3B,$3C)
+        U[]($40,$41,$42,$43,$44,$48,$49,$4A,$4B,$4C)
+    label to_65535
+        lax &base10_input.b
+        lsr
+        lsr            // integer divide 1024 (result 0-63)
+
+        cpx #$A7       // account for overflow of multiplying 24 from 43,000 ($A7F8) onward,
+        adc #0         // we can just round it to $A700, and the divide by 1024 is fine...
+        tay
+        lax mult_24_table+1, y
+        and #$F8
+        adc &base10_input.a
+        txa
+        and #$07
+        adc &base10_input.b
+        ror
+        lsr
+        tay            // integer divide 1,000 (result 0-65)
+
+        lsr            // split the 1,000 and 10,000 digit
+        tax
+        lda shifted_bcd_table, x
+        tax
+        rol
+        and #$0F
+        sta &base10_result+3
+        txa
+        lsr
+        lsr
+        lsr
+        sta &base10_result+4
+
+        // at this point we have a number 0-65 that we have to times by 24,
+        // add to original sum, and Mod 1024 to get the remainder 0-999
+
+        lax mult_24_table, y 
+        and #$F8
+        clc
+        adc &base10_input.a
+        sta &temp
+        txa
+        adc &base10_input.b
+    label start_100s
+        and #$03
+        tay
+        cmp #2
+        rol
+        tax            // Hundreds digit
+
+        lda &temp
+        adc mod_100_table, y // adding remainder of 256, 512, and 256+512 (all mod 100)
+        bcs do_sub_200
+
+    label try_200
+        cmp #200
+        bcc try_100
+    label do_sub_200
+        inx
+        inx
+        sbc #200
+    label try_100
+        cmp #100
+        bcc do_99
+        inx
+        sbc #100
+    label do_99
+        stx &base10_result+2
+        lsr
+        tay
+        lax shifted_bcd_table, y
+        rol
+        and #$0F
+        sta &base10_result+0
+        txa
+        lsr
+        lsr
+        lsr
+        sta &base10_result+1
+    default
+        rts
+
+    label to_99
+        lda &base10_input.a
+        jmp do_99
+
+    label to_255
+        lda &base10_input.a
+        ldx #0
+        beq try_200
+
+    label to_999
+        lda &base10_input.a
+        sta &temp
+        lda &base10_input.b
+        jmp start_100s

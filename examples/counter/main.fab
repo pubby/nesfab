@@ -1,0 +1,24 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Prints a constantly increasing number on the screen.
+
+chrrom
+    file(fmt, "font.png")
+
+mode main()
+    palette = example_palette
+    ppu_upload_palette()
+
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
+    for UU i = 0; true; i += randb(10) + 1
+        nmi
+        ppu_reset_addr($218E)
+        U[5] array = uu_to_ddddd(i)
+        do for U i = 4; i != $FF; i -= 1
+            {PPUDATA}(array[i] + $10)
+        ppu_reset_scroll(0, 0)

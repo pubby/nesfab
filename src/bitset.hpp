@@ -289,7 +289,8 @@ void bitset_for_each_reverse(UInt bitset, Fn fn, unsigned span = 0)
 {
     while(bitset)
     {
-        std::size_t bit = builtin::rclz(bitset);
+        std::size_t bit = builtin::rclz(bitset) - 1;
+        assert(builtin::popcount(bit) == 1);
         assert(bitset & (1ull << bit));
         bitset ^= 1ull << bit;
         assert(!(bitset & (1ull << bit)));

@@ -130,11 +130,12 @@ asm fn to_base10()
         sbc #200
     label try_100
         cmp #100
-        bcc do_99
+        bcc store_hundreds
         inx
         sbc #100
-    label do_99
+    label store_hundreds
         stx &base10_result+2
+    label do_99
         lsr
         tay
         lax shifted_bcd_table, y

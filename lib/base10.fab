@@ -52,8 +52,7 @@ vars /base10
 asm fn to_base10()
 : employs /base10
 : +align
-    vars
-        U temp
+    ct AA temp = &base10_result+0
     label mult_24_table
          U[]($00,$18,$30,$48,$60,$78,$90,$A8,$C0,$D8)
          U[]($F0,$09,$21,$39,$51,$69,$81,$99,$B1,$C9)
@@ -108,7 +107,7 @@ asm fn to_base10()
         and #$F8
         clc
         adc &base10_input.a
-        sta &temp
+        sta temp
         txa
         adc &base10_input.b
     label start_100s
@@ -118,7 +117,7 @@ asm fn to_base10()
         rol
         tax            // Hundreds digit
 
-        lda &temp
+        lda temp
         adc mod_100_table, y // adding remainder of 256, 512, and 256+512 (all mod 100)
         bcs do_sub_200
 
@@ -161,6 +160,6 @@ asm fn to_base10()
 
     label to_999
         lda &base10_input.a
-        sta &temp
+        sta temp
         lda &base10_input.b
         jmp start_100s

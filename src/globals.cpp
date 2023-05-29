@@ -1200,7 +1200,7 @@ void fn_t::compile()
     {
 #define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { \
     changed = true; \
-    /*assert((std::printf("DID_O %s %s\n", global.name.c_str(), #o), true));*/ } \
+    /*assert((std::printf("DID_O %s %s %i\n", global.name.c_str(), #o, iter), true));*/ } \
     ir.assert_valid(); \
     } while(false)
 

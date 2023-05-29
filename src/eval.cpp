@@ -2385,7 +2385,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 i -= fn.def().num_params;
                                 for(unsigned j = 0; j < fn.def().local_consts.size(); ++j)
                                 {
-                                    if(fn.def().local_consts[j].is_label() && i-- == 0)
+                                    if(i-- == 0 && fn.def().local_consts[j].is_label())
                                     {
                                         lhs.lval().label = j; // OK! Found the label.
                                         goto finish_period;

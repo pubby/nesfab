@@ -75,6 +75,7 @@ static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_req
         page_bitset_t page = page_bitset_t::filled(0, (size > 256) ? 1 : (257 - size));
         assert(page.test(0));
         ram_bitset_t aligned = usable_ram;
+        bitset_mark_consecutive(aligned.size(), aligned.data(), size);
 
         static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
 
@@ -941,6 +942,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
             fn.assign_lvar_span(romv, lvar_i, span); 
 
         ram_bitset_t const filled = ram_bitset_t::filled(span.addr, span.size);
+        assert((lvar_usable_ram[lvar_i] & filled) == filled);
         d.lvar_ram[romv] |= filled;
         d.usable_ram[romv] -= d.lvar_ram[romv];
 

@@ -2597,8 +2597,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(is_tea)
                     result_type = type_t::tea(result_type, tea_length);
 
-                assert(shift >= 0);
-
             have_member:
 
                 if(lhs.is_strval())

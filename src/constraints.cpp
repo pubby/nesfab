@@ -997,7 +997,7 @@ ABSTRACT(SSA_init_array) = ABSTRACT_FN
 
     for(unsigned i = 0; i < result.vec.size(); ++i)
     {
-        assert(cv[i].vec.size() == 1);
+        passert(cv[i].vec.size() <= 2, cv[i].vec.size());
         result[i] = cv[i][0];
     }
 };

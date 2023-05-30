@@ -947,7 +947,7 @@ cfg_ht ir_t::merge_edge(cfg_ht cfg_h)
 }
 
 #ifndef NDEBUG
-void ir_t::assert_valid() const
+void ir_t::assert_valid(bool cg) const
 {
     assert(root);
 
@@ -1036,8 +1036,9 @@ void ir_t::assert_valid() const
                 assert(ssa_it->input_size() % 2 == 0);
                 for(unsigned i = 0; i < ssa_it->input_size(); i += 2)
                 {
-                    if(i + 2 != ssa_it->input_size())
-                        assert(ssa_it->input(i).type() == ssa_it->input(i+1).type());
+                    if(!cg && i + 2 != ssa_it->input_size())
+                        passert(ssa_it->input(i).type() == ssa_it->input(i+1).type(),
+                                ssa_it->input(i).type(), ssa_it->input(i+1).type());
                 }
             }
 

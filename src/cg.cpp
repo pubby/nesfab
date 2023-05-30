@@ -228,7 +228,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     ////////////////
 
     locate_rom_arrays(ir, fn.rom_proc());
-    ir.assert_valid();
+    ir.assert_valid(true);
 
     ///////////////////
     // DUPLICATE RTS //
@@ -269,7 +269,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // COPY INSERTION //
     ////////////////////
 
-    ir.assert_valid();
+    ir.assert_valid(true);
 
     // Copies will be inserted to convert out of SSA form.
     // Additionally, copies will be used to pin locators to memory.
@@ -343,7 +343,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             locator_t const loc = ssa_it->input(1).locator().mem_head();
             global_loc_map[loc].copies.push_back({ ssa_it });
 
-            ir.assert_valid();
+            ir.assert_valid(true);
         }
         else if(ssa_flags(op) & SSAF_WRITE_GLOBALS)
         {
@@ -391,7 +391,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 }
             }
 
-            ir.assert_valid();
+            ir.assert_valid(true);
         }
         else if(op == SSA_phi)
         {
@@ -413,23 +413,23 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 cfg_ht cfg_pred = cfg_it->input(i);
                 ssa_fwd_edge_t ie = ssa_it->input_edge(i);
 
-                ir.assert_valid();
+                ir.assert_valid(true);
                 
                 ssa_ht copy;
                 if(ie.holds_ref())
                 {
-                    ir.assert_valid();
+                    ir.assert_valid(true);
                     ssa_value_t input = ie.handle();
                     ssa_ht store = split_output_edge(input.handle(), true, ie.index(), SSA_early_store);
-                    ir.assert_valid();
+                    ir.assert_valid(true);
                     copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), store);
                     phi_copies.push_back({ copy });
-                    ir.assert_valid();
+                    ir.assert_valid(true);
                 }
                 else
                 {
                     copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), ie);
-                    ir.assert_valid();
+                    ir.assert_valid(true);
                 }
 
                 ssa_it->link_change_input(i, copy);
@@ -449,7 +449,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             if(last.holds_ref())
                 phi_csets.push_back(last.handle());
 
-            ir.assert_valid();
+            ir.assert_valid(true);
         }
     }
 
@@ -474,7 +474,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // SCHEDULING //
     ////////////////
 
-    ir.assert_valid();
+    ir.assert_valid(true);
     schedule_ir(ir);
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)

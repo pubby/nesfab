@@ -1600,7 +1600,7 @@ void eval_t::compile_block()
             {
                 for(gmember_ht m : gvar->handles())
                 {
-                    //if(fn->fence_rw().test(m.id))
+                    if(fn->fence_rw().test(m.id))
                     {
                         inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                         inputs.push_back(locator_t::gmember(m, 0));
@@ -2879,6 +2879,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
                         {
                             bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
+                            if(call->precheck_fences())
+                                bitset_or(gmember_bs_size, temp_bs, call->fence_rw().data());
                             bitset_and(gmember_bs_size, temp_bs, gmember_set);
                             if(bitset_all_clear(gmember_bs_size, temp_bs))
                                 return;
@@ -2891,7 +2893,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                             {
-                                if(call->ir_reads().test(m.id))
+                                if((call->precheck_fences() && call->fence_rw().test(m.id))
+                                   || call->ir_reads().test(m.id))
                                 {
                                     fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                                     fn_inputs.push_back(locator_t::gmember(m, 0));
@@ -4103,7 +4106,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             else if(is_compile(D))
             {
                 // Must be two lines; reference invalidation lurks.
-                ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_sub, v.type, ssa_value_t(0u, v.type.name()), v.ssa());
+                ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_sub, v.type, ssa_value_t(0u, v.type.name()), v.ssa(), ssa_value_t(1u, TYPE_BOOL));
                 v.ssa() = ssa;
             }
 

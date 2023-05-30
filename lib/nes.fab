@@ -270,6 +270,7 @@ asm fn update_pads()
 // Code for working with palettes,
 // i.e. the limited set of colors the NES can display at once.
 // See: https://www.nesdev.org/wiki/PPU_palettes
+// !!! For more palette functions, see palette.fab !!!
 
 // Copies the global variable 'palette' into the PPU's internal palette memory.
 fn ppu_upload_palette()

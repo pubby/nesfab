@@ -2534,6 +2534,8 @@ namespace isel
     template<typename Opt, typename Def>
     void store_C(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
+        using OptR = typename Opt::restrict_to<~REGF_C>;
+
         ssa_value_t const h = Def::node();
 
         auto const used_as_carry = [&]() -> bool
@@ -2552,26 +2554,26 @@ namespace isel
             p_label<0>::set(state.minor_label());
 
             chain
-            < load_A<Opt, const_<0>>
+            < load_A<OptR, const_<0>>
             , simple_op<typename Opt::valid_for<REGF_A>, ROL_IMPLIED>
             , set_defs<Opt, REGF_A | REGF_N | REGF_Z, true, p_def>
             , exact_op<Opt, STA_LIKELY, null_, p_def>
             >(cpu, prev, cont);
 
             chain
-            < load_X<Opt, const_<0>>
-            , simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-            , simple_op<Opt, INX_IMPLIED>
-            , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
+            < load_X<OptR, const_<0>>
+            , simple_op<OptR, BCC_RELATIVE, null_, p_label<0>>
+            , simple_op<OptR, INX_IMPLIED>
+            , maybe_carry_label_clear_conditional<OptR, p_label<0>, false>
             , set_defs<Opt, REGF_X | REGF_N | REGF_Z, true, p_def>
             , exact_op<Opt, STX_LIKELY, null_, p_def>
             >(cpu, prev, cont);
 
             chain
-            < load_Y<Opt, const_<0>>
-            , exact_op<Opt, BCC_RELATIVE, null_, p_label<0>>
-            , exact_op<Opt, INY_IMPLIED>
-            , maybe_carry_label_clear_conditional<Opt, p_label<0>, false>
+            < load_Y<OptR, const_<0>>
+            , exact_op<OptR, BCC_RELATIVE, null_, p_label<0>>
+            , exact_op<OptR, INY_IMPLIED>
+            , maybe_carry_label_clear_conditional<OptR, p_label<0>, false>
             , set_defs<Opt, REGF_Y | REGF_N | REGF_Z, true, p_def>
             , exact_op<Opt, STY_LIKELY, null_, p_def>
             >(cpu, prev, cont);
@@ -4276,7 +4278,8 @@ namespace isel
             break;
 
         case SSA_phi:
-            if(is_tea(h->type().name()))
+            if(h->output_size() > 0 && cset_head(h) != cset_head(h->input(0).handle())
+               && is_tea(h->type().name()))
             {
                 copy_array<Opt>(h->input(0), h);
                 break;

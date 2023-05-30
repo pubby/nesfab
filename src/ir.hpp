@@ -365,9 +365,9 @@ public:
     // Used for debug asserts.
 #ifdef NDEBUG
     [[gnu::always_inline]]
-    void assert_valid() const {}
+    void assert_valid(bool cg = false) const {}
 #else
-    void assert_valid() const;
+    void assert_valid(bool cg = false) const;
 #endif
 };
 

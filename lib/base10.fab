@@ -40,17 +40,49 @@ fn uu_to_ddddd(UU v) U[5]
     to_base10.to_65535()
     return base10_result
 
+// Converts a F value to single base 10 digit, representing [0, 0.9]
+fn f_to_d(F v) U
+: +inline
+    return f_to_dd_table[v.z] & %1111
+
+// Converts a F value to two base 10 digits, representing [0, 0.99]
+// NOTE: The most significant byte is at index 0.
+fn f_to_dd(F v) U[2]
+: +inline
+    U lookup = f_to_dd_table[v.z]
+    return U[2](lookup & %1111, lookup >> 4)
+
+// Implementation detail.
+// This is stored in a packed 4-bit BCD format.
+ct U[256] f_to_dd_table = U[256](
+    $00, $00, $10, $10, $20, $20, $20, $30, $30, $40, $40, $40, $50, $50, $50, $60, 
+    $60, $70, $70, $70, $80, $80, $90, $90, $90, $01, $01, $11, $11, $11, $21, $21, 
+    $31, $31, $31, $41, $41, $41, $51, $51, $61, $61, $61, $71, $71, $81, $81, $81, 
+    $91, $91, $02, $02, $02, $12, $12, $12, $22, $22, $32, $32, $32, $42, $42, $52, 
+    $52, $52, $62, $62, $72, $72, $72, $82, $82, $92, $92, $92, $03, $03, $03, $13, 
+    $13, $23, $23, $23, $33, $33, $43, $43, $43, $53, $53, $63, $63, $63, $73, $73, 
+    $83, $83, $83, $93, $93, $93, $04, $04, $14, $14, $14, $24, $24, $34, $34, $34, 
+    $44, $44, $54, $54, $54, $64, $64, $64, $74, $74, $84, $84, $84, $94, $94, $05, 
+    $05, $05, $15, $15, $25, $25, $25, $35, $35, $45, $45, $45, $55, $55, $55, $65, 
+    $65, $75, $75, $75, $85, $85, $95, $95, $95, $06, $06, $16, $16, $16, $26, $26, 
+    $36, $36, $36, $46, $46, $46, $56, $56, $66, $66, $66, $76, $76, $86, $86, $86, 
+    $96, $96, $07, $07, $07, $17, $17, $17, $27, $27, $37, $37, $37, $47, $47, $57, 
+    $57, $57, $67, $67, $77, $77, $77, $87, $87, $97, $97, $97, $08, $08, $08, $18, 
+    $18, $28, $28, $28, $38, $38, $48, $48, $48, $58, $58, $68, $68, $68, $78, $78, 
+    $88, $88, $88, $98, $98, $98, $09, $09, $19, $19, $19, $29, $29, $39, $39, $39, 
+    $49, $49, $59, $59, $59, $69, $69, $69, $79, $79, $89, $89, $89, $99, $99, $99)
+
 // Implementation details.
-vars /base10
+vars /base10_vars
     UU base10_input
     U[5] base10_result
 
 // Implementation detail.
-// This routine was originally copyright (c) 2014, Omegamatrix,
+// This routine is copyright (c) 2014, Omegamatrix,
 // then modified by Patrick Bene in 2023.
 // Source: https://forums.nesdev.org/viewtopic.php?t=11341&start=15
 asm fn to_base10()
-: employs /base10
+: employs /base10_vars
 : +align
     ct AA temp = &base10_result+0
     label mult_24_table

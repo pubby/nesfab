@@ -1907,12 +1907,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 case GLOBAL_CONST:
                     {
                         const_t const& c = lval->global().impl<const_t>();
-                        bool const banked = c.group_data && c.group_data->banked_ptrs();
 
                         if(!c.is_paa())
                             goto at_error;
 
-                        return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), false, banked), banked);
+                        return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), false, c.banked), c.banked);
                     }
 
                 case GLOBAL_VAR:
@@ -1936,9 +1935,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 assert(strval->charmap->group_data());
 
                 group_data_ht const group = strval->charmap->group_data();
-                bool const banked = group->banked_ptrs();
+                bool const banked = !strval->charmap->stows_omni();
 
-                return make_ptr(locator_t::rom_array(rom_array), type_t::ptr(group->group.handle(), false, banked), banked);
+                return make_ptr(locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), false, banked), banked);
             }
             else
             {
@@ -2035,10 +2034,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             if(!is_paa(c.type().name()))
                                 compiler_error(value.pstring, "Cannot get address of a constant that isn't a pointer-addressible array.");
 
-                            bool const banked = c.group_data && c.group_data->banked_ptrs();
-
                             return make_ptr(locator_t::gconst(c.handle(), lval->member, lval->uatom(), offset), 
-                                            type_t::addr(banked), banked, nonconst_index);
+                                            type_t::addr(c.banked), c.banked, nonconst_index);
                         }
 
                     case GLOBAL_VAR:
@@ -2117,8 +2114,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 assert(rom_array);
                 assert(strval->charmap->group_data());
 
-                group_data_ht const group = strval->charmap->group_data();
-                bool const banked = group->banked_ptrs();
+                bool const banked = !strval->charmap->stows_omni();
 
                 return make_ptr(locator_t::rom_array(rom_array), type_t::addr(banked), banked);
             }
@@ -2841,8 +2837,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         bitset_clear_all(gmember_bs_size, preserved_bs);
                         mods.for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
                         {
-                            assert(gmember_bs_size == gv->gmembers().size());
-                            bitset_or(gmember_bs_size, preserved_bs, gv->gmembers().data());
+                            assert(gmember_bs_size == (*gv)->vars()->gmembers().size());
+                            bitset_or(gmember_bs_size, preserved_bs, (*gv)->vars()->gmembers().data());
                         });
 
                         ir->gmanager.for_each_gmember_set(base_fn->handle(),
@@ -3744,7 +3740,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     rom_array_ht const rom_array = sl_manager.get_rom_array(&strval->charmap->global, strval->index, strval->compressed);
                     assert(rom_array);
                     assert(strval->charmap->group_data());
-                    bool const is_banked = strval->charmap->group_data()->banked_ptrs();
+                    bool const is_banked = !strval->charmap->stows_omni();
 
                     locator_t const loc = locator_t::rom_array(rom_array);
 

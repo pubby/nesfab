@@ -42,24 +42,19 @@ void mods_t::validate_groups() const
 {
     for(auto const& pair : lists)
     {
-        switch(pair.first->gclass())
-        {
-        case GROUP_DATA:
+        if(pair.first->vars())
             if(pair.second.lists & ~(MODL_DATA | MODL_EMPLOYS | MODL_STOWS))
                 goto error;
-            break;
 
-        case GROUP_VARS:
+        if(pair.first->any_data())
             if(pair.second.lists & ~(MODL_VARS | MODL_EMPLOYS | MODL_PRESERVES))
                 goto error;
-            break;
 
-        default:
-        error:
-            throw compiler_error_t(
-                fmt_error(pair.second.pstring, fmt("% is not compatible with this modifier.", pair.first->name))
-                + fmt_note(pair.first->pstring(), fmt("% was declared here.", pair.first->name)));
-        }
+        continue;
+    error:
+        throw compiler_error_t(
+            fmt_error(pair.second.pstring, fmt("% is not compatible with this modifier.", pair.first->name))
+            + fmt_note(pair.first->pstring(), fmt("% was declared here.", pair.first->name)));
     }
 }
 
@@ -76,8 +71,8 @@ void mods_t::for_each_list_vars(mod_list_t listf, std::function<void(group_vars_
     if(explicit_lists & listf)
         for(auto const& pair : lists)
             if(pair.second.lists & listf)
-                if(pair.first->gclass() == GROUP_VARS)
-                    fn(pair.first->handle<group_vars_ht>(), pair.second.pstring);
+                if(pair.first->vars())
+                    fn(pair.first->vars_handle(), pair.second.pstring);
 }
 
 void mods_t::for_each_list_data(mod_list_t listf, std::function<void(group_data_ht, pstring_t)> const& fn) const
@@ -85,8 +80,8 @@ void mods_t::for_each_list_data(mod_list_t listf, std::function<void(group_data_
     if(explicit_lists & listf)
         for(auto const& pair : lists)
             if(pair.second.lists & listf)
-                if(pair.first->gclass() == GROUP_DATA)
-                    fn(pair.first->handle<group_data_ht>(), pair.second.pstring);
+                if(pair.first->any_data())
+                    fn(pair.first->data_handle(), pair.second.pstring);
 }
 
 bool mods_t::in_lists(mod_list_t listf, group_ht g) const

@@ -545,7 +545,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    std::pair<group_vars_t*, group_vars_ht> begin_group_vars(pstring_t group_name)
+    defined_group_vars_t begin_group_vars(pstring_t group_name)
     {
         if(group_t* group = group_t::lookup(file.source(), group_name))
             return group->define_vars(group_name);
@@ -554,10 +554,10 @@ public:
     }
 
     [[gnu::always_inline]]
-    std::pair<group_data_t*, group_data_ht> begin_group_data(pstring_t group_name, bool once)
+    defined_group_data_t begin_group_data(pstring_t group_name, bool omni)
     {
         if(group_t* group = group_t::lookup(file.source(), group_name))
-            return group->define_data(group_name, once);
+            return group->define_data(group_name, omni);
         else
             return {};
     }
@@ -567,7 +567,7 @@ public:
     {}
 
     [[gnu::always_inline]]
-    void global_var(std::pair<group_vars_t*, group_vars_ht> group, var_decl_t const& var_decl, 
+    void global_var(defined_group_vars_t const& d, var_decl_t const& var_decl, 
                     ast_node_t* expr, std::unique_ptr<mods_t> mods)
     {
         uses_type(var_decl.src_type.type);
@@ -581,13 +581,13 @@ public:
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
         active_global->define_var(
-            var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(expr, IDEP_TYPE),
+            var_decl.name, std::move(ideps), var_decl.src_type, d, convert_eternal_expr(expr, IDEP_TYPE),
             std::move(paa_def), std::move(mods));
         ideps.clear();
     }
 
     [[gnu::always_inline]]
-    void global_const(bool in_group, std::pair<group_data_t*, group_data_ht> group, var_decl_t const& var_decl, 
+    void global_const(bool in_group, defined_group_data_t const& d, bool omni, var_decl_t const& var_decl, 
                       ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
         if(in_group && !is_paa(var_decl.src_type.type.name()))
@@ -604,7 +604,7 @@ public:
 
         active_global = &global_t::lookup(file.source(), var_decl.name);
         active_global->define_const(
-            var_decl.name, std::move(ideps), var_decl.src_type, group, convert_eternal_expr(&expr, IDEP_TYPE), 
+            var_decl.name, std::move(ideps), var_decl.src_type, d, omni, convert_eternal_expr(&expr, IDEP_TYPE), 
             std::move(paa_def), std::move(mods));
         ideps.clear();
     }
@@ -1090,7 +1090,7 @@ public:
 
         active_global = &global_t::chrrom(decl);
         active_global->define_const(
-            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, 
+            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, false,
             convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
         ideps.clear();
     }

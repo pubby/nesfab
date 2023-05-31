@@ -131,7 +131,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             continue;
         }
 
-        bool once = true;
+        bool once = !rom_array.omni();
 
         if(rom_array.used_in_group_data().all_clear())
         {
@@ -151,17 +151,6 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             }
 
             once = (float(summed_size) / float(proc_count)) < float(rom_array.data().size());
-        }
-        else
-        {
-            // Since this is associated with group(s), we'll use
-            // the group defs to determine once/many.
-
-            // NOTE: Not locking mutex, as we're in single thread.
-            rom_array.used_in_group_data().for_each([&](unsigned bit)
-            {
-                once &= group_data_ht{bit}->once;
-            });
         }
 
         if(rom_array.get_alloc(ROMV_MODE))
@@ -247,13 +236,15 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
             {
                 group_t const& group = *group_h;
 
-                if(group.gclass() != GROUP_DATA)
-                    return true;
+                if(group.data())
+                    for(const_ht c : group.data()->consts())
+                        if(c->rom_array()->get_alloc(ROMV_MODE).rclass() == ROMA_ONCE)
+                            return false;
 
-                group_data_t const& gd = group.impl<group_data_t>();
-                for(const_ht c : gd.consts())
-                    if(c->rom_array()->get_alloc(ROMV_MODE).rclass() == ROMA_ONCE)
-                        return false;
+                if(group.omni())
+                    for(const_ht c : group.omni()->consts())
+                        if(c->rom_array()->get_alloc(ROMV_MODE).rclass() == ROMA_ONCE)
+                            return false;
 
                 return true;
             });
@@ -307,27 +298,29 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
     auto const gd_many_bs = [this](unsigned i) { return &group_data_many_bitsets[i * many_bs_size]; };
 
     for(group_data_ht gd : group_data_ht::handles())
-    for(const_ht c : gd->consts())
     {
-        if(!c->rom_array())
-            continue;
-
-        auto const& rom_array = *c->rom_array();
-
-        if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_ONCE)
+        (*gd)->for_each_const([&](const_ht c)
         {
-            unsigned const once_i = rom_array.get_alloc(ROMV_MODE).handle();
-            assert(once_i < num_onces);
-            bitset_set(gd_once_bs(gd.id), once_i);
-            // Set the pointer to 'related_onces' now:
-            rom_once_ht{once_i}->related_onces = gd_once_bs(gd.id);
-        }
-        else if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_MANY)
-        {
-            unsigned const many_i = rom_array.get_alloc(ROMV_MODE).handle();
-            passert(many_i < num_manys, many_i, num_manys);
-            bitset_set(gd_many_bs(gd.id), many_i);
-        }
+            if(!c->rom_array())
+                return;
+
+            auto const& rom_array = *c->rom_array();
+
+            if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_ONCE)
+            {
+                unsigned const once_i = rom_array.get_alloc(ROMV_MODE).handle();
+                assert(once_i < num_onces);
+                bitset_set(gd_once_bs(gd.id), once_i);
+                // Set the pointer to 'related_onces' now:
+                rom_once_ht{once_i}->related_onces = gd_once_bs(gd.id);
+            }
+            else if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_MANY)
+            {
+                unsigned const many_i = rom_array.get_alloc(ROMV_MODE).handle();
+                passert(many_i < num_manys, many_i, num_manys);
+                bitset_set(gd_many_bs(gd.id), many_i);
+            }
+        });
     }
 
     ///////////////////////////
@@ -354,11 +347,11 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
 
         rom_proc.for_each_group_test([&](group_ht group_h) -> bool
         {
-            if(group_h->gclass() != GROUP_DATA)
-                return true;
-
-            bitset_or(once_bs_size, use_once.data(), gd_once_bs(group_h->impl_id()));
-            bitset_or(many_bs_size, use_many.data(), gd_many_bs(group_h->impl_id()));
+            if(group_data_ht h = group_h->data_handle())
+            {
+                bitset_or(once_bs_size, use_once.data(), gd_once_bs(h.id));
+                bitset_or(many_bs_size, use_many.data(), gd_many_bs(h.id));
+            }
             return true;
         });
 
@@ -739,17 +732,17 @@ void print_rom(std::ostream& o)
 
     }
 
-    for(group_vars_t const& gv : group_vars_ht::values())
+    for(group_t* g : group_vars_ht::values())
     {
-        if(!gv.init_proc())
+        if(!g->vars()->init_proc())
             continue;
-        o << "\n\n" << gv.group.name << " / " << gv.init_proc() << ": \n";
+        o << "\n\n" << g->name << " / " << g->vars()->init_proc() << ": \n";
         for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
-            if(auto a = gv.init_proc()->get_alloc(romv_t(romv)))
+            if(auto a = g->vars()->init_proc()->get_alloc(romv_t(romv)))
             {
                 o << romv << ' ' << a.get()->span << ' ' << a.first_bank() << std::endl;
-                gv.init_proc()->asm_proc().write_assembly(o, romv_t(romv));
+                g->vars()->init_proc()->asm_proc().write_assembly(o, romv_t(romv));
             }
             else
                 o << romv << " PRUNED\n";

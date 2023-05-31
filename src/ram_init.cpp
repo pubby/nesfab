@@ -188,7 +188,7 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
 
                 assert(vec.size() == 256);
 
-                value_combined.push_back({ span_t{ span_left.addr, 256 }, rom_array_t::make(std::move(vec), false, ROMR_NORMAL) });
+                value_combined.push_back({ span_t{ span_left.addr, 256 }, rom_array_t::make(std::move(vec), false, false, ROMR_NORMAL) });
                 reset_vec();
 
                 span_left.addr += 256;
@@ -203,7 +203,7 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
         passert(vec.size() == span_left.size, vec.size(), span_left.size);
 
         if(vec.size() > 0)
-            value_combined.push_back({ span_left, rom_array_t::make(std::move(vec), false, ROMR_NORMAL) });
+            value_combined.push_back({ span_left, rom_array_t::make(std::move(vec), false, false, ROMR_NORMAL) });
     }
 
     assert(!zero_combined.empty() || !value_combined.empty());
@@ -300,16 +300,19 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
 
 void gen_group_var_inits()
 {
-    for(group_vars_t& group : group_vars_ht::values())
+    for(group_t* g : group_vars_ht::values())
     {
+        if(!g->using_vars())
+            continue;
+
         asm_proc_t proc;
-        if(gen_group_var_inits(group.gvars(), proc))
+        if(gen_group_var_inits(g->vars()->gvars(), proc))
         {
             proc.push_inst(RTS);
             proc.initial_optimize();
 
             // Attach it to the group as a ROM proc:
-            group.assign_init_proc(rom_proc_ht::pool_make(std::move(proc), romv_allocs_t{}, ROMVF_IN_MODE, false));
+            g->vars()->assign_init_proc(rom_proc_ht::pool_make(std::move(proc), romv_allocs_t{}, ROMVF_IN_MODE, false));
         }
     }
 }

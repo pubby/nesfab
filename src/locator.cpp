@@ -76,7 +76,7 @@ std::string to_string(locator_t loc)
     case LOC_MAIN_MODE:
         str = "main mode"; break;
     case LOC_RESET_GROUP_VARS:
-        str = fmt("reset group vars %", loc.group_vars()->group.name); break;
+        str = fmt("reset group vars %", (*loc.group_vars())->name); break;
     case LOC_RUNTIME_ROM:
         str = fmt("runtime_rom %", loc.runtime_rom()); break;
     case LOC_RUNTIME_RAM:
@@ -452,7 +452,7 @@ rom_data_ht locator_t::rom_data() const
     case LOC_DPCM:
         return const_()->rom_array();
     case LOC_RESET_GROUP_VARS:
-        return group_vars()->init_proc();
+        return (*group_vars())->vars()->init_proc();
     case LOC_NAMED_LABEL:
         {
             global_t const& g = *global();

@@ -53,11 +53,16 @@ constexpr mod_list_t MODL_EMPLOYS   = 1 << 2;
 constexpr mod_list_t MODL_PRESERVES = 1 << 3;
 constexpr mod_list_t MODL_STOWS     = 1 << 4;
 
+// Additional flags
+using mod_details_t = std::uint8_t;
+constexpr mod_details_t MODD_STOWS_OMNI = 1 << 0;
+
 std::string_view mod_list_name(mod_list_t list);
 
 struct mods_t : public flag_mods_t
 {
     mod_list_t explicit_lists = 0;
+    mod_details_t details = 0;
 
     struct list_mentioned_t
     {

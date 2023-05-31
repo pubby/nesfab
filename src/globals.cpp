@@ -2,6 +2,7 @@
 
 #include <ostream>
 #include <fstream>
+#include <iostream>
 
 #include "alloca.hpp"
 #include "bitset.hpp"
@@ -131,7 +132,7 @@ fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
 }
 
 gvar_ht global_t::define_var(pstring_t pstring, ideps_map_t&& ideps, 
-                             src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group,
+                             src_type_t src_type, defined_group_vars_t d,
                              ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
 {
     gvar_t* ret;
@@ -139,12 +140,12 @@ gvar_ht global_t::define_var(pstring_t pstring, ideps_map_t&& ideps,
     // Create the var
     gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), [&](global_t& g)
     { 
-        return gvar_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(paa_def), std::move(mods)).id;
+        return gvar_ht::pool_emplace(ret, g, src_type, d.vars_handle, expr, std::move(paa_def), std::move(mods)).id;
     })};
 
     // Add it to the group
-    if(group.first)
-        group.first->add_gvar(h);
+    if(d.vars)
+        d.vars->add_gvar(h);
     else
     {
         std::lock_guard lock(gvar_t::m_groupless_gvars_lock);
@@ -155,7 +156,7 @@ gvar_ht global_t::define_var(pstring_t pstring, ideps_map_t&& ideps,
 }
 
 const_ht global_t::define_const(pstring_t pstring, ideps_map_t&& ideps, 
-                                src_type_t src_type, std::pair<group_data_t*, group_data_ht> group,
+                                src_type_t src_type, defined_group_data_t d, bool omni,
                                 ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
                                 std::unique_ptr<mods_t> mods)
 {
@@ -164,12 +165,12 @@ const_ht global_t::define_const(pstring_t pstring, ideps_map_t&& ideps,
     // Create the const
     const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
     { 
-        return const_ht::pool_emplace(ret, g, src_type, group.second, expr, std::move(paa_def), std::move(mods)).id;
+        return const_ht::pool_emplace(ret, g, src_type, d.data_handle, !omni, expr, std::move(paa_def), std::move(mods)).id;
     })};
 
     // Add it to the group
-    if(group.first)
-        group.first->add_const(h);
+    if(d.data)
+        d.data->add_const(h);
     
     return h;
 }
@@ -242,11 +243,6 @@ void global_t::parse_cleanup()
 {
     assert(compiler_phase() == PHASE_PARSE_CLEANUP);
 
-    // Verify groups are created:
-    for(group_t const& group : group_ht::values())
-        if(group.gclass() == GROUP_UNDEFINED)
-            compiler_error(group.pstring(), fmt("Group name not in scope: %", group.name));
-
     // Verify globals are created:
     for(global_t& global : global_ht::values())
     {
@@ -292,8 +288,8 @@ void global_t::parse_cleanup()
     }
 
     // Determine group vars inits:
-    for(group_vars_t& gv : group_vars_ht::values())
-        gv.determine_has_init();
+    for(group_t* gv : group_vars_ht::values())
+        gv->vars()->determine_has_init();
 
     // Setup NMI indexes:
     for(unsigned i = 0; i < nmis().size(); ++i)
@@ -818,6 +814,11 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
     bool const is_static = mod_test(mods(), MOD_static);
 
+    xbitset_t<gmember_ht> groupless(0);
+    for(gvar_ht gvar : gvar_t::groupless_gvars())
+        for(auto m = gvar->begin(); m != gvar->end(); ++m)
+            groupless.set(m.id);
+
     // Handle preserved groups
     for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
     {
@@ -826,7 +827,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
             goto_mods->for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
             {
                 group_vars.set(gv.id);
-                reads |= gv->gmembers();
+                reads |= (*gv)->vars()->gmembers();
             });
         }
     }
@@ -838,9 +839,9 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
         {
             deref_groups.set(g.id); // Handles data and vars
 
-            if(g->gclass() == GROUP_VARS)
+            if(g->using_vars())
             {
-                auto const& gv = g->impl<group_vars_t>();
+                auto const& gv = *g->vars();
                 reads  |= gv.gmembers();
                 writes |= gv.gmembers();
             }
@@ -856,6 +857,10 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
         io_pure = false;
         fences = true;
         group_vars = m_precheck_group_vars;
+
+        // iasm always employs groupless vars:
+        reads  |= groupless;
+        writes |= groupless;
 
         for(auto const& pair : precheck_tracked().calls)
         {
@@ -963,8 +968,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
                     // Also update 'ir_group_vars':
                     group_t const& group = *h;
-                    if(group.gclass() == GROUP_VARS)
-                        group_vars.set(group.handle<group_vars_ht>().id);
+                    if(group.using_vars())
+                        group_vars.set(group.vars_handle().id);
                 }
             }
 
@@ -1307,7 +1312,7 @@ void fn_t::compile()
         {
             bool const no_banks = ir_deref_groups().for_each_test([&](group_ht group) -> bool
             {
-                return group->gclass() != GROUP_DATA || !group->impl<group_data_t>().once;
+                return !group->using_data();
             });
 
             if(no_banks)
@@ -1340,15 +1345,15 @@ void fn_t::precheck_finish_mode() const
 
     for(auto const& pair : pimpl.incoming_preserved_groups)
     {
-        if(pair.first->gclass() != GROUP_VARS)
+        if(!pair.first->using_vars())
             continue;
 
-        if(!precheck_group_vars().test(pair.first->impl_id()))
+        if(!precheck_group_vars().test(pair.first->vars_handle().id))
         {
             std::string groups;
             precheck_group_vars().for_each([&groups](group_vars_ht gv)
             {
-                groups += gv->group.name;
+                groups += (*gv)->name;
             });
             if(groups.empty())
                 groups = "(no groups)";
@@ -1441,8 +1446,7 @@ void fn_t::calc_precheck_bitsets()
     auto const group_vars_to_string = [gv_bs_size](bitset_uint_t const* bs)
     {
         std::string str;
-        bitset_for_each<group_vars_ht>(gv_bs_size, bs, [&str](auto gv)
-            { str += gv->group.name; });
+        bitset_for_each<group_vars_ht>(gv_bs_size, bs, [&str](auto gv){ str += (*gv)->name; });
         return str;
     };
 
@@ -1458,11 +1462,10 @@ void fn_t::calc_precheck_bitsets()
     // Handle accesses through pointers:
     for(auto const& pair : m_precheck_tracked->deref_groups)
     {
-        auto const error = [&](group_class_t gclass, mod_list_t lists)
+        auto const error = [&](bool vars, mod_list_t lists)
         {
+            char const* keyword = vars ? "vars" : "data";
             type_t const type = pair.second.type;
-
-            char const* const keyword = group_class_keyword(gclass);
 
             std::string const msg = fmt(
                 "% access requires groups that are excluded from % (% %).",
@@ -1472,8 +1475,11 @@ void fn_t::calc_precheck_bitsets()
             for(unsigned i = 0; i < type.group_tail_size(); ++i)
             {
                 group_ht const group = type.group(i);
-                if(group->gclass() == gclass && !mods()->in_lists(lists, group))
+                if(((vars && group->using_vars()) || (!vars && group->using_any_data()))
+                   && !mods()->in_lists(lists, group))
+                {
                     missing += group->name;
+                }
             }
 
             throw compiler_error_t(
@@ -1481,17 +1487,18 @@ void fn_t::calc_precheck_bitsets()
                 + fmt_note(fmt("Excluded groups: % %", keyword, missing)));
         };
 
-        if(pair.first->gclass() == GROUP_VARS)
+        if(pair.first->using_vars())
         {
             if(mods() && (mods()->explicit_lists & MODL_VARS) && !mods()->in_lists(MODL_VARS, pair.first))
-                error(GROUP_VARS, MODL_VARS);
+                error(true, MODL_VARS);
 
-            m_precheck_group_vars.set(pair.first->impl_id());
+            m_precheck_group_vars.set(pair.first->vars_handle().id);
         }
-        else if(pair.first->gclass() == GROUP_DATA)
+
+        if(pair.first->using_any_data())
         {
             if(mods() && (mods()->explicit_lists & MODL_DATA) && !mods()->in_lists(MODL_DATA, pair.first))
-                error(GROUP_DATA, MODL_DATA);
+                error(false, MODL_DATA);
         }
     }
 
@@ -1521,7 +1528,7 @@ void fn_t::calc_precheck_bitsets()
         // Handle our own groups:
         goto_mods->for_each_list(MODL_PRESERVES, [&](group_ht g, pstring_t)
         {
-            if(g->gclass() == GROUP_VARS)
+            if(g->using_vars())
             {
                 if(mods() && (mods()->explicit_lists & MODL_PRESERVES) && !mods()->in_lists(MODL_PRESERVES, g))
                 {
@@ -1532,7 +1539,7 @@ void fn_t::calc_precheck_bitsets()
                     std::string missing = "";
                     goto_mods->for_each_list(MODL_PRESERVES, [&](group_ht g, pstring_t)
                     {
-                        if(g->gclass() == GROUP_VARS && !mods()->in_lists(MODL_PRESERVES, g))
+                        if(g->using_vars() && !mods()->in_lists(MODL_PRESERVES, g))
                             missing += g->name;
                     });
 
@@ -1541,7 +1548,7 @@ void fn_t::calc_precheck_bitsets()
                         + fmt_note(fmt("Excluded groups: vars %", missing)));
                 }
 
-                m_precheck_group_vars.set(g->impl_id());
+                m_precheck_group_vars.set(g->vars_handle().id);
             }
         });
     }
@@ -1578,7 +1585,7 @@ void fn_t::calc_precheck_bitsets()
                 if(mods() && (mods()->explicit_lists & MODL_VARS) && !mods()->in_lists(MODL_VARS, group))
                     error(pair.first->global, group->name, group->name);
 
-                m_precheck_group_vars.set(group->impl_id());
+                m_precheck_group_vars.set(group->vars_handle().id);
             }
         }
 
@@ -1723,7 +1730,7 @@ void fn_t::implement_asm_goto_modes()
             bool did_reset_irq = false;
             d.fn->precheck_group_vars().for_each([&](group_vars_ht gv)
             {
-                if(!gv->has_init())
+                if(!(*gv)->vars()->has_init())
                     return;
 
                 if(!d.preserves.count(gv))
@@ -1845,7 +1852,7 @@ void global_datum_t::compile()
 // gvar_t //
 ////////////
 
-group_ht gvar_t::group() const { return group_vars ? group_vars->group.handle() : group_ht{}; }
+group_ht gvar_t::group() const { return group_vars ? (*group_vars)->handle() : group_ht{}; }
 
 void gvar_t::paa_init(loc_vec_t&& paa) { m_init_data = std::move(paa); }
 void gvar_t::paa_init(asm_proc_t&& proc) { m_init_data = std::move(proc); }
@@ -1944,7 +1951,7 @@ bool gmember_t::zero_init(unsigned atom) const
 // const_t //
 /////////////
 
-group_ht const_t::group() const { return group_data ? group_data->group.handle() : group_ht{}; }
+group_ht const_t::group() const { return group_data ? (*group_data)->handle() : group_ht{}; }
 
 void const_t::paa_init(loc_vec_t&& vec)
 {
@@ -1954,7 +1961,7 @@ void const_t::paa_init(loc_vec_t&& vec)
     else if(!group_data)
         rule = ROMR_STATIC;
 
-    m_rom_array = rom_array_t::make(std::move(vec), mod_test(mods(), MOD_align), rule, group_data);
+    m_rom_array = rom_array_t::make(std::move(vec), mod_test(mods(), MOD_align), !banked, rule, group_data);
     assert(m_rom_array);
 }
 
@@ -2186,6 +2193,8 @@ void charmap_t::set_group_data()
 
         if(!m_group_data)
             compiler_error(global.pstring(), "Invalid 'stores' mod.");
+
+        m_stows_omni = mods()->details & MODD_STOWS_OMNI;
     }
 }
 

@@ -94,18 +94,21 @@ public:
     rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t const&, bool align);
 
     void mark_used_by(group_data_ht group);
+    void mark_omni() { m_omni = true; }
 
     auto const& data() const { return m_data; } // 'data' is immutable.
+    bool omni() const { return m_omni; }
 
     // Don't have to lock the mutex if we're in PHASE_ALLOC_ROM.
     auto const& used_in_group_data() const { assert(compiler_phase() > rom_array_ht::phase); return m_used_in_group_data; }
 
     // Use this to construct globally:
-    static rom_array_ht make(loc_vec_t&& vec, bool align, rom_rule_t rule, group_data_ht={}, romv_allocs_t const& a={});
+    static rom_array_ht make(loc_vec_t&& vec, bool align, bool omni, rom_rule_t rule, group_data_ht={}, romv_allocs_t const& a={});
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 private:
     std::vector<locator_t> m_data;
+    std::atomic<bool> m_omni = false;
 
     std::mutex m_mutex; // Protects the members below
     bitset_t m_used_in_group_data;
@@ -176,8 +179,8 @@ private:
 };
 
 // Generic construction functions:
-rom_data_ht to_rom_data(loc_vec_t&& rom_array, bool align, romv_allocs_t const& a={});
-rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, romv_allocs_t const& a={}, romv_flags_t desired_romv = 0);
+rom_data_ht to_rom_data(loc_vec_t&& rom_array, bool align, bool omni, romv_allocs_t const& a={});
+rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, bool omni, romv_allocs_t const& a={}, romv_flags_t desired_romv = 0);
 
 ///////////////
 // ROM alloc //

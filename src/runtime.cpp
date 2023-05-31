@@ -666,7 +666,7 @@ static asm_proc_t make_reset_proc()
     fn_t const& main = get_main_mode();
     main.mode_group_vars().for_each([&](group_vars_ht gv)
     {
-        if(gv->has_init())
+        if((*gv)->vars()->has_init())
         {
             proc.push_inst(LDY_IMMEDIATE, locator_t::reset_group_vars(gv).with_is(IS_BANK));
             proc.push_inst(mapper().bankswitches() ? BANKED_Y_JSR : JSR_ABSOLUTE, locator_t::reset_group_vars(gv));
@@ -922,7 +922,7 @@ span_allocator_t alloc_runtime_rom()
             allocs[romv] = rom_static_ht::pool_make(romv_t(romv), _rtrom_spans[name][romv]);
         });
 
-        _rtrom_data[name] = to_rom_data(std::move(data), false, allocs);
+        _rtrom_data[name] = to_rom_data(std::move(data), false, true, allocs);
 
         bitset_for_each(flags, [&](unsigned romv)
         {

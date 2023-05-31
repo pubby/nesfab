@@ -52,82 +52,37 @@ group_t* group_t::lookup_sourceless(std::string_view view)
     });
 }
 
-unsigned group_t::define(pstring_t pstring, group_class_t gclass, 
-                         std::function<bool(group_t&)> valid_same,
-                         std::function<unsigned(group_t&)> create_impl)
+defined_group_vars_t group_t::define_vars(pstring_t pstring)
 {
-    assert(compiler_phase() <= PHASE_PARSE);
-    unsigned ret;
-    {
-        std::lock_guard<std::mutex> group_lock(m_define_mutex);
-
-        if(m_gclass == gclass && valid_same(*this)) // Groups can have multiple definition points.
-        {
-            if(!m_pstring)
-                m_pstring = pstring;
-            return m_impl_id;
-        }
-
-        if(m_gclass != GROUP_UNDEFINED)
-        {
-            if(pstring && m_pstring)
-            {
-                file_contents_t file(pstring.file_i);
-                throw compiler_error_t(
-                    fmt_error(pstring, fmt("Group identifier % already in use.", 
-                                           pstring.view(file.source())), &file)
-                    + fmt_note(m_pstring, "Previous definition here:"));
-            }
-            else
-                throw compiler_error_t(fmt("Group identifier % already in use.", name));
-        }
-
-        m_gclass = gclass;
-        if(pstring)
-            m_pstring = pstring; // Not necessary but useful for error reporting.
-        m_impl_id = ret = create_impl(*this);
-    }
-    return ret;
+    std::lock_guard<std::mutex> lock(m_define_mutex);
+    if(!m_pstring)
+        m_pstring = pstring;
+    if(!m_vars)
+        m_vars.reset(new group_vars_t());
+    if(!m_vars_h)
+        m_vars_h = group_vars_ht::pool_make(this);
+    return { this, m_vars.get(), m_vars_h };
 }
 
-std::pair<group_vars_t*, group_vars_ht> group_t::define_vars(pstring_t pstring)
+defined_group_data_t group_t::define_data(pstring_t pstring, bool omni)
 {
-    group_vars_t* ptr = nullptr;
-
-    group_vars_ht h = { define(pstring, GROUP_VARS, 
-    [](group_t& g) { return true; },
-    [&ptr](group_t& g)
-    { 
-        return group_vars_ht::pool_emplace(ptr, g).id;
-    })};
-
-    return std::make_pair(ptr ? ptr : &h.safe(), h);
-}
-
-std::pair<group_data_t*, group_data_ht> group_t::define_data(pstring_t pstring, bool once)
-{
-    group_data_t* ptr = nullptr;
-
-    group_data_ht h = { define(pstring, GROUP_DATA, 
-    [once](group_t& g)
-    {
-        group_data_t& data = group_data_ht{ g.m_impl_id }.safe();
-        return data.once == once;
-    },
-    [&ptr, once](group_t& g)
-    { 
-        return group_data_ht::pool_emplace(ptr, g, once).id; 
-    })};
-
-    return std::make_pair(ptr ? ptr : &h.safe(), h);
+    std::lock_guard<std::mutex> lock(m_define_mutex);
+    if(!m_pstring)
+        m_pstring = pstring;
+    auto& ptr = omni ? m_omni : m_data;
+    if(!ptr)
+        ptr.reset(new group_data_t());
+    if(!m_data_h)
+        m_data_h = group_data_ht::pool_make(this);
+    return { this, ptr.get(), m_data_h };
 }
 
 void group_t::group_members()
 {
     assert(compiler_phase() == PHASE_GROUP_MEMBERS);
 
-    for(group_vars_t& gv : group_vars_ht::values())
-        gv.group_members();
+    for(group_t* group : group_vars_ht::values())
+        group->vars()->group_members();
 }
 
 ///////////////////

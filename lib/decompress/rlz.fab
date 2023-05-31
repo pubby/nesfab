@@ -15,9 +15,6 @@
 // N = $01 to $7F: Copy the next byte (N + 2) times
 // N = $80 to $FF: Copy the next (N - 127) bytes verbatim
 
-// Feel free to change which group(s) these functions use.
-data /rlz
-
 // Reads from 'ptr' and uploads to PPUDATA until the stream is terminated by a $00 byte.
 asm fn ppu_upload_rlz(CCC/rlz ptr)
 : employs /rlz

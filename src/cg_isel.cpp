@@ -4119,10 +4119,10 @@ namespace isel
 
                 call.mode_group_vars().for_each([&](group_vars_ht gv)
                 {
-                    if(!gv->has_init())
+                    if(!(*gv)->vars()->has_init())
                         return;
 
-                    if(mods && !mods->in_lists(MODL_PRESERVES, gv->group.handle()))
+                    if(mods && !mods->in_lists(MODL_PRESERVES, (*gv)->handle()))
                     {
                         if(!did_reset_nmi && global_t::has_nmi())
                         {

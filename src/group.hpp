@@ -12,87 +12,10 @@
 #include "pstring.hpp"
 #include "rom_decl.hpp"
 
-class group_t
-{
-public:
-    std::string const name;
-private:
-    std::mutex m_define_mutex;
-    group_class_t m_gclass = GROUP_UNDEFINED;
-    pstring_t m_pstring = {};
-
-    group_ht m_handle = {};
-
-    // An index into some storage that holds the group's implementation data
-    unsigned m_impl_id = ~0;
-
-public:
-    group_class_t gclass() const { return m_gclass; }
-
-    pstring_t pstring() const { return m_pstring; }
-
-    unsigned impl_id() const
-    { 
-        assert(compiler_phase() > PHASE_PARSE);
-        return m_impl_id; 
-    }
-
-    group_ht handle() const { return m_handle; }
-
-    template<typename T>
-    T handle() const
-    {
-        static_assert(is_handle<T>::value);
-        assert(gclass() == T::value_type::group_class);
-        assert(compiler_phase() > PHASE_PARSE);
-        return { m_impl_id };
-    }
-
-    template<typename T>
-    T& impl() const
-    {
-        assert(gclass() == T::group_class);
-        assert(compiler_phase() > PHASE_PARSE);
-        return *handle<typename T::handle_t>();
-    }
-
-    std::pair<group_vars_t*, group_vars_ht> define_vars(pstring_t pstring);
-    std::pair<group_data_t*, group_data_ht> define_data(pstring_t pstring, bool once);
-
-    static group_t* lookup(char const* source, pstring_t name);
-    static group_t* lookup_sourceless(pstring_t at, std::string_view key);
-    static group_t* lookup_sourceless(std::string_view name);
-
-    group_t(pstring_t pstring, std::string_view view, unsigned handle)
-    : name(view)
-    , m_pstring(pstring)
-    , m_handle{ handle }
-    {}
-
-    static void group_members();
-
-private:
-
-    unsigned define(pstring_t pstring, group_class_t gclass, 
-                    std::function<bool(group_t&)> valid_same,
-                    std::function<unsigned(group_t&)> create_impl);
-
-    inline static rh::robin_auto_table<group_t*> group_map;
-};
-
 class group_vars_t
 {
 public:
-    static constexpr group_class_t group_class = GROUP_VARS;
     using handle_t = group_vars_ht;
-
-    group_t& group;
-
-    explicit group_vars_t(group_t& group)
-    : group(group)
-    {}
-
-    group_vars_ht handle() const { return group.handle<group_vars_ht>(); }
 
     void add_gvar(gvar_ht v)
     {
@@ -124,20 +47,7 @@ private:
 class group_data_t
 {
 public:
-    static constexpr group_class_t group_class = GROUP_DATA;
     using handle_t = group_data_ht;
-
-    group_t& group;
-    bool const once;
-
-    group_data_t(group_t& group, bool once)
-    : group(group)
-    , once(once)
-    {}
-
-    group_data_ht handle() const { return group.handle<group_data_ht>(); }
-
-    bool banked_ptrs() const { return once; }
 
     void add_const(const_ht c)
     {
@@ -151,6 +61,79 @@ public:
 private:
     std::mutex m_consts_mutex; // Used during parsing only.
     std::vector<const_ht> m_consts;
+};
+
+class group_t
+{
+public:
+    std::string const name;
+
+private:
+    std::mutex m_define_mutex;
+    pstring_t m_pstring = {};
+    std::unique_ptr<group_vars_t> m_vars;
+    std::unique_ptr<group_data_t> m_data;
+    std::unique_ptr<group_data_t> m_omni;
+
+    group_vars_ht m_vars_h = {};
+    group_data_ht m_data_h = {};
+
+    group_ht m_handle = {};
+
+public:
+    pstring_t pstring() const { return m_pstring; }
+    group_ht handle() const { return m_handle; }
+
+    group_vars_t* vars() { assert(compiler_phase() > PHASE_PARSE); return m_vars.get(); }
+    group_data_t* data() { assert(compiler_phase() > PHASE_PARSE); return m_data.get(); }
+    group_data_t* omni() { assert(compiler_phase() > PHASE_PARSE); return m_omni.get(); }
+    group_data_t* data(bool get_omni) { return get_omni ? omni() : data(); }
+
+    group_vars_t const* vars() const { assert(compiler_phase() > PHASE_PARSE); return m_vars.get(); }
+    group_data_t const* data() const { assert(compiler_phase() > PHASE_PARSE); return m_data.get(); }
+    group_data_t const* omni() const { assert(compiler_phase() > PHASE_PARSE); return m_omni.get(); }
+    group_data_t const* data(bool get_omni) const { return get_omni ? omni() : data(); }
+    bool any_data() const { return data() || omni(); }
+
+    auto vars_handle() const { assert(compiler_phase() > PHASE_PARSE); return m_vars_h; }
+    auto data_handle() const { assert(compiler_phase() > PHASE_PARSE); return m_data_h; }
+
+    bool using_vars() const { return vars() && !vars()->gvars().empty(); }
+    bool using_data() const { return data() && !data()->consts().empty(); }
+    bool using_omni() const { return omni() && !omni()->consts().empty(); }
+    bool using_any_data() const { return using_data() || using_omni(); }
+
+    bool undefined() const { return !vars() && !data() && !omni(); }
+
+    defined_group_vars_t define_vars(pstring_t pstring);
+    defined_group_data_t define_data(pstring_t pstring, bool omni);
+
+    static group_t* lookup(char const* source, pstring_t name);
+    static group_t* lookup_sourceless(pstring_t at, std::string_view key);
+    static group_t* lookup_sourceless(std::string_view name);
+    
+    template<typename Fn>
+    void for_each_const(Fn const& fn) 
+    {
+        if(data())
+            for(const_ht c : data()->consts())
+                fn(c);
+
+        if(omni())
+            for(const_ht c : omni()->consts())
+                fn(c);
+    }
+
+    group_t(pstring_t pstring, std::string_view view, unsigned handle)
+    : name(view)
+    , m_pstring(pstring)
+    , m_handle{ handle }
+    {}
+
+    static void group_members();
+
+private:
+    inline static rh::robin_auto_table<group_t*> group_map;
 };
 
 #endif

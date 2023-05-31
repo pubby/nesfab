@@ -9,3 +9,5 @@
 ../nesfab text/text.cfg
 ../nesfab objects/objects.cfg
 ../nesfab zapper/zapper.cfg
+../nesfab counter/counter.cfg
+../nesfab fade/fade.cfg

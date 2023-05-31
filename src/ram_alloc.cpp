@@ -530,12 +530,12 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             }
         };
 
-        for(group_vars_ht g : group_vars_ht::handles())
+        for(group_t* g : group_vars_ht::values())
         {
             group_inits_t zero_inits  = {};
             group_inits_t value_inits = {};
 
-            for(gvar_ht v : g->gvars())
+            for(gvar_ht v : g->vars()->gvars())
                 check_init(v, zero_inits, value_inits);
 
             if(!zero_inits.init.empty())
@@ -1022,9 +1022,9 @@ void print_ram(std::ostream& o)
 
     for(group_vars_ht g : group_vars_ht::handles())
     {
-        o << fmt("  %:\n", g->group.name);
+        o << fmt("  %:\n", (*g)->name);
 
-        for(gvar_ht v : g->gvars())
+        for(gvar_ht v : (*g)->vars()->gvars())
         {
             o << fmt("    %: (%)\n", v->global.name, v->type());
 

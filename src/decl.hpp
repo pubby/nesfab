@@ -55,29 +55,6 @@ enum global_class_t : std::uint8_t
 #undef X
 };
 
-#define GROUP_CLASS_XENUM \
-    X(GROUP_UNDEFINED, undefined) \
-    X(GROUP_VARS, vars) \
-    X(GROUP_DATA, data)
-
-enum group_class_t : std::uint8_t
-{
-#define X(e, s) e,
-    GROUP_CLASS_XENUM
-#undef X
-};
-
-constexpr char const* group_class_keyword(group_class_t gc)
-{
-    switch(gc)
-    {
-    default: return "undefined";
-#define X(e, s) case e: return #s;
-    GROUP_CLASS_XENUM
-#undef X
-    }
-}
-
 struct lt_ht : pool_handle_t<lt_ht, std::deque<lt_value_t>, PHASE_COMPILE> {};
 
 struct global_ht : pool_handle_t<global_ht, std::deque<global_t>, PHASE_PARSE> {};
@@ -92,8 +69,8 @@ struct group_ht : pool_handle_t<group_ht, std::deque<group_t>, PHASE_PARSE>
 {
     group_data_t* data() const; // Defined in group.cpp
 };
-struct group_vars_ht : pool_handle_t<group_vars_ht, std::deque<group_vars_t>, PHASE_PARSE> {};
-struct group_data_ht : pool_handle_t<group_data_ht, std::deque<group_data_t>, PHASE_PARSE> {};
+struct group_vars_ht : pool_handle_t<group_vars_ht, std::deque<group_t*>, PHASE_PARSE> {};
+struct group_data_ht : pool_handle_t<group_data_ht, std::deque<group_t*>, PHASE_PARSE> {};
 
 DEF_HANDLE_HASH(fn_ht);
 DEF_HANDLE_HASH(gvar_ht);
@@ -126,6 +103,20 @@ constexpr char const* fn_class_keyword(fn_class_t fc)
     case FN_IRQ: return "irq";
     }
 }
+
+struct defined_group_vars_t
+{
+    class group_t* group;
+    class group_vars_t* vars;
+    class group_vars_ht vars_handle;
+};
+
+struct defined_group_data_t
+{
+    class group_t* group;
+    class group_data_t* data;
+    class group_data_ht data_handle;
+};
 
 ///////////
 // ideps //

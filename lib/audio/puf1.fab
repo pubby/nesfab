@@ -122,9 +122,9 @@ ct AA puf_enable              = puf_stack_mem + 42
 
 ct AAA puf_silent_instrument = &puf_instrument_0
 
-data /puf_data
+data /puf
 
-omni data /puf_omni
+omni data /puf
     [] puf_ntsc_note_table
         UU[]($07F1,$077F,$0713,$06AD,$064D,$05F3,$059D,$054C,$0500,$04B8,$0474,$0434)
         UU[]($03F8,$03BF,$0389,$0356,$0326,$02F9,$02CE,$02A6,$0280,$025C,$023A,$021A)
@@ -146,7 +146,7 @@ omni data /puf_omni
         UU[]($000E,$000D,$000C)
 
 asm fn puf(U arg)
-: employs /puf_data /puf_omni
+: employs /puf
     label track_step_function_lo
         U(update_variables.a)
         U(update_triangle_noise.a)

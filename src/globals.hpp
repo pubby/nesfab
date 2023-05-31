@@ -129,12 +129,12 @@ public:
         type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass, bool iasm);
     gvar_ht define_var(
         pstring_t pstring, ideps_map_t&& ideps, 
-        src_type_t src_type, std::pair<group_vars_t*, group_vars_ht> group, 
+        src_type_t src_type, defined_group_vars_t group, 
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
     const_ht define_const(
         pstring_t pstring, ideps_map_t&& ideps, 
-        src_type_t src_type, std::pair<group_data_t*, group_data_ht> group, 
+        src_type_t src_type, defined_group_data_t group, bool omni,
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
     struct_ht define_struct(
@@ -699,13 +699,15 @@ public:
 
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
-    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, ast_node_t const* expr, 
+    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, bool banked, ast_node_t const* expr, 
             std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
     : global_datum_t(global, src_type, expr, std::move(paa_def), std::move(mods))
     , group_data(group_data)
+    , banked(banked)
     { assert(init_expr); }
 
     group_data_ht const group_data;
+    bool const banked = false;
 
     virtual group_ht group() const;
 
@@ -738,6 +740,7 @@ public:
     int sentinel() const { return m_sentinel; }
 
     group_data_ht group_data() const { assert(compiler_phase() > PHASE_CHARMAP_GROUPS); return m_group_data; }
+    bool stows_omni() const { assert(compiler_phase() > PHASE_CHARMAP_GROUPS); return m_stows_omni; }
     void set_group_data();
     static void set_all_group_data();
 
@@ -749,6 +752,7 @@ private:
     unsigned m_num_unique = 0;
     int m_sentinel = -1;
     group_data_ht m_group_data = {};
+    bool m_stows_omni = false;
     rom_array_ht m_byte_pairs = {};
 };
 

@@ -642,7 +642,7 @@ bool ptr_to_vars(type_t const& type)
 {
     unsigned const size = type.group_tail_size();
     for(unsigned i = 0; i < size; ++i)
-        if(type.group(i)->gclass() == GROUP_VARS)
+        if(type.group(i)->using_vars())
             return true;
     return false;
 }

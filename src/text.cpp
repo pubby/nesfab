@@ -151,7 +151,7 @@ std::string escape(std::string const& str)
     std::string ret;
     char32_t utf32;
 
-    for(char const* ptr = str.data(); utf32 = utf8_to_utf32(ptr);)
+    for(char const* ptr = str.data(); (utf32 = utf8_to_utf32(ptr));)
     {
         switch(utf32)
         {
@@ -231,7 +231,7 @@ rom_array_ht string_literal_manager_t::get_rom_array(global_t const* charmap, un
             if(!gd)
                 compiler_error(data.pstring, fmt("Invalid use of string literal. % has no stows modifier.", charmap->name));
 
-            data.rom_array = rom_array_t::make(std::move(vec), false, ROMR_NORMAL, gd);
+            data.rom_array = rom_array_t::make(std::move(vec), false, charmap->impl<charmap_t>().stows_omni(), ROMR_NORMAL, gd);
         }
 
         assert(data.rom_array);

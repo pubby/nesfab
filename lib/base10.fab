@@ -73,7 +73,7 @@ ct U[256] f_to_dd_table = U[256](
     $49, $49, $59, $59, $59, $69, $69, $69, $79, $79, $89, $89, $89, $99, $99, $99)
 
 // Implementation details.
-vars /base10_vars
+vars /base10
     UU base10_input
     U[5] base10_result
 
@@ -82,7 +82,7 @@ vars /base10_vars
 // then modified by Patrick Bene in 2023.
 // Source: https://forums.nesdev.org/viewtopic.php?t=11341&start=15
 asm fn to_base10()
-: employs /base10_vars
+: employs /base10
 : +align
     ct AA temp = &base10_result+0
     label mult_24_table

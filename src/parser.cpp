@@ -108,7 +108,6 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 
     auto const handle_group_list = [this, &mods](mod_list_t listf)
     {
-        parse_token();
         mods->explicit_lists |= listf;
         while(token.type == TOK_fslash)
         {
@@ -134,11 +133,22 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 
             switch(token.type)
             {
-            case TOK_vars: handle_group_list(MODL_VARS); break;
-            case TOK_data: handle_group_list(MODL_DATA); break;
-            case TOK_employs: handle_group_list(MODL_EMPLOYS); break;
-            case TOK_preserves: handle_group_list(MODL_PRESERVES); break;
-            case TOK_stows: handle_group_list(MODL_STOWS); break;
+            case TOK_vars: parse_token(); handle_group_list(MODL_VARS); break;
+            case TOK_data: parse_token(); handle_group_list(MODL_DATA); break;
+            case TOK_employs: parse_token(); handle_group_list(MODL_EMPLOYS); break;
+            case TOK_preserves: parse_token(); handle_group_list(MODL_PRESERVES); break;
+            case TOK_stows: 
+                {
+                    parse_token();
+                    bool const omni = token.type == TOK_omni;
+                    if(omni)
+                    {
+                        parse_token();
+                        mods->details |= MODD_STOWS_OMNI;
+                    }
+                    handle_group_list(MODL_STOWS); 
+                }
+                break;
 
             case TOK_omni:
                 compiler_error("Unknown modifier. Did you mean 'data'?");
@@ -1702,7 +1712,7 @@ void parser_t<P>::parse_group_vars()
             group_name = parse_group_ident();
     });
 
-    auto group = policy().begin_group_vars(group_name);
+    auto d = policy().begin_group_vars(group_name);
 
     maybe_parse_block(vars_indent, 
     [&]{ 
@@ -1712,12 +1722,11 @@ void parser_t<P>::parse_group_vars()
         policy().begin_global_var();
 
         std::unique_ptr<mods_t> mods;
-        group_ht const group_h = group.first ? group.first->group.handle() : group_ht{};
-        bool const has_expr = parse_var_init(var_decl, expr, &mods, &global, group_h, false);
+        bool const has_expr = parse_var_init(var_decl, expr, &mods, &global, d.group ? d.group->handle() : group_ht{}, false);
 
         inherit(mods, base_mods);
 
-        policy().global_var(group, var_decl, has_expr ? &expr : nullptr, std::move(mods));
+        policy().global_var(d, var_decl, has_expr ? &expr : nullptr, std::move(mods));
         policy().end_global_var();
     });
 
@@ -1729,10 +1738,10 @@ void parser_t<P>::parse_group_data()
 {
     int const group_indent = indent;
 
-    bool once = true;
+    bool omni = false;
     if(token.type == TOK_omni)
     {
-        once = false;
+        omni = true;
         parse_token();
     }
 
@@ -1741,11 +1750,11 @@ void parser_t<P>::parse_group_data()
     std::unique_ptr<mods_t> base_mods = parse_mods_after([&]
     {
         parse_token(TOK_data);
-        if(once || token.type != TOK_eol)
+        if(!omni || token.type != TOK_eol)
             group_name = parse_group_ident();
     });
 
-    auto group = policy().begin_group_data(group_name, once);
+    auto d = policy().begin_group_data(group_name, omni);
 
     maybe_parse_block(group_indent, [&]
     { 
@@ -1755,13 +1764,12 @@ void parser_t<P>::parse_group_data()
         policy().begin_global_var();
 
         std::unique_ptr<mods_t> mods;
-        group_ht const group_h = group.first ? group.first->group.handle() : group_ht{};
-        if(!parse_var_init(var_decl, expr, &mods, &global, group_h, once))
+        if(!parse_var_init(var_decl, expr, &mods, &global, d.group ? d.group->handle() : group_ht{}, !omni))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
 
         inherit(mods, base_mods);
 
-        policy().global_const(true, group, var_decl, expr, std::move(mods));
+        policy().global_const(true, d, omni, var_decl, expr, std::move(mods));
         policy().end_global_var();
     });
 
@@ -1785,7 +1793,7 @@ void parser_t<P>::parse_const()
     if(var_decl.src_type.type.name() == TYPE_PAA)
         compiler_error(var_decl.name, "Pointer-addressable arrays cannot be defined at top-level.");
 
-    policy().global_const(false, {}, var_decl, expr, parse_mods(const_indent));
+    policy().global_const(false, {}, false, var_decl, expr, parse_mods(const_indent));
     policy().end_global_var();
 }
 

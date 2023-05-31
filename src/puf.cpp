@@ -213,7 +213,7 @@ std::string convert_name(std::string const& in)
 }
 
 const_ht define_const(pstring_t at, std::string_view name, asm_proc_t&& proc, 
-                      std::pair<group_data_t*, group_data_ht> group, mod_flags_t flags)
+                      defined_group_data_t const& d, bool omni, mod_flags_t flags)
 {
     using namespace lex;
 
@@ -236,7 +236,7 @@ const_ht define_const(pstring_t at, std::string_view name, asm_proc_t&& proc,
 
     global_t& global = global_t::lookup_sourceless(at, name);
     const_ht gconst = global.define_const(
-        at, {}, { at, type_t::paa(0, group.first->group.handle()) }, group, 
+        at, {}, { at, type_t::paa(0, d.group ? d.group->handle() : group_ht{}) }, d, omni,
         expr, std::move(paa_def), std::move(mods));
 
     assert(gconst);
@@ -253,7 +253,7 @@ const_ht define_ct(pstring_t at, std::string_view name, std::uint8_t value)
 
     global_t& global = global_t::lookup_sourceless(at, name);
     const_ht gconst = global.define_const(
-        at, {}, { at, TYPE_U }, {}, expr, {}, {});
+        at, {}, { at, TYPE_U }, {}, false, expr, {}, {});
 
     assert(gconst);
     return gconst;
@@ -323,11 +323,10 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     std::vector<bucket_t> buckets;
     std::vector<bucket_t> allocated;
 
-    group_t& data_group = *group_t::lookup_sourceless(at, "puf_data"sv);
-    auto data_group_pair = data_group.define_data({}, true);
-
-    group_t& omni_group = *group_t::lookup_sourceless(at, "puf_omni"sv);
-    auto omni_group_pair = omni_group.define_data({}, false);
+    group_t& group = *group_t::lookup_sourceless(at, "puf"sv);
+    auto data_group_pair = group.define_data({}, false);
+    auto omni_group_pair = group.define_data({}, true);
+    assert(data_group_pair.data && omni_group_pair.data);
 
     if(begin)
     {
@@ -714,7 +713,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
                         push_byte(proc.code, 0);
             }
 
-            track.gconst = define_const(at, fmt("puf_trackid_%", t), std::move(proc), data_group_pair, MOD_align);
+            track.gconst = define_const(at, fmt("puf_trackid_%", t), std::move(proc), data_group_pair, false, MOD_align);
 
             std::string name = convert_name(track.name);
             if(!name.empty())
@@ -759,7 +758,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         append(pit);
         append(arp, 2);
 
-        instrument.gconst = define_const(at, fmt("puf_instrument_%", instrument.id), std::move(proc), data_group_pair, 0);
+        instrument.gconst = define_const(at, fmt("puf_instrument_%", instrument.id), std::move(proc), data_group_pair, false, 0);
     }
 
     {
@@ -771,7 +770,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(instruments[i].gconst).with_is(IS_PTR) });
         }
 
-        define_const(at, "puf_instrument_lo"sv, std::move(proc), omni_group_pair, MOD_align);
+        define_const(at, "puf_instrument_lo"sv, std::move(proc), omni_group_pair, true, MOD_align);
     }
 
     {
@@ -780,7 +779,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(int i : penguin_instrument_vector)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(instruments[i].gconst).with_is(IS_PTR_HI) });
 
-        define_const(at, "puf_instrument_hi"sv, std::move(proc), omni_group_pair, MOD_align);
+        define_const(at, "puf_instrument_hi"sv, std::move(proc), omni_group_pair, true, MOD_align);
     }
 
     {
@@ -789,7 +788,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(int i : penguin_instrument_vector)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(instruments[i].gconst).with_is(IS_BANK) });
 
-        define_const(at, "puf_instrument_bank"sv, std::move(proc), omni_group_pair, MOD_align);
+        define_const(at, "puf_instrument_bank"sv, std::move(proc), omni_group_pair, true, MOD_align);
     }
 
     {
@@ -798,7 +797,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(auto* ptr : penguin_dpcm_vector)
             push_byte(proc.code, (ptr->pitch & 0xF) | (ptr->loop == 1 ? 0b01000000 : 0));
 
-        define_const(at, "puf_dpcm_rate"sv, std::move(proc), omni_group_pair, MOD_align);
+        define_const(at, "puf_dpcm_rate"sv, std::move(proc), omni_group_pair, true, MOD_align);
     }
 
     {
@@ -807,7 +806,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(auto* ptr : penguin_dpcm_vector)
             push_byte(proc.code, (dpcms[ptr->sample].size() - 1) / 16);
 
-        define_const(at, "puf_dpcm_length"sv, std::move(proc), omni_group_pair, MOD_align);
+        define_const(at, "puf_dpcm_length"sv, std::move(proc), omni_group_pair, true, MOD_align);
     }
 
     {
@@ -818,7 +817,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
             asm_proc_t dpcm_proc;
             for(auto b : p.second)
                 push_byte(dpcm_proc.code, b);
-            const_ht c = define_const(at, fmt("puf_dpcm_%", p.first), std::move(dpcm_proc), omni_group_pair, MOD_dpcm);
+            const_ht c = define_const(at, fmt("puf_dpcm_%", p.first), std::move(dpcm_proc), omni_group_pair, true, MOD_dpcm);
 
             dpcm_map[p.first] = c;
         }
@@ -828,7 +827,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(auto* ptr : penguin_dpcm_vector)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::dpcm(dpcm_map[ptr->sample]) });
 
-        define_const(at, "puf_dpcm_addr"sv, std::move(proc), omni_group_pair, MOD_align);
+        define_const(at, "puf_dpcm_addr"sv, std::move(proc), omni_group_pair, true, MOD_align);
     }
 
     {
@@ -840,7 +839,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR) });
         }
 
-        define_const(at, "puf_tracks_begin_lo"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_tracks_begin_lo"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -849,7 +848,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR_HI) });
 
-        define_const(at, "puf_tracks_begin_hi"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_tracks_begin_hi"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -861,7 +860,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(tracks[i].gconst).with_is(IS_BANK) });
         }
 
-        define_const(at, "puf_tracks_bank"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_tracks_bank"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -870,7 +869,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg
                 = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR).with_offset(tracks[i].num_columns * 2 * NUM_CHAN) });
-        define_const(at, "puf_tracks_end_lo"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_tracks_end_lo"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -879,7 +878,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg
                 = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR_HI).with_offset(tracks[i].num_columns * 2 * NUM_CHAN) });
-        define_const(at, "puf_tracks_end_hi"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_tracks_end_hi"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -887,7 +886,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         asm_proc_t proc;
         for(unsigned i = 0; i < tracks.size(); ++i)
             push_byte(proc.code, tracks[i].speed);
-        define_const(at, "puf_tracks_speed"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_tracks_speed"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -895,7 +894,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
         asm_proc_t proc;
         for(unsigned i = 0; i < tracks.size(); ++i)
             push_byte(proc.code, tracks[i].pattern_size - 1);
-        define_const(at, "puf_tracks_pattern_size"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_tracks_pattern_size"sv, std::move(proc), omni_group_pair, true, 0);
     }
 }
 
@@ -1039,7 +1038,7 @@ const_ht convert_effect(pstring_t at,
                         std::uint8_t const* const nsf_data, std::size_t nsf_size,
                         nsf_t const& nsf, unsigned song, unsigned mode,
                         std::deque<nsf_track_t>& nsf_tracks,
-                        std::pair<group_data_t*, group_data_ht> group_pair)
+                        defined_group_data_t group_pair, bool omni)
 {
     static TLS std::mutex cpu_mutex;
     std::lock_guard<std::mutex> lock(cpu_mutex);
@@ -1183,7 +1182,7 @@ const_ht convert_effect(pstring_t at,
             }
         }
 
-        nsf_tracks[song].gconsts[k] = define_const(at, fmt("puf_sfxid_%_%", song, k), std::move(proc), group_pair, 0);
+        nsf_tracks[song].gconsts[k] = define_const(at, fmt("puf_sfxid_%_%", song, k), std::move(proc), group_pair, omni, 0);
     }
 
     {
@@ -1215,7 +1214,7 @@ const_ht convert_effect(pstring_t at,
         if(!name.empty())
             define_ct(at, fmt("puf_sfx_%", name), song);
 
-        return define_const(at, fmt("puf_sfxid_%", song), std::move(proc), group_pair, 0);
+        return define_const(at, fmt("puf_sfxid_%", song), std::move(proc), group_pair, omni, 0);
     }
 }
 
@@ -1284,16 +1283,15 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
             throw std::runtime_error("Expansion chips in NSF file are not supported.");
     }
 
-    group_t& data_group = *group_t::lookup_sourceless(at, "puf_data"sv);
-    auto data_group_pair = data_group.define_data({}, true);
-
-    group_t& omni_group = *group_t::lookup_sourceless(at, "puf_omni"sv);
-    auto omni_group_pair = omni_group.define_data({}, false);
+    group_t& group = *group_t::lookup_sourceless(at, "puf"sv);
+    auto data_group_pair = group.define_data({}, false);
+    auto omni_group_pair = group.define_data({}, true);
+    assert(data_group_pair.data && omni_group_pair.data);
 
     std::vector<const_ht> gconsts;
 
     for(unsigned i = 0; i < nsf.songs; ++i)
-        gconsts.push_back(convert_effect(at, nsf_data, nsf_size, nsf, i, 0, nsf_tracks, data_group_pair));
+        gconsts.push_back(convert_effect(at, nsf_data, nsf_size, nsf, i, 0, nsf_tracks, data_group_pair, false));
 
     {
         // puf_sfx_lo
@@ -1301,7 +1299,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
         for(unsigned i = 0; i < nsf.songs; ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(gconsts[i]).with_is(IS_PTR) });
 
-        define_const(at, "puf_sfx_lo"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_sfx_lo"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -1310,7 +1308,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
         for(unsigned i = 0; i < nsf.songs; ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(gconsts[i]).with_is(IS_PTR_HI) });
 
-        define_const(at, "puf_sfx_hi"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_sfx_hi"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
     {
@@ -1319,6 +1317,6 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
         for(unsigned i = 0; i < nsf.songs; ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg = locator_t::gconst(gconsts[i]).with_is(IS_BANK) });
 
-        define_const(at, "puf_sfx_bank"sv, std::move(proc), omni_group_pair, 0);
+        define_const(at, "puf_sfx_bank"sv, std::move(proc), omni_group_pair, true, 0);
     }
 }

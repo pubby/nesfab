@@ -39,7 +39,7 @@ void gmanager_t::init(fn_ht fn)
             {
                 fn.mods()->for_each_list_vars(MODL_EMPLOYS, [&](group_vars_ht gv, pstring_t)
                 {
-                    for(gvar_ht gvar : gv->gvars())
+                    for(gvar_ht gvar : (*gv)->vars()->gvars())
                         add_gvar(gvar);
                 });
             }
@@ -79,7 +79,7 @@ void gmanager_t::init(fn_ht fn)
                 {
                     mods->for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
                     {
-                        bitset_or(set_size, initial_set, gv->gmembers().data());
+                        bitset_or(set_size, initial_set, (*gv)->vars()->gmembers().data());
                     });
                 }
             }
@@ -160,7 +160,7 @@ void gmanager_t::init(fn_ht fn)
                 {
                     mods->for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
                     {
-                        split(set_size, gv->gmembers().data(), gv->gmembers().data());
+                        split(set_size, (*gv)->vars()->gmembers().data(), (*gv)->vars()->gmembers().data());
                     });
                 }
             }

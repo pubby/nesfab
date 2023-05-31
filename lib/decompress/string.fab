@@ -6,9 +6,7 @@
 
 // Code for decompressing strings.
 
-data /strings
-
-vars /decompress_string_vars
+vars /decompress_string
     CCC/strings decompress_string_ptr
     U decompress_string_skip
     
@@ -20,7 +18,7 @@ fn decompress_string_init(CCC/strings str)
 
 // Decompresses a single character of the string, returning it.
 asm fn decompress_string() U
-: employs /strings /decompress_string_vars
+: employs /strings /decompress_string
     vars
         U stack
 

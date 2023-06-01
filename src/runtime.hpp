@@ -56,7 +56,14 @@ RT(jmp_y_trampoline) \
 RT(jsr_y_trampoline) \
 RT(iota) \
 RT(mul8) \
-RT(mapper_reset)
+RT(mapper_reset) \
+RT(shl4_table) \
+RT(shl5_table) \
+RT(shl6_table) \
+RT(shl7_table)
+
+constexpr int MIN_SHL_TABLE = 4;
+constexpr int MAX_SHL_TABLE = 7;
 
 enum runtime_rom_name_t : std::uint16_t
 {
@@ -65,6 +72,18 @@ RTROM_X
 #undef RT
     NUM_RTROM,
 };
+
+inline runtime_rom_name_t shl_table(int amount) 
+{
+    switch(amount)
+    {
+    default: throw std::runtime_error("Missing shift table: " + std::to_string(amount));
+    case 4: return RTROM_shl4_table;
+    case 5: return RTROM_shl5_table;
+    case 6: return RTROM_shl6_table;
+    case 7: return RTROM_shl7_table;
+    }
+}
 
 ram_bitset_t alloc_runtime_ram();
 span_allocator_t alloc_runtime_rom();

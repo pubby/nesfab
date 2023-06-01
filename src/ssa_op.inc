@@ -63,8 +63,11 @@ SSA_DEF(mul8_hi, 1, INPUT_LINK, SSAF_FREE | SSAF_CLOBBERS_CARRY)
 //SSA_DEF(div,    2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY) // TODO
 
 // (value, shift)
-SSA_DEF(shl,    2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
-SSA_DEF(shr,    2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
+SSA_DEF(shl,       2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
+SSA_DEF(shr,       2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_CLOBBERS_CARRY)
+// Like shl, but implies a table-based optimization.
+// The 0th input must be masked so that only zeroes are shifted out.
+SSA_DEF(shl_table, 2, INPUT_VALUE, SSAF_TRACE_INPUTS | SSAF_TABLE8)
 
 // (value, atom)
 SSA_DEF(get_byte,        2, INPUT_VALUE, SSAF_FREE)

@@ -164,7 +164,8 @@ unroll_divisor.cpp \
 puf.cpp \
 worklist.cpp \
 mlb.cpp \
-macro.cpp
+macro.cpp \
+o_shift.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

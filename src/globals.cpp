@@ -1253,6 +1253,7 @@ void fn_t::compile()
             if(post_byteified)
             {
                 // Once byteified, keep shifts out of the IR and only use rotates.
+                RUN_O(o_shl_tables, log, ir);
                 changed |= shifts_to_rotates(ir, true);
             }
 
@@ -1276,10 +1277,11 @@ void fn_t::compile()
     calc_ir_bitsets(&ir);
     assert(ir_reads());
 
-    // Convert switches:
-    if(switch_partial_to_full(ir))
+    // Convert shifts and switches:
+    // NOTE: Do NOT use operator || here.
+    if(o_shl_tables(log, ir) | switch_partial_to_full(ir))
         optimize_suite(false);
-    save_graph(ir, "3_switch");
+    save_graph(ir, "3_transform");
 
     byteify(ir, *this);
     save_graph(ir, "4_byteify");

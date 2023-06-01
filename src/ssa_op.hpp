@@ -31,6 +31,7 @@ constexpr unsigned SSAF_CONDITIONAL    = 1 << 20;
 constexpr unsigned SSAF_CHEAP_SCHEDULE = 1 << 21;
 constexpr unsigned SSAF_FREE           = 1 << 22;
 constexpr unsigned SSAF_EXPENSIVE      = 1 << 23;
+constexpr unsigned SSAF_TABLE8         = 1 << 24; // Uses a table
 
 // Parameter indexes for SSA ops
 namespace ssai
@@ -115,6 +116,8 @@ constexpr bool fn_like(ssa_op_t op) { return op == SSA_fn_call || op == SSA_goto
 
 constexpr bool is_make_ptr(ssa_op_t op) { return op == SSA_make_ptr_lo || op == SSA_make_ptr_hi; }
 
+constexpr bool is_shl(ssa_op_t op) { return op == SSA_shl || op == SSA_shl_table; }
+
 inline unsigned write_globals_begin(ssa_op_t op)
 {
     assert(ssa_flags(op) & SSAF_WRITE_GLOBALS);
@@ -152,7 +155,7 @@ inline unsigned ssa_copy_input(ssa_op_t op)
 
 constexpr bool ssa_indexes8(ssa_op_t op)
 {
-    constexpr unsigned SSAFS_INDEXES = SSAF_INDEXES_ARRAY8 | SSAF_INDEXES_PTR;
+    constexpr unsigned SSAFS_INDEXES = SSAF_INDEXES_ARRAY8 | SSAF_INDEXES_PTR | SSAF_TABLE8;
     return ssa_flags(op) & SSAFS_INDEXES;
 }
 
@@ -161,6 +164,8 @@ constexpr unsigned ssa_index8_input(ssa_op_t op)
     assert(ssa_indexes8(op));
     switch(op)
     {
+    case SSA_shl_table:
+        return 1;
     case SSA_read_array8:
     case SSA_cg_read_array8_direct:
     case SSA_write_array8:

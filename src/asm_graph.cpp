@@ -925,7 +925,6 @@ void asm_graph_t::optimize_live_registers()
         case MODE_IMMEDIATE:
         case MODE_ZERO_PAGE:
         case MODE_ABSOLUTE:
-        case MODE_RELATIVE:
             return true;
         default:
             return false;

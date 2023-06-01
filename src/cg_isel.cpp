@@ -3965,11 +3965,11 @@ namespace isel
         }
     }
 
-    preprep_flags_t isel_node_build_preprep(ssa_ht h)
+    prep_flags_t isel_node_build_preprep(ssa_ht h)
     {
         assert(h);
 
-        preprep_flags_t flags = 0;
+        prep_flags_t flags = 0;
 
         switch(h->op())
         {
@@ -3986,6 +3986,32 @@ namespace isel
 
         default:
             break;
+        }
+
+        return flags;
+    }
+
+    prep_flags_t isel_node_build_postprep(ssa_ht h)
+    {
+        assert(h);
+
+        prep_flags_t flags = 0;
+
+        unsigned const output_size = h->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            auto oe = h->output_edge(i);
+            if(oe.handle->cfg_node() != h->cfg_node())
+                return 0;
+
+            auto const op = oe.handle->op();
+            if(!ssa_indexes8(op) || ssa_index8_input(op) != oe.index)
+                continue;
+
+            flags |= POSTPREP_TAY;
+
+            if(!(ssa_flags(op) & SSAF_INDEXES_PTR))
+                flags |= POSTPREP_TAX;
         }
 
         return flags;
@@ -4669,23 +4695,26 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
         auto& d = data(cfg);
         auto const& schedule = cg_data(cfg).schedule;
 
-        d.preprep.resize(schedule.size());
+        d.prep.resize(schedule.size());
 
         for(int i = 0; i < int(schedule.size()); ++i)
         {
-            preprep_flags_t const flags = isel_node_build_preprep(schedule[i]);
+            prep_flags_t const flags = isel_node_build_preprep(schedule[i]);
+            assert((flags & PREPREP_FLAGS) == flags);
 
             for(int j = i-1; j >= 0; --j)
             {
                 if(ssa_input0_class(schedule[j]->op()) != INPUT_LINK)
                 {
-                    d.preprep[j] |= flags;
+                    d.prep[j] |= flags;
                     break;
                 }
             }
+
+            d.prep[i] |= isel_node_build_postprep(schedule[i]);
         }
 
-        assert(d.preprep.empty() || d.preprep.back() == 0);
+        assert(d.prep.empty() || (d.prep.back() & PREPREP_FLAGS) == 0);
 
         // Also prepare memoized map here:
         d.memoized_input_maps.resize(cfg->input_size());
@@ -4818,24 +4847,48 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             {
                 state.ssa_node = h;
                 
-                if(d.preprep[i])
+                if(d.prep[i] & PREPREP_FLAGS)
                 {
                     select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                     {
                         cont->call(cpu, prev);
 
-                        if(d.preprep[i] & PREPREP_A_0)
+                        if(d.prep[i] & PREPREP_A_0)
                             load_A<options<>::restrict_to<~(REGF_X | REGF_Y)>, const_<0>>(cpu, prev, cont);
 
-                        if(d.preprep[i] & PREPREP_X_0)
+                        if(d.prep[i] & PREPREP_X_0)
                             load_X<options<>::restrict_to<~(REGF_A | REGF_Y)>, const_<0>>(cpu, prev, cont);
 
-                        if(d.preprep[i] & PREPREP_Y_0)
+                        if(d.prep[i] & PREPREP_Y_0)
                             load_Y<options<>::restrict_to<~(REGF_A | REGF_X)>, const_<0>>(cpu, prev, cont);
                     });
                 }
 
                 isel_node(h); // This creates all the selections.
+
+                if(d.prep[i] & POSTPREP_FLAGS)
+                {
+                    auto v = ssa_to_value(h);
+
+                    select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+                    {
+                        cont->call(cpu, prev);
+
+                        p_def::set(h);
+
+                        if((d.prep[i] & POSTPREP_TAX) && cpu.value_eq(REG_A, v))
+                            exact_op<options<>, TAX_IMPLIED, p_def>(cpu, prev, cont);
+
+                        if((d.prep[i] & POSTPREP_TAY) && cpu.value_eq(REG_A, v))
+                            exact_op<options<>, TAY_IMPLIED, p_def>(cpu, prev, cont);
+
+                        if((d.prep[i] & POSTPREP_TXA) && cpu.value_eq(REG_X, v))
+                            exact_op<options<>, TXA_IMPLIED, p_def>(cpu, prev, cont);
+
+                        if((d.prep[i] & POSTPREP_TYA) && cpu.value_eq(REG_Y, v))
+                            exact_op<options<>, TYA_IMPLIED, p_def>(cpu, prev, cont);
+                    });
+                }
             }
             catch(isel_no_progress_error_t const&)
             {

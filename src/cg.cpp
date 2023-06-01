@@ -160,6 +160,19 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             ssa_it = ssa_it->prune();
             break;
 
+        case SSA_shl_table:
+            // Convert shl_table to read_array8
+            {
+                assert(ssa_it->input(1).is_num());
+                int const amount = ssa_it->input(1).whole();
+                ssa_it->unsafe_set_op(SSA_read_array8);
+                ssa_it->link_append_input(ssa_it->input(0));
+                ssa_it->link_change_input(0, locator_t::runtime_rom(shl_table(amount)));
+                ssa_it->link_change_input(1, ssa_value_t(0u, TYPE_U20));
+            }
+            break;
+
+
         default:
             ++ssa_it;
         }
@@ -891,12 +904,14 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         auto& d = cg_data(cfg_it);
         for(ssa_ht h : d.schedule)
         {
+            using namespace ssai::array;
+
             assert(h->cfg_node() == cfg_it);
 
-            if(h->op() != SSA_read_array8 || !h->input(0).holds_ref())
+            if(h->op() != SSA_read_array8)
                 continue;
 
-            ssa_ht const array = h->input(0).handle();
+            ssa_value_t const array = h->input(ARRAY);
 
             unsigned const size = h->output_size();
             for(unsigned i = 0; i < size; ++i)
@@ -905,7 +920,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 if(output->cfg_node() != cfg_it)
                     goto next_read_array_iter;
 
-                if(!live_at_def(array, output))
+                if(array.holds_ref() && !live_at_def(array.handle(), output))
                     goto next_read_array_iter;
 
                 // It's not ideal to use direct reads if there's high X/Y register pressure.

@@ -11,5 +11,6 @@
 #include "o_id.hpp"
 #include "o_loop.hpp"
 #include "o_defork.hpp"
+#include "o_shift.hpp"
 
 #endif

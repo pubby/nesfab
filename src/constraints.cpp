@@ -1097,7 +1097,8 @@ ABSTRACT(SSA_resize_array) = ABSTRACT_FN
     }
 };
 
-ABSTRACT(SSA_shl) = ABSTRACT_FN
+template<bool Table>
+void shift_left(constraints_def_t const* cv, unsigned argn, constraints_def_t& result)
 {
     assert(argn == 2);
     passert(result.cm.mask == cv[0].cm.mask, result.cm.mask, cv[0].cm.mask);
@@ -1134,13 +1135,16 @@ ABSTRACT(SSA_shl) = ABSTRACT_FN
     }
 
     // Calc the output carry:
-    fixed_uint_t const carry_out_bit = high_bit_only(mask) << 1;
-    result[1].bits = known_bits_t::bottom(CARRY_MASK);
-    if(bits.known0 & carry_out_bit)
-        result[1].bits.known0 |= 1ull << fixed_t::shift;
-    if(bits.known1 & carry_out_bit)
-        result[1].bits.known1 |= 1ull << fixed_t::shift;
-    result[1].bounds = from_bits(result[1].bits, CARRY_MASK);
+    if(!Table)
+    {
+        fixed_uint_t const carry_out_bit = high_bit_only(mask) << 1;
+        result[1].bits = known_bits_t::bottom(CARRY_MASK);
+        if(bits.known0 & carry_out_bit)
+            result[1].bits.known0 |= 1ull << fixed_t::shift;
+        if(bits.known1 & carry_out_bit)
+            result[1].bits.known1 |= 1ull << fixed_t::shift;
+        result[1].bounds = from_bits(result[1].bits, CARRY_MASK);
+    }
 
     bits.known0 |= ~mask;
     bits.known1 &= mask;
@@ -1157,7 +1161,10 @@ ABSTRACT(SSA_shl) = ABSTRACT_FN
 
     result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
 
-};
+}
+
+ABSTRACT(SSA_shl) = shift_left<false>;
+ABSTRACT(SSA_shl_table) = shift_left<true>;
 
 ABSTRACT(SSA_shr) = ABSTRACT_FN
 {
@@ -1733,8 +1740,8 @@ NARROW(SSA_lte) = NARROW_FN
     }
 };
 
-
-NARROW(SSA_shl) = NARROW_FN
+template<bool Table>
+void narrow_shift_left(constraints_def_t* cv, unsigned argn, constraints_def_t const& result)
 {
     assert(argn == 2 && result.vec.size() >= 1);
     assert(result.cm.mask == cv[0].cm.mask);
@@ -1780,7 +1787,10 @@ NARROW(SSA_shl) = NARROW_FN
             R.bounds.max = std::min<fixed_uint_t>(R.bounds.max, (fixed_uint_t)diff << fixed_t::shift);
         }
     }
-};
+}
+
+NARROW(SSA_shl) = narrow_shift_left<false>;
+NARROW(SSA_shl_table) = narrow_shift_left<true>;
 
 NARROW(SSA_shr) = NARROW_FN
 {

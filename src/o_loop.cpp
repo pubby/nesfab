@@ -390,6 +390,7 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
             break;
 
         case SSA_shl:
+        case SSA_shl_table:
             if(oe.index == 0 && !def_in_loop(header, oe.handle->input(1)))
             {
                 // IV << C

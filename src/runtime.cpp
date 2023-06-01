@@ -838,6 +838,16 @@ static loc_vec_t make_iota()
     return ret;
 }
 
+static loc_vec_t make_shl_table(unsigned amount)
+{
+    assert(amount < 8);
+    loc_vec_t ret;
+    ret.resize(1 << (8 - amount));
+    for(unsigned i = 0; i < ret.size(); ++i)
+        ret[i] = locator_t::const_byte(i << amount);
+    return ret;
+}
+
 namespace 
 {
     struct interrupt_tables_t
@@ -941,6 +951,10 @@ span_allocator_t alloc_runtime_rom()
 
     // These have to be defined in a toposorted order.
     alloc(RTROM_iota, make_iota());
+    alloc(RTROM_shl4_table, make_shl_table(4));
+    alloc(RTROM_shl5_table, make_shl_table(5));
+    alloc(RTROM_shl6_table, make_shl_table(6));
+    alloc(RTROM_shl7_table, make_shl_table(7));
 
     if(global_t::has_nmi())
     {

@@ -52,10 +52,17 @@ namespace isel
         std::shared_ptr<std::vector<asm_inst_t>> code;
     };
 
-    using preprep_flags_t = std::uint8_t;
-    constexpr preprep_flags_t PREPREP_A_0 = 1 << 0;
-    constexpr preprep_flags_t PREPREP_X_0 = 1 << 1;
-    constexpr preprep_flags_t PREPREP_Y_0 = 1 << 2;
+    using prep_flags_t = std::uint8_t;
+    constexpr prep_flags_t PREPREP_A_0 = 1 << 0;
+    constexpr prep_flags_t PREPREP_X_0 = 1 << 1;
+    constexpr prep_flags_t PREPREP_Y_0 = 1 << 2;
+    constexpr prep_flags_t POSTPREP_TAX = 1 << 3;
+    constexpr prep_flags_t POSTPREP_TAY = 1 << 4;
+    constexpr prep_flags_t POSTPREP_TXA = 1 << 5;
+    constexpr prep_flags_t POSTPREP_TYA = 1 << 6;
+
+    constexpr prep_flags_t PREPREP_FLAGS = PREPREP_A_0 | PREPREP_X_0 | PREPREP_Y_0;
+    constexpr prep_flags_t POSTPREP_FLAGS = POSTPREP_TAX | POSTPREP_TAY | POSTPREP_TXA | POSTPREP_TYA;
 
     struct memoized_input_t
     {
@@ -67,7 +74,7 @@ namespace isel
     {
         unsigned iter = 0;
 
-        std::vector<preprep_flags_t> preprep;
+        std::vector<prep_flags_t> prep;
         std::vector<unsigned> to_compute;
         rh::batman_set<cross_cpu_t> in_states;
         rh::batman_map<cross_transition_t, result_t> sels;

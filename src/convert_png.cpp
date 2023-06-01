@@ -9,7 +9,7 @@
 
 std::uint8_t map_grey_alpha(std::uint8_t grey, std::uint8_t alpha)
 {
-    return (grey * alpha) >> (6 + 8);
+    return (grey * (alpha + 1)) >> (6 + 8);
 }
 
 std::vector<std::uint8_t> png_to_chr(std::uint8_t const* png, std::size_t size, bool chr16)

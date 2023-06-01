@@ -328,6 +328,7 @@ fn ppu_upload_palette()
 // Thus, 'palette' is size 25, with the mirrored entry positioned at the end.
 vars
     U[25] palette = U[25]($0F)
+    : +align
 
 // To index into 'palette', these constants provide offsets:
 

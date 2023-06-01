@@ -56,8 +56,8 @@ The most flagrant ones are listed below.
 === Operators
 
 - The operators `&`, `|`, and `^` have a <<binop, higher precedence>> than in C.
-- Combined-assignment operators, like `+=` or `<<=`, return a value of type `Bool`, representing the carry.
-- Division is unsupported.
+- Combined-assignment operators, like `+=`, return a value of type `Bool`, representing the carry.
+- Division is unsupported at the language level.
 - Array operators (`[]` and `{}`) are split into 8-bit and 16-bit versions, with the 8-bit versions having better performance.
 - Types are not implicitly promoted. Different operators have different rules for how differing types are handled.  
 
@@ -1095,7 +1095,6 @@ To the compiler, the purpose of groups are:
 - To enable the compiler to smartly allocate variables by reusing RAM addresses.
 - To facilitate <<mappers, mappers>> with multiple banks, enabling smarter linking.
 - To simplify pointer aliasing optimizations.
-
 
 == Comments
 
@@ -2538,7 +2537,7 @@ Assigning to a global variable in a `vars` block sets its initial value.
 The variable will reset to this value at the start of the program,
 but also whenever a <<kw_goto_mode_statement>> occurs and the variable's group is not <<mod_preserves, preserved>>
 
-The same group can be declared multiple times,
+The same `vars` group can be declared multiple times,
 with each declaration defining additional global variables.
 The group will be defined as the union of these declarations.
 
@@ -2573,7 +2572,7 @@ data /group_name
 - `group_name` is the mandatory name of the group that the constants will be part of.
 - `constants` are global constant definitions with the syntax `[optional_size] identifier`, followed by a <<byte_blocks, byte block>>.
 
-The same group can be declared multiple times,
+The same `data` group can be declared multiple times,
 with each declaration defining additional global variables.
 The group will be defined as the union of these declarations.
 
@@ -3292,6 +3291,17 @@ Syntax:
 
 - `/group_name` is a single `data` group which string literals will be stored in.
 
+==== `stows omni`
+
+The `stows omni` modifier behaves like `stows`, except it stores its data inside an `omni data` group.
+
+Syntax:
+----
+: stows omni /group_name
+----
+
+- `/group_name` is a single `omni data` group which string literals will be stored in.
+
 === `employs` [[mod_employs]]
 
 The `employs` <<modifiers, modifier>> instructs a function to be dependent on a group.
@@ -3307,6 +3317,19 @@ The `employs` modifier is only required in these circumstances:
 Syntax:
 ----
 : employs /group_names
+----
+
+- `/group_names` is an optional list of groups.
+
+==== `employs vars` and `employs data`
+
+For additional control, `employs vars` and/or `employs data` modifiers can be used.
+These behave like `employs`, but only include the `vars` and/or `data` definitions of each groups.
+
+Syntax:
+----
+: employs vars /group_names
+: employs data /group_names
 ----
 
 - `/group_names` is an optional list of groups.

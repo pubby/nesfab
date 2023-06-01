@@ -1,0 +1,135 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Functions for manipulating the palette and its colors.
+
+// This file depends on:
+// - 'nes.fab' (Which defines additional palette functions)
+
+///////////////////////////////////////////////////////////////////////////////
+// LOADING/////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Copies data from 'palette_ptr' into 'palette`.
+fn load_palette(CCC/palettes palette_ptr)
+    for U i = 0; i < len(palette); i += 1
+        palette[i] = palette_ptr[i]
+
+///////////////////////////////////////////////////////////////////////////////
+// COLORS /////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Returns the hue of a color.
+fn color_hue(U color) U
+: +inline
+    return color & %1111
+
+// Returns the brightness of a color.
+fn color_brightness(U color) U
+: +inline
+    return color >> 4
+
+// Creates a color from a given hue and brightness.
+fn from_hue_brightness(U hue, U brightness) U
+: +inline
+    return hue | (brightness << 4)
+
+// Subtracts 'amount' brightness from 'color', adjusting the value if needed.
+fn dim(U color, U amount) U
+: -inline
+    if amount == 0
+        return color
+    if !(color -= (amount << 4)) || color == $0D
+        color = $0F
+    return color
+
+// Adds 'amount' brightness to 'color', adjusting the value if needed.
+fn brighten(U color, U amount) U
+: -inline
+    if amount == 0
+        return color
+    if (color & %1111) >= $E
+        color = $0D
+    if (color += (amount << 4)) || color >= $40
+        color = $30
+    return color
+
+fn brightness_shift(U color, S amount) U
+: +inline
+    if amount < 0
+        return dim(color, U(-amount))
+    return brighten(color, U(amount))
+
+// Adds 'amount' to the hue of 'color', adjusting the value if needed.
+fn hue_shift(U color, S amount) U
+: -inline
+    if amount == 0
+        return color
+    U hue = color_hue(color) - 1
+    if hue >= $C
+        return color
+    hue += U(amount)
+    if hue >= 256 - $C
+        hue += $C
+    else while hue >= $C
+        hue -= $C
+    return (color & %11110000) | (hue + 1)
+
+///////////////////////////////////////////////////////////////////////////////
+// FADE EFFECTS ///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// For the following 'fade' fuctions, 'period' determines the rate of change. 
+// A period of 1 updates the palette  every frame, 
+// while a period of 3 updates it every 3 frames.
+
+fn fade_out(U period, S hue_amount, S brightness_amount)
+: -inline
+    nmi
+    U i = 0
+    goto enter
+    for ; i < 4 ; i += 1
+        wait(period)
+        label enter
+        do for U j = 0; j < len(palette); j += 1
+            palette[j] = brightness_shift(hue_shift(palette[j], hue_amount), brightness_amount)
+    nmi
+
+fn fade_in(U period, S hue_amount, S brightness_amount, CCC/palettes new_palette)
+: -inline
+    nmi
+    U i = 0
+    S b = S(brightness_amount * 4)
+    S h = S(hue_amount * 4)
+    goto enter
+    for ; i < 4 ; i += 1
+        wait(period)
+        label enter
+        b -= brightness_amount
+        h -= hue_amount
+        do for U j = 0; j < len(palette); j += 1
+            palette[j] = brightness_shift(hue_shift(new_palette[j], h), b)
+    nmi
+
+// Fades to black.
+fn fade_out_black(U period)
+: +inline
+    fade_out(period, 0, -1)
+
+// Fades to white.
+fn fade_out_white(U period)
+: +inline
+    fade_out(period, 0, 1)
+
+// Fades from black.
+fn fade_in_black(U period, CCC/palettes new_palette)
+: +inline
+    fade_in(period, 0, -1, new_palette)
+
+// Fades from white.
+fn fade_in_white(U period, CCC/palettes new_palette)
+: +inline
+    fade_in(period, 0, 1, new_palette)

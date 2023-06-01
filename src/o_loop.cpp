@@ -1087,7 +1087,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                     for(unsigned i = 0; i < oe.handle->output_size(); ++i)
                     {
                         ssa_ht const output = oe.handle->output(i);
-                        if(output == array_phi)
+                        if(ssa_value_t(output) == array_phi)
                             continue;
                         if(!hd.simple_do || def_in_loop(header, output))
                             goto next_iter;

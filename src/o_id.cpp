@@ -1883,7 +1883,7 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
     for(unsigned i = 0; i < singletons.size(); ++i)
     {
-        if(singletons[i] == replacements[i])
+        if(ssa_value_t(singletons[i]) == replacements[i])
             continue;
 
         singletons[i]->replace_with(replacements[i]);

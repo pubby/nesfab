@@ -135,8 +135,25 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
             {
             case TOK_vars: parse_token(); handle_group_list(MODL_VARS); break;
             case TOK_data: parse_token(); handle_group_list(MODL_DATA); break;
-            case TOK_employs: parse_token(); handle_group_list(MODL_EMPLOYS); break;
             case TOK_preserves: parse_token(); handle_group_list(MODL_PRESERVES); break;
+            case TOK_employs: 
+                {
+                    parse_token(); 
+                    if(token.type == TOK_vars)
+                    {
+                        parse_token();
+                        handle_group_list(MODL_EMPLOYS_VARS); 
+                    }
+                    else if(token.type == TOK_data)
+                    {
+                        parse_token();
+                        handle_group_list(MODL_EMPLOYS_DATA); 
+                    }
+                    else
+                        handle_group_list(MODL_EMPLOYS); 
+                    break;
+                }
+                break;
             case TOK_stows: 
                 {
                     parse_token();

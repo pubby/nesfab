@@ -233,7 +233,7 @@ public:
             mods->validate(
                 decl.name, 
                 fn_mods(fclass), // flags
-                fclass == FN_CT ? 0 : (MODL_VARS | MODL_DATA | MODL_EMPLOYS), // lists
+                fclass == FN_CT ? 0 : (MODL_VARS | MODL_DATA | MODL_EMPLOYS_ANY), // lists
                 fclass == FN_MODE // nmi / irq
                 );
         }
@@ -277,7 +277,7 @@ public:
             mods->validate(
                 decl.name, 
                 fn_mods(fclass), // flags
-                MODL_VARS | MODL_DATA | MODL_EMPLOYS, // lists
+                MODL_VARS | MODL_DATA | MODL_EMPLOYS_ANY, // lists
                 false // nmi
                 );
         }

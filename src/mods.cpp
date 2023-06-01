@@ -32,6 +32,8 @@ std::string_view mod_list_name(mod_list_t list)
     case MODL_VARS: return "vars"sv;
     case MODL_DATA: return "data"sv;
     case MODL_EMPLOYS: return "employs"sv;
+    case MODL_EMPLOYS_VARS: return "employs vars"sv;
+    case MODL_EMPLOYS_DATA: return "employs data"sv;
     case MODL_PRESERVES: return "preserves"sv;
     case MODL_STOWS: return "stows"sv;
     default: return "bad list modifier"sv;
@@ -43,11 +45,11 @@ void mods_t::validate_groups() const
     for(auto const& pair : lists)
     {
         if(pair.first->vars())
-            if(pair.second.lists & ~(MODL_DATA | MODL_EMPLOYS | MODL_STOWS))
+            if(pair.second.lists & ~(MODL_DATA | MODL_EMPLOYS_ANY | MODL_STOWS))
                 goto error;
 
         if(pair.first->any_data())
-            if(pair.second.lists & ~(MODL_VARS | MODL_EMPLOYS | MODL_PRESERVES))
+            if(pair.second.lists & ~(MODL_VARS | MODL_EMPLOYS_ANY | MODL_PRESERVES))
                 goto error;
 
         continue;
@@ -82,6 +84,18 @@ void mods_t::for_each_list_data(mod_list_t listf, std::function<void(group_data_
             if(pair.second.lists & listf)
                 if(pair.first->any_data())
                     fn(pair.first->data_handle(), pair.second.pstring);
+}
+
+void mods_t::for_each_employs_vars(std::function<void(group_vars_ht, pstring_t)> const& fn) const
+{
+    for_each_list_vars(MODL_EMPLOYS, fn);
+    for_each_list_vars(MODL_EMPLOYS_VARS, fn);
+}
+
+void mods_t::for_each_employs_data(std::function<void(group_data_ht, pstring_t)> const& fn) const
+{
+    for_each_list_data(MODL_EMPLOYS, fn);
+    for_each_list_data(MODL_EMPLOYS_DATA, fn);
 }
 
 bool mods_t::in_lists(mod_list_t listf, group_ht g) const

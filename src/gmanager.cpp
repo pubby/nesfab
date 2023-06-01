@@ -37,7 +37,7 @@ void gmanager_t::init(fn_ht fn)
 
             if(fn.mods() && (fn.mods()->explicit_lists & MODL_EMPLOYS))
             {
-                fn.mods()->for_each_list_vars(MODL_EMPLOYS, [&](group_vars_ht gv, pstring_t)
+                fn.mods()->for_each_employs_vars([&](group_vars_ht gv, pstring_t)
                 {
                     for(gvar_ht gvar : (*gv)->vars()->gvars())
                         add_gvar(gvar);

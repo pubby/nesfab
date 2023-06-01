@@ -47,11 +47,15 @@ struct flag_mods_t
 
 using mod_list_t = std::uint8_t;
 // !!! Don't forget to update 'mod_list_name' when adding lists !!!
-constexpr mod_list_t MODL_VARS      = 1 << 0;
-constexpr mod_list_t MODL_DATA      = 1 << 1;
-constexpr mod_list_t MODL_EMPLOYS   = 1 << 2;
-constexpr mod_list_t MODL_PRESERVES = 1 << 3;
-constexpr mod_list_t MODL_STOWS     = 1 << 4;
+constexpr mod_list_t MODL_VARS         = 1 << 0;
+constexpr mod_list_t MODL_DATA         = 1 << 1;
+constexpr mod_list_t MODL_EMPLOYS      = 1 << 2;
+constexpr mod_list_t MODL_EMPLOYS_VARS = 1 << 3;
+constexpr mod_list_t MODL_EMPLOYS_DATA = 1 << 4;
+constexpr mod_list_t MODL_PRESERVES    = 1 << 5;
+constexpr mod_list_t MODL_STOWS        = 1 << 6;
+
+constexpr mod_list_t MODL_EMPLOYS_ANY = MODL_EMPLOYS | MODL_EMPLOYS_VARS | MODL_EMPLOYS_DATA;
 
 // Additional flags
 using mod_details_t = std::uint8_t;
@@ -87,6 +91,8 @@ struct mods_t : public flag_mods_t
     void for_each_list(mod_list_t lists, std::function<void(group_ht, pstring_t)> const& fn) const;
     void for_each_list_vars(mod_list_t lists, std::function<void(group_vars_ht, pstring_t)> const& fn) const;
     void for_each_list_data(mod_list_t lists, std::function<void(group_data_ht, pstring_t)> const& fn) const;
+    void for_each_employs_vars(std::function<void(group_vars_ht, pstring_t)> const& fn) const;
+    void for_each_employs_data(std::function<void(group_data_ht, pstring_t)> const& fn) const;
 
     bool in_lists(mod_list_t lists, group_ht g) const;
 

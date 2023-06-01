@@ -835,24 +835,33 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     // Handle 'employs':
     if(mods())
     {
-        mods()->for_each_list(MODL_EMPLOYS, [&](group_ht g, pstring_t)
+        auto const for_vars = [&](group_ht g, pstring_t)
         {
-            deref_groups.set(g.id); // Handles data and vars
-
             if(g->using_vars())
             {
+                deref_groups.set(g.id);
                 auto const& gv = *g->vars();
                 reads  |= gv.gmembers();
                 writes |= gv.gmembers();
             }
-        });
+        };
+
+        auto const for_data = [&](group_ht g, pstring_t)
+        {
+            if(g->using_any_data())
+                deref_groups.set(g.id);
+        };
+
+        mods()->for_each_list(MODL_EMPLOYS, [&](group_ht g, pstring_t p){ for_vars(g, p); for_data(g, p); });
+        mods()->for_each_list(MODL_EMPLOYS_VARS, for_vars);
+        mods()->for_each_list(MODL_EMPLOYS_DATA, for_data);
     }
 
     if(iasm)
     {
         assert(!ir_ptr);
         assert(mods());
-        assert(mods()->explicit_lists & MODL_EMPLOYS);
+        assert(mods()->explicit_lists & MODL_EMPLOYS_ANY);
 
         io_pure = false;
         fences = true;
@@ -1102,7 +1111,7 @@ void fn_t::resolve()
 
     if(iasm)
     {
-        if(!mods() || !(mods()->explicit_lists & MODL_EMPLOYS))
+        if(!mods() || !(mods()->explicit_lists & MODL_EMPLOYS_ANY))
             compiler_error(global.pstring(), "Missing employs modifier.");
     }
 
@@ -1425,7 +1434,7 @@ void fn_t::calc_precheck_bitsets()
 
     if(mods() && (mods()->explicit_lists & MODL_EMPLOYS))
     {
-        mods()->for_each_list_vars(MODL_EMPLOYS, [&](group_vars_ht gv, pstring_t)
+        mods()->for_each_employs_vars([&](group_vars_ht gv, pstring_t)
         {
             bitset_set(m_precheck_group_vars.data(), gv.id);
         });

@@ -74,7 +74,7 @@ vars /base10
 // then modified by Patrick Bene in 2023.
 // Source: https://forums.nesdev.org/viewtopic.php?t=11341&start=15
 asm fn to_base10()
-: employs /base10
+: employs vars /base10
 : +align
     ct AA temp = &base10_result+0
     label mult_24_table

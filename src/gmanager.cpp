@@ -147,10 +147,6 @@ void gmanager_t::init(fn_ht fn)
                     continue;
 
                 split(set_size, call.ir_reads().data(), call.ir_writes().data());
-
-                // If it waits on an NMI, split using the NMI's reads and writes.
-                if(call.precheck_fences())
-                    split(set_size, call.fence_rw().data(), call.fence_rw().data());
             }
 
             // Split goto modes.

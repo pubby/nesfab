@@ -1162,20 +1162,6 @@ void fn_t::compile()
     if(fclass == FN_CT)
         return; // Nothing to do!
 
-    // Init 'fence_rw':
-    if(precheck_fences())
-    {
-        m_fence_rw.alloc();
-        for(fn_ht mode : precheck_parent_modes())
-        {
-            if(fn_ht nmi = mode->mode_nmi())
-                m_fence_rw |= nmi->precheck_rw();
-            if(fn_ht irq = mode->mode_irq())
-                m_fence_rw |= irq->precheck_rw();
-        }
-        assert(m_fence_rw);
-    }
-
     if(iasm)
         return compile_iasm();
 

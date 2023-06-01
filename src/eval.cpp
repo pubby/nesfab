@@ -1600,29 +1600,20 @@ void eval_t::compile_block()
             {
                 for(gmember_ht m : gvar->handles())
                 {
-                    if(fn->fence_rw().test(m.id))
-                    {
-                        inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
-                        inputs.push_back(locator_t::gmember(m, 0));
+                    inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
+                    inputs.push_back(locator_t::gmember(m, 0));
 
-                        // Create writes after reads:
-                        ssa_ht const read = builder.cfg->emplace_ssa(
-                            SSA_read_global, m->type(), fenced, locator_t::gmember(m, 0));
-                        block_data.var(to_var_i(index))[m->member()] = read;
-                    }
+                    // Create writes after reads:
+                    ssa_ht const read = builder.cfg->emplace_ssa(
+                        SSA_read_global, m->type(), fenced, locator_t::gmember(m, 0));
+                    block_data.var(to_var_i(index))[m->member()] = read;
                 }
             });
-
-            xbitset_t<gmember_ht> rw(0);
 
             ir->gmanager.for_each_gmember_set(base_fn->handle(),
             [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
             {
-                rw = fn->fence_rw();
-
-                bitset_and(rw.size(), rw.data(), gmember_set);
-
-                if(!rw.all_clear())
+                if(!bitset_all_clear(gmember_ht::bitset_size(), gmember_set))
                 {
                     inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
                     inputs.push_back(locator);
@@ -2874,12 +2865,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         ir->gmanager.for_each_gmember_set(base_fn->handle(),
                         [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
                         {
-                            bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
-                            if(call->precheck_fences())
-                                bitset_or(gmember_bs_size, temp_bs, call->fence_rw().data());
-                            bitset_and(gmember_bs_size, temp_bs, gmember_set);
-                            if(bitset_all_clear(gmember_bs_size, temp_bs))
-                                return;
+                            if(!call->precheck_fences())
+                            {
+                                bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
+                                bitset_and(gmember_bs_size, temp_bs, gmember_set);
+                                if(bitset_all_clear(gmember_bs_size, temp_bs))
+                                    return;
+                            }
                             fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
                             fn_inputs.push_back(locator);
                         });
@@ -2889,8 +2881,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                             {
-                                if((call->precheck_fences() && call->fence_rw().test(m.id))
-                                   || call->ir_reads().test(m.id))
+                                if(call->precheck_fences() || call->ir_reads().test(m.id))
                                 {
                                     fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                                     fn_inputs.push_back(locator_t::gmember(m, 0));

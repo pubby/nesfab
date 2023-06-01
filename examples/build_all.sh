@@ -11,3 +11,4 @@
 ../nesfab zapper/zapper.cfg
 ../nesfab counter/counter.cfg
 ../nesfab fade/fade.cfg
+../nesfab sound_effects/sound_effects.cfg

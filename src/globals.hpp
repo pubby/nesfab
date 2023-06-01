@@ -414,8 +414,6 @@ public:
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
     bool ct_pure() const;
 
-    auto const& fence_rw() const { assert(m_fence_rw); return m_fence_rw; }
-
     bool always_inline() const { assert(global.compiled()); return m_always_inline; }
 
     locator_t first_bank_switch() const { assert(global.compiled()); return m_first_bank_switch; }
@@ -508,8 +506,6 @@ private:
     // If the function (or a called fn) waits on NMI
     bool m_precheck_wait_nmi = false;
     bool m_precheck_fences = false;
-
-    xbitset_t<gmember_ht> m_fence_rw;
 
     // Bitsets of all global vars read/written in fn (deep)
     // These get assigned by 'calc_reads_writes_purity'.

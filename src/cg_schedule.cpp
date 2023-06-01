@@ -267,10 +267,17 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         // OK! This node produces a carry used by a single output.
 
         assert(carry_user);
+        assert(ssa_node);
+
+        if(carry_user->cfg_node() != ssa_node->cfg_node())
+            continue;
 
         auto& d = data(ssa_node);
         unsigned const index_ = index(ssa_node);
         auto& carry_user_d = data(carry_user);
+
+        assert(d.deps);
+        assert(carry_user_d.deps);
 
         d.carry_user = carry_user;
 

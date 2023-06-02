@@ -1295,16 +1295,21 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                     last -= increment;
 
                 constraints_t c = {};
-                c.bounds.min = std::min(init, last);
-                c.bounds.max = std::max(init, last);
+                type_name_t const tn = phi->type().name();
+                bool const s = is_signed(tn);
+                fixed_uint_t const mask = numeric_bitmask(tn);
+                fixed_sint_t const masked_init = maybe_sign_extend(init & mask, mask, s);
+                fixed_sint_t const masked_last = maybe_sign_extend(last & mask, mask, s);
+
+                c.bounds.min = std::min(masked_init, masked_last);
+                c.bounds.max = std::max(masked_init, masked_last);
 
                 assert(increment);
                 fixed_uint_t const b = (1ull << builtin::ctz(fixed_uint_t(increment))) - 1ull;
                 c.bits.known0 = ~init & b;
                 c.bits.known1 = init & b;
 
-                c.normalize(type_constraints_mask(phi->type().name()));
-
+                c.normalize(type_constraints_mask(tn));
 
                 resize_ai_prep();
                 auto& prep = ai_prep(phi);

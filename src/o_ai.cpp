@@ -1324,7 +1324,6 @@ void ai_t::fold_consts()
                 if(index->op() != SSA_add && index->op() != SSA_sub)
                     break;
 
-
                 assert(index->type() == TYPE_U);
 
                 constraints_t const carry_out_c = get_constraints(index)[1];
@@ -2177,7 +2176,6 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
             ssa_ht const new_branch = new_header_cfg->emplace_ssa(SSA_if, TYPE_VOID, new_condition);
             new_branch->append_daisy();
 
-
             // Make 'new_header_cfg' a branch:
             new_header_cfg->link_append_output(new_exit_cfg, [&](ssa_ht phi) -> ssa_value_t
             {
@@ -2346,8 +2344,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
             if(ssa_value_t(oe.handle) != replace_with 
                && (dominates(new_branch_cfg, oe.handle->cfg_node())
-                   || (oe.handle->op() == SSA_phi
-                       && oe.handle->cfg_node()->input(oe.index) == new_branch_cfg)))
+                   || !dominates(back_edge.handle, oe.handle->cfg_node())))
             {
                 oe.handle->link_change_input(oe.index, replace_with);
                 if(replace_with != phi || phi->output(i) != oe.handle)

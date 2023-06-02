@@ -775,6 +775,7 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
     assert(!value.bits.is_top());
     assert(apply_mask(value.bits, cm).bit_eq(value.bits));
     value.normalize(cm);
+    assert(!value.is_top(result.cm));
 };
 
 // Keep this up-to-date with SSA_sub

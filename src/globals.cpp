@@ -1215,6 +1215,8 @@ void fn_t::compile()
         {
             changed = false;
 
+            dprint(log, "OPTIMIZATION_PASS", post_byteified, iter);
+
             save_graph(ir, fmt("pre_fork_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_defork, log, ir);

@@ -906,7 +906,6 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 break;
 
             case SSA_shl:
-            case SSA_shl_table:
             case SSA_shr:
                 if(ssa_it->input(1).eq_fixed({0}))
                 {
@@ -921,11 +920,12 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     if(input->op() == ssa_it->op() && ssa_it->input(1).is_num() 
                        && input->type() == ssa_it->type() && !carry_used(*input))
                     {
-                        std::uint8_t const amount = input->input(1).whole() + ssa_it->input(1).whole();
-                        if(amount == 0)
+                        unsigned const amount = input->input(1).whole() + ssa_it->input(1).whole();
+                        if(amount > 0xFF)
                         {
-                            carry_replacement = ssa_value_t(0u, TYPE_BOOL);
-                            goto replaceWith0;
+                            ssa_it->replace_with(INPUT_VALUE, ssa_value_t(0u, ssa_it->type().name()));
+                            updated = true;
+                            break;
                         }
                         ssa_it->link_change_input(0, input->input(0));
                         ssa_it->link_change_input(1, ssa_value_t(amount, TYPE_U));

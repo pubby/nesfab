@@ -187,7 +187,26 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         case LSR: peep_rmw(EOR, SRE); break;
         case AND:
             if(a.op == AND_IMMEDIATE && b.op == LSR_IMPLIED)
+            {
                 replace_op(ALR_IMMEDIATE);
+                goto retry;
+            }
+
+            if(a.op == AND_IMMEDIATE && b.op == ALR_IMMEDIATE 
+               && a.arg == b.arg && !a.alt && !b.alt)
+            {
+                goto prune_a;
+            }
+            // fall-through
+        case ORA:
+            if(op_name(a.op) == op_name(b.op)
+               && op_addr_mode(a.op) == op_addr_mode(b.op)
+               && a.arg == b.arg && !a.alt && !b.alt)
+            {
+            prune_a:
+                a.op = ASM_PRUNED;
+                a.arg = {};
+            }
             break;
         case LDX:
             if(peep_inxy(INX, STX, INC)) 

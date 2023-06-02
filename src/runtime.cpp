@@ -954,7 +954,6 @@ span_allocator_t alloc_runtime_rom()
     alloc(RTROM_shl4_table, make_shl_table(4));
     alloc(RTROM_shl5_table, make_shl_table(5));
     alloc(RTROM_shl6_table, make_shl_table(6));
-    alloc(RTROM_shl7_table, make_shl_table(7));
 
     if(global_t::has_nmi())
     {

@@ -59,11 +59,10 @@ RT(mul8) \
 RT(mapper_reset) \
 RT(shl4_table) \
 RT(shl5_table) \
-RT(shl6_table) \
-RT(shl7_table)
+RT(shl6_table)
 
 constexpr int MIN_SHL_TABLE = 4;
-constexpr int MAX_SHL_TABLE = 7;
+constexpr int MAX_SHL_TABLE = 6;
 
 enum runtime_rom_name_t : std::uint16_t
 {
@@ -81,7 +80,6 @@ inline runtime_rom_name_t shl_table(int amount)
     case 4: return RTROM_shl4_table;
     case 5: return RTROM_shl5_table;
     case 6: return RTROM_shl6_table;
-    case 7: return RTROM_shl7_table;
     }
 }
 

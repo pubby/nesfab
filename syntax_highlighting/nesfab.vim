@@ -2,13 +2,16 @@
 " Language: NESFab
 " Maintainer: Pubby
 
+set expandtab
+
 if exists("b:current_syntax")
   finish
 endif
 
 syn keyword nesfabKeyword if else for while do break continue return fn 
     \ ct nmi mode goto label file struct vars data omni ready fence 
-    \ default switch case asm charmap chrrom true false audio system stows employs preserves state
+    \ default switch case asm charmap chrrom true false audio system stows 
+    \ employs preserves state
 
 syntax match nesfabId "\l\k*"
 syntax match nesfabType "\u\k*"
@@ -22,7 +25,7 @@ syn match nesfabNumberBin '%[01]\+'
 
 " Comment
 syn match nesfabCommentL "//.*$"
-syn match nesfabComment "/\*\_.\{-}\*/"
+syntax region nesfabComment start=/\/\*/ end=/\*\//
 
 " String
 syn region nesfabString start='"' end='"' contained

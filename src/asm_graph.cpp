@@ -540,15 +540,23 @@ struct asm_path_t
 
 // This is used to handle the entrances of CFG nodes which may have multiple labels.
 // Specifically, it's used to get an accurate edge_depth.
-template<typename Set>
-static void build_incoming(Set& incoming, asm_node_t const& node, cfg_ht cfg)
+template<typename CfgSet, typename NodeSet>
+static void build_incoming(CfgSet& incoming, asm_node_t const& node, cfg_ht cfg, NodeSet& seen_nodes)
 {
+    if(!seen_nodes.insert(&node).second)
+        return;
     if(node.cfg && node.cfg != cfg)
         incoming.insert(node.cfg);
     else if(node.label.lclass() == LOC_CFG_LABEL && node.label.data() > 0)
         for(asm_node_t* input : node.inputs())
-            if(input != &node)
-                build_incoming(incoming, *input, cfg);
+            build_incoming(incoming, *input, cfg, seen_nodes);
+}
+
+template<typename Set>
+static void build_incoming(Set& incoming, asm_node_t const& node, cfg_ht cfg)
+{
+    fc::small_set<asm_node_t const*, 32> seen_nodes;
+    return build_incoming(incoming, node, cfg, seen_nodes);
 }
 
 std::vector<asm_node_t*> asm_graph_t::order()

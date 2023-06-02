@@ -4268,7 +4268,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 if(datum->is_paa())
                     compiler_error(v.pstring, "Cannot access pointer-addressable array.");
 
-
             switch(global.gclass())
             {
             case GLOBAL_CONST:
@@ -4408,7 +4407,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     rval[i] = builder.cfg->emplace_ssa(
                         (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8,
                         ::member_type(type.elem_type(), lval->member + i),
-                        from_variant<D>(rval[i], type), ssa_value_t(0u, TYPE_U20), lval->index);
+                        from_variant<D>(rval[i], ::member_type(type, lval->member + i)), ssa_value_t(0u, TYPE_U20), lval->index);
                 }
 
                 type = type.elem_type();
@@ -4649,30 +4648,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         {
             for(unsigned i = 0; i < rval.size(); ++i)
                 local[i + lval->member] = rval[i];
-            /*
-            if(lval->atom >= 0)
-            {
-                //assert(false);
-
-                type_t const mt = member_type(var_type(lval->var_i()), lval->member);
-                int const shift = lval->atom - frac_bytes(mt.name());
-
-                expr_value_t wide_lhs = lhs;
-                wide_lhs.type = mt;
-                wide_lhs.lval().atom = -1;
-                wide_lhs = to_rval<D>(std::move(wide_lhs));
-
-                //passert(false, og.u());
-
-                if(locator_t loc = handle_lt<D>(mt, { .type = TOK_replace_atom, .pstring = pstring, .value = shift }, wide_lhs, rhs))
-                    local[lval->member] = loc;
-                else
-                    local[lval->member] = _interpret_replace_atom(lhs.type, wide_lhs.u(), rhs.u(), shift);
-            }
-            else
-            {
-            }
-            */
         }
     }
     else if(is_compile(D))
@@ -4684,17 +4659,10 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         {
             for(unsigned i = 0; i < rval.size(); ++i)
             {
-                //ssa_ht read = lhs.ssa(i).handle();
-                //assert(read->op() == SSA_read_array);
-
                 type_t const mt = member_type(var_type(lval->var_i()), lval->member + i);
                 assert(mt.name() == TYPE_TEA);
 
                 passert(rhs.type.name() != TYPE_TEA, rhs.type);
-                //passert(rhs.type == mt.elem_type(), rhs.type, mt.elem_type());
-
-                //type_t const type = type_t::tea(rhs.type, mt.size(), rhs.pstring);
-                //assert(type.name() == TYPE_TEA);
 
                 ssa_value_t const prev_array = var_lookup(builder.cfg, lval->var_i(), lval->member + i);
 

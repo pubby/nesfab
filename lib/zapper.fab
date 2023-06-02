@@ -53,7 +53,6 @@ asm fn zapper_lit() Bool
         ldy &nmi_counter
     label read_loop
         stx &return
-        stx $400
         lda ZAPPER_ADDR
         and #ZAPPER_LIGHT
         bne done_load

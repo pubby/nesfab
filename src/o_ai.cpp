@@ -2342,10 +2342,9 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
         {
             auto const oe = phi->output_edge(i);
 
-            if(ssa_value_t(oe.handle) != replace_with 
-               && (dominates(new_branch_cfg, oe.handle->cfg_node())
-                   || (oe.handle->op() == SSA_phi
-                       && dominates(new_branch_cfg, oe.handle->cfg_node()->input(oe.index)))))
+            if((dominates(new_branch_cfg, oe.handle->cfg_node()))
+               || (oe.handle->op() == SSA_phi 
+                   && dominates(new_branch_cfg, oe.handle->cfg_node()->input(oe.index))))
             {
                 oe.handle->link_change_input(oe.index, replace_with);
                 if(replace_with != phi || phi->output(i) != oe.handle)

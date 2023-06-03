@@ -1844,7 +1844,9 @@ void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
     cfg_ht const end = h;
     cfg_ht const trace = start->output(start_branch_i);
 
+    assert(trace != start);
     assert(trace->output_size() == 1);
+
     trace->link_append_output(end, [&](ssa_ht phi) -> ssa_value_t
     {
         // Phi nodes in the target need a new input argument.
@@ -1909,11 +1911,8 @@ void ai_t::thread_jumps()
 
         // Ok! 'cfg_node' is a jump thread target.
 
-        unsigned const input_size = cfg_it->input_size();
-        for(unsigned i = 0; i < input_size; ++i)
+        for(unsigned i = 0; i < cfg_it->input_size(); ++i)
         {
-            assert(cfg_it->input_size() == input_size);
-
             // Traverse until finding a non-forced node.
             cfg_fwd_edge_t input = cfg_it->input_edge(i);
             while(true)
@@ -1932,7 +1931,8 @@ void ai_t::thread_jumps()
             if(input.handle->output_size() < 2)
                 continue;
 
-            run_jump_thread(input.handle, input.index);
+            if(std::find(threaded_jumps.begin(), threaded_jumps.end(), input.handle) == threaded_jumps.end())
+                run_jump_thread(input.handle, input.index);
         }
     }
 

@@ -301,9 +301,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         // Holds all the SSA_read_global and SSA_store_locator
         // copies used to implement locators:
         std::vector<copy_t> copies;
-
-        // Used to implement constant writes to global memory.
-        std::map<locator_t, bc::small_vector<ssa_bck_edge_t, 1>> const_stores; 
     };
 
     // Build a cache of the IR to be used by various cset functions:
@@ -370,24 +367,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 locator_t const loc = ssa_it->input(i + 1).locator().mem_head();
                 ssa_fwd_edge_t ie = ssa_it->input_edge(i);
 
-                if(ie.is_const())
-                {
-                    // Constants are handled later on,
-                    // as it takes analysis to determine where to insert the copy.
-
-                    locator_t c;
-                    if(ie.is_num())
-                    {
-                        assert(is_byte(ie.fixed()));
-                        c = locator_t::const_byte(ie.whole());
-                    }
-                    else if(ie.is_locator())
-                        c = ie.locator();
-
-                    global_loc_data_t& ld = global_loc_map[loc];
-                    ld.const_stores[c].push_back({ ssa_it, i });
-                }
-                else if(ie.holds_ref())
+                if(ie.holds_ref())
                 {
                     // Don't bother with arrays.
                     //if(ssa_flags(ie.handle()->op()) & SSAF_WRITE_ARRAY)
@@ -395,7 +375,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
                     // Create a new SSA_early_store node here.
 
-                    ssa_ht store = split_output_edge(ie.handle(), true, ie.index(), SSA_early_store);
+                    ssa_ht const store = split_output_edge(ie.handle(), true, ie.index(), SSA_early_store);
+                    assert(store->output_size() == 1);
                     store->link_append_input(loc);
                     ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
 
@@ -433,16 +414,14 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 {
                     ir.assert_valid(true);
                     ssa_value_t input = ie.handle();
-                    ssa_ht store = split_output_edge(input.handle(), true, ie.index(), SSA_early_store);
-                    ir.assert_valid(true);
+                    ssa_ht const store = split_output_edge(input.handle(), true, ie.index(), SSA_early_store);
+                    assert(store->output_size() == 1);
                     copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), store);
                     phi_copies.push_back({ copy });
-                    ir.assert_valid(true);
                 }
                 else
                 {
                     copy = cfg_pred->emplace_ssa(SSA_phi_copy, ssa_it->type(), ie);
-                    ir.assert_valid(true);
                 }
 
                 ssa_it->link_change_input(i, copy);
@@ -457,6 +436,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 last = cset_append(last, copy);
                 assert(cset_locator(copy) == loc);
 
+                ir.assert_valid(true);
             }
 
             if(last.holds_ref())
@@ -470,18 +450,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // RESIZING //
     //////////////
 
-    // Some nodes may be created after scheduling. 
-    // Estimate an upper bound for the number of nodes needed here:
-    unsigned reserve = 0;
-    for(auto& pair : global_loc_map)
-    for(auto& pair : pair.second.const_stores)
-    {
-        assert(pair.second.size() > 0);
-        reserve += pair.second.size() - 1;
-    }
-
-    // Then reserve extra space:
-    ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size() + reserve);
+    ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size());
 
     ////////////////
     // SCHEDULING //
@@ -521,7 +490,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // LIVENESS SET CREATION //
     ///////////////////////////
 
-    calc_ssa_liveness(ir, ssa_pool::array_size() + reserve);
+    calc_ssa_liveness(ir, ssa_pool::array_size());
 
     // Note: once the live sets have been built, the IR cannot be modified
     // until all liveness checks are done.
@@ -657,108 +626,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 
-    // Now insert early_stores for constants, trying to minimize the amount of stores needed.
-    build_loops_and_order(ir); // We'll need loop information eventually.
-    build_dominators_from_order(ir);
-    for(auto& pair : global_loc_map)
-    {
-        locator_t const loc = pair.first;
-        auto& ld = pair.second;
-
-        for(auto& pair : ld.const_stores)
-        {
-            auto& vec = pair.second;
-
-            // If only a single constant is stored, a const_store isn't needed.
-            if(vec.size() <= 1)
-                continue;
-
-            // Otherwise we'll try to find 2 stores and combine them into 1.
-            for(unsigned i = 0; i < vec.size()-1; ++i)
-            for(unsigned j = i+1; j < vec.size(); ++j)
-            {
-                assert(i != j);
-
-                // 'a' and 'b' are the two nodes we're trying to combine:
-                ssa_ht a = vec[i].handle;
-                ssa_ht b = vec[j].handle;
-
-                cfg_ht a_cfg = a->cfg_node();
-                cfg_ht b_cfg = b->cfg_node();
-
-                // Create the store in a dominating spot:
-                cfg_ht store_cfg = dom_intersect(a_cfg, b_cfg);
-                ssa_value_t const v = pair.first.lclass() == LOC_CONST_BYTE
-                                      ? ssa_value_t(pair.first.data(), TYPE_U) 
-                                      : ssa_value_t(pair.first);
-                ssa_ht store = store_cfg->emplace_ssa(SSA_early_store, v.type(), v);
-                assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
-                auto& store_d = cg_data(store);
-
-                a->link_change_input(vec[i].index, store);
-                b->link_change_input(vec[j].index, store);
-
-                if(a->op() == SSA_early_store)
-                    a->unsafe_set_op(SSA_aliased_store);
-                if(b->op() == SSA_early_store)
-                    b->unsafe_set_op(SSA_aliased_store);
-
-                if(store_cfg == a_cfg)
-                {
-                    // If both are the same, pick the earliest one
-                    if(store_cfg == b_cfg && cg_data(b).schedule.index < cg_data(a).schedule.index)
-                        goto before_b;
-
-                    // pick the rank before 'a'
-                    store_d.schedule.index = cg_data(a).schedule.index;
-                }
-                else if(store_cfg == b_cfg)
-                {
-                    // pick the rank before 'b'
-                before_b:
-                    store_d.schedule.index = cg_data(b).schedule.index;
-                }
-                else
-                {
-                    assert(store_cfg->last_daisy());
-                    auto& last_d = cg_data(store_cfg->last_daisy());
-
-                    store_d.schedule.index = last_d.schedule.index;
-                }
-
-                // Now try to coalesce it into the locator's cset.
-                calc_ssa_liveness(store);
-                if(coalesce_loc(loc, ld, store))
-                {
-                    // 'i' becomes the new store:
-                    vec[i] = { store, 0 };
-
-                    // remove 'j':
-                    std::swap(vec[j], vec.back());
-                    vec.pop_back();
-
-                    unsigned const index = store_d.schedule.index;
-
-                    // add the store to the schedule, for real
-                    auto& schedule = cg_data(store_cfg).schedule;
-                    schedule.insert(schedule.begin() + index, store);
-
-                    for(unsigned k = index+1; k < schedule.size(); ++k)
-                        cg_data(schedule[k]).schedule.index += 1;
-
-                    --i;
-                    break;
-                }
-                else
-                {
-                    // Abort! Undo everything and prune it.
-                    clear_liveness_for(ir, store);
-                    store->replace_with(v);
-                    store->prune();
-                }
-            }
-        }
-    }
+    ir.assert_valid(true);
 
     // Coalesce phis:
 
@@ -788,6 +656,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 
+    ir.assert_valid(true);
+
     // Prioritize less busy ranges over larger ones.
     for(copy_t& copy : phi_copies)
         copy.cost = live_range_busyness(ir, copy.node->input(0).handle());
@@ -815,6 +685,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         else
             prune_early_store(candidate);
     }
+
+    ir.assert_valid(true);
 
     // Coalesce early stores with their parent
     for(cfg_node_t& cfg_node : ir)
@@ -893,6 +765,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 
+    ir.assert_valid(true);
+
     // Now update the IR.
     // (Liveness checks can't be done after this.)
 
@@ -956,6 +830,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         next_read_array_iter:;
         }
     }
+
+    ir.assert_valid(true);
 
 #if 0 // TODO
     fc::small_set<ssa_ht, 32> unique_csets;

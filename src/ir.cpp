@@ -1062,6 +1062,11 @@ void ir_t::assert_valid(bool cg) const
                 assert(ssa_it->type() != TYPE_BOOL);
             }
 
+            // Early Store Checks
+            if(ssa_it->op() == SSA_early_store)
+            {
+                assert(ssa_it->output_size() <= 1);
+            }
         }
     }
 }

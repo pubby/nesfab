@@ -130,8 +130,10 @@ char const* parse_line(char const* const ptr, char const* const end,
             if(*(last++) == '\n')
                 return last;
         char const* first = last;
-        while(last != end && *last != ' ' && *last != '\n')
+        while(last < end && *last != ' ' && *last != '\n')
             ++last;
+        assert(last >= first);
+        assert(last < end);
         words.emplace_back(first, last);
     }
     return end;
@@ -147,7 +149,7 @@ int parse_note(std::string_view str, int scale)
 {
     using namespace std::literals;
 
-    if(str == "..."sv)
+    if(str.size() < 3 || str == "..."sv)
         return -1;
     if(str == "---"sv)
         return -2;
@@ -424,6 +426,11 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
                     track.name += words[i];
                 tracks.push_back(track);
                 active_track = &tracks.back();
+
+                if(track.tempo != 150)
+                    throw std::runtime_error("Track has a tempo not equal to 150.");
+                if(track.speed < 4)
+                    throw std::runtime_error("Track has a speed less than 4.");
             }
             else if(words[0] == "COLUMNS"sv)
             {
@@ -469,24 +476,22 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
 
                 row.number = parse_hex_pair(words[1]);
 
-                row.chan[0].note = parse_note(words[3], 2);
-                row.chan[0].instrument = parse_hex_pair(words[4]);
-
-                row.chan[1].note = parse_note(words[8], 2);
-                row.chan[1].instrument = parse_hex_pair(words[9]);
-
-                row.chan[2].note = parse_note(words[13], 2);
-                row.chan[2].instrument = parse_hex_pair(words[14]);
-
-                row.chan[3].note = parse_note(words[18], 2);
-                row.chan[3].instrument = parse_hex_pair(words[19]);
-
-                row.chan[4].note = parse_note(words[23], 2);
-                row.chan[4].instrument = parse_hex_pair(words[24]);
-
-                for(unsigned i = 0; i < NUM_CHAN; ++i)
-                    if(words[6+5*i] == "D00")
-                        row.d00 |= 1 << i;
+                unsigned i = 0;
+                for(int j = 0; j < NUM_CHAN; ++j)
+                {
+                    if(i >= words.size())
+                        throw std::runtime_error("Unknown ROW format.");
+                    while(words[i] != ":")
+                        ++i;
+                    ++i;
+                    if(i + 3 >= words.size())
+                        throw std::runtime_error("Unknown ROW format.");
+                    
+                    row.chan[j].note = parse_note(words[i+0], 2);
+                    row.chan[j].instrument = parse_hex_pair(words[i+1]);
+                    if(words[i+2] == "D00")
+                        row.d00 |= 1 << j;
+                }
 
                 active_pattern->push_back(row);
             }
@@ -575,7 +580,8 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
                             break;
                     }
 
-                    passert(size % track.pattern_size == 0, size, track.pattern_size);
+                    if(size % track.pattern_size != 0)
+                        throw std::runtime_error("Pattern size does not match track's specified pattern size.");
 
                     if(size / track.pattern_size < ps)
                         ps = size / track.pattern_size;

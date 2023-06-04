@@ -34,7 +34,8 @@
 // How to compose PUF music: //////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// PUF audio is composed using Famitracker (http://famitracker.com/).
+// PUF audio is composed using FamiTracker (http://famitracker.com/)
+// or using FamiStudio (https://famistudio.org/) with the FamiTracker tempo mode set.
 // Both music and sound effects are exported via the "export text" feature,
 // but sound effects also require "export nsf".
 
@@ -47,6 +48,8 @@
 // - The volume column is not supported.
 // - Hi-pitch is not supported.
 // - Non-absolute arpeggio is not supported.
+// - Tempos besides 150 are not supported.
+// - Speeds lower than 4 are not supported.
 
 // Unlike music, sound effects support all effects, but cannot involve the DMC channel.
 // Sound effects must have a short duration (250 frames or less), 

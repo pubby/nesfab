@@ -1393,7 +1393,6 @@ void ai_t::fold_consts()
 
                             retry = true;
                             updated = __LINE__;
-                            break;
                         }
                     }
                 }

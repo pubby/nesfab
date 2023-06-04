@@ -9,7 +9,7 @@ if exists("b:current_syntax")
 endif
 
 syn keyword nesfabKeyword if else for while do break continue return fn 
-    \ ct nmi mode goto label file struct vars data omni ready fence 
+    \ ct nmi mode goto label file struct vars data omni ready fence irq
     \ default switch case asm charmap chrrom true false audio system stows 
     \ employs preserves state
 

@@ -1314,8 +1314,10 @@ void ai_t::fold_consts()
             using namespace ssai::array;
 
         is_8:
-            while(true)
+            bool retry;
+            do
             {
+                retry = false;
                 ssa_value_t const index = ssa_it->input(INDEX);
 
                 if(!index.holds_ref())
@@ -1351,11 +1353,18 @@ void ai_t::fold_consts()
                         if(carry_out_c.get_const())
                             offset -= 256;
 
-                        ssa_it->link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
-                        ssa_it->link_change_input(INDEX, index->input(!i));
+                        const ssa_value_t new_offset(offset, TYPE_U20);
+                        const ssa_value_t new_input = index->input(!i);
 
-                        updated = __LINE__;
-                        break;
+                        if(ssa_it->input(OFFSET) != new_offset || ssa_it->input(INDEX) != new_input)
+                        {
+                            ssa_it->link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
+                            ssa_it->link_change_input(INDEX, index->input(!i));
+
+                            retry = true;
+                            updated = __LINE__;
+                            break;
+                        }
                     }
                 }
                 else if(index->op() == SSA_sub)
@@ -1374,13 +1383,24 @@ void ai_t::fold_consts()
                         if(!carry_out_c.get_const())
                             offset += 256;
 
-                        ssa_it->link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
-                        ssa_it->link_change_input(INDEX, index->input(0));
+                        const ssa_value_t new_offset(offset, TYPE_U20);
+                        const ssa_value_t new_input = index->input(0);
 
-                        updated = __LINE__;
+                        if(ssa_it->input(OFFSET) != new_offset || ssa_it->input(INDEX) != new_input)
+                        {
+                            ssa_it->link_change_input(OFFSET, ssa_value_t(offset, TYPE_U20));
+                            ssa_it->link_change_input(INDEX, index->input(0));
+
+                            retry = true;
+                            updated = __LINE__;
+                            break;
+                        }
                     }
                 }
+                else
+                    assert(false); // shouldn't occur.
             }
+            while(retry);
         }
         else if(op == SSA_multi_eq || op == SSA_multi_not_eq)
         {

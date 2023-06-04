@@ -1792,14 +1792,21 @@ fn foo()
 
 The `fence` statement is used for both writing concurrent code, and for interacting with hardware. 
 It imposes constraints on how global variables are loaded and stored,
-preventing the compiler from re-ordering them.
+preventing the compiler from reordering them.
 
 More precisely:
 
 - Every global variable the function is tracking will be stored before the `fence` executes.
 - Every global variable the function is tracking will be loaded after the `fence` executes.
 
-*Why is `fence` a thing?*
+A function tracks a global variable if it reads or writes that variable, or if it calls another function that does.
+When dereferencing a pointer, the pointer's groups define the set of globals to track.
+
+[NOTE]
+`fence` does not instruct the compiler *which* globals to track.
+To do that, the modifier <<kw_employs>> is required.
+
+*Why is `fence` a thing in concurrent code?*
 
 The NESFab compiler performs optimizations which moves loads and stores around.
 This is normally fine, but issues arise due to interrupts.
@@ -1809,12 +1816,12 @@ To illustrate, take a look at the code below:
 foo = 10
 bar = 20
 ----
-The compile is free to re-order these global variable assignments, storing into `bar` before `foo`.
+The compile is free to reorder these global variable assignments, storing into `bar` before `foo`.
 However, imagine if an interrupt were to occur between these stores.
 The interrupt would see that `bar` equals `20`, but not `foo` equals `10`,
 as the store to `foo` hasn't happened yet.
 
-To prevent this re-ordering, a `fence` statement can be used:
+To prevent this reordering, a `fence` statement can be used:
 ----
 foo = 10
 fence
@@ -1822,11 +1829,41 @@ bar = 20
 ----
 Now if the interurpt sees that `bar` equals `20`, `foo` must equal `10`.
 
+*Why is `fence` a thing in sequential code?*
+
+Optimizations which reorder code can affect sequential code, too.
+For example, consider the following code which turns the grayscale bit of `PPUMASK` on until `game_update` completes.
+Visually, this will depict how long it takes for `game_update` to run by displaying a grayscale stripe on the screen.
+
+----
+while true
+    {PPUMASK}(PPUMASK_GRAYSCALE_ON | PPUMASK_ON)
+    game_update()
+    {PPUMASK}(PPUMASK_ON)
+    nmi
+----
+
+Unfortunately, this code may not work as intended. 
+The compiler is allowed to reorder the `game_update` call and move it before the first `PPUMASK` write, or after the second `PPUMASK` write.
+This is because the compiler sees no connection between the two; there is no dependency from one to another, as they do not involve the same global variables.
+
+To fix the problem, two `fence` statements are used:
+----
+while true
+    {PPUMASK}(PPUMASK_GRAYSCALE_ON | PPUMASK_ON)
+    fence
+    game_update()
+    fence
+    {PPUMASK}(PPUMASK_ON)
+    nmi
+----
+These force the `game_update` call to remain between the `PPUMASK` writes.
+
 *Another purpose for `fence`:*
 
 `fence` is also used when interacting with the hardware directly.
 When reading or writing a global variable via its hardware address,
-two `fence` statements are required with the hardware access between them.
+two `fence` statements are recommended with the hardware access between them.
 These `fence` statements instruct the compiler to store the global before the hardware access,
 and load the value after it.
 
@@ -1837,12 +1874,26 @@ fence
 fence
 ----
 
-Without these `fence` instructions, the compiler would not recognize that global variables are being read.
-and so the resulting read may have incorrect results.
+Without the first `fence` instruction, the compiler would not recognize that global variables are being read.
+and so the resulting read may have incorrect results. 
+The second `fence`, although largely uncessary, ensures that future reads to `oam` occur after `OAMDMA` completes.
 
-[NOTE]
-`fence` does not instruct the compiler *which* globals to track.
-To do that, the modifier <<hw_employs>> is required.
+Note that this only applies when an address is written, and that write has an effect which dereferences the address.
+It is not necessary to use `fence` when a value is passed normally:
+----
+// fence isn't needed here:
+{PPUDATA}(some_var)
+----
+
+Likewise, it is not necessary to use `fence` when the address is not dereferenced:
+----
+// fence isn't needed here:
+{PPUDATA}(&some_var.a)
+----
+
+*More on dependencies and side effects:*
+
+One way to think about `fence` is that the program is outputting a list of hardware reads and writes (i.e. those involving the PPU), and the compiler makes sure the order and the data written matches the original code. 
 
 === `true` [[kw_true]]
 
@@ -2297,6 +2348,7 @@ While the mode function is executing, NMIs will be handled using the supplied `n
 *Modifiers:*
 
 - <<mod_nmi>>.
+- <<mod_irq>>.
 - <<mod_employs>>.
 - <<mod_data>>.
 - <<mod_vars>>.
@@ -2329,7 +2381,7 @@ This happens transparently from the programmer; no https://en.wikipedia.org/wiki
 
 === `nmi` [[kw_nmi]]
 
-The keyword `nmi` can be used as a statement, or as a declaration.
+The keyword `nmi` can be used as a statement, a declaration, or as <<mod_nmi, a modifier>>.
 
 ==== `nmi` statement [[kw_nmi_statement]]
 
@@ -2390,7 +2442,7 @@ as otherwise the game would speed up or slow down based on how much computation 
 
 === `irq` [[kw_irq]]
 
-The keyword `irq` can be used as a statement, or as a declaration.
+The keyword `irq` can be used as a statement, a declaration, or as <<mod_irq,a modifier>>.
 
 ==== `irq` statement [[kw_irq_statement]]
 
@@ -3266,7 +3318,7 @@ The following flags exist:
 - `+dpcm`: Align and store the data in a ROM location suitable for DPCM.
 - `+static`: Allocate the function in every bank. 
              This modifier is incompatible with functions that can return with a different active bank than they started in.
-             For <kw_asm, `asm`> functions, you must validate this yourself.
+             For <<kw_asm, `asm`>> functions, you must validate this yourself.
 - `palette_3`: Converts 4-byte palettes into 3-byte palettes.
 - `palette_25`: Converts 32-byte palettes into 25-byte palette.
 
@@ -3277,6 +3329,50 @@ fn foo(U x) U
 : +align
 : +graphviz
     return x + x
+----
+
+=== `nmi` [[mod_nmi]]
+
+The `nmi` <<modifiers, modifier>> is used inside a <<kw_mode,`mode`>> declaration to specify the mode's NMI handler.
+
+Syntax:
+----
+: nmi nmi_handler
+----
+- `nmi_handler` is a <<kw_nmi_function>> handler to be used while this mode is executing.
+
+The `nmi` modifier is optional. Modes without one will use an NMI handler that immediately returns from the interrupt.
+
+Example:
+----
+nmi my_nmi()
+    {PPUMASK}(PPUMASK_ON)
+
+mode foo()
+: nmi my_nmi
+    // ... 
+----
+
+=== `irq` [[mod_irq]]
+
+The `irq` <<modifiers, modifier>> is used inside a <<kw_mode,`mode`>> declaration to specify the mode's IRQ handler.
+
+Syntax:
+----
+: irq irq_handler
+----
+- `irq_handler` is an <<kw_irq_function>> handler to be used while this mode is executing.
+
+The `irq` modifier is optional. Modes without one will use an IRQ handler that immediately returns from the interrupt.
+
+Example:
+----
+irq my_irq()
+    {PPUMASK}(PPUMASK_ON)
+
+mode foo()
+: irq my_irq
+    // ... 
 ----
 
 === `stows` [[mod_stows]]
@@ -4312,7 +4408,7 @@ abs(expression)
 
 Example:
 ----
-SS positive = abs(SS(-10))
+UU positive = abs(SS(-10))
 ----
 
 ==== `min`(expression) [[min_expr]]

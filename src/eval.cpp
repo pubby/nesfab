@@ -4282,6 +4282,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     if(lval->member != 0)
                         for(unsigned i = 0; i < num_members; ++i)
                             rval[i] = std::move(rval[i + lval->member]);
+                    rval.resize(num_members);
                 }
                 break;
 
@@ -4659,6 +4660,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         {
             for(unsigned i = 0; i < rval.size(); ++i)
             {
+                assert(var_type(lval->var_i()).name() == TYPE_TEA);
                 type_t const mt = member_type(var_type(lval->var_i()), lval->member + i);
                 assert(mt.name() == TYPE_TEA);
 

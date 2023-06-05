@@ -594,7 +594,7 @@ unsigned member_index(type_t const& type, unsigned member)
 
 type_t member_type(type_t const& type, unsigned member)
 {
-    passert(type.name() == TYPE_VOID || member < ::num_members(type), member, type);
+    passert(type.name() == TYPE_VOID || member < ::num_members(type), member, type, ::num_members(type));
 
     if(type.name() == TYPE_STRUCT)
         return type.struct_().member_type(member);

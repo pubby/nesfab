@@ -206,12 +206,12 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 }
 
 // Handles 'loc' interfering with fns and fences.
-bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
+bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_ht with)
 {
-    if(fn_node->op() == SSA_fn_call)
+    if(with->op() == SSA_fn_call)
     {
-        // Checks if 'loc' is used inside 'fn_node'.
-        fn_ht const called = get_fn(*fn_node);
+        // Checks if 'loc' is used inside 'with'.
+        fn_ht const called = get_fn(*with);
 
         switch(loc.lclass())
         {
@@ -231,12 +231,12 @@ bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node)
         case LOC_ARG:
         case LOC_RETURN:
             // The current RAM allocator expects this behavior:
-            return true;
+            return loc.fn() != fn;
         default: 
             return false;
         }
     }
-    else if(ssa_flags(fn_node->op()) & SSAF_FENCE)
+    else if(ssa_flags(with->op()) & SSAF_FENCE)
     {
         // Checks if 'loc' is stored / read by the fence.
         switch(loc.lclass())
@@ -269,14 +269,17 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_i
         return a;
     }
 
+    locator_t const a_loc = cset_locator(a);
+    locator_t const b_loc = cset_locator(b);
+
     for(ssa_ht node : cache.special)
     {
-        if(special_interferes(fn, ir, cset_locator(a), node))
+        if(special_interferes(fn, ir, a, a_loc, node))
             for(ssa_ht bi = b; bi; bi = cset_next(bi))
                 if(live_at_def(bi, node))
                     return {};
 
-        if(special_interferes(fn, ir, cset_locator(b), node))
+        if(special_interferes(fn, ir, b, b_loc, node))
             for(ssa_ht ai = a; ai; ai = cset_next(ai))
                 if(live_at_def(ai, node))
                     return {};

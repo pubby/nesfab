@@ -30,8 +30,6 @@ bool live_at_def(ssa_ht range, ssa_ht def);
 bool live_at_any_def(ssa_ht range, ssa_ht const* defs_begin,
                      ssa_ht const* defs_end);
 
-// 'before' returns true if 'a' comes before 'b' in the same CFG node.
-// (It will never be called if 'a' and 'b' belong to different cfg nodes)
 bool live_range_overlap(ssa_ht a, ssa_ht b);
 
 // A rough approximation of how much a live range overlaps with all others.

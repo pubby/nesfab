@@ -140,6 +140,11 @@ constexpr bool is_runtime(locator_class_t lclass)
     return lclass == LOC_RUNTIME_RAM || lclass == LOC_RUNTIME_ROM;
 }
 
+constexpr bool is_arg_ret(locator_class_t lclass)
+{
+    return lclass == LOC_ARG || lclass == LOC_RETURN;
+}
+
 constexpr bool has_arg_member_atom(locator_class_t lclass)
 {
     switch(lclass)
@@ -392,6 +397,13 @@ public:
     {
         assert(has_fn(lclass()));
         return { handle() };
+    }
+
+    fn_ht maybe_fn() const
+    {
+        if(has_fn(lclass()))
+            return fn();
+        return {};
     }
 
     ssa_ht ssa_node() const

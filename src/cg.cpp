@@ -312,6 +312,48 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     bc::small_vector<copy_t, 32> phi_copies;
     bc::small_vector<ssa_ht, 16> phi_csets;
 
+    auto const arg_ret_interferes = [&](ssa_ht h, locator_t loc) -> bool
+    {
+        if(is_arg_ret(loc.lclass()) && loc.fn() != fn.handle())
+        {
+            for(auto& called_pair : global_loc_map)
+            {
+                locator_t const called_loc = called_pair.first;
+
+                if(!called_pair.second.cset
+                   || !is_arg_ret(called_loc.lclass()) 
+                   || called_loc.fn() == fn.handle() 
+                   || called_loc.fn() == loc.fn())
+                {
+                    continue;
+                }
+
+                ssa_ht const called_head = cset_head(called_pair.second.cset);
+                for(ssa_ht i = called_head; i; i = cset_next(i))
+                    if(h != i && live_range_overlap(h, i))
+                        return true;
+            }
+        }
+        return false;
+    };
+
+    auto const cset_arg_ret_interferes = [&](ssa_ht a, ssa_ht b) -> bool
+    {
+        locator_t const loc_a = cset_locator(a);
+        locator_t const loc_b = cset_locator(b);
+
+        if(!is_arg_ret(loc_a.lclass()) && !is_arg_ret(loc_b.lclass()))
+            return false;
+
+        for(ssa_ht i = cset_head(a); i; i = cset_next(i))
+            if(arg_ret_interferes(i, loc_b))
+                return true;
+        for(ssa_ht i = cset_head(b); i; i = cset_next(i))
+            if(arg_ret_interferes(i, loc_a))
+                return true;
+        return false;
+    };
+
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
@@ -369,10 +411,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
                 if(ie.holds_ref())
                 {
-                    // Don't bother with arrays.
-                    //if(ssa_flags(ie.handle()->op()) & SSAF_WRITE_ARRAY)
-                        //continue;
-
                     // Create a new SSA_early_store node here.
 
                     ssa_ht const store = split_output_edge(ie.handle(), true, ie.index(), SSA_early_store);
@@ -526,24 +564,22 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         // Because parent's liveness changed, it may no longer be compatible with its cset.
         // Thus, we'll remove it if necessary:
+        locator_t const loc = cset_locator(parent);
         for(ssa_ht i = cset_head(parent); i; i = cset_next(i))
+            if(i != parent && live_at_def(parent, i))
+                goto remove;
+
+        for(ssa_ht s : cache.special)
+            if(special_interferes(fn.handle(), ir, parent, loc, s))
+                if(live_at_def(parent, s))
+                    goto remove;
+
+        if(false)
         {
-            if(i == parent)
-                continue;
-
-            for(ssa_ht s : cache.special)
-                if(special_interferes(fn.handle(), ir, cset_locator(i), s))
-                    if(live_at_def(parent, s))
-                        goto remove;
-
-            if(live_at_def(parent, i))
-            {
-            remove:
-                ssa_ht const nh = cset_remove(parent);
-                if(new_head)
-                    *new_head = nh;
-                break;
-            }
+        remove:
+            ssa_ht const nh = cset_remove(parent);
+            if(new_head)
+                *new_head = nh;
         }
 
         return ret;
@@ -560,6 +596,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         // i.e. its live range doesn't overlap any point where the
         // locator is already live.
 
+        if(arg_ret_interferes(node, loc))
+            return false;
+
         if(ld.cset)
         {
             assert(cset_is_head(node));
@@ -573,7 +612,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         else
         {
             for(ssa_ht s : cache.special)
-                if(special_interferes(fn.handle(), ir, loc, s))
+                if(special_interferes(fn.handle(), ir, node, loc, s))
                     if(live_at_def(node, s))
                         return false;
 
@@ -607,9 +646,11 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         for(copy_t const& copy : ld.copies)
         {
-            if(copy.node->op() == SSA_early_store)
-                if(!coalesce_loc(loc, ld, copy.node))
-                    prune_early_store(copy.node, &ld.cset);
+            if(copy.node->op() != SSA_early_store)
+                continue;
+
+            if(!coalesce_loc(loc, ld, copy.node))
+                prune_early_store(copy.node, &ld.cset);
         }
     }
 
@@ -620,10 +661,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         auto& ld = pair.second;
 
         for(copy_t const& copy : ld.copies)
-        {
             if(copy.node->op() && copy.node->op() != SSA_early_store)
-                !coalesce_loc(loc, ld, copy.node);
-        }
+                coalesce_loc(loc, ld, copy.node);
     }
 
     ir.assert_valid(true);
@@ -650,7 +689,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             ssa_ht phi_cset = cset_head(phi_it);
 
             if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, cset, phi_cset, cache))
-                cset_append(last, phi_cset);
+                if(!cset_arg_ret_interferes(cset, phi_cset))
+                    cset_append(last, phi_cset);
 
             break;
         }
@@ -681,9 +721,14 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         assert(cset_locators_mergable(cset_locator(copy_cset), cset_locator(candidate_cset)));
 
         if(ssa_ht last = csets_dont_interfere(fn.handle(), ir, copy_cset, candidate_cset, cache))
-            cset_append(last, candidate_cset);
-        else
-            prune_early_store(candidate);
+        {
+            if(!cset_arg_ret_interferes(copy_cset, candidate_cset))
+            {
+                cset_append(last, candidate_cset);
+                continue;
+            }
+        }
+        prune_early_store(candidate);
     }
 
     ir.assert_valid(true);
@@ -710,10 +755,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, cache);
 
-        if(last)
+        if(last && !cset_arg_ret_interferes(store_cset, parent_cset))
         {
-            //cset_merge_locators(store_cset, parent_cset);
-            //assert(last);
             cset_append(last, parent_cset);
             store->unsafe_set_op(SSA_aliased_store);
 
@@ -759,8 +802,11 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
             if(ssa_ht last = csets_appendable(fn.handle(), ir, this_cset, parent_cset, cache))
             {
-                cset_append(last, parent_cset);
-                assert(cset_head(h) == cset_head(parent));
+                if(!cset_arg_ret_interferes(this_cset, parent_cset))
+                {
+                    cset_append(last, parent_cset);
+                    assert(cset_head(h) == cset_head(parent));
+                }
             }
         }
     }
@@ -937,6 +983,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(!last) // If they interfere
             continue;
 
+        if(cset_arg_ret_interferes(head_a, head_b))
+            continue;
+
         // It can be coalesced; add it to the cset.
         cset_append(last, head_b);
 
@@ -1017,6 +1066,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(!last) // If they interfere
             continue;
 
+        if(cset_arg_ret_interferes(head_input, head_ssa))
+            continue;
+
         ssa_ht const head_ssa_alt = cset_head(cg_data(head_ssa).ptr_alt);
         assert(cg_data(head_ssa_alt).ptr_alt);
         assert(cg_data(head_ssa_alt).is_ptr_hi == !hi);
@@ -1028,7 +1080,11 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(ssa_ht const input_alt = cg_data(head_input).ptr_alt)
         {
             if(ssa_ht const alt_last = csets_appendable(fn.handle(), ir, cset_head(input_alt), head_ssa_alt, cache))
+            {
+                if(cset_arg_ret_interferes(cset_head(input_alt), head_ssa_alt))
+                    continue;
                 cset_append(alt_last, head_ssa_alt);
+            }
             else
                 continue;
         }

@@ -36,7 +36,7 @@ ssa_ht cset_remove(ssa_ht h);
 
 ssa_ht cset_append(ssa_value_t last, ssa_ht h);
 
-bool special_interferes(fn_ht fn, ir_t const& ir, locator_t loc, ssa_ht fn_node);
+bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_ht node);
 
 ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_ir_cache_t const& cache);
 ssa_ht csets_appendable(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_ir_cache_t const& cache);

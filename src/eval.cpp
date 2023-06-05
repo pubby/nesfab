@@ -3576,7 +3576,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 else
                 {
                     ssa_ht h = builder.cfg->emplace_ssa(
-                        SSA_add, TYPE_APTR, 
+                        SSA_add, ptr.type(), 
                         ptr,
                         std::get<ssa_value_t>(array_index.rval()[0]),
                         ssa_value_t(0u, TYPE_BOOL));
@@ -3620,7 +3620,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(!is8)
                     {
                          deref.ptr = builder.cfg->emplace_ssa(
-                            SSA_add, TYPE_APTR, 
+                            SSA_add, deref.ptr.type(), 
                             deref.ptr, deref.index,
                             ssa_value_t(0u, TYPE_BOOL));
 
@@ -3671,7 +3671,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             if(!is8)
                             {
                                  deref.ptr = builder.cfg->emplace_ssa(
-                                    SSA_add, TYPE_APTR, 
+                                    SSA_add, deref.ptr.type(), 
                                     deref.ptr, deref.index,
                                     ssa_value_t(0u, TYPE_BOOL));
 

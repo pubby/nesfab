@@ -496,6 +496,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     ir.assert_valid(true);
     schedule_ir(ir);
+    o_schedule(ir);
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {

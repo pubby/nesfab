@@ -5,4 +5,7 @@
 
 void schedule_ir(ir_t& ir);
 
+// Optimize the IR after scheduling:
+void o_schedule(ir_t& ir);
+
 #endif

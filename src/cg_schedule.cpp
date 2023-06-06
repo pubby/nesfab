@@ -965,3 +965,130 @@ void schedule_ir(ir_t& ir)
     }
 }
 
+void o_schedule(ir_t& ir)
+{
+    auto const valid_parent = [](ssa_ht h, unsigned input) -> ssa_ht
+    {
+        if(carry_used(*h))
+            return {};
+
+        ssa_value_t const parent = h->input(input);
+        if(parent.holds_ref() && parent->cfg_node() == h->cfg_node())
+        {
+            unsigned const input_size = h->input_size();
+            for(unsigned i = 0; i < input_size; ++i)
+                if(i != input && !h->input(i).is_num())
+                    return {};
+            return parent.handle();
+        }
+        return {};
+    };
+
+    auto const sum = [&](ssa_ht h, unsigned& index, fixed_sint_t& v) -> ssa_ht
+    {
+        if(h->op() == SSA_add)
+        {
+            if(ssa_ht parent = valid_parent(h, index = 0))
+            {
+                v = h->input(1).fixed().value;
+                if(h->input(2).whole())
+                    v += low_bit_only(numeric_bitmask(h->type().name()));
+                return parent;
+            }
+
+            if(ssa_ht parent = valid_parent(h, index = 1))
+            {
+                v = h->input(0).fixed().value;
+                if(h->input(2).whole())
+                    v += low_bit_only(numeric_bitmask(h->type().name()));
+                return parent;
+            }
+        }
+        else if(h->op() == SSA_sub)
+        {
+            if(ssa_ht parent = valid_parent(h, index = 1))
+            {
+                v = -h->input(0).fixed().value;
+                if(!h->input(2).whole())
+                    v -= low_bit_only(numeric_bitmask(h->type().name()));
+                return parent;
+            }
+        }
+
+        return {};
+    };
+
+    auto const sub = [&](ssa_ht h, unsigned& index, fixed_sint_t& v) -> ssa_ht
+    {
+        if(h->op() == SSA_sub)
+        {
+            if(ssa_ht parent = valid_parent(h, index = 0))
+            {
+                v = h->input(1).fixed().value;
+                if(!h->input(2).whole())
+                    v -= low_bit_only(numeric_bitmask(h->type().name()));
+                return parent;
+            }
+        }
+
+        return {};
+    };
+
+    auto const optimize_sums = [&](ssa_ht child, auto const& fn) -> bool
+    {
+        unsigned a_index, b_index;
+        fixed_sint_t a_operand, b_operand;
+
+        ssa_ht const parent = fn(child, a_index, a_operand);
+        if(!parent)
+            return false;
+
+        for(unsigned i = 0; i < parent->output_size(); ++i)
+        {
+            ssa_ht const output = parent->output(i);
+            if(output == child || output == parent || output->cfg_node() != child->cfg_node() || output->type() != child->type())
+                continue;
+
+            if(fn(output, b_index, b_operand) != parent)
+                continue;
+
+            ssa_ht a = child;
+            ssa_ht b = output;
+
+            if(cg_data(a).schedule.index > cg_data(b).schedule.index)
+            {
+                std::swap(a, b);
+                std::swap(a_index, b_index);
+                std::swap(a_operand, b_operand);
+            }
+
+            fixed_sint_t diff = b_operand - a_operand;
+            diff &= numeric_bitmask(b->type().name());
+
+            assert(b->input(b_index) == parent);
+            assert(b_index < 2);
+
+            b->link_change_input(b_index, a);
+            b->link_change_input(!b_index, ssa_value_t(fixed_t{diff}, b->type().name()));
+            b->link_change_input(2, ssa_value_t(0u, TYPE_BOOL));
+            b->unsafe_set_op(SSA_add);
+
+            return true;
+        }
+
+        return false;
+    };
+
+    bool updated;
+    do
+    {
+        updated = false;
+        for(cfg_node_t const& cfg : ir)
+        for(ssa_ht ssa = cfg.ssa_begin(); ssa; ++ssa)
+        {
+            while(optimize_sums(ssa, sum) || optimize_sums(ssa, sub))
+                updated = true;
+        }
+    }
+    while(updated);
+}

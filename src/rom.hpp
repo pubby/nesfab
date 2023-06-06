@@ -179,7 +179,7 @@ private:
 };
 
 // Generic construction functions:
-rom_data_ht to_rom_data(loc_vec_t&& rom_array, bool align, bool omni, romv_allocs_t const& a={});
+rom_data_ht to_rom_data(loc_vec_t&& rom_array, bool align, bool omni, romv_allocs_t const& a={}, romv_flags_t = 0);
 rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, bool omni, romv_allocs_t const& a={}, romv_flags_t desired_romv = 0);
 
 ///////////////

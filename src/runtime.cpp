@@ -930,9 +930,10 @@ span_allocator_t alloc_runtime_rom()
         bitset_for_each(flags, [&](unsigned romv)
         {
             allocs[romv] = rom_static_ht::pool_make(romv_t(romv), _rtrom_spans[name][romv]);
+            assert(allocs[romv].get()->romv == romv_t(romv));
         });
 
-        _rtrom_data[name] = to_rom_data(std::move(data), false, true, allocs);
+        _rtrom_data[name] = to_rom_data(std::move(data), false, true, allocs, flags);
 
         bitset_for_each(flags, [&](unsigned romv)
         {
@@ -957,24 +958,24 @@ span_allocator_t alloc_runtime_rom()
 
     if(global_t::has_nmi())
     {
-        alloc(RTROM_nmi, make_nmi());
-        alloc(RTROM_nmi_exit, make_nmi_exit());
+        alloc(RTROM_nmi, make_nmi(), ROMVF_IN_NMI);
+        alloc(RTROM_nmi_exit, make_nmi_exit(), ROMVF_IN_NMI);
     }
     else
     {
-        alloc(RTROM_nmi, make_short_nmi());
-        _rtrom_spans[RTROM_nmi_exit][0] = _rtrom_spans[RTROM_nmi][0];
+        alloc(RTROM_nmi, make_short_nmi(), ROMVF_IN_NMI);
+        _rtrom_spans[RTROM_nmi_exit][ROMV_NMI] = _rtrom_spans[RTROM_nmi][ROMV_NMI];
     }
 
     if(global_t::has_irq())
     {
-        alloc(RTROM_irq, make_irq());
-        alloc(RTROM_irq_exit, make_irq_exit());
+        alloc(RTROM_irq, make_irq(), ROMVF_IN_IRQ);
+        alloc(RTROM_irq_exit, make_irq_exit(), ROMVF_IN_IRQ);
     }
     else
     {
-        alloc(RTROM_irq, make_short_irq());
-        _rtrom_spans[RTROM_irq_exit][0] = _rtrom_spans[RTROM_irq][0];
+        alloc(RTROM_irq, make_short_irq(), ROMVF_IN_IRQ);
+        _rtrom_spans[RTROM_irq_exit][ROMV_IRQ] = _rtrom_spans[RTROM_irq][ROMV_IRQ];
     }
 
     alloc(RTROM_wait_nmi, make_wait_nmi());
@@ -1013,8 +1014,8 @@ span_allocator_t alloc_runtime_rom()
         alloc(RTROM_irq_bank_table, std::move(irq_tables.bank), ROMVF_IN_MODE, irq_tables.alignment);
     }
 
-    assert(runtime_span(RTROM_nmi_exit, {}));
-    assert(runtime_span(RTROM_irq_exit, {}));
+    assert(runtime_span(RTROM_nmi_exit, ROMV_NMI));
+    assert(runtime_span(RTROM_irq_exit, ROMV_IRQ));
 
     return a;
 }

@@ -204,7 +204,7 @@ void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) cons
 // rom data generic //
 //////////////////////
 
-rom_data_ht to_rom_data(loc_vec_t&& data, bool align, bool omni, romv_allocs_t const& a)
+rom_data_ht to_rom_data(loc_vec_t&& data, bool align, bool omni, romv_allocs_t const& a, romv_flags_t desired_romv)
 {
     return rom_array_t::make(std::move(data), align, omni, ROMR_NORMAL, {}, a);
 }

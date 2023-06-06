@@ -370,9 +370,9 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         for(fn_t const& fn : fn_ht::values())
         {
-            rom_proc_t const& rom_proc = fn.rom_proc().safe();
+            rom_proc_t const* rom_proc = &fn.rom_proc().safe();
 
-            for(asm_inst_t const& inst : rom_proc.asm_proc().code)
+            for(asm_inst_t const& inst : rom_proc->asm_proc().code)
                 if(inst.arg.lclass() == LOC_GMEMBER)
                     if(unsigned* count = gmember_count.mapped(inst.arg.mem_head()))
                         *count += 1;

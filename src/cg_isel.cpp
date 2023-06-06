@@ -2492,7 +2492,7 @@ namespace isel
             >(cpu, prev, cont);
 
             chain
-            < simple_op<Opt, BPL_RELATIVE, null_, p_label<0>>
+            < simple_op<Opt, BMI_RELATIVE, null_, p_label<0>>
             , simple_op<Opt, LDX_IMMEDIATE, null_, const_<0>>
             , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
             , label<p_label<0>>
@@ -2504,7 +2504,7 @@ namespace isel
             >(cpu, prev, cont);
 
             chain
-            < simple_op<Opt, BPL_RELATIVE, null_, p_label<0>>
+            < simple_op<Opt, BMI_RELATIVE, null_, p_label<0>>
             , simple_op<Opt, LDY_IMMEDIATE, null_, const_<0>>
             , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
             , label<p_label<0>>

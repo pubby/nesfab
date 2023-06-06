@@ -269,10 +269,11 @@ struct cpu_t
             set_def_impl<REG_Y>(opt, value, keep_value);
         if(Regs & REGF_C)
             set_def_impl<REG_C>(opt, value, keep_value);
-        if(Regs & REGF_Z)
+        if(Regs & (REGF_Z | REGF_INVERTED_Z))
             set_def_impl<REG_Z>(opt, value, keep_value);
-        if(Regs & REGF_N)
+        if(Regs & (REGF_N | REGF_BOOL_IN_N))
             set_def_impl<REG_N>(opt, value, keep_value);
+        // Keep these last, for correct behavior:
         if(Regs & REGF_INVERTED_Z)
             set_def_impl<REG_INVERTED_Z>(opt, value, keep_value);
         if(Regs & REGF_BOOL_IN_N)
@@ -285,7 +286,6 @@ struct cpu_t
     {
         static_assert(!(Regs & REGF_INVERTED_Z) | !(Regs & REGF_Z));
         static_assert(!(Regs & REGF_BOOL_IN_N) | !(Regs & REGF_N));
-
         assert(value.lclass() != 0xFF);
 
         if((Regs & ((opt.can_set & REGF_ISEL) | REGF_INVERTED_Z | REGF_BOOL_IN_N)) != Regs)
@@ -313,7 +313,7 @@ struct cpu_t
             return false;
         if((op_flags(Op) & ASMF_BRANCH) && !(conditional_regs & CONDITIONAL_EXEC))
             conditional_regs = CONDITIONAL_EXEC;
-        conditional_regs |= Regs & REGF_ISEL;
+        conditional_regs |= Regs;
         return set_defs<Regs>(opt, value);
     }
 

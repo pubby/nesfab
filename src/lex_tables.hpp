@@ -1179,7 +1179,7 @@ constexpr bool token_right_assoc_table[] =
     case TOK_rparen:\
 
 constexpr token_type_t TOK_LAST_STATE = 205;
-constexpr token_type_t TOK_START = 207;
+constexpr token_type_t TOK_START = 208;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[51510];
+extern token_type_t const lexer_transition_table[50904];
 } // namespace lex

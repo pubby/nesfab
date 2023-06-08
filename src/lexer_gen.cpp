@@ -65,15 +65,19 @@ template<typename F>
 rptr pred(F f)
 {
     rptr base;
-    for(unsigned char c = 0; c < 128; ++c)
+    unsigned char c = 0;
+    do
     {
-        if(!f(c)) 
-            continue;
-        if(!base)
-            base.reset(new regex_t{c});
-        else
-            base.reset(new regex_t{ UNION, rptr(new regex_t{c}), std::move(base) });
+        if(f(c)) 
+        {
+            if(!base)
+                base.reset(new regex_t{c});
+            else
+                base.reset(new regex_t{ UNION, rptr(new regex_t{c}), std::move(base) });
+        }
+        ++c;
     }
+    while(c != 0);
     return base;
 }
 

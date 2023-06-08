@@ -1328,6 +1328,7 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
     bool const is_call = op_flags(inst.op) & ASMF_CALL;
     bool const is_jump = op_flags(inst.op) & ASMF_JUMP;
     bool const is_return = ::is_return(inst);
+    bool const is_fence = inst.op == ASM_FENCE;
 
     bool const is_fn = (is_call || is_jump || is_return) && (inst.arg.lclass() == LOC_FN);
 
@@ -1359,7 +1360,7 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
         }
     }
 
-    if(is_return)
+    if(is_return || is_fence)
     {
         for(locator_t const& loc : map)
         {

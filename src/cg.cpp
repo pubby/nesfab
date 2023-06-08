@@ -539,6 +539,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // COALESCING //
     ////////////////
 
+    // Build order first:
+    build_loops_and_order(ir);
+
     // Coalesce locators.
 
     auto const prune_early_store = [&](ssa_ht store, ssa_ht* new_head = nullptr) -> ssa_ht

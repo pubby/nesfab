@@ -808,6 +808,7 @@ ABSTRACT(SSA_mul) = ABSTRACT_FN
     }
 
     result[0].bits = from_bounds(result[0].bounds, result.cm);
+    result[0] = normalize(result[0], result.cm);
     assert(result[0].is_normalized(result.cm));
 };
 

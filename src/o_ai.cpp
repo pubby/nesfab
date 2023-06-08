@@ -1283,6 +1283,7 @@ void ai_t::fold_consts()
             else if(ssa_it->replace_with(INPUT_VALUE, replace_with))
                 updated = __LINE__;
         }
+#if 1
         else if(op == SSA_read_array16 || op == SSA_write_array16)
         {
             using namespace ssai::array;
@@ -1653,6 +1654,7 @@ void ai_t::fold_consts()
                 dprint(log, "-MULTI_LT_REWRITE", lt, rt);
             }
         }
+#endif
     }
     ir.assert_valid();
 }

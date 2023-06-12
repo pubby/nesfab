@@ -44,19 +44,13 @@ void mods_t::validate_groups() const
 {
     for(auto const& pair : lists)
     {
-        if(pair.first->vars())
-            if(pair.second.lists & ~(MODL_DATA | MODL_EMPLOYS_ANY | MODL_STOWS))
-                goto error;
+        if(pair.second.lists & (MODL_VARS | MODL_PRESERVES | MODL_EMPLOYS_VARS))
+            if(!pair.first->vars())
+                compiler_warning(pair.second.pstring, fmt("% is not defined for vars.", pair.first->name));
 
-        if(pair.first->any_data())
-            if(pair.second.lists & ~(MODL_VARS | MODL_EMPLOYS_ANY | MODL_PRESERVES))
-                goto error;
-
-        continue;
-    error:
-        throw compiler_error_t(
-            fmt_error(pair.second.pstring, fmt("% is not compatible with this modifier.", pair.first->name))
-            + fmt_note(pair.first->pstring(), fmt("% was declared here.", pair.first->name)));
+        if(pair.second.lists & (MODL_DATA | MODL_STOWS | MODL_EMPLOYS_DATA))
+            if(!pair.first->any_data())
+                compiler_warning(pair.second.pstring, fmt("% is not defined for data.", pair.first->name));
     }
 }
 

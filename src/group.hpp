@@ -11,6 +11,7 @@
 #include "decl.hpp"
 #include "pstring.hpp"
 #include "rom_decl.hpp"
+#include "ident_map.hpp"
 
 class group_vars_t
 {
@@ -108,9 +109,13 @@ public:
     defined_group_vars_t define_vars(pstring_t pstring);
     defined_group_data_t define_data(pstring_t pstring, bool omni);
 
-    static group_t* lookup(char const* source, pstring_t name);
-    static group_t* lookup_sourceless(pstring_t at, std::string_view key);
-    static group_t* lookup_sourceless(std::string_view name);
+    static group_t* lookup(char const* source, pstring_t name)
+        { return lookup_sourceless(name, name.view(source)); }
+    static group_t* lookup_sourceless(pstring_t name, std::string_view key)
+        { return key.empty() ? nullptr : &group_pool_map.lookup(name, key); }
+    static group_t* lookup_sourceless(std::string_view view)
+        { return view.empty() ? nullptr : group_pool_map.lookup(view); }
+
     
     template<typename Fn>
     void for_each_const(Fn const& fn) 
@@ -133,7 +138,7 @@ public:
     static void group_members();
 
 private:
-    inline static rh::robin_auto_table<group_t*> group_map;
+    inline static ident_map_t<group_ht> group_pool_map;
 };
 
 #endif

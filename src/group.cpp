@@ -5,53 +5,6 @@
 #include "compiler_error.hpp"
 #include "globals.hpp"
 
-group_t* group_t::lookup(char const* source, pstring_t name)
-{
-    return lookup_sourceless(name, name.view(source));
-}
-
-group_t* group_t::lookup_sourceless(pstring_t at, std::string_view key)
-{
-    if(key.empty())
-        return nullptr;
-
-    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(key.data(), key.size());
-
-    return group_ht::with_pool([&, hash, key](auto& pool)
-    {
-        rh::apair<group_t**, bool> result = group_map.emplace(hash,
-            [key](group_t* ptr) -> bool
-            {
-                return std::equal(key.begin(), key.end(), ptr->name.begin(), ptr->name.end());
-            },
-            [&pool, at, key]() -> group_t*
-            { 
-                return &pool.emplace_back(at, key, pool.size());
-            });
-
-        return *result.first;
-    });
-}
-
-group_t* group_t::lookup_sourceless(std::string_view view)
-{
-    if(view.empty())
-        return nullptr;
-
-    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
-
-    return group_ht::with_const_pool([&, hash, view](auto const&)
-    {
-        auto result = group_map.lookup(hash,
-            [view](group_t* ptr) -> bool
-            {
-                return std::equal(view.begin(), view.end(), ptr->name.begin(), ptr->name.end());
-            });
-
-        return result.second ? *result.second : nullptr;
-    });
-}
-
 defined_group_vars_t group_t::define_vars(pstring_t pstring)
 {
     std::lock_guard<std::mutex> lock(m_define_mutex);

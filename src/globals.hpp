@@ -30,6 +30,7 @@
 #include "mods.hpp"
 #include "debug_print.hpp"
 #include "byte_block.hpp"
+#include "ident_map.hpp"
 
 struct rom_array_t;
 struct precheck_tracked_t;
@@ -49,16 +50,6 @@ struct field_t
 };
 
 using field_map_t = rh::batman_map<std::uint64_t, field_t, std::identity>;
-
-// Maps globals by name.
-class global_map_t
-{
-public:
-    global_t& lookup(pstring_t name, std::string_view key);
-    global_t* lookup(std::string_view view);
-private:
-    rh::robin_auto_table<global_t*> map;
-};
 
 class global_t
 {
@@ -240,7 +231,7 @@ private:
 
 private:
     // Globals get allocated in these:
-    inline static global_map_t global_pool_map;
+    inline static ident_map_t<global_ht> global_pool_map;
 
     // Tracks modes: 
     inline static std::mutex modes_vec_mutex;

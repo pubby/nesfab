@@ -4,11 +4,6 @@
 
 using namespace lex;
 
-bool private_ident(std::string_view view)
-{
-    return view.size() > 0 && view[0] == '_';
-}
-
 void pass1_t::uses_type(type_t type, idep_class_t calc)
 {
     if(type.name() == TYPE_STRUCT_THUNK || type.name() == TYPE_STRUCT)
@@ -112,7 +107,15 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
 global_t& pass1_t::lookup_global(pstring_t pstring)
 {
     std::string_view const view = pstring.view(file.source());
-    if(private_ident(view))
+    if(view.starts_with('_'))
         return private_globals.lookup(pstring, view);
     return global_t::lookup_sourceless(pstring, view);
+}
+
+group_t* pass1_t::lookup_group(pstring_t pstring)
+{
+    std::string_view const view = pstring.view(file.source());
+    if(view.starts_with("/_"))
+        return &private_groups.lookup(pstring, view);
+    return group_t::lookup_sourceless(pstring, view);
 }

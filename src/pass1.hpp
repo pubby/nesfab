@@ -24,10 +24,9 @@
 #include "puf.hpp"
 #include "convert.hpp"
 #include "macro.hpp"
+#include "ident_map.hpp"
 
 namespace bc = boost::container;
-
-bool private_ident(std::string_view view);
 
 class pass1_t
 {
@@ -41,7 +40,8 @@ private:
     unsigned num_minor_labels = 0;
 
     symbol_table_t symbol_table;
-    global_map_t private_globals;
+    ident_map_t<global_ht> private_globals;
+    ident_map_t<group_ht> private_groups;
     fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
     fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
 
@@ -72,6 +72,7 @@ public:
     ast_node_t* convert_eternal_expr(ast_node_t const* expr, idep_class_t calc = IDEP_VALUE);
     void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
     global_t& lookup_global(pstring_t pstring);
+    group_t* lookup_group(pstring_t pstring);
 
     void begin_global_var()
     {
@@ -551,7 +552,7 @@ public:
     [[gnu::always_inline]]
     defined_group_vars_t begin_group_vars(pstring_t group_name)
     {
-        if(group_t* group = group_t::lookup(file.source(), group_name))
+        if(group_t* group = lookup_group(group_name))
             return group->define_vars(group_name);
         else
             return {};
@@ -560,7 +561,7 @@ public:
     [[gnu::always_inline]]
     defined_group_data_t begin_group_data(pstring_t group_name, bool omni)
     {
-        if(group_t* group = group_t::lookup(file.source(), group_name))
+        if(group_t* group = lookup_group(group_name))
             return group->define_data(group_name, omni);
         else
             return {};

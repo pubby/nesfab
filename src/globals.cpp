@@ -24,46 +24,6 @@
 #include "text.hpp"
 #include "switch.hpp"
 
-//////////////////
-// global_map_t //
-//////////////////
-
-global_t& global_map_t::lookup(pstring_t name, std::string_view key)
-{
-    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(key.data(), key.size());
-
-    return *global_ht::with_pool([&, hash, key](auto& pool)
-    {
-        rh::apair<global_t**, bool> result = map.emplace(hash,
-            [key](global_t* ptr) -> bool
-            {
-                return std::equal(key.begin(), key.end(), ptr->name.begin(), ptr->name.end());
-            },
-            [&pool, name, key]() -> global_t*
-            { 
-                return &pool.emplace_back(name, key, pool.size());
-            });
-
-        return *result.first;
-    });
-}
-
-global_t* global_map_t::lookup(std::string_view view)
-{
-    std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
-
-    return global_ht::with_const_pool([&, hash, view](auto const&)
-    {
-        auto result = map.lookup(hash,
-            [view](global_t* ptr) -> bool
-            {
-                return std::equal(view.begin(), view.end(), ptr->name.begin(), ptr->name.end());
-            });
-
-        return result.second ? *result.second : nullptr;
-    });
-}
-
 //////////////
 // global_t //
 //////////////

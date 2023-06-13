@@ -112,7 +112,7 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
         while(token.type == TOK_fslash)
         {
             pstring_t const group_ident = parse_group_ident();
-            auto& mapped = mods->lists[group_t::lookup(source(), group_ident)->handle()];
+            auto& mapped = mods->lists[policy().lookup_group(group_ident)->handle()];
 
             if(mapped.lists & listf)
                 compiler_warning("Duplicate group modifier.");
@@ -1115,7 +1115,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             bc::small_vector<group_ht, 8> groups;
 
             while(token.type == TOK_fslash)
-                groups.push_back(group_t::lookup(source(), parse_group_ident())->handle());
+                groups.push_back(policy().lookup_group(parse_group_ident())->handle());
 
             result.type = type_t::ptr(&*groups.begin(), &*groups.end(), muta, banked);
             break;

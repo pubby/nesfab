@@ -43,9 +43,13 @@ static bm_t _get_bm(ssa_value_t value)
         bm_t bm;
         fixed_uint_t f = value.fixed().value;
 
+        type_name_t num_type = value.num_type_name();
+        if(!is_byteified(num_type))
+            num_type = TYPE_U;
+
         for(unsigned i = 0; i < bm.size(); ++i)
         {
-            bm[i] = ssa_value_t(f & 0xFF, TYPE_U);
+            bm[i] = ssa_value_t(f & 0xFF, num_type);
             f >>= 8;
         }
         return bm;

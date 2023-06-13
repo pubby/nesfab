@@ -24,19 +24,17 @@
 #include "text.hpp"
 #include "switch.hpp"
 
-global_t& global_t::lookup(char const* source, pstring_t name)
-{
-    auto& global = lookup_sourceless(name, name.view(source));
-    return global;
-}
+//////////////////
+// global_map_t //
+//////////////////
 
-global_t& global_t::lookup_sourceless(pstring_t name, std::string_view key)
+global_t& global_map_t::lookup(pstring_t name, std::string_view key)
 {
     std::uint64_t const hash = fnv1a<std::uint64_t>::hash(key.data(), key.size());
 
     return *global_ht::with_pool([&, hash, key](auto& pool)
     {
-        rh::apair<global_t**, bool> result = global_pool_map.emplace(hash,
+        rh::apair<global_t**, bool> result = map.emplace(hash,
             [key](global_t* ptr) -> bool
             {
                 return std::equal(key.begin(), key.end(), ptr->name.begin(), ptr->name.end());
@@ -50,13 +48,13 @@ global_t& global_t::lookup_sourceless(pstring_t name, std::string_view key)
     });
 }
 
-global_t* global_t::lookup_sourceless(std::string_view view)
+global_t* global_map_t::lookup(std::string_view view)
 {
     std::uint64_t const hash = fnv1a<std::uint64_t>::hash(view.data(), view.size());
 
     return global_ht::with_const_pool([&, hash, view](auto const&)
     {
-        auto result = global_pool_map.lookup(hash,
+        auto result = map.lookup(hash,
             [view](global_t* ptr) -> bool
             {
                 return std::equal(view.begin(), view.end(), ptr->name.begin(), ptr->name.end());
@@ -65,6 +63,10 @@ global_t* global_t::lookup_sourceless(std::string_view view)
         return result.second ? *result.second : nullptr;
     });
 }
+
+//////////////
+// global_t //
+//////////////
 
 // Changes a global from UNDEFINED to some specified 'gclass'.
 // This gets called whenever a global is parsed.

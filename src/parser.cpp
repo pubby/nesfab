@@ -178,7 +178,7 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 
                     parse_token();
                     pstring_t const pstring = parse_ident();
-                    mods->nmi = &global_t::lookup(source(), pstring);
+                    mods->nmi = &policy().lookup_global(pstring);
                 }
                 break;
 
@@ -189,7 +189,7 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 
                     parse_token();
                     pstring_t const pstring = parse_ident();
-                    mods->irq = &global_t::lookup(source(), pstring);
+                    mods->irq = &policy().lookup_global(pstring);
                 }
                 break;
 
@@ -580,7 +580,7 @@ ast_node_t parser_t<P>::parse_string_or_char_expr(bool open_parens)
 
     global_t const* charmap;
     if(token.type == TOK_ident)
-        charmap = &global_t::lookup(source(), parse_ident());
+        charmap = &policy().lookup_global(parse_ident());
     else
         charmap = &global_t::default_charmap(literal.pstring);
 
@@ -1154,7 +1154,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
 
     case TOK_type_ident:
         {
-            global_t const& global = global_t::lookup(source(), token.pstring);
+            global_t const& global = policy().lookup_global(token.pstring);
             parse_token();
             result.type = type_t::struct_thunk(global);
             break;

@@ -4,6 +4,11 @@
 
 using namespace lex;
 
+bool private_ident(std::string_view view)
+{
+    return view.size() > 0 && view[0] == '_';
+}
+
 void pass1_t::uses_type(type_t type, idep_class_t calc)
 {
     if(type.name() == TYPE_STRUCT_THUNK || type.name() == TYPE_STRUCT)
@@ -59,7 +64,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         }
         else
         {
-            global_t& g = global_t::lookup(file.source(), ast.token.pstring);
+            global_t& g = lookup_global(ast.token.pstring);
             if(depends_on)
                 add_idep(ideps, &g, { .calc = calc, .depends_on = depends_on });
             ast.token.type = TOK_global_ident;
@@ -69,7 +74,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
 
     case TOK_type_ident:
         {
-            global_t& g = global_t::lookup(file.source(), ast.token.pstring);
+            global_t& g = lookup_global(ast.token.pstring);
             add_idep(ideps, &g, { .calc = calc, .depends_on = IDEP_TYPE });
             ast.token.set_ptr(&g);
         }
@@ -102,4 +107,12 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         for(unsigned i = 0; i < n; ++i)
             convert_ast(ast.children[i], calc, depends_on);
     }
+}
+
+global_t& pass1_t::lookup_global(pstring_t pstring)
+{
+    std::string_view const view = pstring.view(file.source());
+    if(private_ident(view))
+        return private_globals.lookup(pstring, view);
+    return global_t::lookup_sourceless(pstring, view);
 }

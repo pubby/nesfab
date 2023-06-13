@@ -50,8 +50,19 @@ struct field_t
 
 using field_map_t = rh::batman_map<std::uint64_t, field_t, std::identity>;
 
+// Maps globals by name.
+class global_map_t
+{
+public:
+    global_t& lookup(pstring_t name, std::string_view key);
+    global_t* lookup(std::string_view view);
+private:
+    rh::robin_auto_table<global_t*> map;
+};
+
 class global_t
 {
+friend class global_map_t;
 public:
     std::string const name;
 private:
@@ -149,9 +160,12 @@ public:
 
     // Creates a global if it doesn't exist,
     // otherwise returns the existing global with name.
-    static global_t& lookup(char const* source, pstring_t name);
-    static global_t& lookup_sourceless(pstring_t name, std::string_view key);
-    static global_t* lookup_sourceless(std::string_view view);
+    static global_t& lookup(char const* source, pstring_t name)
+        { return lookup_sourceless(name, name.view(source)); }
+    static global_t& lookup_sourceless(pstring_t name, std::string_view key)
+        { return global_pool_map.lookup(name, key); }
+    static global_t* lookup_sourceless(std::string_view view)
+        { return global_pool_map.lookup(view); }
 
     // Call after parsing
     static void parse_cleanup();
@@ -226,7 +240,7 @@ private:
 
 private:
     // Globals get allocated in these:
-    inline static rh::robin_auto_table<global_t*> global_pool_map;
+    inline static global_map_t global_pool_map;
 
     // Tracks modes: 
     inline static std::mutex modes_vec_mutex;

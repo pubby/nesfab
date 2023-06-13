@@ -127,7 +127,7 @@ rptr op(char const* a, char const* w)
 rptr many1(rptr r)
     { return cat(clone(r), kleene(clone(r))); }
 rptr maybe(rptr r)
-    { return cat(clone(r), nullptr); }
+    { return uor(clone(r), rptr(new regex_t{ EMPTY })); }
 
 nfa_t gen_nfa(regex_t const& regex, 
               std::deque<nfa_node_t>& nodes, 
@@ -586,7 +586,10 @@ bool is_idlower(unsigned char c)
     { return c == '_' || std::islower(c) || std::isdigit(c); }
 bool is_idupper(unsigned char c) 
     { return c == '_' || std::isupper(c) || std::isdigit(c); }
+bool is_underscore(unsigned char c) 
+    { return c == '_'; }
 
+rptr underscore() { return pred(is_underscore); }
 rptr idchar() { return pred(is_idchar); }
 rptr idlower() { return pred(is_idlower); }
 rptr idupper() { return pred(is_idupper); }
@@ -824,8 +827,8 @@ int main()
         accept("Real", "Real type", word("Real")),
         accept("Bool", "Bool type", word("Bool")), // Last type
         //accept("group_ident", "group identifier", cat(word("@"), kleene(idchar()))),
-        accept("ident", "identifier", ident()),
-        accept("type_ident", "type identifier", cat(upper(), kleene(idchar()))),
+        accept("ident", "identifier", cat(maybe(underscore()), ident())),
+        accept("type_ident", "type identifier", cat(maybe(underscore()), upper(), kleene(idchar()))),
         accept("decimal", "number", uor(many1(digit()), cat(many1(digit()), word("."), many1(digit())))),
         accept("hex", "number", cat(word("$"), uor(many1(hex_digit()), cat(many1(hex_digit()), word("."), many1(hex_digit()))))),
         accept("binary", "number", cat(word("%"), uor(many1(bin_digit()), cat(many1(bin_digit()), word("."), many1(bin_digit()))))),

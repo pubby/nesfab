@@ -27,6 +27,8 @@
 
 namespace bc = boost::container;
 
+bool private_ident(std::string_view view);
+
 class pass1_t
 {
 private:
@@ -39,6 +41,7 @@ private:
     unsigned num_minor_labels = 0;
 
     symbol_table_t symbol_table;
+    global_map_t private_globals;
     fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
     fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
 
@@ -68,6 +71,7 @@ public:
     ast_node_t* eternal_expr(ast_node_t const* expr);
     ast_node_t* convert_eternal_expr(ast_node_t const* expr, idep_class_t calc = IDEP_VALUE);
     void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
+    global_t& lookup_global(pstring_t pstring);
 
     void begin_global_var()
     {
@@ -97,7 +101,7 @@ public:
         num_minor_labels = 0;
 
         // Find the global:
-        active_global = &global_t::lookup(file.source(), name);
+        active_global = &lookup_global(name);
 
         return active_global;
     }
@@ -114,7 +118,7 @@ public:
         num_minor_labels = 0;
 
         // Find the global
-        active_global = &global_t::lookup(file.source(), fn_name);
+        active_global = &lookup_global(fn_name);
 
         // Create a scope for the parameters.
         assert(symbol_table.empty());
@@ -493,7 +497,7 @@ public:
         field_map.clear();
 
         // Find the global
-        active_global = &global_t::lookup(file.source(), struct_name);
+        active_global = &lookup_global(struct_name);
 
         return struct_name;
     }
@@ -579,7 +583,7 @@ public:
         if(is_paa(var_decl.src_type.type.name()))
             paa_def = std::make_unique<paa_def_t>(std::move(fn_def.local_consts), std::move(fn_def.name_hashes));
 
-        active_global = &global_t::lookup(file.source(), var_decl.name);
+        active_global = &lookup_global(var_decl.name);
         active_global->define_var(
             var_decl.name, std::move(ideps), var_decl.src_type, d, convert_eternal_expr(expr, IDEP_TYPE),
             std::move(paa_def), std::move(mods));
@@ -602,7 +606,7 @@ public:
         if(is_paa(var_decl.src_type.type.name()))
             paa_def = std::make_unique<paa_def_t>(std::move(fn_def.local_consts), std::move(fn_def.name_hashes));
 
-        active_global = &global_t::lookup(file.source(), var_decl.name);
+        active_global = &lookup_global(var_decl.name);
         active_global->define_const(
             var_decl.name, std::move(ideps), var_decl.src_type, d, omni, convert_eternal_expr(&expr, IDEP_TYPE), 
             std::move(paa_def), std::move(mods));
@@ -1057,7 +1061,7 @@ public:
         if(is_default)
             active_global = &global_t::default_charmap(charmap_name);
         else
-            active_global = &global_t::lookup(file.source(), charmap_name);
+            active_global = &lookup_global(charmap_name);
 
         assert(active_global);
 
@@ -1070,7 +1074,7 @@ public:
     {
         global_t const* ret;
         if(name)
-            ret = &global_t::lookup(source(), name);
+            ret = &lookup_global(name);
         else
             ret = &global_t::default_charmap(at);
 

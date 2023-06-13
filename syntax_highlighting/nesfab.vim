@@ -13,15 +13,15 @@ syn keyword nesfabKeyword if else for while do break continue return fn
     \ default switch case asm charmap chrrom true false audio system stows 
     \ employs preserves state
 
-syntax match nesfabId "\l\k*"
-syntax match nesfabType "\u\k*"
+syntax match nesfabId "_\{0,1}\l\k*"
+syntax match nesfabType "_\{0,1}\u\k*"
 
 syntax match nesfabGroup "/\k\+"
 
 " Integer with - + or nothing in front
-syn match nesfabNumber '\d\+'
-syn match nesfabNumberHex '\$\x\+'
-syn match nesfabNumberBin '%[01]\+'
+syn match nesfabNumber '\d\+\(\.\d*\|\)'
+syn match nesfabNumberHex '\$\x\+\(\.\x*\|\)'
+syn match nesfabNumberBin '%[01]\+\(\.[01]*\|\)'
 
 " Comment
 syn match nesfabCommentL "//.*$"

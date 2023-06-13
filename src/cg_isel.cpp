@@ -1483,7 +1483,7 @@ namespace isel
         chain
         < load_A<Opt, const_<0>>
         , load_N_for<typename Opt::restrict_to<~REGF_A>, Value>
-        , branch_op<Opt, BMI, this_label>
+        , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0xFF>>
         , label<this_label>
         , clear_conditional
@@ -1493,7 +1493,7 @@ namespace isel
         chain
         < load_X<Opt, const_<0>>
         , load_N_for<typename Opt::restrict_to<~REGF_X>, Value>
-        , branch_op<Opt, BMI, this_label>
+        , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEX_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional
@@ -1503,7 +1503,7 @@ namespace isel
         chain
         < load_Y<Opt, const_<0>>
         , load_N_for<typename Opt::restrict_to<~REGF_Y>, Value>
-        , branch_op<Opt, BMI, this_label>
+        , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEY_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional
@@ -1523,7 +1523,7 @@ namespace isel
         chain
         < load_X<Opt, const_<0>>
         , load_N_for<typename Opt::restrict_to<~REGF_X>, Value>
-        , branch_op<Opt, BMI, this_label>
+        , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEX_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional
@@ -1533,7 +1533,7 @@ namespace isel
         chain
         < load_Y<Opt, const_<0>>
         , load_N_for<typename Opt::restrict_to<~REGF_Y>, Value>
-        , branch_op<Opt, BMI, this_label>
+        , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEY_IMPLIED, null_, null_>
         , label<this_label>
         , clear_conditional

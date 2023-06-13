@@ -999,6 +999,24 @@ See the standard library file `lib/mapper_mmc3.fab`.
 
 |===
 
+== Identifiers [[identifiers]]
+
+Identifiers may contain letters, numbers, and underscores, but they cannot start with a number.
+To differentiate types names from other identifiers, the following rules apply:
+
+- User-defined types are written in `PascalCase`
+- Other definitions are written in `snake_case` or `UPPERCASE_SNAKE_CASE`.
+
+For top-level definitions, identifiers beginning with `_` are visible only in their containing file.
+In other languages, this behavior is sometimes called `private`.
+
+Example:
+----
+Foo    // A type name.
+foo    // A definition which isn't a type.
+_foo   // An identifier only visible to this file.
+----
+
 == Value Semantics [[value_semantics]]
 
 Values in NESFab are always passed and stored by https://en.wikipedia.org/wiki/Value_type_and_reference_type[value, not by reference].

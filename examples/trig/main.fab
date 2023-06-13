@@ -1,0 +1,77 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example uses trigonometry to have an object follow the player.
+
+vars
+    // Player variables:
+    SS px = 128
+    SS py = 120
+
+    // Follower variables:
+    SSF fx = 128.0
+    SSF fy = 120.0
+
+mode main()
+: nmi game_nmi
+    palette = example_palette
+    ppu_upload_palette()
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+
+    while true
+        nmi
+        update_pads()
+        move_player()
+        move_follower()
+        update_sprites()
+
+fn move_player()
+    ct Int SPEED = 2
+
+    if pads[0].held & BUTTON_LEFT
+        px -= SPEED
+    else if pads[0].held & BUTTON_RIGHT
+        px += SPEED
+
+    if pads[0].held & BUTTON_UP
+        py -= SPEED
+    else if pads[0].held & BUTTON_DOWN
+        py += SPEED
+
+fn move_follower()
+    U dir = point_dir(SS(fx), SS(fy), px, py)
+    fx += cos(dir)
+    fy += sin(dir)
+
+fn update_sprites()
+    // Our stack index into OAM:
+    U o = 0
+
+    // Player:
+    if px.b == 0 && py.b == 0
+        set_oam(o, px.a, py.a - 1, $00, 0)
+        o += 4
+
+    // Follower:
+    if fx.b == 0 && fy.b == 0
+        set_oam(o, fx.a, fy.a - 1, $00, 1)
+        o += 4
+
+    // Clear the remainder of OAM
+    hide_oam(o)
+
+nmi game_nmi()
+    // Update OAM and poll the pads:
+    ppu_upload_oam_poll_pads(0)
+
+    // Turn on rendering:
+    {PPUMASK}(PPUMASK_SPR_ON | PPUMASK_NO_CLIP)
+
+    // Reset the scroll
+    ppu_reset_scroll(0, 0)
+
+chrrom
+    U[16]($FF)

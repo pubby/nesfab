@@ -19,7 +19,7 @@
 
 // Reads from 'ptr' and uploads to PPUDATA for ('tiles' * 16) bytes of data.
 // A 'tiles' value of 0 is treated as a value of 256.
-asm fn load_pbz_tiles(CCC/pbz ptr, U tiles)
+asm fn ppu_upload_pbz_tiles(CCC/pbz ptr, U tiles)
 : employs /pbz
     vars
         U run_mask
@@ -57,7 +57,7 @@ asm fn load_pbz_tiles(CCC/pbz ptr, U tiles)
 
 // Reads from 'ptr' and uploads to PPUDATA for ('chunks' * 8) bytes of data.
 // A 'chunks' value of 0 is treated as a value of 256.
-asm fn load_pbz_chunks(CCC/pbz ptr, U chunks)
+asm fn ppu_upload_pbz_chunks(CCC/pbz ptr, U chunks)
 : employs /pbz
     vars
         U run_mask

@@ -16,7 +16,8 @@
 // N = $80 to $FF: Copy the next (N - 127) bytes verbatim
 
 // Reads from 'ptr' and uploads to PPUDATA until the stream is terminated by a $00 byte.
-asm fn ppu_upload_rlz(CCC/rlz ptr)
+// Returns a pointer to one past the end of the data.
+asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
 : employs /rlz
     default
         lax &ptr.bank
@@ -50,5 +51,15 @@ asm fn ppu_upload_rlz(CCC/rlz ptr)
         bpl same_run_loop
         bmi increment_ptr
     label done
+        ldy &ptr.b
+        ldx &ptr.a
+        inx
+        stx &return.a
+        bne done_increment
+        iny
+    label done_increment
+        sty &return.b
+        lda &ptr.c
+        sta &return.c
         rts
 

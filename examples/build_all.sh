@@ -13,3 +13,4 @@
 ../nesfab fade/fade.cfg
 ../nesfab sound_effects/sound_effects.cfg
 ../nesfab trig/trig.cfg
+../nesfab pbz/pbz.cfg

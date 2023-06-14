@@ -17,9 +17,17 @@
 // -  A '0' bit means read a byte from the stream and output it.
 // -  A '1' bit means output the previous byte outputted for this chunk, or $00 if none was.
 
-// Reads from 'ptr' and uploads to PPUDATA for ('tiles' * 16) bytes of data.
-// A 'tiles' value of 0 is treated as a value of 256.
-asm fn ppu_upload_pbz_tiles(CCC/pbz ptr, U tiles)
+// This is used to upload data in the PBZ format to the PPU.
+// There are two ways to call this function:
+// - ppu_upload_pbz.tiles:
+//       Reads from 'ptr' and uploads to PPUDATA for ('amount' * 16) bytes of data.
+//       Returns a pointer to one past the end of the data.
+//       An 'amount' value of 0 is treated as a value of 256.
+// - ppu_upload_pbz.chunks:
+//       Reads from 'ptr' and uploads to PPUDATA for ('amount' * 8) bytes of data.
+//       Returns a pointer to one past the end of the data.
+//       An 'amount' value of 0 is treated as a value of 256.
+asm fn ppu_upload_pbz(CCC/pbz ptr, U amount) CCC/pbz
 : employs /pbz
     vars
         U run_mask
@@ -46,46 +54,28 @@ asm fn ppu_upload_pbz_tiles(CCC/pbz ptr, U tiles)
     label done_inc
         rts
     default
+    label tiles
         lax &ptr.bank
         switch ax
-    label plane_loop
+    label tiles_loop
         jsr write_plane
         jsr write_plane
-        dec &tiles
-        bne plane_loop
-        rts
-
-// Reads from 'ptr' and uploads to PPUDATA for ('chunks' * 8) bytes of data.
-// A 'chunks' value of 0 is treated as a value of 256.
-asm fn ppu_upload_pbz_chunks(CCC/pbz ptr, U chunks)
-: employs /pbz
-    vars
-        U run_mask
-    default
+        dec &amount
+        bne tiles_loop
+        beq do_return
+    label chunks
         lax &ptr.bank
         switch ax
-    label write_plane
-        ldy #0
-        lda (&ptr.a), y
-        sec
-        rol
-        sta &run_mask
-        tya
-    label pb8_loop
-        bcs no_new_byte
-        iny
-        lda (&ptr.a), y
-    label no_new_byte
-        sta PPUDATA
-        asl &run_mask
-        bne pb8_loop
-        tya
-        adc &ptr.a
-        sta &ptr.a
-        bcc done_inc
-        inc &ptr.b
-    default plane_loop
-        dec &chunks
-        bne write_plane
+    label chunks_loop
+        jsr write_plane
+        dec &amount
+        bne chunks_loop
+    label do_return
+        lda &ptr.a
+        sta &return.a
+        lda &ptr.b
+        sta &return.b
+        lda &ptr.c
+        sta &return.c
         rts
 

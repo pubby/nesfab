@@ -45,7 +45,6 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             }
         };
 
-
         if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_ARRAY8)
         {
             using namespace ssai::array;
@@ -766,6 +765,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     // Replace 0 + 0 + C with C
                     if(frac_bytes(ssa_it->type().name()) == 0)
                     {
+                        replace_carry(*ssa_it, ssa_value_t(0u, TYPE_BOOL));
+                        assert(!carry_output(*ssa_it));
                         ssa_it->link_remove_input(0);
                         ssa_it->link_remove_input(0);
                         ssa_it->unsafe_set_op(SSA_cast);
@@ -1910,7 +1911,14 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
         singletons[i]->replace_with(replacements[i]);
 
         for(auto const& p : to_prune[i])
+        {
+            if(ssa_ht carry = carry_output(*p.first))
+            {
+                assert(carry->output_size() == 0);
+                carry->prune();
+            }
             p.first->prune();
+        }
     }
 }
 
@@ -2004,7 +2012,10 @@ bool o_identities(log_t* log, ir_t& ir)
         updated |= run.updated;
 
         if(run.updated)
+        {
+            ir.assert_valid();
             simple_repeated();
+        }
     }
 
     return updated;

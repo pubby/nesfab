@@ -3740,6 +3740,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                     array_val.val = rval_t { h };
                 }
+                else
+                    array_val.val = rval_t{};
+
+                assert(!array_val.is_strval());
             }
 
             array_val.type = result_type;
@@ -4446,7 +4450,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
     }
     else if(strval_t const* strval = v.is_strval())
     {
-        passert(v.type.name() == TYPE_TEA, v.type);
+        passert(v.type.name() == TYPE_TEA, v.type, strval->get_string());
         assert(strval->charmap);
 
         std::string const& str = strval->get_string();

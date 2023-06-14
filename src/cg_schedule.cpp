@@ -501,7 +501,8 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
         auto& d = data(ssa_node);
 
-        assert(ssa_node->input(ARRAY).holds_ref());
+        if(!ssa_node->input(ARRAY).holds_ref())
+            continue;
         ssa_ht const array_input = ssa_node->input(ARRAY).handle();
 
         for_each_output(array_input, [&](ssa_ht read)

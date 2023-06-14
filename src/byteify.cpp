@@ -405,12 +405,16 @@ void byteify(ir_t& ir, fn_t const& fn)
                     else
                     {
                         assert(loc.lclass() == LOC_GMEMBER_SET);
+                    keep:
                         new_input.push_back(v);
                         new_input.push_back(loc);
                         return;
                     }
 
                     t = _bm_type(t);
+
+                    if(t.name() == TYPE_PAA)
+                        goto keep;
 
                     bm_t bm = _get_bm(v);
 

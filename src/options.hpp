@@ -40,6 +40,7 @@ struct options_t
     unsigned raw_mc = 0;
     unsigned raw_mp = 0;
     mapper_bus_conflicts_t raw_bus_conflicts = {};
+    mapper_sram_t raw_sram = {};
 
     mapper_t mapper;
     std::string output_file = "a.nes";

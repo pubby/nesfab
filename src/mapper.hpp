@@ -46,12 +46,23 @@ enum mapper_bus_conflicts_t : std::uint8_t
     BUSC_ALWAYS,
 };
 
+enum mapper_sram_t : std::uint8_t
+{
+    SRAM_DEFAULT,
+    SRAM_OFF,
+    SRAM_ON_DEFAULT,
+    SRAM_FIRST_ON = SRAM_ON_DEFAULT,
+    SRAM_ON_VOLATILE,
+    SRAM_ON_PERSISTENT,
+};
+
 struct mapper_params_t
 {
     mapper_mirroring_t mirroring;
     unsigned prg_size; // in KiB
     unsigned chr_size; // in KiB
     mapper_bus_conflicts_t bus_conflicts;
+    mapper_sram_t sram;
 
     mapper_mirroring_t mirroring_none(mapper_type_t mt) const;
     mapper_mirroring_t mirroring_HV(mapper_type_t mt) const;
@@ -60,6 +71,9 @@ struct mapper_params_t
     bool conflicts(mapper_type_t mt, bool default_) const;
     bool conflicts(mapper_type_t mt) const;
     bool no_conflicts(mapper_type_t mt) const;
+    bool has_sram(mapper_type_t mt, bool default_) const;
+    bool sram_persistent(mapper_type_t mt, bool default_) const;
+    bool no_sram(mapper_type_t) const;
 
     unsigned num_32k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
     unsigned num_8k_chr(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
@@ -73,6 +87,8 @@ struct mapper_t
     std::uint16_t num_8k_chr_rom;
     std::uint16_t num_8k_chr_ram;
     bool bus_conflicts;
+    bool sram;
+    bool sram_persistent;
 
     unsigned num_16k_banks() const { return num_32k_banks * 2; }
 

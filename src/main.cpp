@@ -162,6 +162,30 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         }
     }
 
+    if(vm.count("sram"))
+    {
+        std::string str = to_lower(vm["sram"].as<std::string>());
+
+        if(str == "volatile")
+            _options.raw_sram = SRAM_ON_VOLATILE;
+        else if(str == "persistent")
+            _options.raw_sram = SRAM_ON_PERSISTENT;
+        else switch(option_bool_default(str, "default"sv))
+        {
+        default:
+            throw std::runtime_error(fmt("Unknown bus-conflicts: %", str));
+        case -1:
+            _options.raw_sram = SRAM_DEFAULT;
+            break;
+        case 0:
+            _options.raw_sram = SRAM_OFF;
+            break;
+        case 1:
+            _options.raw_sram = SRAM_ON_DEFAULT;
+            break;
+        }
+    }
+
     if(vm.count("prg-size"))
         _options.raw_mp = vm["prg-size"].as<unsigned>();
 
@@ -230,6 +254,7 @@ int main(int argc, char** argv)
                 ("prg-size,p", po::value<unsigned>(), "size of mapper PRG in KiB")
                 ("chr-size,c", po::value<unsigned>(), "size of mapper CHR in KiB")
                 ("bus-conflicts", po::value<std::string>(), "enable / disable mapper bus conflicts")
+                ("sram", po::value<std::string>(), "configure 8KiB SRAM")
             ;
 
             po::options_description code_opt("Other options");
@@ -331,6 +356,7 @@ int main(int argc, char** argv)
                 .prg_size = _options.raw_mp,
                 .chr_size = _options.raw_mc,
                 .bus_conflicts = _options.raw_bus_conflicts,
+                .sram = _options.raw_sram,
             };
 
             auto const to_lower = [](std::string str)

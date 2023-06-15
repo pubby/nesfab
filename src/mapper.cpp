@@ -77,6 +77,34 @@ bool mapper_params_t::no_conflicts(mapper_type_t mt) const
     return false;
 }
 
+bool mapper_params_t::has_sram(mapper_type_t mt, bool default_) const
+{
+    if(sram == SRAM_DEFAULT)
+        return default_;
+    return sram >= SRAM_FIRST_ON;
+}
+
+bool mapper_params_t::no_sram(mapper_type_t) const
+{
+    if(bus_conflicts >= SRAM_FIRST_ON)
+        throw std::runtime_error(fmt("Invalid %: Mapper does not support SRAM."));
+    return false;
+}
+
+bool mapper_params_t::sram_persistent(mapper_type_t mt, bool default_) const
+{
+    switch(sram)
+    {
+    default:
+        return default_;
+    case SRAM_OFF:
+    case SRAM_ON_VOLATILE:
+        return false;
+    case SRAM_ON_PERSISTENT:
+        return true;
+    }
+}
+
 mapper_t mapper_t::nrom(mapper_params_t const& params)
 {
     constexpr mapper_type_t mt = MAPPER_NROM;
@@ -87,6 +115,8 @@ mapper_t mapper_t::nrom(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 8, 1),
         .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -100,6 +130,8 @@ mapper_t mapper_t::anrom(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 8),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
         .bus_conflicts = params.conflicts(mt, false),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -113,6 +145,8 @@ mapper_t mapper_t::bnrom(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 2048, 4),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
         .bus_conflicts = params.conflicts(mt, true),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -126,6 +160,8 @@ mapper_t mapper_t::cnrom(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 2048, 4),
         .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -139,6 +175,8 @@ mapper_t mapper_t::gnrom(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 4),
         .bus_conflicts = params.conflicts(mt, true),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -152,6 +190,8 @@ mapper_t mapper_t::colordreams(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 16),
         .bus_conflicts = params.conflicts(mt, true),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -165,6 +205,8 @@ mapper_t mapper_t::gtrom(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 16),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 16, 2),
         .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.no_sram(mt),
+        .sram_persistent = false,
     };
 }
 
@@ -178,6 +220,8 @@ mapper_t mapper_t::ines_189(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
         .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -191,6 +235,8 @@ mapper_t mapper_t::mmc1(mapper_params_t const& params)
         .num_32k_banks = params.num_32k_banks(mt, 256, 256, 8),
         .num_8k_chr_rom = params.num_8k_chr(mt, 128, 128, 16),
         .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
@@ -216,6 +262,8 @@ void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
     case MIRROR_V: flags6 |= 1 << 0; break;
     case MIRROR_4: flags6 |= 1 << 3; break;
     }
+    if(mapper.sram && mapper.sram_persistent)
+        flags6 |= 1 << 1; // Battery-backed RAM.
     at[6] = flags6;
 
     // 7
@@ -241,7 +289,15 @@ void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
     at[9] = hi;
 
     // 10
-    at[10] = 0;
+    if(mapper.sram)
+    {
+        if(mapper.sram_persistent)
+            at[10] = 7 << 4;
+        else
+            at[10] = 7;
+    }
+    else
+        at[10] = 0;
 
     // 11
     unsigned const chr_ram_chunks = mapper.num_8k_chr_ram * 0x2000 / 64;

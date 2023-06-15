@@ -372,6 +372,12 @@ void bitset_lshift(std::size_t size, UInt* bitset, std::size_t amount = 1)
 template<typename UInt>
 void bitset_mark_consecutive(std::size_t size, UInt* bitset, std::size_t consec_len)
 {
+    if(consec_len > size * sizeof_bits<UInt>)
+    {
+        bitset_clear_all(size, bitset);
+        return;
+    }
+
     if(consec_len <= 1)
         return;
 

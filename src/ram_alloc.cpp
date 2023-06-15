@@ -33,10 +33,12 @@ zp_request_t zp_request(bool valid, bool only)
 }
 
 // Allocates a span inside 'usable_ram'.
-static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp, 
+static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size, zp_request_t zp, 
                         bool insist_alignment = false)
 {
-    auto const try_alloc = [](ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
+    passert(size < 0x10000, size);
+
+    auto const try_alloc_ram = [](ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
     {
         assert(size > 0);
 
@@ -61,11 +63,34 @@ static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_req
             bitset_mark_consecutive(usable_copy.size(), usable_copy.data(), size);
 
             int const addr = usable_copy.lowest_bit_set();
-
             if(addr < 0)
                 return {};
-
             return { .addr = addr, .size = size };
+        }
+    };
+
+    auto const try_alloc_sram = [](sram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
+    {
+        // SRAM has no zp:
+        if(zp == ZP_ONLY)
+            return {};
+
+        if(size == 1)
+        {
+            int const addr = usable_ram.lowest_bit_set();
+            if(addr < 0)
+                return {};
+            return { .addr = addr + sram_addr, .size = 1 };
+        }
+        else
+        {
+            sram_bitset_t usable_copy = usable_ram;
+            bitset_mark_consecutive(usable_copy.size(), usable_copy.data(), size);
+
+            int const addr = usable_copy.lowest_bit_set();
+            if(addr < 0)
+                return {};
+            return { .addr = addr + sram_addr, .size = size };
         }
     };
 
@@ -74,10 +99,11 @@ static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_req
     {
         page_bitset_t page = page_bitset_t::filled(0, (size > 256) ? 1 : (257 - size));
         assert(page.test(0));
-        ram_bitset_t aligned = usable_ram;
+        ram_bitset_t aligned = usable_ram.ram;
         bitset_mark_consecutive(aligned.size(), aligned.data(), size);
 
         static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
+        static_assert(sram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
 
         for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
             bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
@@ -87,10 +113,27 @@ static span_t alloc_ram(ram_bitset_t const& usable_ram, std::size_t size, zp_req
         if(addr >= 0)
             return { .addr = addr, .size = size };
         else if(insist_alignment)
+        {
+            if(usable_ram.sram)
+            {
+                sram_bitset_t aligned = *usable_ram.sram;
+                bitset_mark_consecutive(aligned.size(), aligned.data(), size);
+
+                for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
+                    bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
+
+                int const addr = aligned.lowest_bit_set();
+                if(addr >= 0)
+                    return { .addr = addr + sram_addr, .size = size };
+            }
+
             return {};
+        }
     }
 
-    return try_alloc(usable_ram, size, zp);
+    if(span_t span = try_alloc_ram(usable_ram.ram, size, zp))
+        return span;
+    return usable_ram.sram ? try_alloc_sram(*usable_ram.sram, size, zp) : span_t{};
 }
 
 class ram_allocator_t
@@ -116,7 +159,7 @@ private:
     struct group_vars_d
     {
         // Addresses that can be used to allocate globals.
-        ram_bitset_t usable_ram;
+        ram_sets_t usable_ram;
 
         // Tracks how it interferes with other group_vars
         xbitset_t<group_vars_ht> interferences;
@@ -135,13 +178,13 @@ private:
         unsigned lvar_count = 0;
 
         // Addresses that can be used to allocate lvars.
-        std::array<ram_bitset_t, NUM_ROMV> usable_ram;
+        std::array<ram_sets_t, NUM_ROMV> usable_ram;
 
         // Ram allocated by lvars in this fn.
-        std::array<ram_bitset_t, NUM_ROMV> lvar_ram = {};
+        std::array<ram_sets_t, NUM_ROMV> lvar_ram = {};
 
         // Like above, but includes called fns too.
-        std::array<ram_bitset_t, NUM_ROMV> recursive_lvar_ram = {};
+        std::array<ram_sets_t, NUM_ROMV> recursive_lvar_ram = {};
 
         // Stores indexes into 'romv_allocated'.
         std::array<fc::small_set<unsigned, 2>, NUM_ROMV> romv_self;
@@ -160,10 +203,10 @@ private:
 
     // Tracks allocations for an entire mode / nmi / irq.
     // This is used to implement romv.
-    std::array<std::vector<ram_bitset_t>, NUM_ROMV> romv_allocated;
+    std::array<std::vector<ram_sets_t>, NUM_ROMV> romv_allocated;
 
     // Handles static allocations:
-    ram_bitset_t static_usable_ram;
+    ram_sets_t static_usable_ram;
 
     log_t* log = nullptr;
 };
@@ -174,8 +217,11 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 {
     assert(compiler_phase() == PHASE_ALLOC_RAM);
 
+    if(static_usable_ram.sram)
+        static_usable_ram.sram->set_all();
+
     // Amount of bytes free in zero page
-    int const zp_free = (static_usable_ram & zp_bitset).popcount();
+    int const zp_free = (static_usable_ram.ram & zp_bitset).popcount();
 
     // Amount of bytes in zp dedicated to locals
     int const max_local_zp = 32;
@@ -596,8 +642,8 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
                 group_vars_d& d = data(gmember.gvar.group_vars);
 
-                ram_bitset_t all;
-                ram_bitset_t any;
+                ram_sets_t all;
+                ram_sets_t any;
                 all.clear_all();
                 any.set_all();
                 d.interferences.for_each([&](group_vars_ht gv)
@@ -617,7 +663,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             }
             else
             {
-                ram_bitset_t all = static_usable_ram;
+                ram_sets_t all = static_usable_ram;
 
                 for(group_vars_d const& d : group_vars_data)
                     all &= d.usable_ram;
@@ -639,23 +685,32 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             else
                 gmember.assign_span(loc.atom(), span);
 
-            ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
-
-            if(gmember.gvar.group_vars)
+            auto const update = [&](auto const& mask, auto const& get)
             {
-                group_vars_d& d = data(gmember.gvar.group_vars);
-
-                d.interferences.for_each([&](group_vars_ht gv)
+                if(gmember.gvar.group_vars)
                 {
-                    group_vars_data[gv.id].usable_ram &= mask;
-                });
-            }
+                    group_vars_d& d = data(gmember.gvar.group_vars);
+
+                    d.interferences.for_each([&](group_vars_ht gv)
+                    {
+                        get(group_vars_data[gv.id].usable_ram) &= mask;
+                    });
+                }
+                else
+                {
+                    get(static_usable_ram) &= mask;
+
+                    for(group_vars_d& d : group_vars_data)
+                        get(d.usable_ram) &= mask;
+                }
+            };
+
+            if(span.addr < sram_addr)
+                update(~ram_bitset_t::filled(span.addr, span.size), get_ram);
             else
             {
-                static_usable_ram &= mask;
-
-                for(group_vars_d& d : group_vars_data)
-                    d.usable_ram &= mask;
+                assert(mapper().sram);
+                update(~sram_bitset_t::filled(span.addr - sram_addr, span.size), get_sram);
             }
         };
 
@@ -711,7 +766,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             });
         }
 
-        std::array<std::vector<ram_bitset_t>, NUM_ROMV> total;
+        std::array<std::vector<ram_sets_t>, NUM_ROMV> total;
         total[ROMV_MODE].resize(global_t::modes().size());
         total[ROMV_NMI].resize(global_t::nmis().size());
         total[ROMV_IRQ].resize(global_t::irqs().size());
@@ -807,7 +862,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
     }
 
     // Setup lvar usable ram:
-    std::vector<ram_bitset_t> lvar_usable_ram;
+    std::vector<ram_sets_t> lvar_usable_ram;
     lvar_usable_ram.resize(fn.lvars().num_this_lvars(), d.usable_ram[romv]);
 
     for(unsigned i = 0; i < fn.lvars().num_this_lvars(); ++i)
@@ -833,18 +888,27 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
         if(!span) // It might not have been allocated yet, or it might not exist in the generated assembly.
             continue;
 
-        ram_bitset_t const mask = ~ram_bitset_t::filled(span.addr, span.size);
-
-        bitset_for_each(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(i), [&](unsigned j)
+        auto const update = [&](auto const& mask, auto const& get)
         {
-            if(j < lvar_usable_ram.size())
-                lvar_usable_ram[j] &= mask;
-        });
+            bitset_for_each(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(i), [&](unsigned j)
+            {
+                if(j < lvar_usable_ram.size())
+                    get(lvar_usable_ram[j]) &= mask;
+            });
+        };
+
+        if(span.addr < sram_addr)
+            update(~ram_bitset_t::filled(span.addr, span.size), get_ram);
+        else
+        {
+            assert(mapper().sram);
+            update(~sram_bitset_t::filled(span.addr - sram_addr, span.size), get_sram);
+        }
     }
 
     // Prefer to use the same RAM addresses that called fns use.
     // We'll call this set 'freebie_ram'.
-    ram_bitset_t freebie_ram = {};
+    ram_sets_t freebie_ram = {};
     fn.ir_calls().for_each([&](fn_ht call)
     {
         assert(fn_data[call.id].step[romv] == Step);
@@ -941,43 +1005,53 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
         else
             fn.assign_lvar_span(romv, lvar_i, span); 
 
-        ram_bitset_t const filled = ram_bitset_t::filled(span.addr, span.size);
-        assert((lvar_usable_ram[lvar_i] & filled) == filled);
-        d.lvar_ram[romv] |= filled;
-        d.usable_ram[romv] -= d.lvar_ram[romv];
-
         if(Step < FULL_ALLOC)
             propagate_calls.clear_all();
 
-        ram_bitset_t const mask = ~filled;
-        bitset_for_each(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(lvar_i), [&](unsigned i)
+        auto const update = [&](auto const& filled, auto const& get)
         {
-            if(i < lvar_usable_ram.size())
-                lvar_usable_ram[i] &= mask;
-            else if(Step < FULL_ALLOC)
+            assert((get(lvar_usable_ram[lvar_i]) & filled) == filled);
+            get(d.lvar_ram[romv]) |= filled;
+            get(d.usable_ram[romv]) -= get(d.lvar_ram[romv]);
+
+            auto const mask = ~filled;
+            bitset_for_each(fn.lvars().bitset_size(), fn.lvars().lvar_interferences(lvar_i), [&](unsigned i)
             {
-                locator_t const loc = fn.lvars().locator(i);
-                if(has_fn(loc.lclass()))
+                if(i < lvar_usable_ram.size())
+                    get(lvar_usable_ram[i]) &= mask;
+                else if(Step < FULL_ALLOC)
                 {
-                    fn_ht h = loc.fn();
-                    propagate_calls.set(h.id);
-                    propagate_calls |= h->ir_calls();
+                    locator_t const loc = fn.lvars().locator(i);
+                    if(has_fn(loc.lclass()))
+                    {
+                        fn_ht h = loc.fn();
+                        propagate_calls.set(h.id);
+                        propagate_calls |= h->ir_calls();
+                    }
                 }
-            }
-        });
-
-        if(Step < FULL_ALLOC)
-        {
-            for(fn_ht fn : fn.lvars().fn_interferences(lvar_i))
-            {
-                propagate_calls.set(fn.id);
-                propagate_calls |= fn->ir_calls();
-            }
-
-            propagate_calls.for_each([&](fn_ht fn)
-            {
-                fn_data[fn.id].usable_ram[romv] &= mask;
             });
+
+            if(Step < FULL_ALLOC)
+            {
+                for(fn_ht fn : fn.lvars().fn_interferences(lvar_i))
+                {
+                    propagate_calls.set(fn.id);
+                    propagate_calls |= fn->ir_calls();
+                }
+
+                propagate_calls.for_each([&](fn_ht fn)
+                {
+                    get(fn_data[fn.id].usable_ram[romv]) &= mask;
+                });
+            }
+        };
+
+        if(span.addr < sram_addr)
+            update(ram_bitset_t::filled(span.addr, span.size), get_ram);
+        else
+        {
+            assert(mapper().sram);
+            update(sram_bitset_t::filled(span.addr - sram_addr, span.size), get_sram);
         }
     }
 

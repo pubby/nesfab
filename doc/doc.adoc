@@ -372,6 +372,7 @@ Specifies whether the mapper has bus conflicts.
 This option can only be specified once.
 
 The following arguments are valid:
+
 - To disable: `0`, `false,` or `off`.
 - To enable: `1`, `true,` or `on`.
 - For the default value: `default`.

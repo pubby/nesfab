@@ -1088,18 +1088,23 @@ or storing the machine code in a specific location which won't be switched out.
 Groups organize globals together based on how they are used in the program.
 In NESFab, each global variable and <<type_paa, pointer-addressible array>> is associated with a group.
 
-There are two types of groups: `vars` and `data`.
+There are two ways to declare groups: `vars` and `data`.
 
 - <<kw_vars, `vars`>> is for variables (RAM).
 - <<kw_data, `data`>> is for read-only data (ROM).
 
 Furthermore, `data` has two variants: `data` and `omni data`.
 
+
 - <<kw_data, `data`>> is for read-only data that exists at a single address in a single <<banks, bank>>.
 - <<kw_omni, `omni data`>> is for read-only data that exists at a single address, but is duplicated across multiple <<banks, banks>>.
 
 As a guideline, `omni data` uses more ROM space, but has better performance than `data`.
 Typically, it is recommended to use `data` for most everything, and only use `omni data` for small look-up tables that are frequently used.
+
+[NOTE]
+
+The variables and data belonging to groups are always global and exist at top-level scope.
 
 *Why groups?*
 
@@ -1113,6 +1118,77 @@ To the compiler, the purpose of groups are:
 - To enable the compiler to smartly allocate variables by reusing RAM addresses.
 - To facilitate <<mappers, mappers>> with multiple banks, enabling smarter linking.
 - To simplify pointer aliasing optimizations.
+
+*When are groups mentioned?*
+
+- When declaring groups.
+- In <<type_ptr, pointer>> types.
+- In a <<mod_preserves>> modifier.
+- In a <<mod_stows>> modifier.
+- In an <<mod_employs>> modifier.
+- In a <<mod_vars>> modifier.
+- In a <<mod_data>> modifier.
+
+*How dones one use groups?*
+
+For variables, it often makes sense to have at least one `vars` group per `mode`:
+----
+vars /main_menu
+    U cursor_y
+
+vars /game
+    U player_x
+    U player_y
+----
+
+Often, certain variables will be used across different modes.
+These can receive their own groups:
+----
+vars /high_scores
+    UU high_score = 0
+
+vars /settings
+    Bool swap_buttons = false
+    Bool mute = false
+----
+
+You can use these variables without any special syntax. 
+The compiler infers everything for you:
+----
+fn move_right()
+    player_x += 1
+----
+
+The exception to this is when defining an `asm fn`. 
+The compiler cannot infer the groups it uses, and so an <<mod_employs>> modifier is required:
+
+----
+asm fn move_right()
+: employs /game
+    inc &player_x
+    rts
+----
+
+For data, create a group for each schema.
+----
+data /levels
+    [] level1
+        // ... 
+    [] level2
+        // ... 
+
+data /songs
+    [] song1
+        // ... 
+    [] song2
+        // ... 
+----
+
+Then you can use pointers to access this data:
+----
+fn load_level(CCC/levels level)
+    // ...
+----
 
 == Comments
 
@@ -1170,6 +1246,7 @@ Type(values...)
 - `values` are a comma-separated list of expressions.
 
 The value is <<casts, cast>>, then inserted into the byte block with the following order:
+
 - For numeric types, the bytes are inserted in little-endian order.
 - For <<type_struct, structures>>, the first member is inserted first, then the second, and so on.
 - For <<type_TEA, TEAs>>, the first element is inserted first, then the second, and so on.

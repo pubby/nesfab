@@ -21,6 +21,13 @@ enum zp_request_t
     ZP_ONLY,
 };
 
+enum sram_request_t
+{
+    SRAM_NEVER,
+    SRAM_MAYBE,
+    SRAM_ONLY,
+};
+
 zp_request_t zp_request(bool valid, bool only)
 {
     if(valid)
@@ -32,14 +39,27 @@ zp_request_t zp_request(bool valid, bool only)
     return ZP_NEVER;
 }
 
+sram_request_t sram_request(mods_t const* mods)
+{
+    if(mod_test(mods, MOD_sram))
+        return SRAM_ONLY;
+    if(mod_test(mods, MOD_sram, false))
+        return SRAM_NEVER;
+    return SRAM_MAYBE;
+}
+
 // Allocates a span inside 'usable_ram'.
-static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size, zp_request_t zp, 
+static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size, 
+                        zp_request_t zp, sram_request_t sram,
                         bool insist_alignment = false)
 {
     passert(size < 0x10000, size);
 
-    auto const try_alloc_ram = [](ram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
+    auto const try_alloc_ram = [zp, sram, size](ram_bitset_t const& usable_ram) -> span_t
     {
+        if(sram == SRAM_ONLY)
+            return {};
+
         assert(size > 0);
 
         if(zp != ZP_NEVER && size == 1) // Fast path when 'size' == 1
@@ -69,10 +89,13 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size, zp_reque
         }
     };
 
-    auto const try_alloc_sram = [](sram_bitset_t const& usable_ram, std::size_t size, zp_request_t zp) -> span_t
+    auto const try_alloc_sram = [zp, sram, size](sram_bitset_t const& usable_ram) -> span_t
     {
         // SRAM has no zp:
         if(zp == ZP_ONLY)
+            return {};
+
+        if(sram == SRAM_NEVER)
             return {};
 
         if(size == 1)
@@ -98,23 +121,28 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size, zp_reque
     if(size > 1 && (insist_alignment || size <= 256))
     {
         page_bitset_t page = page_bitset_t::filled(0, (size > 256) ? 1 : (257 - size));
-        assert(page.test(0));
-        ram_bitset_t aligned = usable_ram.ram;
-        bitset_mark_consecutive(aligned.size(), aligned.data(), size);
 
-        static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
-        static_assert(sram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
-
-        for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
-            bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
-
-        int const addr = aligned.lowest_bit_set();
-
-        if(addr >= 0)
-            return { .addr = addr, .size = size };
-        else if(insist_alignment)
+        if(sram != SRAM_ONLY)
         {
-            if(usable_ram.sram)
+            assert(page.test(0));
+            ram_bitset_t aligned = usable_ram.ram;
+            bitset_mark_consecutive(aligned.size(), aligned.data(), size);
+
+            static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
+            static_assert(sram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
+
+            for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
+                bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
+
+            int const addr = aligned.lowest_bit_set();
+
+            if(addr >= 0)
+                return { .addr = addr, .size = size };
+        }
+
+        if(insist_alignment)
+        {
+            if(sram != SRAM_NEVER && usable_ram.sram)
             {
                 sram_bitset_t aligned = *usable_ram.sram;
                 bitset_mark_consecutive(aligned.size(), aligned.data(), size);
@@ -131,9 +159,9 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size, zp_reque
         }
     }
 
-    if(span_t span = try_alloc_ram(usable_ram.ram, size, zp))
+    if(span_t span = try_alloc_ram(usable_ram.ram))
         return span;
-    return usable_ram.sram ? try_alloc_sram(*usable_ram.sram, size, zp) : span_t{};
+    return usable_ram.sram ? try_alloc_sram(*usable_ram.sram) : span_t{};
 }
 
 class ram_allocator_t
@@ -627,6 +655,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             dprint(log, "-RAM_GMEMBER_ALLOCATION", loc, loc.mem_size(), loc.mem_zp_only());
 
             zp_request_t const zp = zp_request(loc.mem_zp_valid() && estimated_in_zp.count(loc), loc.mem_zp_only());
+            sram_request_t const sram = sram_request(loc.mods());
             bool const insist_align = mod_test(gmember.gvar.mods(), MOD_align);
 
             span_t span;
@@ -655,11 +684,11 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 any.flip_all();
 
                 // Allocate, prioritizing 'all', then 'any', then just 'd.usable_ram'.
-                span = alloc_ram(d.usable_ram & all, size, zp, insist_align);
+                span = alloc_ram(d.usable_ram & all, size, zp, sram, insist_align);
                 if(!span)
-                    span = alloc_ram(d.usable_ram & any, size, zp, insist_align);
+                    span = alloc_ram(d.usable_ram & any, size, zp, sram, insist_align);
                 if(!span)
-                    span = alloc_ram(d.usable_ram, size, zp, insist_align);
+                    span = alloc_ram(d.usable_ram, size, zp, sram, insist_align);
             }
             else
             {
@@ -668,7 +697,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 for(group_vars_d const& d : group_vars_data)
                     all &= d.usable_ram;
 
-                span = alloc_ram(all, size, zp, insist_align);
+                span = alloc_ram(all, size, zp, sram, insist_align);
             }
 
             if(!span)
@@ -978,13 +1007,14 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
         assert(lvar_i < lvar_usable_ram.size());
 
         zp_request_t const zp = zp_request(info.zp_valid, info.zp_only);
+        sram_request_t const sram = SRAM_MAYBE;
 
         // First try to allocate in 'freebie_ram'.
-        span_t span = alloc_ram(lvar_usable_ram[lvar_i] & freebie_ram, info.size, zp);
+        span_t span = alloc_ram(lvar_usable_ram[lvar_i] & freebie_ram, info.size, zp, sram);
 
         // If that fails, try to allocate anywhere.
         if(!span)
-            span = alloc_ram(lvar_usable_ram[lvar_i], info.size, zp);
+            span = alloc_ram(lvar_usable_ram[lvar_i], info.size, zp, sram);
 
         // If that fails, we're fucked.
         if(!span)

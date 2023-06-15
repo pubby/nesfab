@@ -389,6 +389,30 @@ nesfab --bus-conflicts true
 bus-conflicts = true
 ----
 
+=== `sram` [[opt_sram]]
+
+Specifies whether the mapper should include 8KiB of RAM, mapped to addresses $6000-$7FFF.
+
+The following arguments are valid:
+
+- To disable: `0`, `false,` or `off`.
+- To enable SRAM which saves across resets: `persistent`.
+- To enable SRAM which does not save across resets: `volatile`.
+- To enable and use the mapper's default save behavior: `1`, `true,` or `on`.
+- For the default value: `default`.
+
+The default value depends on the <<mappers, mapper.>> 
+
+*Command-line usage:*
+----
+nesfab --sram volatile
+----
+
+*Configuration file usage:*
+----
+sram = volatile
+----
+
 === `system` (`-S`) [[opt_system]]
 
 Specifies the target NES system, which will be accessible using the <<kw_system, `system` keyword>>.
@@ -587,6 +611,9 @@ It is easy to use and offers good performance, but is lacking in features and me
 | <<opt_bus_conflicts, Bus Conflicts>>
 | N/A
 
+| <<opt_sram, SRAM>>
+| By default, no
+
 | <<kw_state, `state` Register>>
 | N/A
 
@@ -638,6 +665,9 @@ Related mappers like AMROM can be had using configuration options.
 | <<opt_bus_conflicts, Bus Conflicts>>
 | By default, no
 
+| <<opt_sram, SRAM>>
+| By default, no
+
 | <<kw_state, `state` Register>>
 | Bit 4 changes mirroring
 
@@ -686,6 +716,9 @@ BNROM supports a huge amount of PRG, making it an excellent choice for large gam
 | <<opt_bus_conflicts, Bus Conflicts>>
 | By default, yes
 
+| <<opt_sram, SRAM>>
+| By default, no
+
 | <<kw_state, `state` Register>>
 | N/A
 
@@ -733,6 +766,9 @@ CNROM is similar to <<mapper_nrom, NROM>>, but has multiple CHR banks.
 
 | <<opt_bus_conflicts, Bus Conflicts>>
 | N/A
+
+| <<opt_sram, SRAM>>
+| By default, no
 
 | <<kw_state, `state` Register>>
 | N/A
@@ -785,6 +821,9 @@ Related mappers like MHROM can be had using configuration options.
 | <<opt_bus_conflicts, Bus Conflicts>>
 | By default, yes
 
+| <<opt_sram, SRAM>>
+| By default, no
+
 | <<kw_state, `state` Register>>
 | Low 4 bits switch CHR
 
@@ -836,6 +875,9 @@ PRG above 128 KiB may not be supported on physical cartridges.
 | <<opt_bus_conflicts, Bus Conflicts>>
 | By default, yes
 
+| <<opt_sram, SRAM>>
+| By default, no
+
 | <<kw_state, `state` Register>>
 | High 4 bits switch CHR
 
@@ -885,6 +927,9 @@ See the standard library file `lib/mapper_gtrom.fab`.
 | Fixed 4
 
 | <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<opt_sram, SRAM>>
 | Never
 
 | <<kw_state, `state` Register>>
@@ -939,6 +984,9 @@ See the standard library file `lib/mapper_mmc1.fab`.
 | <<opt_bus_conflicts, Bus Conflicts>>
 | Never
 
+| <<opt_sram, SRAM>>
+| By default, no
+
 | <<kw_state, `state` Register>>
 | Sets internal $8000 register
 
@@ -991,6 +1039,9 @@ See the standard library file `lib/mapper_mmc3.fab`.
 
 | <<opt_bus_conflicts, Bus Conflicts>>
 | Never
+
+| <<opt_sram, SRAM>>
+| By default, no
 
 | <<kw_state, `state` Register>>
 | N/A

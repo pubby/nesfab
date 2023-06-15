@@ -477,20 +477,22 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
                 row.number = parse_hex_pair(words[1]);
 
                 unsigned i = 0;
+                while(i < words.size() && words[i] != ":")
+                    ++i;
                 for(int j = 0; j < NUM_CHAN; ++j)
                 {
-                    if(i >= words.size())
-                        throw std::runtime_error("Unknown ROW format.");
-                    while(words[i] != ":")
-                        ++i;
                     ++i;
                     if(i + 3 >= words.size())
                         throw std::runtime_error("Unknown ROW format.");
-                    
                     row.chan[j].note = parse_note(words[i+0], 2);
                     row.chan[j].instrument = parse_hex_pair(words[i+1]);
-                    if(words[i+2] == "D00")
-                        row.d00 |= 1 << j;
+                    i += 3;
+                    while(i < words.size() && words[i] != ":")
+                    {
+                        if(words[i] == "D00")
+                            row.d00 |= 1 << j;
+                        ++i;
+                    }
                 }
 
                 active_pattern->push_back(row);

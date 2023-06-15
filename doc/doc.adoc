@@ -2745,7 +2745,8 @@ The group will be defined as the union of these declarations.
 The following modifiers are per-variable, not per-group.
 
 - <<mod_flags, `+align`>>
-- <<mod_flags, `+zero_page`>>
+- <<mod_flags, `+zero_page`, `-zero_page`>>
+- <<mod_flags, `+sram`, `-sram`>>
 
 Example:
 ----
@@ -3459,6 +3460,7 @@ The following flags exist:
 - `+inline`, `-inline`: Force / prevent the function from being inlined.
 - `+align`: Aligns the data to fit inside a 256-byte page (or to 256 bytes otherwise).
 - `+zero_page`, `-zero_page`: Force / prevent variables from using fast zero-page RAM.
+- `+sram`, `-sram`: Force / prevent variables from using SRAM (see <<opt_sram>>).
 - `+spr_8x16`: Reorders <<kw_file>> CHR data from 8x16 tiles to 8x8 tiles.
 - `+graphviz`: Output the function's intermediate representation in a graphviz file.
 - `+info`: Output the function's intermediate representation in a text file.

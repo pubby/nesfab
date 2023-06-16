@@ -868,6 +868,9 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
                 fences     |= callee.ir_fences();
                 io_pure    &= callee.ir_io_pure();
                 calls.set(callee_h.id);
+
+                if(fclass != FN_MODE && is_static && mapper().bankswitches())
+                    m_returns_in_different_bank |= callee.returns_in_different_bank();
             }
 
             if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
@@ -951,8 +954,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
                 using namespace ssai::rw_ptr;
                 ssa_value_t const bank = ssa_it->input(BANK);
 
-                if(bank && is_static && mapper().bankswitches())
-                    compiler_error(global.pstring(), "Function cannot be static if it bankswitches.");
+                if(fclass != FN_MODE && bank && is_static && mapper().bankswitches())
+                    m_returns_in_different_bank = true;
             }
         }
     }
@@ -1713,7 +1716,10 @@ void fn_t::implement_asm_goto_modes()
 
                     locator_t const loc = locator_t::reset_group_vars(gv);
                     proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                    proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JSR : JSR_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+                    if(bankswitch_use_x())
+                        proc.push_inst({ .op = mapper().bankswitches() ? BANKED_X_JSR : JSR_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+                    else
+                        proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JSR : JSR_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
                 }
             });
 
@@ -1742,7 +1748,10 @@ void fn_t::implement_asm_goto_modes()
             // Do the jump
             locator_t const loc = locator_t::fn(d.fn, d.label);
             proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-            proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JMP : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+            if(bankswitch_use_x())
+                proc.push_inst({ .op = mapper().bankswitches() ? BANKED_X_JMP : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+            else
+                proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JMP : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
 
             // Assign the proc:
             d.rom_proc.safe().assign(std::move(proc));
@@ -1918,10 +1927,11 @@ void const_t::paa_init(loc_vec_t&& vec)
     rom_rule_t rule = ROMR_NORMAL;
     if(mod_test(mods(), MOD_dpcm))
         rule = ROMR_DPCM;
-    else if(!group_data)
+    else if(!group_data || mod_test(mods(), MOD_static))
         rule = ROMR_STATIC;
 
     m_rom_array = rom_array_t::make(std::move(vec), mod_test(mods(), MOD_align), !banked, rule, group_data);
+
     assert(m_rom_array);
 }
 

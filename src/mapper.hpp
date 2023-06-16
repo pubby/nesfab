@@ -153,7 +153,6 @@ constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
     case MAPPER_COLORDREAMS: 
     case MAPPER_GTROM: 
     case MAPPER_MMC1: 
-    case MAPPER_MMC3: 
         return 1;
     default: 
         return 0;
@@ -206,6 +205,17 @@ constexpr int bank_add(mapper_type_t mt = mapper().type)
         return 0;
     case MAPPER_MMC3: 
         return 1;
+    }
+}
+
+constexpr bool bankswitch_use_x(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    default:
+        return false; // use Y
+    case MAPPER_MMC3: 
+        return true;
     }
 }
 

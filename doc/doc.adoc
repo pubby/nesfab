@@ -755,6 +755,61 @@ BNROM supports a huge amount of PRG, making it an excellent choice for large gam
 
 |===
 
+=== `unrom` [[mapperubnrom]]
+
+https://www.nesdev.org/wiki/UxROM[*NESDev Wiki Page*]
+
+UNROM supports lots of PRG, like BNROM, but differs in that it has a fixed bank.
+Because of this, UNROM requires manual ROM layout with the <<mod_flags, `+static` modifier>>.
+
+[NOTE]
+BNROM is usually the better mapper for NESFab.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 4096 KiB
+| 64 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 8 KiB (RAM)
+| 8 KiB (RAM)
+| 8 KiB (RAM)
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed H or V
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| By default, yes
+
+| <<opt_sram, SRAM>>
+| By default, no
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| N/A
+
+|===
+
 === `cnrom` [[mapper_cnrom]]
 
 https://www.nesdev.org/wiki/CNROM[*NESDev Wiki Page*]
@@ -921,7 +976,7 @@ https://www.nesdev.org/wiki/GTROM[*NESDev Wiki Page*]
 GTROM is a modern mapper designed to be cheap while offering a wide range of features.
 
 [NOTE]
-See the standard library file `lib/mapper_gtrom.fab`.
+See the standard library file `lib/mapper/gtrom.fab`.
 
 *Memory Sizes:*
 
@@ -976,7 +1031,7 @@ MMC1 is a flexible ASIC mapper with CHR banking and mirroring controls.
 Unfortunately, MMC1 is very slow to interface.
 
 [NOTE]
-See the standard library file `lib/mapper_mmc1.fab`.
+See the standard library file `lib/mapper/mmc1.fab`.
 
 *Memory Sizes:*
 
@@ -1023,16 +1078,79 @@ See the standard library file `lib/mapper_mmc1.fab`.
 
 |===
 
+=== `mmc3` [[mapper_mmc3]]
+
+https://www.nesdev.org/wiki/MMC3[*NESDev Wiki Page*]
+
+MMC3 is a flexible ASIC mapper with CHR banking, mirroring controls, and a scanline counter. 
+Because MMC3 uses fixed banks, it requires manual ROM layout with the <<mod_flags, `+static` modifier>>.
+See <<mapper_189, mapper `189`>> for an alternative.
+
+[NOTE]
+In NESFab's implementation of MMC3, the two highest bits of `$8000` cannot and should not be set.
+When writing to `$8000`, leave the two highest bits zero.
+
+[NOTE]
+See the standard library file `lib/mapper/mmc3.fab`.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 512 KiB
+| 512 KiB
+| 512 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 256 KiB
+| 256 KiB
+| 256 KiB
+
+| Nametable VRAM
+| 2 KiB
+| 2 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Switchable H or V
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<opt_sram, SRAM>>
+| By default, no
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Not recommended
+
+|===
+
 === `189` (MMC3 Variant) [[mapper_189]]
 
 https://www.nesdev.org/wiki/INES_Mapper_189[*NESDev Wiki Page*]
 
 Mapper 189 is a https://www.nesdev.org/wiki/MMC3[MMC3] variant originally designed for bootleg games.
-Is it an excellent choice for those wanting MMC3 features in NESFab,
-but has the caveat of being an uncommon mapper.
+Is it an excellent choice for those wanting MMC3 features in NESFab, but has the caveat of being an uncommon mapper.
+Unlike <<mapper_mmc3>>, it does not support SRAM.
 
 [NOTE]
-See the standard library file `lib/mapper_mmc3.fab`.
+Unlike <<mapper_mmc3, MMC3>>, mapper 189 allows the highest bit of `$8000` to be set.
+
+[NOTE]
+See the standard library file `lib/mapper/mmc3.fab`.
 
 *Memory Sizes:*
 
@@ -2810,6 +2928,7 @@ The following modifiers are per-constant, not per-group.
 
 - <<mod_flags, `+align`>>
 - <<mod_flags, `+dpcm`>>
+- <<mod_flags, `+static`>>
 
 Example:
 ----
@@ -3493,9 +3612,9 @@ The following flags exist:
 - `+graphviz`: Output the function's intermediate representation in a graphviz file.
 - `+info`: Output the function's intermediate representation in a text file.
 - `+dpcm`: Align and store the data in a ROM location suitable for DPCM.
-- `+static`: Allocate the function in every bank. 
-             This modifier is incompatible with functions that can return with a different active bank than they started in.
-             For <<kw_asm, `asm`>> functions, you must validate this yourself.
+- `+static`: Allocate the function or data in every bank. 
+             This modifier is incompatible with <<kw_asm, `asm`>> functions that return in a different bank than they started in.
+             You must validate this yourself.
 - `palette_3`: Converts 4-byte palettes into 3-byte palettes.
 - `palette_25`: Converts 32-byte palettes into 25-byte palette.
 

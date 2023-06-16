@@ -688,20 +688,40 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
             // total bytes: 1+1+1+1+2+1+3+1+1 = 12
             break;
 
+        case BANKED_X_JSR:
+        case BANKED_X_JMP:
+            {
+                assert(bankswitch_use_x());
+                assert(!inst.alt);
+                auto locs = absolute_locs(inst);
+
+                fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locs.first });
+                fn(asm_inst_t{ .op = LDY_IMMEDIATE, .arg = locs.second });
+                if(inst.op == BANKED_X_JSR)
+                    fn(asm_inst_t{ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_xy_trampoline) });
+                else 
+                {
+                    assert(inst.op == BANKED_X_JMP);
+                    fn(asm_inst_t{ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_xy_trampoline) });
+                }
+            }
+            break;
+
         case BANKED_Y_JSR:
         case BANKED_Y_JMP:
             {
+                assert(!bankswitch_use_x());
                 assert(!inst.alt);
                 auto locs = absolute_locs(inst);
 
                 fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locs.first });
                 fn(asm_inst_t{ .op = LDX_IMMEDIATE, .arg = locs.second });
                 if(inst.op == BANKED_Y_JSR)
-                    fn(asm_inst_t{ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_y_trampoline) });
+                    fn(asm_inst_t{ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_xy_trampoline) });
                 else 
                 {
                     assert(inst.op == BANKED_Y_JMP);
-                    fn(asm_inst_t{ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_y_trampoline) });
+                    fn(asm_inst_t{ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_xy_trampoline) });
                 }
             }
             break;

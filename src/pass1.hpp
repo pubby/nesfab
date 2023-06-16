@@ -605,7 +605,7 @@ public:
         uses_type(var_decl.src_type.type);
 
         if(mods)
-            mods->validate(var_decl.name, MOD_align | MOD_dpcm);
+            mods->validate(var_decl.name, MOD_align | MOD_dpcm | MOD_static);
 
         std::unique_ptr<paa_def_t> paa_def;
         if(is_paa(var_decl.src_type.type.name()))

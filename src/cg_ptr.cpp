@@ -38,16 +38,28 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
 
         for(ssa_ht ssa : d.schedule)
         {
+            ssa_value_t bank;
+
+            if(ssa->op() == SSA_fn_call && get_fn(*ssa)->returns_in_different_bank())
+            {
+                // This op clobbers banks.
+                // We'll mark it using the unique ssa_value 'ssa':
+                bank = ssa;
+                goto have_bank;
+            }
+
             if(!(ssa_flags(ssa->op()) & SSAF_BANK_INPUT))
                 continue;
 
-            ssa_value_t const bank = ssa->input(BANK);
+            bank = ssa->input(BANK);
 
             if(!bank)
                 continue;
 
             if(bank == prev_bank)
                 ssa->set_flags(FLAG_BANK_PRELOADED);
+
+        have_bank:
 
             auto result = banks.insert(bank);
 
@@ -139,32 +151,39 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
     if(bitset_popcount(bs_size, root_d.in) == 1)
     {
         first_bank_switch = banks.begin()[bitset_lowest_bit_set(bs_size, root_d.in)];
-
-        if(first_bank_switch.is_num())
-            first_bank_switch_loc = locator_t::const_byte(first_bank_switch.whole());
-        else if(first_bank_switch.is_locator())
-            first_bank_switch_loc = first_bank_switch.locator();
-        else if(first_bank_switch.holds_ref())
+        if(!first_bank_switch.holds_ref() || first_bank_switch->op() != SSA_fn_call)
         {
-            // We can't handle non-constant banks unless it's an argument to this fn.
-
-            if(first_bank_switch->op() == SSA_read_global)
+            if(first_bank_switch.is_num())
+                first_bank_switch_loc = locator_t::const_byte(first_bank_switch.whole());
+            else if(first_bank_switch.is_locator())
+                first_bank_switch_loc = first_bank_switch.locator();
+            else if(first_bank_switch.holds_ref())
             {
-                locator_t const loc = first_bank_switch->input(1).locator();
+                // We can't handle non-constant banks unless it's an argument to this fn.
 
-                // For now, only handle arguments that aren't changed by byteify.
-                if(loc.lclass() == LOC_ARG && loc.fn() == fn && first_bank_switch->input(0)->op() == SSA_entry
-                    && loc.offset() == 0 && loc.atom() == 0 && is_byteified(loc.with_byteified(false).type().name()))
+                if(first_bank_switch->op() == SSA_read_global)
                 {
-                    first_bank_switch_loc = loc;
+                    locator_t const loc = first_bank_switch->input(1).locator();
+
+                    // For now, only handle arguments that aren't changed by byteify.
+                    if(loc.lclass() == LOC_ARG && loc.fn() == fn && first_bank_switch->input(0)->op() == SSA_entry
+                        && loc.offset() == 0 && loc.atom() == 0 && is_byteified(loc.with_byteified(false).type().name()))
+                    {
+                        first_bank_switch_loc = loc;
+                    }
+                    else
+                        first_bank_switch = {};
                 }
                 else
                     first_bank_switch = {};
             }
-            else
-                first_bank_switch = {};
         }
     }
+
+#ifndef NDEBUG
+    if(!fn->iasm && mod_test(fn->mods(), MOD_static) && !banks.empty())
+        assert(fn->returns_in_different_bank());
+#endif
 
     // Identify banks which are already loaded:
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
@@ -180,7 +199,7 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
         for(unsigned i = 0; i < input_size; ++i)
             bitset_or(bs_size, bs_temp, cg_data(cfg->input(i)).banks.out);
 
-        unsigned popcount = bitset_popcount(bs_size, bs_temp);
+        unsigned const popcount = bitset_popcount(bs_size, bs_temp);
         if((popcount == 0 && first_bank_switch == banks.begin()[d.first])
            || (popcount == 1 && bitset_test(bs_temp, d.first)))
         {

@@ -74,6 +74,15 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_FAKE,
     },
     {
+        .op = BANKED_X_JSR,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 3 + (2 * 2),
+        .cycles = 6 + (2 * 2),
+        .input_regs = REGF_X,
+        .output_regs = REGF_Y | REGF_A, // Always clobbers these.
+        .flags = ASMF_FAKE | ASMF_CALL,
+    },
+    {
         .op = BANKED_Y_JSR,
         .addr_mode = MODE_ABSOLUTE,
         .size = 3 + (2 * 2),
@@ -81,6 +90,15 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .input_regs = REGF_Y,
         .output_regs = REGF_X | REGF_A, // Always clobbers these.
         .flags = ASMF_FAKE | ASMF_CALL,
+    },
+    {
+        .op = BANKED_X_JMP,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 3 + (2 * 2),
+        .cycles = 3 + (2 * 2),
+        .input_regs = REGF_X,
+        .output_regs = REGF_Y | REGF_A, // Always clobbers these.
+        .flags = ASMF_FAKE | ASMF_JUMP,
     },
     {
         .op = BANKED_Y_JMP,

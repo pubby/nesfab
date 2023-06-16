@@ -1352,16 +1352,14 @@ namespace isel
         {
             addr::set(locator_t::addr(0x8000));
             mmc3_addr::set(locator_t::addr(0x8001));
-            mstate::set(locator_t::runtime_ram(RTRAM_mapper_state));
 
             if(compiler_options().unsafe_bank_switch)
             {
                 chain
                 < load_AX<Opt, const_<0b111110>, Def>
-                , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
-                , exact_op<Opt, ORA_IMMEDIATE, null_, const_<1>>
+                , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111111>>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, STX_ABSOLUTE, null_, mmc3_addr>
                 >(cpu, prev, cont);
@@ -1375,11 +1373,10 @@ namespace isel
                 < load_X<Opt, Def>
                 , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
                 , label<retry_label>
-                , load_A<typename Opt::restrict_to<~REGF_X>, Def>
-                , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
+                , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111110>>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
-                , exact_op<Opt, ORA_IMMEDIATE, null_, const_<1>>
+                , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111111>>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, STX_ABSOLUTE, null_, mmc3_addr>
                 , exact_op<Opt, CPY_ABSOLUTE, null_, detail>
@@ -3783,30 +3780,6 @@ namespace isel
                 >(cpu, prev, cont);
                 break;
 
-            case MAPPER_MMC3:
-                p_arg<2>::set(locator_t::addr(0x8000));
-
-                chain
-                < load_A<Opt, p_arg<1>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<2>>
-                >(cpu, prev, cont);
-
-                chain
-                < load_X<Opt, p_arg<1>>
-                , exact_op<Opt, STX_ABSOLUTE, null_, p_arg<0>>
-                , exact_op<Opt, STX_ABSOLUTE, null_, p_arg<2>>
-                >(cpu, prev, cont);
-
-                chain
-                < load_Y<Opt, p_arg<1>>
-                , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<0>>
-                , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<2>>
-                >(cpu, prev, cont);
-
-                break;
-
-
             case MAPPER_ANROM: 
             case MAPPER_GNROM: 
             case MAPPER_GTROM:
@@ -3885,12 +3858,24 @@ namespace isel
                 fn_ht const call = get_fn(*h);
                 if(mapper().bankswitches() && !mod_test(call->mods(), MOD_static))
                 {
-                    chain
-                    < load_Y<Opt, p_arg<1>>
-                    , simple_op<Opt, read_reg_op(REGF_Y)>
-                    , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-                    , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
-                    >(cpu, prev, cont);
+                    if(bankswitch_use_x())
+                    {
+                        chain
+                        < load_X<Opt, p_arg<1>>
+                        , simple_op<Opt, read_reg_op(REGF_X)>
+                        , exact_op<Opt, BANKED_X_JSR, null_, p_arg<0>>
+                        , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                        >(cpu, prev, cont);
+                    }
+                    else
+                    {
+                        chain
+                        < load_Y<Opt, p_arg<1>>
+                        , simple_op<Opt, read_reg_op(REGF_Y)>
+                        , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
+                        , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                        >(cpu, prev, cont);
+                    }
                 }
                 else
                 {
@@ -4237,12 +4222,24 @@ namespace isel
                         {
                             if(mapper().bankswitches() && !mod_test(call.mods(), MOD_static))
                             {
-                                chain
-                                < load_Y<Opt, p_arg<1>>
-                                , simple_op<Opt, read_reg_op(REGF_Y)>
-                                , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
-                                , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers everything
-                                >(cpu, prev, cont);
+                                if(bankswitch_use_x())
+                                {
+                                    chain
+                                    < load_X<Opt, p_arg<1>>
+                                    , simple_op<Opt, read_reg_op(REGF_X)>
+                                    , exact_op<Opt, BANKED_X_JSR, null_, p_arg<0>>
+                                    , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers everything
+                                    >(cpu, prev, cont);
+                                }
+                                else
+                                {
+                                    chain
+                                    < load_Y<Opt, p_arg<1>>
+                                    , simple_op<Opt, read_reg_op(REGF_Y)>
+                                    , exact_op<Opt, BANKED_Y_JSR, null_, p_arg<0>>
+                                    , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers everything
+                                    >(cpu, prev, cont);
+                                }
                             }
                             else
                             {
@@ -4284,13 +4281,26 @@ namespace isel
                 p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
                 if(mapper().bankswitches())
                 {
-                    select_step<true>(
-                        chain
-                        < load_Y<Opt, p_arg<1>>
-                        , simple_op<Opt, read_reg_op(REGF_Y)>
-                        , exact_op<Opt, BANKED_Y_JMP, null_, p_arg<0>>
-                        , set_defs<Opt, REGF_ISEL, false, null_>
-                        >);
+                    if(bankswitch_use_x())
+                    {
+                        select_step<true>(
+                            chain
+                            < load_X<Opt, p_arg<1>>
+                            , simple_op<Opt, read_reg_op(REGF_X)>
+                            , exact_op<Opt, BANKED_X_JMP, null_, p_arg<0>>
+                            , set_defs<Opt, REGF_ISEL, false, null_>
+                            >);
+                    }
+                    else
+                    {
+                        select_step<true>(
+                            chain
+                            < load_Y<Opt, p_arg<1>>
+                            , simple_op<Opt, read_reg_op(REGF_Y)>
+                            , exact_op<Opt, BANKED_Y_JMP, null_, p_arg<0>>
+                            , set_defs<Opt, REGF_ISEL, false, null_>
+                            >);
+                    }
                 }
                 else
                 {

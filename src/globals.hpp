@@ -419,6 +419,8 @@ public:
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
     bool ct_pure() const;
 
+    bool returns_in_different_bank() const { assert(m_ir_writes); return m_returns_in_different_bank; }
+
     bool always_inline() const { assert(global.compiled()); return m_always_inline; }
 
     locator_t first_bank_switch() const { assert(global.compiled()); return m_first_bank_switch; }
@@ -531,6 +533,8 @@ private:
 
     // If the function (or a called fn) waits on NMI
     bool m_ir_fences = false;
+
+    bool m_returns_in_different_bank = false;
 
     // If the function should be inlined:
     bool m_always_inline = false;

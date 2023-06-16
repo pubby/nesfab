@@ -3198,16 +3198,27 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         if(!is_check(D))
                         {
-                            op_t op; 
-                            if(mapper().bankswitches())
-                                op = sub.token.type == TOK_byte_block_call ? BANKED_Y_JSR : BANKED_Y_JMP;
-                            else
-                                op = sub.token.type == TOK_byte_block_call ? JSR_ABSOLUTE : JMP_ABSOLUTE;
-
+                            bool const is_call = sub.token.type == TOK_byte_block_call;
                             locator_t const loc = locator_t::fn(g.handle<fn_ht>(), fn_val.lval().ulabel());
                             int const iasm_child = proc.add_pstring(pstring);
-                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                            proc.push_inst({ .op = op, .iasm_child = iasm_child, .arg = loc });
+
+                            op_t op; 
+                            if(mapper().bankswitches())
+                            {
+                                if(bankswitch_use_x())
+                                {
+                                    proc.push_inst({ .op = LDX_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                                    proc.push_inst({ .op = is_call ? BANKED_X_JSR : BANKED_X_JMP, .iasm_child = iasm_child, .arg = loc });
+                                }
+                                else
+                                {
+                                    proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                                    proc.push_inst({ .op = is_call ? BANKED_Y_JSR : BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+                                }
+                            }
+                            else
+                                proc.push_inst({ .op = is_call ? JSR_ABSOLUTE : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+
                         }
                     }
                     break;
@@ -3231,8 +3242,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             locator_t const loc = fn->new_asm_goto_mode(call, fn_val.lval().ulabel(), pstring, mods);
                             int const iasm_child = proc.add_pstring(pstring);
 
-                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                            proc.push_inst({ .op = mapper().bankswitches() ? BANKED_Y_JMP : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+                            if(mapper().bankswitches())
+                            {
+                                if(bankswitch_use_x())
+                                {
+                                    proc.push_inst({ .op = LDX_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                                    proc.push_inst({ .op = BANKED_X_JMP, .iasm_child = iasm_child, .arg = loc });
+                                }
+                                else
+                                {
+                                    proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                                    proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+                                }
+                            }
+                            else
+                                proc.push_inst({ .op = JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
                         }
                     }
                     break;

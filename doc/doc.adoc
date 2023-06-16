@@ -274,7 +274,7 @@ nesfab --resource-dir "some_directory/"
 resource-dir = some_directory/
 ----
 
-=== `nesfab-dir`
+=== `nesfab-dir` (`-N`) [[opt_nesdir]]
 
 Specifies a directory to be searched when importing source code and data files.
 This option can be used multiple times to specify multiple directories.
@@ -293,7 +293,7 @@ nesfab-dir = some_directory/
 
 Note that the environment variable `NESFAB` can also be used to set this value.
 
-Example:
+*Example:*
 ----
 export NESFAB=/home/pubby/nesfab/
 ----
@@ -438,7 +438,7 @@ sram = volatile
 ----
 
 [NOTE]
-Just because the compiler accepts a `sram` does not mean that corresponding hardware exists in the real world.
+Just because the compiler accepts a `sram` value does not mean that corresponding hardware exists in the real world.
 Only the default `sram` value is asserted to be commonly available.
 
 === `system` (`-S`) [[opt_system]]
@@ -594,6 +594,7 @@ and only consider switching once your program grows too large for it.
 - <<opt_prg>>
 - <<opt_chr>>
 - <<opt_bus_conflicts>>
+- <<opt_sram>>
 
 === `nrom` [[mapper_nrom]]
 
@@ -763,7 +764,7 @@ UNROM supports lots of PRG, like BNROM, but differs in that it has a fixed bank.
 Because of this, UNROM requires manual ROM layout with the <<mod_flags, `+static` modifier>>.
 
 [NOTE]
-BNROM is usually the better mapper for NESFab.
+Typically, BNROM is better for NESFab than UNROM, as it does not require the use of `+static`.
 
 *Memory Sizes:*
 
@@ -3599,7 +3600,7 @@ fn foo(U x) U
 
 === Modifier Flags [[mod_flags]]
 
-Modifier flags are specified prefixed with a `-` or `+` character.
+Modifier flags are specified prefixed with a `-` or `+++` character.
 `-` is used to disable the modifier, while `+` is used to enable it.
 
 The following flags exist:
@@ -3612,7 +3613,7 @@ The following flags exist:
 - `+graphviz`: Output the function's intermediate representation in a graphviz file.
 - `+info`: Output the function's intermediate representation in a text file.
 - `+dpcm`: Align and store the data in a ROM location suitable for DPCM.
-- `+static`: Allocate the function or data in every bank. 
+- `+static`: Allocate the function or data in every bank (or force them into the fixed bank, for mappers with one). 
              This modifier is incompatible with <<kw_asm, `asm`>> functions that return in a different bank than they started in.
              You must validate this yourself.
 - `palette_3`: Converts 4-byte palettes into 3-byte palettes.

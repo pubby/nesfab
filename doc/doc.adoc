@@ -238,7 +238,7 @@ nesfab --output "game.nes"
 output = game.nes
 ----
 
-=== `code-dir` (`-I`) [[codedir]]
+=== `code-dir` (`-I`) [[opt_codedir]]
 
 Specifies a directory to be searched when compiling source code files.
 This option can be used multiple times to specify multiple directories.
@@ -257,12 +257,12 @@ nesfab --code-dir "some_directory/"
 code-dir = some_directory/
 ----
 
-=== `resource-dir` (`-R`)
+=== `resource-dir` (`-R`) [[opt_resdir]]
 
 Specifies a directory to be searched when importing data files.
 This option can be used multiple times to specify multiple directories.
 
-This behaves like <<codedir,`code-dir`>>, but applies to the files imported by the <<kw_file, `file` keyword>>.
+This behaves like <<opt_codedir,`code-dir`>>, but applies to the files imported by the <<kw_file, `file` keyword>>.
 
 *Command-line usage:*
 ----
@@ -275,6 +275,28 @@ resource-dir = some_directory/
 ----
 
 === `nesfab-dir`
+
+Specifies a directory to be searched when importing source code and data files.
+This option can be used multiple times to specify multiple directories.
+
+This behaves like defining both <<opt_codedir,`code-dir`>> and <<opt_resdir, `resource-dir`>>, but `nesfab-dir` has a lower search priority.
+
+*Command-line usage:*
+----
+nesfab --nesfab-dir "some_directory/"
+----
+
+*Configuration file usage:*
+----
+nesfab-dir = some_directory/
+----
+
+Note that the environment variable `NESFAB` can also be used to set this value.
+
+Example:
+----
+export NESFAB=/home/pubby/nesfab/
+----
 
 === `mapper` (`-M`) [[opt_mapper]]
 

@@ -43,6 +43,19 @@ unsigned mapper_params_t::num_32k_banks(mapper_type_t mt, unsigned min, unsigned
     return prg_size / 32;
 }
 
+unsigned mapper_params_t::num_16k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const
+{
+    if(!prg_size)
+        return default_;
+    if(prg_size < min)
+        throw std::runtime_error(fmt("Invalid % PRG size: %. Minimum accepted: %.", mapper_name(mt), prg_size, min));
+    if(prg_size > max)
+        throw std::runtime_error(fmt("Invalid % PRG size: %. Maximum accepted: %.", mapper_name(mt), prg_size, max));
+    if((prg_size % 16) != 0)
+        throw std::runtime_error(fmt("Invalid % PRG size: %. Expecting a multiple of 16.", mapper_name(mt), prg_size));
+    return prg_size / 16;
+}
+
 unsigned mapper_params_t::num_8k_chr(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const
 {
     if(!chr_size)
@@ -86,7 +99,7 @@ bool mapper_params_t::has_sram(mapper_type_t mt, bool default_) const
 
 bool mapper_params_t::no_sram(mapper_type_t) const
 {
-    if(bus_conflicts >= SRAM_FIRST_ON)
+    if(sram >= SRAM_FIRST_ON)
         throw std::runtime_error(fmt("Invalid %: Mapper does not support SRAM."));
     return false;
 }
@@ -112,7 +125,7 @@ mapper_t mapper_t::nrom(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_HV(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
+        .num_banks = params.num_32k_banks(mt, 32, 32, 1),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 8, 1),
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
@@ -127,7 +140,7 @@ mapper_t mapper_t::anrom(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_none(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 8),
+        .num_banks = params.num_32k_banks(mt, 32, 512, 8),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
         .bus_conflicts = params.conflicts(mt, false),
         .sram = params.has_sram(mt, false),
@@ -142,7 +155,7 @@ mapper_t mapper_t::bnrom(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_HV(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 2048, 4),
+        .num_banks = params.num_32k_banks(mt, 32, 8192, 4),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
         .bus_conflicts = params.conflicts(mt, true),
         .sram = params.has_sram(mt, false),
@@ -157,7 +170,7 @@ mapper_t mapper_t::cnrom(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_HV(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 32, 1),
+        .num_banks = params.num_32k_banks(mt, 32, 32, 1),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 2048, 4),
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
@@ -172,7 +185,7 @@ mapper_t mapper_t::gnrom(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_HV(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
+        .num_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 4),
         .bus_conflicts = params.conflicts(mt, true),
         .sram = params.has_sram(mt, false),
@@ -187,7 +200,7 @@ mapper_t mapper_t::colordreams(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_HV(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
+        .num_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 128, 16),
         .bus_conflicts = params.conflicts(mt, true),
         .sram = params.has_sram(mt, false),
@@ -202,11 +215,11 @@ mapper_t mapper_t::gtrom(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_4(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 16),
+        .num_banks = params.num_32k_banks(mt, 32, 512, 16),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 16, 2),
         .bus_conflicts = params.no_conflicts(mt),
-        .sram = params.no_sram(mt),
-        .sram_persistent = false,
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
     };
 }
 
@@ -217,11 +230,11 @@ mapper_t mapper_t::ines_189(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_none(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 32, 512, 4),
+        .num_banks = params.num_32k_banks(mt, 32, 512, 4),
         .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
         .bus_conflicts = params.no_conflicts(mt),
-        .sram = params.has_sram(mt, false),
-        .sram_persistent = params.sram_persistent(mt, false),
+        .sram = params.no_sram(mt),
+        .sram_persistent = false,
     };
 }
 
@@ -232,13 +245,46 @@ mapper_t mapper_t::mmc1(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_none(mt),
-        .num_32k_banks = params.num_32k_banks(mt, 256, 256, 8),
+        .num_banks = params.num_32k_banks(mt, 256, 256, 8),
         .num_8k_chr_rom = params.num_8k_chr(mt, 128, 128, 16),
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
     };
 }
+
+mapper_t mapper_t::unrom(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_UNROM;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_HV(mt),
+        .num_banks = params.num_16k_banks(mt, 32, 4096, 4),
+        .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
+        .fixed_16k = true,
+        .bus_conflicts = params.conflicts(mt, true),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
+    };
+}
+
+mapper_t mapper_t::mmc3(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_MMC3;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_none(mt),
+        .num_banks = params.num_16k_banks(mt, 512, 512, 8),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
+        .fixed_16k = true,
+        .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
+    };
+}
+
 void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
 {
     // https://www.nesdev.org/wiki/NES_2.0

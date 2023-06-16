@@ -33,6 +33,7 @@ static void write_linked(
     std::vector<locator_t> const& vec, romv_t romv, int bank, 
     std::uint8_t* const start)
 {
+    passert(bank < mapper().num_banks, bank);
     std::uint8_t* at = start;
 
     std::size_t const size = vec.size();
@@ -44,7 +45,7 @@ static void write_linked(
 std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 {
     std::size_t const header_size = mapper().ines_header_size();
-    std::size_t const prg_rom_size = mapper().num_32k_banks * 0x8000;
+    std::size_t const prg_rom_size = mapper().prg_size();
     std::size_t const chr_rom_size = mapper().num_8k_chr_rom * 0x2000;
     std::size_t const total_size = header_size + chr_rom_size + prg_rom_size;
 
@@ -58,7 +59,8 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 
     auto const file_addr = [&](span_t span, unsigned bank) -> std::uint8_t*
     {
-        return rom.data() + prg_rom_start + bank * 0x8000 + span.addr - mapper().rom_span().addr;
+        passert(bank < mapper().num_banks, bank);
+        return rom.data() + prg_rom_start + bank * mapper().bank_size() + span.addr - mapper().bank_span(bank).addr;
     };
 
     auto const write = [&](auto const& alloc, bool stat = false)
@@ -101,6 +103,12 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         write(once);
     for(rom_many_t const& many : rom_many_ht::values())
         write(many);
+
+    if(auto addr = mapper().this_bank_addr())
+    {
+        for(unsigned bank = 0; bank < mapper().num_switched_prg_banks(); ++bank)
+            *file_addr({ addr, 1 }, bank) = (bank << bank_shift()) + bank_add();
+    }
 
     if(chr_rom_size)
     {

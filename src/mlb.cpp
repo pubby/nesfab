@@ -16,7 +16,7 @@ void print_mlb(std::ostream& o)
 {
     auto const fix_addr = [](unsigned addr, unsigned bank) -> unsigned
     {
-        return addr - 0x8000 + (bank * 0x8000);
+        return addr - mapper().bank_span(bank).addr + (bank * mapper().bank_size());
     };
 
     for(fn_t const& fn : fn_ht::values())
@@ -93,8 +93,8 @@ void print_mlb(std::ostream& o)
             span_t const span = runtime_span(rt, romv_t(romv));
             if(!span)
                 continue;
-            
-            for(unsigned bank = 0; bank < mapper().num_32k_banks; ++bank)
+
+            auto const write = [&](unsigned bank)
             {
                 unsigned const begin = fix_addr(span.addr,  bank);
                 unsigned const end   = fix_addr(span.end() - 1, bank);
@@ -102,7 +102,13 @@ void print_mlb(std::ostream& o)
                 o << fmt("NesPrgRom:%-%:runtime_%@%_%:\n", 
                          hex_string(begin, 6), hex_string(end, 6),
                          to_string(rt), bank, romv);
-            }
+            };
+
+            if(mapper().switched_rom_span().contains(span))
+                for(unsigned bank = 0; bank < mapper().num_switched_prg_banks(); ++bank)
+                    write(bank);
+            else
+                write(mapper().num_switched_prg_banks());
         }
     }
 

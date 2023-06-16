@@ -16,7 +16,7 @@
 class rom_allocator_t
 {
 public:
-    rom_allocator_t(log_t* log, span_allocator_t& allocator, unsigned num_banks);
+    rom_allocator_t(log_t* log, span_allocator_t& allocator);
 
 private:
     struct bank_rank_t
@@ -41,7 +41,8 @@ private:
     unsigned many_bs_size = 0;
     unsigned once_bs_size = 0;
 
-    span_t const initial_span = {};
+    span_t switched_span = {};
+    unsigned const num_switched_banks = mapper().num_switched_prg_banks();
 
     log_t* log = nullptr;
 
@@ -77,10 +78,17 @@ private:
     span_t alloc_dpcm(unsigned size);
 };
 
-rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsigned num_banks)
-: initial_span(allocator.initial())
+rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
+: switched_span(mapper().switched_rom_span())
 , log(log)
 {
+    // If we have a this_bank_addr, leave it unallocated.
+    if(mapper().this_bank_addr())
+    {
+        assert(mapper().this_bank_addr() == switched_span.addr + switched_span.size - 1);
+        switched_span.size -= 1;
+    }
+
     /////////////////////////////////////////////////
     // Track which procs directly use which arrays //
     /////////////////////////////////////////////////
@@ -409,9 +417,11 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
 
     // Copy 'allocator' to fill banks.
     banks.clear();
-    for(unsigned i = 0; i < num_banks; ++i)
-        banks.emplace_back(allocator, many_bs_size, once_bs_size);
-    bank_ranks.resize(num_banks);
+    for(unsigned i = 0; i < num_switched_banks; ++i)
+        banks.emplace_back(mapper().fixed_16k ? span_allocator_t(switched_span) : allocator, 
+                           many_bs_size, once_bs_size);
+
+    bank_ranks.resize(num_switched_banks);
 
     struct once_rank_t
     {
@@ -425,7 +435,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator, unsign
     // Allocate ONCEs and MANYs //
     //////////////////////////////
 
-    // Order 'onces'
+    // Order 'oncesbathing suit'
     std::vector<once_rank_t> ordered_onces;
     ordered_onces.reserve(rom_once_ht::pool().size());
     for(unsigned i = 0; i < rom_once_ht::pool().size(); ++i)
@@ -623,7 +633,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     span_allocator_t::bitset_t free = {};
     in_banks.for_each([&](unsigned bank_i){ free |= banks[bank_i].allocator.allocated_bitset(); });
     bitset_flip_all(free.size(), free.data());
-    unsigned const bpb = span_allocator_t::bytes_per_bit(initial_span);
+    unsigned const bpb = span_allocator_t::bytes_per_bit(switched_span);
     bitset_mark_consecutive(free.size(), free.data(), (many.max_size() + bpb - 1) / bpb);
 
     int const highest_bit = bitset_highest_bit_set(free.size(), free.data());
@@ -633,7 +643,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     // OK! We can allocate at 'free_addr', but we can do better.
     // We'll find the highest possible address to allocate at.
 
-    unsigned const free_addr = highest_bit * span_allocator_t::bytes_per_bit(initial_span) + initial_span.addr;
+    unsigned const free_addr = highest_bit * span_allocator_t::bytes_per_bit(switched_span) + switched_span.addr;
     unsigned max_start = 0;
     unsigned min_end = ~0u;
 
@@ -675,9 +685,9 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     return true;
 }
     
-void alloc_rom(log_t* log, span_allocator_t allocator, unsigned num_banks)
+void alloc_rom(log_t* log, span_allocator_t allocator)
 {
-    rom_allocator_t alloc(log, allocator, num_banks);
+    rom_allocator_t alloc(log, allocator);
 }
 
 void print_rom(std::ostream& o)

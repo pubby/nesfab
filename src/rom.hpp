@@ -212,13 +212,16 @@ struct rom_static_t : public rom_alloc_t
     rom_static_t(romv_t romv, span_t span, rom_data_ht data = {}) 
         { this->romv = romv; this->span = span; this->data = data; }
 
-    int only_bank() const { return mapper().num_32k_banks == 1 ? 0 : -1; }
+    int only_bank() const { return mapper().num_banks == 1 ? 0 : -1; }
 
     template<typename Fn>
     void for_each_bank(Fn const& fn) const
     {
-        for(unsigned bank = 0; bank < mapper().num_32k_banks; ++bank)
-            fn(bank);
+        if(mapper().fixed_16k && mapper().fixed_rom_span().contains(this->span ))
+            fn(mapper().num_banks - 1);
+        else
+            for(unsigned bank = 0; bank < mapper().num_banks; ++bank)
+                fn(bank);
     }
 };
 

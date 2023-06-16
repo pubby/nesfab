@@ -10,7 +10,9 @@
 #define MAPPER_XENUM \
 MAPPER(NROM, 0) \
 MAPPER(MMC1, 1) \
+MAPPER(UNROM, 2) \
 MAPPER(CNROM, 3) \
+MAPPER(MMC3, 4) \
 MAPPER(ANROM, 7) \
 MAPPER(BNROM, 34) \
 MAPPER(GNROM, 66) \
@@ -76,6 +78,7 @@ struct mapper_params_t
     bool no_sram(mapper_type_t) const;
 
     unsigned num_32k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
+    unsigned num_16k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
     unsigned num_8k_chr(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
 };
 
@@ -83,14 +86,18 @@ struct mapper_t
 {
     mapper_type_t type;
     mapper_mirroring_t mirroring;
-    std::uint16_t num_32k_banks;
+    std::uint16_t num_banks;
     std::uint16_t num_8k_chr_rom;
     std::uint16_t num_8k_chr_ram;
+    bool fixed_16k;
     bool bus_conflicts;
     bool sram;
     bool sram_persistent;
 
-    unsigned num_16k_banks() const { return num_32k_banks * 2; }
+    unsigned num_16k_banks() const { return fixed_16k ? num_banks : num_banks * 2; }
+    unsigned bank_size() const { return fixed_16k ? 0x4000 : 0x8000; }
+    unsigned prg_size() const { return bank_size() * num_banks; }
+    unsigned num_switched_prg_banks() const { return fixed_16k ? num_banks - 1 : num_banks; }
 
     static mapper_t nrom(mapper_params_t const& params);
     static mapper_t cnrom(mapper_params_t const& params);
@@ -101,11 +108,22 @@ struct mapper_t
     static mapper_t gtrom(mapper_params_t const& params);
     static mapper_t ines_189(mapper_params_t const& params);
     static mapper_t mmc1(mapper_params_t const& params);
+    static mapper_t unrom(mapper_params_t const& params);
+    static mapper_t mmc3(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return { 0x8000, 0x8000 }; }
+    span_t fixed_rom_span() const { return fixed_16k ? span_t{ 0xC000, 0x4000 } : span_t{ 0x8000, 0x8000 }; }
+    span_t switched_rom_span() const { return fixed_16k ? span_t{ 0x8000, 0x4000 } : span_t{ 0x8000, 0x8000 }; }
+    std::uint16_t this_bank_addr() const { return fixed_16k ? 0xBFFF : 0; }
+    span_t bank_span(unsigned bank) const 
+    { 
+        if(fixed_16k)
+            return bank + 1 == num_banks ? fixed_rom_span() : switched_rom_span();
+        return rom_span();
+    }
     std::size_t ines_header_size() const { return 16; }
-    bool bankswitches() const { return num_32k_banks > 1; }
+    bool bankswitches() const { return num_banks > 1; }
 };
 
 
@@ -121,6 +139,7 @@ constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
     case MAPPER_GTROM: return 0x5000;
     case MAPPER_189:   return 0x4120;
     case MAPPER_MMC1:  return 0xE000;
+    case MAPPER_UNROM: return 0xC000;
     default: return 0x8000;
     }
 }
@@ -134,6 +153,7 @@ constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
     case MAPPER_COLORDREAMS: 
     case MAPPER_GTROM: 
     case MAPPER_MMC1: 
+    case MAPPER_MMC3: 
         return 1;
     default: 
         return 0;
@@ -145,6 +165,7 @@ constexpr std::uint16_t detail_size(mapper_type_t mt = mapper().type)
     switch(mt)
     {
     case MAPPER_MMC1: 
+    case MAPPER_MMC3: 
         return 1;
     default: 
         return 0;
@@ -170,9 +191,21 @@ constexpr int bank_shift(mapper_type_t mt = mapper().type)
     case MAPPER_GNROM:
         return 4;
     case MAPPER_MMC1: 
+    case MAPPER_MMC3: 
         return 1;
     default: 
         return 0;
+    }
+}
+
+constexpr int bank_add(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    default:
+        return 0;
+    case MAPPER_MMC3: 
+        return 1;
     }
 }
 

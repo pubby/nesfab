@@ -8,7 +8,7 @@
 struct span_t;
 class span_allocator_t;
 
-void alloc_rom(log_t* log, span_allocator_t allocator, unsigned num_banks);
+void alloc_rom(log_t* log, span_allocator_t allocator);
 
 void print_rom(std::ostream& o);
 

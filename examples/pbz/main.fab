@@ -4,12 +4,11 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
-// This examples uses scanline IRQs to alter the scroll mid-frame.
+// This examples loads CHRRAM using PBZ.
 
 data /pbz
     [] chr
         file(pbz, "bg.png")
-
 
 mode main()
     palette = example_palette

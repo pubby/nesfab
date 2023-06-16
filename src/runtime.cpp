@@ -159,6 +159,11 @@ unsigned bankswitch_a(asm_proc_t& proc, unsigned next_label, bool x)
             proc.push_inst(ASM_LABEL, done);
         }
     }
+    else if(mapper().type == MAPPER_MMC3)
+    {
+        proc.push_inst(TAX_IMPLIED);
+        return bankswitch_x(proc, next_label);
+    }
     else if(mapper().bus_conflicts)
     {
         if(state_size())
@@ -252,6 +257,28 @@ unsigned bankswitch_x(asm_proc_t& proc, unsigned next_label)
             proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
             proc.push_inst(JMP_ABSOLUTE, retry);
             proc.push_inst(ASM_LABEL, done);
+        }
+    }
+    else if(mapper().type == MAPPER_MMC3)
+    {
+        locator_t retry;
+
+        if(compiler_options().unsafe_bank_switch)
+        {
+            proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            retry = proc.push_label(next_label++);
+        }
+        proc.push_inst(LDA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
+        proc.push_inst(ORA_IMMEDIATE, locator_t::const_byte(0b111110));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
+        proc.push_inst(SAX_ABSOLUTE, locator_t::addr(0x8001));
+        proc.push_inst(ORA_IMMEDIATE, locator_t::const_byte(1));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
+        proc.push_inst(STX_ABSOLUTE, locator_t::addr(0x8001));
+        if(compiler_options().unsafe_bank_switch)
+        {
+            proc.push_inst(CPY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            proc.push_inst(BNE_RELATIVE, retry);
         }
     }
     else if(mapper().bus_conflicts)
@@ -348,6 +375,29 @@ unsigned bankswitch_y(asm_proc_t& proc, unsigned next_label)
             proc.push_inst(ASM_LABEL, done);
         }
     }
+    else if(mapper().type == MAPPER_MMC3)
+    {
+        locator_t retry;
+
+        if(compiler_options().unsafe_bank_switch)
+        {
+            proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            retry = proc.push_label(next_label++);
+        }
+        proc.push_inst(LDA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
+        proc.push_inst(ORA_IMMEDIATE, locator_t::const_byte(0b111111));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
+        proc.push_inst(STY_ABSOLUTE, locator_t::addr(0x8001));
+        proc.push_inst(AND_IMMEDIATE, locator_t::const_byte(~1));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
+        proc.push_inst(DEY_IMPLIED);
+        proc.push_inst(STY_ABSOLUTE, locator_t::addr(0x8001));
+        if(compiler_options().unsafe_bank_switch)
+        {
+            proc.push_inst(CPX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+            proc.push_inst(BNE_RELATIVE, retry);
+        }
+    }
     else if(mapper().bus_conflicts)
     {
         if(state_size())
@@ -421,6 +471,14 @@ static asm_proc_t make_mmc1_mapper_reset()
     return proc;
 }
 
+static void lda_this_bank(asm_proc_t& proc)
+{
+    if(mapper().this_bank_addr())
+        proc.push_inst(LDA_ABSOLUTE, locator_t::this_bank());
+    else
+        proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
+}
+
 static asm_proc_t make_irq()
 {
     asm_proc_t proc;
@@ -454,7 +512,7 @@ static asm_proc_t make_irq()
     if(mapper().bankswitches())
     {
         // Save current bank
-        proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
+        lda_this_bank(proc);
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_bank));
 
         proc.push_inst(LAX_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_irq_bank_table));
@@ -470,6 +528,9 @@ static asm_proc_t make_irq()
 static asm_proc_t make_irq_exit()
 {
     asm_proc_t proc;
+
+    if(mapper().type == MAPPER_MMC3)
+        proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
 
     if(mapper().bankswitches())
     {
@@ -525,7 +586,7 @@ static asm_proc_t make_nmi()
     if(mapper().bankswitches())
     {
         // Save current bank
-        proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
+        lda_this_bank(proc);
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
 
         proc.push_inst(LAX_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_nmi_bank_table));
@@ -541,6 +602,9 @@ static asm_proc_t make_nmi()
 static asm_proc_t make_nmi_exit()
 {
     asm_proc_t proc;
+
+    if(mapper().type == MAPPER_MMC3)
+        proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
 
     if(mapper().bankswitches())
     {
@@ -598,10 +662,16 @@ static asm_proc_t make_reset()
     {
         proc.push_inst(LDA, 0);
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
+        switch(mapper().type)
+        {
+        default:
+            proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
+            break;
+        case MAPPER_MMC1:
+            proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
+            break;
+        }
     }
-
-    if(mapper().type == MAPPER_MMC1)
-        proc.push_inst(JSR_ABSOLUTE, locator_t::runtime_rom(RTROM_mapper_reset));
 
     // Jump to the init proc:
     proc.push_inst(LDY_IMMEDIATE, locator_t(LOC_RESET_PROC).with_is(IS_BANK));
@@ -759,7 +829,7 @@ static asm_proc_t make_jsr_y_trampoline()
 
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 0));
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_ptr_temp, 1));
-    proc.push_inst(LDA_IMMEDIATE, locator_t::this_bank());
+    lda_this_bank(proc);
     proc.push_inst(PHA);
     next_label = bankswitch_y(proc, next_label);
     proc.push_inst(JSR_ABSOLUTE, locator_t::minor_label(0));
@@ -911,7 +981,7 @@ static interrupt_tables_t make_irq_tables()
 
 span_allocator_t alloc_runtime_rom()
 {
-    span_allocator_t a(mapper().rom_span());
+    span_allocator_t a(mapper().fixed_rom_span());
 
     auto const alloc = [&](runtime_rom_name_t name, auto&& data, romv_flags_t flags = ROMVF_IN_MODE, 
                            std::uint16_t alignment=1, std::uint16_t after=0)
@@ -945,7 +1015,7 @@ span_allocator_t alloc_runtime_rom()
     auto& iota = _rtrom_spans[RTROM_iota][0];
     iota = {};
     if(mapper().bus_conflicts)
-        iota = a.alloc_at({ bankswitch_addr(mapper().type), 256 }).object;
+        iota = a.alloc_at({ bankswitch_addr(), 256 }).object;
     if(!iota)
         iota = a.alloc(256, 256).object;
     _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 }).object;

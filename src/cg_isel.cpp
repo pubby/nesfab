@@ -1281,7 +1281,7 @@ namespace isel
     template<typename Opt, typename Def> [[gnu::noinline]]
     void load_B(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
-        std::uint16_t const bs_addr = bankswitch_addr(mapper().type);
+        std::uint16_t const bs_addr = bankswitch_addr();
 
         using mstate = param<struct load_B_state_tag>;
         using retry_label = param<struct load_B_retry_label_tag>;
@@ -1289,6 +1289,7 @@ namespace isel
         using detail = param<struct load_B_detail_tag>;
         using reset_mapper = param<struct load_B_reset_mapper_tag>;
         using addr = param<struct load_B_addr_tag>;
+        using mmc3_addr = param<struct load_B_addr_mmc3_tag>;
 
         addr::set(locator_t::addr(bs_addr));
 
@@ -1343,6 +1344,46 @@ namespace isel
                 , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
                 , exact_op<Opt, JMP_ABSOLUTE, null_, retry_label>
                 , label<retry_label>
+                , clear_conditional
+                >(cpu, prev, cont);
+            }
+        }
+        else if(mapper().type == MAPPER_MMC3)
+        {
+            addr::set(locator_t::addr(0x8000));
+            mmc3_addr::set(locator_t::addr(0x8001));
+            mstate::set(locator_t::runtime_ram(RTRAM_mapper_state));
+
+            if(compiler_options().unsafe_bank_switch)
+            {
+                chain
+                < load_AX<Opt, const_<0b111110>, Def>
+                , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
+                , exact_op<Opt, ORA_IMMEDIATE, null_, const_<1>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, STX_ABSOLUTE, null_, mmc3_addr>
+                >(cpu, prev, cont);
+            }
+            else
+            {
+                detail::set(locator_t::runtime_ram(RTRAM_mapper_detail));
+                retry_label::set(state.minor_label());
+
+                chain
+                < load_X<Opt, Def>
+                , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
+                , label<retry_label>
+                , load_A<typename Opt::restrict_to<~REGF_X>, Def>
+                , exact_op<Opt, ORA_ABSOLUTE, null_, mstate>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
+                , exact_op<Opt, ORA_IMMEDIATE, null_, const_<1>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                , exact_op<Opt, STX_ABSOLUTE, null_, mmc3_addr>
+                , exact_op<Opt, CPY_ABSOLUTE, null_, detail>
+                , branch_op<Opt, BNE, retry_label>
                 , clear_conditional
                 >(cpu, prev, cont);
             }
@@ -3742,11 +3783,35 @@ namespace isel
                 >(cpu, prev, cont);
                 break;
 
+            case MAPPER_MMC3:
+                p_arg<2>::set(locator_t::addr(0x8000));
+
+                chain
+                < load_A<Opt, p_arg<1>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<2>>
+                >(cpu, prev, cont);
+
+                chain
+                < load_X<Opt, p_arg<1>>
+                , exact_op<Opt, STX_ABSOLUTE, null_, p_arg<0>>
+                , exact_op<Opt, STX_ABSOLUTE, null_, p_arg<2>>
+                >(cpu, prev, cont);
+
+                chain
+                < load_Y<Opt, p_arg<1>>
+                , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<0>>
+                , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<2>>
+                >(cpu, prev, cont);
+
+                break;
+
+
             case MAPPER_ANROM: 
             case MAPPER_GNROM: 
             case MAPPER_GTROM:
                 p_arg<2>::set(locator_t::this_bank());
-                p_arg<3>::set(locator_t::addr(bankswitch_addr(mapper().type)));
+                p_arg<3>::set(locator_t::addr(bankswitch_addr()));
                 p_arg<4>::set(state.minor_label());
 
                 if(mapper().bus_conflicts)
@@ -4168,9 +4233,9 @@ namespace isel
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
                         p_arg<1>::set(locator_t::reset_group_vars(gv).with_is(IS_BANK));
 
-                        select_step<false>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+                        select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                         {
-                            if(mapper().bankswitches())
+                            if(mapper().bankswitches() && !mod_test(call.mods(), MOD_static))
                             {
                                 chain
                                 < load_Y<Opt, p_arg<1>>

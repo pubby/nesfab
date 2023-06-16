@@ -397,6 +397,10 @@ int main(int argc, char** argv)
                     _options.mapper = mapper_t::mmc1(mapper_params);
                 else if(str == "colordreams"sv)
                     _options.mapper = mapper_t::colordreams(mapper_params);
+                else if(str == "unrom"sv)
+                    _options.mapper = mapper_t::unrom(mapper_params);
+                else if(str == "mmc3"sv)
+                    _options.mapper = mapper_t::mmc3(mapper_params);
                 else
                     throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
             }
@@ -579,7 +583,7 @@ int main(int argc, char** argv)
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
         link_variables_optimize();
-        alloc_rom(nullptr, rom_allocator, mapper().num_32k_banks);
+        alloc_rom(nullptr, rom_allocator);
         if(compiler_options().ram_info)
         {
             std::filesystem::create_directory("info/");

@@ -265,7 +265,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         {
             if(is() == IS_BANK)
             {
-                int const bank = a.first_bank() << bank_shift();
+                int const bank = (a.first_bank() << bank_shift()) + bank_add();
                 if(bank < 0 || bank >= 256)
                     return *this;
                 return locator_t::const_byte(bank);
@@ -352,7 +352,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             span_t span = fn_h->lvar_span(romv, mem_head());
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
                 span = fn_h->lvar_span(romv_t(i), mem_head());
-            return from_span(fn_h->lvar_span(romv, mem_head()));
+            return from_span(span);
         }
 
     case LOC_ASM_LOCAL_VAR:
@@ -363,12 +363,14 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             span_t span = fn()->lvar_span(romv, mem_head());
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
                 span = fn()->lvar_span(romv_t(i), mem_head());
-            return from_span(fn()->lvar_span(romv, mem_head()));
+            return from_span(span);
         }
 
     case LOC_THIS_BANK:
-        if(bank >= 0 && bank < 256)
-            return locator_t::const_byte(bank << bank_shift());
+        if(auto addr = mapper().this_bank_addr())
+            return locator_t::addr(addr);
+        else if(bank >= 0 && bank < 256)
+            return locator_t::const_byte((bank << bank_shift()) + bank_add());
         return *this;
 
     case LOC_RUNTIME_RAM:

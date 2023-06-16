@@ -112,7 +112,6 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     m_lvar_interferences.resize(m_map.size() * m_bitset_size, 0);
     m_fn_interferences.resize(m_map.size());
 
-
 #ifndef NDEBUG
     for(auto const& loc : m_map)
         assert(loc == loc.mem_head());

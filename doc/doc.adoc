@@ -413,6 +413,10 @@ nesfab --sram volatile
 sram = volatile
 ----
 
+[NOTE]
+Just because the compiler accepts a `sram` does not mean that corresponding hardware exists in the real world.
+Only the default `sram` value is asserted to be commonly available.
+
 === `system` (`-S`) [[opt_system]]
 
 Specifies the target NES system, which will be accessible using the <<kw_system, `system` keyword>>.

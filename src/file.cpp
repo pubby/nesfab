@@ -42,7 +42,7 @@ void invoke_macro(macro_invocation_t invoke)
     {
         std::lock_guard<std::mutex> lock(invoke_mutex);
         if(invoke_set.insert(invoke).second)
-            new_macro_results.emplace_back(pair->second, std::move(str));
+            new_macro_results.emplace_back(pair->second.file, std::move(str));
     }
 }
 
@@ -63,6 +63,13 @@ bool resource_path(fs::path preferred_dir, fs::path name, fs::path& result)
         return true;
 
     for(fs::path const& dir : compiler_options().resource_dirs)
+    {
+        result = dir / name;
+        if(fs::exists(result))
+            return true;
+    }
+
+    for(fs::path const& dir : compiler_options().nesfab_dirs)
     {
         result = dir / name;
         if(fs::exists(result))
@@ -142,14 +149,14 @@ std::vector<std::uint8_t> read_binary_file(std::string filename)
 
 void file_contents_t::reset(unsigned file_i)
 {
-    // Set this first so that 'input_path()' can be used.
+    // Set this first so that 'input()' can be used.
     m_file_i = file_i;
 
     if(file_i < compiler_options().source_names.size())
     {
-        for(fs::path const& dir : compiler_options().code_dirs)
+        auto const iter = [&](fs::path const& dir) -> bool
         {
-            m_path = (dir / input_path());
+            m_path = (dir / input().file);
 
             if(!read_binary_file(m_path.string().c_str(), [this](std::size_t size)
             {
@@ -158,19 +165,30 @@ void file_contents_t::reset(unsigned file_i)
                 return reinterpret_cast<void*>(m_alloc.get());
             }))
             {
-                continue;
+                return false;
             }
 
             m_alloc[m_size-1] = m_alloc[m_size-2] = '\0';
             m_source = m_alloc.get();
+            return true;
+        };
+
+        if(iter(input().dir))
             return;
-        }
+
+        for(fs::path const& dir : compiler_options().code_dirs)
+            if(iter(dir))
+                return;
+
+        for(fs::path const& dir : compiler_options().nesfab_dirs)
+            if(iter(dir))
+                return;
 
         m_size = 0;
         m_alloc.reset();
         m_source = nullptr;
         m_path = fs::path();
-        throw std::runtime_error("Unable to open file: " + input_path().string());
+        throw std::runtime_error("Unable to open file: " + input().file.string());
     }
     else
     {

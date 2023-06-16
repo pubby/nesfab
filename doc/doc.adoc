@@ -274,6 +274,8 @@ nesfab --resource-dir "some_directory/"
 resource-dir = some_directory/
 ----
 
+=== `nesfab-dir`
+
 === `mapper` (`-M`) [[opt_mapper]]
 
 Specifies the mapper used. The argument is a <<mappers,mapper name>>.

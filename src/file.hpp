@@ -62,7 +62,7 @@ public:
     file_contents_t(file_contents_t&&) = default;
     file_contents_t& operator=(file_contents_t&&) = default;
 
-    fs::path const& input_path() const { return compiler_options().source_names.at(m_file_i); }
+    source_t const& input() const { return compiler_options().source_names.at(m_file_i); }
     fs::path const& path() const { assert(m_source); return m_path; }
     std::string name() const { return fs::relative(path()).string(); }
     unsigned index() const { return m_file_i; }

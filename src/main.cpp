@@ -61,11 +61,11 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     {
         for(std::string const& name : vm["input"].as<std::vector<std::string>>())
         {
-            fs::path const path = dir / fs::path(name);
+            fs::path const path = fs::path(name);
             std::string const ext = fs::path(path).extension().string();
 
             if(ext == ".fab")
-                _options.source_names.push_back(path);
+                _options.source_names.push_back({ path, dir });
             else if(ext == ".macrofab")
             {
                 fs::path temp = path;
@@ -75,16 +75,17 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
                 if(name.empty())
                     throw std::runtime_error("Empty macro name.");
 
-                auto result = _options.macro_names.insert({ name, path });
+                auto result = _options.macro_names.insert({ name, { path, dir }});
                 if(!result.second)
                     throw std::runtime_error(fmt("Duplicate macro name: %", name));
             }
             else if(ext == ".cfg")
             {
-                std::ifstream ifs(path.string(), std::ios::in);
+                fs::path const full_path = dir / path;
+                std::ifstream ifs(full_path.string(), std::ios::in);
                 if(ifs)
                 {
-                    fs::path cfg_dir = path;
+                    fs::path cfg_dir = full_path;
                     cfg_dir.remove_filename();
 
                     po::variables_map cfg_vm;
@@ -108,6 +109,14 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("resource-dir"))
         for(std::string const& str : vm["resource-dir"].as<std::vector<std::string>>())
             _options.resource_dirs.push_back(dir / fs::path(str));
+
+    if(const char* env = std::getenv("NESFAB"))
+        if(std::strlen(env) > 0)
+            _options.nesfab_dirs.push_back(dir / fs::path(env));
+
+    if(vm.count("nesfab-dir"))
+        for(std::string const& str : vm["nesfab-dir"].as<std::vector<std::string>>())
+            _options.nesfab_dirs.push_back(dir / fs::path(str));
 
     if(vm.count("output"))
         _options.output_file = (dir / fs::path(vm["output"].as<std::string>())).string();
@@ -241,6 +250,7 @@ int main(int argc, char** argv)
             basic.add_options()
                 ("code-dir,I", po::value<std::vector<std::string>>(), "search directory for code files")
                 ("resource-dir,R", po::value<std::vector<std::string>>(), "search directory for resource files")
+                ("nesfab-dir,N", po::value<std::vector<std::string>>(), "search directory for code and resource files")
                 ("output,o", po::value<std::string>(), "output file")
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("error-on-warning,W", "turn warnings into errors")

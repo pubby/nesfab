@@ -14,6 +14,12 @@
 
 namespace fs = ::std::filesystem;
 
+struct source_t
+{
+    fs::path file;
+    fs::path dir;
+};
+
 struct options_t
 {
     int num_threads = 1;
@@ -46,10 +52,11 @@ struct options_t
     std::string output_file = "a.nes";
 
     unsigned num_fab = 0;
-    std::vector<fs::path> source_names;
-    rh::batman_map<std::string, fs::path> macro_names;
-    std::vector<fs::path> code_dirs = { fs::current_path() };
+    std::vector<source_t> source_names;
+    rh::batman_map<std::string, source_t> macro_names;
+    std::vector<fs::path> code_dirs;
     std::vector<fs::path> resource_dirs;
+    std::vector<fs::path> nesfab_dirs;
 };
 
 extern options_t _options;

@@ -28,7 +28,7 @@ syn match nesfabCommentL "//.*$"
 syntax region nesfabComment start=/\/\*/ end=/\*\//
 
 " String
-syn region nesfabString start='"' end='"' contained
+syn region nesfabString start="\"" skip=+\\\\\|\\"+ end="\""
 
 let b:current_syntax = "nesfab"
 

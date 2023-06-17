@@ -216,9 +216,11 @@ static bool o_hoist(log_t* log, ir_t& ir)
             if(!hoist_to)
                 break;
 
+            if(!dominates(hoist_to, cfg))
+                break;
+
             assert(hoist_to != header);
             assert(this_loop_header(hoist_to) != header);
-            assert(dominates(header, cfg));
             assert(loop_is_parent_of(header, cfg));
             passert(!loop_is_parent_of(header, hoist_to), header, hoist_to, algo(hoist_to).iloop_header);
 

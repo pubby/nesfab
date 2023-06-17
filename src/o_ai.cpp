@@ -2310,6 +2310,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
         ie.handle->link_append_output(new_branch_cfg, [&](ssa_ht phi)
         {
             assert(phi->output(0)->cfg_node() == header_cfg);
+            assert(phi->output(0)->input(input) != phi);
             return phi->output(0)->input(input);
         });
     });
@@ -2352,8 +2353,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
     // NOTE: this also rewrites the inputs of stolen nodes in 'new_branch_cfg'.
     assert(new_branch_cfg->output(!exit_output) == header_cfg);
     auto back_edge = new_branch_cfg->output_edge(!exit_output);
-    //unsigned i = 0;
-    for(ssa_ht phi = back_edge.handle->phi_begin(); phi; ++phi/*, ++i*/)
+    for(ssa_ht phi = back_edge.handle->phi_begin(); phi; ++phi)
     {
         ssa_value_t const replace_with = phi->input(back_edge.index);
         assert(!realloc_phis || replace_with->op() == SSA_phi);
@@ -2362,6 +2362,12 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
         for(unsigned i = 0; i < phi->output_size();)
         {
             auto const oe = phi->output_edge(i);
+
+            if(oe.handle->op() == SSA_phi && oe.handle->cfg_node() == new_branch_cfg)
+            {
+                ++i;
+                continue;
+            }
 
             if((dominates(new_branch_cfg, oe.handle->cfg_node()))
                || (oe.handle->op() == SSA_phi 

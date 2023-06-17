@@ -107,24 +107,47 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         auto const get_extension = [&]{ return lex_extension(path.extension().string().c_str()); };
 
         constexpr auto valid_mods = MOD_spr_8x16 | MOD_palette_3 | MOD_palette_25;
+        
+        bool const spr16 = mod_test(mods, MOD_spr_8x16);
+        bool const pal3 = mod_test(mods, MOD_palette_3);
+        bool const pal25 = mod_test(mods, MOD_palette_25);
+        auto const* crop = mods ? mods->crop.get() : nullptr;
 
-        auto const read_file = [&]
+        auto const process = [&](auto& vec, bool allow_spr16 = true)
         {
-            bool const spr16 = mod_test(mods, MOD_spr_8x16);
-            bool const pal3 = mod_test(mods, MOD_palette_3);
-            bool const pal25 = mod_test(mods, MOD_palette_25);
-
             if(pal3 && pal25)
                 compiler_error(filename.pstring, "+palette_3 is incompatible with +palette_25.");
 
+            if(allow_spr16 && spr16)
+                vec = convert_spr16(vec);
+
+            if(crop)
+            {
+                std::size_t const offset = std::min(crop->offset, vec.size());
+                std::size_t const size = std::min(crop->size, vec.size() - offset);
+                vec = std::vector<std::uint8_t>(vec.begin() + offset, vec.begin() + offset + size);
+            }
+
+            if(pal3)
+                vec = convert_pal3(vec);
+
+            if(pal25)
+                vec = convert_pal25(vec);
+
+            if(argn > 2)
+                compiler_error(filename.pstring, fmt("Wrong number of arguments. Expecting % to %.", 0+2, 2+2));
+
+        };
+
+        auto const read_file = [&]
+        {
             std::vector<std::uint8_t> vec = read_as_vec();
 
             switch(get_extension())
             {
             case ext_lex::TOK_png:
-                if(mods)
-                    mods->validate(script, valid_mods);
                 vec = png_to_chr(vec.data(), vec.size(), spr16);
+                process(vec, false);
                 break;
 
             case ext_lex::TOK_txt:
@@ -134,21 +157,13 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             case ext_lex::TOK_bin:
             case ext_lex::TOK_nam:
             case ext_lex::TOK_pal:
-                if(mods)
-                    mods->validate(script, valid_mods);
-                if(spr16)
-                    vec = convert_spr16(vec);
+                process(vec);
                 break;
 
             default:
                 compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
             }
 
-            if(pal3)
-                vec = convert_pal3(vec);
-
-            if(pal25)
-                vec = convert_pal25(vec);
 
             return vec;
         };
@@ -159,12 +174,15 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
                 compiler_error(filename.pstring, fmt("Wrong number of arguments. Expecting %.", expected + 2));
         };
 
+        if(mods)
+            mods->validate(script, valid_mods);
+
         if(view == "raw"sv)
         {
             check_argn(0);
-            if(mods)
-                mods->validate(script);
-            ret.data = read_as_vec();
+            auto vec = read_as_vec();
+            process(vec);
+            ret.data = std::move(vec);
         }
         else if(view == "fmt"sv)
         {

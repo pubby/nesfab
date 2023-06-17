@@ -193,6 +193,29 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
                 }
                 break;
 
+            case TOK_crop:
+                {
+                    if(mods->crop)
+                        compiler_error("Multiple crop modifiers.");
+
+                    crop_mods_t crop = { token.pstring };
+                    parse_token();
+
+                    if(token.type != TOK_int)
+                        compiler_error("Expecting size.");
+                    crop.size = token.value;
+                    parse_token();
+
+                    if(token.type == TOK_int)
+                    {
+                        crop.offset = token.value;
+                        parse_token();
+                    }
+
+                    mods->crop.reset(new crop_mods_t(std::move(crop)));
+                }
+                break;
+
             case TOK_plus:
             case TOK_minus:
                 while(token.type == TOK_plus || token.type == TOK_minus)

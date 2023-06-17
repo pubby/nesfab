@@ -2238,35 +2238,30 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
                 ssa_value_t const loop_replace_with = *header_to_new_header.has(phi);
                 ssa_value_t const exit_replace_with = *header_to_new_exit.has(phi);
 
+                assert(ssa_value_t(phi) != loop_replace_with);
+                assert(ssa_value_t(phi) != exit_replace_with);
+
                 for(unsigned i = 0; i < phi->output_size();)
                 {
                     auto const oe = phi->output_edge(i);
 
+                    cfg_ht check = oe.handle->cfg_node();
                     if(oe.handle->op() == SSA_phi)
                     {
-                        if(oe.handle->cfg_node() == new_header_cfg || oe.handle->cfg_node() == new_exit_cfg)
-                            goto next_iter;
-                        if(oe.handle->cfg_node()->input(oe.index) == new_header_cfg)
-                            goto loop_replace;
-                        if(oe.handle->cfg_node()->input(oe.index) == new_exit_cfg)
-                            goto exit_replace;
-                    }
-
-                    if(dominates(new_exit_cfg, oe.handle->cfg_node()))
-                    {
-                    exit_replace:
-                        oe.handle->link_change_input(oe.index, exit_replace_with);
-                        continue;
-                    }
-                    if(dominates(new_header_cfg, oe.handle->cfg_node()))
-                    {
-                        loop_replace:
-                            oe.handle->link_change_input(oe.index, loop_replace_with);
+                        if(check == new_header_cfg || check == new_exit_cfg)
+                        {
+                            ++i;
                             continue;
+                        }
+                        check = check->input(oe.index);
                     }
 
-                next_iter:
-                    ++i;
+                    if(dominates(new_exit_cfg, check))
+                        oe.handle->link_change_input(oe.index, exit_replace_with);
+                    else if(dominates(new_header_cfg, check))
+                        oe.handle->link_change_input(oe.index, loop_replace_with);
+                    else
+                        ++i;
                 }
             }
 

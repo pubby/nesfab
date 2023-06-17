@@ -3617,7 +3617,7 @@ The following flags exist:
              This modifier is incompatible with <<kw_asm, `asm`>> functions that return in a different bank than they started in.
              You must validate this yourself.
 - `palette_3`: Converts 4-byte palettes into 3-byte palettes.
-- `palette_25`: Converts 32-byte palettes into 25-byte palette.
+- `palette_25`: Converts 32-byte palettes into 25-byte palettes.
 
 Example:
 ----

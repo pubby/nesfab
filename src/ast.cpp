@@ -44,7 +44,11 @@ unsigned ast_node_t::num_children() const
     case TOK_index8:
     case TOK_index16:
     case TOK_replace_atom:
+    case TOK_read:
         return 2;
+
+    case TOK_write:
+        return 3;
 
     default:
         if(is_operator(token.type))

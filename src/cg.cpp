@@ -1112,7 +1112,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(ssa_it->op() == SSA_read_global && ssa_it->input(1).locator().lclass() == LOC_GMEMBER_SET)
         {
             passert(ssa_it->input(1).locator().mem_head() == cset_locator(ssa_it), 
-                    ssa_it->input(1).locator(), " | ", cset_locator(ssa_it));
+                    ssa_it->input(1).locator(), " | ", cset_locator(ssa_it),
+                    fn.global.name);
             // TODO
             //assert(ssa_it->test_flags(FLAG_COALESCED));
             //assert(ssa_it->input(0)->op() == SSA_early_store || ssa_it->input(0)->op() == SSA_aliased_store);

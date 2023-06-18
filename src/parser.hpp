@@ -89,7 +89,7 @@ private:
 
     ast_node_t parse_cast(src_type_t& src_type, int open_parens=0);
 
-    src_type_t parse_type(bool allow_void, bool allow_bank_size, group_ht group, 
+    src_type_t parse_type(bool allow_void, bool allow_blank_size, group_ht group, 
                           bool allow_groupless_paa = false);
 
     var_decl_t parse_var_decl(bool block_init, group_ht group, bool allow_groupless_paa = false);
@@ -112,7 +112,6 @@ private:
     void parse_group_vars();
     void parse_group_data();
     void parse_fn(lex::token_type_t prefix = {});
-    void parse_with();
     void parse_struct();
     void parse_charmap();
     void parse_chrrom();

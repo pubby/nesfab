@@ -78,9 +78,7 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
             if(v.is_num())
             {
                 for(unsigned i = 0; i < size_of; ++i)
-                {
                     vec.push_back(locator_t::const_byte(v.fixed().value >> ((i + frac_shift) * 8)));
-                }
             }
             else if(v.is_locator())
             {

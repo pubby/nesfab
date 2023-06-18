@@ -622,6 +622,13 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
         }
     });
 
+    ir->gmanager.for_each_gmember_set(base_fn->handle(),
+    [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+    {
+        return_inputs.push_back(var_lookup(exit, to_var_i(index), 0));
+        return_inputs.push_back(locator);
+    });
+
     ssa_ht ret = exit->emplace_ssa(SSA_return, TYPE_VOID);
 
     // Append the return value, if it exists:
@@ -2809,9 +2816,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                     // Prepare the input globals
 
-                    //bool const is_idep = fn->global.ideps().count(&call->global);
-                    //assert(is_idep || call->fclass == FN_MODE);
-
                     std::size_t const gmember_bs_size = gmember_ht::bitset_size();
                     bitset_uint_t* const temp_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
 
@@ -3776,6 +3780,78 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return array_val;
         }
 
+    case TOK_read:
+        {
+            assert(ast.num_children() == 2);
+            expr_value_t ptr = to_rval<D>(do_expr<D>(ast.children[1]));
+
+            // The first expr holds the type.
+            assert(ast.children[0].token.type == TOK_cast_type);
+            type_t type = dethunkify({ ast.children[0].token.pstring, *ast.children[0].token.ptr<type_t const>() }, true, this);
+
+            if(is_ct(type))
+                compiler_error(ast.token.pstring, fmt("Cannot read values of type % at run-time.", type));
+            if(!is_ptr(ptr.type.name()))
+                compiler_error(ptr.pstring, fmt("Cannot read expression of type %. Expecting a pointer type.", ptr.type));
+
+            bool const is_banked = is_banked_ptr(ptr.type.name());
+            ssa_value_t const ptr_v = from_variant<D>(ptr.rval()[0], ptr.type); 
+            ssa_value_t const bank_v = is_banked ? from_variant<D>(ptr.rval()[1], TYPE_U) : ssa_value_t();
+
+            expr_value_t result = { .type = type, .pstring = ast.token.pstring };
+
+            if(!is_check(D))
+            {
+                if(!is_compile(D))
+                    compiler_error(ast.token.pstring, "Can only read at run-time.");
+
+                unsigned const num_members = ::num_members(type);
+                rval_t rval;
+                rval.reserve(num_members);
+
+                std::uint8_t index = 0;
+
+                for(unsigned i = 0; i < num_members; ++i)
+                {
+                    type_t const mt = ::member_type(type, i);
+                    assert(::num_members(mt) == 1);
+
+
+                    // TODO: handle arrays
+                    assert(!is_paa(mt.name()));
+
+                    ssa_value_t value(0u, mt.name());
+
+                    unsigned const num_atoms = ::num_atoms(mt, 0);
+                    for(unsigned a = 0; a < num_atoms; ++a)
+                    {
+                        ssa_ht const read = builder.cfg->emplace_ssa(
+                            SSA_read_ptr, TYPE_U, 
+                            ptr_v, ssa_value_t(), bank_v, 
+                            ssa_value_t(index, TYPE_U));
+                        value = builder.cfg->emplace_ssa(
+                            SSA_replace_byte, mt, value, ssa_value_t(a, TYPE_U), read);
+                        ++index;
+                        if(index == 0)
+                        {
+                            // Increment ptr hi:
+                        }
+                    }
+
+                    rval.push_back(value);
+                }
+
+                // Increment ptr lo:
+                if(index != 0)
+                {
+                }
+
+                result.val = std::move(rval);
+            }
+
+            return result;
+        }
+
     case TOK_character:
         {
             assert(ast.charmap);
@@ -4462,7 +4538,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
     else if(deref_t const* deref = v.is_deref())
     {
         if(!is_compile(D))
-            compiler_error(v.pstring, "Can only dereference at compile time.");
+            compiler_error(v.pstring, "Can only dereference at compile-time.");
 
         ssa_ht const read = builder.cfg->emplace_ssa(
             SSA_read_ptr, TYPE_U, deref->ptr, ssa_value_t(), deref->bank, deref->index);
@@ -4547,7 +4623,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
     if(deref_t const* deref = lhs.is_deref())
     {
         if(!is_compile(D))
-            compiler_error(pstring, "Can only dereference at compile time.");
+            compiler_error(pstring, "Can only dereference at run-time.");
 
         rhs = throwing_cast<D>(std::move(rhs), TYPE_U, true);
 

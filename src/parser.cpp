@@ -876,6 +876,28 @@ retry:
             return ast;
         }
 
+    case TOK_read:
+    case TOK_write:
+        {
+            ast_node_t ast = { .token = token };
+            parse_token();
+
+            auto src_type = parse_type(false, false, {});
+            bc::small_vector<ast_node_t, 3> children = { ast_node_t{ .token = token_t::make_ptr( 
+                TOK_cast_type, src_type.pstring, type_t::new_type(src_type.type)) }};
+
+            unsigned const argn = parse_args(TOK_lparen, TOK_rparen,
+                [&](unsigned){ children.push_back(parse_expr(indent, open_parens+1)); });
+            unsigned const req = ast.token.type == TOK_read ? 1 : 2;
+            if(argn != req)
+                compiler_error(ast.token.pstring, fmt("Wrong number of arguments to read. Expecting %.", req));
+
+            ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
+            ast.token.pstring = fast_concat(ast.token.pstring, children.back().token.pstring);
+
+            return ast;
+        }
+
     case TOK_state:
         {
             ast_node_t ast = { .token = token };

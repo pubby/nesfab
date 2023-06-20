@@ -14,7 +14,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // Copies data from 'palette_ptr' into 'palette`.
-fn load_palette(CCC/palettes palette_ptr)
+fn load_palette(PPP/palettes palette_ptr)
     for U i = 0; i < len(palette); i += 1
         palette[i] = palette_ptr[i]
 
@@ -98,7 +98,7 @@ fn fade_out(U period, S hue_amount, S brightness_amount)
             palette[j] = brightness_shift(hue_shift(palette[j], hue_amount), brightness_amount)
     nmi
 
-fn fade_in(U period, S hue_amount, S brightness_amount, CCC/palettes new_palette)
+fn fade_in(U period, S hue_amount, S brightness_amount, PPP/palettes new_palette)
 : -inline
     nmi
     U i = 0
@@ -125,11 +125,11 @@ fn fade_out_white(U period)
     fade_out(period, 0, 1)
 
 // Fades from black.
-fn fade_in_black(U period, CCC/palettes new_palette)
+fn fade_in_black(U period, PPP/palettes new_palette)
 : +inline
     fade_in(period, 0, -1, new_palette)
 
 // Fades from white.
-fn fade_in_white(U period, CCC/palettes new_palette)
+fn fade_in_white(U period, PPP/palettes new_palette)
 : +inline
     fade_in(period, 0, 1, new_palette)

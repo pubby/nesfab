@@ -56,6 +56,8 @@ std::string to_string(type_name_t type_name)
     case TYPE_CPTR: return "CPTR"s;
     case TYPE_BANKED_MPTR: return "BANKED_MPTR"s;
     case TYPE_MPTR: return "MPTR"s;
+    case TYPE_BANKED_PPTR: return "BANKED_PPTR"s;
+    case TYPE_PPTR: return "PPTR"s;
     case TYPE_FN: return "FN"s;
     }
 }

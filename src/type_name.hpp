@@ -47,11 +47,13 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_FIRST_PTR = TYPE_BANKED_APTR,
     TYPE_BANKED_CPTR, // banked pointer to immutable data
     TYPE_BANKED_MPTR, // banked pointer to mutable data
+    TYPE_BANKED_PPTR, // banked pointer to data
     TYPE_APTR,
     TYPE_FIRST_SCALAR = TYPE_APTR,
     TYPE_CPTR,
     TYPE_MPTR,
-    TYPE_LAST_PTR = TYPE_MPTR,
+    TYPE_PPTR,
+    TYPE_LAST_PTR = TYPE_PPTR,
 
     // Bools are considered arithmetic.
     TYPE_BOOL,
@@ -114,10 +116,12 @@ constexpr bool is_cptr(type_name_t type_name)
     { return type_name == TYPE_CPTR || type_name == TYPE_BANKED_CPTR; }
 constexpr bool is_mptr(type_name_t type_name)
     { return type_name == TYPE_MPTR || type_name == TYPE_BANKED_MPTR; }
+constexpr bool is_pptr(type_name_t type_name)
+    { return type_name == TYPE_PPTR || type_name == TYPE_BANKED_PPTR; }
 constexpr bool is_banked_ptr(type_name_t type_name)
-    { return type_name == TYPE_BANKED_CPTR || type_name == TYPE_BANKED_MPTR || type_name == TYPE_BANKED_APTR; }
+    { return type_name == TYPE_BANKED_CPTR || type_name == TYPE_BANKED_MPTR || type_name == TYPE_BANKED_PPTR || type_name == TYPE_BANKED_APTR; }
 constexpr bool is_group_ptr(type_name_t type_name)
-    { return is_mptr(type_name) || is_cptr(type_name); }
+    { return is_mptr(type_name) || is_cptr(type_name) || is_pptr(type_name); }
 constexpr bool is_unsigned(type_name_t type_name)
     { return is_ptr(type_name) || (type_name >= TYPE_FIRST_U && type_name <= TYPE_LAST_U); }
 constexpr bool is_signed(type_name_t type_name)
@@ -144,7 +148,7 @@ constexpr bool is_byteified(type_name_t type_name)
 constexpr bool has_type_tail(type_name_t name)
     { return name == TYPE_TEA || name == TYPE_FN; }
 constexpr bool has_group_tail(type_name_t name)
-    { return is_mptr(name) || is_cptr(name) || name == TYPE_PAA || name == TYPE_GROUP_SET; }
+    { return is_mptr(name) || is_cptr(name) || is_pptr(name) || name == TYPE_PAA || name == TYPE_GROUP_SET; }
 constexpr bool has_tail(type_name_t name)
 { 
     return (has_type_tail(name) 
@@ -169,10 +173,12 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     case TYPE_APTR:
     case TYPE_CPTR:
     case TYPE_MPTR:
+    case TYPE_PPTR:
         return 2;
     case TYPE_BANKED_APTR:
     case TYPE_BANKED_CPTR:
     case TYPE_BANKED_MPTR:
+    case TYPE_BANKED_PPTR:
         return 2; // Bank isn't counted.
     case TYPE_INT:
     case TYPE_REAL:
@@ -229,6 +235,28 @@ constexpr type_name_t type_s(unsigned w, unsigned f)
     assert(w <= max_whole_bytes);
     assert(f <= max_frac_bytes);
     return type_name_t(TYPE_S10 - 4 + w*4 + f);
+}
+
+constexpr type_name_t type_ptr(bool muta, bool banked)
+{
+    if(muta)
+        return banked ? TYPE_BANKED_MPTR : TYPE_MPTR;
+    return banked ? TYPE_BANKED_CPTR : TYPE_CPTR;
+}
+
+constexpr type_name_t with_banked(type_name_t ptr, bool b = true)
+{
+    assert(is_ptr(ptr));
+    if(is_aptr(ptr))
+       return b ? TYPE_BANKED_APTR : TYPE_APTR;
+    if(is_mptr(ptr))
+       return b ? TYPE_BANKED_MPTR : TYPE_MPTR;
+    if(is_cptr(ptr))
+       return b ? TYPE_BANKED_CPTR : TYPE_CPTR;
+    if(is_pptr(ptr))
+       return b ? TYPE_BANKED_PPTR : TYPE_PPTR;
+    assert(false);
+    return {};
 }
 
 constexpr type_name_t type_s_or_u(unsigned w, unsigned f, bool s)

@@ -141,21 +141,19 @@ type_t type_t::tea_thunk(pstring_t pstring, type_t elem_type, ast_node_t const& 
     return type_t(TYPE_TEA_THUNK, 0, eternal_emplace<tea_thunk_t>(pstring, ast, elem_type));
 }
 
-type_t type_t::ptr(group_ht group, bool muta, bool banked) 
+type_t type_t::ptr(group_ht group, type_name_t tn)
 { 
     if(group)
-        return ptr(&group, &group + 1, muta, banked); 
+        return ptr(&group, &group + 1, tn); 
     else
-        return ptr(nullptr, nullptr, muta, banked); 
+        return ptr(nullptr, nullptr, tn); 
 }
 
-type_t type_t::ptr(group_ht const* begin, group_ht const* end, bool muta, bool banked)
+type_t type_t::ptr(group_ht const* begin, group_ht const* end, type_name_t tn)
 {
+    assert(is_ptr(tn));
     type_t t = group_set(begin, end);
-    if(muta)
-        t.unsafe_set_name(banked ? TYPE_BANKED_MPTR : TYPE_MPTR);
-    else
-        t.unsafe_set_name(banked ? TYPE_BANKED_CPTR : TYPE_CPTR);
+    t.unsafe_set_name(tn);
     return t;
 }
 
@@ -192,16 +190,7 @@ type_t type_t::addr(bool banked)
 void type_t::set_banked(bool banked)
 {
     assert(is_ptr(name()));
-    if(is_aptr(name()))
-        unsafe_set_name(banked ? TYPE_BANKED_APTR : TYPE_APTR);
-    else if(is_mptr(name()))
-        unsafe_set_name(banked ? TYPE_BANKED_MPTR : TYPE_MPTR);
-    else
-    {
-        assert(is_cptr(name()));
-        unsafe_set_name(banked ? TYPE_BANKED_CPTR : TYPE_CPTR);
-    }
-    assert(is_banked_ptr(name()) == banked);
+    unsafe_set_name(::with_banked(name(), banked));
 }
 
 type_t type_t::with_banked(bool banked) const
@@ -421,7 +410,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     // Likewise, mptrs convert to cptrs
     if(is_group_ptr(from.name()) && is_group_ptr(to.name()) 
        && is_banked_ptr(from.name()) == is_banked_ptr(to.name())
-       && (is_mptr(from.name()) || !is_mptr(to.name()))
+       && (::with_banked(from.name()) == ::with_banked(to.name()) || is_pptr(to.name()))
        && can_cast_groups(from, to))
     {
         return CAST_NOP_RETYPE;
@@ -658,11 +647,7 @@ bool has_tea(type_t const& type)
 
 bool ptr_to_vars(type_t const& type)
 {
-    unsigned const size = type.group_tail_size();
-    for(unsigned i = 0; i < size; ++i)
-        if(type.group(i)->using_vars())
-            return true;
-    return false;
+    return !is_cptr(type.name());
 }
 
 type_t dethunkify(src_type_t src_type, bool full, eval_t* env)

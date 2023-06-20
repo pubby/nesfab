@@ -1910,7 +1910,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         if(!c.is_paa())
                             goto at_error;
 
-                        return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), false, c.banked), c.banked);
+                        return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), type_ptr(false, c.banked)), c.banked);
                     }
 
                 case GLOBAL_VAR:
@@ -1920,7 +1920,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         if(!v.is_paa())
                             goto at_error;
 
-                        return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), true, false), false);
+                        return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), type_ptr(true, false)), false);
                     }
 
                 default: 
@@ -1936,7 +1936,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 group_data_ht const group = strval->charmap->group_data();
                 bool const banked = !strval->charmap->stows_omni();
 
-                return make_ptr(locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), false, banked), banked);
+                return make_ptr(locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), type_ptr(false, banked)), banked);
             }
             else
             {
@@ -4282,6 +4282,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             SSA_read_ptr, TYPE_U, 
                             ptr_v, ssa_value_t(), bank_v, 
                             ssa_value_t(index, TYPE_U));
+                        if(ptr_to_vars(ptr.type))
+                            read->append_daisy();
                         ++index;
                         if(t == TYPE_U)
                             return read;
@@ -4407,6 +4409,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             SSA_write_ptr, TYPE_VOID, 
                             ptr_v, ssa_value_t(), bank_v, 
                             ssa_value_t(index, TYPE_U), byte);
+                        write->append_daisy();
 
                         ++index;
                         if(index == 0)
@@ -4809,6 +4812,9 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
     {
         if(!is_compile(D))
             compiler_error(pstring, "Can only dereference at run-time.");
+
+        if(!is_mptr(deref->ptr.type().name()))
+            compiler_error(pstring, "Dereferenced value is not mutable.");
 
         rhs = throwing_cast<D>(std::move(rhs), TYPE_U, true);
 

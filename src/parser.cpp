@@ -1110,6 +1110,16 @@ template<typename P>
 src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group_ht group, 
                                    bool allow_groupless_paa)
 {
+    type_name_t tn;
+
+    auto const parse_groups = [this]()
+    {
+        bc::small_vector<group_ht, 8> groups;
+        while(token.type == TOK_fslash)
+            groups.push_back(policy().lookup_group(parse_group_ident())->handle());
+        return groups;
+    };
+
     src_type_t result = { token.pstring, TYPE_VOID };
     switch(token.type)
     {
@@ -1147,22 +1157,17 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
     case TOK_AAA:    parse_token(); result.type = TYPE_BANKED_APTR; break;
     case TOK_AA:     parse_token(); result.type = TYPE_APTR; break;
 
-    // TODO: PPP and PP
-    case TOK_CCC:
-    case TOK_CC:
-    case TOK_MMM:
-    case TOK_MM:
+    case TOK_PPP: tn = TYPE_BANKED_PPTR; goto ptr;
+    case TOK_PP:  tn = TYPE_PPTR; goto ptr;
+    case TOK_CCC: tn = TYPE_BANKED_CPTR; goto ptr;
+    case TOK_CC:  tn = TYPE_CPTR; goto ptr;
+    case TOK_MMM: tn = TYPE_BANKED_MPTR; goto ptr;
+    case TOK_MM:  tn = TYPE_MPTR; goto ptr;
+    ptr:
         {
-            bool const muta = token.type == TOK_MMM || token.type == TOK_MM;
-            bool const banked = token.type == TOK_CCC || token.type == TOK_MMM;
             parse_token();
-            
-            bc::small_vector<group_ht, 8> groups;
-
-            while(token.type == TOK_fslash)
-                groups.push_back(policy().lookup_group(parse_group_ident())->handle());
-
-            result.type = type_t::ptr(&*groups.begin(), &*groups.end(), muta, banked);
+            auto groups = parse_groups();
+            result.type = type_t::ptr(&*groups.begin(), &*groups.end(), tn);
             break;
         }
 
@@ -1242,6 +1247,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
 
     result.pstring.size = token.pstring.offset - result.pstring.offset;
     return result;
+
 }
 
 template<typename P>

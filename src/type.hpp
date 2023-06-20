@@ -86,8 +86,8 @@ public:
     static type_t tea(type_t elem_type, unsigned size);
     static type_t tea(type_t elem_type, std::int64_t size, pstring_t);
     static type_t tea_thunk(pstring_t pstring, type_t elem_type, ast_node_t const& ast);
-    static type_t ptr(group_ht group, bool muta, bool banked);
-    static type_t ptr(group_ht const* begin, group_ht const* end, bool muta, bool banked);
+    static type_t ptr(group_ht group, type_name_t tn);
+    static type_t ptr(group_ht const* begin, group_ht const* end, type_name_t tn);
     static type_t fn(type_t* begin, type_t* end);
     static type_t struct_thunk(global_t const& global);
     static type_t struct_(struct_t const& s);

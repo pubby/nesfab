@@ -5146,22 +5146,32 @@ There are four types of pointers, listed below:
 | `CC`
 | 2
 | [$0000, $FFFF]
-| Constant
+| ROM
 
 | `CCC`
 | 3
 | [$00:$0000, $FF:$FFFF]
-| Constant
+| ROM
 
 | `MM`
 | 2
 | [$0000, $FFFF]
-| Mutable
+| RAM
 
 | `MMM`
 | 3
 | [$00:$0000, $FF:$FFFF]
-| Mutable
+| RAM
+
+| `PP`
+| 2
+| [$0000, $FFFF]
+| RAM or ROM
+
+| `PPP`
+| 3
+| [$00:$0000, $FF:$FFFF]
+| RAM or ROM
 
 |===
 

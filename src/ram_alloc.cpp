@@ -36,6 +36,8 @@ zp_request_t zp_request(bool valid, bool only)
             return ZP_ONLY;
         return ZP_MAYBE;
     }
+    if(only)
+        throw std::runtime_error("Unable to allocate in zero page");
     return ZP_NEVER;
 }
 
@@ -55,7 +57,15 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size,
 {
     passert(size < 0x10000, size);
 
-    auto const try_alloc_ram = [zp, sram, size](ram_bitset_t const& usable_ram) -> span_t
+    auto const reduce_zp = [&](ram_bitset_t& ram, bool size_check = true)
+    {
+        if(zp == ZP_ONLY)
+            ram &= zp_bitset;
+        else if(zp == ZP_NEVER || (size_check && size > 1))
+            ram &= ~zp_bitset; // Don't put arrays in ZP
+    };
+
+    auto const try_alloc_ram = [&](ram_bitset_t const& usable_ram, bool size_check) -> span_t
     {
         if(sram == SRAM_ONLY)
             return {};
@@ -74,11 +84,7 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size,
         else
         {
             ram_bitset_t usable_copy = usable_ram;
-
-            if(zp == ZP_ONLY)
-                usable_copy &= zp_bitset;
-            else if(zp == ZP_NEVER || size > 1)
-                usable_copy &= ~zp_bitset; // Don't put arrays in ZP
+            reduce_zp(usable_copy, size_check);
 
             bitset_mark_consecutive(usable_copy.size(), usable_copy.data(), size);
 
@@ -89,7 +95,7 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size,
         }
     };
 
-    auto const try_alloc_sram = [zp, sram, size](sram_bitset_t const& usable_ram) -> span_t
+    auto const try_alloc_sram = [&](sram_bitset_t const& usable_ram) -> span_t
     {
         // SRAM has no zp:
         if(zp == ZP_ONLY)
@@ -124,20 +130,31 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size,
 
         if(sram != SRAM_ONLY)
         {
-            assert(page.test(0));
-            ram_bitset_t aligned = usable_ram.ram;
-            bitset_mark_consecutive(aligned.size(), aligned.data(), size);
+            auto const try_alloc_aligned = [&](bool size_check = true) -> span_t
+            {
+                assert(page.test(0));
+                ram_bitset_t aligned = usable_ram.ram;
+                reduce_zp(aligned, size_check);
 
-            static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
-            static_assert(sram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
+                bitset_mark_consecutive(aligned.size(), aligned.data(), size);
 
-            for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
-                bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
+                static_assert(ram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
+                static_assert(sram_bitset_t::num_ints % page_bitset_t::num_ints == 0);
 
-            int const addr = aligned.lowest_bit_set();
+                for(unsigned i = 0; i < ram_bitset_t::num_ints; i += page_bitset_t::num_ints)
+                    bitset_and(page_bitset_t::num_ints, aligned.data() + i, page.data());
 
-            if(addr >= 0)
-                return { .addr = addr, .size = size };
+                int const addr = aligned.lowest_bit_set();
+
+                if(addr >= 0)
+                    return { .addr = addr, .size = size };
+                return {};
+            };
+
+            if(span_t span = try_alloc_aligned(true))
+                return span;
+            if(span_t span = try_alloc_aligned(false))
+                return span;
         }
 
         if(insist_alignment)
@@ -159,9 +176,14 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size,
         }
     }
 
-    if(span_t span = try_alloc_ram(usable_ram.ram))
+    if(span_t span = try_alloc_ram(usable_ram.ram, true))
         return span;
-    return usable_ram.sram ? try_alloc_sram(*usable_ram.sram) : span_t{};
+    if(usable_ram.sram)
+        if(span_t span = try_alloc_sram(*usable_ram.sram))
+            return span;
+    if(span_t span = try_alloc_ram(usable_ram.ram, false))
+        return span;
+    return {};
 }
 
 class ram_allocator_t
@@ -537,8 +559,10 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 dprint(log, "--SUCCEEDED_ESTIMATE");
                 estimated_in_zp.insert(loc);
 
+                assert(d.zp_estimate >= size);
                 d.interferences.for_each([&](group_vars_ht gv)
                 {
+                    assert(group_vars_data[gv.id].zp_estimate >= size);
                     group_vars_data[gv.id].zp_estimate -= size;
                 });
             }
@@ -557,7 +581,10 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 estimated_in_zp.insert(loc);
 
                 for(group_vars_d& d : group_vars_data)
+                {
+                    assert(d.zp_estimate >= size);
                     d.zp_estimate -= size;
+                }
             }
         };
 

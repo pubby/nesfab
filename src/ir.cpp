@@ -951,6 +951,9 @@ void ir_t::assert_valid(bool cg) const
 {
     assert(root);
 
+    if(!compiler_options().assert_valid)
+        return;
+
     for(cfg_ht cfg_it = cfg_begin(); cfg_it; ++cfg_it)
     { 
         cfg_node_t& cfg_node = *cfg_it;

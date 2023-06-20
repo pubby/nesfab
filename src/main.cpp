@@ -127,6 +127,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("graphviz"))
         _options.graphviz = true;
 
+    if(vm.count("fast-debug"))
+        _options.assert_valid = false;
+
     if(vm.count("build-time"))
         _options.build_time = true;
 
@@ -182,7 +185,7 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         else switch(option_bool_default(str, "default"sv))
         {
         default:
-            throw std::runtime_error(fmt("Unknown bus-conflicts: %", str));
+            throw std::runtime_error(fmt("Unknown sram: %", str));
         case -1:
             _options.raw_sram = SRAM_DEFAULT;
             break;
@@ -284,6 +287,7 @@ int main(int argc, char** argv)
                 ("rom-info", "output ROM info")
                 ("time-limit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
                 ("build-time,B", "print compiler execution time")
+                ("fast-debug", "faster debugging")
             ;
 
             po::options_description cmdline_full;

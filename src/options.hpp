@@ -32,6 +32,7 @@ struct options_t
     bool werror = false;
     bool pause = false;
     bool unsafe_bank_switch = false;
+    bool assert_valid = true;
 
     // Label files, etc:
     std::string raw_mlb;

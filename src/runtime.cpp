@@ -71,7 +71,7 @@ ram_bitset_t alloc_runtime_ram()
     a.allocated = stack_bitset; // Don't allocate in stack space.
 
     unsigned const temp_size = (mapper().bus_conflicts && state_size()) ? 3 : 2;
-    _rtram_spans[RTRAM_ptr_temp]        = {{ a.alloc_zp(temp_size), a.alloc_zp(temp_size), a.alloc_zp(temp_size) }};
+    _rtram_spans[RTRAM_ptr_temp] = {{ a.alloc_zp(temp_size), a.alloc_zp(temp_size), a.alloc_zp(temp_size) }};
     if(global_t::has_nmi())
     {
         _rtram_spans[RTRAM_nmi_index]       = {{ a.alloc_zp(1) }};

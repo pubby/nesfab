@@ -1,5 +1,6 @@
 #include "eval.hpp"
 
+#include <iostream>
 #include <cassert>
 #include <chrono>
 
@@ -3780,78 +3781,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return array_val;
         }
 
-    case TOK_read:
-        {
-            assert(ast.num_children() == 2);
-            expr_value_t ptr = to_rval<D>(do_expr<D>(ast.children[1]));
-
-            // The first expr holds the type.
-            assert(ast.children[0].token.type == TOK_cast_type);
-            type_t type = dethunkify({ ast.children[0].token.pstring, *ast.children[0].token.ptr<type_t const>() }, true, this);
-
-            if(is_ct(type))
-                compiler_error(ast.token.pstring, fmt("Cannot read values of type % at run-time.", type));
-            if(!is_ptr(ptr.type.name()))
-                compiler_error(ptr.pstring, fmt("Cannot read expression of type %. Expecting a pointer type.", ptr.type));
-
-            bool const is_banked = is_banked_ptr(ptr.type.name());
-            ssa_value_t const ptr_v = from_variant<D>(ptr.rval()[0], ptr.type); 
-            ssa_value_t const bank_v = is_banked ? from_variant<D>(ptr.rval()[1], TYPE_U) : ssa_value_t();
-
-            expr_value_t result = { .type = type, .pstring = ast.token.pstring };
-
-            if(!is_check(D))
-            {
-                if(!is_compile(D))
-                    compiler_error(ast.token.pstring, "Can only read at run-time.");
-
-                unsigned const num_members = ::num_members(type);
-                rval_t rval;
-                rval.reserve(num_members);
-
-                std::uint8_t index = 0;
-
-                for(unsigned i = 0; i < num_members; ++i)
-                {
-                    type_t const mt = ::member_type(type, i);
-                    assert(::num_members(mt) == 1);
-
-
-                    // TODO: handle arrays
-                    assert(!is_paa(mt.name()));
-
-                    ssa_value_t value(0u, mt.name());
-
-                    unsigned const num_atoms = ::num_atoms(mt, 0);
-                    for(unsigned a = 0; a < num_atoms; ++a)
-                    {
-                        ssa_ht const read = builder.cfg->emplace_ssa(
-                            SSA_read_ptr, TYPE_U, 
-                            ptr_v, ssa_value_t(), bank_v, 
-                            ssa_value_t(index, TYPE_U));
-                        value = builder.cfg->emplace_ssa(
-                            SSA_replace_byte, mt, value, ssa_value_t(a, TYPE_U), read);
-                        ++index;
-                        if(index == 0)
-                        {
-                            // Increment ptr hi:
-                        }
-                    }
-
-                    rval.push_back(value);
-                }
-
-                // Increment ptr lo:
-                if(index != 0)
-                {
-                }
-
-                result.val = std::move(rval);
-            }
-
-            return result;
-        }
-
     case TOK_character:
         {
             assert(ast.charmap);
@@ -4275,6 +4204,258 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
         }
 
+    case TOK_read:
+        {
+            assert(ast.num_children() == 2);
+            expr_value_t ptr = do_expr<D>(ast.children[1]);
+
+            // The first expr holds the type.
+            assert(ast.children[0].token.type == TOK_cast_type);
+            type_t type = dethunkify({ ast.children[0].token.pstring, *ast.children[0].token.ptr<type_t const>() }, true, this);
+
+            if(is_ct(type))
+                compiler_error(ast.token.pstring, fmt("Cannot read values of type % at run-time.", type));
+            if(!is_ptr(ptr.type.name()))
+                compiler_error(ptr.pstring, fmt("Cannot read expression of type %. Expecting a pointer type.", ptr.type));
+
+            ssa_value_t ptr_v;
+            ssa_value_t bank_v;
+
+            auto const reload_ptr = [&]()
+            {
+                expr_value_t ptr_r = to_rval<D>(ptr);
+                bool const is_banked = is_banked_ptr(ptr.type.name());
+                ptr_v = from_variant<D>(ptr_r.rval()[0], ptr_r.type); 
+                bank_v = is_banked ? from_variant<D>(ptr_r.rval()[1], TYPE_U) : ssa_value_t();
+            };
+
+            auto const increment = [&](std::uint16_t amount)
+            {
+                try
+                {
+                    // Increment ptr hi:
+                    expr_value_t operand =
+                    {
+                        .val = rval_t{ ssa_value_t(amount, TYPE_U20) },
+                        .type = TYPE_U20,
+                        .pstring = ast.token.pstring,
+                    };
+                    ptr = do_assign_add<plus_p>(std::move(ptr), std::move(operand), ast.token);
+                    reload_ptr();
+                }
+                catch(compiler_error_t const& t)
+                {
+                    compiler_error(ptr.pstring, "Unable to modify pointer; lvalue required.");
+                }
+                catch(...)
+                {
+                    throw;
+                }
+            };
+
+            reload_ptr();
+
+            expr_value_t result = { .type = type, .pstring = ast.token.pstring };
+
+            if(!is_check(D))
+            {
+                if(!is_compile(D))
+                    compiler_error(ast.token.pstring, "Can only read at run-time.");
+
+                unsigned const num_members = ::num_members(type);
+                rval_t rval;
+                rval.reserve(num_members);
+
+                std::uint8_t index = 0;
+
+                auto const read_elem = [&](type_t t) -> ssa_value_t
+                {
+                    if(!is_scalar(t.name()))
+                        compiler_error(ast.token.pstring, fmt("Unable to read type %.", t));
+
+                    ssa_value_t value(0u, t.name());
+
+                    unsigned const num_atoms = ::num_atoms(t, 0);
+                    for(unsigned a = 0; a < num_atoms; ++a)
+                    {
+                        ssa_ht const read = builder.cfg->emplace_ssa(
+                            SSA_read_ptr, TYPE_U, 
+                            ptr_v, ssa_value_t(), bank_v, 
+                            ssa_value_t(index, TYPE_U));
+                        ++index;
+                        if(t == TYPE_U)
+                            return read;
+                        value = builder.cfg->emplace_ssa(
+                            SSA_replace_byte, t, value, ssa_value_t(a, TYPE_U), read);
+                        if(index == 0)
+                            increment(256);
+                    }
+
+                    return value;
+                };
+
+                for(unsigned i = 0; i < num_members; ++i)
+                {
+                    type_t const mt = ::member_type(type, i);
+                    assert(::num_members(mt) == 1);
+
+                    if(is_tea(mt.name()))
+                    {
+                        unsigned const len = mt.array_length();
+                        type_t const et = mt.elem_type();
+                        ct_array_t array = make_ct_array(len);
+
+                        for(unsigned j = 0; j < len; ++j)
+                            array[j] = read_elem(et);
+
+                        rval.push_back(std::move(array));
+                    }
+                    else 
+                        rval.push_back(read_elem(mt));
+                }
+
+                // Increment ptr lo:
+                if(index != 0)
+                    increment(index);
+
+                result.val = std::move(rval);
+            }
+
+            return result;
+        }
+
+    case TOK_write:
+        {
+            assert(ast.num_children() == 3);
+            expr_value_t ptr = do_expr<D>(ast.children[1]);
+            expr_value_t write_value = to_rval<D>(do_expr<D>(ast.children[2]));
+
+            // The first expr holds the type.
+            assert(ast.children[0].token.type == TOK_cast_type);
+            type_t type = dethunkify({ ast.children[0].token.pstring, *ast.children[0].token.ptr<type_t const>() }, true, this);
+
+            if(is_ct(type))
+                compiler_error(ast.token.pstring, fmt("Cannot write values of type % at run-time.", type));
+            if(!is_mptr(ptr.type.name()))
+                compiler_error(ptr.pstring, fmt("Cannot write expression of type %. Expecting an MM or MMM type.", ptr.type));
+
+            ssa_value_t ptr_v;
+            ssa_value_t bank_v;
+
+            auto const reload_ptr = [&]()
+            {
+                expr_value_t ptr_r = to_rval<D>(ptr);
+                bool const is_banked = is_banked_ptr(ptr.type.name());
+                ptr_v = from_variant<D>(ptr_r.rval()[0], ptr_r.type); 
+                bank_v = is_banked ? from_variant<D>(ptr_r.rval()[1], TYPE_U) : ssa_value_t();
+            };
+
+            auto const increment = [&](std::uint16_t amount)
+            {
+                try
+                {
+                    // Increment ptr hi:
+                    expr_value_t operand =
+                    {
+                        .val = rval_t{ ssa_value_t(amount, TYPE_U20) },
+                        .type = TYPE_U20,
+                        .pstring = ast.token.pstring,
+                    };
+                    ptr = do_assign_add<plus_p>(std::move(ptr), std::move(operand), ast.token);
+                    reload_ptr();
+                }
+                catch(compiler_error_t const& t)
+                {
+                    compiler_error(ptr.pstring, "Unable to modify pointer; lvalue required.");
+                }
+                catch(...)
+                {
+                    throw;
+                }
+            };
+
+            reload_ptr();
+
+            expr_value_t result = { .type = TYPE_VOID, .pstring = ast.token.pstring };
+
+            if(!is_check(D))
+            {
+                if(!is_compile(D))
+                    compiler_error(ast.token.pstring, "Can only write at run-time.");
+
+                unsigned const num_members = ::num_members(type);
+                std::uint8_t index = 0;
+
+                auto const write_elem = [&](type_t t, ssa_value_t value)
+                {
+                    if(!is_scalar(t.name()))
+                        compiler_error(ast.token.pstring, fmt("Unable to write type %.", t));
+
+                    unsigned const num_atoms = ::num_atoms(t, 0);
+                    for(unsigned a = 0; a < num_atoms; ++a)
+                    {
+                        ssa_value_t byte;
+                        if(t == TYPE_U)
+                            byte = value;
+                        else
+                        {
+                            byte = builder.cfg->emplace_ssa(
+                                SSA_get_byte, TYPE_U, value, ssa_value_t(a, TYPE_U));
+                        }
+
+                        ssa_ht const write = builder.cfg->emplace_ssa(
+                            SSA_write_ptr, TYPE_VOID, 
+                            ptr_v, ssa_value_t(), bank_v, 
+                            ssa_value_t(index, TYPE_U), byte);
+
+                        ++index;
+                        if(index == 0)
+                            increment(256);
+                    }
+                };
+
+                for(unsigned i = 0; i < num_members; ++i)
+                {
+                    type_t const mt = ::member_type(type, i);
+                    assert(::num_members(mt) == 1);
+
+                    auto const& v = write_value.rval()[i];
+                    if(ssa_value_t const* value = std::get_if<ssa_value_t>(&v))
+                    {
+                        if(is_tea(mt.name()))
+                        {
+                            type_t const elem_type = mt.elem_type();
+                            unsigned const length = mt.array_length();
+                            for(unsigned i = 0; i < length; ++i)
+                            {
+                                ssa_ht elem = builder.cfg->emplace_ssa(
+                                    SSA_read_array16, elem_type, *value, ssa_value_t(0u, TYPE_U20), ssa_value_t(i, TYPE_U20));
+                                write_elem(elem_type, elem);
+                            }
+                        }
+                        else
+                            write_elem(mt, *value);
+                    }
+                    else if(ct_array_t const* array = std::get_if<ct_array_t>(&v))
+                    {
+                        type_t const elem_type = mt.elem_type();
+                        unsigned const length = mt.array_length();
+                        for(unsigned i = 0; i < length; ++i)
+                            write_elem(elem_type, (*array)[i]);
+                    }
+                    else
+                        compiler_error(write_value.pstring, "Unable to write value.");
+                }
+
+                // Increment ptr lo:
+                if(index != 0)
+                    increment(index);
+            }
+
+            return result;
+        }
+
+
     }
     assert(false);
     return {};
@@ -4458,21 +4639,24 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             if(lval->index)
             {
-                assert(is_tea(type.name()));
+                type_t const mt = ::member_type(type, lval->member);
+
+                passert(is_tea(mt.name()), mt);
                 assert(lval->index.is_num());
 
                 unsigned const index = lval->index.whole();
-                assert(index < type.array_length());
+                assert(index < mt.array_length());
                 for(auto& v : rval)
                     v = std::get<ct_array_t>(v)[index];
-
-                type = type.elem_type();
             }
 
             if(lval->atom >= 0)
             {
-                assert(num_members == 1);
                 type = ::member_type(type, lval->member);
+                if(lval->index)
+                    type = type.elem_type();
+
+                assert(num_members == 1);
 
                 if(is_tea(type.name()))
                 {
@@ -4505,21 +4689,22 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
             if(lval->index)
             {
-                assert(is_tea(type.name()));
-
                 for(unsigned i = 0; i < num_members; ++i)
                 {
+                    type_t const mt = ::member_type(type, lval->member + i);
+                    passert(is_tea(mt.name()), mt);
                     rval[i] = builder.cfg->emplace_ssa(
                         (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8,
-                        ::member_type(type.elem_type(), lval->member + i),
-                        from_variant<D>(rval[i], ::member_type(type, lval->member + i)), ssa_value_t(0u, TYPE_U20), lval->index);
+                        mt.elem_type(), from_variant<D>(rval[i], mt), ssa_value_t(0u, TYPE_U20), lval->index);
                 }
-
-                type = type.elem_type();
             }
 
             if(lval->atom >= 0)
             {
+                type = ::member_type(type, lval->member);
+                if(lval->index)
+                    type = type.elem_type();
+
                 assert(num_members == 1);
                 type = ::member_type(type, lval->member);
 

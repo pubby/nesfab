@@ -470,9 +470,8 @@ bool is_ct(type_t type)
 {
     switch(type.name())
     {
-    case TYPE_REAL:
-    case TYPE_INT:
-        return true;
+    default:
+        return is_ct(type.name());
     case TYPE_TEA:
         return is_ct(type.elem_type());
     case TYPE_STRUCT:
@@ -485,7 +484,26 @@ bool is_ct(type_t type)
             if(is_ct(type.type(i)))
                 return true;
         return false;
+    }
+}
+
+bool is_thunk(type_t type)
+{
+    switch(type.name())
+    {
     default:
+        return is_thunk(type.name());
+    case TYPE_TEA:
+        return is_thunk(type.elem_type());
+    case TYPE_STRUCT:
+        for(auto const& pair : type.struct_().fields())
+            if(is_thunk(pair.second.type()))
+                return true;
+        return false;
+    case TYPE_FN:
+        for(unsigned i = 0; i < type.size(); ++i)
+            if(is_thunk(type.type(i)))
+                return true;
         return false;
     }
 }

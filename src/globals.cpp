@@ -1185,6 +1185,7 @@ void fn_t::compile()
 
             RUN_O(o_defork, log, ir);
             RUN_O(o_fork, log, ir);
+            save_graph(ir, fmt("post_fork_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_phis, log, ir);
 

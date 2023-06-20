@@ -67,7 +67,7 @@ bool o_fork(log_t* log, ir_t& ir)
 
             // The phi should be used in an 'if' branch:
             ssa_ht const branch = phi->output(0);
-            if(branch->cfg_node() != cfg_node.handle() || branch->op() != SSA_if)
+            if(branch->cfg_node() != cfg_it || branch->op() != SSA_if)
                 goto next_iter;
 
             assert(branch->cfg_node() == phi->cfg_node());
@@ -75,9 +75,9 @@ bool o_fork(log_t* log, ir_t& ir)
             // The phi and CFG shouldn't loop:
             for(unsigned i = 0; i < input_size; ++i)
             {
-                if(cfg_node.input(i) == cfg_node.handle())
+                if(cfg_node.input(i) == cfg_it)
                     goto next_iter;
-                if(phi->input(i) == phi)
+                if(phi->input(i).holds_ref() && phi->input(i)->cfg_node() == cfg_it)
                     goto next_iter;
             }
 
@@ -99,18 +99,20 @@ bool o_fork(log_t* log, ir_t& ir)
             // (Duplicated inputs will map to the same CFG node).
             fc::small_map<ssa_value_t, cfg_ht, 16> unique_map;
             unique_map.container.reserve(phi->input_size());
-            for(unsigned i = 0; i < cfg_node.input_size();)
+            for(unsigned i = 0; i < input_size;)
             {
+                auto ie = cfg_node.input_edge(i);
+                assert(ie.handle != cfg_it);
                 auto result = unique_map.emplace(phi->input(i), cfg_ht{});
+
                 if(result.second)
                 {
-                    result.first.underlying->second = ir.split_edge(cfg_node.input_edge(i).output());
+                    result.first.underlying->second = ir.split_edge(ie.output());
                     ++i;
                 }
                 else
                 {
                     assert(result.first->second);
-                    auto ie = cfg_node.input_edge(i);
                     ie.handle->link_change_output(ie.index, result.first->second, [](ssa_ht phi) 
                     { 
                         assert(false); 
@@ -124,6 +126,7 @@ bool o_fork(log_t* log, ir_t& ir)
             fc::small_map<ssa_ht, ssa_ht, 32> clone_map;
             for(unsigned i = 0; i < cfg_node.input_size();)
             {
+                clone_map.clear();
                 cfg_ht const split = cfg_node.input(i);
                 assert(split->ssa_size() == 0);
 
@@ -142,17 +145,19 @@ bool o_fork(log_t* log, ir_t& ir)
                 // Define nodes:
                 for(auto const& pair : clone_map)
                 {
+                    assert(pair.first->cfg_node() == cfg_it);
+                    assert(pair.second->cfg_node() == split);
+
                     unsigned const input_size = pair.first->input_size();
                     for(unsigned j = 0; j < input_size; ++j)
                     {
                         ssa_value_t input = pair.first->input(j);
+                        if(input.holds_ref() && input.handle() == phi)
+                            input = phi->input(i);
                         if(input.holds_ref())
-                        {
-                            if(input.handle() == phi)
-                                input = phi->input(i);
-                            else if(ssa_ht const* cloned = clone_map.has(input.handle()))
+                            if(ssa_ht const* cloned = clone_map.has(input.handle()))
                                 input = *cloned;
-                        }
+                        assert(!input.holds_ref() || input->cfg_node() != cfg_it);
                         pair.second->link_append_input(input);
                     }
                 }
@@ -160,11 +165,17 @@ bool o_fork(log_t* log, ir_t& ir)
                 // Re-write outputs:
                 split->link_change_output(0, cfg_node.output(0), [&](ssa_ht phi)
                 { 
-                    return phi->input(cfg_node.output_edge(0).index);
+                    ssa_value_t v = phi->input(cfg_node.output_edge(0).index);
+                    assert(!v.holds_ref() || !clone_map.has(v.handle()));
+                    assert(!v.holds_ref() || v.handle() != phi);
+                    return v;
                 });
                 split->link_append_output(cfg_node.output(1), [&](ssa_ht phi)
                 { 
-                    return phi->input(cfg_node.output_edge(1).index);
+                    ssa_value_t v = phi->input(cfg_node.output_edge(1).index);
+                    assert(!v.holds_ref() || !clone_map.has(v.handle()));
+                    assert(!v.holds_ref() || v.handle() != phi);
+                    return v;
                 });
             }
 

@@ -317,6 +317,12 @@ struct cpu_t
         return set_defs<Regs>(opt, value);
     }
 
+    void conditional_exec()
+    {
+        if(!(conditional_regs & CONDITIONAL_EXEC))
+            conditional_regs = CONDITIONAL_EXEC;
+    }
+
     // Sets registers based on an assembly op.
     // If the registers and inputs are known constants,
     // the set values may be constants too.

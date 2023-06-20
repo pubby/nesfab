@@ -123,18 +123,20 @@ ssa_ht cset_remove(ssa_ht h)
     if(h == head)
     {
         ssa_ht const next = ret = cset_next(head);
-
-        if(!next)
-        {
-            cg_data(head).cset_head = {};
-            return ret;
-        }
-
         assert(next != head);
-        for(ssa_ht it = next; it; it = cset_next(it))
-            cg_data(it).cset_head = next;
-        cg_data(next).cset_head = cg_data(head).cset_head;
-        assert(cg_data(next).cset_head != next);
+
+        if(next)
+        {
+            assert(next != head);
+            for(ssa_ht it = next; it; it = cset_next(it))
+            {
+                cg_data(it).cset_head = next;
+                assert(cg_data(it).cset_next != h);
+            }
+            cg_data(next).cset_head = cg_data(h).cset_head;
+            assert(cg_data(next).cset_head != next);
+            assert(cg_data(next).cset_head != h);
+        }
     }
     else
     {
@@ -150,6 +152,7 @@ ssa_ht cset_remove(ssa_ht h)
         for(ssa_ht it = head; it != h; it = cset_next(it))
             prev = it;
         assert(prev); // 'h' would be head otherwise.
+        assert(prev != h);
 
         cg_data(prev).cset_next = cg_data(h).cset_next;
     }
@@ -158,6 +161,12 @@ ssa_ht cset_remove(ssa_ht h)
     cg_data(h).cset_head = {};
     cg_data(h).cset_next = {};
     cg_data(h).ptr_alt = {}; 
+
+#ifndef NDEBUG
+    if(ret)
+        for(ssa_ht i = cset_head(ret); i; i = cset_next(i))
+            assert(h != i);
+#endif
 
     return ret;
 }
@@ -168,6 +177,7 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 {
     assert(h);
     assert(cset_is_head(h));
+    assert(h->op());
 
     if(last.holds_ref())
     {
@@ -218,6 +228,7 @@ bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_h
         case LOC_GMEMBER:
             return called->ir_writes().test(loc.gmember().id);
         case LOC_GMEMBER_SET:
+            return false;
             {
                 std::size_t const size = gmember_ht::bitset_size();
                 assert(size == called->ir_reads().size());
@@ -244,6 +255,7 @@ bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_h
         default: 
             return false;
         case LOC_GMEMBER:
+            return false;
             return true;
         case LOC_GMEMBER_SET:
             return !bitset_all_clear(gmember_ht::bitset_size(), ir.gmanager.get_set(loc));

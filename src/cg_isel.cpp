@@ -453,10 +453,17 @@ namespace isel
 
 ///////////////////////////////////////////////////////////////////////////////
 
-    template<typename Label> [[gnu::noinline]]
+    template<typename Label, bool Start = false> [[gnu::noinline]]
     void label(cpu_t const& cpu, sel_pair_t sp, cons_t const* cont)
     {
-        cont->call(cpu, alloc_sel<ASM_LABEL>(cpu, sp, Label::trans()));
+        if(Start)
+        {
+            cpu_t copy = cpu;
+            copy.conditional_exec();
+            cont->call(copy, alloc_sel<ASM_LABEL>(copy, sp, Label::trans()));
+        }
+        else
+            cont->call(cpu, alloc_sel<ASM_LABEL>(cpu, sp, Label::trans()));
     };
 
     template<typename Opt, regs_t Regs, bool KeepValue, typename Param>
@@ -1326,7 +1333,7 @@ namespace isel
                 chain
                 < load_X<Opt, Def, Def>
                 , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
-                , label<retry_label>
+                , label<retry_label, true>
                 , exact_op<Opt, TXA_IMPLIED, null_>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, LSR_IMPLIED, null_>
@@ -1372,7 +1379,7 @@ namespace isel
                 chain
                 < load_X<Opt, Def>
                 , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
-                , label<retry_label>
+                , label<retry_label, true>
                 , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111110>>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
@@ -1412,12 +1419,12 @@ namespace isel
                     retry_label::set(state.minor_label());
 
                     chain
-                    < label<retry_label>
+                    < label<retry_label, true>
                     , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
-                    , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
+                    , pick_op<typename Opt::restrict_to<~REGF_X>, ORA, null_, Def>
                     , exact_op<Opt, TAY_IMPLIED>
                     , iota_op<Opt, STA_ABSOLUTE_Y, null_>
-                    , pick_op<Opt, CPX, null_, mstate>
+                    , exact_op<Opt, CPX_ABSOLUTE, null_, mstate>
                     , branch_op<Opt, BNE, retry_label>
                     , clear_conditional
                     >(cpu, prev, cont);
@@ -1453,11 +1460,11 @@ namespace isel
                 retry_label::set(state.minor_label());
 
                 chain
-                < label<retry_label>
+                < label<retry_label, true>
                 , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
-                , exact_op<Opt, ORA_ABSOLUTE, null_, Def>
+                , pick_op<typename Opt::restrict_to<~REGF_X>, ORA, null_, Def>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
-                , pick_op<Opt, CPX, null_, mstate>
+                , exact_op<Opt, CPX_ABSOLUTE, null_, mstate>
                 , branch_op<Opt, BNE, retry_label>
                 , clear_conditional
                 >(cpu, prev, cont);
@@ -3768,7 +3775,7 @@ namespace isel
                 p_arg<4>::set(locator_t::runtime_ram(RTRAM_mapper_detail));
 
                 chain
-                < label<p_arg<3>>
+                < label<p_arg<3>, true>
                 , exact_op<Opt, LDY_ABSOLUTE, null_, p_arg<4>>
                 , load_A<Opt, p_arg<1>>
                 , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
@@ -3783,6 +3790,7 @@ namespace isel
             case MAPPER_ANROM: 
             case MAPPER_GNROM: 
             case MAPPER_GTROM:
+            case MAPPER_COLORDREAMS:
                 p_arg<2>::set(locator_t::this_bank());
                 p_arg<3>::set(locator_t::addr(bankswitch_addr()));
                 p_arg<4>::set(state.minor_label());
@@ -3802,7 +3810,7 @@ namespace isel
                     else
                     {
                         chain
-                        < label<p_arg<4>>
+                        < label<p_arg<4>, true>
                         , load_AX<Opt, p_arg<1>, p_arg<1>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
                         , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
@@ -3828,7 +3836,7 @@ namespace isel
                     else
                     {
                         chain
-                        < label<p_arg<4>>
+                        < label<p_arg<4>, true>
                         , load_AX<Opt, p_arg<1>, p_arg<1>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
                         , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
@@ -3836,6 +3844,7 @@ namespace isel
                         , exact_op<Opt, CPX_ABSOLUTE, null_, p_arg<0>>
                         , branch_op<Opt, BNE, p_arg<4>>
                         , clear_conditional
+                        , set_defs<Opt, REGF_ISEL, false, null_>
                         >(cpu, prev, cont);
                     }
 

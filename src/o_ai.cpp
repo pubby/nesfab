@@ -1901,7 +1901,8 @@ void ai_t::run_jump_thread(cfg_ht const start, unsigned const start_branch_i)
     assert(trace->output_size() == 2);
     assert(ai_data(trace->output(0)).skippable);
 
-    // Remove the previous output
+    // Remove the previous output, adding it to our cfg_worklist:
+    cfg_worklist.push(trace->output(0));
     trace->link_remove_output(0);
 
     // Track it:
@@ -1918,9 +1919,10 @@ void ai_t::thread_jumps()
             ai_data(ssa_it).executable_index = EXEC_PROPAGATE;
     });
 
+    assert(cfg_worklist.empty());
+
     // Find all jump threads, creating new edges and storing the endpoints in
     // 'threaded_jumps'.
-    //threaded_jumps.clear();
     threaded_jumps.clear();
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
@@ -1966,9 +1968,11 @@ void ai_t::thread_jumps()
     // Prune unreachable nodes with no inputs here.
     // (Jump threading can create such nodes)
 
+#ifndef NDEBUG
     for(cfg_ht cfg_it : threaded_jumps)
         for(unsigned i = 0; i < cfg_it->output_size(); ++i)
-            cfg_worklist.push(cfg_it->output(i));
+            assert(cfg_it->input_size() > 0);
+#endif
 
     while(!cfg_worklist.empty())
     {

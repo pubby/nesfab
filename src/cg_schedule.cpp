@@ -98,6 +98,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 {
     bitset_pool.clear();
     set_size = bitset_size<>(cfg_node->ssa_size());
+    bitset_uint_t* temp_set = ALLOCA_T(bitset_uint_t, set_size);
 
     std::vector<ssa_ht> toposorted(cfg_node->ssa_size());
     toposort_cfg_node(cfg_node, toposorted.data());
@@ -185,6 +186,127 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         }
     };
 
+    rh::batman_map<locator_t, bitset_uint_t*> read_map;
+    rh::batman_map<locator_t, bitset_uint_t*> write_map;
+
+    for(ssa_ht ssa_node : toposorted)
+    {
+        if(ssa_flags(ssa_node->op()) & SSAF_WRITE_GLOBALS)
+        {
+            for_each_written_global(ssa_node, [&](ssa_value_t input, locator_t loc)
+            {
+                auto& bs = read_map[loc];
+                if(!bs)
+                    bs = bitset_pool.alloc(set_size);
+                bitset_set(bs, index(ssa_node));
+            });
+        }
+        else if(ssa_node->op() == SSA_read_global)
+        {
+            auto& bs = write_map[ssa_node->input(1).locator()];
+            if(!bs)
+                bs = bitset_pool.alloc(set_size);
+            bitset_set(bs, index(ssa_node->input(0).handle()));
+        }
+    }
+
+    for(auto const& pair : write_map)
+    {
+        if(auto const* reads = read_map.mapped(pair.first))
+        {
+            bitset_copy(set_size, temp_set, *reads);
+            bitset_difference(set_size, temp_set, pair.second);
+            bitset_for_each(set_size, pair.second, [&](unsigned write_i)
+            {
+                ssa_ht const write = toposorted[write_i];
+                bool updated = false;
+
+                bitset_for_each(set_size, temp_set, [&](unsigned read_i)
+                {
+                    ssa_ht const read = toposorted[read_i];
+
+                    auto& rd = data(read);
+                    auto& wd = data(write);
+
+                    // Can't add a dep if a cycle would be created:
+                    if(bitset_test(rd.deps, write_i))
+                        return;
+
+                    // Add a dep!
+                    bitset_set(wd.deps, read_i);
+                    bitset_or(set_size, wd.deps, rd.deps);
+                    updated = true;
+                });
+
+                if(updated)
+                    propagate_deps_change(write);
+            });
+        }
+    }
+
+    /*
+    for(ssa_ht ssa_node : toposorted)
+    {
+        if(ssa_node->op() != SSA_read_global)
+            continue;
+        locator_t const read_loc = ssa_node->input(1).locator();
+        write_map[read_loc].insert(ssa_node->input(0).handle());
+    }
+        auto const& writes = write_map[read_loc];
+
+
+
+        unsigned const output_size = ssa_node->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            auto const oe = ssa_node->output_edge(i);
+
+            if(oe.handle->cfg_node() != cfg_node)
+                continue;
+
+            if(!(ssa_flags(oe.handle->op()) & SSAF_WRITE_GLOBALS))
+                continue;
+
+            if(oe.index < write_globals_begin(oe.handle->op()))
+                continue;
+
+            if(oe.handle->input(oe.index+1) != read_loc)
+                continue;
+
+            assert(false);
+
+            if(!writes.count(oe.handle))
+                read_users.push_back(oe.handle);
+        }
+
+        for(ssa_ht w : writes)
+        {
+            bool updated = false;
+
+            for(ssa_ht r : read_users)
+            {
+                assert(w != r);
+
+                auto& rd = data(r);
+                auto& wd = data(w);
+
+                // Can't add a dep if a cycle would be created:
+                if(bitset_test(rd.deps, index(w)))
+                    continue;
+
+                // Add a dep!
+                bitset_set(wd.deps, index(r));
+                bitset_or(set_size, wd.deps, rd.deps);
+                updated = true;
+            }
+
+            if(updated)
+                propagate_deps_change(w);
+        }
+        */
+
+
+
     // Reads should be used before they're rewritten
     for(ssa_ht ssa_node : toposorted)
     {
@@ -201,7 +323,6 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         unsigned const index_ = index(writer);
 
         // - identify if the writer depends on other writes
-
         bool updated = false;
 
         bitset_for_each(set_size, d.deps, 
@@ -240,7 +361,6 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
     // In chains of carry operations, setup deps to avoid cases where
     // a carry would need to be stored.
-    bitset_uint_t* temp_set = ALLOCA_T(bitset_uint_t, set_size);
     for(auto it = toposorted.rbegin(); it != toposorted.rend(); ++it)
     {
         ssa_ht ssa_node = *it;

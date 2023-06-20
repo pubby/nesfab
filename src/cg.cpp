@@ -512,6 +512,17 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         });
     }
 
+
+#if 0
+        std::cout << fn.global.name << std::endl;
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        {
+            auto& d = cg_data(cfg_it);
+            for(ssa_ht h : d.schedule)
+                std::cout << "    " << h->op() << ' ' << h.id << std::endl;
+        }
+#endif
+
     if(std::ostream* os = fn.info_stream())
     {
         *os << "\nSCHEDULE_START " << fn.global.name << '\n';
@@ -753,7 +764,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         ssa_ht store_cset = cset_head(store);
         ssa_ht parent_cset = cset_head(parent);
 
-        assert(cset_locator(store_cset));
+        passert(cset_locator(store_cset), store_cset);
 
         ssa_ht last;
 
@@ -1113,7 +1124,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         {
             passert(ssa_it->input(1).locator().mem_head() == cset_locator(ssa_it), 
                     ssa_it->input(1).locator(), " | ", cset_locator(ssa_it),
-                    fn.global.name);
+                    " | ", ssa_it, " ", fn.global.name);
             // TODO
             //assert(ssa_it->test_flags(FLAG_COALESCED));
             //assert(ssa_it->input(0)->op() == SSA_early_store || ssa_it->input(0)->op() == SSA_aliased_store);

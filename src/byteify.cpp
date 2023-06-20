@@ -1306,7 +1306,6 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
         post_node->steal_outputs(*pre_node);
 
         // Setup 'pre_node':
-        assert(pre_node->input_size() == 0);
         unsigned const pre_to_head = pre_node->link_append_output(
             loop_head, [](ssa_ht phi) -> ssa_value_t { assert(false); return {}; });
         assert(loop_head->input(pre_to_head) == pre_node);

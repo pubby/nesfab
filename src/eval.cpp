@@ -1,6 +1,5 @@
 #include "eval.hpp"
 
-#include <iostream>
 #include <cassert>
 #include <chrono>
 

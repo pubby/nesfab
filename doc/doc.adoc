@@ -2209,6 +2209,56 @@ Syntax:
 false
 ----
 
+=== `read` [[kw_read]]
+
+`read` is an expression used to access the value a pointer is pointing at, advancing the pointer in the process.
+
+Syntax:
+----
+read Type(ptr)
+----
+- `Type` is a type name. The expression will read a value of this type from the pointer, returning it.
+- `ptr` is an lvalue expression with a pointer type. The expression will increment the pointer by `sizeof Type` bytes.
+
+Example:
+----
+omni data
+    [] my_data
+        UU($1234)
+        UU($5678)
+
+mode main()
+    CC ptr = @my_data
+    UU first  = read UU(ptr)
+    UU second = read UU(ptr)
+----
+
+=== `write` [[kw_write]]
+
+`write` is an expression used to store a value at an address pointed-to by a pointer, advancing the pointer in the process.
+The expression returns no value.
+
+Syntax:
+----
+write Type(ptr, expr)
+----
+- `Type` is a type name. The expression will write a value of this type to the pointer.
+- `ptr` is an lvalue expression with a pointer type. The expression will increment the pointer by `sizeof Type` bytes.
+- `expr` is an  expression of type `Type`. The value will be written at `ptr`.
+
+Example:
+----
+vars
+    [] my_data
+        UU($1234)
+        UU($5678)
+
+mode main()
+    MM ptr = @my_data
+    write UU(ptr, $1234)
+    write UU(ptr, $5678)
+----
+
 === `ready` [[kw_ready]]
 
 `ready` is an expression of type `Bool` which returns `true` if both an <<nmi, NMI>> is active and the program was <<kw_nmi, waiting on one>>,

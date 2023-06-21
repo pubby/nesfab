@@ -210,7 +210,7 @@ $(SRCDIR)/macro_lex_tables.hpp \
 $(SRCDIR)/macro_lex_tables.cpp
 
 lexer_gen: $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
-	$(CXX) -std=c++17 -O1 -o lexer_gen $<
+	g++ -std=c++17 -O1 -o lexer_gen $<
 
 $(LEX_TABLES): lexer_gen $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
 	./lexer_gen 
@@ -242,7 +242,6 @@ clean: cleandeps
 	rm -f $(wildcard $(OBJDIR)/lodepng/*.o)
 	rm -f $(wildcard $(OBJDIR)/catch/*.o)
 	rm -f nesfab
-	rm -f lexer_gen
 
 docs:
 	asciidoctor doc/doc.adoc -o doc/doc.html

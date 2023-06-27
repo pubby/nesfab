@@ -269,7 +269,6 @@ void global_t::do_all(Fn const& fn)
         globals_left = global_ht::pool().size();
     }
 
-
     // Spawn threads to compile in parallel:
     parallelize(compiler_options().num_threads,
     [&fn](std::atomic<bool>& exception_thrown)
@@ -614,11 +613,33 @@ global_t* global_t::completed()
             *(newly_ready_end++) = iuse;
 
     std::size_t const newly_ready_size = newly_ready_end - newly_ready;
+    global_t* ret = nullptr;
 
-    if(newly_ready_size > 0)
-        --newly_ready_end; // We'll return the last global, not insert it.
-
+    if(newly_ready_size == 1)
     {
+        ret = newly_ready[0];
+        std::lock_guard lock(ready_mutex);
+        --globals_left;
+    }
+    else if(newly_ready_size == 0)
+    {
+        std::lock_guard lock(ready_mutex);
+        if(globals_left)
+        {
+            if(!ready.empty())
+            {
+                ret = ready.back();
+                ready.pop_back();
+            }
+            --globals_left;
+        }
+    }
+    else
+    {
+        assert(newly_ready_size > 1);
+        ret = newly_ready[0];
+        ++newly_ready;
+
         std::lock_guard lock(ready_mutex);
         if(globals_left)
         {
@@ -632,13 +653,7 @@ global_t* global_t::completed()
     else if (newly_ready_size > 2 || globals_left == 0)
         ready_cv.notify_all();
 
-    if(newly_ready_size > 0)
-    {
-        assert(*newly_ready_end);
-        return *newly_ready_end;
-    }
-    else
-        return nullptr;
+    return ret;
 }
 
 global_t* global_t::await_ready_global()

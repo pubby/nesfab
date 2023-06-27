@@ -21,6 +21,10 @@ struct cfg_liveness_d
 {
     bitset_uint_t* in;
     bitset_uint_t* out; // Also used to hold the 'KILL' set temporarily.
+
+    // Memoized size of in and out:
+    unsigned in_popcount;
+    unsigned out_popcount;
 };
 
 struct cfg_order_d

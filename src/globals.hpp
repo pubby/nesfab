@@ -80,9 +80,11 @@ private:
     std::atomic<int> m_ideps_left = 0;
 
     // These are for debugging:
+#ifndef NDEBUG
     std::atomic<bool> m_resolved = false;
     std::atomic<bool> m_prechecked = false;
     std::atomic<bool> m_compiled = false;
+#endif
 public:
     global_t() = delete;
 
@@ -99,9 +101,11 @@ public:
     pstring_t pstring() const { return m_pstring; }
     unsigned impl_id() const { assert(compiler_phase() > PHASE_PARSE); return m_impl_id; }
 
+#ifndef NDEBUG
     bool resolved() const { return m_resolved; }
     bool prechecked() const { return m_prechecked; }
     bool compiled() const { return m_compiled; }
+#endif
 
     global_ht handle() const { assert(compiler_phase() < PHASE_COMPILE || &global_ht{m_this_id}.safe() == this); return { m_this_id }; }
 

@@ -23,8 +23,8 @@ void sbo_resize(T*& ptr, std::uint16_t& size, std::uint16_t& capacity,
     if(new_size > StorageSize)
     {
         capacity = 1 << (builtin::rclz(new_size + 2u));
-        assert(builtin::popcount((unsigned)capacity) == 1);
-        assert(capacity >= new_size);
+        passert(capacity >= new_size, capacity);
+        passert(builtin::popcount((unsigned)capacity) == 1, capacity);
         ptr = new T[capacity];
     }
     else
@@ -944,6 +944,14 @@ cfg_ht ir_t::merge_edge(cfg_ht cfg_h)
     cfg_node.m_io.clear_output();
 
     return prune_cfg(cfg_h);
+}
+
+std::size_t ir_t::ssa_size() const
+{
+    std::size_t size = 0;
+    for(auto const& cfg : *this)
+        size += cfg.ssa_size();
+    return size;
 }
 
 #ifndef NDEBUG

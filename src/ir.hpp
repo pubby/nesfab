@@ -354,6 +354,7 @@ public:
     cfg_ht prune_cfg(cfg_ht cfg_h);
     
     std::size_t cfg_size() const { return m_size; }
+    std::size_t ssa_size() const;
 
     // Creates a new node along an edge.
     cfg_ht split_edge(cfg_bck_edge_t edge);

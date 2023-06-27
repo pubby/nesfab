@@ -33,6 +33,7 @@ struct options_t
     bool pause = false;
     bool unsafe_bank_switch = false;
     bool assert_valid = true;
+    bool sloppy = false;
 
     // Label files, etc:
     std::string raw_mlb;

@@ -44,15 +44,19 @@ private:
     // All the SSA nodes that maybe clobber the carry.
     bitset_uint_t* carry_clobberers = nullptr;
 
+    // The SSA nodes after topological sorting:
+    std::vector<ssa_ht> toposorted;
+
     ssa_schedule_d& data(ssa_ht h) const { return cg_data(h).schedule; }
     unsigned& index(ssa_ht h) const { return data(h).index; }
 
     void append_schedule(ssa_ht h);
+    template<bool Fast>
     void run();
     
     bool ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const;
 
-    int path_length(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const;
+    int path_length(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled, int depth = 0) const;
     int indexer_score(ssa_ht h) const;
     int banker_score(ssa_ht h) const;
 
@@ -100,7 +104,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     set_size = bitset_size<>(cfg_node->ssa_size());
     bitset_uint_t* temp_set = ALLOCA_T(bitset_uint_t, set_size);
 
-    std::vector<ssa_ht> toposorted(cfg_node->ssa_size());
+    toposorted.resize(cfg_node->ssa_size());
     toposort_cfg_node(cfg_node, toposorted.data());
 
     scheduled = bitset_pool.alloc(set_size);
@@ -761,7 +765,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     }
 
     // OK! Everything was initialized. Now to run the greedy algorithm.
-    run();
+    constexpr std::size_t SSA_SIZE_THRESHOLD = 10000;
+    if(cfg_node->ssa_size() >= SSA_SIZE_THRESHOLD)
+        run<true>();
+    else
+        run<false>();
     assert(schedule.size() == cfg_node->ssa_size());
 }
 
@@ -807,10 +815,14 @@ void scheduler_t::append_schedule(ssa_ht h)
     });
 }
 
+template<bool Fast>
 void scheduler_t::run()
 {
     assert(bitset_all_clear(set_size, scheduled));
     assert(unused_global_reads.empty());
+
+    if(Fast)
+        std::reverse(toposorted.begin(), toposorted.end());
 
     carry_input_waiting = {};
     ssa_ht candidate = {};
@@ -833,10 +845,29 @@ void scheduler_t::run()
 
         // Second priority: try to find *any* node that's ready,
         // expanding the search until we succeed.
-        for(unsigned relax = 0; !candidate; ++relax)
+        if(Fast)
         {
-            candidate = full_search(relax);
-            assert(relax < 100);
+            for(auto it = std::prev(toposorted.end());;--it)
+            {
+                ssa_ht const h = *it;
+
+                if(bitset_test(scheduled, index(h)))
+                    it = toposorted.erase(it);
+                else if(ready(~0, h, scheduled))
+                {
+                    candidate = h;
+                    toposorted.erase(it);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            for(unsigned relax = 0; !candidate; ++relax)
+            {
+                candidate = full_search(relax);
+                assert(relax < 100);
+            }
         }
 
         // OK, we should definitely have a candidate_h now.
@@ -899,7 +930,7 @@ bool scheduler_t::ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled
 
 // Estimates how many operations can be chained together.
 // The score is used to weight different nodes for scheduling.
-int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled) const
+int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled, int depth) const
 {
     auto* new_bitset = ALLOCA_T(bitset_uint_t, set_size);
     bitset_copy(set_size, new_bitset, scheduled);
@@ -907,6 +938,10 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
     bitset_set(new_bitset, index(h));
 
     if(ssa_flags(h->op()) & SSAF_PRIO_SCHEDULE)
+        return 0;
+
+    // At some point, stop counting:
+    if(depth >= 8)
         return 0;
     
     int max_length = 0;
@@ -934,7 +969,7 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
         if(oe.input_class() == INPUT_VALUE)
             ++outputs_in_cfg_node;
 
-        int const l = path_length(relax, oe.handle, new_bitset);
+        int const l = path_length(relax, oe.handle, new_bitset, depth + 1);
 
         //assert(l >= 0);
         if(l < 0) // Only enable this if -1 can be returned.

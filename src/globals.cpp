@@ -268,7 +268,7 @@ void global_t::do_all(Fn const& fn)
         std::lock_guard lock(ready_mutex);
         globals_left = global_ht::pool().size();
     }
-    ready_cv.notify_all();
+
 
     // Spawn threads to compile in parallel:
     parallelize(compiler_options().num_threads,
@@ -296,6 +296,8 @@ void global_t::do_all(Fn const& fn)
         }
         ready_cv.notify_all();
     });
+
+    ready_cv.notify_all();
 }
 
 // This function isn't thread-safe.
@@ -567,7 +569,9 @@ global_t* global_t::resolve(log_t* log)
     dprint(log, "RESOLVING", name);
     delegate([](auto& g){ g.resolve(); });
 
+#ifndef NDEBUG
     m_resolved = true;
+#endif
     return completed();
 }
 
@@ -578,7 +582,9 @@ global_t* global_t::precheck(log_t* log)
     dprint(log, "PRECHECKING", name);
     delegate([](auto& g){ g.precheck(); });
 
+#ifndef NDEBUG
     m_prechecked = true;
+#endif
     return completed();
 }
 
@@ -589,7 +595,9 @@ global_t* global_t::compile(log_t* log)
     dprint(log, "COMPILING", name, m_ideps.size());
     delegate([](auto& g){ g.compile(); });
 
+#ifndef NDEBUG
     m_compiled = true;
+#endif
     return completed();
 }
 
@@ -610,8 +618,6 @@ global_t* global_t::completed()
     if(newly_ready_size > 0)
         --newly_ready_end; // We'll return the last global, not insert it.
 
-    unsigned new_globals_left;
-
     {
         std::lock_guard lock(ready_mutex);
         if(globals_left)
@@ -619,13 +625,12 @@ global_t* global_t::completed()
             ready.insert(ready.end(), newly_ready, newly_ready_end);
             --globals_left;
         }
-        new_globals_left = globals_left;
     }
 
-    if(new_globals_left == 0 || newly_ready_size > 2)
-        ready_cv.notify_all();
-    else if(newly_ready_size == 2)
+    if(newly_ready_size == 2)
         ready_cv.notify_one();
+    else if (newly_ready_size > 2 || globals_left == 0)
+        ready_cv.notify_all();
 
     if(newly_ready_size > 0)
     {
@@ -1169,7 +1174,7 @@ void fn_t::compile()
     } while(false)
 
         unsigned iter = 0;
-        constexpr unsigned MAX_ITER = 100;
+        unsigned const MAX_ITER = compiler_options().sloppy ? 10 : 100;
         bool changed;
 
         // Do this first, to reduce the size of the IR:

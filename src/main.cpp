@@ -222,6 +222,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("pause"))
         _options.pause = true;
 
+    if(vm.count("sloppy"))
+        _options.sloppy = true;
+
     if(vm.count("unsafe-bank-switch"))
         _options.unsafe_bank_switch = true;
 }
@@ -258,6 +261,7 @@ int main(int argc, char** argv)
                 ("threads,j", po::value<int>(), "number of compiler threads")
                 ("error-on-warning,W", "turn warnings into errors")
                 ("pause", "await input on stdin before exiting")
+                ("sloppy", "faster compile times, but worse optimization")
             ;
 
             po::options_description mapper_opt("Mapper options");

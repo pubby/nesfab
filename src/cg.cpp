@@ -15,6 +15,7 @@
 #include "cg_schedule.hpp"
 #include "cg_cset.hpp"
 #include "cg_ptr.hpp"
+#include "compiler_error.hpp"
 #include "globals.hpp"
 #include "ir_algo.hpp"
 #include "ir.hpp"
@@ -494,6 +495,15 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // SCHEDULING //
     ////////////////
 
+    constexpr std::size_t warn_ssa_size = 50000;
+    std::size_t const ssa_size = ir.ssa_size();
+    if(ssa_size >= warn_ssa_size)
+    {
+        compiler_warning(fn.global.pstring(), fmt(
+            "Function is generating a lot of code (% nodes). Consider breaking it up into separate functions, or reducing inlining.",
+            ssa_size));
+    }
+    
     ir.assert_valid(true);
     schedule_ir(ir);
     o_schedule(ir);

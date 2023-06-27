@@ -4811,15 +4811,16 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     static TLS rh::batman_map<cross_transition_t, result_t> rebuilt;
     static TLS std::vector<rh::apair<cross_cpu_t, isel_cost_t>> new_out_states;
 
-    constexpr unsigned BASE_SEL_SIZE = 32;
-    constexpr unsigned BASE_MAP_SIZE = 128;
-    constexpr auto SELS_COST_BOUND = cost_fn(LDA_ABSOLUTE) * 2;
+    bool const sloppy = compiler_options().sloppy;
+    unsigned const BASE_SEL_SIZE = sloppy ? 4 : 32;
+    unsigned const BASE_MAP_SIZE = sloppy ? 8 : 128;
+    auto const SELS_COST_BOUND = sloppy ? cost_fn(NOP_IMPLIED) : cost_fn(LDA_ABSOLUTE) * 2;
 
     auto const shrink_sels = [&](cfg_ht cfg)
     {
         auto& d = data(cfg);
 
-        unsigned const max_sels = std::min<unsigned>(1 + loop_depth(cfg), 4) * BASE_SEL_SIZE;
+        unsigned max_sels = std::min<unsigned>(1 + loop_depth(cfg), 4) * BASE_SEL_SIZE;
 
         if(d.sels.size() > max_sels)
         {

@@ -98,16 +98,26 @@ unsigned calc_ssa_liveness(ir_t const& ir, unsigned pool_size)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
         calc_ssa_liveness(ssa_it);
 
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    {
+        auto& d = live(cfg_it);
+        d.in_popcount  = bitset_popcount(set_size, d.in);
+        d.out_popcount = bitset_popcount(set_size, d.out);
+    }
+
     return set_size;
 }
 
 void clear_liveness_for(ir_t const& ir, ssa_ht node)
 {
+    using namespace liveness_impl;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {
         auto& d = live(cfg_it);
         bitset_clear(d.in, node.id);
         bitset_clear(d.out, node.id);
+        d.in_popcount  = bitset_popcount(set_size, d.in);
+        d.out_popcount = bitset_popcount(set_size, d.out);
     }
 }
 
@@ -173,10 +183,10 @@ std::size_t live_range_busyness(ir_t& ir, ssa_ht h)
         assert(ld.out);
 
         if(bitset_test(ld.in, h.id))
-            total_size += bitset_popcount(set_size, ld.in);
+            total_size += ld.in_popcount;
 
         if(bitset_test(ld.out, h.id))
-            total_size += bitset_popcount(set_size, ld.out);
+            total_size += ld.out_popcount;
     }
 
     return total_size;

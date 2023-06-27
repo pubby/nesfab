@@ -1607,6 +1607,7 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
                         {
                         case MAYBE_STORE_C: inst.op = STORE_C_ABSOLUTE; break;
                         case MAYBE_STORE_Z: inst.op = STORE_Z_ABSOLUTE; break;
+                        case MAYBE_STORE_N: inst.op = STORE_N_ABSOLUTE; break;
                         default: assert(false);
                         }
                     }

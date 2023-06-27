@@ -38,6 +38,24 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_FAKE,
     },
     { 
+        .op = MAYBE_STORE_C_FAST,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 6, // Keep in sync with 'asm_proc.cpp'
+        .cycles = MAYBE_CYCLES, // Arbitrary
+        .input_regs = REGF_C,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    { 
+        .op = STORE_C_ABSOLUTE_FAST,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 6, // Keep in sync with 'asm_proc.cpp'
+        .cycles = MAYBE_CYCLES, // Arbitrary
+        .input_regs = REGF_C,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
+        .flags = ASMF_FAKE,
+    },
+    { 
         .op = MAYBE_STORE_Z,
         .addr_mode = MODE_ABSOLUTE,
         .size = 11, // Keep in sync with 'asm_proc.cpp'
@@ -56,6 +74,24 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_FAKE,
     },
     { 
+        .op = MAYBE_STORE_Z_FAST,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 7, // Keep in sync with 'asm_proc.cpp'
+        .cycles = MAYBE_CYCLES, // Arbitrary
+        .input_regs = REGF_Z,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    { 
+        .op = STORE_Z_ABSOLUTE_FAST,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 7, // Keep in sync with 'asm_proc.cpp'
+        .cycles = MAYBE_CYCLES, // Arbitrary
+        .input_regs = REGF_Z,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
+        .flags = ASMF_FAKE,
+    },
+    { 
         .op = MAYBE_STORE_N,
         .addr_mode = MODE_ABSOLUTE,
         .size = 12, // Keep in sync with 'asm_proc.cpp'
@@ -71,6 +107,24 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_N,
         .output_regs = REGF_M,
+        .flags = ASMF_FAKE,
+    },
+    { 
+        .op = MAYBE_STORE_N_FAST,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 8, // Keep in sync with 'asm_proc.cpp'
+        .cycles = MAYBE_CYCLES, // Arbitrary
+        .input_regs = REGF_N,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+    },
+    { 
+        .op = STORE_N_ABSOLUTE_FAST,
+        .addr_mode = MODE_ABSOLUTE,
+        .size = 8, // Keep in sync with 'asm_proc.cpp'
+        .cycles = MAYBE_CYCLES, // Arbitrary
+        .input_regs = REGF_N,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
         .flags = ASMF_FAKE,
     },
     {

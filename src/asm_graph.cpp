@@ -1318,6 +1318,17 @@ void asm_graph_t::optimize_live_registers()
 
             });
         }
+
+        // Convert MAYBE stores to FAST versions.
+        std::size_t const code_size = node.code.size();
+        for(unsigned i = 0; i < code_size; ++i)
+        {
+            asm_inst_t& inst = node.code[i];
+            if(op_t fast = fast_op(inst.op))
+                if((live_regs[i] & op_output_regs(fast) & REGF_6502) == 0)
+                    inst.op = fast;
+        }
+
     }
 }
 
@@ -1605,9 +1616,12 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
                             inst.op = op;
                         else switch(inst.op)
                         {
-                        case MAYBE_STORE_C: inst.op = STORE_C_ABSOLUTE; break;
-                        case MAYBE_STORE_Z: inst.op = STORE_Z_ABSOLUTE; break;
-                        case MAYBE_STORE_N: inst.op = STORE_N_ABSOLUTE; break;
+                        case MAYBE_STORE_C:      inst.op = STORE_C_ABSOLUTE; break;
+                        case MAYBE_STORE_C_FAST: inst.op = STORE_C_ABSOLUTE_FAST; break;
+                        case MAYBE_STORE_Z:      inst.op = STORE_Z_ABSOLUTE; break;
+                        case MAYBE_STORE_Z_FAST: inst.op = STORE_Z_ABSOLUTE_FAST; break;
+                        case MAYBE_STORE_N:      inst.op = STORE_N_ABSOLUTE; break;
+                        case MAYBE_STORE_N_FAST: inst.op = STORE_N_ABSOLUTE_FAST; break;
                         default: assert(false);
                         }
                     }

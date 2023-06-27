@@ -270,4 +270,19 @@ constexpr bool is_long_branch(op_t op)
     return is_branch(op) && op_addr_mode(op) == MODE_LONG;
 }
 
+constexpr op_t fast_op(op_t op)
+{
+    switch(op)
+    {
+    default: return BAD_OP;
+#define FAST(x) case x: return x##_FAST;
+    FAST(MAYBE_STORE_C)
+    FAST(STORE_C_ABSOLUTE)
+    FAST(MAYBE_STORE_N)
+    FAST(STORE_N_ABSOLUTE)
+    FAST(MAYBE_STORE_Z)
+    FAST(STORE_Z_ABSOLUTE)
+    }
+}
+
 #endif

@@ -45,13 +45,6 @@ struct flag_mods_t
     }
 };
 
-struct crop_mods_t
-{
-    pstring_t pstring = {};
-    std::size_t size = ~0ull;
-    std::size_t offset = 0;
-};
-
 using mod_list_t = std::uint8_t;
 // !!! Don't forget to update 'mod_list_name' when adding lists !!!
 constexpr mod_list_t MODL_VARS         = 1 << 0;
@@ -85,8 +78,6 @@ struct mods_t : public flag_mods_t
 
     global_t const* nmi = nullptr;
     global_t const* irq = nullptr;
-
-    std::unique_ptr<crop_mods_t> crop;
 
     mods_t() = default;
 

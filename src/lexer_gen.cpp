@@ -675,7 +675,6 @@ int main()
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
         keyword("nmi_counter"),
-        keyword("crop"),
         keyword("read"),
         keyword("write"),
 

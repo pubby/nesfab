@@ -16,7 +16,8 @@ namespace bc = ::boost::container;
 // input pointing to itself, or equal to each other. 
 ssa_value_t get_trivial_phi_value(ssa_node_t const& node)
 {
-    assert(node.op() == SSA_phi);
+    passert(node.op() == SSA_phi, node.handle(), node.op());
+    passert(node.input_size() > 0, node.handle());
     ssa_value_t unique = {};
     assert(!unique);
     for(unsigned i = 0; i < node.input_size(); ++i)
@@ -61,7 +62,13 @@ bool o_remove_trivial_phis(log_t* log, ir_t& ir)
 
         assert(phi.op() == SSA_phi);
 
-        if(ssa_value_t value = get_trivial_phi_value(phi))
+        if(phi.input_size() == 0)
+        {
+            ssa_ht const h = phi.cfg_node()->emplace_ssa(SSA_uninitialized, phi.type());
+            phi.replace_with(h);
+            phi.prune();
+        }
+        else if(ssa_value_t value = get_trivial_phi_value(phi))
         {
             // It's trivial! Add all dependent phi nodes to the worklist.
             for(unsigned i = 0; i < phi.output_size(); ++i)
@@ -71,11 +78,13 @@ bool o_remove_trivial_phis(log_t* log, ir_t& ir)
                     ssa_worklist.push(output_h);
             }
 
-            passert(!value.holds_ref() || value.handle() != phi_h, phi_h, value.holds_ref(), value.handle());
-
-            // Delete the trivial phi.
             dprint(log, "REMOVE_TRIVIAL_PHI", phi_h);
-            phi.replace_with(value);
+
+            if(value.holds_ref() && value.handle() == phi_h)
+                passert(phi_h->output_size() == phi_h->input_size(), phi_h->output_size(), phi_h->input_size());
+            else
+                phi.replace_with(value);
+
             phi.prune();
 
             changed = true;

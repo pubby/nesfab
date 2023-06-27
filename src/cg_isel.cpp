@@ -1724,7 +1724,7 @@ namespace isel
             (void)&label<fail>;
 
             chain
-            < label<success>
+            < label<success, true>
             , simple_op<O, INX_IMPLIED>
             , clear_conditional
             , label<fail>
@@ -2155,7 +2155,7 @@ namespace isel
             (void)&label<fail>;
 
             chain
-            < label<std::conditional_t<LTE, fail, success>>
+            < label<std::conditional_t<LTE, fail, success>, true>
             , simple_op<O, INX_IMPLIED>
             , clear_conditional
             , label<std::conditional_t<LTE, success, fail>>

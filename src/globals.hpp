@@ -401,6 +401,8 @@ public:
     unsigned irq_index() const;
     xbitset_t<fn_ht> const& irq_used_in_modes() const; 
 
+    bool sloppy() const { return m_sloppy; }
+
     precheck_tracked_t const& precheck_tracked() const { assert(m_precheck_tracked); return *m_precheck_tracked; }
     auto const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
     auto const& precheck_parent_modes() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_parent_modes; }
@@ -517,6 +519,8 @@ private:
     // If the function (or a called fn) waits on NMI
     bool m_precheck_wait_nmi = false;
     bool m_precheck_fences = false;
+
+    bool m_sloppy = false;
 
     // Bitsets of all global vars read/written in fn (deep)
     // These get assigned by 'calc_reads_writes_purity'.

@@ -720,6 +720,9 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mod
     case FN_NMI:  m_pimpl.reset(new nmi_impl_t());  break;
     case FN_IRQ:  m_pimpl.reset(new irq_impl_t());  break;
     }
+
+    m_sloppy = compiler_options().sloppy || mod_test(this->mods(), MOD_sloppy);
+    m_sloppy &= !mod_test(this->mods(), MOD_sloppy, false);
 }
 
 fn_ht fn_t::mode_nmi() const
@@ -1189,7 +1192,7 @@ void fn_t::compile()
     } while(false)
 
         unsigned iter = 0;
-        unsigned const MAX_ITER = compiler_options().sloppy ? 10 : 100;
+        unsigned const MAX_ITER = sloppy() ? 10 : 100;
         bool changed;
 
         // Do this first, to reduce the size of the IR:

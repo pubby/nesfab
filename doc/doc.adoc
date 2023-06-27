@@ -578,6 +578,21 @@ pause = 1
 To make NESFab always pause on Microsoft Windows, first create a shortcut to the NESFab executable.
 Then, in the shortcut's properties, put `--pause` after the target path.
 
+=== `sloppy`
+
+This option improves compilation speed at the cost of program optimization. 
+It can be disabled on a per-function basis with the modifier <<mod_flags, `-sloppy`>>.
+
+*Command-line usage:*
+----
+nesfab --sloppy
+----
+
+*Configuration file usage:*
+----
+sloppy = 1
+----
+
 == Supported Mappers [[mappers]]
 
 NESFab supports a small set of https://www.nesdev.org/wiki/Mapper[mappers],
@@ -2600,6 +2615,7 @@ Unlike other programming languages, functions in NESFab cannot be nested or recu
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+sloppy`, `-sloppy`>>
 
 Example:
 ----
@@ -2700,6 +2716,7 @@ While the mode function is executing, NMIs will be handled using the supplied `n
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+sloppy`, `-sloppy`>>
 
 Example:
 ----
@@ -2773,6 +2790,7 @@ nmi identifier()
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+sloppy`, `-sloppy`>>
 
 *Why do NMI interrupt functions exist?*
 
@@ -2834,6 +2852,7 @@ irq identifier()
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+sloppy`, `-sloppy`>>
 
 === `asm` [[kw_asm]]
 
@@ -2879,7 +2898,6 @@ asm fn waste_time()
 - <<mod_data>>.
 - <<mod_vars>>.
 - <<mod_flags, `+zero_page`, `-zero_page`>>
-- <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 
 The labels of an `asm` function are visible using the <<member_access, `.` operator>>.
@@ -3668,6 +3686,7 @@ The following flags exist:
              You must validate this yourself.
 - `palette_3`: Converts 4-byte palettes into 3-byte palettes.
 - `palette_25`: Converts 32-byte palettes into 25-byte palettes.
+- `+sloppy`, `-sloppy`: Enables / disables faster compilation speed, at the cost of performance.
 
 Example:
 ----

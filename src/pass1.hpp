@@ -206,10 +206,10 @@ public:
         {
         default:      return 0;
         case FN_CT:   return 0;
-        case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz | MOD_static | MOD_info;
-        case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info;
-        case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info;
-        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info;
+        case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
+        case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
+        case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
+        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
         }
     }
 

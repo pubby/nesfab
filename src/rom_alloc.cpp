@@ -537,13 +537,13 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
                 return true;
             }
 
-            many.in_banks.set(bank_i);
-            if(realloc_many(many_h, many.in_banks))
+            bank_bitset_t in_banks = many.in_banks;
+            in_banks.set(bank_i);
+            if(realloc_many(many_h, in_banks))
             {
                 realloced_manys.push_back(many_h);
                 return true;
             }
-            many.in_banks.clear(bank_i);
 
             return false;
         });
@@ -601,12 +601,15 @@ void rom_allocator_t::free_many(rom_many_ht many_h, unsigned bank_i)
     // NOT the span we stored in many, which is smaller.
     span_t const* allocated_span = bank.many_spans.mapped(many_h);
 
-    assert(allocated_span);
+    passert(allocated_span, many.span, bank_i);
     assert(*allocated_span);
     assert(allocated_span->contains(many.span));
 
     bank.allocator.free(*allocated_span);
     bank.allocated_manys.clear(many_h.id);
+    bank.many_spans.remove(many_h);
+
+    assert(!bank.many_spans.mapped(many_h));
 
     many.in_banks.clear(bank_i);
 }
@@ -626,6 +629,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
         // If we're already allocated, free our memory first
         assert(!many.in_banks.all_clear());
         many.in_banks.for_each([&](unsigned bank_i){ free_many(many_h, bank_i); });
+        many.in_banks = {};
         many.span = {};
     }
 
@@ -678,6 +682,7 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     });
 
     // And store it in the many:
+    assert(!in_banks.all_clear());
     many.span = alloc_at;
     assert(many.span.addr % many.desired_alignment == 0);
     many.in_banks = std::move(in_banks);

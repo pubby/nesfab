@@ -187,6 +187,11 @@ type_t type_t::addr(bool banked)
     return type_t(banked ? TYPE_BANKED_APTR : TYPE_APTR, 0, nullptr);
 }
 
+type_t type_t::vec(type_t elem_type)
+{
+    return type_t(TYPE_VEC, 0, type_tails.get(elem_type));
+}
+
 void type_t::set_banked(bool banked)
 {
     assert(is_ptr(name()));

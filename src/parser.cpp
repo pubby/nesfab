@@ -1187,6 +1187,15 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             break;
         }
 
+    // Vec:
+    case TOK_Vec:
+        {
+            parse_token();
+            src_type_t elem = parse_type(false, false, {});
+            result.type = type_t::vec(elem.type);
+        }
+        break;
+
     default: 
         if(!allow_void)
             compiler_error("Expecting type.");
@@ -1620,6 +1629,8 @@ void parser_t<P>::parse_top_level_def()
             return parse_const();
     case TOK_audio:
         return parse_audio();
+    case TOK_mapfab:
+        return parse_mapfab();
     case TOK_macro:
         return parse_macro();
     default:
@@ -1670,6 +1681,16 @@ void parser_t<P>::parse_audio()
                               std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
     {
         policy().audio(audio_pstring, script, preferred_dir, std::move(args), std::move(mods));
+    });
+}
+
+template<typename P>
+void parser_t<P>::parse_mapfab()
+{
+    parse_file(TOK_mapfab, [&](pstring_t mapfab_pstring, pstring_t script, fs::path const& preferred_dir,
+                                 std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
+    {
+        policy().mapfab(mapfab_pstring, script, preferred_dir, std::move(args), std::move(mods));
     });
 }
 

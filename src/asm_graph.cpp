@@ -990,8 +990,7 @@ void asm_graph_t::optimize_live_registers()
                 asm_inst_t& inst = node.code[i];
 
                 assert(inst.op != ASM_LABEL);
-                if(inst.op == ASM_FENCE
-                   || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH))
+                if((op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE))
                    || !simple_addr_mode(op_addr_mode(inst.op)))
                 {
                     a_set.clear();
@@ -1255,7 +1254,7 @@ void asm_graph_t::optimize_live_registers()
                 unsigned const bi = &b - node.code.data();
 
                 assert(a.op != ASM_LABEL);
-                if(a.op == ASM_FENCE || (op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH)))
+                if((op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE)))
                 {
                     map.clear();
                     return;
@@ -1339,7 +1338,7 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
     bool const is_call = op_flags(inst.op) & ASMF_CALL;
     bool const is_jump = op_flags(inst.op) & ASMF_JUMP;
     bool const is_return = ::is_return(inst);
-    bool const is_fence = inst.op == ASM_FENCE;
+    bool const is_fence = op_flags(inst.op) & ASMF_FENCE;
 
     bool const is_fn = (is_call || is_jump || is_return) && (inst.arg.lclass() == LOC_FN);
 

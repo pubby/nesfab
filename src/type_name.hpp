@@ -41,7 +41,8 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_FN,
 
     TYPE_TEA,  // typed-element array
-    TYPE_PAA, // pointer-addressable array
+    TYPE_PAA,  // pointer-addressable array
+    TYPE_VEC,  // resizable array
 
     TYPE_BANKED_APTR, // 'APTR' is used to represent assembly addresses, ignoring groups.
     TYPE_FIRST_PTR = TYPE_BANKED_APTR,
@@ -146,7 +147,7 @@ constexpr bool is_byteified(type_name_t type_name)
     { return type_name == TYPE_U || type_name == TYPE_S || type_name == TYPE_BOOL; }
 
 constexpr bool has_type_tail(type_name_t name)
-    { return name == TYPE_TEA || name == TYPE_FN; }
+    { return name == TYPE_TEA || name == TYPE_FN || name == TYPE_VEC; }
 constexpr bool has_group_tail(type_name_t name)
     { return is_mptr(name) || is_cptr(name) || is_pptr(name) || name == TYPE_PAA || name == TYPE_GROUP_SET; }
 constexpr bool has_tail(type_name_t name)

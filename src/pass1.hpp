@@ -1168,6 +1168,72 @@ public:
         }
     }
 
+    void mapfab(pstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
+    {
+        /* TODO
+        using namespace std::literals;
+
+        if(mods)
+            mods->validate(decl);
+
+        auto const get_path = [&](convert_arg_t const& v)
+        {
+            string_literal_t filename = v.filename();
+            fs::path path;
+            if(!resource_path(preferred_dir, fs::path(filename.string), path))
+                compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
+            return path;
+        };
+
+        auto const check_argn = [&](unsigned expected)
+        {
+            if(args.size() != expected)
+                compiler_error(decl, fmt("Wrong number of arguments. Expecting %.", expected + 1));
+        };
+
+        std::string_view const view = script.view(source());
+
+        try
+        {
+            if(view == "mapfab"sv)
+            {
+                if(args.empty())
+                    convert_puf_music(nullptr, 0, decl);
+                else
+                {
+                    check_argn(1);
+                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
+                    convert_puf_music(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), decl);
+                }
+            }
+            else if(view == "mapfab_rlz"sv)
+            {
+                if(args.empty())
+                    convert_puf_sfx(nullptr, 0, nullptr, 0, decl);
+                else
+                {
+                    check_argn(2);
+                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
+                    std::vector<std::uint8_t> nsf_data = read_binary_file(get_path(args[1]).string(), decl);
+                    convert_puf_sfx(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), 
+                                    nsf_data.data(), nsf_data.size(), 
+                                    decl);
+                }
+            }
+            else
+                compiler_error(script, fmt("Unknown audio format: %", view));
+        }
+        catch(compiler_error_t const& e)
+        {
+            throw e;
+        }
+        catch(std::exception const& e)
+        {
+            compiler_error(script, e.what());
+        }
+        */
+    }
+
 };
 
 #endif

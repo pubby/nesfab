@@ -677,6 +677,7 @@ int main()
         keyword("nmi_counter"),
         keyword("read"),
         keyword("write"),
+        keyword("mapfab"),
 
         keyword("true"),
         keyword("false"),
@@ -790,6 +791,7 @@ int main()
         keyword(1, "rparen", ")"), // end infix ops
 
         accept("Void", "void type", word("Void")), // First type
+        accept("Vec", "Vec type", word("Vec")),
         accept("F", "F type", word("F")),
         accept("FF", "FF type", word("FF")),
         accept("FFF", "FFF type", word("FFF")),

@@ -12,7 +12,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { .op = ASM_LABEL, .flags = ASMF_FAKE },
     { .op = ASM_PRUNED, .flags = ASMF_FAKE },
     { .op = ASM_LOOP_DEPTH, .flags = ASMF_FAKE },
-    { .op = ASM_FENCE, .flags = ASMF_FAKE, },
+    { .op = ASM_FENCE, .flags = ASMF_FAKE | ASMF_FENCE, },
     { .op = ASM_DATA, .size = 1, .flags = ASMF_FAKE },
     { 
         .op = ASM_DELAY,
@@ -564,7 +564,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_IMPURE,
+        .flags = ASMF_IMPURE | ASMF_FENCE,
     },
 
     // CLV
@@ -1411,7 +1411,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_IMPURE,
+        .flags = ASMF_IMPURE | ASMF_FENCE,
     },
 
     // STA

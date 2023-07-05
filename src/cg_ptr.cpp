@@ -27,7 +27,6 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
     // Identify all banks:
     rh::batman_set<ssa_value_t> banks;
 
-    ssa_value_t prev_bank = {};
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
         auto& d = cg_data(cfg);
@@ -35,6 +34,8 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
         d.banks.first_ssa = {};
         d.banks.first = -1;
         d.banks.last = -1;
+
+        ssa_value_t prev_bank = {};
 
         for(ssa_ht ssa : d.schedule)
         {
@@ -92,65 +93,73 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
         }
     }
 
-    // Run data flow:
     auto* bs_temp = ALLOCA_T(bitset_uint_t, bs_size);
-    while(!cfg_worklist.empty())
+    auto const run_data_flow = [&]()
     {
-        cfg_ht const cfg = cfg_worklist.pop();
-        auto& d = cg_data(cfg).banks;
-
-        assert(d.first < 0);
-        assert(d.last < 0);
-
-        unsigned const input_size = cfg->input_size();
-        unsigned const output_size = cfg->output_size();
-
-        // Update 'd.in':
-
-        bitset_copy(bs_size, bs_temp, d.in);
-
-        for(unsigned i = 0; i < output_size; ++i)
-            bitset_or(bs_size, bs_temp, cg_data(cfg->output(i)).banks.in);
-
-        if(!bitset_eq(bs_size, bs_temp, d.in))
+        while(!cfg_worklist.empty())
         {
-            bitset_copy(bs_size, d.in, bs_temp);
+            cfg_ht const cfg = cfg_worklist.pop();
+            auto& d = cg_data(cfg).banks;
 
-            for(unsigned i = 0; i < input_size; ++i)
-            {
-                cfg_ht const input = cfg->input(i);
-                if(cg_data(input).banks.first < 0)
-                    cfg_worklist.push(input);
-            }
-        }
+            // We only care about CFG nodes that don't change banks:
+            assert(d.first < 0);
+            assert(d.last < 0);
 
-        // Update 'd.out':
+            unsigned const input_size = cfg->input_size();
+            unsigned const output_size = cfg->output_size();
 
-        bitset_copy(bs_size, bs_temp, d.out);
+            // Update 'd.in':
 
-        for(unsigned i = 0; i < input_size; ++i)
-            bitset_or(bs_size, bs_temp, cg_data(cfg->input(i)).banks.out);
-
-        if(!bitset_eq(bs_size, bs_temp, d.out))
-        {
-            bitset_copy(bs_size, d.out, bs_temp);
+            bitset_copy(bs_size, bs_temp, d.in);
 
             for(unsigned i = 0; i < output_size; ++i)
+                bitset_or(bs_size, bs_temp, cg_data(cfg->output(i)).banks.in);
+
+            if(!bitset_eq(bs_size, bs_temp, d.in))
             {
-                cfg_ht const output = cfg->output(i);
-                if(cg_data(output).banks.first < 0)
-                    cfg_worklist.push(output);
+                bitset_copy(bs_size, d.in, bs_temp);
+
+                for(unsigned i = 0; i < input_size; ++i)
+                {
+                    cfg_ht const input = cfg->input(i);
+                    if(cg_data(input).banks.first < 0)
+                        cfg_worklist.push(input);
+                }
+            }
+
+            // Update 'd.out':
+
+            bitset_copy(bs_size, bs_temp, d.out);
+
+            for(unsigned i = 0; i < input_size; ++i)
+                bitset_or(bs_size, bs_temp, cg_data(cfg->input(i)).banks.out);
+
+            if(!bitset_eq(bs_size, bs_temp, d.out))
+            {
+                bitset_copy(bs_size, d.out, bs_temp);
+
+                for(unsigned i = 0; i < output_size; ++i)
+                {
+                    cfg_ht const output = cfg->output(i);
+                    if(cg_data(output).banks.first < 0)
+                        cfg_worklist.push(output);
+                }
             }
         }
-    }
+    };
+
+    // Run data flow:
+    run_data_flow();
 
     // Check if the root has a single input:
     ssa_value_t first_bank_switch = {};
     locator_t first_bank_switch_loc = {};
+    unsigned first_bank_switch_index = 0;
     auto& root_d = cg_data(ir.root).banks;
     if(bitset_popcount(bs_size, root_d.in) == 1)
     {
-        first_bank_switch = banks.begin()[bitset_lowest_bit_set(bs_size, root_d.in)];
+        first_bank_switch_index = bitset_lowest_bit_set(bs_size, root_d.in);
+        first_bank_switch = banks.begin()[first_bank_switch_index];
         if(!first_bank_switch.holds_ref() || first_bank_switch->op() != SSA_fn_call)
         {
             if(first_bank_switch.is_num())
@@ -180,6 +189,17 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
         }
     }
 
+    // Adjust data flow if first_bank_switch is set:
+    if(first_bank_switch && root_d.first < 0)
+    {
+        assert(bitset_test(root_d.in, first_bank_switch_index));
+        assert(cfg_worklist.empty());
+
+        bitset_set(root_d.out, first_bank_switch_index);
+        cfg_worklist.push(ir.root);
+        run_data_flow();
+    }
+
 #ifndef NDEBUG
     if(!fn->iasm && mod_test(fn->mods(), MOD_static) && !banks.empty())
         assert(fn->returns_in_different_bank());
@@ -199,9 +219,11 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
         for(unsigned i = 0; i < input_size; ++i)
             bitset_or(bs_size, bs_temp, cg_data(cfg->input(i)).banks.out);
 
-        unsigned const popcount = bitset_popcount(bs_size, bs_temp);
-        if((popcount == 0 && first_bank_switch == banks.begin()[d.first])
-           || (popcount == 1 && bitset_test(bs_temp, d.first)))
+        assert(bitset_popcount(bs_size, bs_temp) > 0 || !first_bank_switch);
+
+        unsigned const popcount = bitset_popcount(bs_size, bs_temp) == 1;
+        if((popcount == 1 && bitset_test(bs_temp, d.first))
+           || (popcount == 0 && ssa_value_t(d.first_ssa) == first_bank_switch))
         {
             // This bank is already loaded!
             assert(d.first_ssa);

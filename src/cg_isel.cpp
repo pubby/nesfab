@@ -3965,8 +3965,10 @@ namespace isel
             p_arg<0>::set(locator_t::runtime_rom(RTROM_wait_nmi));
 
             chain
-            < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
+            < simple_op<Opt, ASM_FENCE>
+            , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
             , simple_op<Opt, write_reg_op(REGF_ISEL & ~(REGF_X | REGF_Y))>
+            , simple_op<Opt, ASM_FENCE>
             >(cpu, prev, cont);
 
             break;

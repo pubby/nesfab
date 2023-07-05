@@ -82,37 +82,44 @@ void span_allocator_t::free(span_t span)
 
     assert(pre == treap.end() || (std::next(pre) == post));
 
-    if(pre != treap.end())
+    if(pre != treap.end() && pre->span.end() == span.addr)
     {
         // combine 'pre' and 'span'
-        assert(pre->span.end() == span.addr);
-        span = { pre->span.addr, span.end() - pre->span.addr };
         m_bytes_free -= pre->span.size;
         pool.free(*pre);
         treap.erase(*pre);
     }
 
-    if(post != treap.end())
+    if(post != treap.end() && span.end() == post->span.addr)
     {
         // combine 'post' and 'span'
-        assert(span.end() == post->span.addr);
         span.size = post->span.end() - span.addr;
         m_bytes_free -= post->span.size;
         pool.free(*post);
         treap.erase(*post);
     }
 
+    assert(span.size > 0);
+
+#ifndef NDEBUG
+    for(auto const& node : treap)
+        assert(!node.span.intersects(span));
+#endif
+
     m_bytes_free += span.size;
     treap.insert(pool.alloc().assign(span));
 
     // Update the bitset
 
-    unsigned const start = ((span.addr - m_initial.addr) * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
+    unsigned const start = ((span.addr - m_initial.addr) * bitset_t::num_bits) / m_initial.size;
     unsigned const end = ((span.end() - m_initial.addr) * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
     unsigned const size = end - start;
-    assert(size > 0);
-    assert(span.contains(span_t{ start * m_initial.size / bitset_t::num_bits + m_initial.addr, 
-                                 size * m_initial.size / bitset_t::num_bits }));
+    passert(size > 0, span, m_initial);
+#ifndef NDEBUG
+    span_t c = { start * m_initial.size / bitset_t::num_bits + m_initial.addr, 
+                 size * m_initial.size / bitset_t::num_bits };
+    passert(c.contains(span), span, c);
+#endif
     m_allocated_bs -= bitset_t::filled(start, size);
 
     assert_valid();

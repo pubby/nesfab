@@ -138,11 +138,13 @@ private:
 
 std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 {
-    ////////////////////////
-    // CFG EDGE SPLITTING //
-    ////////////////////////
+    /////////////////////////////////////
+    // CFG EDGE SPLITTING AND HOISTING //
+    /////////////////////////////////////
 
-    build_loops_and_order(ir); // Needed for the splitting:
+    build_loops_and_order(ir);
+    if(cg_hoist_bank_switches(fn, ir))
+        build_loops_and_order(ir);
     split_critical_edges(ir, false);
 
     ////////////////

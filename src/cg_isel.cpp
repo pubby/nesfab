@@ -3869,7 +3869,7 @@ namespace isel
                 {
                     if(mod_test(call->mods(), MOD_static) && !h->input(1))
                     {
-                        if(!mod_test(fn->mods(), MOD_static) && call->returns_in_different_bank())
+                        if(!mod_test(state.fn->mods(), MOD_static) && call->returns_in_different_bank())
                         {
                             chain
                             < exact_op<Opt, BANKED_JSR, null_, p_arg<0>>
@@ -4032,6 +4032,7 @@ namespace isel
 
         case SSA_uninitialized:
         case SSA_cg_read_array8_direct:
+        case SSA_bank_switch:
             ignore_req_store<p_def>(cpu, prev, cont);
             break;
         default:
@@ -4372,12 +4373,13 @@ namespace isel
         case SSA_read_ptr_hw:
         case SSA_write_ptr:
         case SSA_write_ptr_hw:
+        case SSA_bank_switch:
             {
+                unsigned const i = ssa_bank_input(h->op());
                 // Handle bankswitching here, then call to 'isel_node_simple'
-                using namespace ssai::rw_ptr;
-                if(h->input(BANK) && mapper().bankswitches() && !h->test_flags(FLAG_BANK_PRELOADED))
+                if(h->input(i) && mapper().bankswitches() && !h->test_flags(FLAG_BANK_PRELOADED))
                 {
-                    p_arg<0>::set(h->input(BANK));
+                    p_arg<0>::set(h->input(i));
                     select_step<false>(load_B<Opt, p_arg<0>>);
                 }
             }

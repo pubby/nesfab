@@ -975,7 +975,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
             if(ssa_flags(ssa_it->op()) & SSAF_BANK_INPUT)
             {
                 using namespace ssai::rw_ptr;
-                ssa_value_t const bank = ssa_it->input(BANK);
+                ssa_value_t const bank = ssa_it->input(ssa_bank_input(ssa_it->op()));
 
                 if(fclass != FN_MODE && bank && is_static && mapper().bankswitches())
                     m_returns_in_different_bank = true;

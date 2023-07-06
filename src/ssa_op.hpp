@@ -196,6 +196,10 @@ constexpr unsigned ssa_bank_input(ssa_op_t op)
     case SSA_write_ptr:
     case SSA_write_ptr_hw:
         return ssai::rw_ptr::BANK;
+    case SSA_fn_call:
+        return 1;
+    case SSA_bank_switch:
+        return 0;
     default:
         assert(false);
         return ~0;

@@ -28,22 +28,15 @@ bool pure(ssa_node_t const& ssa_node)
     return true;
 }
 
-bool clobbers_unknown_bank(ssa_node_t const& ssa_node)
+bool clobbers_unknown_bank(fn_t const& fn, ssa_node_t const& ssa_node)
 {
-    if(ssa_node.op() == SSA_fn_call && get_fn(ssa_node)->returns_in_different_bank())
-        return true;
+    if(ssa_node.op() == SSA_fn_call)
+    {
+        fn_t const& call = *get_fn(ssa_node);
+        if(mod_test(call.mods(), MOD_static) && mod_test(fn.mods(), MOD_static) && call.returns_in_different_bank())
+            return true;
+    }
 
-    return false;
-}
-
-bool clobbers_bank(ssa_node_t const& ssa_node)
-{
-    if(clobbers_unknown_bank(ssa_node))
-        return true;
-
-    if((ssa_flags(ssa_node.op()) & SSAF_BANK_INPUT))
-        return true;
-    
     return false;
 }
 

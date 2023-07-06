@@ -11,24 +11,134 @@
 #include "guard.hpp"
 #include "worklist.hpp"
 #include "globals.hpp"
+#include "ir_util.hpp"
+#include "ir_algo.hpp"
 
-void cg_hoist_bank_switches(ir_t& ir)
+using inputs_int_t = std::uint64_t;
+
+struct cg_hoist_d
 {
+    ssa_value_t banks;
+    ssa_value_t header_banks;
+    inputs_int_t inputs = 0;
+};
+
+bool cg_hoist_bank_switches(fn_t const& fn, ir_t& ir)
+{
+    bool updated = false;
+
+    cfg_data_pool::scope_guard_t<cg_hoist_d> cg(cfg_pool::array_size());
+
+    auto const data = [&](cfg_ht cfg) -> cg_hoist_d& { return cfg.data<cg_hoist_d>(); };
+
+    // We'll use this to track CFG nodes that use multiple banks.
+    ssa_value_t const MANY_BANKS = locator_t();
+
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
+        auto& d = data(cfg);
+
+        // Determine if this CFG node uses a single bank:
+        ssa_value_t cfg_bank = {};
         for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
         {
-            // Identify bank
+            if(clobbers_unknown_bank(fn, *ssa))
+            {
+                cfg_bank = MANY_BANKS;
+                break;
+            }
 
+            if(!ssa_banks(ssa->op()))
+                continue;
+
+            ssa_value_t const ssa_bank = orig_def(ssa->input(ssa_bank_input(ssa->op())));
+
+            if(!ssa_bank)
+                continue;
+
+            if(!cfg_bank)
+                cfg_bank = ssa_bank;
+            else if(cfg_bank != ssa_bank)
+            {
+                cfg_bank = MANY_BANKS;
+                break;
+            }
         }
 
-        // Propagate to each header:
+        if(!cfg_bank)
+            continue;
+
+        d.banks = cfg_bank;
+
+        // Propagate to loop headers:
         for(cfg_ht header = this_loop_header(cfg); header; header = algo(header).iloop_header)
         {
+            auto& hd = data(header);
+
+            if(!hd.header_banks)
+                hd.header_banks = cfg_bank;
+            else if(cfg_bank != hd.header_banks)
+                hd.header_banks = MANY_BANKS;
         }
     }
 
-    // For each header, add a bank op
+    // Now determine loops which use a single bank:
+    for(cfg_ht header : loop_headers)
+    {
+        auto& d = data(header);
+
+        if(!d.header_banks || d.header_banks == MANY_BANKS)
+            continue;
+
+        // Don't bother with loops that have a re-entry point.
+        if(algo(header).reentry_in)
+            continue;
+
+        if(cfg_ht parent = algo(header).iloop_header)
+            if(data(parent).header_banks == d.header_banks)
+                continue;
+
+        // OK! We have a single bank.
+
+        // Make sure the bank is defined outside the loop:
+        if(d.header_banks.holds_ref() && loop_is_parent_of(header, d.header_banks->cfg_node()))
+            continue;
+
+        // Now determine our loop inputs:
+        unsigned const input_size = header->input_size();
+        if(input_size > sizeof_bits<inputs_int_t>)
+            continue;
+
+        std::uint64_t inputs = 0;
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            cfg_ht const input = header->input(i);
+            if(!loop_is_parent_of(header, input))
+                inputs |= 1ull << i;
+        }
+        
+        d.inputs = inputs;
+    }
+
+    // Then create the bank ops:
+    for(cfg_ht header : loop_headers)
+    {
+        auto& d = data(header);
+
+        if(!d.inputs)
+            continue;
+
+        bitset_for_each(d.inputs, [&](unsigned i)
+        {
+            auto ie = header->input_edge(i);
+            cfg_ht const bank_cfg = ir.split_edge(ie.output());
+            bank_cfg->emplace_ssa(SSA_bank_switch, TYPE_VOID, d.header_banks);
+        });
+
+        updated = true;
+    }
+
+    return updated;
 }
 
 locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
@@ -40,8 +150,6 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
 #endif
 
     array_pool_t<bitset_uint_t> bs_pool;
-
-    using namespace ssai::rw_ptr;
 
     // Identify all banks:
     rh::batman_set<ssa_value_t> banks;
@@ -65,10 +173,18 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
 
             ssa_value_t bank;
 
-            if(!(ssa_flags(ssa->op()) & SSAF_BANK_INPUT))
+            if(clobbers_unknown_bank(*fn, *ssa))
+            {
+                // This op clobbers banks.
+                // We'll mark it using the unique ssa_value 'ssa':
+                bank = ssa;
+                goto have_bank;
+            }
+
+            if(!ssa_banks(ssa->op()))
                 continue;
 
-            bank = orig_def(ssa->input(BANK));
+            bank = orig_def(ssa->input(ssa_bank_input(ssa->op())));
 
             if(!bank)
                 continue;
@@ -177,29 +293,32 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
     {
         first_bank_switch_index = bitset_lowest_bit_set(bs_size, root_d.in);
         first_bank_switch = banks.begin()[first_bank_switch_index];
-        if(first_bank_switch.is_num())
-            first_bank_switch_loc = locator_t::const_byte(first_bank_switch.whole());
-        else if(first_bank_switch.is_locator())
-            first_bank_switch_loc = first_bank_switch.locator();
-        else if(first_bank_switch.holds_ref())
+        if(!first_bank_switch.holds_ref() || !clobbers_unknown_bank(*fn, *first_bank_switch))
         {
-            // We can't handle non-constant banks unless it's an argument to this fn.
-
-            if(first_bank_switch->op() == SSA_read_global)
+            if(first_bank_switch.is_num())
+                first_bank_switch_loc = locator_t::const_byte(first_bank_switch.whole());
+            else if(first_bank_switch.is_locator())
+                first_bank_switch_loc = first_bank_switch.locator();
+            else if(first_bank_switch.holds_ref())
             {
-                locator_t const loc = first_bank_switch->input(1).locator();
+                // We can't handle non-constant banks unless it's an argument to this fn.
 
-                // For now, only handle arguments that aren't changed by byteify.
-                if(loc.lclass() == LOC_ARG && loc.fn() == fn && first_bank_switch->input(0)->op() == SSA_entry
-                    && loc.offset() == 0 && loc.atom() == 0 && is_byteified(loc.with_byteified(false).type().name()))
+                if(first_bank_switch->op() == SSA_read_global)
                 {
-                    first_bank_switch_loc = loc;
+                    locator_t const loc = first_bank_switch->input(1).locator();
+
+                    // For now, only handle arguments that aren't changed by byteify.
+                    if(loc.lclass() == LOC_ARG && loc.fn() == fn && first_bank_switch->input(0)->op() == SSA_entry
+                        && loc.offset() == 0 && loc.atom() == 0 && is_byteified(loc.with_byteified(false).type().name()))
+                    {
+                        first_bank_switch_loc = loc;
+                    }
+                    else
+                        first_bank_switch = {};
                 }
                 else
                     first_bank_switch = {};
             }
-            else
-                first_bank_switch = {};
         }
     }
 

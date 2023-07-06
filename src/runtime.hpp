@@ -54,6 +54,9 @@ RT(irq_bank_table) \
 RT(reset) \
 RT(jmp_xy_trampoline) \
 RT(jsr_xy_trampoline) \
+RT(jmp_trampoline) \
+RT(jsr_trampoline) \
+RT(jmp_indirect) \
 RT(iota) \
 RT(mul8) \
 RT(mapper_reset) \

@@ -6,6 +6,9 @@
 
 class locator_t;
 
+// Moves bank switches out of loops, when possible.
+void cg_hoist_bank_switches(ir_t& ir);
+
 // Call after scheduling.
 // Sets FLAG_BANK_PRELOADED on SSA nodes that don't need to bankswitch,
 // and returns the dominating bankswitch in the IR.

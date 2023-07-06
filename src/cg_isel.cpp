@@ -3865,9 +3865,21 @@ namespace isel
                     p_arg<1>::set(h->input(0).locator().with_is(IS_BANK));
 
                 fn_ht const call = get_fn(*h);
-                if(mapper().bankswitches() && !mod_test(call->mods(), MOD_static))
+                if(mapper().bankswitches())
                 {
-                    if(bankswitch_use_x())
+                    if(mod_test(call->mods(), MOD_static) && !h->input(1))
+                    {
+                        if(!mod_test(fn->mods(), MOD_static) && call->returns_in_different_bank())
+                        {
+                            chain
+                            < exact_op<Opt, BANKED_JSR, null_, p_arg<0>>
+                            , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                            >(cpu, prev, cont);
+                        }
+                        else
+                            goto call_jsr;
+                    }
+                    else if(bankswitch_use_x())
                     {
                         chain
                         < load_X<Opt, p_arg<1>>
@@ -3888,6 +3900,7 @@ namespace isel
                 }
                 else
                 {
+                call_jsr:
                     chain
                     < exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<0>>
                     , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything

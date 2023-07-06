@@ -3203,13 +3203,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         if(!is_check(D))
                         {
                             bool const is_call = sub.token.type == TOK_byte_block_call;
-                            locator_t const loc = locator_t::fn(g.handle<fn_ht>(), fn_val.lval().ulabel());
+                            fn_ht const call = g.handle<fn_ht>();
+                            locator_t const loc = locator_t::fn(call, fn_val.lval().ulabel());
                             int const iasm_child = proc.add_pstring(pstring);
 
                             op_t op; 
                             if(mapper().bankswitches())
                             {
-                                if(bankswitch_use_x())
+                                if(mod_test(call->mods(), MOD_static))
+                                {
+                                    if(!mod_test(fn->mods(), MOD_static) && call->returns_in_different_bank())
+                                        proc.push_inst({ .op = is_call ? BANKED_JSR : BANKED_JMP, .iasm_child = iasm_child, .arg = loc });
+                                    else
+                                        goto unbanked_call;
+                                }
+                                else if(bankswitch_use_x())
                                 {
                                     proc.push_inst({ .op = LDX_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
                                     proc.push_inst({ .op = is_call ? BANKED_X_JSR : BANKED_X_JMP, .iasm_child = iasm_child, .arg = loc });
@@ -3221,8 +3229,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 }
                             }
                             else
+                            {
+                            unbanked_call:
                                 proc.push_inst({ .op = is_call ? JSR_ABSOLUTE : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
-
+                            }
                         }
                     }
                     break;

@@ -28,6 +28,25 @@ bool pure(ssa_node_t const& ssa_node)
     return true;
 }
 
+bool clobbers_unknown_bank(ssa_node_t const& ssa_node)
+{
+    if(ssa_node.op() == SSA_fn_call && get_fn(ssa_node)->returns_in_different_bank())
+        return true;
+
+    return false;
+}
+
+bool clobbers_bank(ssa_node_t const& ssa_node)
+{
+    if(clobbers_unknown_bank(ssa_node))
+        return true;
+
+    if((ssa_flags(ssa_node.op()) & SSAF_BANK_INPUT))
+        return true;
+    
+    return false;
+}
+
 unsigned estimate_cost(ssa_node_t const& ssa_node)
 {
     if(ssa_flags(ssa_node.op()) & SSAF_EXPENSIVE)

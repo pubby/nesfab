@@ -750,6 +750,24 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
             }
             break;
 
+        case BANKED_JSR:
+        case BANKED_JMP:
+            {
+                assert(!inst.alt);
+                auto locs = absolute_locs(inst);
+
+                fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locs.first });
+                fn(asm_inst_t{ .op = LDX_IMMEDIATE, .arg = locs.second });
+                if(inst.op == BANKED_JSR)
+                    fn(asm_inst_t{ .op = JSR_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jsr_trampoline) });
+                else 
+                {
+                    assert(inst.op == BANKED_JMP);
+                    fn(asm_inst_t{ .op = JMP_ABSOLUTE, .arg = locator_t::runtime_rom(RTROM_jmp_trampoline) });
+                }
+            }
+            break;
+
         case ASM_X_SWITCH:
             fn(asm_inst_t{ .op = LDA_ABSOLUTE_X, .arg = inst.alt.with_is(IS_DEREF) });
             fn(asm_inst_t{ .op = PHA_IMPLIED });

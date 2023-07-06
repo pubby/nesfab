@@ -26,9 +26,12 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
 
     // Identify all banks:
     rh::batman_set<ssa_value_t> banks;
+    banks.insert(ssa_value_t()); // Dummy value.
 
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
+        assert(cfg->test_flags(FLAG_IN_WORKLIST) == false);
+
         auto& d = cg_data(cfg);
 
         d.banks.first_ssa = {};
@@ -39,6 +42,8 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
 
         for(ssa_ht ssa : d.schedule)
         {
+            assert(ssa->test_flags(FLAG_BANK_PRELOADED) == false);
+
             ssa_value_t bank;
 
             if(ssa->op() == SSA_fn_call && get_fn(*ssa)->returns_in_different_bank())
@@ -52,7 +57,7 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
             if(!(ssa_flags(ssa->op()) & SSAF_BANK_INPUT))
                 continue;
 
-            bank = ssa->input(BANK);
+            bank = orig_def(ssa->input(BANK));
 
             if(!bank)
                 continue;
@@ -65,6 +70,7 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
             auto result = banks.insert(bank);
 
             d.banks.last = int(result.first - banks.begin());
+            assert(d.banks.last > 0);
 
             if(d.banks.first < 0)
             {
@@ -81,7 +87,7 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
     for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
     {
         auto& d = cg_data(cfg).banks;
-        d.in = bs_pool.alloc(bs_size);
+        d.in  = bs_pool.alloc(bs_size);
         d.out = bs_pool.alloc(bs_size);
 
         if(d.last < 0)
@@ -152,11 +158,11 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
     run_data_flow();
 
     // Check if the root has a single input:
+    auto& root_d = cg_data(ir.root).banks;
     ssa_value_t first_bank_switch = {};
     locator_t first_bank_switch_loc = {};
     unsigned first_bank_switch_index = 0;
-    auto& root_d = cg_data(ir.root).banks;
-    if(bitset_popcount(bs_size, root_d.in) == 1)
+    if(bitset_popcount(bs_size, root_d.in) == 1 && false)
     {
         first_bank_switch_index = bitset_lowest_bit_set(bs_size, root_d.in);
         first_bank_switch = banks.begin()[first_bank_switch_index];
@@ -189,20 +195,32 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
         }
     }
 
-    // Adjust data flow if first_bank_switch is set:
-    if(first_bank_switch && root_d.first < 0)
+    if(!first_bank_switch)
+        first_bank_switch_index = 0;
+
+    // Adjust data flow:
+    if(root_d.first < 0)
     {
-        assert(bitset_test(root_d.in, first_bank_switch_index));
+        assert(!first_bank_switch || bitset_test(root_d.in, first_bank_switch_index));
         assert(cfg_worklist.empty());
 
         bitset_set(root_d.out, first_bank_switch_index);
+
+        unsigned const output_size = ir.root->output_size();
+        for(unsigned i = 0; i < output_size; ++i)
+        {
+            cfg_ht const output = ir.root->output(i);
+            if(cg_data(output).banks.first < 0)
+                cfg_worklist.push(output);
+        }
         cfg_worklist.push(ir.root);
+
         run_data_flow();
     }
 
 #ifndef NDEBUG
-    if(!fn->iasm && mod_test(fn->mods(), MOD_static) && !banks.empty())
-        assert(fn->returns_in_different_bank());
+    if(!fn->iasm && mod_test(fn->mods(), MOD_static) && banks.size() > 1)
+        passert(fn->returns_in_different_bank(), banks.size());
 #endif
 
     // Identify banks which are already loaded:
@@ -213,6 +231,8 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
         if(d.first < 0)
             continue;
 
+        ssa_value_t const bank = banks.begin()[d.first];
+
         bitset_clear_all(bs_size, bs_temp);
 
         unsigned const input_size = cfg->input_size();
@@ -221,12 +241,13 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
 
         assert(bitset_popcount(bs_size, bs_temp) > 0 || !first_bank_switch);
 
-        unsigned const popcount = bitset_popcount(bs_size, bs_temp) == 1;
+        unsigned const popcount = bitset_popcount(bs_size, bs_temp);
         if((popcount == 1 && bitset_test(bs_temp, d.first))
-           || (popcount == 0 && ssa_value_t(d.first_ssa) == first_bank_switch))
+           || (popcount == 0 && bank == first_bank_switch))
         {
             // This bank is already loaded!
             assert(d.first_ssa);
+            assert(!d.first_ssa->test_flags(FLAG_BANK_PRELOADED));
             d.first_ssa->set_flags(FLAG_BANK_PRELOADED);
         }
     }

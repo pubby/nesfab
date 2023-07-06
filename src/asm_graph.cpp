@@ -1132,7 +1132,39 @@ void asm_graph_t::optimize_live_registers()
                 {
                     dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
                     a.prune();
+                    return;
                 }
+
+                // Remove unnecessary transfers:
+                switch(b.op)
+                {
+                default: break;
+                case CMP_IMMEDIATE:
+                case CPX_IMMEDIATE:
+                case CPY_IMMEDIATE:
+                    if(!b.alt && b.arg == locator_t::const_byte(0)
+                       && op_normal(a.op) && !(op_flags(a.op) & ASMF_FAKE)
+                       && (op_output_regs(a.op) & (op_input_regs(b.op) | REGF_NZ)) == (op_input_regs(b.op) | REGF_NZ)
+                       && !(live_regs[bi] & (op_output_regs(b.op) & ~(REGF_NZ))))
+                    {
+                        goto prune_b;
+                    }
+                    break;
+                case TAY_IMPLIED:
+                case TAX_IMPLIED:
+                case TYA_IMPLIED:
+                case TXA_IMPLIED:
+                    if(op_normal(a.op) && !(op_flags(a.op) & ASMF_FAKE)
+                       && (op_output_regs(a.op) & (op_input_regs(b.op) | REGF_NZ)) == (op_input_regs(b.op) | REGF_NZ)
+                       && !(live_regs[bi] & (op_output_regs(b.op) & ~(REGF_NZ))))
+                    {
+                    prune_b:
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
+                    }
+                    break;
+                }
+
 
                 // Convert code like:
                 //     LDA foo

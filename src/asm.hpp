@@ -108,6 +108,9 @@ struct op_def_t
 
 #include "asm_tables.hpp"
 
+constexpr bool op_normal(op_t op)
+    { return op < NUM_NORMAL_OPS; }
+
 constexpr op_name_t op_name(op_t op)
     { return op < NUM_NORMAL_OPS ? op_defs_table[op].op_name : BAD_OP_NAME; }
 

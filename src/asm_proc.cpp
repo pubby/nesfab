@@ -176,6 +176,33 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             b.arg = imm;
         }
 
+        switch(b.op)
+        {
+        default: break;
+        case AND_IMMEDIATE:
+            if(!b.alt && b.arg == locator_t::const_byte(0xFF)
+               && op_normal(a.op) && !(op_flags(a.op) & ASMF_FAKE)
+               && (op_output_regs(a.op) & op_output_regs(AND_IMMEDIATE)) == op_output_regs(AND_IMMEDIATE))
+            {
+                goto prune_b;
+            }
+            break;
+        case EOR_IMMEDIATE:
+        case ORA_IMMEDIATE:
+            if(!b.alt && b.arg == locator_t::const_byte(0)
+               && op_normal(a.op) && !(op_flags(a.op) & ASMF_FAKE)
+               && (op_output_regs(a.op) & op_output_regs(EOR_IMMEDIATE)) == op_output_regs(EOR_IMMEDIATE))
+            {
+            prune_b:
+                b.op = ASM_PRUNED;
+                b.arg = {};
+                changed = true;
+                std::puts("PROC");
+                goto retry;
+            }
+            break;
+        }
+
         switch(op_name(a.op))
         {
         default: break;
@@ -252,8 +279,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer2(LDA, TYA_IMPLIED))
                 goto retry;
             break;
-
         case ALR:
+            assert(a.op == ALR_IMMEDIATE);
             if(!a.alt && a.arg == locator_t::const_byte(1) && b.op == ROL_IMPLIED)
                 replace_op(ANC_IMMEDIATE);
             break;

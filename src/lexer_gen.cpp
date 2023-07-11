@@ -931,6 +931,8 @@ int main()
         accept("dquote_ident", "quoted macro identifier", cat(word("#\""), ident(), word("\"#"))),
         accept("quote_ident", "quoted macro identifier", cat(word("#'"), ident(), word("'#"))),
         accept("backtick_ident", "quoted macro identifier", cat(word("#`"), ident(), word("`#"))),
+        accept("dash_ident", "quoted macro identifier", cat(word("#-"), ident(), word("-#"))),
+        accept("eq_ident", "quoted macro identifier", cat(word("#="), ident(), word("=#"))),
         accept("colon_ident", "macro identifier declaration", cat(word("#:"), ident(), word(":#")))
         ),
         macro_nfa_nodes);

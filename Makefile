@@ -41,6 +41,7 @@ override CXXFLAGS+= \
   -Wno-unused-parameter \
   -Wno-narrowing \
   -Wno-missing-field-initializers \
+  -Wno-unused-command-line-argument \
   -fmax-errors=3 \
   -ftemplate-depth=100 \
   -pipe \
@@ -165,7 +166,9 @@ puf.cpp \
 worklist.cpp \
 mlb.cpp \
 macro.cpp \
-o_shift.cpp
+o_shift.cpp \
+mapfab.cpp \
+define.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

@@ -40,7 +40,7 @@ public:
     parser_t() = delete;
     parser_t(Policy& policy, file_contents_t const& file);
 
-    void parse() { parse_top_level(); }
+    void parse() { if(next_char && *next_char) parse_top_level(); }
 
 private:
     char const* source() const { return file.source(); }

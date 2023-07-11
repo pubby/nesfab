@@ -50,6 +50,8 @@ std::string invoke_macro(unsigned file_i, std::vector<std::string> const& args)
             return it - params.begin();
         };
 
+        bool next_upper = false;
+
         switch(do_lex(str))
         {
         case TOK_eof: 
@@ -76,6 +78,39 @@ std::string invoke_macro(unsigned file_i, std::vector<std::string> const& args)
                 if(i < args.size())
                     ret += args[i];
             }
+            break;
+
+        case TOK_eq_ident: 
+            next_upper = true;
+            // fall-through
+        case TOK_dash_ident:
+            {
+                unsigned const i = find(std::string(begin+2, str-2));
+                if(i < args.size())
+                {
+                    for(unsigned j = 0; j < args[i].size(); ++j)
+                    {
+                        char const c = args[i][j];
+
+                        if(c == '_')
+                        {
+                            if(j != 0)
+                            {
+                                next_upper = true;
+                                continue;
+                            }
+                        }
+                        else if(next_upper)
+                        {
+                            ret.push_back(std::toupper(c));
+                            next_upper = false;
+                            continue;
+                        }
+
+                        ret.push_back(c);
+                    }
+                }
+            };
             break;
 
         case TOK_dquote_ident:   quote = '"';  goto quote_replace;

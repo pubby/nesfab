@@ -9,6 +9,7 @@
 
 #include "fnv1a.hpp"
 #include "handle.hpp"
+#include "pstring.hpp"
 
 // Maps identif
 template<typename Handle>

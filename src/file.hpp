@@ -39,7 +39,18 @@ struct std::hash<macro_invocation_t>
     }
 };
 
+template<typename Handle>
+class ident_map_t;
+class global_ht;
+class group_ht;
+
 void invoke_macro(macro_invocation_t invoke);
+
+void invoke_macro(
+    macro_invocation_t invoke,
+    ident_map_t<global_ht>&& private_globals,
+    ident_map_t<group_ht>&& private_groups,
+    std::string const& append = {});
 
 // Merges newly invoked macros into the file list.
 // Returns the range of new file indexes.
@@ -68,6 +79,8 @@ public:
     unsigned index() const { return m_file_i; }
     char const* source() const { return m_source; }
     std::size_t size() const { return m_size; }
+    ident_map_t<global_ht> const* private_globals() const { return m_private_globals; }
+    ident_map_t<group_ht> const* private_groups() const { return m_private_groups; }
 
     void clear() { m_alloc.reset(); m_size = 0; m_source = nullptr; }
     void reset(unsigned file_i);
@@ -77,6 +90,8 @@ private:
     fs::path m_path;
     char const* m_source;
     std::unique_ptr<char[]> m_alloc;
+    ident_map_t<global_ht> const* m_private_globals = nullptr;
+    ident_map_t<group_ht> const* m_private_groups = nullptr;
 };
 
 #endif

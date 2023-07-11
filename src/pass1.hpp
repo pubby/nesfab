@@ -25,6 +25,7 @@
 #include "convert.hpp"
 #include "macro.hpp"
 #include "ident_map.hpp"
+#include "mapfab.hpp"
 
 namespace bc = boost::container;
 
@@ -62,7 +63,12 @@ public:
     : file(file)
     , label_map(pstring_less_t{ file.source() })
     , unlinked_gotos(pstring_less_t{ file.source() })
-    {}
+    {
+        if(file.private_globals())
+            private_globals = *file.private_globals();
+        if(file.private_groups())
+            private_groups = *file.private_groups();
+    }
 
     // Helpers
     char const* source() { return file.source(); }
@@ -1104,21 +1110,21 @@ public:
         ideps.clear();
     }
 
+    fs::path get_path(fs::path const& preferred_dir, convert_arg_t const& v) const
+    {
+        string_literal_t filename = v.filename();
+        fs::path path;
+        if(!resource_path(preferred_dir, fs::path(filename.string), path))
+            compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
+        return path;
+    }
+
     void audio(pstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
     {
         using namespace std::literals;
 
         if(mods)
             mods->validate(decl);
-
-        auto const get_path = [&](convert_arg_t const& v)
-        {
-            string_literal_t filename = v.filename();
-            fs::path path;
-            if(!resource_path(preferred_dir, fs::path(filename.string), path))
-                compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
-            return path;
-        };
 
         auto const check_argn = [&](unsigned expected)
         {
@@ -1137,7 +1143,7 @@ public:
                 else
                 {
                     check_argn(1);
-                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
+                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(preferred_dir, args[0]).string(), decl);
                     convert_puf_music(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), decl);
                 }
             }
@@ -1148,8 +1154,8 @@ public:
                 else
                 {
                     check_argn(2);
-                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
-                    std::vector<std::uint8_t> nsf_data = read_binary_file(get_path(args[1]).string(), decl);
+                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(preferred_dir, args[0]).string(), decl);
+                    std::vector<std::uint8_t> nsf_data = read_binary_file(get_path(preferred_dir, args[1]).string(), decl);
                     convert_puf_sfx(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), 
                                     nsf_data.data(), nsf_data.size(), 
                                     decl);
@@ -1170,20 +1176,10 @@ public:
 
     void mapfab(pstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
     {
-        /* TODO
         using namespace std::literals;
 
         if(mods)
             mods->validate(decl);
-
-        auto const get_path = [&](convert_arg_t const& v)
-        {
-            string_literal_t filename = v.filename();
-            fs::path path;
-            if(!resource_path(preferred_dir, fs::path(filename.string), path))
-                compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
-            return path;
-        };
 
         auto const check_argn = [&](unsigned expected)
         {
@@ -1193,35 +1189,32 @@ public:
 
         std::string_view const view = script.view(source());
 
+        auto const get_macro = [&](unsigned i) -> std::string
+        {
+            if(auto const* str = std::get_if<string_literal_t>(&args[i].value))
+                return str->string;
+            compiler_error(args[i].pstring, "Expecting macro name string literal as argument.");
+        };
+
+        check_argn(5);
+
+        mapfab_macros_t mm;
+        mm.chr = get_macro(1);
+        mm.palette = get_macro(2);
+        mm.metatiles = get_macro(3);
+        mm.level = get_macro(4);
+
         try
         {
-            if(view == "mapfab"sv)
+            if(view == "raw"sv)
             {
-                if(args.empty())
-                    convert_puf_music(nullptr, 0, decl);
-                else
-                {
-                    check_argn(1);
-                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
-                    convert_puf_music(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), decl);
-                }
-            }
-            else if(view == "mapfab_rlz"sv)
-            {
-                if(args.empty())
-                    convert_puf_sfx(nullptr, 0, nullptr, 0, decl);
-                else
-                {
-                    check_argn(2);
-                    std::vector<std::uint8_t> txt_data = read_binary_file(get_path(args[0]).string(), decl);
-                    std::vector<std::uint8_t> nsf_data = read_binary_file(get_path(args[1]).string(), decl);
-                    convert_puf_sfx(reinterpret_cast<char const*>(txt_data.data()), txt_data.size(), 
-                                    nsf_data.data(), nsf_data.size(), 
-                                    decl);
-                }
+
+                fs::path mapfab_path = get_path(preferred_dir, args[0]);
+                std::vector<std::uint8_t> data = read_binary_file(mapfab_path.string(), decl);
+                convert_mapfab(data.data(), data.size(), decl, mapfab_path, mm);
             }
             else
-                compiler_error(script, fmt("Unknown audio format: %", view));
+                compiler_error(script, fmt("Unknown MapFab format: %", view));
         }
         catch(compiler_error_t const& e)
         {
@@ -1231,7 +1224,6 @@ public:
         {
             compiler_error(script, e.what());
         }
-        */
     }
 
 };

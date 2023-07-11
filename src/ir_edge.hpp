@@ -118,11 +118,11 @@ public:
         value = (uint & ~const_flag) | locator_flag; 
     }
 
-    constexpr void set(void const* ptr) 
+    void set(void const* ptr) 
     { 
         uint_t uint = reinterpret_cast<std::uintptr_t>(ptr);
-        assert((uint & 0b11) == 0);
         value = (uint >> 2ull) | ptr_flag;
+        assert((uint & 0b11) == 0);
         assert(is_const());
         assert(is_ptr());
         assert(!is_handle());

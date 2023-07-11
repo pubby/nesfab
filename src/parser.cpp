@@ -1633,6 +1633,8 @@ void parser_t<P>::parse_top_level_def()
         return parse_mapfab();
     case TOK_macro:
         return parse_macro();
+    case TOK_eof:
+        return;
     default:
         compiler_error("Unexpected token at top level.");
     }

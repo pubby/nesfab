@@ -14,6 +14,7 @@
 #include "asm_proc.hpp"
 #include "eternal_new.hpp"
 #include "thread.hpp"
+#include "define.hpp"
 
 using penguin_pattern_t = std::vector<std::uint8_t>;
 using asm_vec_t = std::vector<asm_inst_t>;
@@ -212,53 +213,6 @@ std::string convert_name(std::string const& in)
     }
 
     return out;
-}
-
-const_ht define_const(pstring_t at, std::string_view name, asm_proc_t&& proc, 
-                      defined_group_data_t const& d, bool omni, mod_flags_t flags)
-{
-    using namespace lex;
-
-    std::unique_ptr<mods_t> mods;
-    if(flags)
-        mods = std::make_unique<mods_t>(flags);
-
-    ast_node_t* sub_proc = eternal_emplace<ast_node_t>(ast_node_t{
-        .token = token_t::make_ptr(TOK_byte_block_sub_proc, at, 
-                                   eternal_emplace<asm_proc_t>(std::move(proc))),
-        .children = nullptr,
-    });
-
-    ast_node_t* expr = eternal_emplace<ast_node_t>(ast_node_t{
-        .token = { .type = TOK_byte_block_proc, .pstring = at, .value = 1 },
-        .children = sub_proc,
-    });
-
-    auto paa_def = std::make_unique<paa_def_t>();
-
-    global_t& global = global_t::lookup_sourceless(at, name);
-    const_ht gconst = global.define_const(
-        at, {}, { at, type_t::paa(0, d.group ? d.group->handle() : group_ht{}) }, d, omni,
-        expr, std::move(paa_def), std::move(mods));
-
-    assert(gconst);
-    return gconst;
-}
-
-const_ht define_ct(pstring_t at, std::string_view name, std::uint8_t value)
-{
-    using namespace lex;
-
-    ast_node_t* expr = eternal_emplace<ast_node_t>(ast_node_t{
-        .token = { .type = TOK_int, .pstring = at, .value = fixed_uint_t(value) << fixed_t::shift },
-    });
-
-    global_t& global = global_t::lookup_sourceless(at, name);
-    const_ht gconst = global.define_const(
-        at, {}, { at, TYPE_U }, {}, false, expr, {}, {});
-
-    assert(gconst);
-    return gconst;
 }
 
 macro_t combine_vol_duty(macro_t volume, macro_t duty)

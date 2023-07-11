@@ -22,13 +22,32 @@
 #include "format.hpp"
 #include "compiler_error.hpp"
 #include "macro.hpp"
+#include "ident_map.hpp"
+#include "decl.hpp"
+
+struct macro_result_t
+{
+    fs::path path;
+    std::string contents;
+    ident_map_t<global_ht> private_globals;
+    ident_map_t<group_ht> private_groups;
+};
 
 static std::mutex invoke_mutex;
 static rh::batman_set<macro_invocation_t> invoke_set;
-static std::deque<std::pair<fs::path, std::string>> macro_results;
-static std::deque<std::pair<fs::path, std::string>> new_macro_results;
+static std::deque<macro_result_t> macro_results;
+static std::deque<macro_result_t> new_macro_results;
 
 void invoke_macro(macro_invocation_t invoke)
+{
+    invoke_macro(std::move(invoke), {}, {});
+}
+
+void invoke_macro(
+    macro_invocation_t invoke,
+    ident_map_t<global_ht>&& private_globals,
+    ident_map_t<group_ht>&& private_groups,
+    std::string const& append)
 {
     auto* pair = compiler_options().macro_names.lookup(invoke.name);
 
@@ -37,12 +56,13 @@ void invoke_macro(macro_invocation_t invoke)
 
     unsigned const file_i = (pair - compiler_options().macro_names.begin()) + compiler_options().num_fab;
     std::string str = invoke_macro(file_i, invoke.args);
+    str += append;
     str.push_back('\0');
 
     {
         std::lock_guard<std::mutex> lock(invoke_mutex);
         if(invoke_set.insert(invoke).second)
-            new_macro_results.emplace_back(pair->second.file, std::move(str));
+            new_macro_results.push_back({ pair->second.file, std::move(str), std::move(private_globals), std::move(private_groups) });
     }
 }
 
@@ -188,6 +208,8 @@ void file_contents_t::reset(unsigned file_i)
         m_alloc.reset();
         m_source = nullptr;
         m_path = fs::path();
+        m_private_globals = nullptr;
+        m_private_groups = nullptr;
         throw std::runtime_error("Unable to open file: " + input().file.string());
     }
     else
@@ -198,8 +220,10 @@ void file_contents_t::reset(unsigned file_i)
         passert(index < macro_results.size(), index, macro_results.size());
         auto const& macro = macro_results[index];
 
-        m_path = macro.first;
-        m_size = macro.second.size()+1;
-        m_source = macro.second.data();
+        m_path = macro.path;
+        m_size = macro.contents.size()+1;
+        m_source = macro.contents.data();
+        m_private_globals = &macro.private_globals;
+        m_private_groups = &macro.private_groups;
     }
 }

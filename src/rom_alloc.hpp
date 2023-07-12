@@ -4,8 +4,8 @@
 #include <ostream>
 
 #include "debug_print.hpp"
+#include "span.hpp"
 
-struct span_t;
 class span_allocator_t;
 
 void alloc_rom(log_t* log, span_allocator_t allocator);

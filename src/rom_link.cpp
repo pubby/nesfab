@@ -10,6 +10,7 @@
 #include "runtime.hpp"
 #include "globals.hpp"
 #include "compiler_error.hpp"
+#include "eval.hpp"
 
 void link_variables_optimize()
 {
@@ -112,33 +113,71 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 
     if(chr_rom_size)
     {
-        if(!global_t::chrrom() || global_t::chrrom()->gclass() != GLOBAL_CONST)
-            compiler_warning(fmt("Mapper % requires chrrom, but none was defined.", mapper().name()));
-        else
+        using chr_span_t = generic_span_t<std::uint32_t>;
+
+        std::vector<std::pair<chr_span_t, global_t*>> spans;
+        std::uint64_t total_size = 0;
+
+        global_t::for_each_chrrom([&](global_t* g, ast_node_t const* expr)
         {
-            const_t const& chrrom = global_t::chrrom()->impl<const_t>();
+            if(g->gclass() != GLOBAL_CONST)
+                compiler_error(g->pstring(), "chrrom is not defined.");
+
+            const_t const& chrrom = g->impl<const_t>();
             rom_array_ht const rom_array = chrrom.rom_array();
             assert(rom_array);
             std::size_t const size = rom_array->data().size();
 
-            if(size > chr_rom_size)
+            std::int64_t offset = 0;
+            if(expr)
             {
-                compiler_error(chrrom.global.pstring(), 
-                    fmt("chrrom of size % is greater than the mapper's expected size of %.", 
-                        size, chr_rom_size));
-            }
-            else if(size < chr_rom_size)
-            {
-                compiler_warning(chrrom.global.pstring(), 
-                    fmt("chrrom of size % is smaller the mapper's expected size of %.", 
-                        size, chr_rom_size));
+                rpair_t const result = interpret_expr(g->pstring(), *expr, TYPE_INT);
+                if(is_lt(result.value))
+                    compiler_error(g->pstring(), "Unable to determine chrrom offset at compile-time.");
+
+                offset = std::get<ssa_value_t>(result.value[0]).signed_whole();
+
+                if(offset < 0)
+                    compiler_error(g->pstring(), fmt("Offset of % is not positive.", offset));
             }
 
-            write_linked(rom_array->data(), ROMV_MODE, 0, rom.data() + chr_rom_start);
-        }
+            chr_span_t const new_span = { offset, size };
+
+            if(new_span.end() > chr_rom_size)
+            {
+                compiler_error(g->pstring(),
+                    fmt("chrrom exceeds the mapper's expected size of % by % bytes.", 
+                        chr_rom_size, new_span.end() - chr_rom_size));
+            }
+
+            for(auto const& pair : spans)
+            {
+                if(pair.first.intersects(new_span))
+                {
+                    throw compiler_error_t(
+                        fmt_error(g->pstring(), "chrrom intersects previous chrrom.")
+                        + fmt_note(pair.second->pstring(), "Previous chrrom was defined here."));
+                }
+            }
+
+            spans.emplace_back(new_span, g);
+            total_size += size;
+
+            write_linked(rom_array->data(), ROMV_MODE, 0, rom.data() + chr_rom_start + offset);
+        });
+
+        if(total_size == 0)
+            compiler_warning(fmt("Mapper % requires chrrom, but none was defined.", mapper().name()));
+        else if(total_size < chr_rom_size)
+            compiler_warning(fmt("chrrom of size % is smaller the mapper's expected size of %.", total_size, chr_rom_size));
     }
-    else if(global_t::chrrom())
-        compiler_warning(global_t::chrrom()->pstring(), fmt("Mapper % ignores chrrom. Data will not appear in ROM.", mapper().name()));
+    else if(global_t::has_chrrom())
+    {
+        global_t::for_each_chrrom([&](global_t* g, ast_node_t const* expr)
+        {
+            compiler_warning(g->pstring(), fmt("Mapper % ignores chrrom. Data will not appear in ROM.", mapper().name()));
+        });
+    }
 
     return rom;
 }

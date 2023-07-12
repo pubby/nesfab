@@ -43,7 +43,7 @@ public:
     constexpr ssa_fwd_edge_t(fixed_t fixed, type_name_t tn) { set(fixed, tn); }
     constexpr ssa_fwd_edge_t(locator_t loc) { set(loc); }
     constexpr ssa_fwd_edge_t(ssa_ht ht, std::uint32_t index) { set(ht, index); }
-    constexpr explicit ssa_fwd_edge_t(ssa_value_t const* ptr) { set(ptr); }
+    explicit ssa_fwd_edge_t(ssa_value_t const* ptr) { set(ptr); }
 
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t const&) = default;
     constexpr ssa_fwd_edge_t(ssa_fwd_edge_t&&) = default;

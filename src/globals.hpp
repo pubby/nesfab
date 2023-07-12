@@ -196,8 +196,10 @@ public:
     static bool has_irq() { return irqs().size(); }
 
     static global_t& default_charmap(pstring_t at);
-    static global_t& chrrom(pstring_t at);
-    static global_t* chrrom();
+    static std::pair<global_t*, ast_node_t const*>& new_chrrom(pstring_t at);
+
+    static bool has_chrrom();
+    static void for_each_chrrom(std::function<void(global_t*, ast_node_t const*)> const& fn);
 private:
 
     // Sets the variables of the global:
@@ -248,6 +250,10 @@ private:
     // Tracks irqs: 
     inline static std::mutex irq_vec_mutex;
     inline static std::vector<fn_t*> irq_vec;
+
+    // Tracks chrroms: 
+    inline static std::mutex chrrom_deque_mutex;
+    inline static std::deque<std::pair<global_t*, ast_node_t const*>> chrrom_deque;
 
     // These represent a queue of globals ready to be compiled.
     inline static std::condition_variable ready_cv;

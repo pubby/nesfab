@@ -1649,12 +1649,22 @@ void parser_t<P>::parse_chrrom()
     pstring_t const decl = token.pstring;
     int const chrrom_indent = indent;
 
-    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ parse_token(TOK_chrrom); });
+    ast_node_t expr;
+    ast_node_t* expr_ptr = nullptr;
 
-    global_t& chrrom_global = global_t::chrrom(decl);
-    ast_node_t ast = parse_byte_block(decl, chrrom_indent, chrrom_global, false);
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ 
+        parse_token(TOK_chrrom); 
+        if(token.type != TOK_eol)
+        {
+            expr = parse_expr();
+            expr_ptr = &expr;
+        }
+    });
 
-    policy().chrrom(decl, ast, std::move(mods));
+    auto& pair = global_t::new_chrrom(decl);
+    ast_node_t ast = parse_byte_block(decl, chrrom_indent, *pair.first, false);
+
+    policy().chrrom(pair, decl, ast, std::move(mods), expr_ptr);
 }
 
 template<typename P>

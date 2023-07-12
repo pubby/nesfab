@@ -12,8 +12,7 @@
 #include "decl.hpp"
 #include "locator.hpp"
 #include "ssa_op.hpp"
-
-struct span_t;
+#include "span.hpp"
 
 // A single assembly instruction.
 struct asm_inst_t

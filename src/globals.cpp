@@ -177,21 +177,32 @@ global_t& global_t::default_charmap(pstring_t at)
     return *result;
 }
 
-global_t& global_t::chrrom(pstring_t at)
+std::pair<global_t*, ast_node_t const*>& global_t::new_chrrom(pstring_t at)
 {
     using namespace std::literals;
-    static TLS global_t* result = nullptr;
-    if(!result)
-        result = &lookup_sourceless(at, "chrrom"sv);
-    return *result;
+
+    global_t* g = global_ht::with_pool([&](auto& pool)
+    {
+        return &pool.emplace_back(at, "chrrom", pool.size());
+    });
+
+
+    std::lock_guard lock(chrrom_deque_mutex);
+    return chrrom_deque.emplace_back(g, nullptr);
 }
 
-global_t* global_t::chrrom() 
-{ 
-    using namespace std::literals;
-    return lookup_sourceless("chrrom"sv); 
+bool global_t::has_chrrom()
+{
+    std::lock_guard lock(chrrom_deque_mutex);
+    return !chrrom_deque.empty();
 }
 
+void global_t::for_each_chrrom(std::function<void(global_t*, ast_node_t const*)> const& fn)
+{
+    std::lock_guard lock(chrrom_deque_mutex);
+    for(auto const& pair : chrrom_deque)
+        fn(pair.first, pair.second);
+}
 
 void global_t::init()
 {

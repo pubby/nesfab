@@ -1095,7 +1095,7 @@ public:
         return *ret;
     }
 
-    void chrrom(pstring_t decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
+    void chrrom(std::pair<global_t*, ast_node_t const*>& pair, pstring_t decl, ast_node_t& ast, std::unique_ptr<mods_t> mods, ast_node_t* expr)
     {
         if(mods)
             mods->validate(decl);
@@ -1103,10 +1103,11 @@ public:
         std::unique_ptr<paa_def_t> paa_def = std::make_unique<paa_def_t>(
             std::move(fn_def.local_consts), std::move(fn_def.name_hashes));
 
-        active_global = &global_t::chrrom(decl);
+        active_global = pair.first;
         active_global->define_const(
             decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, false,
             convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
+        pair.second = convert_eternal_expr(expr);
         ideps.clear();
     }
 

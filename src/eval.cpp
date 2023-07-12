@@ -3423,12 +3423,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         if(args[0].type.name() == TYPE_TEA)
                         {
-                            if(type.size() == 0)
-                                type.unsafe_set_size(args[0].type.size());
+                            if(type.unsized())
+                                type.set_array_length(args[0].type.size());
 
                             return throwing_cast<D>(std::move(args[0]), type, implicit);
                         }
-                        else if(type.size() != 0)
+                        else if(!type.unsized())
                         {
                             // Generate a fill.
 
@@ -3436,7 +3436,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                             unsigned const num_m = num_members(type);
                             unsigned const size = type.size();
-                            assert(size);
                             assert(num_m == num_members(type.elem_type()));
 
                             if(!is_check(D))
@@ -3462,12 +3461,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         }
                     }
 
-                    if(type.size() == 0)
-                    {
-                        if(num_args == 0)
-                            compiler_error(ast.token.pstring, "Invalid array length of 0.");
-                        type.unsafe_set_size(num_args);
-                    }
+                    if(type.unsized())
+                        type.set_array_length(num_args);
                     else 
                         check_argn(type.size());
 
@@ -3833,9 +3828,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         do_sizeof:
             unsigned const size = common_type.size_of();
 
-            if(size == 0)
-                compiler_error(ast.token.pstring, fmt("Type % has no size.", common_type));
-
             common_value.set(size, TYPE_INT);
             goto push_int;
         }
@@ -3851,10 +3843,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(is_check(D))
                 goto push_int;
 
-            unsigned const size = common_type.array_length();
-
-            if(size == 0)
+            if(common_type.name() != TYPE_TEA && common_type.name() != TYPE_PAA)
                 compiler_error(ast.token.pstring, fmt("Type % isn't an array.", common_type));
+
+            unsigned const size = common_type.array_length();
 
             common_value.set(size, TYPE_INT);
             goto push_int;
@@ -4718,7 +4710,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     type = type.elem_type();
 
                 assert(num_members == 1);
-                type = ::member_type(type, lval->member);
 
                 passert(rval.size() > 0, rval.size(), lval->member);
                 ssa_ht const h = builder.cfg->emplace_ssa(

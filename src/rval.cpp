@@ -207,9 +207,6 @@ rval_t default_init(type_t type, pstring_t at)
         {
             unsigned const size = mt.size();
 
-            if(size == 0)
-                compiler_error(at, "Default initializing array of size 0.");
-
             if(!is_scalar(mt.elem_type().name()))
                 compiler_error(at, "Unable to default initialize.");
 

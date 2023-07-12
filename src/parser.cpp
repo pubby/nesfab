@@ -1160,7 +1160,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             if(token.type == TOK_rbracket)
             {
                 if(allow_blank_size)
-                    result.type = type_t::paa(0, group);
+                    result.type = type_t::paa(group);
                 else
                     compiler_error("Array length must be specified in this context.");
             }
@@ -1212,7 +1212,10 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
         if(token.type == TOK_rbracket)
         {
             if(allow_blank_size)
-                result.type = type_t::tea(result.type, 0);
+            {
+                result.type = type_t::tea(result.type);
+                assert(result.type.unsized());
+            }
             else
                 compiler_error("Array length must be specified in this context.");
         }

@@ -46,7 +46,6 @@ public:
     }
 
     void unsafe_set_name(type_name_t name) { m_name = name; }
-    void unsafe_set_size(unsigned size) { m_size = size; }
 
     type_t const* types() const 
         { assert(has_type_tail(name())); return static_cast<type_t const*>(m_tail); }
@@ -75,14 +74,17 @@ public:
     std::size_t array_length() const;
     void set_array_length(std::size_t size);
     void set_array_length(std::int64_t size, pstring_t pstring);
-    bool is_unsized_array() const { return is_array(name()) && !is_thunk(name()) && m_size == 0; }
+    bool unsized() const { return m_unsized; }
+    bool is_unsized_array() const { return is_array(name()) && !is_thunk(name()) && unsized(); }
 
     std::size_t hash() const;
 
     // Type creation functions.
+    static type_t paa(group_ht group);
     static type_t paa(unsigned size, group_ht group);
     static type_t paa(std::int64_t size, group_ht group, pstring_t);
     static type_t paa_thunk(pstring_t pstring, ast_node_t const& ast, group_ht group);
+    static type_t tea(type_t elem_type);
     static type_t tea(type_t elem_type, unsigned size);
     static type_t tea(type_t elem_type, std::int64_t size, pstring_t);
     static type_t tea_thunk(pstring_t pstring, type_t elem_type, ast_node_t const& ast);
@@ -103,6 +105,7 @@ public:
 
 private:
     type_name_t m_name = TYPE_VOID;
+    bool m_unsized = false;
 
     // Overloaded; 
     // - Holds tail size for fns and ptrs

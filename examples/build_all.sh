@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x #echo on
 
 ../nesfab cnrom/cnrom.cfg
 ../nesfab hang_glider/hang_glider.cfg

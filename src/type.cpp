@@ -91,7 +91,7 @@ type_t const* type_t::new_type(type_t const& type)
 
 bool type_t::operator==(type_t o) const
 {
-    if(m_name != o.m_name || m_size != o.m_size)
+    if(m_name != o.m_name || m_unsized != o.m_unsized || m_size != o.m_size)
         return false;
 
     if(has_type_tail(name()))
@@ -105,6 +105,13 @@ bool type_t::operator==(type_t o) const
 }
 
 group_ht type_t::group(unsigned i) const { return groups() ? groups()[i] : group_ht{}; }
+
+type_t type_t::paa( group_ht group)
+{ 
+    type_t type(TYPE_PAA, 0, group_tails.get(group)); 
+    type.m_unsized = true;
+    return type;
+}
 
 type_t type_t::paa(unsigned size, group_ht group)
 { 
@@ -121,6 +128,14 @@ type_t type_t::paa(std::int64_t size, group_ht group, pstring_t pstring)
 type_t type_t::paa_thunk(pstring_t pstring, ast_node_t const& ast, group_ht group)
 {
     return type_t(TYPE_PAA_THUNK, 0, eternal_emplace<paa_thunk_t>(pstring, ast, group));
+}
+
+type_t type_t::tea(type_t elem_type)
+{ 
+    assert(is_thunk(elem_type.name()) || !has_tea(elem_type));
+    type_t type(TYPE_TEA, 0, type_tails.get(elem_type));
+    type.m_unsized = true;
+    return type;
 }
 
 type_t type_t::tea(type_t elem_type, unsigned size)
@@ -254,12 +269,13 @@ void type_t::set_array_length(std::size_t size)
 {
     assert(name() == TYPE_TEA || name() == TYPE_PAA);
     m_size = size;
+    m_unsized = false;
 }
 
 void type_t::set_array_length(std::int64_t size, pstring_t pstring)
 {
     assert(name() == TYPE_TEA || name() == TYPE_PAA);
-    if(size <= 0 
+    if(size < 0 
        || (name() == TYPE_TEA && size > 65536)
        || (name() == TYPE_PAA && size > 65536))
     {
@@ -299,10 +315,10 @@ std::string to_string(type_t type)
         str = type.struct_().global.name;
         break;
     case TYPE_TEA:
-        str = fmt("%[%]", to_string(type.elem_type()), type.size() ? std::to_string(type.size()) : "");
+        str = fmt("%[%]", to_string(type.elem_type()), type.unsized() ? "" : std::to_string(type.size()));
         break;
     case TYPE_PAA:
-        str = fmt("[%]%", type.size() ? std::to_string(type.size()) : "",
+        str = fmt("[%]%", type.unsized() ? "" : std::to_string(type.size()),
                   type.group() ? type.group()->name : "");
         break;
     case TYPE_BANKED_APTR: str = "AAA"; goto ptr_groups;
@@ -517,7 +533,6 @@ unsigned num_members(type_t type)
     else
         ret = 1;
 
-    assert(ret > 0);
     return ret;
 }
 
@@ -606,7 +621,7 @@ unsigned member_index(type_t const& type, unsigned member)
 
 type_t member_type(type_t const& type, unsigned member)
 {
-    passert(type.name() == TYPE_VOID || member < ::num_members(type), member, type, ::num_members(type));
+    passert(::num_members(type) == 0 || member < ::num_members(type), member, type, ::num_members(type));
 
     if(type.name() == TYPE_STRUCT)
         return type.struct_().member_type(member);
@@ -712,7 +727,7 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
             type_t const elem = dethunkify({ src_type.pstring, t.elem_type() }, full, env);
             if(has_tea(elem))
                 compiler_error(src_type.pstring, "Arrays cannot be multi-dimensional.");
-            return type_t::tea(elem, t.size());
+            return t.unsized() ? type_t::tea(elem) : type_t::tea(elem, t.size());
         }
 
     case TYPE_FN:

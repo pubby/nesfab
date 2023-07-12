@@ -74,7 +74,7 @@ override CXXFLAGS+= \
   -msse4
 endif
 
-debug: CXXFLAGS += -O1 -g
+debug: CXXFLAGS += -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG -Wno-unused-variable
 static: CXXFLAGS += -static -O3 -DNDEBUG
 profile: CXXFLAGS += -O3 -DNDEBUG -g

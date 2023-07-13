@@ -279,7 +279,7 @@ void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
     std::vector<bucket_t> buckets;
     std::vector<bucket_t> allocated;
 
-    group_t& group = *group_t::lookup_sourceless(at, "puf"sv);
+    group_t& group = *group_t::lookup_sourceless(at, "/puf"sv);
     auto data_group_pair = group.define_data({}, false);
     auto omni_group_pair = group.define_data({}, true);
     assert(data_group_pair.data && omni_group_pair.data);
@@ -1245,7 +1245,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
             throw std::runtime_error("Expansion chips in NSF file are not supported.");
     }
 
-    group_t& group = *group_t::lookup_sourceless(at, "puf"sv);
+    group_t& group = *group_t::lookup_sourceless(at, "/puf"sv);
     auto data_group_pair = group.define_data({}, false);
     auto omni_group_pair = group.define_data({}, true);
     assert(data_group_pair.data && omni_group_pair.data);

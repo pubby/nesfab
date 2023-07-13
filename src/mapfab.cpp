@@ -16,6 +16,8 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
     fs::path base_path = mapfab_path;
     base_path.remove_filename();
 
+    std::cout << "PATH = " << mapfab_path << std::endl;
+
     std::uint8_t const* ptr = begin;
     std::uint8_t const* const end = begin + size;;
 
@@ -62,14 +64,18 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
     unsigned const num_chr = get8(true);
     for(unsigned i = 0; i < num_chr; ++i)
     {
+        ident_map_t<global_ht> private_globals;
+        define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
+
         macro_invocation_t m = { macros.chr };
         m.args.push_back(get_str()); // Name
 
         fs::path path = get_str();
+        std::cout << "CHR PATH " << path << std::endl;
         if(path.is_relative())
             path = base_path / path;
         m.args.push_back(path.string());
-        invoke_macro(std::move(m));
+        invoke_macro(std::move(m), std::move(private_globals), {});
         std::printf("CHR MACRO %i\n", i);
     }
 
@@ -85,6 +91,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
         ident_map_t<global_ht> private_globals;
         global_t& g = private_globals.lookup(at, "_palette"sv);
         define_ct(g, at, palette_data.data() + 25*i, 25);
+        define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
 
         macro_invocation_t m = { macros.palette };
         m.args.push_back(std::to_string(i));
@@ -131,6 +138,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
             mt_combined[i] = (mt_attributes[i] & 0b11) | (mt_collisions[i] << 2);
 
         ident_map_t<global_ht> private_globals;
+        define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
         define_ct_int(private_globals.lookup(at, "_num"sv), at, TYPE_INT, num);
         define_ct(private_globals.lookup(at, "_nw"sv), at, mt_nw.data(), num);
         define_ct(private_globals.lookup(at, "_ne"sv), at, mt_ne.data(), num);
@@ -217,6 +225,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
         }
 
         ident_map_t<global_ht> private_globals;
+        define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
         define_ct_int(private_globals.lookup(at, "_width"sv), at, TYPE_INT, w);
         define_ct_int(private_globals.lookup(at, "_height"sv), at, TYPE_INT, h);
         define_ct(private_globals.lookup(at, "_row_major"sv), at, tiles_xy.data(), tiles_xy.size());

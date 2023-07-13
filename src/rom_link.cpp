@@ -146,8 +146,8 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             if(new_span.end() > chr_rom_size)
             {
                 compiler_error(g->pstring(),
-                    fmt("chrrom exceeds the mapper's expected size of % by % bytes.", 
-                        chr_rom_size, new_span.end() - chr_rom_size));
+                    fmt("chrrom of size % at offset % exceeds the mapper's expected size of % by % bytes.", 
+                        new_span.size, new_span.addr, chr_rom_size, new_span.end() - chr_rom_size));
             }
 
             for(auto const& pair : spans)
@@ -155,7 +155,8 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
                 if(pair.first.intersects(new_span))
                 {
                     throw compiler_error_t(
-                        fmt_error(g->pstring(), "chrrom intersects previous chrrom.")
+                        fmt_error(g->pstring(), fmt("chrrom of size % at offset % intersects previous chrrom of size % at offset %.", 
+                                                    new_span.size, new_span.addr, pair.first.size, pair.first.addr))
                         + fmt_note(pair.second->pstring(), "Previous chrrom was defined here."));
                 }
             }

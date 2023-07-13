@@ -799,6 +799,12 @@ asm fn puf(U arg)
         jsr reset_init
         jmp unlock
 
+    label init_pal
+        jmp init_pal
+        ldy #(&puf_pal_note_table).a
+        ldx #(&puf_pal_note_table).b
+        jmp store_init
+
     label stop
         inc &puf_lock
         jsr reset_init
@@ -833,6 +839,7 @@ asm fn puf(U arg)
         sta puf_instrument_ptrs+3+16
         sta puf_instrument_ptrs+5+16
         sta puf_instrument_ptrs+7+16
+        sta puf_bank
 
         lda #0
         sta puf_track_speed
@@ -842,12 +849,6 @@ asm fn puf(U arg)
         jsr reset_square2
         jsr reset_triangle
         jmp reset_noise
-
-    label init_pal
-        jmp init_pal
-        ldy #(&puf_pal_note_table).a
-        ldx #(&puf_pal_note_table).b
-        jmp store_init
 
 
     label play_track

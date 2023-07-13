@@ -112,9 +112,9 @@ public:
     static group_t* lookup(char const* source, pstring_t name)
         { return lookup_sourceless(name, name.view(source)); }
     static group_t* lookup_sourceless(pstring_t name, std::string_view key)
-        { return key.empty() ? nullptr : &group_pool_map.lookup(name, key); }
+        { assert(key.empty() || key[0] == '/'); return key.empty() ? nullptr : &group_pool_map.lookup(name, key); }
     static group_t* lookup_sourceless(std::string_view view)
-        { return view.empty() ? nullptr : group_pool_map.lookup(view); }
+        { assert(view.empty() || view[0] == '/'); return view.empty() ? nullptr : group_pool_map.lookup(view); }
 
     
     template<typename Fn>

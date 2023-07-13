@@ -197,7 +197,6 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 b.op = ASM_PRUNED;
                 b.arg = {};
                 changed = true;
-                std::puts("PROC");
                 goto retry;
             }
             break;

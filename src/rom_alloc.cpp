@@ -158,7 +158,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
                 }
             }
 
-            once = (float(summed_size) / float(proc_count)) < float(rom_array.data().size());
+            once &= (float(summed_size) / float(proc_count)) < float(rom_array.data().size());
         }
 
         if(rom_array.get_alloc(ROMV_MODE))
@@ -286,10 +286,11 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
     unsigned const num_onces = rom_once_ht::pool().size();
     unsigned const num_manys = rom_many_ht::pool().size();
 
-    many_bs_size = bitset_size<>(num_manys);
     once_bs_size = bitset_size<>(num_onces);
+    many_bs_size = bitset_size<>(num_manys);
 
     // Alloc 'required_manys'
+    assert(required_many_bitsets.empty());
     required_many_bitsets.resize(num_onces * many_bs_size);
     for(rom_once_ht once : rom_once_ht::handles())
         once->required_manys = &required_many_bitsets[once.id * many_bs_size];
@@ -397,7 +398,9 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
                 // For each ONCE we use, make all MANYs we've built requirements
                 use_once.for_each([&](unsigned once_i)
                 {
+                    assert(rom_once_ht{once_i}->required_manys);
                     bitset_or(many_bs_size, rom_once_ht{once_i}->required_manys, use_many.data());
+                    assert(bitset_test(rom_once_ht{once_i}->required_manys, rom_proc.get_alloc(romv_t(romv)).handle()));
                 });
             }
             else if(rom_proc.get_alloc(romv_t(romv)).rclass() == ROMA_ONCE)
@@ -521,6 +524,14 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
 
         realloced_manys.clear();
 
+        bitset_for_each_test(many_bs_size, once.required_manys, [&](unsigned i)
+        {
+            rom_many_ht many_h = rom_many_ht{ i };
+            rom_many_t& many = *many_h;
+
+            return true;
+        });
+
         // TODO: Sort the manys first, instead of iterating bitset.
         bool const allocated_manys = 
         bitset_for_each_test(many_bs_size, once.required_manys, [&](unsigned i)
@@ -539,7 +550,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
 
             bank_bitset_t in_banks = many.in_banks;
             in_banks.set(bank_i);
-            if(realloc_many(many_h, in_banks))
+            if(realloc_many(many_h, std::move(in_banks)))
             {
                 realloced_manys.push_back(many_h);
                 return true;
@@ -562,6 +573,17 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
         once.bank = bank_i;
         bank.allocated_onces.set(once_h.id);
         passert(once.span.addr % once.desired_alignment == 0, once.span.addr, once.desired_alignment);
+
+#ifndef NDEBUG
+        bool const did_manys  = 
+        bitset_for_each_test(many_bs_size, once.required_manys, [&](unsigned i)
+        {
+            rom_many_ht many_h = rom_many_ht{ i };
+            rom_many_t& many = *many_h;
+            return many.span == span_t{0,1} || many.in_banks.test(bank_i);
+        });
+        assert(did_manys);
+#endif
         return;
     }
 
@@ -573,6 +595,9 @@ bool rom_allocator_t::try_include_many(rom_many_ht many_h, unsigned bank_i)
     rom_many_t& many = *many_h;
 
     assert(!many.in_banks.test(bank_i)); // Handle prior.
+
+    if(many.span == span_t{ .addr = 0, .size = 1 })
+        return true;
 
     if(!many.span)
         return false;
@@ -594,6 +619,12 @@ void rom_allocator_t::free_many(rom_many_ht many_h, unsigned bank_i)
 {
     rom_many_t& many = *many_h;
     rom_bank_t& bank = banks[bank_i];
+
+    if(many.max_size() == 0)
+    {
+        many.in_banks.clear(bank_i);
+        return;
+    }
 
     assert(many.in_banks.test(bank_i));
 
@@ -617,20 +648,14 @@ void rom_allocator_t::free_many(rom_many_ht many_h, unsigned bank_i)
 bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
 {
     rom_many_t& many = *many_h;
-    
+
+    assert((many.in_banks & in_banks) == many.in_banks);
+
     if(many.max_size() == 0)
     {
         many.span = { .addr = 0, .size = 1 };
+        many.in_banks = std::move(in_banks);
         return true;
-    }
-
-    if(many.span)
-    {
-        // If we're already allocated, free our memory first
-        assert(!many.in_banks.all_clear());
-        many.in_banks.for_each([&](unsigned bank_i){ free_many(many_h, bank_i); });
-        many.in_banks = {};
-        many.span = {};
     }
 
     // Build bitset 'free', which tracks which spans are free in every banks required.
@@ -668,6 +693,14 @@ bool rom_allocator_t::realloc_many(rom_many_ht many_h, bank_bitset_t in_banks)
     if(!(alloc_at = aligned(range, many.max_size(), many.desired_alignment)))
         return false;
 
+    if(many.span)
+    {
+        // If we're already allocated, free our memory first.
+        // NOTE: Ideally, we would do this much earlier.
+        assert(!many.in_banks.all_clear());
+        many.in_banks.for_each([&](unsigned bank_i){ free_many(many_h, bank_i); });
+    }
+
     // Now allocate in each bank:
     in_banks.for_each([&](unsigned bank_i)
     {
@@ -703,12 +736,12 @@ void print_rom(std::ostream& o)
         o << "STATIC " << st.span << '\n';
     for(auto const& many : rom_many_ht::values())
     {
-        o << "MANY " << many.span << ' ' << many.data.rclass();
+        o << "MANY " << many.span << ' ' << (int)many.data.rclass() << " banks: ";
         many.in_banks.for_each([&](unsigned bank_i) { o << ' ' << bank_i; });
         o << std::endl;
     }
     for(auto const& once : rom_once_ht::values())
-        o << "ONCE " << once.span << ' ' << once.bank << ' ' << (int)once.data.rclass() << std::endl;
+        o << "ONCE " << once.span << ' ' << (int)once.data.rclass() << " banks: " << once.bank << std::endl;
 
     for(fn_t const& fn : fn_ht::values())
     {
@@ -718,6 +751,12 @@ void print_rom(std::ostream& o)
             if(auto a = fn.rom_proc()->get_alloc(romv_t(romv)))
             {
                 o << romv << ' ' << a.get()->span << std::endl;
+                o << "banks:";
+                a.for_each_bank([&](unsigned bank)
+                {
+                    o << ' ' << bank;
+                });
+                o << std::endl;
                 fn.rom_proc()->asm_proc().write_assembly(o, romv_t(romv));
             }
             else
@@ -731,13 +770,22 @@ void print_rom(std::ostream& o)
             continue;
 
         o << "\n\n" << c.global.name << " / " << c.rom_array() << ": " << "\n";
+        if(group_ht group = c.group())
+            o << "group: " << group->name << '\n';
         for(unsigned romv = 0; romv < NUM_ROMV; ++romv)
         {
             if(!c.rom_array())
                 continue;
+            o << "omni: " << c.rom_array()->omni() << '\n';
             if(auto a = c.rom_array()->get_alloc(romv_t(romv)))
             {
                 o << romv << ' ' << a.get()->span << ' ' << a.first_bank() << std::endl;
+                o << "banks:";
+                a.for_each_bank([&](unsigned bank)
+                {
+                    o << ' ' << bank;
+                });
+                o << std::endl;
                 for(auto const& d : c.rom_array()->data())
                     o << d << std::endl;
             }

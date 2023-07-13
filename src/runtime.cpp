@@ -188,7 +188,7 @@ unsigned bankswitch_a(asm_proc_t& proc, unsigned next_label, bool x)
             {
                 proc.push_inst(ORA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
                 proc.push_inst(TAX_IMPLIED);
-                proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
+                proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
             }
             else
             {
@@ -304,7 +304,7 @@ unsigned bankswitch_x(asm_proc_t& proc, unsigned next_label)
                 proc.push_inst(TXA_IMPLIED);
                 proc.push_inst(ORA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
                 proc.push_inst(TAX_IMPLIED);
-                proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
+                proc.push_inst(STA_ABSOLUTE_X, locator_t::runtime_rom(RTROM_iota));
             }
             else
             {
@@ -419,7 +419,7 @@ unsigned bankswitch_y(asm_proc_t& proc, unsigned next_label)
                 proc.push_inst(TYA_IMPLIED);
                 proc.push_inst(ORA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_state));
                 proc.push_inst(TAY_IMPLIED);
-                proc.push_inst(STA_ABSOLUTE, locator_t::addr(bankswitch_addr()));
+                proc.push_inst(STA_ABSOLUTE_Y, locator_t::runtime_rom(RTROM_iota));
             }
             else
             {

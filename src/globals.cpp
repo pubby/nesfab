@@ -631,7 +631,8 @@ global_t* global_t::completed()
     {
         ret = newly_ready[0];
         std::lock_guard lock(ready_mutex);
-        --globals_left;
+        if(globals_left)
+            --globals_left;
     }
     else if(newly_ready_size == 0)
     {

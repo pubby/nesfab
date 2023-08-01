@@ -29,17 +29,17 @@ void parallelize(unsigned const num_threads, Fn const& fn, OnError const& on_err
     fn(exception_thrown);
     return;
 #else
-    std::vector<std::thread> threads;
-    threads.reserve(num_threads);
-
-    std::vector<std::exception_ptr> exception_ptrs;
-    exception_ptrs.resize(num_threads, nullptr);
-
     if(num_threads == 1)
     {
         fn(exception_thrown);
         return;
     }
+
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+
+    std::vector<std::exception_ptr> exception_ptrs;
+    exception_ptrs.resize(num_threads, nullptr);
 
     for(unsigned i = 0; i < num_threads; ++i)
     {
@@ -59,12 +59,14 @@ void parallelize(unsigned const num_threads, Fn const& fn, OnError const& on_err
         }, std::ref(exception_ptrs[i]));
     }
 
-    for(unsigned i = 0; i < num_threads; ++i)
-    {
+    for(unsigned i = 0; i < threads.size(); ++i)
         threads[i].join();
+
+    threads.clear();
+
+    for(unsigned i = 0; i < num_threads; ++i)
         if(exception_ptrs[i])
             std::rethrow_exception(exception_ptrs[i]);
-    }
 #endif
 }
 

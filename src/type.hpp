@@ -33,7 +33,7 @@ public:
     {
         if(!has_type_tail(name()))
             return 0;
-        if(name() == TYPE_TEA)
+        if(name() == TYPE_TEA || name() == TYPE_VEC)
             return 1;
         return size();
     }
@@ -52,7 +52,7 @@ public:
     group_ht const* groups() const 
         { assert(has_group_tail(name())); return static_cast<group_ht const*>(m_tail); }
 
-    type_t type(unsigned i) const { assert(has_type_tail(name())); assert(i < type_tail_size()); assert(types()); return types()[i]; }
+    type_t type(unsigned i) const { assert(has_type_tail(name())); passert(i < type_tail_size(), i); assert(types()); return types()[i]; }
     type_t elem_type() const;
     group_ht group(unsigned i = 0) const;
 
@@ -151,8 +151,8 @@ struct src_type_t
 
 inline type_t type_t::elem_type() const
 { 
-    assert(is_tea(name()));
-    if(name() == TYPE_TEA)
+    assert(is_tea(name()) || is_vec(name()));
+    if(name() == TYPE_TEA || name() == TYPE_VEC)
         return type(0); 
     assert(name() == TYPE_TEA_THUNK);
     return tea_thunk().elem_type;
@@ -172,6 +172,7 @@ unsigned member_offset(type_t type, unsigned member);
 unsigned member_index(type_t const& type, unsigned member);
 type_t member_type(type_t const& type, unsigned member);
 type_t strip_array(type_t const& type);
+type_t unstrip_array(type_t const& type, type_t const& replace);
 bool has_tea(type_t const& type);
 bool ptr_to_vars(type_t const& type);
 

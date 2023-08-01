@@ -1951,6 +1951,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     case TOK_unary_ref:
         {
             expr_value_t value = do_expr<D>(ast.children[0]);
+
+            if(is_ct(value.type))
+                compiler_error(value.pstring, fmt("Cannot get address from type %.", value.type));
+
             if(lval_t const* lval = value.is_lval())
             {
                 type_t base_type = value.type;
@@ -1975,16 +1979,16 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 std::uint16_t offset = 0;
                 ssa_value_t nonconst_index = {};
 
-                if(lval->index)
+                if(ssa_value_t index = lval->index())
                 {
-                    if(lval->index.is_num())
-                        offset = lval->index.whole();
+                    if(index.is_num())
+                        offset = index.whole();
                     else
                     {
                         if(!is_compile(D))
                             compiler_error(value.pstring, "Cannot get address.");
 
-                        nonconst_index = lval->index;
+                        nonconst_index = index;
                     }
                 }
 
@@ -2032,14 +2036,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             if(!is_paa(c.type().name()))
                                 compiler_error(value.pstring, "Cannot get address of a constant that isn't a pointer-addressible array.");
 
-                            return make_ptr(locator_t::gconst(c.handle(), lval->member, lval->uatom(), offset), 
+                            return make_ptr(locator_t::gconst(c.handle(), lval->member(), lval->uatom(), offset), 
                                             type_t::addr(c.banked), c.banked, nonconst_index);
                         }
 
                     case GLOBAL_VAR:
                         {
                             gvar_t const& gvar = lval->global().impl<gvar_t>();
-                            return make_ptr(locator_t::gmember(gvar.begin() + lval->member, lval->uatom(), offset), 
+                            return make_ptr(locator_t::gmember(gvar.begin() + lval->member(), lval->uatom(), offset), 
                                             type_t::addr(false), false, nonconst_index);
                         }
 
@@ -2057,7 +2061,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                         fn->mark_referenced_return();
                                     else
                                         assert(fn->referenced_return());
-                                    loc = locator_t::ret(fn, lval->member, lval->uatom(), offset); 
+                                    loc = locator_t::ret(fn, lval->member(), lval->uatom(), offset); 
                                 }
                                 else
                                 {
@@ -2066,7 +2070,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                         fn->mark_referenced_param(lval->arg);
                                     else
                                         assert(fn->referenced_param(lval->arg));
-                                    loc = locator_t::arg(fn, lval->arg, lval->member, lval->uatom(), offset); 
+                                    loc = locator_t::arg(fn, lval->arg, lval->member(), lval->uatom(), offset); 
                                 }
 
                                 return make_ptr(loc, type_t::addr(false), false, nonconst_index);
@@ -2096,10 +2100,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             fn->mark_referenced_param(local_i);
                         else
                             passert(fn->referenced_param(local_i), local_i, fn->global.name);
-                        loc = locator_t::arg(fn->handle(), local_i, lval->member, lval->uatom());
+                        loc = locator_t::arg(fn->handle(), local_i, lval->member(), lval->uatom());
                     }
                     else if(fn->iasm)
-                        loc = locator_t::asm_local_var(fn->handle(), to_local_i(var_i), lval->member, lval->uatom());
+                        loc = locator_t::asm_local_var(fn->handle(), to_local_i(var_i), lval->member(), lval->uatom());
                     else
                         goto cannot_get_address;
 
@@ -2289,12 +2293,15 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             type_t elem_type = lhs.type;
             unsigned tea_length = 0;
             bool const is_tea = ::is_tea(elem_type.name());
+            bool const is_vec = ::is_vec(elem_type.name());
             if(is_tea)
             {
                 tea_length = elem_type.size();
                 passert(tea_length > 0, lhs.type, " | ", elem_type);
                 elem_type = elem_type.elem_type();
             }
+            else if(is_vec)
+                elem_type = elem_type.elem_type();
 
             // Used later on:
             int member = -1;
@@ -2415,7 +2422,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 unsigned const member_i = member_index(lhs.type, field_i);
 
                 if(lhs.is_lval())
-                    lhs.lval().member += member_i;
+                    lhs.lval().add_field(field_i, member_i);
                 else if(lhs.is_rval())
                 {
                     if(!is_check(D))
@@ -2439,6 +2446,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 if(is_tea)
                     lhs.type = type_t::tea(ptr->second.type(), tea_length);
+                else if(is_vec)
+                    lhs.type = type_t::vec(ptr->second.type());
                 else
                     lhs.type = ptr->second.type();
             }
@@ -2590,6 +2599,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 if(is_tea)
                     result_type = type_t::tea(result_type, tea_length);
+                else if(is_vec)
+                    result_type = type_t::vec(result_type);
 
             have_member:
 
@@ -2600,13 +2611,28 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 {
                     assert(lhs.lval().atom < 0 || atom == 0);
                     lhs.lval().atom = atom;
-                    lhs.lval().member += member;
+                    lhs.lval().add_field(-1, member);
                 }
                 else if((is_interpret(D) && lhs.is_rval())
                         || (is_compile(D) && (lhs.is_ct() || lhs.is_lt())))
                 {
                     if(atom < 0)
-                        lhs.rval() = { lhs.rval()[member] };
+                    {
+                        if(is_vec)
+                        {
+                            assert(lhs.rval().size() == 1);
+                            auto& shared = std::get<vec_ptr_t>(lhs.rval()[0]);
+
+                            // If the vec has multiple owners, copy it, creating a new one.
+                            if(shared.use_count() > 1)
+                                shared = std::make_shared<vec_t>(*shared);
+
+                            for(auto& rval : shared->data)
+                                rval = { rval.at(member) };
+                        }
+                        else
+                            lhs.rval() = { lhs.rval()[member] };
+                    }
                     else
                     {
                         if(tea_length > 0)
@@ -2618,6 +2644,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 to[i] = _interpret_shift_atom(from[i], shift, lhs.pstring);
 
                             lhs.rval() = { std::move(to) };
+                        }
+                        else if(is_vec)
+                        {
+                            assert(lhs.rval().size() == 1);
+                            auto& shared = std::get<vec_ptr_t>(lhs.rval()[0]);
+
+                            // If the vec has multiple owners, copy it, creating a new one.
+                            if(shared.use_count() > 1)
+                                shared = std::make_shared<vec_t>(*shared);
+
+                            for(auto& rval : shared->data)
+                                rval = { _interpret_shift_atom(std::get<ssa_value_t>(rval.at(member)), shift, lhs.pstring) };
                         }
                         else
                             lhs.rval() = { _interpret_shift_atom(lhs.ssa(member), shift, lhs.pstring) };
@@ -3417,6 +3455,25 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         result.val = std::move(new_rval);
                     }
                 }
+                else if(type.name() == TYPE_VEC)
+                {
+                    for(unsigned i = 0; i < num_args; ++i)
+                        args[i] = throwing_cast<D>(std::move(args[i]), type.elem_type(), implicit);
+
+                    if(is_interpret(D))
+                    {
+                        // Create a new rval.
+                        vec_t vec;
+                        for(unsigned j = 0; j < num_args; ++j)
+                            vec.data.push_back(args[j].rval());
+                        result.val = rval_t{ std::make_shared<vec_t>(std::move(vec)) };
+                    }
+                    else if(!is_check(D))
+                        compiler_error(ast.token.pstring, fmt("Unable to cast % at run-time.", type));
+
+                    result.type = type;
+                    return result;
+                }
                 else if(type.name() == TYPE_TEA)
                 {
                     if(num_args == 1)
@@ -3543,11 +3600,16 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             expr_value_t array_val = do_expr<D>(ast.children[0]);
 
+            bool const is_tea = ::is_tea(array_val.type.name());
             bool const is_ptr = ::is_ptr(array_val.type.name());
             bool const is_mptr = ::is_mptr(array_val.type.name());
+            bool const is_vec = ::is_vec(array_val.type.name());
 
             if(is_ptr && is_interpret(D))
                 compiler_error(ast.token.pstring, "Pointers cannot be dereferenced at compile-time.");
+
+            if(is_vec && is_compile(D))
+                compiler_error(ast.token.pstring, "Vecs cannot be used at run-time.");
 
             if(is_ptr && ::is_aptr(array_val.type.name()))
             {
@@ -3556,7 +3618,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     is8 ? "[]" : "{}"));
             }
 
-            if(!is_tea(array_val.type.name()) && !is_ptr)
+            if(!is_tea && !is_vec && !is_ptr)
             {
                 std::string note;
                 if(is_paa(array_val.type.name()))
@@ -3624,11 +3686,22 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(is_interpret(D) || is_link(D))
             {
                 unsigned const index = array_index.whole();
-                if(index >= array_val.type.array_length())
+                unsigned length = 0;
+
+                if(is_tea)
+                    length = array_val.type.array_length();
+                else if(is_vec)
+                {
+                    auto result = to_rval<D>(array_val);
+                    vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+                    length = vec->data.size();
+                }
+
+                if(index >= length)
                 {
                     compiler_error(array_index.pstring, 
                         fmt("Array index is out of bounds. (index: % >= size: %)", 
-                            index, array_val.type.array_length()));
+                            index, length));
                 }
             }
 
@@ -3666,11 +3739,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 {
                     if(!is8)
                         array_val.lval().flags |= LVALF_INDEX_16;
-                    assert(!array_val.lval().index);
+                    assert(is_vec || !array_val.lval().index());
 
-                    array_val.lval().index = array_index.ssa();
+                    array_val.lval().add_index(array_index.ssa());
 
-                    assert(array_val.lval().index);
+                    assert(array_val.lval().index());
                 }
             }
             else if(rval_t* rval_ptr = array_val.is_rval())
@@ -3680,8 +3753,19 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(is_interpret(D))
                 {
                     unsigned const index = array_index.whole();
-                    for(auto& v : rval) // TODO: handle link
-                        v = std::get<ct_array_t>(v)[index];
+                    if(is_tea)
+                    {
+                        for(auto& v : rval) // TODO: handle link
+                            v = std::get<ct_array_t>(v)[index];
+                    }
+                    else
+                    {
+                        assert(is_vec);
+                        assert(rval.size() == 1);
+                        // Don't combine next two lines.
+                        auto new_rval = std::get<vec_ptr_t>(rval[0])->data[index];
+                        rval = std::move(new_rval);
+                    }
                 }
                 else if(is_compile(D))
                 {
@@ -3820,6 +3904,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_sizeof_expr:
         common_type = do_expr<CHECK>(ast.children[0]).type;
+        if(common_type.name() == TYPE_VEC)
+        {
+            auto result = to_rval<D>(do_expr<D>(ast.children[0]));
+            vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+            type_t elem_type = dethunkify({ ast.token.pstring, result.type }, true, this);
+            common_value.set(vec->data.size() * elem_type.size_of(), TYPE_INT);
+            goto push_int;
+        }
         goto do_sizeof;
 
     case TOK_sizeof:
@@ -3834,6 +3926,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_len_expr:
         common_type = do_expr<CHECK>(ast.children[0]).type;
+        if(common_type.name() == TYPE_VEC)
+        {
+            auto result = to_rval<D>(do_expr<D>(ast.children[0]));
+            vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+            common_value.set(vec->data.size(), TYPE_INT);
+            goto push_int;
+        }
         goto do_len;
 
     case TOK_len:
@@ -4473,10 +4572,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
     if(lval_t* lval = v.is_lval())
     {
-        unsigned const num_members = ::num_members(v.type);
-        type_t type = {};
-        rval_t rval;
-
         if(lval->arg == lval_t::READY_ARG)
         {
             if(is_compile(D))
@@ -4549,6 +4644,10 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         else if(lval->arg == lval_t::RETURN_ARG)
             compiler_error(v.pstring, "Cannot access the value of return.");
 
+        unsigned const num_members = ::num_members(v.type);
+        type_t type = {};
+        rval_t rval;
+
         if(lval->is_global())
         {
             global_t const& global = lval->global();
@@ -4563,15 +4662,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 if(!is_check(D))
                 {
                     const_t const& c = global.impl<const_t>();
-
                     rval = c.rval();
                     type = c.type();
-
-                    // Shrink the rval to only contain the specified field.
-                    if(lval->member != 0)
-                        for(unsigned i = 0; i < num_members; ++i)
-                            rval[i] = std::move(rval[i + lval->member]);
-                    rval.resize(num_members);
                 }
                 break;
 
@@ -4592,18 +4684,17 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 if(lval->arg < 0)
                 {
                     assert(v.type.name() == TYPE_FN);
-                    assert(lval->member == 0);
+                    assert(lval->member() == 0);
                     assert(lval->atom < 0);
-                    assert(!lval->index);
+                    assert(!lval->index());
                     assert(lval->is_global());
 
                     v.val = rval_t{ ssa_value_t(locator_t::fn(global.handle<fn_ht>(), lval->ulabel())) };
-                    type = v.type;
-
                     assert(v.rval().size() == 1);
                 }
                 else
                     compiler_error(v.pstring, "Cannot use the value of a function parameter or return this way.");
+
                 return v;
             default:
                 assert(false);
@@ -4616,15 +4707,28 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             if(D == INTERPRET_CE)
             {
                 if(fn && fn->iasm)
+                {
                     throw compiler_error_t(
                         fmt_error(v.pstring, "Expression cannot be evaluated at compile-time.")
                         + fmt_note("Did you forget to prefix a variable with '&'?"));
+                }
                 else
                     compiler_error(v.pstring, "Expression cannot be evaluated at compile-time.");
             }
+
         have_var_i:
             type = var_type(lval->var_i());
-            rval.resize(num_members);
+            rval.resize(::num_members(type));
+        }
+
+        if(!is_check(D) && lval->is_var())
+        {
+            if(is_interpret(D) || (is_compile(D) && (v.is_ct() || v.is_lt())))
+                for(unsigned i = 0; i < rval.size(); ++i)
+                    rval[i] = interpret_locals[to_local_i(lval->var_i())][i];
+            else if(is_compile(D))
+                for(unsigned i = 0; i < rval.size(); ++i)
+                    rval[i] = var_lookup(builder.cfg, lval->var_i(), i);
         }
 
         if(is_check(D))
@@ -4635,38 +4739,120 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
         assert(type.name());
 
-        if(is_interpret(D) || (is_compile(D) && (v.is_ct() || v.is_lt())))
+        // Resolve the accesses:
+        for(auto const& access : lval->accesses)
         {
-            if(lval->is_var())
-                for(unsigned i = 0; i < num_members; ++i)
-                    rval[i] = interpret_locals[to_local_i(lval->var_i())][lval->member + i];
-
-            if(lval->index)
+            switch(access.aclass)
             {
-                type_t const mt = ::member_type(type, lval->member);
+            default:
+                assert(false);
+                break;
+            case lval_t::ACCESS_INDEX:
+                {
+                    if(is_interpret(D) || (is_compile(D) && (v.is_ct() || v.is_lt())))
+                    {
+                        unsigned const index = access.index.whole();
+                        if(is_tea(type.name()))
+                        {
+                            assert(index < type.array_length());
+                            for(auto& v : rval)
+                                v = std::get<ct_array_t>(v)[index];
+                        }
+                        else
+                        {
+                            assert(is_vec(type.name()));
+                            assert(rval.size() == 1);
+                            assert(index <  std::get<vec_ptr_t>(rval[0])->data.size());
+                            // Don't combine the next two lines.
+                            auto new_rval = std::get<vec_ptr_t>(rval[0])->data.at(index);
+                            rval = std::move(new_rval);
+                        }
+                    }
+                    else if(is_compile(D))
+                    {
+                        assert(is_tea(type.name()));
 
-                passert(is_tea(mt.name()), mt);
-                assert(lval->index.is_num());
+                        for(unsigned i = 0; i < rval.size(); ++i)
+                        {
+                            type_t const mt = ::member_type(type, i);
+                            assert(is_tea(mt.name()));
 
-                unsigned const index = lval->index.whole();
-                assert(index < mt.array_length());
-                for(auto& v : rval)
-                    v = std::get<ct_array_t>(v)[index];
-            }
+                            rval[i] = builder.cfg->emplace_ssa(
+                                (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8,
+                                mt.elem_type(), from_variant<D>(rval[i], mt), ssa_value_t(0u, TYPE_U20), access.index);
+                        }
+                    }
+                    else
+                        assert(false);
 
-            if(lval->atom >= 0)
-            {
-                type = ::member_type(type, lval->member);
-                if(lval->index)
                     type = type.elem_type();
+                }
+                break;
 
-                assert(num_members == 1);
+            case lval_t::ACCESS_FIELD:
+                {
+                    auto const field_i = access.field;
+                    type_t const stripped = strip_array(type);
+
+                    type_t field_type;
+                    unsigned member;
+
+                    if(field_i >= 0)
+                    {
+                        struct_t const& s = stripped.struct_();
+                        field_t const& field = s.field(field_i);
+                        field_type = field.type();
+                        member = s.member(field_i);
+                    }
+                    else
+                    {
+                        field_type = ::member_type(stripped, access.member);
+                        member = access.member;
+                    }
+
+                    unsigned const num_members = ::num_members(field_type);
+
+                    auto const reduce_rval = [&](rval_t& rval)
+                    {
+                        if(member)
+                            for(unsigned i = 0; i < num_members; ++i)
+                                rval[i] = std::move(rval[i + member]);
+                        rval.resize(num_members);
+                    };
+
+                    if(is_vec(type.name()))
+                    {
+                        assert(rval.size() == 1);
+                        auto& old_vec = std::get<vec_ptr_t>(rval[0]);
+                        vec_t new_vec;
+                        for(auto rval : old_vec->data)
+                        {
+                            reduce_rval(rval);
+                            new_vec.data.push_back(std::move(rval));
+                        }
+                        rval[0] = std::make_shared<vec_t>(std::move(new_vec));
+                    }
+                    else
+                        reduce_rval(rval);
+
+                    type = unstrip_array(type, field_type);
+                }
+                break;
+            }
+        }
+
+        // Resolve atom:
+        if(lval->atom >= 0)
+        {
+            passert(rval.size() > 0, rval.size());
+
+            if(is_interpret(D) || (is_compile(D) && (v.is_ct() || v.is_lt())))
+            {
+                int const shift = lval->atom - frac_bytes(strip_array(type).name());
 
                 if(is_tea(type.name()))
                 {
-                    assert(is_tea(v.type.name()));
                     assert(v.type.elem_type() == TYPE_U);
-                    int const shift = lval->atom - frac_bytes(type.elem_type().name());
 
                     unsigned const tea_length = type.array_length();
                     ct_array_t const& from = std::get<ct_array_t>(rval[0]);
@@ -4676,42 +4862,29 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                         to[i] = _interpret_shift_atom(from[i], shift, v.pstring);
 
                     rval = { std::move(to) };
+                    type = type_t::tea(TYPE_U, tea_length);
+                }
+                else if(is_vec(type.name()))
+                {
+                    assert(rval.size() == 1);
+                    passert(std::holds_alternative<vec_ptr_t>(rval[0]), rval[0].index(), type, lval->accesses.size());
+                    auto& old_vec = std::get<vec_ptr_t>(rval[0]);
+                    vec_t new_vec;
+                    for(auto rval : old_vec->data)
+                        new_vec.data.push_back({ _interpret_shift_atom(std::get<ssa_value_t>(rval[0]), shift, v.pstring) });
+                    rval[0] = std::make_shared<vec_t>(std::move(new_vec));
                 }
                 else
                 {
+                    assert(!is_vec(type.name()));
                     assert(v.type == TYPE_U);
-                    int const shift = lval->atom - frac_bytes(type.name());
                     rval = { _interpret_shift_atom(std::get<ssa_value_t>(rval[0]), shift, v.pstring) };
                 }
             }
-        }
-        else if(is_compile(D))
-        {
-            if(lval->is_var())
-                for(unsigned i = 0; i < num_members; ++i)
-                    rval[i] = var_lookup(builder.cfg, lval->var_i(), lval->member + i);
-
-            if(lval->index)
+            else if(is_compile(D))
             {
-                for(unsigned i = 0; i < num_members; ++i)
-                {
-                    type_t const mt = ::member_type(type, lval->member + i);
-                    passert(is_tea(mt.name()), mt);
-                    rval[i] = builder.cfg->emplace_ssa(
-                        (lval->flags & LVALF_INDEX_16) ? SSA_read_array16 : SSA_read_array8,
-                        mt.elem_type(), from_variant<D>(rval[i], mt), ssa_value_t(0u, TYPE_U20), lval->index);
-                }
-            }
+                assert(!is_vec(type.name()));
 
-            if(lval->atom >= 0)
-            {
-                type = ::member_type(type, lval->member);
-                if(lval->index)
-                    type = type.elem_type();
-
-                assert(num_members == 1);
-
-                passert(rval.size() > 0, rval.size(), lval->member);
                 ssa_ht const h = builder.cfg->emplace_ssa(
                     is_tea(type.name()) ? SSA_array_get_byte : SSA_get_byte, 
                     is_tea(type.name()) ? type_t::tea(TYPE_U, type.size()) : TYPE_U, 
@@ -4832,80 +5005,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
     rhs = throwing_cast<D>(std::move(rhs), lhs.type, true);
 
-    // de-atomize
-    if(!is_check(D) && lval->atom >= 0)
-    {
-        type_t new_type = member_type(var_type(lval->var_i()), lval->member);
-        if(lval->index)
-        {
-            assert(is_tea(new_type.name()));
-            new_type = new_type.elem_type();
-        }
-        
-        int const shift = lval->atom - frac_bytes(new_type.name());
-
-        expr_value_t wide_lhs = lhs;
-        wide_lhs.type = new_type;
-        wide_lhs.lval().atom = -1;
-        wide_lhs = to_rval<D>(std::move(wide_lhs));
-
-        if(is_interpret(D))
-        {
-            auto const convert = [&](type_t const& type, ssa_value_t from, ssa_value_t to) -> ssa_value_t
-            {
-                if(!from.is_num() || !to.is_num())
-                {
-                    expr_value_t lt_lhs = 
-                    {
-                        .val = rval_t{ from },
-                        .type = type,
-                        .pstring = pstring,
-                        .time = LT
-                    };
-
-                    expr_value_t lt_rhs = 
-                    {
-                        .val = rval_t{ to },
-                        .type = type,
-                        .pstring = pstring,
-                        .time = LT
-                    };
-
-                    return make_lt(type, { .type = TOK_replace_atom, .pstring = pstring, .value = shift }, lt_lhs, lt_rhs);
-                }
-                else
-                    return _interpret_replace_atom(type, from.fixed().value, to.fixed().value, shift);
-            };
-
-            if(is_tea(new_type.name()))
-            {
-                assert(is_tea(rhs.type.name()));
-
-                unsigned const tea_length = new_type.array_length();
-                ct_array_t const& lhs_a = std::get<ct_array_t>(wide_lhs.rval()[0]);
-                ct_array_t const& rhs_a = std::get<ct_array_t>(rhs.rval()[0]);
-                ct_array_t to = make_ct_array(tea_length);
-
-                type_t const elem_type = new_type.elem_type();
-
-                for(unsigned i = 0; i < tea_length; ++i)
-                    to[i] = convert(elem_type, lhs_a[i], rhs_a[i]);
-
-                rhs.rval() = { std::move(to) };
-            }
-            else
-                rhs.rval() = { convert(new_type, wide_lhs.ssa(), rhs.ssa()) };
-        }
-        else if(is_compile(D))
-        {
-            ssa_ht const h = builder.cfg->emplace_ssa(
-                is_tea(new_type.name()) ? SSA_array_replace_byte : SSA_replace_byte, 
-                new_type, 
-                wide_lhs.ssa(), ssa_value_t(lval->atom, TYPE_U), rhs.ssa());
-            rhs.rval() = { h };
-        }
-    }
-
     if(is_check(D))
         goto finish;
 
@@ -4916,34 +5015,165 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         rval_t& local = interpret_locals[to_local_i(lval->var_i())];
         rval_t& rval = rhs.rval();
 
-        if(lval->index)
-        {
-            type_t const mt = member_type(var_type(lval->var_i()), lval->member);
-            assert(mt.name() == TYPE_TEA);
+        ct_variant_t* ptr = local.data();
+        bool vec_slice = false;
+        unsigned vec_member = 0;
+        unsigned tea_index;
+        std::int64_t tea_size = -1;
 
-            unsigned const array_size = mt.array_length();
-            unsigned const index = lval->index.whole();
-            assert(index <= array_size);
+        type_t type = var_type(lval->var_i());
+
+        // Resolve the accesses:
+        for(auto const& access : lval->accesses)
+        {
+            switch(access.aclass)
+            {
+            case lval_t::ACCESS_INDEX:
+                {
+                    unsigned const index = access.index.whole();
+                    if(is_tea(type.name()))
+                    {
+                        assert(tea_size < 0);
+                        tea_index = index;
+                        tea_size = type.array_length();
+                    }
+                    else
+                    {
+                        passert(is_vec(type.name()), type);
+                        assert(index <  std::get<vec_ptr_t>(*ptr)->data.size());
+                        ptr = std::get<vec_ptr_t>(*ptr)->data.at(index).data() + vec_member;
+                        vec_member = 0;
+                        vec_slice = false;
+                    }
+
+                    type = type.elem_type();
+                }
+                break;
+
+            case lval_t::ACCESS_FIELD:
+                {
+                    auto const field_i = access.field;
+                    type_t const stripped = strip_array(type);
+
+                    type_t field_type;
+                    unsigned member;
+
+                    if(field_i >= 0)
+                    {
+                        struct_t const& s = stripped.struct_();
+                        field_t const& field = s.field(field_i);
+                        field_type = field.type();
+                        member = s.member(field_i);
+                    }
+                    else
+                    {
+                        field_type = ::member_type(type, access.member);
+                        member = access.member;
+                    }
+
+                    if(is_vec(type.name()))
+                    {
+                        unsigned const num_members = ::num_members(field_type);
+
+                        assert(rval.size() == 1);
+                        auto& shared = std::get<vec_ptr_t>(*ptr);
+
+                        // If the vec has multiple owners, copy it, creating a new one.
+                        if(shared.use_count() > 1)
+                            shared = std::make_shared<vec_t>(*shared);
+
+                        vec_member += member;
+                        vec_slice = true;
+                    }
+                    else
+                        ptr += member;
+
+                    type = unstrip_array(type, field_type);
+                }
+                break;
+            }
+        }
+
+        if(is_vec(type.name()) && (lval->atom >= 0 || vec_slice))
+            compiler_error(pstring, "Partial assignment of {} types is not supported.");
+
+        // de-atomize
+        if(lval->atom >= 0)
+        {
+            type_t const stripped = strip_array(type);
+            int const shift = lval->atom - frac_bytes(stripped.name());
+
+            expr_value_t wide_lhs = lhs;
+            wide_lhs.lval().atom = -1;
+            wide_lhs = to_rval<D>(std::move(wide_lhs));
+
+            auto const convert = [&](ssa_value_t from, ssa_value_t to) -> ssa_value_t
+            {
+                if(!from.is_num() || !to.is_num())
+                {
+                    expr_value_t lt_lhs = 
+                    {
+                        .val = rval_t{ from },
+                        .type = stripped,
+                        .pstring = pstring,
+                        .time = LT
+                    };
+
+                    expr_value_t lt_rhs = 
+                    {
+                        .val = rval_t{ to },
+                        .type = stripped,
+                        .pstring = pstring,
+                        .time = LT
+                    };
+
+                    return make_lt(stripped, { .type = TOK_replace_atom, .pstring = pstring, .value = shift }, lt_lhs, lt_rhs);
+                }
+                else
+                    return _interpret_replace_atom(stripped, from.fixed().value, to.fixed().value, shift);
+            };
+
+            if(is_tea(type.name()))
+            {
+                assert(is_tea(rhs.type.name()));
+
+                unsigned const tea_length = type.array_length();
+                ct_array_t const& lhs_a = std::get<ct_array_t>(wide_lhs.rval()[0]);
+                ct_array_t const& rhs_a = std::get<ct_array_t>(rhs.rval()[0]);
+                ct_array_t to = make_ct_array(tea_length);
+
+                for(unsigned i = 0; i < tea_length; ++i)
+                    to[i] = convert(lhs_a[i], rhs_a[i]);
+
+                rval = { std::move(to) };
+            }
+            else
+                rval = { convert(wide_lhs.ssa(), rhs.ssa()) };
+        }
+
+        if(tea_size >= 0)
+        {
+            assert(tea_index <= tea_size);
 
             for(unsigned i = 0; i < rval.size(); ++i)
             {
-                ct_array_t& shared = std::get<ct_array_t>(local[i + lval->member]);
+                ct_array_t& shared = std::get<ct_array_t>(ptr[i]);
 
                 // If the array has multiple owners, copy it, creating a new one.
                 if(shared.use_count() > 1)
                 {
-                    ct_array_t new_shared = make_ct_array(array_size);
-                    std::copy(shared.get(), shared.get() + array_size, new_shared.get());
+                    ct_array_t new_shared = make_ct_array(tea_size);
+                    std::copy(shared.get(), shared.get() + tea_size, new_shared.get());
                     shared = std::move(new_shared);
                 }
 
-                shared[index] = std::get<ssa_value_t>(rval[i]);
+                shared[tea_index] = std::get<ssa_value_t>(rval[i]);
             }
         }
         else
         {
             for(unsigned i = 0; i < rval.size(); ++i)
-                local[i + lval->member] = rval[i];
+                ptr[i] = rval[i];
         }
     }
     else if(is_compile(D))
@@ -4951,29 +5181,54 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         ssa_value_array_t& local = builder.cfg.data<block_d>().var(lval->var_i());
         rval_t& rval = rhs.rval();
 
-        if(lval->index)
+        // de-atomize
+        if(lval->atom >= 0)
+        {
+            type_t new_type = member_type(var_type(lval->var_i()), lval->member());
+
+            if(lval->index())
+            {
+                assert(is_tea(new_type.name()));
+                new_type = new_type.elem_type();
+            }
+
+            int const shift = lval->atom - frac_bytes(new_type.name());
+
+            expr_value_t wide_lhs = lhs;
+            wide_lhs.type = new_type;
+            wide_lhs.lval().atom = -1;
+            wide_lhs = to_rval<D>(std::move(wide_lhs));
+
+            ssa_ht const h = builder.cfg->emplace_ssa(
+                is_tea(new_type.name()) ? SSA_array_replace_byte : SSA_replace_byte, 
+                new_type, 
+                wide_lhs.ssa(), ssa_value_t(lval->atom, TYPE_U), rhs.ssa());
+            rhs.rval() = { h };
+        }
+
+        if(ssa_value_t index = lval->index())
         {
             for(unsigned i = 0; i < rval.size(); ++i)
             {
                 assert(var_type(lval->var_i()).name() == TYPE_TEA);
-                type_t const mt = member_type(var_type(lval->var_i()), lval->member + i);
+                type_t const mt = member_type(var_type(lval->var_i()), lval->member() + i);
                 assert(mt.name() == TYPE_TEA);
 
                 passert(rhs.type.name() != TYPE_TEA, rhs.type);
 
-                ssa_value_t const prev_array = var_lookup(builder.cfg, lval->var_i(), lval->member + i);
+                ssa_value_t const prev_array = var_lookup(builder.cfg, lval->var_i(), lval->member() + i);
 
                 ssa_ht write = builder.cfg->emplace_ssa(
                     (lval->flags & LVALF_INDEX_16) ? SSA_write_array16 : SSA_write_array8, mt,
-                    prev_array, ssa_value_t(0u, TYPE_U20), lval->index, std::get<ssa_value_t>(rval[i]));
+                    prev_array, ssa_value_t(0u, TYPE_U20), index, std::get<ssa_value_t>(rval[i]));
 
-                local[i + lval->member] = write;
+                local[i + lval->member()] = write;
             }
         }
         else
         {
             for(unsigned i = 0; i < rval.size(); ++i)
-                local[i + lval->member] = from_variant<D>(rval[i], member_type(rhs.type, i));
+                local[i + lval->member()] = from_variant<D>(rval[i], member_type(rhs.type, i));
         }
     }
 
@@ -6474,6 +6729,8 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
 
         return h;
     }
+    else
+        throw std::runtime_error("Cannot convert ct_array_t to ssa_value_t.");
 
     return {};
 }

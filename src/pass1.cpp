@@ -80,9 +80,9 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         depends_on = BAD_IDEP;
         goto do_children;
 
-    case TOK_sizeof_expr:
     case TOK_len_expr:
-        depends_on = IDEP_TYPE;
+    case TOK_sizeof_expr:
+        depends_on = IDEP_VALUE; // Used to be IDEP_TYPE, but Vec requires VALUE.
         goto do_children;
 
     case TOK_sizeof:

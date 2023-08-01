@@ -522,6 +522,7 @@ void global_t::build_order()
     idep_class_t pass = {};
     switch(compiler_phase())
     {
+    case PHASE_COUNT_MEMBERS:
     case PHASE_ORDER_RESOLVE:
         pass = IDEP_TYPE;
         break;
@@ -2020,18 +2021,20 @@ unsigned struct_t::count_members()
         type_t type = const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, false);
 
         if(is_tea(type.name()))
-            type = type.elem_type();
+            type = dethunkify({ field(i).decl.src_type.pstring, type.elem_type() }, false);
 
         if(type.name() == TYPE_STRUCT)
         {
             struct_t& s = const_cast<struct_t&>(type.struct_());
+            if(&s == this)
+                compiler_error(global.pstring(), fmt("% has a recursive definition.", global.name));
             s.count_members();
             assert(s.m_num_members != UNCOUNTED);
             count += s.m_num_members;
         }
         else
         {
-            assert(!is_aggregate(type.name()));
+            passert(is_vec(type.name()) || !is_aggregate(type.name()), type);
             ++count;
         }
     }
@@ -2077,7 +2080,7 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
         }
         else
         {
-            assert(!is_aggregate(type.name()));
+            assert(is_vec(type.name()) || !is_aggregate(type.name()));
             assert(tea_size <= 256);
 
             if(tea_size)

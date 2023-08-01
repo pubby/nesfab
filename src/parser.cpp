@@ -893,6 +893,30 @@ retry:
             return ast;
         }
 
+    case TOK_push:
+    case TOK_pop:
+    case TOK_resize:
+        {
+            ast_node_t ast = { .token = token };
+            parse_token();
+            parse_token(TOK_lparen);
+
+            bc::small_vector<ast_node_t, 2> children;
+            unsigned const argn = parse_args(TOK_lparen, TOK_rparen,
+                [&](unsigned){ children.push_back(parse_expr(indent, open_parens+1)); });
+            if(argn != ast.num_children())
+                compiler_error(ast.token.pstring, fmt("Wrong number of arguments to %. Expecting %.", 
+                                                      token_string(ast.token.type), ast.num_children()));
+            children.push_back(parse_expr(indent, open_parens+1));
+            children.push_back(parse_expr(indent, open_parens+1));
+            ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
+
+            ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
+            parse_token(TOK_rparen);
+
+            return ast;
+        }
+
     case TOK_lbrace:
         {
             bc::static_vector<ast_node_t, 2> children;
@@ -1187,15 +1211,6 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             break;
         }
 
-    // Vec:
-    case TOK_Vec:
-        {
-            parse_token();
-            src_type_t elem = parse_type(false, false, {});
-            result.type = type_t::vec(elem.type);
-        }
-        break;
-
     default: 
         if(!allow_void)
             compiler_error("Expecting type.");
@@ -1203,35 +1218,48 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
         break;
     }
 
-    // TEA
-    if(token.type == TOK_lbracket)
+    while(true)
     {
-        pstring_t const start_pstring = token.pstring;
-        parse_token();
-
-        if(token.type == TOK_rbracket)
+        if(token.type == TOK_lbracket) // TEA
         {
-            if(allow_blank_size)
+            pstring_t const start_pstring = token.pstring;
+            parse_token();
+
+            if(token.type == TOK_rbracket)
             {
-                result.type = type_t::tea(result.type);
-                assert(result.type.unsized());
+                if(allow_blank_size)
+                {
+                    result.type = type_t::tea(result.type);
+                    assert(result.type.unsized());
+                }
+                else
+                    compiler_error("Array length must be specified in this context.");
             }
             else
-                compiler_error("Array length must be specified in this context.");
+            {
+                int const array_indent = indent;
+                ast_node_t expr = parse_expr(array_indent, 1);
+                policy().convert_ast(expr, IDEP_TYPE);
+
+                if(!is_scalar(result.type.name()) && !is_struct(result.type.name()))
+                    compiler_error(fmt("% is an invalid array element type.", result.type));
+
+                if(expr.token.type == TOK_int)
+                    result.type = type_t::tea(result.type, expr.token.signed_() >> fixed_t::shift, expr.token.pstring);
+                else
+                    result.type = type_t::tea_thunk(fast_concat(start_pstring, token.pstring), result.type, expr);
+            }
+
+            parse_token(TOK_rbracket);
+        }
+        else if(token.type == TOK_lbrace) // Vec
+        {
+            parse_token();
+            parse_token(TOK_rbrace);
+            result.type = type_t::vec(result.type);
         }
         else
-        {
-            int const array_indent = indent;
-            ast_node_t expr = parse_expr(array_indent, 1);
-            policy().convert_ast(expr, IDEP_TYPE);
-
-            if(expr.token.type == TOK_int)
-                result.type = type_t::tea(result.type, expr.token.signed_() >> fixed_t::shift, expr.token.pstring);
-            else
-                result.type = type_t::tea_thunk(fast_concat(start_pstring, token.pstring), result.type, expr);
-        }
-
-        parse_token(TOK_rbracket);
+            break;
     }
 
     result.pstring.size = token.pstring.offset - result.pstring.offset;

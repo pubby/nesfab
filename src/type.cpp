@@ -238,6 +238,7 @@ std::size_t type_t::size_of() const
         passert(false, name());
         // fall-through
     case TYPE_VOID:
+    case TYPE_VEC:
         return 0; // Error!
     case TYPE_TEA: 
         return size() * types()[0].size_of();
@@ -321,6 +322,9 @@ std::string to_string(type_t type)
         str = fmt("[%]%", type.unsized() ? "" : std::to_string(type.size()),
                   type.group() ? type.group()->name : "");
         break;
+    case TYPE_VEC:
+        str = fmt("%{}", to_string(type.elem_type()));
+        break;
     case TYPE_BANKED_APTR: str = "AAA"; goto ptr_groups;
     case TYPE_APTR:        str = "AA";  goto ptr_groups;
     case TYPE_BANKED_MPTR: str = "MMM"; goto ptr_groups;
@@ -388,7 +392,7 @@ static bool can_cast_groups(type_t const& from, type_t const& to)
 
 cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
 {
-    assert(!is_thunk(from.name()) && !is_thunk(to.name()));
+    passert(!is_thunk(from.name()) && !is_thunk(to.name()), from, " : ", to);
 
     // Same types; no cast needed!
     if(from == to)
@@ -588,6 +592,7 @@ unsigned member_offset(type_t type, unsigned member)
         return type.struct_().member_offset(member);
     case TYPE_TEA: 
     case TYPE_TEA_THUNK: 
+    case TYPE_VEC: 
         return member_offset(type.elem_type(), member);
     default: 
         if(is_banked_ptr(type.name()))
@@ -607,6 +612,7 @@ unsigned member_index(type_t const& type, unsigned member)
         return type.struct_().member(member);
     case TYPE_TEA: 
     case TYPE_TEA_THUNK: 
+    case TYPE_VEC: 
         return member_index(type.elem_type(), member);
     default: 
         if(is_banked_ptr(type.name()))
@@ -614,7 +620,7 @@ unsigned member_index(type_t const& type, unsigned member)
             assert(member < 2);
             return member;
         }
-        assert(member == 0);
+        passert(member == 0, type, member);
         return 0;
     }
 }
@@ -647,9 +653,18 @@ type_t member_type(type_t const& type, unsigned member)
 
 type_t strip_array(type_t const& type)
 {
-    if(type.name() == TYPE_TEA)
+    if(type.name() == TYPE_TEA || type.name() == TYPE_VEC)
         return type.elem_type();
     return type;
+}
+
+type_t unstrip_array(type_t const& type, type_t const& replace)
+{
+    if(type.name() == TYPE_TEA)
+        return type_t::tea(replace, type.array_length());
+    if(type.name() == TYPE_VEC)
+        return type_t::vec(replace);
+    return replace;
 }
 
 bool has_tea(type_t const& type)
@@ -728,6 +743,12 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
             if(has_tea(elem))
                 compiler_error(src_type.pstring, "Arrays cannot be multi-dimensional.");
             return t.unsized() ? type_t::tea(elem) : type_t::tea(elem, t.size());
+        }
+
+    case TYPE_VEC:
+        {
+            type_t const elem = dethunkify({ src_type.pstring, t.elem_type() }, full, env);
+            return type_t::vec(elem);
         }
 
     case TYPE_FN:

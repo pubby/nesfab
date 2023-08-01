@@ -49,9 +49,10 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
     if(size < 8)
         throw std::runtime_error("Invalid MapFab file; no magic number.");
 
-    if(memcmp(ptr, "MapFab", 6) != 0)
+    if(memcmp(ptr, "MapFab", 7) != 0)
         throw std::runtime_error("Incorrect magic number.");
-    if(ptr[6] > SAVE_VERSION || ptr[7])
+    unsigned const save_version = ptr[7];
+    if(save_version > SAVE_VERSION)
         throw std::runtime_error("File is from a newer version of MapFab.");
     ptr += 8;
 
@@ -186,6 +187,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
     {
         std::printf("LEVEL MACRO %i\n", i);
         std::string name = get_str();
+        std::string macro_name = get_str();
         std::string chr_name = get_str();
         std::uint8_t const palette = get8();
         std::string metatiles_name = get_str();

@@ -139,6 +139,12 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
             for(unsigned i = 0; i < length; ++i)
                 push_bytes((*array)[i], elem_type);
         }
+        else if(auto const* vec_ptr = std::get_if<std::shared_ptr<vec_t>>(&v))
+        {
+            type_t const elem_type = mt.elem_type();
+            for(rval_t const& rval : (*vec_ptr)->data)
+                append_locator_bytes(vec, rval, elem_type, pstring);
+        }
     }
 }
 
@@ -216,6 +222,8 @@ rval_t default_init(type_t type, pstring_t at)
 
             new_rval.push_back(std::move(array));
         }
+        else if(mt.name() == TYPE_VEC)
+            new_rval.push_back(std::make_shared<vec_t>());
         else if(is_scalar(mt.name()))
             new_rval.push_back({ ssa_value_t(0u, mt.name()) });
         else

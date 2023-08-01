@@ -678,6 +678,9 @@ int main()
         keyword("read"),
         keyword("write"),
         keyword("mapfab"),
+        keyword("push"),
+        keyword("pop"),
+        keyword("resize"),
 
         keyword("true"),
         keyword("false"),
@@ -791,7 +794,6 @@ int main()
         keyword(1, "rparen", ")"), // end infix ops
 
         accept("Void", "void type", word("Void")), // First type
-        accept("Vec", "Vec type", word("Vec")),
         accept("F", "F type", word("F")),
         accept("FF", "FF type", word("FF")),
         accept("FFF", "FFF type", word("FFF")),

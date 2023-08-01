@@ -292,7 +292,7 @@ public:
     type_t member_type(unsigned member_i) const 
     {
         passert(global.resolved(), global.name);
-        assert(member_i < m_member_types.size());
+        passert(member_i < m_member_types.size(), global.name, member_i, m_member_types.size());
         return m_member_types[member_i];
     }
 
@@ -433,7 +433,7 @@ public:
 
     bool returns_in_different_bank() const { assert(m_ir_writes); return m_returns_in_different_bank; }
 
-    bool always_inline() const { assert(global.compiled()); return m_always_inline; }
+    bool always_inline() const { passert(global.compiled(), global.name); return m_always_inline; }
 
     locator_t first_bank_switch() const { assert(global.compiled()); return m_first_bank_switch; }
     void assign_first_bank_switch(locator_t loc) { assert(compiler_phase() == PHASE_COMPILE); m_first_bank_switch = loc; }

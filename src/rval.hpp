@@ -46,9 +46,7 @@ inline ssa_value_t const* ct_array(ct_variant_t const& variant)
     return nullptr;
 }
 
-bool is_ct(rval_t const& rval);
-bool is_lt(rval_t const& rval);
-bool is_rt(rval_t const& rval);
+value_time_t calc_time(type_t const& type, rval_t const& rval);
 
 // Appends 'rval' onto 'vec'
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring);
@@ -229,10 +227,14 @@ struct expr_value_t
 
     ct_array_t ct_array(unsigned member = 0) const
         { return std::get<ct_array_t>(rval()[member]); }
+    
+    value_time_t calc_time() const { return ::calc_time(type, rval()); }
 
-    bool is_ct() const { return time == CT && is_rval() && ::is_ct(rval()); }
-    bool is_lt() const { return time == LT || (is_rval() && ::is_lt(rval())); }
-    bool is_rt() const { return (is_rval() && ::is_rt(rval())); }
+    void assert_valid() const { passert(!is_rval() || calc_time() <= time, (int)calc_time(), (int)time); }
+
+    bool is_ct() const { assert_valid(); return time == CT; }
+    bool is_lt() const { assert_valid(); return time == LT; }
+    bool is_rt() const { assert_valid(); return time == RT; }
 };
 
 struct lt_pair_t

@@ -166,6 +166,13 @@ public:
         COMPILE,       // Generates the SSA IR.
     };
 
+    enum assign_mode_t
+    {
+        ASSIGN,
+        ASSIGN_PUSH,
+        ASSIGN_POP,
+    };
+
     static constexpr bool is_check(do_t d) { return d == CHECK; }
     static constexpr bool is_interpret(do_t d) { return d == INTERPRET_CE || d == INTERPRET_ASM || d == INTERPRET || d == INTERPRET_LINK; }
     static constexpr bool is_compile(do_t d) { return d == COMPILE; }
@@ -219,7 +226,7 @@ public:
     template<do_t D>
     void do_expr_result(ast_node_t const&, type_t expected_result);
 
-    template<do_t D>
+    template<do_t D, assign_mode_t A = ASSIGN>
     expr_value_t do_assign(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
     expr_value_t compile_binary_operator(
@@ -293,6 +300,10 @@ public:
     expr_value_t force_boolify(expr_value_t value, pstring_t cast_pstring);
     template<do_t D>
     expr_value_t force_resize_tea(expr_value_t value, type_t to_type, pstring_t cast_pstring);
+    template<do_t D>
+    expr_value_t force_vecify_tea(expr_value_t value, type_t to_type, pstring_t cast_pstring);
+    template<do_t D>
+    expr_value_t force_teaify_vec(expr_value_t value, type_t to_type, pstring_t cast_pstring);
 
     template<do_t D>
     bool cast(expr_value_t& v, type_t to_type, bool implicit, pstring_t pstring = {});
@@ -390,22 +401,17 @@ rpair_t interpret_local_const(pstring_t pstring, fn_t* fn, ast_node_t const& exp
     return i.final_result;
 }
 
-void check_local_const(pstring_t pstring, fn_t* fn, ast_node_t const& expr,
-                       local_const_t const* local_consts)
-{
-    eval_t i(eval_t::do_wrapper_t<eval_t::CHECK>{}, pstring, fn, expr, TYPE_VOID, local_consts);
-}
-
-rpair_t interpret_expr(pstring_t pstring, ast_node_t const& expr, type_t expected_type, eval_t* env)
+rpair_t interpret_expr(pstring_t pstring, ast_node_t const& expr, type_t expected_type, eval_t* env, local_const_t const* local_consts)
 {
     if(env)
     {
+        assert(!local_consts);
         env->do_expr_result<eval_t::INTERPRET_CE>(expr, expected_type);
         return env->final_result;
     }
     else
     {
-        eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, nullptr, expr, expected_type);
+        eval_t i(eval_t::do_wrapper_t<eval_t::INTERPRET>{}, pstring, nullptr, expr, expected_type, local_consts);
         return i.final_result;
     }
 }
@@ -453,7 +459,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t* fn_ref,
 , local_consts(local_consts)
 , romv(romv)
 {
-    if(fn)
+    if(D != INTERPRET_CE && fn)
     {
         std::size_t const num_locals = num_local_vars();
 
@@ -476,24 +482,27 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t& fn_ref,
 , local_consts(local_consts)
 , precheck_tracked(tracked)
 {
-    std::size_t const num_locals = num_local_vars();
-
-    var_types.resize(num_locals);
-    for(unsigned i = 0; i < num_locals; ++i)
-        var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
-
-    static_assert(!is_compile(D));
-
-    if(!is_check(D))
+    if(D != INTERPRET_CE)
     {
-        interpret_locals.resize(num_locals);
+        std::size_t const num_locals = num_local_vars();
 
-        assert(args);
-        assert(num_args <= num_locals);
-        for(unsigned i = 0; i < num_args; ++i)
+        var_types.resize(num_locals);
+        for(unsigned i = 0; i < num_locals; ++i)
+            var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
+
+        static_assert(!is_compile(D));
+
+        if(!is_check(D))
         {
-            assert(args[i].size() == num_members(var_types[i]));
-            interpret_locals[i] = args[i];
+            interpret_locals.resize(num_locals);
+
+            assert(args);
+            assert(num_args <= num_locals);
+            for(unsigned i = 0; i < num_args; ++i)
+            {
+                assert(args[i].size() == num_members(var_types[i]));
+                interpret_locals[i] = args[i];
+            }
         }
     }
 
@@ -1688,6 +1697,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             .val = std::move(rval),
             .type = type,
             .pstring = ast.token.pstring,
+            .time = is_compile(D) ? RT : LT,
         };
     };
 
@@ -1743,7 +1753,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             }
 
-            return 
+            return
             {
                 .val = std::move(rval),
                 .type = rpair->type,
@@ -1776,8 +1786,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
 
             if(!is_check(D))
+            {
                 result.val = local_consts[const_i].value;
+                result.time = result.calc_time();
+            }
 
+            result.assert_valid();
             return result;
         }
         else
@@ -1800,10 +1814,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             else if(D == INTERPRET && interpret_locals[local_i].empty())
             {
                 compiler_error(ast.token.pstring, 
-                    "Variable is invalid because goto jumped past its initialization.");
+                    "Variable is invalid because execution jumped past its initialization.");
             }
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
 
@@ -1832,6 +1847,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     if(is_compile(D))
                         result.time = RT;
 
+                    result.assert_valid();
                     return result;
                 }
 
@@ -1847,6 +1863,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         .pstring = ast.token.pstring,
                     };
 
+                    if(!is_paa(result.type.name()))
+                        result.time = to_rval<D>(result).calc_time();
+
                     return result;
                 }
 
@@ -1855,7 +1874,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 {
                     .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
                     .type = global->impl<fn_t>().type(), 
-                    .pstring = ast.token.pstring 
+                    .pstring = ast.token.pstring,
+                    .time = LT,
                 };
 
             case GLOBAL_CHARMAP:
@@ -1885,6 +1905,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 result.time = RT;
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
         break;
@@ -2136,6 +2157,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
 
@@ -2153,6 +2175,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
 
@@ -2170,6 +2193,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
 
@@ -2184,6 +2208,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
 
@@ -2202,6 +2227,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 result.time = CT;
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
 
@@ -2219,6 +2245,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
 
             assert(result.is_lval());
+            result.assert_valid();
             return result;
         }
 
@@ -2236,6 +2263,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 .type = TYPE_VOID, 
                 .pstring = ast.token.pstring,
+                .time = RT,
             };
 
             if(is_compile(D))
@@ -2248,8 +2276,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 h->append_daisy();
                 result.val = rval_t{ h };
             }
-
-           return result;
+ 
+            result.assert_valid();
+            return result;
         }
 
     case TOK_true:
@@ -2258,6 +2287,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result = { .type = TYPE_BOOL, .pstring = ast.token.pstring };
             if(!is_check(D))
                 result.val = rval_t{ ssa_value_t(unsigned(ast.token.type == TOK_true), TYPE_BOOL) };
+            result.assert_valid();
             return result;
         }
 
@@ -2268,6 +2298,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result = { .type = TYPE_INT, .pstring = ast.token.pstring };
             if(!is_check(D))
                 result.val = rval_t{ common_value };
+            result.assert_valid();
             return result;
         }
 
@@ -2277,6 +2308,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result = { .type = TYPE_REAL, .pstring = ast.token.pstring };
             if(!is_check(D))
                 result.val = rval_t{ common_value };
+            result.assert_valid();
             return result;
         }
         break;
@@ -2673,6 +2705,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             result_type, 
                             array, ssa_value_t(atom, TYPE_U));
                         lhs.rval() = { h };
+                        lhs.time = RT;
                     }
                 }
 
@@ -2683,6 +2716,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
         finish_period:
             lhs.pstring = concat(lhs.pstring, ast.token.pstring);
+            lhs.assert_valid();
             return lhs;
         }
 
@@ -2810,6 +2844,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
 
             compile_fn:
+                result.time = RT;
 
                 if(call->fclass == FN_FN && call->always_inline())
                 {
@@ -3019,6 +3054,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             }
 
+            result.assert_valid();
             return result;
         }
 
@@ -3027,6 +3063,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result = { .type = TYPE_APTR, .pstring = ast.token.pstring };
             if(!is_check(D))
                 result.val = rval_t{ ssa_value_t(ast.token.value, TYPE_APTR) };
+            result.assert_valid();
             return result;
         }
 
@@ -3051,8 +3088,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     ssa_value_t(0u, TYPE_U));
                 h->append_daisy();
                 result.val = rval_t{ h };
+                result.time = RT;
             }
 
+            result.assert_valid();
             return result;
         }
 
@@ -3084,8 +3123,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     ssa_value_t(0u, TYPE_U), arg.ssa());
                 h->append_daisy();
                 result.val = rval_t{ h };
+                result.time = RT;
             }
 
+            result.assert_valid();
             return result;
         }
 
@@ -3400,6 +3441,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 expr_value_t result = { .type = type, .pstring = ast.token.pstring };
                 if(!is_check(D))
                     result.val = default_init(type, ast.token.pstring);
+                result.assert_valid();
                 return result;
             }
 
@@ -3447,8 +3489,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         new_rval.reserve(num_members(type));
 
                         for(unsigned i = 0; i < num_args; ++i)
+                        {
                             for(auto& v : args[i].rval())
+                            {
                                 new_rval.push_back(std::move(v));
+                                result.time = std::max(result.time, args[i].time);
+                            }
+                        }
 
                         assert(new_rval.size() == num_members(type));
 
@@ -3457,21 +3504,29 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
                 else if(type.name() == TYPE_VEC)
                 {
+                    if(num_args == 1)
+                    {
+                        if(args[0].type.name() == TYPE_TEA)
+                            return throwing_cast<D>(std::move(args[0]), type, implicit);
+                    }
+
                     for(unsigned i = 0; i < num_args; ++i)
                         args[i] = throwing_cast<D>(std::move(args[i]), type.elem_type(), implicit);
 
-                    if(is_interpret(D))
+                    if(!is_check(D))
                     {
                         // Create a new rval.
                         vec_t vec;
                         for(unsigned j = 0; j < num_args; ++j)
+                        {
                             vec.data.push_back(args[j].rval());
+                            result.time = std::max(result.time, args[j].time);
+                        }
                         result.val = rval_t{ std::make_shared<vec_t>(std::move(vec)) };
                     }
-                    else if(!is_check(D))
-                        compiler_error(ast.token.pstring, fmt("Unable to cast % at run-time.", type));
 
                     result.type = type;
+                    result.assert_valid();
                     return result;
                 }
                 else if(type.name() == TYPE_TEA)
@@ -3485,11 +3540,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                             return throwing_cast<D>(std::move(args[0]), type, implicit);
                         }
+                        else if(args[0].type.name() == TYPE_VEC)
+                            return throwing_cast<D>(std::move(args[0]), type, implicit);
                         else if(!type.unsized())
                         {
                             // Generate a fill.
 
                             expr_value_t fill_with = throwing_cast<D>(std::move(args[0]), type.elem_type(), implicit);
+                            fill_with.assert_valid();
 
                             unsigned const num_m = num_members(type);
                             unsigned const size = type.size();
@@ -3514,6 +3572,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             }
 
                             result.type = type;
+                            result.time = fill_with.time;
+
+                            result.assert_valid();
                             return result;
                         }
                     }
@@ -3536,7 +3597,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             ct_array_t shared = make_ct_array(num_args);
                             for(unsigned j = 0; j < num_args; ++j)
+                            {
                                 shared[j] = std::get<ssa_value_t>(args[j].rval()[i]);
+                                result.time = std::max(result.time, args[j].time);
+                            }
                             new_rval[i] = std::move(shared);
                         }
 
@@ -3575,10 +3639,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         }
 
                         result.val = std::move(new_rval);
+                        result.time = RT;
                     }
                 }
 
                 result.type = type;
+                result.assert_valid();
                 return result;
             }
             else if(is_scalar(type.name()) || is_banked_ptr(type.name()))
@@ -3607,9 +3673,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             if(is_ptr && is_interpret(D))
                 compiler_error(ast.token.pstring, "Pointers cannot be dereferenced at compile-time.");
-
-            if(is_vec && is_compile(D))
-                compiler_error(ast.token.pstring, "Vecs cannot be used at run-time.");
 
             if(is_ptr && ::is_aptr(array_val.type.name()))
             {
@@ -3641,6 +3704,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             type_t const result_type = is_ptr ? TYPE_U : array_val.type.elem_type();
 
             expr_value_t array_index = throwing_cast<D>(do_expr<D>(ast.children[1]), is8 ? TYPE_U : TYPE_U20, true);
+
+            bool const is_ct = array_index.is_ct() && array_val.is_ct();
+
+            if(is_vec && is_compile(D) && !is_ct)
+                compiler_error(ast.token.pstring, fmt("Values of type % cannot be used at run-time.", array_val.type));
 
             if(!is_check(D) && array_index.is_lt())
             {
@@ -3683,7 +3751,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             };
 
-            if(is_interpret(D) || is_link(D))
+            if(is_interpret(D) || is_link(D) || (is_compile(D) && is_ct))
             {
                 unsigned const index = array_index.whole();
                 unsigned length = 0;
@@ -3704,7 +3772,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             index, length));
                 }
             }
-
+            else if(is_compile(D))
+                array_val.time = RT;
 
             if(!is_check(D) && array_val.is_lval())
             {
@@ -3750,7 +3819,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 rval_t& rval = *rval_ptr;
 
-                if(is_interpret(D))
+                if(is_interpret(D) || (is_compile(D) && is_ct))
                 {
                     unsigned const index = array_index.whole();
                     if(is_tea)
@@ -3866,7 +3935,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             array_val.type = result_type;
             array_val.pstring = concat(array_val.pstring, array_index.pstring);
 
+            array_val.assert_valid();
             return array_val;
+        }
+
+    case TOK_push:
+        return infix(&eval_t::do_assign<D, ASSIGN_PUSH>, false, true);
+
+    case TOK_pop:
+        {
+            expr_value_t lhs = do_expr<D>(ast.children[0]);
+            expr_value_t rhs = { .val = rval_t(), .type = TYPE_VOID };
+            return do_assign<D, ASSIGN_POP>(std::move(lhs), std::move(rhs), ast.token);
         }
 
     case TOK_character:
@@ -3906,10 +3986,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         common_type = do_expr<CHECK>(ast.children[0]).type;
         if(common_type.name() == TYPE_VEC)
         {
-            auto result = to_rval<D>(do_expr<D>(ast.children[0]));
-            vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
-            type_t elem_type = dethunkify({ ast.token.pstring, result.type }, true, this);
-            common_value.set(vec->data.size() * elem_type.size_of(), TYPE_INT);
+            if(!is_check(D))
+            {
+                auto result = to_rval<D>(do_expr<D>(ast.children[0]));
+                vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+                type_t elem_type = dethunkify({ ast.token.pstring, result.type }, true, this);
+                common_value.set(vec->data.size() * elem_type.size_of(), TYPE_INT);
+            }
             goto push_int;
         }
         goto do_sizeof;
@@ -3928,9 +4011,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         common_type = do_expr<CHECK>(ast.children[0]).type;
         if(common_type.name() == TYPE_VEC)
         {
-            auto result = to_rval<D>(do_expr<D>(ast.children[0]));
-            vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
-            common_value.set(vec->data.size(), TYPE_INT);
+            if(!is_check(D))
+            {
+                auto result = to_rval<D>(do_expr<D>(ast.children[0]));
+                passert(result.rval().size() == 1, result.rval().size(), local_consts);
+                vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+                common_value.set(vec->data.size(), TYPE_INT);
+            }
             goto push_int;
         }
         goto do_len;
@@ -4188,6 +4275,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 // Must be two lines; reference invalidation lurks.
                 ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_xor, TYPE_BOOL, v.ssa(), ssa_value_t(1u, TYPE_BOOL));
                 v.ssa() = ssa;
+                v.time = RT;
             }
 
             return v;
@@ -4228,6 +4316,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 // Must be two lines; reference invalidation lurks.
                 ssa_ht const ssa = builder.cfg->emplace_ssa(SSA_sub, v.type, ssa_value_t(0u, v.type.name()), v.ssa(), ssa_value_t(1u, TYPE_BOOL));
                 v.ssa() = ssa;
+                v.time = RT;
             }
 
             return v;
@@ -4251,6 +4340,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 ssa_ht const ssa = builder.cfg->emplace_ssa(
                     SSA_xor, v.type, ssa_value_t(fixed_t{ numeric_bitmask(v.type.name()) }, v.type.name()), v.ssa());
                 v.ssa() = ssa;
+                v.time = RT;
             }
 
             return v;
@@ -4355,7 +4445,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             reload_ptr();
 
-            expr_value_t result = { .type = type, .pstring = ast.token.pstring };
+            expr_value_t result = 
+            { 
+                .type = type, 
+                .pstring = ast.token.pstring ,
+                .time = RT
+            };
 
             if(!is_check(D))
             {
@@ -4478,7 +4573,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             reload_ptr();
 
-            expr_value_t result = { .type = TYPE_VOID, .pstring = ast.token.pstring };
+            expr_value_t result = 
+            { 
+                .type = TYPE_VOID, 
+                .pstring = ast.token.pstring ,
+                .time = RT,
+            };
 
             if(!is_check(D))
             {
@@ -4925,6 +5025,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
     }
     else
         std::runtime_error("Cannot convert to rvalue.");
+
     return v;
 }
 
@@ -4949,7 +5050,7 @@ void eval_t::do_swap(expr_value_t a, expr_value_t b)
     do_assign<D>(std::move(b), std::move(temp), token);
 }
 
-template<eval_t::do_t D>
+template<eval_t::do_t D, eval_t::assign_mode_t A>
 expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const&)
 {
     pstring_t const pstring = concat(lhs.pstring, lhs.pstring);
@@ -4972,8 +5073,25 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
             compiler_error(pstring, fmt("Unable to modify %", global.name));
     }
 
+    type_t rhs_type = lhs.type;
+    if(A == ASSIGN_PUSH)
+    {
+        if(!is_vec(lhs.type.name()))
+            compiler_error(pstring, fmt("Unable to push into values of type %.", lhs.type));
+        rhs_type = lhs.type.elem_type();
+    }
+
     if(is_check(D))
-        return throwing_cast<D>(std::move(rhs), lhs.type, true);
+    {
+        if(A == ASSIGN_POP)
+        {
+            if(!is_vec(lhs.type.name()))
+                compiler_error(pstring, fmt("Unable to pop from values of type %.", lhs.type));
+            return { .val = rval_t(), .type = lhs.type.elem_type() };
+        }
+        else
+            return throwing_cast<D>(std::move(rhs), rhs_type, true);
+    }
 
     if(is_paa(lhs.type.name()))
         compiler_error(pstring, "Cannot assign pointer-addressible arrays.");
@@ -5000,13 +5118,11 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         return rhs;
     }
 
-    if(!is_check(D) && !lval)
+    if(!lval)
         compiler_error(pstring, "Expecting lvalue as operand to assignment.");
 
-    rhs = throwing_cast<D>(std::move(rhs), lhs.type, true);
-
-    if(is_check(D))
-        goto finish;
+    if(A != ASSIGN_POP)
+        rhs = throwing_cast<D>(std::move(rhs), rhs_type, true);
 
     // Remap the identifier to point to the new value.
     if(is_interpret(D) && D != INTERPRET_CE)
@@ -5016,12 +5132,25 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         rval_t& rval = rhs.rval();
 
         ct_variant_t* ptr = local.data();
-        bool vec_slice = false;
+        bool vec_partial = false;
         unsigned vec_member = 0;
         unsigned tea_index;
         std::int64_t tea_size = -1;
 
         type_t type = var_type(lval->var_i());
+
+        auto const handle_vec = [&]() -> vec_t*
+        {
+            vec_ptr_t* shared = std::get_if<vec_ptr_t>(ptr);
+
+            // If the vec has multiple owners, copy it, creating a new one.
+            if(!shared)
+                compiler_error(pstring, "Value is uninitialized.");
+            else if(shared->use_count() > 1)
+                *shared = std::make_shared<vec_t>(**shared);
+
+            return shared->get();
+        };
 
         // Resolve the accesses:
         for(auto const& access : lval->accesses)
@@ -5043,7 +5172,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                         assert(index <  std::get<vec_ptr_t>(*ptr)->data.size());
                         ptr = std::get<vec_ptr_t>(*ptr)->data.at(index).data() + vec_member;
                         vec_member = 0;
-                        vec_slice = false;
+                        vec_partial = false;
                     }
 
                     type = type.elem_type();
@@ -5073,17 +5202,9 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
                     if(is_vec(type.name()))
                     {
-                        unsigned const num_members = ::num_members(field_type);
-
-                        assert(rval.size() == 1);
-                        auto& shared = std::get<vec_ptr_t>(*ptr);
-
-                        // If the vec has multiple owners, copy it, creating a new one.
-                        if(shared.use_count() > 1)
-                            shared = std::make_shared<vec_t>(*shared);
-
+                        handle_vec();
+                        vec_partial = true;
                         vec_member += member;
-                        vec_slice = true;
                     }
                     else
                         ptr += member;
@@ -5094,12 +5215,15 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
             }
         }
 
-        if(is_vec(type.name()) && (lval->atom >= 0 || vec_slice))
+        if(is_vec(type.name()) && (lval->atom >= 0 || vec_partial))
             compiler_error(pstring, "Partial assignment of {} types is not supported.");
 
         // de-atomize
         if(lval->atom >= 0)
         {
+            if(A != ASSIGN)
+                compiler_error(pstring, "Invalid assignment.");
+
             type_t const stripped = strip_array(type);
             int const shift = lval->atom - frac_bytes(stripped.name());
 
@@ -5151,9 +5275,12 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 rval = { convert(wide_lhs.ssa(), rhs.ssa()) };
         }
 
+        // Do the assignment:
         if(tea_size >= 0)
         {
             assert(tea_index <= tea_size);
+            if(A != ASSIGN)
+                compiler_error(pstring, "Invalid assignment.");
 
             for(unsigned i = 0; i < rval.size(); ++i)
             {
@@ -5172,12 +5299,44 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
         else
         {
-            for(unsigned i = 0; i < rval.size(); ++i)
-                ptr[i] = rval[i];
+            if(A == ASSIGN)
+            {
+                for(unsigned i = 0; i < rval.size(); ++i)
+                    ptr[i] = rval[i];
+            }
+            else if(A == ASSIGN_PUSH)
+            {
+                assert(is_vec(type.name()));
+                vec_t* const vec_ptr = handle_vec();
+                assert(vec_ptr);
+                vec_ptr->data.push_back(rval);
+            }
+            else if(A == ASSIGN_POP)
+            {
+                assert(is_vec(type.name()));
+                vec_t* const vec_ptr = handle_vec();
+                assert(vec_ptr);
+                if(vec_ptr->data.empty())
+                    compiler_error(pstring, "Unable to pop. Size is 0.");
+                auto result = vec_ptr->data.back();
+                vec_ptr->data.pop_back();
+
+                return expr_value_t
+                {
+                    .val = std::move(result),
+                    .type = type.elem_type(),
+                    .pstring = pstring,
+                };
+            }
+            else
+                assert(false);
         }
     }
     else if(is_compile(D))
     {
+        if(A != ASSIGN)
+            compiler_error(pstring, "Unable to modify at run-time.");
+
         ssa_value_array_t& local = builder.cfg.data<block_d>().var(lval->var_i());
         rval_t& rval = rhs.rval();
 
@@ -5270,7 +5429,8 @@ expr_value_t eval_t::compile_binary_operator(
     {
         .val = rval_t{ result },
         .type = result_type, 
-        .pstring = concat(lhs.pstring, rhs.pstring)
+        .pstring = concat(lhs.pstring, rhs.pstring),
+        .time = RT,
     };
 }
 
@@ -5564,6 +5724,8 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
                                 result.val = rval_t{ cast };
                         }
                     }
+
+                    result.time = RT;
                 }
             }
         }
@@ -5622,7 +5784,10 @@ expr_value_t eval_t::do_assign_add(expr_value_t lhs, expr_value_t rhs, token_t c
         }
     }
     else if(is_compile(Policy::D))
+    {
         result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, add.ssa()) };
+        result.time = RT;
+    }
 
     if(!is_link(Policy::D))
         do_assign<Policy::D>(std::move(lhs), std::move(add), token);
@@ -5713,7 +5878,10 @@ expr_value_t eval_t::do_assign_shift(expr_value_t lhs, expr_value_t rhs, token_t
         }
     }
     else if(is_compile(Policy::D))
+    {
         result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, shift.ssa()) };
+        result.time = RT;
+    }
 
     if(!is_link(Policy::D))
         do_assign<Policy::D>(std::move(lhs), std::move(shift), token);
@@ -5802,7 +5970,10 @@ expr_value_t eval_t::do_assign_rotate(expr_value_t operand, expr_value_t carry, 
         }
     }
     else if(is_compile(Policy::D))
+    {
         result.val = rval_t{ builder.cfg->emplace_ssa(SSA_carry, TYPE_BOOL, rotate.ssa()) };
+        result.time = RT;
+    }
 
     if(!is_link(Policy::D))
         do_assign<Policy::D>(std::move(operand), std::move(rotate), token);
@@ -5907,7 +6078,7 @@ expr_value_t eval_t::do_logical(ast_node_t const& ast)
         if(rhs.is_lt())
             goto lt;
 
-        return lhs;
+        return rhs;
     }
     else if(is_compile(D))
     {
@@ -5931,6 +6102,7 @@ expr_value_t eval_t::do_logical(ast_node_t const& ast)
                 SSA_phi, TYPE_BOOL, rhs.ssa(), ssa_value_t(is_or, TYPE_BOOL)) },
             .type = TYPE_BOOL,
             .pstring = concat(lhs.pstring, rhs.pstring),
+            .time = RT,
         };
 
         return result;
@@ -5988,6 +6160,7 @@ expr_value_t eval_t::do_abs(ast_node_t const& ast)
         builder.cfg = merge_node;
 
         result.val = rval_t{ merge_node->emplace_ssa(SSA_phi, result.type, value.ssa(), negated) };
+        result.time = RT;
     }
 
     return throwing_cast<D>(std::move(result), to_u(result.type.name()), false, ast.token.pstring);
@@ -6092,6 +6265,7 @@ expr_value_t eval_t::do_min_max(ast_node_t const& ast)
         }
 
         result.val = rval_t{ best };
+        result.time = RT;
     }
 
     return result;
@@ -6115,7 +6289,10 @@ expr_value_t eval_t::force_truncate(expr_value_t value, type_t to_type, pstring_
     if(is_interpret(D) || (is_compile(D) && value.is_ct()))
         result.val = rval_t{ ssa_value_t(mask_numeric(value.fixed(), to_type.name()), to_type.name()) };
     else if(is_compile(D))
+    {
         result.val = rval_t{ builder.cfg->emplace_ssa(SSA_cast, to_type, value.ssa()) };
+        result.time = RT;
+    }
 
     return result;
 }
@@ -6141,6 +6318,7 @@ expr_value_t eval_t::force_promote(expr_value_t value, type_t to_type, pstring_t
         if(is_ct(to_type))
             compiler_error(value.pstring, fmt("Cannot promote type % to type % at run-time.", value.type, to_type));
         result.val = rval_t{ builder.cfg->emplace_ssa(SSA_cast, to_type, value.ssa()) };
+        result.time = RT;
     }
 
     return result;
@@ -6189,6 +6367,7 @@ expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstrin
 
         cast = builder.cfg->emplace_ssa(SSA_cast, to_type, cast);
         result.val = rval_t{ cast };
+        result.time = RT;
     }
 
     return result;
@@ -6235,6 +6414,7 @@ expr_value_t eval_t::force_ptrify_int(expr_value_t value, type_t to_type, pstrin
             rval.push_back(builder.cfg->emplace_ssa(SSA_get_byte, TYPE_U, value.ssa(), ssa_value_t(2, TYPE_U)));
 
         result.val = std::move(rval);
+        result.time = RT;
     }
 
     return result;
@@ -6331,7 +6511,6 @@ expr_value_t eval_t::force_boolify(expr_value_t value, pstring_t cast_pstring)
     {
         .type = TYPE_BOOL, 
         .pstring = cast_pstring ? concat(value.pstring, cast_pstring) : value.pstring,
-        .time = is_compile(D) ? RT : CT, // TODO: what is this for?
     };
 
     if(is_interpret(D) || (is_compile(D) && value.is_ct()))
@@ -6343,6 +6522,7 @@ expr_value_t eval_t::force_boolify(expr_value_t value, pstring_t cast_pstring)
     {
         result.val = rval_t{ builder.cfg->emplace_ssa(
             SSA_not_eq, TYPE_BOOL, value.ssa(), ssa_value_t(0u, value.type.name())) };
+        result.time = RT;
     }
 
     return result;
@@ -6359,13 +6539,14 @@ expr_value_t eval_t::force_resize_tea(expr_value_t value, type_t to_type, pstrin
     rval_t& rval = value.rval();
 
     type_t const elem_type = to_type.elem_type();
-    unsigned const from_size = value.type.size();
-    unsigned const to_size = to_type.size();
+    unsigned const from_size = value.type.array_length();
+    unsigned const to_size = to_type.array_length();
 
     expr_value_t result =
     {
         .type = to_type, 
         .pstring = cast_pstring ? concat(value.pstring, cast_pstring) : value.pstring,
+        .time = value.time,
     };
 
     if(from_size == to_size)
@@ -6377,7 +6558,7 @@ expr_value_t eval_t::force_resize_tea(expr_value_t value, type_t to_type, pstrin
             for(unsigned m = 0; m < rval.size(); ++m)
             {
                 ct_array_t const& from = std::get<ct_array_t>(rval[m]);
-                ct_array_t to = make_ct_array(to_type.size());
+                ct_array_t to = make_ct_array(to_type.array_length());
                 std::copy(from.get(), from.get() + from_size, to.get());
 
                 // Zero-init the rest:
@@ -6404,6 +6585,106 @@ expr_value_t eval_t::force_resize_tea(expr_value_t value, type_t to_type, pstrin
         }
 
         result.val = std::move(rval);
+        result.time = RT;
+    }
+
+    return result;
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::force_vecify_tea(expr_value_t value, type_t to_type, pstring_t cast_pstring)
+{
+    assert(is_tea(value.type.name()));
+    assert(is_vec(to_type.name()));
+    assert(value.type.elem_type() == to_type.elem_type());
+
+    value = to_rval<D>(std::move(value));
+    rval_t& rval = value.rval();
+
+    unsigned const from_size = value.type.array_length();
+
+    expr_value_t result =
+    {
+        .type = to_type, 
+        .pstring = cast_pstring ? concat(value.pstring, cast_pstring) : value.pstring,
+        .time = value.time,
+    };
+
+    if(is_interpret(D) || (is_compile(D) && value.is_ct()))
+    {
+        vec_t vec;
+        for(unsigned i = 0; i < from_size; ++i)
+        {
+            rval_t elem;
+            for(unsigned m = 0; m < rval.size(); ++m)
+            {
+                ct_array_t const& from = std::get<ct_array_t>(rval[m]);
+                if(!from[i])
+                    compiler_error(pstring, "Value is uninitialized.");
+                elem.push_back(from[i]);
+            }
+            vec.data.push_back(std::move(elem));
+        }
+
+        result.val = rval_t{ std::make_shared<vec_t>(std::move(vec)) };
+    }
+    else if(is_compile(D))
+        compiler_error(cast_pstring, fmt("Unable to cast to % at run-time.", to_type));
+
+    return result;
+}
+
+
+template<eval_t::do_t D>
+expr_value_t eval_t::force_teaify_vec(expr_value_t value, type_t to_type, pstring_t cast_pstring)
+{
+    assert(is_vec(value.type.name()));
+    assert(is_tea(to_type.name()));
+    assert(value.type.elem_type() == to_type.elem_type());
+
+    value = to_rval<D>(std::move(value));
+    rval_t& rval = value.rval();
+    type_t const elem_type = to_type.elem_type();
+
+    expr_value_t result =
+    {
+        .type = to_type, 
+        .pstring = cast_pstring ? concat(value.pstring, cast_pstring) : value.pstring,
+        .time = value.time,
+    };
+
+    if(to_type.unsized())
+        compiler_error(cast_pstring, "Array length must be specified in this context.");
+
+    if(!is_check(D))
+    {
+        assert(rval.size() == 1);
+        auto vec = std::get<vec_ptr_t>(rval[0]);
+
+        unsigned const from_length = vec->data.size();
+        unsigned const to_length = result.type.array_length();
+        unsigned const min_length = std::min(from_length, to_length);
+
+        rval.resize(::num_members(elem_type));
+
+        for(unsigned m = 0; m < rval.size(); ++m)
+        {
+            ct_array_t to = make_ct_array(to_length);
+
+            for(unsigned i = 0; i < min_length; ++i)
+            {
+                if(!std::get<ssa_value_t>(vec->data[i][m]))
+                    compiler_error(pstring, "Value is uninitialized.");
+                to[i] = std::get<ssa_value_t>(vec->data[i][m]);
+            }
+
+            // Zero-init the rest:
+            ssa_value_t fill(0u, ::member_type(elem_type, m).name());
+            for(unsigned i = from_length; i < to_length; ++i)
+                to[i] = fill;
+
+            rval[m] = std::move(to);
+        }
     }
 
     return result;
@@ -6423,11 +6704,11 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
         return true;
     }
 
+    if(!cast_pstring)
+        cast_pstring = value.pstring;
+
     if(!is_check(D) && !is_link(D) && value.is_lt())
     {
-        if(!cast_pstring)
-            cast_pstring = value.pstring;
-
         ast_node_t* children = eternal_new<ast_node_t>(2);
 
         children[0].token = { token_t::make_ptr(TOK_cast_type, cast_pstring, type_t::new_type(to_type)) };
@@ -6473,7 +6754,10 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
             if(is_interpret(D) || (is_compile(D) && value.is_ct()))
                 value.rval()[0] = ssa_value_t(value.ssa(0).fixed(), t.name());
             else if(is_compile(D))
+            {
                 value.rval()[0] = builder.cfg->emplace_ssa(SSA_cast, t, value.ssa(0));
+                value.time = RT;
+            }
         }
         return true;
     case CAST_PROMOTE:
@@ -6499,6 +6783,12 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
         return true;
     case CAST_RESIZE_TEA:
         value = force_resize_tea<D>(std::move(value), to_type, cast_pstring);
+        return true;
+    case CAST_VECIFY_TEA:
+        value = force_vecify_tea<D>(std::move(value), to_type, cast_pstring);
+        return true;
+    case CAST_TEAIFY_VEC:
+        value = force_teaify_vec<D>(std::move(value), to_type, cast_pstring);
         return true;
     }
 }

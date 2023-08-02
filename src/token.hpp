@@ -55,7 +55,6 @@ constexpr bool is_ident(lex::token_type_t type)
     { return type == lex::TOK_ident || type == lex::TOK_type_ident; }
 
 
-// TODO: move this
 enum value_time_t : char
 {
     CT,

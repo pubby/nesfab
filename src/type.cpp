@@ -402,6 +402,12 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(from.name() == TYPE_PAA || to.name() == TYPE_PAA)
         return CAST_FAIL;
 
+    if(from.name() == TYPE_TEA && to.name() == TYPE_VEC && from.elem_type() == to.elem_type())
+        return CAST_VECIFY_TEA;
+
+    if(from.name() == TYPE_VEC && to.name() == TYPE_TEA && from.elem_type() == to.elem_type())
+        return CAST_TEAIFY_VEC;
+
     // Ptrs can convert to ints.
     if(((!implicit && is_ptr(from.name())) || is_aptr(from.name()))
        && is_arithmetic(to.name()) && !is_ct(to.name()))
@@ -685,7 +691,7 @@ bool ptr_to_vars(type_t const& type)
     return !is_cptr(type.name());
 }
 
-type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
+type_t dethunkify(src_type_t src_type, bool full, eval_t* env, local_const_t const* local_consts)
 {
     type_t& t = src_type.type;
 
@@ -700,13 +706,13 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
     case TYPE_TEA_THUNK:
         {
             tea_thunk_t const& thunk = t.tea_thunk();
-            type_t const elem_type = dethunkify({ src_type.pstring, thunk.elem_type }, full, env);
+            type_t const elem_type = dethunkify({ src_type.pstring, thunk.elem_type }, full, env, local_consts);
 
             if(full)
             {
-                rpair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
+                rpair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env, local_consts);
                 assert(result.value.size());
-                if(is_lt(result.value))
+                if(calc_time(result.type, result.value) >= LT)
                     compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
                 auto size = std::get<ssa_value_t>(result.value[0]).signed_whole();
 
@@ -725,9 +731,9 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 
             if(full)
             {
-                rpair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env);
+                rpair_t const result = interpret_expr(thunk.pstring, thunk.expr, TYPE_INT, env, local_consts);
                 assert(result.value.size());
-                if(is_lt(result.value))
+                if(calc_time(result.type, result.value) >= LT)
                     compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
                 auto size = std::get<ssa_value_t>(result.value[0]).signed_whole();
 
@@ -739,7 +745,7 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 
     case TYPE_TEA:
         {
-            type_t const elem = dethunkify({ src_type.pstring, t.elem_type() }, full, env);
+            type_t const elem = dethunkify({ src_type.pstring, t.elem_type() }, full, env, local_consts);
             if(has_tea(elem))
                 compiler_error(src_type.pstring, "Arrays cannot be multi-dimensional.");
             return t.unsized() ? type_t::tea(elem) : type_t::tea(elem, t.size());
@@ -747,7 +753,7 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
 
     case TYPE_VEC:
         {
-            type_t const elem = dethunkify({ src_type.pstring, t.elem_type() }, full, env);
+            type_t const elem = dethunkify({ src_type.pstring, t.elem_type() }, full, env, local_consts);
             return type_t::vec(elem);
         }
 
@@ -755,7 +761,7 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env)
         {
             type_t* args = ALLOCA_T(type_t, t.size());
             for(unsigned i = 0; i < t.size(); ++i)
-                args[i] = dethunkify({ src_type.pstring, t.type(i) }, full, env);
+                args[i] = dethunkify({ src_type.pstring, t.type(i) }, full, env, local_consts);
             return type_t::fn(args, args + t.size());
         }
 

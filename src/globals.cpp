@@ -1064,7 +1064,7 @@ static void _resolve_local_consts(global_ht global, std::vector<local_const_t>& 
 
         if(c.expr)
         {
-            c.decl.src_type.type = ::dethunkify(c.decl.src_type, true);
+            c.decl.src_type.type = ::dethunkify(c.decl.src_type, true, nullptr, local_consts.data());
 
             c.value = interpret_local_const(
                 c.decl.name, fn, *c.expr, 

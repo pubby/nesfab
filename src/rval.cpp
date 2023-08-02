@@ -14,42 +14,32 @@ unsigned lval_t::ulabel() const
     return label;
 }
 
-bool is_ct(rval_t const& rval)
+value_time_t calc_time(type_t const& type, rval_t const& rval)
 {
-    for(auto const& v : rval)
+    value_time_t time = CT;
+
+    auto const check_ssa = [&](ssa_value_t ssa)
     {
-        if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
+        if(ssa.is_locator())
+            time = std::max(time, LT);
+        else if(ssa.holds_ref())
+            time = RT;
+    };
+
+    for(unsigned i = 0; i < rval.size(); ++i)
+    {
+        if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&rval[i]))
+            check_ssa(*ssa);
+        else if(ct_array_t const* array = std::get_if<ct_array_t>(&rval[i]))
         {
-            if(!ssa->is_num())
-                return false;
+            type_t const mt = ::member_type(type, i);
+            unsigned const length = mt.array_length();
+            for(unsigned j = 0; j < length; ++j)
+                check_ssa((*array)[j]);
         }
     }
 
-    return true;
-}
-
-bool is_lt(rval_t const& rval)
-{
-    for(auto const& v : rval)
-    {
-        if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
-        {
-            if(ssa->is_locator())
-                return true;
-        }
-    }
-
-    return false;
-}
-
-bool is_rt(rval_t const& rval)
-{
-    for(auto const& v : rval)
-        if(ssa_value_t const* ssa = std::get_if<ssa_value_t>(&v))
-            if(!ssa->holds_ref())
-                return false;
-
-    return true;
+    return time;
 }
 
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t const type, pstring_t pstring)

@@ -49,14 +49,12 @@ struct fn_not_rt_t : public std::exception
     pstring_t pstring;
 };
 
-void check_local_const(pstring_t pstring, fn_t* fn, ast_node_t const& expr,
-                       local_const_t const* local_consts);
-
 rpair_t interpret_local_const(pstring_t pstring, fn_t* fn, ast_node_t const& expr,
                               type_t expected_type, local_const_t const* local_consts);
 
 rpair_t interpret_expr(pstring_t pstring, ast_node_t const& ast,
-                       type_t expected_type, eval_t* env = nullptr);
+                       type_t expected_type, eval_t* env = nullptr, 
+                       local_const_t const* local_consts = nullptr);
 
 byte_block_data_t interpret_byte_block(
     pstring_t pstring, ast_node_t const& ast, fn_t* fn = nullptr, 

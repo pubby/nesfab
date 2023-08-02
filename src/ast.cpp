@@ -34,7 +34,7 @@ unsigned ast_node_t::num_children() const
     case TOK_byte_block_goto_mode:
     case TOK_write_state:
     case TOK_abs:
-        assert(children);
+    case TOK_pop:
         return 1;
 
     case TOK_byte_block_asm_op:
@@ -45,6 +45,7 @@ unsigned ast_node_t::num_children() const
     case TOK_index16:
     case TOK_replace_atom:
     case TOK_read:
+    case TOK_push:
         return 2;
 
     case TOK_write:

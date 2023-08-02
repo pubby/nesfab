@@ -680,7 +680,6 @@ int main()
         keyword("mapfab"),
         keyword("push"),
         keyword("pop"),
-        keyword("resize"),
 
         keyword("true"),
         keyword("false"),

@@ -17,6 +17,7 @@ struct token_t;
 struct tea_thunk_t;
 struct paa_thunk_t;
 struct src_type_t;
+struct local_const_t;
 class eval_t;
 
 class type_t
@@ -189,6 +190,8 @@ enum cast_result_t : char
     CAST_INTIFY_PTR,
     CAST_PTRIFY_INT,
     CAST_RESIZE_TEA,
+    CAST_VECIFY_TEA,
+    CAST_TEAIFY_VEC,
 };
 
 bool can_size_unsized_array(type_t const& sized, type_t const& unsized);
@@ -197,6 +200,6 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit);
 // Converts THUNKs to regular types.
 // If 'full' is true, the type will be fully stripped of thunks.
 // Otherwise, only thunks necessary for counting members will be changed.
-type_t dethunkify(src_type_t src_type, bool full, eval_t* env = nullptr);
+type_t dethunkify(src_type_t src_type, bool full, eval_t* env = nullptr, local_const_t const* local_consts = nullptr);
 
 #endif

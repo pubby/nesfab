@@ -895,11 +895,9 @@ retry:
 
     case TOK_push:
     case TOK_pop:
-    case TOK_resize:
         {
             ast_node_t ast = { .token = token };
             parse_token();
-            parse_token(TOK_lparen);
 
             bc::small_vector<ast_node_t, 2> children;
             unsigned const argn = parse_args(TOK_lparen, TOK_rparen,
@@ -907,12 +905,8 @@ retry:
             if(argn != ast.num_children())
                 compiler_error(ast.token.pstring, fmt("Wrong number of arguments to %. Expecting %.", 
                                                       token_string(ast.token.type), ast.num_children()));
-            children.push_back(parse_expr(indent, open_parens+1));
-            children.push_back(parse_expr(indent, open_parens+1));
             ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
-
             ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
-            parse_token(TOK_rparen);
 
             return ast;
         }

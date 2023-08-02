@@ -132,7 +132,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             if(expr)
             {
                 rpair_t const result = interpret_expr(g->pstring(), *expr, TYPE_INT);
-                if(is_lt(result.value))
+                if(calc_time(result.type, result.value) >= LT)
                     compiler_error(g->pstring(), "Unable to determine chrrom offset at compile-time.");
 
                 offset = std::get<ssa_value_t>(result.value[0]).signed_whole();

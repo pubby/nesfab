@@ -190,7 +190,17 @@ type_t locator_t::type() const
     switch(is())
     {
     case IS_PTR:
-        return byteify(TYPE_APTR);
+        {
+            type_t ptr = TYPE_APTR;
+            if(lclass() == LOC_GCONST)
+            {
+                if(const_ht const c = const_())
+                    ptr = type_t::ptr(c->group(), TYPE_PPTR);
+            }
+            else if(lclass() == LOC_GMEMBER)
+                ptr = type_t::ptr(gmember()->gvar.group(), TYPE_PPTR);
+            return byteify(ptr);
+        }
     case IS_PTR_HI:
     case IS_BANK:
         return TYPE_U;
@@ -202,7 +212,7 @@ type_t locator_t::type() const
     {
     case LOC_GCONST:
         if(const_ht const c = const_())
-            c->type();
+            return c->type();
         break;
     case LOC_ROM_ARRAY:
         if(rom_array_ht const a = rom_array())
@@ -480,10 +490,13 @@ rom_alloc_ht locator_t::rom_alloc(romv_t romv) const
     return {};
 }
 
-std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors)
+std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors, bool warn_errors)
 {
     if(!is_const(linked.lclass()) || linked.is() == IS_BANK)
     {
+        if(warn_errors)
+            compiler_warning(fmt("Unable to link locator %", linked));
+
         if(ignore_errors)
             return 0;
         else

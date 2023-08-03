@@ -40,7 +40,7 @@ static void write_linked(
     std::size_t const size = vec.size();
 
     for(std::size_t i = 0; i < size; ++i)
-        *at++ = linked_to_rom(vec[i].link(romv, {}, bank));
+        *at++ = linked_to_rom(vec[i].link(romv, {}, bank), true, true);
 }
 
 std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)

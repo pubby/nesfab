@@ -15,51 +15,6 @@
 // N = $01 to $7F: Copy the next byte (N + 2) times
 // N = $80 to $FF: Copy the next (N - 127) bytes verbatim
 
-// Compresses the data 'in' to RLZ format at compile-time.
-// If 'terminate' is true, a value of 0 will be appended onto the end.
-ct fn compress_rlz(U{} in, Bool terminate) U{}
-    U{} out = U{}()
-    for Int i = 0; i < len(in); i += 1
-        U c = in{i}
-
-        // Count a run of identical characters.
-
-        Int run = 1
-        while run < 129 && i + run < len(in) && in{i + run} == c
-            run += 1
-
-        if run > 2
-            push(out, run - 2)
-            push(out, c)
-            i += run
-
-        // Count a run of different characters.
-
-        Int match = 1
-        run = 1
-        while match < 128 && i + match < len(in)
-            if in{i + match} == c
-                run += 1
-                if run == 3
-                    match -= 2
-                    break
-            else
-                run = 1
-                c = in{i + match}
-            
-            match += 1
-        
-        push(out, match + $80 - 1)
-        for Int j = 0; j < match; j += 1
-            push(out, in{i + j})
-
-        i += match
-
-    if(terminate)
-        push(out, 0)
-
-    return out
-
 // Reads from 'ptr' and uploads to PPUDATA until the stream is terminated by a $00 byte.
 // Returns a pointer to one past the end of the data.
 asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
@@ -107,4 +62,49 @@ asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
         lda &ptr.c
         sta &return.c
         rts
+
+// Compresses the data 'in' to RLZ format at compile-time.
+// If 'terminator' is true, a value of 0 will be appended onto the end.
+ct fn compress_rlz(U{} in, Bool terminator) U{}
+    U{} out = U{}()
+    for Int i = 0; i < len(in); i += 1
+        U c = in{i}
+
+        // Count a run of identical characters.
+
+        Int run = 1
+        while run < 129 && i + run < len(in) && in{i + run} == c
+            run += 1
+
+        if run > 2
+            push(out, run - 2)
+            push(out, c)
+            i += run
+
+        // Count a run of different characters.
+
+        Int match = 1
+        run = 1
+        while match < 128 && i + match < len(in)
+            if in{i + match} == c
+                run += 1
+                if run == 3
+                    match -= 2
+                    break
+            else
+                run = 1
+                c = in{i + match}
+            
+            match += 1
+        
+        push(out, match + $80 - 1)
+        for Int j = 0; j < match; j += 1
+            push(out, in{i + j})
+
+        i += match
+
+    if(terminator)
+        push(out, 0)
+
+    return out
 

@@ -3,6 +3,7 @@
 #include "rom.hpp"
 #include "runtime.hpp"
 #include "lt.hpp"
+#include <iostream>
 
 static void rom_mark_emits(rom_data_ht data);
 
@@ -15,12 +16,11 @@ static void locator_mark_emits(locator_t loc)
     {
         lt_value_t& value = *loc.lt();
 
-        if(value.prune_processed)
-            return;
-
-        value.prune_processed = true;
-
-        value.for_each_locator(locator_mark_emits);
+        if(!value.prune_processed)
+        {
+            value.prune_processed = true;
+            value.for_each_locator(locator_mark_emits);
+        }
     }
 }
 

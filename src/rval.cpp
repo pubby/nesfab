@@ -46,8 +46,8 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
 {
     std::size_t const total_size_of = type.size_of();
 
-    if(total_size_of == 0)
-        compiler_error(pstring, "Invalid type in pointer-addressable array. (Size of 0.)");
+    if(total_size_of == 0 && !is_vec(type.name()) && !is_tea(type.name()))
+        compiler_error(pstring, fmt("Invalid type % in pointer-addressable array. (Size of 0.)", type));
 
     vec.reserve(vec.size() + total_size_of);
 

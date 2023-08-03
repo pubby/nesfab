@@ -13,6 +13,7 @@ using namespace macro_lex;
 
 static token_type_t do_lex(char const*& str)
 {
+    char const* start = str;
     token_type_t lexed = TOK_START;
     for(; lexed > TOK_LAST_STATE; ++str)
     {
@@ -22,6 +23,8 @@ static token_type_t do_lex(char const*& str)
             break;
     }
     --str;
+    if(lexed == TOK_ERROR)
+        str = start;
     return lexed;
 }
 

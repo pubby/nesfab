@@ -652,7 +652,10 @@ eval_t::eval_t(ir_t& ir_ref, fn_t& fn_ref)
             phi->alloc_input(size);
 
             for(unsigned i = 0; i < size; ++i)
+            {
+                passert(m < builder.return_values[i].size(), m, builder.return_values[i].size());
                 phi->build_set_input(i, builder.return_values[i][m]);
+            }
 
             return_inputs.push_back(phi);
             return_inputs.push_back(locator_t::ret(fn->handle(), m, 0));
@@ -3161,10 +3164,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 default:
                     {
                         expr_value_t arg = to_rval<D>(do_expr<D>(sub));
-                        if(sub.token.type != TOK_cast && is_ct(arg.type))
+                        if(sub.token.type != TOK_cast && is_ct(arg.type) && !is_vec(arg.type.name()))
+                        {
                             throw compiler_error_t(
                                 fmt_error(sub.token.pstring, fmt("Expression of type % in byte block.", arg.type))
                                 + fmt_note("Use an explicit cast to override."));
+                        }
                         ::append_locator_bytes(paa, arg.rval(), arg.type, arg.pstring);
                     }
                     break;
@@ -3286,7 +3291,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             locator_t const loc = locator_t::fn(call, fn_val.lval().ulabel());
                             int const iasm_child = proc.add_pstring(pstring);
 
-                            op_t op; 
                             if(mapper().bankswitches())
                             {
                                 if(mod_test(call->mods(), MOD_static))
@@ -3428,9 +3432,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             std::size_t const num_children = ast.token.value;
             std::size_t const num_args = num_children - 1;
 
+            constexpr unsigned arg_offset = 1;
             bc::small_vector<expr_value_t, 8> args(num_args);
             for(unsigned i = 0; i < num_args; ++i)
-                args[i] = to_rval<D>(do_expr<D>(ast.children[i + 1]));
+                args[i] = to_rval<D>(do_expr<D>(ast.children[i + arg_offset]));
 
             // The first expr holds the type.
             assert(ast.children[0].token.type == TOK_cast_type);
@@ -3541,7 +3546,15 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             return throwing_cast<D>(std::move(args[0]), type, implicit);
                         }
                         else if(args[0].type.name() == TYPE_VEC)
+                        {
+                            if(is_check(D) && type.unsized())
+                            {
+                                auto interpreted = to_rval<INTERPRET_CE>(do_expr<INTERPRET_CE>(ast.children[0+arg_offset]));
+                                return throwing_cast<INTERPRET_CE>(std::move(interpreted), type, implicit);
+                            }
+
                             return throwing_cast<D>(std::move(args[0]), type, implicit);
+                        }
                         else if(!type.unsized())
                         {
                             // Generate a fill.
@@ -3701,14 +3714,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     precheck_tracked->deref_groups.emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
             }
 
-            type_t const result_type = is_ptr ? TYPE_U : array_val.type.elem_type();
-
             expr_value_t array_index = throwing_cast<D>(do_expr<D>(ast.children[1]), is8 ? TYPE_U : TYPE_U20, true);
 
             bool const is_ct = array_index.is_ct() && array_val.is_ct();
 
             if(is_vec && is_compile(D) && !is_ct)
-                compiler_error(ast.token.pstring, fmt("Values of type % cannot be used at run-time.", array_val.type));
+                array_val = throwing_cast<D>(array_val, type_t::tea(array_val.type.elem_type()), true);
+
+            type_t const result_type = is_ptr ? TYPE_U : array_val.type.elem_type();
 
             if(!is_check(D) && array_index.is_lt())
             {
@@ -4744,7 +4757,6 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         else if(lval->arg == lval_t::RETURN_ARG)
             compiler_error(v.pstring, "Cannot access the value of return.");
 
-        unsigned const num_members = ::num_members(v.type);
         type_t type = {};
         rval_t rval;
 
@@ -5351,8 +5363,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 new_type = new_type.elem_type();
             }
 
-            int const shift = lval->atom - frac_bytes(new_type.name());
-
             expr_value_t wide_lhs = lhs;
             wide_lhs.type = new_type;
             wide_lhs.lval().atom = -1;
@@ -5391,7 +5401,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
     }
 
-finish:
     return rhs;
 }
 
@@ -6653,21 +6662,21 @@ expr_value_t eval_t::force_teaify_vec(expr_value_t value, type_t to_type, pstrin
         .time = value.time,
     };
 
-    if(to_type.unsized())
-        compiler_error(cast_pstring, "Array length must be specified in this context.");
-
     if(!is_check(D))
     {
         assert(rval.size() == 1);
         auto vec = std::get<vec_ptr_t>(rval[0]);
 
         unsigned const from_length = vec->data.size();
+        if(to_type.unsized())
+            result.type.set_array_length(from_length);
         unsigned const to_length = result.type.array_length();
         unsigned const min_length = std::min(from_length, to_length);
 
-        rval.resize(::num_members(elem_type));
+        rval_t new_rval;
+        new_rval.resize(::num_members(elem_type));
 
-        for(unsigned m = 0; m < rval.size(); ++m)
+        for(unsigned m = 0; m < new_rval.size(); ++m)
         {
             ct_array_t to = make_ct_array(to_length);
 
@@ -6678,13 +6687,20 @@ expr_value_t eval_t::force_teaify_vec(expr_value_t value, type_t to_type, pstrin
                 to[i] = std::get<ssa_value_t>(vec->data[i][m]);
             }
 
+            type_t const mt = ::member_type(elem_type, m).name();
+
+            if(!is_scalar(mt.name()))
+                compiler_error(cast_pstring, fmt("Cannot convert from % to %.", value.type, to_type));
+
             // Zero-init the rest:
-            ssa_value_t fill(0u, ::member_type(elem_type, m).name());
+            ssa_value_t fill(0u, mt.name());
             for(unsigned i = from_length; i < to_length; ++i)
                 to[i] = fill;
 
-            rval[m] = std::move(to);
+            new_rval[m] = std::move(to);
         }
+
+        result.val = std::move(new_rval);
     }
 
     return result;
@@ -7020,7 +7036,7 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
         return h;
     }
     else
-        throw std::runtime_error("Cannot convert ct_array_t to ssa_value_t.");
+        throw std::runtime_error("Cannot convert to ssa_value_t.");
 
     return {};
 }

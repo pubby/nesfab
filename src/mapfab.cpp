@@ -3,8 +3,7 @@
 #include "macro.hpp"
 #include "define.hpp"
 #include "globals.hpp"
-
-#include <iostream> // TODO
+#include "debug_print.hpp"
 
 void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t at, 
                     fs::path mapfab_path, mapfab_macros_t const& macros)
@@ -16,7 +15,9 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
     fs::path base_path = mapfab_path;
     base_path.remove_filename();
 
-    std::cout << "PATH = " << mapfab_path << std::endl;
+    log_t* log = nullptr;
+
+    dprint(log, "MAPFAB_PATH", mapfab_path);
 
     std::uint8_t const* ptr = begin;
     std::uint8_t const* const end = begin + size;;
@@ -59,7 +60,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
     // Collision file:
     std::string collisions_path = get_str();
 
-    std::cout << "PATH = " << collisions_path << std::endl;
+    dprint(log, "MAPFAB_COLLISIONS_PATH", collisions_path);
 
     // CHR:
     unsigned const num_chr = get8(true);
@@ -72,12 +73,12 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
         m.args.push_back(get_str()); // Name
 
         fs::path path = get_str();
-        std::cout << "CHR PATH " << path << std::endl;
+        dprint(log, "MAPFAB_CHR_PATH", path);
         if(path.is_relative())
             path = base_path / path;
         m.args.push_back(path.string());
         invoke_macro(std::move(m), std::move(private_globals), {});
-        std::printf("CHR MACRO %i\n", i);
+        dprint(log, "MAPFAB_CHR_MACRO", i);
     }
 
     // Palettes:
@@ -97,7 +98,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
         macro_invocation_t m = { macros.palette };
         m.args.push_back(std::to_string(i));
         invoke_macro(std::move(m), std::move(private_globals), {});
-        std::printf("PALETTE MACRO %i\n", i);
+        dprint(log, "MAPFAB_PALETTE_MACRO", i);
     }
 
     // Metatiles:
@@ -110,13 +111,12 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
     std::vector<std::uint8_t> mt_ne(256);
     std::vector<std::uint8_t> mt_sw(256);
     std::vector<std::uint8_t> mt_se(256);
-    std::printf("NUM MT %i\n", num_mt);
+    dprint(log, "MAPFAB_NUM_MT", num_mt);
     for(unsigned i = 0; i < num_mt; ++i)
     {
-        std::printf("MT MACRO %i\n", i);
         std::string name = get_str();
         std::string chr_name = get_str();
-        std::cout << name << ' ' << chr_name << std::endl;
+        dprint(log, "MAPFAB_MT_MACRO", i, name, chr_name);
         unsigned palette = get8();
         unsigned num = get8(true);
         for(std::uint8_t& data : mt_tiles)
@@ -164,7 +164,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
 
     fc::vector_map<std::string, std::deque<field_t>> ocs;
     unsigned const num_oc = get8(true);
-    std::printf("OC = %i\n", num_oc);
+    dprint(log, "MAPFAB_NUM_OC", num_oc);
     for(unsigned i = 0; i < num_oc; ++i)
     {
         std::string name = get_str();
@@ -182,16 +182,15 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
 
     // Levels:
     unsigned const num_levels = get8(true);
-    std::printf("LEV = %i\n", num_levels);
+    dprint(log, "MAPFAB_NUM_LEVELS", num_levels);
     for(unsigned i = 0; i < num_levels; ++i)
     {
-        std::printf("LEVEL MACRO %i\n", i);
         std::string name = get_str();
         std::string macro_name = get_str();
         std::string chr_name = get_str();
         std::uint8_t const palette = get8();
         std::string metatiles_name = get_str();
-        std::cout << name << ' ' << chr_name << ' ' << metatiles_name << std::endl;
+        dprint(log, "MAPFAB_LEVEL_MACRO", i, name, chr_name, metatiles_name);
         unsigned const w = get8(true);
         unsigned const h = get8(true);
         std::vector<std::uint8_t> tiles_xy(w*h);
@@ -221,7 +220,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
             {
                 objects_x[it - ocs.begin()].push_back(x);
                 objects_y[it - ocs.begin()].push_back(y);
-                for(auto const& field : it->second)
+                for(unsigned j = 0; j < it->second.size(); ++j)
                     objects[it - ocs.begin()].push_back(get_str());
             }
         }
@@ -238,6 +237,7 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
         {
             auto const& oc = *(ocs.begin() + i);
 
+            define_ct_int(private_globals.lookup(at, fmt("_%_num", oc.first)), at, TYPE_INT, objects_x[i].size());
             define_ct(private_globals.lookup(at, fmt("_%_x", oc.first)), at, objects_x[i].data(), objects_x[i].size());
             define_ct(private_globals.lookup(at, fmt("_%_y", oc.first)), at, objects_y[i].data(), objects_y[i].size());
 
@@ -245,23 +245,20 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
             {
                 auto const& field = oc.second[j];
 
-                append += fmt("\n%[%] _%_% = %[%](", 
-                    field.type, objects[i].size(), 
-                    oc.first, field.name,
-                    field.type, objects[i].size());
-                bool first = true;
+                append += fmt("\nct %{} _%_% = %{}(", 
+                    field.type, oc.first, field.name, field.type);
+
                 for(unsigned k = j; k < objects[i].size(); k += oc.second.size())
                 {
-                    if(!first)
+                    if(k != j)
                         append += ", ";
-                    first = false;
                     append += objects[i][k];
                 }
                 append += ")\n";
             }
         }
 
-        macro_invocation_t m = { macros.level };
+        macro_invocation_t m = { macro_name.empty() ? macros.level : macro_name };
         m.args.push_back(name);
         m.args.push_back(chr_name);
         m.args.push_back(std::to_string(palette));

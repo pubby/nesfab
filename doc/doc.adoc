@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 0.8
+Version 0.9
 :sectnums:
 :toc2:
 :toclevels: 3
@@ -1463,7 +1463,8 @@ The value is <<casts, cast>>, then inserted into the byte block with the followi
 
 - For numeric types, the bytes are inserted in little-endian order.
 - For <<type_struct, structures>>, the first member is inserted first, then the second, and so on.
-- For <<type_TEA, TEAs>>, the first element is inserted first, then the second, and so on.
+- For <<type_tea, TEAs>>, if the element type is a <<type_struct, structure>>, the first member is insterted first as an array, then the second, and so on. Otherwise, the first element is inserted first, then the second, and so on.
+- For <<type_vec, VECs>>, the first element is inserted first, then the second, and so on.
 
 Example:
 ----
@@ -2095,6 +2096,46 @@ fn foo()
     U y = 20
     swap x, y
     // Now x = 20 and y = 10.
+----
+
+=== `push` [[kw_push]]
+
+The `push` expression appends a value onto a <<type_vec, VEC value>>.
+The expression returns a copy of its second argument.
+
+Syntax:
+----
+push(vec, elem)
+----
+- `vec` is an lvalue expression with a <<type_vec, VEC type>>.
+- `elem` is an expression value to be pushed onto `vec`.
+
+Example:
+----
+ct fn foo()
+    U{} vec = U{}()
+    push(vec, 10)
+    push(vec, 20)
+    // Now vec = U{}(10, 20)
+----
+
+=== `pop` [[kw_pop]]
+
+The `pop` expression removes the last value from a <<type_vec, VEC value>>, returning the removed valued.
+
+Syntax:
+----
+pop(vec)
+----
+- `vec` is an lvalue expression with a <<type_vec, VEC type>>.
+
+Example:
+----
+ct fn foo()
+    U{} vec = U{}(10, 20)
+    U x = pop(vec)
+    U y = pop(vec)
+    // Now x = 20, y = 10
 ----
 
 === `fence` [[kw_fence]]
@@ -3205,15 +3246,22 @@ It specifies the data of the CHR ROM using a <<byte_blocks, byte block>> syntax.
 
 Syntax:
 ----
-chrrom
+chrrom offset
     byte block
 ----
+- `offset` is an optional offset which determines which address the data gets stored. If left out, `offset` is treated as 0.
 
 Example:
 ----
+// Store at offset $0000:
 chrrom
     file(chr, "sprites.png") 
     file(chr, "bg.png") 
+
+// Store at offset $2000:
+chrrom $2000
+    file(chr, "more_sprites.png") 
+    file(chr, "more_bg.png") 
 ----
 
 The compiler will issue a warning if the supplied data does not match what the mapper expects.
@@ -4603,7 +4651,7 @@ Syntax:
 value[offset]
 ----
 
-- `value` is an expression with a <<type_tea, TEA type>> or a pointer to a <<type_paa, PAA type>>.
+- `value` is an expression with a <<type_tea, TEA type>>, <<type_vec, VEC type>>, or a pointer to a <<type_paa, PAA type>>.
 - `offset` is an expression of type `U`, used as the offset.
 
 Example:
@@ -4621,7 +4669,7 @@ Syntax:
 value[offset]
 ----
 
-- `value` is an expression with a <<type_tea, TEA type>> or a pointer to a <<type_paa, PAA type>>.
+- `value` is an expression with a <<type_tea, TEA type>>, <<type_vec, VEC type>>, or a pointer to a <<type_paa, PAA type>>.
 - `offset` is an expression of type `UU`, used as the offset.
 
 Example:
@@ -5291,13 +5339,13 @@ This type is used for inline assembly and hardware expressions.
 
 === Arrays
 
-NESFab has two kinds of https://en.wikipedia.org/wiki/Array_(data_structure)[array] types with different restrictions for each.
-The first has value semantics and behaves like arrays do in other languages, but cannot be referenced by pointers. 
-The second can, but it very limited otherwise and can only represent elements of type U.
+NESFab has three kinds of https://en.wikipedia.org/wiki/Array_(data_structure)[array] types with different restrictions for each.
+The first and second hav value semantics and behaves like arrays do in other languages, but cannot be referenced by pointers. 
+The third can, but it very limited otherwise and can only represent elements of type U.
 
 ==== Typed Element Arrays (TEAs) [[type_tea]]
 
-A TEA is an array of a specified type, of any size between 1 and 65536. Two TEA variables are shown below.
+A TEA is an array of a specified type, of any size between 0 and 65536. Two TEA variables are shown below.
 
 ----
 fn example()
@@ -5368,6 +5416,51 @@ tea{U(index) + CONSTANT}
 
 But in general, one should prefer to use `[]`, with TEAs of size 256 or less.
 
+==== Vectors (VECs) [[type_vec]]
+
+A VEC is an compile-time constant array of a specified type, of any size. 
+They are similar to <<type_tea, TEAs>>, but can be resized dynamically.
+
+----
+ct fn example()
+    // Syntax is TYPE{}
+    UU{} a_vec
+    SomeStruct{} another_vec_variable
+----
+
+VECs do not store their size in their type.
+
+Unlike TEAs, VECs can be multidimensional. 
+However, VECs can only exist at compile-time.
+
+A VEC value can be created using a cast. 
+The size can be left blank and the compiler will infer it.
+
+----
+ct fn example()
+    U{} small_vec = U{}(10, 20, 30) // Initialize with value
+----
+
+Like TEAs, operator `[]` or operator `{}` can be used to read or write the elements of a VEC value. 
+The indexing is zero-based.
+
+- `[]` expects an index argument of type `U`, limiting it to the first 256 elements.
+- `{}` expects an index argument of type `UU`.
+
+----
+ct fn example()
+    UU{} a_vec_variable = UU{}(UU[1500]())
+    a_vec_variable[4] = 64   // Set the 5th element to 64.
+    a_vec_variable{999} = 10 // Set the 1000th element to 10.
+    a_vec_variable[999] = 10 // Error! 999 can't convert to type U.
+----
+
+The operators <<kw_push>> and <<kw_pop>> can be used to add or remove elements from a VEC value.
+
+[NOTE]
+VECs are intended to be used for generating data at compile-time.
+For example, one can write a `ct fn` which compresses level data, using VECs.
+
 ==== Pointer-Addressable Arrays (PAAs) [[type_paa]]
 
 PAAs only support a single element type: `U`, and can only be defined at global scope. 
@@ -5386,7 +5479,7 @@ fn example([100] bad_param) // Error! Cannot use PAAs as fn parameters
 
 PAAs cannot be created using casts and there is no support for copying them.
 
-Like TEAs, operator `[]` or operator `{}` can be used to read or write the elements of a TEA value. 
+Like TEAs, operator `[]` or operator `{}` can be used to read or write the elements of a pointer value. 
 The indexing is zero-based.
 
 - `[]` expects an index argument of type `U`, limiting it to the first 256 elements.

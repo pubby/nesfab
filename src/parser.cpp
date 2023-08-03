@@ -1439,7 +1439,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 if(!is_thunk(cast_type.type))
                 {
                     unsigned const cast_size = cast_type.type.size_of();
-                    if(cast_size == 0)
+                    if(cast_size == 0 && !is_vec(cast_type.type.name()))
                         compiler_error(cast_type.pstring, fmt("Type % cannot appear in pointer-addressable array.", cast_type.type));
                 }
                 parse_line_ending();

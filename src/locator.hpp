@@ -645,6 +645,6 @@ struct std::hash<loc_vec_t>
     }
 };
 
-std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors = false);
+std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors = false, bool warn_errors = false);
 
 #endif

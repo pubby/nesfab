@@ -728,32 +728,35 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         }
 
                         // Handle chained adds, where zeroes and carries are involved.
-                        for(unsigned i = 0; i < 2; ++i)
+                        if(!carry_used(*ssa_it))
                         {
-                            if(!ssa_it->input(i).holds_ref())
-                                continue;
-
-                            ssa_ht const input = ssa_it->input(i).handle();
-
-                            if(input->op() == SSA_add)
+                            for(unsigned i = 0; i < 2; ++i)
                             {
-                                for(unsigned j = 0; j < 2; ++j)
+                                if(!ssa_it->input(i).holds_ref())
+                                    continue;
+
+                                ssa_ht const input = ssa_it->input(i).handle();
+
+                                if(input->op() == SSA_add)
                                 {
-                                    if(input->input(j).eq_whole(0))
+                                    for(unsigned j = 0; j < 2; ++j)
                                     {
-                                        ssa_it->link_change_input(i, input->input(!j));
-                                        ssa_it->link_change_input(2, input->input(2));
+                                        if(input->input(j).eq_whole(0))
+                                        {
+                                            ssa_it->link_change_input(i, input->input(!j));
+                                            ssa_it->link_change_input(2, input->input(2));
 
-                                        updated = true;
-                                        goto done_add;
-                                    }
-                                    else if(input->input(2).eq_whole(0) && input->input(j).eq_low_bit())
-                                    {
-                                        ssa_it->link_change_input(i, input->input(!j));
-                                        ssa_it->link_change_input(2, ssa_value_t(1u, TYPE_BOOL));
+                                            updated = true;
+                                            goto done_add;
+                                        }
+                                        else if(input->input(2).eq_whole(0) && input->input(j).eq_low_bit())
+                                        {
+                                            ssa_it->link_change_input(i, input->input(!j));
+                                            ssa_it->link_change_input(2, ssa_value_t(1u, TYPE_BOOL));
 
-                                        updated = true;
-                                        goto done_add;
+                                            updated = true;
+                                            goto done_add;
+                                        }
                                     }
                                 }
                             }
@@ -852,39 +855,42 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                         }
 
                         // Handle chained subs and adds, where zeroes and carries are involved.
-                        for(unsigned i = 0; i < 2; ++i)
+                        if(!carry_used(*ssa_it))
                         {
-                            if(!ssa_it->input(i).holds_ref())
-                                continue;
-
-                            ssa_ht const input = ssa_it->input(i).handle();
-
-                            if(i == 0 && input->op() == SSA_sub)
+                            for(unsigned i = 0; i < 2; ++i)
                             {
-                                for(unsigned j = 0; j < 2; ++j)
-                                {
-                                    if(input->input(j).eq_whole(0))
-                                    {
-                                        ssa_it->link_change_input(i, input->input(!j));
-                                        ssa_it->link_change_input(2, input->input(2));
+                                if(!ssa_it->input(i).holds_ref())
+                                    continue;
 
-                                        updated = true;
-                                        goto done_sub;
+                                ssa_ht const input = ssa_it->input(i).handle();
+
+                                if(i == 0 && input->op() == SSA_sub)
+                                {
+                                    for(unsigned j = 0; j < 2; ++j)
+                                    {
+                                        if(input->input(j).eq_whole(0))
+                                        {
+                                            ssa_it->link_change_input(i, input->input(!j));
+                                            ssa_it->link_change_input(2, input->input(2));
+
+                                            updated = true;
+                                            goto done_sub;
+                                        }
                                     }
                                 }
-                            }
-                            else if(i == 1 && input->op() == SSA_add)
-                            {
-                                for(unsigned j = 0; j < 2; ++j)
+                                else if(i == 1 && input->op() == SSA_add)
                                 {
-                                    if((input->input(2).eq_whole(1) && input->input(j).eq_whole(0))
-                                       || (input->input(2).eq_whole(0) && input->input(j).eq_low_bit()))
+                                    for(unsigned j = 0; j < 2; ++j)
                                     {
-                                        ssa_it->link_change_input(i, input->input(!j));
-                                        ssa_it->link_change_input(2, ssa_value_t(0u, TYPE_BOOL));
+                                        if((input->input(2).eq_whole(1) && input->input(j).eq_whole(0))
+                                           || (input->input(2).eq_whole(0) && input->input(j).eq_low_bit()))
+                                        {
+                                            ssa_it->link_change_input(i, input->input(!j));
+                                            ssa_it->link_change_input(2, ssa_value_t(0u, TYPE_BOOL));
 
-                                        updated = true;
-                                        goto done_sub;
+                                            updated = true;
+                                            goto done_sub;
+                                        }
                                     }
                                 }
                             }

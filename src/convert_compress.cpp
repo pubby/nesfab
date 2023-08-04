@@ -6,7 +6,7 @@ std::vector<std::uint8_t> compress_pbz(std::uint8_t* begin, std::uint8_t* end)
 
     std::size_t const input_size = end - begin;
     if(input_size % 8 != 0)
-        throw convert_error_t("Expecting size to be a multiple of 8.");
+        throw convert_error_t("PBZ conversion error. Expecting size to be a multiple of 8.");
 
     std::vector<std::uint8_t> result;
     result.reserve(input_size);

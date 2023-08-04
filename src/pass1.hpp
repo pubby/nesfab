@@ -1236,15 +1236,21 @@ public:
 
         try
         {
-            if(view == "raw"sv)
-            {
+            mapfab_convert_type_t ct = MAPFAB_INVALID;
 
-                fs::path mapfab_path = get_path(preferred_dir, args[0]);
-                std::vector<std::uint8_t> data = read_binary_file(mapfab_path.string(), decl);
-                convert_mapfab(data.data(), data.size(), decl, mapfab_path, mm);
-            }
-            else
+            if(view == "raw"sv)
+                ct = MAPFAB_RAW;
+            else if(view == "rlz"sv)
+                ct = MAPFAB_RLZ;
+            else if(view == "pbz"sv)
+                ct = MAPFAB_PBZ;
+
+            if(ct == MAPFAB_INVALID)
                 compiler_error(script, fmt("Unknown MapFab format: %", view));
+
+            fs::path mapfab_path = get_path(preferred_dir, args[0]);
+            std::vector<std::uint8_t> data = read_binary_file(mapfab_path.string(), decl);
+            convert_mapfab(ct, data.data(), data.size(), decl, mapfab_path, mm);
         }
         catch(compiler_error_t const& e)
         {

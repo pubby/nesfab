@@ -15,7 +15,15 @@ struct mapfab_macros_t
     std::string level;
 };
 
-void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t at, 
-                    fs::path mapfab_path, mapfab_macros_t const& macros);
+enum mapfab_convert_type_t
+{
+    MAPFAB_INVALID,
+    MAPFAB_RAW,
+    MAPFAB_RLZ,
+    MAPFAB_PBZ,
+};
+
+void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
+                    pstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros);
 
 #endif

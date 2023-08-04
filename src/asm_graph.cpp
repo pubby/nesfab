@@ -873,6 +873,9 @@ void asm_graph_t::optimize_live_registers()
             kill |= op_output_regs(inst.op);
         }
 
+        gen |= op_input_regs(node.output_inst.op) & ~kill;
+        kill |= op_output_regs(node.output_inst.op);
+
         // Set 'vregs.in's initial value to be the set of variables used in
         // this cfg node before an assignment.
         // (This set is sometimes called 'GEN')
@@ -948,17 +951,17 @@ void asm_graph_t::optimize_live_registers()
 
         regs_t live = node.vregs.out;
 
+        live &= ~op_output_regs(node.output_inst.op);
+        live |= op_input_regs(node.output_inst.op);
+
         for(int i = int(node.code.size()) - 1; i >= 0; --i)
         {
             asm_inst_t const& inst = node.code[i];
 
-            regs_t const outputs = op_output_regs(inst.op);
-            regs_t const inputs  = op_input_regs(inst.op);
-
             live_regs[i] = live;
 
-            live &= ~outputs;
-            live |= inputs;
+            live &= ~op_output_regs(inst.op);
+            live |= op_input_regs(inst.op);
 
         }
 

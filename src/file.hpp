@@ -81,6 +81,7 @@ public:
     std::size_t size() const { return m_size; }
     ident_map_t<global_ht> const* private_globals() const { return m_private_globals; }
     ident_map_t<group_ht> const* private_groups() const { return m_private_groups; }
+    macro_invocation_t const* invoke() const { return m_invoke; }
 
     void clear() { m_alloc.reset(); m_size = 0; m_source = nullptr; }
     void reset(unsigned file_i);
@@ -92,6 +93,7 @@ private:
     std::unique_ptr<char[]> m_alloc;
     ident_map_t<global_ht> const* m_private_globals = nullptr;
     ident_map_t<group_ht> const* m_private_groups = nullptr;
+    macro_invocation_t const* m_invoke = nullptr;
 };
 
 #endif

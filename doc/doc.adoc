@@ -3522,7 +3522,7 @@ Syntax:
 ----
 macro("macro_name", "args"...)
 ----
-- `"macro_name"` is the string literal name of the macro file being invoked, without the `.macrofile` extension.
+- `"macro_name"` is the string literal name of the macro file being invoked, without the `.macrofile` extension. If the string is empty, no macro is invoked.
 - `"args"` are a comma-separated list of string literals to be substituted into the `.macrofab` file.
 
 *Macro Files:*
@@ -3563,6 +3563,154 @@ Which would generate the following source file and compile it:
 vars
     U something = 100
 ----
+
+*Modifiers:*
+
+- <<mod_flags, `+fork_scope`>>
+
+=== `mapfab` [[kw_mapfab]]
+
+The `mapfab` keyword parses a `.mapfab` file and invokes a series of <<kw_macro, macros>> based on the data.
+It is only usable at top-level scope.
+
+[NOTE]
+http://pubby.games/mapfab.html[MapFab] is a level editor designed to be used with NESFab.
+
+Syntax:
+----
+mapfab(target, "mapfab_file", "chr_macro", "palette_macro", "metatiles_macro", "level_macro")
+----
+- `target` specifies the output target to use for the level tiles.
+- `"mapfab_file"` is the string literal path to the `.mapfab` file.
+- `"chr_macro"` is the name of the macro to invoke for each CHR definition.
+- `"palette_macro"` is the name of the macro to invoke for each palette definition.
+- `"metatiles_macro"` is the name of the macro to invoke for each metatile set definition.
+- `"level_macro"` is the name of the macro to invoke for each level definition.
+
+If any of the macro names are the empty string (`""`), those macros are not invoked.
+
+*CHR Macro:*
+
+The following macro arguments are supplied for each CHR definition:
+----
+#:name:#   // The name of the CHR definition
+#:path:#   // The path to the CHR definition
+----
+
+Additionally, the following private definitions are defined:
+
+----
+ct Int _index   // The unique index of the CHR definition.
+----
+
+[NOTE]
+It can make sense to ignore `path`, and instead use `name` to derive the desired path.
+
+*Palette Macro:*
+
+The following macro arguments are supplied for each palette definition:
+----
+#:name:# // The name of the palette definition, which is an integer from 0 to 255.
+----
+
+Additionally, the following private definitions are defined:
+
+----
+ct Int _index       // The unique index of the palette definition.
+ct U[25] _palette   // The palette's data.
+----
+
+*Metatiles Macro:*
+
+The following macro arguments are supplied for each metatile set definition:
+----
+#:name:#         // The name of the metatile definition.
+#:chr_name:#     // The name of the CHR definition the metatile set uses for display.
+#:palette_name:# // The name of the palette definition the metatile set uses for display.
+----
+
+Additionally, the following private definitions are defined:
+
+----
+ct Int _index       // The unique index of the metatile set definition.
+ct Int _num         // The number of metatiles in the set.
+ct U[_num] _nw      // The north-west tiles of each metatile.
+ct U[_num] _ne      // The north-east tiles of each metatile.
+ct U[_num] _sw      // The south-west tiles of each metatile.
+ct U[_num] _se      // The south-east tiles of each metatile.
+ct U[_num] _attributes // The 2-bit attribute data of each metatile.
+ct U[_num] _collisions // The 6-bit collision data of each metatile.
+ct U[_num] _combined   // The two arrays above combined: attribute | (collision << 2)
+----
+
+[NOTE]
+Typically, `chr_name` and `palette_name` should be ignored for metatile sets,
+as level macros have this information too.
+
+*Levels Macro:*
+
+The following macro arguments are supplied for each level set definition:
+----
+#:name:#           // The name of the level definition.
+#:chr_name:#       // The name of the CHR definition the metatile set uses for display.
+#:palette_name:#   // The name of the palette definition the metatile set uses for display.
+#:metatiles_name:# // The name of the metatile set definition the metatile set uses for display.
+#:macro_name:#     // Contents of MapFab's macro field.
+----
+
+Additionally, the following private definitions are defined:
+
+----
+ct Int _index       // The unique index of the level definition.
+ct Int _width       // The width of the level, in tiles.
+ct Int _height      // The height of the level, in tiles.
+ct U[_width * _height] _row_major    // The level's contents in a row-major order.
+ct U[_width * _height] _column_major // The level's contents in a column-major order.
+----
+
+For each object class (`CLASS`), the following <<type_vec, VECs>> are defined:
+
+----
+ct Int{} _CLASS_x 
+ct Int{} _CLASS_y 
+----
+
+For each field (`FIELD`) in `CLASS`, additional VECs are defined, with the string of each field wrapped inside a cast.
+----
+ct TYPE{} _CLASS_FIELD  
+----
+
+For example, if the class `foo` had three objects in this level,
+and each object had a field `U bar`, the following definitions would exist:
+
+----
+ct Int{} _foo_x = Int{}(203, -3, 3099)
+ct Int{} _foo_y = Int{}(13, 991, -30)
+ct U{} _foo_bar = U{}(U(0), U(5), U(2))
+----
+
+*Output Target Conversions*
+
+The data of each level (`_row_major` and `_column_major`) are converted based on specified target:
+
+[cols="1,3"]
+|===
+|Conversion Target |Description
+
+| <<file_raw, `raw`>>
+| No conversion
+
+| <<file_pbz, `pbz`>>
+| Compress using PBZ compression
+
+| <<file_rlz, `rlz`>>
+| Compress using RLZ compression (no terminator)
+
+|===
+
+*Modifiers:*
+
+- <<mod_flags, `+fork_scope`>>
 
 === `audio` [[kw_audio]]
 
@@ -3735,6 +3883,7 @@ The following flags exist:
 - `palette_3`: Converts 4-byte palettes into 3-byte palettes.
 - `palette_25`: Converts 32-byte palettes into 25-byte palettes.
 - `+sloppy`, `-sloppy`: Enables / disables faster compilation speed, at the cost of performance.
+- `+fork_scope`: The invoked macro(s) will have access to private definitions inside the invoking file.
 
 Example:
 ----

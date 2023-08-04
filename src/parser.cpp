@@ -518,7 +518,7 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
     fs::path preferred_dir = file.path();
     preferred_dir.remove_filename();
 
-    fn(file_pstring, script, preferred_dir, std::move(mods), std::move(args));
+    fn(file_pstring, script, std::filesystem::absolute(preferred_dir), std::move(mods), std::move(args));
 }
 
 template<typename P>

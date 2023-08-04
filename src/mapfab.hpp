@@ -23,7 +23,14 @@ enum mapfab_convert_type_t
     MAPFAB_PBZ,
 };
 
+template<typename Handle>
+class ident_map_t;
+class global_ht;
+class group_ht;
+
 void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
-                    pstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros);
+                    pstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros,
+                    ident_map_t<global_ht>* private_globals,
+                    ident_map_t<group_ht>* private_groups);
 
 #endif

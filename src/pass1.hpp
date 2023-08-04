@@ -36,6 +36,16 @@ struct macro_todo_t
     std::unique_ptr<mods_t> mods;
 };
 
+struct mapfab_todo_t
+{
+    pstring_t at;
+    mapfab_convert_type_t ct;
+    std::vector<std::uint8_t> data;
+    fs::path path;
+    mapfab_macros_t macros;
+    std::unique_ptr<mods_t> mods;
+};
+
 class pass1_t
 {
 private:
@@ -54,6 +64,7 @@ private:
     fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
 
     std::deque<macro_todo_t> todo_macros;
+    std::deque<mapfab_todo_t> todo_mapfabs;
 
     struct switch_info_t
     {
@@ -82,6 +93,7 @@ public:
     ~pass1_t()
     {
         finish_macros();
+        finish_mapfabs();
     }
 
     // Helpers
@@ -1146,7 +1158,7 @@ public:
         fs::path path;
         if(!resource_path(preferred_dir, fs::path(filename.string), path))
             compiler_error(filename.pstring, fmt("Missing file: %", filename.string));
-        return path;
+        return std::filesystem::absolute(path);
     }
 
     void audio(pstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
@@ -1209,7 +1221,7 @@ public:
         using namespace std::literals;
 
         if(mods)
-            mods->validate(decl);
+            mods->validate(decl, MOD_fork_scope);
 
         auto const check_argn = [&](unsigned expected)
         {
@@ -1250,7 +1262,15 @@ public:
 
             fs::path mapfab_path = get_path(preferred_dir, args[0]);
             std::vector<std::uint8_t> data = read_binary_file(mapfab_path.string(), decl);
-            convert_mapfab(ct, data.data(), data.size(), decl, mapfab_path, mm);
+
+            todo_mapfabs.push_back({
+                decl,
+                ct,
+                std::move(data),
+                std::move(mapfab_path),
+                std::move(mm),
+                std::move(mods),
+            });
         }
         catch(compiler_error_t const& e)
         {
@@ -1262,6 +1282,34 @@ public:
         }
     }
 
+    void finish_mapfabs()
+    {
+        for(mapfab_todo_t& tm : todo_mapfabs)
+        {
+            try 
+            { 
+                ident_map_t<global_ht>* private_globals = nullptr;
+                ident_map_t<group_ht>* private_groups = nullptr;
+
+                if(mod_test(tm.mods.get(), MOD_fork_scope))
+                {
+                    private_globals = &this->private_globals;
+                    private_groups = &this->private_groups;
+                }
+
+                convert_mapfab(tm.ct, tm.data.data(), tm.data.size(), tm.at, std::move(tm.path), 
+                               std::move(tm.macros), private_globals, private_groups);
+            }
+            catch(macro_error_t const& e) 
+            { 
+                throw compiler_error_t(
+                    fmt_error(tm.at, "While parsing mapfab file...")
+                    + fmt_error(e.pstring, e.what()));
+            }
+            catch(std::exception const& e) { compiler_error(tm.at, e.what()); }
+            catch(...) { throw; }
+        }
+    }
 };
 
 #endif

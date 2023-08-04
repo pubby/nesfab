@@ -28,6 +28,7 @@
 struct macro_result_t
 {
     fs::path path;
+    macro_invocation_t invoke;
     std::string contents;
     ident_map_t<global_ht> private_globals;
     ident_map_t<group_ht> private_groups;
@@ -66,7 +67,10 @@ void invoke_macro(
     {
         std::lock_guard<std::mutex> lock(invoke_mutex);
         if(invoke_set.insert(invoke).second)
-            new_macro_results.push_back({ pair->second.file, std::move(str), std::move(private_globals), std::move(private_groups) });
+        {
+            new_macro_results.push_back({ pair->second.dir / pair->second.file, std::move(invoke), std::move(str), 
+                                          std::move(private_globals), std::move(private_groups) });
+        }
     }
 }
 
@@ -229,5 +233,6 @@ void file_contents_t::reset(unsigned file_i)
         m_source = macro.contents.data();
         m_private_globals = &macro.private_globals;
         m_private_groups = &macro.private_groups;
+        m_invoke = &macro.invoke;
     }
 }

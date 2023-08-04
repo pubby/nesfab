@@ -7,7 +7,9 @@
 #include "convert_compress.hpp"
 
 void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
-                    pstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros)
+                    pstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros,
+                    ident_map_t<global_ht>* base_private_globals,
+                    ident_map_t<group_ht>* base_private_groups)
 {
     using namespace std::literals;
 
@@ -68,6 +70,12 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
     for(unsigned i = 0; i < num_chr; ++i)
     {
         ident_map_t<global_ht> private_globals;
+        if(base_private_globals)
+            private_globals = *base_private_globals;
+        ident_map_t<group_ht> private_groups;
+        if(base_private_groups)
+            private_groups = *base_private_groups;
+
         define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
 
         macro_invocation_t m = { macros.chr };
@@ -78,7 +86,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         if(path.is_relative())
             path = base_path / path;
         m.args.push_back(path.string());
-        invoke_macro(std::move(m), std::move(private_globals), {});
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups));
         dprint(log, "MAPFAB_CHR_MACRO", i);
     }
 
@@ -90,15 +98,20 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
     for(unsigned i = 0; i < num_palettes; ++i)
     {
         // Defines:
-
         ident_map_t<global_ht> private_globals;
+        if(base_private_globals)
+            private_globals = *base_private_globals;
+        ident_map_t<group_ht> private_groups;
+        if(base_private_groups)
+            private_groups = *base_private_groups;
+
         global_t& g = private_globals.lookup(at, "_palette"sv);
         define_ct(g, at, palette_data.data() + 25*i, 25);
         define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
 
         macro_invocation_t m = { macros.palette };
         m.args.push_back(std::to_string(i));
-        invoke_macro(std::move(m), std::move(private_globals), {});
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups));
         dprint(log, "MAPFAB_PALETTE_MACRO", i);
     }
 
@@ -140,6 +153,12 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
             mt_combined[i] = (mt_attributes[i] & 0b11) | (mt_collisions[i] << 2);
 
         ident_map_t<global_ht> private_globals;
+        if(base_private_globals)
+            private_globals = *base_private_globals;
+        ident_map_t<group_ht> private_groups;
+        if(base_private_groups)
+            private_groups = *base_private_groups;
+
         define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
         define_ct_int(private_globals.lookup(at, "_num"sv), at, TYPE_INT, num);
         define_ct(private_globals.lookup(at, "_nw"sv), at, mt_nw.data(), num);
@@ -154,7 +173,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         m.args.push_back(name);
         m.args.push_back(chr_name);
         m.args.push_back(std::to_string(palette));
-        invoke_macro(std::move(m), std::move(private_globals), {});
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups));
     }
 
     struct field_t
@@ -227,6 +246,12 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         }
 
         ident_map_t<global_ht> private_globals;
+        if(base_private_globals)
+            private_globals = *base_private_globals;
+        ident_map_t<group_ht> private_groups;
+        if(base_private_groups)
+            private_groups = *base_private_groups;
+
         define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
         define_ct_int(private_globals.lookup(at, "_width"sv), at, TYPE_INT, w);
         define_ct_int(private_globals.lookup(at, "_height"sv), at, TYPE_INT, h);
@@ -288,19 +313,19 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
                 {
                     if(k != j)
                         append += ", ";
-                    append += objects[i][k];
+                    append += fmt("%(%)", field.type, objects[i][k]);
                 }
                 append += ")\n";
             }
         }
 
-        macro_invocation_t m = { macros.level.empty() ? macro_name : macros.level };
+        macro_invocation_t m = { macros.level };
         m.args.push_back(name);
         m.args.push_back(chr_name);
         m.args.push_back(std::to_string(palette));
         m.args.push_back(metatiles_name);
         m.args.push_back(macro_name);
-        invoke_macro(std::move(m), std::move(private_globals), {}, append);
+        invoke_macro(std::move(m), std::move(private_globals), std::move(private_groups), std::move(append));
     }
 }
 

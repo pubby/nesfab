@@ -3,6 +3,7 @@
 #include "format.hpp"
 #include "options.hpp"
 #include "assert.hpp"
+#include "text.hpp"
 
 namespace
 {
@@ -90,7 +91,17 @@ std::string fmt_error(
 
     assert(file->index() == pstring.file_i);
 
-    std::string str(fmt("%: %%:" CONSOLE_RESET " %\n", fmt_source_pos(*file, pstring), color, prefix, what));
+    std::string str; 
+
+    if(auto const* invoke = file->invoke())
+    {
+        str += fmt(CONSOLE_BOLD "In the invocation of macro \"%\":\n" CONSOLE_RESET, escape(invoke->name));
+        unsigned i = 0;
+        for(std::string const& arg : invoke->args)
+            str += fmt("    With argument % = \"%\"\n", i++, escape(arg));
+    }
+
+    str += fmt("%: %%:" CONSOLE_RESET " %\n", fmt_source_pos(*file, pstring), color, prefix, what);
 
     char const* line_begin = get_line_begin(file->source(), pstring);
     char const* line_end = get_line_end(file->source(), pstring);

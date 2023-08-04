@@ -18,7 +18,7 @@ NESFab is a new programming language for creating NES games.
 - [Boost Library](https://www.boost.org/) (You may also need the `libboost-program-options-dev` package)
 - [Make](https://www.gnu.org/software/make/)
 
-The NESFab can be built in either debug mode, or release mode.
+NESFab can be built in either debug mode, or release mode.
 - Debug mode includes runtime sanity checks to ensure the compiler is working correctly.
 - Release mode has no checks and is optimized for speed.
 

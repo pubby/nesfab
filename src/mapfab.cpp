@@ -4,9 +4,10 @@
 #include "define.hpp"
 #include "globals.hpp"
 #include "debug_print.hpp"
+#include "convert_compress.hpp"
 
-void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t at, 
-                    fs::path mapfab_path, mapfab_macros_t const& macros)
+void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
+                    pstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros)
 {
     using namespace std::literals;
 
@@ -229,6 +230,21 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
         define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
         define_ct_int(private_globals.lookup(at, "_width"sv), at, TYPE_INT, w);
         define_ct_int(private_globals.lookup(at, "_height"sv), at, TYPE_INT, h);
+
+        switch(ct)
+        {
+        default: 
+            break;
+        case MAPFAB_RLZ:
+            tiles_xy = compress_rlz(&*tiles_xy.begin(), &*tiles_xy.end(), false);
+            tiles_yx = compress_rlz(&*tiles_yx.begin(), &*tiles_yx.end(), false);
+            break;
+        case MAPFAB_PBZ:
+            tiles_xy = compress_pbz(&*tiles_xy.begin(), &*tiles_xy.end());
+            tiles_yx = compress_pbz(&*tiles_yx.begin(), &*tiles_yx.end());
+            break;
+        }
+
         define_ct(private_globals.lookup(at, "_row_major"sv), at, tiles_xy.data(), tiles_xy.size());
         define_ct(private_globals.lookup(at, "_column_major"sv), at, tiles_yx.data(), tiles_yx.size());
 
@@ -238,8 +254,28 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
             auto const& oc = *(ocs.begin() + i);
 
             define_ct_int(private_globals.lookup(at, fmt("_%_num", oc.first)), at, TYPE_INT, objects_x[i].size());
-            define_ct(private_globals.lookup(at, fmt("_%_x", oc.first)), at, objects_x[i].data(), objects_x[i].size());
-            define_ct(private_globals.lookup(at, fmt("_%_y", oc.first)), at, objects_y[i].data(), objects_y[i].size());
+
+            // TODO: Do this without strings.
+            //define_ct(private_globals.lookup(at, fmt("_%_x", oc.first)), at, objects_x[i].data(), objects_x[i].size());
+            //define_ct(private_globals.lookup(at, fmt("_%_y", oc.first)), at, objects_y[i].data(), objects_y[i].size());
+
+            append += fmt("\nct Int{} _%_x = Int{}(", oc.first);
+            for(unsigned j = 0; j < objects_x[i].size(); ++j)
+            {
+                if(j != 0)
+                    append += ", ";
+                append += std::to_string(objects_x[i][j]);
+            }
+            append += ")\n";
+
+            append += fmt("\nct Int{} _%_y = Int{}(", oc.first);
+            for(unsigned j = 0; j < objects_y[i].size(); ++j)
+            {
+                if(j != 0)
+                    append += ", ";
+                append += std::to_string(objects_y[i][j]);
+            }
+            append += ")\n";
 
             for(unsigned j = 0; j < oc.second.size(); ++j)
             {
@@ -258,11 +294,12 @@ void convert_mapfab(std::uint8_t const* const begin, std::size_t size, pstring_t
             }
         }
 
-        macro_invocation_t m = { macro_name.empty() ? macros.level : macro_name };
+        macro_invocation_t m = { macros.level.empty() ? macro_name : macros.level };
         m.args.push_back(name);
         m.args.push_back(chr_name);
         m.args.push_back(std::to_string(palette));
         m.args.push_back(metatiles_name);
+        m.args.push_back(macro_name);
         invoke_macro(std::move(m), std::move(private_globals), {}, append);
     }
 }

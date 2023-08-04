@@ -1708,7 +1708,7 @@ void parser_t<P>::parse_macro()
         });
     });
 
-    policy().macro(pstring, std::move(invoke));
+    policy().macro(pstring, std::move(invoke), std::move(mods));
 }
 
 template<typename P>

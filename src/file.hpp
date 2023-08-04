@@ -48,8 +48,8 @@ void invoke_macro(macro_invocation_t invoke);
 
 void invoke_macro(
     macro_invocation_t invoke,
-    ident_map_t<global_ht>&& private_globals,
-    ident_map_t<group_ht>&& private_groups,
+    ident_map_t<global_ht> private_globals,
+    ident_map_t<group_ht> private_groups,
     std::string const& append = {});
 
 // Merges newly invoked macros into the file list.

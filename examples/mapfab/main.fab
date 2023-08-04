@@ -1,0 +1,138 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example shows how to load a MapFab file containing 3 levels.
+// When running the example, hit any key to change the current level.
+
+// Load the .mapfab file, calling the macros for each definition.
+mapfab(raw, "project.mapfab", "chr", "palette", "metatiles", "level")
+
+struct Enemy
+    U x
+    U y
+
+macro("pool_contiguous", "Enemy", "16", "enemies", "/game")
+
+// Used in level.macrofab to format the enemies:
+ct fn enemies_vec(Int{} x, Int{} y) Enemy{}
+    Enemy{} out = Enemy{}()
+    for U i = 0; i < len(x); i += 1
+        push(out, Enemy(U(x{i}), U(y{i})))
+    return out
+
+// Sets the OAM buffer in RAM (but doesn't upload to PPU):
+fn update_sprites()
+    // Our stack index into OAM:
+    U o = 0
+    for U i = 0; i < enemies_num; i += 1
+        set_oam(o, enemies[i].x - randb(8), enemies[i].y - randb(8), $01, 0)
+        o += 4
+    // Clear the remainder of OAM
+    hide_oam(o)
+
+vars /metatiles
+    CC/metatiles mt_nw
+    CC/metatiles mt_ne
+    CC/metatiles mt_sw
+    CC/metatiles mt_se
+    CC/metatiles mt_ca
+
+// Sets the 'mt_' pointers to offsets of 'mt'.
+fn load_metatiles(CC/metatiles mt)
+    UU size = UU(read U(mt))
+    if size == 0
+        size = 256
+    mt_nw = mt
+    mt += size
+    mt_ne = mt
+    mt += size
+    mt_sw = mt
+    mt += size
+    mt_se = mt
+    mt += size
+    mt_ca = mt
+
+fn load_level(CCC/levels level)
+: +graphviz
+    // CHR:
+    U chr_bank = read U(level)
+    {$8000}(chr_bank)
+
+    // Palette:
+    load_palette(read CCC/palettes(level))
+    ppu_upload_palette()
+
+    // Metatiles:
+    load_metatiles(read CC/metatiles(level))
+
+    // Enemies:
+    enemies_clear()
+    U num = read U(level)
+    for U i = 0; i < num; i += 1
+        enemies_new(read Enemy(level))
+
+    // Level tiles:
+    ppu_reset_addr($2000)
+    CCC/levels tiles = level
+    for U y = 0; y < 15; y += 1
+        for U x = 0; x < 16; x += 1
+            U tile = tiles[x]
+            {PPUDATA}(mt_nw[tile])
+            {PPUDATA}(mt_ne[tile])
+        for U x = 0; x < 16; x += 1
+            U tile = tiles[x]
+            {PPUDATA}(mt_sw[tile])
+            {PPUDATA}(mt_se[tile])
+        tiles += 16
+
+    // Level attributes:
+    tiles = level
+    for U y = 0; y < 15; y += 2
+        for U x = 0; x < 16; x += 2
+            U attr = mt_ca[tiles[x + 17]]
+            attr <<= 2
+            attr |= mt_ca[tiles[x + 16]] & %11
+            attr <<= 2
+            attr |= mt_ca[tiles[x + 1]] & %11
+            attr <<= 2
+            attr |= mt_ca[tiles[x + 0]] & %11
+            {PPUDATA}(attr)
+        tiles += 32
+
+    update_sprites()
+
+ct CCC/levels[] levels = CCC/levels[](
+    @lev_l1,
+    @lev_l2,
+    @lev_l3)
+
+nmi main_nmi()
+    ppu_upload_oam_poll_pads(0)
+
+mode main()
+: nmi main_nmi
+    U level_index = 0
+    load_level(levels[level_index])
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    {PPUMASK}(PPUMASK_ON)
+    while true
+        nmi
+        update_pads()
+        update_sprites()
+
+        // Change the level when a key is pressed:
+        if pads[0].pressed
+            level_index += 1
+            if level_index == len(levels)
+                level_index = 0
+            nmi
+            {PPUMASK}(0) // Turn off rendering while loading
+            //{PPUCTRL}(0)
+            load_level(levels[level_index])
+            //{PPUCTRL}(PPUCTRL_NMI_ON)
+            nmi
+            {PPUMASK}(PPUMASK_ON) // Turn on rendering afterwards
+

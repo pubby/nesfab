@@ -1,0 +1,13 @@
+#:name:# 
+#:chr_name:#
+#:palette_name:#
+
+omni data /metatiles
+    [] mt_#name#
+        U(_num)     // The amount of metatiles.
+        (_nw)       // North-west tiles of each metatile
+        (_ne)       // North-east tiles of each metatile
+        (_sw)       // South-west tiles of each metatile
+        (_se)       // South-east tiles of each metatile
+        (_combined) // The collisions and attributes, OR'd together.
+    

@@ -1,0 +1,10 @@
+#:name:# 
+#:path:# 
+
+// Since this example uses CNROM, we'll store each CHR file at a different offset.
+// Note that you don't have to use "path"; you could use "name" to derive a filename instead.
+
+ct U chr_#name#_index = _index
+
+chrrom _index * $2000
+    file(fmt, #"path"#)

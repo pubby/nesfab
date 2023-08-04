@@ -45,10 +45,14 @@ void invoke_macro(macro_invocation_t invoke)
 
 void invoke_macro(
     macro_invocation_t invoke,
-    ident_map_t<global_ht>&& private_globals,
-    ident_map_t<group_ht>&& private_groups,
+    ident_map_t<global_ht> private_globals,
+    ident_map_t<group_ht> private_groups,
     std::string const& append)
 {
+    // Ignore macros with empty names:
+    if(invoke.name.empty())
+        return;
+
     auto* pair = compiler_options().macro_names.lookup(invoke.name);
 
     if(!pair)

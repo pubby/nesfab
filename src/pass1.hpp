@@ -29,6 +29,13 @@
 
 namespace bc = boost::container;
 
+struct macro_todo_t
+{
+    pstring_t at;
+    macro_invocation_t invoke;
+    std::unique_ptr<mods_t> mods;
+};
+
 class pass1_t
 {
 private:
@@ -45,6 +52,8 @@ private:
     ident_map_t<group_ht> private_groups;
     fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
     fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
+
+    std::deque<macro_todo_t> todo_macros;
 
     struct switch_info_t
     {
@@ -68,6 +77,11 @@ public:
             private_globals = *file.private_globals();
         if(file.private_groups())
             private_groups = *file.private_groups();
+    }
+
+    ~pass1_t()
+    {
+        finish_macros();
     }
 
     // Helpers
@@ -1039,19 +1053,34 @@ public:
     }
 
     [[gnu::always_inline]]
-    void macro(pstring_t at, macro_invocation_t&& invoke)
+    void macro(pstring_t at, macro_invocation_t&& invoke, std::unique_ptr<mods_t> mods)
     {
-        try { invoke_macro(std::move(invoke)); }
-        catch(macro_error_t const& e) 
-        { 
-            throw compiler_error_t(
-                fmt_error(at, "While parsing macro file...")
-                + fmt_error(e.pstring, e.what()));
-        }
-        catch(std::exception const& e) { compiler_error(at, e.what()); }
-        catch(...) { throw; }
+        if(mods)
+            mods->validate(at, MOD_fork_scope);
+        todo_macros.push_back({ at, std::move(invoke), std::move(mods) });
     }
 
+    void finish_macros()
+    {
+        for(macro_todo_t& tm : todo_macros)
+        {
+            try 
+            { 
+                if(mod_test(tm.mods.get(), MOD_fork_scope))
+                    invoke_macro(std::move(tm.invoke), private_globals, private_groups); 
+                else
+                    invoke_macro(std::move(tm.invoke)); 
+            }
+            catch(macro_error_t const& e) 
+            { 
+                throw compiler_error_t(
+                    fmt_error(tm.at, "While parsing macro file...")
+                    + fmt_error(e.pstring, e.what()));
+            }
+            catch(std::exception const& e) { compiler_error(tm.at, e.what()); }
+            catch(...) { throw; }
+        }
+    }
 
     void charmap(pstring_t charmap_name, bool is_default, 
                  string_literal_t const& characters, 

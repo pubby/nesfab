@@ -112,6 +112,7 @@ bool _vanishes(ssa_ht h)
     switch(op)
     {
     case SSA_cast:
+        //return true;
         return !(is_byteified(h->type().name()) && is_byteified(h->input(0).type().name()));
 
     case SSA_get_byte:
@@ -150,11 +151,22 @@ static void _split_vanishing(ssa_ht ssa_node)
 
     if(ssa_node->op() == SSA_cast)
     {
+        bool from_sign = is_signed(input_type.name());
+        bool const to_sign = is_signed(type.name());
+
         unsigned const end = end_byte(type.name());
         for(unsigned i = begin_byte(type.name()); i < end; ++i)
-            data.bm[i] = input_bm[i];
+        {
+            if(to_sign)
+            {
+                data.bm[i] = ssa_node->cfg_node()->emplace_ssa(SSA_cast, TYPE_U, input_bm[i]);
+                data.bm[i]->set_flags(FLAG_PROCESSED);
+            }
+            else
+                data.bm[i] = input_bm[i];
+        }
 
-        if(is_signed(input_type.name()))// && whole_bytes(input_type.name()) < whole_bytes(type.name()))
+        if(from_sign)
         {
             // We have to sign extend!
             unsigned i = end_byte(input_type.name());
@@ -165,12 +177,10 @@ static void _split_vanishing(ssa_ht ssa_node)
                 data.bm[i] = extension;
 
             extension->set_flags(FLAG_PROCESSED);
-
-            // Created a node, so we have to resize:
-            ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
-            //extension.handle().data<ssa_byteify_d>().bm = zero_bm;
-            //extension.handle().data<ssa_byteify_d>().bm[max_frac_bytes] = extension;
         }
+
+        // Created a node, so we have to resize:
+        ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
     }
     else if(ssa_node->op() == SSA_get_byte)
     {
@@ -705,8 +715,8 @@ void byteify(ir_t& ir, fn_t const& fn)
         type_name_t const t = _bm_type(ssa_node->type()).name();
         assert(is_scalar(t));
 
-        if(ssa_node->type() == TYPE_S)
-            ssa_node->set_type(TYPE_U);
+        //if(ssa_node->type() == TYPE_S)
+            //ssa_node->set_type(TYPE_U);
 
         switch(ssa_node->op())
         {
@@ -786,6 +796,8 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     for(int s = 0; s < bit_shifts; ++s)
                     {
+                        carry = ssa_value_t(0u, TYPE_BOOL);
+
                         for(int i = begin + byte_shifts; i < end; ++i)
                         {
                             values[i] = ssa_node->cfg_node()->emplace_ssa(
@@ -812,6 +824,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                         if(is_signed(t))
                            carry = ssa_node->cfg_node()->emplace_ssa(
                                SSA_sign, TYPE_BOOL, values[end - 1]);
+                        else
+                            carry = ssa_value_t(0u, TYPE_BOOL);
 
                         for(int i = end - 1 - byte_shifts; i >= int(begin); --i)
                         {

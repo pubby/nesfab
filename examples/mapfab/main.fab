@@ -56,7 +56,6 @@ fn load_metatiles(CC/metatiles mt)
     mt_ca = mt
 
 fn load_level(CCC/levels level)
-: +graphviz
     // CHR:
     U chr_bank = read U(level)
     {$8000}(chr_bank)

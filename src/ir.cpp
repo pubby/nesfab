@@ -1049,7 +1049,8 @@ void ir_t::assert_valid(bool cg) const
                 {
                     if(!cg && i + 2 != ssa_it->input_size())
                         passert(ssa_it->input(i).type() == ssa_it->input(i+1).type(),
-                                ssa_it->input(i).type(), ssa_it->input(i+1).type());
+                                ssa_it->input(i).type(), ssa_it->input(i+1).type(),
+                                ssa_it->input(i), ssa_it->input(i+1));
                 }
             }
 

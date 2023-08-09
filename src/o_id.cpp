@@ -250,7 +250,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 if(input.holds_ref() && input->op() == SSA_cast)
                 {
                     if(same_scalar_layout(from.name(), to.name())
-                       || is_arithmetic_bijection(input->input(0).type().name(), from.name()))
+                       || (is_arithmetic_bijection(input->input(0).type().name(), from.name())
+                           && is_signed(input->input(0).type().name()) == is_signed(from.name())))
                     {
                         dprint(log, "--SIMPLE_IDENTITY_SIMPLIFY_CAST");
                         ssa_it->link_change_input(0, input->input(0));

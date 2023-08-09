@@ -317,7 +317,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     auto const arg_ret_interferes = [&](ssa_ht h, locator_t loc) -> bool
     {
-        if(is_arg_ret(loc.lclass()) && loc.fn() != fn.handle())
+        if(is_arg_ret(loc.lclass()))
         {
             for(auto& called_pair : global_loc_map)
             {
@@ -326,7 +326,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 if(!called_pair.second.cset
                    || !is_arg_ret(called_loc.lclass()) 
                    || called_loc.fn() == fn.handle() 
-                   || called_loc.fn() == loc.fn())
+                   || (called_loc.fn() == loc.fn() && loc.lclass() == called_loc.lclass()))
                 {
                     continue;
                 }
@@ -337,6 +337,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                         return true;
             }
         }
+
         return false;
     };
 

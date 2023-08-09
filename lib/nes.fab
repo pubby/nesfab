@@ -115,6 +115,11 @@ ct Int OAM_P = 1
 ct Int OAM_A = 2
 ct Int OAM_X = 3
 
+// OAM attribute flags:
+ct U ATTR_PRIORITY = %00100000
+ct U ATTR_H_FLIP   = %01000000
+ct U ATTR_V_FLIP   = %10000000
+
 // Copies 'oam' into PPU memory. Call during VBLANK only.
 fn ppu_upload_oam(U oam_offset)
 : employs
@@ -158,6 +163,12 @@ fn set_oam(U index, U x, U y, U p, U a)
     oam{OAM_P + index} = p
     oam{OAM_A + index} = a
     oam{OAM_X + index} = x
+    
+fn push_oam(U index, U x, U y, U p, U a) U
+: +inline
+    set_oam(index, x, y, p, a)
+    return index + 4
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // PAD ////////////////////////////////////////////////////////////////////////

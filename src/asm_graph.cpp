@@ -1594,13 +1594,12 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
         }
     }
 
-    // All referenced params will interfere with each other:
+    // All params will interfere with each other:
     bitset_clear_all(bs_size, live);
-    fn.for_each_referenced_param_locator([&](locator_t loc)
-    { 
-        int const i = lvars.index(loc);
-        if(i >= 0)
-            bitset_set(live, i);
+    lvars.for_each_lvar(true, [&](locator_t loc, unsigned index)
+    {
+        if(loc.lclass() == LOC_ARG)
+            bitset_set(live, index);
     });
     lvars.add_lvar_interferences(live);
 

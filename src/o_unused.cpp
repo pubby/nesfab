@@ -116,7 +116,7 @@ bool o_remove_no_effect(log_t* log, ir_t& ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
         assert(!ssa_it->test_flags(FLAG_IN_WORKLIST));
-        ssa_it->set_flags(FLAG_PRUNED);
+        ssa_it->set_flags(FLAG_TO_PRUNE);
     }
 
     // Certain nodes will never be pruned by this. 
@@ -127,7 +127,7 @@ bool o_remove_no_effect(log_t* log, ir_t& ir)
            || (ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
            || (ssa_flags(ssa_it->op()) & SSAF_IO_IMPURE))
         {
-            ssa_it->clear_flags(FLAG_PRUNED);
+            ssa_it->clear_flags(FLAG_TO_PRUNE);
             ssa_worklist.push(ssa_it);
         }
     }
@@ -139,9 +139,9 @@ bool o_remove_no_effect(log_t* log, ir_t& ir)
         // Inputs to unprunable nodes are also unprunable.
         for_each_node_input(ssa_it, [](ssa_ht input)
         {
-            if(input->test_flags(FLAG_PRUNED))
+            if(input->test_flags(FLAG_TO_PRUNE))
             {
-                input->clear_flags(FLAG_PRUNED);
+                input->clear_flags(FLAG_TO_PRUNE);
                 ssa_worklist.push(input);
             }
         });
@@ -153,7 +153,7 @@ bool o_remove_no_effect(log_t* log, ir_t& ir)
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it;)
     {
-        if(ssa_it->test_flags(FLAG_PRUNED))
+        if(ssa_it->test_flags(FLAG_TO_PRUNE))
         {
             dprint(log, "PRUNE_NO_EFFECT", ssa_it);
             ssa_it = ssa_it->prune();

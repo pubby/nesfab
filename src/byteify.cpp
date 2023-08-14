@@ -44,7 +44,8 @@ static bm_t _get_bm(ssa_value_t value)
         fixed_uint_t f = value.fixed().value;
 
         type_name_t num_type = value.num_type_name();
-        if(!is_byteified(num_type))
+        //if(!is_byteified(num_type)) TODO
+        if(num_type != TYPE_BOOL)
             num_type = TYPE_U;
 
         for(unsigned i = 0; i < bm.size(); ++i)
@@ -112,8 +113,8 @@ bool _vanishes(ssa_ht h)
     switch(op)
     {
     case SSA_cast:
-        //return true;
-        return !(is_byteified(h->type().name()) && is_byteified(h->input(0).type().name()));
+        return true;
+        //return !(is_byteified(h->type().name()) && is_byteified(h->input(0).type().name()));
 
     case SSA_get_byte:
     case SSA_array_get_byte:
@@ -157,7 +158,7 @@ static void _split_vanishing(ssa_ht ssa_node)
         unsigned const end = end_byte(type.name());
         for(unsigned i = begin_byte(type.name()); i < end; ++i)
         {
-            if(to_sign)
+            if(true || to_sign)
             {
                 data.bm[i] = ssa_node->cfg_node()->emplace_ssa(SSA_cast, TYPE_U, input_bm[i]);
                 data.bm[i]->set_flags(FLAG_PROCESSED);
@@ -237,6 +238,7 @@ void byteify(ir_t& ir, fn_t const& fn)
 
     ssa_workvec.clear();
     bc::small_vector<ssa_ht, 32> prune_nodes;
+    bc::small_vector<ssa_ht, 32> original_s;
 
     // Split nodes that have multi-byte results into N nodes, where N
     // is the number of bytes its result takees.
@@ -318,6 +320,8 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(is_byteified(type.name()))
             {
                 auto& d = ssa_it.data<ssa_byteify_d>(); 
+                if(type == TYPE_S)
+                    original_s.push_back(ssa_it);
                 d.bm = zero_bm;
                 d.bm[max_frac_bytes] = ssa_it;
                 continue;
@@ -715,9 +719,6 @@ void byteify(ir_t& ir, fn_t const& fn)
         type_name_t const t = _bm_type(ssa_node->type()).name();
         assert(is_scalar(t));
 
-        //if(ssa_node->type() == TYPE_S)
-            //ssa_node->set_type(TYPE_U);
-
         switch(ssa_node->op())
         {
         case SSA_rol:
@@ -1109,6 +1110,10 @@ void byteify(ir_t& ir, fn_t const& fn)
             throw std::runtime_error(fmt("Unhandled op in byteify: %", ssa_node->op()));
         }
     }
+
+    // Retype
+    for(ssa_ht h : original_s)
+        h->set_type(TYPE_U);
 
     // Prune nodes that are now unnecessary:
     for(ssa_ht h : prune_nodes)

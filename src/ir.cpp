@@ -132,7 +132,7 @@ node_io_buffers_t<I, O, ISize, OSize>::~node_io_buffers_t()
 template<typename I, typename O, std::size_t ISize, std::size_t OSize>
 void node_io_buffers_t<I, O, ISize, OSize>::alloc_input(unsigned size)
 {
-    assert(m_input_capacity == 0);
+    passert(m_input_capacity == 0, m_input_capacity);
     sbo_alloc(m_input, m_input_size, m_input_capacity, m_input_sbo, size);
     assert(input_size() == size);
 }
@@ -140,7 +140,7 @@ void node_io_buffers_t<I, O, ISize, OSize>::alloc_input(unsigned size)
 template<typename I, typename O, std::size_t ISize, std::size_t OSize>
 void node_io_buffers_t<I, O, ISize, OSize>::alloc_output(unsigned size)
 {
-    assert(m_output_capacity == 0);
+    passert(m_output_capacity == 0, m_output_capacity);
     sbo_alloc(m_output, m_output_size, m_output_capacity, m_output_sbo, size);
     assert(output_size() == size);
 }
@@ -199,21 +199,29 @@ void node_io_buffers_t<I, O, ISize, OSize>::reset()
 
 void ssa_node_t::create(cfg_ht cfg_h, ssa_op_t op, type_t type)
 {
-    assert(m_io.empty());
+    passert(m_io.empty(), input_size(), output_size(), cfg_h, handle(), (int)test_flags(FLAG_PRUNED), output(0));
     m_cfg_h = cfg_h;
     m_op = op;
     m_type = type;
     m_flags = 0;
+#ifndef NDEBUG
+    clear_flags(FLAG_PRUNED);
+#endif
 }
 
 void ssa_node_t::destroy()
 {
+#ifndef NDEBUG
+    assert(!test_flags(FLAG_PRUNED));
+    set_flags(FLAG_PRUNED);
+#endif
     m_op = SSA_null;
     m_io.reset();
+    assert(m_io.empty());
 }
 
-void ssa_node_t::alloc_input(unsigned size) { m_io.alloc_input(size); }
-void ssa_node_t::alloc_output(unsigned size) { m_io.alloc_output(size); }
+void ssa_node_t::alloc_input(unsigned size) { assert(!test_flags(FLAG_PRUNED)); m_io.alloc_input(size); }
+void ssa_node_t::alloc_output(unsigned size) { assert(!test_flags(FLAG_PRUNED)); m_io.alloc_output(size); }
 
 void ssa_node_t::build_set_input(unsigned i, ssa_value_t value)
 {
@@ -223,6 +231,8 @@ void ssa_node_t::build_set_input(unsigned i, ssa_value_t value)
     if(value.holds_ref())
     {
         ssa_node_t& new_node = *value;
+        assert(!test_flags(FLAG_PRUNED));
+        assert(!new_node.test_flags(FLAG_PRUNED));
         value.set_index(new_node.output_size());
         m_io.input(i) = value;
         new_node.append_output({ handle(), i });
@@ -233,6 +243,8 @@ void ssa_node_t::build_set_input(unsigned i, ssa_value_t value)
 
 unsigned ssa_node_t::append_output(ssa_bck_edge_t edge)
 {
+    assert(!test_flags(FLAG_PRUNED));
+    assert(!edge.handle->test_flags(FLAG_PRUNED));
     unsigned const i = output_size();
     m_io.resize_output(i + 1);
     m_io.output(i) = edge;
@@ -241,11 +253,13 @@ unsigned ssa_node_t::append_output(ssa_bck_edge_t edge)
 
 void ssa_node_t::link_append_input(ssa_value_t value)
 {
+    assert(!test_flags(FLAG_PRUNED));
     unsigned const i = input_size();
     m_io.resize_input(i + 1);
     if(value.holds_ref())
     {
         ssa_node_t& node = *value;
+        assert(!node.test_flags(FLAG_PRUNED));
         value.set_index(node.append_output({ handle(), i }));
     }
     m_io.input(i) = value;
@@ -253,6 +267,7 @@ void ssa_node_t::link_append_input(ssa_value_t value)
 
 void ssa_node_t::link_append_input(ssa_value_t* begin, ssa_value_t* end)
 {
+    assert(!test_flags(FLAG_PRUNED));
     unsigned const dist = end - begin;
     unsigned i = input_size();
 
@@ -263,6 +278,7 @@ void ssa_node_t::link_append_input(ssa_value_t* begin, ssa_value_t* end)
         if(it->holds_ref())
         {
             ssa_node_t& node = **it;
+            assert(!node.test_flags(FLAG_PRUNED));
             it->set_index(node.append_output({ handle(), i }));
         }
         m_io.input(i) = *it;
@@ -280,6 +296,7 @@ void ssa_node_t::remove_inputs_output(unsigned i)
         assert(input.handle());
 
         ssa_node_t& from_node = *input.handle();
+        assert(!from_node.test_flags(FLAG_PRUNED));
         unsigned const from_i = input.index();
 
         // Remove the output edge that leads to our input on 'i'.
@@ -311,6 +328,7 @@ void ssa_node_t::link_remove_input(unsigned i)
 // Returns true if changed.
 bool ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
 {
+    assert(!test_flags(FLAG_PRUNED));
     assert(i < input_size());
 
     if(new_value == input(i))
@@ -323,6 +341,7 @@ bool ssa_node_t::link_change_input(unsigned i, ssa_value_t new_value)
     if(new_value.holds_ref())
     {
         ssa_node_t& from_node = *new_value;
+        assert(!from_node.test_flags(FLAG_PRUNED));
 
         // Add the new output entry.
         std::size_t const append_i = from_node.output_size();
@@ -355,6 +374,7 @@ void ssa_node_t::link_shrink_inputs(unsigned new_size)
 
 void ssa_node_t::link_swap_inputs(unsigned ai, unsigned bi)
 {
+    assert(!test_flags(FLAG_PRUNED));
     assert(ai < input_size());
     assert(bi < input_size());
 
@@ -381,11 +401,13 @@ void ssa_node_t::link_swap_inputs(unsigned ai, unsigned bi)
 
 void ssa_node_t::replace_with(ssa_value_t value)
 {
+    assert(!test_flags(FLAG_PRUNED));
     unsigned const this_size = output_size();
 
     if(value.holds_ref())
     {
         ssa_node_t& node = *value;
+        assert(!node.test_flags(FLAG_PRUNED));
 
         if(&node == this)
             return;
@@ -412,6 +434,7 @@ void ssa_node_t::replace_with(ssa_value_t value)
 
 unsigned ssa_node_t::replace_with(input_class_t input_class, ssa_value_t value)
 {
+    assert(!test_flags(FLAG_PRUNED));
     unsigned changed = 0;
     for(unsigned i = 0; i < output_size();)
     {
@@ -439,6 +462,9 @@ ssa_ht ssa_node_t::prune()
 void cfg_node_t::create()
 {
     assert(m_io.empty());
+#ifndef NDEBUG
+    clear_flags(FLAG_PRUNED);
+#endif
     m_first_phi = {};
     m_last_daisy = {};
     m_flags = 0;
@@ -449,6 +475,9 @@ void cfg_node_t::destroy()
     assert(!ssa_begin());
     assert(!m_first_phi);
     assert(!m_last_daisy);
+#ifndef NDEBUG
+    set_flags(FLAG_PRUNED);
+#endif
     m_io.reset();
 }
 
@@ -591,6 +620,7 @@ void cfg_node_t::list_erase_daisy(ssa_node_t& node)
 
 ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
 {
+    assert(!test_flags(FLAG_PRUNED));
     passert(!is_ct(type), type);
 
     // Alloc and initialize it.
@@ -618,6 +648,9 @@ ssa_ht cfg_node_t::prune_ssa(ssa_ht ssa_h)
     ssa_node_t& ssa_node = *ssa_h;
     ssa_ht ret = ssa_node.next;
 
+    assert(!test_flags(FLAG_PRUNED));
+    assert(!ssa_node.test_flags(FLAG_PRUNED));
+
     assert(ssa_node.cfg_node() == handle());
 
     // Unlink all our shit
@@ -630,8 +663,11 @@ ssa_ht cfg_node_t::prune_ssa(ssa_ht ssa_h)
     // Remove it from our list.
     list_erase(ssa_node);
 
+    assert(ssa_h->m_io.empty());
+
     // Free it
     ssa_node.destroy();
+    assert(ssa_node.test_flags(FLAG_PRUNED));
     ssa_pool::free(ssa_h);
     --m_ssa_size;
 
@@ -1090,6 +1126,8 @@ void ir_t::assert_valid(bool cg) const
 
 ssa_ht split_output_edge(ssa_ht ssa_node, bool this_cfg, unsigned output_i, ssa_op_t op)
 {
+    assert(!ssa_node->test_flags(FLAG_PRUNED));
+
     // Create a copy and set its input to this.
     cfg_ht const cfg = this_cfg ? ssa_node->cfg_node() : ssa_node->output(output_i)->cfg_node();
     ssa_ht const copy = cfg->emplace_ssa(op, ssa_node->type());

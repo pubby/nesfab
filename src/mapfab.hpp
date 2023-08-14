@@ -21,6 +21,7 @@ enum mapfab_convert_type_t
     MAPFAB_RAW,
     MAPFAB_RLZ,
     MAPFAB_PBZ,
+    MAPFAB_MT32,
 };
 
 template<typename Handle>

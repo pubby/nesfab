@@ -449,6 +449,7 @@ void ai_t::remove_skippable()
                 }
 
                 dprint(log, "-PRUNE_SKIPPABLE_SSA", ssa_it, _search_skippable(cfg_it, ssa_it));
+                ai_data(ssa_it) = {};
                 ssa_it->prune();
             }
 
@@ -609,15 +610,15 @@ void ai_t::insert_traces()
             continue;
 
         assert(cfg_branch->last_daisy());
-        ssa_node_t& ssa_branch = *cfg_branch->last_daisy();
+        ssa_ht ssa_branch = cfg_branch->last_daisy();
 
         // If the condition is const, there's no point
         // in making a trace partition out of it.
-        ssa_value_t const condition = get_condition(ssa_branch);
+        ssa_value_t const condition = get_condition(*ssa_branch);
         if(!condition.is_handle())
             continue;
 
-        if(ssa_branch.op() == SSA_if)
+        if(ssa_branch->op() == SSA_if)
         {
             // Create new CFG nodes along each branch and insert SSA_traces into them.
             for(unsigned i = 0; i < output_size; ++i)
@@ -630,10 +631,10 @@ void ai_t::insert_traces()
                 insert_trace(cfg_trace, condition.handle(), ssa_value_t(i, type_name), 0);
             }
         }
-        else if(is_switch(ssa_branch.op()))
+        else if(is_switch(ssa_branch->op()))
         {
             // Create new CFG nodes along each non-default branch and insert SSA_traces into them.
-            unsigned const cases = ssa_switch_cases(ssa_branch.op());
+            unsigned const cases = ssa_switch_cases(ssa_branch->op());
             for(unsigned i = cases, j = 1; i < output_size; ++i, ++j)
             {
                 type_name_t const type_name = condition.type().name();
@@ -642,7 +643,7 @@ void ai_t::insert_traces()
                 cfg_ht const cfg_trace = ir.split_edge(cfg_branch->output_edge(i));
                 assert(cfg_trace->input_size() == 1 && cfg_trace->output_size() == 1);
                 new_cfg(cfg_trace);
-                insert_trace(cfg_trace, condition.handle(), ssa_value_t(ssa_branch.input(j).fixed(), type_name), 0);
+                insert_trace(cfg_trace, condition.handle(), ssa_value_t(ssa_branch->input(j).fixed(), type_name), 0);
             }
         }
         else
@@ -655,8 +656,9 @@ void ai_t::insert_traces()
     // modify the inputs of their outputs to use the trace.
     for(ssa_ht h : needs_rebuild)
     {
-        auto& d = ai_data(h);
-        ssa_ht const look_for = d.rebuild_mapping ? d.rebuild_mapping : h;
+        ssa_ht look_for = ai_data(h).rebuild_mapping;
+        if(!look_for)
+            look_for = h;
 
         for(unsigned i = 0; i < h->output_size();)
         {
@@ -1093,6 +1095,7 @@ void ai_t::prune_unreachable_code()
             dprint(log, "-PRUNE_BRANCH", cfg_node.handle(), branch, branch->op());
 
             // Then remove the conditional.
+            ai_data(branch) = {};
             branch->prune();
             assert(cfg_node.last_daisy() != branch);
             assert(!cfg_node.last_daisy() || cfg_node.last_daisy()->op() != SSA_if);
@@ -1156,6 +1159,7 @@ void ai_t::prune_unreachable_code()
                     dprint(log, "-PRUNE_SWITCH_BECOME_JUMP", cfg_node.handle());
 
                     // Remove the switch.
+                    ai_data(branch) = {};
                     branch->prune();
                     assert(cfg_node.last_daisy() != branch);
 
@@ -1206,6 +1210,7 @@ void ai_t::prune_unreachable_code()
         else
         {
             dprint(log, "-PRUNE_CFG", cfg_it);
+            ai_data(cfg_it) = {};
             cfg_it = ir.prune_cfg(cfg_it);
             updated = __LINE__;
         }
@@ -2001,8 +2006,11 @@ void ai_t::thread_jumps()
                 }
             }
 
+            for(ssa_ht ssa = cfg_node->ssa_begin(); ssa; ++ssa)
+                ai_data(ssa) = {};
             cfg_node->prune_ssa();
             cfg_node->link_clear_outputs();
+            ai_data(cfg_node) = {};
             ir.prune_cfg(cfg_node);
         }
     }

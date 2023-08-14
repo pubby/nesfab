@@ -302,6 +302,45 @@ bool has_order_dep(cfg_ht header, iv_base_t& def, ssa_ht ssa)
     return false;
 }
 
+// Used to check if an array write depends on its assignment value.
+bool array_write_dep(cfg_ht header, iv_base_t& def, ssa_value_t v, ssa_ht array_write)
+{
+    assert(ssa_flags(array_write->op()) & SSAF_WRITE_ARRAY);
+    
+    if(!v.holds_ref())
+        return false;
+
+    ssa_ht const h = v.handle();
+
+    if(!def_in_loop(header, h) || h == def.ssa(true))
+        return false;
+
+    if(h->test_flags(FLAG_PROCESSED) || h->in_daisy())
+        return true;
+
+    h->set_flags(FLAG_PROCESSED);
+    auto guard = make_scope_guard([&]{ h->clear_flags(FLAG_PROCESSED); });
+
+    if(ssa_flags(h->op()) & SSAF_WRITE_ARRAY)
+    {
+        using namespace ssai::array;
+
+        if(h->input(INDEX) != array_write->input(INDEX) 
+           || h->input(ARRAY) != array_write->input(ARRAY)
+           || h->input(OFFSET) != array_write->input(OFFSET))
+        {
+            return true;
+        }
+    }
+
+    unsigned const input_size = h->input_size();
+    for(unsigned i = 0; i < input_size; ++i)
+        if(array_write_dep(header, def, h->input(i), array_write))
+            return true;
+
+    return false;
+}
+
 struct to_calc_order_dep_t
 {
     cfg_ht header;
@@ -1123,6 +1162,10 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                         else if(hd.simple_do)
                             goto next_iter;
                     }
+
+                    // Check the assignment:
+                    if(array_write_dep(header, iv, oe.handle->input(ASSIGNMENT), oe.handle))
+                        goto next_iter;
 
                     // Alright! This write_array looks good.
                     // We'll keep the flag set.

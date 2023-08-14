@@ -1404,7 +1404,6 @@ void eval_t::compile_block()
         {
             cfg_ht const dead_branch = compile_goto();
             cfg_ht const switch_cfg = insert_cfg(true);
-            switch_cfg->alloc_output(1);
             builder.cfg->build_set_output(0, switch_cfg);
 
             builder.cfg = switch_cfg;
@@ -1413,13 +1412,14 @@ void eval_t::compile_block()
             v = throwing_cast<COMPILE>(std::move(v), is_signed(v.type.name()) ? TYPE_S : TYPE_U, true);
             passert(v.type == TYPE_U || v.type == TYPE_S, v.type);
 
-            ssa_ht const switch_ssa = switch_cfg->emplace_ssa(SSA_switch_partial, TYPE_VOID, v.ssa());
+            builder.cfg->alloc_output(1); // Reserve an output.
+            ssa_ht const switch_ssa = builder.cfg->emplace_ssa(SSA_switch_partial, TYPE_VOID, v.ssa());
             switch_ssa->append_daisy();
 
-            assert(switch_cfg->last_daisy() == switch_ssa);
+            assert(builder.cfg->last_daisy() == switch_ssa);
 
             builder.break_stack.emplace_back();
-            builder.switch_stack.push_back({ switch_cfg });
+            builder.switch_stack.push_back({ builder.cfg });
             builder.cfg = dead_branch;
         }
         break;
@@ -1500,7 +1500,7 @@ void eval_t::compile_block()
             passert(switch_ssa->op() == SSA_switch_partial, switch_ssa->op());
 
             auto const& case_set = builder.switch_stack.back().case_set;
-            assert(switch_cfg->output_size() == case_set.popcount() + 1);
+            passert(switch_cfg->output_size() == case_set.popcount() + 1, switch_cfg->output_size(), case_set.popcount() + 1);
 
             cfg_ht const case_cfg = builder.cfg = insert_cfg(true);
             entry->build_set_output(0, case_cfg);

@@ -71,12 +71,28 @@ fn ppu_reset_scroll(U x, U y)
     ppu_set_scroll(x, y)
 
 // Sets X/Y scroll mid-frame.
-fn ppu_set_mid_scroll(U x, U y, U nt)
-: +inline
-    {PPUADDR}(nt << 2)
-    {PPUSCROLL}(y)
-    {PPUSCROLL}(x)
-    {PPUADDR}(((y & $F8) << 2) | (x >> 3))
+asm fn ppu_set_mid_scroll(U x, U y, U nt)
+: +static
+: employs
+    default 
+        lax &x
+        lsr
+        lsr
+        lsr
+        sta &x
+        lda &nt
+        asl
+        asl
+        sta PPUADDR
+        lda &y
+        sta PPUSCROLL
+        and #$F8
+        asl
+        asl
+        ora &x
+        stx PPUSCROLL
+        sta PPUADDR
+        rts
 
 // The same as above, but reset address latch first.
 fn ppu_reset_mid_scroll(U x, U y, U nt)

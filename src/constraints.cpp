@@ -468,7 +468,7 @@ ABSTRACT(SSA_cast) = ABSTRACT_FN
     result[0] = apply_mask(cv[0][0], result.cm); // handles top itself
 
     // Sign-extend
-    if(result.cm.signed_ && cv[0].cm.signed_ && result.cm.mask > cv[0].cm.mask)
+    if(cv[0].cm.signed_ && result.cm.mask > cv[0].cm.mask)
     {
         fixed_uint_t const sign_bit = high_bit_only(cv[0].cm.mask);
         fixed_uint_t const extended = result.cm.mask & ~submask(cv[0].cm.mask);

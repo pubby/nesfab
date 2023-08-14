@@ -331,6 +331,8 @@ std::string to_string(type_t type)
     case TYPE_MPTR:        str = "MM";  goto ptr_groups;
     case TYPE_BANKED_CPTR: str = "CCC"; goto ptr_groups;
     case TYPE_CPTR:        str = "CC";  goto ptr_groups;
+    case TYPE_BANKED_PPTR: str = "PPP"; goto ptr_groups;
+    case TYPE_PPTR:        str = "PP";  goto ptr_groups;
     ptr_groups:
         for(unsigned i = 0; i < type.size(); ++i)
             str += type.group(i)->name;

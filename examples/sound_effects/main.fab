@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This small program plays PUF sound effects.
+
+audio(puf1_sfx, "sfx.txt", "sfx.nsf")
+audio(puf1_music)
+
+mode main()
+: nmi game_nmi
+    puf.init(system)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    while true
+        update_pads()
+        if pads[0].pressed & BUTTON_UP
+            puf.play_sfx(0)
+        if pads[0].pressed & BUTTON_DOWN
+            puf.play_sfx(1)
+        nmi
+
+nmi game_nmi()
+    ppu_upload_oam_poll_pads(0)
+    puf.process(PUF_DEFAULT)

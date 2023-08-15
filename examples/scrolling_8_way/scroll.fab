@@ -10,6 +10,7 @@ ct U SCROLL_H = 1
 ct U SCROLL_V = 2
 
 vars /scroll
+: +zp
     // Uses the 'SCROLL_' enums to track what part of the scroll got updated:
     U scroll = SCROLL_NONE
 
@@ -33,6 +34,8 @@ vars /scroll
 fn update_scroll_h(Bool scroll_left)
     scroll = SCROLL_H
 
+    // 'ptr' will point to the level tiles we're accessing.
+    // For now, just set it to the current level.
     CCC/levels ptr = current_level
 
     // 'seam' is used to calculate which column of the nametable we're updating.
@@ -45,42 +48,47 @@ fn update_scroll_h(Bool scroll_left)
         seam = scroll_x_world
     else
         seam = scroll_x_world
-        ptr += 16
         scroll_x_world += 1
+        ptr += 16
 
     // Adjust 'ptr' to point to the upper tile (by screen position) of our seam.
     ptr += (seam >> 1) + UU(((scroll_y_world >> 1) * current_level_width))
 
-    // First, we'll update the attributes.
+    // First, we'll update the attributes, when needed:
+    if seam & %1
+        // We'll use two pointers for attributes,
+        // one for each colulm of 16x16 tiles:
+        CCC/levels attr_w = ptr
+        CCC/levels attr_e = ptr
 
-    // Attributes will have their own seam, and two versions of `ptr`,
-    // as each attribute is comprised of four 16x16 tiles.
-    CCC/levels attr_w = ptr
-    CCC/levels attr_e = ptr
-    U attr_seam = seam.a
-
-    // Adjust the attribute seam based on scroll direction:
-    if scroll_left
-        if (attr_seam) & %10
-            attr_w += 15
+        // Adjust the attribute seam based on scroll direction:
+        // Note that because we're using 1-screen mirroring, 
+        // the left and right side of the attribute might not be contiguous.
+        if scroll_left
+            if (seam) & %10
+                attr_w += 15
+            else
+                attr_e += 1
         else
-            attr_e += 1
-    else
-        attr_seam -= 1
-        if (attr_seam) & %10
-            attr_w -= 1
-        else
-            attr_e -= 15
+            if (seam) & %10
+                attr_w -= 1
+            else
+                attr_e -= 15
 
-    if attr_seam & %1 == U(scroll_left)
-        scroll_attrs_ppuaddr = $23C0 + UU((attr_seam & %11111) >> 2)
+        // Calculate the PPUADDR of the topmost attribute:
+        scroll_attrs_ppuaddr = $23C0 + ((seam & %11111) >> 2)
+
+        // We'll write into 'scroll_attrs' using an offset derived from the Y-position of the scroll.
+        // 'start' and 'index' will keep track of this offset:
         U start = scroll_y_screen >> 2
-        U a = scroll_y_screen >> 2
+        U index = start
 
+        // Here we'll account for the Y-scroll falling in the middle of the attribute:
         if scroll_y_screen & %10
             attr_w -= current_level_width
             attr_e -= current_level_width
 
+        // Set 'scroll_attrs':
         for U y = 0; y < 8; y += 1
             U nw = mt_ca[attr_w[0]] & %11
             U ne = mt_ca[attr_e[0]] & %11
@@ -88,14 +96,14 @@ fn update_scroll_h(Bool scroll_left)
             attr_e += current_level_width
             U sw = mt_ca[attr_w[0]] & %11
             U se = mt_ca[attr_e[0]] & %11
-            if a != 7
+            if index != 7 // This 'if' handles the bottom attributes being 16x8 pixels.
                 attr_w += current_level_width
                 attr_e += current_level_width
             U attr = nw | (ne << 2) | (sw << 4) | (se << 6)
-            scroll_attrs[a] = attr
-            a = (a + 1) & %111
+            scroll_attrs[index] = attr
+            index = (index + 1) & %111
 
-        // Fix up the seam
+        // Finish accounting for the Y-scroll falling in the middle of the attribute:
         if scroll_y_screen & %10
             U nw = mt_ca[attr_w[0]] & %11
             U ne = mt_ca[attr_e[0]] & %11
@@ -104,30 +112,35 @@ fn update_scroll_h(Bool scroll_left)
     else
         scroll_attrs_ppuaddr = 0
 
-    // Determine if we're scrolling the north or south side of our metatiles:
+    // We'll use these pointers to convert from metatile to tile.
     CC/metatiles n = mt_nw
     CC/metatiles s = mt_sw
+
+    // Determine if we're scrolling the west or east side of our metatiles:
     if seam & 1
         n = mt_ne
         s = mt_se
 
-    scroll_tiles_ppuaddr = $2000 + UU(seam & %11111)
+    // Calculate the PPUADDR of the topmost tile:
+    scroll_tiles_ppuaddr = $2000 + (seam & %11111)
 
-    // Set 'scroll_tiles':
+    // We'll write into 'scroll_attrs' using an offset derived from the Y-position of the scroll.
+    // 'start' will keep track of this offset:
     U start = scroll_y_screen & U(~1)
 
+    // Set 'scroll_tiles':
     for U i = start; i < 30; i += 2
         U tile = ptr[0]
         scroll_tiles[i+0] = n[tile]
         scroll_tiles[i+1] = s[tile]
         ptr += current_level_width
-
     for U i = 0; i < start; i += 2
         U tile = ptr[0]
         scroll_tiles[i+0] = n[tile]
         scroll_tiles[i+1] = s[tile]
         ptr += current_level_width
 
+    // Account for the Y-scroll falling in the middle of a metatile:
     if scroll_y_screen & 1
         scroll_tiles[start] = n[ptr[0]]
 
@@ -136,7 +149,12 @@ fn update_scroll_h(Bool scroll_left)
 fn update_scroll_v(Bool scroll_up)
     scroll = SCROLL_V
 
+    // 'ptr' will point to the level tiles we're accessing.
+    // For now, just set it to the current level.
     CCC/levels ptr = current_level
+
+    // 'seam' is used to calculate which column of the nametable we're updating.
+    // It's directly correlated with 'scroll_x_world'.
     UU seam
 
     if scroll_up
@@ -144,7 +162,7 @@ fn update_scroll_v(Bool scroll_up)
         if !(scroll_y_screen -= 1)
             scroll_y_screen = 29
         seam = scroll_y_screen
-        ptr += UU((scroll_y_world >> 1) * 64)
+        ptr += UU((scroll_y_world >> 1) * current_level_width)
     else
         ptr += UU(((scroll_y_world >> 1) + 15) * current_level_width)
         seam = scroll_y_screen
@@ -153,50 +171,57 @@ fn update_scroll_v(Bool scroll_up)
         if scroll_y_screen == 30
             scroll_y_screen = 0
 
-    scroll = SCROLL_V
-
+    // Adjust 'ptr' to point to the upper tile (by screen position) of our seam.
     ptr += (scroll_x_world >> 1)
 
-    CCC/levels attr_n = ptr
-    CCC/levels attr_s = ptr
+    // First, we'll update the attributes, when needed:
+    if seam & %1
+        // We'll use two pointers for attributes,
+        // one for each row of 16x16 tiles:
+        CCC/levels attr_n = ptr
+        CCC/levels attr_s = ptr
 
-    U attr_seam = seam.a
-
-    if scroll_up
-        if (attr_seam) & %10
-            attr_n += 14 * current_level_width
+        // Adjust the attribute seam based on scroll direction:
+        // Note that because we're using 1-screen mirroring, 
+        // the north and south side of the attribute might not be contiguous.
+        if scroll_up
+            if (seam) & %10
+                attr_n += 14 * current_level_width
+            else
+                attr_s += current_level_width
         else
-            attr_s += current_level_width
-    else
-        attr_seam -= 1
-        if (attr_seam) & %10
-            attr_n -= current_level_width
-        else
-            attr_s -= 14 * current_level_width
+            if (seam) & %10
+                attr_n -= current_level_width
+            else
+                attr_s -= 14 * current_level_width
 
-    // Set 'scroll_attrs':
-    if attr_seam & %1 == U(scroll_up)
-        scroll_attrs_ppuaddr = $23C0 + UU((attr_seam & %11100) << 1)
+        // Calculate the PPUADDR of the leftmost attribute:
+        scroll_attrs_ppuaddr = $23C0 + UU((seam & %11100) << 1)
+
+        // We'll write into 'scroll_attrs' using an offset derived from the X-position of the scroll.
+        // 'start' and 'index' will keep track of this offset:
         U start = (scroll_x_world.a >> 2) & %111
-        U a = start
+        U index = start
 
+        // Here we'll account for the X-scroll falling in the middle of the attribute:
         if scroll_x_world & %10
             attr_n -= 1
             attr_s -= 1
 
-        U i = 0
-        for U x = 0; x < 8; x += 1
-            U nw = mt_ca[attr_n[i]] & %11
-            U sw = mt_ca[attr_s[i]] & %11
-            i += 1
-            U ne = mt_ca[attr_n[i]] & %11
-            U se = mt_ca[attr_s[i]] & %11
-            i += 1
+        // Set 'scroll_attrs':
+        U x = 0
+        for U i = 0; i < 8; i += 1
+            U nw = mt_ca[attr_n[x]] & %11
+            U sw = mt_ca[attr_s[x]] & %11
+            x += 1
+            U ne = mt_ca[attr_n[x]] & %11
+            U se = mt_ca[attr_s[x]] & %11
+            x += 1
             U attr = nw | (ne << 2) | (sw << 4) | (se << 6)
-            scroll_attrs[a] = attr
-            a = (a + 1) & %111
+            scroll_attrs[index] = attr
+            index = (index + 1) & %111
 
-        // Fix up the seam
+        // Finish accounting for the X-scroll falling in the middle of the attribute:
         if scroll_x_world & %10
             U nw = mt_ca[attr_n[16]] & %11
             U sw = mt_ca[attr_s[16]] & %11
@@ -205,35 +230,42 @@ fn update_scroll_v(Bool scroll_up)
     else
         scroll_attrs_ppuaddr = 0
 
-    // Determine if we're scrolling the west or east side of our metatiles:
+    // We'll use these pointers to convert from metatile to tile.
     CC/metatiles w = mt_nw
     CC/metatiles e = mt_ne
+
+    // Determine if we're scrolling the west or east side of our metatiles:
     if seam & 1
         w = mt_sw
         e = mt_se
         
+    // Calculate the PPUADDR of the leftmost tile:
     scroll_tiles_ppuaddr = $2000 + (UU(seam) << 5)
 
+    // We'll write into 'scroll_attrs' using an offset derived from the Y-position of the scroll.
+    // 'index' will keep track of this offset:
+    U index = scroll_x_world.a & U(~1)
+
     // Set 'scroll_tiles':
-    U i = scroll_x_world.a & U(~1)
     for U x = 0; x < 16; x += 1
         U tile = ptr[x]
-        scroll_tiles[i & %11111] = w[tile]
-        i += 1
-        scroll_tiles[i & %11111] = e[tile]
-        i += 1
+        scroll_tiles[index & %11111] = w[tile]
+        index += 1
+        scroll_tiles[index & %11111] = e[tile]
+        index += 1
 
-    if scroll_x_world.a & 1
-        scroll_tiles[i & %11111] = w[ptr[16]]
+    // Account for the X-scroll falling in the middle of a metatile:
+    if scroll_x_world & 1
+        scroll_tiles[index & %11111] = w[ptr[16]]
 
 fn update_scroll()
     if scroll_x_world < (camera_x_world + 7) >> 3 // If we're scrolling right:
         update_scroll_h(false)
     else if scroll_x_world > (camera_x_world + 7) >> 3 // If we're scrolling left:
         update_scroll_h(true)
-    else if SS(scroll_y_world) < SS(camera_y_world >> 3) - 1 // If we're scrolling down:
+    else if scroll_y_world+1 < (camera_y_world >> 3) // If we're scrolling down:
         update_scroll_v(false)
-    else if SS(scroll_y_world) > SS(camera_y_world >> 3) - 1 // If we're scrolling up:
+    else if scroll_y_world+1 > (camera_y_world >> 3) // If we're scrolling up:
         update_scroll_v(true)
     else // Not scrolling:
         scroll = SCROLL_NONE

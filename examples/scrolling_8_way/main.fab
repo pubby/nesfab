@@ -83,7 +83,7 @@ nmi game_nmi()
 
     // We'll set sprite 0 inside the NMI, as this ensures it's always there.
     // Then, we'll upload the OAM.
-    push_oam(0, 238, STATUS_HEIGHT-2, $FF, ATTR_PRIORITY) // Sprite 0
+    push_oam(0, 216, STATUS_HEIGHT-2, $FF, ATTR_PRIORITY) // Sprite 0
     ppu_upload_oam_poll_pads(0)
 
     // We'll display the status bar on the second nametable first, 

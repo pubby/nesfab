@@ -18,7 +18,7 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
 
         if(result.second)
         {
-            assert(loc.mem_size());
+            passert(loc.mem_size(), loc, loc.type());
             m_this_lvar_info.push_back({ 
                 .size = loc.mem_size(), 
                 .zp_only = loc.mem_zp_only(), 

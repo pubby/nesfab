@@ -56,6 +56,12 @@ struct cfg_ai_d
     using rebuild_map_t = fc::vector_map<ssa_ht, ssa_ht>;
     rebuild_map_t rebuild_map;
 
+    // Like above, but only used for loop rewriting.
+    rebuild_map_t rewrite_map;
+
+    template<bool Rebuild>
+    rebuild_map_t& lookup_map() { return Rebuild ? rebuild_map : rewrite_map; }
+
     // Tracks if the node can be skipped over by the jump threading pass.
     // (A node can be skipped over if it contains no code that would need
     //  to be duplicated along the threaded jump.)
@@ -211,7 +217,8 @@ private:
     void mark_skippable();
     void remove_skippable();
 
-    ssa_ht local_lookup(cfg_ht cfg_h, ssa_ht ssa_h);
+    template<bool Rebuild, typename Fn>
+    ssa_value_t local_lookup(cfg_ht cfg_node, ssa_ht ssa_node, Fn const& fn);
     void insert_trace(cfg_ht cfg_trace_h, ssa_ht original_h, 
                       ssa_value_t parent_trace, unsigned arg_i);
     void insert_traces();
@@ -471,19 +478,22 @@ void ai_t::remove_skippable()
 // lookup existing SSA nodes instead of local variables.
 // Relevant paper:
 //   Simple and Efficient Construction of Static Single Assignment Form
-ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
+template<bool Rebuild, typename Fn>
+ssa_value_t ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node, Fn const& fn)
 {
     assert(cfg_node);
     assert(ssa_node);
 
-    if(ssa_node->cfg_node() == cfg_node)
-        return ssa_node;
+    if(ssa_value_t v = fn(cfg_node, ssa_node))
+        return v;
+    //if(ssa_node->cfg_node() == cfg_node)
+        //return ssa_node;
 
-    auto& cd = ai_data(cfg_node);
+    auto& map = ai_data(cfg_node).lookup_map<Rebuild>();
 
-    auto lookup = cd.rebuild_map.find(ssa_node);
+    auto lookup = map.find(ssa_node);
 
-    if(lookup != cd.rebuild_map.end())
+    if(lookup != map.end())
     {
         assert(lookup->second);
         return lookup->second;
@@ -496,15 +506,16 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
         switch(cfg_node->input_size())
         {
         case 0:
-            throw std::runtime_error(fmt("Local lookup failed. % % %", ssa_node, cfg_node, cfg_node->input_size()));
+            throw std::runtime_error(fmt("Local lookup failed. % % % %", ssa_node, cfg_node, cfg_node->input_size(), Rebuild));
         case 1:
-            return local_lookup(cfg_node->input(0), ssa_node);
+            return local_lookup<Rebuild>(cfg_node->input(0), ssa_node, fn);
         default:
             ssa_ht phi = cfg_node->emplace_ssa(SSA_phi, ssa_node->type());
             new_ssa<false>(phi);
 
-            ai_data(phi).rebuild_mapping = ssa_node;
-            cd.rebuild_map.emplace(ssa_node, phi);
+            if(Rebuild)
+                ai_data(phi).rebuild_mapping = ssa_node;
+            map.emplace(ssa_node, phi);
 
             // Fill using local lookups:
             unsigned const input_size = cfg_node->input_size();
@@ -512,7 +523,7 @@ ssa_ht ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node)
             for(unsigned i = 0; i < input_size; ++i)
             {
                 // Keep this as two lines. Reference invalidation lurks!
-                ssa_ht input = local_lookup(cfg_node->input(i), ssa_node);
+                ssa_value_t input = local_lookup<Rebuild>(cfg_node->input(i), ssa_node, fn);
                 phi->build_set_input(i, input);
             }
 
@@ -665,7 +676,12 @@ void ai_t::insert_traces()
             ssa_bck_edge_t edge = h->output_edge(i);
             assert(edge.handle->op() != SSA_trace || edge.index == 0);
 
-            ssa_ht const lookup = local_lookup(edge.handle->input_cfg(edge.index), look_for);
+            ssa_ht const lookup = local_lookup<true>(edge.handle->input_cfg(edge.index), look_for, 
+                [&](cfg_ht cfg_node, ssa_ht ssa_node) -> ssa_value_t { 
+                    if(ssa_node->cfg_node() == cfg_node)
+                        return ssa_node;
+                    return  {};
+                }).handle();
             assert(lookup);
 
             if(!edge.handle->link_change_input(edge.index, lookup))
@@ -2244,6 +2260,64 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
             assert(algo(new_header_cfg).is_loop_header);
 
+            for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+                ai_data(cfg).rewrite_map.clear();
+
+            std::function<ssa_value_t(cfg_ht, ssa_ht, ssa_value_t, ssa_value_t)> _local_lookup 
+            = [&](cfg_ht cfg_node, ssa_ht ssa_node, ssa_value_t exit_replace_with, ssa_value_t loop_replace_with) -> ssa_value_t
+            {
+                assert(cfg_node);
+                assert(ssa_node);
+
+                if(dominates(new_exit_cfg, cfg_node))
+                    return exit_replace_with;
+                else if(dominates(new_header_cfg, cfg_node))
+                    return loop_replace_with;
+                else if(!dominates(header_cfg, cfg_node))
+                    return {};
+
+                auto& cd = ai_data(cfg_node);
+                auto lookup = cd.rewrite_map.find(ssa_node);
+
+                if(lookup != cd.rewrite_map.end())
+                {
+                    assert(lookup->second);
+                    return ssa_value_t(lookup->second);
+                }
+                else
+                {
+                    // If 'cfg_node' doesn't contain a definition for 'ssa_node',
+                    // recursively look up its definition in predecessor nodes.
+                    // If there are multiple predecessors, a phi node will be created.
+                    switch(cfg_node->input_size())
+                    {
+                    case 0:
+                        throw std::runtime_error(fmt("Local lookup failed during loop rewriting. % % %", ssa_node, cfg_node, cfg_node->input_size()));
+                    case 1:
+                        return _local_lookup(cfg_node->input(0), ssa_node, exit_replace_with, loop_replace_with);
+                    default:
+                        ssa_ht phi = cfg_node->emplace_ssa(SSA_phi, ssa_node->type());
+                        new_ssa<false>(phi);
+                        dprint(log, "-----REWRITE_LOOPS_PHI_REPLACE_PHI", phi);
+
+                        cd.rewrite_map.emplace(ssa_node, phi);
+
+                        // Fill using local lookups:
+                        unsigned const input_size = cfg_node->input_size();
+                        phi->alloc_input(input_size);
+                        for(unsigned i = 0; i < input_size; ++i)
+                        {
+                            // Keep this as two lines. Reference invalidation lurks!
+                            ssa_value_t input = _local_lookup(cfg_node->input(i), ssa_node, exit_replace_with, loop_replace_with);
+                            phi->build_set_input(i, input);
+                        }
+
+                        assert(phi);
+                        return ssa_value_t(phi);
+                    }
+                }
+            };
+
             // Rewrite phi outputs:
             for(ssa_ht phi = header_cfg->phi_begin(); phi; ++phi)
             {
@@ -2268,12 +2342,31 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
                         check = check->input(oe.index);
                     }
 
-                    if(dominates(new_exit_cfg, check))
-                        oe.handle->link_change_input(oe.index, exit_replace_with);
-                    else if(dominates(new_header_cfg, check))
-                        oe.handle->link_change_input(oe.index, loop_replace_with);
+                    assert(new_exit_cfg->output_size() == 1);
+
+                    dprint(log, "----REWRITE_LOOPS_PHI_START_REPLACE", oe.handle, oe.index, exit_replace_with);
+
+                    ssa_value_t const v = local_lookup<false>(check, phi, [&](cfg_ht cfg_node, ssa_ht ssa_node) -> ssa_value_t
+                    {
+                        if(dominates(new_exit_cfg, cfg_node))
+                            return exit_replace_with;
+                        else if(dominates(new_header_cfg, cfg_node))
+                            return loop_replace_with;
+                        else if(!dominates(header_cfg, cfg_node))
+                            return ssa_node;
+                        return {};
+                    });
+
+                    if(v != ssa_value_t(phi))
+                    {
+                        dprint(log, "-----REWRITE_LOOPS_PHI_REPLACE_SUCCESS", oe.handle, oe.index, v);
+                        oe.handle->link_change_input(oe.index, v);
+                    }
                     else
+                    {
+                        dprint(log, "-----REWRITE_LOOPS_PHI_REPLACE_FAIL", oe.handle, oe.index, oe.handle->op());
                         ++i;
+                    }
                 }
             }
 
@@ -2356,6 +2449,9 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
     assert(dominates(header_cfg, new_branch_cfg));
 
+    for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
+        ai_data(cfg).rewrite_map.clear();
+
     // Rewrite outputs of phi nodes from 'header_cfg'.
     // NOTE: this also rewrites the inputs of stolen nodes in 'new_branch_cfg'.
     assert(new_branch_cfg->output(!exit_output) == header_cfg);
@@ -2376,16 +2472,23 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
                 continue;
             }
 
-            if((dominates(new_branch_cfg, oe.handle->cfg_node()))
-               || (oe.handle->op() == SSA_phi 
-                   && dominates(new_branch_cfg, oe.handle->cfg_node()->input(oe.index))))
-            {
-                oe.handle->link_change_input(oe.index, replace_with);
-                if(replace_with != phi || phi->output(i) != oe.handle)
-                    continue;
-            }
+            cfg_ht check = oe.handle->cfg_node();
+            if(oe.handle->op() == SSA_phi)
+                check = check->input(oe.index);
 
-            ++i;
+            ssa_value_t const v = local_lookup<false>(check, phi, [&](cfg_ht cfg_node, ssa_ht ssa_node) -> ssa_value_t
+            {
+                if(dominates(new_branch_cfg, cfg_node))
+                    return replace_with;
+                else if(header_cfg == cfg_node || loop_is_parent_of(header_cfg, cfg_node))
+                    return ssa_node;
+                return {};
+            });
+
+            if(v != phi)
+                oe.handle->link_change_input(oe.index, v);
+            else
+                ++i;
         }
     }
 
@@ -2425,6 +2528,9 @@ void ai_t::rewrite_loops()
         {
             ssa_value_t condition = branch->input(0);
 
+            if(!condition.holds_ref())
+                goto dont_rewrite;
+
             while(ssa_input0_class(condition->op()) == INPUT_LINK)
             {
                 if(condition->input_size() != 1)
@@ -2432,7 +2538,7 @@ void ai_t::rewrite_loops()
                 condition = condition->input(0);
             }
 
-            if(!condition.holds_ref() || condition->output_size() != 1 || !_recursive_steal_test(cfg_it, condition.handle()))
+            if(condition->output_size() != 1 || !_recursive_steal_test(cfg_it, condition.handle()))
             {
             dont_rewrite:
                 dprint(log, "--REWRITE_LOOPS_NO_IMPROVEMENT", cfg_it, condition.holds_ref(), condition->output_size(), condition->op());

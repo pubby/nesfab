@@ -1231,22 +1231,22 @@ void fn_t::compile()
 
             //save_graph(ir, fmt("pre_id_%_%", post_byteified, iter).c_str());
             RUN_O(o_identities, log, ir);
-            //save_graph(ir, fmt("post_id_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("post_id_%_%", post_byteified, iter).c_str());
 
             // 'o_loop' populates 'ai_prep', which feeds into 'o_abstract_interpret'.
             // Thus, they must occur sequentially.
             reset_ai_prep();
-            //save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
             RUN_O(o_loop, log, ir, post_byteified);
-            //save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
             RUN_O(o_abstract_interpret, log, ir, post_byteified);
-            //save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_remove_unused_ssa, log, ir);
 
-            //save_graph(ir, fmt("pre_motion_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("pre_motion_%_%", post_byteified, iter).c_str());
             RUN_O(o_motion, log, ir);
-            //save_graph(ir, fmt("post_motion_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("post_motion_%_%", post_byteified, iter).c_str());
 
             if(post_byteified)
             {
@@ -1256,7 +1256,7 @@ void fn_t::compile()
             }
 
             // Enable this to debug:
-            //save_graph(ir, fmt("during_o_%", iter).c_str());
+            save_graph(ir, fmt("during_o_%", iter).c_str());
             ++iter;
 
             if(iter >= MAX_ITER)

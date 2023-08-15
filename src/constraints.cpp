@@ -1071,7 +1071,7 @@ auto const write_array = ABSTRACT_FN
     {
         fixed_sint_t const min_bound = (index.min >> fixed_t::shift) + offset;
         fixed_sint_t const max_bound = (index.max >> fixed_t::shift) + offset;
-        fixed_sint_t const iter_to = std::min<fixed_sint_t>(max_bound + 1, input_array.vec.size());
+        fixed_sint_t const iter_to = std::min<fixed_sint_t>(max_bound + 1, result.vec.size());
 
         for(auto i = std::max<fixed_sint_t>(min_bound, 0); i < iter_to; ++i)
             if(index(fixed_t::whole(i).value, cv[INDEX].cm))
@@ -1649,20 +1649,23 @@ static void narrow_eq(constraints_def_t* cv, unsigned argn, constraints_def_t co
     else
     {
         assert(result[0].get_const() == fixed_t::whole(!Eq).value);
+
         for(unsigned i = 0; i < 2; ++i)
         {
             constraints_t& a = cv[i][0];
             constraints_t& b = cv[1 - i][0];
 
-            if(!a.is_const())
-                continue;
+            if(a.is_const())
+            {
+                fixed_uint_t const const_ = a.get_const();
 
-            fixed_uint_t const const_ = a.get_const();
+                if(b.bounds.umin() == const_)
+                    b.bounds.min += low_bit_only(cv[1 - i].cm.mask);
+                if(b.bounds.umax() == const_)
+                    b.bounds.max -= low_bit_only(cv[1 - i].cm.mask);
 
-            if(b.bounds.umin() == const_)
-                ++b.bounds.min;
-            if(b.bounds.umax() == const_)
-                --b.bounds.max;
+                break;
+            }
         }
     }
 }

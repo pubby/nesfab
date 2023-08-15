@@ -511,7 +511,7 @@ ssa_value_t ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node, Fn const& fn)
             return local_lookup<Rebuild>(cfg_node->input(0), ssa_node, fn);
         default:
             ssa_ht phi = cfg_node->emplace_ssa(SSA_phi, ssa_node->type());
-            new_ssa<false>(phi);
+            new_ssa<!Rebuild>(phi);
 
             if(Rebuild)
                 ai_data(phi).rebuild_mapping = ssa_node;

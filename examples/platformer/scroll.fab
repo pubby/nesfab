@@ -5,6 +5,7 @@
  */
 
 vars /scroll
+: +zero_page
     // 'scroll_x' refers to the column serving as the scroll's seam.
     // The units are in 8-pixel tiles. (value of 3 means 24 pixels)
     UU scroll_x = 0

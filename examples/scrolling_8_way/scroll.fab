@@ -10,7 +10,7 @@ ct U SCROLL_H = 1
 ct U SCROLL_V = 2
 
 vars /scroll
-: +zp
+: +zero_page
     // Uses the 'SCROLL_' enums to track what part of the scroll got updated:
     U scroll = SCROLL_NONE
 

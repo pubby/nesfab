@@ -1,0 +1,9 @@
+/*
+**.nes
+**.fdb
+**.html
+!/doc/
+!/examples/
+!/lib/
+!/src/
+!/syntax_highlighting/

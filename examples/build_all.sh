@@ -16,3 +16,5 @@ set -x #echo on
 ../nesfab trig/trig.cfg
 ../nesfab pbz/pbz.cfg
 ../nesfab mapfab/mapfab.cfg
+../nesfab platformer/platformer.cfg
+../nesfab scrolling_8_way/scrolling_8_way.cfg

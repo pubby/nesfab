@@ -1,0 +1,115 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Load the .mapfab file, calling the macros for each definition.
+mapfab(raw, "project.mapfab", "chr", "palette", "metatiles", "level")
+
+// Tile collision values:
+ct U C_OPEN = 0
+ct U C_WALL = 1
+ct U C_COIN = 2
+ct U C_EXIT = 3
+
+vars /metatiles
+    // Pointers to our metatile data.
+    // (This is more useful if we have multiple metatile sets.)
+    CC/metatiles mt_nw
+    CC/metatiles mt_ne
+    CC/metatiles mt_sw
+    CC/metatiles mt_se
+    CC/metatiles mt_ca
+
+vars /game
+    U current_level_index = 0
+
+vars /levels
+    CCC/levels current_level
+    U current_level_width
+    U[256] destroyed = U[256](0)
+
+ct CCC/levels[] levels = CCC/levels[](
+    @lev_l1,
+    @lev_l2)
+
+// Sets the 'mt_' pointers to offsets of 'mt'.
+fn load_metatiles(CC/metatiles mt)
+    UU size = UU(read U(mt))
+    if size == 0
+        size = 256
+    mt_nw = mt
+    mt += size
+    mt_ne = mt
+    mt += size
+    mt_sw = mt
+    mt += size
+    mt_se = mt
+    mt += size
+    mt_ca = mt
+
+fn load_level(CCC/levels level)
+    p = make_player(64, 90)
+
+    // CHR:
+    U chr_bank = read U(level)
+    {$8000}(chr_bank)
+
+    // Palette:
+    load_palette(read CCC/palettes(level))
+    ppu_upload_palette()
+
+    // Metatiles:
+    load_metatiles(read CC/metatiles(level))
+
+    // Level tiles:
+    current_level_width = read U(level)
+    current_level = level
+
+    // Set the scroll off-screen, then run the scroll code several times
+    // to fill the screen with tiles.
+    camera_x = 0
+    scroll_x = calc_shifted_camera_x() + 32 + 4
+    while scroll_x != calc_shifted_camera_x()
+        update_scroll()
+        ppu_upload_scroll()
+
+// Returns the tile at a pixel position:
+fn tile_at(UU pixel_x, UU pixel_y) U
+    if pixel_y.b
+        return 0
+    return (current_level + (pixel_x & $FFF0))[pixel_y.a >> 4]
+
+// Returns the collision at a pixel position:
+fn collision_at(UU pixel_x, UU pixel_y) U
+: +inline
+    return mt_ca[tile_at(pixel_x, pixel_y)] >> 2
+
+ct fn _destroyed_masks() U[128]
+    U[128] masks
+    for U i = 0; i < 128; i += 1
+        masks[i] = 1 << (i >> 4)
+    return masks
+
+// Converts x-positions to bit masks usable with the 'destroyed' bitset array.
+ct U[128] destroyed_masks = _destroyed_masks()
+
+// If the tile at a specific position was destroyed or not.
+fn destroyed_at(UU pixel_x, UU pixel_y) Bool
+    if pixel_y.b
+        return true
+    U ux = (pixel_x << 1).b & %1111
+    U uy = pixel_y.a & %11110000
+    U mask = destroyed_masks[pixel_x.a & %1111111]
+    return destroyed[ux + uy] & mask
+
+fn destroy(UU pixel_x, UU pixel_y)
+    if pixel_y.b
+        return
+    U ux = (pixel_x << 1).b & %1111
+    U uy = pixel_y.a & %11110000
+    U mask = destroyed_masks[pixel_x.a & %1111111]
+    destroyed[ux + uy] |= mask
+    scroll_coin_ppuaddr = calc_scroll_coin_ppuaddr(UU(pixel_x), UU(pixel_y))
+

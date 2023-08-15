@@ -1,0 +1,132 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example shows a basic platformer game.
+
+// Player width and height:
+ct Int pw = 15
+ct Int ph = 15
+ct Int rw = pw - 1
+ct Int rh = ph - 1
+
+// Player data:
+struct Player
+    SS x
+    SSF y
+    SF xspeed
+    SF yspeed
+    U attr
+
+fn make_player(SS x, SS y) Player
+    Player p = Player()
+    p.x = x
+    p.y = SSF(y)
+    return p
+
+vars /game
+    Player p = make_player(64, 64)
+    SS camera_x = 0
+
+data /sprites
+    // Here's where we define our metasprite, comprised of four 8x8 tiles:
+    [] player_metasprite
+        (make_metasprite(0, Ms{}(
+            Ms(-8, -8, $20, $00),
+            Ms( 0, -8, $21, $00),
+            Ms(-8,  0, $30, $00),
+            Ms( 0,  0, $31, $00))))
+
+// Sets the OAM buffer in RAM (but doesn't upload to PPU):
+fn update_sprites()
+    // Our stack index into OAM:
+    U o = 0
+
+    // Player sprite:
+    o = push_oam_metasprite_a(o, SS(p.x) - camera_x + 8, SS(p.y) + 6, @player_metasprite, p.attr)
+
+    // Clear the remainder of OAM
+    hide_oam(o)
+
+fn update_player()
+    // Update x-position:
+    if pads[0].held & BUTTON_LEFT
+        if collision_at(UU(p.x - 2), UU(p.y)) != C_WALL && collision_at(UU(p.x - 1), UU(p.y + rh)) != C_WALL
+            p.x -= 2
+            p.attr |= ATTR_H_FLIP 
+    if pads[0].held & BUTTON_RIGHT
+        if collision_at(UU(p.x + rw + 2), UU(p.y)) != C_WALL && collision_at(UU(p.x + pw + 1), UU(p.y + rh)) != C_WALL
+            p.x += 2
+            p.attr &= ~ATTR_H_FLIP 
+            
+    // If on the ground:
+    if collision_at(UU(p.x + 0), UU(p.y + ph)) == C_WALL || collision_at(UU(p.x + rw), UU(p.y + ph)) == C_WALL
+        if pads[0].pressed & BUTTON_A
+            p.yspeed = -5
+
+    // Update y-position:
+    SSF new_y = p.y + SSF(p.yspeed)
+    p.yspeed += 0.25
+    if p.yspeed > 0
+        if collision_at(UU(p.x + 0), UU(new_y + rh)) == C_WALL || collision_at(UU(p.x + pw - 1), UU(new_y + rh)) == C_WALL
+            p.yspeed = 0
+            p.y = ((new_y + rh) & SSF(~%1111)) - ph
+        else
+            p.y = new_y
+    else
+        if collision_at(UU(p.x + 0), UU(new_y)) == C_WALL || collision_at(UU(p.x + rw), UU(new_y)) == C_WALL
+            p.yspeed = 0
+            p.y = (p.y & SSF(~%1111))
+        else
+            p.y = new_y
+
+    // Check for coin collisions:
+    SS center_x = SS(p.x) + (pw >> 1)
+    SS center_y = SS(p.y) + (ph >> 1)
+    switch collision_at(UU(center_x), UU(center_y)) 
+        case C_COIN
+            destroy(UU(center_x), UU(center_y))
+            break
+        case C_EXIT
+            current_level_index += 1
+            if current_level_index >= len(levels)
+                current_level_index = 0
+            nmi
+            goto mode play_level(current_level_index)
+            : preserves /game
+
+    // Update camera:
+    ct Int window = 112
+    if center_x - camera_x < window
+        camera_x = center_x - window
+    else if center_x - camera_x > 256 - window
+        camera_x = center_x - (256 - window)
+    camera_x = min(max(0, camera_x), (SS(current_level_width) << 4) - 256)
+
+nmi game_nmi()
+    ppu_upload_scroll()
+    ppu_reset_scroll(camera_x.a, 0)
+    {PPUCTRL}(PPUCTRL_NMI_ON | (camera_x.b & 1))
+    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
+    ppu_upload_oam_poll_pads(0)
+
+mode main()
+    goto mode play_level(current_level_index)
+    : preserves
+    
+mode play_level(U level_index)
+: nmi game_nmi
+    {PPUCTRL}(0)
+    {PPUMASK}(0)
+    hide_oam(0)
+    load_level(levels[level_index])
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    while true
+        nmi
+        update_pads()
+        update_player()
+        update_sprites()
+        update_scroll()
+

@@ -1,0 +1,73 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Load the .mapfab file, calling the macros for each definition.
+mapfab(raw, "project.mapfab", "chr", "palette", "metatiles", "level")
+
+vars /metatiles
+    // Pointers to our metatile data.
+    // (This is more useful if we have multiple metatile sets.)
+    CC/metatiles mt_nw
+    CC/metatiles mt_ne
+    CC/metatiles mt_sw
+    CC/metatiles mt_se
+    CC/metatiles mt_ca
+
+vars /levels
+    // Pointer to the level:
+    CCC/levels current_level
+
+    // The dimensions of the level, in tiles:
+    U current_level_width
+    U current_level_height
+
+// Sets the 'mt_' pointers to offsets of 'mt'.
+fn load_metatiles(CC/metatiles mt)
+    UU size = UU(read U(mt))
+    if size == 0
+        size = 256
+    mt_nw = mt
+    mt += size
+    mt_ne = mt
+    mt += size
+    mt_sw = mt
+    mt += size
+    mt_se = mt
+    mt += size
+    mt_ca = mt
+
+fn load_level(CCC/levels level)
+    // CHR:
+    ppu_reset_addr($0000)
+    ppu_upload_pbz(read CCC/pbz(level), 0)
+
+    // Palette:
+    load_palette(read CCC/palettes(level))
+    ppu_upload_palette()
+
+    // Metatiles:
+    load_metatiles(read CC/metatiles(level))
+
+    // Level tiles:
+    current_level_width = read U(level)
+    current_level_height = read U(level)
+    camera_x_max = SS(current_level_width * 16) - 256
+    camera_y_max = SS(current_level_height * 16) - VIEW_HEIGHT
+    current_level = level
+
+    // Set the scroll off-screen, then run the scroll code several times
+    // to fill the screen with tiles.
+    scroll_x_world = UU(camera_x_world >> 3) + 32 + 4
+    scroll_y_world = UU(camera_y_world >> 3)
+    UU div = scroll_y_world
+    while div >= 15
+        div -= 15
+    scroll_y_screen = U(div)
+    for U i = 0; i < 34; i += 1
+        update_scroll()
+        ppu_upload_scroll()
+
+    {PPUCTRL}(0) // Reset this, in case PPUCTRL_VRAM_32_DOWN was set.

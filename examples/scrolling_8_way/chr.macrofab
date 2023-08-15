@@ -1,0 +1,9 @@
+#:name:# 
+#:path:# 
+
+// Since this example uses CNROM, we'll store each CHR file at a different offset.
+// Note that you don't have to use "path"; you could use "name" to derive a filename instead.
+
+data /pbz
+    [] chr_#name#
+        file(pbz, #"path"#)

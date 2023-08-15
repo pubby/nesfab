@@ -1,0 +1,127 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example shows how to achieve 8-way scrolling with a status bar,
+// using the simple ANROM mapper.
+
+// These defines determine how large the status bar on top of the screen is:
+ct Int STATUS_HEIGHT = 40
+ct Int VIEW_HEIGHT = 240 - STATUS_HEIGHT
+
+// Our nametable data for the status bar, compressed:
+data /rlz
+    [] status_bar_nt
+        file(rlz, "status_bar.nam")
+
+vars /game
+    // These track the position of the camera in world space:
+    SS camera_x_world = 0
+    SS camera_y_world = 0
+
+    // 'camera_y_screen' tracks the Y-position of the camera in screen space,
+    // meaning it's always in the range [0, 239].
+    // Its value is equivalent to 'camera_y_world' modulo 15,
+    // but it's stored and updated separately,
+    // as the NES does not have an efficient modulo instruction.
+    U camera_y_screen = 0
+
+    // Cached values, used to determine how far the camera can move right/down:
+    SS camera_x_max = 0
+    SS camera_y_max = 0
+
+fn move_camera_x(S amount)
+    // Move the camera:
+    camera_x_world += SS(amount)
+
+    // Crop the position to remain inside the scrollable area:
+    camera_x_world = min(max(camera_x_world, 0), camera_x_max)
+
+fn move_camera_y(S amount)
+    // Move the camera:
+    camera_y_world += SS(amount)
+
+    // Crop the position to remain inside the scrollable area:
+    if camera_y_world < 0
+        amount -= camera_y_world
+        camera_y_world = 0
+    else if camera_y_world > camera_y_max
+        amount -= camera_y_world - camera_y_max
+        camera_y_world = camera_y_max
+
+    // Update the screen-space coordinate:
+    if amount < 0
+        if !(camera_y_screen += amount) || camera_y_screen >= 240
+            camera_y_screen += 240
+    else
+        if (camera_y_screen += amount) || camera_y_screen >= 240
+            camera_y_screen -= 240
+
+fn update_player()
+    // Move the camera based on button presses:
+    ct Int SPEED = 4
+    if pads[0].held & BUTTON_LEFT
+        move_camera_x(-SPEED)
+    if pads[0].held & BUTTON_RIGHT
+        move_camera_x(SPEED)
+    if pads[0].held & BUTTON_UP
+        move_camera_y(-SPEED)
+    if pads[0].held & BUTTON_DOWN
+        move_camera_y(SPEED)
+
+// Sets the OAM buffer in RAM (but doesn't upload to PPU):
+fn update_sprites()
+    // This example uses no sprites, so we'll just clear them:
+    hide_oam(0)
+
+nmi game_nmi()
+    // Upload the scroll updates to the first nametable:
+    state(0)
+    ppu_upload_scroll()
+
+    // We'll set sprite 0 inside the NMI, as this ensures it's always there.
+    // Then, we'll upload the OAM.
+    push_oam(0, 238, STATUS_HEIGHT-2, $FF, ATTR_PRIORITY) // Sprite 0
+    ppu_upload_oam_poll_pads(0)
+
+    // We'll display the status bar on the second nametable first, 
+    // waiting until the sprite 0 hit occurs before displaying 
+    // the scrolling nametable:
+    ppu_reset_scroll(0, 0) // The status bar's scroll position.
+    state(ANROM_MIRROR)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
+    while {PPUSTATUS}() & PPUSTATUS_SPR_0    // Wait for the frame to start.
+    while !({PPUSTATUS}() & PPUSTATUS_SPR_0) // Wait for the sprite0 hit.
+
+    // OK! Now display the scrolling nametable:
+    state(0)
+    {PPUMASK}(0)
+    ppu_set_mid_scroll(camera_x_world.a, camera_y_screen, 0)
+    {PPUMASK}(PPUMASK_ON)
+
+mode main()
+: nmi game_nmi
+    // Start with rendering and NMI handling off, until everything is loaded:
+    {PPUCTRL}(0)
+    {PPUMASK}(0)
+
+    // Prepare the level:
+    load_level(@lev_world)
+
+    // Setup the status bar's nametable:
+    state(ANROM_MIRROR)
+    ppu_reset_addr($2000)
+    ppu_upload_rlz(@status_bar_nt)
+
+    // OK! Begin our main loop:
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    while true
+        nmi
+        update_pads()
+        update_player()
+        update_sprites()
+        update_scroll()
+

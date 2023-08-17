@@ -646,6 +646,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
             // It can be coalesced; create a new set out of it;
             ld.cset = node;
+            assert(ld.cset);
+
             // Also tag it to a locator:
             cg_data(node).cset_head = loc;
         }

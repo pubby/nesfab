@@ -90,11 +90,11 @@ std::string to_string(locator_t loc)
     }
 
     if(has_arg_member_atom(loc.lclass()))
-        str += fmt(" arg:% member:% atom:% offset:%", (int)loc.arg(), (int)loc.member(), (int)loc.atom(), (int)loc.offset());
+        str += fmt(" arg:% mem:% atm:% off:%", (int)loc.arg(), (int)loc.member(), (int)loc.atom(), (int)loc.offset());
     else
-        str += fmt(" data:% offset:%", (int)loc.data(), (int)loc.offset());
+        str += fmt(" dat:% off:%", (int)loc.data(), (int)loc.offset());
 
-    str += fmt(" byteified:% is:%", (int)loc.byteified(), (int)loc.is());
+    str += fmt(" byt:% is:%", (int)loc.byteified(), (int)loc.is());
 
     return str;
 }

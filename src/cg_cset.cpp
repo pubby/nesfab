@@ -228,7 +228,6 @@ bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_h
         case LOC_GMEMBER:
             return called->ir_writes().test(loc.gmember().id);
         case LOC_GMEMBER_SET:
-            return false;
             {
                 std::size_t const size = gmember_ht::bitset_size();
                 assert(size == called->ir_reads().size());
@@ -255,8 +254,9 @@ bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_h
         default: 
             return false;
         case LOC_GMEMBER:
+            // TODO:
             return false;
-            return true;
+            //return true;
         case LOC_GMEMBER_SET:
             return !bitset_all_clear(gmember_ht::bitset_size(), ir.gmanager.get_set(loc));
         }

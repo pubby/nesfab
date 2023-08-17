@@ -1130,11 +1130,18 @@ bool insert_signed_mul_subtractions(ir_t& ir)
 {
     bool updated = false;
 
+    bc::small_vector<ssa_ht, 8> muls;
+
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+        if(ssa_it->op() == SSA_mul)
+            muls.push_back(ssa_it);
+
+    for(ssa_ht const ssa_it : muls)
     {
-        if(ssa_it->op() != SSA_mul)
-            continue;
+        assert(ssa_it->op() == SSA_mul);
+
+        cfg_ht const cfg_it = ssa_it->cfg_node();
 
         ssa_value_t const lhs = ssa_it->input(0);
         ssa_value_t const rhs = ssa_it->input(1);

@@ -44,6 +44,16 @@ value_time_t calc_time(type_t const& type, rval_t const& rval)
 
 void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t const type, pstring_t pstring)
 {
+    /* TODO
+    if(is_tea(type.name()))
+    {
+        unsigned const length = type.array_length();
+        for(unsigned i = 0; i < length; ++i)
+        {
+        }
+    }
+    */
+
     std::size_t const total_size_of = type.size_of();
 
     if(total_size_of == 0 && !is_vec(type.name()) && !is_tea(type.name()))

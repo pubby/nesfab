@@ -55,7 +55,10 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
     {
         o << gv_id(ssa_it) << " [label=\"(" << ssa_it.id << ") ";
         o << to_string(ssa_it->op());
-        o << " " << ssa_it->type();
+        if(fn_ht fn = get_fn(*ssa_it))
+            o << " " << fn->global.name;
+        else
+            o << " " << ssa_it->type();
         if(ssa_it == ssa_it->cfg_node()->last_daisy())
             o << " (EXIT)";
         o << "\"";
@@ -99,11 +102,11 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
     {
-        for(unsigned i = 0; i < ssa_it->input_size(); ++i)
+        auto const write_input = [&](unsigned i, ssa_value_t input, locator_t loc = {})
         {
-            ssa_value_t input = ssa_it->input(i);
             if(!input)
-                continue;
+                return;
+
             if(input.is_const())
             {
                 if(fn_like(ssa_it->op()) && i == 0)
@@ -112,6 +115,8 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                     o << " [label=\"{";
                     o << input.locator().fn()->global.name;
                     o << " (" << input.locator().data() << ")";
+                    if(loc)
+                        o << "\\n(" << loc << ")";
                     o << "}\" shape=box];\n";
                 }
                 else if(input.is_locator())
@@ -119,12 +124,18 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                     o << gv_input_id(ssa_it, i);
                     o << " [label=\"{";
                     o << input.locator();
+                    if(loc)
+                        o << "\\n(" << loc << ")";
                     o << "}\" shape=box];\n";
                 }
                 else
                 {
                     o << gv_input_id(ssa_it, i);
                     o << " [label=\"" << to_double(input.fixed()) << " " << to_string(input.num_type_name());
+                    if((ssa_it->op() == SSA_multi_lt || ssa_it->op() == SSA_multi_lte) && i < 2)
+                        o << " {" << to_string(type_name_t(input.whole())) << "}";
+                    if(loc)
+                        o << "\\n(" << loc << ")";
                     o << "\" shape=box];\n";
                 }
 
@@ -132,13 +143,37 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             else if(input.holds_ref() && input->cfg_node() != cfg_it)
             {
                 o << gv_input_id(ssa_it, i);
-                o << " [label=\"(" << input.handle().id;
-                o << ")\" shape=diamond];\n";
+                o << " [label=\"(" << input.handle().id << ")";
+                if(loc)
+                {
+                    o << "\\n(" << loc << ")";
+                    o << "\" shape=box];\n";
+                }
+                else
+                    o << "\" shape=diamond];\n";
             }
 
             o << gv_input_id(ssa_it, i) << " -> " << gv_id(ssa_it) << "[";
             o << " fontcolor=lime fontsize=10 ";
             o << " headlabel=\"" << i << "\"];\n";
+        };
+
+        if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
+        {
+            unsigned const begin = write_globals_begin(ssa_it->op());
+            unsigned const input_size = ssa_it->input_size();
+            assert((input_size - begin) % 2 == 0);
+            for(unsigned i = begin; i < input_size; i += 2)
+            {
+                ssa_value_t input = ssa_it->input(i);
+                locator_t loc = ssa_it->input(i+1).locator();
+                write_input(i, input, loc);
+            }
+        }
+        else for(unsigned i = 0; i < ssa_it->input_size(); ++i)
+        {
+            ssa_value_t input = ssa_it->input(i);
+            write_input(i, input);
         }
     }
 

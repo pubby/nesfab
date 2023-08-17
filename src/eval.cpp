@@ -3006,7 +3006,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
                     fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
 
-                    if(call->fclass == FN_MODE || !call->ir_io_pure()/* || ir->gmanager.num_locators() > 0*/)
+                    if(call->fclass == FN_MODE || !call->ir_io_pure() || call->precheck_fences())
                         fn_node->append_daisy();
 
                     if(call->fclass != FN_MODE)
@@ -3019,7 +3019,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                             {
-                                if(call->ir_writes().test(m.id))
+                                if(call->precheck_fences() || call->ir_writes().test(m.id))
                                 {
                                     ssa_ht read = builder.cfg->emplace_ssa(
                                         SSA_read_global, m->type(), fn_node, locator_t::gmember(m, 0));

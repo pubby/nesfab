@@ -1556,8 +1556,9 @@ namespace isel
         >(cpu, prev, cont);
 
         chain
-        < load_A<Opt, const_<0>>
+        < load_A<Opt, Value>
         , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
+        , load_A<typename Opt::restrict_to<~REGF_C>, const_<0>>
         , branch_op<Opt, BCC, this_label>
         , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0xFF>>
         , label<this_label>
@@ -2709,6 +2710,8 @@ namespace isel
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
 
+#if 1
+
                     chain
                     < load_AC<Opt, p_lhs, p_carry>
                     , load_X<Opt::restrict_to<~REGF_AC>, p_rhs>
@@ -2921,6 +2924,7 @@ namespace isel
                             }
                         }
                     }
+#endif
                 });
             }
             break;
@@ -2948,6 +2952,7 @@ namespace isel
                 , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
+#if 1
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , load_X<Opt::restrict_to<~REGF_AC>, p_rhs>
@@ -3202,6 +3207,7 @@ namespace isel
                         }
                     }
                 }
+#endif
             }
             break;
 

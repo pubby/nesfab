@@ -71,7 +71,27 @@ fn ppu_reset_scroll(U x, U y)
     ppu_set_scroll(x, y)
 
 // Sets X/Y scroll mid-frame.
-asm fn ppu_set_mid_scroll(U x, U y, U nt)
+// NOTE: Ideally, you want the last two writes to occur consecutively during HBLANK,
+// which this function cannot guarantee.
+// Consider 'ppu_set_mid_scroll_precise' if you require such precision.
+fn ppu_set_mid_scroll(U x, U y, U nt)
+: +inline
+    {PPUADDR}(nt << 2)
+    {PPUSCROLL}(y)
+    {PPUSCROLL}(x)
+    {PPUADDR}(((y & $F8) << 2) | (x >> 3))
+
+// The same as above, but reset address latch first.
+fn ppu_reset_mid_scroll(U x, U y, U nt)
+: +inline
+    {PPUSTATUS}()
+    ppu_set_mid_scroll(x, y, nt)
+
+// Sets X/Y scroll mid-frame.
+// This version is written in assembly, 
+// which ensures the last two writes happen consecutively.
+// This adds some precision to scrolling, however this function is slower.
+asm fn ppu_set_mid_scroll_precise(U x, U y, U nt)
 : +static
 : employs
     default 
@@ -95,10 +115,10 @@ asm fn ppu_set_mid_scroll(U x, U y, U nt)
         rts
 
 // The same as above, but reset address latch first.
-fn ppu_reset_mid_scroll(U x, U y, U nt)
+fn ppu_reset_mid_scroll_precise(U x, U y, U nt)
 : +inline
     {PPUSTATUS}()
-    ppu_set_mid_scroll(x, y, nt)
+    ppu_set_mid_scroll_precise(x, y, nt)
 
 ///////////////////////////////////////////////////////////////////////////////
 // NMI ////////////////////////////////////////////////////////////////////////

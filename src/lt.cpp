@@ -17,7 +17,7 @@ void lt_value_t::resolve(romv_t romv)
     passert(rpair.value.size() == num_members(type), rpair.value.size(), type);
 
     results[romv].bytes.clear();
-    append_locator_bytes(results[romv].bytes, rpair.value, type, ast.token.pstring);
+    append_locator_bytes(true, results[romv].bytes, rpair.value, type, ast.token.pstring);
     assert(resolved(romv));
 
     results[romv].rval = std::move(rpair.value);

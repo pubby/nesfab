@@ -3032,15 +3032,18 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         ir->gmanager.for_each_gmember_set(base_fn->handle(),
                         [&](bitset_uint_t const* gvar_set, gmanager_t::index_t index, locator_t locator)
                         {
-                            bitset_copy(gmember_bs_size, temp_bs, gvar_set);
-                            bitset_and(gmember_bs_size, temp_bs, call->ir_writes().data());
-                            if(!bitset_all_clear(gmember_bs_size, temp_bs))
+                            if(!call->precheck_fences())
                             {
-                                ssa_ht read = builder.cfg->emplace_ssa(
-                                    SSA_read_global, TYPE_VOID, fn_node, locator);
-                                block_d& block_data = builder.cfg.data<block_d>();
-                                block_data.var(to_var_i(index))[0] = read;
+                                bitset_copy(gmember_bs_size, temp_bs, gvar_set);
+                                bitset_and(gmember_bs_size, temp_bs, call->ir_writes().data());
+                                if(bitset_all_clear(gmember_bs_size, temp_bs))
+                                    return;
                             }
+
+                            ssa_ht read = builder.cfg->emplace_ssa(
+                                SSA_read_global, TYPE_VOID, fn_node, locator);
+                            block_d& block_data = builder.cfg.data<block_d>();
+                            block_data.var(to_var_i(index))[0] = read;
                         });
 
                         type_t const return_type = fn_expr.type.return_type();
@@ -3170,7 +3173,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 fmt_error(sub.token.pstring, fmt("Expression of type % in byte block.", arg.type))
                                 + fmt_note("Use an explicit cast to override."));
                         }
-                        ::append_locator_bytes(paa, arg.rval(), arg.type, arg.pstring);
+                        ::append_locator_bytes(true, paa, arg.rval(), arg.type, arg.pstring);
                     }
                     break;
                 }
@@ -3408,7 +3411,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         vec_temp.clear();
 
                         expr_value_t arg = to_rval<D>(do_expr<D>(sub));
-                        ::append_locator_bytes(vec_temp, arg.rval(), arg.type, arg.pstring);
+                        ::append_locator_bytes(true, vec_temp, arg.rval(), arg.type, arg.pstring);
 
                         for(locator_t loc : vec_temp)
                             proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = loc });
@@ -4470,10 +4473,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(!is_compile(D))
                     compiler_error(ast.token.pstring, "Can only read at run-time.");
 
-                unsigned const num_members = ::num_members(type);
-                rval_t rval;
-                rval.reserve(num_members);
-
                 std::uint8_t index = 0;
 
                 auto const read_elem = [&](type_t t) -> ssa_value_t
@@ -4504,31 +4503,54 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     return value;
                 };
 
-                for(unsigned i = 0; i < num_members; ++i)
+                std::function<rval_t(type_t type)> do_read = [&](type_t type) -> rval_t
                 {
-                    type_t const mt = ::member_type(type, i);
-                    assert(::num_members(mt) == 1);
+                    unsigned const num_members = ::num_members(type);
+                    rval_t ret;
 
-                    if(is_tea(mt.name()))
+                    if(is_tea(type.name()))
                     {
-                        unsigned const len = mt.array_length();
-                        type_t const et = mt.elem_type();
-                        ct_array_t array = make_ct_array(len);
+                        unsigned const length = type.array_length();
 
-                        for(unsigned j = 0; j < len; ++j)
-                            array[j] = read_elem(et);
+                        for(unsigned i = 0; i < num_members; ++i)
+                            ret.emplace_back(make_ct_array(length));
 
-                        rval.push_back(std::move(array));
+                        for(unsigned i = 0; i < length; ++i)
+                        {
+                            rval_t sub = do_read(type.elem_type());
+                            for(unsigned j = 0; j < num_members; ++j)
+                                std::get<ct_array_t>(ret[j])[i] = std::get<ssa_value_t>(sub[j]);
+                        }
                     }
-                    else 
-                        rval.push_back(read_elem(mt));
-                }
+                    else if(type.name() == TYPE_STRUCT)
+                    {
+                        struct_t const& s = type.struct_();
+                        unsigned const num_fields = s.fields().size();
+                        for(unsigned i = 0; i < num_fields; ++i)
+                        {
+                            type_t const ft = s.field(i).type();
+                            for(auto& v : do_read(ft))
+                                ret.push_back(std::move(v));
+                        }
+                    }
+                    else
+                    {
+                        for(unsigned i = 0; i < num_members; ++i)
+                        {
+                            type_t const mt = ::member_type(type, i);
+                            assert(::num_members(mt) == 1);
+                            ret.push_back(read_elem(mt));
+                        }
+                    }
+
+                    return ret;
+                };
+
+                result.val = do_read(type);
 
                 // Increment ptr lo:
                 if(index != 0)
                     increment(index);
-
-                result.val = std::move(rval);
             }
 
             return result;
@@ -4598,7 +4620,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(!is_compile(D))
                     compiler_error(ast.token.pstring, "Can only write at run-time.");
 
-                unsigned const num_members = ::num_members(type);
                 std::uint8_t index = 0;
 
                 auto const write_elem = [&](type_t t, ssa_value_t value)
@@ -4630,38 +4651,59 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                 };
 
-                for(unsigned i = 0; i < num_members; ++i)
+                std::function<void(type_t type, int, int)> do_write = [&](type_t type, int m, int i) -> void
                 {
-                    type_t const mt = ::member_type(type, i);
-                    assert(::num_members(mt) == 1);
+                    unsigned const num_members = ::num_members(type);
 
-                    auto const& v = write_value.rval()[i];
-                    if(ssa_value_t const* value = std::get_if<ssa_value_t>(&v))
+                    if(is_tea(type.name()))
                     {
-                        if(is_tea(mt.name()))
-                        {
-                            type_t const elem_type = mt.elem_type();
-                            unsigned const length = mt.array_length();
-                            for(unsigned i = 0; i < length; ++i)
-                            {
-                                ssa_ht elem = builder.cfg->emplace_ssa(
-                                    SSA_read_array16, elem_type, *value, ssa_value_t(0u, TYPE_U20), ssa_value_t(i, TYPE_U20));
-                                write_elem(elem_type, elem);
-                            }
-                        }
-                        else
-                            write_elem(mt, *value);
+                        assert(i < 0);
+                        unsigned const length = type.array_length();
+                        for(unsigned j = 0; j < length; ++j)
+                            do_write(type.elem_type(), m, j);
                     }
-                    else if(ct_array_t const* array = std::get_if<ct_array_t>(&v))
+                    else if(type.name() == TYPE_STRUCT)
                     {
-                        type_t const elem_type = mt.elem_type();
-                        unsigned const length = mt.array_length();
-                        for(unsigned i = 0; i < length; ++i)
-                            write_elem(elem_type, (*array)[i]);
+                        struct_t const& s = type.struct_();
+                        unsigned const num_fields = s.fields().size();
+                        for(unsigned j = 0; j < num_fields; ++j)
+                        {
+                            type_t const ft = s.field(j).type();
+                            do_write(ft, m, i);
+                            m += ::num_members(ft);
+                        }
                     }
                     else
-                        compiler_error(write_value.pstring, "Unable to write value.");
-                }
+                    {
+                        for(unsigned j = 0; j < num_members; ++j)
+                        {
+                            type_t const mt = ::member_type(type, j);
+                            assert(::num_members(mt) == 1);
+
+                            auto const& v = write_value.rval()[m+j];
+                            if(ssa_value_t const* value = std::get_if<ssa_value_t>(&v))
+                            {
+                                if(i >= 0)
+                                {
+                                    ssa_ht elem = builder.cfg->emplace_ssa(
+                                        SSA_read_array16, type, *value, ssa_value_t(0u, TYPE_U20), ssa_value_t(i, TYPE_U20));
+                                    write_elem(type, elem);
+                                }
+                                else
+                                    write_elem(mt, *value);
+                            }
+                            else if(ct_array_t const* array = std::get_if<ct_array_t>(&v))
+                            {
+                                assert(i >= 0);
+                                write_elem(type, (*array)[i]);
+                            }
+                            else
+                                compiler_error(write_value.pstring, "Unable to write value.");
+                        }
+                    }
+                };
+
+                do_write(type, 0, -1);
 
                 // Increment ptr lo:
                 if(index != 0)

@@ -42,17 +42,31 @@ value_time_t calc_time(type_t const& type, rval_t const& rval)
     return time;
 }
 
-void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t const type, pstring_t pstring)
+void append_locator_bytes(bool new_format, std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring, unsigned member, int index)
 {
-    /* TODO
-    if(is_tea(type.name()))
+    if(new_format)
     {
-        unsigned const length = type.array_length();
-        for(unsigned i = 0; i < length; ++i)
+        if(is_tea(type.name()))
         {
+            assert(index < 0);
+            unsigned const length = type.array_length();
+            for(unsigned i = 0; i < length; ++i)
+                append_locator_bytes(new_format, vec, rval, type.elem_type(), pstring, member, i);
+            return;
+        }
+        else if(type.name() == TYPE_STRUCT)
+        {
+            struct_t const& s = type.struct_();
+            unsigned const num_fields = s.fields().size();
+            for(unsigned i = 0; i < num_fields; ++i)
+            {
+                type_t const ft = s.field(i).type();
+                append_locator_bytes(new_format, vec, rval, ft, pstring, member, index);
+                member += ::num_members(ft);
+            }
+            return;
         }
     }
-    */
 
     std::size_t const total_size_of = type.size_of();
 
@@ -62,7 +76,8 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
     vec.reserve(vec.size() + total_size_of);
 
     assert(rval.size());
-    for(unsigned i = 0; i < rval.size(); ++i)
+    unsigned const num_members = ::num_members(type);
+    for(unsigned i = 0; i < num_members; ++i)
     {
         type_t const mt = ::member_type(type, i);
 
@@ -128,22 +143,27 @@ void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_
         };
 
         // Convert the scalar into bytes.
-        ct_variant_t const& v = rval[i];
+        ct_variant_t const& v = rval[i + member];
 
         if(ssa_value_t const* value = std::get_if<ssa_value_t>(&v))
             push_bytes(*value, mt);
         else if(ct_array_t const* array = std::get_if<ct_array_t>(&v))
         {
-            type_t const elem_type = mt.elem_type();
-            unsigned const length = mt.array_length();
-            for(unsigned i = 0; i < length; ++i)
-                push_bytes((*array)[i], elem_type);
+            if(index >= 0)
+                push_bytes((*array)[index], mt);
+            else
+            {
+                unsigned const length = mt.array_length();
+                type_t const elem_type = mt.elem_type();
+                for(unsigned i = 0; i < length; ++i)
+                    push_bytes((*array)[i], elem_type);
+            }
         }
         else if(auto const* vec_ptr = std::get_if<std::shared_ptr<vec_t>>(&v))
         {
             type_t const elem_type = mt.elem_type();
             for(rval_t const& rval : (*vec_ptr)->data)
-                append_locator_bytes(vec, rval, elem_type, pstring);
+                append_locator_bytes(new_format, vec, rval, elem_type, pstring);
         }
     }
 }

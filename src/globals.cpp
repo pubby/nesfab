@@ -1868,7 +1868,7 @@ void gvar_t::rval_init(rval_t&& rval)
     m_rval = std::move(rval);
 
     loc_vec_t vec;
-    append_locator_bytes(vec, m_rval, m_src_type.type, global.pstring());
+    append_locator_bytes(false, vec, m_rval, m_src_type.type, global.pstring());
     m_init_data = std::move(vec);
 }
 

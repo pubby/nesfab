@@ -49,7 +49,7 @@ inline ssa_value_t const* ct_array(ct_variant_t const& variant)
 value_time_t calc_time(type_t const& type, rval_t const& rval);
 
 // Appends 'rval' onto 'vec'
-void append_locator_bytes(std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring);
+void append_locator_bytes(bool new_format, std::vector<locator_t>& vec, rval_t const& rval, type_t type, pstring_t pstring, unsigned member = 0, int index = -1);
 
 rval_t default_init(type_t type, pstring_t at);
 

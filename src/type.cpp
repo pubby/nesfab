@@ -601,7 +601,7 @@ unsigned member_offset(type_t type, unsigned member)
     case TYPE_TEA: 
     case TYPE_TEA_THUNK: 
     case TYPE_VEC: 
-        return member_offset(type.elem_type(), member);
+        return member_offset(type.elem_type(), member) * type.array_length();
     default: 
         if(is_banked_ptr(type.name()))
             return member == 1 ? 2 : 0;

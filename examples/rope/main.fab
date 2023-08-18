@@ -1,0 +1,124 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example demonstrates rope physics.
+
+// Size of the rope segments:
+ct Int RADIUS = 10
+
+// Player data:
+struct Vertex
+    UF x
+    UF y
+    SF vx
+    SF vy
+
+vars /game
+    U vertex_prio = 0
+    Vertex[8] vertices
+
+// Calculates the average of two bytes:
+fn avg(U a, U b) U
+    Bool carry = a += b
+    carry >=> a
+    return a
+
+// Sets the OAM buffer in RAM (but doesn't upload to PPU):
+fn update_sprites()
+    // Our stack index into OAM:
+    U o = 0
+
+    // Rope sprites.
+    // We'll use 'vertex_prio' to stagger the sprites between frames.
+    for U i = vertex_prio; i < len(vertices); i += 2
+        o = push_oam(o, vertices[i].x.a, vertices[i].y.a, $00, $01)
+    vertex_prio ^= 1
+    for U i = vertex_prio; i < len(vertices); i += 2
+        o = push_oam(o, vertices[i].x.a, vertices[i].y.a, $00, $01)
+
+    // These are the midpoints sprites between vertices:
+    for U i = 1; i < len(vertices); i += 1
+        U x = avg(vertices[i].x.a, vertices[i-1].x.a)
+        U y = avg(vertices[i].y.a, vertices[i-1].y.a)
+        o = push_oam(o, x, y, $01, $00)
+
+    // Clear the remainder of OAM:
+    hide_oam(o)
+
+fn update_rope()
+    // Handle movement input:
+    if pads[0].held & BUTTON_LEFT
+        vertices[0].x -= 0.75
+    if pads[0].held & BUTTON_RIGHT
+        vertices[0].x += 0.75
+    if pads[0].held & BUTTON_UP
+        vertices[0].y -= 0.75
+    if pads[0].held & BUTTON_DOWN
+        vertices[0].y += 0.75
+
+    // Save rope positions before moving:
+    UF[len(vertices)] prev_x = vertices.x
+    UF[len(vertices)] prev_y = vertices.y
+
+    // Update positions:
+    for U i = 1; i < len(vertices); i += 1
+        vertices[i].x += vertices[i].vx
+        vertices[i].y += vertices[i].vy + $0.1 // Gravity
+
+    // Handle the vertices:
+    for U i = 1; i < len(vertices); i += 1
+        SF dx = SF(vertices[i].x - vertices[i-1].x)
+        SF dy = SF(vertices[i].y - vertices[i-1].y)
+
+        U hypotenuse = U(sqr_table[U(abs(dx) << 4)] + sqr_table[U(abs(dy) << 4)])
+        UF distance = sqrt_table[hypotenuse]
+        UF inverse_distance = inverse_sqrt_table[hypotenuse]
+
+        SF correction = SF(RADIUS - distance)
+        SF cx = SF(SF(correction * dx) * inverse_distance)
+        SF cy = SF(SF(correction * dy) * inverse_distance)
+
+        if i > 1 // Don't affect the 0th vertex.
+            cx >>= 1
+            cy >>= 1
+            vertices[i-1].x -= cx
+            vertices[i-1].y -= cy
+
+        vertices[i].x += cx
+        vertices[i].y += cy
+
+    // Recalculate velocities:
+    for U i = 1; i < len(vertices); i += 1
+        vertices[i].vx = SF(vertices[i].x - prev_x[i])
+        vertices[i].vy = SF(vertices[i].y - prev_y[i])
+
+fn init_rope(U x, U y)
+    for U i = 0; i < len(vertices); i += 1
+        vertices[i] = Vertex()
+        vertices[i].x = x + U(i * RADIUS)
+        vertices[i].y = y
+
+nmi game_nmi()
+    if ready
+        ppu_upload_oam_poll_pads(0)
+    ppu_reset_scroll(0, 0)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    {PPUMASK}(PPUMASK_SPR_ON)
+
+mode main()
+: nmi game_nmi
+    palette = example_palette
+    ppu_upload_palette()
+    init_rope(128, 64)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    while true
+        nmi
+        update_pads()
+        update_rope()
+        update_sprites()
+
+chrrom
+    file(fmt, "bg.png")

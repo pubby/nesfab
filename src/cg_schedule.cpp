@@ -107,6 +107,8 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     toposorted.resize(cfg_node->ssa_size());
     toposort_cfg_node(cfg_node, toposorted.data());
 
+    passert(toposorted.size() == cfg_node->ssa_size(), toposorted.size(), ir.ssa_size());
+
     scheduled = bitset_pool.alloc(set_size);
 
     for(unsigned i = 0; i < toposorted.size(); ++i)
@@ -660,11 +662,12 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                 if(ssa_node == output)
                     return;
 
-                // We can only do this when the read is in the same CFG node
-                if(read->cfg_node() != cfg_node)
+                // We can only do this when the read's output is in the same CFG node
+                if(output->cfg_node() != cfg_node)
                     return;
 
                 // Can't add a dep if a cycle would be created:
+                passert(data(output).deps, output, output->op());
                 if(bitset_test(data(output).deps, index(ssa_node)))
                     return;
 

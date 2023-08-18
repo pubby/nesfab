@@ -816,8 +816,11 @@ void byteify(ir_t& ir, fn_t const& fn)
                     {
                         if(i + byte_shifts < end)
                             values[i] = values[i + byte_shifts];
+                        else if(is_signed(ssa_node->type().name()))
+                            values[i] = ssa_node->cfg_node()->emplace_ssa(
+                                SSA_sign_extend, TYPE_U, values[end - 1]);
                         else
-                            values[i] = ssa_value_t(0u, TYPE_U);;
+                            values[i] = ssa_value_t(0u, TYPE_U);
                     }
 
                     for(int s = 0; s < bit_shifts; ++s)

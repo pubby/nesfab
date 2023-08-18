@@ -478,7 +478,6 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             break;
 
         case SSA_ror:
-            goto rol_ror_common;
             if(ssa_it->input(1).eq_whole(0)
                && ssa_it->input(0).holds_ref())
             {
@@ -738,12 +737,15 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
                                 ssa_ht const input = ssa_it->input(i).handle();
 
-                                if(input->op() == SSA_add)
+                                if(input->op() == SSA_add
+                                   && (!input->input(2).holds_ref()
+                                       || input->input(2)->cfg_node() == ssa_it->cfg_node()))
                                 {
                                     for(unsigned j = 0; j < 2; ++j)
                                     {
                                         if(input->input(j).eq_whole(0))
                                         {
+                                            assert(ssa_it->input(2).eq_whole(0));
                                             ssa_it->link_change_input(i, input->input(!j));
                                             ssa_it->link_change_input(2, input->input(2));
 
@@ -865,21 +867,22 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
 
                                 ssa_ht const input = ssa_it->input(i).handle();
 
-                                if(i == 0 && input->op() == SSA_sub)
+                                if(i == 0 && input->op() == SSA_sub
+                                   && (!input->input(2).holds_ref()
+                                       || input->input(2)->cfg_node() == ssa_it->cfg_node()))
                                 {
-                                    for(unsigned j = 0; j < 2; ++j)
+                                    if(input->input(1).eq_whole(0))
                                     {
-                                        if(input->input(j).eq_whole(0))
-                                        {
-                                            ssa_it->link_change_input(i, input->input(!j));
-                                            ssa_it->link_change_input(2, input->input(2));
+                                        ssa_it->link_change_input(i, input->input(0));
+                                        ssa_it->link_change_input(2, input->input(2));
 
-                                            updated = true;
-                                            goto done_sub;
-                                        }
+                                        updated = true;
+                                        goto done_sub;
                                     }
                                 }
-                                else if(i == 1 && input->op() == SSA_add)
+                                else if(i == 1 && input->op() == SSA_add
+                                        && (!input->input(2).holds_ref()
+                                            || input->input(2)->cfg_node() == ssa_it->cfg_node()))
                                 {
                                     for(unsigned j = 0; j < 2; ++j)
                                     {
@@ -922,16 +925,25 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 }
 
                 // ((a << b) << c) becomes (a << (b + c)), for constant shift amounts.
-                if(ssa_it->input(1).is_num() && ssa_it->input(0).holds_ref())
+                if(ssa_it->input(0).holds_ref() && ssa_it->input(1).is_num() && !carry_used(*ssa_it))
                 {
                     ssa_ht const input = ssa_it->input(0).handle();
-                    if(input->op() == ssa_it->op() && ssa_it->input(1).is_num() 
-                       && input->type() == ssa_it->type() && !carry_used(*input))
+                    if(input->op() == ssa_it->op() 
+                       && input->type() == ssa_it->type() 
+                       && input->input(1).is_num() 
+                       && !carry_used(*input))
                     {
                         unsigned const amount = input->input(1).whole() + ssa_it->input(1).whole();
-                        if(amount > 0xFF)
+                        if(amount > ssa_it->type().size_of_bits())
                         {
-                            ssa_it->replace_with(INPUT_VALUE, ssa_value_t(0u, ssa_it->type().name()));
+                            if(ssa_it->op() == SSA_shr && is_signed(ssa_it->type().name()))
+                            {
+                                ssa_it->unsafe_set_op(SSA_sign_extend);
+                                ssa_it->link_shrink_inputs(1);
+                            }
+                            else
+                                ssa_it->replace_with(INPUT_VALUE, ssa_value_t(0u, ssa_it->type().name()));
+
                             updated = true;
                             break;
                         }
@@ -1729,6 +1741,7 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                     int const diff = count.diff();
 
                     ssa_value_t cur = v;
+
                     for(unsigned bits = std::abs(diff), pow = 0; bits; bits >>= 1, ++pow)
                     {
                         if(!(bits & 1))
@@ -1900,19 +1913,20 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
             }
         }
 
-        assert(operands.size() == 1);
+        passert(operands.size() == 1, operands.size());
         replacements.push_back(operands[0].v);
 #ifndef NDEBUG
         for(auto const& p : internals)
             assert(ssa_value_t(p.first) != operands[0].v);
 #endif
+
         to_prune.push_back(std::move(internals));
     }
 
     // Now replace all singletons and prune:
 
-    assert(singletons.size() == replacements.size());
-    assert(singletons.size() == to_prune.size());
+    passert(singletons.size() == replacements.size(), singletons.size(), replacements.size());
+    passert(singletons.size() == to_prune.size(), singletons.size(), to_prune.size());
 
     for(unsigned i = 0; i < singletons.size(); ++i)
     {

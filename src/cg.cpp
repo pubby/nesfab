@@ -175,7 +175,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             }
             break;
 
-
         default:
             ++ssa_it;
         }

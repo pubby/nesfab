@@ -40,7 +40,15 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
         {
             o << "  " << gv_id(ssa_it) << ";\n";
 
-            for(unsigned i = 0; i < ssa_it->input_size(); ++i)
+            if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
+            {
+                unsigned const begin = write_globals_begin(ssa_it->op());
+                unsigned const input_size = ssa_it->input_size();
+                assert((input_size - begin) % 2 == 0);
+                for(unsigned i = begin; i < input_size; i += 2)
+                    o << gv_input_id(ssa_it, i) << ";\n";
+            }
+            else for(unsigned i = 0; i < ssa_it->input_size(); ++i)
                 o << gv_input_id(ssa_it, i) << ";\n";
         }
         o << "  " << gv_id(cfg_it) << ";\n"; 
@@ -170,10 +178,13 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
                 write_input(i, input, loc);
             }
         }
-        else for(unsigned i = 0; i < ssa_it->input_size(); ++i)
+        else 
         {
-            ssa_value_t input = ssa_it->input(i);
-            write_input(i, input);
+            for(unsigned i = 0; i < ssa_it->input_size(); ++i)
+            {
+                ssa_value_t input = ssa_it->input(i);
+                write_input(i, input);
+            }
         }
     }
 

@@ -44,8 +44,8 @@ fn sin(U v) SF
     return result
 
 // Cosine:
-//   sin(0)  = 1
-//   sin(64) = 0
+//   cos(0)  = 1
+//   cos(64) = 0
 fn cos(U v) SF
 : +inline
     return sin(v + 64)

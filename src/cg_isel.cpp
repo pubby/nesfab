@@ -958,7 +958,7 @@ namespace isel
             if(cpu.is_known(REG_C, 0))
             {
                 chain
-                < branch_op<Opt, BNE, load_C_label>
+                < branch_op<Opt, BEQ, load_C_label>
                 , simple_op<Opt, SEC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
@@ -968,7 +968,7 @@ namespace isel
             else if(cpu.is_known(REG_C, 1))
             {
                 chain
-                < branch_op<Opt, BEQ, load_C_label>
+                < branch_op<Opt, BNE, load_C_label>
                 , simple_op<Opt, CLC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
@@ -979,7 +979,7 @@ namespace isel
             {
                 chain
                 < simple_op<Opt, CLC_IMPLIED>
-                , branch_op<Opt, BNE, load_C_label>
+                , branch_op<Opt, BEQ, load_C_label>
                 , simple_op<Opt, SEC_IMPLIED>
                 , label<load_C_label>
                 , clear_conditional
@@ -2819,14 +2819,18 @@ namespace isel
 
                         if(p_carry::value().is_const_num())
                         {
-                            p_arg<2>::set(ssa_value_t((0x100 - p_rhs::value().data() - !!p_carry::value().data()) & 0xFF, TYPE_U));
+                            std::uint8_t const byte = 0x100 - p_rhs::value().data() - !!p_carry::value().data();
+                            p_arg<2>::set(ssa_value_t(byte, TYPE_U));
 
-                            chain
-                            < load_AX<Opt, p_lhs, p_lhs>
-                            , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
-                            , store<Opt, STX, p_def, p_def>
-                            , set_defs<Opt, REGF_C, true, p_carry_output>
-                            >(cpu, prev, cont);
+                            if(byte != 0 || !carry_output)
+                            {
+                                chain
+                                < load_AX<Opt, p_lhs, p_lhs>
+                                , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
+                                , store<Opt, STX, p_def, p_def>
+                                , set_defs<Opt, REGF_C, true, p_carry_output>
+                                >(cpu, prev, cont);
+                            }
 
                             std::uint8_t const sum = p_rhs::value().data() + !!p_carry::value().data();
 

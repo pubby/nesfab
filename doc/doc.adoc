@@ -1463,7 +1463,7 @@ The value is <<casts, cast>>, then inserted into the byte block with the followi
 
 - For numeric types, the bytes are inserted in little-endian order.
 - For <<type_struct, structures>>, the first member is inserted first, then the second, and so on.
-- For <<type_tea, TEAs>>, if the element type is a <<type_struct, structure>>, the first member is insterted first as an array, then the second, and so on. Otherwise, the first element is inserted first, then the second, and so on.
+- For <<type_tea, TEAs>>, the first element is inserted first, then the second, and so on.
 - For <<type_vec, VECs>>, the first element is inserted first, then the second, and so on.
 
 Example:

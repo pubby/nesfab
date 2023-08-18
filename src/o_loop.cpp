@@ -455,7 +455,9 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
                     ssa_ht const add_operand = step.init->cfg_node()->emplace_ssa(SSA_shl, type, cast_inc, oe.handle->input(1));
                     new_ssa(add_operand);
 
-                    step.init->link_append_input(def.make_init(step.init->cfg_node()));
+                    // Don't combine these two lines. Reference invalidation lurks!
+                    ssa_value_t const init = def.make_init(step.init->cfg_node());
+                    step.init->link_append_input(init);
                     step.init->link_append_input(oe.handle->input(1));
 
                     step.arith->link_append_input(step.phi);
@@ -481,7 +483,9 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
                     step_t step = reduce(header, oe.handle->cfg_node(), def.root(), type, SSA_shl, SSA_shl);
 
                     step.init->link_append_input(oe.handle->input(0));
-                    step.init->link_append_input(def.make_init(step.init->cfg_node()));
+                    // Don't combine these two lines. Reference invalidation lurks!
+                    ssa_value_t const init = def.make_init(step.init->cfg_node());
+                    step.init->link_append_input(init);
 
                     step.arith->link_append_input(step.phi);
                     step.arith->link_append_input(inc);

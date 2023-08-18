@@ -1292,7 +1292,6 @@ ABSTRACT(SSA_ror) = ABSTRACT_FN
     assert(argn == 2);
     assert(result.cm.mask == cv[0].cm.mask);
     assert(CARRY_MASK == cv[1].cm);
-    assert(!result.cm.signed_);
     assert(result.vec.size() == 2);
 
     if(handle_top(cv, argn, result))
@@ -1334,13 +1333,19 @@ ABSTRACT(SSA_ror) = ABSTRACT_FN
 
     // Calc bounds
     bounds_t bounds;
-    bounds.min = (V.bounds.min >> 1) + (!!C.bounds.min * C_mask);
-    bounds.max = (V.bounds.max >> 1) + (!!C.bounds.max * C_mask);
 
-    if(V.bounds.min && builtin::ctz(fixed_uint_t(V.bounds.min)) >= builtin::ctz(mask))
+    if(result.cm.signed_)
         bounds = from_bits(bits, result.cm);
-    else if(V.bounds.max && signed_clz(fixed_uint_t(V.bounds.max)) >= builtin::ctz(mask))
-        bounds.max = from_bits(bits, result.cm).max;
+    else
+    {
+        bounds.min = (V.bounds.min >> 1) + (!!C.bounds.min * C_mask);
+        bounds.max = (V.bounds.max >> 1) + (!!C.bounds.max * C_mask);
+
+        if(V.bounds.min && builtin::ctz(fixed_uint_t(V.bounds.min)) >= builtin::ctz(mask))
+            bounds = from_bits(bits, result.cm);
+        else if(V.bounds.max && signed_clz(fixed_uint_t(V.bounds.max)) >= builtin::ctz(mask))
+            bounds.max = from_bits(bits, result.cm).max;
+    }
 
     result[0] = apply_mask(normalize({ bounds, bits }, result.cm), result.cm);
 };

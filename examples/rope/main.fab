@@ -5,11 +5,13 @@
  */
 
 // This example demonstrates rope physics.
+// It was inspired by the Position-Based Dynamics (PDB) 
+// work of Matthias Mu¼ller(https://www.youtube.com/@TenMinutePhysics).
 
 // Size of the rope segments:
 ct Int RADIUS = 10
 
-// Player data:
+// Rope vertex:
 struct Vertex
     UF x
     UF y
@@ -17,7 +19,10 @@ struct Vertex
     SF vy
 
 vars /game
+    // 'vertex_prio' is used to implement sprite flicker:
     U vertex_prio = 0
+
+    // The data of our rope:
     Vertex[8] vertices
 
 // Calculates the average of two bytes:
@@ -95,6 +100,7 @@ fn update_rope()
         vertices[i].vx = SF(vertices[i].x - prev_x[i])
         vertices[i].vy = SF(vertices[i].y - prev_y[i])
 
+// Initalize the rope at a given point.
 fn init_rope(U x, U y)
     for U i = 0; i < len(vertices); i += 1
         vertices[i] = Vertex()

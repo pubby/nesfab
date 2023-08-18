@@ -6,7 +6,7 @@
 
 // This example demonstrates rope physics.
 // It was inspired by the Position-Based Dynamics (PDB) 
-// work of Matthias Mu¼ller(https://www.youtube.com/@TenMinutePhysics).
+// work of Matthias Muller (https://www.youtube.com/@TenMinutePhysics).
 
 // Size of the rope segments:
 ct Int RADIUS = 10

@@ -18,3 +18,5 @@ set -x #echo on
 ../nesfab mapfab/mapfab.cfg
 ../nesfab platformer/platformer.cfg
 ../nesfab scrolling_8_way/scrolling_8_way.cfg
+../nesfab rope/rope.cfg
+../nesfab billiards/billiards.cfg

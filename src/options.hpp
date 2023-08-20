@@ -34,6 +34,7 @@ struct options_t
     bool unsafe_bank_switch = false;
     bool assert_valid = true;
     bool sloppy = false;
+    bool action53 = false;
 
     // Label files, etc:
     std::string raw_mlb;

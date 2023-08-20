@@ -505,6 +505,34 @@ nesfab --unsafe-bank-switch
 unsafe-bank-switch = 1
 ----
 
+=== `multicart` [[opt_multicart]]
+
+This option is used to make the generated ROM compatible with specific multicarts.
+Often, this entails reserving a specific region in the ROM for multicart-specific code.
+
+|===
+|Argument |Multicart |Description
+
+| `action53`
+| https://www.nesdev.org/wiki/Action_53_mapper[Action 53]
+| Reserves $FFD0-$FFF9.
+
+|===
+
+[NOTE]
+The `action53` setting should be used when entering the https://itch.io/jam/nesdev-2022[NESDev Competition].
+
+*Command-line usage:*
+----
+nesfab --multicart action53
+----
+
+*Configuration file usage:*
+----
+multicart = action53
+----
+
+
 === `mlb` [[opt_mlb]]
 
 `mlb` specifies a https://www.mesen.ca/[Mesen] .mlb label file to output.

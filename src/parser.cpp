@@ -517,6 +517,8 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
 
     fs::path preferred_dir = file.path();
     preferred_dir.remove_filename();
+    if(preferred_dir.empty())
+        preferred_dir.assign("./");
 
     fn(file_pstring, script, std::filesystem::absolute(preferred_dir), std::move(mods), std::move(args));
 }

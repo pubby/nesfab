@@ -3,11 +3,15 @@
 #include <array>
 #include <map>
 
+#include "json.hpp"
+
 #include "macro.hpp"
 #include "define.hpp"
 #include "globals.hpp"
 #include "debug_print.hpp"
 #include "convert_compress.hpp"
+
+using json = nlohmann::json;
 
 struct mapfab_t
 {
@@ -82,13 +86,14 @@ struct mapfab_t
     std::vector<level_t> levels;
 
     void load_binary(std::uint8_t const* const begin, std::size_t size, fs::path mapfab_path);
+    void load_json(std::uint8_t const* const begin, std::size_t size, fs::path mapfab_path);
     void compute_mt32();
 };
 
+static constexpr std::uint8_t SAVE_VERSION = 1; 
+
 void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::path mapfab_path)
 {
-    constexpr std::uint8_t SAVE_VERSION = 1; 
-
     fs::path base_path = mapfab_path;
     base_path.remove_filename();
 
@@ -124,6 +129,17 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
         return ret;
     };
 
+    auto const convert_path = [&](std::string const& str) -> std::filesystem::path
+    {
+        std::filesystem::path path(str, std::filesystem::path::generic_format);
+        path.make_preferred();
+
+        if(!path.empty() && path.is_relative())
+            path = base_path / path;
+
+        return path;
+    };
+
     if(size < 8)
         throw std::runtime_error("Invalid MapFab file; no magic number.");
 
@@ -146,12 +162,10 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
     {
         chr_t chr = {};
         chr.name = get_str();
-        chr.path = get_str();
-        if(chr.path.is_relative())
-            chr.path = base_path / chr.path;
+        chr.path = convert_path(get_str());
 
-        chrs.push_back(std::move(chr));
         dprint(log, "MAPFAB_CHR", chr.name, chr.path);
+        chrs.push_back(std::move(chr));
     }
 
     // Palettes:
@@ -276,6 +290,181 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
     }
 }
 
+void mapfab_t::load_json(std::uint8_t const* const begin, std::size_t size, fs::path mapfab_path)
+{
+    fs::path base_path = mapfab_path;
+    base_path.remove_filename();
+
+    auto const convert_path = [&](std::string const& str) -> std::filesystem::path
+    {
+        std::filesystem::path path(str, std::filesystem::path::generic_format);
+        path.make_preferred();
+
+        if(!path.empty() && path.is_relative())
+            path = base_path / path;
+
+        return path;
+    };
+
+    log_t* log = nullptr;
+
+    dprint(log, "MAPFAB_PATH", mapfab_path);
+
+    json data = json::parse(begin, begin+size);
+
+    if(data.at("version") > SAVE_VERSION)
+        throw std::runtime_error("File is from a newer version of MapFab.");
+
+    // CHR:
+    chrs.clear();
+    for(auto const& v : data.at("chr").get<json::array_t>())
+    {
+        chr_t chr = {};
+        chr.name = v.at("name").get<std::string>();
+        chr.path = convert_path(v.at("path").get<std::string>());
+        dprint(log, "MAPFAB_CHR", chr.name, chr.path);
+        chrs.push_back(std::move(chr));
+    }
+
+    // Palettes:
+    {
+        auto const& array = data.at("palettes").at("data").get<json::array_t>();
+        unsigned const num_palettes = data.at("palettes").at("num").get<int>();
+        palettes.reserve(num_palettes);
+
+        std::vector<std::uint8_t> palette_data(256*25);
+        unsigned i = 0;
+        for(std::uint8_t& v : palette_data)
+            v = array.at(i++).get<int>();
+
+        for(unsigned i = 0; i < num_palettes; ++i)
+        {
+            palette_t palette;
+            std::copy_n(palette_data.begin() + 25 * i, 25, palette.data.data());
+            palettes.push_back(std::move(palette));
+        }
+    }
+
+    // Metatile sets:
+    {
+        auto const& array = data.at("metatile_sets").get<json::array_t>();
+        for(auto const& mt_set : array)
+        {
+            mt_set_t mt = {};
+            mt.name = mt_set.at("name").get<std::string>();
+            mt.chr_name = mt_set.at("chr").get<std::string>();
+            mt.palette = mt_set.at("palette").get<int>();
+            mt.num = mt_set.at("num").get<int>();
+
+            auto const& tiles = mt_set.at("tiles").get<json::array_t>();
+            auto const& attributes = mt_set.at("attributes").get<json::array_t>();
+            auto const& collisions = mt_set.at("collisions").get<json::array_t>();
+
+            std::vector<std::uint8_t> mt_tiles(32*32);
+
+            unsigned i = 0;
+            for(std::uint8_t& v : mt_tiles)
+                v = tiles.at(i++).get<int>();
+
+            i = 0;
+            mt.attributes.resize(256);
+            for(std::uint8_t& v : mt.attributes)
+                v = attributes.at(i++).get<int>();
+
+            i = 0;
+            mt.collisions.resize(256);
+            for(std::uint8_t& v : mt.collisions)
+                v = collisions.at(i++).get<int>();
+
+            unsigned j = 0;
+            for(unsigned y = 0; y < 16; ++y)
+            for(unsigned x = 0; x < 16; ++x)
+            {
+                if(j++ == mt.num)
+                    break;
+                mt.nw.push_back(mt_tiles[x*2 + y*64 + 0]);
+                mt.ne.push_back(mt_tiles[x*2 + y*64 + 1]);
+                mt.sw.push_back(mt_tiles[x*2 + y*64 + 32]);
+                mt.se.push_back(mt_tiles[x*2 + y*64 + 33]);
+            }
+
+            mt.combined.resize(256);
+            for(unsigned i = 0; i < 256; ++i)
+                mt.combined[i] = (mt.attributes[i] & 0b11) | (mt.collisions[i] << 2);
+
+            mt_sets.push_back(std::move(mt));
+        }
+    }
+
+    // Object Classes:
+    {
+        auto const& array = data.at("object_classes").get<json::array_t>();
+        for(auto const& o : array)
+        {
+            std::string name = o.at("name").get<std::string>();
+            std::deque<field_t> fields;
+
+            auto const& fs = o.at("fields").get<json::array_t>();
+            for(auto const& f : fs)
+            {
+                std::string name = f.at("name").get<std::string>();
+                std::string type = f.at("type").get<std::string>();
+                fields.emplace_back(std::move(name), std::move(type));
+            }
+
+            ocs.emplace(std::move(name), std::move(fields));
+        }
+    }
+
+    // Levels:
+    {
+        auto const& array = data.at("levels").get<json::array_t>();
+        for(auto const& l : array)
+        {
+            level_t level = {};
+
+            level.name = l.at("name").get<std::string>();
+            level.macro_name = l.at("macro").get<std::string>();
+            level.chr_name = l.at("chr").get<std::string>();
+            level.palette = l.at("palette").get<int>();
+            level.metatiles_name = l.at("metatile_set").get<std::string>();
+
+            level.w = l.at("width").get<int>();
+            level.h = l.at("height").get<int>();
+            level.tiles.resize(level.w * level.h);
+
+            auto const& tiles = l.at("tiles").get<json::array_t>();
+            unsigned i = 0;
+            for(std::uint8_t& data : level.tiles)
+                data = tiles.at(i++);
+
+            level.objects.resize(ocs.size());
+            level.objects_x.resize(ocs.size());
+            level.objects_y.resize(ocs.size());
+
+            auto const& objects = l.at("objects").get<json::array_t>();
+            for(auto const& o : objects)
+            {
+                std::string oc = o.at("object_class").get<std::string>();
+                std::int16_t const x = static_cast<std::int16_t>(o.at("x").get<int>());
+                std::int16_t const y = static_cast<std::int16_t>(o.at("y").get<int>());
+
+                auto it = ocs.find(oc);
+
+                if(it != ocs.end())
+                {
+                    level.objects_x[it - ocs.begin()].push_back(x);
+                    level.objects_y[it - ocs.begin()].push_back(y);
+                    for(auto const& field : it->second)
+                        level.objects[it - ocs.begin()].push_back(o.at("fields").at(field.name).get<std::string>());
+                }
+            }
+
+            levels.push_back(std::move(level));
+        }
+    }
+}
+
 void mapfab_t::compute_mt32()
 {
     for(auto& level : levels)
@@ -333,7 +522,11 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
     using namespace std::literals;
 
     mapfab_t mapfab;
-    mapfab.load_binary(begin, size, mapfab_path);
+
+    if(mapfab_path.extension() == ".json")
+        mapfab.load_json(begin, size, mapfab_path);
+    else
+        mapfab.load_binary(begin, size, mapfab_path);
 
     if(ct == MAPFAB_MT32)
         mapfab.compute_mt32();

@@ -46,6 +46,7 @@ struct mapfab_t
         std::vector<std::uint8_t> attributes;
         std::vector<std::uint8_t> collisions;
         std::vector<std::uint8_t> combined;
+        std::vector<std::uint8_t> combined_alt;
         std::vector<std::uint8_t> nw;
         std::vector<std::uint8_t> ne;
         std::vector<std::uint8_t> sw;
@@ -221,6 +222,10 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
         for(unsigned i = 0; i < 256; ++i)
             mt_set.combined[i] = (mt_set.attributes[i] & 0b11) | (mt_set.collisions[i] << 2);
 
+        mt_set.combined_alt.resize(256);
+        for(unsigned i = 0; i < 256; ++i)
+            mt_set.combined_alt[i] = ((mt_set.attributes[i] & 0b11) << 6) | (mt_set.collisions[i]);
+
         mt_sets.push_back(std::move(mt_set));
     }
 
@@ -391,6 +396,10 @@ void mapfab_t::load_json(std::uint8_t const* const begin, std::size_t size, fs::
             mt.combined.resize(256);
             for(unsigned i = 0; i < 256; ++i)
                 mt.combined[i] = (mt.attributes[i] & 0b11) | (mt.collisions[i] << 2);
+
+            mt.combined_alt.resize(256);
+            for(unsigned i = 0; i < 256; ++i)
+                mt.combined_alt[i] = ((mt.attributes[i] & 0b11) << 6) | (mt.collisions[i]);
 
             mt_sets.push_back(std::move(mt));
         }
@@ -593,6 +602,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         define_ct(private_globals.lookup(at, "_attributes"sv), at, mt_set.attributes.data(), mt_set.num);
         define_ct(private_globals.lookup(at, "_collisions"sv), at, mt_set.collisions.data(), mt_set.num);
         define_ct(private_globals.lookup(at, "_combined"sv), at, mt_set.combined.data(), mt_set.num);
+        define_ct(private_globals.lookup(at, "_combined_alt"sv), at, mt_set.combined_alt.data(), mt_set.num);
 
         macro_invocation_t m = { macros.metatiles };
         m.args.push_back(mt_set.name);

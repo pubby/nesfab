@@ -3581,7 +3581,7 @@ Syntax:
 mapfab(target, "mapfab_file", "chr_macro", "palette_macro", "metatiles_macro", "level_macro")
 ----
 - `target` specifies the output target to use for the level tiles.
-- `"mapfab_file"` is the string literal path to the `.mapfab` file.
+- `"mapfab_file"` is the string literal path to the `.mapfab` or `.json` file.
 - `"chr_macro"` is the name of the macro to invoke for each CHR definition.
 - `"palette_macro"` is the name of the macro to invoke for each palette definition.
 - `"metatiles_macro"` is the name of the macro to invoke for each metatile set definition.
@@ -3640,7 +3640,8 @@ ct U[_num] _sw      // The south-west tiles of each metatile.
 ct U[_num] _se      // The south-east tiles of each metatile.
 ct U[_num] _attributes // The 2-bit attribute data of each metatile.
 ct U[_num] _collisions // The 6-bit collision data of each metatile.
-ct U[_num] _combined   // The two arrays above combined: attribute | (collision << 2)
+ct U[_num] _combined     // The two arrays above combined: attribute | (collision << 2)
+ct U[_num] _combined_alt // The two arrays above combined: (attribute << 6) | collision
 ----
 
 [NOTE]

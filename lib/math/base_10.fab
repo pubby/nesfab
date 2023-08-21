@@ -15,30 +15,30 @@
 // Converts a U value to two base 10 digits, representing [0, 99].
 fn u_to_dd(U v) U[2]
 : +inline
-    base10_input.a = v
-    to_base10.to_99()
-    return U[2](base10_result)
+    base_10_input.a = v
+    to_base_10.to_99()
+    return U[2](base_10_result)
 
 // Converts a U value to three base 10 digits, representing [0, 255].
 fn u_to_ddd(U v) U[3]
 : +inline
-    base10_input.a = v
-    to_base10.to_255()
-    return U[3](base10_result)
+    base_10_input.a = v
+    to_base_10.to_255()
+    return U[3](base_10_result)
 
 // Converts a UU value to three base 10 digits, representing [0, 999].
 fn uu_to_ddd(UU v) U[3]
 : +inline
-    base10_input = v
-    to_base10.to_999()
-    return U[3](base10_result)
+    base_10_input = v
+    to_base_10.to_999()
+    return U[3](base_10_result)
 
 // Converts a UU value to five base 10 digits, representing [0, 65535].
 fn uu_to_ddddd(UU v) U[5]
 : +inline
-    base10_input = v
-    to_base10.to_65535()
-    return base10_result
+    base_10_input = v
+    to_base_10.to_65535()
+    return base_10_result
 
 // Converts a F value to single base 10 digit, representing [0, 0.9]
 fn f_to_d(F v) U
@@ -65,18 +65,18 @@ ct U[128] f_to_dd_table = U[128](
     $88, $98, $98, $09, $19, $29, $39, $39, $49, $59, $69, $69, $79, $89, $99, $99)
 
 // Implementation details.
-vars /base10
-    UU base10_input
-    U[5] base10_result
+vars /base_10
+    UU base_10_input
+    U[5] base_10_result
 
 // Implementation detail.
 // This routine is copyright (c) 2014, Omegamatrix,
 // then modified by Patrick Bene in 2023.
 // Source: https://forums.nesdev.org/viewtopic.php?t=11341&start=15
-asm fn to_base10()
-: employs vars /base10
+asm fn to_base_10()
+: employs vars /base_10
 : +align
-    ct AA temp = &base10_result+0
+    ct AA temp = &base_10_result+0
     label mult_24_table
          U[]($00,$18,$30,$48,$60,$78,$90,$A8,$C0,$D8)
          U[]($F0,$09,$21,$39,$51,$69,$81,$99,$B1,$C9)
@@ -94,7 +94,7 @@ asm fn to_base10()
         U[]($30,$31,$32,$33,$34,$38,$39,$3A,$3B,$3C)
         U[]($40,$41,$42,$43,$44,$48,$49,$4A,$4B,$4C)
     label to_65535
-        lax &base10_input.b
+        lax &base_10_input.b
         lsr
         lsr            // integer divide 1024 (result 0-63)
 
@@ -103,10 +103,10 @@ asm fn to_base10()
         tay
         lax mult_24_table+1, y
         and #$F8
-        adc &base10_input.a
+        adc &base_10_input.a
         txa
         and #$07
-        adc &base10_input.b
+        adc &base_10_input.b
         ror
         lsr
         tay            // integer divide 1,000 (result 0-65)
@@ -117,12 +117,12 @@ asm fn to_base10()
         tax
         rol
         and #$0F
-        sta &base10_result+3
+        sta &base_10_result+3
         txa
         lsr
         lsr
         lsr
-        sta &base10_result+4
+        sta &base_10_result+4
 
         // at this point we have a number 0-65 that we have to times by 24,
         // add to original sum, and Mod 1024 to get the remainder 0-999
@@ -130,10 +130,10 @@ asm fn to_base10()
         lax mult_24_table, y 
         and #$F8
         clc
-        adc &base10_input.a
+        adc &base_10_input.a
         sta temp
         txa
-        adc &base10_input.b
+        adc &base_10_input.b
     label start_100s
         and #$03
         tay
@@ -158,33 +158,33 @@ asm fn to_base10()
         inx
         sbc #100
     label store_hundreds
-        stx &base10_result+2
+        stx &base_10_result+2
     label do_99
         lsr
         tay
         lax shifted_bcd_table, y
         rol
         and #$0F
-        sta &base10_result+0
+        sta &base_10_result+0
         txa
         lsr
         lsr
         lsr
-        sta &base10_result+1
+        sta &base_10_result+1
     default
         rts
 
     label to_99
-        lda &base10_input.a
+        lda &base_10_input.a
         jmp do_99
 
     label to_255
-        lda &base10_input.a
+        lda &base_10_input.a
         ldx #0
         beq try_200
 
     label to_999
-        lda &base10_input.a
+        lda &base_10_input.a
         sta temp
-        lda &base10_input.b
+        lda &base_10_input.b
         jmp start_100s

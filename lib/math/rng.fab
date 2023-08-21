@@ -38,15 +38,24 @@ asm fn rand() U
         rts
 
 // Returns a pseudo-random 16-bit value.
-fn rand16() UU
+fn rand_uu() UU
 : +inline
     UU result
     result.a = rand()
     result.b = rand()
     return result
 
+// Returns a pseudo-random 24-bit value.
+fn rand_uuu() UUU
+: +inline
+    UUU result
+    result.a = rand()
+    result.b = rand()
+    result.c = rand()
+    return result
+
 // Returns a bitmask that can hold any value less than or equal to argument 'num'.
-asm fn ceil_mask(U num) U
+asm fn _ceil_mask(U num) U
 : employs
     default
         ldx #$FF
@@ -63,7 +72,7 @@ asm fn ceil_mask(U num) U
 
 // Returns a random value less than 'bound'.
 fn randb(U bound) U
-    U mask = ceil_mask(bound)
+    U mask = _ceil_mask(bound)
     U result
     do while result > bound
         result = rand() & mask

@@ -1,0 +1,15 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This file contains common math constants.
+
+ct Real PI    = 3.14159265359
+ct Real EULER = 2.71828182846   // 'e'
+ct Real PHI   = 1.61803398875   // Golden ratio
+ct Real GAMMA = 0.57721566490
+ct Real SQRT_2  = 1.41421356237
+ct Real SQRT_3  = 1.73205080757
+ct Real SQRT_PI = 1.77245385091

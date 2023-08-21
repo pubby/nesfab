@@ -314,6 +314,7 @@ bool asm_graph_t::o_merge()
     return changed;
 }
 
+#include <iostream>
 bool asm_graph_t::o_returns()
 {
     bool changed = false;
@@ -326,13 +327,17 @@ bool asm_graph_t::o_returns()
     // Tail-call optimize
     for(asm_node_t* node : returns)
     {
-        if(node->output_inst.op != RTS_IMPLIED || node->code.empty())
+        if(node->code.size() < 2 || node->code.back().op != RTS_IMPLIED)
             continue;
 
-        if(op_t new_op = tail_call_op(node->code.back().op))
+        unsigned index = 1;
+        while(node->code.size() > index+1 && !op_normal(node->code.rbegin()[index].op))
+            ++index;
+
+        if(op_t new_op = tail_call_op(node->code.rbegin()[index].op))
         {
-            node->output_inst = node->code.back();
-            node->output_inst.op = new_op;
+            node->code.erase((node->code.rbegin()+index).base(), node->code.end());
+            node->code.back().op = new_op;
         }
     }
 

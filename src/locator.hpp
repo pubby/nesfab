@@ -337,7 +337,7 @@ public:
 
     constexpr void set_arg(std::uint8_t arg)
     { 
-        assert(arg < MAX_FN_ARGS);
+        passert(arg < MAX_FN_ARGS, (int)arg, (int)MAX_FN_ARGS);
         assert(has_arg_member_atom(lclass()));
         impl &= 0xFFFFFFFFFF07FFFFull;
         impl |= ((std::uint64_t)arg & 0b11111) << 19; 
@@ -346,7 +346,7 @@ public:
 
     constexpr void set_atom(std::uint8_t atom)
     { 
-        assert(atom < MAX_ATOMS);
+        passert(atom < MAX_ATOMS, int(atom), int(MAX_ATOMS));
         assert(has_arg_member_atom(lclass()));
         impl &= 0xFFFFFFFFFFF8FFFFull;
         impl |= ((std::uint64_t)atom & 0b111) << 16; 
@@ -377,7 +377,7 @@ public:
 
     global_ht global() const
     {
-        assert(has_global(lclass()));
+        passert(has_global(lclass()), *this);
         return { handle() };
     }
 

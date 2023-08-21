@@ -80,7 +80,12 @@ static bm_t _get_bm(ssa_value_t value)
                 for(unsigned j = start; j < end; ++j)
                 {
                     locator_t new_loc = loc;
-                    new_loc.set_atom(j - start);
+                    if(has_arg_member_atom(new_loc.lclass()))
+                        new_loc.set_atom(j - start);
+                    else if(is_ptr(t.name()))
+                        new_loc.set_is(locator_is_t(j - start + IS_PTR));
+                    else
+                        assert(false);
                     new_loc.set_byteified(true);
                     bm[j] = new_loc;
                 }

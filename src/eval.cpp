@@ -1965,7 +1965,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
             at_error:
                 compiler_error(ast.token.pstring, 
-                    "Cannot get pointer. String literal or pointer-addressable array lvalue required as unary '@' operand.");
+                    fmt("Cannot get pointer from type %. String literal or pointer-addressable array lvalue required as unary '@' operand.",
+                        value.type));
             }
 
         }
@@ -2567,6 +2568,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                     lhs.type = local_const.type();
                     lhs.val = local_const.value;
+                    lhs.time = LT;
                 }
                 else
                     compiler_error(ast.token.pstring, "Expecting lvalue.");
@@ -3661,6 +3663,23 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 result.type = type;
                 result.assert_valid();
+                return result;
+            }
+            else if(is_banked_ptr(type.name()) && num_args == 2)
+            {
+                auto m0 = throwing_cast<D>(args[0], type.with_banked(false), implicit);
+                auto m1 = throwing_cast<D>(args[1], TYPE_U, implicit);
+
+                expr_value_t result = 
+                { 
+                    .type = type,
+                    .pstring = ast.token.pstring,
+                    .time = std::max(m0.time, m1.time),
+                };
+
+                if(!is_check(D))
+                    result.val = rval_t{ m0.rval()[0], m1.rval()[0] };
+
                 return result;
             }
             else if(is_scalar(type.name()) || is_banked_ptr(type.name()))
@@ -5438,8 +5457,9 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
         else
         {
+            unsigned const m = lval->member();
             for(unsigned i = 0; i < rval.size(); ++i)
-                local[i + lval->member()] = from_variant<D>(rval[i], member_type(rhs.type, i));
+                local[i + m] = from_variant<D>(rval[i], member_type(rhs.type, i));
         }
     }
 
@@ -6783,7 +6803,7 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
 
         assert(new_ast.num_children() == 2);
 
-        locator_t const loc =locator_t::lt_expr(alloc_lt_value(to_type, std::move(new_ast)));
+        locator_t const loc = locator_t::lt_expr(alloc_lt_value(to_type, std::move(new_ast)));
 
         value.val = _lt_rval(to_type, loc);
         value.type = to_type;
@@ -6807,7 +6827,6 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
             else if(!is_check(D))
                 value.rval().resize(1);
             assert(!is_banked_ptr(t.name()));
-
 
             if(is_interpret(D) || (is_compile(D) && value.is_ct()))
                 value.rval()[0] = ssa_value_t(value.ssa(0).fixed(), t.name());

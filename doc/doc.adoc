@@ -532,7 +532,6 @@ nesfab --multicart action53
 multicart = action53
 ----
 
-
 === `mlb` [[opt_mlb]]
 
 `mlb` specifies a https://www.mesen.ca/[Mesen] .mlb label file to output.
@@ -5073,6 +5072,16 @@ UF()         // equivalent to U(0.0)
 U[3]()       // equivalent to U[3](0, 0, 0)
 SomeStruct() // equivalent to SomeStruct(0, 0)
 ----
+
+==== Banked Pointer Initializations
+
+Banked pointers can be created with a two-argument cast:
+
+----
+CCC/my_group(address, bank)
+----
+
+The first argument is an unbanked pointer, while the second is the type `U` bank.
 
 ==== Array Fills
 

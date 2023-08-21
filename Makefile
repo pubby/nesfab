@@ -168,7 +168,8 @@ mlb.cpp \
 macro.cpp \
 o_shift.cpp \
 mapfab.cpp \
-define.cpp
+define.cpp \
+o_locator.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

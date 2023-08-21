@@ -184,7 +184,7 @@ void copy_constraints(ssa_value_t value, constraints_def_t& def)
         locator_t const loc = value.locator();
         type_t const type = loc.type();
 
-        assert(!is_banked_ptr(type.name()));
+        passert(!is_banked_ptr(type.name()), type);
 
         if(is_scalar(type.name()))
             def = { type_constraints_mask(type.name()), { constraints_t::bottom(type_constraints_mask(type.name())) }};

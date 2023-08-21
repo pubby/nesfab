@@ -1208,7 +1208,10 @@ void fn_t::compile()
         unsigned const MAX_ITER = sloppy() ? 10 : 100;
         bool changed;
 
-        // Do this first, to reduce the size of the IR:
+        // Simplify locators:
+        o_optimize_locators(log, ir);
+
+        // Do this now, to reduce the size of the IR:
         o_remove_unused_ssa(log, ir);
 
         do
@@ -1282,6 +1285,7 @@ void fn_t::compile()
     save_graph(ir, "3_transform");
 
     byteify(ir, *this);
+    o_optimize_locators(log, ir);
     save_graph(ir, "4_byteify");
     ir.assert_valid();
 

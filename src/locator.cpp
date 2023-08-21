@@ -1,4 +1,5 @@
 #include "locator.hpp"
+#include <iostream> // TODO
 
 #include "format.hpp"
 #include "globals.hpp"
@@ -161,13 +162,10 @@ type_t locator_t::type() const
     {
         if(is_banked_ptr(type.name()))
         {
-            if(member() == 1)
+            if(has_arg_member_atom(lclass()) && member() == 1)
                 type = TYPE_U;
             else
-            {
-                assert(member() == 0);
                 type = type.with_banked(false);
-            }
         }
 
         if(byteified())
@@ -239,7 +237,7 @@ type_t locator_t::type() const
         if(auto const* lc = global()->local_consts())
         {
             assert(data() < lc->size());
-            return (*lc)[data()].type();
+            return byteify((*lc)[data()].type());
         }
         break;
     case LOC_DPCM:
@@ -426,12 +424,14 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             assert(member() == 1);
             index += 2;
         }
-        else if(!byteified() && is_ptr(lt().safe().type.name()))
+        else if(!byteified() && is_ptr(lt().safe().type.name()) && index == 0)
         {
             try
             {
                 std::uint8_t lo = linked_to_rom(v.results[romv].bytes[index].link(romv));
-                std::uint8_t hi = linked_to_rom(v.results[romv].bytes[index+1].link(romv));
+                std::uint8_t hi = 0;
+                if(index+1 < v.results[romv].bytes.size() && v.results[romv].bytes[index+1])
+                    hi = linked_to_rom(v.results[romv].bytes[index+1].link(romv));
                 return locator_t::addr(lo + (hi << 8) + offset());
             }
             catch(...)
@@ -511,4 +511,3 @@ std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors, bool warn_erro
 
     return data;
 }
-

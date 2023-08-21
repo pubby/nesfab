@@ -425,6 +425,21 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
         return CAST_NOP_RETYPE;
     }
 
+    // Likewise, aptr can convert to any pointer.
+    if(!implicit && is_aptr(from.name()) && is_ptr(to.name()) 
+       && (is_banked_ptr(from.name()) || !is_banked_ptr(to.name())))
+    {
+        return CAST_NOP_RETYPE;
+    }
+
+    // Ptrs can strip their bank:
+    if(!implicit && is_banked_ptr(from.name()) && is_ptr(to.name()))
+    {
+        cast_result_t result = can_cast(from.with_banked(false), to, implicit);
+        if(result == CAST_NOP || result == CAST_NOP_RETYPE)
+            return CAST_NOP_RETYPE;
+    }
+
     // Ints can convert to ptrs
     if(!implicit && is_arithmetic(from.name()) && is_ptr(to.name()))
         return CAST_PTRIFY_INT;

@@ -346,8 +346,8 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
     }
 
 #ifndef NDEBUG
-    if(!fn->iasm && mod_test(fn->mods(), MOD_static) && banks.size() > 1)
-        passert(fn->returns_in_different_bank(), banks.size());
+    if(!fn->iasm && fn->fclass != FN_MODE && mod_test(fn->mods(), MOD_static) && banks.size() > 1)
+        passert(fn->returns_in_different_bank(), banks.size(), fn->returns_in_different_bank());
 #endif
 
     // Identify banks which are already loaded:

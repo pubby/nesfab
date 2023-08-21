@@ -415,11 +415,22 @@ public:
     }
 
     [[gnu::always_inline]]
-    ast_node_t byte_block_label(pstring_t label, global_ht global, bool is_default, bool is_banked, std::unique_ptr<mods_t> mods)
+    ast_node_t byte_block_label(pstring_t label, global_ht global, group_ht group, bool is_vars, bool is_default, bool is_banked, std::unique_ptr<mods_t> mods)
     {
         prev_label_name = label.view(source());
 
-        int const i = -_add_symbol({{ label, type_t::addr(is_banked) }, label }, true)-1;
+        type_t type;
+        if(group)
+        {
+            if(is_vars)
+                type = type_t::ptr(group, is_banked ? TYPE_BANKED_MPTR : TYPE_MPTR);
+            else
+                type = type_t::ptr(group, is_banked ? TYPE_BANKED_CPTR : TYPE_CPTR);
+        }
+        else
+            type = type_t::addr(is_banked);
+
+        int const i = -_add_symbol({{ label, type }, label }, true)-1;
         assert(i >= 0);
 
         if(is_default)

@@ -3296,7 +3296,7 @@ The compiler will issue a warning if the supplied data does not match what the m
 === `file` [[kw_file]]
 
 The `file` keyword imports and converts data from an external file.
-It is only usable inside of a <<byte_blocks, byte block>>.
+It can be used as a statement in <<byte_blocks, byte blocks>>, or as an expression.
 
 Syntax:
 ----
@@ -3307,20 +3307,39 @@ file(target, "filename", args...)
 - `"filename"` is a string literal path to the file.
 - `args...` is a list of arguments that the conversion script will use. (Most conversion scripts do not use arguments.)
 
+*Modifiers:*
+
+- <<mod_flags, `+spr_8x16`>>
+- <<mod_flags, `+palette_3`>>
+- <<mod_flags, `+palette_25`>>
+
+==== `file` expression
+
+`file` expressions produce compile-time constant values of type `U{}`.
+To use modifiers with them, write the modifiers on the same line.
+
+Example:
+----
+ct U{} my_data = file(chr, "sprites.png") : +spr_8x16
+----
+
+==== `file` statement (byte block)
+
+`file` statements insert data into a <<byte_blocks, byte block>>.
+Unlike `file` expressions, these statements can can introduce <<accessory, accessory definitions>>.
+
 Example:
 ----
 chrrom
     file(chr, "sprites.png") 
+    : +spr_8x16
+
     file(chr, "bg.png") 
 ----
 
-*Modifiers:*
+==== Conversions
 
-- <<mod_file, `+spr_8x16`>>
-- <<mod_file, `+palette_3`>>
-- <<mod_file, `+palette_25`>>
-
-*Input Filetype Conversions*
+*Input File Conversions*
 
 When loading a file, its data is first interpreted based on its https://en.wikipedia.org/wiki/Filename_extension[filename extension].
 The following filenames are accepted:
@@ -3369,9 +3388,9 @@ The following targets are accepted:
 
 |===
 
-*Accessory Definitions*
+==== Accessory Definitions [[accessory]]
 
-In addition to defining a byte sequence, the `file` keyword may define compile-time constants in the byte block's namespace.
+In addition to defining a byte sequence, `file` statements (but not expressions) may define compile-time constants in the byte block's namespace.
 These constants will have names prefixed by the previous label and the character `_`, if such a label exists.
 
 Example:
@@ -3393,6 +3412,7 @@ Thus, `compressed_data` would gain the following members:
 
 Note that the first two refer to the first `file`, while the second two refer to the second `file`.
 The second two are prefixed with `bg_`, as the previous label is `bg`.
+
 
 ==== Binary file formats [[file_bin]]
 

@@ -50,11 +50,11 @@ fn cos(U v) SF
 : +inline
     return sin(v + 64)
 
-// Arctangent, with adjustments to handle all 4 quadrants.
-// This can be used to determine the angle between two points
-// (although 'point_dir' works too!).
-fn atan2(SS y, SS x) U
-: -inline
+// Arctangent of y/x.
+// 'y' and 'x' must be in the range [0, 15], representing triangle side lengths.
+// Note: 'atan2' or 'point_dir' are far easier to use!
+fn atan(U y, U x) U
+: +inline
     ct U[256] atan2_table = U[256](
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
         64, 32, 19, 13, 10, 8, 7, 6, 5, 5, 4, 4, 3, 3, 3, 3, 
@@ -72,7 +72,13 @@ fn atan2(SS y, SS x) U
         64, 61, 58, 55, 52, 49, 46, 44, 42, 39, 37, 35, 34, 32, 30, 29, 
         64, 61, 58, 55, 53, 50, 48, 45, 43, 41, 39, 37, 35, 34, 32, 31, 
         64, 61, 59, 56, 53, 51, 48, 46, 44, 42, 40, 38, 37, 35, 33, 32)
+    return atan2_table[x | (y << 4)]
 
+// Arctangent, with adjustments to handle all 4 quadrants.
+// This can be used to determine the angle between two points
+// (although 'point_dir' works too!).
+fn atan2(SS y, SS x) U
+: -inline
     U quadrant = 0
     if x < 0
         quadrant |= 1
@@ -84,7 +90,7 @@ fn atan2(SS y, SS x) U
     while UU(x) >= 16 || UU(y) >= 16
         x = SS(UU(x) >> 1)
         y = SS(UU(y) >> 1)
-    U result = atan2_table[x.a | (y.a << 4)]
+    U result = atan(y.a, x.a)
 
     switch quadrant
         case 0

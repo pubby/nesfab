@@ -102,7 +102,7 @@ void parser_t<P>::parse_block(int const parent_indent, Func func)
 }
 
 template<typename P>
-std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
+std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent, bool eol)
 {
      std::unique_ptr<mods_t> mods;
 
@@ -230,10 +230,20 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
                 }
                 break;
             default:
-                compiler_error("Unknown modifier.");
+                if(eol)
+                    compiler_error("Unknown modifier.");
+                else
+                    goto done;
             }
         }
-        parse_line_ending();
+
+        if(eol)
+            parse_line_ending();
+        else 
+        {
+        done:
+            break;
+        }
     }
 
     if(mods)
@@ -244,10 +254,10 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent)
 
 template<typename P>
 template<typename Fn>
-std::unique_ptr<mods_t> parser_t<P>::parse_mods_after(Fn const& fn)
+std::unique_ptr<mods_t> parser_t<P>::parse_mods_after(Fn const& fn, bool eol)
 {
     int const base_indent = indent;
-    unsigned pre_line_number = line_number;
+    unsigned const pre_line_number = line_number;
 
     fn();
 
@@ -255,10 +265,10 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods_after(Fn const& fn)
     if(line_number != pre_line_number && indent != base_indent)
         line_break = { .offset = line_source - source(), .size = token_source - line_source, .file_i = file_i() };
 
-    parse_line_ending();
+    if(eol)
+        parse_line_ending();
 
-    pre_line_number = line_number;
-    return parse_mods(base_indent);
+    return parse_mods(base_indent, eol);
 }
 
 template<typename P>
@@ -466,7 +476,7 @@ retry:
 
 template<typename P>
 template<typename Fn>
-auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
+auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn, bool eol)
 {
     pstring_t const file_pstring = token.pstring;
     pstring_t script;
@@ -513,7 +523,7 @@ auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn)
 
         if(argn < 1)
             compiler_error(file_pstring, "Wrong number of arguments.");
-    });
+    }, eol);
 
     fs::path preferred_dir = file.path();
     preferred_dir.remove_filename();
@@ -909,6 +919,47 @@ retry:
                                                       token_string(ast.token.type), ast.num_children()));
             ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
             ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
+
+            return ast;
+        }
+
+    case TOK_file:
+        {
+            ast_node_t ast = {};
+
+            parse_file(TOK_file, [&](pstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, 
+                       std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
+            {
+                if(args.empty())
+                    compiler_error(file_pstring, "Expecting filename.");
+
+                string_literal_t const filename = args[0].filename();
+
+                conversion_t c = convert_file(source(), script, preferred_dir, filename, mods.get(),
+                                              args.data() + 1, args.size() - 1);
+
+                if(auto* vec = std::get_if<std::vector<std::uint8_t>>(&c.data))
+                {
+                    ast = { 
+                        .token = token_t::make_ptr(
+                            TOK_byte_vec, filename.pstring, 
+                            eternal_emplace<std::vector<std::uint8_t>>(std::move(*vec)))
+                    };
+                }
+                else if(auto* vec = std::get_if<std::vector<locator_t>>(&c.data))
+                {
+                    ast = { 
+                        .token = token_t::make_ptr(
+                            TOK_locator_vec, filename.pstring, 
+                            eternal_emplace<std::vector<locator_t>>(std::move(*vec)))
+                    };
+                }
+                else
+                {
+                    throw compiler_error_t(fmt_error(token.pstring, "Unable to convert this file as an expression.")
+                                           + fmt_note("This conversion will work as a byte block statement."));
+                }
+            }, false);
 
             return ast;
         }

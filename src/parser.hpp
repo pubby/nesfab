@@ -62,7 +62,7 @@ private:
     // Parses 'fn' as the start of a block, then parses and returns a mods.
     // This properly handles split lines!
     template<typename Fn>
-    std::unique_ptr<mods_t> parse_mods_after(Fn const& fn);
+    std::unique_ptr<mods_t> parse_mods_after(Fn const& fn, bool eol = true);
 
     static bool fail_using() { return false; }
 
@@ -100,10 +100,10 @@ private:
     bool parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, bool is_vars, bool is_banked, Children& children);
     ast_node_t parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, bool is_vars, bool is_banked);
 
-    std::unique_ptr<mods_t> parse_mods(int base_indent);
+    std::unique_ptr<mods_t> parse_mods(int base_indent, bool eol = true);
 
     template<typename Fn>
-    auto parse_file(lex::token_type_t tt, Fn const& fn);
+    auto parse_file(lex::token_type_t tt, Fn const& fn, bool eol = true);
 
     void parse_top_level();
     void parse_top_level_def();

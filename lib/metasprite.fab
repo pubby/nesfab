@@ -29,15 +29,16 @@
 
 // Pushes 'metasprite' into OAM, adding 'x' and 'y' to each sprite's position and cropping if needed.
 fn push_oam_metasprite(U index, SS x, SS y, PPP/sprites metasprite) U
-    do for U i = metasprite[0]; i;
-        U ox = metasprite[i]
-        i -= 1
-        U oa = metasprite[i]
-        i -= 1
-        U op = metasprite[i]
-        i -= 1
+    U size = metasprite[0]
+    do for U i = 0; i != size;
+        i += 1
         U oy = metasprite[i]
-        i -= 1
+        i += 1
+        U op = metasprite[i]
+        i += 1
+        U oa = metasprite[i]
+        i += 1
+        U ox = metasprite[i]
         SS sprite_x = x + SS(S(ox))
         if sprite_x.b == 0
             SS sprite_y = y + SS(S(oy))
@@ -51,15 +52,16 @@ fn push_oam_metasprite(U index, SS x, SS y, PPP/sprites metasprite) U
 // which can be useful for changing the metasprite's color.
 // The high 2-bits of the 'attribute' value will be used to determine metasprite flipping.
 fn push_oam_metasprite_a(U index, SS x, SS y, PPP/sprites metasprite, U attribute) U
-    do for U i = metasprite[0]; i;
-        U ox = metasprite[i]
-        i -= 1
-        U oa = metasprite[i]
-        i -= 1
-        U op = metasprite[i]
-        i -= 1
+    U size = metasprite[0]
+    do for U i = 0; i != size;
+        i += 1
         U oy = metasprite[i]
-        i -= 1
+        i += 1
+        U op = metasprite[i]
+        i += 1
+        U oa = metasprite[i]
+        i += 1
+        U ox = metasprite[i]
         SS sprite_x 
         if attribute & ATTR_H_FLIP
             sprite_x = x - SS(S(ox)) - 8

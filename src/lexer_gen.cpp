@@ -866,6 +866,8 @@ int main()
         dummy("shift_atom"),
         dummy("replace_atom"),
         dummy("write_state"),
+        dummy("byte_vec"),
+        dummy("locator_vec"),
 
         // string/char literals:
         accept("character", "character literal", eof()),

@@ -108,8 +108,11 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
 
         constexpr auto valid_mods = MOD_spr_8x16 | MOD_palette_3 | MOD_palette_25;
 
-        auto const read_file = [&]
+        auto const read_file = [&](bool format)
         {
+            if(mods)
+                mods->validate(script, valid_mods);
+
             bool const spr16 = mod_test(mods, MOD_spr_8x16);
             bool const pal3 = mod_test(mods, MOD_palette_3);
             bool const pal25 = mod_test(mods, MOD_palette_25);
@@ -119,30 +122,31 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
 
             std::vector<std::uint8_t> vec = read_as_vec();
 
-            switch(get_extension())
+            if(format)
             {
-            case ext_lex::TOK_png:
-                if(mods)
-                    mods->validate(script, valid_mods);
-                vec = png_to_chr(vec.data(), vec.size(), spr16);
-                break;
+                switch(get_extension())
+                {
+                case ext_lex::TOK_png:
+                    vec = png_to_chr(vec.data(), vec.size(), spr16);
+                    break;
 
-            case ext_lex::TOK_txt:
-                vec.resize(normalize_line_endings(reinterpret_cast<char*>(vec.data()), vec.size()));
-                //fall-through
-            case ext_lex::TOK_chr:
-            case ext_lex::TOK_bin:
-            case ext_lex::TOK_nam:
-            case ext_lex::TOK_pal:
-                if(mods)
-                    mods->validate(script, valid_mods);
-                if(spr16)
-                    vec = convert_spr16(vec);
-                break;
+                case ext_lex::TOK_txt:
+                    vec.resize(normalize_line_endings(reinterpret_cast<char*>(vec.data()), vec.size()));
+                    //fall-through
+                case ext_lex::TOK_chr:
+                case ext_lex::TOK_bin:
+                case ext_lex::TOK_nam:
+                case ext_lex::TOK_pal:
+                    if(spr16)
+                        vec = convert_spr16(vec);
+                    break;
 
-            default:
-                compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
+                default:
+                    compiler_error(filename.pstring, fmt("% cannot process file format: %", view, filename.string));
+                }
             }
+            else if(spr16)
+                vec = convert_spr16(vec);
 
             if(pal3)
                 vec = convert_pal3(vec);
@@ -162,19 +166,17 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         if(view == "raw"sv)
         {
             check_argn(0);
-            if(mods)
-                mods->validate(script);
-            ret.data = read_as_vec();
+            ret.data = read_file(false);
         }
         else if(view == "fmt"sv)
         {
             check_argn(0);
-            ret.data = read_file();
+            ret.data = read_file(true);
         }
         else if(view == "pbz"sv)
         {
             check_argn(0);
-            std::vector<std::uint8_t> vec = read_file();
+            std::vector<std::uint8_t> vec = read_file(true);
             ret = convert_pbz(vec.data(), vec.data() + vec.size());
         }
         else if(view == "rlz"sv)
@@ -188,7 +190,7 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
                 else
                     compiler_error(args[0].pstring, "Expecting true or false.");
             }
-            std::vector<std::uint8_t> vec = read_file();
+            std::vector<std::uint8_t> vec = read_file(true);
             ret = convert_rlz(vec.data(), vec.data() + vec.size(), terminate);
         }
         else

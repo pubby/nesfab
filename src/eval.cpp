@@ -2285,6 +2285,48 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return result;
         }
 
+    case TOK_byte_vec:
+        {
+            expr_value_t result =
+            {
+                .type = type_t::vec(TYPE_U),
+                .pstring = ast.token.pstring,
+                .time = CT,
+            };
+
+            if(!is_check(D))
+            {
+                auto vec = std::make_shared<vec_t>();
+                for(std::uint8_t byte : *ast.token.ptr<std::vector<std::uint8_t>>())
+                    vec->data.push_back(rval_t{ ssa_value_t(byte, TYPE_U) });
+                result.val = rval_t{ std::move(vec) };
+            }
+
+            result.assert_valid();
+            return result;
+        }
+
+    case TOK_locator_vec:
+        {
+            expr_value_t result =
+            {
+                .type = type_t::vec(TYPE_U),
+                .pstring = ast.token.pstring,
+                .time = CT,
+            };
+
+            if(!is_check(D))
+            {
+                auto vec = std::make_shared<vec_t>();
+                for(locator_t loc : *ast.token.ptr<std::vector<locator_t>>())
+                    vec->data.push_back(rval_t{ ssa_value_t(loc) });
+                result.val = rval_t{ std::move(vec) };
+            }
+
+            result.assert_valid();
+            return result;
+        }
+
     case TOK_true:
     case TOK_false:
         {

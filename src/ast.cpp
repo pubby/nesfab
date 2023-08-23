@@ -66,6 +66,8 @@ unsigned ast_node_t::num_children() const
     case TOK_string_uncompressed:
     case TOK_shift_atom:
     case TOK_state:
+    case TOK_byte_vec:
+    case TOK_locator_vec:
         return 0;
     }
 }

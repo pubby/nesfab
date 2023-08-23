@@ -129,6 +129,12 @@ public:
     global_datum_t* datum() const;
     std::vector<local_const_t> const* local_consts() const;
 
+    void add_idep(global_t& g, idep_pair_t pair)
+    {
+        std::lock_guard<std::mutex> guard(m_define_mutex);
+        m_ideps[&g] = pair;
+    }
+
     // Helpers that delegate to 'define':
     fn_ht define_fn(
         pstring_t pstring, ideps_map_t&& ideps,
@@ -150,6 +156,7 @@ public:
         string_literal_t const& characters, 
         string_literal_t const& sentinel,
         std::unique_ptr<mods_t> mods);
+    fn_set_t& define_fn_set(pstring_t pstring);
 
     static void init();
 
@@ -229,6 +236,7 @@ private:
         case GLOBAL_VAR:     fn(this->impl<gvar_t>());    break;
         case GLOBAL_STRUCT:  fn(this->impl<struct_t>());  break;
         case GLOBAL_CHARMAP: fn(this->impl<charmap_t>()); break;
+        case GLOBAL_FN_SET:  fn(this->impl<fn_set_t>()); break;
         }
     }
 
@@ -773,6 +781,34 @@ private:
     group_data_ht m_group_data = {};
     bool m_stows_omni = false;
     rom_array_ht m_byte_pairs = {};
+};
+
+class fn_set_t
+{
+friend class global_t;
+public:
+    static constexpr global_class_t global_class = GLOBAL_FN_SET;
+    using handle_t = fn_set_ht;
+
+    inline fn_set_ht handle() const { return global.handle<fn_set_ht>(); }
+
+    fn_set_t(global_t& global)
+    : global(global)
+    {}
+
+    void resolve() {}
+    void precheck() {}
+    void compile() {}
+
+    void add_fn(fn_ht fn);
+
+    auto begin() const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cbegin(); }
+    auto end()   const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cend(); }
+
+    global_t& global;
+private:
+    std::mutex m_fns_mutex;
+    std::vector<fn_ht> m_fns;
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

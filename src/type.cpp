@@ -207,6 +207,11 @@ type_t type_t::vec(type_t elem_type)
     return type_t(TYPE_VEC, 0, type_tails.get(elem_type));
 }
 
+type_t type_t::fn_ptr(fn_set_t const& fn_set)
+{
+    return type_t(TYPE_FN_PTR, 0, &fn_set);
+}
+
 void type_t::set_banked(bool banked)
 {
     assert(is_ptr(name()));
@@ -348,6 +353,10 @@ std::string to_string(type_t type)
                 str += ", "sv;
             str += to_string(type.type(i));
         }
+        break;
+    case TYPE_FN_PTR:
+        str = "Fn:"sv;
+        str += type.fn_set().global.name;
         break;
     }
 

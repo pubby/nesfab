@@ -15,12 +15,12 @@ static constexpr unsigned max_rt_whole_bytes = 3;
 static constexpr unsigned max_rt_total_bytes = max_rt_frac_bytes + max_rt_whole_bytes;
 
 #define FRAC_X \
-    FIXED(0,1) FIXED(0,2) FIXED(0,3)\
+    FIXED(0,1) FIXED(0,2) FIXED(0,3)
 
 #define FIXED_X \
     FIXED(1,0) FIXED(1,1) FIXED(1,2) FIXED(1,3)\
     FIXED(2,0) FIXED(2,1) FIXED(2,2) FIXED(2,3)\
-    FIXED(3,0) FIXED(3,1) FIXED(3,2) FIXED(3,3)\
+    FIXED(3,0) FIXED(3,1) FIXED(3,2) FIXED(3,3)
 
 enum type_name_t : std::uint8_t // Keep unsigned.
 {
@@ -39,6 +39,7 @@ enum type_name_t : std::uint8_t // Keep unsigned.
 
     TYPE_STRUCT,
     TYPE_FN,
+    TYPE_FN_PTR,
 
     TYPE_TEA,  // typed-element array
     TYPE_PAA,  // pointer-addressable array

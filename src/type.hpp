@@ -63,6 +63,7 @@ public:
         { assert(name() == TYPE_TEA_THUNK || name() == TYPE_PAA_THUNK); return *static_cast<tea_thunk_t const*>(m_tail); }
     paa_thunk_t const& paa_thunk() const
         { assert(name() == TYPE_PAA_THUNK || name() == TYPE_PAA_THUNK); return *static_cast<paa_thunk_t const*>(m_tail); }
+    fn_set_t const& fn_set() const { assert(name() == TYPE_FN_PTR); return *static_cast<fn_set_t const*>(m_tail); }
 
     std::size_t num_params() const { assert(name() == TYPE_FN); return size() - 1; }
     type_t return_type() const { assert(name() == TYPE_FN); return types()[size() - 1]; }
@@ -97,6 +98,7 @@ public:
     static type_t group_set(group_ht const* begin, group_ht const* end);
     static type_t addr(bool banked);
     static type_t vec(type_t elem_type);
+    static type_t fn_ptr(fn_set_t const& fn_set);
 
     void set_banked(bool banked);
     type_t with_banked(bool banked) const;

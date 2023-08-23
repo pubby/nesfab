@@ -39,6 +39,12 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
         std::lock_guard<std::mutex> global_lock(m_define_mutex);
         if(m_gclass != GLOBAL_UNDEFINED)
         {
+            if(gclass == GLOBAL_FN_SET && m_gclass == GLOBAL_FN_SET)
+            {
+                m_ideps.insert(ideps.begin(), ideps.end());
+                return m_impl_id;
+            }
+
             if(pstring && m_pstring)
             {
                 file_contents_t file(pstring.file_i);
@@ -166,6 +172,20 @@ charmap_ht global_t::define_charmap(
     }) };
 
     return h;
+}
+
+fn_set_t& global_t::define_fn_set(pstring_t pstring)
+{
+    fn_set_t* ret;
+
+    // Create the charmap
+    fn_set_ht h = { define(pstring, GLOBAL_FN_SET, {}, [&](global_t& g)
+    { 
+        return fn_set_ht::pool_emplace(ret, g).id;
+    }) };
+
+    assert(ret);
+    return *ret;
 }
 
 global_t& global_t::default_charmap(pstring_t at)
@@ -2217,6 +2237,20 @@ void charmap_t::set_all_group_data()
 
     for(charmap_t& charmap : charmap_ht::values())
         charmap.set_group_data();
+}
+
+//////////////
+// fn_set_t //
+//////////////
+
+void fn_set_t::add_fn(fn_ht fn)
+{
+    assert(compiler_phase() <= PHASE_PARSE);
+    {
+        std::lock_guard<std::mutex> global_lock(m_fns_mutex);
+        m_fns.push_back(fn);
+    }
+    global.add_idep(fn.safe().global, { IDEP_VALUE, IDEP_VALUE });
 }
 
 ////////////////////

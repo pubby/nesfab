@@ -1250,6 +1250,16 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
         }
         break;
 
+    // fn pointers:
+    case TOK_Fn:
+        {
+            parse_token();
+            parse_token(TOK_colon);
+            fn_set_t const& fn_set = policy().lookup_fn_set(parse_ident());
+            result.type = type_t::fn_ptr(fn_set);
+            break;
+        }
+
     case TOK_type_ident:
         {
             global_t const& global = policy().lookup_global(token.pstring);

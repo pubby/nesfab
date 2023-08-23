@@ -105,6 +105,7 @@ public:
     void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
     global_t& lookup_global(pstring_t pstring);
     group_t* lookup_group(pstring_t pstring);
+    fn_set_t& lookup_fn_set(pstring_t pstring);
 
     void begin_global_var()
     {

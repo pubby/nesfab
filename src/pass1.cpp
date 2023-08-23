@@ -119,3 +119,9 @@ group_t* pass1_t::lookup_group(pstring_t pstring)
         return &private_groups.lookup(pstring, view);
     return group_t::lookup_sourceless(pstring, view);
 }
+
+fn_set_t& pass1_t::lookup_fn_set(pstring_t pstring)
+{
+    global_t& global = lookup_global(pstring);
+    return global.define_fn_set(pstring);
+}

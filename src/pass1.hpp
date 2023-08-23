@@ -141,7 +141,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    global_t* prepare_fn(pstring_t fn_name)
+    global_t* prepare_fn(pstring_t fn_name, pstring_t fn_set_name)
     {
         assert(ideps.empty());
         assert(label_map.empty());
@@ -152,7 +152,13 @@ public:
         num_minor_labels = 0;
 
         // Find the global
-        active_global = &lookup_global(fn_name);
+        if(fn_set_name)
+        {
+            fn_set_t& set = lookup_fn_set(fn_set_name);
+            active_global = &set.lookup(source(), fn_name);
+        }
+        else
+            active_global = &lookup_global(fn_name);
 
         // Create a scope for the parameters.
         assert(symbol_table.empty());

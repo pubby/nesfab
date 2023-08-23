@@ -27,6 +27,7 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     // Have void be the zeroth/default value.
     TYPE_VOID = 0,
     TYPE_CHARMAP,
+    TYPE_FN_SET,
 
     TYPE_ASM_LABEL,
     TYPE_ASM_VALUE,

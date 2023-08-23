@@ -176,7 +176,7 @@ charmap_ht global_t::define_charmap(
 
 fn_set_t& global_t::define_fn_set(pstring_t pstring)
 {
-    fn_set_t* ret;
+    fn_set_t* ret = nullptr;
 
     // Create the charmap
     fn_set_ht h = { define(pstring, GLOBAL_FN_SET, {}, [&](global_t& g)
@@ -184,8 +184,7 @@ fn_set_t& global_t::define_fn_set(pstring_t pstring)
         return fn_set_ht::pool_emplace(ret, g).id;
     }) };
 
-    assert(ret);
-    return *ret;
+    return ret ? *ret : h.safe();
 }
 
 global_t& global_t::default_charmap(pstring_t at)
@@ -2243,14 +2242,33 @@ void charmap_t::set_all_group_data()
 // fn_set_t //
 //////////////
 
-void fn_set_t::add_fn(fn_ht fn)
+global_t& fn_set_t::lookup(char const* source, pstring_t pstring)
 {
     assert(compiler_phase() <= PHASE_PARSE);
+
+    global_t* g = nullptr;
+
+    std::uint64_t hash = fnv1a<std::uint64_t>::hash(pstring.view(source));
+
     {
-        std::lock_guard<std::mutex> global_lock(m_fns_mutex);
-        m_fns.push_back(fn);
+        std::lock_guard<std::mutex> lock(m_fns_mutex);
+        g = &m_fns.lookup(pstring, pstring.view(source));
+        auto result = m_fn_hashes.insert({ hash, g });
+        if(!result.second && result.first->first != hash)
+            compiler_error(pstring, "Hash collision in names.");
     }
-    global.add_idep(fn.safe().global, { IDEP_VALUE, IDEP_VALUE });
+
+    assert(g);
+    global.add_idep(*g, { IDEP_VALUE, IDEP_VALUE });
+    return *g;
+}
+
+global_t* fn_set_t::lookup_hash(std::uint64_t hash) const
+{
+    assert(compiler_phase() > PHASE_PARSE);
+    if(global_t* const* g = m_fn_hashes.mapped(hash))
+        return *g;
+    return nullptr;
 }
 
 ////////////////////

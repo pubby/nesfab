@@ -58,43 +58,6 @@ constexpr lval_flags_t LVALF_IS_GLOBAL = 1 << 0;
 constexpr lval_flags_t LVALF_DID_PERIOD  = 1 << 1; // if operator '.' was used on the value
 constexpr lval_flags_t LVALF_INDEX_16  = 1 << 2;
 
-/* TODO
-struct lval_t
-{
-    static constexpr std::int16_t RETURN_ARG = std::numeric_limits<std::int16_t>::max();
-    static constexpr std::int16_t READY_ARG = RETURN_ARG - 1;
-    static constexpr std::int16_t SYSTEM_ARG = RETURN_ARG - 2;
-    static constexpr std::int16_t STATE_ARG = RETURN_ARG - 3;
-    static constexpr std::int16_t MAPPER_DETAIL_ARG = RETURN_ARG - 4;
-    static constexpr std::int16_t MAPPER_RESET_ARG = RETURN_ARG - 5;
-    static constexpr std::int16_t NMI_COUNTER_ARG = RETURN_ARG - 6;
-
-    lval_flags_t flags = 0;
-    std::int8_t atom = -1; // negative means no atom.
-    std::uint16_t member = 0;
-    std::int16_t arg = -1;
-    std::int16_t label = -1;
-    union
-    {
-        var_ht vvar_i = {};
-        global_t const* vglobal;
-    };
-    ssa_value_t index = {};
-
-    var_ht var_i() const { assert(is_var()); return vvar_i; }
-    global_t const& global() const { assert(is_global()); assert(vglobal); return *vglobal; }
-
-    void set_var_i(var_ht i) { flags &= ~LVALF_IS_GLOBAL; vvar_i = i; }
-    void set_global(global_t const* g) { flags |= LVALF_IS_GLOBAL; vglobal = g; }
-
-    bool is_global() const { return (flags & LVALF_IS_GLOBAL); }
-    bool is_var() const { return !(flags & LVALF_IS_GLOBAL); }
-
-    unsigned uatom() const { return atom < 0 ? 0 : atom; }
-    unsigned ulabel() const;
-};
-*/
-
 struct lval_t
 {
     static constexpr std::int16_t RETURN_ARG = std::numeric_limits<std::int16_t>::max();

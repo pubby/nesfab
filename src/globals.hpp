@@ -800,15 +800,24 @@ public:
     void precheck() {}
     void compile() {}
 
-    void add_fn(fn_ht fn);
+    global_t& lookup(char const* source, pstring_t pstring);
+    global_t* lookup_hash(std::uint64_t hash) const;
 
-    auto begin() const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cbegin(); }
-    auto end()   const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cend(); }
+    //auto begin() const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cbegin(); }
+    //auto end()   const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cend(); }
+
+    unsigned ptr_size() const { assert(global.compiled()); return m_ptr_size; }
+    romv_flags_t romv_flags() const { assert(global.compiled()); return m_romv_flags; }
+    unsigned size_of() const { return ptr_size() * romv_flags(); }
 
     global_t& global;
 private:
     std::mutex m_fns_mutex;
-    std::vector<fn_ht> m_fns;
+    ident_map_t<global_ht> m_fns;
+    rh::robin_map<std::uint64_t, global_t*> m_fn_hashes;
+
+    unsigned m_ptr_size = 0;
+    romv_flags_t m_romv_flags = 0;
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

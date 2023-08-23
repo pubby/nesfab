@@ -249,6 +249,8 @@ std::size_t type_t::size_of() const
         return size() * types()[0].size_of();
     case TYPE_PAA: 
         return size();
+    case TYPE_FN_PTR:
+        return fn_set().size_of();
     case TYPE_STRUCT:
         std::size_t size = 0;
         for(unsigned i = 0; i < struct_().fields().size(); ++i)

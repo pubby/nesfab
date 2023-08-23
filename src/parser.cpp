@@ -1986,6 +1986,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
     int const fn_indent = indent;
 
     global_t* global;
+    pstring_t fn_set_name = {};
     pstring_t fn_name;
     bc::small_vector<var_decl_t, 8> params;
     src_type_t return_type = {};
@@ -1996,7 +1997,15 @@ void parser_t<P>::parse_fn(token_type_t prefix)
         // Parse the declaration
         parse_token();
         fn_name = parse_ident();
-        global = policy().prepare_fn(fn_name);
+
+        if(token.type == TOK_period)
+        {
+            fn_set_name = fn_name;
+            parse_token();
+            fn_name = parse_ident();
+        }
+
+        global = policy().prepare_fn(fn_name, fn_set_name);
 
         // Parse the arguments
         if(fclass == FN_NMI || fclass == FN_IRQ)

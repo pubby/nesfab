@@ -116,6 +116,7 @@ struct pool_handle_t : public handle_t<Derived, std::uint32_t, ~0u>
         std::lock_guard<std::mutex> lock(m_pool_mutex);
         Derived const ret = { m_pool.size() };
         ptr = &m_pool.emplace_back(std::forward<Args>(args)...);
+        assert(ptr);
         return ret;
     }
 

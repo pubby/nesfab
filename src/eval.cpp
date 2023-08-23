@@ -1888,6 +1888,15 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     .type = TYPE_CHARMAP, 
                     .pstring = ast.token.pstring 
                 };
+
+            case GLOBAL_FN_SET:
+                return
+                {
+                    .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
+                    .type = TYPE_FN_SET, 
+                    .pstring = ast.token.pstring 
+                };
+                
             }
         }
         break;
@@ -2418,6 +2427,23 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             goto bad_global_accessor;
                         }
 
+                    }
+                    goto finish_period;
+
+                case GLOBAL_FN_SET:
+                    {
+                        if(!lhs.is_lval())
+                            compiler_error(ast.token.pstring, "Expecting lvalue.");
+
+                        fn_set_t const& fn_set = lhs.lval().global().impl<fn_set_t>();
+
+                        global_t const* fn = fn_set.lookup_hash(hash);
+
+                        if(!fn)
+                            goto bad_global_accessor;
+
+                        lhs.lval() = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = fn };
+                        lhs.type = fn->impl<fn_t>().type();
                     }
                     goto finish_period;
 
@@ -4911,8 +4937,16 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     compiler_error(v.pstring, "Cannot use the value of a function parameter or return this way.");
 
                 return v;
+
+            case GLOBAL_CHARMAP:
+                compiler_error(v.pstring, "Cannot use the value of a charmap this way.");
+
+            case GLOBAL_FN_SET:
+                compiler_error(v.pstring, "Cannot use the value of a fn set this way.");
+
             default:
                 assert(false);
+                compiler_error(v.pstring, "Cannot use this value this way.");
             }
         }
         else

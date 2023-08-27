@@ -276,7 +276,7 @@ mapper_t mapper_t::mmc3(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_none(mt),
-        .num_banks = params.num_16k_banks(mt, 512, 512, 8),
+        .num_banks = params.num_16k_banks(mt, 512, 2048, 8),
         .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
         .fixed_16k = true,
         .bus_conflicts = params.no_conflicts(mt),

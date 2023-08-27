@@ -1143,7 +1143,7 @@ See the standard library file `lib/mapper/mmc3.fab`.
 
 | <<opt_prg, PRG (Code)>>
 | 512 KiB
-| 512 KiB
+| 2048 KiB
 | 512 KiB
 
 | <<opt_chr, CHR (Tilesets)>>

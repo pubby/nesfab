@@ -358,7 +358,7 @@ std::string to_string(type_t type)
         }
         break;
     case TYPE_FN_PTR:
-        str = "Fn:"sv;
+        str = "Fn."sv;
         str += type.fn_set().global.name;
         break;
     }

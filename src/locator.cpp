@@ -38,6 +38,10 @@ std::string to_string(locator_t loc)
         str = fmt("arg %", loc.fn()->global.name); break;
     case LOC_RETURN:
         str = fmt("ret %", loc.fn()->global.name); break;
+    case LOC_PTR_ARG:
+        str = fmt("arg %", loc.fn_set()->global.name); break;
+    case LOC_PTR_RETURN:
+        str = fmt("ret %", loc.fn_set()->global.name); break;
     case LOC_CFG_LABEL:
         str = fmt("cfg label %", loc.cfg_node()); break;
     case LOC_MINOR_LABEL:
@@ -227,6 +231,10 @@ type_t locator_t::type() const
         return byteify(fn().safe().type().type(arg()));
     case LOC_RETURN:
         return byteify(fn().safe().type().return_type());
+    case LOC_PTR_ARG:
+        return byteify(fn_set().safe().type().type(arg()));
+    case LOC_PTR_RETURN:
+        return byteify(fn_set().safe().type().return_type());
     case LOC_ASM_LOCAL_VAR:
         return byteify(fn().safe().def().local_vars[arg()].type());
     case LOC_CONST_BYTE:
@@ -378,6 +386,15 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             span_t span = fn()->lvar_span(romv, mem_head());
             for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
                 span = fn()->lvar_span(romv_t(i), mem_head());
+            return from_span(span);
+        }
+
+    case LOC_PTR_ARG:
+    case LOC_PTR_RETURN:
+        {
+            span_t span = fn_set()->lvar_span(romv, mem_head());
+            for(unsigned i = 0; !span && i < NUM_ROMV; ++i)
+                span = fn_set()->lvar_span(romv_t(i), mem_head());
             return from_span(span);
         }
 

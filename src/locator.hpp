@@ -55,6 +55,8 @@ enum locator_class_t : std::uint8_t
 
     LOC_ARG,
     LOC_RETURN,
+    LOC_PTR_ARG,
+    LOC_PTR_RETURN,
     LOC_PHI,
     LOC_SSA,
     LOC_SWITCH_LO_TABLE,
@@ -105,6 +107,8 @@ constexpr bool is_var_like(locator_class_t lclass)
     case LOC_GMEMBER:
     case LOC_ARG:
     case LOC_RETURN:
+    case LOC_PTR_ARG:
+    case LOC_PTR_RETURN:
     case LOC_PHI:
     case LOC_SSA:
     case LOC_MINOR_VAR:
@@ -144,7 +148,16 @@ constexpr bool is_runtime(locator_class_t lclass)
 
 constexpr bool is_arg_ret(locator_class_t lclass)
 {
-    return lclass == LOC_ARG || lclass == LOC_RETURN;
+    switch(lclass)
+    {
+    case LOC_ARG:
+    case LOC_RETURN:
+    case LOC_PTR_ARG:
+    case LOC_PTR_RETURN:
+        return true;
+    default:
+        return false;
+    }
 }
 
 constexpr bool has_arg_member_atom(locator_class_t lclass)
@@ -154,6 +167,8 @@ constexpr bool has_arg_member_atom(locator_class_t lclass)
     case LOC_GMEMBER:
     case LOC_ARG:
     case LOC_RETURN:
+    case LOC_PTR_ARG:
+    case LOC_PTR_RETURN:
     case LOC_SSA:
     case LOC_PHI:
     case LOC_SWITCH_LO_TABLE:
@@ -206,6 +221,8 @@ constexpr bool has_fn_set(locator_class_t lclass)
     switch(lclass)
     {
     case LOC_FN_SET:
+    case LOC_PTR_ARG:
+    case LOC_PTR_RETURN:
         return true;
     default:
         return false;
@@ -329,7 +346,7 @@ public:
     { 
         impl &= 0xFF0000001FFFFFFFull; 
         impl |= ((std::uint64_t)handle & 0x1FFFFFull) << 32ull; 
-        assert(handle == this->handle());
+        passert(handle == this->handle(), handle, this->handle());
     }
 
     constexpr void set_data(std::uint16_t data)
@@ -520,6 +537,15 @@ public:
     constexpr static locator_t arg(fn_ht fn, std::uint8_t arg, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
         { return locator_t(LOC_ARG, fn.id, arg, member, atom, offset); }
 
+    constexpr static locator_t ptr_arg(fn_set_ht set, std::uint8_t arg, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_PTR_ARG, set.id, arg, member, atom, offset); }
+
+    constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_RETURN, fn.id, 0, member, atom, offset); }
+
+    constexpr static locator_t ptr_ret(fn_set_ht set, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
+        { return locator_t(LOC_PTR_RETURN, set.id, 0, member, atom, offset); }
+
     constexpr static locator_t gmember(gmember_ht gmember, std::uint8_t atom=0, std::uint16_t offset=0)
         { return locator_t(LOC_GMEMBER, gmember.id, 0, 0, atom, offset); }
 
@@ -531,9 +557,6 @@ public:
 
     constexpr static locator_t rom_array(rom_array_ht h, std::uint16_t offset=0)
         { return locator_t(LOC_ROM_ARRAY, h.id, 0, offset); }
-
-    constexpr static locator_t ret(fn_ht fn, std::uint8_t member, std::uint8_t atom, std::uint16_t offset=0)
-        { return locator_t(LOC_RETURN, fn.id, 0, member, atom, offset); }
 
     constexpr static locator_t cfg_label(cfg_ht cfg_node, unsigned index=0)
         { return locator_t(LOC_CFG_LABEL, cfg_node.id, index, 0); }

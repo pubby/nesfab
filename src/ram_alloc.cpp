@@ -1019,17 +1019,16 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
     // If we're not allocating everything, we'll have to propagate
     // our allocations upwards to fns we call.
     // (We always propagate downwards, to fns that call this)
-    xbitset_t<fn_ht> propagate_calls;
-    if(Step < FULL_ALLOC)
-        propagate_calls.alloc();
+    xbitset_t<fn_ht> propagate_calls(0);
 
     for(rank_t const& rank : ordered_lvars)
     {
         unsigned const lvar_i = rank.lvar_i;
         auto const& info = fn.lvars().this_lvar_info(lvar_i);
+        locator_t const loc = fn.lvars().locator(lvar_i);
         assert(!info.ptr_hi);
 
-        dprint(log, "-RAM_ALLOC_LOCALS", fn.lvars().locator(lvar_i), info.size);
+        dprint(log, "-RAM_ALLOC_LOCALS", loc, info.size);
 
         assert(lvar_i < lvar_usable_ram.size());
 
@@ -1062,8 +1061,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
         else
             fn.assign_lvar_span(romv, lvar_i, span); 
 
-        if(Step < FULL_ALLOC)
-            propagate_calls.clear_all();
+        propagate_calls.clear_all();
 
         auto const update = [&](auto const& filled, auto const& get)
         {
@@ -1095,12 +1093,43 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
                     propagate_calls.set(fn.id);
                     propagate_calls |= fn->ir_calls();
                 }
-
-                propagate_calls.for_each([&](fn_ht fn)
-                {
-                    get(fn_data[fn.id].usable_ram[romv]) &= mask;
-                });
             }
+
+            if(fn_set_t const* set = fn.fn_set())
+            {
+                romv_t const set_romv = set->romv();
+
+                for(fn_ht co : *set)
+                {
+                    if(co == fn.handle())
+                        continue;
+
+                    propagate_calls.set(co.id);
+                    propagate_calls |= co->ir_calls();
+
+                    if(romv == set_romv && is_arg_ret(loc.lclass()))
+                    {
+                        locator_t co_loc = loc;
+                        co_loc.set_handle(co.id);
+
+                        int const co_i = co->lvars().index(co_loc);
+
+                        if(info.ptr_alt >= 0)
+                        {
+                            auto const& co_info = co->lvars().this_lvar_info(co_i);
+                            co->assign_lvar_span(romv, co_i,            { .addr = span.addr,     .size = 1 }); 
+                            co->assign_lvar_span(romv, co_info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 
+                        }
+                        else
+                            co->assign_lvar_span(romv, co_i, span); 
+                    }
+                }
+            }
+
+            propagate_calls.for_each([&](fn_ht call)
+            {
+                get(fn_data[call.id].usable_ram[romv]) &= mask;
+            });
         };
 
         if(span.addr < sram_addr)

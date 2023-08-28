@@ -1497,7 +1497,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
             {
                 src_type_t cast_type;
                 children.push_back(parse_cast(cast_type));
-                if(!is_thunk(cast_type.type))
+                if(!is_thunk(cast_type.type) && cast_type.type.name() != TYPE_FN_PTR)
                 {
                     unsigned const cast_size = cast_type.type.size_of();
                     if(cast_size == 0 && !is_vec(cast_type.type.name()))

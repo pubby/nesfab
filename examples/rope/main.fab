@@ -121,7 +121,7 @@ mode main()
     init_rope(128, 64)
     {PPUCTRL}(PPUCTRL_NMI_ON)
     while true
-        fence
+        nmi
         update_pads()
         update_rope()
         update_sprites()

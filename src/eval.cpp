@@ -2857,6 +2857,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             pstring_t const call_pstring = concat(fn_expr.pstring, ast.token.pstring);
 
             callable_t const* callable = nullptr;
+            fn_set_ht call_set = {};
             fn_ht call = {};
             type_t fn_type = TYPE_VOID;
 
@@ -2871,17 +2872,17 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     compiler_error(call_pstring, "Cannot call a fn pointer at compile-time.");
 
                 assert(fn_expr.is_rval());
-                fn_set_t const& call_set = fn_expr.type.fn_set();
-                callable = &call_set;
+                call_set = fn_expr.type.fn_set().handle();
+                callable = &*call_set;
 
                 if(precheck_tracked)
                 {
-                    for(fn_ht call : call_set)
+                    for(fn_ht call : *call_set)
                         precheck_tracked->calls.emplace(call, call_pstring);
-                    precheck_tracked->calls_ptrs.emplace(call_set.handle(), call_pstring);
+                    precheck_tracked->calls_ptrs.emplace(call_set, call_pstring);
                 }
 
-                fn_type = call_set.type();
+                fn_type = call_set->type();
                 assert(fn_type.name() == TYPE_FN);
             }
             else if(fn_expr.type.name() == TYPE_FN)
@@ -3048,12 +3049,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                     else
                     {
-                        fn_set_t const& call_set = fn_expr.type.fn_set();
-                        fn_inputs.push_back(locator_t::fn_set(call_set.handle()));
+                        fn_inputs.push_back(locator_t::fn_set(call_set));
                         assert(fn_inputs.back().locator().fn_set());
 
                         // [1] holds the bank:
-                        if(call_set.banked_ptrs())
+                        if(call_set->banked_ptrs())
                             fn_inputs.push_back(fn_expr.ssa(1));
                         else
                             fn_inputs.push_back({});
@@ -3158,7 +3158,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         for(unsigned j = 0; j < num_param_members; ++j)
                         {
-                            locator_t const loc = locator_t::arg(call, i, j, 0);
+                            locator_t loc;
+                            if(call)
+                                loc = locator_t::arg(call, i, j, 0);
+                            else
+                                loc = locator_t::ptr_arg(call_set, i, j, 0);
 
                             type_t const member_type = ::member_type(param_type, j);
 
@@ -3229,8 +3233,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         for(unsigned m = 0; m < return_members; ++m)
                         {
+                            locator_t loc;
+                            if(call)
+                                loc = locator_t::ret(call, m, 0);
+                            else
+                                loc = locator_t::ptr_ret(call_set, m, 0);
+
                             ssa_ht ret = builder.cfg->emplace_ssa(
-                                SSA_read_global, member_type(return_type, m), fn_node, locator_t::ret(call, m, 0));
+                                SSA_read_global, member_type(return_type, m), fn_node, loc);
 
                             result.rval().push_back(ret);
                         }
@@ -3858,13 +3868,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 return result;
             }
-            else if(is_scalar(type.name()) || is_banked_ptr(type.name()))
+            else if(is_scalar(type.name()) || is_banked_ptr(type.name()) || type.name() == TYPE_FN_PTR)
             {
                 check_argn(1);
                 return throwing_cast<D>(args[0], type, implicit);
             }
             else
-                compiler_error(ast.token.pstring, fmt("Unable to cast to %.", type));
+                compiler_error(ast.token.pstring, fmt("Unable to cast value of type % to %.", args[0].type, type));
         }
         assert(0);
 

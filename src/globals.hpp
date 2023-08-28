@@ -854,6 +854,8 @@ public:
 
     type_t type() const { assert(global.prechecked()); return m_type; }
 
+    span_t lvar_span(romv_t romv, locator_t loc) const;
+
     global_t& global;
 private:
     std::mutex m_fns_mutex;

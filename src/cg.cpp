@@ -1,6 +1,9 @@
 #include "cg.hpp"
 
 #include <map>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "flat/small_map.hpp"
 
@@ -556,16 +559,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     }
 
 
-#if 0
-        std::cout << fn.global.name << std::endl;
-        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-        {
-            auto& d = cg_data(cfg_it);
-            for(ssa_ht h : d.schedule)
-                std::cout << "    " << h->op() << ' ' << h.id << std::endl;
-        }
-#endif
-
     if(std::ostream* os = fn.info_stream())
     {
         *os << "\nSCHEDULE_START " << fn.global.name << '\n';
@@ -692,7 +685,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                     assert(store_cfg->last_daisy());
                     auto& last_d = cg_data(store_cfg->last_daisy());
 
-                    store_d.schedule.index = last_d.schedule.index;
+                    store_d.schedule.index = last_d.schedule.index-1;
                 }
 
 
@@ -739,6 +732,17 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             }
         }
     }
+
+#if 0
+        std::cout << fn.global.name << std::endl;
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        {
+            std::cout << cfg_it << std::endl;
+            auto& d = cg_data(cfg_it);
+            for(ssa_ht h : d.schedule)
+                std::cout << "    " << h->op() << ' ' << h.id << std::endl;
+        }
+#endif
 
     ////////////////
     // COALESCING //

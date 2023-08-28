@@ -1644,6 +1644,59 @@ In addition, the following statements have special meaning inside of <<kw_asm, `
 - <<kw_goto_mode_asm, `goto mode`>>
 - <<kw_switch_asm, `switch`>>
 
+== Function Pointers and Function Sets [[fn_ptr]]
+
+Although NESFab supports function pointers, their use is more limited when compared to other languages.
+
+For a function to compatible with function pointers, it must belong to a function set.
+Function sets are defined by prefixing the function's name with a set name, followed by a period:
+----
+fn foo.bar() // Declare a function 'bar' in the function set 'foo'.
+
+fn foo.qux() // Declare another function 'qux' in the function set 'foo'.
+----
+
+All functions belonging to the set must have the same type signature.
+
+To reference a function belonging to a function set normally, you must include the function set name:
+----
+foo.bar() // Call 'bar'.
+----
+
+Using the `@` operator, you can retrieve a function pointer. 
+Note that function pointers have <<type_fn_ptr, `Fn` types.>>
+----
+Fn.foo my_ptr = @(foo.bar)
+----
+
+Function pointers can be called using the regular function call syntax:
+----
+Fn.foo my_ptr = @(foo.bar)
+my_ptr() // Call it.
+----
+
+*Limitation: One calling thread only*
+
+Unfortunately, function pointers can only be called from a single thread.
+For example, the code below will not compile, as it calls from two different threads:
+
+----
+vars
+    Fn.foo my_ptr
+
+nmi my_nmi()
+    my_ptr()
+
+irq my_irq()
+    my_ptr()
+----
+
+If you need behavior like this, avoid function pointers and instead use <<kw_switch>>.
+
+*Limitation: No asm support*
+
+Currently, function pointers cannot be called from `asm fn` contexts.
+
 == Keywords
 
 === `if`
@@ -5521,7 +5574,6 @@ For example, to create a pointer that can reference values belonging to the grou
 CC/foo/bar
 ----
 
-
 ==== Address Types [[type_address]]
 
 The address type `AA` is used for 16-bit hardware addresses, 
@@ -5543,6 +5595,19 @@ This type is used for inline assembly and hardware expressions.
 | [$00:$0000, $FF:$FFFF]
 
 |===
+
+==== Function Pointer Types [[type_fn_ptr]]
+
+Function pointer types can be expressed using the prefix `Fn`, followed by their corresponding set.
+For more information, see the <<fn_ptr, function pointer section>>.
+
+Syntax:
+----
+Fn.set
+----
+- `set` is the name of a fn set.
+
+The size of function pointer types is unspecified, although it is typically 2 or 3 bytes.
 
 === Arrays
 

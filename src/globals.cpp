@@ -441,11 +441,14 @@ void global_t::precheck_all()
     // Set ROMV for fn_sets:
     for(fn_set_t const& set : fn_set_ht::values())
         assert(set.m_precheck_romv == 0);
-
     rh::robin_map<fn_set_ht, pstring_t> prev_set_pstrings;
-
     for(fn_t const& fn : fn_ht::values())
     {
+        if(!fn.m_precheck_tracked)
+            continue;
+
+        // TODO: handle iasm fn ptr calls
+
         for(auto const& pair : fn.m_precheck_tracked->calls_ptrs)
         {
             assert(pair.second);
@@ -467,6 +470,11 @@ void global_t::precheck_all()
                 prev_set_pstrings[pair.first] = pair.second;
         }
     }
+
+    // Extend fn set ROMV to their fns:
+    for(fn_set_t const& set : fn_set_ht::values())
+        for(fn_ht fn : set)
+            fn->m_precheck_romv |= set.m_precheck_romv;
 
     for(fn_t& fn : fn_ht::values())
     {
@@ -1071,7 +1079,7 @@ void fn_t::assign_lvar_span(romv_t romv, unsigned lvar_i, span_t span)
 {
     assert(lvar_i < m_lvar_spans[romv].size()); 
     assert(!m_lvar_spans[romv][lvar_i]);
-    assert(precheck_romv() & (1 << romv));
+    passert(precheck_romv() & (1 << romv), global.name, (int)precheck_romv(), (int)romv);
 
     m_lvar_spans[romv][lvar_i] = span;
     assert(lvar_span(romv, lvar_i) == span);
@@ -2399,6 +2407,25 @@ void fn_set_t::for_each_fn(std::function<void(fn_ht)> const& callback) const
 {
     for(fn_ht fn : *this)
         callback(fn);
+}
+
+span_t fn_set_t::lvar_span(romv_t romv, locator_t loc) const
+{
+    if(begin() == end())
+        return {};
+
+    fn_ht const first = *begin();
+    loc.set_handle(first.id);
+
+    if(loc.lclass() == LOC_PTR_ARG)
+        loc.set_lclass(LOC_ARG);
+    else if(loc.lclass() == LOC_PTR_RETURN)
+        loc.set_lclass(LOC_RETURN);
+    else
+        assert(false);
+
+    return first->lvar_span(romv, loc);
+
 }
 
 ////////////////////

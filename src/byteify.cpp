@@ -441,10 +441,17 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     if(loc.lclass() == LOC_ARG)
                         t = member_type(loc.fn()->type().types()[loc.arg()], loc.member());
+                    else if(loc.lclass() == LOC_PTR_ARG)
+                        t = member_type(loc.fn_set()->type().types()[loc.arg()], loc.member());
                     else if(loc.lclass() == LOC_RETURN)
                     {
                         assert(ssa_it->op() == SSA_return);
                         t = member_type(fn.type().return_type(), loc.member());
+                    }
+                    else if(loc.lclass() == LOC_PTR_RETURN)
+                    {
+                        assert(ssa_it->op() == SSA_return);
+                        t = member_type(loc.fn_set()->type().return_type(), loc.member());
                     }
                     else if(loc.lclass() == LOC_GMEMBER)
                         t = loc.gmember()->type();

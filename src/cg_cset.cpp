@@ -241,7 +241,7 @@ bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_h
         case LOC_ARG:
         case LOC_RETURN:
             // The current RAM allocator expects this behavior:
-            return loc.fn() != fn;
+            return true;//loc.fn() != fn;
         default: 
             return false;
         }

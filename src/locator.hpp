@@ -32,6 +32,8 @@ enum locator_class_t : std::uint8_t
     LOC_NONE,
 
     LOC_FN, // A function.
+    LOC_FN_PTR, // A function ptr.
+    LOC_FN_SET, // A function set.
     LOC_GMEMBER, // A global member.
     LOC_GCONST, // A global const.
     LOC_DPCM, // Like GCONST, but for DPCM
@@ -182,6 +184,7 @@ constexpr bool has_fn(locator_class_t lclass)
     switch(lclass)
     {
     case LOC_FN:
+    case LOC_FN_PTR:
     case LOC_ARG:
     case LOC_RETURN:
     case LOC_MINOR_VAR:
@@ -192,6 +195,17 @@ constexpr bool has_fn(locator_class_t lclass)
     case LOC_IRQ_INDEX:
     case LOC_ASM_LOCAL_VAR:
     case LOC_ASM_GOTO_MODE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool has_fn_set(locator_class_t lclass)
+{
+    switch(lclass)
+    {
+    case LOC_FN_SET:
         return true;
     default:
         return false;
@@ -406,6 +420,12 @@ public:
         return {};
     }
 
+    fn_set_ht fn_set() const
+    {
+        assert(has_fn_set(lclass()));
+        return { handle() };
+    }
+
     ssa_ht ssa_node() const
     {
         assert(lclass() == LOC_SSA || lclass() == LOC_PHI);
@@ -487,6 +507,12 @@ public:
 
     constexpr static locator_t fn(fn_ht fn, std::uint16_t label=ENTRY_LABEL, std::uint16_t offset=0)
         { return locator_t(LOC_FN, fn.id, label, offset); }
+
+    constexpr static locator_t fn_ptr(fn_ht fn, std::uint16_t label=ENTRY_LABEL, std::uint16_t offset=0)
+        { return locator_t(LOC_FN_PTR, fn.id, label, offset); }
+
+    constexpr static locator_t fn_set(fn_set_ht fn_set, std::uint16_t offset=0)
+        { return locator_t(LOC_FN_SET, fn_set.id, 0, offset); }
 
     constexpr static locator_t stmt(stmt_ht stmt)
         { return locator_t(LOC_STMT, stmt.id, 0, 0); }

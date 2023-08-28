@@ -68,7 +68,7 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
 
 fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
                           type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
-                          fn_class_t fclass, bool iasm)
+                          fn_class_t fclass, bool iasm, fn_set_t* fn_set)
 {
     fn_t* ret;
 
@@ -76,7 +76,7 @@ fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
     fn_ht h = { define(pstring, GLOBAL_FN, std::move(ideps), [&](global_t& g)
     { 
         return fn_ht::pool_emplace(
-            ret, g, type, std::move(fn_def), std::move(mods), fclass, iasm).id; 
+            ret, g, type, std::move(fn_def), std::move(mods), fclass, iasm, fn_set).id; 
     }) };
 
     if(fclass == FN_MODE)
@@ -438,6 +438,36 @@ void global_t::precheck_all()
         irq->m_precheck_romv |= ROMVF_IN_IRQ;
     }
 
+    // Set ROMV for fn_sets:
+    for(fn_set_t const& set : fn_set_ht::values())
+        assert(set.m_precheck_romv == 0);
+
+    rh::robin_map<fn_set_ht, pstring_t> prev_set_pstrings;
+
+    for(fn_t const& fn : fn_ht::values())
+    {
+        for(auto const& pair : fn.m_precheck_tracked->calls_ptrs)
+        {
+            assert(pair.second);
+
+            if(builtin::popcount(fn.m_precheck_romv) > 1)
+                compiler_error(pair.second, "Fn pointer call site can be reached from multiple threads.");
+
+            pair.first->m_precheck_romv |= fn.m_precheck_romv;
+
+            if(builtin::popcount(pair.first->m_precheck_romv) > 1)
+            {
+                assert(prev_set_pstrings[pair.first]);
+                throw compiler_error_t(
+                    fmt_error(pair.second, "Fn pointer call site can be reached from multiple threads.")
+                    + fmt_note(prev_set_pstrings[pair.first], "Conflicting call located here."));
+            }
+
+            if(fn.m_precheck_romv)
+                prev_set_pstrings[pair.first] = pair.second;
+        }
+    }
+
     for(fn_t& fn : fn_ht::values())
     {
         // Allocate rom procs:
@@ -512,6 +542,9 @@ global_t* global_t::detect_cycle(global_t& global, idep_class_t pass, idep_class
 // Call from a single thread only.
 void global_t::count_members()
 {
+    for(fn_set_t& s : fn_set_ht::values())
+        s.count_members();
+
     unsigned total_members = 0;
     for(struct_t& s : struct_ht::values())
         total_members += s.count_members();
@@ -524,7 +557,7 @@ void global_t::count_members()
 
         gmember_ht const begin = { gmember_ht::with_pool([](auto& pool){ return pool.size(); }) };
 
-        unsigned const num = ::num_members(gvar.type());
+        unsigned const num = ::num_members(gvar.type(), true);
         for(unsigned i = 0; i < num; ++i)
             gmember_ht::with_pool([&](auto& pool){ pool.emplace_back(gvar, pool.size()); });
 
@@ -728,18 +761,19 @@ std::vector<local_const_t> const* global_t::local_consts() const
     return nullptr;
 }
 
-//////////
-// fn_t //
+///////////
+// fn_t  //
 ///////////
 
 fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
-           fn_class_t fclass, bool iasm) 
+           fn_class_t fclass, bool iasm, fn_set_t* fn_set) 
 : modded_t(std::move(mods))
 , global(global)
 , fclass(fclass)
 , iasm(iasm)
 , m_type(std::move(type))
 , m_def(std::move(fn_def)) 
+, m_fn_set(fn_set)
 {
     if(compiler_options().ir_info || mod_test(this->mods(), MOD_info))
         m_info_stream.reset(new std::stringstream());
@@ -911,21 +945,18 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
             if(ssa_it->op() == SSA_ready)
                 tests_ready = true;
 
-            if(ssa_it->op() == SSA_fn_call)
+            if(callable_t const* callee = get_callable(*ssa_it))
             {
-                fn_ht const callee_h = get_fn(*ssa_it);
-                fn_t const& callee = *callee_h;
-
-                reads      |= callee.ir_reads();
-                writes     |= callee.ir_writes();
-                group_vars |= callee.ir_group_vars();
-                calls      |= callee.ir_calls();
-                fences     |= callee.ir_fences();
-                io_pure    &= callee.ir_io_pure();
-                calls.set(callee_h.id);
+                reads      |= callee->ir_reads();
+                writes     |= callee->ir_writes();
+                group_vars |= callee->ir_group_vars();
+                calls      |= callee->ir_calls();
+                fences     |= callee->ir_fences();
+                io_pure    &= callee->ir_io_pure();
+                callee->for_each_fn([&](fn_ht callee_h){ calls.set(callee_h.id); });
 
                 if(fclass != FN_MODE && is_static && mapper().bankswitches())
-                    m_returns_in_different_bank |= callee.returns_in_different_bank();
+                    m_returns_in_different_bank |= callee->returns_in_different_bank();
             }
 
             if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
@@ -1819,6 +1850,11 @@ void fn_t::implement_asm_goto_modes()
     }
 }
 
+void fn_t::for_each_fn(std::function<void(fn_ht)> const& callback) const
+{
+    callback(handle());
+}
+
 ////////////////////
 // global_datum_t //
 ////////////////////
@@ -2252,7 +2288,7 @@ global_t& fn_set_t::lookup(char const* source, pstring_t pstring)
 
     {
         std::lock_guard<std::mutex> lock(m_fns_mutex);
-        g = &m_fns.lookup(pstring, pstring.view(source));
+        g = &m_fns_map.lookup(pstring, pstring.view(source));
         auto result = m_fn_hashes.insert({ hash, g });
         if(!result.second && result.first->first != hash)
             compiler_error(pstring, "Hash collision in names.");
@@ -2269,6 +2305,100 @@ global_t* fn_set_t::lookup_hash(std::uint64_t hash) const
     if(global_t* const* g = m_fn_hashes.mapped(hash))
         return *g;
     return nullptr;
+}
+
+void fn_set_t::count_members()
+{
+    bool all_static = true;
+
+    for(auto const& pair : m_fn_hashes)
+    {
+        fn_t const& fn = pair.second->impl<fn_t>();
+        all_static &= mod_test(fn.mods(), MOD_static);
+    }
+
+    m_banked_ptrs = mapper().num_banks > 1 && !all_static;
+}
+
+void fn_set_t::resolve()
+{
+    for(auto const& pair : m_fn_hashes)
+        m_fns.push_back(pair.second->handle<fn_ht>());
+}
+
+void fn_set_t::precheck()
+{
+    pstring_t type_pstring = {};
+
+    xbitset_t<gmember_ht>  rw(0);
+    xbitset_t<group_vars_ht> group_vars(0);
+    xbitset_t<fn_ht> calls(0);
+
+    if(m_fn_hashes.empty())
+        compiler_error(global.pstring(), fmt("fn set % has no members.", global.name));
+
+    for(fn_ht fn : *this)
+    {
+        rw         |= fn->m_precheck_rw;
+        group_vars |= fn->m_precheck_group_vars;
+        calls      |= fn->m_precheck_calls;
+
+        m_precheck_fences   |= fn->m_precheck_fences;
+        m_precheck_wait_nmi |= fn->m_precheck_wait_nmi;
+
+        if(m_type.name() == TYPE_VOID)
+        {
+            m_type = fn->type();
+            type_pstring = fn->global.pstring();
+        }
+        else if(m_type != fn->type())
+        {
+            throw compiler_error_t(
+                fmt_error(fn->global.pstring(), 
+                          fmt("Type of % (%) does not match type of fn set % (%).",
+                              fn->global.name, fn->type(), global.name, m_type))
+                + fmt_note(type_pstring, "fn set had its type defined here."));
+        }
+    }
+
+    m_precheck_rw = std::move(rw);
+    m_precheck_group_vars = std::move(group_vars);
+    m_precheck_calls = std::move(calls);
+}
+
+void fn_set_t::compile()
+{
+    xbitset_t<gmember_ht>  reads(0);
+    xbitset_t<gmember_ht> writes(0);
+    xbitset_t<group_vars_ht> group_vars(0);
+    xbitset_t<group_ht> deref_groups(0);
+    xbitset_t<fn_ht> calls(0);
+
+    for(fn_ht fn : *this)
+    {
+        reads        |= fn->ir_reads();
+        writes       |= fn->ir_writes();
+        group_vars   |= fn->ir_group_vars();
+        deref_groups |= fn->ir_deref_groups();
+        calls        |= fn->ir_calls();
+
+        m_ir_tests_ready |= fn->ir_tests_ready();
+        m_ir_tests_ready |= fn->ir_io_pure();
+        m_ir_tests_ready |= fn->ir_fences();
+        m_returns_in_different_bank |= fn->returns_in_different_bank();
+    }
+
+     m_ir_reads = std::move(reads);
+     m_ir_writes = std::move(writes);
+     m_ir_group_vars = std::move(group_vars);
+     m_ir_deref_groups = std::move(deref_groups);
+     m_ir_calls = std::move(calls);
+}
+
+void fn_set_t::for_each_fn(std::function<void(fn_ht)> const& callback) const
+{
+    for(fn_ht fn : *this)
+        callback(fn);
 }
 
 ////////////////////

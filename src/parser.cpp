@@ -1254,7 +1254,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
     case TOK_Fn:
         {
             parse_token();
-            parse_token(TOK_colon);
+            parse_token(TOK_period);
             fn_set_t const& fn_set = policy().lookup_fn_set(parse_ident());
             result.type = type_t::fn_ptr(fn_set);
             break;
@@ -2000,6 +2000,9 @@ void parser_t<P>::parse_fn(token_type_t prefix)
 
         if(token.type == TOK_period)
         {
+            if(fclass != FN_FN)
+                compiler_error(fmt("% cannot belong to a fn set.", fn_class_keyword(fclass)));
+
             fn_set_name = fn_name;
             parse_token();
             fn_name = parse_ident();
@@ -2020,7 +2023,6 @@ void parser_t<P>::parse_fn(token_type_t prefix)
         if(fclass == FN_FN || fclass == FN_CT)
             return_type = parse_type(true, false, {});
     });
-
 
     auto state = policy().fn_decl(fn_name, &*params.begin(), &*params.end(), return_type, prefix == TOK_asm);
 
@@ -2048,13 +2050,13 @@ void parser_t<P>::parse_fn(token_type_t prefix)
 
         ast_node_t ast = parse_byte_block(fn_name, fn_indent, *global, {}, false, false);
 
-        policy().end_asm_fn(std::move(state), fclass, ast, std::move(mods));
+        policy().end_asm_fn(std::move(state), fclass, fn_set_name, ast, std::move(mods));
     }
     else
     {
         // Parse the body of the function
         parse_block_statement(fn_indent);
-        policy().end_fn(std::move(state), fclass, std::move(mods));
+        policy().end_fn(std::move(state), fclass, fn_set_name, std::move(mods));
     }
 }
 

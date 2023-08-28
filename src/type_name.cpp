@@ -61,6 +61,7 @@ std::string to_string(type_name_t type_name)
     case TYPE_VEC: return "VEC"s;
     case TYPE_FN: return "fn"s;
     case TYPE_FN_PTR: return "Fn"s;
+    case TYPE_FN_SET: return "FN_SET"s;
     }
 }
 

@@ -918,6 +918,15 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .output_regs = 0,
         .flags = ASMF_CALL,
     },
+    {
+        OP(JSR, INDIRECT), // Fake! Get converted to JMP_INDIRECT + JSR_ABSOLUTE
+        .size = 3,
+        .cycles = 11,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_CALL,
+    },
+
 
     // LDA
     {

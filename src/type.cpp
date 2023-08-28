@@ -17,6 +17,7 @@
 #include "eval.hpp"
 #include "eternal_new.hpp"
 #include "thread.hpp"
+#include "rom_decl.hpp"
 
 using namespace std::literals;
 
@@ -556,7 +557,7 @@ bool is_thunk(type_t type)
     }
 }
 
-unsigned num_members(type_t type)
+unsigned num_members(type_t type, bool early)
 {
     assert(type.name() != TYPE_STRUCT_THUNK);
     unsigned ret = 0;
@@ -566,6 +567,8 @@ unsigned num_members(type_t type)
         ret = num_members(type.elem_type());
     else if(is_banked_ptr(type.name()))
         ret = 2; // The bank is a member
+    else if(type.name() == TYPE_FN_PTR)
+        return type.fn_set().num_members();
     else if(type.name() == TYPE_VOID)
         return 0;
     else
@@ -588,13 +591,19 @@ unsigned num_atoms(type_t type, unsigned member)
     case TYPE_PAA: 
         assert(member == 0);
         return 1;
+    case TYPE_FN_PTR:
+        {
+            fn_set_t const& fn_set = type.fn_set();
+            if(fn_set.banked_ptrs() && (member & 1))
+                return 1; // The banks
+            return 2;
+        }
     default: 
         if(is_ptr(type.name()))
         {
             if(is_banked_ptr(type.name()))
                 return member == 0 ? 2 : 1;
-            else
-                return 2;
+            return 2;
         }
         passert(is_scalar(type.name()), type);
         passert(member == 0, member, type);
@@ -628,6 +637,13 @@ unsigned member_offset(type_t type, unsigned member)
     case TYPE_TEA_THUNK: 
     case TYPE_VEC: 
         return member_offset(type.elem_type(), member) * type.array_length();
+    case TYPE_FN_PTR:
+        {
+            fn_set_t const& fn_set = type.fn_set();
+            if(fn_set.banked_ptrs())
+                return (member >> 1) * 3 + (member & 1) * 2;
+            return member * 2;
+        }
     default: 
         if(is_banked_ptr(type.name()))
             return member == 1 ? 2 : 0;
@@ -681,6 +697,14 @@ type_t member_type(type_t const& type, unsigned member)
             assert(member == 1);
             return TYPE_U;
         }
+    }
+    else if(type.name() == TYPE_FN_PTR)
+    {
+        assert(member < 2);
+        fn_set_t const& fn_set = type.fn_set();
+        if(member == 1)
+            return TYPE_U; // The bank
+        return type_t::addr(false); // The ptrs
     }
     return type;
 }

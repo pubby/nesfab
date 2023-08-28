@@ -112,7 +112,31 @@ constexpr unsigned ssa_flags(ssa_op_t op)
 std::string_view to_string(ssa_op_t node_type);
 std::ostream& operator<<(std::ostream& o, ssa_op_t node_type);
 
-constexpr bool fn_like(ssa_op_t op) { return op == SSA_fn_call || op == SSA_goto_mode; }
+constexpr bool direct_fn(ssa_op_t op) 
+{ 
+    switch(op)
+    {
+    case SSA_fn_call:
+    case SSA_goto_mode:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool is_fn_call(ssa_op_t op, bool allow_goto = false) 
+{ 
+    switch(op)
+    {
+    case SSA_goto_mode:
+        return allow_goto;
+    case SSA_fn_call:
+    case SSA_fn_ptr_call:
+        return true;
+    default:
+        return false;
+    }
+}
 
 constexpr bool is_make_ptr(ssa_op_t op) { return op == SSA_make_ptr_lo || op == SSA_make_ptr_hi; }
 
@@ -129,8 +153,12 @@ inline unsigned write_globals_begin(ssa_op_t op)
         return 0;
     case SSA_cli: 
         return 1;
-    case SSA_fn_call: return 2;
-    case SSA_goto_mode: return 2;
+    case SSA_fn_call: 
+        return 2;
+    case SSA_goto_mode: 
+        return 2;
+    case SSA_fn_ptr_call: 
+        return 4;
     default: assert(false); return 0;
     }
 }
@@ -145,6 +173,7 @@ inline unsigned ssa_copy_input(ssa_op_t op)
         return 1;
     case SSA_early_store:
     case SSA_aliased_store:
+    case SSA_const_store:
     case SSA_phi_copy:
         return 0;
     default:
@@ -197,9 +226,54 @@ constexpr unsigned ssa_bank_input(ssa_op_t op)
     case SSA_write_ptr_hw:
         return ssai::rw_ptr::BANK;
     case SSA_fn_call:
+    case SSA_fn_ptr_call:
         return 1;
     case SSA_bank_switch:
         return 0;
+    default:
+        assert(false);
+        return ~0;
+    }
+}
+
+constexpr unsigned ssa_derefs_ptr(ssa_op_t op)
+{
+    if(ssa_flags(op) & SSAF_INDEXES_PTR)
+        return true;
+
+    switch(op)
+    {
+    case SSA_fn_ptr_call:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr unsigned ssa_ptr_input(ssa_op_t op)
+{
+    if(ssa_flags(op) & SSAF_INDEXES_PTR)
+        return ssai::rw_ptr::PTR;
+
+    switch(op)
+    {
+    case SSA_fn_ptr_call:
+        return 2;
+    default:
+        assert(false);
+        return ~0;
+    }
+}
+
+constexpr unsigned ssa_ptr_hi_input(ssa_op_t op)
+{
+    if(ssa_flags(op) & SSAF_INDEXES_PTR)
+        return ssai::rw_ptr::PTR_HI;
+
+    switch(op)
+    {
+    case SSA_fn_ptr_call:
+        return 3;
     default:
         assert(false);
         return ~0;

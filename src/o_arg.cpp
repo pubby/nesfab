@@ -10,10 +10,12 @@ bool o_remove_unused_arguments(log_t* log, ir_t& ir, fn_t const& fn, bool byteif
     for(cfg_node_t const& cfg : ir)
     for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it; ++ssa_it)
     {
-        if(!fn_like(ssa_it->op()))
+        if(!direct_fn(ssa_it->op()))
             continue;
 
         fn_ht const called_h = get_fn(*ssa_it);
+        if(!called_h)
+            continue;
         fn_t const& called = *called_h;
 
         // If the called fn is a mode, it may not have been compiled yet.

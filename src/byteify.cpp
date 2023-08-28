@@ -273,13 +273,28 @@ void byteify(ir_t& ir, fn_t const& fn)
                 continue;
             }
 
-            if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
+            if(ssa_derefs_ptr(ssa_it->op()))
             {
-                using namespace ssai::rw_ptr;
+                unsigned const PTR = ssa_ptr_input(ssa_it->op());
+                unsigned const PTR_HI = ssa_ptr_hi_input(ssa_it->op());
+
+                // fn_ptr_call only sometimes uses a make_ptr pointer.
+                if(ssa_it->op() == SSA_fn_ptr_call)
+                {
+                    if(ssa_it->input(1)) // If we have a bank.
+                        goto done_make_ptr;
+                        
+                    fn_set_t const& fn_set = *ssa_it->input(0).locator().fn_set();
+                    if(!mod_test(fn.mods(), MOD_static) && fn_set.returns_in_different_bank())
+                        goto done_make_ptr;
+
+                    goto make_ptr;
+                }
 
                 // Pointer accesses may create 'SSA_make_ptr' nodes.
                 if(ssa_it->input(PTR).holds_ref())
                 {
+                make_ptr:
                     assert(!ssa_it->input(PTR_HI).holds_ref());
 
                     ssa_ht const lo = cfg_node.emplace_ssa(
@@ -298,6 +313,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     assert(is_ptr(ssa_it->input(PTR).type().name()));
                     ssa_it->link_change_input(PTR, locator_t::addr(ssa_it->input(PTR).whole()));
                 }
+            done_make_ptr:;
             }
 
             if(ssa_it->op() == SSA_read_array16 || ssa_it->op() == SSA_write_array16)
@@ -387,6 +403,17 @@ void byteify(ir_t& ir, fn_t const& fn)
     {
         switch(ssa_it->op())
         {
+        case SSA_fn_ptr_call:
+            if(!ssa_it->input(3))
+            {
+                ssa_value_t ptr = ssa_it->input(2);
+                bm_t const bm = _get_bm(ptr);
+                passert(bm[max_frac_bytes+0], ssa_it, ptr);
+                passert(bm[max_frac_bytes+1], ssa_it, ptr);
+                ssa_it->link_change_input(2, bm[max_frac_bytes+0]);
+                ssa_it->link_change_input(3, bm[max_frac_bytes+1]);
+            }
+            // fall-through
         case SSA_fn_call:
             {
                 ssa_value_t bank = ssa_it->input(1);
@@ -633,7 +660,7 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                 assert(ssa_it->input_size() == 1);
                 ssa_value_t const input = ssa_it->input(0);
-                assert(is_ptr(input.type().name()));
+                passert(is_ptr(input.type().name()), input.type());
 
                 bm_t bm = _get_bm(input);
                 unsigned const begin = begin_byte(input.type().name());
@@ -686,7 +713,7 @@ void byteify(ir_t& ir, fn_t const& fn)
 
         default:
             assert(!(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS));
-            assert(!fn_like(ssa_it->op()));
+            assert(!direct_fn(ssa_it->op()));
 
             if(ssa_it->test_flags(FLAG_PROCESSED))
                 break;

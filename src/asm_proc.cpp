@@ -486,6 +486,33 @@ void asm_proc_t::convert_long_branch_ops()
     while(progress);
 }
 
+void asm_proc_t::convert_indirect_jsr()
+{
+    fc::small_map<std::pair<locator_t, locator_t>, locator_t, 4> map;
+
+    unsigned const code_size = code.size();
+    for(unsigned i = 0; i < code_size; ++i)
+    {
+        asm_inst_t& inst = code[i];
+        if(inst.op != JSR_INDIRECT)
+            continue;
+
+        auto result = map.emplace(std::make_pair(inst.arg, inst.alt), locator_t());
+
+        if(result.second)
+        {
+            result.first.underlying->second = push_label(next_label_id());
+            asm_inst_t jmp = inst;
+            jmp.op = JMP_INDIRECT;
+            push_inst(inst);
+        }
+
+        inst.op = JSR_ABSOLUTE;
+        inst.arg = result.first->second;
+        inst.alt = {};
+    }
+}
+
 // Note: 'use_nops' can be dangerous if applied too early,
 // as it hardcodes the relative jump distance.
 void asm_proc_t::optimize_short_jumps(bool use_nops)
@@ -569,6 +596,8 @@ void asm_proc_t::optimize(bool initial)
     absolute_to_zp();
     optimize_short_jumps(!initial);
     convert_long_branch_ops();
+    if(initial)
+        convert_indirect_jsr();
 }
 
 void asm_proc_t::link(romv_t romv, int bank)
@@ -657,7 +686,9 @@ static std::pair<locator_t, locator_t> absolute_locs(asm_inst_t const& inst)
     locator_t lo = inst.arg;
     locator_t hi = inst.alt;
 
-    if(!hi)
+    if(indirect_addr_mode(op_addr_mode(inst.op)))
+        hi = lo.with_is(IS_PTR_HI);
+    else if(!hi)
     {
         if(lo.is() == IS_PTR || lo.is() == IS_DEREF)
             hi = lo.with_is(IS_PTR_HI);

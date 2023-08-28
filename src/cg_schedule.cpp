@@ -48,7 +48,7 @@ private:
     std::vector<ssa_ht> toposorted;
 
     ssa_schedule_d& data(ssa_ht h) const { return cg_data(h).schedule; }
-    unsigned& index(ssa_ht h) const { return data(h).index; }
+    int& index(ssa_ht h) const { return data(h).index; }
 
     void append_schedule(ssa_ht h);
     template<bool Fast>
@@ -793,7 +793,7 @@ void scheduler_t::append_schedule(ssa_ht h)
     // If this is a global read, add it to our set:
     if(h->op() == SSA_read_global)
         unused_global_reads.insert(h);
-    if(fn_like(h->op()))
+    if(is_fn_call(h->op(), true))
     {
         // When calling a function, clear our set:
         unused_global_reads.clear();
@@ -925,7 +925,7 @@ bool scheduler_t::ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled
     if(relax >= 1)
         return true;
 
-    if(!unused_global_reads.empty() && fn_like(h->op()))
+    if(!unused_global_reads.empty() && is_fn_call(h->op(), true))
         return false;
 
     return true;

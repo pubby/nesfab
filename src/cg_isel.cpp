@@ -3864,6 +3864,56 @@ namespace isel
 
             break;
 
+        case SSA_fn_ptr_call:
+            {
+                using p_ptr_lo = p_arg<0>;
+                using p_ptr_hi = p_arg<1>;
+                using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
+
+                // The trampoline:
+                p_arg<3>::set(locator_t::runtime_rom(RTROM_jsr_trampoline));
+
+                // The ptr:
+                p_ptr_lo::set(h->input(2));
+                p_ptr_hi::set(h->input(3));
+
+                fn_set_t const& fn_set = *h->input(0).locator().fn_set();
+
+                if(h->input(1))
+                {
+                    // The bank:
+                    p_arg<2>::set(h->input(1));
+
+                    chain
+                    < load_Y<Opt, p_arg<2>>
+                    , load_AX<Opt::restrict_to<~REGF_Y>, p_ptr_lo, p_ptr_hi>
+                    , simple_op<Opt, read_reg_op(REGF_A | REGF_X | REGF_Y)>
+                    , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<3>>
+                    , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    if(!mod_test(state.fn->mods(), MOD_static) && fn_set.returns_in_different_bank())
+                    {
+                        chain
+                        < load_AX<Opt, p_ptr_lo, p_ptr_hi>
+                        , simple_op<Opt, read_reg_op(REGF_A | REGF_X)>
+                        , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<3>>
+                        , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                        >(cpu, prev, cont);
+                    }
+                    else
+                    {
+                        chain
+                        < exact_op<Opt, JSR_INDIRECT, null_, p_ptr>
+                        , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
+                        >(cpu, prev, cont);
+                    }
+                }
+            }
+            break;
+
         case SSA_fn_call:
             {
                 assert(h->input(0).is_locator());
@@ -4200,6 +4250,7 @@ namespace isel
 
         case SSA_return:
         case SSA_fn_call:
+        case SSA_fn_ptr_call:
         case SSA_wait_nmi:
         case SSA_cli:
             write_globals<Opt>(h);
@@ -4405,12 +4456,17 @@ namespace isel
 
             if(h->input(0).holds_ref() && cset_head(h) == cset_head(h->input(0).handle()))
                 select_step<true>(ignore_req_store<p_def>);
-            else if(is_tea(h->type().name()))
-                copy_array<Opt>(h->input(0), h);
             else
             {
-                p_arg<0>::set(h->input(0));
-                select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
+                //fall-through
+        case SSA_const_store:
+                if(is_tea(h->type().name()))
+                    copy_array<Opt>(h->input(0), h);
+                else
+                {
+                    p_arg<0>::set(h->input(0));
+                    select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
+                }
             }
             break;
 

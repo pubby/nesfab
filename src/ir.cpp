@@ -1113,7 +1113,7 @@ void ir_t::assert_valid(bool cg) const
             // Early Store Checks
             if(ssa_it->op() == SSA_early_store)
             {
-                assert(ssa_it->output_size() <= 1);
+                passert(ssa_it->output_size() <= 1, ssa_it->op(), ssa_it->output_size());
             }
         }
     }
@@ -1147,6 +1147,17 @@ ssa_ht split_output_edge(ssa_ht ssa_node, bool this_cfg, unsigned output_i, ssa_
 
     passert(copy->type() == copy->input(0).type(), copy->type(), copy->input(0).type());
     return copy;
+}
+
+callable_t const* get_callable(ssa_node_t const& node, bool allow_goto)
+{
+    if(!is_fn_call(node.op(), allow_goto))
+        return nullptr;
+    if(fn_ht fn = get_fn(node))
+        return &*fn;
+    if(fn_set_ht fn_set = get_fn_set(node))
+        return &*fn_set;
+    return nullptr;
 }
 
 template class node_io_buffers_t<ssa_fwd_edge_t, ssa_bck_edge_t, 3, 1>;

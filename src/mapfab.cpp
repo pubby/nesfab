@@ -177,7 +177,7 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
         data = get8();
     for(unsigned i = 0; i < num_palettes; ++i)
     {
-        palette_t palette;
+        palette_t palette = {};
         std::copy_n(palette_data.begin() + 25 * i, 25, palette.data.data());
         palettes.push_back(std::move(palette));
     }
@@ -573,7 +573,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
             private_groups = *base_private_groups;
 
         global_t& g = private_globals.lookup(at, "_palette"sv);
-        define_ct(g, at, palette.data.data() + 25*i, 25);
+        define_ct(g, at, palette.data.data(), 25);
         define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
 
         macro_invocation_t m = { macros.palette };

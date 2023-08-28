@@ -43,6 +43,10 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
             if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
             {
                 unsigned const begin = write_globals_begin(ssa_it->op());
+
+                for(unsigned i = 0; i < begin; ++i)
+                    o << gv_input_id(ssa_it, i) << ";\n";
+
                 unsigned const input_size = ssa_it->input_size();
                 assert((input_size - begin) % 2 == 0);
                 for(unsigned i = begin; i < input_size; i += 2)
@@ -63,15 +67,19 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
     {
         o << gv_id(ssa_it) << " [label=\"(" << ssa_it.id << ") ";
         o << to_string(ssa_it->op());
-        if(fn_ht fn = get_fn(*ssa_it))
+        if(fn_set_ht fn_set = get_fn_set(*ssa_it))
+            o << " " << fn_set->global.name;
+        else if(fn_ht fn = get_fn(*ssa_it))
             o << " " << fn->global.name;
         else
             o << " " << ssa_it->type();
+        if(ssa_it->in_daisy())
+            o << " (DAISY)";
         if(ssa_it == ssa_it->cfg_node()->last_daisy())
             o << " (EXIT)";
         o << "\"";
 
-        if(fn_like(ssa_it->op()))
+        if(direct_fn(ssa_it->op()) || ssa_it->op() == SSA_fn_ptr_call)
             o << " shape=invhouse";
 
         o << "];\n"; 
@@ -117,7 +125,17 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
 
             if(input.is_const())
             {
-                if(fn_like(ssa_it->op()) && i == 0)
+                if(ssa_it->op() == SSA_fn_ptr_call && i == 0)
+                {
+                    o << gv_input_id(ssa_it, i);
+                    o << " [label=\"{";
+                    o << input.locator().fn_set()->global.name;
+                    o << " (" << input.locator().data() << ")";
+                    if(loc)
+                        o << "\\n(" << loc << ")";
+                    o << "}\" shape=box];\n";
+                }
+                else if(direct_fn(ssa_it->op()) && i == 0)
                 {
                     o << gv_input_id(ssa_it, i);
                     o << " [label=\"{";
@@ -169,6 +187,13 @@ void graphviz_ssa(std::ostream& o, ir_t const& ir)
         if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
         {
             unsigned const begin = write_globals_begin(ssa_it->op());
+
+            for(unsigned i = 0; i < begin; ++i)
+            {
+                ssa_value_t input = ssa_it->input(i);
+                write_input(i, input);
+            }
+
             unsigned const input_size = ssa_it->input_size();
             assert((input_size - begin) % 2 == 0);
             for(unsigned i = begin; i < input_size; i += 2)

@@ -253,7 +253,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    void end_fn(var_decl_t decl, fn_class_t fclass, std::unique_ptr<mods_t> mods)
+    void end_fn(var_decl_t decl, fn_class_t fclass, pstring_t fn_set_name, std::unique_ptr<mods_t> mods)
     {
         // Convert local consts now:
         for(auto& c : fn_def.local_consts)
@@ -282,16 +282,20 @@ public:
                 );
         }
 
+        fn_set_t* fn_set = nullptr;
+        if(fn_set_name)
+            fn_set = &lookup_fn_set(fn_set_name);
+
         // Create the global:
         active_global->define_fn(
             decl.name, std::move(ideps),
-            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, false);
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, false, fn_set);
         ideps.clear();
     }
 
     [[gnu::always_inline]]
     void end_asm_fn(
-        var_decl_t decl, fn_class_t fclass, ast_node_t ast,
+        var_decl_t decl, fn_class_t fclass, pstring_t fn_set_name, ast_node_t ast,
         std::unique_ptr<mods_t> mods)
     {
         assert(ast.token.type == lex::TOK_byte_block_proc
@@ -326,10 +330,14 @@ public:
                 );
         }
 
+        fn_set_t* fn_set = nullptr;
+        if(fn_set_name)
+            fn_set = &lookup_fn_set(fn_set_name);
+
         // Create the global:
         active_global->define_fn(
             decl.name, std::move(ideps),
-            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true);
+            decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true, fn_set);
         ideps.clear();
     }
 

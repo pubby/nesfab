@@ -138,7 +138,7 @@ public:
     // Helpers that delegate to 'define':
     fn_ht define_fn(
         pstring_t pstring, ideps_map_t&& ideps,
-        type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass, bool iasm);
+        type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass, bool iasm, fn_set_t* fn_set);
     gvar_ht define_var(
         pstring_t pstring, ideps_map_t&& ideps, 
         src_type_t src_type, defined_group_vars_t group, 
@@ -332,6 +332,59 @@ private:
     bool m_has_tea_member = false;
 };
 
+// Holds state common to both fn_t and fn_set_t.
+class callable_t
+{
+public:
+    auto const& precheck_rw() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_rw; }
+    auto const& precheck_calls() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_calls; }
+    auto precheck_romv() const {  return m_precheck_romv; }
+    bool precheck_fences() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_fences; }
+    bool precheck_wait_nmi() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_wait_nmi; }
+
+    auto const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
+    auto const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
+    auto const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
+    auto const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
+    auto const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
+    bool ir_tests_ready() const { assert(m_ir_writes); return m_ir_tests_ready; }
+    bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
+    bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
+
+    bool returns_in_different_bank() const { assert(m_ir_writes); return m_returns_in_different_bank; }
+
+    virtual void for_each_fn(std::function<void(fn_ht)> const& fn) const = 0;
+protected:
+    xbitset_t<group_vars_ht> m_precheck_group_vars;
+    xbitset_t<gmember_ht> m_precheck_rw; // TODO: replace with more accurate reads and writes
+    xbitset_t<fn_ht> m_precheck_calls;
+    romv_flags_t m_precheck_romv = 0;
+    // If the function (or a called fn) waits on NMI
+    bool m_precheck_wait_nmi = false;
+    bool m_precheck_fences = false;
+
+    xbitset_t<gmember_ht> m_ir_reads;
+    xbitset_t<gmember_ht> m_ir_writes;
+    xbitset_t<group_vars_ht> m_ir_group_vars;
+    xbitset_t<group_ht> m_ir_deref_groups;
+    xbitset_t<fn_ht> m_ir_calls;
+
+    // If the function uses a 'SSA_ready' node:
+    bool m_ir_tests_ready = false;
+
+    // If the function (and called fns) doesn't do I/O.
+    // (Using mutable memory state is OK.)
+    // Gets set by 'calc_reads_writes_purity'.
+    bool m_ir_io_pure = false;
+
+    // If the function (or a called fn) waits on NMI
+    bool m_ir_fences = false;
+
+    // If the function bankswitches to a different bank:
+    bool m_returns_in_different_bank = false;
+};
+
+
 struct fn_impl_base_t
 {
     virtual ~fn_impl_base_t() {}
@@ -384,18 +437,20 @@ struct precheck_tracked_t
     std::vector<pstring_mods_t> fences;
     std::vector<std::pair<fn_ht, pstring_mods_t>> goto_modes;
     fc::vector_map<fn_ht, pstring_t> calls;
+    fc::vector_map<fn_set_ht, pstring_t> calls_ptrs;
     fc::vector_map<gvar_ht, pstring_t> gvars_used;
 };
 
-class fn_t : public modded_t
+class fn_t : public callable_t, public modded_t
 {
 friend class global_t;
+friend class fn_set_t;
 public:
     static constexpr global_class_t global_class = GLOBAL_FN;
     using handle_t = fn_ht;
 
     fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
-         fn_class_t fclass, bool iasm);
+         fn_class_t fclass, bool iasm, fn_set_t* fn_set);
 
     fn_ht handle() const;
 
@@ -421,25 +476,10 @@ public:
     auto const& precheck_group_vars() const { assert(m_precheck_group_vars); return m_precheck_group_vars; }
     auto const& precheck_parent_modes() const {assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_parent_modes; }
     auto const& mode_group_vars() const { assert(fclass == FN_MODE); return pimpl<mode_impl_t>().m_precheck_mode_group_vars; }
-
-    auto const& precheck_rw() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_rw; }
-    auto const& precheck_calls() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_calls; }
-    auto precheck_romv() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_romv; }
-    bool precheck_fences() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_fences; }
     unsigned precheck_called() const { assert(compiler_phase() > PHASE_PRECHECK); return m_precheck_called; }
 
     // These are only valid after 'calc_ir_reads_writes_purity' has ran.
-    auto const& ir_reads()  const { assert(m_ir_reads);  return m_ir_reads; }
-    auto const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
-    auto const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
-    auto const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
-    auto const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
-    bool ir_tests_ready() const { assert(m_ir_writes); return m_ir_tests_ready; }
-    bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
-    bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
     bool ct_pure() const;
-
-    bool returns_in_different_bank() const { assert(m_ir_writes); return m_returns_in_different_bank; }
 
     bool always_inline() const { passert(global.compiled(), global.name); return m_always_inline; }
 
@@ -484,6 +524,10 @@ public:
 
     std::stringstream const* info_stream() const { return m_info_stream.get(); }
     std::stringstream* info_stream() { return m_info_stream.get(); }
+
+    fn_set_t* fn_set() const { return m_fn_set; }
+
+    virtual void for_each_fn(std::function<void(fn_ht)> const& fn) const override;
     
 private:
     template<typename Fn>
@@ -521,42 +565,17 @@ private:
     type_t m_type;
     fn_def_t m_def;
 
+    fn_set_t* m_fn_set;
+
     // This enables different fclasses to store different data.
     std::unique_ptr<fn_impl_base_t> m_pimpl;
 
+    // Our precheck info:
     std::unique_ptr<precheck_tracked_t> m_precheck_tracked;
-    xbitset_t<group_vars_ht> m_precheck_group_vars;
-    xbitset_t<gmember_ht> m_precheck_rw; // TODO: replace with more accurate reads and writes
-    xbitset_t<fn_ht> m_precheck_calls;
     fc::vector_set<fn_ht> m_precheck_parent_modes;
-    romv_flags_t m_precheck_romv = 0;
-    // If the function (or a called fn) waits on NMI
-    bool m_precheck_wait_nmi = false;
-    bool m_precheck_fences = false;
 
+    // If we're using faster, but less accurate code generation:
     bool m_sloppy = false;
-
-    // Bitsets of all global vars read/written in fn (deep)
-    // These get assigned by 'calc_reads_writes_purity'.
-    // The thread synchronization is implicit in the order of compilation.
-    xbitset_t<gmember_ht> m_ir_reads;
-    xbitset_t<gmember_ht> m_ir_writes;
-    xbitset_t<group_vars_ht> m_ir_group_vars;
-    xbitset_t<group_ht> m_ir_deref_groups;
-    xbitset_t<fn_ht> m_ir_calls;
-
-    // If the function uses a 'SSA_ready' node:
-    bool m_ir_tests_ready = false;
-
-    // If the function (and called fns) doesn't do I/O.
-    // (Using mutable memory state is OK.)
-    // Gets set by 'calc_reads_writes_purity'.
-    bool m_ir_io_pure = false;
-
-    // If the function (or a called fn) waits on NMI
-    bool m_ir_fences = false;
-
-    bool m_returns_in_different_bank = false;
 
     // If the function should be inlined:
     bool m_always_inline = false;
@@ -783,9 +802,10 @@ private:
     rom_array_ht m_byte_pairs = {};
 };
 
-class fn_set_t
+class fn_set_t : public callable_t
 {
 friend class global_t;
+friend class fn_t;
 public:
     static constexpr global_class_t global_class = GLOBAL_FN_SET;
     using handle_t = fn_set_ht;
@@ -796,28 +816,53 @@ public:
     : global(global)
     {}
 
-    void resolve() {}
-    void precheck() {}
-    void compile() {}
+    void resolve();
+    void precheck();
+    void compile();
 
     global_t& lookup(char const* source, pstring_t pstring);
     global_t* lookup_hash(std::uint64_t hash) const;
 
-    //auto begin() const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cbegin(); }
-    //auto end()   const { assert(compiler_phase() > PHASE_PARSE); return m_fns.cend(); }
+    auto begin() const { assert(global.resolved()); return m_fns.cbegin(); }
+    auto end()   const { assert(global.resolved()); return m_fns.cend(); }
 
-    unsigned ptr_size() const { assert(global.compiled()); return m_ptr_size; }
-    romv_flags_t romv_flags() const { assert(global.compiled()); return m_romv_flags; }
-    unsigned size_of() const { return ptr_size() * romv_flags(); }
+    bool banked_ptrs() const { assert(compiler_phase() > PHASE_PARSE); return m_banked_ptrs; }
+    unsigned ptr_size() const { return banked_ptrs() ? 3 : 2; }
+    //unsigned num_ptrs() const  { return NUM_ROMV; }
+    //unsigned num_ptrs_used() const  { return builtin::popcount(precheck_romv()); }
+    unsigned num_members() const { return banked_ptrs() ? 2 : 1; }
+    /*
+    unsigned num_members_used() const 
+    { 
+        assert(global.prechecked()); 
+        unsigned num = num_ptrs_used();
+        if(banked_ptrs())
+            num *= 2;
+        return num;
+    }
+    */
+    void count_members();
+    unsigned size_of() const { return ptr_size(); }
+
+    romv_t romv() const 
+    { 
+        assert(builtin::popcount(m_precheck_romv) <= 1); 
+        return m_precheck_romv ? romv_t(builtin::ctz(m_precheck_romv)) : ROMV_MODE; 
+    }
+
+    virtual void for_each_fn(std::function<void(fn_ht)> const& fn) const override;
+
+    type_t type() const { assert(global.prechecked()); return m_type; }
 
     global_t& global;
 private:
     std::mutex m_fns_mutex;
-    ident_map_t<global_ht> m_fns;
-    rh::robin_map<std::uint64_t, global_t*> m_fn_hashes;
+    std::vector<fn_ht> m_fns;
+    ident_map_t<global_ht> m_fns_map;
+    rh::batman_map<std::uint64_t, global_t*> m_fn_hashes;
+    type_t m_type = TYPE_VOID;
 
-    unsigned m_ptr_size = 0;
-    romv_flags_t m_romv_flags = 0;
+    bool m_banked_ptrs = false;
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

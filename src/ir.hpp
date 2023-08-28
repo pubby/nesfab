@@ -508,10 +508,21 @@ inline bool carry_used(ssa_node_t const& node)
 
 inline fn_ht get_fn(ssa_node_t const& node)
 {
-    if(fn_like(node.op()) && has_fn(node.input(0).locator().lclass()))
+    if(node.op() == SSA_fn_ptr_call)
+        return {};
+    if(direct_fn(node.op()) && has_fn(node.input(0).locator().lclass()))
         return node.input(0).locator().fn();
     return {};
 }
+
+inline fn_set_ht get_fn_set(ssa_node_t const& node)
+{
+    if(node.op() == SSA_fn_ptr_call && has_fn_set(node.input(0).locator().lclass()))
+        return node.input(0).locator().fn_set();
+    return {};
+}
+
+class callable_t const* get_callable(ssa_node_t const& node, bool allow_goto = false);
 
 inline unsigned get_condition_i(ssa_op_t op)
 {
@@ -565,7 +576,7 @@ void for_each_written_global(ssa_ht h, Fn const& fn)
     assert(ssa_flags(h->op()) & SSAF_WRITE_GLOBALS);
     unsigned const begin = write_globals_begin(h->op());
     unsigned const input_size = h->input_size();
-    assert((input_size - begin) % 2 == 0);
+    passert((input_size - begin) % 2 == 0, h->op(), input_size, begin);
     for(unsigned i = begin; i < input_size; i += 2)
         fn(h->input(i), h->input(i+1).locator());
 }

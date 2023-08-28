@@ -1928,18 +1928,62 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             strval_t const* strval;
 
+            if(value.type.name() == TYPE_FN_SET)
+            {
+                throw compiler_error_t(
+                    fmt_error(value.pstring, "Cannot get address of fn set.")
+                    + fmt_note("\"@\" binds tighter than \".\"")
+                    + fmt_note("Consider wrapping the fn expression in parenthesis."));
+            }
+
             if(lval_t const* lval = value.is_lval())
             {
-                if(!(lval->flags & LVALF_IS_GLOBAL) || !is_paa(value.type.name()))
+                if(!(lval->flags & LVALF_IS_GLOBAL))
                     goto at_error;
 
                 switch(lval->global().gclass())
                 {
+                case GLOBAL_FN:
+                    {
+                        if(value.type.name() != TYPE_FN)
+                            goto at_error;
+
+                        fn_t const& fn = lval->global().impl<fn_t>();
+                        if(fn_set_t const* fn_set = fn.fn_set())
+                        {
+                            rval_t rval;
+
+                            if(!is_check(D))
+                            {
+                                locator_t const loc = locator_t::fn_ptr(fn.handle(), lval->ulabel());
+                                rval.push_back(loc.with_is(IS_PTR));
+                                if(fn_set->banked_ptrs())
+                                    rval.push_back(loc.with_is(IS_BANK));
+                                passert(rval.size() == fn_set->num_members(), rval.size(), fn_set->num_members());
+                                assert(!rval.empty());
+                            }
+
+                            return
+                            {
+                                .val = std::move(rval),
+                                .type = type_t::fn_ptr(*fn_set),
+                                .pstring = ast.token.pstring,
+                                .time = is_compile(D) ? RT : LT,
+                            };
+                        }
+                        else
+                        {
+                            compiler_error(ast.token.pstring, 
+                                fmt("Cannot get pointer from a fn that does not belong to a fn set."));
+                        }
+                    }
+                    goto at_error;
+
                 case GLOBAL_CONST:
                     {
                         const_t const& c = lval->global().impl<const_t>();
 
-                        if(!c.is_paa())
+                        if(!c.is_paa() || !is_paa(value.type.name()))
                             goto at_error;
 
                         return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), type_ptr(false, c.banked)), c.banked);
@@ -1949,7 +1993,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         gvar_t const& v = lval->global().impl<gvar_t>();
 
-                        if(!v.is_paa())
+                        if(!v.is_paa() || !is_paa(value.type.name()))
                             goto at_error;
 
                         return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), type_ptr(true, false)), false);
@@ -2810,33 +2854,75 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             // The first expression is the function:
             expr_value_t& fn_expr = exprs[0];
             expr_value_t* args = exprs.data() + 1;
+            pstring_t const call_pstring = concat(fn_expr.pstring, ast.token.pstring);
 
-            if(fn_expr.type.name() != TYPE_FN)
+            callable_t const* callable = nullptr;
+            fn_ht call = {};
+            type_t fn_type = TYPE_VOID;
+
+            if(fn_expr.type.name() == TYPE_FN_PTR)
+            {
+                // Calling a fn pointer.
+
+                if(mode_apply)
+                    compiler_error(call_pstring, "Cannot goto a fn pointer.");
+
+                if(is_interpret(D))
+                    compiler_error(call_pstring, "Cannot call a fn pointer at compile-time.");
+
+                assert(fn_expr.is_rval());
+                fn_set_t const& call_set = fn_expr.type.fn_set();
+                callable = &call_set;
+
+                if(precheck_tracked)
+                {
+                    for(fn_ht call : call_set)
+                        precheck_tracked->calls.emplace(call, call_pstring);
+                    precheck_tracked->calls_ptrs.emplace(call_set.handle(), call_pstring);
+                }
+
+                fn_type = call_set.type();
+                assert(fn_type.name() == TYPE_FN);
+            }
+            else if(fn_expr.type.name() == TYPE_FN)
+            {
+                assert(fn_expr.is_rval());
+                call = fn_expr.ssa().locator().fn();
+                callable = &*call;
+
+                if(call->fclass == FN_NMI)
+                    compiler_error(call_pstring, "Cannot call nmi function.");
+
+                if(call->fclass == FN_MODE)
+                {
+                    if(!mode_apply)
+                        compiler_error(call_pstring, "Cannot call modes.");
+
+                    if(is_interpret(D))
+                        compiler_error(call_pstring, "Cannot goto mode at compile-time.");
+                }
+                else if(mode_apply)
+                    compiler_error(call_pstring, "Cannot goto non-mode functions.");
+
+                if(precheck_tracked)
+                {
+                    if(mode_apply) // Track that we're going to a mode here:
+                        precheck_tracked->goto_modes.push_back(std::make_pair(call, stmt_pstring_mods()));
+                    else if(call->fclass != FN_CT)
+                        precheck_tracked->calls.emplace(call, call_pstring);
+                }
+
+                fn_type = fn_expr.type;
+            }
+            else
             {
                 compiler_error(ast.children[0].token.pstring, fmt(
                     "Expecting function type. Got %.", fn_expr.type));
             }
 
-            assert(fn_expr.is_rval());
-            fn_ht const call = fn_expr.ssa().locator().fn();
-            pstring_t const call_pstring = concat(fn_expr.pstring, ast.token.pstring);
-
-            if(call->fclass == FN_NMI)
-                compiler_error(call_pstring, "Cannot call nmi function.");
-
-            if(call->fclass == FN_MODE)
-            {
-                if(!mode_apply)
-                    compiler_error(call_pstring, "Cannot call modes.");
-
-                if(is_interpret(D))
-                    compiler_error(call_pstring, "Cannot goto mode at compile-time.");
-            }
-            else if(mode_apply)
-                compiler_error(call_pstring, "Cannot goto non-mode functions.");
-
-            std::size_t const num_params = fn_expr.type.num_params();
-            type_t const* const params = fn_expr.type.types();
+            assert(fn_type != TYPE_VOID);
+            std::size_t const num_params = fn_type.num_params();
+            type_t const* const params = fn_type.types();
 
             if(num_args != num_params)
             {
@@ -2844,7 +2930,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     fn_expr.pstring, fmt(
                     "Passed % arguments to a function of type %. "
                     "Expecting % arguments.",
-                    num_args, fn_expr.type, num_params));
+                    num_args, fn_type, num_params));
             }
 
             // Now for the arguments.
@@ -2858,28 +2944,22 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     "Unable to convert type % "
                     "to type % in function application.\n"
                     "Expected signature: % ",
-                    args[cast_result].type, params[cast_result], fn_expr.type));
-            }
-
-            if(precheck_tracked)
-            {
-                if(call->fclass == FN_MODE) // Track that we're going to a mode here:
-                    precheck_tracked->goto_modes.push_back(std::make_pair(call, stmt_pstring_mods()));
-                else if(call->fclass != FN_CT)
-                    precheck_tracked->calls.emplace(call, call_pstring);
+                    args[cast_result].type, params[cast_result], fn_type));
             }
 
             // Now do the call!
 
             expr_value_t result =
             {
-                .type = fn_expr.type.return_type(), 
+                .type = fn_type.return_type(), 
                 .pstring = call_pstring,
             };
 
             if(is_interpret(D))
             {
             interpret_fn:
+                assert(call);
+
                 bc::small_vector<rval_t, 8> rval_args(num_args);
                 for(unsigned i = 0; i < num_args; ++i)
                 {
@@ -2903,23 +2983,26 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             }
             else if(is_compile(D))
             {
-                if(call->fclass == FN_CT)
-                    goto interpret_fn;
-
-                // Interpret when possible:
-                if(call->ct_pure())
+                if(call)
                 {
-                    for(unsigned i = 0; i < num_args; ++i)
-                        if(!args[i].is_ct())
-                            goto compile_fn;
+                    if(call->fclass == FN_CT)
+                        goto interpret_fn;
 
-                    goto interpret_fn;
+                    // Interpret when possible:
+                    if(call->ct_pure())
+                    {
+                        for(unsigned i = 0; i < num_args; ++i)
+                            if(!args[i].is_ct())
+                                goto compile_fn;
+
+                        goto interpret_fn;
+                    }
                 }
 
             compile_fn:
                 result.time = RT;
 
-                if(call->fclass == FN_FN && call->always_inline())
+                if(call && call->fclass == FN_FN && call->always_inline())
                 {
                     cfg_exits_with_jump();
                     cfg_ht const pre_entry = builder.cfg;
@@ -2950,15 +3033,38 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 {
                     bc::small_vector<ssa_value_t, 32> fn_inputs;
 
-                    // The [0] argument holds the fn_t ptr.
-                    fn_inputs.push_back(fn_expr.ssa());
+                    // The [0] argument holds the fn_t ptr for direct calls,
+                    // and the fn_set for ptr calls.
+                    if(call)
+                    {
+                        fn_inputs.push_back(fn_expr.ssa());
 
-                    // For modes, the [1] argument references the stmt,
-                    // otherwise it holds the bank, if necessary.
-                    if(call->fclass == FN_MODE)
-                        fn_inputs.push_back(locator_t::stmt(stmt_handle()));
+                        // For modes, the [1] argument references the stmt,
+                        // otherwise it holds the bank, if necessary.
+                        if(mode_apply)
+                            fn_inputs.push_back(locator_t::stmt(stmt_handle()));
+                        else
+                            fn_inputs.push_back({});
+                    }
                     else
-                        fn_inputs.push_back({});
+                    {
+                        fn_set_t const& call_set = fn_expr.type.fn_set();
+                        fn_inputs.push_back(locator_t::fn_set(call_set.handle()));
+                        assert(fn_inputs.back().locator().fn_set());
+
+                        // [1] holds the bank:
+                        if(call_set.banked_ptrs())
+                            fn_inputs.push_back(fn_expr.ssa(1));
+                        else
+                            fn_inputs.push_back({});
+                    }
+
+                    if(!call)
+                    {
+                        // fn ptrs input the pointer here:
+                        fn_inputs.push_back(fn_expr.ssa());
+                        fn_inputs.push_back(ssa_value_t());
+                    }
 
                     // Prepare the input globals
 
@@ -2967,7 +3073,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                     // Prepare global inputs:
 
-                    if(call->fclass == FN_MODE)
+                    if(mode_apply)
                     {
                         // 'goto mode's use their modifiers to determine inputs.
 
@@ -3008,16 +3114,16 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
                     else
                     {
-                        assert(call->ir_reads().size() == gmember_bs_size);
+                        assert(callable->ir_reads().size() == gmember_bs_size);
 
                         // Use 'ir_reads()' to determine which members are needed by the called fn.
 
                         ir->gmanager.for_each_gmember_set(base_fn->handle(),
                         [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
                         {
-                            if(!call->precheck_fences())
+                            if(!callable->precheck_fences())
                             {
-                                bitset_copy(gmember_bs_size, temp_bs, call->ir_reads().data());
+                                bitset_copy(gmember_bs_size, temp_bs, callable->ir_reads().data());
                                 bitset_and(gmember_bs_size, temp_bs, gmember_set);
                                 if(bitset_all_clear(gmember_bs_size, temp_bs))
                                     return;
@@ -3031,7 +3137,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                             {
-                                if(call->precheck_fences() || call->ir_reads().test(m.id))
+                                if(callable->precheck_fences() || callable->ir_reads().test(m.id))
                                 {
                                     fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
                                     fn_inputs.push_back(locator_t::gmember(m, 0));
@@ -3041,13 +3147,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     }
 
                     locator_t first_bank = {};
-                    if(call->fclass == FN_FN)
+                    if(call && call->fclass == FN_FN)
                         first_bank = call->first_bank_switch().mem_head();
 
                     // Prepare the arguments
                     for(unsigned i = 0; i < num_params; ++i)
                     {
-                        type_t const param_type = call->type().type(i);
+                        type_t const param_type = fn_type.type(i);
                         unsigned const num_param_members = ::num_members(param_type);
 
                         for(unsigned j = 0; j < num_param_members; ++j)
@@ -3065,31 +3171,33 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             if(loc == first_bank)
                             {
                                 assert(!fn_inputs[1]);
-                                assert(call->fclass == FN_FN);
+                                assert(!call || call->fclass == FN_FN);
                                 fn_inputs[1] = arg;
                             }
                         }
                     }
 
                     // Create the dependent node.
-                    ssa_op_t const op = (call->fclass == FN_MODE) ? SSA_goto_mode : SSA_fn_call;
+                    ssa_op_t op;
+                    if(call)
+                        op = mode_apply ? SSA_goto_mode : SSA_fn_call;
+                    else
+                        op = SSA_fn_ptr_call;
                     ssa_ht const fn_node = builder.cfg->emplace_ssa(op, TYPE_VOID);
                     fn_node->link_append_input(&*fn_inputs.begin(), &*fn_inputs.end());
 
-                    if(call->fclass == FN_MODE || !call->ir_io_pure() || call->precheck_fences())
+                    if(mode_apply || !call || !call->ir_io_pure() || call->precheck_fences())
                         fn_node->append_daisy();
 
-                    if(call->fclass != FN_MODE)
+                    if(!mode_apply)
                     {
-                        assert(fn->global.ideps().count(&call->global));
-
                         // After the fn is called, read all the globals it has written to:
 
                         ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
                         {
                             for(gmember_ht m = gvar->begin(); m != gvar->end(); ++m)
                             {
-                                if(call->precheck_fences() || call->ir_writes().test(m.id))
+                                if(callable->precheck_fences() || callable->ir_writes().test(m.id))
                                 {
                                     ssa_ht read = builder.cfg->emplace_ssa(
                                         SSA_read_global, m->type(), fn_node, locator_t::gmember(m, 0));
@@ -3102,10 +3210,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         ir->gmanager.for_each_gmember_set(base_fn->handle(),
                         [&](bitset_uint_t const* gvar_set, gmanager_t::index_t index, locator_t locator)
                         {
-                            if(!call->precheck_fences())
+                            if(!callable->precheck_fences())
                             {
                                 bitset_copy(gmember_bs_size, temp_bs, gvar_set);
-                                bitset_and(gmember_bs_size, temp_bs, call->ir_writes().data());
+                                bitset_and(gmember_bs_size, temp_bs, callable->ir_writes().data());
                                 if(bitset_all_clear(gmember_bs_size, temp_bs))
                                     return;
                             }
@@ -3116,7 +3224,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             block_data.var(to_var_i(index))[0] = read;
                         });
 
-                        type_t const return_type = fn_expr.type.return_type();
+                        type_t const return_type = fn_type.return_type();
                         unsigned const return_members = ::num_members(return_type);
 
                         for(unsigned m = 0; m < return_members; ++m)

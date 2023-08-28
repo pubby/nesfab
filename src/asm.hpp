@@ -253,6 +253,7 @@ constexpr op_t tail_call_op(op_t op)
     switch(op)
     {
     case JSR_ABSOLUTE: return JMP_ABSOLUTE;
+    case JSR_INDIRECT: return JMP_INDIRECT;
     case BANKED_X_JSR: return BANKED_X_JMP;
     case BANKED_Y_JSR: return BANKED_Y_JMP;
     case BANKED_JSR: return BANKED_JMP;

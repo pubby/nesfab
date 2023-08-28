@@ -30,6 +30,8 @@ std::string to_string(locator_t loc)
         str = fmt("pset %", loc.handle()); break;
     case LOC_FN:
         str = fmt("fn %", loc.fn()->global.name); break;
+    case LOC_FN_PTR:
+        str = fmt("fn ptr %", loc.fn()->global.name); break;
     case LOC_STMT:
         str = fmt("stmt %", loc.handle()); break;
     case LOC_ARG:
@@ -326,6 +328,11 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
         }
         return *this;
 
+    case LOC_FN_PTR:
+        // Set the romv to match the fn set's romv:
+        romv = fn()->fn_set()->romv();
+
+        // fall-through
     case LOC_FN:
         // Functions with a known first bank must be called using that bank:
         if(is() == IS_BANK && fn()->first_bank_switch())
@@ -453,6 +460,7 @@ rom_data_ht locator_t::rom_data() const
     default:
         return {};
     case LOC_FN:
+    case LOC_FN_PTR:
         return fn()->rom_proc();
     case LOC_ROM_ARRAY:
         return rom_array();

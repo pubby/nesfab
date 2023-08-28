@@ -121,14 +121,10 @@ mode main()
     init_rope(128, 64)
     {PPUCTRL}(PPUCTRL_NMI_ON)
     while true
-        nmi
-        {PPUMASK}(PPUMASK_SPR_ON | PPUMASK_GRAYSCALE)
         fence
         update_pads()
         update_rope()
         update_sprites()
-        fence
-        {PPUMASK}(PPUMASK_SPR_ON)
 
 chrrom
     file(fmt, "bg.png")

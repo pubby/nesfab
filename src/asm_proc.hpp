@@ -192,6 +192,9 @@ private:
     // Converts invalid relative branches into long branches.
     void convert_long_branch_ops();
 
+    // Converts JSR_INDIRECT to JMP_INDIRECT plus JSR_ABSOLUTE
+    void convert_indirect_jsr();
+
     // Removes NOP instructions
     void prune_nops();
 };

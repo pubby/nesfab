@@ -167,7 +167,8 @@ std::ostream& operator<<(std::ostream& ostr, type_t const& type);
 bool is_ct(type_t type);
 bool is_thunk(type_t type);
 
-unsigned num_members(type_t type);
+// If 'early' is set, calculate before resolving any global.
+unsigned num_members(type_t type, bool early = false);
 unsigned num_atoms(type_t type, unsigned member);
 unsigned num_offsets(type_t type);
 

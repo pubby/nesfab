@@ -111,8 +111,12 @@ constexpr bool is_scalar(type_name_t type_name)
     { return type_name >= TYPE_FIRST_SCALAR && type_name <= TYPE_LAST_SCALAR; }
 constexpr bool is_frac(type_name_t type_name)
     { return type_name >= TYPE_FIRST_F && type_name <= TYPE_LAST_F; }
-constexpr bool is_ptr(type_name_t type_name)
-    { return type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR; }
+constexpr bool is_ptr(type_name_t type_name, bool include_fn_ptr = false)
+{ 
+    if(include_fn_ptr && type_name == TYPE_FN_PTR)
+        return true;
+    return type_name >= TYPE_FIRST_PTR && type_name <= TYPE_LAST_PTR;
+}
 constexpr bool is_aptr(type_name_t type_name)
     { return type_name == TYPE_APTR || type_name == TYPE_BANKED_APTR; }
 constexpr bool is_cptr(type_name_t type_name)

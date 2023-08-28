@@ -1,0 +1,136 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example shows colliding billiard balls.
+
+// Size of the balls:
+ct Int RADIUS = 16
+ct Int DIAMETER = RADIUS * 2
+
+// Player data:
+struct Ball
+    UF x
+    UF y
+    SF vx
+    SF vy
+
+vars /game
+    // We'll use this to implement sprite flicker:
+    U ball_prio = 0
+
+    // The ball objects:
+    Ball[8] balls = Ball[8](
+        Ball(128, 110, 0, 0),
+        Ball(40, 98, 1.5, 0.0),
+        Ball(10, 90, 0.5, -0.5),
+        Ball(160, 120, 0.5, 0.75),
+        Ball(200, 20, -3, 0),
+        Ball(230, 110, 5, 0),
+        Ball(180, 90, 0, 0),
+        Ball(100, 200, -1, 0))
+
+data /sprites
+    // Here's where we define our metasprite, comprised of four 8x8 tiles:
+    [] ball_metasprite
+        (make_metasprite(0, Ms{}(
+            Ms(-16, -16, $00, $00),
+            Ms( -8, -16, $02, $00),
+            Ms(  0, -16, $04, $00),
+            Ms(  8, -16, $06, $00),
+            Ms(-16,   0, $20, $00),
+            Ms( -8,   0, $22, $00),
+            Ms(  0,   0, $24, $00),
+            Ms(  8,   0, $26, $00))))
+
+// Sets the OAM buffer in RAM (but doesn't upload to PPU):
+fn update_sprites()
+    // Our stack index into OAM:
+    U o = 0
+
+    // Ball sprites, using 'ball_prio' to do flicker:
+    for U i = ball_prio; i < len(balls); i += 1
+        o = push_oam_metasprite_a(o, balls[i].x.a, balls[i].y.a, @ball_metasprite, i & %11)
+    for U i = 0; i < ball_prio; i += 1
+        o = push_oam_metasprite_a(o, balls[i].x.a, balls[i].y.a, @ball_metasprite, i & %11)
+
+    // Increment 'ball_prio':
+    ball_prio += 3
+    if ball_prio >= len(balls)
+        ball_prio -= len(balls)
+
+    // Clear the remainder of OAM
+    if o
+        hide_oam(o)
+
+fn update_balls()
+    for U i = 0; i < len(balls); i += 1
+        for U j = i + 1; j < len(balls); j += 1
+            collide_balls(j, i)
+
+    for U i = 0; i < len(balls); i += 1
+        move_ball(i)
+
+fn move_ball(U a)
+    balls[a].x += balls[a].vx
+    balls[a].y += balls[a].vy
+
+fn collide_balls(U a, U b)
+    // First we'll do a bounding box check:
+    SF dx = SF(balls[b].x - balls[a].x)
+    SF dy = SF(balls[b].y - balls[a].y)
+    if abs(dx) >= DIAMETER || abs(dy) >= DIAMETER
+        return
+
+    // If that succeeds, we'll do a distance check:
+    UU hypotenuse = UU(dx*dx + dy*dy)
+    if hypotenuse >= (DIAMETER * DIAMETER)
+        return
+
+    // Normal vectorl:
+    SSFF nx = SSFF(dx) >> 5 // Divide by the diameter.
+    SSFF ny = SSFF(dy) >> 5
+
+    // Calculate dot products:
+    SSFF a_dot = SSFF(nx*balls[a].vx + ny*balls[a].vy)
+    SSFF b_dot = SSFF(nx*balls[b].vx + ny*balls[b].vy)
+    SSFF impulse = a_dot - b_dot
+
+    // Scale the normal by the calculated amount:
+    SF wx = SF(impulse*nx)
+    SF wy = SF(impulse*ny)
+
+    // Apply the impulse:
+    balls[a].vx -= wx
+    balls[a].vy -= wy
+    balls[b].vx += wx
+    balls[b].vy += wy
+
+    // Shift balls back so that they're not colliding anymore:
+    balls[a].x -= nx
+    balls[a].y -= ny
+    balls[b].x += nx
+    balls[b].y += ny
+
+nmi game_nmi()
+    if ready
+        ppu_upload_oam(0)
+    ppu_reset_scroll(0, 0)
+    {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_8X16)
+    {PPUMASK}(PPUMASK_SPR_ON)
+
+mode main()
+: nmi game_nmi
+    palette = example_palette
+    ppu_upload_palette()
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    while true
+        nmi
+        update_balls()
+        update_sprites()
+
+chrrom
+    file(fmt, "bg.png")
+    : +spr_8x16

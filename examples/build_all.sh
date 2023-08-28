@@ -21,3 +21,4 @@ set -x #echo on
 ../nesfab scrolling_8_way/scrolling_8_way.cfg
 ../nesfab rope/rope.cfg
 ../nesfab billiards/billiards.cfg
+../nesfab meta_meta_tiles/meta_meta_tiles.cfg

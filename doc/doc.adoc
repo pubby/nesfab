@@ -3729,6 +3729,10 @@ The following macro arguments are supplied for each metatile set definition:
 #:palette_name:# // The name of the palette definition the metatile set uses for display.
 ----
 
+[NOTE]
+Typically, `chr_name` and `palette_name` should be ignored for metatile sets,
+as level macros have this information too.
+
 Additionally, the following private definitions are defined:
 
 ----
@@ -3744,9 +3748,16 @@ ct U[_num] _combined     // The two arrays above combined: attribute | (collisio
 ct U[_num] _combined_alt // The two arrays above combined: (attribute << 6) | collision
 ----
 
-[NOTE]
-Typically, `chr_name` and `palette_name` should be ignored for metatile sets,
-as level macros have this information too.
+If the target is <<mapfab_mmt_32, `mmt_32`>>, the following definitions are also defined:
+
+----
+ct Int _mmt_num            // The number of metametatiles in the set.
+ct U[_num] _mmt_nw         // The north-west metatiles of each metametatile.
+ct U[_num] _mmt_ne         // The north-east metatiles of each metametatile.
+ct U[_num] _mmt_sw         // The south-west metatiles of each metametatile.
+ct U[_num] _mmt_se         // The south-east metatiles of each metametatile.
+ct U[_num] _mmt_attributes // The combined 8-bit attribute data of each metametatile.
+----
 
 *Levels Macro:*
 
@@ -3807,11 +3818,24 @@ The data of each level (`_row_major` and `_column_major`) are converted based on
 | <<file_rlz, `rlz`>>
 | Compress using RLZ compression (no terminator)
 
+| <<mapfab_mmt_32, `mmt_32`>>
+| Compress using 32x32 pixel metametatiles.
+
 |===
 
 *Modifiers:*
 
 - <<mod_flags, `+fork_scope`>>
+
+==== `mmt_32` target [[mapfab_mmt_32]]
+
+The `mmt_32` target generates 32x32 pixel metametatiles, where each metametatile is comprised of four 16x16 metatiles.
+These metametatiles are not user-defined. Instead, they are computed automatically by scanning the level data.
+
+[NOTE]
+An error will occur if more than 256 metametatiles are found.
+
+See `examples/meta_meta_tiles` for code which decompresses this.
 
 === `audio` [[kw_audio]]
 

@@ -55,6 +55,7 @@ struct mapfab_t
         std::vector<std::uint8_t> ne32;
         std::vector<std::uint8_t> sw32;
         std::vector<std::uint8_t> se32;
+        std::vector<std::uint8_t> attributes32;
         std::map<mt_t, unsigned> map32;
     };
 
@@ -88,7 +89,7 @@ struct mapfab_t
 
     void load_binary(std::uint8_t const* const begin, std::size_t size, fs::path mapfab_path);
     void load_json(std::uint8_t const* const begin, std::size_t size, fs::path mapfab_path);
-    void compute_mt32();
+    void compute_mmt_32();
 };
 
 static constexpr std::uint8_t SAVE_VERSION = 1; 
@@ -474,7 +475,7 @@ void mapfab_t::load_json(std::uint8_t const* const begin, std::size_t size, fs::
     }
 }
 
-void mapfab_t::compute_mt32()
+void mapfab_t::compute_mmt_32()
 {
     for(auto& level : levels)
     {
@@ -513,6 +514,13 @@ void mapfab_t::compute_mt32()
                 mt_set->ne32.push_back(mt.ne);
                 mt_set->sw32.push_back(mt.sw);
                 mt_set->se32.push_back(mt.se);
+
+                std::uint8_t a = 0;
+                a |= mt_set->attributes[mt.nw] << 0;
+                a |= mt_set->attributes[mt.ne] << 2;
+                a |= mt_set->attributes[mt.sw] << 4;
+                a |= mt_set->attributes[mt.se] << 6;
+                mt_set->attributes32.push_back(a);
             }
 
             if(mt_set->map32.size() > 256)
@@ -537,8 +545,8 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
     else
         mapfab.load_binary(begin, size, mapfab_path);
 
-    if(ct == MAPFAB_MT32)
-        mapfab.compute_mt32();
+    if(ct == MAPFAB_MMT_32)
+        mapfab.compute_mmt_32();
 
     // CHR:
     for(unsigned i = 0; i < mapfab.chrs.size(); ++i)
@@ -604,6 +612,16 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         define_ct(private_globals.lookup(at, "_combined"sv), at, mt_set.combined.data(), mt_set.num);
         define_ct(private_globals.lookup(at, "_combined_alt"sv), at, mt_set.combined_alt.data(), mt_set.num);
 
+        if(ct == MAPFAB_MMT_32)
+        {
+            define_ct_int(private_globals.lookup(at, "_mmt_num"sv), at, TYPE_INT, mt_set.nw32.size());
+            define_ct(private_globals.lookup(at, "_mmt_nw"sv), at, mt_set.nw32.data(), mt_set.nw32.size());
+            define_ct(private_globals.lookup(at, "_mmt_ne"sv), at, mt_set.ne32.data(), mt_set.ne32.size());
+            define_ct(private_globals.lookup(at, "_mmt_sw"sv), at, mt_set.sw32.data(), mt_set.sw32.size());
+            define_ct(private_globals.lookup(at, "_mmt_se"sv), at, mt_set.se32.data(), mt_set.se32.size());
+            define_ct(private_globals.lookup(at, "_mmt_attributes"sv), at, mt_set.attributes32.data(), mt_set.attributes32.size());
+        }
+
         macro_invocation_t m = { macros.metatiles };
         m.args.push_back(mt_set.name);
         m.args.push_back(mt_set.chr_name);
@@ -625,8 +643,6 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
             return out;
         };
 
-        std::vector<std::uint8_t> tiles_xy, tiles_yx;
-
         ident_map_t<global_ht> private_globals;
         if(base_private_globals)
             private_globals = *base_private_globals;
@@ -638,7 +654,9 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         define_ct_int(private_globals.lookup(at, "_width"sv), at, TYPE_INT, level.w);
         define_ct_int(private_globals.lookup(at, "_height"sv), at, TYPE_INT, level.h);
 
-        if(ct == MAPFAB_MT32)
+        std::vector<std::uint8_t> tiles_xy, tiles_yx;
+
+        if(ct == MAPFAB_MMT_32)
         {
             tiles_xy = level.tiles32;
             tiles_yx = calc_yx((level.w+1) / 2, (level.h+1) / 2, tiles_xy);
@@ -647,20 +665,21 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         {
             tiles_xy = level.tiles;
             tiles_yx = calc_yx(level.w, level.h, tiles_xy);
-        }
 
-        switch(ct)
-        {
-        default: 
-            break;
-        case MAPFAB_RLZ:
-            tiles_xy = compress_rlz(&*tiles_xy.begin(), &*tiles_xy.end(), false);
-            tiles_yx = compress_rlz(&*tiles_yx.begin(), &*tiles_yx.end(), false);
-            break;
-        case MAPFAB_PBZ:
-            tiles_xy = compress_pbz(&*tiles_xy.begin(), &*tiles_xy.end());
-            tiles_yx = compress_pbz(&*tiles_yx.begin(), &*tiles_yx.end());
-            break;
+            switch(ct)
+            {
+            default: 
+                break;
+            case MAPFAB_MMT_32:
+            case MAPFAB_RLZ:
+                tiles_xy = compress_rlz(&*tiles_xy.begin(), &*tiles_xy.end(), false);
+                tiles_yx = compress_rlz(&*tiles_yx.begin(), &*tiles_yx.end(), false);
+                break;
+            case MAPFAB_PBZ:
+                tiles_xy = compress_pbz(&*tiles_xy.begin(), &*tiles_xy.end());
+                tiles_yx = compress_pbz(&*tiles_yx.begin(), &*tiles_yx.end());
+                break;
+            }
         }
 
         define_ct(private_globals.lookup(at, "_row_major"sv), at, tiles_xy.data(), tiles_xy.size());

@@ -1,0 +1,102 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example shows how to load a MapFab file containing 3 levels.
+// When running the example, hit any key to change the current level.
+
+chrrom
+    file(fmt, "bg.png")
+
+// Load the .mapfab file, calling the macros for each definition.
+mapfab(mmt_32, "project.mapfab", "", "palette", "metatiles", "level")
+
+vars /mt
+    CC/mt mt_nw
+    CC/mt mt_ne
+    CC/mt mt_sw
+    CC/mt mt_se
+    CC/mt mt_c // Collisions
+
+vars /mmt
+    CC/mmt mmt_nw
+    CC/mmt mmt_ne
+    CC/mmt mmt_sw
+    CC/mmt mmt_se
+    CC/mmt mmt_a // Attributes
+
+// Sets the 'mt_' pointers to offsets of 'mt'.
+fn load_mt(CC/mt mt)
+    UU size = UU(read U(mt))
+    if size == 0
+        size = 256
+    mt_nw = mt
+    mt += size
+    mt_ne = mt
+    mt += size
+    mt_sw = mt
+    mt += size
+    mt_se = mt
+    mt += size
+    mt_c = mt
+
+// Sets the 'mmt_' pointers to offsets of 'mmt'.
+fn load_mmt(CC/mmt mmt)
+    UU size = UU(read U(mmt))
+    if size == 0
+        size = 256
+    mmt_nw = mmt
+    mmt += size
+    mmt_ne = mmt
+    mmt += size
+    mmt_sw = mmt
+    mmt += size
+    mmt_se = mmt
+    mmt += size
+    mmt_a = mmt
+
+// Uploads 32 tiles to VRAM.
+fn load_row(CCC/levels tiles, CC/mmt mmt_w, CC/mmt mmt_e, CC/mt mt_w, CC/mt mt_e)
+: +inline
+    for U x = 0; x < 8; x += 1
+        U tile = tiles[x]
+        U w = mmt_w[tile]
+        U e = mmt_e[tile]
+        {PPUDATA}(mt_w[w])
+        {PPUDATA}(mt_e[w])
+        {PPUDATA}(mt_w[e])
+        {PPUDATA}(mt_e[e])
+
+fn load_level(CCC/levels level)
+    // Palette:
+    load_palette(read CCC/palettes(level))
+    ppu_upload_palette()
+
+    // Metatiles:
+    load_mt(read CC/mt(level))
+    load_mmt(read CC/mmt(level))
+
+    // Level tiles:
+    ppu_reset_addr($2000)
+    CCC/levels tiles = level
+    for U y = 0; y < 8; y += 1
+        load_row(tiles, mmt_nw, mmt_ne, mt_nw, mt_ne)
+        load_row(tiles, mmt_nw, mmt_ne, mt_sw, mt_se)
+        if y != 7
+            load_row(tiles, mmt_sw, mmt_se, mt_nw, mt_ne)
+            load_row(tiles, mmt_sw, mmt_se, mt_sw, mt_se)
+        tiles += 8
+
+    // Level attributes:
+    tiles = level
+    for U i = 0; i < 64; i += 1
+        U attr = mmt_a[tiles[i]]
+        {PPUDATA}(attr)
+
+mode main()
+    load_level(@lev_l1)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    {PPUMASK}(PPUMASK_BG_ON)
+    while true

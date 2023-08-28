@@ -1,0 +1,5 @@
+#:name:# 
+
+data /palettes
+    [] pal_#name#
+        U[25](_palette)

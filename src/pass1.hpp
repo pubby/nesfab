@@ -1282,6 +1282,8 @@ public:
                 ct = MAPFAB_RLZ;
             else if(view == "pbz"sv)
                 ct = MAPFAB_PBZ;
+            else if(view == "mmt_32"sv)
+                ct = MAPFAB_MMT_32;
 
             if(ct == MAPFAB_INVALID)
                 compiler_error(script, fmt("Unknown MapFab format: %", view));

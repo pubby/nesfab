@@ -1,0 +1,12 @@
+#:name:# 
+#:chr_name:# 
+#:palette_name:# 
+#:metatiles_name:# 
+
+data /levels
+    [] lev_#name#
+        (@pal_#palette_name#)   // Pointer to the palette
+        (@mt_#metatiles_name#)  // Pointer to the metatiles
+        (@mmt_#metatiles_name#) // Pointer to the metametatiles
+        (_row_major)            // The actual level tiles
+        

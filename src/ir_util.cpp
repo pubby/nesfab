@@ -25,8 +25,8 @@ bool pure(ssa_node_t const& ssa_node)
 {
     if(!io_pure(ssa_node))
        return false;
-    if(ssa_node.op() == SSA_fn_call)
-        return get_fn(ssa_node)->ir_writes().all_clear();
+    if(callable_t const* callable = get_callable(ssa_node))
+        return callable->ir_writes().all_clear();
     return true;
 }
 
@@ -36,6 +36,12 @@ bool clobbers_unknown_bank(fn_t const& fn, ssa_node_t const& ssa_node)
     {
         fn_t const& call = *get_fn(ssa_node);
         if(mod_test(call.mods(), MOD_static) && mod_test(fn.mods(), MOD_static) && call.returns_in_different_bank())
+            return true;
+    }
+    else if(ssa_node.op() == SSA_fn_ptr_call)
+    {
+        fn_set_t const& call = *get_fn_set(ssa_node);
+        if(call.all_static() && mod_test(fn.mods(), MOD_static) && call.returns_in_different_bank())
             return true;
     }
 

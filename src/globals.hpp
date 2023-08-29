@@ -828,21 +828,10 @@ public:
 
     bool banked_ptrs() const { assert(compiler_phase() > PHASE_PARSE); return m_banked_ptrs; }
     unsigned ptr_size() const { return banked_ptrs() ? 3 : 2; }
-    //unsigned num_ptrs() const  { return NUM_ROMV; }
-    //unsigned num_ptrs_used() const  { return builtin::popcount(precheck_romv()); }
     unsigned num_members() const { return banked_ptrs() ? 2 : 1; }
-    /*
-    unsigned num_members_used() const 
-    { 
-        assert(global.prechecked()); 
-        unsigned num = num_ptrs_used();
-        if(banked_ptrs())
-            num *= 2;
-        return num;
-    }
-    */
     void count_members();
     unsigned size_of() const { return ptr_size(); }
+    bool all_static() const { return m_all_static; }
 
     romv_t romv() const 
     { 
@@ -865,6 +854,7 @@ private:
     type_t m_type = TYPE_VOID;
 
     bool m_banked_ptrs = false;
+    bool m_all_static = false;
 };
 
 inline fn_ht fn_t::handle() const { return global.handle<fn_ht>(); }

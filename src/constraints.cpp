@@ -436,6 +436,7 @@ ABSTRACT(SSA_ready) = abstract_bottom;
 ABSTRACT(SSA_system) = abstract_bottom;
 ABSTRACT(SSA_read_global) = abstract_bottom;
 ABSTRACT(SSA_fn_call) = abstract_bottom;
+ABSTRACT(SSA_fn_ptr_call) = abstract_bottom;
 ABSTRACT(SSA_uninitialized) = abstract_bottom;
 ABSTRACT(SSA_read_ptr) = abstract_bottom;
 ABSTRACT(SSA_read_ptr_hw) = abstract_bottom;

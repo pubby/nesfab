@@ -2331,15 +2331,15 @@ global_t* fn_set_t::lookup_hash(std::uint64_t hash) const
 
 void fn_set_t::count_members()
 {
-    bool all_static = true;
+    m_all_static = true;
 
     for(auto const& pair : m_fn_hashes)
     {
         fn_t const& fn = pair.second->impl<fn_t>();
-        all_static &= mod_test(fn.mods(), MOD_static);
+        m_all_static &= mod_test(fn.mods(), MOD_static);
     }
 
-    m_banked_ptrs = mapper().num_banks > 1 && !all_static;
+    m_banked_ptrs = mapper().num_banks > 1 && !m_all_static;
 }
 
 void fn_set_t::resolve()

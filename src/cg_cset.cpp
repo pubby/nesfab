@@ -26,8 +26,12 @@ cset_ir_cache_t cset_build_cache(ir_t const& ir)
     for(cfg_node_t const& cfg : ir)
     for(ssa_ht ssa = cfg.ssa_begin(); ssa; ++ssa)
     {
-        if(ssa->op() == SSA_fn_call || (ssa_flags(ssa->op()) & SSAF_FENCE))
+        if(ssa->op() == SSA_fn_call 
+           || ssa->op() == SSA_fn_ptr_call 
+           || (ssa_flags(ssa->op()) & SSAF_FENCE))
+        {
             cache.special.push_back(ssa);
+        }
     }
 
     return cache;
@@ -218,30 +222,30 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 // Handles 'loc' interfering with fns and fences.
 bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_ht with)
 {
-    if(with->op() == SSA_fn_call)
+    if(callable_t const* callable = get_callable(*with))
     {
         // Checks if 'loc' is used inside 'with'.
-        fn_ht const called = get_fn(*with);
-
         switch(loc.lclass())
         {
         case LOC_GMEMBER:
-            return called->ir_writes().test(loc.gmember().id);
+            return callable->ir_writes().test(loc.gmember().id);
         case LOC_GMEMBER_SET:
             {
                 std::size_t const size = gmember_ht::bitset_size();
-                assert(size == called->ir_reads().size());
+                assert(size == callable->ir_reads().size());
 
                 bitset_uint_t* bs = ALLOCA_T(bitset_uint_t, size);
-                bitset_copy(size, bs, called->ir_writes().data());
+                bitset_copy(size, bs, callable->ir_writes().data());
                 bitset_and(size, bs, ir.gmanager.get_set(loc));
 
                 return !bitset_all_clear(size, bs);
             }
         case LOC_ARG:
         case LOC_RETURN:
+        case LOC_PTR_ARG:
+        case LOC_PTR_RETURN:
             // The current RAM allocator expects this behavior:
-            return true;//loc.fn() != fn;
+            return loc.fn() != fn;
         default: 
             return false;
         }

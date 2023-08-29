@@ -2,6 +2,9 @@
 
 #include <cmath>
 #include <vector>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "rom.hpp"
 #include "handle.hpp"

@@ -1,5 +1,9 @@
 #include "ram_alloc.hpp"
 
+#ifndef NDEBUG
+#include <iostream>
+#endif
+
 #include "flat/small_set.hpp"
 
 #include "decl.hpp"
@@ -844,6 +848,13 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
         for(unsigned i = 0; i < ranks.size(); ++i)
             build_order(romv_t(i), fn_orders[i], ranks[i]);
 
+        for(fn_set_t const& set : fn_set_ht::values())
+        {
+            romv_t const set_romv = set.romv();
+            for(fn_ht fn : set)
+                build_order(set_romv, fn_orders[set_romv], fn);
+        }
+
         for(unsigned i = 0; i < ranks.size(); ++i)
             for(fn_ht fn : fn_orders[i])
                 dprint(log, "-RAM_ALLOC_BUILD_ORDER", i, fn->global.name);
@@ -901,7 +912,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
     dprint(log, "RAM_ALLOC_LOCALS", Step, romv, fn.global.name, (unsigned)fn.precheck_romv());
 
     assert(d.step[romv] < Step);
-    assert(h->precheck_romv() & (1 << romv));
+    passert(h->precheck_romv() & (1 << romv), (int)h->precheck_romv(), (int)romv, h->global.name);
     assert((data(h).usable_ram[romv] & data(h).lvar_ram[romv]).all_clear());
 
     // Refine 'usable_ram', adding in romv interferences:

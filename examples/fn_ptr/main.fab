@@ -1,0 +1,42 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Shows how to use fn pointers.
+
+vars
+    UU pitch = 1000
+
+    // Our fn pointer:
+    Fn.update update_fn = Fn.update() // Initialize to null.
+
+nmi main_nmi()
+    if ready
+        if update_fn
+            update_fn() // Call the function pointer
+
+        // Sends 'pitch' variable to the APU, emitting sound:
+        {$4015}(%100)
+        {$4008}($FF)
+        {$400A}(pitch.a)
+        {$400B}(pitch.b & %111)
+        poll_pads()
+
+mode main()
+: nmi main_nmi
+    {PPUCTRL}(%10000000)
+    while true
+        update_pads()
+        if pads[0].pressed & BUTTON_A
+            update_fn = @(update.rise) // Assign function pointer.
+        else if pads[0].pressed & BUTTON_B
+            update_fn = @(update.fall) // Assign function pointer.
+        nmi
+
+fn update.rise()
+    pitch += 10
+
+fn update.fall()
+    pitch -= 10

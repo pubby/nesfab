@@ -40,7 +40,6 @@ enum type_name_t : std::uint8_t // Keep unsigned.
 
     TYPE_STRUCT,
     TYPE_FN,
-    TYPE_FN_PTR,
 
     TYPE_TEA,  // typed-element array
     TYPE_PAA,  // pointer-addressable array
@@ -57,6 +56,7 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_MPTR,
     TYPE_PPTR,
     TYPE_LAST_PTR = TYPE_PPTR,
+    TYPE_FN_PTR,
 
     // Bools are considered arithmetic.
     TYPE_BOOL,
@@ -183,6 +183,7 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     case TYPE_CPTR:
     case TYPE_MPTR:
     case TYPE_PPTR:
+    case TYPE_FN_PTR:
         return 2;
     case TYPE_BANKED_APTR:
     case TYPE_BANKED_CPTR:

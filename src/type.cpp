@@ -484,6 +484,10 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     if(is_arithmetic(from.name()) && to == TYPE_BOOL)
         return CAST_BOOLIFY;
 
+    // Fn pointers too:
+    if(from.name() == TYPE_FN_PTR && to == TYPE_BOOL)
+        return CAST_BOOLIFY;
+
     // Otherwise Reals have special casting rules:
     if(from.name() == TYPE_REAL)
     {

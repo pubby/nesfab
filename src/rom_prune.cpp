@@ -3,7 +3,7 @@
 #include "rom.hpp"
 #include "runtime.hpp"
 #include "lt.hpp"
-#include <iostream>
+#include "globals.hpp"
 
 static void rom_mark_emits(rom_data_ht data);
 
@@ -11,6 +11,13 @@ static void locator_mark_emits(locator_t loc)
 {
     if(rom_data_ht h = loc.rom_data())
         ::rom_mark_emits(h); // Recurse
+
+    if(has_fn_set(loc.lclass()))
+    {
+        fn_set_ht fn_set = loc.fn_set();
+        for(fn_ht fn : *fn_set)
+            rom_mark_emits(fn->rom_proc());
+    }
 
     if(loc.lclass() == LOC_LT_EXPR)
     {

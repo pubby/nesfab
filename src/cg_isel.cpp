@@ -6,6 +6,9 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include <boost/container/small_vector.hpp>
 

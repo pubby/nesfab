@@ -493,7 +493,7 @@ void asm_proc_t::convert_indirect_jsr()
     unsigned const code_size = code.size();
     for(unsigned i = 0; i < code_size; ++i)
     {
-        asm_inst_t& inst = code[i];
+        asm_inst_t inst = code[i];
         if(inst.op != JSR_INDIRECT)
             continue;
 
@@ -502,14 +502,13 @@ void asm_proc_t::convert_indirect_jsr()
         if(result.second)
         {
             result.first.underlying->second = push_label(next_label_id());
-            asm_inst_t jmp = inst;
-            jmp.op = JMP_INDIRECT;
-            push_inst(inst);
+            inst.op = JMP_INDIRECT;
+            push_inst(inst); // Invalidates code refs
         }
 
-        inst.op = JSR_ABSOLUTE;
-        inst.arg = result.first->second;
-        inst.alt = {};
+        code[i].op = JSR_ABSOLUTE;
+        code[i].arg = result.first->second;
+        code[i].alt = {};
     }
 }
 

@@ -2,6 +2,9 @@
 
 #include <ostream>
 #include <fstream>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "alloca.hpp"
 #include "bitset.hpp"
@@ -470,11 +473,22 @@ void global_t::precheck_all()
                 prev_set_pstrings[pair.first] = pair.second;
         }
     }
+    for(fn_set_t& set : fn_set_ht::values())
+        if(!set.m_precheck_romv)
+            set.m_precheck_romv |= ROMVF_IN_MODE;
 
     // Extend fn set ROMV to their fns:
-    for(fn_set_t const& set : fn_set_ht::values())
+    for(fn_set_t& set : fn_set_ht::values())
+    {
         for(fn_ht fn : set)
+        {
             fn->m_precheck_romv |= set.m_precheck_romv;
+            fn->m_precheck_calls.for_each([&](fn_ht call)
+            {
+                call->m_precheck_romv |= set.m_precheck_romv;
+            });
+        }
+    }
 
     for(fn_t& fn : fn_ht::values())
     {

@@ -4,8 +4,8 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
-// This example shows how to load a MapFab file containing 3 levels.
-// When running the example, hit any key to change the current level.
+// This example shows how to load a MapFab file using 32x32 metametatiles.
+// Metametatiles are a good form of compression, as they support random-access lookup.
 
 chrrom
     file(fmt, "bg.png")

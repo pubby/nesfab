@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "0.9"
+VERSION := "1.0"
 GIT_COMMIT := "$(shell git describe --all --abbrev=8 --dirty --always)"
 
 #override CXX:=clang++
@@ -41,7 +41,6 @@ override CXXFLAGS+= \
   -Wno-unused-parameter \
   -Wno-narrowing \
   -Wno-missing-field-initializers \
-  -Wno-unused-command-line-argument \
   -fmax-errors=3 \
   -ftemplate-depth=100 \
   -pipe \

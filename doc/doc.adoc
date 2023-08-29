@@ -5538,7 +5538,7 @@ They are defined as all <<type_integer, integer types>>, <<type_fixed, fixed-poi
 https://en.wikipedia.org/wiki/Pointer_(computer_programming)[Pointer] types represent addresses.
 Unlike pointers in other languages, pointers in NESFab can only point to <<type_paa, pointer-addressible arrays>>.
 
-There are six types of pointers, listed below:
+There are six types of pointers (not including <<type_fn_ptr, function pointers>>, listed below:
 
 [cols="1,1,1,1"]
 |===

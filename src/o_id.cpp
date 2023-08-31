@@ -1725,6 +1725,7 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
         // Build 'operands' from 'incompatible_leafs':
         operands.clear();
+        assert(incompatible_leafs.size());
         for(auto const& p : incompatible_leafs)
         {
             ssa_value_t const v = p.first;
@@ -1740,20 +1741,28 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
                     int const diff = count.diff();
 
-                    ssa_value_t cur = v;
-
-                    for(unsigned bits = std::abs(diff), pow = 0; bits; bits >>= 1, ++pow)
+                    if(!diff)
                     {
-                        if(!(bits & 1))
-                            continue;
+                        if(operands.empty())
+                            operands.push_back({ ssa_value_t(0, v.type().name()) });
+                    }
+                    else
+                    {
+                        ssa_value_t cur = v;
 
-                        if(pow)
+                        for(unsigned bits = std::abs(diff), pow = 0; bits; bits >>= 1, ++pow)
                         {
-                            cur = cfg->emplace_ssa(SSA_shl, type, cur, ssa_value_t(pow, TYPE_U));
-                            pow = 0;
-                        }
+                            if(!(bits & 1))
+                                continue;
 
-                        operands.push_back({ cur, diff < 0 });
+                            if(pow)
+                            {
+                                cur = cfg->emplace_ssa(SSA_shl, type, cur, ssa_value_t(pow, TYPE_U));
+                                pow = 0;
+                            }
+
+                            operands.push_back({ cur, diff < 0 });
+                        }
                     }
                 }
                 break;
@@ -1891,7 +1900,8 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                     step();
             }
 
-            assert(!operands[0].negative);
+            passert(!operands.empty(), def_op);
+            passert(!operands[0].negative, operands[0].v);
         }
         else // Not 'SSA_add':
         {

@@ -562,10 +562,10 @@ int main(int argc, char** argv)
         auto write_info = make_scope_guard([&]() {
             for(fn_t const& fn : fn_ht::values())
             {
-                std::filesystem::create_directory("info/");
-
                 if(std::stringstream const* ss = fn.info_stream())
                 {
+                    std::filesystem::create_directory("info/");
+
                     std::ofstream of(fmt("info/%.txt", fn.global.name));
                     if(of.is_open())
                         of << ss->str() << std::endl;

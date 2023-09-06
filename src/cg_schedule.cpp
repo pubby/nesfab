@@ -1126,7 +1126,6 @@ void schedule_ir(ir_t& ir)
 
 void o_schedule(ir_t& ir)
 {
-    return;
     auto const valid_parent = [](ssa_ht h, unsigned input) -> ssa_ht
     {
         if(carry_used(*h))

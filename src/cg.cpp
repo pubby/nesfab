@@ -989,69 +989,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // Now update the IR.
     // (Liveness checks can't be done after this.)
 
-    // Discover and tag "direct" array reads.
-    // Such reads can be implemented more efficiently in cg_isel,
-    // using ABSOLUTE_X and ABSOLUTE_Y modes without storing an intermediate.
-    for(cfg_ht cfg_it : postorder)
-    {
-        auto& d = cg_data(cfg_it);
-        for(ssa_ht h : d.schedule)
-        {
-            using namespace ssai::array;
-
-            assert(h->cfg_node() == cfg_it);
-
-            if(h->op() != SSA_read_array8)
-                continue;
-
-            ssa_value_t const array = h->input(ARRAY);
-
-            unsigned const size = h->output_size();
-            for(unsigned i = 0; i < size; ++i)
-            {
-                ssa_ht const output = h->output(i);
-                if(output->cfg_node() != cfg_it)
-                    goto next_read_array_iter;
-
-                if(array.holds_ref() && !live_at_def(array.handle(), output))
-                    goto next_read_array_iter;
-
-                // It's not ideal to use direct reads if there's high X/Y register pressure.
-                // Thus, we'll try to estimate register pressure here,
-                // and only use direct reads when there's little pressure.
-                auto const& schedule = cg_data(cfg_it).schedule;
-                unsigned const start = cg_data(h).schedule.index;
-                unsigned const end = cg_data(output).schedule.index;
-                fc::small_set<ssa_value_t, 4> indexers;
-                for(unsigned j = start; j <= end; ++j)
-                {
-                    assert(j < schedule.size());
-                    ssa_ht const node = schedule[j];
-
-                    if(ssa_indexes8(node->op()))
-                        indexers.insert(node->input(ssa_index8_input(node->op())));
-                    else
-                    {
-                        for_each_node_input(node, [&](ssa_ht input)
-                        {
-                            if(input->op() == SSA_cg_read_array8_direct)
-                                indexers.insert(input->input(ssa_index8_input(SSA_cg_read_array8_direct)));
-                        });
-                    }
-
-                    if(indexers.size() > 2) // Two registers: X, Y
-                        goto next_read_array_iter;
-                }
-            }
-
-            // Success! Make it direct:
-            h->unsafe_set_op(SSA_cg_read_array8_direct);
-        next_read_array_iter:;
-        }
-    }
-
-    ir.assert_valid(true);
-
 #if 0 // TODO
     fc::small_set<ssa_ht, 32> unique_csets;
     for(auto& pair : global_loc_map)
@@ -1270,6 +1207,87 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         //assert(head_opposite == cset_head(head_opposite));
         assert(cg_data(head_input).ptr_alt);
     }
+
+    // Discover and tag "direct" array reads.
+    // Such reads can be implemented more efficiently in cg_isel,
+    // using ABSOLUTE_X and ABSOLUTE_Y modes without storing an intermediate.
+    for(cfg_ht cfg_it : postorder)
+    {
+        auto& d = cg_data(cfg_it);
+        for(ssa_ht h : d.schedule)
+        {
+            using namespace ssai::array;
+
+            assert(h->cfg_node() == cfg_it);
+
+            if(h->op() != SSA_read_array8)
+                continue;
+
+            ssa_value_t const array = h->input(ARRAY);
+            ssa_value_t const index = h->input(INDEX);
+
+            unsigned const size = h->output_size();
+            for(unsigned i = 0; i < size; ++i)
+            {
+                ssa_ht const output = h->output(i);
+                if(output->cfg_node() != cfg_it)
+                    goto next_read_array_iter;
+
+                if(array.holds_ref())
+                {
+                    // Make sure the array is live.
+                    if(!live_at_def(array.handle(), output))
+                        goto next_read_array_iter;
+
+                    // Can't have a different value for the array:
+                    for(ssa_ht ai = cset_head(array.handle()); ai; ai = cset_next(ai))
+                        if(orig_def(ai) != orig_def(array) && live_at_def(ai, output))
+                            goto next_read_array_iter;
+                }
+
+                if(index.holds_ref())
+                {
+                    // Can't have a different value for the index:
+                    for(ssa_ht ai = cset_head(index.handle()); ai; ai = cset_next(ai))
+                        if(orig_def(ai) != orig_def(index) && live_at_def(ai, output))
+                            goto next_read_array_iter;
+                }
+
+                // It's not ideal to use direct reads if there's high X/Y register pressure.
+                // Thus, we'll try to estimate register pressure here,
+                // and only use direct reads when there's little pressure.
+                auto const& schedule = cg_data(cfg_it).schedule;
+                unsigned const start = cg_data(h).schedule.index;
+                unsigned const end = cg_data(output).schedule.index;
+                fc::small_set<ssa_value_t, 4> indexers;
+                for(unsigned j = start; j <= end; ++j)
+                {
+                    assert(j < schedule.size());
+                    ssa_ht const node = schedule[j];
+
+                    if(ssa_indexes8(node->op()))
+                        indexers.insert(node->input(ssa_index8_input(node->op())));
+                    else
+                    {
+                        for_each_node_input(node, [&](ssa_ht input)
+                        {
+                            if(input->op() == SSA_cg_read_array8_direct)
+                                indexers.insert(input->input(ssa_index8_input(SSA_cg_read_array8_direct)));
+                        });
+                    }
+
+                    if(indexers.size() > 2) // Two registers: X, Y
+                        goto next_read_array_iter;
+                }
+            }
+
+            // Success! Make it direct:
+            h->unsafe_set_op(SSA_cg_read_array8_direct);
+        next_read_array_iter:;
+        }
+    }
+
+    ir.assert_valid(true);
 
 
     // All gsets must be coalesced.

@@ -5182,8 +5182,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     auto const reduce_rval = [&](rval_t& rval)
                     {
                         if(member)
+                        {
+                            passert(rval.size() >= member + num_members, rval.size(), member, num_members);
                             for(unsigned i = 0; i < num_members; ++i)
                                 rval[i] = std::move(rval[i + member]);
+                        }
                         rval.resize(num_members);
                     };
 

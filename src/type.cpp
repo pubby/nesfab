@@ -689,7 +689,7 @@ type_t member_type(type_t const& type, unsigned member)
     {
         type_t mt = member_type(type.elem_type(), member);
         assert(!is_aggregate(mt.name()));
-        assert(!is_banked_ptr(mt.name()));
+        passert(!is_banked_ptr(mt.name()), type, member, mt);
         return type_t::tea(mt, type.size());
     }
     else if(is_banked_ptr(type.name()))

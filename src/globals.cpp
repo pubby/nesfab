@@ -2117,7 +2117,7 @@ unsigned struct_t::count_members()
         else
         {
             passert(is_vec(type.name()) || !is_aggregate(type.name()), type);
-            ++count;
+            count += ::num_members(type);
         }
     }
 
@@ -2171,10 +2171,15 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
                 m_has_tea_member = true;
             }
 
-            m_member_types.push_back(type);
-            m_member_offsets.push_back(offset);
+            unsigned const num = ::num_members(type);
+            assert(num > 0);
 
-            offset += type.size_of();
+            for(unsigned i = 0; i < num; ++i)
+            {
+                m_member_types.push_back(::member_type(type, i));
+                m_member_offsets.push_back(offset);
+                offset += type.size_of();
+            }
         }
     }
 }

@@ -1032,7 +1032,7 @@ public:
         else
         {
             assert(fn_def[goto_h].name == STMT_GOTO);
-            assert(fn_def[it->second].name == STMT_GOTO);
+            passert(fn_def[it->second].name == STMT_LABEL, fn_def[it->second].name);
 
             fn_def[goto_h].link = it->second;
             fn_def[it->second].use_count += 1;

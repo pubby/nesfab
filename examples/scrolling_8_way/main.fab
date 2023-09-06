@@ -90,7 +90,7 @@ nmi game_nmi()
     // waiting until the sprite 0 hit occurs before displaying 
     // the scrolling nametable:
     ppu_reset_scroll(0, 0) // The status bar's scroll position.
-    state(ANROM_MIRROR)
+    state(ANROM_NT)
     {PPUCTRL}(PPUCTRL_NMI_ON)
     {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
     while {PPUSTATUS}() & PPUSTATUS_SPR_0    // Wait for the frame to start.
@@ -112,7 +112,7 @@ mode main()
     load_level(@lev_world)
 
     // Setup the status bar's nametable:
-    state(ANROM_MIRROR)
+    state(ANROM_NT)
     ppu_reset_addr($2000)
     ppu_upload_rlz(@status_bar_nt)
 

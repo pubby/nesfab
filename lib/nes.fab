@@ -120,6 +120,38 @@ fn ppu_reset_mid_scroll_precise(U x, U y, U nt)
     {PPUSTATUS}()
     ppu_set_mid_scroll_precise(x, y, nt)
 
+// Polls 'PPUSTATUS' until any bit of 'flag' is set.
+asm fn ppu_await_status_set(U flag)
+: +static
+: +zero_page
+: employs
+    default 
+        lda &flag
+    label loop
+        bit PPUSTATUS
+        beq loop
+        rts
+
+// Polls 'PPUSTATUS' until no bit of 'flag' is set.
+asm fn ppu_await_status_clear(U flag)
+: +static
+: +zero_page
+: employs
+    default 
+        lda &flag
+    label loop
+        bit PPUSTATUS
+        bne loop
+        rts
+
+// Polls 'PPUSTATUS' until no bit of 'flag' is set,
+// then polls 'PPUSTATUS' until any bit of 'flag' is set.
+// This is useful for checking sprite 0, among other things.
+fn ppu_await_status(U flag)
+: +inline
+    ppu_await_status_clear(flag)
+    ppu_await_status_set(flag)
+
 ///////////////////////////////////////////////////////////////////////////////
 // NMI ////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

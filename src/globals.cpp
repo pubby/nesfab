@@ -1304,7 +1304,7 @@ void fn_t::compile()
 
             RUN_O(o_remove_unused_arguments, log, ir, *this, post_byteified);
 
-            //save_graph(ir, fmt("pre_id_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("pre_id_%_%", post_byteified, iter).c_str());
             RUN_O(o_identities, log, ir);
             save_graph(ir, fmt("post_id_%_%", post_byteified, iter).c_str());
 

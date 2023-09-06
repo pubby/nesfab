@@ -18,13 +18,22 @@ namespace // anonymous
     // This is used to break up arithmetic types into several bytes.
     using bm_t = std::array<ssa_value_t, max_total_bytes>;
     static_assert(max_total_bytes == 7); // To match 'zero_bm' below.
-    constexpr ssa_value_t sv = ssa_value_t(0u, TYPE_U);
-    constexpr bm_t zero_bm = { sv, sv, sv, sv, sv, sv, sv };
+    constexpr ssa_value_t uv = ssa_value_t(0u, TYPE_U);
+    constexpr ssa_value_t sv = ssa_value_t(0u, TYPE_S);
+    constexpr bm_t zero_bm_u = { uv, uv, uv, uv, uv, uv, uv };
+    constexpr bm_t zero_bm_s = { sv, sv, sv, sv, sv, sv, sv };
 
     struct ssa_byteify_d
     {
         bm_t bm;
     };
+}
+
+static bool is_signed2(type_t t)
+{
+    if(is_tea(t.name()))
+        return is_signed(t.elem_type().name());
+    return is_signed(t.name());
 }
 
 static type_t _bm_type(type_t t)
@@ -46,7 +55,7 @@ static bm_t _get_bm(ssa_value_t value)
         type_name_t num_type = value.num_type_name();
         //if(!is_byteified(num_type)) TODO
         if(num_type != TYPE_BOOL)
-            num_type = TYPE_U;
+            num_type = is_signed(num_type) ? TYPE_S : TYPE_U;
 
         for(unsigned i = 0; i < bm.size(); ++i)
         {
@@ -57,7 +66,7 @@ static bm_t _get_bm(ssa_value_t value)
     }
     else if(value.is_locator())
     {
-        bm_t bm = zero_bm;
+        bm_t bm = zero_bm_u;
 
         locator_t const loc = value.locator();
 
@@ -150,22 +159,23 @@ static void _split_vanishing(ssa_ht ssa_node)
 
     type_t const type = ssa_node->type();
     type_t const input_type = input.type();
+    bool const to_sign = is_signed2(type.name());
 
     auto& data = ssa_node.data<ssa_byteify_d>();
-    data.bm = zero_bm;
+    data.bm = to_sign ? zero_bm_s : zero_bm_u;
     bm_t const input_bm = _get_bm(input);
 
     if(ssa_node->op() == SSA_cast)
     {
         bool from_sign = is_signed(input_type.name());
-        bool const to_sign = is_signed(type.name());
+        type_name_t const tn = to_sign ? TYPE_S : TYPE_U;
 
         unsigned const end = end_byte(type.name());
         for(unsigned i = begin_byte(type.name()); i < end; ++i)
         {
-            if(true || to_sign)
+            if(from_sign != to_sign)
             {
-                data.bm[i] = ssa_node->cfg_node()->emplace_ssa(SSA_cast, TYPE_U, input_bm[i]);
+                data.bm[i] = ssa_node->cfg_node()->emplace_ssa(SSA_cast, tn, input_bm[i]);
                 data.bm[i]->set_flags(FLAG_PROCESSED);
             }
             else
@@ -178,7 +188,7 @@ static void _split_vanishing(ssa_ht ssa_node)
             unsigned i = end_byte(input_type.name());
             assert(i > 0);
             assert(data.bm[i - 1]);
-            ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, data.bm[i - 1]);
+            ssa_value_t const extension = ssa_node->cfg_node()->emplace_ssa(SSA_sign_extend, tn, data.bm[i - 1]);
             for(; i < end; ++i)
                 data.bm[i] = extension;
 
@@ -190,18 +200,24 @@ static void _split_vanishing(ssa_ht ssa_node)
     }
     else if(ssa_node->op() == SSA_get_byte)
     {
+        type_name_t const tn = to_sign ? TYPE_S : TYPE_U;
         unsigned const atom = ssa_node->input(1).whole();
-        data.bm = zero_bm;
-        data.bm[max_frac_bytes] = input_bm[atom + begin_byte(input_type.name())];
+        data.bm[max_frac_bytes] = 
+            ssa_node->cfg_node()->emplace_ssa(SSA_cast, tn, input_bm[atom + begin_byte(input_type.name())]);
+        data.bm[max_frac_bytes]->set_flags(FLAG_PROCESSED);
     }
     else if(ssa_node->op() == SSA_array_get_byte)
     {
+        assert(is_tea(type.name()));
+        type_t const tn = type_t::tea(to_sign ? TYPE_S : TYPE_U, type.size());
         unsigned const atom = ssa_node->input(1).whole();
-        data.bm = zero_bm;
-        data.bm[max_frac_bytes] = input_bm[atom + begin_byte(input_type.elem_type().name())];
+        data.bm[max_frac_bytes] = 
+            ssa_node->cfg_node()->emplace_ssa(SSA_cast, tn, input_bm[atom + begin_byte(input_type.elem_type().name())]);
+        data.bm[max_frac_bytes]->set_flags(FLAG_PROCESSED);
     }
     else if(ssa_node->op() == SSA_replace_byte)
     {
+        type_name_t const tn = to_sign ? TYPE_S : TYPE_U;
         ssa_value_t with = ssa_node->input(2);
         assert(with.type().name() == TYPE_U);
         split_input(with);
@@ -210,10 +226,14 @@ static void _split_vanishing(ssa_ht ssa_node)
 
         unsigned const atom = ssa_node->input(1).whole();
         data.bm = input_bm;
-        data.bm[atom + begin_byte(type.name())] = with_bm[max_frac_bytes];
+        data.bm[atom + begin_byte(type.name())] = 
+            ssa_node->cfg_node()->emplace_ssa(SSA_cast, tn, with_bm[max_frac_bytes]);
+        data.bm[atom + begin_byte(type.name())]->set_flags(FLAG_PROCESSED);
     }
     else if(ssa_node->op() == SSA_array_replace_byte)
     {
+        assert(is_tea(type.name()));
+        type_t const tn = type_t::tea(to_sign ? TYPE_S : TYPE_U, type.size());
         ssa_value_t with = ssa_node->input(2);
         assert(with->type().name() == TYPE_TEA);
         assert(with->type().elem_type().name() == TYPE_U);
@@ -223,7 +243,9 @@ static void _split_vanishing(ssa_ht ssa_node)
 
         unsigned const atom = ssa_node->input(1).whole();
         data.bm = input_bm;
-        data.bm[atom + begin_byte(type.name())] = with_bm[max_frac_bytes];
+        data.bm[atom + begin_byte(type.name())] =
+            ssa_node->cfg_node()->emplace_ssa(SSA_cast, tn, with_bm[max_frac_bytes]);
+        data.bm[atom + begin_byte(type.name())]->set_flags(FLAG_PROCESSED);
     }
     else
         assert(false);
@@ -243,7 +265,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
     ssa_workvec.clear();
     bc::small_vector<ssa_ht, 32> prune_nodes;
-    bc::small_vector<ssa_ht, 32> original_s;
 
     // Split nodes that have multi-byte results into N nodes, where N
     // is the number of bytes its result takees.
@@ -342,8 +363,9 @@ void byteify(ir_t& ir, fn_t const& fn)
             {
                 auto& d = ssa_it.data<ssa_byteify_d>(); 
                 if(type == TYPE_S)
-                    original_s.push_back(ssa_it);
-                d.bm = zero_bm;
+                    d.bm = zero_bm_s;
+                else
+                    d.bm = zero_bm_u;
                 d.bm[max_frac_bytes] = ssa_it;
                 continue;
             } 
@@ -364,11 +386,33 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(!is_scalar(type.name()))
                 continue;
 
-            type_t split_type = TYPE_U;
-            if(ssa_it->type().name() == TYPE_TEA)
-                split_type = type_t::tea(TYPE_U, ssa_it->type().size());
+            bm_t bm;
+            type_t split_type = ssa_it->type();
 
-            bm_t bm = zero_bm;
+            if(is_tea(split_type.name()))
+            {
+                if(is_signed(split_type.elem_type().name()))
+                {
+                    split_type = type_t::tea(TYPE_S, split_type.size());
+                    bm = zero_bm_s;
+                }
+                else
+                {
+                    split_type = type_t::tea(TYPE_U, split_type.size());
+                    bm = zero_bm_u;
+                }
+            }
+            else if(is_signed(split_type.name()))
+            {
+                split_type = TYPE_S;
+                bm = zero_bm_s;
+            }
+            else
+            {
+                split_type = TYPE_U;
+                bm = zero_bm_u;
+            }
+
             unsigned const end = end_byte(type.name());
             for(unsigned i = begin_byte(type.name()); i < end; ++i)
                 bm[i] = cfg_node.emplace_ssa(ssa_it->op(), split_type);
@@ -631,7 +675,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 // If both are signed, sign-extend.
                 if(both_signed && lwhole < rwhole)
                 {
-                    ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
+                    ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_S, new_input.back());
                     for(unsigned i = 0; i < rwhole - lwhole; ++i)
                         new_input.push_back(extension);
                 }
@@ -645,7 +689,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 // If both are signed, sign-extend.
                 if(both_signed && rwhole < lwhole)
                 {
-                    ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_U, new_input.back());
+                    ssa_value_t const extension = ssa_it->cfg_node()->emplace_ssa(SSA_sign_extend, TYPE_S, new_input.back());
                     for(unsigned i = 0; i < lwhole - rwhole; ++i)
                         new_input.push_back(extension);
                 }
@@ -725,7 +769,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             if(ssa_it->test_flags(FLAG_PROCESSED))
                 break;
 
-            assert(!_vanishes(ssa_it));
+            passert(!_vanishes(ssa_it), ssa_it->op());
 
             type_t const type = ssa_it->type();
             if(type.name() == TYPE_VOID || is_byteified(type.name()))
@@ -824,6 +868,8 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                 ssa_value_t carry(0u, TYPE_BOOL);
 
+                type_name_t const tn = is_signed(ssa_node->type().name()) ? TYPE_S : TYPE_U;
+
                 if(ssa_node->op() == SSA_shl)
                 {
                     for(int i = end - 1; i >= begin; --i)
@@ -831,7 +877,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                         if(i - byte_shifts >= 0)
                             values[i] = values[i - byte_shifts];
                         else
-                            values[i] = ssa_value_t(0u, TYPE_U);;
+                            values[i] = ssa_value_t(0u, TYPE_U);
                     }
 
                     for(int s = 0; s < bit_shifts; ++s)
@@ -882,6 +928,8 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                 for(int i = begin; i < end; ++i)
                 {
+                    values[i] = ssa_node->cfg_node()->emplace_ssa(SSA_cast, tn, values[i]);
+
                     ssa_ht const split = d.bm[i].handle();
                     split->alloc_input(1);
                     split->build_set_input(0, values[i]);
@@ -991,6 +1039,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                 int const result_end = end_byte(t);
                 int const sum_begin = result_begin * 2 - max_frac_bytes;
 
+                type_name_t const tn = is_signed(ssa_node->type().name()) ? TYPE_S : TYPE_U;
+
                 std::array<bc::small_vector<ssa_value_t, max_total_bytes>, max_total_bytes + max_frac_bytes> to_sum;
 
                 for(int li = lhs_begin; li < lhs_end; ++li)
@@ -1001,14 +1051,14 @@ void byteify(ir_t& ir, fn_t const& fn)
                         continue;
 
                     ssa_ht const lo = cfg->emplace_ssa(SSA_mul8_lo, TYPE_U, lhs_bm[li], rhs_bm[ri]);
-                    to_sum[lo_i].push_back(lo);
+                    to_sum[lo_i].push_back(cfg->emplace_ssa(SSA_cast, tn, lo));
 
                     int const hi_i = lo_i + 1;
                     if(hi_i - int(max_frac_bytes) >= result_end)
                         continue;
 
                     ssa_ht const hi = cfg->emplace_ssa(SSA_mul8_hi, TYPE_U, lo);
-                    to_sum[hi_i].push_back(hi);
+                    to_sum[hi_i].push_back(cfg->emplace_ssa(SSA_cast, tn, hi));
                 }
 
                 // Now sum together all the multiplications:
@@ -1018,7 +1068,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                     unsigned const a = i + max_frac_bytes;
 
                     if(to_sum[a].empty())
-                        to_sum[a].push_back(ssa_value_t(0u, TYPE_U));
+                        to_sum[a].push_back(ssa_value_t(0u, tn));
                     else while(to_sum[a].size() >= 2)
                     {
                         ssa_value_t prev_carry = ssa_value_t(0u, TYPE_BOOL);
@@ -1027,8 +1077,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                         {
                             unsigned const b = j + max_frac_bytes;
 
-                            ssa_value_t lhs = ssa_value_t(0u, TYPE_U);
-                            ssa_value_t rhs = ssa_value_t(0u, TYPE_U);
+                            ssa_value_t lhs = ssa_value_t(0u, tn);
+                            ssa_value_t rhs = ssa_value_t(0u, tn);
 
                             if(!to_sum[b].empty())
                             {
@@ -1042,7 +1092,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                                 to_sum[b].pop_back();
                             }
 
-                            ssa_ht const add = cfg->emplace_ssa(SSA_add, TYPE_U, lhs, rhs, prev_carry);
+                            ssa_ht const add = cfg->emplace_ssa(SSA_add, tn, lhs, rhs, prev_carry);
                             ssa_ht const carry = cfg->emplace_ssa(SSA_carry, TYPE_BOOL, add);
 
                             to_sum[b].push_back(add);
@@ -1152,10 +1202,6 @@ void byteify(ir_t& ir, fn_t const& fn)
             throw std::runtime_error(fmt("Unhandled op in byteify: %", ssa_node->op()));
         }
     }
-
-    // Retype
-    for(ssa_ht h : original_s)
-        h->set_type(TYPE_U);
 
     // Prune nodes that are now unnecessary:
     for(ssa_ht h : prune_nodes)

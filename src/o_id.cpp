@@ -7,6 +7,7 @@
 
 #include "flat/small_map.hpp"
 
+#include "o_unused.hpp"
 #include "ir.hpp"
 #include "type.hpp"
 #include "type_mask.hpp"
@@ -1445,6 +1446,9 @@ private:
             assert(0); 
             break;
         }
+
+        num_accum += 1;
+
         dprint(log, "----MONOID_ACCUMULATE", f.value >> fixed_t::shift, accum.value >> fixed_t::shift);
     }
 
@@ -1463,8 +1467,9 @@ private:
     // Used inside 'build': //
     //////////////////////////
 
-    // Tracks the accumulation of all constant nums:
+    // Tracks the afixed_tccumulation of all constant nums:
     fixed_t accum;
+    unsigned num_accum;
 
     // The root of the expression (a singleton)
     ssa_ht root;
@@ -1641,7 +1646,6 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
     // These are used at the end to replace the expression's old nodes with the new ones:
     std::vector<ssa_value_t> replacements;
-    std::vector<internals_map_t> to_prune;
 
     for(ssa_ht h : singletons)
     {
@@ -1658,11 +1662,14 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
         incompatible_leafs.clear();
         compatible_leafs.clear();
         internals.clear();
+        num_accum = 0;
         accum = { (def_op == SSA_and) ? ~0ull : 0ull };
         build<>(def_op, h, false);
 
         bool uses_accum; // Tracks if we'll use 'accum'
         int carry_req; // Tracks if we need a carry.
+
+        bool optimized_something = false;
 
     accum_loop:
         {
@@ -1725,7 +1732,6 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
         // Build 'operands' from 'incompatible_leafs':
         operands.clear();
-        assert(incompatible_leafs.size());
         for(auto const& p : incompatible_leafs)
         {
             ssa_value_t const v = p.first;
@@ -1741,28 +1747,21 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
 
                     int const diff = count.diff();
 
-                    if(!diff)
-                    {
-                        if(operands.empty())
-                            operands.push_back({ ssa_value_t(0, v.type().name()) });
-                    }
-                    else
-                    {
-                        ssa_value_t cur = v;
+                    ssa_value_t cur = v;
 
-                        for(unsigned bits = std::abs(diff), pow = 0; bits; bits >>= 1, ++pow)
+                    for(unsigned bits = std::abs(diff), pow = 0; bits; bits >>= 1, ++pow)
+                    {
+                        if(!(bits & 1))
+                            continue;
+
+                        if(pow)
                         {
-                            if(!(bits & 1))
-                                continue;
-
-                            if(pow)
-                            {
-                                cur = cfg->emplace_ssa(SSA_shl, type, cur, ssa_value_t(pow, TYPE_U));
-                                pow = 0;
-                            }
-
-                            operands.push_back({ cur, diff < 0 });
+                            optimized_something = true;
+                            cur = cfg->emplace_ssa(SSA_shl, type, cur, ssa_value_t(pow, TYPE_U));
+                            pow = 0;
                         }
+
+                        operands.push_back({ cur, diff < 0 });
                     }
                 }
                 break;
@@ -1770,12 +1769,16 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
             case SSA_and:
             case SSA_or:
                 // Ignore duplicates.
+                if(count.pos > 1)
+                    optimized_something = true;
                 operands.push_back({ p.first });
                 break;
 
             case SSA_xor:
                 if(count.pos % 2)
                     operands.push_back({ p.first });
+                else
+                    optimized_something = true;
                 break;
 
             default: 
@@ -1784,46 +1787,57 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
             }
         }
 
+        if(num_accum > 1)
+            optimized_something = true;
+
+        if(operands.empty() || !optimized_something)
+        {
+            replacements.push_back(h);
+            continue;
+        }
+
         dprint(log, "--MONOID_ACCUM", accum.value >> fixed_t::shift, uses_accum, carry_req);
 
-        if(operands.size() > 1)
+#ifndef NDEBUG
+        for(auto const& operand : operands)
+            passert(operand.v, operand.v);
+#endif
+
+        // Calc banks and indexes for our operands:
+        for(operand_t& operand : operands)
+            if(operand.v.holds_ref())
+                operand.banks_and_indexes = calc_banks_and_indexes(operand.v.handle());
+
+        // Sort operands, ordering their bank accesses and array indexes.
+        std::sort(operands.begin(), operands.end(), [](auto const& l, auto const& r)
+            { return l.banks_and_indexes < r.banks_and_indexes; });
+
+        // Further sort:
+        std::vector<operand_t> final_sort;
+        final_sort.reserve(operands.size());
+
+        for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
+            ssa->clear_mark();
+        for(operand_t& op : operands)
         {
-            // Calc banks and indexes for our operands:
-            for(operand_t& operand : operands)
-                if(operand.v.holds_ref())
-                    operand.banks_and_indexes = calc_banks_and_indexes(operand.v.handle());
-
-            // Sort operands, ordering their bank accesses and array indexes.
-            std::sort(operands.begin(), operands.end(), [](auto const& l, auto const& r)
-                { return l.banks_and_indexes < r.banks_and_indexes; });
-
-            // Further sort:
-            std::vector<operand_t> final_sort;
-            final_sort.reserve(operands.size());
-
-            for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
-                ssa->clear_mark();
-            for(operand_t& op : operands)
-            {
-                if(!op.v.holds_ref())
-                    continue;
-                op.v->set_mark(MARK_TEMPORARY);
-                data(op.v.handle()).operand = &op;
-            }
-            for(operand_t& op : operands)
-            {
-                if(op.v.holds_ref())
-                    dfs_sort(final_sort, cfg, op.v.handle());
-                else
-                    final_sort.push_back(std::move(op));
-            }
-
-            assert(operands.size() == final_sort.size());
-                
-            unsigned const size = operands.size();
-            for(unsigned i = 0; i < size; ++i)
-                operands[i] = std::move(final_sort[size - i - 1]);
+            if(!op.v.holds_ref())
+                continue;
+            op.v->set_mark(MARK_TEMPORARY);
+            data(op.v.handle()).operand = &op;
         }
+        for(operand_t& op : operands)
+        {
+            if(op.v.holds_ref())
+                dfs_sort(final_sort, cfg, op.v.handle());
+            else
+                final_sort.push_back(std::move(op));
+        }
+
+        assert(operands.size() == final_sort.size());
+            
+        unsigned const size = operands.size();
+        for(unsigned i = 0; i < size; ++i)
+            operands[i] = std::move(final_sort[size - i - 1]);
 
         dprint(log, "--MONOID_SORTED_BEGIN");
         for(operand_t const& op : operands)
@@ -1842,6 +1856,7 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
                 assert(operands.size() >= 2);
                 auto& a0 = operands.rbegin()[0];
                 auto& a1 = operands.rbegin()[1];
+
 
                 if(a0.negative)
                 {
@@ -1907,7 +1922,10 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
         {
             auto const step = [&]
             {
-                ssa_ht const ssa = cfg->emplace_ssa(def_op, type, operands.rbegin()[0].v, operands.rbegin()[1].v);
+                auto& a0 = operands.rbegin()[0];
+                auto& a1 = operands.rbegin()[1];
+
+                ssa_ht const ssa = cfg->emplace_ssa(def_op, type, a0.v, a1.v);
                 operands.pop_back();
                 operands.back().v = ssa;
             };
@@ -1929,36 +1947,18 @@ run_monoid_t::run_monoid_t(log_t* log, ir_t& ir)
         for(auto const& p : internals)
             assert(ssa_value_t(p.first) != operands[0].v);
 #endif
-
-        to_prune.push_back(std::move(internals));
     }
 
     // Now replace all singletons and prune:
 
     passert(singletons.size() == replacements.size(), singletons.size(), replacements.size());
-    passert(singletons.size() == to_prune.size(), singletons.size(), to_prune.size());
 
     for(unsigned i = 0; i < singletons.size(); ++i)
     {
-        if(ssa_value_t(singletons[i]) == replacements[i])
-            continue;
-
-        singletons[i]->replace_with(replacements[i]);
-
-        for(auto const& p : to_prune[i])
+        if(ssa_value_t(singletons[i]) != replacements[i])
         {
-            // Make sure we're not pruning a replacement.
-            for(ssa_value_t v : replacements)
-                if(v.holds_ref() && v.handle() == p.first)
-                    goto next_iter;
-
-            if(ssa_ht carry = carry_output(*p.first))
-            {
-                assert(carry->output_size() == 0);
-                carry->prune();
-            }
-            p.first->prune();
-        next_iter:;
+            singletons[i]->replace_with(replacements[i]);
+            updated = true;
         }
     }
 }
@@ -2046,17 +2046,19 @@ bool o_identities(log_t* log, ir_t& ir)
     bool updated = false;
 
     updated |= simple_repeated();
+    ir.assert_valid();
 
     {
         ssa_data_pool::scope_guard_t<ssa_monoid_d> sg(ssa_pool::array_size());
         run_monoid_t run(log, ir);
-        updated |= run.updated;
+        o_remove_unused_ssa(log, ir);
+
+        ir.assert_valid();
 
         if(run.updated)
-        {
-            ir.assert_valid();
             simple_repeated();
-        }
+
+        ir.assert_valid();
     }
 
     return updated;

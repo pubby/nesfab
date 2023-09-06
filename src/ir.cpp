@@ -1090,6 +1090,25 @@ void ir_t::assert_valid(bool cg) const
                 }
             }
 
+            // Add / sub checks
+#if 0
+            switch(ssa_it->op())
+            {
+            case SSA_add:
+            case SSA_sub:
+            case SSA_or:
+            case SSA_and:
+            case SSA_xor:
+                if(!cg)
+                {
+                    passert(ssa_it->input(0).type() == ssa_it->type(), ssa_it->op(), ssa_it->input(0).type(), ssa_it->type(), ssa_it->input(0)->op());
+                    passert(ssa_it->input(1).type() == ssa_it->type(), ssa_it->op(), ssa_it->input(1).type(), ssa_it->type(), ssa_it->input(1)->op());
+                }
+            default:
+                break;
+            }
+#endif
+
             // Array checks
             if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_ARRAY8)
             {

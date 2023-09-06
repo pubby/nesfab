@@ -213,7 +213,7 @@ static bool o_hoist(log_t* log, ir_t& ir)
 
             // We'll try to relocate SSA nodes to this CFG:
             cfg_ht const hoist_to = algo(header).idom;
-            if(!hoist_to)
+            if(!hoist_to || hoist_to == cfg)
                 break;
 
             if(!dominates(hoist_to, cfg))

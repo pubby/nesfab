@@ -50,6 +50,7 @@
 // - Non-absolute arpeggio is not supported.
 // - Tempos besides 150 are not supported.
 // - Speeds lower than 4 are not supported.
+// - Pattern "release" is not supported.
 
 // Unlike music, sound effects support all effects, but cannot involve the DMC channel.
 // Sound effects must have a short duration (250 frames or less), 

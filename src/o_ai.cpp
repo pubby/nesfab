@@ -2,6 +2,9 @@
 #include "o.hpp"
 
 #include <array>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include <boost/container/small_vector.hpp>
 

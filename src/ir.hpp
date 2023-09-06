@@ -2,6 +2,7 @@
 #define IR_HPP
 
 #include <functional>
+
 #include "robin/hash.hpp"
 
 #include "fixed.hpp"

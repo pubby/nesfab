@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <string>
 #include <sstream>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "builtin.hpp"
 #include "format.hpp"
@@ -649,6 +652,8 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
     {
         // Invert the bits:
         std::swap(R.bits.known0, R.bits.known1);
+        R.bits.known0 |= ~cv[1].cm.mask;
+        R.bits.known1 &=  cv[1].cm.mask;
     }
 
     // Outputs:
@@ -738,6 +743,14 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
                         '\n', L, '\n', R);
                 carry = constraints_t::carry(CARRY_SET);
             }
+
+            auto const masked_max = (L.bounds.max & cm.mask) + (R.bounds.max & cm.mask) + shifted_C.bounds.max;
+            if((masked_max & cm.mask) == masked_max)
+            {
+                passert((carry_t)j == CARRY_CLEAR || (carry_t)j == CARRY_BOTTOM, j, masked_max >> fixed_t::shift, bounds_t::bottom(cm),
+                        '\n', L, '\n', R);
+                carry = constraints_t::carry(CARRY_CLEAR);
+            }
         }
     }
     else
@@ -748,9 +761,17 @@ void abstract_add_sub(constraints_def_t const* cv, unsigned argn, constraints_de
         value.bounds.max = L.bounds.max - R.bounds.min - (one - shifted_C.bounds.max);
         value.bounds = apply_mask(value.bounds, cm);
 
-        // The bounds can prove the output carry is set:
+        // The bounds can prove the output carry:
         if(!cm.signed_)
         {
+            auto const masked_min = (L.bounds.min & cm.mask) - (R.bounds.max & cm.mask) - (one - shifted_C.bounds.min);
+            if((masked_min & cm.mask) == masked_min)
+            {
+                passert((carry_t)j == CARRY_SET || (carry_t)j == CARRY_BOTTOM, j, masked_min >> fixed_t::shift, bounds_t::bottom(cm),
+                        '\n', L, '\n', R);
+                carry = constraints_t::carry(CARRY_SET);
+            }
+
             auto const masked_max = (L.bounds.max & cm.mask) - (R.bounds.min & cm.mask) - (one - shifted_C.bounds.max);
             if((masked_max & cm.mask) != masked_max)
             {

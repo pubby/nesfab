@@ -1060,27 +1060,6 @@ span_allocator_t alloc_runtime_rom()
 {
     span_allocator_t a(mapper().fixed_rom_span());
 
-    if(compiler_options().action53)
-    {
-        if(mapper().prg_size() > 0x10000)
-            compiler_warning("--action53 is enabled with a PRG size above 64KiB. This may be incompatible.");
-
-        switch(mapper().type)
-        {
-        case MAPPER_NROM:
-        case MAPPER_CNROM:
-            break;
-        default:
-            compiler_warning(fmt("--action53 is enabled with mapper %. This may be incompatible.", mapper_name(mapper().type)));
-            // fall-through
-        case MAPPER_ANROM:
-        case MAPPER_BNROM:
-        case MAPPER_UNROM:
-            a.alloc_at({ 0xFFD0, 0x2A }).object;
-            break;
-        }
-    }
-
     auto const alloc = [&](runtime_rom_name_t name, auto&& data, romv_flags_t flags = ROMVF_IN_MODE, 
                            std::uint16_t alignment=1, std::uint16_t after=0)
     {
@@ -1117,6 +1096,29 @@ span_allocator_t alloc_runtime_rom()
     if(!iota)
         iota = a.alloc(256, 256).object;
     _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 }).object;
+    assert(_rtrom_spans[RTROM_vectors][0]);
+
+    if(compiler_options().action53)
+    {
+        if(mapper().prg_size() > 0x10000)
+            compiler_warning("--action53 is enabled with a PRG size above 64KiB. This may be incompatible.");
+
+        switch(mapper().type)
+        {
+        case MAPPER_NROM:
+        case MAPPER_CNROM:
+            break;
+        default:
+            compiler_warning(fmt("--action53 is enabled with mapper %. This may be incompatible.", mapper_name(mapper().type)));
+            // fall-through
+        case MAPPER_ANROM:
+        case MAPPER_BNROM:
+        case MAPPER_UNROM:
+            span_t span = a.alloc_at({ 0xFFD0, 0x2A }).object;
+            assert(span);
+            break;
+        }
+    }
 
     // These have to be defined in a toposorted order.
     alloc(RTROM_iota, make_iota());

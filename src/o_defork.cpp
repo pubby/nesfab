@@ -99,7 +99,7 @@ bool o_fork(log_t* log, ir_t& ir)
             // (Duplicated inputs will map to the same CFG node).
             fc::small_map<ssa_value_t, cfg_ht, 16> unique_map;
             unique_map.container.reserve(phi->input_size());
-            for(unsigned i = 0; i < input_size;)
+            for(unsigned i = 0; i < cfg_node.input_size();)
             {
                 auto ie = cfg_node.input_edge(i);
                 assert(ie.handle != cfg_it);

@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 1.0
+Version 1.1
 :sectnums:
 :toc2:
 :toclevels: 3
@@ -5415,7 +5415,7 @@ The syntax is the integer type, followed by the unit-fractional type, without no
 |Type |Size (bytes) |Value range
 
 |`UF`
-|1
+|2
 |[$00.00, $FF.FF]
 
 |`SSF`

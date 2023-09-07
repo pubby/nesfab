@@ -192,6 +192,7 @@ ct U ATTR_V_FLIP   = %10000000
 fn ppu_upload_oam(U oam_offset)
 : employs
 : +inline
+: +static
     fence
     {OAMADDR}(oam_offset)
     {OAMDMA}((&oam).b)

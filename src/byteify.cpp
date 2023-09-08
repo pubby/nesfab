@@ -25,7 +25,7 @@ namespace // anonymous
 
     struct ssa_byteify_d
     {
-        bm_t bm;
+        bm_t bm = {};
     };
 }
 
@@ -251,6 +251,9 @@ static void _split_vanishing(ssa_ht ssa_node)
         assert(false);
 
     ssa_node->set_flags(FLAG_PROCESSED);
+
+    // Created node(s), so we have to resize:
+    ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
 }
 
 // Converts all operations with non-BYTE types to only use BYTE.
@@ -445,6 +448,8 @@ void byteify(ir_t& ir, fn_t const& fn)
     for(cfg_node_t& cfg_node : ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
+        assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
+
         switch(ssa_it->op())
         {
         case SSA_fn_ptr_call:
@@ -794,10 +799,14 @@ void byteify(ir_t& ir, fn_t const& fn)
         }
     }
 
+    assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
+
     // Finish up the split outputs created earlier:
     bc::small_vector<bm_t, 16> bms;
     for(ssa_ht ssa_node : ssa_workvec)
     {
+        assert(ssa_data_pool::array_size() >= ssa_pool::array_size());
+
         auto& d = ssa_node.data<ssa_byteify_d>(); 
         type_name_t const t = _bm_type(ssa_node->type()).name();
         assert(is_scalar(t));
@@ -808,7 +817,6 @@ void byteify(ir_t& ir, fn_t const& fn)
         case SSA_ror:
             {
                 bm_t const lhs_bm = _get_bm(ssa_node->input(0));
-                bm_t const rhs_bm = _get_bm(ssa_node->input(1));
                 ssa_ht prev_carry = {};
 
                 int begin, end, incr;
@@ -826,13 +834,18 @@ void byteify(ir_t& ir, fn_t const& fn)
                     incr = -1;
                 }
 
-                ssa_value_t carry = rhs_bm[max_frac_bytes];
+                ssa_value_t carry = ssa_node->input(1);
 
                 for(int i = begin; i != end; i += incr)
                 {
+                    assert(d.bm[i].holds_ref());
+                    assert(lhs_bm[i]);
+                    passert(carry, ssa_node->input(1));
+
                     ssa_ht split = d.bm[i].handle();
                     split->alloc_input(2);
                     split->build_set_input(0, lhs_bm[i]);
+                    assert(carry);
                     split->build_set_input(1, carry);
 
                     if(ssa_ht c = carry_output(*split))
@@ -840,7 +853,6 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                     carry = ssa_node->cfg_node()->emplace_ssa(
                         SSA_carry, TYPE_BOOL, split);
-
                 }
                 prune_nodes.push_back(ssa_node);
 
@@ -849,6 +861,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                     prev_carry->replace_with(carry);
                     prune_nodes.push_back(prev_carry);
                 }
+
+                // Created a node, so we have to resize:
+                ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
             }
             break;
 
@@ -943,6 +958,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                 }
 
                 prune_nodes.push_back(ssa_node);
+
+                // Created a node, so we have to resize:
+                ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
             }
             else
             {
@@ -1012,6 +1030,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                     prev_carry->replace_with(carry);
                     prune_nodes.push_back(prev_carry);
                 }
+
+                // Created a node, so we have to resize:
+                ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
             }
             break;
 
@@ -1118,6 +1139,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                 }
 
                 prune_nodes.push_back(ssa_node);
+
+                // Created a node, so we have to resize:
+                ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
             }
             break;
 

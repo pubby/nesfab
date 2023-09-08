@@ -53,11 +53,11 @@ fn update_sprites()
 fn update_player()
     // Update x-position:
     if pads[0].held & BUTTON_LEFT
-        if collision_at(UU(p.x - 2), UU(p.y)) != C_WALL && collision_at(UU(p.x - 1), UU(p.y + rh)) != C_WALL
+        if collision_at(UU(p.x - 2), UU(p.y)) != C_WALL && collision_at(UU(p.x - 2), UU(p.y + rh)) != C_WALL
             p.x -= 2
             p.attr |= ATTR_H_FLIP 
     if pads[0].held & BUTTON_RIGHT
-        if collision_at(UU(p.x + rw + 2), UU(p.y)) != C_WALL && collision_at(UU(p.x + pw + 1), UU(p.y + rh)) != C_WALL
+        if collision_at(UU(p.x + rw + 2), UU(p.y)) != C_WALL && collision_at(UU(p.x + rw + 2), UU(p.y + rh)) != C_WALL
             p.x += 2
             p.attr &= ~ATTR_H_FLIP 
             
@@ -70,7 +70,7 @@ fn update_player()
     SSF new_y = p.y + SSF(p.yspeed)
     p.yspeed += 0.25
     if p.yspeed > 0
-        if collision_at(UU(p.x + 0), UU(new_y + rh)) == C_WALL || collision_at(UU(p.x + pw - 1), UU(new_y + rh)) == C_WALL
+        if collision_at(UU(p.x + 0), UU(new_y + rh)) == C_WALL || collision_at(UU(p.x + rw), UU(new_y + rh)) == C_WALL
             p.yspeed = 0
             p.y = ((new_y + rh) & SSF(~%1111)) - ph
         else

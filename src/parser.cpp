@@ -1298,7 +1298,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
                 ast_node_t expr = parse_expr(array_indent, 1);
                 policy().convert_ast(expr, IDEP_TYPE);
 
-                if(!is_scalar(result.type.name()) && !is_struct(result.type.name()))
+                if(!is_scalar(result.type.name()) && !is_struct(result.type.name()) && !is_banked_ptr(result.type.name()))
                     compiler_error(fmt("% is an invalid array element type.", result.type));
 
                 if(expr.token.type == TOK_int)

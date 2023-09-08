@@ -61,6 +61,8 @@ bool read_binary_file(char const* filename, std::function<void*(std::size_t)> co
 std::vector<std::uint8_t> read_binary_file(std::string filename, pstring_t at);
 std::vector<std::uint8_t> read_binary_file(std::string filename);
 
+fs::path source_path(unsigned file_i);
+
 // Holds the contents of a file in a buffer and its filename.
 struct file_contents_t
 {

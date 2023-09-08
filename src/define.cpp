@@ -4,7 +4,7 @@
 #include "globals.hpp"
 #include "group.hpp"
 
-const_ht define_const(pstring_t at, std::string_view name, asm_proc_t&& proc, 
+const_ht define_const(lpstring_t at, std::string_view name, asm_proc_t&& proc, 
                       defined_group_data_t const& d, bool omni, mod_flags_t flags)
 {
     using namespace lex;
@@ -35,18 +35,18 @@ const_ht define_const(pstring_t at, std::string_view name, asm_proc_t&& proc,
     return gconst;
 }
 
-const_ht define_ct(pstring_t at, std::string_view name, std::uint8_t value)
+const_ht define_ct(lpstring_t at, std::string_view name, std::uint8_t value)
 {
     global_t& global = global_t::lookup_sourceless(at, name);
     return define_ct(global, at, value);
 }
 
-const_ht define_ct(global_t& global, pstring_t at, std::uint8_t value)
+const_ht define_ct(global_t& global, lpstring_t at, std::uint8_t value)
 {
     return define_ct_int(global, at, TYPE_U, value);
 }
 
-const_ht define_ct_int(global_t& global, pstring_t at, type_t const& type, unsigned value)
+const_ht define_ct_int(global_t& global, lpstring_t at, type_t const& type, unsigned value)
 {
     using namespace lex;
 
@@ -62,7 +62,7 @@ const_ht define_ct_int(global_t& global, pstring_t at, type_t const& type, unsig
 }
 
 template<typename T>
-const_ht define_ct_array(global_t& global, pstring_t at, T const* data, std::size_t length, type_t const& elem_type)
+const_ht define_ct_array(global_t& global, lpstring_t at, T const* data, std::size_t length, type_t const& elem_type)
 {
     using namespace lex;
 
@@ -95,12 +95,12 @@ const_ht define_ct_array(global_t& global, pstring_t at, T const* data, std::siz
     return gconst;
 }
 
-const_ht define_ct(global_t& global, pstring_t at, std::uint8_t const* data, std::size_t length)
+const_ht define_ct(global_t& global, lpstring_t at, std::uint8_t const* data, std::size_t length)
 {
     return define_ct_array(global, at, data, length, TYPE_U);
 }
 
-const_ht define_ct(global_t& global, pstring_t at, std::int16_t const* data, std::size_t length)
+const_ht define_ct(global_t& global, lpstring_t at, std::int16_t const* data, std::size_t length)
 {
     return define_ct_array(global, at, data, length, TYPE_S20);
 }

@@ -33,7 +33,7 @@
 
 // Changes a global from UNDEFINED to some specified 'gclass'.
 // This gets called whenever a global is parsed.
-unsigned global_t::define(pstring_t pstring, global_class_t gclass, 
+unsigned global_t::define(lpstring_t lpstring, global_class_t gclass, 
                           ideps_map_t&& ideps, std::function<unsigned(global_t&)> create_impl)
 {
     assert(compiler_phase() <= PHASE_PARSE);
@@ -48,20 +48,20 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
                 return m_impl_id;
             }
 
-            if(pstring && m_pstring)
+            if(lpstring && m_lpstring)
             {
-                file_contents_t file(pstring.file_i);
+                file_contents_t file(lpstring.file_i);
                 throw compiler_error_t(
-                    fmt_error(pstring, fmt("Global identifier % already in use.", name), &file)
-                    + fmt_note(m_pstring, "Previous definition here:"));
+                    fmt_error(lpstring, fmt("Global identifier % already in use.", name), &file)
+                    + fmt_note(m_lpstring, "Previous definition here:"));
             }
             else
                 throw compiler_error_t(fmt("Global identifier % already in use.", name));
         }
 
         m_gclass = gclass;
-        assert(pstring);
-        m_pstring = pstring; // Not necessary but useful for error reporting.
+        assert(lpstring);
+        m_lpstring = lpstring; // Not necessary but useful for error reporting.
         m_impl_id = ret = create_impl(*this);
         m_ideps = std::move(ideps);
     }
@@ -69,14 +69,14 @@ unsigned global_t::define(pstring_t pstring, global_class_t gclass,
     return ret;
 }
 
-fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
+fn_ht global_t::define_fn(lpstring_t lpstring, ideps_map_t&& ideps,
                           type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
                           fn_class_t fclass, bool iasm, fn_set_t* fn_set)
 {
     fn_t* ret;
 
     // Create the fn
-    fn_ht h = { define(pstring, GLOBAL_FN, std::move(ideps), [&](global_t& g)
+    fn_ht h = { define(lpstring, GLOBAL_FN, std::move(ideps), [&](global_t& g)
     { 
         return fn_ht::pool_emplace(
             ret, g, type, std::move(fn_def), std::move(mods), fclass, iasm, fn_set).id; 
@@ -101,14 +101,14 @@ fn_ht global_t::define_fn(pstring_t pstring, ideps_map_t&& ideps,
     return h;
 }
 
-gvar_ht global_t::define_var(pstring_t pstring, ideps_map_t&& ideps, 
+gvar_ht global_t::define_var(lpstring_t lpstring, ideps_map_t&& ideps, 
                              src_type_t src_type, defined_group_vars_t d,
                              ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
 {
     gvar_t* ret;
 
     // Create the var
-    gvar_ht h = { define(pstring, GLOBAL_VAR, std::move(ideps), [&](global_t& g)
+    gvar_ht h = { define(lpstring, GLOBAL_VAR, std::move(ideps), [&](global_t& g)
     { 
         return gvar_ht::pool_emplace(ret, g, src_type, d.vars_handle, expr, std::move(paa_def), std::move(mods)).id;
     })};
@@ -125,7 +125,7 @@ gvar_ht global_t::define_var(pstring_t pstring, ideps_map_t&& ideps,
     return h;
 }
 
-const_ht global_t::define_const(pstring_t pstring, ideps_map_t&& ideps, 
+const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps, 
                                 src_type_t src_type, defined_group_data_t d, bool omni,
                                 ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
                                 std::unique_ptr<mods_t> mods)
@@ -133,7 +133,7 @@ const_ht global_t::define_const(pstring_t pstring, ideps_map_t&& ideps,
     const_t* ret;
 
     // Create the const
-    const_ht h = { define(pstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
+    const_ht h = { define(lpstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
     { 
         return const_ht::pool_emplace(ret, g, src_type, d.data_handle, !omni, expr, std::move(paa_def), std::move(mods)).id;
     })};
@@ -145,14 +145,14 @@ const_ht global_t::define_const(pstring_t pstring, ideps_map_t&& ideps,
     return h;
 }
 
-struct_ht global_t::define_struct(pstring_t pstring, ideps_map_t&& ideps,
+struct_ht global_t::define_struct(lpstring_t lpstring, ideps_map_t&& ideps,
                                   field_map_t&& fields)
                                 
 {
     struct_t* ret;
 
     // Create the struct
-    struct_ht h = { define(pstring, GLOBAL_STRUCT, std::move(ideps), [&](global_t& g)
+    struct_ht h = { define(lpstring, GLOBAL_STRUCT, std::move(ideps), [&](global_t& g)
     { 
         return struct_ht::pool_emplace(ret, g, std::move(fields)).id;
     }) };
@@ -161,7 +161,7 @@ struct_ht global_t::define_struct(pstring_t pstring, ideps_map_t&& ideps,
 }
 
 charmap_ht global_t::define_charmap(
-        pstring_t pstring, bool is_default, 
+        lpstring_t lpstring, bool is_default, 
         string_literal_t const& characters, 
         string_literal_t const& sentinel,
         std::unique_ptr<mods_t> mods)
@@ -169,7 +169,7 @@ charmap_ht global_t::define_charmap(
     charmap_t* ret;
 
     // Create the charmap
-    charmap_ht h = { define(pstring, GLOBAL_CHARMAP, {}, [&](global_t& g)
+    charmap_ht h = { define(lpstring, GLOBAL_CHARMAP, {}, [&](global_t& g)
     { 
         return charmap_ht::pool_emplace(ret, g, is_default, characters, sentinel, std::move(mods)).id;
     }) };
@@ -177,12 +177,12 @@ charmap_ht global_t::define_charmap(
     return h;
 }
 
-fn_set_t& global_t::define_fn_set(pstring_t pstring)
+fn_set_t& global_t::define_fn_set(lpstring_t lpstring)
 {
     fn_set_t* ret = nullptr;
 
     // Create the charmap
-    fn_set_ht h = { define(pstring, GLOBAL_FN_SET, {}, [&](global_t& g)
+    fn_set_ht h = { define(lpstring, GLOBAL_FN_SET, {}, [&](global_t& g)
     { 
         return fn_set_ht::pool_emplace(ret, g).id;
     }) };
@@ -195,11 +195,11 @@ global_t& global_t::default_charmap(pstring_t at)
     using namespace std::literals;
     static TLS global_t* result = nullptr;
     if(!result)
-        result = &lookup_sourceless(at, "charmap"sv);
+        result = &lookup_sourceless(extend(at), "charmap"sv);
     return *result;
 }
 
-std::pair<global_t*, ast_node_t const*>& global_t::new_chrrom(pstring_t at)
+std::pair<global_t*, ast_node_t const*>& global_t::new_chrrom(lpstring_t at)
 {
     using namespace std::literals;
 
@@ -207,7 +207,6 @@ std::pair<global_t*, ast_node_t const*>& global_t::new_chrrom(pstring_t at)
     {
         return &pool.emplace_back(at, "chrrom", pool.size());
     });
-
 
     std::lock_guard lock(chrrom_deque_mutex);
     return chrrom_deque.emplace_back(g, nullptr);
@@ -242,7 +241,7 @@ void global_t::parse_cleanup()
     {
         if(global.gclass() == GLOBAL_UNDEFINED)
         {
-            if(global.m_pstring)
+            if(global.m_lpstring)
                 compiler_error(global.pstring(), fmt("Name not in scope: %", global.name));
             else
                 throw compiler_error_t(fmt("Name not in scope: %", global.name));
@@ -541,11 +540,11 @@ global_t* global_t::detect_cycle(global_t& global, idep_class_t pass, idep_class
         {
             if(error != &global)
             {
-                detect_cycle_error_msgs.push_back(fmt_error(global.m_pstring, "Mutually recursive with:"));
+                detect_cycle_error_msgs.push_back(fmt_error(global.m_lpstring, "Mutually recursive with:"));
                 return error;
             }
 
-            std::string msg = fmt_error(global.m_pstring,
+            std::string msg = fmt_error(global.m_lpstring,
                 fmt("% has a recursive definition.", global.name));
             for(std::string const& str : detect_cycle_error_msgs)
                 msg += str;
@@ -2315,7 +2314,7 @@ global_t& fn_set_t::lookup(char const* source, pstring_t pstring)
 
     {
         std::lock_guard<std::mutex> lock(m_fns_mutex);
-        g = &m_fns_map.lookup(pstring, pstring.view(source));
+        g = &m_fns_map.lookup(extend(pstring), pstring.view(source));
         auto result = m_fn_hashes.insert({ hash, g });
         if(!result.second && result.first->first != hash)
             compiler_error(pstring, "Hash collision in names.");

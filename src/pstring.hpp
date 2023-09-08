@@ -29,6 +29,24 @@ struct pstring_t
     constexpr explicit operator bool() const { return size; }
 };
 
+constexpr std::uint32_t BAD_LINE_NUMBER = 0;
+
+// Also contains a line number.
+struct lpstring_t : pstring_t
+{
+    std::uint32_t line;
+};
+
+constexpr lpstring_t extend(pstring_t p, unsigned line = BAD_LINE_NUMBER)
+{
+    lpstring_t l;
+    l.offset = p.offset;
+    l.size = p.size;
+    l.file_i = p.file_i;
+    l.line = line;
+    return l;
+}
+
 // Combines two pstrings into one. 
 // Requires that 'lo' comes before 'hi', and lo.end() comes before hi.end().
 constexpr pstring_t fast_concat(pstring_t lo, pstring_t hi)

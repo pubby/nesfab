@@ -110,7 +110,7 @@ global_t& pass1_t::lookup_global(pstring_t pstring)
 {
     std::string_view const view = pstring.view(file.source());
     if(view.starts_with('_'))
-        return private_globals.lookup(pstring, view);
+        return private_globals.lookup(extend(pstring), view);
     return global_t::lookup_sourceless(pstring, view);
 }
 
@@ -118,12 +118,12 @@ group_t* pass1_t::lookup_group(pstring_t pstring)
 {
     std::string_view const view = pstring.view(file.source());
     if(view.starts_with("/_"))
-        return &private_groups.lookup(pstring, view);
+        return &private_groups.lookup(extend(pstring), view);
     return group_t::lookup_sourceless(pstring, view);
 }
 
-fn_set_t& pass1_t::lookup_fn_set(pstring_t pstring)
+fn_set_t& pass1_t::lookup_fn_set(lpstring_t lpstring)
 {
-    global_t& global = lookup_global(pstring);
-    return global.define_fn_set(pstring);
+    global_t& global = lookup_global(lpstring);
+    return global.define_fn_set(lpstring);
 }

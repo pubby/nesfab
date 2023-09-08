@@ -460,6 +460,8 @@ retry:
                 if(*next_char == '/')
                     break;
             }
+            else if(*next_char == '\n')
+                ++line_number;
 
             ++next_char;
         }
@@ -478,7 +480,7 @@ template<typename P>
 template<typename Fn>
 auto parser_t<P>::parse_file(token_type_t tt, Fn const& fn, bool eol)
 {
-    pstring_t const file_pstring = token.pstring;
+    lpstring_t const file_pstring = extend(token.pstring, line_number);
     pstring_t script;
     std::vector<convert_arg_t> args;
 
@@ -537,6 +539,14 @@ template<typename P>
 pstring_t parser_t<P>::parse_ident()
 {
     pstring_t ident = token.pstring;
+    parse_token(TOK_ident);
+    return ident;
+}
+
+template<typename P>
+lpstring_t parser_t<P>::parse_ident_l()
+{
+    lpstring_t ident = extend(token.pstring, line_number);
     parse_token(TOK_ident);
     return ident;
 }
@@ -640,6 +650,13 @@ pstring_t parser_t<P>::parse_group_ident()
     pstring_t const ident = token.pstring;
     parse_token(TOK_ident);
     return fast_concat(slash, ident);
+}
+
+template<typename P>
+lpstring_t parser_t<P>::parse_group_ident_l()
+{
+    unsigned const line = line_number;
+    return extend(parse_group_ident(), line);
 }
 
 template<typename P>
@@ -749,7 +766,7 @@ retry:
 
     case TOK_charmap:
         {
-            global_t const* charmap = &global_t::default_charmap(token.pstring);
+            global_t const* charmap = &global_t::default_charmap(extend(token.pstring, line_number));
             assert(charmap);
             policy().uses_charmap(charmap);
 
@@ -927,7 +944,7 @@ retry:
         {
             ast_node_t ast = {};
 
-            parse_file(TOK_file, [&](pstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, 
+            parse_file(TOK_file, [&](lpstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, 
                        std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
             {
                 if(args.empty())
@@ -1255,7 +1272,7 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
         {
             parse_token();
             parse_token(TOK_period);
-            fn_set_t const& fn_set = policy().lookup_fn_set(parse_ident());
+            fn_set_t const& fn_set = policy().lookup_fn_set(parse_ident_l());
             result.type = type_t::fn_ptr(fn_set);
             break;
         }
@@ -1392,7 +1409,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
             return;
 
         case TOK_file:
-            parse_file(TOK_file, [&](pstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, 
+            parse_file(TOK_file, [&](lpstring_t file_pstring, pstring_t script, fs::path const& preferred_dir, 
                            std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
             {
                 if(args.empty())
@@ -1729,7 +1746,7 @@ void parser_t<P>::parse_top_level_def()
 template<typename P>
 void parser_t<P>::parse_chrrom()
 {
-    pstring_t const decl = token.pstring;
+    lpstring_t const decl = extend(token.pstring, line_number);
     int const chrrom_indent = indent;
 
     ast_node_t expr;
@@ -1775,7 +1792,7 @@ void parser_t<P>::parse_macro()
 template<typename P>
 void parser_t<P>::parse_audio()
 {
-    parse_file(TOK_audio, [&](pstring_t audio_pstring, pstring_t script, fs::path const& preferred_dir,
+    parse_file(TOK_audio, [&](lpstring_t audio_pstring, pstring_t script, fs::path const& preferred_dir,
                               std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
     {
         policy().audio(audio_pstring, script, preferred_dir, std::move(args), std::move(mods));
@@ -1785,8 +1802,8 @@ void parser_t<P>::parse_audio()
 template<typename P>
 void parser_t<P>::parse_mapfab()
 {
-    parse_file(TOK_mapfab, [&](pstring_t mapfab_pstring, pstring_t script, fs::path const& preferred_dir,
-                                 std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
+    parse_file(TOK_mapfab, [&](lpstring_t mapfab_pstring, pstring_t script, fs::path const& preferred_dir,
+                               std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
     {
         policy().mapfab(mapfab_pstring, script, preferred_dir, std::move(args), std::move(mods));
     });
@@ -1795,20 +1812,20 @@ void parser_t<P>::parse_mapfab()
 template<typename P>
 void parser_t<P>::parse_charmap()
 {
-    pstring_t charmap_name;
+    lpstring_t charmap_name;
     bool is_default = false;
     string_literal_t characters, sentinel;
         
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
         // Parse the declaration
-        charmap_name = token.pstring;
+        charmap_name = extend(token.pstring, line_number);
         parse_token(TOK_charmap);
 
         if(token.type == TOK_lparen)
             is_default = true;
         else if(token.type == TOK_ident)
-            charmap_name = parse_ident();
+            charmap_name = extend(parse_ident(), line_number);
         else 
             compiler_error("Unexpected token. Expecting identifier or 'default'.");
 
@@ -1840,12 +1857,12 @@ void parser_t<P>::parse_struct()
 {
     int const struct_indent = indent;
 
-    pstring_t struct_name;
+    lpstring_t struct_name;
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
         // Parse the declaration
         parse_token(TOK_struct);
-        struct_name = token.pstring;
+        struct_name = extend(token.pstring, line_number);
         parse_token(TOK_type_ident);
     });
 
@@ -1871,12 +1888,12 @@ void parser_t<P>::parse_group_vars()
     int const vars_indent = indent;
 
     // Parse the declaration
-    pstring_t group_name = {};
+    lpstring_t group_name = {};
     std::unique_ptr<mods_t> base_mods = parse_mods_after([&]
     {
         parse_token(TOK_vars);
         if(token.type != TOK_eol)
-            group_name = parse_group_ident();
+            group_name = parse_group_ident_l();
     });
 
     auto d = policy().begin_group_vars(group_name);
@@ -1889,11 +1906,12 @@ void parser_t<P>::parse_group_vars()
         policy().begin_global_var();
 
         std::unique_ptr<mods_t> mods;
+        unsigned const line = line_number;
         bool const has_expr = parse_var_init(var_decl, expr, &mods, &global, d.group ? d.group->handle() : group_ht{}, true, false);
 
         inherit(mods, base_mods);
 
-        policy().global_var(d, var_decl, has_expr ? &expr : nullptr, std::move(mods));
+        policy().global_var(d, var_decl, line, has_expr ? &expr : nullptr, std::move(mods));
         policy().end_global_var();
     });
 
@@ -1913,12 +1931,12 @@ void parser_t<P>::parse_group_data()
     }
 
     // Parse the declaration
-    pstring_t group_name = {};
+    lpstring_t group_name = {};
     std::unique_ptr<mods_t> base_mods = parse_mods_after([&]
     {
         parse_token(TOK_data);
         if(!omni || token.type != TOK_eol)
-            group_name = parse_group_ident();
+            group_name = parse_group_ident_l();
     });
 
     auto d = policy().begin_group_data(group_name, omni);
@@ -1931,12 +1949,13 @@ void parser_t<P>::parse_group_data()
         policy().begin_global_var();
 
         std::unique_ptr<mods_t> mods;
+        unsigned const line = line_number;
         if(!parse_var_init(var_decl, expr, &mods, &global, d.group ? d.group->handle() : group_ht{}, false, !omni))
             compiler_error(var_decl.name, "Constants must be assigned a value.");
 
         inherit(mods, base_mods);
 
-        policy().global_const(true, d, omni, var_decl, expr, std::move(mods));
+        policy().global_const(true, d, omni, var_decl, line, expr, std::move(mods));
         policy().end_global_var();
     });
 
@@ -1954,13 +1973,14 @@ void parser_t<P>::parse_const()
 
     policy().begin_global_var();
 
+    unsigned const line = line_number;
     if(!parse_var_init(var_decl, expr, nullptr, &global, {}, false, true))
         compiler_error(var_decl.name, "Constants must be assigned a value.");
 
     if(var_decl.src_type.type.name() == TYPE_PAA)
         compiler_error(var_decl.name, "Pointer-addressable arrays cannot be defined at top-level.");
 
-    policy().global_const(false, {}, false, var_decl, expr, parse_mods(const_indent));
+    policy().global_const(false, {}, false, var_decl, line, expr, parse_mods(const_indent));
     policy().end_global_var();
 }
 
@@ -1986,8 +2006,8 @@ void parser_t<P>::parse_fn(token_type_t prefix)
     int const fn_indent = indent;
 
     global_t* global;
-    pstring_t fn_set_name = {};
-    pstring_t fn_name;
+    lpstring_t fn_set_name = {};
+    lpstring_t fn_name;
     bc::small_vector<var_decl_t, 8> params;
     src_type_t return_type = {};
     assert(return_type.type.name() == TYPE_VOID);
@@ -1996,7 +2016,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
     {
         // Parse the declaration
         parse_token();
-        fn_name = parse_ident();
+        fn_name = parse_ident_l();
 
         if(token.type == TOK_period)
         {
@@ -2005,7 +2025,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
 
             fn_set_name = fn_name;
             parse_token();
-            fn_name = parse_ident();
+            fn_name = parse_ident_l();
         }
 
         global = policy().prepare_fn(fn_name, fn_set_name);
@@ -2050,13 +2070,13 @@ void parser_t<P>::parse_fn(token_type_t prefix)
 
         ast_node_t ast = parse_byte_block(fn_name, fn_indent, *global, {}, false, false);
 
-        policy().end_asm_fn(std::move(state), fclass, fn_set_name, ast, std::move(mods));
+        policy().end_asm_fn(std::move(state), fn_name.line, fclass, fn_set_name, ast, std::move(mods));
     }
     else
     {
         // Parse the body of the function
         parse_block_statement(fn_indent);
-        policy().end_fn(std::move(state), fclass, fn_set_name, std::move(mods));
+        policy().end_fn(std::move(state), fn_name.line, fclass, fn_set_name, std::move(mods));
     }
 }
 

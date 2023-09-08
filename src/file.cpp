@@ -175,50 +175,60 @@ std::vector<std::uint8_t> read_binary_file(std::string filename)
     return vec;
 }
 
+fs::path source_path(unsigned file_i)
+{
+    assert(file_i < compiler_options().source_names.size());
+    fs::path path;
+    auto const& source = compiler_options().source_names.at(file_i);
+
+    auto const iter = [&](fs::path const& dir) -> bool
+    {
+        path = dir / source.file;
+        return fs::exists(path);
+    };
+
+    if(iter(source.dir))
+        return path;
+
+    for(fs::path const& dir : compiler_options().code_dirs)
+        if(iter(dir))
+            return path;
+
+    for(fs::path const& dir : compiler_options().nesfab_dirs)
+        if(iter(dir))
+            return path;
+
+    throw std::runtime_error("Unable to stat file: " + source.file.string());
+}
+
 void file_contents_t::reset(unsigned file_i)
 {
+    m_size = 0;
+    m_alloc.reset();
+    m_source = nullptr;
+    m_path = fs::path();
+    m_private_globals = nullptr;
+    m_private_groups = nullptr;
+
     // Set this first so that 'input()' can be used.
     m_file_i = file_i;
 
     if(file_i < compiler_options().source_names.size())
     {
-        auto const iter = [&](fs::path const& dir) -> bool
+        m_path = source_path(file_i);
+
+        if(!read_binary_file(m_path.string().c_str(), [this](std::size_t size)
         {
-            m_path = (dir / input().file);
+            m_size = size + 2;
+            m_alloc.reset(new char[m_size]);
+            return reinterpret_cast<void*>(m_alloc.get());
+        }))
+        {
+            throw std::runtime_error("Unable to open file: " + input().file.string());
+        }
 
-            if(!read_binary_file(m_path.string().c_str(), [this](std::size_t size)
-            {
-                m_size = size + 2;
-                m_alloc.reset(new char[m_size]);
-                return reinterpret_cast<void*>(m_alloc.get());
-            }))
-            {
-                return false;
-            }
-
-            m_alloc[m_size-1] = m_alloc[m_size-2] = '\0';
-            m_source = m_alloc.get();
-            return true;
-        };
-
-        if(iter(input().dir))
-            return;
-
-        for(fs::path const& dir : compiler_options().code_dirs)
-            if(iter(dir))
-                return;
-
-        for(fs::path const& dir : compiler_options().nesfab_dirs)
-            if(iter(dir))
-                return;
-
-        m_size = 0;
-        m_alloc.reset();
-        m_source = nullptr;
-        m_path = fs::path();
-        m_private_globals = nullptr;
-        m_private_groups = nullptr;
-        throw std::runtime_error("Unable to open file: " + input().file.string());
+        m_alloc[m_size-1] = m_alloc[m_size-2] = '\0';
+        m_source = m_alloc.get();
     }
     else
     {

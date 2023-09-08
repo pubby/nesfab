@@ -168,7 +168,8 @@ macro.cpp \
 o_shift.cpp \
 mapfab.cpp \
 define.cpp \
-o_locator.cpp
+o_locator.cpp \
+ctags.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

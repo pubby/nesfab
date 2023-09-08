@@ -547,6 +547,21 @@ nesfab --mlb "my_labels.mlb"
 mlb = my_labels.mlb
 ----
 
+=== `ctags` [[opt_ctags]]
+
+`ctags` specifies a https://en.wikipedia.org/wiki/Ctags[Ctags] file to output.
+This file will contain source locations of global definitions, allowing text editors to better navigate.
+
+*Command-line usage:*
+----
+nesfab --ctags ".tags"
+----
+
+*Configuration file usage:*
+----
+ctags = ".tags"
+----
+
 === `threads` (`-j`)
 
 Specifies how many threads the compiler can use, enabling parallel compilation.

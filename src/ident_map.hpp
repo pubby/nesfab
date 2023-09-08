@@ -19,7 +19,8 @@ public:
     using handle_type = Handle;
     using value_type = typename Handle::value_type;
 
-    value_type& lookup(pstring_t name, std::string_view key)
+    template<typename PString>
+    value_type& lookup(PString name, std::string_view key)
     {
         std::uint64_t const hash = fnv1a<std::uint64_t>::hash(key.data(), key.size());
 

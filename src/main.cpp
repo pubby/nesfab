@@ -27,6 +27,7 @@
 #include "mlb.hpp"
 #include "macro.hpp"
 #include "guard.hpp"
+#include "ctags.hpp"
 
 extern char __GIT_COMMIT;
 
@@ -123,6 +124,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("mlb"))
         _options.raw_mlb = (dir / fs::path(vm["mlb"].as<std::string>())).string();
+    
+    if(vm.count("ctags"))
+        _options.raw_ctags = (dir / fs::path(vm["ctags"].as<std::string>())).string();
 
     if(vm.count("graphviz"))
         _options.graphviz = true;
@@ -290,6 +294,7 @@ int main(int argc, char** argv)
                 ("system,S", po::value<std::string>(), "target NES system")
                 ("unsafe-bank-switch", "faster but less safe bank switches")
                 ("mlb", po::value<std::string>(), "generate Mesen label file")
+                ("ctags", po::value<std::string>(), "generate Ctags file")
             ;
 
             po::options_description basic_hidden("Hidden options");
@@ -474,6 +479,14 @@ int main(int argc, char** argv)
                 throw std::runtime_error(fmt("Unable to write Mesen label file %", compiler_options().raw_mlb));
         }
 
+        FILE* ctags_out = nullptr;
+        if(!compiler_options().raw_ctags.empty())
+        {
+            ctags_out = std::fopen(compiler_options().raw_ctags.c_str(), "wb");
+            if(!ctags_out)
+                throw std::runtime_error(fmt("Unable to write Ctags file %", compiler_options().raw_ctags));
+        }
+
         output_time("init:     ");
 
         set_compiler_phase(PHASE_PARSE_MACROS);
@@ -628,6 +641,12 @@ int main(int argc, char** argv)
 
         if(mlb_out)
             print_mlb(mlb_out);
+
+        if(ctags_out)
+        {
+            write_ctags(ctags_out, compiler_options().raw_ctags);
+            std::fclose(ctags_out);
+        }
     }
 #ifdef NDEBUG // In debug mode, we get better stack traces without catching.
     catch(std::exception& e)

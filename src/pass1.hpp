@@ -38,7 +38,7 @@ struct macro_todo_t
 
 struct mapfab_todo_t
 {
-    pstring_t at;
+    lpstring_t at;
     mapfab_convert_type_t ct;
     std::vector<std::uint8_t> data;
     fs::path path;
@@ -105,7 +105,7 @@ public:
     void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
     global_t& lookup_global(pstring_t pstring);
     group_t* lookup_group(pstring_t pstring);
-    fn_set_t& lookup_fn_set(pstring_t pstring);
+    fn_set_t& lookup_fn_set(lpstring_t pstring);
 
     void begin_global_var()
     {
@@ -141,7 +141,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    global_t* prepare_fn(pstring_t fn_name, pstring_t fn_set_name)
+    global_t* prepare_fn(pstring_t fn_name, lpstring_t fn_set_name)
     {
         assert(ideps.empty());
         assert(label_map.empty());
@@ -253,7 +253,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    void end_fn(var_decl_t decl, fn_class_t fclass, pstring_t fn_set_name, std::unique_ptr<mods_t> mods)
+    void end_fn(var_decl_t decl, unsigned line, fn_class_t fclass, lpstring_t fn_set_name, std::unique_ptr<mods_t> mods)
     {
         // Convert local consts now:
         for(auto& c : fn_def.local_consts)
@@ -288,14 +288,14 @@ public:
 
         // Create the global:
         active_global->define_fn(
-            decl.name, std::move(ideps),
+            extend(decl.name, line), std::move(ideps),
             decl.src_type.type, std::move(fn_def), std::move(mods), fclass, false, fn_set);
         ideps.clear();
     }
 
     [[gnu::always_inline]]
     void end_asm_fn(
-        var_decl_t decl, fn_class_t fclass, pstring_t fn_set_name, ast_node_t ast,
+        var_decl_t decl, unsigned line, fn_class_t fclass, lpstring_t fn_set_name, ast_node_t ast,
         std::unique_ptr<mods_t> mods)
     {
         assert(ast.token.type == lex::TOK_byte_block_proc
@@ -336,7 +336,7 @@ public:
 
         // Create the global:
         active_global->define_fn(
-            decl.name, std::move(ideps),
+            extend(decl.name, line), std::move(ideps),
             decl.src_type.type, std::move(fn_def), std::move(mods), fclass, true, fn_set);
         ideps.clear();
     }
@@ -548,7 +548,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    pstring_t begin_struct(pstring_t struct_name)
+    lpstring_t begin_struct(lpstring_t struct_name)
     {
         assert(ideps.empty());
 
@@ -561,7 +561,7 @@ public:
         return struct_name;
     }
 
-    void end_struct(pstring_t struct_name)
+    void end_struct(lpstring_t struct_name)
     {
         active_global->define_struct(
             struct_name, std::move(ideps), std::move(field_map));
@@ -608,7 +608,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    defined_group_vars_t begin_group_vars(pstring_t group_name)
+    defined_group_vars_t begin_group_vars(lpstring_t group_name)
     {
         if(group_t* group = lookup_group(group_name))
             return group->define_vars(group_name);
@@ -617,7 +617,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    defined_group_data_t begin_group_data(pstring_t group_name, bool omni)
+    defined_group_data_t begin_group_data(lpstring_t group_name, bool omni)
     {
         if(group_t* group = lookup_group(group_name))
             return group->define_data(group_name, omni);
@@ -631,7 +631,7 @@ public:
 
     [[gnu::always_inline]]
     void global_var(defined_group_vars_t const& d, var_decl_t const& var_decl, 
-                    ast_node_t* expr, std::unique_ptr<mods_t> mods)
+                    unsigned line, ast_node_t* expr, std::unique_ptr<mods_t> mods)
     {
         uses_type(var_decl.src_type.type);
 
@@ -648,14 +648,14 @@ public:
 
         active_global = &lookup_global(var_decl.name);
         active_global->define_var(
-            var_decl.name, std::move(ideps), var_decl.src_type, d, convert_eternal_expr(expr, IDEP_TYPE),
+            extend(var_decl.name, line), std::move(ideps), var_decl.src_type, d, convert_eternal_expr(expr, IDEP_TYPE),
             std::move(paa_def), std::move(mods));
         ideps.clear();
     }
 
     [[gnu::always_inline]]
     void global_const(bool in_group, defined_group_data_t const& d, bool omni, var_decl_t const& var_decl, 
-                      ast_node_t const& expr, std::unique_ptr<mods_t> mods)
+                      unsigned line, ast_node_t const& expr, std::unique_ptr<mods_t> mods)
     {
         if(in_group && !is_paa(var_decl.src_type.type.name()))
             compiler_error(var_decl.name, "Expecting pointer-addressable array inside 'data' block.");
@@ -671,7 +671,7 @@ public:
 
         active_global = &lookup_global(var_decl.name);
         active_global->define_const(
-            var_decl.name, std::move(ideps), var_decl.src_type, d, omni, convert_eternal_expr(&expr, IDEP_TYPE), 
+            extend(var_decl.name, line), std::move(ideps), var_decl.src_type, d, omni, convert_eternal_expr(&expr, IDEP_TYPE), 
             std::move(paa_def), std::move(mods));
         ideps.clear();
     }
@@ -1120,7 +1120,7 @@ public:
         }
     }
 
-    void charmap(pstring_t charmap_name, bool is_default, 
+    void charmap(lpstring_t charmap_name, bool is_default, 
                  string_literal_t const& characters, 
                  string_literal_t const& sentinel, 
                  std::unique_ptr<mods_t> mods)
@@ -1154,7 +1154,7 @@ public:
         if(name)
             ret = &lookup_global(name);
         else
-            ret = &global_t::default_charmap(at);
+            ret = &global_t::default_charmap(extend(at));
 
         uses_charmap(ret);
 
@@ -1162,7 +1162,7 @@ public:
         return *ret;
     }
 
-    void chrrom(std::pair<global_t*, ast_node_t const*>& pair, pstring_t decl, ast_node_t& ast, std::unique_ptr<mods_t> mods, ast_node_t* expr)
+    void chrrom(std::pair<global_t*, ast_node_t const*>& pair, lpstring_t decl, ast_node_t& ast, std::unique_ptr<mods_t> mods, ast_node_t* expr)
     {
         if(mods)
             mods->validate(decl);
@@ -1187,7 +1187,7 @@ public:
         return std::filesystem::absolute(path);
     }
 
-    void audio(pstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
+    void audio(lpstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
     {
         using namespace std::literals;
 
@@ -1242,7 +1242,7 @@ public:
         }
     }
 
-    void mapfab(pstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
+    void mapfab(lpstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
     {
         using namespace std::literals;
 

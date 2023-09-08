@@ -255,7 +255,7 @@ macro_t combine_vol_duty(macro_t volume, macro_t duty)
     return combined;
 }
 
-void convert_puf_music(char const* const begin, std::size_t size, pstring_t at)
+void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 {
     using namespace std::literals;
 
@@ -996,7 +996,7 @@ void mem_wr(unsigned address, unsigned char data)
     }
 }
 
-const_ht convert_effect(pstring_t at,
+const_ht convert_effect(lpstring_t at,
                         std::uint8_t const* const nsf_data, std::size_t nsf_size,
                         nsf_t const& nsf, unsigned song, unsigned mode,
                         std::deque<nsf_track_t>& nsf_tracks,
@@ -1182,7 +1182,7 @@ const_ht convert_effect(pstring_t at,
 
 void convert_puf_sfx(char const* const txt_data, std::size_t txt_size, 
                      std::uint8_t const* const nsf_data, std::size_t nsf_size,
-                     pstring_t at)
+                     lpstring_t at)
 {
     using namespace std::literals;
 

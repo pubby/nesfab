@@ -61,7 +61,7 @@ private:
     // as the global's definition is parsed.
     std::mutex m_define_mutex;
     global_class_t m_gclass = GLOBAL_UNDEFINED;
-    pstring_t m_pstring = {};
+    lpstring_t m_lpstring = {};
 
     // An index into some storage that holds the global's implementation data
     unsigned m_impl_id = ~0u;
@@ -88,17 +88,18 @@ private:
 public:
     global_t() = delete;
 
-    global_t(pstring_t pstring, std::string_view name, unsigned id)
+    global_t(lpstring_t lpstring, std::string_view name, unsigned id)
     : name(name)
-    , m_pstring(pstring)
+    , m_lpstring(lpstring)
     , m_this_id(id)
     {
-        assert(m_pstring.size);
+        assert(m_lpstring.size);
     }
 
     global_class_t gclass() const { assert(compiler_phase() > PHASE_PARSE); return m_gclass; }
     ideps_map_t const& ideps() const { assert(compiler_phase() > PHASE_PARSE); return m_ideps; }
-    pstring_t pstring() const { return m_pstring; }
+    pstring_t pstring() const { return m_lpstring; }
+    lpstring_t lpstring() const { return m_lpstring; }
     unsigned impl_id() const { assert(compiler_phase() > PHASE_PARSE); return m_impl_id; }
 
 #ifndef NDEBUG
@@ -137,35 +138,35 @@ public:
 
     // Helpers that delegate to 'define':
     fn_ht define_fn(
-        pstring_t pstring, ideps_map_t&& ideps,
+        lpstring_t lpstring, ideps_map_t&& ideps,
         type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, fn_class_t fclass, bool iasm, fn_set_t* fn_set);
     gvar_ht define_var(
-        pstring_t pstring, ideps_map_t&& ideps, 
+        lpstring_t lpstring, ideps_map_t&& ideps, 
         src_type_t src_type, defined_group_vars_t group, 
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
     const_ht define_const(
-        pstring_t pstring, ideps_map_t&& ideps, 
+        lpstring_t lpstring, ideps_map_t&& ideps, 
         src_type_t src_type, defined_group_data_t group, bool omni,
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
     struct_ht define_struct(
-        pstring_t pstring, ideps_map_t&& ideps, field_map_t&& map);
+        lpstring_t lpstring, ideps_map_t&& ideps, field_map_t&& map);
     charmap_ht define_charmap(
-        pstring_t pstring, bool is_default, 
+        lpstring_t lpstring, bool is_default, 
         string_literal_t const& characters, 
         string_literal_t const& sentinel,
         std::unique_ptr<mods_t> mods);
-    fn_set_t& define_fn_set(pstring_t pstring);
+    fn_set_t& define_fn_set(lpstring_t lpstring);
 
     static void init();
 
     // Creates a global if it doesn't exist,
     // otherwise returns the existing global with name.
     static global_t& lookup(char const* source, pstring_t name)
-        { return lookup_sourceless(name, name.view(source)); }
+        { return lookup_sourceless(extend(name), name.view(source)); }
     static global_t& lookup_sourceless(pstring_t name, std::string_view key)
-        { return global_pool_map.lookup(name, key); }
+        { return global_pool_map.lookup(extend(name), key); }
     static global_t* lookup_sourceless(std::string_view view)
         { return global_pool_map.lookup(view); }
 
@@ -203,14 +204,14 @@ public:
     static bool has_irq() { return irqs().size(); }
 
     static global_t& default_charmap(pstring_t at);
-    static std::pair<global_t*, ast_node_t const*>& new_chrrom(pstring_t at);
+    static std::pair<global_t*, ast_node_t const*>& new_chrrom(lpstring_t at);
 
     static bool has_chrrom();
     static void for_each_chrrom(std::function<void(global_t*, ast_node_t const*)> const& fn);
 private:
 
     // Sets the variables of the global:
-    unsigned define(pstring_t pstring, global_class_t gclass, 
+    unsigned define(lpstring_t lpstring, global_class_t gclass, 
                     ideps_map_t&& ideps, std::function<unsigned(global_t&)> create_impl);
 
     // Helper to implement 'compile_all', 'precheck_all', etc.

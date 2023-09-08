@@ -532,7 +532,7 @@ void mapfab_t::compute_mmt_32()
 }
 
 void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, std::size_t size, 
-                    pstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros,
+                    lpstring_t at, fs::path mapfab_path, mapfab_macros_t const& macros,
                     ident_map_t<global_ht>* base_private_globals,
                     ident_map_t<group_ht>* base_private_groups)
 {

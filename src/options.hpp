@@ -38,6 +38,7 @@ struct options_t
 
     // Label files, etc:
     std::string raw_mlb;
+    std::string raw_ctags;
 
     nes_system_t nes_system = NES_SYSTEM_UNKNOWN;
     std::string raw_system;

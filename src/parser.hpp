@@ -34,7 +34,7 @@ private:
     char const* next_char = nullptr;
     token_t token = { lex::TOK_ERROR };
     int indent = 0;
-    unsigned line_number = 0;
+    unsigned line_number = 1;
 
 public:
     parser_t() = delete;
@@ -75,10 +75,12 @@ private:
     void mill_eol();
 
     pstring_t parse_ident();
+    lpstring_t parse_ident_l();
     string_literal_t parse_string_literal(bool open_parens, lex::token_type_t first = lex::TOK_dquote, char last = '"');
     string_literal_t parse_char_literal(bool open_parens);
     ast_node_t parse_string_or_char_expr(bool open_parens);
     pstring_t parse_group_ident();
+    lpstring_t parse_group_ident_l();
 
     static std::uint16_t get_hw_reg(lex::token_type_t token_type);
     std::uint16_t parse_hw_reg();

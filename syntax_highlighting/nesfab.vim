@@ -12,7 +12,7 @@ syn keyword nesfabKeyword if else for while do break continue return fn
     \ ct nmi mode goto label file struct vars data omni ready fence irq
     \ default switch case asm charmap chrrom true false audio system stows 
     \ employs preserves state read write sizeof len push pop mapfab min max 
-    \ abs macro
+    \ abs macro nmi_counter
 
 syntax match nesfabId "_\{0,1}\l\k*"
 syntax match nesfabType "_\{0,1}\u\k*"

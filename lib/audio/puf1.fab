@@ -365,7 +365,7 @@ asm fn puf(U arg)
         lax (&puf_dpcm_pattern_ptr.a), y
         beq silence_dpcm
         lda &puf_dpcm_rate-1, x
-        and #%1111
+        and #%01001111
         sta $4010
         lda &puf_dpcm_addr-1, x
         sta $4012
@@ -373,8 +373,9 @@ asm fn puf(U arg)
         sta $4013
         lda #32
         sta $4011
-        lda #%00011111
+        lsr // A = 16
     label silence_dpcm
+        ora #%00001111
         sta $4015
     label done_dpcm
 

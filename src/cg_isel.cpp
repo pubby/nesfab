@@ -2666,6 +2666,11 @@ namespace isel
             load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
             break;
 
+        case SSA_nmi_counter:
+            p_arg<0>::set(locator_t::runtime_ram(RTRAM_nmi_counter));
+            load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
+            break;
+
         case SSA_carry:
             {
                 locator_t const v = p_def::value();

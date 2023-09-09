@@ -740,6 +740,66 @@ static asm_proc_t make_reset_proc()
     proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));
     proc.push_inst(BPL_RELATIVE, wait_frame_1);
 
+    {
+        if(compiler_options().ram_init)
+        {
+            proc.push_inst(LDA, 0);
+            proc.push_inst(TAX);
+            locator_t const ram_loop = proc.push_label(next_label++);
+            for(unsigned i = 0; i < 8; ++i)
+                proc.push_inst(STA_ABSOLUTE_X, locator_t::addr(i * 256));
+            proc.push_inst(INX);
+            proc.push_inst(BNE_RELATIVE, ram_loop);
+        }
+
+        if(compiler_options().sram_init)
+        {
+            if(!compiler_options().sram)
+                compiler_warning("Zero-initializing SRAM, but no SRAM is included on this mapper.");
+
+            if(!compiler_options().ram_init)
+            {
+                proc.push_inst(LDA, 0);
+                proc.push_inst(TAX);
+            }
+            locator_t const sram_loop = proc.push_label(next_label++);
+            for(unsigned i = 0; i < 32; ++i)
+                proc.push_inst(STA_ABSOLUTE_X, locator_t::addr(0x6000 + i*256));
+            proc.push_inst(INX);
+            proc.push_inst(BNE_RELATIVE, sram_loop);
+        }
+
+        if(compiler_options().vram_init)
+        {
+            if(!compiler_options().ram_init && !compiler_options().sram_init)
+            {
+                proc.push_inst(LDA, 0);
+                proc.push_inst(TAX);
+            }
+            proc.push_inst(STX_ABSOLUTE, locator_t::addr(PPUADDR));
+            proc.push_inst(STX_ABSOLUTE, locator_t::addr(PPUADDR));
+            proc.push_inst(LDY, 48);
+            locator_t const vram_outer_loop = proc.push_label(next_label++);
+            locator_t const vram_inner_loop = proc.push_label(next_label++);
+            proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUDATA));
+            proc.push_inst(INX);
+            proc.push_inst(BNE_RELATIVE, vram_inner_loop);
+            proc.push_inst(DEY);
+            proc.push_inst(BNE_RELATIVE, vram_outer_loop);
+
+            // Palette
+            proc.push_inst(LDX, 0x3F);
+            proc.push_inst(STX_ABSOLUTE, locator_t::addr(PPUADDR));
+            proc.push_inst(LDX, 0x00);
+            proc.push_inst(STX_ABSOLUTE, locator_t::addr(PPUADDR));
+            proc.push_inst(LDX, 32);
+            locator_t const vram_palette_loop = proc.push_label(next_label++);
+            proc.push_inst(STA_ABSOLUTE, locator_t::addr(PPUDATA));
+            proc.push_inst(DEX);
+            proc.push_inst(BNE_RELATIVE, vram_palette_loop);
+        }
+    }
+
     // Wait for the second frame.
     locator_t const wait_frame_2 = proc.push_label(next_label++);
     proc.push_inst(BIT_ABSOLUTE, locator_t::addr(PPUSTATUS));

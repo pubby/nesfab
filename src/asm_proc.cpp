@@ -459,6 +459,9 @@ void asm_proc_t::convert_long_branch_ops()
 
             if(is_relative_branch(inst.op))
             {
+                if(inst.arg.lclass() == LOC_CONST_BYTE)
+                    continue;
+
                 // Change to long pseudo instruction when out of range
                 if(dist > 127 || dist < -128)
                 {

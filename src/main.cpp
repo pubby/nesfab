@@ -241,6 +241,15 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         else
             compiler_warning(fmt("Unknown multicart: %", str));
     }
+
+    if(vm.count("ram-init"))
+        _options.ram_init = true;
+
+    if(vm.count("sram-init"))
+        _options.sram_init = true;
+
+    if(vm.count("vram-init"))
+        _options.vram_init = true;
 }
 
 int main(int argc, char** argv)
@@ -308,6 +317,9 @@ int main(int argc, char** argv)
                 ("time-limit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
                 ("build-time,B", "print compiler execution time")
                 ("fast-debug", "faster debugging")
+                ("ram-init", "initialize RAM with 0 bytes")
+                ("sram-init", "initialize SRAM with 0 bytes")
+                ("vram-init", "initialize VRAM with 0 bytes")
             ;
 
             po::options_description cmdline_full;

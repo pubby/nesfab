@@ -635,6 +635,27 @@ nesfab --sloppy
 sloppy = 1
 ----
 
+=== `--*ram-init`
+
+`--ram-init`, `--sram-init`, and `--vram-init` cause their respective memory regions to be initialized to zero on reset.
+This initialization happens by writing a `0` byte to each address, ignoring any banking behavior the mapper may have.
+
+[NOTE]
+It's not recommended to use these compiler options, and it may result in brittle code.
+Instead, initialize variables and VRAM using code.
+
+*Command-line usage:*
+----
+nesfab --ram-init --sram-init --vram-init
+----
+
+*Configuration file usage:*
+----
+--ram-init = 1
+--sram-init = 1
+--vram-init = 1
+----
+
 == Supported Mappers [[mappers]]
 
 NESFab supports a small set of https://www.nesdev.org/wiki/Mapper[mappers],

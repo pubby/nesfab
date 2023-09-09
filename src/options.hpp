@@ -36,6 +36,10 @@ struct options_t
     bool sloppy = false;
     bool action53 = false;
 
+    bool ram_init = false;
+    bool sram_init = false;
+    bool vram_init = false;
+
     // Label files, etc:
     std::string raw_mlb;
     std::string raw_ctags;

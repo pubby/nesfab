@@ -74,7 +74,7 @@ void print_mlb(std::ostream& o)
                 a.for_each_bank([&](unsigned bank)
                 {
                     unsigned const begin = fix_addr(span.addr,  bank);
-                    unsigned const end   = fix_addr(span.end(), bank);
+                    unsigned const end   = fix_addr(span.end() - 1, bank);
 
                     o << fmt("NesPrgRom:%-%:%@%_%:\n", 
                              hex_string(begin, 6), hex_string(end, 6),

@@ -108,6 +108,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
                 rom_array_ht rom_array = { data.handle() };
                 rom_proc_directly_uses[proc.id].insert(rom_array);
                 rom_array_used_by[rom_array.id].insert(proc);
+                rom_array->max_rule(proc->rule());
             }
         }
         else if(loc.lclass() == LOC_LT_EXPR)
@@ -123,6 +124,21 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
         {
             try_insert(proc, inst.arg);
             try_insert(proc, inst.alt);
+        }
+
+        // Assume asm functions use any rom array in their groups:
+        if(fn_ht fn = proc->asm_proc().fn)
+        {
+            if(fn->iasm)
+            {
+                fn->ir_deref_groups().for_each([&](group_ht group)
+                {
+                    group->for_each_const([&](const_ht c)
+                    {
+                        try_insert(proc, locator_t::gconst(c));
+                    });
+                });
+            }
         }
     }
 

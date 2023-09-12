@@ -471,6 +471,8 @@ public:
     unsigned irq_index() const;
     xbitset_t<fn_ht> const& irq_used_in_modes() const; 
 
+    static fn_t* solo_irq() { assert(compiler_phase() > PHASE_PARSE); return m_solo_irq; }
+
     bool sloppy() const { return m_sloppy; }
 
     precheck_tracked_t const& precheck_tracked() const { assert(m_precheck_tracked); return *m_precheck_tracked; }
@@ -615,6 +617,9 @@ private:
     std::atomic<std::uint64_t> m_referenced = 0;
 
     std::atomic<unsigned> m_precheck_called = 0; // Counts how many times this has been called.
+
+    inline static std::mutex m_solo_irq_mutex;
+    inline static fn_t* m_solo_irq = nullptr;
 };
 
 // Base class for vars and consts.

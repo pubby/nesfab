@@ -3989,8 +3989,13 @@ namespace isel
                 exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
                 break;
             case FN_IRQ:
-                p_label<0>::set(locator_t::runtime_rom(RTROM_irq_exit));
-                exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
+                if(mod_test(state.fn->mods(), MOD_solo_interrupt))
+                    simple_op<Opt, RTI_IMPLIED>(cpu, prev, cont);
+                else
+                {
+                    p_label<0>::set(locator_t::runtime_rom(RTROM_irq_exit));
+                    exact_op<Opt, JMP_ABSOLUTE, null_, p_label<0>>(cpu, prev, cont);
+                }
                 break;
             default:
                 simple_op<Opt, RTS_IMPLIED>(cpu, prev, cont);
@@ -4287,6 +4292,10 @@ namespace isel
                 bool did_reset_nmi = false;
                 bool did_reset_irq = false;
 
+                // Disable interrupts
+                if(global_t::has_irq())
+                    select_step<false>(exact_op<Opt, SEI_IMPLIED>);
+
                 call.mode_group_vars().for_each([&](group_vars_ht gv)
                 {
                     if(!(*gv)->vars()->has_init())
@@ -4304,9 +4313,13 @@ namespace isel
 
                         if(!did_reset_irq && global_t::has_irq())
                         {
-                            // Reset the irq handler until we've reset all group vars.
-                            p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
-                            select_step<false>(load_then_store<Opt, const_<0>, const_<0>, p_arg<0>, false>);
+                            if(!fn_t::solo_irq())
+                            {
+                                // Reset the irq handler until we've reset all group vars.
+                                p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
+                                select_step<false>(load_then_store<Opt, const_<0>, const_<0>, p_arg<0>, false>);
+                            }
+
                             did_reset_irq = true;
                         }
                         p_arg<0>::set(locator_t::reset_group_vars(gv));
@@ -4363,7 +4376,7 @@ namespace isel
                 }
 
                 // Set the irq handler to its proper value
-                if(global_t::has_irq() && (did_reset_irq || !same_irq))
+                if(global_t::has_irq() && (did_reset_irq || !same_irq) && !fn_t::solo_irq())
                 {
                     p_arg<0>::set(locator_t::runtime_ram(RTRAM_irq_index));
                     p_arg<1>::set(locator_t::irq_index(call.mode_irq()));

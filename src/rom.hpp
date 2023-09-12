@@ -37,8 +37,8 @@ class rom_key_t
 enum rom_rule_t : std::uint8_t
 {
     ROMR_NORMAL,
+    ROMR_STATIC,
     ROMR_DPCM,
-    ROMR_STATIC
 };
 
 class rom_data_t
@@ -75,6 +75,7 @@ public:
     void mark_emits() { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); m_emits.store(true); }
     void mark_aligned() { m_align.store(true); }
     void mark_rule(rom_rule_t rule) { m_rule.store(rule); }
+    void max_rule(rom_rule_t rule) { m_rule.store(std::max(m_rule.load(), rule)); }
 
 protected:
     // These are used later on, when the rom is actually allocated.

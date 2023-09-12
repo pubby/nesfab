@@ -28,6 +28,17 @@ bool o_optimize_locators(log_t* log, ir_t& ir)
             default: 
                 break;
 
+            case LOC_GCONST:
+                if(loc.is() == IS_PTR && loc.byteified() 
+                   && mod_test(loc.const_()->mods(), MOD_align) && loc.const_()->type().array_length() >= 256)
+                {
+                    ssa_it->link_change_input(i, ssa_value_t(0u, TYPE_U));
+                    changed = true;
+                    continue;
+                }
+                break;
+
+
             case LOC_NAMED_LABEL:
                 // Named label banks should map to the same bank locator:
                 if(loc.is() == IS_BANK)

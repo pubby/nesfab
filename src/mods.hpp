@@ -122,7 +122,10 @@ public:
     {}
 
     mods_t const* mods() const { return m_mods.get(); }
+
 protected:
+    void ensure_mods() { if(!m_mods) m_mods.reset(new mods_t()); }
+
     std::unique_ptr<mods_t> m_mods; // Storing as a pointer saves memory
 };
 

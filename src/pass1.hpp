@@ -248,7 +248,7 @@ public:
         case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
         case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
         case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
-        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
+        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_solo_interrupt;
         }
     }
 
@@ -317,7 +317,7 @@ public:
         label_map.clear();
         assert(symbol_table.empty());
 
-        if(fclass != FN_FN)
+        if(fclass != FN_FN && (fclass != FN_IRQ || !mod_test(mods.get(), MOD_solo_interrupt)))
             compiler_error(decl.name, fmt("% does not support inline assembly.", fn_class_keyword(fclass)));
 
         if(mods)

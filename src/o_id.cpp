@@ -664,6 +664,8 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 // Put the carry in the lowest bit.
                 if(!carry.value == sub)
                     carry.value = low_bit_only(all_set.value);
+                else
+                    carry.value = 0;
 
                 if((v.fixed().value + carry.value) & all_set.value)
                     return {};
@@ -2054,10 +2056,7 @@ bool o_identities(log_t* log, ir_t& ir)
         o_remove_unused_ssa(log, ir);
 
         ir.assert_valid();
-
-        if(run.updated)
-            simple_repeated();
-
+        simple_repeated();
         ir.assert_valid();
     }
 

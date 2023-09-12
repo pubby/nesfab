@@ -82,7 +82,7 @@ ram_bitset_t alloc_runtime_ram()
     _rtram_spans[RTRAM_nmi_counter]     = {{ a.alloc_zp(1) }};
     _rtram_spans[RTRAM_nmi_ready]       = {{ a.alloc_zp(1) }};
 
-    if(global_t::has_irq())
+    if(global_t::has_irq() && !fn_t::solo_irq())
     {
         _rtram_spans[RTRAM_irq_index]       = {{ a.alloc_zp(1) }};
         _rtram_spans[RTRAM_irq_saved_x]     = {{ a.alloc_zp(1) }};
@@ -95,7 +95,8 @@ ram_bitset_t alloc_runtime_ram()
     if(mapper().bankswitches())
     {
         _rtram_spans[RTRAM_nmi_saved_bank] = {{ a.alloc_zp(1) }};
-        _rtram_spans[RTRAM_irq_saved_bank] = {{ a.alloc_zp(1) }};
+        if(!fn_t::solo_irq())
+            _rtram_spans[RTRAM_irq_saved_bank] = {{ a.alloc_zp(1) }};
     }
 
     if(compiler_options().nes_system == NES_SYSTEM_DETECT)
@@ -116,7 +117,10 @@ static loc_vec_t make_vectors()
     loc_vec_t ret;
     _push_addr(ret, locator_t::runtime_rom(RTROM_nmi));
     _push_addr(ret, locator_t::runtime_rom(RTROM_reset));
-    _push_addr(ret, locator_t::runtime_rom(RTROM_irq));
+    if(fn_t const* irq = fn_t::solo_irq())
+        _push_addr(ret, locator_t::fn(irq->handle()));
+    else
+        _push_addr(ret, locator_t::runtime_rom(RTROM_irq));
     return ret;
 }
 
@@ -754,7 +758,7 @@ static asm_proc_t make_reset_proc()
 
         if(compiler_options().sram_init)
         {
-            if(!compiler_options().sram)
+            if(!mapper().sram)
                 compiler_warning("Zero-initializing SRAM, but no SRAM is included on this mapper.");
 
             if(!compiler_options().ram_init)
@@ -879,7 +883,7 @@ static asm_proc_t make_reset_proc()
     }
 
     // Init the IRQ index
-    if(global_t::has_irq())
+    if(global_t::has_irq() && !fn_t::solo_irq())
     {
         proc.push_inst(LDA_IMMEDIATE, locator_t::irq_index(main.mode_irq()));
         proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_index));
@@ -1197,7 +1201,7 @@ span_allocator_t alloc_runtime_rom()
         _rtrom_spans[RTROM_nmi_exit][ROMV_NMI] = _rtrom_spans[RTROM_nmi][ROMV_NMI];
     }
 
-    if(global_t::has_irq())
+    if(global_t::has_irq() && !fn_t::solo_irq())
     {
         alloc(RTROM_irq, make_irq(), ROMVF_IN_IRQ);
         alloc(RTROM_irq_exit, make_irq_exit(), ROMVF_IN_IRQ);
@@ -1239,7 +1243,7 @@ span_allocator_t alloc_runtime_rom()
         alloc(RTROM_nmi_bank_table, std::move(nmi_tables.bank), ROMVF_IN_MODE, nmi_tables.alignment);
     }
 
-    if(global_t::has_irq())
+    if(global_t::has_irq() && !fn_t::solo_irq())
     {
         auto irq_tables = make_irq_tables();
         alloc(RTROM_irq_lo_table, std::move(irq_tables.lo), ROMVF_IN_MODE, irq_tables.alignment);

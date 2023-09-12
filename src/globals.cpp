@@ -236,6 +236,24 @@ void global_t::parse_cleanup()
 {
     assert(compiler_phase() == PHASE_PARSE_CLEANUP);
 
+    // Handle solo_interrupts: 
+    if(fn_t* irq = fn_t::solo_irq())
+    {
+        for(fn_t* mode : modes())
+        {
+            if(mode->mods() && mode->mods()->irq)
+            {
+                throw compiler_error_t(
+                    fmt_error(mode->global.pstring(), "Mode using irq modifier when +solo_interrupt irq exists.")
+                    + fmt_note(irq->global.pstring(), "+solo_interrupt irq located here."));
+            }
+
+            mode->ensure_mods();
+            mode->m_mods->irq = &irq->global;
+            mode->global.m_ideps.emplace(&irq->global, idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
+        }
+    }
+
     // Verify globals are created:
     for(global_t& global : global_ht::values())
     {
@@ -810,6 +828,24 @@ fn_t::fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mod
 
     m_sloppy = compiler_options().sloppy || mod_test(this->mods(), MOD_sloppy);
     m_sloppy &= !mod_test(this->mods(), MOD_sloppy, false);
+
+    if(mod_test(this->mods(), MOD_solo_interrupt))
+    {
+        if(!mod_test(this->mods(), MOD_static))
+            compiler_error(global.pstring(), "+solo_interrupt requires +static.");
+
+        if(fclass == FN_IRQ)
+        {
+            std::lock_guard<std::mutex> lock(m_solo_irq_mutex);
+            if(m_solo_irq)
+            {
+                throw compiler_error_t(
+                    fmt_error(global.pstring(), "Multiple copies of +solo_interrupt.")
+                    + fmt_note(m_solo_irq->global.pstring(), "Previously declared here."));
+            }
+            m_solo_irq = this;
+        }
+    }
 }
 
 fn_ht fn_t::mode_nmi() const
@@ -822,7 +858,7 @@ fn_ht fn_t::mode_nmi() const
 fn_ht fn_t::mode_irq() const
 { 
     assert(fclass == FN_MODE); 
-    assert(compiler_phase() > PHASE_PARSE_CLEANUP);
+    assert(compiler_phase() >= PHASE_PARSE_CLEANUP);
     return (mods() && mods()->irq) ? mods()->irq->handle<fn_ht>() : fn_ht{};
 }
 

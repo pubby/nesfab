@@ -3010,6 +3010,10 @@ irq identifier()
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
 - <<mod_flags, `+sloppy`, `-sloppy`>>
+- <<mod_flags, `+solo_interrupt`>>
+
+[NOTE]
+`asm` can be applied to `irq`, so long as <<mod_flags, `+solo_interrupt>> and `+static` are used.
 
 === `asm` [[kw_asm]]
 
@@ -3064,6 +3068,10 @@ Example:
 ----
 waste_time.loop()
 ----
+
+[NOTE]
+`asm` can be applied to `irq`, so long as <<mod_flags, `+solo_interrupt>> and `+static` are used.
+`asm` is not currently supported with `nmi`.
 
 === `struct` [[kw_struct]]
 
@@ -4045,6 +4053,7 @@ The following flags exist:
 - `palette_25`: Converts 32-byte palettes into 25-byte palettes.
 - `+sloppy`, `-sloppy`: Enables / disables faster compilation speed, at the cost of performance.
 - `+fork_scope`: The invoked macro(s) will have access to private definitions inside the invoking file.
+- `+solo_interrupt`: Disable switchable interrupts and always use this interrupt.
 
 Example:
 ----

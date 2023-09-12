@@ -1,9 +1,14 @@
 #include "rom_prune.hpp"
 
+#ifndef NDEBUG
+#include <iostream>
+#endif
+
 #include "rom.hpp"
 #include "runtime.hpp"
 #include "lt.hpp"
 #include "globals.hpp"
+#include "group.hpp"
 
 static void rom_mark_emits(rom_data_ht data);
 

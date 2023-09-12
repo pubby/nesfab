@@ -1127,6 +1127,9 @@ span_allocator_t alloc_runtime_rom()
     auto const alloc = [&](runtime_rom_name_t name, auto&& data, romv_flags_t flags = ROMVF_IN_MODE, 
                            std::uint16_t alignment=1, std::uint16_t after=0)
     {
+        if(mapper().type == MAPPER_MMC3 && !after)
+            after = 0xE000;
+
         std::size_t const max_size = data.size();
 
         bitset_for_each(flags, [&](unsigned romv)
@@ -1213,7 +1216,7 @@ span_allocator_t alloc_runtime_rom()
     }
 
     alloc(RTROM_wait_nmi, make_wait_nmi());
-    alloc(RTROM_reset, make_reset());
+    alloc(RTROM_reset, make_reset(), ROMVF_IN_MODE);
     alloc(RTROM_vectors, make_vectors());
     alloc(RTROM_jmp_indirect, make_jmp_indirect(), ROMVF_ALL);
 

@@ -1524,7 +1524,7 @@ void ai_t::fold_consts()
 
             int begin = 0;
             int end = lhs_vec.size();
-            bool flip = false;
+            bool change_op = false;
             unsigned ignore = 0;
 
             for(int i = lhs_vec.size() - 1; i >= 0; --i)
@@ -1554,19 +1554,22 @@ void ai_t::fold_consts()
                 else if(!eq.bit_eq(constraints_t::bool_(false)))
                     continue;
 
+                // For now, don't handle signed.
+                if(info.lsigned || info.rsigned)
+                    continue;
+
                 constraints_t const lt = abstract_lt(lhs_vec[i], lhs_cm, rhs_vec[i], rhs_cm);
 
                 if(lt.bit_eq(constraints_t::bool_(true)))
                 {
-                    flip = ssa_it->op() == SSA_multi_lt;
+                    change_op = ssa_it->op() == SSA_multi_lt;
                     begin = i+1;
                     dprint(log, "-MULTI_LT LT");
                     break;
                 }
-                
-                if(lt.bit_eq(constraints_t::bool_(false)))
+                else if(lt.bit_eq(constraints_t::bool_(false)))
                 {
-                    flip = ssa_it->op() == SSA_multi_lte;
+                    change_op = ssa_it->op() == SSA_multi_lte;
                     begin = i+1;
                     dprint(log, "-MULTI_LT GT");
                     break;
@@ -1622,7 +1625,7 @@ void ai_t::fold_consts()
                 if(new_rhs.empty())
                 {
                     updated = __LINE__;
-                    ssa_it->replace_with(ssa_value_t((ssa_it->op() == SSA_multi_lte) != flip, TYPE_BOOL));
+                    ssa_it->replace_with(ssa_value_t((ssa_it->op() == SSA_multi_lte) != change_op, TYPE_BOOL));
                     continue;
                 }
 
@@ -1648,23 +1651,18 @@ void ai_t::fold_consts()
                 // Set the types
                 type_name_t const lt = type_s_or_u(new_lwhole, new_lfrac, new_signedl);
                 type_name_t const rt = type_s_or_u(new_rwhole, new_rfrac, new_signedr);
-                inputs[flip]  = ssa_value_t(unsigned(lt), TYPE_INT);
-                inputs[!flip] = ssa_value_t(unsigned(rt), TYPE_INT);
+                inputs[0]  = ssa_value_t(unsigned(lt), TYPE_INT);
+                inputs[1] = ssa_value_t(unsigned(rt), TYPE_INT);
 
-                if(flip)
+                inputs.insert(inputs.end(), new_lhs.begin(), new_lhs.end());
+                inputs.insert(inputs.end(), new_rhs.begin(), new_rhs.end());
+
+                if(change_op)
                 {
-                    inputs.insert(inputs.end(), new_rhs.begin(), new_rhs.end());
-                    inputs.insert(inputs.end(), new_lhs.begin(), new_lhs.end());
-
                     if(ssa_it->op() == SSA_multi_lt)
                         ssa_it->unsafe_set_op(SSA_multi_lte);
                     else
                         ssa_it->unsafe_set_op(SSA_multi_lt);
-                }
-                else
-                {
-                    inputs.insert(inputs.end(), new_lhs.begin(), new_lhs.end());
-                    inputs.insert(inputs.end(), new_rhs.begin(), new_rhs.end());
                 }
 
 #ifndef NDEBUG

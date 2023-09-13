@@ -1837,7 +1837,7 @@ namespace isel
         }
         else if(info.lsigned != info.rsigned)
         {
-            // The types have the same number whole bytes, but the signs differ.
+            // The types have the same number of whole bytes, but the signs differ.
 
             // The multi-byte subtraction won't use the highest bytes.
             info.sbcwhole -= 1;
@@ -1851,21 +1851,45 @@ namespace isel
 
             if(p_lhs::value().eq_const_byte(0))
             {
-                select_step<false>(
-                    chain
-                    < load_Z_for<Opt, p_rhs>
-                    , branch_op<Opt, BNE, SuccessLabel>
-                    , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, FailLabel>>
-                    >);
+                if(info.rsigned)
+                {
+                    select_step<false>(
+                        chain
+                        < load_NZ_for<Opt, p_rhs>
+                        , branch_op<Opt, BMI, FailLabel>
+                        , if_<Opt, last_comp, simple_op<Opt, BPL_RELATIVE, null_, SuccessLabel>>
+                        >);
+                }
+                else
+                {
+                    select_step<false>(
+                        chain
+                        < load_Z_for<Opt, p_rhs>
+                        , branch_op<Opt, BNE, SuccessLabel>
+                        , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, FailLabel>>
+                        >);
+                }
             }
             else if(p_rhs::value().eq_const_byte(0))
             {
-                select_step<false>(
-                    chain
-                    < load_Z_for<Opt, p_lhs>
-                    , branch_op<Opt, BNE, FailLabel>
-                    , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, SuccessLabel>>
-                    >);
+                if(info.lsigned)
+                {
+                    select_step<false>(
+                        chain
+                        < load_NZ_for<Opt, p_lhs>
+                        , branch_op<Opt, BMI, SuccessLabel>
+                        , if_<Opt, last_comp, simple_op<Opt, BPL_RELATIVE, null_, SuccessLabel>>
+                        >);
+                }
+                else
+                {
+                    select_step<false>(
+                        chain
+                        < load_Z_for<Opt, p_lhs>
+                        , branch_op<Opt, BNE, FailLabel>
+                        , if_<Opt, last_comp, simple_op<Opt, BEQ_RELATIVE, null_, SuccessLabel>>
+                        >);
+                }
             }
             else if(info.lsigned)
             {
@@ -4202,6 +4226,7 @@ namespace isel
             break;
 
         // Branch ops jump directly:
+        // NOTE: Always clear conditional after branch op!
         case SSA_branch_eq:
             p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
             p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
@@ -4236,6 +4261,7 @@ namespace isel
                 < load_N_for<Opt, p_arg<0>>
                 , branch_op<Opt, BPL, p_label<0>>
                 , branch_op<Opt, BMI, p_label<1>>
+                , clear_conditional
                 >(cpu, prev, cont);
 
                 chain
@@ -4243,6 +4269,7 @@ namespace isel
                 , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
                 , branch_op<Opt, BCC, p_label<0>>
                 , branch_op<Opt, BCS, p_label<1>>
+                , clear_conditional
                 >(cpu, prev, cont);
 
                 chain
@@ -4250,6 +4277,7 @@ namespace isel
                 , simple_op<Opt, CPX_IMMEDIATE, null_, const_<0x80>>
                 , branch_op<Opt, BCC, p_label<0>>
                 , branch_op<Opt, BCS, p_label<1>>
+                , clear_conditional
                 >(cpu, prev, cont);
 
                 chain
@@ -4257,6 +4285,7 @@ namespace isel
                 , simple_op<Opt, CPY_IMMEDIATE, null_, const_<0x80>>
                 , branch_op<Opt, BCC, p_label<0>>
                 , branch_op<Opt, BCS, p_label<1>>
+                , clear_conditional
                 >(cpu, prev, cont);
             });
             break;
@@ -5171,9 +5200,9 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                                 continue;
 
                             if(inst.op == BCC_RELATIVE)
-                                carry_outputs[i] = carry_union(carry_outputs[i], CARRY_CLEAR); 
+                                carry_outputs[i] = carry_intersect(carry_outputs[i], CARRY_CLEAR); 
                             else if(inst.op == BCS_RELATIVE)
-                                carry_outputs[i] = carry_union(carry_outputs[i], CARRY_SET); 
+                                carry_outputs[i] = carry_intersect(carry_outputs[i], CARRY_SET); 
                             else
                                 carry_outputs[i] = CARRY_TOP;
                         }

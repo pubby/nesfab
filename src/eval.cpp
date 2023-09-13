@@ -354,6 +354,7 @@ public:
     void seal_block(block_d& block_data);
     void fill_phi_args(ssa_ht phi, var_ht var_i, unsigned member);
     ssa_value_t var_lookup(cfg_ht node, var_ht var_i, unsigned member);
+    ssa_value_t var_lookup_impl(cfg_ht node, var_ht var_i, unsigned member);
     rval_t var_lookup(cfg_ht node, var_ht var_i);
     ssa_value_array_t from_rval(rval_t const& rval, type_t type);
     ssa_value_array_t from_rval(expr_value_t const& value);
@@ -7146,7 +7147,7 @@ void eval_t::seal_block(block_d& block_data)
 
 // Relevant paper:
 //   Simple and Efficient Construction of Static Single Assignment Form
-ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
+ssa_value_t eval_t::var_lookup_impl(cfg_ht cfg_node, var_ht var_i, unsigned member)
 {
     block_d& block_data = cfg_node.data<block_d>();
 
@@ -7169,14 +7170,14 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
                 throw var_lookup_error_t();
 
             if(block_data.pre_inline && is_local(var_i))
-                return var_lookup(block_data.pre_inline, var_i, member);
+                return var_lookup_impl(block_data.pre_inline, var_i, member);
 
             switch(cfg_node->input_size())
             {
             case 0:
                 throw var_lookup_error_t();
             case 1:
-                return var_lookup(cfg_node->input(0), var_i, member);
+                return var_lookup_impl(cfg_node->input(0), var_i, member);
             default:
                 ssa_ht const phi = cfg_node->emplace_ssa(SSA_phi, ::member_type(var_type(var_i), member));
                 block_data.var(var_i)[member] = phi;
@@ -7202,6 +7203,7 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
                         "of variable %.", var_name.view(file.source())), &file)
                     + fmt_note(var_name, "Variable is defined here:", &file));
             }
+
             throw;
         }
     }
@@ -7217,6 +7219,24 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
         block_data.unsealed_phi(var_i)[member] = phi;
         assert(phi);
         return phi;
+    }
+}
+
+ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
+{
+    try
+    {
+        return var_lookup_impl(cfg_node, var_i, member);
+    }
+    catch(var_lookup_error_t&)
+    {
+        unsigned const local_i = to_local_i(var_i);
+        pstring_t var_name = fn->def().local_vars[local_i].decl.name;
+        file_contents_t file(var_name.file_i);
+        throw compiler_error_t(
+            fmt_error(var_name, fmt(
+                "Variable % used before its initialization.", 
+                var_name.view(file.source())), &file));
     }
 }
 

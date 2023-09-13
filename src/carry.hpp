@@ -18,7 +18,7 @@ constexpr bool carry_const(carry_t cr)
     return cr == CARRY_CLEAR || cr == CARRY_SET;
 }
 
-constexpr carry_t carry_union(carry_t a, carry_t b)
+constexpr carry_t carry_intersect(carry_t a, carry_t b)
 {
     return carry_t(a | b);
 }

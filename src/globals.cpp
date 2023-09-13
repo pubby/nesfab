@@ -2178,7 +2178,7 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
 {
     std::uint16_t offset = 0;
     
-    for(unsigned i = 0; i < fields().size(); ++i)
+    for(unsigned i = 0; i < s.fields().size(); ++i)
     {
         type_t type = s.field(i).type();
 
@@ -2207,7 +2207,7 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
             }
 
             unsigned const num = ::num_members(type);
-            assert(num > 0);
+            passert(num > 0, type, s.field(i).type(), global.name, i , fields().size());
 
             for(unsigned i = 0; i < num; ++i)
             {

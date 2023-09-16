@@ -1066,7 +1066,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
                 }
             }
 
-            if(ssa_flags(ssa_it->op()) & SSAF_INDEXES_PTR)
+            if(ssa_derefs_ptr(ssa_it->op()))
             {
                 using namespace ssai::rw_ptr;
 

@@ -443,6 +443,7 @@ ABSTRACT(SSA_fn_ptr_call) = abstract_bottom;
 ABSTRACT(SSA_uninitialized) = abstract_bottom;
 ABSTRACT(SSA_read_ptr) = abstract_bottom;
 ABSTRACT(SSA_read_ptr_hw) = abstract_bottom;
+ABSTRACT(SSA_read_ptr_hw_pair) = abstract_bottom;
 ABSTRACT(SSA_make_ptr_lo) = abstract_bottom;
 ABSTRACT(SSA_make_ptr_hi) = abstract_bottom;
 ABSTRACT(SSA_get_byte) = abstract_bottom;

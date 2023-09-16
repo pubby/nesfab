@@ -124,6 +124,13 @@ locator_t locator_t::from_ssa_value(ssa_value_t v)
         return LOC_NONE;
 }
 
+locator_t locator_t::from_ssa_value_addr(ssa_value_t v)
+{
+    if(v.is_num())
+        return addr(v.whole());
+    return from_ssa_value(v);
+}
+
 std::size_t locator_t::mem_size() const
 {
     return with_byteified(true).type().size_of();

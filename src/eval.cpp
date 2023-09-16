@@ -2,6 +2,9 @@
 
 #include <cassert>
 #include <chrono>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include <boost/container/small_vector.hpp>
 
@@ -3267,20 +3270,43 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(is_interpret(D))
                 compiler_error(ast.token.pstring, "Hardware read expression cannot be evaluated at compile-time.");
 
-            expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
-
             expr_value_t result = 
             {
                 .type = TYPE_U, 
                 .pstring = ast.token.pstring,
             };
 
+            ssa_ht h;
+
+            if(ast.num_children() == 1)
+            {
+                expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
+                if(is_compile(D))
+                {
+                    h = builder.cfg->emplace_ssa(
+                        SSA_read_ptr_hw, TYPE_U, 
+                        addr.ssa(), ssa_value_t(), ssa_value_t(), 
+                        ssa_value_t(0u, TYPE_U));
+                }
+            }
+            else if(ast.num_children() == 2)
+            {
+                expr_value_t addr0 = throwing_cast<INTERPRET_CE>(do_expr<INTERPRET_CE>(ast.children[0]), TYPE_APTR, true);
+                expr_value_t addr1 = throwing_cast<INTERPRET_CE>(do_expr<INTERPRET_CE>(ast.children[1]), TYPE_APTR, true);
+                
+                if(is_compile(D))
+                {
+                    h = builder.cfg->emplace_ssa(
+                        SSA_read_ptr_hw_pair, TYPE_U, 
+                        addr0.ssa(), addr1.ssa());
+                }
+            }
+            else
+                compiler_error(ast.token.pstring, "Invalid hardware read; wrong number of arguments.");
+
             if(is_compile(D))
             {
-                ssa_ht const h = builder.cfg->emplace_ssa(
-                    SSA_read_ptr_hw, TYPE_U, 
-                    addr.ssa(), ssa_value_t(), ssa_value_t(), 
-                    ssa_value_t(0u, TYPE_U));
+                assert(h);
                 h->append_daisy();
                 result.val = rval_t{ h };
                 result.time = RT;
@@ -3295,27 +3321,59 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(is_interpret(D))
                 compiler_error(ast.token.pstring, "Hardware write expression cannot be evaluated at compile-time.");
 
-            expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
-            expr_value_t arg  = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_U, true);
-
             expr_value_t result = 
             {
                 .type = TYPE_VOID, 
                 .pstring = ast.token.pstring,
             };
 
-            if(is_compile(D))
+            assert(ast.num_children() % 2 == 0);
+
+            ssa_ht h;
+
+            if(ast.num_children() == 2)
             {
-                assert(addr.type == TYPE_APTR);
-                //passert(addr.ssa().type() == TYPE_APTR, addr.ssa().type(), addr.ssa());
+                expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
+                expr_value_t arg  = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_U, true);
 
                 assert(addr.is_rval());
                 assert(arg.is_rval());
 
-                ssa_ht const h = builder.cfg->emplace_ssa(
-                    SSA_write_ptr_hw, TYPE_VOID, 
-                    addr.ssa(), ssa_value_t(), ssa_value_t(), 
-                    ssa_value_t(0u, TYPE_U), arg.ssa());
+                if(is_compile(D))
+                {
+                    h = builder.cfg->emplace_ssa(
+                        SSA_write_ptr_hw, TYPE_VOID, 
+                        addr.ssa(), ssa_value_t(), ssa_value_t(), 
+                        ssa_value_t(0u, TYPE_U), arg.ssa());
+                }
+            }
+            else if(ast.num_children() == 4)
+            {
+                expr_value_t addr0 = throwing_cast<INTERPRET_CE>(do_expr<INTERPRET_CE>(ast.children[0]), TYPE_APTR, true);
+                expr_value_t addr1 = throwing_cast<INTERPRET_CE>(do_expr<INTERPRET_CE>(ast.children[1]), TYPE_APTR, true);
+
+                expr_value_t arg0 = throwing_cast<D>(do_expr<D>(ast.children[2]), TYPE_U, true);
+                expr_value_t arg1 = throwing_cast<D>(do_expr<D>(ast.children[3]), TYPE_U, true);
+
+                assert(addr0.is_rval());
+                assert(arg0.is_rval());
+                assert(addr1.is_rval());
+                assert(arg1.is_rval());
+
+                if(is_compile(D))
+                {
+                    h = builder.cfg->emplace_ssa(
+                        SSA_write_ptr_hw_pair, TYPE_VOID, 
+                        addr0.ssa(), arg0.ssa(),
+                        addr1.ssa(), arg1.ssa());
+                }
+            }
+            else
+                compiler_error(ast.token.pstring, "Invalid hardware write; wrong number of arguments.");
+
+            if(is_compile(D))
+            {
+                assert(h);
                 h->append_daisy();
                 result.val = rval_t{ h };
                 result.time = RT;

@@ -62,7 +62,7 @@ unsigned estimate_cost(ssa_node_t const& ssa_node)
     if(ssa_flags(ssa_node.op()) & SSAF_CONDITIONAL)
         return 4; // somewhat arbitrary
 
-    if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_PTR)
+    if(ssa_derefs_ptr(ssa_node.op()))
         return 2; // somewhat arbitrary
 
     if(ssa_flags(ssa_node.op()) & SSAF_INDEXES_ARRAY8)

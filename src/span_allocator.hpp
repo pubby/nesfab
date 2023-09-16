@@ -5,6 +5,7 @@
 
 #include <boost/intrusive/treap_set.hpp>
 
+#include "assert.hpp"
 #include "object_pool.hpp"
 #include "span.hpp"
 #include "bitset.hpp"
@@ -50,6 +51,7 @@ private:
     std::uint16_t m_initial_bytes_free;
     unsigned m_bytes_per_bit;
     bitset_t m_allocated_bs = {};
+    unsigned m_bs_span; // How many allocatable bytes the span covers
 
     struct upper_func
     {
@@ -72,6 +74,11 @@ public:
     , m_bytes_free(initial.size)
     , m_initial_bytes_free(initial.size)
     {
+        m_bs_span = m_initial.size;
+        if(unsigned m = m_initial.size % bitset_t::num_bits)
+            m_bs_span += bitset_t::num_bits - m;
+
+        passert(m_bs_span % bitset_t::num_bits == 0, m_initial.size);
         treap.insert(pool.alloc().assign(initial));
         assert_valid();
     }
@@ -81,7 +88,9 @@ public:
     , m_bytes_free(o.m_bytes_free)
     , m_initial_bytes_free(o.m_bytes_free)
     , m_allocated_bs(o.m_allocated_bs)
+    , m_bs_span(o.m_bs_span)
     {
+        passert(m_bs_span % bitset_t::num_bits == 0, m_bs_span);
         for(treap_node_t const& node : o.treap)
             treap.insert(pool.alloc().assign(node.span));
         assert_valid();

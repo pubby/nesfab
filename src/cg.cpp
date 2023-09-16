@@ -372,7 +372,6 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         {
             unsigned const PTR = ssa_ptr_input(ssa_it->op());
             unsigned const PTR_HI = ssa_ptr_hi_input(ssa_it->op());
-
             assert(ssa_it->input(PTR).holds_ref() == ssa_it->input(PTR_HI).holds_ref());
 
             if(ssa_it->input(PTR).holds_ref() && ssa_it->input(PTR_HI).holds_ref())

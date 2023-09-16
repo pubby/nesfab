@@ -1060,6 +1060,34 @@ namespace isel
         }
     };
 
+    template<typename Opt, typename X, typename Y> [[gnu::noinline]]
+    void load_XY(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+    {
+        locator_t const x = X::value();
+        locator_t const y = Y::value();
+
+        if(cpu.value_eq(REG_X, x))
+        {
+            if(cpu.value_eq(REG_Y, y))
+                cont->call(cpu, prev);
+            load_Y<typename Opt::restrict_to<~REGF_X>, Y>(cpu, prev, cont);
+        }
+        else if(cpu.value_eq(REG_Y, y))
+            load_X<typename Opt::restrict_to<~REGF_Y>, X>(cpu, prev, cont);
+        else
+        {
+            chain
+            < load_X<Opt, X>
+            , load_Y<typename Opt::restrict_to<~REGF_X>, Y>
+            >(cpu, prev, cont);
+
+            chain
+            < load_Y<Opt, Y>
+            , load_X<typename Opt::restrict_to<~REGF_Y>, X>
+            >(cpu, prev, cont);
+        }
+    };
+
     template<typename Opt, typename A, typename C> [[gnu::noinline]]
     void load_AC(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
@@ -3768,7 +3796,86 @@ namespace isel
                     >(cpu, prev, cont);
                 }
             }
+            break;
 
+        case SSA_read_ptr_hw_pair:
+            {
+                using p_ptr0 = p_arg<0>;
+                using p_ptr1 = p_arg<1>;
+
+                p_ptr0::set(locator_t::from_ssa_value_addr(h->input(0)).with_is(IS_DEREF));
+                p_ptr1::set(locator_t::from_ssa_value_addr(h->input(1)).with_is(IS_DEREF));
+
+                if(h->output_size() == 0)
+                {
+                    chain
+                    < exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr0>
+                    , exact_op<Opt, IGN_ABSOLUTE, p_def, p_ptr1>
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    chain
+                    < exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr0>
+                    , load_then_store<Opt, p_def, p_ptr1, p_def, false>
+                    >(cpu, prev, cont);
+                }
+            }
+            break;
+
+        case SSA_write_ptr_hw_pair:
+            {
+                using p_ptr0 = p_arg<0>;
+                using p_ass0 = p_arg<1>;
+                using p_ptr1 = p_arg<2>;
+                using p_ass1 = p_arg<3>;
+
+                p_ptr0::set(locator_t::from_ssa_value_addr(h->input(0)).with_is(IS_DEREF));
+                p_ass0::set(h->input(1));
+
+                p_ptr1::set(locator_t::from_ssa_value_addr(h->input(2)).with_is(IS_DEREF));
+                p_ass1::set(h->input(3));
+                
+                assert(h->input(0).is_const() && h->input(2).is_const());
+
+                chain
+                < load_AX<Opt, p_ass0, p_ass1>
+                , store<Opt, STA, null_, p_ptr0, false>
+                , store<Opt, STX, null_, p_ptr1, false>
+                >(cpu, prev, cont);
+
+                /*
+                chain
+                < load_AX<Opt, p_ass1, p_ass0>
+                , store<Opt, STX, null_, p_ptr0, false>
+                , store<Opt, STA, null_, p_ptr1, false>
+                >(cpu, prev, cont);
+
+                chain
+                < load_AY<Opt, p_ass0, p_ass1>
+                , store<Opt, STA, null_, p_ptr0, false>
+                , store<Opt, STY, null_, p_ptr1, false>
+                >(cpu, prev, cont);
+
+                chain
+                < load_AY<Opt, p_ass1, p_ass0>
+                , store<Opt, STY, null_, p_ptr0, false>
+                , store<Opt, STA, null_, p_ptr1, false>
+                >(cpu, prev, cont);
+
+                chain
+                < load_XY<Opt, p_ass0, p_ass1>
+                , store<Opt, STX, null_, p_ptr0, false>
+                , store<Opt, STY, null_, p_ptr1, false>
+                >(cpu, prev, cont);
+
+                chain
+                < load_XY<Opt, p_ass1, p_ass0>
+                , store<Opt, STX, null_, p_ptr0, false>
+                , store<Opt, STY, null_, p_ptr1, false>
+                >(cpu, prev, cont);
+                */
+            }
             break;
 
         case SSA_make_ptr_lo:
@@ -5063,6 +5170,9 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             ssa_ht h = schedule[i];
             try
             {
+#ifndef NDEBUG
+                state.selecting = false;
+#endif
                 state.ssa_node = h;
                 
                 if(d.prep[i] & PREPREP_FLAGS)

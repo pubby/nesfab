@@ -236,7 +236,7 @@ constexpr unsigned ssa_bank_input(ssa_op_t op)
     }
 }
 
-constexpr unsigned ssa_derefs_ptr(ssa_op_t op)
+constexpr bool ssa_derefs_ptr(ssa_op_t op)
 {
     if(ssa_flags(op) & SSAF_INDEXES_PTR)
         return true;
@@ -250,6 +250,7 @@ constexpr unsigned ssa_derefs_ptr(ssa_op_t op)
     }
 }
 
+// Returns the first ptr input.
 constexpr unsigned ssa_ptr_input(ssa_op_t op)
 {
     if(ssa_flags(op) & SSAF_INDEXES_PTR)
@@ -265,6 +266,7 @@ constexpr unsigned ssa_ptr_input(ssa_op_t op)
     }
 }
 
+// Returns the first ptr hi input.
 constexpr unsigned ssa_ptr_hi_input(ssa_op_t op)
 {
     if(ssa_flags(op) & SSAF_INDEXES_PTR)

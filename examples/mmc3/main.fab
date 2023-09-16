@@ -12,7 +12,6 @@ fn split()
     mmc3_timer(10)
 
 irq main_irq()
-    qux()
     split()
 
 mode main()

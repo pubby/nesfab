@@ -1415,6 +1415,8 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
                 to_prune.push_back(carry_output);
             }
 
+            if(type != value.type())
+                value = cfg_it->emplace_ssa(SSA_cast, type, value);
             ssa_it->replace_with(value);
             to_prune.push_back(ssa_it);
 

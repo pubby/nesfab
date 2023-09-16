@@ -630,6 +630,7 @@ public:
         { return locator_t(LOC_CARRY_PAIR, 0, (first << 8) | second, 0).with_is(IS_PTR); }
 
     static locator_t from_ssa_value(ssa_value_t v);
+    static locator_t from_ssa_value_addr(ssa_value_t v);
 
     bool operator==(locator_t const& o) const 
         { return to_uint() == o.to_uint(); }

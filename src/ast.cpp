@@ -16,6 +16,8 @@ unsigned ast_node_t::num_children() const
     case TOK_byte_block_data:
     case TOK_min:
     case TOK_max:
+    case TOK_read_hw:
+    case TOK_write_hw:
         assert(!token.value || children);
         return token.value;
 
@@ -28,7 +30,6 @@ unsigned ast_node_t::num_children() const
     case TOK_sizeof_expr:
     case TOK_len_expr:
     case TOK_period:
-    case TOK_read_hw:
     case TOK_byte_block_call:
     case TOK_byte_block_goto:
     case TOK_byte_block_goto_mode:
@@ -40,7 +41,6 @@ unsigned ast_node_t::num_children() const
     case TOK_byte_block_asm_op:
         return children ? 1 : 0;
 
-    case TOK_write_hw:
     case TOK_index8:
     case TOK_index16:
     case TOK_replace_atom:

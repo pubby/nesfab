@@ -983,28 +983,35 @@ retry:
 
     case TOK_lbrace:
         {
-            bc::static_vector<ast_node_t, 2> children;
+            bc::small_vector<ast_node_t, 2> children;
 
             // braces define a register value
             pstring_t const pstring = token.pstring;
-            parse_token();
-            children.push_back(parse_expr(indent, open_parens+1));
-            parse_token(TOK_rbrace);
-            parse_token(TOK_lparen);
+            unsigned const addrs = parse_args(TOK_lbrace, TOK_rbrace,
+                [&](unsigned){ children.push_back(parse_expr(indent, open_parens+1)); });
+
+            if(addrs == 0)
+                compiler_error(pstring, "Expecting address.");
+            if(addrs > 2)
+                compiler_error(pstring, "Too many address arguments. Maximum is 2.");
+
+            unsigned const writes = parse_args(TOK_lparen, TOK_rparen,
+                [&](unsigned){ children.push_back(parse_expr(indent, open_parens+1)); });
 
             ast_node_t ast = {};
 
-            if(token.type == TOK_rparen)
+            if(writes == 0)
                 ast.token.type = TOK_read_hw;
             else
             {
                 ast.token.type = TOK_write_hw;
-                children.push_back(parse_expr(indent, open_parens+1));
+                if(addrs != writes)
+                    compiler_error(pstring, fmt("Expecting % argument% to match the number of addresses.", addrs, addrs > 1 ? "s" : ""));
             }
 
             ast.token.pstring = fast_concat(pstring, token.pstring);
+            ast.token.value = children.size();
             ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
-            parse_token(TOK_rparen);
 
             return ast;
         }
@@ -1065,6 +1072,9 @@ ast_node_t parser_t<P>::parse_expr(int starting_indent, int open_parens, int min
 
     while(true)
     {
+        if(open_parens)
+            mill_eol();
+
         if(operator_precedence(token.type) > min_precedence)
             break;
 

@@ -111,13 +111,13 @@ void span_allocator_t::free(span_t span)
 
     // Update the bitset
 
-    unsigned const start = ((span.addr - m_initial.addr) * bitset_t::num_bits) / m_initial.size;
-    unsigned const end = ((span.end() - m_initial.addr) * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
+    unsigned const start = ((span.addr - m_initial.addr) * bitset_t::num_bits) / m_bs_span;
+    unsigned const end = ((span.end() - m_initial.addr) * bitset_t::num_bits + m_bs_span - 1) / m_bs_span;
     unsigned const size = end - start;
     passert(size > 0, span, m_initial);
 #ifndef NDEBUG
-    span_t c = { start * m_initial.size / bitset_t::num_bits + m_initial.addr, 
-                 size * m_initial.size / bitset_t::num_bits };
+    span_t c = { start * m_bs_span / bitset_t::num_bits + m_initial.addr, 
+                 size * m_bs_span / bitset_t::num_bits };
     passert(c.contains(span), span, c);
 #endif
     m_allocated_bs -= bitset_t::filled(start, size);
@@ -129,17 +129,23 @@ span_allocation_t span_allocator_t::did_alloc(treap_t::iterator it, span_t const
 {
     assert(object.size > 0);
     assert(it->span.contains(object));
+    assert(m_initial.contains(object));
+    passert(m_bs_span % bitset_t::num_bits == 0, m_bs_span);
 
     span_t alloc = object;
 
     // Update the bitset
 
-    unsigned const start = (alloc.addr - m_initial.addr) * bitset_t::num_bits / m_initial.size;
-    unsigned const end = ((alloc.end() - m_initial.addr) * bitset_t::num_bits + m_initial.size - 1) / m_initial.size;
+    unsigned const start = (alloc.addr - m_initial.addr) * bitset_t::num_bits / m_bs_span;
+    unsigned const end = ((alloc.end() - m_initial.addr) * bitset_t::num_bits + m_bs_span - 1) / m_bs_span;
     unsigned const size = end - start;
     assert(size > 0);
-    assert((span_t{ start * m_initial.size / bitset_t::num_bits + m_initial.addr ,
-                    size * m_initial.size / bitset_t::num_bits }.contains(alloc)));
+    passert((span_t{ start * m_bs_span / bitset_t::num_bits + m_initial.addr ,
+                     size * m_bs_span / bitset_t::num_bits }.contains(alloc)),
+            m_allocated_bs.size(), '\n',
+            start, size, m_initial.addr, m_bs_span, alloc,
+            (span_t{ start * m_bs_span / bitset_t::num_bits + m_initial.addr ,
+                     size * m_bs_span / bitset_t::num_bits }));
     m_allocated_bs |= bitset_t::filled(start, size);
 
     // Update the treap

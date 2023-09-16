@@ -54,31 +54,20 @@ fn rand_uuu() UUU
     result.c = rand()
     return result
 
-// Returns a bitmask that can hold any value less than or equal to argument 'num'.
-// Undefined behavior if 'num' is 0.
-asm fn _ceil_mask(U num) U
-: employs
-    default
-        ldx #$FF
-        lda &num
-        sec
-        sbc #1
-    label loop
-        inx
-        lsr
-        bne loop
-        lda table, x
-        sta &return
-        rts
-    label table
-        U[8](%1, %11, %111, %1111, %11111, %111111, %1111111, %11111111)
-
 // Returns a random value less than 'bound', or 0 if 'bound' is 0.
 fn randb(U bound) U
-    if !bound
+    if bound == 0
         return 0
-    U mask = _ceil_mask(bound)
+
+    ct U[8] table = U[8](%1, %11, %111, %1111, %11111, %111111, %1111111, %11111111)
+
+    U i = $FF
+    do for U v = bound - 1; v; v >>= 1
+        i += 1
+    U mask = table[i]
+
     U result
     do while result >= bound
         result = rand() & mask
+
     return result

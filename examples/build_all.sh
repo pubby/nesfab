@@ -23,3 +23,4 @@ set -x #echo on
 ../nesfab billiards/billiards.cfg
 ../nesfab meta_meta_tiles/meta_meta_tiles.cfg
 ../nesfab fn_ptr/fn_ptr.cfg
+../nesfab animation/animation.cfg

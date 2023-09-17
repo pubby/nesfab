@@ -5,6 +5,8 @@
  */
 
 // Code for displaying metasprites.
+// NOTE: You may want to copy and modify this file to get behavior
+// better suited for your game.
 
 // Metasprite format:
 // -----------
@@ -89,7 +91,7 @@ struct Ms
     U p
     U a
 
-// Converts a list of sprites into a suitable metatile definition.
+// Converts a list of sprites into a suitable metatile definition at compile-time.
 // The 'attribute' value will be XOR'd onto each sprite's OAM attribute,
 // which can be useful for changing the metasprite's color.
 // The high 2-bits of the 'attribute' value will be used to determine metasprite flipping.

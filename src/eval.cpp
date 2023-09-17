@@ -3414,7 +3414,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 default:
                     {
                         expr_value_t arg = to_rval<D>(do_expr<D>(sub));
-                        if(sub.token.type != TOK_cast && is_ct(arg.type) && !is_vec(arg.type.name()))
+                        if(sub.token.type != TOK_cast && is_ct(arg.type, false))
                         {
                             throw compiler_error_t(
                                 fmt_error(sub.token.pstring, fmt("Expression of type % in byte block.", arg.type))

@@ -519,22 +519,22 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     return CAST_FAIL;
 }
 
-bool is_ct(type_t type)
+bool is_ct(type_t type, bool include_vec)
 {
     switch(type.name())
     {
     default:
-        return is_ct(type.name());
+        return is_ct(type.name(), include_vec);
     case TYPE_TEA:
-        return is_ct(type.elem_type());
+        return is_ct(type.elem_type(), include_vec);
     case TYPE_STRUCT:
         for(auto const& pair : type.struct_().fields())
-            if(is_ct(pair.second.type()))
+            if(is_ct(pair.second.type(), include_vec))
                 return true;
         return false;
     case TYPE_FN:
         for(unsigned i = 0; i < type.size(); ++i)
-            if(is_ct(type.type(i)))
+            if(is_ct(type.type(i), include_vec))
                 return true;
         return false;
     }

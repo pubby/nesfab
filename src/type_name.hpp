@@ -139,8 +139,8 @@ constexpr bool is_thunk(type_name_t type_name)
     { return type_name >= TYPE_FIRST_THUNK && type_name <= TYPE_LAST_THUNK; }
 constexpr bool is_vec(type_name_t type_name)
     { return type_name == TYPE_VEC; }
-constexpr bool is_ct(type_name_t type_name)
-    { return (type_name >= TYPE_FIRST_CT && type_name <= TYPE_LAST_CT) || is_vec(type_name); }
+constexpr bool is_ct(type_name_t type_name, bool include_vec = true)
+    { return (type_name >= TYPE_FIRST_CT && type_name <= TYPE_LAST_CT) || (include_vec && is_vec(type_name)); }
 constexpr bool is_tea(type_name_t type_name)
     { return type_name == TYPE_TEA || type_name == TYPE_TEA_THUNK; }
 constexpr bool is_paa(type_name_t type_name)

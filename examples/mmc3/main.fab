@@ -29,10 +29,8 @@ mode main()
 
     // Setup MMC3:
     {MMC3_MIRRORING}(1)
-    {MMC3_BANK_SELECT}(0)
-    {MMC3_BANK_DATA}(%00)
-    {MMC3_BANK_SELECT}(1)
-    {MMC3_BANK_DATA}(%10)
+    {MMC3_BANK_SELECT, MMC3_BANK_DATA}(0, %00)
+    {MMC3_BANK_SELECT, MMC3_BANK_DATA}(1, %10)
     
     // Enable interrupts:
     {MMC3_IRQ_DISABLE}(0)

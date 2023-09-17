@@ -14,6 +14,7 @@ namespace liveness_impl
 {
     extern TLS array_pool_t<bitset_uint_t> bitset_pool;
     extern TLS unsigned set_size;
+    extern TLS unsigned reserved_size;
 }
 
 inline unsigned live_set_size() { return liveness_impl::set_size; }

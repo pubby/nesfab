@@ -520,11 +520,12 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     for(auto& pair : pair.second.const_stores)
     {
         assert(pair.second.size() > 0);
-        reserve += pair.second.size() - 1;
+        reserve += ((pair.second.size()) * (pair.second.size() + 1)) / 2;
     }
 
     // Then reserve extra space:
-    ssa_data_pool::resize<ssa_cg_d>(ssa_pool::array_size() + reserve);
+    unsigned reserved_size = ssa_pool::array_size() + reserve;
+    ssa_data_pool::resize<ssa_cg_d>(reserved_size);
 
     ////////////////
     // SCHEDULING //
@@ -617,7 +618,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         return true;
     };
 
-    calc_ssa_liveness(ir, ssa_pool::array_size());
+    calc_ssa_liveness(ir, ssa_data_pool::array_size());
 
     // Note: once the live sets have been built, the IR cannot be modified
     // until all liveness checks are done.
@@ -731,6 +732,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             }
         }
     }
+
+    passert(reserved_size >= ssa_pool::array_size(),
+            reserved_size, ssa_pool::array_size());
 
 #if 0
         std::cout << fn.global.name << std::endl;
@@ -868,6 +872,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 
+    passert(reserved_size >= ssa_pool::array_size(),
+            reserved_size, ssa_pool::array_size());
+
     ir.assert_valid(true);
 
     // Prioritize less busy ranges over larger ones.
@@ -902,6 +909,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
         prune_early_store(candidate);
     }
+
+    passert(reserved_size >= ssa_pool::array_size(),
+            reserved_size, ssa_pool::array_size());
 
     ir.assert_valid(true);
 
@@ -982,6 +992,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             }
         }
     }
+
+    passert(reserved_size >= ssa_pool::array_size(),
+            reserved_size, ssa_pool::array_size());
 
     ir.assert_valid(true);
 
@@ -1101,6 +1114,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         assert(cset_locator(ssa_it) == cset_locator(input));
     }
 
+    passert(reserved_size >= ssa_pool::array_size(),
+            reserved_size, ssa_pool::array_size());
+
     // Coalesce indirect pointers
 
     auto const valid_ptr_loc = [&](locator_t loc, bool hi) -> bool
@@ -1207,6 +1223,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         assert(cg_data(head_input).ptr_alt);
     }
 
+    passert(reserved_size >= ssa_pool::array_size(),
+            reserved_size, ssa_pool::array_size());
+
     // Discover and tag "direct" array reads.
     // Such reads can be implemented more efficiently in cg_isel,
     // using ABSOLUTE_X and ABSOLUTE_Y modes without storing an intermediate.
@@ -1285,6 +1304,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         next_read_array_iter:;
         }
     }
+
+    passert(reserved_size >= ssa_pool::array_size(),
+            reserved_size, ssa_pool::array_size());
 
     ir.assert_valid(true);
 

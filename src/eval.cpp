@@ -7261,8 +7261,8 @@ ssa_value_t eval_t::var_lookup_impl(cfg_ht cfg_node, var_ht var_i, unsigned memb
                         "of variable %.", var_name.view(file.source())), &file)
                     + fmt_note(var_name, "Variable is defined here:", &file));
             }
-
-            throw;
+            else
+                throw;
         }
     }
     else 
@@ -7293,8 +7293,9 @@ ssa_value_t eval_t::var_lookup(cfg_ht cfg_node, var_ht var_i, unsigned member)
         file_contents_t file(var_name.file_i);
         throw compiler_error_t(
             fmt_error(var_name, fmt(
-                "Variable % used before its initialization.", 
-                var_name.view(file.source())), &file));
+                "Use of variable % bypasses initialization.", 
+                var_name.view(file.source())), &file)
+            + fmt_note("Either the variable is being used in its own intialization, or control flow is jumping over it."));
     }
 }
 

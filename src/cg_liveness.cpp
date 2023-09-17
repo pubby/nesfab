@@ -12,6 +12,7 @@ namespace liveness_impl
 {
     TLS array_pool_t<bitset_uint_t> bitset_pool;
     TLS unsigned set_size;
+    TLS unsigned reserved_size;
 }
 
 //////////////////
@@ -45,6 +46,9 @@ static void _live_visit(ssa_ht def, cfg_ht cfg_node)
 
 void calc_ssa_liveness(ssa_ht node)
 {
+    passert(liveness_impl::reserved_size >= ssa_data_pool::array_size(), 
+            liveness_impl::reserved_size, ssa_data_pool::array_size());
+
     unsigned const output_size = node->output_size();
     for(unsigned i = 0; i < output_size; ++i)
     {
@@ -74,7 +78,7 @@ void calc_ssa_liveness(ssa_ht node)
 
 unsigned calc_ssa_liveness(ir_t const& ir)
 {
-    return calc_ssa_liveness(ir, ssa_pool::array_size());
+    return calc_ssa_liveness(ir, ssa_data_pool::array_size());
 }
 
 unsigned calc_ssa_liveness(ir_t const& ir, unsigned pool_size)
@@ -82,7 +86,8 @@ unsigned calc_ssa_liveness(ir_t const& ir, unsigned pool_size)
     using namespace liveness_impl;
     cg_data_resize();
     bitset_pool.clear();
-    assert(pool_size >= ssa_pool::size());
+    assert(pool_size >= ssa_data_pool::array_size());
+    reserved_size = pool_size;
     set_size = ::bitset_size<>(pool_size);
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -110,6 +115,9 @@ unsigned calc_ssa_liveness(ir_t const& ir, unsigned pool_size)
 
 void clear_liveness_for(ir_t const& ir, ssa_ht node)
 {
+    passert(liveness_impl::reserved_size >= ssa_data_pool::array_size(), 
+            liveness_impl::reserved_size, ssa_data_pool::array_size());
+
     using namespace liveness_impl;
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
     {

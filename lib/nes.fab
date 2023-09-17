@@ -61,8 +61,7 @@ fn ppu_reset_addr(UU addr)
 // use 'ppu_set_mid_scroll' to set Y in those cases.
 fn ppu_set_scroll(U x, U y)
 : +inline
-    {PPUSCROLL}(x)
-    {PPUSCROLL}(y)
+    {PPUSCROLL, PPUSCROLL}(x, y)
 
 // The same as above, but reset address latch first.
 fn ppu_reset_scroll(U x, U y)
@@ -78,8 +77,8 @@ fn ppu_set_mid_scroll(U x, U y, U nt)
 : +inline
     {PPUADDR}(nt << 2)
     {PPUSCROLL}(y)
-    {PPUSCROLL}(x)
-    {PPUADDR}(((y & $F8) << 2) | (x >> 3))
+    // Last two writes should be consecutive:
+    {PPUSCROLL, PPUADDR}(x, ((y & $F8) << 2) | (x >> 3))
 
 // The same as above, but reset address latch first.
 fn ppu_reset_mid_scroll(U x, U y, U nt)
@@ -87,39 +86,7 @@ fn ppu_reset_mid_scroll(U x, U y, U nt)
     {PPUSTATUS}()
     ppu_set_mid_scroll(x, y, nt)
 
-// Sets X/Y scroll mid-frame.
-// This version is written in assembly, 
-// which ensures the last two writes happen consecutively.
-// This adds some precision to scrolling, however this function is slower.
-asm fn ppu_set_mid_scroll_precise(U x, U y, U nt)
-: +static
-: employs
-    default 
-        lax &x
-        lsr
-        lsr
-        lsr
-        sta &x
-        lda &nt
-        asl
-        asl
-        sta PPUADDR
-        lda &y
-        sta PPUSCROLL
-        and #$F8
-        asl
-        asl
-        ora &x
-        stx PPUSCROLL
-        sta PPUADDR
-        rts
-
 // The same as above, but reset address latch first.
-fn ppu_reset_mid_scroll_precise(U x, U y, U nt)
-: +inline
-    {PPUSTATUS}()
-    ppu_set_mid_scroll_precise(x, y, nt)
-
 // Polls 'PPUSTATUS' until any bit of 'flag' is set.
 asm fn ppu_await_status_set(U flag)
 : +static

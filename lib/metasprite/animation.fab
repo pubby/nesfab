@@ -1,0 +1,78 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for animating metasprites.
+// NOTE: You may want to copy and modify this file to get behavior
+// better suited for your game.
+
+// This file depends on:
+// - 'metasprite.fab'
+
+// This value is used to mark when an animation has completed.
+// See 'tick_anim' for more details.
+ct Int ANIM_FINISHED = $FF
+
+// A single frame:
+struct Fs
+    U duration
+    CCC/sprites metasprite
+
+// An animation to go in ROM.
+struct AnimDef
+    U num_frames
+    Fs{} frames
+
+// The state needed to animate a metasprite.
+// You can store this in your game objects.
+struct AnimState
+    CCC/sprites frames
+    U frame_index      // Which animation frame we're on.
+    U frame_duration   // How many ticks are left in this frame.
+
+// Turns a list of frames into an AnimDef:
+ct fn make_anim(Fs{} frames) AnimDef
+    return AnimDef(len(frames), frames)
+
+// Creates an AnimState from a given frames data.
+fn make_anim_state(CCC/sprites frames) AnimState
+    return AnimState(frames, 0, frames[1])
+
+fn did_anim_finish(AnimState anim_state)
+: +inline
+
+// Advances 'anim_state' by one frame, returning it.
+// If 'loop' is set, the animation will repeat when finished.
+// Otherwise, anim_state.frame_duration will be set to 0 upon finish.
+fn tick_anim(AnimState anim_state, Bool loop) AnimState
+: +inline
+    anim_state.frame_duration -= 1
+    if anim_state.frame_duration == 0
+        anim_state.frame_index += 1
+        U num_frames = anim_state.frames[0]
+        if anim_state.frame_index >= num_frames
+            if loop
+                anim_state.frame_index = 0
+                anim_state.frame_duration = anim_state.frames[1]
+            else
+                anim_state.frame_index -= 1
+        else
+            anim_state.frame_duration = anim_state.frames[1 + U(anim_state.frame_index * sizeof Fs)]
+    return anim_state
+
+// Pushes an animation's frame into OAM, returnin the new OAM index.
+fn push_oam_anim(U index, SS x, SS y, AnimState anim_state) U
+: +inline
+    anim_state.frames += U(2 + (anim_state.frame_index * sizeof Fs))
+    CCC/sprites metasprite = read CCC/sprites(anim_state.frames)
+    return push_oam_metasprite(index, x, y, metasprite)
+
+// Pushes an animation's frame into OAM, returnin the new OAM index.
+fn push_oam_anim_a(U index, SS x, SS y, AnimState anim_state, U attribute) U
+: +inline
+    anim_state.frames += U(2 + (anim_state.frame_index * sizeof Fs))
+    CCC/sprites metasprite = read CCC/sprites(anim_state.frames)
+    return push_oam_metasprite_a(index, x, y, metasprite, attribute)
+    

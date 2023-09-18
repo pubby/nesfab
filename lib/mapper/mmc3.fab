@@ -18,6 +18,17 @@ ct AA MMC3_IRQ_RELOAD  = $C001
 ct AA MMC3_IRQ_DISABLE = $E000
 ct AA MMC3_IRQ_ENABLE  = $E001
 
+// Changes the MMC3 CHR bank by writing to $8000 then $8001.
+fn mmc3_select(U bank_select, U bank_data)
+: +inline
+    {&__mapper_detail}(bank_select) // Shadow register used by the runtime.
+    {MMC3_BANK_SELECT, MMC3_BANK_DATA}(bank_select, bank_data)
+
+// Changes the MMC3 CHR bank. This is the unsafe bank switch version.
+fn mmc3_select_unsafe(U bank_select, U bank_data)
+: +inline
+    {MMC3_BANK_SELECT, MMC3_BANK_DATA}(bank_select, bank_data)
+
 // Triggers IRQ after a set number of scanlines: 
 fn mmc3_timer(U scanlines)
 : +inline
@@ -27,3 +38,14 @@ fn mmc3_timer(U scanlines)
     {MMC3_IRQ_DISABLE}(scanlines)
     {MMC3_IRQ_ENABLE}(scanlines)
 
+// Resets the MMC3 mapper state to known values.
+fn mmc3_reset()
+    {MMC3_RAM_PROTECT}($80)
+    {MMC3_IRQ_DISABLE}(0)
+    {MMC3_MIRRORING}(0)
+    mmc3_select(0, 0)
+    mmc3_select(1, 0)
+    mmc3_select(2, 0)
+    mmc3_select(3, 0)
+    mmc3_select(4, 0)
+    mmc3_select(5, 0)

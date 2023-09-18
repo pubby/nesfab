@@ -429,6 +429,8 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
        && is_arithmetic(to.name()) && !is_ct(to.name()))
     {
         assert(!is_ptr(to.name()));
+        if(to.name() == TYPE_BOOL)
+            return CAST_BOOLIFY;
         return CAST_INTIFY_PTR;
     }
 

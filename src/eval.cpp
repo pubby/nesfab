@@ -6654,6 +6654,7 @@ expr_value_t eval_t::force_promote(expr_value_t value, type_t to_type, pstring_t
 template<eval_t::do_t D>
 expr_value_t eval_t::force_intify_ptr(expr_value_t value, type_t to_type, pstring_t cast_pstring)
 {
+    assert(to_type != TYPE_BOOL);
     assert(!is_ct(value.type));
     assert(!is_ct(to_type));
     assert(is_arithmetic(to_type.name()) && is_ptr(value.type.name()));

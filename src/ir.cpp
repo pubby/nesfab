@@ -622,6 +622,7 @@ ssa_ht cfg_node_t::emplace_ssa(ssa_op_t op, type_t type)
 {
     assert(!test_flags(FLAG_PRUNED));
     passert(!is_ct(type), type);
+    assert(op != SSA_cast || type != TYPE_BOOL);
 
     // Alloc and initialize it.
     ssa_ht h = ssa_pool::alloc();

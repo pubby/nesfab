@@ -48,6 +48,23 @@ asm fn mmc1_set_chr_0(U value)
     label done
         rts
 
+// Writes the CHR_0 register, the unsafe bank switch version:
+asm fn mmc1_set_chr_0_unsafe(U value)
+: employs
+: +static
+    default
+        lda &value
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        lsr
+        sta MMC1_CHR_0
+        rts
+
 // Writes the CHR_1 register:
 asm fn mmc1_set_chr_1(U value)
 : employs
@@ -71,5 +88,21 @@ asm fn mmc1_set_chr_1(U value)
         jsr &__mapper_reset
         jmp retry
     label done
+        rts
+
+// Writes the CHR_1 register, the unsafe bank switch version:
+asm fn mmc1_set_chr_1(U value)
+: employs
+: +static
+        lda &value
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
+        lsr
+        sta MMC1_CHR_1
         rts
 

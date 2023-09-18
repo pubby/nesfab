@@ -448,6 +448,8 @@ retry:
 
     if(token.type == TOK_ml_comment_begin)
     {
+        ++line_number;
+
         while(true)
         {
             if(*next_char == '*')

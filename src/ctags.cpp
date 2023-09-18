@@ -50,6 +50,6 @@ void write_ctags(FILE* fp, fs::path ctags_path)
             fp, "%s\t%s\t%i\n", 
             ctag.ident.c_str(), 
             file_paths[ctag.lpstring.file_i].c_str(),
-            ctag.lpstring.line);
+            ctag.lpstring.line - 1);
     }
 }

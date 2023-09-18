@@ -167,7 +167,7 @@ std::string fmt_warning(pstring_t pstring, std::string const& what,
 
 std::string fmt_error(std::string const& what)
 {
-    return fmt(CONSOLE_BOLD CONSOLE_YEL "error: " CONSOLE_RESET "%\n", what);
+    return fmt(CONSOLE_BOLD CONSOLE_RED "error: " CONSOLE_RESET "%\n", what);
 }
 
 void compiler_error(pstring_t pstring, std::string const& what, 

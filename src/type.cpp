@@ -229,7 +229,10 @@ type_t type_t::with_banked(bool banked) const
 std::size_t type_t::size_of() const
 {
     if(is_arithmetic(name()))
+    {
+        assert(!is_ptr(name()));
         return whole_bytes(name()) + frac_bytes(name());
+    }
 
     switch(name())
     {
@@ -241,7 +244,6 @@ std::size_t type_t::size_of() const
             else
                 return 2;
         }
-        passert(false, name());
         // fall-through
     case TYPE_VOID:
     case TYPE_VEC:

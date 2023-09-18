@@ -99,7 +99,7 @@ nmi game_nmi()
     // OK! Now display the scrolling nametable:
     state(0)
     {PPUMASK}(0)
-    ppu_set_mid_scroll_precise(camera_x_world.a, camera_y_screen, 0)
+    ppu_set_mid_scroll(camera_x_world.a, camera_y_screen, 0)
     {PPUMASK}(PPUMASK_ON)
 
 mode main()

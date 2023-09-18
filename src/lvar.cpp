@@ -45,7 +45,11 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
         if(m_this_lvar_info[index].ptr_alt >= 0)
             assert(m_this_lvar_info[index].ptr_alt == ptr_alt);
 
-        assert(m_this_lvar_info[index].size <= 2);
+        passert(m_this_lvar_info[index].size <= 2, 
+                locator(index), '\n',
+                locator(index).type(), '\n',
+                locator(index).mem_size(),
+                m_this_lvar_info[index].size);
 
         m_this_lvar_info[index].size = 2;
         m_this_lvar_info[index].zp_only = true;

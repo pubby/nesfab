@@ -1,6 +1,9 @@
 #include "rom_link.hpp"
 
 #include <stdexcept>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "rom.hpp"
 #include "format.hpp"

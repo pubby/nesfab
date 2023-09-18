@@ -198,7 +198,7 @@ fs::path source_path(unsigned file_i)
         if(iter(dir))
             return path;
 
-    throw std::runtime_error("Unable to stat file: " + source.file.string());
+    throw compiler_error_t(fmt_error("Unable to stat file: " + source.file.string()));
 }
 
 void file_contents_t::reset(unsigned file_i)

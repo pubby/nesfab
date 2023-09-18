@@ -2213,7 +2213,7 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
             {
                 m_member_types.push_back(::member_type(type, i));
                 m_member_offsets.push_back(offset);
-                offset += type.size_of();
+                offset += ::member_type(type, i).size_of();
             }
         }
     }

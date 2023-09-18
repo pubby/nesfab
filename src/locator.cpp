@@ -173,13 +173,8 @@ type_t locator_t::type() const
 {
     auto const byteify = [&](type_t type) -> type_t
     {
-        if(is_banked_ptr(type.name()))
-        {
-            if(has_arg_member_atom(lclass()) && member() == 1)
-                type = TYPE_U;
-            else
-                type = type.with_banked(false);
-        }
+        if(has_arg_member_atom(lclass()))
+            type = ::member_type(type, member());
 
         if(byteified())
         {
@@ -223,7 +218,7 @@ type_t locator_t::type() const
     {
     case LOC_GCONST:
         if(const_ht const c = const_())
-            return c->type();
+            return byteify(c->type());
         break;
     case LOC_ROM_ARRAY:
         if(rom_array_ht const a = rom_array())
@@ -524,15 +519,17 @@ rom_alloc_ht locator_t::rom_alloc(romv_t romv) const
 
 std::uint16_t linked_to_rom(locator_t linked, bool ignore_errors, bool warn_errors)
 {
+    //assert(linked.lclass() != LOC_NONE);
+
     if(!is_const(linked.lclass()) || linked.is() == IS_BANK)
     {
         if(warn_errors)
-            compiler_warning(fmt("Unable to link locator %", linked));
+            compiler_warning(fmt("Unable to link locator: %", linked));
 
         if(ignore_errors)
             return 0;
         else
-            throw std::runtime_error(fmt("Unable to link locator %", linked));
+            throw std::runtime_error(fmt("Unable to link locator: %", linked));
     }
     assert(!linked.offset());
 

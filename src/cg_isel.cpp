@@ -1405,21 +1405,17 @@ namespace isel
             else
             {
                 detail::set(locator_t::runtime_ram(RTRAM_mapper_detail));
-                retry_label::set(state.minor_label());
 
                 chain
                 < load_X<Opt, Def>
-                , exact_op<Opt, LDY_ABSOLUTE, null_, detail>
-                , label<retry_label, true>
                 , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111110>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, detail>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
                 , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111111>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, detail>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, STX_ABSOLUTE, null_, mmc3_addr>
-                , exact_op<Opt, CPY_ABSOLUTE, null_, detail>
-                , branch_op<Opt, BNE, retry_label>
-                , clear_conditional
                 >(cpu, prev, cont);
             }
         }

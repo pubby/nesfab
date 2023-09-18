@@ -166,24 +166,16 @@ unsigned bankswitch_a(asm_proc_t& proc, unsigned next_label, bool x)
     }
     else if(mapper().type == MAPPER_MMC3)
     {
-        locator_t retry;
-
-        if(compiler_options().unsafe_bank_switch)
-        {
-            proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-            retry = proc.push_label(next_label++);
-        }
         proc.push_inst(LDX_IMMEDIATE, locator_t::const_byte(0b111110));
+        if(!compiler_options().unsafe_bank_switch)
+            proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
         proc.push_inst(STX_ABSOLUTE, locator_t::addr(0x8000));
         proc.push_inst(SAX_ABSOLUTE, locator_t::addr(0x8001));
         proc.push_inst(INX_IMPLIED);
+        if(!compiler_options().unsafe_bank_switch)
+            proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
         proc.push_inst(STX_ABSOLUTE, locator_t::addr(0x8000));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8001));
-        if(compiler_options().unsafe_bank_switch)
-        {
-            proc.push_inst(CPY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-            proc.push_inst(BNE_RELATIVE, retry);
-        }
     }
     else if(mapper().bus_conflicts)
     {
@@ -281,24 +273,16 @@ unsigned bankswitch_x(asm_proc_t& proc, unsigned next_label)
     }
     else if(mapper().type == MAPPER_MMC3)
     {
-        locator_t retry;
-
-        if(compiler_options().unsafe_bank_switch)
-        {
-            proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-            retry = proc.push_label(next_label++);
-        }
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0b111110));
+        if(!compiler_options().unsafe_bank_switch)
+            proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
         proc.push_inst(SAX_ABSOLUTE, locator_t::addr(0x8001));
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0b111111));
+        if(!compiler_options().unsafe_bank_switch)
+            proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
         proc.push_inst(STX_ABSOLUTE, locator_t::addr(0x8001));
-        if(compiler_options().unsafe_bank_switch)
-        {
-            proc.push_inst(CPY_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-            proc.push_inst(BNE_RELATIVE, retry);
-        }
     }
     else if(mapper().bus_conflicts)
     {
@@ -395,25 +379,17 @@ unsigned bankswitch_y(asm_proc_t& proc, unsigned next_label)
     }
     else if(mapper().type == MAPPER_MMC3)
     {
-        locator_t retry;
-
-        if(compiler_options().unsafe_bank_switch)
-        {
-            proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-            retry = proc.push_label(next_label++);
-        }
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0b111111));
+        if(!compiler_options().unsafe_bank_switch)
+            proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
         proc.push_inst(STY_ABSOLUTE, locator_t::addr(0x8001));
         proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0b111110));
         proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
+        if(!compiler_options().unsafe_bank_switch)
+            proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
         proc.push_inst(DEY_IMPLIED);
         proc.push_inst(STY_ABSOLUTE, locator_t::addr(0x8001));
-        if(compiler_options().unsafe_bank_switch)
-        {
-            proc.push_inst(CPX_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-            proc.push_inst(BNE_RELATIVE, retry);
-        }
     }
     else if(mapper().bus_conflicts)
     {
@@ -507,6 +483,13 @@ static asm_proc_t make_irq()
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_x));
     proc.push_inst(STY_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_y));
 
+    if(mapper().type == MAPPER_MMC3 && !compiler_options().unsafe_bank_switch)
+    {
+        // Push the shadow register.
+        proc.push_inst(LDA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+        proc.push_inst(PHA);
+    }
+
     if(mapper().type == MAPPER_MMC1)
     {
         proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
@@ -546,14 +529,20 @@ static asm_proc_t make_irq_exit()
 {
     asm_proc_t proc;
 
-    if(mapper().type == MAPPER_MMC3 && !compiler_options().unsafe_bank_switch)
-        proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-
     if(mapper().bankswitches())
     {
         proc.push_inst(LAX_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_bank));
         bankswitch_a(proc, 0, true);
     }
+
+    if(mapper().type == MAPPER_MMC3 && !compiler_options().unsafe_bank_switch)
+    {
+        // Reload the shadow register.
+        proc.push_inst(PLA);
+        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
+    }
+
     proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_x));
     proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_y));
     proc.push_inst(PLA);
@@ -580,6 +569,13 @@ static asm_proc_t make_nmi()
     proc.push_inst(PHA);
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_x));
     proc.push_inst(STY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_y));
+
+    if(mapper().type == MAPPER_MMC3 && !compiler_options().unsafe_bank_switch)
+    {
+        // Push the shadow register.
+        proc.push_inst(LDA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+        proc.push_inst(PHA);
+    }
 
     if(mapper().type == MAPPER_MMC1)
     {
@@ -620,15 +616,21 @@ static asm_proc_t make_nmi_exit()
 {
     asm_proc_t proc;
 
-    if(mapper().type == MAPPER_MMC3 && !compiler_options().unsafe_bank_switch)
-        proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
-
     if(mapper().bankswitches())
     {
         proc.push_inst(LAX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_bank));
         bankswitch_a(proc, 0, true);
     }
     proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
+
+    if(mapper().type == MAPPER_MMC3 && !compiler_options().unsafe_bank_switch)
+    {
+        // Reload the shadow register.
+        proc.push_inst(PLA);
+        proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x8000));
+    }
+
     proc.push_inst(LDX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_x));
     proc.push_inst(LDY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_y));
     proc.push_inst(PLA);

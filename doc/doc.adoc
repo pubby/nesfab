@@ -562,6 +562,10 @@ nesfab --ctags ".tags"
 ctags = ".tags"
 ----
 
+[NOTE]
+To use CTags in VSCode, use the
+https://marketplace.visualstudio.com/items?itemName=jtanx.ctagsx[ctagsx] extension.
+
 === `threads` (`-j`)
 
 Specifies how many threads the compiler can use, enabling parallel compilation.

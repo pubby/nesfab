@@ -483,7 +483,7 @@ static asm_proc_t make_irq()
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_x));
     proc.push_inst(STY_ABSOLUTE, locator_t::runtime_ram(RTRAM_irq_saved_y));
 
-    if(is_mmc3_variant() && !compiler_options().unsafe_bank_switch)
+    if(mmc3_variant() && !compiler_options().unsafe_bank_switch)
     {
         // Push the shadow register.
         proc.push_inst(LDA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
@@ -535,7 +535,7 @@ static asm_proc_t make_irq_exit()
         bankswitch_a(proc, 0, true);
     }
 
-    if(is_mmc3_variant() && !compiler_options().unsafe_bank_switch)
+    if(mmc3_variant() && !compiler_options().unsafe_bank_switch)
     {
         // Reload the shadow register.
         proc.push_inst(PLA);
@@ -570,7 +570,7 @@ static asm_proc_t make_nmi()
     proc.push_inst(STX_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_x));
     proc.push_inst(STY_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_saved_y));
 
-    if(is_mmc3_variant() && !compiler_options().unsafe_bank_switch)
+    if(mmc3_variant() && !compiler_options().unsafe_bank_switch)
     {
         // Push the shadow register.
         proc.push_inst(LDA_ABSOLUTE, locator_t::runtime_ram(RTRAM_mapper_detail));
@@ -623,7 +623,7 @@ static asm_proc_t make_nmi_exit()
     }
     proc.push_inst(INC_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
 
-    if(is_mmc3_variant() && !compiler_options().unsafe_bank_switch)
+    if(mmc3_variant() && !compiler_options().unsafe_bank_switch)
     {
         // Reload the shadow register.
         proc.push_inst(PLA);

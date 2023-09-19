@@ -1217,6 +1217,8 @@ ABSTRACT(SSA_shr) = ABSTRACT_FN
 
     // Calc known bits
 
+    assert(result.cm.signed_ == cv[0].cm.signed_);
+
     known_bits_t bits = L.bits;
     bits.known0 = (bits.known0 & mask) >> R_min;
     bits.known1 = (bits.known1 & mask) >> R_min;
@@ -1237,8 +1239,8 @@ ABSTRACT(SSA_shr) = ABSTRACT_FN
 
     // Calc bounds
     bounds_t bounds;
-    bounds.min = std::min(L.bounds.min >> R_min, L.bounds.min >> R_max);
-    bounds.max = std::max(L.bounds.max >> R_max, L.bounds.max >> R_min);
+    bounds.min = L.bounds.min >> R_min;
+    bounds.max = L.bounds.max >> R_min;
     bounds.min &= supermask(mask);
     bounds.max &= supermask(mask);
     assert(bounds.min <= bounds.max);
@@ -1609,17 +1611,20 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
             value.bounds.max -= high_bit_only(cm.mask) << 1;
         }
 
-        // If the result's max is less than expected, 
-        // try lowering L and R's max bound.
-        L.bounds.max = std::min(L.bounds.max, value.bounds.max - R.bounds.min - shifted_C.bounds.min);
-        R.bounds.max = std::min(R.bounds.max, value.bounds.max - L.bounds.min - shifted_C.bounds.min);
+        if(!cm.signed_) // TODO: figure out how to make this work for signed.
+        {
+            // If the result's max is less than expected, 
+            // try lowering L and R's max bound.
+            L.bounds.max = std::min(L.bounds.max, value.bounds.max - R.bounds.min - shifted_C.bounds.min);
+            R.bounds.max = std::min(R.bounds.max, value.bounds.max - L.bounds.min - shifted_C.bounds.min);
 
-        // If the result's min is greater than expected,
-        // try raising L and R's min bound.
-        if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
-            L.bounds.min = std::max(L.bounds.min, value.bounds.min - R.bounds.max - shifted_C.bounds.max);
-        if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
-            R.bounds.min = std::max(R.bounds.min, value.bounds.min - L.bounds.max - shifted_C.bounds.max);
+            // If the result's min is greater than expected,
+            // try raising L and R's min bound.
+            if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
+                L.bounds.min = std::max(L.bounds.min, value.bounds.min - R.bounds.max - shifted_C.bounds.max);
+            if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
+                R.bounds.min = std::max(R.bounds.min, value.bounds.min - L.bounds.max - shifted_C.bounds.max);
+        }
     }
     else
     {
@@ -1646,17 +1651,20 @@ void narrow_add_sub(constraints_def_t* cv, unsigned argn, constraints_def_t cons
             value.bounds.max -= high_bit_only(cm.mask) << 1;
         }
 
-        // If the result's max is less than expected, 
-        // try lowering L and R's max bound.
-        L.bounds.max = std::min(L.bounds.max, value.bounds.max + R.bounds.max + (one - shifted_C.bounds.max));
-        R.bounds.max = std::min(R.bounds.max, L.bounds.min - value.bounds.min - (one - shifted_C.bounds.min));
+        if(!cm.signed_) // TODO: figure out how to make this work for signed.
+        {
+            // If the result's max is less than expected, 
+            // try lowering L and R's max bound.
+            L.bounds.max = std::min(L.bounds.max, value.bounds.max + R.bounds.max + (one - shifted_C.bounds.max));
+            R.bounds.max = std::min(R.bounds.max, L.bounds.min - value.bounds.min - (one - shifted_C.bounds.min));
 
-        // If the result's min is greater than expected, 
-        // try raising L and R's min bound.
-        if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
-            L.bounds.min = std::max(L.bounds.min, value.bounds.min + R.bounds.min + (one - shifted_C.bounds.min));
-        if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
-            R.bounds.min = std::max(R.bounds.min, L.bounds.max - value.bounds.max - (one - shifted_C.bounds.max));
+            // If the result's min is greater than expected, 
+            // try raising L and R's min bound.
+            if(value.bounds.min > R.bounds.max + shifted_C.bounds.max)
+                L.bounds.min = std::max(L.bounds.min, value.bounds.min + R.bounds.min + (one - shifted_C.bounds.min));
+            if(value.bounds.min > L.bounds.max + shifted_C.bounds.max)
+                R.bounds.min = std::max(R.bounds.min, L.bounds.max - value.bounds.max - (one - shifted_C.bounds.max));
+        }
     }
 };
 

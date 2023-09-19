@@ -61,8 +61,8 @@ struct mapfab_t
 
     struct field_t
     {
-        std::string name;
         std::string type;
+        std::string name;
     };
 
     struct level_t

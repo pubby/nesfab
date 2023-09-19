@@ -165,6 +165,7 @@ constexpr std::uint16_t detail_size(mapper_type_t mt = mapper().type)
     {
     case MAPPER_MMC1: 
     case MAPPER_MMC3: 
+    case MAPPER_189: 
         return 1;
     default: 
         return 0;
@@ -215,6 +216,18 @@ constexpr bool bankswitch_use_x(mapper_type_t mt = mapper().type)
     default:
         return false; // use Y
     case MAPPER_MMC3: 
+        return true;
+    }
+}
+
+constexpr bool mmc3_variant(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    default:
+        return false;
+    case MAPPER_MMC3: 
+    case MAPPER_189: 
         return true;
     }
 }

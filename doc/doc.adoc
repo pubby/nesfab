@@ -1276,7 +1276,7 @@ See the standard library file `lib/mapper/mmc3.fab`.
 | N/A
 
 | <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
-| N/A
+| Acceptible risk
 
 |===
 

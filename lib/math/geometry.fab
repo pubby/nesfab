@@ -21,6 +21,11 @@ struct Rect
     Coord c // Position of the upper-left corner.
     Dimen d
 
+// Shortcut for constructing Rects.
+fn make_rect(U x, U y, U w, U h) Rect
+: +inline
+    return Rect(Coord(x, y), Dimen(w, h))
+
 // Element-wise vector addition of Coords.
 fn coord_add(Coord a, Coord b) Coord
 : +inline

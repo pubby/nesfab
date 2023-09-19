@@ -1,0 +1,137 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This file is an altenative implementation of "geometry.fab" that permits different types.
+
+#:type:#
+#:type_prefix:#
+#:fn_prefix:#
+
+ // A #type_prefix#Coord (or "#type_prefix#Coordinate") represents a position on the screen.
+struct #type_prefix#Coord
+    #type# x // X-position
+    #type# y // Y-position
+
+ // A #type_prefix#Dimen (or "#type_prefix#Dimension") represents size.
+struct #type_prefix#Dimen
+    #type# w // Width
+    #type# h // Height
+
+ // A #type_prefix#Rect (or "#type_prefix#Rectangle") represents a rectangular region at some position.
+struct #type_prefix#Rect
+    #type_prefix#Coord c // Position of the upper-left corner.
+    #type_prefix#Dimen d
+
+// Shortcut for constructing Rects.
+fn #fn_prefix#make_rect(#type# x, #type# y, #type# w, #type# h) #type_prefix#Rect
+: +inline
+    return #type_prefix#Rect(#type_prefix#Coord(x, y), #type_prefix#Dimen(w, h))
+
+// Element-wise vector addition of #type_prefix#Coords.
+fn #fn_prefix#coord_add(#type_prefix#Coord a, #type_prefix#Coord b) #type_prefix#Coord
+: +inline
+    return #type_prefix#Coord(a.x + b.x, a.y + b.y)
+
+// Element-wise vector subtraction of #type_prefix#Coords.
+fn #fn_prefix#coord_sub(#type_prefix#Coord a, #type_prefix#Coord b) #type_prefix#Coord
+: +inline
+    return #type_prefix#Coord(a.x - b.x, a.y - b.y)
+
+// Element-wise quality tests.
+fn #fn_prefix#coord_eq(#type_prefix#Coord a, #type_prefix#Coord b) Bool
+: +inline
+    return a.x == b.x && a.y == b.y
+
+fn #fn_prefix#dimen_eq(#type_prefix#Dimen a, #type_prefix#Dimen b) Bool
+: +inline
+    return a.w == b.w && a.h == b.h
+
+fn #fn_prefix#rect_eq(#type_prefix#Rect a, #type_prefix#Rect b) Bool
+: +inline
+    return #fn_prefix#coord_eq(a.c, b.c) && #fn_prefix#dimen_eq(a.d, b.d)
+
+// Calculates the point past the diagonal corner of the rect.
+fn #fn_prefix#rect_end(#type_prefix#Rect r) #type_prefix#Coord
+: +inline
+    return #type_prefix#Coord(r.c.x + r.d.w, r.c.y + r.d.h)
+
+// Returns the area of 'd'.
+fn #fn_prefix#area(#type_prefix#Dimen d) UU
+: +inline
+    return UU(d.w * d.h)
+
+// Given a 5x3 rect_t:
+//   -----
+// | xxxxx |
+// | x   x |
+// | xxxxx |
+//   -----
+//   perimeter: number of | and - characters (16)
+//   inner_perimeter: number of x characters (12)
+fn #fn_prefix#perimeter(#type_prefix#Dimen d) #type#
+    return (d.w + d.h) << 1
+
+fn #fn_prefix#inner_perimeter(#type_prefix#Dimen d) #type#
+    return (d.w + d.h - 2) << 1
+
+// Also called Chebyshev distance.
+// See: https://en.wikipedia.org/wiki/Chebyshev_distance
+fn #fn_prefix#chess_distance(#type_prefix#Coord from, #type_prefix#Coord to) #type#
+    return max(abs(from.x - to.x), abs(from.y - to.y))
+
+// Also called manhattan distance.
+// See: https://en.wikipedia.org/wiki/Taxicab_geometry
+fn #fn_prefix#taxi_distance(#type_prefix#Coord from, #type_prefix#Coord to) #type#
+    return abs(from.x - to.x) + abs(from.y - to.y)
+
+// Returns true if [a_pos, a_pos+b_width) intersects with [b_pos, b_pos+b_width).
+// This function has an efficient implementation and can be used to build 
+// other intersection tests.
+fn #fn_prefix#overlap_1d(#type# a_pos, #type# a_width, #type# b_pos, #type# b_width) Bool
+: +inline
+    Bool c
+    c = (a_pos -= b_pos + 1)
+    c = (a_pos -= b_width - #type#(c))
+    return a_pos += a_width + b_width - 1 + #type#(c)
+
+// Returns true if 'a' intersects 'b'.
+// This function can be used for collision checks.
+fn #fn_prefix#overlap(#type_prefix#Rect a, #type_prefix#Rect b) Bool
+: +inline
+    return #fn_prefix#overlap_1d(a.c.x, a.d.w, b.c.x, b.d.w) && #fn_prefix#overlap_1d(a.c.y, a.d.h, b.c.y, b.d.h)
+
+// Returns true if 'c' is inside 'd'.
+fn #fn_prefix#coord_in_dimen(#type_prefix#Coord c, #type_prefix#Dimen d) Bool
+: +inline
+    return c.x < d.w && c.y < d.h
+
+// Returns true if 'c' is inside 'r'.
+fn #fn_prefix#coord_in_rect(#type_prefix#Coord c, #type_prefix#Rect r) Bool
+: +inline
+    return #fn_prefix#overlap_1d(r.c.x, r.d.w, c.x, 1) && #fn_prefix#overlap_1d(r.c.y, r.d.h, c.y, 1)
+
+// Returns true if 'sub' entirely fits inside 'super'.
+fn #fn_prefix#rect_in_rect(#type_prefix#Rect sub, #type_prefix#Rect super) Bool
+    #type_prefix#Coord sub_end   = #fn_prefix#rect_end(sub)
+    #type_prefix#Coord super_end = #fn_prefix#rect_end(super)
+    return (sub.c.x >= super.c.x
+            && sub.c.y >= super.c.y
+            && sub_end.x <= super_end.x
+            && sub_end.y <= super_end.y)
+
+// Minimum bounding box that contains 2 coords
+fn #fn_prefix#rect_from_2_coords(#type_prefix#Coord a, #type_prefix#Coord b) #type_prefix#Rect
+    if a.x > b.x
+        swap a.x, b.x
+    if a.y > b.y
+        swap a.y, b.y
+    return #type_prefix#Rect(a, #type_prefix#Dimen(b.x - a.x + 1, b.y - a.y + 1))
+
+// Returns a point centered inside 'r'.
+fn #fn_prefix#rect_center(#type_prefix#Rect r) #type_prefix#Coord
+    #type_prefix#Coord end = #fn_prefix#rect_end(r)
+    return #type_prefix#Coord((r.c.x + end.x) >> 1, (r.c.y + end.y) >> 1)
+    

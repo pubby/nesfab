@@ -91,7 +91,7 @@ asm fn mmc1_set_chr_1(U value)
         rts
 
 // Writes the CHR_1 register, the unsafe bank switch version:
-asm fn mmc1_set_chr_1(U value)
+asm fn mmc1_set_chr_1_unsafe(U value)
 : employs
 : +static
         lda &value

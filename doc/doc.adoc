@@ -3682,6 +3682,8 @@ Macro (`.macrofab`) files resemble regular `.fab` files, but have additional syn
 - `\#'identifier'#` expands a macro argument, putting it inside `'` quotes and escaping its characters. 
 - `\#"identifier"#` expands a macro argument, putting it inside `"` quotes and escaping its characters. 
 - `pass:[#`test`#]` expands a macro argument, putting it inside `pass:[`]` quotes and escaping its characters. 
+- `\-"identifier"-` expands a macro argument, converting underscores to camel-case.
+- `\="identifier"=` expands a macro argument, converting underscores to snake-case.
 
 Note that macro arguments are not parsed inside comments or string literals.
 

@@ -226,7 +226,7 @@ static bool o_hoist(log_t* log, ir_t& ir)
 
             // Make sure our inputs are valid in 'hoist_to'.
             unsigned const input_size = ssa->input_size();
-            for(unsigned i = ssa->input_begin(); i < input_size; ++i)
+            for(unsigned i = 0; i < input_size; ++i)
             {
                 ssa_value_t const input = ssa->input(i);
                 if(input.holds_ref() && !dominates(input->cfg_node(), hoist_to))

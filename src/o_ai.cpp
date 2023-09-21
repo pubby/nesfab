@@ -489,8 +489,6 @@ ssa_value_t ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node, Fn const& fn)
 
     if(ssa_value_t v = fn(cfg_node, ssa_node))
         return v;
-    //if(ssa_node->cfg_node() == cfg_node)
-        //return ssa_node;
 
     auto& map = ai_data(cfg_node).lookup_map<Rebuild>();
 

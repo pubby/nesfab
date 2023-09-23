@@ -73,7 +73,7 @@ struct group_ht : pool_handle_t<group_ht, std::deque<group_t>, PHASE_PARSE>
     group_data_t* data() const; // Defined in group.cpp
 };
 struct group_vars_ht : pool_handle_t<group_vars_ht, std::deque<group_t*>, PHASE_PARSE> {};
-struct group_data_ht : pool_handle_t<group_data_ht, std::deque<group_t*>, PHASE_PARSE> {};
+struct group_data_ht : pool_handle_t<group_data_ht, std::deque<group_t*>, PHASE_PARSE_CLEANUP> {};
 
 DEF_HANDLE_HASH(fn_ht);
 DEF_HANDLE_HASH(gvar_ht);

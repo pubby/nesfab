@@ -793,6 +793,7 @@ public:
 
     group_data_ht group_data() const { assert(compiler_phase() > PHASE_CHARMAP_GROUPS); return m_group_data; }
     bool stows_omni() const { assert(compiler_phase() > PHASE_CHARMAP_GROUPS); return m_stows_omni; }
+    void create_group_data();
     void set_group_data();
     static void set_all_group_data();
 

@@ -1,6 +1,9 @@
 #include "cg_schedule.hpp"
 
 #include <vector>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "flat/small_set.hpp"
 
@@ -136,6 +139,9 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         }
     }
 
+    rh::batman_map<locator_t, bitset_uint_t*> read_map;
+    rh::batman_map<locator_t, bitset_uint_t*> write_map;
+
     for(ssa_ht ssa_node : toposorted)
     {
         // Ignore phi node deps. They can introduce cycles.
@@ -192,8 +198,8 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         }
     };
 
-    rh::batman_map<locator_t, bitset_uint_t*> read_map;
-    rh::batman_map<locator_t, bitset_uint_t*> write_map;
+    read_map.clear();
+    write_map.clear();
 
     for(ssa_ht ssa_node : toposorted)
     {
@@ -212,7 +218,10 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             auto& bs = write_map[ssa_node->input(1).locator()];
             if(!bs)
                 bs = bitset_pool.alloc(set_size);
-            bitset_set(bs, index(ssa_node->input(0).handle()));
+
+            ssa_ht const input = ssa_node->input(0).handle();
+            assert(input->cfg_node() == this->cfg_node);
+            bitset_set(bs, index(input));
         }
     }
 
@@ -249,69 +258,6 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             });
         }
     }
-
-    /*
-    for(ssa_ht ssa_node : toposorted)
-    {
-        if(ssa_node->op() != SSA_read_global)
-            continue;
-        locator_t const read_loc = ssa_node->input(1).locator();
-        write_map[read_loc].insert(ssa_node->input(0).handle());
-    }
-        auto const& writes = write_map[read_loc];
-
-
-
-        unsigned const output_size = ssa_node->output_size();
-        for(unsigned i = 0; i < output_size; ++i)
-        {
-            auto const oe = ssa_node->output_edge(i);
-
-            if(oe.handle->cfg_node() != cfg_node)
-                continue;
-
-            if(!(ssa_flags(oe.handle->op()) & SSAF_WRITE_GLOBALS))
-                continue;
-
-            if(oe.index < write_globals_begin(oe.handle->op()))
-                continue;
-
-            if(oe.handle->input(oe.index+1) != read_loc)
-                continue;
-
-            assert(false);
-
-            if(!writes.count(oe.handle))
-                read_users.push_back(oe.handle);
-        }
-
-        for(ssa_ht w : writes)
-        {
-            bool updated = false;
-
-            for(ssa_ht r : read_users)
-            {
-                assert(w != r);
-
-                auto& rd = data(r);
-                auto& wd = data(w);
-
-                // Can't add a dep if a cycle would be created:
-                if(bitset_test(rd.deps, index(w)))
-                    continue;
-
-                // Add a dep!
-                bitset_set(wd.deps, index(r));
-                bitset_or(set_size, wd.deps, rd.deps);
-                updated = true;
-            }
-
-            if(updated)
-                propagate_deps_change(w);
-        }
-        */
-
-
 
     // Reads should be used before they're rewritten
     for(ssa_ht ssa_node : toposorted)
@@ -362,7 +308,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         });
 
         if(updated)
-            propagate_deps_change(ssa_node);
+            propagate_deps_change(writer);
     }
 
     // In chains of carry operations, setup deps to avoid cases where
@@ -580,41 +526,6 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             calc_exit_distance(ssa_node, MAX_EXIT_DISTANCE / 2);
     }
 
-    // Schedule cheap nodes before other uses
-    for(ssa_ht ssa_node : toposorted)
-    {
-        assert(cfg_node == ssa_node->cfg_node());
-
-        if(!(ssa_flags(ssa_node->op()) & SSAF_CHEAP_SCHEDULE))
-            continue;
-
-        unsigned const input_size = ssa_node->input_size();
-        for(unsigned i = 0; i < input_size; ++i)
-        {
-            ssa_value_t const input = ssa_node->input(i);
-            if(!input.holds_ref() || input->cfg_node() != cfg_node)
-                continue;
-
-            unsigned const output_size = input->output_size();
-            for(unsigned j = 0; j < output_size; ++j)
-            {
-                ssa_ht const output = input->output(j);
-                if(output->cfg_node() != cfg_node || (ssa_flags(output->op()) & SSAF_CHEAP_SCHEDULE))
-                    continue;
-
-                // Can't add a dep if a cycle would be created:
-                if(bitset_test(data(ssa_node).deps, index(output)))
-                    continue;
-
-                // Add a dep!
-                auto& d = data(output);
-                bitset_set(d.deps, index(ssa_node));
-                bitset_or(set_size, d.deps, data(ssa_node).deps);
-                propagate_deps_change(output);
-            }
-        }
-    }
-
     // ARRAYS:
     // - Schedule write_arrays after all read_arrays from previous write_arrays
 
@@ -678,6 +589,81 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
             });
         });
+    }
+
+    // ARRAYS:
+    // - Schedule read_arrays before any other use
+    for(ssa_ht ssa_node : toposorted)
+    {
+        using namespace ssai::array;
+
+        if(!(ssa_flags(ssa_node->op()) & SSAF_READ_ARRAY))
+            continue;
+
+        auto& d = data(ssa_node);
+
+        if(!ssa_node->input(ARRAY).holds_ref())
+            continue;
+        ssa_ht const array_input = ssa_node->input(ARRAY).handle();
+
+        for_each_output(array_input, [&](ssa_ht use)
+        {
+            use = orig_use(use);
+            if(ssa_node == use)
+                return;
+
+            if((ssa_flags(use->op()) & (SSAF_READ_ARRAY)))
+                return;
+
+            // We can only do this when the read is in the same CFG node
+            if(use->cfg_node() != this->cfg_node)
+                return;
+
+            // Can't add a dep if a cycle would be created:
+            if(bitset_test(d.deps, index(use)))
+                return;
+
+            // Add a dep!
+            auto& ud = data(use);
+            bitset_set(ud.deps, index(ssa_node));
+            bitset_or(set_size, ud.deps, d.deps);
+            propagate_deps_change(use);
+        });
+    }
+
+    // Schedule cheap nodes before other uses
+    for(ssa_ht ssa_node : toposorted)
+    {
+        assert(cfg_node == ssa_node->cfg_node());
+
+        if(!(ssa_flags(ssa_node->op()) & SSAF_CHEAP_SCHEDULE))
+            continue;
+
+        unsigned const input_size = ssa_node->input_size();
+        for(unsigned i = 0; i < input_size; ++i)
+        {
+            ssa_value_t const input = ssa_node->input(i);
+            if(!input.holds_ref() || input->cfg_node() != cfg_node)
+                continue;
+
+            unsigned const output_size = input->output_size();
+            for(unsigned j = 0; j < output_size; ++j)
+            {
+                ssa_ht const output = input->output(j);
+                if(output->cfg_node() != cfg_node || (ssa_flags(output->op()) & SSAF_CHEAP_SCHEDULE))
+                    continue;
+
+                // Can't add a dep if a cycle would be created:
+                if(bitset_test(data(ssa_node).deps, index(output)))
+                    continue;
+
+                // Add a dep!
+                auto& d = data(output);
+                bitset_set(d.deps, index(ssa_node));
+                bitset_or(set_size, d.deps, data(ssa_node).deps);
+                propagate_deps_change(output);
+            }
+        }
     }
 
     // Try to use make_ptrs immediately.

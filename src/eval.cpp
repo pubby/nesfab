@@ -1586,8 +1586,6 @@ void eval_t::compile_block()
         break;
 
     case STMT_IRQ:
-        if(precheck_tracked)
-            precheck_tracked->fences.push_back(stmt_pstring_mods());
         ssa_op = SSA_cli;
         goto do_fence;
 
@@ -1599,13 +1597,12 @@ void eval_t::compile_block()
         ssa_op = SSA_wait_nmi;
         goto do_fence;
     case STMT_FENCE:
-        if(precheck_tracked)
-            precheck_tracked->fences.push_back(stmt_pstring_mods());
         ssa_op = SSA_fence;
         // fall-through
     do_fence:
         {
-            assert(fn->precheck_fences());
+            if(precheck_tracked)
+                precheck_tracked->fences.push_back(stmt_pstring_mods());
             bc::small_vector<ssa_value_t, 32> inputs;
 
             block_d& block_data = builder.cfg.data<block_d>();

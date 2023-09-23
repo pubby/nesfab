@@ -78,6 +78,7 @@ private:
 
     group_vars_ht m_vars_h = {};
     group_data_ht m_data_h = {};
+    group_data_ht m_omni_h = {};
 
     group_ht m_handle = {};
 
@@ -100,8 +101,8 @@ public:
     auto data_handle() const { assert(compiler_phase() > PHASE_PARSE); return m_data_h; }
 
     bool using_vars() const { return vars() && !vars()->gvars().empty(); }
-    bool using_data() const { return data() && !data()->consts().empty(); }
-    bool using_omni() const { return omni() && !omni()->consts().empty(); }
+    bool using_data() const { return data(); }
+    bool using_omni() const { return omni(); }
     bool using_any_data() const { return using_data() || using_omni(); }
 
     bool undefined() const { return !vars() && !data() && !omni(); }

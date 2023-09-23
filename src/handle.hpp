@@ -128,7 +128,7 @@ struct pool_handle_t : public handle_t<Derived, std::uint32_t, ~0u>
         return pool_emplace(ptr, std::forward<Args>(args)...);
     }
 
-    static std::size_t bitset_size() { assert(compiler_phase() > Phase); return m_listener.cached_bitset_size; }
+    static std::size_t bitset_size() { passert(compiler_phase() > Phase, compiler_phase(), Phase); return m_listener.cached_bitset_size; }
 
     static Derived begin() { assert(compiler_phase() > Phase); return {0}; }
     static Derived end() { assert(compiler_phase() > Phase); return {pool().size()}; }

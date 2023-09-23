@@ -266,6 +266,10 @@ void global_t::parse_cleanup()
         }
     }
 
+    // Handle charmaps
+    for(charmap_t& charmap : charmap_ht::values())
+        charmap.create_group_data();
+
     // Validate groups and mods:
     for(fn_t const& fn : fn_ht::values())
     {
@@ -2306,6 +2310,21 @@ int charmap_t::convert(char32_t ch) const
     return -1;
 }
 
+void charmap_t::create_group_data()
+{
+    assert(compiler_phase() == PHASE_PARSE_CLEANUP);
+
+    if(mods() && (mods()->explicit_lists & MODL_STOWS))
+    {
+        m_stows_omni = mods()->details & MODD_STOWS_OMNI;
+
+        mods()->for_each_list(MODL_STOWS, [&](group_ht g, pstring_t pstring)
+        {
+            g->define_data(global.pstring(), m_stows_omni);
+        });
+    }
+}
+
 void charmap_t::set_group_data()
 {
     assert(compiler_phase() == PHASE_CHARMAP_GROUPS);
@@ -2313,18 +2332,19 @@ void charmap_t::set_group_data()
 
     if(mods() && (mods()->explicit_lists & MODL_STOWS))
     {
-        mods()->for_each_list_data(MODL_STOWS, [&](group_data_ht gd, pstring_t pstring)
+        mods()->for_each_list(MODL_STOWS, [&](group_ht g, pstring_t pstring)
         {
             if(m_group_data)
-                compiler_error(pstring, "Too many 'stores' mods. Expecting one or zero.");
+                compiler_error(pstring, "Too many 'stows' mods. Expecting one or zero.");
 
-            m_group_data = gd;
+            m_group_data = g->data_handle();
+
+            if(!m_group_data)
+                compiler_error(global.pstring(), "Group argument of 'stows' modifier was not defined.");
         });
 
         if(!m_group_data)
-            compiler_error(global.pstring(), "Invalid 'stores' mod.");
-
-        m_stows_omni = mods()->details & MODD_STOWS_OMNI;
+            compiler_error(global.pstring(), "Invalid 'stows' modifier.");
     }
 }
 

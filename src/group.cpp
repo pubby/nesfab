@@ -25,6 +25,7 @@ defined_group_data_t group_t::define_data(pstring_t pstring, bool omni)
     auto& ptr = omni ? m_omni : m_data;
     if(!ptr)
         ptr.reset(new group_data_t());
+    auto& h = omni ? m_omni_h : m_data_h;
     if(!m_data_h)
         m_data_h = group_data_ht::pool_make(this);
     return { this, ptr.get(), m_data_h };

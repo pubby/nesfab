@@ -976,6 +976,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
         io_pure = false;
         fences = true;
+        m_bank_switches = true;
         group_vars = m_precheck_group_vars;
 
         // iasm always employs groupless vars:
@@ -1018,6 +1019,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
                 if(fclass != FN_MODE && is_static && mapper().bankswitches())
                     m_returns_in_different_bank |= callee->returns_in_different_bank();
+
+                m_bank_switches |= callee->bank_switches();
             }
 
             if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
@@ -1098,6 +1101,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
             if(ssa_flags(ssa_it->op()) & SSAF_BANK_INPUT)
             {
+                m_bank_switches = true;
+
                 using namespace ssai::rw_ptr;
                 ssa_value_t const bank = ssa_it->input(ssa_bank_input(ssa_it->op()));
 

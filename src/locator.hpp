@@ -100,10 +100,12 @@ enum locator_class_t : std::uint8_t
 // We have a limited number of bits to use.
 static_assert(NUM_LCLASS < 1 << 6);
 
-constexpr bool is_var_like(locator_class_t lclass)
+constexpr bool is_var_like(locator_class_t lclass, bool allow_none = false)
 {
     switch(lclass)
     {
+    case LOC_NONE:
+        return allow_none;
     case LOC_GMEMBER:
     case LOC_ARG:
     case LOC_RETURN:

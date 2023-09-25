@@ -85,9 +85,6 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
 : switched_span(mapper().switched_rom_span())
 , log(log)
 {
-    // TODO
-    log = &stdout_log;
-
     // If we have a this_bank_addr, leave it unallocated.
     if(mapper().this_bank_addr())
     {
@@ -371,34 +368,6 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
             });
         }
     }
-
-    /*
-    for(group_data_ht gd : group_data_ht::handles())
-    {
-        (*gd)->for_each_const([&](const_ht c)
-        {
-            if(!c->rom_array())
-                return;
-
-            auto const& rom_array = *c->rom_array();
-
-            if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_ONCE)
-            {
-                unsigned const once_i = rom_array.get_alloc(ROMV_MODE).handle();
-                assert(once_i < num_onces);
-                bitset_set(gd_once_bs(gd.id), once_i);
-                // Set the pointer to 'related_onces' now:
-                rom_once_ht{once_i}->related_onces = gd_once_bs(gd.id);
-            }
-            else if(rom_array.get_alloc(ROMV_MODE).rclass() == ROMA_MANY)
-            {
-                unsigned const many_i = rom_array.get_alloc(ROMV_MODE).handle();
-                passert(many_i < num_manys, many_i, num_manys);
-                bitset_set(gd_many_bs(gd.id), many_i);
-            }
-        });
-    }
-    */
 
     ///////////////////////////
     // Link 'required_manys' //
@@ -798,18 +767,35 @@ void alloc_rom(log_t* log, span_allocator_t allocator)
 
 void print_rom(std::ostream& o)
 {
+    std::vector<std::pair<unsigned, span_t>> sorted;
+
     o << "ROM:\n\n";
 
     for(auto const& st : rom_static_ht::values())
+    {
         o << "STATIC " << st.span << '\n';
+        if(mapper().fixed_16k)
+            sorted.emplace_back(st.span.size, st.span);
+        else
+            sorted.emplace_back(st.span.size * mapper().num_banks, st.span);
+    }
+
     for(auto const& many : rom_many_ht::values())
     {
         o << "MANY " << many.span << ' ' << (int)many.data.rclass() << " banks: ";
         many.in_banks.for_each([&](unsigned bank_i) { o << ' ' << bank_i; });
         o << std::endl;
+        sorted.emplace_back(many.span.size * many.in_banks.popcount() , many.span);
     }
     for(auto const& once : rom_once_ht::values())
+    {
         o << "ONCE " << once.span << ' ' << (int)once.data.rclass() << " banks: " << once.bank << std::endl;
+        sorted.emplace_back(once.span.size, once.span);
+    }
+
+    std::sort(sorted.begin(), sorted.end(), std::greater<>());
+    for(auto const& pair : sorted)
+        o << "SIZE: " << pair.first << " SPAN: " << pair.second << '\n';
 
     for(fn_t const& fn : fn_ht::values())
     {
@@ -818,7 +804,7 @@ void print_rom(std::ostream& o)
         {
             if(auto a = fn.rom_proc()->get_alloc(romv_t(romv)))
             {
-                o << romv << ' ' << a.get()->span << std::endl;
+                o << romv << ' ' << a.get()->span << " (" << fn.rom_proc()->asm_proc().size() << ')' <<  std::endl;
                 o << "banks:";
                 a.for_each_bank([&](unsigned bank)
                 {

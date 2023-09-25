@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "1.1"
+VERSION := "1.2"
 GIT_COMMIT := "$(shell git describe --all --abbrev=8 --dirty --always)"
 
 #override CXX:=clang++
@@ -169,7 +169,8 @@ o_shift.cpp \
 mapfab.cpp \
 define.cpp \
 o_locator.cpp \
-ctags.cpp
+ctags.cpp \
+donut.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

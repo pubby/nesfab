@@ -4005,9 +4005,6 @@ namespace isel
                 using p_ptr_hi = p_arg<1>;
                 using p_ptr = set_ptr_hi<p_ptr_lo, p_ptr_hi>;
 
-                // The trampoline:
-                p_arg<3>::set(locator_t::runtime_rom(RTROM_jsr_trampoline));
-
                 // The ptr:
                 p_ptr_lo::set(h->input(2));
                 p_ptr_hi::set(h->input(3));
@@ -4016,6 +4013,9 @@ namespace isel
 
                 if(h->input(1))
                 {
+                    // The trampoline:
+                    p_arg<3>::set(locator_t::runtime_rom(RTROM_jsr_xy_trampoline));
+
                     // The bank:
                     p_arg<2>::set(h->input(1));
 
@@ -4029,6 +4029,9 @@ namespace isel
                 }
                 else
                 {
+                    // The trampoline:
+                    p_arg<3>::set(locator_t::runtime_rom(RTROM_jsr_trampoline));
+
                     if(!mod_test(state.fn->mods(), MOD_static) && fn_set.returns_in_different_bank())
                     {
                         chain

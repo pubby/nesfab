@@ -171,6 +171,9 @@ public:
     bool for_each_group_test(std::function<bool(group_ht)> const& fn);
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
+
+    void absolute_to_zp();
+    void remove_banked_jsr();
 private:
     // BE CAREFUL. NO SYNCHRONIZATION!
     asm_proc_t m_asm_proc;
@@ -186,9 +189,6 @@ rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, bool omni, romv_alloc
 ///////////////
 // ROM alloc //
 ///////////////
-
-static constexpr unsigned max_banks = 256;
-using bank_bitset_t = static_bitset_t<max_banks>;
 
 struct rom_static_ht : pool_handle_t<rom_static_ht, std::deque<rom_static_t>, PHASE_PREPARE_ALLOC_ROM> {};
 struct rom_many_ht : pool_handle_t<rom_many_ht, std::deque<rom_many_t>, PHASE_PREPARE_ALLOC_ROM> {};
@@ -252,7 +252,7 @@ struct rom_once_t : public rom_alloc_t
     // Which bank we're allocated in
     unsigned bank = ~0;
 
-    int only_bank() const { return bank; }
+    int only_bank() const { return static_cast<int>(bank); }
 
     template<typename Fn>
     void for_each_bank(Fn const& fn) const { fn(bank); }

@@ -1,0 +1,273 @@
+/*
+ * Original Copyright (c) 2018, Johnathan Roatch
+ * Modified in 2023 by Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for decompressing the Donut format by Jonathan Roatch.
+// See: https://www.nesdev.org/wiki/User:Ns43110/donut.s
+
+/*
+  Block header:
+  LMlmbbBR
+  |||||||+-- Rotate plane bits (135° reflection)
+  ||||000--- All planes: 0x00
+  ||||010--- L planes: 0x00, M planes:  pb8
+  ||||100--- L planes:  pb8, M planes: 0x00
+  ||||110--- All planes: pb8
+  ||||001--- In another header byte, For each bit starting from MSB
+  ||||         0: 0x00 plane
+  ||||         1: pb8 plane
+  ||||011--- In another header byte, Decode only 1 pb8 plane and
+  ||||       duplicate it for each bit starting from MSB
+  ||||         0: 0x00 plane
+  ||||         1: duplicated plane
+  ||||       If extra header byte = 0x00, no pb8 plane is decoded.
+  ||||1x1--- Reserved for Uncompressed block bit pattern
+  |||+------ M planes predict from 0xff
+  ||+------- L planes predict from 0xff
+  |+-------- M = M XOR L
+  +--------- L = M XOR L
+  00101010-- Uncompressed block of 64 bytes (bit pattern is ascii '*' )
+  Header >= 0xc0: Error, avaliable for outside processing.
+  X >= 192: Also returns in Error, the buffer would of unexpectedly page warp.
+*/
+
+asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
+: employs /donut
+: +zero_page
+    vars
+        U[64] block_buffer
+        U[8] plane_buffer
+        : +zero_page
+        U pb8_ctrl
+        : +zero_page
+        U even_odd
+        : +zero_page
+        U block_offset
+        : +zero_page
+        U plane_def
+        : +zero_page
+        U block_offset_end
+        : +zero_page
+        U block_header
+        : +zero_page
+        U is_rotated
+        : +zero_page
+    ct AA temp_y = &pb8_ctrl
+
+    default
+    label block_loop
+        lax &ptr.bank
+        switch ax
+        ldx #64
+        jsr decompress_block
+        bcs end_block_upload  // bail on error.
+        ldx #64
+    label upload_loop
+        lda &block_buffer, x
+        sta PPUDATA
+        inx
+        bpl upload_loop
+        tya
+        // carry is clear
+        adc &ptr.a
+        sta &ptr.a
+        bcc add_stream_ptr_no_inc_high_byte
+        inc &ptr.b
+    label add_stream_ptr_no_inc_high_byte
+        dec &block_count
+        bne block_loop
+    label end_block_upload
+        rts
+
+    label do_raw_block
+    label raw_block_loop
+        lda (&ptr.a), y
+        iny
+        sta &block_buffer, x
+        inx
+        cpy #65  // size of a raw block
+        bcc raw_block_loop
+        clc  // to indicate success
+    label exit_error
+        rts
+
+    label read_plane_def_from_stream
+        ror
+        lda (&ptr.a), y
+        iny
+        bne plane_def_ready
+
+    label decompress_block
+        ldy #$00
+        txa
+        clc
+        adc #64
+        bcs exit_error
+        // If we don't exit here, xor_l_onto_m can underflow into the previous page.
+        sta &block_offset_end
+
+        lda (&ptr.a), y
+        cmp #$c0
+        bcs exit_error
+        // Return to caller to let it do the processing of headers >= 0xc0.
+        iny  // Y represents the number of successfully processed bytes.
+
+        cmp #$2a
+        beq do_raw_block
+        // bne do_normal_block
+    label do_normal_block
+        sta &block_header
+        stx &block_offset
+
+        // A = block_header
+        and #%11011111
+        // The 0 are bits selected for the even ("lower") planes
+        // The 1 are bits selected for the odd planes
+        // bits 0~3 should be set to allow the mask after this to work.
+        sta &even_odd
+        // even_odd toggles between the 2 fields selected above for each plane.
+
+        lsr
+        ror &is_rotated
+        lsr
+        bcs read_plane_def_from_stream
+    label unpack_shorthand_plane_def
+        and #$03
+        tax
+        lda shorthand_plane_def_table, x
+    label plane_def_ready
+        ror &is_rotated
+        sta &plane_def
+        sty temp_y
+
+        clc
+        lda &block_offset
+    label plane_loop
+        adc #8
+        sta &block_offset
+
+        lda &even_odd
+        eor &block_header
+        sta &even_odd
+
+        and #$30
+        beq not_predicted_from_ff
+        lda #$ff
+    label not_predicted_from_ff
+
+        asl &plane_def
+        bcc do_zero_plane
+    label do_pb8_plane
+        ldy temp_y
+        bit &is_rotated
+        bpl no_rewind_input_pointer
+        ldy #$02
+    label no_rewind_input_pointer
+        tax
+        lda (&ptr.a), y
+        iny
+        sta &pb8_ctrl
+        txa
+
+        bvs do_rotated_pb8_plane
+    label do_normal_pb8_plane
+        ldx &block_offset
+        // C is set from 'asl plane_def' above
+        rol &pb8_ctrl
+    label pb8_loop
+        bcc pb8_use_prev
+        lda (&ptr.a), y
+        iny
+    label pb8_use_prev
+        dex
+        sta &block_buffer, x
+        asl &pb8_ctrl
+        bne pb8_loop
+        sty temp_y
+    label end_plane
+        bit &even_odd
+        bpl not_xor_m_onto_l
+    label xor_m_onto_l
+        ldy #8
+    label xor_m_onto_l_loop
+        dex
+        lda &block_buffer, x
+        eor &block_buffer+8, x
+        sta &block_buffer, x
+        dey
+        bne xor_m_onto_l_loop
+    label not_xor_m_onto_l
+
+        bvc not_xor_l_onto_m
+    label xor_l_onto_m
+        ldy #8
+    label xor_l_onto_m_loop
+        dex
+        lda &block_buffer, x
+        eor &block_buffer+8, x
+        sta &block_buffer+8, x
+        dey
+        bne xor_l_onto_m_loop
+    label not_xor_l_onto_m
+
+        lda &block_offset
+        cmp &block_offset_end
+        bcc plane_loop
+        ldy temp_y
+        tax  // ldx block_offset_end
+        clc  // to indicate success
+        rts
+
+    label do_zero_plane
+        ldx &block_offset
+        ldy #8
+    label fill_plane_loop
+        dex
+        sta &block_buffer, x
+        dey
+        bne fill_plane_loop
+        beq end_plane
+
+    label do_rotated_pb8_plane
+        ldx #8
+    label buffered_pb8_loop
+        asl &pb8_ctrl
+        bcc buffered_pb8_use_prev
+        lda (&ptr.a), y
+        iny
+    label buffered_pb8_use_prev
+        dex
+        sta &plane_buffer, x
+        bne buffered_pb8_loop
+        sty temp_y
+        ldy #8
+        ldx &block_offset
+    label flip_bits_loop
+        asl &plane_buffer+0
+        ror
+        asl &plane_buffer+1
+        ror
+        asl &plane_buffer+2
+        ror
+        asl &plane_buffer+3
+        ror
+        asl &plane_buffer+4
+        ror
+        asl &plane_buffer+5
+        ror
+        asl &plane_buffer+6
+        ror
+        asl &plane_buffer+7
+        ror
+        dex
+        sta &block_buffer, x
+        dey
+        bne flip_bits_loop
+        beq end_plane
+
+    label shorthand_plane_def_table
+      U[4]($00, $55, $aa, $ff)
+

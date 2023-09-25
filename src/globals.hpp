@@ -353,6 +353,7 @@ public:
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
 
     bool returns_in_different_bank() const { assert(m_ir_writes); return m_returns_in_different_bank; }
+    bool bank_switches() const { assert(m_ir_writes); return m_bank_switches; }
 
     virtual void for_each_fn(std::function<void(fn_ht)> const& fn) const = 0;
 protected:
@@ -383,6 +384,9 @@ protected:
 
     // If the function bankswitches to a different bank:
     bool m_returns_in_different_bank = false;
+
+    // If the function explicitly bankswitches:
+    bool m_bank_switches = false;
 };
 
 

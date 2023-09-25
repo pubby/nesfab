@@ -14,4 +14,7 @@ conversion_t convert_pbz(std::uint8_t* begin, std::uint8_t* end);
 std::vector<std::uint8_t> compress_rlz(std::uint8_t* begin, std::uint8_t* end, bool terminate);
 conversion_t convert_rlz(std::uint8_t* begin, std::uint8_t* end, bool terminate);
 
+std::vector<std::uint8_t> compress_donut(std::uint8_t* begin, std::uint8_t* end);
+conversion_t convert_donut(std::uint8_t* begin, std::uint8_t* end);
+
 #endif

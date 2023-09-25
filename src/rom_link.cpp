@@ -15,6 +15,7 @@
 #include "compiler_error.hpp"
 #include "eval.hpp"
 
+// This gets called before ROM is allocated.
 void link_variables_optimize()
 {
     for(rom_proc_t& rom_proc : rom_proc_ht::values())
@@ -25,6 +26,7 @@ void link_variables_optimize()
             asm_proc.link_variables(romv);
             if(asm_proc.fn && !asm_proc.fn->iasm)
             {
+                asm_proc.absolute_to_zp();
                 asm_proc.late_optimize();
                 asm_proc.build_label_offsets();
             }
@@ -48,6 +50,12 @@ static void write_linked(
 
 std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 {
+    for(rom_proc_t& rom_proc : rom_proc_ht::values())
+    {
+        rom_proc.absolute_to_zp();
+        rom_proc.remove_banked_jsr();
+    }
+
     std::size_t const header_size = mapper().ines_header_size();
     std::size_t const prg_rom_size = mapper().prg_size();
     std::size_t const chr_rom_size = mapper().num_8k_chr_rom * 0x2000;
@@ -78,8 +86,6 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         }, 
         [&](rom_proc_ht rom_proc)
         {
-            // We're copying the proc here.
-            // This is slower than necessary, but safer to code.
             auto& asm_proc = rom_proc->asm_proc(alloc.romv);
 
             asm_proc.link(alloc.romv, alloc.only_bank());

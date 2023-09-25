@@ -320,42 +320,42 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         // Determine if this node produces a carry used by a single output.
 
         ssa_ht const carry = carry_output(*ssa_node);
-        ssa_ht carry_user = {};
+        ssa_ht user = {};
 
         if(carry && carry->output_size() == 1)
-            carry_user = carry->output(0);
-        else if(ssa_node->type().name() == TYPE_BOOL 
+            user = carry->output(0);
+        else if(ssa_node->type().name() == TYPE_BOOL
                 && (ssa_flags(ssa_node->op()) & SSAF_CLOBBERS_CARRY)
                 && ssa_node->output_size() == 1)
         {
             auto oe = ssa_node->output_edge(0);
             if(carry_input_i(oe.handle->op()) != static_cast<int>(oe.index))
                 continue;
-            carry_user = oe.handle;
+            user = oe.handle;
         }
         else
             continue;
 
         // OK! This node produces a carry used by a single output.
 
-        assert(carry_user);
+        assert(user);
         assert(ssa_node);
 
-        if(carry_user->cfg_node() != ssa_node->cfg_node())
+        if(user->cfg_node() != ssa_node->cfg_node())
             continue;
 
         auto& d = data(ssa_node);
         unsigned const index_ = index(ssa_node);
-        auto& carry_user_d = data(carry_user);
+        auto& user_d = data(user);
 
         assert(d.deps);
-        assert(carry_user_d.deps);
+        assert(user_d.deps);
 
-        d.carry_user = carry_user;
+        d.carry_user = user;
 
         // 'temp_set' will hold all deps we'll try adding to 'd.deps':
         for(unsigned i = 0; i < set_size; ++i)
-            temp_set[i] = carry_user_d.deps[i] & ~d.deps[i] & carry_clobberers[i];
+            temp_set[i] = user_d.deps[i] & ~d.deps[i] & carry_clobberers[i];
         bitset_clear(temp_set, index_);
 
         bool updated = false;
@@ -388,7 +388,9 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
         // Determine if this node produces a carry used by a single output.
 
-        ssa_ht const carry = carry_output(*ssa_node);
+        ssa_ht carry = carry_output(*ssa_node);
+        if(!carry && (ssa_flags(ssa_node->op()) & SSAF_CLOBBERS_CARRY) && ssa_node->type().name() == TYPE_BOOL)
+            carry = ssa_node;
         if(!carry || carry->output_size() != 1)
             continue;
 
@@ -406,6 +408,8 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         // 'temp_set' will hold all deps we'll try adding to 'd.deps'.
         for(unsigned i = 0; i < set_size; ++i)
             temp_set[i] = ~carry_d.deps[i] & carry_clobberers[i];
+        bitset_clear(temp_set, index_);
+        bitset_clear(temp_set, index(carry));
 
         assert(!bitset_test(temp_set, index_));
         assert(!bitset_test(temp_set, index(carry)));

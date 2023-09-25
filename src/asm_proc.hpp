@@ -10,6 +10,7 @@
 
 #include "asm.hpp"
 #include "decl.hpp"
+#include "rom_decl.hpp"
 #include "locator.hpp"
 #include "ssa_op.hpp"
 #include "span.hpp"
@@ -150,6 +151,9 @@ struct asm_proc_t
 
     // Converts absolute instructions to zp, when appropriate
     void absolute_to_zp();
+
+    // Replaces banked JSR with regular JSR
+    bool remove_banked_jsr(romv_t romv, int bank);
 
     // Number of bytes between two instruction indexes.
     int bytes_between(unsigned ai, unsigned bi) const;

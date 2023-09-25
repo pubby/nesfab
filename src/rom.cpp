@@ -200,6 +200,42 @@ void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) cons
     }
 }
 
+void rom_proc_t::absolute_to_zp()
+{
+    m_asm_proc.link_variables(ROMV_MODE);
+    m_asm_proc.absolute_to_zp();
+    m_asm_proc.build_label_offsets();
+    m_asm_proc.cache_size();
+
+    assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM);
+    for(unsigned i = 0; i < NUM_ROMV; ++i)
+    {
+        if(m_opt_procs[i])
+        {
+            m_opt_procs[i]->link_variables(romv_t(i));
+            m_opt_procs[i]->absolute_to_zp();
+            m_opt_procs[i]->build_label_offsets();
+            m_opt_procs[i]->cache_size();
+        }
+    }
+}
+
+void rom_proc_t::remove_banked_jsr()
+{
+    for(unsigned i = 0; i < NUM_ROMV; ++i)
+    {
+        romv_t const romv = romv_t(i);
+        if(m_opt_procs[i])
+        {
+            if(m_opt_procs[i]->remove_banked_jsr(romv, find_alloc(romv).only_bank()))
+            {
+                m_opt_procs[i]->build_label_offsets();
+                m_opt_procs[i]->cache_size();
+            }
+        }
+    }
+}
+
 //////////////////////
 // rom data generic //
 //////////////////////
@@ -276,9 +312,9 @@ void rom_data_ht::for_each_locator(std::function<void(locator_t)> const& fn) con
 // rom_alloc_ht //
 //////////////////
 
-rom_alloc_ht::rom_alloc_ht(rom_static_ht h) { assign(ROMA_STATIC, h.id); }
-rom_alloc_ht::rom_alloc_ht(rom_many_ht h) { assign(ROMA_MANY, h.id); }
-rom_alloc_ht::rom_alloc_ht(rom_once_ht h) { assign(ROMA_ONCE, h.id); }
+rom_alloc_ht::rom_alloc_ht(rom_static_ht h) { assign(ROMA_STATIC, h.id); assert(rclass() == ROMA_STATIC); }
+rom_alloc_ht::rom_alloc_ht(rom_many_ht h) { assign(ROMA_MANY, h.id); assert(rclass() == ROMA_MANY); }
+rom_alloc_ht::rom_alloc_ht(rom_once_ht h) { assign(ROMA_ONCE, h.id); assert(rclass() == ROMA_ONCE); }
 
 rom_alloc_t* rom_alloc_ht::get() const
 {
@@ -305,6 +341,42 @@ int rom_alloc_ht::first_bank() const
         if(!rom_once_ht{handle()}->span)
             return -1;
         return rom_once_ht{handle()}->bank;
+    }
+}
+
+int rom_alloc_ht::only_bank() const
+{
+    switch(rclass())
+    {
+    default: 
+        return -1;
+    case ROMA_STATIC:
+        return -1;
+    case ROMA_MANY: 
+        return rom_many_ht{handle()}->only_bank(); // This returns -1 on error
+    case ROMA_ONCE: 
+        if(!rom_once_ht{handle()}->span)
+            return -1;
+        return rom_once_ht{handle()}->only_bank();
+    }
+}
+
+bank_bitset_t rom_alloc_ht::bank_bitset() const
+{
+    switch(rclass())
+    {
+    default: 
+        return {};
+    case ROMA_STATIC:
+        return bank_bitset_t::filled(0, mapper().num_banks);
+    case ROMA_MANY: 
+        return rom_many_ht{handle()}->in_banks; // This returns -1 on error
+    case ROMA_ONCE: 
+        if(!rom_once_ht{handle()}->span)
+            return {};
+        bank_bitset_t bs = {};
+        bs.set(rom_once_ht{handle()}->only_bank());
+        return bs;
     }
 }
 

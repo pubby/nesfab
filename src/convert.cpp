@@ -193,6 +193,12 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
             std::vector<std::uint8_t> vec = read_file(true);
             ret = convert_rlz(vec.data(), vec.data() + vec.size(), terminate);
         }
+        else if(view == "donut"sv)
+        {
+            check_argn(0);
+            std::vector<std::uint8_t> vec = read_file(true);
+            ret = convert_donut(vec.data(), vec.data() + vec.size());
+        }
         else
             compiler_error(script, fmt("Unknown file type: %", view));
 

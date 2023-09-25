@@ -1,5 +1,7 @@
 #include "convert_compress.hpp"
 
+#include "donut.hpp"
+
 std::vector<std::uint8_t> compress_pbz(std::uint8_t* begin, std::uint8_t* end)
 {
     using plane_t = std::array<std::uint8_t, 8>;
@@ -116,3 +118,17 @@ conversion_t convert_rlz(std::uint8_t* begin, std::uint8_t* end, bool terminate)
     conversion_t c = { .data = compress_rlz(begin, end, terminate) };
     return c;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// DONUT //////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+conversion_t convert_donut(std::uint8_t* begin, std::uint8_t* end)
+{
+    std::size_t const size = end - begin;
+    conversion_t c = { .data = compress_donut(begin, end) };
+    c.named_values.push_back({ "chunks", ssa_value_t(size / 64, TYPE_INT) });
+    c.named_values.push_back({ "tiles", ssa_value_t(size / 16, TYPE_INT) });
+    return c;
+}
+

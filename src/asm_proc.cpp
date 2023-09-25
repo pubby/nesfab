@@ -1,11 +1,16 @@
 #include "asm_proc.hpp"
 
+#ifndef NDEBUG
+#include <iostream>
+#endif
+
 #include "flat/small_set.hpp"
 
 #include "format.hpp"
 #include "globals.hpp"
 #include "runtime.hpp"
 #include "compiler_error.hpp"
+#include "rom.hpp"
 
 bool is_return(asm_inst_t const& inst)
 {
@@ -269,15 +274,20 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_transfer2(LDY, TAY_IMPLIED))
                 goto retry;
+        common_store:
+            if(b == a && is_var_like(a.arg.lclass()) && is_var_like(a.arg.lclass(), true))
+                goto prune_a;
             break;
         case STX:
             if(peep_transfer2(LDA, TXA_IMPLIED))
                 goto retry;
-            break;
+            goto common_store;
         case STY:
             if(peep_transfer2(LDA, TYA_IMPLIED))
                 goto retry;
-            break;
+            goto common_store;
+        case SAX:
+            goto common_store;
         case ALR:
             assert(a.op == ALR_IMMEDIATE);
             if(!a.alt && a.arg == locator_t::const_byte(1) && b.op == ROL_IMPLIED)
@@ -437,6 +447,69 @@ void asm_proc_t::absolute_to_zp()
             break;
         }
     }
+}
+
+bool asm_proc_t::remove_banked_jsr(romv_t romv, int bank)
+{
+    if(bank < 0)
+        return false;
+
+    if(fn && fn->iasm)
+        return false;
+
+    bool did_something = false;
+
+    for(unsigned i = 0; i < code.size(); ++i)
+    {
+        auto& inst = code[i];
+
+        if(inst.alt || inst.arg.lclass() != LOC_FN)
+            continue;
+
+        op_t const op = unbanked_call_op(inst.op);
+        if(!op || op != JSR_ABSOLUTE)
+            continue;
+
+        fn_ht const call = inst.arg.fn();
+        if(!call || call->bank_switches() || call->returns_in_different_bank())
+            continue;
+
+        // Check if our banks are the same.
+        rom_alloc_ht alloc = call->rom_proc()->find_alloc(romv);
+        bool same_bank = false;
+        alloc.for_each_bank([&](int other_bank)
+        {
+            same_bank |= bank == other_bank;
+        });
+        if(!same_bank)
+            continue;
+
+        // Remove the bank load if possible.
+        if(op_t load_op = banked_call_load_op(inst.op))
+        {
+            if(i >= 2 && i+1 < code.size())
+            {
+                auto& load_bank = code[i-2];
+                auto& read = code[i-1];
+                auto& write = code[i+1];
+
+                if(load_bank.op == load_op
+                   && load_bank.arg == inst.arg.with_is(IS_BANK)
+                   && !op_normal(read.op)
+                   && !op_normal(write.op)
+                   && (op_output_regs(write.op) & op_output_regs(load_bank.op)) == op_output_regs(load_bank.op))
+                {
+                    load_bank.op = ASM_PRUNED;
+                    load_bank.arg = load_bank.alt = {};
+                }
+            }
+        }
+
+        inst.op = op;
+        did_something = true;
+    }
+
+    return did_something;
 }
 
 void asm_proc_t::convert_long_branch_ops()

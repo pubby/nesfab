@@ -1,5 +1,9 @@
 #include "puf.hpp"
 
+#ifndef NDEBUG
+#include <iostream>
+#endif
+
 #include <cstdint>
 #include <array>
 #include <vector>
@@ -671,8 +675,11 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 
                 // Padding:
                 if(&bucket != &allocated.back())
-                    for(unsigned i = 0; i < unsigned((256 - bucket.size) % 256); ++i)
+                {
+                    unsigned const padding = unsigned((256 - bucket.size) % 256);
+                    for(unsigned i = 0; i < padding; ++i)
                         push_byte(proc.code, 0);
+                }
             }
 
             track.gconst = define_const(at, fmt("puf_trackid_%", t), std::move(proc), data_group_pair, false, MOD_align);

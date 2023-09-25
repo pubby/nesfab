@@ -261,6 +261,38 @@ constexpr op_t tail_call_op(op_t op)
     }
 }
 
+constexpr op_t unbanked_call_op(op_t op)
+{
+    switch(op)
+    {
+    case BANKED_X_JSR:
+    case BANKED_Y_JSR:
+    case BANKED_JSR:
+        return JSR_ABSOLUTE;
+    case BANKED_X_JMP:
+    case BANKED_Y_JMP:
+    case BANKED_JMP: 
+        return JMP_ABSOLUTE;
+    default: 
+        return BAD_OP;
+    }
+}
+
+constexpr op_t banked_call_load_op(op_t op)
+{
+    switch(op)
+    {
+    case BANKED_X_JSR:
+    case BANKED_X_JMP:
+        return LDX_IMMEDIATE;
+    case BANKED_Y_JSR:
+    case BANKED_Y_JMP:
+        return LDY_IMMEDIATE;
+    default: 
+        return BAD_OP;
+    }
+}
+
 constexpr bool is_branch(op_t op) 
 { 
     return op_flags(op) & ASMF_BRANCH; 

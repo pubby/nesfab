@@ -8,6 +8,7 @@
 
 #include "handle.hpp"
 #include "phase.hpp"
+#include "bitset.hpp"
 
 struct rom_alloc_t;
 struct rom_static_t;
@@ -30,6 +31,9 @@ class locator_t;
 
 DEF_HANDLE_HASH(rom_array_ht);
 DEF_HANDLE_HASH(rom_proc_ht);
+
+static constexpr unsigned max_banks = 256;
+using bank_bitset_t = static_bitset_t<max_banks>;
 
 // These are for different (duplicated) versions of the same data.
 // i.e. one for code called from modes, another for code called from nmis
@@ -98,7 +102,7 @@ public:
             impl = 0;
         else
         {
-            impl |= unsigned(rclass) << 24;
+            impl |= std::uint32_t(rclass) << 24;
             assert(this->rclass() == rclass);
         }
     }
@@ -147,7 +151,11 @@ public:
     // Returns the bank number if it exists, -1 otherwise.
     int first_bank() const;
 
+    int only_bank() const;
+
     void for_each_bank(std::function<void(unsigned)> const& fn);
+
+    bank_bitset_t bank_bitset() const;
 };
 
 using romv_allocs_t = std::array<rom_alloc_ht, NUM_ROMV>;

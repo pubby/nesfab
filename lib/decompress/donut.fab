@@ -1,9 +1,11 @@
-/*
- * Original Copyright (c) 2018, Johnathan Roatch
- * Modified in 2023 by Patrick Bene
- * This file is distributed under the Boost Software License, Version 1.0.
- * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
- */
+// "Donut", NES CHR codec decompressor,
+// Copyright (c) 2018  Johnathan Roatch
+// (Modifications (c) 2023 Patrick Bene)
+
+// Copying and distribution of this file, with or without
+// modification, are permitted in any medium without royalty provided
+// the copyright notice and this notice are preserved in all source
+// code copies.  This file is offered as-is, without any warranty.
 
 // Code for decompressing the Donut format by Jonathan Roatch.
 // See: https://www.nesdev.org/wiki/User:Ns43110/donut.s

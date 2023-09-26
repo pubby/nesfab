@@ -802,7 +802,6 @@ asm fn puf(U arg)
         jmp unlock
 
     label init_pal
-        jmp init_pal
         ldy #(&puf_pal_note_table).a
         ldx #(&puf_pal_note_table).b
         jmp store_init

@@ -203,7 +203,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
             span_allocation_t const spans = allocator.alloc(rom_array.data().size(), alignment);
             assert(spans.object.addr % alignment == 0);
             if(!spans)
-                throw std::runtime_error("Unable to allocate ROM (out of ROM space).");
+                throw std::runtime_error("Unable to allocate ROM static address (out of ROM space).");
             rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, spans.object, rom_array_h), rom_key_t());
             continue;
         }
@@ -255,7 +255,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
             {
                 span_allocation_t const spans = allocator.alloc(rom_proc.max_size(romv));
                 if(!spans)
-                    throw std::runtime_error("Unable to allocate ROM (out of ROM space).");
+                    throw std::runtime_error("Unable to allocate ROM static address (out of ROM space).");
                 rom_proc.set_alloc(romv, rom_static_ht::pool_make(romv, spans.object, rom_proc_h), rom_key_t());
             });
             continue;
@@ -500,7 +500,7 @@ float rom_allocator_t::once_rank(rom_once_t const& once)
     if(once.related_onces)
         related = bitset_popcount(once_bs_size, once.related_onces);
 
-    return many_size + once.max_size() + related;
+    return many_size + once.max_size() * 4 + related;
 }
 
 float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
@@ -624,7 +624,7 @@ void rom_allocator_t::alloc(rom_once_ht once_h)
         return;
     }
 
-    throw std::runtime_error("Unable to allocate address (out of ROM space).");
+    throw std::runtime_error(fmt("Unable to allocate address of size % (out of ROM space).", once.max_size()));
 }
 
 bool rom_allocator_t::try_include_many(rom_many_ht many_h, unsigned bank_i)

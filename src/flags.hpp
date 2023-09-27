@@ -25,6 +25,13 @@ constexpr std::uint16_t FLAG_ARRAY          = 1ull << 6;
 constexpr std::uint16_t FLAG_BANK_PRELOADED = 1ull << 7;
 constexpr std::uint16_t FLAG_TO_PRUNE       = 1ull << 8;
 
+// For CFG:
+constexpr std::uint16_t FLAG_NO_UNROLL      = 1ull << 9;
+constexpr std::uint16_t FLAG_UNLOOP         = 1ull << 10;
+
+// Flags that should propagate:
+constexpr std::uint16_t FLAGS_PROP = FLAG_NO_UNROLL | FLAG_UNLOOP;
+
 class flag_owner_t
 {
 public:
@@ -35,6 +42,8 @@ public:
     void set_mark(mark_t mark) { m_flags &= ~MARK_MASK; m_flags |= mark; }
     void clear_mark() { m_flags &= ~MARK_MASK; }
     mark_t get_mark() const { return (mark_t)(m_flags & MARK_MASK); }
+
+    std::uint16_t prop_flags() const { return m_flags & FLAGS_PROP; }
 protected:
     std::uint16_t m_flags = 0;
 };

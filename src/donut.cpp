@@ -354,17 +354,14 @@ std::vector<std::uint8_t> compress_donut(std::uint8_t* begin, std::uint8_t* end)
             std::copy(begin, begin + l, INPUT_BEGIN);
             begin += l;
             p.src_end += l;
-            std::printf("read %llu\n", l);
         }
 
         status = compress_blocks(&p, begin == end, true, 100000);
-        std::printf("compressed\n");
 
         l = (size_t)(p.dest_end - p.dest_begin);
         if(l >= BUF_IO_SIZE) {
             for(unsigned i = 0; i < BUF_IO_SIZE; ++i)
                 result.push_back(p.dest_begin[i]);
-            std::printf("wrote block\n");
 
             p.dest_begin += l;
 
@@ -383,7 +380,6 @@ std::vector<std::uint8_t> compress_donut(std::uint8_t* begin, std::uint8_t* end)
                 for(unsigned i = 0; i < l; ++i)
                     result.push_back(p.dest_begin[i]);
                 p.dest_begin += l;
-                std::printf("wrote %llu\n", l);
             }
             if(status == ENCOUNTERED_UNDEFINED_BLOCK)
                 throw convert_error_t("Donut conversion error: Unhandled block header.");
@@ -391,6 +387,5 @@ std::vector<std::uint8_t> compress_donut(std::uint8_t* begin, std::uint8_t* end)
         }
     }
 
-    std::printf("SIZE %i -> %i\n", span, result.size());
     return result;
 }

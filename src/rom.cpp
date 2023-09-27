@@ -207,7 +207,7 @@ void rom_proc_t::absolute_to_zp()
     m_asm_proc.build_label_offsets();
     m_asm_proc.cache_size();
 
-    assert(compiler_phase() == PHASE_PREPARE_ALLOC_ROM);
+    assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM);
     for(unsigned i = 0; i < NUM_ROMV; ++i)
     {
         if(m_opt_procs[i])

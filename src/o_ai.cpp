@@ -2385,7 +2385,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
     dprint(log, "---REWRITE_LOOPS_REWRITE", header_cfg);
 
     // Split the back edge:
-    cfg_ht const new_branch_cfg = ir.emplace_cfg();
+    cfg_ht const new_branch_cfg = ir.emplace_cfg(header_cfg->prop_flags());
     new_cfg(new_branch_cfg);
 
     // The new node may have phis created:

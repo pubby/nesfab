@@ -129,6 +129,9 @@ private:
 
         rh::robin_map<stmt_t const*, label_t> label_map;
 
+        // Used for CFG flags;
+        bc::small_vector<std::uint16_t, 8> flag_stack = {0};
+
         void clear()
         {
             cfg = {};
@@ -1226,6 +1229,15 @@ void eval_t::compile_block()
             bool const is_for = stmt->name == STMT_FOR;
             cfg_ht const entry = builder.cfg;
 
+            mods_t const* mods = fn->def().maybe_mods(stmt->mods);
+            std::uint16_t new_flags = builder.flag_stack.back() & ~(FLAG_NO_UNROLL | FLAG_UNLOOP);
+            if(mod_test(mods, MOD_unroll, false) || mod_test(mods, MOD_unroll, false))
+                new_flags |= FLAG_NO_UNROLL;
+            else if(mod_test(mods, MOD_unloop, true))
+                new_flags |= FLAG_UNLOOP;
+
+            builder.flag_stack.push_back(new_flags);
+
             // The loop condition will go in its own block.
             cfg_exits_with_jump();
             cfg_ht const begin_branch = builder.cfg = insert_cfg(false);
@@ -1283,6 +1295,7 @@ void eval_t::compile_block()
 
             builder.continue_stack.pop_back();
             builder.break_stack.pop_back();
+            builder.flag_stack.pop_back();
         }
         break;
 
@@ -7161,7 +7174,8 @@ int eval_t::cast_args(
 
 cfg_ht eval_t::insert_cfg(bool seal, pstring_t label_name)
 {
-    cfg_ht const new_node = ir->emplace_cfg();
+    assert(!builder.flag_stack.empty());
+    cfg_ht const new_node = ir->emplace_cfg(builder.flag_stack.back());
     cfg_data_pool::resize<block_d>(cfg_pool::array_size());
     block_d& block_data = new_node.data<block_d>();
     block_data.label_name = label_name;

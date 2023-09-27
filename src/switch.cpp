@@ -113,14 +113,14 @@ bool switch_partial_to_full(ir_t& ir)
         // Transform the branch.
 
         cfg_ht const default_cfg = cfg_it->output(0); // Where the 'default' case leads.
-        cfg_ht const entry = ir.emplace_cfg();
+        cfg_ht const entry = ir.emplace_cfg(cfg_it->prop_flags());
         cfg_ht current_cfg = entry;
         ssa_value_t current_ssa = branch->input(0);
         type_t const condition_type = current_ssa.type();
 
         auto const do_branch = [&](bool swap)
         {
-            cfg_ht next_cfg = ir.emplace_cfg();
+            cfg_ht next_cfg = ir.emplace_cfg(cfg_it->prop_flags());
 
             current_cfg->alloc_output(1);
             current_cfg->build_set_output(0, next_cfg);

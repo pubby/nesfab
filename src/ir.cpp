@@ -894,12 +894,13 @@ ir_t::~ir_t()
     ssa_pool::clear();
 }
 
-cfg_ht ir_t::emplace_cfg()
+cfg_ht ir_t::emplace_cfg(std::uint16_t flags)
 {
     // Alloc and initialize it.
     cfg_ht h = cfg_pool::alloc();
     cfg_node_t& node = *h;
     node.create();
+    node.set_flags(flags);
 
     // Add it to our list.
     if(m_cfg_begin)
@@ -952,7 +953,7 @@ cfg_ht ir_t::prune_cfg(cfg_ht cfg_node)
 
 cfg_ht ir_t::split_edge(cfg_bck_edge_t edge)
 {
-    cfg_ht split_h = emplace_cfg();
+    cfg_ht split_h = emplace_cfg(edge.handle->prop_flags() | edge.input().handle->prop_flags());
     cfg_node_t& split = *split_h;
 
     edge.input().output() = { split_h, 0 };

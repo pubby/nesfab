@@ -757,7 +757,7 @@ public:
         continue_stack.emplace_back();
 
         if(mods)
-            mods->validate(pstring);
+            mods->validate(pstring, MOD_unroll | MOD_unloop);
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));
         stmt_ht begin_while;
 
@@ -817,7 +817,7 @@ public:
             expr_statement(*init);
 
         if(mods)
-            mods->validate(pstring);
+            mods->validate(pstring, MOD_unroll | MOD_unloop);
 
         stmt_ht begin_for;
         stmt_mods_ht const mods_h = fn_def.push_mods(std::move(mods));

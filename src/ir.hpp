@@ -350,7 +350,7 @@ public:
     cfg_ht begin() const { return m_cfg_begin; }
     cfg_ht end() const { return {}; }
 
-    cfg_ht emplace_cfg();
+    cfg_ht emplace_cfg(std::uint16_t flags);
     cfg_ht prune_cfg(cfg_ht cfg_h);
     
     std::size_t cfg_size() const { return m_size; }

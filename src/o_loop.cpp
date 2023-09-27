@@ -677,42 +677,50 @@ bool rewrite_loop(bool is_do, bool is_byteified, iv_t& root,
 // Returns times unrolled, or 0 if nothing happened.
 fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
 {
+    if(header->test_flags(FLAG_NO_UNROLL))
+        return 0;
+
     auto const& hd = header_data(header);
 
     if(!hd.simple_unroll_body)
         return 0;
     cfg_ht const body = hd.simple_unroll_body;
 
-    // Estimate the cost of each loop iteration.
 
-    constexpr unsigned MAX_COST = 64;
-    unsigned cost_per_iter = 0;
+    unsigned unroll_amount = iterations;
 
-    auto const calc_cost_per_iter = [&](cfg_ht cfg)
+    if(!header->test_flags(FLAG_UNLOOP))
     {
-        for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
+        // Estimate the cost of each loop iteration.
+        constexpr unsigned MAX_COST = 64;
+        unsigned cost_per_iter = 0;
+
+        auto const calc_cost_per_iter = [&](cfg_ht cfg)
         {
-            if(ssa != hd.simple_condition && ssa != hd.simple_branch)
+            for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
             {
-                cost_per_iter += estimate_cost(*ssa);
-                if(cost_per_iter > MAX_COST / 2)
-                    return false;
+                if(ssa != hd.simple_condition && ssa != hd.simple_branch)
+                {
+                    cost_per_iter += estimate_cost(*ssa);
+                    if(cost_per_iter > MAX_COST / 2)
+                        return false;
+                }
             }
-        }
-        return true;
-    };
+            return true;
+        };
 
-    if(!calc_cost_per_iter(header))
-        return 0;
-
-    if(body != header)
-        if(!calc_cost_per_iter(body))
+        if(!calc_cost_per_iter(header))
             return 0;
 
-    if(cost_per_iter == 0)
-        return 0;
+        if(body != header)
+            if(!calc_cost_per_iter(body))
+                return 0;
 
-    unsigned unroll_amount = estimate_unroll_divisor(iterations, MAX_COST / cost_per_iter);
+        if(cost_per_iter == 0)
+            return 0;
+
+        unroll_amount = estimate_unroll_divisor(iterations, MAX_COST / cost_per_iter);
+    }
     passert(iterations % unroll_amount == 0, iterations, unroll_amount);
 
     if(unroll_amount <= 1)

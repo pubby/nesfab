@@ -265,7 +265,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         dupe_exit_t duper;
         while(cfg_it->input_size())
         {
-            cfg_ht duped_cfg = ir.emplace_cfg();
+            cfg_ht duped_cfg = ir.emplace_cfg(cfg_it->prop_flags());
             duper.run(cfg_it, 0, duped_cfg);
 
             auto ie = cfg_it->input_edge(0);

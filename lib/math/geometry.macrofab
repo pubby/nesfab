@@ -111,7 +111,7 @@ fn #fn_prefix#coord_in_dimen(#type_prefix#Coord c, #type_prefix#Dimen d) Bool
 // Returns true if 'c' is inside 'r'.
 fn #fn_prefix#coord_in_rect(#type_prefix#Coord c, #type_prefix#Rect r) Bool
 : +inline
-    return #fn_prefix#overlap_1d(r.c.x, r.d.w, c.x, 1) && #fn_prefix#overlap_1d(r.c.y, r.d.h, c.y, 1)
+    return c.x - r.c.x < r.d.w && c.y - r.c.y < r.d.h
 
 // Returns true if 'sub' entirely fits inside 'super'.
 fn #fn_prefix#rect_in_rect(#type_prefix#Rect sub, #type_prefix#Rect super) Bool

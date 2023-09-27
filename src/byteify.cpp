@@ -1286,7 +1286,7 @@ bool insert_signed_mul_subtractions(ir_t& ir)
             continue;
 
         cfg_ht prev_cfg = cfg_it;
-        cfg_ht const post_cfg = ir.emplace_cfg();
+        cfg_ht const post_cfg = ir.emplace_cfg(cfg_it->prop_flags());
 
         ssa_ht prev = ssa_it;
         ssa_ht const result = prev_cfg->emplace_ssa(SSA_cast, type);
@@ -1299,12 +1299,12 @@ bool insert_signed_mul_subtractions(ir_t& ir)
 
         auto const handler = [&](unsigned shift_amount, ssa_value_t self, ssa_value_t other)
         {
-            cfg_ht const neg_cfg = ir.emplace_cfg();
+            cfg_ht const neg_cfg = ir.emplace_cfg(cfg_it->prop_flags());
             ssa_ht const cast = neg_cfg->emplace_ssa(SSA_cast, type, other);
             ssa_ht const shift = neg_cfg->emplace_ssa(SSA_shl, type, cast, ssa_value_t(shift_amount * 8u, TYPE_U));
             ssa_ht const sub = neg_cfg->emplace_ssa(SSA_sub, type, prev, shift, ssa_value_t(1u, TYPE_BOOL));
 
-            cfg_ht const join_cfg = ir.emplace_cfg();
+            cfg_ht const join_cfg = ir.emplace_cfg(cfg_it->prop_flags());
             ssa_ht const join_phi = join_cfg->emplace_ssa(SSA_phi, type);
             neg_cfg->link_append_output(join_cfg, [&](ssa_ht phi){ assert(phi == join_phi); return sub; });
 
@@ -1424,9 +1424,9 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
         }
 
         // Split the cfg node
-        cfg_ht const loop_head = ir.emplace_cfg();
-        cfg_ht const loop_body = ir.emplace_cfg();
-        cfg_ht const post_node = ir.emplace_cfg();
+        cfg_ht const loop_head = ir.emplace_cfg(cfg_it->prop_flags());
+        cfg_ht const loop_body = ir.emplace_cfg(cfg_it->prop_flags());
+        cfg_ht const post_node = ir.emplace_cfg(cfg_it->prop_flags());
         cfg_ht const pre_node = cfg_it;
 
         // Transfer nodes occurring after 'ssa_it' to 'post_node':

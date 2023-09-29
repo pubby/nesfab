@@ -55,7 +55,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
     case TOK_ident:
         if(int const* handle = symbol_table.find(ast.token.pstring.view(source())))
         {
-            ast.token.value = *handle;
+            ast.token.value = std::int64_t(*handle);
             ast.token.type = TOK_ident;
             assert(ast.token.signed_() == *handle);
         }

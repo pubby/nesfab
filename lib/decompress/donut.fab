@@ -40,7 +40,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
 : employs /donut
 : +zero_page
     vars
-        U[64] block_buffer
+        U[64] block_buffer_storage
         U[8] plane_buffer
         : +zero_page
         U pb8_ctrl
@@ -58,6 +58,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         U is_rotated
         : +zero_page
     ct AA temp_y = &pb8_ctrl
+    ct AA block_buffer = &block_buffer_storage - 64
 
     default
     label block_loop
@@ -68,7 +69,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         bcs end_block_upload  // bail on error.
         ldx #64
     label upload_loop
-        lda &block_buffer, x
+        lda block_buffer, x
         sta PPUDATA
         inx
         bpl upload_loop
@@ -88,7 +89,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
     label raw_block_loop
         lda (&ptr.a), y
         iny
-        sta &block_buffer, x
+        sta block_buffer, x
         inx
         cpy #65  // size of a raw block
         bcc raw_block_loop
@@ -185,7 +186,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         iny
     label pb8_use_prev
         dex
-        sta &block_buffer, x
+        sta block_buffer, x
         asl &pb8_ctrl
         bne pb8_loop
         sty temp_y
@@ -196,9 +197,9 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         ldy #8
     label xor_m_onto_l_loop
         dex
-        lda &block_buffer, x
-        eor &block_buffer+8, x
-        sta &block_buffer, x
+        lda block_buffer, x
+        eor block_buffer+8, x
+        sta block_buffer, x
         dey
         bne xor_m_onto_l_loop
     label not_xor_m_onto_l
@@ -208,9 +209,9 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         ldy #8
     label xor_l_onto_m_loop
         dex
-        lda &block_buffer, x
-        eor &block_buffer+8, x
-        sta &block_buffer+8, x
+        lda block_buffer, x
+        eor block_buffer+8, x
+        sta block_buffer+8, x
         dey
         bne xor_l_onto_m_loop
     label not_xor_l_onto_m
@@ -228,7 +229,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         ldy #8
     label fill_plane_loop
         dex
-        sta &block_buffer, x
+        sta block_buffer, x
         dey
         bne fill_plane_loop
         beq end_plane
@@ -265,7 +266,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         asl &plane_buffer+7
         ror
         dex
-        sta &block_buffer, x
+        sta block_buffer, x
         dey
         bne flip_bits_loop
         beq end_plane

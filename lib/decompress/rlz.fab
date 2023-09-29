@@ -21,6 +21,7 @@ asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
 : employs /rlz
     default
         lax &ptr.bank
+        sta &return.c
         switch ax
     label loop
         ldy #0
@@ -59,15 +60,13 @@ asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
         iny
     label done_increment
         sty &return.b
-        lda &ptr.c
-        sta &return.c
         rts
 
 // Compresses the data 'in' to RLZ format at compile-time.
 // If 'terminator' is true, a value of 0 will be appended onto the end.
 ct fn compress_rlz(U{} in, Bool terminator) U{}
     U{} out = U{}()
-    for Int i = 0; i < len(in); i += 1
+    for Int i = 0; i < len(in);
         U c = in{i}
 
         // Count a run of identical characters.
@@ -80,6 +79,7 @@ ct fn compress_rlz(U{} in, Bool terminator) U{}
             push(out, run - 2)
             push(out, c)
             i += run
+            continue
 
         // Count a run of different characters.
 

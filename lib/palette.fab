@@ -16,6 +16,7 @@
 // Copies data from 'palette_ptr' into 'palette`.
 fn load_palette(PPP/palettes palette_ptr)
     for U i = 0; i < len(palette); i += 1
+    : -unroll
         palette[i] = palette_ptr[i]
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -75,6 +76,7 @@ fn hue_shift(U color, S amount) U
     if hue >= 256 - $C
         hue += $C
     else while hue >= $C
+    : -unroll
         hue -= $C
     return (color & %11110000) | (hue + 1)
 
@@ -92,9 +94,11 @@ fn fade_out(U period, S hue_amount, S brightness_amount)
     U i = 0
     goto enter
     for ; i < 4 ; i += 1
+    : -unroll
         wait(period)
         label enter
         do for U j = 0; j < len(palette); j += 1
+        : -unroll
             palette[j] = brightness_shift(hue_shift(palette[j], hue_amount), brightness_amount)
     nmi
 
@@ -106,11 +110,13 @@ fn fade_in(U period, S hue_amount, S brightness_amount, PPP/palettes new_palette
     S h = S(hue_amount * 4)
     goto enter
     for ; i < 4 ; i += 1
+    : -unroll
         wait(period)
         label enter
         b -= brightness_amount
         h -= hue_amount
         do for U j = 0; j < len(palette); j += 1
+        : -unroll
             palette[j] = brightness_shift(hue_shift(new_palette[j], h), b)
     nmi
 

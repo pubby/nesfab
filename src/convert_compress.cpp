@@ -82,6 +82,7 @@ std::vector<std::uint8_t> compress_rlz(std::uint8_t* begin, std::uint8_t* end, b
         run = 1;
         while(match < 128 && i + match < span)
         {
+            assert(i + match < span);
             if(begin[i + match] == c)
             {
                 ++run;
@@ -103,7 +104,10 @@ std::vector<std::uint8_t> compress_rlz(std::uint8_t* begin, std::uint8_t* end, b
         
         result.push_back(match + 0x80 - 1);
         for(unsigned j = 0; j < match; ++j)
+        {
+            assert(i + j < span);
             result.push_back(begin[i + j]);
+        }
         i += match;
     }
 

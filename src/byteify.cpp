@@ -173,7 +173,7 @@ static void _split_vanishing(ssa_ht ssa_node)
         unsigned const end = end_byte(type.name());
         for(unsigned i = begin_byte(type.name()); i < end; ++i)
         {
-            if(from_sign != to_sign)
+            if(from_sign != to_sign || input_type.name() == TYPE_BOOL)
             {
                 data.bm[i] = ssa_node->cfg_node()->emplace_ssa(SSA_cast, tn, input_bm[i]);
                 data.bm[i]->set_flags(FLAG_PROCESSED);

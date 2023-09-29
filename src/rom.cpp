@@ -148,7 +148,6 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
             locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec), false, false, ROMR_NORMAL));
             loc.advance_offset(-begin);
 
-            passert(ssa_it->type().array_length() == loc.type().array_length(), ssa_it->type(), loc.type());
             ssa_it->replace_with(loc);
             ssa_it = ssa_it->prune();
             continue;

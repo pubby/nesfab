@@ -185,7 +185,7 @@ public:
     static constexpr bool is_link(do_t d) { return d == INTERPRET_LINK; }
 
     type_t const& var_type(var_ht v) const { passert(v.id < var_types.size(), v.id); return var_types[v.id]; }
-    type_t& var_type(var_ht v) { passert(v.id < var_types.size(), v.id); return var_types[v.id]; }
+    type_t& var_type(var_ht v) { passert(v.id < var_types.size(), v.id, var_types.size(), fn->global.name); return var_types[v.id]; }
 
     stmt_ht stmt_handle() const { return { stmt - fn->def().stmts.data() }; }
     pstring_mods_t stmt_pstring_mods() const { return { stmt->pstring, fn->def().mods_of(stmt_handle()) }; }
@@ -466,7 +466,7 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t* fn_ref,
 , local_consts(local_consts)
 , romv(romv)
 {
-    if(D != INTERPRET_CE && fn)
+    if(fn)
     {
         std::size_t const num_locals = num_local_vars();
 
@@ -489,14 +489,14 @@ eval_t::eval_t(do_wrapper_t<D>, pstring_t pstring, fn_t& fn_ref,
 , local_consts(local_consts)
 , precheck_tracked(tracked)
 {
+    std::size_t const num_locals = num_local_vars();
+
+    var_types.resize(num_locals);
+    for(unsigned i = 0; i < num_locals; ++i)
+        var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
+
     if(D != INTERPRET_CE)
     {
-        std::size_t const num_locals = num_local_vars();
-
-        var_types.resize(num_locals);
-        for(unsigned i = 0; i < num_locals; ++i)
-            var_types[i] = ::dethunkify(fn->def().local_vars[i].decl.src_type, true, this);
-
         static_assert(!is_compile(D));
 
         if(!is_check(D))

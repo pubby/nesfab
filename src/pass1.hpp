@@ -175,6 +175,7 @@ public:
         assert(!local_const_expr || local_const);
 
         int const handle = local_const ? -int(fn_def.local_consts.size())-1 : int(fn_def.local_vars.size());
+        assert((handle < 0) == local_const);
         if(int const* existing = symbol_table.new_def(handle, var_decl.name.view(source())))
         {
             // Already have a variable defined in this scope.
@@ -544,7 +545,8 @@ public:
             mods->validate(var_decl.name);
 
         // We'll save the expr, but *don't* convert it yet.
-        _add_symbol(var_decl, true, std::move(mods), &ast);
+        int i = _add_symbol(var_decl, true, std::move(mods), &ast);
+        assert(i < 0);
     }
 
     [[gnu::always_inline]]
@@ -896,7 +898,7 @@ public:
         if(continue_stack.empty())
             compiler_error(pstring, "continue cannot be used here.");
 
-        break_stack.back().push_back(fn_def.push_stmt(
+        continue_stack.back().push_back(fn_def.push_stmt(
             { STMT_CONTINUE, fn_def.push_mods(std::move(mods)), {}, pstring }));
     }
 

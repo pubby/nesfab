@@ -172,6 +172,7 @@ fn ppu_upload_oam(U oam_offset)
 fn hide_oam(U index)
 : +inline
     do for ; index; index += 4
+    : -unroll
         oam{OAM_Y + index} = $FF
 
 // The 'set_oam' functions use the '{}' operator for array indexing 

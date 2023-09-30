@@ -1796,6 +1796,11 @@ while condition
 `condition` is an expression converted to `Bool`. While this expression evaluates to `true`, the loop body will execute.
 After the code in `code block` executes, control flow jumps back to the `condition` test.
 
+*Modifiers:*
+
+- <<mod_flags, `-unroll`, `+unroll`>>
+- <<mod_flags, `+unloop`>>
+
 === `for` [[kw_for]]
 
 The `for` <<statement, statement>> allows for looping control flow, with more features than <<kw_while>>.
@@ -1826,6 +1831,11 @@ for initialization
     code block
 ----
 
+*Modifiers:*
+
+- <<mod_flags, `-unroll`, `+unroll`>>
+- <<mod_flags, `+unloop`>>
+
 === `do` [[kw_do]]
 
 The `do` keyword can be prefixed to either <<kw_while>> or <<kw_for>> to alter their behavior.
@@ -1839,6 +1849,11 @@ do while condition
 do for initialization ; condition ; iteration
     code block
 ----
+
+*Modifiers:*
+
+- <<mod_flags, `-unroll`, `+unroll`>>
+- <<mod_flags, `+unloop`>>
 
 [NOTE]
 Loops written with `do` often have better runtime performance than loops written without.
@@ -4037,12 +4052,12 @@ fn foo(U x) U
     return x + x
 ----
 
-=== Modifier Flags [[mod_flags]]
+=== Function Modifier Flags [[mod_flags]]
 
 Modifier flags are specified prefixed with a `-` or `+++` character.
-`-` is used to disable the modifier, while `+` is used to enable it.
+`-` is used to disable the modifier, while `+++` is used to enable it.
 
-The following flags exist:
+The following flags exist for function definitions:
 
 - `+inline`, `-inline`: Force / prevent the function from being inlined.
 - `+align`: Aligns the data to fit inside a 256-byte page (or to 256 bytes otherwise).
@@ -4069,6 +4084,24 @@ fn foo(U x) U
 : +graphviz
     return x + x
 ----
+
+=== Loop Modifier Flags [[mod_flags_loop]]
+
+Modifier flags are specified prefixed with a `-` or `+++` character.
+`-` is used to disable the modifier, while `+++` is used to enable it.
+
+The following flags exist for loop statements:
+
+- `-unroll`, `+unroll`: Hint to prevent/enable loop unrolling.
+- `+unloop`: Hint to unroll a loop completely, replacing the loop.
+
+Example:
+----
+for U i = 0; i < 10; i += 10
+: -unroll
+    {PPUDATA}(i)
+----
+
 
 === `nmi` [[mod_nmi]]
 

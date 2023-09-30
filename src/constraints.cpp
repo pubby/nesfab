@@ -519,7 +519,8 @@ ABSTRACT(SSA_sign_extend) = ABSTRACT_FN
     result[0] = abstract_sign_extend(cv[0][0], cv[0].cm);
 };
 
-ABSTRACT(SSA_sign) = ABSTRACT_FN
+template<bool Not>
+void abstract_sign(constraints_def_t const* cv, unsigned argn, constraints_def_t& result)
 {
     assert(argn == 1);
 
@@ -529,13 +530,31 @@ ABSTRACT(SSA_sign) = ABSTRACT_FN
     constraints_mask_t const cm = cv[0].cm;
     fixed_uint_t const sign_bit = high_bit_only(cm.mask);
 
+    if(cm.signed_)
+    {
+        if(cv[0][0].bounds.max < 0)
+        {
+            result[0] = constraints_t::bool_(!Not);
+            return;
+        }
+
+        if(cv[0][0].bounds.min >= 0)
+        {
+            result[0] = constraints_t::bool_(Not);
+            return;
+        }
+    }
+
     if(cv[0][0].bits.known1 & sign_bit)
-        result[0] = constraints_t::bool_(true);
+        result[0] = constraints_t::bool_(!Not);
     else if(cv[0][0].bits.known0 & sign_bit)
-        result[0] = constraints_t::bool_(false);
+        result[0] = constraints_t::bool_(Not);
     else
         result[0] = constraints_t::any_bool();
 };
+
+ABSTRACT(SSA_sign) = abstract_sign<false>;
+ABSTRACT(SSA_not_sign) = abstract_sign<true>;
 
 ABSTRACT(SSA_phi) = ABSTRACT_FN
 {
@@ -1403,6 +1422,21 @@ NARROW(SSA_sign) = NARROW_FN
         cv[0][0].bits.known1 |= sign_bit;
     else
         cv[0][0].bits.known0 |= sign_bit;
+};
+
+NARROW(SSA_not_sign) = NARROW_FN
+{
+    assert(argn == 1);
+
+    if(!result[0].is_const())
+        return;
+    
+    fixed_uint_t const sign_bit = high_bit_only(cv[0].cm.mask);
+
+    if(result[0].get_const())
+        cv[0][0].bits.known0 |= sign_bit;
+    else
+        cv[0][0].bits.known1 |= sign_bit;
 };
 
 NARROW(SSA_carry) = NARROW_FN

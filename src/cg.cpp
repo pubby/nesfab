@@ -232,6 +232,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         case SSA_sign:
             condition->unsafe_set_op(SSA_branch_sign); 
             break;
+        case SSA_not_sign:
+            condition->unsafe_set_op(SSA_branch_not_sign); 
+            break;
         default: 
             continue;
         }
@@ -592,12 +595,16 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         if(ld.cset)
         {
+            ld.cset = cset_head(ld.cset);
+
             assert(cset_is_head(node));
+            assert(cset_is_head(ld.cset));
             ssa_ht last = csets_dont_interfere(fn.handle(), ir, ld.cset, node, cache);
             if(!last) // If they interfere
                 return false;
             // It can be coalesced; add it to the cset.
             ld.cset = cset_head(cset_append(last, node));
+            assert(cset_is_head(ld.cset));
             assert(loc == cset_locator(ld.cset));
         }
         else
@@ -609,6 +616,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
             // It can be coalesced; create a new set out of it;
             ld.cset = node;
+            assert(cset_is_head(ld.cset));
             assert(ld.cset);
 
             // Also tag it to a locator:
@@ -687,6 +695,10 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             ssa_ht const nh = cset_remove(parent);
             if(new_head)
                 *new_head = nh;
+
+            if(auto* p = global_loc_map.mapped(loc))
+                if(p->cset == parent)
+                    p->cset = nh;
         }
 
         return ret;

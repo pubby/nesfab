@@ -277,12 +277,13 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
             // fall-through
         check_not_eq:
         case SSA_lt:
+
             if(ssa_it->input(0) == ssa_it->input(1))
             {
                 ssa_it->replace_with(ssa_value_t(0u, TYPE_BOOL));
                 goto prune;
             }
-            else if(ssa_it->op() == SSA_lt)
+            else if(ssa_it->op() == SSA_lt) // Only LT
             {
                 type_name_t const lt = ssa_it->input(0).type().name();
                 type_name_t const rt = ssa_it->input(1).type().name();
@@ -304,13 +305,28 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     }
                 }
 
-                // Replace X < 0 with SSA_sign
-                if(ssa_it->input(1).eq_fixed({0}) && is_signed(ssa_it->input(0).type().name()))
+                if(is_signed(lt))
                 {
-                    ssa_it->link_shrink_inputs(1);
-                    ssa_it->unsafe_set_op(SSA_sign);
-                    updated = true;
-                    break;
+                    // Replace S(X) < 0 with SSA_sign
+                    if(ssa_it->input(1).eq_fixed({0}))
+                    {
+                        ssa_it->link_shrink_inputs(1);
+                        ssa_it->unsafe_set_op(SSA_sign);
+                        updated = true;
+                        break;
+                    }
+                }
+                else
+                {
+                    // Replace U(X) < 128 with SSA_not_sign
+                    fixed_uint_t const mask = numeric_bitmask(lt);
+                    if(ssa_it->input(1).eq_fixed({high_bit_only(mask)}))
+                    {
+                        ssa_it->link_shrink_inputs(1);
+                        ssa_it->unsafe_set_op(SSA_not_sign);
+                        updated = true;
+                        break;
+                    }
                 }
 
                 if(!same_scalar_layout(lt, rt))
@@ -393,6 +409,30 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     }
                 }
 
+                if(is_signed(rt))
+                {
+                    // Replace 0 <= S(X) with SSA_not_sign
+                    if(ssa_it->input(0).eq_fixed({0}))
+                    {
+                        ssa_it->link_remove_input(0);
+                        ssa_it->unsafe_set_op(SSA_not_sign);
+                        updated = true;
+                        break;
+                    }
+                }
+                else
+                {
+                    // Replace 128 <= U(X) with SSA_sign
+                    fixed_uint_t const mask = numeric_bitmask(rt);
+                    if(ssa_it->input(0).eq_fixed({high_bit_only(mask)}))
+                    {
+                        ssa_it->link_remove_input(0);
+                        ssa_it->unsafe_set_op(SSA_sign);
+                        updated = true;
+                        break;
+                    }
+                }
+
                 // Replace expressions like (1 <= x) with (X != 0).
                 // This aids code generation.
 
@@ -468,12 +508,25 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                     ssa_it->unsafe_set_op(SSA_not_eq);
                 else if(input->op() == SSA_not_eq)
                     ssa_it->unsafe_set_op(SSA_eq);
+                else if(input->op() == SSA_sign)
+                {
+                    ssa_it->unsafe_set_op(SSA_not_sign);
+                    ssa_it->link_remove_input(i);
+                    goto unary_xor;
+                }
+                else if(input->op() == SSA_not_sign)
+                {
+                    ssa_it->unsafe_set_op(SSA_sign);
+                    ssa_it->link_remove_input(i);
+                    goto unary_xor;
+                }
                 else
                     continue;
 
-                updated = true;
-                ssa_it->link_change_input(0, input->input(0));
                 ssa_it->link_change_input(1, input->input(1));
+            unary_xor:
+                ssa_it->link_change_input(0, input->input(0));
+                updated = true;
                 break;
             }
             break;

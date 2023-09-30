@@ -1134,6 +1134,17 @@ void eval_t::compile_block()
 {
     ssa_op_t ssa_op; // Used in fence code
 
+    auto const push_loop_flags = [&]()
+    {
+        mods_t const* mods = fn->def().maybe_mods(stmt->mods);
+        std::uint16_t new_flags = builder.flag_stack.back() & ~(FLAG_NO_UNROLL | FLAG_UNLOOP);
+        if(mod_test(mods, MOD_unroll, false))
+            new_flags |= FLAG_NO_UNROLL;
+        else if(mod_test(mods, MOD_unloop, true))
+            new_flags |= FLAG_UNLOOP;
+        builder.flag_stack.push_back(new_flags);
+    };
+
     while(true) switch(stmt->name)
     {
     default: // Handles var inits
@@ -1229,14 +1240,7 @@ void eval_t::compile_block()
             bool const is_for = stmt->name == STMT_FOR;
             cfg_ht const entry = builder.cfg;
 
-            mods_t const* mods = fn->def().maybe_mods(stmt->mods);
-            std::uint16_t new_flags = builder.flag_stack.back() & ~(FLAG_NO_UNROLL | FLAG_UNLOOP);
-            if(mod_test(mods, MOD_unroll, false) || mod_test(mods, MOD_unroll, false))
-                new_flags |= FLAG_NO_UNROLL;
-            else if(mod_test(mods, MOD_unloop, true))
-                new_flags |= FLAG_UNLOOP;
-
-            builder.flag_stack.push_back(new_flags);
+            push_loop_flags();
 
             // The loop condition will go in its own block.
             cfg_exits_with_jump();
@@ -1305,6 +1309,8 @@ void eval_t::compile_block()
             bool const is_for = stmt->name == STMT_DO_FOR;
             cfg_ht const entry = builder.cfg;
 
+            push_loop_flags();
+
             ++stmt;
             builder.continue_stack.emplace_back();
             builder.break_stack.emplace_back();
@@ -1369,6 +1375,7 @@ void eval_t::compile_block()
 
             builder.continue_stack.pop_back();
             builder.break_stack.pop_back();
+            builder.flag_stack.pop_back();
         }
         break;
 

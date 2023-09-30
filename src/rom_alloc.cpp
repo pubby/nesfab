@@ -500,7 +500,7 @@ float rom_allocator_t::once_rank(rom_once_t const& once)
     if(once.related_onces)
         related = bitset_popcount(once_bs_size, once.related_onces);
 
-    return many_size + once.max_size() * 4 + related;
+    return many_size + once.max_size() * 4 + related * 2;
 }
 
 float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)

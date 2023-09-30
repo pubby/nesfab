@@ -756,6 +756,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             break;
 
         case SSA_sign:
+        case SSA_not_sign:
             {
                 assert(ssa_it->input_size() == 1);
                 ssa_value_t const input = ssa_it->input(0);

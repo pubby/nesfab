@@ -3591,9 +3591,9 @@ namespace isel
                 {
                     chain
                     < load_A<Opt, p_arg<0>>
-                    , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
-                    , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0>>
-                    , simple_op<Opt, ADC_IMMEDIATE, null_, const_<0>>
+                    , simple_op<Opt, ASL_IMPLIED, null_>
+                    , simple_op<Opt, ROL_IMPLIED, null_>
+                    , simple_op<Opt, AND_IMMEDIATE, null_, const_<1>>
                     , store<Opt, STA, p_def, p_def>
                     >(cpu, prev, cont);
 
@@ -3610,6 +3610,51 @@ namespace isel
                     , simple_op<Opt, CPY_IMMEDIATE, null_, const_<0x80>>
                     , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0>>
                     , simple_op<Opt, ADC_IMMEDIATE, null_, const_<0>>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+                }
+            }
+            break;
+
+        case SSA_not_sign:
+            {
+                p_arg<0>::set(h->input(0));
+
+                if(h->output_size() == 1 && int(h->output_edge(0).index) == carry_input_i(h->output(0)->op()))
+                {
+                    chain
+                    < load_A<Opt, p_arg<0>>
+                    , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0x80>>
+                    , exact_op<Opt, ASL_IMPLIED, null_>
+                    , store_C<Opt, p_def>
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    chain
+                    < load_A<Opt, p_arg<0>>
+                    , simple_op<Opt, ASL_IMPLIED, null_>
+                    , simple_op<Opt, ROL_IMPLIED, null_>
+                    , simple_op<Opt, AND_IMMEDIATE, null_, const_<1>>
+                    , simple_op<Opt, EOR_IMMEDIATE, null_, const_<1>>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_X<Opt, p_arg<0>>
+                    , simple_op<Opt, CPX_IMMEDIATE, null_, const_<0x80>>
+                    , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0>>
+                    , simple_op<Opt, ADC_IMMEDIATE, null_, const_<0>>
+                    , simple_op<Opt, EOR_IMMEDIATE, null_, const_<1>>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_Y<Opt, p_arg<0>>
+                    , simple_op<Opt, CPY_IMMEDIATE, null_, const_<0x80>>
+                    , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0>>
+                    , simple_op<Opt, ADC_IMMEDIATE, null_, const_<0>>
+                    , simple_op<Opt, EOR_IMMEDIATE, null_, const_<1>>
                     , store<Opt, STA, p_def, p_def>
                     >(cpu, prev, cont);
                 }
@@ -4358,42 +4403,46 @@ namespace isel
             break;
 
         case SSA_branch_sign:
-            p_arg<0>::set(h->input(0));
-            p_label<0>::set(locator_t::cfg_label(cfg_node->output(0)));
-            p_label<1>::set(locator_t::cfg_label(cfg_node->output(1)));
-            select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+        case SSA_branch_not_sign:
             {
-                chain
-                < load_N_for<Opt, p_arg<0>>
-                , branch_op<Opt, BPL, p_label<0>>
-                , branch_op<Opt, BMI, p_label<1>>
-                , clear_conditional
-                >(cpu, prev, cont);
+                p_arg<0>::set(h->input(0));
+                bool const sign = h->op() == SSA_branch_sign;
+                p_label<0>::set(locator_t::cfg_label(cfg_node->output(!sign)));
+                p_label<1>::set(locator_t::cfg_label(cfg_node->output(sign)));
+                select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+                {
+                    chain
+                    < load_N_for<Opt, p_arg<0>>
+                    , branch_op<Opt, BPL, p_label<0>>
+                    , branch_op<Opt, BMI, p_label<1>>
+                    , clear_conditional
+                    >(cpu, prev, cont);
 
-                chain
-                < load_A<Opt, p_arg<0>>
-                , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
-                , branch_op<Opt, BCC, p_label<0>>
-                , branch_op<Opt, BCS, p_label<1>>
-                , clear_conditional
-                >(cpu, prev, cont);
+                    chain
+                    < load_A<Opt, p_arg<0>>
+                    , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
+                    , branch_op<Opt, BCC, p_label<0>>
+                    , branch_op<Opt, BCS, p_label<1>>
+                    , clear_conditional
+                    >(cpu, prev, cont);
 
-                chain
-                < load_X<Opt, p_arg<0>>
-                , simple_op<Opt, CPX_IMMEDIATE, null_, const_<0x80>>
-                , branch_op<Opt, BCC, p_label<0>>
-                , branch_op<Opt, BCS, p_label<1>>
-                , clear_conditional
-                >(cpu, prev, cont);
+                    chain
+                    < load_X<Opt, p_arg<0>>
+                    , simple_op<Opt, CPX_IMMEDIATE, null_, const_<0x80>>
+                    , branch_op<Opt, BCC, p_label<0>>
+                    , branch_op<Opt, BCS, p_label<1>>
+                    , clear_conditional
+                    >(cpu, prev, cont);
 
-                chain
-                < load_Y<Opt, p_arg<0>>
-                , simple_op<Opt, CPY_IMMEDIATE, null_, const_<0x80>>
-                , branch_op<Opt, BCC, p_label<0>>
-                , branch_op<Opt, BCS, p_label<1>>
-                , clear_conditional
-                >(cpu, prev, cont);
-            });
+                    chain
+                    < load_Y<Opt, p_arg<0>>
+                    , simple_op<Opt, CPY_IMMEDIATE, null_, const_<0x80>>
+                    , branch_op<Opt, BCC, p_label<0>>
+                    , branch_op<Opt, BCS, p_label<1>>
+                    , clear_conditional
+                    >(cpu, prev, cont);
+                });
+            }
             break;
 
         case SSA_return:
@@ -5051,9 +5100,9 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     static TLS std::vector<rh::apair<cross_cpu_t, isel_cost_t>> new_out_states;
 
     bool const sloppy = fn.sloppy();
-    unsigned const BASE_SEL_SIZE = sloppy ? 4 : 32;
-    unsigned const BASE_MAP_SIZE = sloppy ? 8 : 128;
-    auto const SELS_COST_BOUND = sloppy ? cost_fn(NOP_IMPLIED) : cost_fn(LDA_ABSOLUTE) * 2;
+    unsigned const BASE_SEL_SIZE = sloppy ? 2 : 32;
+    unsigned const BASE_MAP_SIZE = sloppy ? 4 : 128;
+    auto const SELS_COST_BOUND = sloppy ? cost_fn(NOP_IMPLIED) / 2 : cost_fn(LDA_ABSOLUTE) * 2;
 
     auto const shrink_sels = [&](cfg_ht cfg)
     {

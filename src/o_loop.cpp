@@ -180,6 +180,7 @@ struct header_d
     ssa_ht simple_branch = {};
     unsigned simple_condition_iv_i = 0;
     unsigned simple_reentry_i = 0;
+    bool simple_branch_output_i = 0;
     bool simple_do = false;
 
     // For unrolling:
@@ -955,8 +956,9 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                             break;
 
                         case SSA_sign:
-                            if(branch_output_i == 1)
-                                break;
+                        case SSA_not_sign:
+                            //if(branch_output_i == 1) // TODO
+                                //break;
                             iv_index = 0;
                             // fall-through
                         is_simple:
@@ -967,6 +969,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                             hd.simple_condition_iv_i = iv_index;
                             hd.simple_reentry_i = reentry_i;
                             hd.simple_do = is_do;
+                            hd.simple_branch_output_i = branch_output_i;
 
                             // Now look for a simple unroll body:
                             if(is_do)
@@ -1243,20 +1246,32 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 
             fixed_sint_t iterations = 0;
 
-            if(d.simple_condition->op() == SSA_sign)
+            if(d.simple_condition->op() == SSA_sign || d.simple_condition->op() == SSA_not_sign)
             {
-                fixed_sint_t signed_init = sign_extend(init, numeric_bitmask(root->ssa(true)->type().name()));
+                auto const init_mask = numeric_bitmask(root->ssa(true)->type().name());
+                fixed_sint_t signed_init = sign_extend(init, init_mask);
 
-                if(signed_init >= 0 && increment >= 0)
-                    increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));
-
-                if(std::signbit(signed_init) == std::signbit(increment))
+                if((signed_init >= 0) != ((d.simple_condition->op() == SSA_sign) ^ d.simple_branch_output_i))
                     goto fail;
 
-                if(signed_init >= 0)
-                    signed_init += 1;
+                if(std::signbit(signed_init) == std::signbit(increment))
+                {
+                    if(std::signbit(signed_init))
+                    {
+                        signed_init += low_bit_only(init_mask);
+                        iterations = -(signed_init + high_bit_only(init_mask));
+                    }
+                    else
+                        iterations = (high_bit_only(init_mask) - signed_init);
+                    iterations /= increment;
+                }
+                else
+                {
+                    if(signed_init >= 0)
+                        signed_init += low_bit_only(init_mask);
+                    iterations = -signed_init / increment;
+                }
 
-                iterations = -signed_init / increment;
 
                 if(signed_init % increment != 0)
                     ++iterations;

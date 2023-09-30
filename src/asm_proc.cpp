@@ -992,6 +992,16 @@ loc_vec_t asm_proc_t::loc_vec() const
     return ret;
 }
 
+static std::uint8_t get_byte(locator_t loc)
+{
+    assert(is_const(loc.lclass()));
+    assert(loc.offset() == 0);
+
+    if(loc.is() == IS_PTR_HI)
+        return loc.data() >> 8;
+    return loc.data();
+}
+
 void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) const
 {
     std::uint8_t* at = start;
@@ -1001,11 +1011,7 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
         loc = loc.link(romv, fn, bank);
         if(!is_const(loc.lclass()))
             throw std::runtime_error(fmt("Unable to link % (This is probably a bug in the compiler)", loc));
-        assert(loc.offset() == 0);
-
-        if(loc.is() == IS_PTR_HI)
-            return loc.data() >> 8;
-        return loc.data();
+        return get_byte(loc);
     };
 
     for_each_locator([&](locator_t loc){ *at++ = from_locator(loc); });
@@ -1056,20 +1062,8 @@ void asm_proc_t::relocate(locator_t from)
                     std::string what = fmt("Unable to relocate branch instruction %. Destination outside valid range. (%)", 
                                            op_name(inst.op), dist);
                     if(fn)
-                    {
-                        pstring_t pstring = {};
+                        compiler_error(get_pstring(inst), std::move(what));
 
-                        if(inst.iasm_child >= 0)
-                        {
-                            assert(std::size_t(inst.iasm_child) < pstrings.size());
-                            pstring = pstrings[inst.iasm_child];
-                        }
-
-                        if(!pstring)
-                            pstring = fn->global.pstring();
-
-                        compiler_error(pstring, std::move(what));
-                    }
                     throw relocate_error_t(std::move(what));
                 }
                 return locator_t::const_byte(dist);
@@ -1082,6 +1076,22 @@ void asm_proc_t::relocate(locator_t from)
         inst.alt = relocate1(inst.alt);
         addr += op_size(inst.op);
     }
+}
+
+pstring_t asm_proc_t::get_pstring(asm_inst_t const& inst)
+{
+    pstring_t pstring = {};
+
+    if(inst.iasm_child >= 0)
+    {
+        assert(std::size_t(inst.iasm_child) < pstrings.size());
+        pstring = pstrings[inst.iasm_child];
+    }
+
+    if(!pstring && fn)
+        pstring = fn->global.pstring();
+
+    return pstring;
 }
 
 unsigned asm_proc_t::add_pstring(pstring_t pstring)
@@ -1116,3 +1126,23 @@ unsigned asm_proc_t::next_label_id() const
     return next_id;
 }
 
+
+void asm_proc_t::verify_addr_modes()
+{
+    if(!fn)
+        return;
+
+    for(auto const& inst : code)
+    {
+        if(zp_addr_mode(op_addr_mode(inst.op), true))
+        {
+            auto locs = absolute_locs(inst);
+            if(get_byte(locs.second) != 0)
+            {
+                throw compiler_error_t(
+                    fmt_error(get_pstring(inst), fmt("Operator '%' expects a zero-page address, but none was given.", inst.op))
+                    + fmt_note("The +zero_page modifier ensures variables are allocated to the zero page."));
+            }
+        }
+    }
+}

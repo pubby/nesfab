@@ -171,6 +171,9 @@ struct asm_proc_t
     // Replaces labels with constant addresses.
     void relocate(locator_t from);
 
+    // Checks if ZP address modes are valid.
+    void verify_addr_modes();
+
     label_info_t const* lookup_label(locator_t loc) const { return labels.mapped(loc.mem_head()); }
     label_info_t* lookup_label(locator_t loc) { return labels.mapped(loc.mem_head()); }
     label_info_t& get_label(locator_t loc) { return labels[loc.mem_head()]; }
@@ -201,6 +204,8 @@ private:
 
     // Removes NOP instructions
     void prune_nops();
+
+    pstring_t get_pstring(asm_inst_t const& inst);
 };
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst);

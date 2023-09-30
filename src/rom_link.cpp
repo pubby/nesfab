@@ -93,6 +93,9 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 
             if(asm_proc.fn)
             {
+                if(asm_proc.fn->iasm)
+                    asm_proc.verify_addr_modes();
+
                 if(auto* os = asm_proc.fn->info_stream())
                 {
                     *os << "\nLINK:\n";

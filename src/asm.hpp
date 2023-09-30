@@ -237,6 +237,22 @@ constexpr bool xy_addr_mode(addr_mode_t mode)
     }
 }
 
+constexpr bool zp_addr_mode(addr_mode_t mode, bool indirect = false)
+{
+    switch(mode)
+    {
+    case MODE_ZERO_PAGE:
+    case MODE_ZERO_PAGE_X:
+    case MODE_ZERO_PAGE_Y:
+        return true;
+    case MODE_INDIRECT_X:
+    case MODE_INDIRECT_Y:
+        return indirect;
+    default: 
+        return false;
+    }
+}
+
 constexpr addr_mode_t zp_equivalent(addr_mode_t mode)
 {
     switch(mode)

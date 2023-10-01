@@ -1161,7 +1161,7 @@ span_allocator_t alloc_runtime_rom()
     auto& iota = _rtrom_spans[RTROM_iota][0];
     iota = {};
     if(mapper().bus_conflicts)
-        iota = a.alloc_at({ bankswitch_addr(), 256 }).object;
+        iota = a.alloc_at({ iota_addr(), 256 }).object;
     if(!iota)
         iota = a.alloc(256, 256).object;
     _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 }).object;

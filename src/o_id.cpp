@@ -319,7 +319,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 else
                 {
                     // Replace U(X) < 128 with SSA_not_sign
-                    fixed_uint_t const mask = numeric_bitmask(lt);
+                    fixed_uint_t const mask = numeric_bitmask(rt);
                     if(ssa_it->input(1).eq_fixed({high_bit_only(mask)}))
                     {
                         ssa_it->link_shrink_inputs(1);
@@ -423,7 +423,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                 else
                 {
                     // Replace 128 <= U(X) with SSA_sign
-                    fixed_uint_t const mask = numeric_bitmask(rt);
+                    fixed_uint_t const mask = numeric_bitmask(lt);
                     if(ssa_it->input(0).eq_fixed({high_bit_only(mask)}))
                     {
                         ssa_it->link_remove_input(0);

@@ -276,12 +276,30 @@ mapper_t mapper_t::mmc3(mapper_params_t const& params)
     {
         .type = mt,
         .mirroring = params.mirroring_none(mt),
-        .num_banks = params.num_16k_banks(mt, 512, 2048, 8),
+        .num_banks = params.num_16k_banks(mt, 512, 2048, 32),
         .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
         .fixed_16k = true,
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+    };
+}
+
+mapper_t mapper_t::ines_30(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_30;
+    bool bus_conflicts = params.conflicts(mt, false);
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring,
+        .num_banks = params.num_16k_banks(mt, 32, 512, 32),
+        .num_8k_chr_ram = params.num_8k_chr(mt, 8, 32, 4),
+        .fixed_16k = true,
+        .bus_conflicts = bus_conflicts,
+        .sram = params.has_sram(mt, false),
+        .sram_persistent = params.sram_persistent(mt, false),
+        .force_battery = !bus_conflicts,
     };
 }
 
@@ -308,7 +326,7 @@ void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
     case MIRROR_V: flags6 |= 1 << 0; break;
     case MIRROR_4: flags6 |= 1 << 3; break;
     }
-    if(mapper.sram && mapper.sram_persistent)
+    if((mapper.sram && mapper.sram_persistent) || mapper.force_battery)
         flags6 |= 1 << 1; // Battery-backed RAM.
     at[6] = flags6;
 

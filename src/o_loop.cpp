@@ -1262,7 +1262,12 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                         iterations = -(signed_init + high_bit_only(init_mask));
                     }
                     else
-                        iterations = (high_bit_only(init_mask) - signed_init);
+                    {
+                        increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));
+                        iterations = -signed_init;
+                        if(d.simple_condition->op() == SSA_not_sign)
+                            iterations += high_bit_only(init_mask);
+                    }
                     iterations /= increment;
                 }
                 else

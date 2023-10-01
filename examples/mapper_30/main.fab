@@ -1,0 +1,40 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This examples loads CHRRAM using PBZ.
+
+data /pbz
+    [] chr_0
+        file(pbz, "bg.png")
+    [] chr_1
+        file(pbz, "bg2.png")
+
+mode main()
+    palette = example_palette
+    ppu_upload_palette()
+
+    // Setup the nametable:
+    ppu_reset_addr($2000)
+    for U y = 0; y < 30; y += 1
+        for U x = 0; x < 32; x += 1
+            {PPUDATA}((x & %1111) + ((y & %1111) << 4))
+    for U a = 0; a < 64; a += 1
+        {PPUDATA}(0)
+
+    // Load PBZ:
+    state(M30_CHR(0))
+    ppu_set_addr($0000)
+    ppu_upload_pbz.chunks(ppu_upload_pbz.chunks(@chr_0, 0), 0)
+    state(M30_CHR(1))
+    ppu_set_addr($0000)
+    ppu_upload_pbz.chunks(ppu_upload_pbz.chunks(@chr_1, 0), 0)
+
+    {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_PT_1000)
+    {PPUMASK}(PPUMASK_ON)
+    while true
+        state(M30_CHR((nmi_counter >> 4) & %1))
+        ppu_reset_scroll(0, 0)
+        nmi

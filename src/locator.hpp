@@ -615,7 +615,7 @@ public:
         { return locator_t(LOC_RESET_GROUP_VARS, gv.id, 0, 0); }
 
     static locator_t this_bank()
-        { return locator_t(LOC_THIS_BANK).with_is(mapper().this_bank_addr() ? IS_PTR : IS_BANK); }
+        { return locator_t(LOC_THIS_BANK).with_is(mapper().this_bank_addr() ? IS_DEREF : IS_BANK); }
 
     constexpr static locator_t runtime_ram(runtime_ram_name_t name, std::uint16_t offset=0)
         { return locator_t(LOC_RUNTIME_RAM, 0, name, offset); }

@@ -3981,6 +3981,7 @@ namespace isel
             case MAPPER_GNROM: 
             case MAPPER_GTROM:
             case MAPPER_COLORDREAMS:
+            case MAPPER_30:
                 p_arg<2>::set(locator_t::this_bank());
                 p_arg<3>::set(locator_t::addr(bankswitch_addr()));
                 p_arg<4>::set(state.minor_label());
@@ -3992,7 +3993,7 @@ namespace isel
                         chain
                         < load_A<Opt, p_arg<1>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , pick_op<Opt, ORA, null_, p_arg<2>>
                         , exact_op<Opt, TAX_IMPLIED, null_>
                         , iota_op<Opt, STA_ABSOLUTE_X, null_>
                         >(cpu, prev, cont);
@@ -4003,7 +4004,7 @@ namespace isel
                         < label<p_arg<4>, true>
                         , load_AX<Opt, p_arg<1>, p_arg<1>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , pick_op<Opt, ORA, null_, p_arg<2>>
                         , exact_op<Opt, TAY_IMPLIED, null_>
                         , iota_op<Opt, STA_ABSOLUTE_Y, null_>
                         , exact_op<Opt, CPX_ABSOLUTE, null_, p_arg<0>>
@@ -4019,7 +4020,7 @@ namespace isel
                         chain
                         < load_A<Opt, p_arg<1>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , pick_op<Opt, ORA, null_, p_arg<2>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
                         >(cpu, prev, cont);
                     }
@@ -4029,7 +4030,7 @@ namespace isel
                         < label<p_arg<4>, true>
                         , load_AX<Opt, p_arg<1>, p_arg<1>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
-                        , exact_op<Opt, ORA_IMMEDIATE, null_, p_arg<2>>
+                        , pick_op<Opt, ORA, null_, p_arg<2>>
                         , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<3>>
                         , exact_op<Opt, CPX_ABSOLUTE, null_, p_arg<0>>
                         , branch_op<Opt, BNE, p_arg<4>>

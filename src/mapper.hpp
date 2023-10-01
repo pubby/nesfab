@@ -19,6 +19,7 @@ MAPPER(GNROM, 66) \
 MAPPER(COLORDREAMS, 11) \
 MAPPER(GTROM, 111) \
 MAPPER(189, 189) \
+MAPPER(30, 30) \
 
 struct mapper_t;
 
@@ -93,6 +94,7 @@ struct mapper_t
     bool bus_conflicts;
     bool sram;
     bool sram_persistent;
+    bool force_battery;
 
     unsigned num_16k_banks() const { return fixed_16k ? num_banks : num_banks * 2; }
     unsigned bank_size() const { return fixed_16k ? 0x4000 : 0x8000; }
@@ -110,6 +112,7 @@ struct mapper_t
     static mapper_t mmc1(mapper_params_t const& params);
     static mapper_t unrom(mapper_params_t const& params);
     static mapper_t mmc3(mapper_params_t const& params);
+    static mapper_t ines_30(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return { 0x8000, 0x8000 }; }
@@ -133,15 +136,27 @@ void write_ines_header(std::uint8_t* at, mapper_t const& mapper);
 
 constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
 {
-    // Try to keep this page-aligned, as the iota table will get allocated here.
+    // Try to keep this page-aligned, as the iota table will often get allocated here.
     switch(mt)
     {
-    case MAPPER_GTROM: return 0x5000;
-    case MAPPER_189:   return 0x4120;
-    case MAPPER_MMC1:  return 0xE000;
-    case MAPPER_UNROM: return 0xC000;
-    default: return 0x8000;
+    case MAPPER_GTROM:
+        return 0x5000;
+    case MAPPER_189:
+        return 0x4120;
+    case MAPPER_MMC1:  
+        return 0xE000;
+    case MAPPER_UNROM: 
+    case MAPPER_30: 
+        return 0xC000;
+    default: 
+        return 0x8000;
     }
+}
+
+constexpr std::uint16_t iota_addr(mapper_type_t mt = mapper().type)
+{
+    // Try to keep this page-aligned.
+    return bankswitch_addr(mt);
 }
 
 constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
@@ -153,6 +168,7 @@ constexpr std::uint16_t state_size(mapper_type_t mt = mapper().type)
     case MAPPER_COLORDREAMS: 
     case MAPPER_GTROM: 
     case MAPPER_MMC1: 
+    case MAPPER_30: 
         return 1;
     default: 
         return 0;

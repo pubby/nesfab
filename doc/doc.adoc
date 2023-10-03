@@ -2944,7 +2944,7 @@ nmi
 ==== `nmi` function [[kw_nmi_function]]
 
 The `nmi` keyword declares an https://www.nesdev.org/wiki/NMI[NMI] interrupt function at global scope. 
-NMI interrupts are similar to <<kw_fn, regular functions>>, but they have no parameters, cannot return, and cannot be called.
+NMI interrupts are similar to <<kw_fn, regular functions>>, but they have no parameters, cannot return values, and cannot be called.
 Instead, they execute once per frame at the start of https://en.wikipedia.org/wiki/Vertical_blanking_interval[VBLANK],
 so long as bit 7 of https://www.nesdev.org/wiki/PPU_registers#PPUCTRL[PPUCTRL] is set.
 
@@ -3006,7 +3006,7 @@ The `irq` statement corresponds to assembly instructions `SEI` and `CLI`.
 ==== `irq` function [[kw_irq_function]]
 
 The `irq` keyword declares an https://www.nesdev.org/wiki/IRQ[irq] interrupt function at global scope. 
-IRQ interrupts are similar to <<kw_fn, regular functions>>, but they have no parameters, cannot return, and cannot be called.
+IRQ interrupts are similar to <<kw_fn, regular functions>>, but they have no parameters, cannot return values, and cannot be called.
 Instead, they are triggered by hardware such as the https://www.nesdev.org/wiki/APU_Frame_Counter[APU frame counter],
 or https://www.nesdev.org/wiki/MMC3[MMC3] scanline counter.
 

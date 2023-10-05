@@ -141,12 +141,14 @@ type_t type_t::tea(type_t elem_type)
 
 type_t type_t::tea(type_t elem_type, unsigned size)
 { 
-    assert(is_thunk(elem_type.name()) || !has_tea(elem_type));
+    passert(is_thunk(elem_type.name()) || !has_tea(elem_type), elem_type);
     return type_t(TYPE_TEA, size, type_tails.get(elem_type));
 }
 
 type_t type_t::tea(type_t elem_type, std::int64_t size, pstring_t pstring)
 { 
+    if(!is_thunk(elem_type) && has_tea(elem_type))
+        compiler_error(pstring, "Arrays cannot be multi-dimensional");
     type_t ret = type_t::tea(elem_type, 0);
     ret.set_array_length(size, pstring);
     return ret;
@@ -692,8 +694,8 @@ type_t member_type(type_t const& type, unsigned member)
     else if(type.name() == TYPE_TEA)
     {
         type_t mt = member_type(type.elem_type(), member);
-        assert(!is_aggregate(mt.name()));
         passert(!is_banked_ptr(mt.name()), type, member, mt);
+        passert(!has_tea(mt), mt, type);
         return type_t::tea(mt, type.size());
     }
     else if(is_banked_ptr(type.name()))
@@ -767,6 +769,8 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env, local_const_t con
         {
             tea_thunk_t const& thunk = t.tea_thunk();
             type_t const elem_type = dethunkify({ src_type.pstring, thunk.elem_type }, full, env, local_consts);
+            if(has_tea(elem_type))
+                compiler_error(src_type.pstring, "Arrays cannot be multi-dimensional.");
 
             if(full)
             {
@@ -775,9 +779,6 @@ type_t dethunkify(src_type_t src_type, bool full, eval_t* env, local_const_t con
                 if(calc_time(result.type, result.value) >= LT)
                     compiler_error(thunk.pstring, "Unable to determine array size at compile-time.");
                 auto size = std::get<ssa_value_t>(result.value[0]).signed_whole();
-
-                if(has_tea(elem_type))
-                    compiler_error(thunk.pstring, "Arrays cannot be multidimensional.");
 
                 return type_t::tea(elem_type, size, src_type.pstring);
             }

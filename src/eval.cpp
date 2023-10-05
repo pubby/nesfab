@@ -2768,7 +2768,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     goto bad_accessor;
 
                 if(is_tea)
-                    result_type = type_t::tea(result_type, tea_length);
+                    result_type = type_t::tea(result_type, tea_length, ast.token.pstring);
                 else if(is_vec)
                     result_type = type_t::vec(result_type);
 
@@ -4003,7 +4003,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             bool const is_ct = array_index.is_ct() && array_val.is_ct();
 
             if(is_vec && is_compile(D) && !is_ct)
-                array_val = throwing_cast<D>(array_val, type_t::tea(array_val.type.elem_type()), true);
+                array_val = throwing_cast<D>(array_val, type_t::tea(array_val.type.elem_type()), true, array_val.pstring);
 
             type_t const result_type = is_ptr ? TYPE_U : array_val.type.elem_type();
 
@@ -6925,7 +6925,7 @@ expr_value_t eval_t::force_resize_tea(expr_value_t value, type_t to_type, pstrin
             assert(is_tea(mt.name()));
 
             rval[m] = builder.cfg->emplace_ssa(
-                SSA_resize_array, type_t::tea(mt.elem_type(), to_size),
+                SSA_resize_array, type_t::tea(mt.elem_type(), to_size, result.pstring),
                 from_variant<D>(rval[m], mt));
         }
 

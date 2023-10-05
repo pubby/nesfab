@@ -2147,7 +2147,10 @@ unsigned struct_t::count_members()
         type_t type = const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, false);
 
         if(is_tea(type.name()))
+        {
+            m_has_tea_member = true;
             type = dethunkify({ field(i).decl.src_type.pstring, type.elem_type() }, false);
+        }
 
         if(type.name() == TYPE_STRUCT)
         {
@@ -2157,6 +2160,7 @@ unsigned struct_t::count_members()
             s.count_members();
             assert(s.m_num_members != UNCOUNTED);
             count += s.m_num_members;
+            m_has_tea_member |= s.m_has_tea_member;
         }
         else
         {
@@ -2176,14 +2180,14 @@ void struct_t::resolve()
     for(unsigned i = 0; i < fields().size(); ++i)
         const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, true);
 
-    gen_member_types(*this, 0);
+    gen_member_types(*this);
 }
 
 void struct_t::precheck() { assert(compiler_phase() == PHASE_PRECHECK); }
 void struct_t::compile() { assert(compiler_phase() == PHASE_COMPILE); }
 
-// Builds 'm_member_types', sets 'm_has_array_member', and dethunkifies the struct.
-void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
+// Builds 'm_member_types' and dethunkifies the struct.
+void struct_t::gen_member_types(struct_t const& s, int tea_size)
 {
     std::uint16_t offset = 0;
     
@@ -2209,11 +2213,8 @@ void struct_t::gen_member_types(struct_t const& s, unsigned tea_size)
             assert(is_vec(type.name()) || !is_aggregate(type.name()));
             assert(tea_size <= 256);
 
-            if(tea_size)
-            {
-                type = type_t::tea(type, tea_size);
-                m_has_tea_member = true;
-            }
+            if(tea_size >= 0)
+                type = type_t::tea(type, tea_size, global.pstring());
 
             unsigned const num = ::num_members(type);
             passert(num > 0, type, s.field(i).type(), global.name, i , fields().size());

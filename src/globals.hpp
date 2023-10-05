@@ -312,7 +312,7 @@ public:
         return m_member_offsets[member_i];
     }
 
-    bool has_tea_member() const { return m_has_tea_member; }
+    bool has_tea_member() const { assert(m_num_members != UNCOUNTED); return m_has_tea_member; }
 
     unsigned count_members(); 
 
@@ -320,7 +320,7 @@ public:
     void precheck();
     void compile();
 private:
-    void gen_member_types(struct_t const& s, unsigned tea_size);
+    void gen_member_types(struct_t const& s, int tea_size = -1);
 
     field_map_t m_fields;
 

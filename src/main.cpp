@@ -393,6 +393,8 @@ int main(int argc, char** argv)
                     return MIRROR_V;
                 if(_options.raw_mm == "4"sv)
                     return MIRROR_4;
+                if(_options.raw_mm == "1"sv)
+                    return MIRROR_1;
                 throw std::runtime_error(fmt("Invalid mapper mirroring: \"%\"", _options.raw_mm));
             };
 

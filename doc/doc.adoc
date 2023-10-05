@@ -334,6 +334,9 @@ This option expects one argument. Any of the following arguments are valid:
 | 4
 | 4-Way Mirroring
 
+| 1
+| 1-Way Switchable
+
 |===
 
 If the mapper supports multiple mirrorings, the default value is `V`.
@@ -838,7 +841,7 @@ BNROM supports a huge amount of PRG, making it an excellent choice for large gam
 
 |===
 
-=== `unrom` [[mapperubnrom]]
+=== `unrom` [[mapper_unrom]]
 
 https://www.nesdev.org/wiki/UxROM[*NESDev Wiki Page*]
 
@@ -890,6 +893,58 @@ Typically, BNROM is better for NESFab than UNROM, as it does not require the use
 
 | <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
 | N/A
+
+|===
+
+=== `30` [[mapper_30]]
+
+https://www.nesdev.org/wiki/https://www.nesdev.org/wiki/UNROM_512[*NESDev Wiki Page*]
+
+Mapper 30 is a UNROM variant with CHRRAM banking.
+Like UNROM, mapper 30 requires manual ROM layout with the <<mod_flags, `+static` modifier>>.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 512 KiB
+| 512 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 32 KiB (RAM)
+| 32 KiB (RAM)
+| 32 KiB (RAM)
+
+| Nametable VRAM
+| 2 KiB
+| 4 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Fixed H, V, 4, or 1
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| By default, no
+
+| <<opt_sram, SRAM>>
+| By default, no
+
+| <<kw_state, `state` Register>>
+| High 3 bits switch CHR and mirroring
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Acceptible risk
 
 |===
 

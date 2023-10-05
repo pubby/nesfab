@@ -30,6 +30,13 @@ mapper_mirroring_t mapper_params_t::mirroring_4(mapper_type_t mt) const
     throw std::runtime_error(fmt("Unsupported % mirroring. Expecting 4.", mapper_name(mt)));
 }
 
+mapper_mirroring_t mapper_params_t::mirroring_1(mapper_type_t mt) const
+{
+    if(mirroring == MIRROR_NONE || mirroring == MIRROR_1)
+        return MIRROR_1;
+    throw std::runtime_error(fmt("Unsupported % mirroring. Expecting 1.", mapper_name(mt)));
+}
+
 unsigned mapper_params_t::num_32k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const
 {
     if(!prg_size)
@@ -139,7 +146,7 @@ mapper_t mapper_t::anrom(mapper_params_t const& params)
     return 
     {
         .type = mt,
-        .mirroring = params.mirroring_none(mt),
+        .mirroring = params.mirroring_1(mt),
         .num_banks = params.num_32k_banks(mt, 32, 512, 8),
         .num_8k_chr_ram = params.num_8k_chr(mt, 8, 8, 1),
         .bus_conflicts = params.conflicts(mt, false),
@@ -323,8 +330,9 @@ void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
     switch(mapper.mirroring)
     {
     default: break;
+    case MIRROR_1: if(mapper.type == MAPPER_30) flags6 |= 1 << 3; break;
+    case MIRROR_4: flags6 |= 1 << 3; // fall-through
     case MIRROR_V: flags6 |= 1 << 0; break;
-    case MIRROR_4: flags6 |= 1 << 3; break;
     }
     if((mapper.sram && mapper.sram_persistent) || mapper.force_battery)
         flags6 |= 1 << 1; // Battery-backed RAM.

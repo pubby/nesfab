@@ -40,6 +40,7 @@ enum mapper_mirroring_t : std::uint8_t
     MIRROR_H,
     MIRROR_V,
     MIRROR_4,
+    MIRROR_1,
 };
 
 enum mapper_bus_conflicts_t : std::uint8_t
@@ -70,6 +71,7 @@ struct mapper_params_t
     mapper_mirroring_t mirroring_none(mapper_type_t mt) const;
     mapper_mirroring_t mirroring_HV(mapper_type_t mt) const;
     mapper_mirroring_t mirroring_4(mapper_type_t mt) const;
+    mapper_mirroring_t mirroring_1(mapper_type_t mt) const;
 
     bool conflicts(mapper_type_t mt, bool default_) const;
     bool conflicts(mapper_type_t mt) const;

@@ -5451,7 +5451,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
             compiler_error(pstring, "Can only dereference at run-time.");
 
         if(!is_mptr(deref->ptr.type().name()))
-            compiler_error(pstring, "Dereferenced value is not mutable.");
+            compiler_error(pstring, fmt("Dereferenced value is not mutable. Type is %.", deref->ptr.type()));
 
         rhs = throwing_cast<D>(std::move(rhs), TYPE_U, true);
 

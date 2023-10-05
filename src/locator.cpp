@@ -204,7 +204,7 @@ type_t locator_t::type() const
                     ptr = type_t::ptr(c->group(), TYPE_PPTR);
             }
             else if(lclass() == LOC_GMEMBER)
-                ptr = type_t::ptr(gmember()->gvar.group(), TYPE_PPTR);
+                ptr = type_t::ptr(gmember()->gvar.group(), TYPE_MPTR);
             return byteify(ptr);
         }
     case IS_PTR_HI:

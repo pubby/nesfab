@@ -138,7 +138,7 @@ bool live_at_def(ssa_ht range, ssa_ht def)
     auto const& def_live = live(def->cfg_node()); 
 
     // If 'range' begins before 'def':
-    if((same_cfg && cg_data(range).schedule.index < cg_data(def).schedule.index)
+    if((same_cfg && cg_data(range).schedule.index <= cg_data(def).schedule.index)
        || bitset_test(def_live.in, range.id))
     {
         // Interfere if range is also live-out at def.

@@ -590,11 +590,16 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         // i.e. its live range doesn't overlap any point where the
         // locator is already live.
 
+        dprint(log, "---COALESCE_LOC", loc, node);
+
         if(arg_ret_interferes(node, loc))
             return false;
 
+        dprint(log, "----NOT ARG RET");
+
         if(ld.cset)
         {
+            dprint(log, "----CSET FOUND");
             ld.cset = cset_head(ld.cset);
 
             assert(cset_is_head(node));
@@ -609,6 +614,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
         else
         {
+            dprint(log, "----NO CSET FOUND");
             for(ssa_ht s : cache.special)
                 if(special_interferes(fn.handle(), ir, node, loc, s))
                     if(live_at_def(node, s))
@@ -623,6 +629,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             cg_data(node).cset_head = loc;
         }
 
+        dprint(log, "----SUCCESS");
         return true;
     };
 
@@ -912,6 +919,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             if(vec.size() <= 1)
                 continue;
 
+            dprint(log, "--TRY CONST STORE", loc);
+
             // Otherwise we'll try to find 2 stores and combine them into 1.
             for(unsigned i = 0; i < vec.size()-1; ++i)
             for(unsigned j = i+1; j < vec.size(); ++j)
@@ -968,6 +977,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
                 if(coalesce_loc(loc, ld, store))
                 {
+                    dprint(log, "---COALESCED", loc, a, b, pair.first.data());
                     if(a->op() == SSA_const_store)
                         a->unsafe_set_op(SSA_aliased_store);
                     if(b->op() == SSA_const_store)

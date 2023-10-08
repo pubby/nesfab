@@ -507,7 +507,7 @@ ssa_value_t ai_t::local_lookup(cfg_ht cfg_node, ssa_ht ssa_node, Fn const& fn)
         switch(cfg_node->input_size())
         {
         case 0:
-            throw std::runtime_error(fmt("Local lookup failed. % % % %", ssa_node, cfg_node, cfg_node->input_size(), Rebuild));
+            throw std::runtime_error(fmt("Local lookup failed in AI pass. % % % %", ssa_node, cfg_node, cfg_node->input_size(), Rebuild));
         case 1:
             return local_lookup<Rebuild>(cfg_node->input(0), ssa_node, fn);
         default:
@@ -1232,6 +1232,24 @@ void ai_t::prune_unreachable_code()
             updated = __LINE__;
         }
     }
+
+    // Also remove any CFG nodes without inputs:
+    bool test;
+    do
+    {
+        test = false;
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it;)
+        {
+            if(cfg_it == ir.root || cfg_it->input_size() > 0)
+            {
+                ++cfg_it;
+                continue;
+            }
+            ai_data(cfg_it) = {};
+            cfg_it = ir.prune_cfg(cfg_it);
+            test = true;
+        }
+    } while(test);
 
     ir.assert_valid();
 }

@@ -676,9 +676,12 @@ bool rewrite_loop(bool is_do, bool is_byteified, iv_t& root,
 }
 
 // Returns times unrolled, or 0 if nothing happened.
-fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
+fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations, bool sloppy)
 {
     if(header->test_flags(FLAG_NO_UNROLL))
+        return 0;
+
+    if(sloppy && !header->test_flags(FLAG_UNROLL))
         return 0;
 
     auto const& hd = header_data(header);
@@ -851,7 +854,7 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations)
     return unroll_amount;
 }
 
-bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
+bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool sloppy)
 {
     bool updated = false;
 
@@ -1351,7 +1354,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
                 }
             }
 
-            if(fixed_sint_t unroll_amount = unroll_loop(header, iterations))
+            if(fixed_sint_t unroll_amount = unroll_loop(header, iterations, sloppy))
             {
                 dprint(log, "UNROLLED", unroll_amount);
                 iterations /= unroll_amount;
@@ -1409,7 +1412,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified)
 // LOOP //
 //////////
 
-bool o_loop(log_t* log, ir_t& ir, bool is_byteified)
+bool o_loop(log_t* log, ir_t& ir, bool is_byteified, bool sloppy)
 {
     build_loops_and_order(ir);
     build_dominators_from_order(ir);
@@ -1425,7 +1428,7 @@ bool o_loop(log_t* log, ir_t& ir, bool is_byteified)
 
     ssa_data_pool::scope_guard_t<ssa_loop_d> ssa_sg(ssa_pool::array_size());
 
-    updated |= initial_loop_processing(log, ir, is_byteified);
+    updated |= initial_loop_processing(log, ir, is_byteified, sloppy);
 
     return updated;
 }

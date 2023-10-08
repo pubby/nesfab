@@ -1140,7 +1140,9 @@ void eval_t::compile_block()
         std::uint16_t new_flags = builder.flag_stack.back() & ~(FLAG_NO_UNROLL | FLAG_UNLOOP);
         if(mod_test(mods, MOD_unroll, false))
             new_flags |= FLAG_NO_UNROLL;
-        else if(mod_test(mods, MOD_unloop, true))
+        if(mod_test(mods, MOD_unroll, true))
+            new_flags |= FLAG_UNROLL;
+        if(mod_test(mods, MOD_unloop, true))
             new_flags |= FLAG_UNLOOP;
         builder.flag_stack.push_back(new_flags);
     };

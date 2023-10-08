@@ -27,10 +27,11 @@ constexpr std::uint16_t FLAG_TO_PRUNE       = 1ull << 8;
 
 // For CFG:
 constexpr std::uint16_t FLAG_NO_UNROLL      = 1ull << 9;
-constexpr std::uint16_t FLAG_UNLOOP         = 1ull << 10;
+constexpr std::uint16_t FLAG_UNROLL         = 1ull << 10;
+constexpr std::uint16_t FLAG_UNLOOP         = 1ull << 11;
 
 // Flags that should propagate:
-constexpr std::uint16_t FLAGS_PROP = FLAG_NO_UNROLL | FLAG_UNLOOP;
+constexpr std::uint16_t FLAGS_PROP = FLAG_NO_UNROLL | FLAG_UNROLL | FLAG_UNLOOP;
 
 class flag_owner_t
 {

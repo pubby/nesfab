@@ -118,7 +118,13 @@ struct lval_t
     }
 
     void add_index(ssa_value_t v) { accesses.push_back({ .aclass = ACCESS_INDEX, .index = v }); }
-    void add_field(unsigned field, unsigned member) { accesses.push_back({ .aclass = ACCESS_FIELD, .field = field, .member = member }); }
+    void add_field(unsigned field, unsigned member) 
+    { 
+        access_t access = { .aclass = ACCESS_FIELD };
+        access.field = field;
+        access.member = member;
+        accesses.push_back(std::move(access)); 
+    }
 
     var_ht var_i() const { assert(is_var()); return vvar_i; }
     global_t const& global() const { assert(is_global()); assert(vglobal); return *vglobal; }

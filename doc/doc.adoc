@@ -4144,8 +4144,8 @@ fn foo(U x) U
 
 === Function Modifier Flags [[mod_flags]]
 
-Modifier flags are specified prefixed with a `-` or `+++` character.
-`-` is used to disable the modifier, while `+++` is used to enable it.
+Modifier flags are specified prefixed with a `-` or `pass:c[+]` character.
+`-` is used to disable the modifier, while `pass:c[+]` is used to enable it.
 
 The following flags exist for function definitions:
 
@@ -4177,8 +4177,8 @@ fn foo(U x) U
 
 === Loop Modifier Flags [[mod_flags_loop]]
 
-Modifier flags are specified prefixed with a `-` or `+++` character.
-`-` is used to disable the modifier, while `+++` is used to enable it.
+Modifier flags are specified prefixed with a `-` or `pass:c[+]` character.
+`-` is used to disable the modifier, while `pass:c[+]` is used to enable it.
 
 The following flags exist for loop statements:
 
@@ -4354,7 +4354,7 @@ Operators with lower precedence numbers come earlier in the order of operations.
 | 8
 | <<get_hw_addr>>
 
-| `+`
+| `pass:c[+]`
 | 8
 | <<unary_plus>>
 
@@ -4392,7 +4392,7 @@ Operators with lower precedence numbers come earlier in the order of operations.
 | Left
 | <<multiply>>
 
-| `+`
+| `pass:c[+]`
 | 11
 | Left
 | <<add>>
@@ -4598,7 +4598,7 @@ This operator is intended to be used with inline assembly code.
 Although this operator by itself is safe, dereferencing the addresses it returns can easily cause undefined behavior.
 For regular code, it's recommended to use <<get_pointer>> instead.
 
-==== Unary Plus `+` [[unary_plus]]
+==== Unary Plus `pass:c[+]` [[unary_plus]]
 
 Returns its operand, type and value unchanged. The operand must be an <<type_arithmetic, arithmetic type>>.
 
@@ -4743,7 +4743,7 @@ U a
 a *= b // Equivalent to a = U(a * b)
 ----
 
-==== Add `+` [[add]]
+==== Add `pass:c[+]` [[add]]
 
 Returns the sum of its operands. 
 The operands must be of the same <<type_quantity, quantity type>>, although `Int` and `Real` will convert.
@@ -5664,7 +5664,7 @@ Any attempt to use them at run-time will error.
 |===
 
 In many cases, `Int` and `Real` implicitly convert to other numeric types based on context.
-For example, when using `Int` or `Real` in an operator like `+`, 
+For example, when using `Int` or `Real` in an operator like `pass:c[+]`, 
 the value converts to match the other operand's type.
 
 ----

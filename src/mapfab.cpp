@@ -79,6 +79,7 @@ struct mapfab_t
         std::vector<std::deque<std::string>> objects;
         std::vector<std::vector<std::int16_t>> objects_x;
         std::vector<std::vector<std::int16_t>> objects_y;
+        std::vector<std::vector<std::string>> objects_name;
     };
 
     std::vector<chr_t> chrs;
@@ -270,6 +271,7 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
             data = get8();
 
         level.objects.resize(ocs.size());
+        level.objects_name.resize(ocs.size());
         level.objects_x.resize(ocs.size());
         level.objects_y.resize(ocs.size());
 
@@ -285,6 +287,7 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
 
             if(it != ocs.end())
             {
+                level.objects_name[it - ocs.begin()].push_back(std::move(name));
                 level.objects_x[it - ocs.begin()].push_back(x);
                 level.objects_y[it - ocs.begin()].push_back(y);
                 for(unsigned j = 0; j < it->second.size(); ++j)
@@ -449,6 +452,7 @@ void mapfab_t::load_json(std::uint8_t const* const begin, std::size_t size, fs::
                 data = tiles.at(i++);
 
             level.objects.resize(ocs.size());
+            level.objects_name.resize(ocs.size());
             level.objects_x.resize(ocs.size());
             level.objects_y.resize(ocs.size());
 
@@ -458,11 +462,13 @@ void mapfab_t::load_json(std::uint8_t const* const begin, std::size_t size, fs::
                 std::string oc = o.at("object_class").get<std::string>();
                 std::int16_t const x = static_cast<std::int16_t>(o.at("x").get<int>());
                 std::int16_t const y = static_cast<std::int16_t>(o.at("y").get<int>());
+                std::string name = o.at("name").get<std::string>();
 
                 auto it = ocs.find(oc);
 
                 if(it != ocs.end())
                 {
+                    level.objects_name[it - ocs.begin()].push_back(std::move(name));
                     level.objects_x[it - ocs.begin()].push_back(x);
                     level.objects_y[it - ocs.begin()].push_back(y);
                     for(auto const& field : it->second)
@@ -630,6 +636,7 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
     }
 
     // Levels:
+    std::vector<unsigned> object_indices;
     for(unsigned i = 0; i < mapfab.levels.size(); ++i)
     {
         auto const& level = mapfab.levels[i];
@@ -690,26 +697,43 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
         {
             auto const& oc = *(mapfab.ocs.begin() + i);
 
+            object_indices.resize(level.objects_name[i].size());
+            std::iota(object_indices.begin(), object_indices.end(), 0);
+            std::stable_sort(object_indices.begin(), object_indices.end(), [&](unsigned a, unsigned b)
+            {
+                if(level.objects_name[i][a].empty())
+                    return false;
+                if(level.objects_name[i][b].empty())
+                    return true;
+                return level.objects_name[i][a] < level.objects_name[i][b];
+            });
+
             define_ct_int(private_globals.lookup(at, fmt("_%_num", oc.first)), at, TYPE_INT, level.objects_x[i].size());
 
             // TODO: Do this without strings.
-            append += fmt("\nct Int{} _%_x = Int{}(", oc.first);
-            for(unsigned j = 0; j < level.objects_x[i].size(); ++j)
+            auto const build = [&](std::string const& initial, auto fn)
             {
-                if(j != 0)
-                    append += ", ";
-                append += std::to_string(level.objects_x[i][j]);
-            }
-            append += ")\n";
+                append += initial;
+                bool first = true;
+                for(unsigned j : object_indices)
+                {
+                    if(!first)
+                        append += ", ";
+                    first = false;
+                    append += fn(j);
+                }
+                append += ")\n";
+            };
 
-            append += fmt("\nct Int{} _%_y = Int{}(", oc.first);
-            for(unsigned j = 0; j < level.objects_y[i].size(); ++j)
+            build(fmt("\nct Int{} _%_x = Int{}(", oc.first), [&](unsigned j)
             {
-                if(j != 0)
-                    append += ", ";
-                append += std::to_string(level.objects_y[i][j]);
-            }
-            append += ")\n";
+                return std::to_string(level.objects_x[i][j]);
+            });
+
+            build(fmt("\nct Int{} _%_y = Int{}(", oc.first), [&](unsigned j)
+            {
+                return std::to_string(level.objects_y[i][j]);
+            });
 
             for(unsigned j = 0; j < oc.second.size(); ++j)
             {
@@ -718,13 +742,25 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
                 append += fmt("\nct %{} _%_% = %{}(", 
                     field.type, oc.first, field.name, field.type);
 
-                for(unsigned k = j; k < level.objects[i].size(); k += oc.second.size())
+                bool first = true;
+                for(unsigned k : object_indices)
                 {
-                    if(k != j)
+                    if(!first)
                         append += ", ";
-                    append += fmt("%(%)", field.type, level.objects[i][k]);
+                    first = false;
+                    unsigned const q = j + k * oc.second.size();
+                    append += fmt("%(%)", field.type, level.objects[i][q]);
                 }
                 append += ")\n";
+            }
+
+            // Named objects
+            for(unsigned j : object_indices)
+            {
+                auto const& name = level.objects_name[i][j];
+                if(name.empty())
+                    continue;
+                define_ct_int(private_globals.lookup(at, fmt("_%_name_%", oc.first, name)), at, TYPE_INT, j);
             }
         }
 

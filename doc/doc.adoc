@@ -3554,6 +3554,9 @@ The following targets are accepted:
 | <<file_pbz, `pbz`>>
 | Compressed graphical data
 
+| <<file_donut, `donut`>>
+| Compressed graphical data
+
 | <<file_rlz, `rlz`>>
 | Compressed data
 
@@ -3684,6 +3687,25 @@ Starting from the highest bit and working to the lowest bit, the decompressed se
 ----
 $00 $11 $11 $22 $22 $22 $22 $22
 ----
+
+==== `donut` target [[file_donut]]
+
+The `donut` target compresses the data into the Donut encoding after first processing it using filetype conversions.
+It accepts no arguments.
+
+Example:
+----
+[] compressed_data
+    file(donut, "sprites.png") 
+----
+
+*Accessory Definitions*
+
+- `chunks`: An `Int` equal to the decompressed size divided by 64.
+
+*Decompressing*
+
+The standard library file `donut.fab` can be used to decompress Donut-encoded data.
 
 ==== `rlz` target [[file_rlz]]
 
@@ -3919,6 +3941,19 @@ and each object had a field `U bar`, the following definitions would exist:
 ct Int{} _foo_x = Int{}(203, -3, 3099)
 ct Int{} _foo_y = Int{}(13, 991, -30)
 ct U{} _foo_bar = U{}(U(0), U(5), U(2))
+----
+
+[NOTE]
+Objects are ordered based on their names.
+
+For each named object, addition Ints are defined. Each Int holds the object's index in its object array:
+----
+ct Int _CLASS_name_NAME = ID
+----
+
+For example, if an object was named `foo` and belonged to object class `bar` with index 2, the following Int would be defined:
+----
+ct Int _bar_name_foo = 2
 ----
 
 *Output Target Conversions*

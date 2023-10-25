@@ -200,11 +200,13 @@ namespace isel
             penalty += 1;
             break;
         // Very slightly penalize LAX, to prefer LDA or LDX:
+#ifndef LEGAL
         case LAX: 
         // Same with ALR and LSR:
         case ALR:
             penalty += 2;
             break;
+#endif
         }
 
         return (op_cycles(op) * 256ull) + (op_size(op) * 4ull) + penalty;
@@ -705,7 +707,9 @@ namespace isel
 
             pick_op<Opt, LDY, Def, Def>(cpu, prev, cont);
 
+#ifndef LEGAL
             pick_op<Opt, LAX, Def, Def>(cpu, prev, cont);
+#endif
         }
     }
 
@@ -764,12 +768,15 @@ namespace isel
 
         cpu_t cpu_copy;
 
+#ifndef LEGAL
         cpu_copy = cpu;
         if(cpu_copy.set_defs_for<ANC_IMMEDIATE>(opt, {}, value) && cpu_copy.is_known(REG_A, byte))
             cont->call(cpu_copy, alloc_sel<ANC_IMMEDIATE>(cpu, prev, value));
+#endif
 
         if(cpu.is_known(REG_A))
         {
+#ifndef LEGAL
             unsigned const mask = byte << 1;
             if((mask & cpu.known[REG_A] & 0xFF) == mask)
             {
@@ -788,6 +795,7 @@ namespace isel
                         break;
                 }
             }
+#endif
         }
 
         cpu_copy = cpu;
@@ -838,7 +846,9 @@ namespace isel
         {
             pick_op<Opt, LDA, Def, Load>(cpu, prev, cont);
 
+#ifndef LEGAL
             pick_op<Opt, LAX, Def, Load>(cpu, prev, cont);
+#endif
 
             if(v.is_const_num())
                 load_A_impl(Opt::template valid_for<REGF_A | REGF_NZ>::to_struct, v, cpu, prev, cont);
@@ -885,7 +895,9 @@ namespace isel
 
             pick_op<Opt, LDX, Def, Load>(cpu, prev, cont);
 
+#ifndef LEGAL
             pick_op<Opt, LAX, Def, Load>(cpu, prev, cont);
+#endif
 
             if(v.is_const_num())
                 load_X_impl(Opt::template valid_for<REGF_X | REGF_NZ>::to_struct, v, cpu, prev, cont);
@@ -997,10 +1009,12 @@ namespace isel
             , simple_op<typename Opt::valid_for<REGF_C>, LSR_IMPLIED, Def>
             >(cpu, prev, cont);
 
+#ifndef LEGAL
             chain
             < load_A<Opt, Def>
             , simple_op<typename Opt::valid_for<REGF_C>, ALR_IMMEDIATE, Def, const_<1>>
             >(cpu, prev, cont);
+#endif
         }
     }
 
@@ -1394,12 +1408,17 @@ namespace isel
             if(compiler_options().unsafe_bank_switch)
             {
                 chain
-                < load_AX<Opt, const_<0b111110>, Def>
-                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                < load_AX<Opt, Def, const_<0b111111>>
+                , exact_op<Opt, STX_ABSOLUTE, null_, addr>
+                , exact_op<Opt, STA_ABSOLUTE, null_, mmc3_addr>
+                , exact_op<Opt, DEX_IMPLIED, null_>
+                , exact_op<Opt, STX_ABSOLUTE, null_, addr>
+#ifndef LEGAL
                 , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
-                , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111111>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
-                , exact_op<Opt, STX_ABSOLUTE, null_, mmc3_addr>
+#else
+                , exact_op<Opt, AND_IMMEDIATE, null_, const_<0b111110>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, mmc3_addr>
+#endif
                 >(cpu, prev, cont);
             }
             else
@@ -1407,15 +1426,20 @@ namespace isel
                 detail::set(locator_t::runtime_ram(RTRAM_mapper_detail));
 
                 chain
-                < load_X<Opt, Def>
-                , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111110>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, detail>
-                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
+                < load_A<Opt, Def>
+                , exact_op<Opt, LDX_IMMEDIATE, null_, const_<0b111111>>
+                , exact_op<Opt, STX_ABSOLUTE, null_, detail>
+                , exact_op<Opt, STX_ABSOLUTE, null_, addr>
+                , exact_op<Opt, STA_ABSOLUTE, null_, mmc3_addr>
+                , exact_op<Opt, DEX_IMPLIED, null_>
+                , exact_op<Opt, STX_ABSOLUTE, null_, detail>
+                , exact_op<Opt, STX_ABSOLUTE, null_, addr>
+#ifndef LEGAL
                 , exact_op<Opt, SAX_ABSOLUTE, null_, mmc3_addr>
-                , exact_op<Opt, LDA_IMMEDIATE, null_, const_<0b111111>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, detail>
-                , exact_op<Opt, STA_ABSOLUTE, null_, addr>
-                , exact_op<Opt, STX_ABSOLUTE, null_, mmc3_addr>
+#else
+                , exact_op<Opt, AND_IMMEDIATE, null_, const_<0b111110>>
+                , exact_op<Opt, STA_ABSOLUTE, null_, mmc3_addr>
+#endif
                 >(cpu, prev, cont);
             }
         }
@@ -1447,7 +1471,12 @@ namespace isel
 
                     chain
                     < label<retry_label, true>
+#ifndef LEGAL
                     , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
+#else
+                    , exact_op<Opt, LDA_ABSOLUTE, null_, mstate>
+                    , exact_op<Opt, TAX_IMPLIED, null_>
+#endif
                     , pick_op<typename Opt::restrict_to<~REGF_X>, ORA, null_, Def>
                     , exact_op<Opt, TAY_IMPLIED>
                     , iota_op<Opt, STA_ABSOLUTE_Y, null_>
@@ -1488,7 +1517,12 @@ namespace isel
 
                 chain
                 < label<retry_label, true>
+#ifndef LEGAL
                 , exact_op<Opt, LAX_ABSOLUTE, null_, mstate>
+#else
+                , exact_op<Opt, LDA_ABSOLUTE, null_, mstate>
+                , exact_op<Opt, TAX_IMPLIED, null_>
+#endif
                 , pick_op<typename Opt::restrict_to<~REGF_X>, ORA, null_, Def>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, CPX_ABSOLUTE, null_, mstate>
@@ -2429,10 +2463,12 @@ namespace isel
             , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
 
+#ifndef LEGAL
             chain
             < exact_op<Opt, LAX_ABSOLUTE, Def, temp>
             , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
+#endif
 
             chain
             < exact_op<Opt, LDX_ABSOLUTE, Def, temp>
@@ -2470,11 +2506,13 @@ namespace isel
             , store<Opt, STX, Def, Def>
             >(cpu, prev, cont);
 
+#ifndef LEGAL
             chain
             < load_Y<Opt, Index>
             , exact_op<Opt, LAX_ABSOLUTE_Y, Def, Array>
             , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
+#endif
         }
     }
 
@@ -2523,7 +2561,12 @@ namespace isel
             chain
             < simple_op<Opt, PHP_IMPLIED>
             , simple_op<Opt, PLA_IMPLIED>
+#ifndef LEGAL
             , simple_op<Opt, ALR_IMMEDIATE, null_, const_<0b10>>
+#else
+            , simple_op<Opt, AND_IMMEDIATE, null_, const_<0b10>>
+            , simple_op<Opt, LSR_IMPLIED, null_>
+#endif
             , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_A | Z, true, p_def>
             >(cpu, prev, cont);
@@ -2582,7 +2625,12 @@ namespace isel
             chain
             < simple_op<Opt, PHP_IMPLIED>
             , simple_op<Opt, PLA_IMPLIED>
+#ifndef LEGAL
             , simple_op<Opt, ANC_IMMEDIATE, null_, const_<0x80>>
+#else
+            , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
+            , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0x00>>
+#endif
             , simple_op<Opt, ROL_IMPLIED>
             , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_A | REGF_N, true, p_def>
@@ -2880,12 +2928,14 @@ namespace isel
 
                             if(byte != 0 || !carry_output)
                             {
+#ifndef LEGAL
                                 chain
                                 < load_AX<Opt, p_lhs, p_lhs>
                                 , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
                                 , store<Opt, STX, p_def, p_def>
                                 , set_defs<Opt, REGF_C, true, p_carry_output>
                                 >(cpu, prev, cont);
+#endif
                             }
 
                             std::uint8_t const sum = p_rhs::value().data() + !!p_carry::value().data();
@@ -3160,12 +3210,14 @@ namespace isel
                     {
                         p_arg<2>::set(ssa_value_t((p_rhs::value().data() - (1 - !!p_carry::value().data())) & 0xFF, TYPE_U));
 
+#ifndef LEGAL
                         chain
                         < load_AX<Opt, p_lhs, p_lhs>
                         , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
                         , store<Opt, STX, p_def, p_def>
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
+#endif
 
                         std::uint8_t const sum = p_rhs::value().data() - (1 - !!p_carry::value().data());
 
@@ -3300,11 +3352,18 @@ namespace isel
                 , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
+#ifndef LEGAL
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
                 , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, const_<0>>
                 , store<Opt, STX, p_def, p_def>
                 >(cpu, prev, cont);
+
+                chain
+                < load_AX<Opt, p_lhs, p_rhs>
+                , store<Opt, SAX, p_def, p_def, false>
+                >(cpu, prev, cont);
+#endif
 
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
@@ -3318,10 +3377,6 @@ namespace isel
                 , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
-                chain
-                < load_AX<Opt, p_lhs, p_rhs>
-                , store<Opt, SAX, p_def, p_def, false>
-                >(cpu, prev, cont);
             });
             break;
 
@@ -3386,11 +3441,13 @@ namespace isel
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
 
+#ifndef LEGAL
                         chain
                         < load_A<Opt, const_<0>>
                         , pick_op<Opt, SLO, p_def, p_lhs>
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
+#endif
 
                         if(cpu.value_eq(REG_A, p_lhs::value()))
                             goto asl_implied;
@@ -3433,11 +3490,13 @@ namespace isel
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
 
+#ifndef LEGAL
                         chain
                         < load_AC<Opt, const_<0xFF>, p_rhs>
                         , pick_op<Opt, RLA, p_def, p_lhs>
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
+#endif
 
                         if(cpu.value_eq(REG_A, p_lhs::value()))
                             goto rol_implied;
@@ -3473,11 +3532,13 @@ namespace isel
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
 
+#ifndef LEGAL
                         chain
                         < load_A<Opt, const_<0>>
                         , pick_op<Opt, SRE, p_def, p_lhs>
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
+#endif
 
                         if(cpu.value_eq(REG_A, p_lhs::value()))
                             goto lsr_implied;
@@ -3490,13 +3551,16 @@ namespace isel
                         {
                             assert(carry == h->output(0));
 
+#ifndef LEGAL
                             // This version loads '0' into A:
                             chain
                             < load_A<Opt, p_lhs>
                             , simple_op<Opt, ALR_IMMEDIATE, null_, const_<1>>
+                            , simple_op<Opt, LSR_IMPLIED, null_>
                             , store<Opt, STA, p_def, p_def> // Unused; only used for cost.
                             , set_defs<Opt, REGF_C, true, p_carry_output>
                             >(cpu, prev, cont);
+#endif
 
                             // If only the carry is used,
                             // and the carry isn't being used as a carry input,
@@ -3512,6 +3576,7 @@ namespace isel
 
                         if(!carry)
                         {
+#ifndef LEGAL
                             // This version clears the carry:
                             chain
                             < load_A<Opt, p_lhs>
@@ -3519,6 +3584,7 @@ namespace isel
                             , store<Opt, STA, p_def, p_def>
                             , set_defs<Opt, REGF_C, true, const_<0>>
                             >(cpu, prev, cont);
+#endif
                         }
 
                         chain
@@ -3762,12 +3828,22 @@ namespace isel
                     if(h->output_size() == 0)
                     {
                         if(h->input(INDEX).eq_whole(0))
-                            exact_op<Opt, IGN_ABSOLUTE, p_def, p_arg<0>>(cpu, prev, cont);
+                        {
+#ifndef LEGAL
+                            exact_op<Opt, IGN_ABSOLUTE, null_, p_arg<0>>(cpu, prev, cont);
+#else
+                            exact_op<Opt, BIT_ABSOLUTE, null_, p_arg<0>>(cpu, prev, cont);
+#endif
+                        }
                         else
                         {
                             chain
                             < load_X<Opt, p_index>
-                            , exact_op<Opt, IGN_ABSOLUTE_X, p_def, p_arg<0>>
+#ifndef LEGAL
+                            , exact_op<Opt, IGN_ABSOLUTE_X, null_, p_arg<0>>
+#else
+                            , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<0>>
+#endif
                             >(cpu, prev, cont);
                         }
                     }
@@ -3791,11 +3867,13 @@ namespace isel
                     , store<Opt, STA, p_def, p_def>
                     >(cpu, prev, cont);
 
+#ifndef LEGAL
                     chain
                     < load_Y<Opt, p_index>
                     , exact_op<Opt, LAX_INDIRECT_Y, p_def, p_ptr>
                     , store<Opt, STA, p_def, p_def>
                     >(cpu, prev, cont);
+#endif
                 }
             }
             break;
@@ -3849,17 +3927,31 @@ namespace isel
 
                 if(h->output_size() == 0)
                 {
+#ifndef LEGAL
                     chain
                     < exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr0>
-                    , exact_op<Opt, IGN_ABSOLUTE, p_def, p_ptr1>
+                    , exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr1>
                     >(cpu, prev, cont);
+#else
+                    chain
+                    < exact_op<Opt, BIT_ABSOLUTE, null_, p_ptr0>
+                    , exact_op<Opt, BIT_ABSOLUTE, null_, p_ptr1>
+                    >(cpu, prev, cont);
+#endif
                 }
                 else
                 {
+#ifndef LEGAL
                     chain
                     < exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr0>
                     , load_then_store<Opt, p_def, p_ptr1, p_def, false>
                     >(cpu, prev, cont);
+#else
+                    chain
+                    < exact_op<Opt, BIT_ABSOLUTE, null_, p_ptr0>
+                    , load_then_store<Opt, p_def, p_ptr1, p_def, false>
+                    >(cpu, prev, cont);
+#endif
                 }
             }
             break;
@@ -3933,10 +4025,12 @@ namespace isel
             , store<Opt, STA, p_def, p_def>
             >(cpu, prev, cont);
 
+#ifndef LEGAL
             chain
             < exact_op<Opt, LAX_ABSOLUTE, p_def, p_arg<0>>
             , store<Opt, STA, p_def, p_def>
             >(cpu, prev, cont);
+#endif
 
             chain
             < exact_op<Opt, LDX_ABSOLUTE, p_def, p_arg<0>>

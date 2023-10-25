@@ -1226,6 +1226,7 @@ void asm_graph_t::optimize_live_registers()
                     }
                     break;
 
+#ifndef LEGAL
                 case LAX:
                     // Convert LAX to either LDA or LDX:
                     if(!(live_regs[ai] & REGF_A))
@@ -1239,11 +1240,13 @@ void asm_graph_t::optimize_live_registers()
                             a.op = op;
                     }
                     break;
+#endif
 
                 default:
                     break;
                 }
 
+#ifndef LEGAL
                 // Convert code like:
                 //    CMP #$80
                 //    ROR
@@ -1262,6 +1265,7 @@ void asm_graph_t::optimize_live_registers()
                     c->arg = locator_t::const_byte(0xFF);
                     a.prune();
                 }
+#endif
             });
         }
 

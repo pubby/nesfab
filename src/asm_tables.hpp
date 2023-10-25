@@ -58,7 +58,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = MAYBE_STORE_Z,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 11, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 12, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_Z,
         .output_regs = REGF_M,
@@ -67,7 +71,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = STORE_Z_ABSOLUTE,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 11, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 12, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_Z,
         .output_regs = REGF_M,
@@ -76,7 +84,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = MAYBE_STORE_Z_FAST,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 7, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 8, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_Z,
         .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
@@ -85,7 +97,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = STORE_Z_ABSOLUTE_FAST,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 7, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 8, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_Z,
         .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
@@ -94,7 +110,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = MAYBE_STORE_N,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 12, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 14, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_N,
         .output_regs = REGF_M,
@@ -103,7 +123,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = STORE_N_ABSOLUTE,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 12, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 14, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_N,
         .output_regs = REGF_M,
@@ -112,7 +136,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = MAYBE_STORE_N_FAST,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 8, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 10, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_N,
         .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
@@ -121,7 +149,11 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     { 
         .op = STORE_N_ABSOLUTE_FAST,
         .addr_mode = MODE_ABSOLUTE,
+#ifndef LEGAL
         .size = 8, // Keep in sync with 'asm_proc.cpp'
+#else
+        .size = 10, // Keep in sync with 'asm_proc.cpp'
+#endif
         .cycles = MAYBE_CYCLES, // Arbitrary
         .input_regs = REGF_N,
         .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_C,
@@ -1663,6 +1695,8 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     // ILLEGAL //
     /////////////
 
+#ifndef LEGAL
+
     // LAX
     {
         OP(LAX, ZERO_PAGE),
@@ -2202,6 +2236,8 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .input_regs = REGF_M | REGF_A | REGF_Y,
         .output_regs = REGF_M | REGF_NZ | REGF_A | REGF_C,
     },
+
+#endif
 
 };
 

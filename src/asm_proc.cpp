@@ -112,6 +112,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 
         auto const peep_lax = [&](op_name_t second)
         {
+#ifndef LEGAL
             op_t replace = get_op(LAX, op_addr_mode(a.op));
 
             if(replace
@@ -123,6 +124,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 replace_op(replace);
                 return true;
             }
+#endif
 
             return false;
         };
@@ -210,13 +212,16 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         switch(op_name(a.op))
         {
         default: break;
+#ifndef LEGAL
         case DEC: peep_rmw(CMP, DCP); break;
         case INC: peep_rmw(SBC, ISC); break;
         case ROL: peep_rmw(AND, RLA); break;
         case ROR: peep_rmw(ADC, RRA); break;
         case ASL: peep_rmw(ORA, SLO); break;
         case LSR: peep_rmw(EOR, SRE); break;
+#endif
         case AND:
+#ifndef LEGAL
             if(a.op == AND_IMMEDIATE && b.op == LSR_IMPLIED)
             {
                 replace_op(ALR_IMMEDIATE);
@@ -228,6 +233,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             {
                 goto prune_a;
             }
+#endif
             // fall-through
         case ORA:
             if(op_name(a.op) == op_name(b.op)
@@ -286,6 +292,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer2(LDA, TYA_IMPLIED))
                 goto retry;
             goto common_store;
+#ifndef LEGAL
         case SAX:
             goto common_store;
         case ALR:
@@ -293,6 +300,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(!a.alt && a.arg == locator_t::const_byte(1) && b.op == ROL_IMPLIED)
                 replace_op(ANC_IMMEDIATE);
             break;
+#endif
 
         case RTS:
         case JMP:
@@ -611,6 +619,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
                 inst.op = ASM_PRUNED;
                 inst.arg = {};
             }
+#ifndef LEGAL
             else if(use_nops && dist == 1)
             {
                 inst.op = SKB_IMPLIED;
@@ -625,6 +634,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
                     inst.arg = {};
                 }
             }
+#endif
         }
         else if(op_flags(inst.op) & ASMF_BRANCH)
         {
@@ -807,17 +817,27 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
             fn(asm_inst_t{ .op = PHA_IMPLIED });
             fn(asm_inst_t{ .op = PHP_IMPLIED });
             fn(asm_inst_t{ .op = PLA_IMPLIED });
+#ifndef LEGAL
             fn(asm_inst_t{ .op = ALR_IMMEDIATE, .arg = locator_t::const_byte(0b10) });
+#else
+            fn(asm_inst_t{ .op = LSR_IMPLIED });
+            fn(asm_inst_t{ .op = AND_IMMEDIATE, .arg = locator_t::const_byte(0b1) });
+#endif
             fn(asm_inst_t{ .op = STA_ABSOLUTE, .arg = inst.arg });
             fn(asm_inst_t{ .op = PLA_IMPLIED });
             fn(asm_inst_t{ .op = PLP_IMPLIED });
-            // total bytes: 1+1+1+1+2+3+1+1 = 11
+            // total bytes: 1+1+1+1+2+3+1+1 = 11   (+1 for LEGAL)
             break;
 
         case STORE_Z_ABSOLUTE_FAST:
             fn(asm_inst_t{ .op = PHP_IMPLIED });
             fn(asm_inst_t{ .op = PLA_IMPLIED });
+#ifndef LEGAL
             fn(asm_inst_t{ .op = ALR_IMMEDIATE, .arg = locator_t::const_byte(0b10) });
+#else
+            fn(asm_inst_t{ .op = LSR_IMPLIED });
+            fn(asm_inst_t{ .op = AND_IMMEDIATE, .arg = locator_t::const_byte(0b1) });
+#endif
             fn(asm_inst_t{ .op = STA_ABSOLUTE, .arg = inst.arg });
             // total bytes: 1+1+2+3 = 7
             break;
@@ -827,7 +847,12 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
             fn(asm_inst_t{ .op = PHA_IMPLIED });
             fn(asm_inst_t{ .op = PHP_IMPLIED });
             fn(asm_inst_t{ .op = PLA_IMPLIED });
+#ifndef LEGAL
             fn(asm_inst_t{ .op = ANC_IMMEDIATE, .arg = locator_t::const_byte(0x80) });
+#else
+            fn(asm_inst_t{ .op = CMP_IMMEDIATE, .arg = locator_t::const_byte(0x80) });
+            fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locator_t::const_byte(0x00) });
+#endif
             fn(asm_inst_t{ .op = ROL_IMPLIED });
             fn(asm_inst_t{ .op = STA_ABSOLUTE, .arg = inst.arg });
             fn(asm_inst_t{ .op = PLA_IMPLIED });
@@ -838,7 +863,12 @@ void asm_proc_t::for_each_inst(Fn const& fn) const
         case STORE_N_ABSOLUTE_FAST:
             fn(asm_inst_t{ .op = PHP_IMPLIED });
             fn(asm_inst_t{ .op = PLA_IMPLIED });
+#ifndef LEGAL
             fn(asm_inst_t{ .op = ANC_IMMEDIATE, .arg = locator_t::const_byte(0x80) });
+#else
+            fn(asm_inst_t{ .op = CMP_IMMEDIATE, .arg = locator_t::const_byte(0x80) });
+            fn(asm_inst_t{ .op = LDA_IMMEDIATE, .arg = locator_t::const_byte(0x00) });
+#endif
             fn(asm_inst_t{ .op = ROL_IMPLIED });
             fn(asm_inst_t{ .op = STA_ABSOLUTE, .arg = inst.arg });
             // total bytes: 1+1+2+1+3 = 8

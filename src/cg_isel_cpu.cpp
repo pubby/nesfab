@@ -641,6 +641,7 @@ struct set_defs_for_impl<TYA_IMPLIED>
     }
 };
 
+#ifndef LEGAL
 template<>
 struct set_defs_for_impl<AXS_IMMEDIATE>
 {
@@ -789,6 +790,7 @@ struct set_defs_for_impl<ARR_IMMEDIATE>
             cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
     }
 };
+#endif
 
 template<>
 struct set_defs_for_impl<BEQ_RELATIVE>

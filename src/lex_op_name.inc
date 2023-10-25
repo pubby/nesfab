@@ -58,6 +58,7 @@ OP_NAME(TXS)
 OP_NAME(TYA)
 
 // Illegal:
+#ifndef LEGAL
 OP_NAME(LAX)
 OP_NAME(AXS)
 OP_NAME(ANC)
@@ -74,3 +75,4 @@ OP_NAME(RLA)
 OP_NAME(RRA)
 OP_NAME(SLO)
 OP_NAME(SRE)
+#endif

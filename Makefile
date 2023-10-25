@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "1.2"
+VERSION := "1.3"
 GIT_COMMIT := "$(shell git describe --all --abbrev=8 --dirty --always)"
 
 #override CXX:=clang++
@@ -71,6 +71,10 @@ override CXX:=x86_64-w64-mingw32-g++
 override CXXFLAGS+= \
   -mpopcnt \
   -msse4
+endif
+
+ifeq ($(ISA),LEGAL)
+override CXXFLAGS+= -DLEGAL
 endif
 
 debug: CXXFLAGS += -O0 -g

@@ -24,11 +24,12 @@
 // puf.play_sfx(U sfx_id)
 // - Assigns the specified sound effect to be played.
 
-// puf.process(U enable)
+// puf.process(U enable) Bool
 // - Call this once per frame to play the audio, ideally at the end of your NMI function.
 // - 'enable' is a bitmask of which channels to play, along with a few other options:
 // --- If enable has 'PUF_LOOP' set, the song will loop after completion.
-// - If you want the typical behavior, pass 'PUF_DEFAULT' as the 'enable' parameter.
+// --- If you want the typical behavior, pass 'PUF_DEFAULT' as the 'enable' parameter.
+// - Returns 'true' when the song ends and 'false' otherwise.
 
 ///////////////////////////////////////////////////////////////////////////////
 // How to compose PUF music: //////////////////////////////////////////////////
@@ -51,6 +52,7 @@
 // - Tempos besides 150 are not supported.
 // - Speeds lower than 4 are not supported.
 // - Pattern "release" is not supported.
+// - Loop points are not supported.
 
 // Unlike music, sound effects support all effects, but cannot involve the DMC channel.
 // Sound effects must have a short duration (250 frames or less), 
@@ -123,6 +125,7 @@ ct AA puf_track_start         = puf_stack_mem + 37 // 2 bytes
 ct AA puf_track_end           = puf_stack_mem + 39 // 2 bytes
 ct AA puf_pattern_size        = puf_stack_mem + 41
 ct AA puf_enable              = puf_stack_mem + 42
+ct AA puf_finished            = puf_stack_mem + 43
 
 ct AAA puf_silent_instrument = &puf_instrument_0
 
@@ -149,7 +152,7 @@ omni data /puf
         UU[]($001D,$001B,$0019,$0018,$0016,$0015,$0014,$0013,$0012,$0011,$0010,$000F)
         UU[]($000E,$000D,$000C)
 
-asm fn puf(U arg)
+asm fn puf(U arg) Bool
 : employs /puf
     label track_step_function_lo
         U(update_variables.a)
@@ -509,24 +512,34 @@ asm fn puf(U arg)
         lda puf_pattern_size
         sta puf_pattern_left
 
+        lda puf_finished
+        beq update_track_ptr
+        sta &return
+        lda puf_enable
+        bmi update_track_ptr
+        jmp reset_init
+    label update_track_ptr
         lax &puf_track_ptr.a
         axs #-10
         lda #0
+        sta puf_finished
         tay              // Set Y = 0 for mask loads.              
         adc &puf_track_ptr.b
         cmp puf_track_end+1
         bne store_track
         cpx puf_track_end+0
         bne store_track
+        lda #1
+        sta puf_finished
         lda puf_enable
-        bmi loop_track
-        jmp reset_init
+        bpl ignore_track
     label loop_track
         ldx puf_track_start+0
         lda puf_track_start+1
     label store_track
         stx &puf_track_ptr.a
         sta &puf_track_ptr.b
+    label ignore_track
 
         lda (&puf_square1_pattern_ptr.a), y
         sta puf_square1_mask
@@ -545,6 +558,8 @@ asm fn puf(U arg)
     // Call this function every frame in your NMI or whatever to play the music
     default
     label process
+        lda #0
+        sta &return
         lda &puf_lock
         bne early_return
         lda &arg
@@ -845,6 +860,7 @@ asm fn puf(U arg)
         lda #0
         sta puf_track_speed
         sta puf_track_step
+        sta puf_finished
 
         jsr reset_square1
         jsr reset_square2

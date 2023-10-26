@@ -58,7 +58,7 @@ OP_NAME(TXS)
 OP_NAME(TYA)
 
 // Illegal:
-#ifndef LEGAL
+#ifndef DEBUG_LEGAL
 OP_NAME(LAX)
 OP_NAME(AXS)
 OP_NAME(ANC)

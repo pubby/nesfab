@@ -14,6 +14,7 @@ unsigned ast_node_t::num_children() const
     case TOK_implicit_cast:
     case TOK_byte_block_proc:
     case TOK_byte_block_data:
+    case TOK_byte_block_if:
     case TOK_min:
     case TOK_max:
     case TOK_read_hw:

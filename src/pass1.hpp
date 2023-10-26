@@ -539,6 +539,18 @@ public:
     }
 
     [[gnu::always_inline]]
+    ast_node_t byte_block_if(pstring_t pstring, ast_node_t* children, unsigned num_children, std::unique_ptr<mods_t> mods)
+    {
+        convert_ast(children[0], IDEP_TYPE);
+
+        return ast_node_t
+        { 
+            .token = { .type = lex::TOK_byte_block_if, .pstring = pstring, .value = num_children },
+            .children = children,
+        };
+    }
+
+    [[gnu::always_inline]]
     void local_ct(var_decl_t const& var_decl, ast_node_t& ast, std::unique_ptr<mods_t> mods)
     {
         if(mods)

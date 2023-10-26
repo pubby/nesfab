@@ -20,12 +20,20 @@
 asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
 : employs /rlz
     default
-        lax &ptr.bank
+        if __illegal
+            lax &ptr.bank
+        else
+            lda &ptr.bank
+            tax
         sta &return.c
         switch ax
     label loop
         ldy #0
-        lax (&ptr.a), y
+        if __illegal
+            lax (&ptr.a), y
+        else
+            lda (&ptr.a), y
+            tax
         beq done
         bpl same_run
     label unique_run

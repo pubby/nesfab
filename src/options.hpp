@@ -40,6 +40,12 @@ struct options_t
     bool sram_init = false;
     bool vram_init = false;
 
+#ifndef LEGAL
+    bool legal = false;
+#else
+    bool legal = true;
+#endif
+
     // Label files, etc:
     std::string raw_mlb;
     std::string raw_ctags;

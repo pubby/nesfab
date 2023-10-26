@@ -55,8 +55,12 @@ asm fn ppu_upload_pbz(CCC/pbz ptr, U amount) CCC/pbz
         rts
     default
     label tiles
-        lax &ptr.bank
-        switch ax
+        if __illegal
+            lax &ptr.bank
+            switch ax
+        else
+            lda &ptr.bank
+            switch a
     label tiles_loop
         jsr write_plane
         jsr write_plane
@@ -64,8 +68,12 @@ asm fn ppu_upload_pbz(CCC/pbz ptr, U amount) CCC/pbz
         bne tiles_loop
         beq do_return
     label chunks
-        lax &ptr.bank
-        switch ax
+        if __illegal
+            lax &ptr.bank
+            switch ax
+        else
+            lda &ptr.bank
+            switch a
     label chunks_loop
         jsr write_plane
         dec &amount

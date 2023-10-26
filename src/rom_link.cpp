@@ -88,6 +88,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         {
             auto& asm_proc = rom_proc->asm_proc(alloc.romv);
 
+            asm_proc.verify_legal();
             asm_proc.link(alloc.romv, alloc.only_bank());
             asm_proc.relocate(locator_t::addr(alloc.span.addr));
 

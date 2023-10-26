@@ -289,26 +289,48 @@ asm fn ppu_upload_oam_poll_pads(U oam_offset)
 asm fn update_pads()
 : employs
     default
-        lda &pads.held+0
-        eor #$FF
-        ldx &raw_pads+0
-        sax &pads.pressed+0
-        txa
-        eor #$FF
-        and &pads.held+0
-        sta &pads.released+0
-        stx &pads.held+0
+        if __illegal
+            lda &pads.held+0
+            eor #$FF
+            ldx &raw_pads+0
+            sax &pads.pressed+0
+            txa
+            eor #$FF
+            and &pads.held+0
+            sta &pads.released+0
+            stx &pads.held+0
 
-        lda &pads.held+1
-        eor #$FF
-        ldx &raw_pads+1
-        sax &pads.pressed+1
-        txa
-        eor #$FF
-        and &pads.held+1
-        sta &pads.released+1
-        stx &pads.held+1
-
+            lda &pads.held+1
+            eor #$FF
+            ldx &raw_pads+1
+            sax &pads.pressed+1
+            txa
+            eor #$FF
+            and &pads.held+1
+            sta &pads.released+1
+            stx &pads.held+1
+        else
+            lda &raw_pads+0
+            tax
+            eor #$FF
+            and &pads.held+0
+            sta &pads.released+0
+            lda &pads.held+0
+            eor $FF
+            and &raw_pads+0
+            sta &pads.pressed+0
+            stx &pads.held+0
+            
+            lda &raw_pads+1
+            tax
+            eor #$FF
+            and &pads.held+1
+            sta &pads.released+1
+            lda &pads.held+1
+            eor $FF
+            and &raw_pads+1
+            sta &pads.pressed+1
+            stx &pads.held+1
         rts
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -795,6 +795,7 @@ retry:
     case TOK_system:
     case TOK___mapper_detail:
     case TOK___mapper_reset:
+    case TOK___illegal:
     case TOK_nmi_counter:
         {
             ast_node_t ast = { .token = token };
@@ -1518,6 +1519,62 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 parse_token();
                 children.push_back(policy().byte_block_bank_switch(pstring, tt, parse_mods(indent)));
                 parse_line_ending();
+            }
+            break;
+
+        case TOK_if:
+            {
+                proc = true;
+                unsigned const if_indent = indent;
+                pstring_t const pstring = token.pstring;
+
+                bc::small_vector<ast_node_t, 16> sub_children, if_children;
+
+                parse_token();
+                if_children.push_back(parse_expr());
+                parse_line_ending();
+                auto mods = parse_mods(if_indent);
+
+                parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, sub_children);
+
+                if_children.push_back(
+                {
+                    .token = 
+                    {
+                        .type = TOK_byte_block_proc,
+                        .pstring = pstring,
+                        .value = sub_children.size()
+                    },
+                    .children = eternal_new<ast_node_t>(&*sub_children.begin(), &*sub_children.end())
+                });
+
+                ast_node_t else_ast = {};
+
+                if(token.type == TOK_else)
+                {
+                    sub_children.clear();
+
+                    parse_token();
+                    parse_line_ending();
+                    parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, sub_children);
+
+                    if_children.push_back(
+                    {
+                        .token = 
+                        {
+                            .type = TOK_byte_block_proc,
+                            .pstring = pstring,
+                            .value = sub_children.size()
+                        },
+                        .children = eternal_new<ast_node_t>(&*sub_children.begin(), &*sub_children.end())
+                    });
+                }
+
+                children.push_back(policy().byte_block_if(
+                    pstring, 
+                    eternal_new<ast_node_t>(&*if_children.begin(), &*if_children.end()),
+                    if_children.size(),
+                    std::move(mods)));
             }
             break;
 

@@ -126,6 +126,9 @@ constexpr unsigned op_cycles(op_t op)
 constexpr unsigned op_size(op_t op)
     { return op < NUM_NORMAL_OPS ? op_defs_table[op].size : 0; }
 
+constexpr bool op_illegal(op_t op) 
+    { return op_name(op) >= LAX; }
+
 constexpr regs_t op_input_regs(op_t op)
 { 
     if(op < NUM_NORMAL_OPS)
@@ -336,6 +339,7 @@ constexpr op_t fast_op(op_t op)
     FAST(STORE_N_ABSOLUTE)
     FAST(MAYBE_STORE_Z)
     FAST(STORE_Z_ABSOLUTE)
+#undef FAST
     }
 }
 

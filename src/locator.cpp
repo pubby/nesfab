@@ -318,8 +318,8 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
                 if(auto const* info = proc.lookup_label(*this))
                     return from_offset(rom_alloc(romv), info->offset);
-                else // Likely a compiler bug:
-                    throw std::runtime_error(fmt("Missing label during link: %", *this));
+                else
+                    compiler_error(proc.fn->def().local_consts[data()].decl.name, "Unable to link. Label used without a definition.");
             }
             else if(g.gclass() == GLOBAL_VAR)
             {
@@ -327,8 +327,8 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 
                 if(auto const* info = proc.lookup_label(*this))
                     return from_offset(rom_alloc(romv), info->offset);
-                else // Likely a compiler bug:
-                    throw std::runtime_error(fmt("Missing label during link: %", *this));
+                else
+                    compiler_error(proc.fn->def().local_consts[data()].decl.name, "Unable to link. Label used without a definition.");
             }
             else if(g.gclass() == GLOBAL_CONST)
             {

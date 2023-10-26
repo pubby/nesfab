@@ -1176,3 +1176,12 @@ void asm_proc_t::verify_addr_modes()
         }
     }
 }
+
+void asm_proc_t::verify_legal()
+{
+#ifdef LEGAL
+    for(auto const& inst : code)
+        if(op_illegal(inst.op))
+            compiler_warning(get_pstring(inst), fmt("Illegal opcode % used.", inst.op));
+#endif
+}

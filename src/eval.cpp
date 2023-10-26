@@ -226,6 +226,9 @@ public:
     template<do_t D>
     expr_value_t do_var_init_expr(var_ht var_i, ast_node_t const& expr);
 
+    template<do_t D>
+    void do_byte_block(ast_node_t const& ast, asm_proc_t& proc);
+
     template<eval_t::do_t D>
     expr_value_t do_expr(ast_node_t const& ast);
 
@@ -1687,6 +1690,241 @@ void eval_t::compile_block()
 }
 
 template<eval_t::do_t D>
+void eval_t::do_byte_block(ast_node_t const& ast, asm_proc_t& proc)
+{
+    unsigned const n = ast.num_children();
+    for(unsigned i = 0; i < n; ++i)
+    {
+        ast_node_t const& sub = ast.children[i];
+        pstring_t const pstring = ast.children[i].token.pstring;
+
+        switch(ast.children[i].token.type)
+        {
+        case TOK_byte_block_if:
+            {
+                expr_value_t v = throwing_cast<D>(do_expr<INTERPRET_CE>(sub.children[0]), TYPE_BOOL, true);
+                if(v.fixed().value)
+                    do_byte_block<D>(sub.children[1], proc);
+                else if(ast.num_children() >= 3)
+                    do_byte_block<D>(sub.children[2], proc);
+            }
+            break;
+
+        case TOK_byte_block_asm_op:
+            {
+                op_t const asm_op = op_t(sub.token.value);
+                locator_t value = {};
+
+                if(sub.children)
+                {
+                    assert(op_addr_mode(asm_op) != MODE_IMPLIED);
+
+                    expr_value_t arg = throwing_cast<INTERPRET_CE>(
+                        do_expr<INTERPRET_CE>(*sub.children), 
+                        op_addr_mode(asm_op) == MODE_IMMEDIATE ? TYPE_U : TYPE_APTR, 
+                        false);
+
+                    assert(arg.rval().size() == 1);
+
+                    ssa_value_t const v = arg.ssa();
+
+                    if(v.is_locator())
+                        value = v.locator();
+                    else if(v.is_num())
+                    {
+                        if(op_addr_mode(asm_op) == MODE_IMMEDIATE)
+                            value = locator_t::const_byte(v.whole());
+                        else
+                            value = locator_t::addr(v.whole());
+                    }
+                    else
+                    {
+                        // Likely a bug if this fires:
+                        compiler_error(sub.token.pstring, "Unable to compile assembly instruction.");
+                    }
+                }
+
+                if(!is_check(D))
+                    proc.push_inst({ .op = asm_op, .iasm_child = proc.add_pstring(pstring), .arg = value });
+            }
+            break;
+
+        case TOK_byte_block_label:
+            if(!is_check(D))
+            {
+                global_ht const global = { sub.token.value >> 32 };
+                unsigned const index = sub.token.value & 0xFFFFFFFF;
+
+                assert(global);
+                proc.push_inst({ .op = ASM_LABEL, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::named_label(global, index) });
+            }
+            break;
+
+        case TOK_byte_block_sub_proc:
+            if(!is_check(D))
+            {
+                asm_proc_t const& sub_proc = *sub.token.ptr<asm_proc_t>();
+
+                if(proc.code.empty())
+                    proc = sub_proc;
+                else
+                    proc.append(sub_proc);
+            }
+            break;
+
+        case TOK_byte_block_call:
+        case TOK_byte_block_goto:
+            {
+                if(!fn)
+                    compiler_error(sub.token.pstring, "Cannot call functions outside of a fn context.");
+
+                expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
+
+                if(!fn_val.is_lval() || !fn_val.lval().is_global())
+                    compiler_error(sub.token.pstring, "Expression is not a callable function.");
+
+                global_t const& g = fn_val.lval().global();
+
+                if(g.gclass() != GLOBAL_FN || g.impl<fn_t>().fclass != FN_FN)
+                    compiler_error(sub.token.pstring, fmt("% is not a callable function.", g.name));
+
+                if(precheck_tracked)
+                    precheck_tracked->calls.emplace(g.handle<fn_ht>(), sub.token.pstring);
+
+                if(!is_check(D))
+                {
+                    bool const is_call = sub.token.type == TOK_byte_block_call;
+                    fn_ht const call = g.handle<fn_ht>();
+                    locator_t const loc = locator_t::fn(call, fn_val.lval().ulabel());
+                    int const iasm_child = proc.add_pstring(pstring);
+
+                    if(mapper().bankswitches())
+                    {
+                        if(mod_test(call->mods(), MOD_static))
+                        {
+                            if(!mod_test(fn->mods(), MOD_static) && call->returns_in_different_bank())
+                                proc.push_inst({ .op = is_call ? BANKED_JSR : BANKED_JMP, .iasm_child = iasm_child, .arg = loc });
+                            else
+                                goto unbanked_call;
+                        }
+                        else if(bankswitch_use_x())
+                        {
+                            proc.push_inst({ .op = LDX_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = is_call ? BANKED_X_JSR : BANKED_X_JMP, .iasm_child = iasm_child, .arg = loc });
+                        }
+                        else
+                        {
+                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = is_call ? BANKED_Y_JSR : BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+                        }
+                    }
+                    else
+                    {
+                    unbanked_call:
+                        proc.push_inst({ .op = is_call ? JSR_ABSOLUTE : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+                    }
+                }
+            }
+            break;
+
+        case TOK_byte_block_goto_mode:
+            {
+                if(!fn)
+                    compiler_error(sub.token.pstring, "Cannot call functions outside of a fn context.");
+
+                expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
+                global_t const& g = fn_val.lval().global();
+
+                if(g.gclass() != GLOBAL_FN || g.impl<fn_t>().fclass != FN_MODE)
+                    compiler_error(sub.token.pstring, fmt("% is not a mode.", g.name));
+
+                if(!is_check(D))
+                {
+                    fn_ht const call = g.handle<fn_ht>();
+                    mods_t const* mods = sub.token.ptr<mods_t const>();
+
+                    locator_t const loc = fn->new_asm_goto_mode(call, fn_val.lval().ulabel(), pstring, mods);
+                    int const iasm_child = proc.add_pstring(pstring);
+
+                    if(mapper().bankswitches())
+                    {
+                        if(bankswitch_use_x())
+                        {
+                            proc.push_inst({ .op = LDX_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = BANKED_X_JMP, .iasm_child = iasm_child, .arg = loc });
+                        }
+                        else
+                        {
+                            proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
+                            proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
+                        }
+                    }
+                    else
+                        proc.push_inst({ .op = JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
+                }
+            }
+            break;
+
+        case TOK_byte_block_wait_nmi:
+            if(precheck_tracked)
+                precheck_tracked->wait_nmis.push_back({ sub.token.pstring, sub.mods });
+            if(!is_check(D))
+                proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
+            break;
+
+        case TOK_byte_block_bank_switch_x:
+            if(!is_check(D))
+                bankswitch_x(proc, proc.next_label_id());
+            break;
+
+        case TOK_byte_block_bank_switch_y:
+            if(!is_check(D))
+                bankswitch_y(proc, proc.next_label_id());
+            break;
+
+        case TOK_byte_block_bank_switch_ax:
+            if(!is_check(D))
+                bankswitch_a(proc, proc.next_label_id(), true);
+            break;
+
+        case TOK_byte_block_byte_array:
+            if(!is_check(D))
+            {
+                auto const* data = sub.token.ptr<std::vector<std::uint8_t>>();
+                proc.code.reserve(proc.code.size() + data->size());
+                for(std::uint8_t i : *data)
+                    proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::const_byte(i) });
+            }
+            break;
+
+        case TOK_byte_block_locator_array:
+            if(!is_check(D))
+            {
+                auto const* data = sub.token.ptr<std::vector<locator_t>>();
+                proc.code.reserve(proc.code.size() + data->size());
+                for(locator_t loc : *data)
+                    proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = loc });
+            }
+            break;
+
+        default:
+            if(!is_check(D))
+            {
+                // TODO! this is SLOW
+                static TLS loc_vec_t vec_temp;
+                vec_temp.clear();
+
+                expr_value_t arg = to_rval<D>(do_expr<D>(sub));
+                ::append_locator_bytes(true, vec_temp, arg.rval(), arg.type, arg.pstring);
+
+                for(locator_t loc : vec_temp)
+                    proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = loc });
+            }
+        }
+    }
+}
+
+template<eval_t::do_t D>
 expr_value_t eval_t::do_expr(ast_node_t const& ast)
 {
     using U = fixed_uint_t;
@@ -2268,6 +2506,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_RESET_ARG },
                 .type = TYPE_VOID,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            result.assert_valid();
+            return result;
+        }
+
+    case TOK___illegal:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::ILLEGAL_ARG },
+                .type = TYPE_BOOL,
                 .pstring = ast.token.pstring,
                 .time = RT,
             };
@@ -3464,226 +3717,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             }
 
-            unsigned const n = ast.num_children();
-            for(unsigned i = 0; i < n; ++i)
-            {
-                ast_node_t const& sub = ast.children[i];
-                pstring_t const pstring = ast.children[i].token.pstring;
-
-                switch(ast.children[i].token.type)
-                {
-                case TOK_byte_block_asm_op:
-                    {
-                        op_t const asm_op = op_t(sub.token.value);
-                        locator_t value = {};
-
-                        if(sub.children)
-                        {
-                            assert(op_addr_mode(asm_op) != MODE_IMPLIED);
-
-                            expr_value_t arg = throwing_cast<INTERPRET_CE>(
-                                do_expr<INTERPRET_CE>(*sub.children), 
-                                op_addr_mode(asm_op) == MODE_IMMEDIATE ? TYPE_U : TYPE_APTR, 
-                                false);
-
-                            assert(arg.rval().size() == 1);
-
-                            ssa_value_t const v = arg.ssa();
-
-                            if(v.is_locator())
-                                value = v.locator();
-                            else if(v.is_num())
-                            {
-                                if(op_addr_mode(asm_op) == MODE_IMMEDIATE)
-                                    value = locator_t::const_byte(v.whole());
-                                else
-                                    value = locator_t::addr(v.whole());
-                            }
-                            else
-                            {
-                                // Likely a bug if this fires:
-                                compiler_error(sub.token.pstring, "Unable to compile assembly instruction.");
-                            }
-                        }
-
-                        if(!is_check(D))
-                            proc.push_inst({ .op = asm_op, .iasm_child = proc.add_pstring(pstring), .arg = value });
-                    }
-                    break;
-
-                case TOK_byte_block_label:
-                    if(!is_check(D))
-                    {
-                        global_ht const global = { sub.token.value >> 32 };
-                        unsigned const index = sub.token.value & 0xFFFFFFFF;
-
-                        assert(global);
-                        proc.push_inst({ .op = ASM_LABEL, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::named_label(global, index) });
-                    }
-                    break;
-
-                case TOK_byte_block_sub_proc:
-                    if(!is_check(D))
-                    {
-                        asm_proc_t const& sub_proc = *sub.token.ptr<asm_proc_t>();
-
-                        if(proc.code.empty())
-                            proc = sub_proc;
-                        else
-                            proc.append(sub_proc);
-                    }
-                    break;
-
-                case TOK_byte_block_call:
-                case TOK_byte_block_goto:
-                    {
-                        if(!fn)
-                            compiler_error(sub.token.pstring, "Cannot call functions outside of a fn context.");
-
-                        expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
-
-                        if(!fn_val.is_lval() || !fn_val.lval().is_global())
-                            compiler_error(sub.token.pstring, "Expression is not a callable function.");
-
-                        global_t const& g = fn_val.lval().global();
-
-                        if(g.gclass() != GLOBAL_FN || g.impl<fn_t>().fclass != FN_FN)
-                            compiler_error(sub.token.pstring, fmt("% is not a callable function.", g.name));
-
-                        if(precheck_tracked)
-                            precheck_tracked->calls.emplace(g.handle<fn_ht>(), sub.token.pstring);
-
-                        if(!is_check(D))
-                        {
-                            bool const is_call = sub.token.type == TOK_byte_block_call;
-                            fn_ht const call = g.handle<fn_ht>();
-                            locator_t const loc = locator_t::fn(call, fn_val.lval().ulabel());
-                            int const iasm_child = proc.add_pstring(pstring);
-
-                            if(mapper().bankswitches())
-                            {
-                                if(mod_test(call->mods(), MOD_static))
-                                {
-                                    if(!mod_test(fn->mods(), MOD_static) && call->returns_in_different_bank())
-                                        proc.push_inst({ .op = is_call ? BANKED_JSR : BANKED_JMP, .iasm_child = iasm_child, .arg = loc });
-                                    else
-                                        goto unbanked_call;
-                                }
-                                else if(bankswitch_use_x())
-                                {
-                                    proc.push_inst({ .op = LDX_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                                    proc.push_inst({ .op = is_call ? BANKED_X_JSR : BANKED_X_JMP, .iasm_child = iasm_child, .arg = loc });
-                                }
-                                else
-                                {
-                                    proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                                    proc.push_inst({ .op = is_call ? BANKED_Y_JSR : BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
-                                }
-                            }
-                            else
-                            {
-                            unbanked_call:
-                                proc.push_inst({ .op = is_call ? JSR_ABSOLUTE : JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
-                            }
-                        }
-                    }
-                    break;
-
-                case TOK_byte_block_goto_mode:
-                    {
-                        if(!fn)
-                            compiler_error(sub.token.pstring, "Cannot call functions outside of a fn context.");
-
-                        expr_value_t fn_val = do_expr<INTERPRET_CE>(*sub.children);
-                        global_t const& g = fn_val.lval().global();
-
-                        if(g.gclass() != GLOBAL_FN || g.impl<fn_t>().fclass != FN_MODE)
-                            compiler_error(sub.token.pstring, fmt("% is not a mode.", g.name));
-
-                        if(!is_check(D))
-                        {
-                            fn_ht const call = g.handle<fn_ht>();
-                            mods_t const* mods = sub.token.ptr<mods_t const>();
-
-                            locator_t const loc = fn->new_asm_goto_mode(call, fn_val.lval().ulabel(), pstring, mods);
-                            int const iasm_child = proc.add_pstring(pstring);
-
-                            if(mapper().bankswitches())
-                            {
-                                if(bankswitch_use_x())
-                                {
-                                    proc.push_inst({ .op = LDX_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                                    proc.push_inst({ .op = BANKED_X_JMP, .iasm_child = iasm_child, .arg = loc });
-                                }
-                                else
-                                {
-                                    proc.push_inst({ .op = LDY_IMMEDIATE, .iasm_child = iasm_child, .arg = loc.with_is(IS_BANK) });
-                                    proc.push_inst({ .op = BANKED_Y_JMP, .iasm_child = iasm_child, .arg = loc });
-                                }
-                            }
-                            else
-                                proc.push_inst({ .op = JMP_ABSOLUTE, .iasm_child = iasm_child, .arg = loc });
-                        }
-                    }
-                    break;
-
-                case TOK_byte_block_wait_nmi:
-                    if(precheck_tracked)
-                        precheck_tracked->wait_nmis.push_back({ sub.token.pstring, sub.mods });
-                    if(!is_check(D))
-                        proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
-                    break;
-
-                case TOK_byte_block_bank_switch_x:
-                    if(!is_check(D))
-                        bankswitch_x(proc, proc.next_label_id());
-                    break;
-
-                case TOK_byte_block_bank_switch_y:
-                    if(!is_check(D))
-                        bankswitch_y(proc, proc.next_label_id());
-                    break;
-
-                case TOK_byte_block_bank_switch_ax:
-                    if(!is_check(D))
-                        bankswitch_a(proc, proc.next_label_id(), true);
-                    break;
-
-                case TOK_byte_block_byte_array:
-                    if(!is_check(D))
-                    {
-                        auto const* data = sub.token.ptr<std::vector<std::uint8_t>>();
-                        proc.code.reserve(proc.code.size() + data->size());
-                        for(std::uint8_t i : *data)
-                            proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::const_byte(i) });
-                    }
-                    break;
-
-                case TOK_byte_block_locator_array:
-                    if(!is_check(D))
-                    {
-                        auto const* data = sub.token.ptr<std::vector<locator_t>>();
-                        proc.code.reserve(proc.code.size() + data->size());
-                        for(locator_t loc : *data)
-                            proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = loc });
-                    }
-                    break;
-
-                default:
-                    if(!is_check(D))
-                    {
-                        // TODO! this is SLOW
-                        static TLS loc_vec_t vec_temp;
-                        vec_temp.clear();
-
-                        expr_value_t arg = to_rval<D>(do_expr<D>(sub));
-                        ::append_locator_bytes(true, vec_temp, arg.rval(), arg.type, arg.pstring);
-
-                        for(locator_t loc : vec_temp)
-                            proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = loc });
-                    }
-                }
-            }
+            do_byte_block<D>(ast, proc);
 
             if(!is_check(D))
                 byte_block_data = std::move(proc);
@@ -5072,6 +5106,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 v.val = rval_t{};
             }
 
+            return v;
+        }
+        else if(lval->arg == lval_t::ILLEGAL_ARG)
+        {
+            v.val = rval_t{ ssa_value_t(unsigned(!compiler_options().legal), TYPE_BOOL) };
             return v;
         }
         else if(lval->arg == lval_t::MAPPER_DETAIL_ARG

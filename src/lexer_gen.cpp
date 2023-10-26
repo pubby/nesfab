@@ -674,6 +674,7 @@ int main()
         keyword("macro"),
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
+        keyword("__illegal"),
         keyword("nmi_counter"),
         keyword("read"),
         keyword("write"),
@@ -890,8 +891,8 @@ int main()
         accept("byte_block_bank_switch_ay", "assembly bank switch AY", eof()),
         accept("byte_block_byte_array", "byte block array", eof()),
         accept("byte_block_locator_array", "byte block locator array", eof()),
-        accept("byte_block_sub_proc", "byte block sub proc", eof())
-
+        accept("byte_block_sub_proc", "byte block sub proc", eof()),
+        accept("byte_block_if", "byte block if", eof())
         ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

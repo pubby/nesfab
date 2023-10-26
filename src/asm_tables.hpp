@@ -1695,7 +1695,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
     // ILLEGAL //
     /////////////
 
-#ifndef LEGAL
+#ifndef DEBUG_LEGAL
 
     // LAX
     {

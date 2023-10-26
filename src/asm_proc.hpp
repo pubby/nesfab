@@ -174,6 +174,9 @@ struct asm_proc_t
     // Checks if ZP address modes are valid.
     void verify_addr_modes();
 
+    // Warn if illegal instructions are used.
+    void verify_legal();
+
     label_info_t const* lookup_label(locator_t loc) const { return labels.mapped(loc.mem_head()); }
     label_info_t* lookup_label(locator_t loc) { return labels.mapped(loc.mem_head()); }
     label_info_t& get_label(locator_t loc) { return labels[loc.mem_head()]; }

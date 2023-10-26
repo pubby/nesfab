@@ -68,6 +68,7 @@ struct lval_t
     static constexpr std::int16_t MAPPER_RESET_ARG = RETURN_ARG - 5;
     static constexpr std::int16_t NMI_COUNTER_ARG = RETURN_ARG - 6;
     static constexpr std::int16_t ILLEGAL_ARG = RETURN_ARG - 7;
+    static constexpr std::int16_t MAPPER_ARG = RETURN_ARG - 8;
 
     enum access_class_t
     {

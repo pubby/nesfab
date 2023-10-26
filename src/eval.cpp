@@ -2515,6 +2515,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return result;
         }
 
+    case TOK___mapper:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MAPPER_ARG },
+                .type = TYPE_INT,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            result.assert_valid();
+            return result;
+        }
+
     case TOK___illegal:
         {
             expr_value_t result =
@@ -5106,6 +5121,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 v.val = rval_t{};
             }
 
+            return v;
+        }
+        else if(lval->arg == lval_t::MAPPER_ARG)
+        {
+            v.val = rval_t{ ssa_value_t(unsigned(mapper().type), TYPE_INT) };
             return v;
         }
         else if(lval->arg == lval_t::ILLEGAL_ARG)

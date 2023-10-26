@@ -674,6 +674,7 @@ int main()
         keyword("macro"),
         keyword("__mapper_detail"),
         keyword("__mapper_reset"),
+        keyword("__mapper"),
         keyword("__illegal"),
         keyword("nmi_counter"),
         keyword("read"),

@@ -795,6 +795,7 @@ retry:
     case TOK_system:
     case TOK___mapper_detail:
     case TOK___mapper_reset:
+    case TOK___mapper:
     case TOK___illegal:
     case TOK_nmi_counter:
         {

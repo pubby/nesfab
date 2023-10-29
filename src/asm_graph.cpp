@@ -203,7 +203,7 @@ auto asm_graph_t::prune(asm_node_t& node) -> list_t::iterator
     return list.erase(list.s_iterator_to(node));
 }
 
-void asm_graph_t::optimize()
+void asm_graph_t::optimize(fn_t const& fn)
 {
     bool changed;
     do
@@ -212,7 +212,7 @@ void asm_graph_t::optimize()
         changed |= o_remove_stubs();
         changed |= o_remove_branches();
         changed |= o_merge();
-        changed |= o_returns();
+        changed |= o_returns(fn);
         changed |= o_peephole();
     }
     while(changed);
@@ -314,8 +314,7 @@ bool asm_graph_t::o_merge()
     return changed;
 }
 
-#include <iostream>
-bool asm_graph_t::o_returns()
+bool asm_graph_t::o_returns(fn_t const& fn)
 {
     bool changed = false;
 
@@ -336,6 +335,8 @@ bool asm_graph_t::o_returns()
 
         if(op_t new_op = tail_call_op(node->code.rbegin()[index].op))
         {
+            if((op_flags(new_op) & ASMF_FAKE) && !fn.returns_in_different_bank())
+                continue;
             node->code.erase((node->code.rbegin()+index).base(), node->code.end());
             node->code.back().op = new_op;
         }

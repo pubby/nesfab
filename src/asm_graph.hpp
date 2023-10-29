@@ -116,7 +116,7 @@ public:
     std::vector<asm_node_t*> order();
     std::vector<asm_inst_t> to_linear(std::vector<asm_node_t*> order);
     void liveness(fn_t const& fn, lvars_manager_t& lvars);
-    void optimize();
+    void optimize(fn_t const& fn);
 
     void remove_maybes(fn_t const& fn);
     void optimize_live_registers();
@@ -135,7 +135,7 @@ public:
     bool o_remove_stubs();
     bool o_remove_branches();
     bool o_merge();
-    bool o_returns();
+    bool o_returns(fn_t const& fn);
     bool o_peephole();
 private:
     using list_t = bi::list<asm_node_t>;

@@ -6005,7 +6005,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     }
 
     graph.finish_appending();
-    graph.optimize();
+    graph.optimize(fn);
     graph.optimize_live_registers();
     graph.remove_maybes(fn);
     graph.optimize_live_registers();

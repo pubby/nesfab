@@ -1124,6 +1124,8 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
                         co_loc.set_handle(co.id);
 
                         int const co_i = co->lvars().index(co_loc);
+                        if(co_i < 0)
+                            continue;
 
                         if(info.ptr_alt >= 0)
                         {

@@ -1135,7 +1135,7 @@ void fn_t::assign_lvars(lvars_manager_t&& lvars)
 
 void fn_t::assign_lvar_span(romv_t romv, unsigned lvar_i, span_t span)
 {
-    assert(lvar_i < m_lvar_spans[romv].size()); 
+    passert(lvar_i < m_lvar_spans[romv].size(), lvar_i, m_lvar_spans[romv].size()); 
     assert(!m_lvar_spans[romv][lvar_i]);
     passert(precheck_romv() & (1 << romv), global.name, (int)precheck_romv(), (int)romv);
 

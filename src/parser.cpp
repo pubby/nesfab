@@ -1508,14 +1508,16 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 
                 if(!is_ident(token.type))
                     compiler_error("Expecting X or Y.");
-                if(is_reg(token.pstring, 'x'))
+                if(is_reg(token.pstring, 'a'))
+                    tt = TOK_byte_block_bank_switch_a;
+                else if(is_reg(token.pstring, 'x'))
                     tt = TOK_byte_block_bank_switch_x;
                 else if(is_reg(token.pstring, 'y'))
                     tt = TOK_byte_block_bank_switch_y;
                 else if(to_lower(token.pstring.string(source())) == "ax"sv)
                     tt = TOK_byte_block_bank_switch_ax;
                 else
-                    compiler_error("Expecting X, Y, AX, or AY.");
+                    compiler_error("Expecting A, X, Y, or AX.");
 
                 parse_token();
                 children.push_back(policy().byte_block_bank_switch(pstring, tt, parse_mods(indent)));

@@ -22,11 +22,11 @@ mode main()
 
     // Animate the CHRROM:
     U frame = 0
-    {$8000}(frame)
+    state(frame)
     {PPUCTRL}(PPUCTRL_NMI_ON)
     {PPUMASK}(PPUMASK_ON)
     while true
-        {$8000}(frame)
+        state(frame)
         frame += 1
         frame &= %11
         wait(8)

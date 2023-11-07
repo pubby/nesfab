@@ -4071,6 +4071,39 @@ namespace isel
                 >(cpu, prev, cont);
                 break;
 
+            case MAPPER_CNROM: 
+                p_arg<2>::set(locator_t::addr(bankswitch_addr()));
+
+                if(mapper().bus_conflicts)
+                {
+                    chain
+                    < load_AX<Opt, p_arg<1>, p_arg<1>>
+                    , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                    , iota_op<Opt, STA_ABSOLUTE_X, null_>
+                    >(cpu, prev, cont);
+                }
+                else
+                {
+                    chain
+                    < load_A<Opt, p_arg<1>>
+                    , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<0>>
+                    , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<2>>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_X<Opt, p_arg<1>>
+                    , exact_op<Opt, STX_ABSOLUTE, null_, p_arg<0>>
+                    , exact_op<Opt, STX_ABSOLUTE, null_, p_arg<2>>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_Y<Opt, p_arg<1>>
+                    , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<0>>
+                    , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<2>>
+                    >(cpu, prev, cont);
+                }
+                break;
+
             case MAPPER_ANROM: 
             case MAPPER_GNROM: 
             case MAPPER_GTROM:

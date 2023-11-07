@@ -992,7 +992,7 @@ CNROM is similar to <<mapper_nrom, NROM>>, but has multiple CHR banks.
 | By default, no
 
 | <<kw_state, `state` Register>>
-| N/A
+| Sets CHR bank.
 
 | <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
 | N/A
@@ -1997,7 +1997,7 @@ Syntax:
 switch regs
 ----
 
-- `regs` specifies which registers are holding the bank to switch to. The accepted values are `x`, `y`, and `ax`,
+- `regs` specifies which registers are holding the bank to switch to. The accepted values are `a,` `x`, `y`, and `ax`,
   where `ax` requires registers A and X to hold the same value.
 
 Example:

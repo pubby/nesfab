@@ -1872,6 +1872,11 @@ void eval_t::do_byte_block(ast_node_t const& ast, asm_proc_t& proc)
                 proc.push_inst({ .op = JSR_ABSOLUTE, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::runtime_rom(RTROM_wait_nmi) });
             break;
 
+        case TOK_byte_block_bank_switch_a:
+            if(!is_check(D))
+                bankswitch_a(proc, proc.next_label_id(), false);
+            break;
+
         case TOK_byte_block_bank_switch_x:
             if(!is_check(D))
                 bankswitch_x(proc, proc.next_label_id());

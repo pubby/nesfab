@@ -54,7 +54,7 @@ fn load_level(CCC/levels level)
 
     // CHR:
     U chr_bank = read U(level)
-    {$8000}(chr_bank)
+    state(chr_bank)
 
     // Palette:
     load_palette(read CCC/palettes(level))

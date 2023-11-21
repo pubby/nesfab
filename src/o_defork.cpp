@@ -54,14 +54,12 @@ bool o_fork(log_t* log, ir_t& ir)
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it;)
     {
         {
-            cfg_node_t& cfg_node = *cfg_it;
-
-            unsigned const input_size = cfg_node.input_size();
-            if(input_size < 2)
+            unsigned const input_size = cfg_it->input_size();
+            if(input_size != 2)
                 goto next_iter;
 
             // Look for a single phi:
-            ssa_ht const phi = cfg_node.phi_begin();
+            ssa_ht const phi = cfg_it->phi_begin();
             if(!phi || phi.next() || phi->output_size() != 1)
                 goto next_iter;
 
@@ -75,18 +73,18 @@ bool o_fork(log_t* log, ir_t& ir)
             // The phi and CFG shouldn't loop:
             for(unsigned i = 0; i < input_size; ++i)
             {
-                if(cfg_node.input(i) == cfg_it)
+                if(cfg_it->input(i) == cfg_it)
                     goto next_iter;
                 if(phi->input(i).holds_ref() && phi->input(i)->cfg_node() == cfg_it)
                     goto next_iter;
             }
 
             // All other SSA nodes in the CFG node should be used only in that CFG node:
-            for(ssa_ht ssa = cfg_node.ssa_begin(); ssa; ++ssa)
+            for(ssa_ht ssa = cfg_it->ssa_begin(); ssa; ++ssa)
             {
                 bool const others_valid = for_each_output_with_links(ssa, [&](ssa_ht from, ssa_ht output)
                 {
-                    return output->cfg_node() == cfg_node.handle();
+                    return output->cfg_node() == cfg_it->handle();
                 });
 
                 if(!others_valid)
@@ -99,9 +97,9 @@ bool o_fork(log_t* log, ir_t& ir)
             // (Duplicated inputs will map to the same CFG node).
             fc::small_map<ssa_value_t, cfg_ht, 16> unique_map;
             unique_map.container.reserve(phi->input_size());
-            for(unsigned i = 0; i < cfg_node.input_size();)
+            for(unsigned i = 0; i < cfg_it->input_size();)
             {
-                auto ie = cfg_node.input_edge(i);
+                auto ie = cfg_it->input_edge(i);
                 assert(ie.handle != cfg_it);
                 auto result = unique_map.emplace(phi->input(i), cfg_ht{});
 
@@ -124,14 +122,14 @@ bool o_fork(log_t* log, ir_t& ir)
             // Split our input edges:
 
             fc::small_map<ssa_ht, ssa_ht, 32> clone_map;
-            for(unsigned i = 0; i < cfg_node.input_size();)
+            for(unsigned i = 0; i < cfg_it->input_size();)
             {
                 clone_map.clear();
-                cfg_ht const split = cfg_node.input(i);
+                cfg_ht const split = cfg_it->input(i);
                 assert(split->ssa_size() == 0);
 
                 // Copy nodes:
-                for(ssa_ht ssa = cfg_node.ssa_begin(); ssa; ++ssa)
+                for(ssa_ht ssa = cfg_it->ssa_begin(); ssa; ++ssa)
                 {
                     if(ssa == phi)
                         continue;
@@ -163,16 +161,16 @@ bool o_fork(log_t* log, ir_t& ir)
                 }
 
                 // Re-write outputs:
-                split->link_change_output(0, cfg_node.output(0), [&](ssa_ht phi)
+                split->link_change_output(0, cfg_it->output(0), [&](ssa_ht phi)
                 { 
-                    ssa_value_t v = phi->input(cfg_node.output_edge(0).index);
+                    ssa_value_t v = phi->input(cfg_it->output_edge(0).index);
                     assert(!v.holds_ref() || !clone_map.has(v.handle()));
                     assert(!v.holds_ref() || v.handle() != phi);
                     return v;
                 });
-                split->link_append_output(cfg_node.output(1), [&](ssa_ht phi)
+                split->link_append_output(cfg_it->output(1), [&](ssa_ht phi)
                 { 
-                    ssa_value_t v = phi->input(cfg_node.output_edge(1).index);
+                    ssa_value_t v = phi->input(cfg_it->output_edge(1).index);
                     assert(!v.holds_ref() || !clone_map.has(v.handle()));
                     assert(!v.holds_ref() || v.handle() != phi);
                     return v;
@@ -180,8 +178,8 @@ bool o_fork(log_t* log, ir_t& ir)
             }
 
             // Prune:
-            cfg_node.prune_ssa();
-            cfg_node.link_clear_outputs();
+            cfg_it->prune_ssa();
+            cfg_it->link_clear_outputs();
             cfg_it = ir.prune_cfg(cfg_it);
 
             updated = true;

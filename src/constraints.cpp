@@ -1243,9 +1243,9 @@ ABSTRACT(SSA_shr) = ABSTRACT_FN
     bits.known1 = (bits.known1 & mask) >> R_min;
 
     if(L.bounds.min >= 0)
-        bits.known0 |= (~(mask >> R_min) & mask);
+        bits.known0 |= ~(mask >> R_min) & mask;
     else if(L.bounds.max < 0)
-        bits.known1 |= (~(mask >> R_min) & mask);
+        bits.known1 |= ~(mask >> R_min) & mask;
 
     for(unsigned i = R_min; i < R_max; ++i)
     {
@@ -1258,8 +1258,8 @@ ABSTRACT(SSA_shr) = ABSTRACT_FN
 
     // Calc bounds
     bounds_t bounds;
-    bounds.min = L.bounds.min >> R_min;
-    bounds.max = L.bounds.max >> R_min;
+    bounds.min = std::min(L.bounds.min >> R_min, L.bounds.min >> R_max);
+    bounds.max = std::max(L.bounds.max >> R_max, L.bounds.max >> R_min);
     bounds.min &= supermask(mask);
     bounds.max &= supermask(mask);
     assert(bounds.min <= bounds.max);

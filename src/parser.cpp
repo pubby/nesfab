@@ -230,20 +230,16 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent, bool eol)
                 }
                 break;
             default:
-                if(eol)
-                    compiler_error("Unknown modifier.");
-                else
-                    goto done;
+                goto done;
             }
         }
 
-        if(eol)
+    done:
+
+        if(eol && token.type == TOK_eol)
             parse_line_ending();
         else 
-        {
-        done:
             break;
-        }
     }
 
     if(mods)
@@ -266,7 +262,7 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods_after(Fn const& fn, bool eol)
         line_break = { .offset = line_source - source(), .size = token_source - line_source, .file_i = file_i() };
 
     if(eol)
-        parse_line_ending();
+        mill_eol();
 
     return parse_mods(base_indent, eol);
 }
@@ -423,7 +419,8 @@ template<typename P>
 void parser_t<P>::mill_eol()
 {
     while(token.type == TOK_eol)
-        parse_line_ending();
+        if(parse_line_ending())
+            break;
 }
 
 template<typename P>

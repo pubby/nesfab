@@ -5865,9 +5865,9 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                         inst.arg = label;
 
                 // Handle switch:
-                if(auto* table = switch_tables.mapped(cfg))
+                if(auto* table = switch_tables.mapped(input))
                     for(locator_t& loc : *table)
-                        if(loc == locator_t::cfg_label(cfg))
+                        if(loc.cfg_node() == cfg)
                             loc = label;
 
                 // Also track loop depth:

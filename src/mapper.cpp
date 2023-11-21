@@ -310,6 +310,18 @@ mapper_t mapper_t::ines_30(mapper_params_t const& params)
     };
 }
 
+unsigned mapper_t::submapper() const
+{
+    switch(type)
+    {
+    default:
+        return 0;
+
+    case MAPPER_BNROM:
+        return 2;
+    }
+}
+
 void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
 {
     // https://www.nesdev.org/wiki/NES_2.0
@@ -346,6 +358,7 @@ void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
     // 8
     std::uint8_t flags8 = 0;
     flags8 |= (unsigned(mapper.type) >> 8) & 0b1111;
+    flags8 |= (mapper.submapper() << 4);
     at[8] = flags8;
 
     // 9

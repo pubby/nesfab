@@ -129,6 +129,8 @@ struct mapper_t
     }
     std::size_t ines_header_size() const { return 16; }
     bool bankswitches() const { return num_banks > 1; }
+
+    unsigned submapper() const;
 };
 
 

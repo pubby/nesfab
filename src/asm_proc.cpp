@@ -1040,7 +1040,10 @@ void asm_proc_t::write_bytes(std::uint8_t* const start, romv_t romv, int bank) c
     {
         loc = loc.link(romv, fn, bank);
         if(!is_const(loc.lclass()))
-            throw std::runtime_error(fmt("Unable to link % (This is probably a bug in the compiler)", loc));
+        {
+            compiler_warning(fmt("Unable to link % (This is probably a bug in the compiler) (%)", loc, fn ? fn->global.name : ""));
+            loc = locator_t::addr(0);
+        }
         return get_byte(loc);
     };
 

@@ -185,10 +185,9 @@ ssa_ht cset_append(ssa_value_t last, ssa_ht h)
 
     if(last.holds_ref())
     {
-
         ssa_ht last_h = last.handle();
 
-        assert(last_h != h);
+        passert(last_h != h, last_h);
         assert(!last_h || cset_is_last(last_h));
         assert(cset_locators_mergable(cset_locator(last_h), cset_locator(h)));
 

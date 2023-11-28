@@ -77,6 +77,21 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
         }
     });
 
+    // Returns:
+    {
+        type_t const return_type = fn->type().return_type();
+        unsigned const num_members = ::num_members(return_type);
+
+        for(unsigned j = 0; j < num_members; ++j)
+        {
+            type_t const member_type = ::member_type(return_type, j);
+            unsigned const num_atoms = ::num_atoms(member_type, 0);
+
+            for(unsigned k = 0; k < num_atoms; ++k)
+                insert_this_lvar(locator_t::ret(fn, j, k));
+        }
+    }
+
     // For modes, every arg is seen, as compilation may be done out of order:
     if(fn->fclass == FN_MODE)
     {

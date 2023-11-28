@@ -602,6 +602,10 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             dprint(log, "----CSET FOUND");
             ld.cset = cset_head(ld.cset);
 
+            // If they already are coalesced:
+            if(cset_head(node) == ld.cset)
+                return true;
+
             assert(cset_is_head(node));
             assert(cset_is_head(ld.cset));
             ssa_ht last = csets_dont_interfere(fn.handle(), ir, ld.cset, node, cache);

@@ -14,8 +14,9 @@
 // - Initializes the puf library. 
 // - 'system_type' is one of the standard system enumeration values, e.g. SYSTEM_NTSC.
 
-// puf.play_track(U track_id)
+// puf.play_track(U track_id) U
 // - Changes the current track to be played.
+// - Returns the speed of the track.
 
 // puf.stop(U unused)
 // - Halts the current track.
@@ -30,6 +31,9 @@
 // --- If enable has 'PUF_LOOP' set, the song will loop after completion.
 // --- If you want the typical behavior, pass 'PUF_DEFAULT' as the 'enable' parameter.
 // - Returns 'true' when the song ends and 'false' otherwise.
+
+// puf.set_speed(U speed)
+// - Sets the song's current speed to the desired value.
 
 ///////////////////////////////////////////////////////////////////////////////
 // How to compose PUF music: //////////////////////////////////////////////////
@@ -50,7 +54,8 @@
 // - Hi-pitch is not supported.
 // - Non-absolute arpeggio is not supported.
 // - Tempos besides 150 are not supported.
-// - Speeds lower than 4 are not supported.
+// - Speeds higher than 30 are not supported.
+// - Speeds lower than 4 incur a performance cost.
 // - Pattern "release" is not supported.
 // - Loop points are not supported.
 
@@ -120,7 +125,7 @@ ct AA puf_triangle_stack_next = puf_stack_mem + 33
 ct AA puf_square1_stack_next  = puf_stack_mem + 34
 ct AA puf_square2_stack_next  = puf_stack_mem + 35
 
-ct AA puf_track_speed         = puf_stack_mem + 36
+ct AA puf_track_speed         = puf_stack_mem + 36 // Note: This may not equal the actual speed.
 ct AA puf_track_start         = puf_stack_mem + 37 // 2 bytes
 ct AA puf_track_end           = puf_stack_mem + 39 // 2 bytes
 ct AA puf_pattern_size        = puf_stack_mem + 41
@@ -159,14 +164,24 @@ asm fn puf(U arg) Bool
         U(update_triangle_noise.a)
         U(update_squares.a)
         U(update_pattern_ptrs.a)
-        U[12](update_null.a)
+        U[26](update_null.a)
+        // After 30, feature a double-step for fast speeds:
+        U(update_triangle_noise_variables.a)
+        U(update_pattern_ptrs_squares.a)
+        U(update_null.a)
+        U(update_all.a)
 
     label track_step_function_hi
         U(update_variables.b)
         U(update_triangle_noise.b)
         U(update_squares.b)
         U(update_pattern_ptrs.b)
-        U[12](update_null.b)
+        U[26](update_null.b)
+        // After 30, feature a double-step for fast speeds:
+        U(update_triangle_noise_variables.b)
+        U(update_pattern_ptrs_squares.b)
+        U(update_null.b)
+        U(update_all.b)
 
     label play_sfx
         inc &puf_lock
@@ -309,7 +324,10 @@ asm fn puf(U arg) Bool
         ldx #0
         jmp do_skip
 
-
+    label update_all
+        jsr update_pattern_ptrs_squares
+    label update_triangle_noise_variables
+        jsr update_triangle_noise
     label update_variables
         ldy #0
 
@@ -434,6 +452,8 @@ asm fn puf(U arg) Bool
         rts
 
 
+    label update_pattern_ptrs_squares
+        jsr update_pattern_ptrs
     label update_squares
         ldy #0
 
@@ -879,8 +899,9 @@ asm fn puf(U arg) Bool
         switch y
 
         lda &puf_tracks_speed, x
-        sta puf_track_speed
-        sta puf_track_step
+        sta &return
+        jsr set_speed_from_a
+        sta puf_track_step // speed is in A
 
         lda &puf_tracks_pattern_size, x
         sta puf_pattern_size
@@ -921,4 +942,20 @@ asm fn puf(U arg) Bool
     label unlock
         dec &puf_lock
         rts
+
+    label set_speed
+        lda &arg
+    label set_speed_from_a
+        cmp #4
+        bcs store_speed
+        cmp #2
+        bcs double_speed
+        lda #34
+        bne store_speed
+    label double_speed
+        adc #30-1
+    label store_speed
+        sta puf_track_speed // Return with value in A
+        rts
+        
 

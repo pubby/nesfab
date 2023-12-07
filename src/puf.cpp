@@ -382,13 +382,14 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                 track.tempo = parse_int(words[3]);
                 for(unsigned i = 4; i < words.size(); ++i)
                     track.name += words[i];
-                tracks.push_back(track);
-                active_track = &tracks.back();
 
                 if(track.tempo != 150)
                     throw std::runtime_error("Track has a tempo not equal to 150.");
-                if(track.speed < 4)
-                    throw std::runtime_error("Track has a speed less than 4.");
+                if(track.speed > 30)
+                    throw std::runtime_error("Track has a speed more than 30.");
+
+                tracks.push_back(track);
+                active_track = &tracks.back();
             }
             else if(words[0] == "COLUMNS"sv)
             {

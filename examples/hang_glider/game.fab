@@ -151,6 +151,15 @@ fn load_level()
             {PPUDATA}($00)
         {PPUDATA}($1)
 
+    for U i = 0; i < 64; i += 1
+        {PPUDATA}($00)
+
+    {PPUADDR}($2B)
+    {PPUADDR}($C0)
+
+    for U i = 0; i < 64; i += 1
+        {PPUDATA}($00)
+
 mode game()
 : nmi game_nmi
 

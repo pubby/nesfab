@@ -676,6 +676,7 @@ int main()
         keyword("__mapper_reset"),
         keyword("__mapper"),
         keyword("__illegal"),
+        keyword("__controllers"),
         keyword("nmi_counter"),
         keyword("read"),
         keyword("write"),

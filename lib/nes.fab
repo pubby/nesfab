@@ -213,6 +213,7 @@ fn push_oam(U index, U x, U y, U p, U a) U
 
 // Code for reading and handling gamepad button presses.
 // See: https://www.nesdev.org/wiki/Standard_controller
+// NOTE: In NESFab, use the --controllers option to set the desired number of controllers.
 
 // Gamepad button flags:
 ct U BUTTON_A      = %10000000
@@ -234,27 +235,30 @@ struct Pad
 
 vars
     // [0] for the first controller, [1] for the second
-    Pad[2] pads = Pad[2]()
+    Pad[__controllers] pads = Pad[__controllers]() // __controllers is set by --controllers option.
 
-    [2] raw_pads
-        U[2](0)
+    U[__controllers] raw_pads = U[__controllers](0)
+    : +zero_page
 
 // Polls the current gamepad state into 'raw_pads'.
 // This does not update 'pads'; use 'update_pads' subsequently for that.
 // Ideally, you would call this in your NMI, once per frame.
+// NOTE: This supports the NES Four Score, but no other expansion.
+//       See "famicom.fab" if you need to support Famicom expansion controllers / Hori!
+// NOTE: This is unsafe with the DMC glitch. Do not mix this with DPCM sounds!
 fn poll_pads()
     ppu_upload_oam_poll_pads.done_oam(0)
 
 // Polls the current gamepad state into 'raw_pads' while also uploading OAM.
 // This does not update 'pads'; use 'update_pads' subsequently for that.
 // Ideally, you would call this in your NMI, once per frame.
+// NOTE: This supports the NES Four Score, but no other expansion.
+//       See "famicom.fab" if you need to support Famicom expansion controllers / Hori!
+// NOTE: This correctly handles the DMC glitch.
 asm fn ppu_upload_oam_poll_pads(U oam_offset)
 : employs
 : +align
 : +static
-    vars
-        [2] polled
-        : +zero_page
     default
         lda &oam_offset
         sta OAMADDR
@@ -262,76 +266,101 @@ asm fn ppu_upload_oam_poll_pads(U oam_offset)
         sta OAMDMA
     label done_oam
         ldx #1
-        stx &polled+0
+        stx &raw_pads+0
         stx $4016
         dex
         stx $4016
     label loop
-        lda $4017
-        lsr
-        rol &polled+1, x
+        if __controllers > 1
+            lda $4017
+            lsr
+            rol &raw_pads+1, x
         lda $4016
         lsr
-        rol &polled+0
+        rol &raw_pads+0
         bcc loop
 
-        lda &polled+0
-        sta &raw_pads+0
-        lda &polled+1
-        sta &raw_pads+1
+        if __controllers > 2
+            lda #1
+            sta &raw_pads+2
+    label loop_four_score
+        if __controllers > 2
+            if __controllers > 3
+                lda $4017
+                lsr
+                rol &raw_pads+3, x
+            lda $4016
+            lsr
+            rol &raw_pads+2
+            bcc loop_four_score
+
+            // Check to make sure the four-score is enabled:
+            if __controllers > 3
+                lda $4017
+                ora $4017
+                eor $4017
+            else
+                lda $4016
+                ora $4016
+                ora $4016
+                eor $4016
+            lsr
+            bcs done_four_score
+            if __controllers > 3
+                stx &raw_pads+3
+            stx &raw_pads+2
+    label done_four_score
 
         rts
+
+// Polls a single pad, returning the result.
+asm fn poll_pad(U pad_id) U
+: employs
+    default
+        ldx #1
+        stx &return
+        stx $4016
+        dex
+        stx $4016
+        ldx &pad_id
+    label loop
+        lda $4016, x
+        lsr
+        rol &return
+        bcc loop
+        rts
+
+// Polls a single pad, returning the result.
+// NOTE: This version correctly handles the DMC glitch.
+fn poll_pad_safe(U pad_id) U
+    U prev = poll_pad(pad_id)
+    while true
+        U next = poll_pad(pad_id)
+        if next == prev
+            return next
+        prev = next
+
+// Polls every pad, storing the result in 'raw_pads'.
+// NOTE: This version correctly handles the DMC glitch.
+fn poll_pads_safe()
+    for U i = 0; i < __controllers; i += 1
+        raw_pads[i] = poll_pad_safe(i)
+
+// Updates a single pad ('pad') with new input ('raw_held'), returning it.
+fn update_pad(Pad pad, U raw_held) Pad
+: +inline
+    pad.pressed  = ~pad.held & raw_held
+    pad.released = ~raw_held & pad.held
+    pad.held = raw_held
+    return pad
 
 // Updates 'pads' based on the last polled state.
 // Call 'poll_pads' or 'ppu_upload_oam_poll_pads' first.
 // Ideally, you would call this at the start of your game logic
 // (which may occur less than once per frame).
-asm fn update_pads()
-: employs
-    default
-        if __illegal
-            lda &pads.held+0
-            eor #$FF
-            ldx &raw_pads+0
-            sax &pads.pressed+0
-            txa
-            eor #$FF
-            and &pads.held+0
-            sta &pads.released+0
-            stx &pads.held+0
-
-            lda &pads.held+1
-            eor #$FF
-            ldx &raw_pads+1
-            sax &pads.pressed+1
-            txa
-            eor #$FF
-            and &pads.held+1
-            sta &pads.released+1
-            stx &pads.held+1
-        else
-            lda &raw_pads+0
-            tax
-            eor #$FF
-            and &pads.held+0
-            sta &pads.released+0
-            lda &pads.held+0
-            eor $FF
-            and &raw_pads+0
-            sta &pads.pressed+0
-            stx &pads.held+0
-            
-            lda &raw_pads+1
-            tax
-            eor #$FF
-            and &pads.held+1
-            sta &pads.released+1
-            lda &pads.held+1
-            eor $FF
-            and &raw_pads+1
-            sta &pads.pressed+1
-            stx &pads.held+1
-        rts
+fn update_pads()
+    for U i = 0; i < __controllers; i += 1
+        pads[i] = update_pad(pads[i], raw_pads[i])
 
 ///////////////////////////////////////////////////////////////////////////////
 // PALETTE ////////////////////////////////////////////////////////////////////

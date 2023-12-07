@@ -794,6 +794,7 @@ retry:
     case TOK___mapper_reset:
     case TOK___mapper:
     case TOK___illegal:
+    case TOK___controllers:
     case TOK_nmi_counter:
         {
             ast_node_t ast = { .token = token };

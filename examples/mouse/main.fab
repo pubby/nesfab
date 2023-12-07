@@ -1,0 +1,84 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example displays a sprite controlled by a SNES mouse.
+// When the mouse is not connected, display a '?' instead, controllable by a standard pad.
+
+vars
+    // Our movable sprite:
+    U x = 128-4
+    U y = 120-4
+    U a = 0
+
+nmi game_nmi()
+    // Update OAM:
+    ppu_upload_oam(0)
+
+    // Turn on rendering:
+    {PPUMASK}(PPUMASK_SPR_ON | PPUMASK_NO_CLIP)
+
+    // Reset the scroll
+    ppu_reset_scroll(0, 0)
+
+mode main()
+: nmi game_nmi
+    palette = example_palette
+    ppu_upload_palette()
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+
+    // It's a good idea to set the sensitivity first.
+    set_mouse_sensitivity(0, 0)
+
+    while true
+        nmi
+
+        // This reads the mice (or gamepad), updating 'pads' and 'mice'.
+        poll_and_update_mice()
+
+        move_player()
+        update_sprites()
+
+fn move_player()
+    if mouse_connected(mice[0])
+        // Move the sprite based on mouse movement:
+        x += mice[0].dx
+        y += mice[0].dy
+
+        // Left clicks change the sprite's attribute:
+        if mice[0].buttons.pressed & MOUSE_BUTTON_LEFT
+            a += 1
+            a &= %11
+
+        // Right clicks cycle the sensitivity:
+        if mice[0].buttons.pressed & MOUSE_BUTTON_RIGHT
+            cycle_mouse_sensitivity()
+    else 
+        // Control via standard game pad if the mouse isn't connected:
+
+        if pads[0].held & BUTTON_LEFT
+            x -= 1
+        else if pads[0].held & BUTTON_RIGHT
+            x += 1
+
+        if pads[0].held & BUTTON_UP
+            y -= 1
+        else if pads[0].held & BUTTON_DOWN
+            y += 1
+
+fn update_sprites()
+    // Our stack index into OAM:
+    U o = 0
+
+    U p = $00
+    if mouse_connected(mice[0])
+        p = $01
+    o = push_oam(o, x, y, p, a)
+
+    // Clear the remainder of OAM
+    hide_oam(o)
+
+chrrom
+    file(fmt, "sprite.png")

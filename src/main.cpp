@@ -214,6 +214,13 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("system"))
         _options.raw_system = vm["system"].as<std::string>();
 
+    if(vm.count("controllers"))
+    {
+        _options.controllers = vm["controllers"].as<int>();
+        if(_options.controllers < 1 || _options.controllers > 8)
+            throw std::runtime_error(fmt("Invalid controller number: %", _options.controllers));
+    }
+
     if(vm.count("info") || vm.count("ir-info"))
         _options.ir_info = true;
 
@@ -301,6 +308,7 @@ int main(int argc, char** argv)
             po::options_description code_opt("Other options");
             code_opt.add_options()
                 ("system,S", po::value<std::string>(), "target NES system")
+                ("controllers,C", po::value<int>(), "maximum number of controllers used")
                 ("unsafe-bank-switch", "faster but less safe bank switches")
                 ("mlb", po::value<std::string>(), "generate Mesen label file")
                 ("ctags", po::value<std::string>(), "generate Ctags file")

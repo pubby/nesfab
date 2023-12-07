@@ -1,0 +1,63 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This example displays 4 movable characters, each controlled by their own controller.
+
+struct Player
+    U x
+    U y
+
+vars
+    // Our players:
+    Player[4] pl = Player[4](Player(128-4, 120-4))
+    U num_players = 4
+
+nmi game_nmi()
+    // Update OAM and poll the pads:
+    ppu_upload_oam_poll_pads(0)
+
+    // Turn on rendering:
+    {PPUMASK}(PPUMASK_SPR_ON | PPUMASK_NO_CLIP)
+
+    // Reset the scroll
+    ppu_reset_scroll(0, 0)
+
+mode main()
+: nmi game_nmi
+    palette = example_palette
+    ppu_upload_palette()
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+
+    while true
+        nmi
+        update_pads()
+        move_players()
+        update_sprites()
+
+fn move_players()
+    for U i = 0; i < num_players; i += 1
+        if pads[i].held & BUTTON_LEFT
+            pl[i].x -= 1
+        else if pads[i].held & BUTTON_RIGHT
+            pl[i].x += 1
+
+        if pads[i].held & BUTTON_UP
+            pl[i].y -= 1
+        else if pads[i].held & BUTTON_DOWN
+            pl[i].y += 1
+
+fn update_sprites()
+    // Our stack index into OAM:
+    U o = 0
+
+    for U i = 0; i < num_players; i += 1
+        o = push_oam(o, pl[i].x, pl[i].y, i, i)
+
+    // Clear the remainder of OAM
+    hide_oam(o)
+
+chrrom
+    file(fmt, "sprite.png")

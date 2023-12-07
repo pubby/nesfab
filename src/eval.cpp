@@ -2550,6 +2550,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             return result;
         }
 
+    case TOK___controllers:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::CONTROLLERS_ARG },
+                .type = TYPE_INT,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            result.assert_valid();
+            return result;
+        }
+
     case TOK_nmi_counter:
         {
             expr_value_t result =
@@ -5064,8 +5079,9 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
     if(lval_t* lval = v.is_lval())
     {
-        if(lval->arg == lval_t::READY_ARG)
+        switch(lval->arg)
         {
+        case lval_t::READY_ARG:
             if(is_compile(D))
                 v.val = rval_t{ builder.cfg->emplace_ssa(SSA_ready, TYPE_BOOL) };
             else if(is_interpret(D))
@@ -5077,9 +5093,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             }
 
             return v;
-        }
-        else if(lval->arg == lval_t::SYSTEM_ARG)
-        {
+
+        case lval_t::SYSTEM_ARG:
             if(compiler_options().nes_system == NES_SYSTEM_DETECT)
             {
                 if(is_compile(D))
@@ -5091,9 +5106,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 v.val = rval_t{ ssa_value_t(unsigned(compiler_options().nes_system), TYPE_U) };
 
             return v;
-        }
-        else if(lval->arg == lval_t::STATE_ARG)
-        {
+
+        case lval_t::STATE_ARG:
             if(is_compile(D))
             {
                 ssa_ht h = builder.cfg->emplace_ssa(SSA_read_mapper_state, TYPE_U);
@@ -5109,9 +5123,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             }
 
             return v;
-        }
-        else if(lval->arg == lval_t::NMI_COUNTER_ARG)
-        {
+
+        case lval_t::NMI_COUNTER_ARG:
             if(is_compile(D))
             {
                 ssa_ht h = builder.cfg->emplace_ssa(SSA_nmi_counter, TYPE_U);
@@ -5127,24 +5140,29 @@ expr_value_t eval_t::to_rval(expr_value_t v)
             }
 
             return v;
-        }
-        else if(lval->arg == lval_t::MAPPER_ARG)
-        {
+
+        case lval_t::MAPPER_ARG:
             v.val = rval_t{ ssa_value_t(unsigned(mapper().type), TYPE_INT) };
             return v;
-        }
-        else if(lval->arg == lval_t::ILLEGAL_ARG)
-        {
+
+        case lval_t::ILLEGAL_ARG:
             v.val = rval_t{ ssa_value_t(unsigned(!compiler_options().legal), TYPE_BOOL) };
             return v;
-        }
-        else if(lval->arg == lval_t::MAPPER_DETAIL_ARG
-                || lval->arg == lval_t::MAPPER_RESET_ARG)
-        {
+
+        case lval_t::CONTROLLERS_ARG:
+            v.val = rval_t{ ssa_value_t(unsigned(compiler_options().controllers), TYPE_INT) };
+            return v;
+
+        case lval_t::MAPPER_DETAIL_ARG:
+        case lval_t::MAPPER_RESET_ARG:
             compiler_error(v.pstring, "Expression cannot be evaluated.");
-        }
-        else if(lval->arg == lval_t::RETURN_ARG)
+
+        case lval_t::RETURN_ARG:
             compiler_error(v.pstring, "Cannot access the value of return.");
+
+        default:
+            break;
+        }
 
         type_t type = {};
         rval_t rval;

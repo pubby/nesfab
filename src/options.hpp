@@ -65,6 +65,8 @@ struct options_t
     mapper_t mapper;
     std::string output_file = "a.nes";
 
+    int controllers = 2; 
+
     unsigned num_fab = 0;
     std::vector<source_t> source_names;
     rh::batman_map<std::string, source_t> macro_names;

@@ -1,0 +1,115 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for interfacing with Famicoms.
+
+// This file depends on:
+// - 'nes.fab'
+
+///////////////////////////////////////////////////////////////////////////////
+// PAD ////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Polls the microphone bit on the second Famicom controller.
+// NOTE: Not every Famicom system has this feature.
+fn famicom_microphone() Bool
+    return {$4016}() & %100
+
+// Polls the current gamepad state into 'raw_pads'.
+// This does not update 'pads'; use 'update_pads' subsequently for that.
+// Unlike 'poll_pads', this version supports JoyPair, Twin Adaptor, Hori, etc.
+// NOTE: This is unsafe with the DMC glitch. Do not mix this with DPCM sounds!
+// (This code was adapted from code written by Miau, original copyright him.)
+asm fn poll_famicom_pads()
+: employs
+    vars
+        U[3] bits_0_of_4016
+        U[3] bits_1_of_4016
+        U[3] bits_0_of_4017
+        U[3] bits_1_of_4017
+
+    default
+        // Reset strobe bit:
+        ldy #1
+        sty $4016
+        dey
+        sty $4016
+
+        // Read the controllers:
+        ldx #2
+    label byte_loop
+        ldy #8
+    label read_loop
+        lda $4016
+        lsr
+        rol &bits_0_of_4016,x
+        lsr
+        rol &bits_1_of_4016,x
+        lda $4017
+        lsr
+        rol &bits_0_of_4017,x
+        lsr
+        rol &bits_1_of_4017,x
+        dey
+        bne read_loop
+        dex
+        bpl byte_loop
+
+        // Copy to 'raw_pads':
+    if __controllers > 2
+        lda &bits_0_of_4016+2
+        sta &raw_pads+0
+        lda &bits_1_of_4016+2
+        sta &raw_pads+2
+    else
+        lda &bits_0_of_4016+2
+        ora &bits_1_of_4016+2
+        sta &raw_pads+0
+
+    if __controllers > 3
+        lda &bits_0_of_4017+2
+        sta &raw_pads+1
+        lda &bits_1_of_4017+2
+        sta &raw_pads+3
+    else
+        lda &bits_0_of_4017+2
+        ora &bits_1_of_4017+2
+        sta &raw_pads+1
+
+    if __controllers > 2
+        // Detect four-score:
+        lda #%00010000
+        cmp &bits_0_of_4016+0
+        bne done_four_score
+        asl
+        cmp &bits_0_of_4017+0
+        bne done_four_score
+        lda &bits_0_of_4016+1
+        ora &raw_pads+2
+        sta &raw_pads+2
+        if __controllers > 3
+            lda &bits_0_of_4017+1
+            ora &raw_pads+3
+            sta &raw_pads+3
+        rts // return
+    label done_four_score
+
+    if __controllers > 2
+        // Detect hori:
+        cmp &bits_0_of_4016+0
+        bne done_hori
+        lsr
+        cmp &bits_0_of_4017+0
+        bne done_hori
+        lda &bits_1_of_4016+1
+        ora &raw_pads+2
+        sta &raw_pads+2
+        if __controllers > 3
+            lda &bits_1_of_4017+1
+            ora &raw_pads+3
+            sta &raw_pads+3
+    label done_hori
+        rts

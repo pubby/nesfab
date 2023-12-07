@@ -10,6 +10,8 @@ void pass1_t::uses_type(type_t type, idep_class_t calc)
         ideps.emplace(const_cast<global_t*>(&type.global()), idep_pair_t{ .calc = calc, .depends_on = IDEP_TYPE });
     else if(type.name() == TYPE_FN_PTR)
         ideps.emplace(const_cast<global_t*>(&type.fn_set().global), idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
+    else if(type.name() == TYPE_TEA_THUNK)
+        uses_type(type.tea_thunk().elem_type);
     else if(has_type_tail(type.name()))
     {
         unsigned const size = type.type_tail_size();

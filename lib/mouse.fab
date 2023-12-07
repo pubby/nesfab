@@ -1,0 +1,136 @@
+
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Code for interfacing with the SNES mouse.
+
+// Indexes into our U[4] mouse array:
+ct Int MOUSE_PAD   = 0
+ct Int MOUSE_FLAGS = 1
+ct Int MOUSE_V     = 2
+ct Int MOUSE_H     = 3
+
+// Button bit flags:
+ct U MOUSE_BUTTON_LEFT      = %01000000
+ct U MOUSE_BUTTON_RIGHT     = %10000000
+ct U MOUSE_BUTTON_CONNECTED = %00000001 // This is true when the mouse is connected, false otherwise.
+
+// How many mice can be used:
+ct Int MAX_MICE = min(2, __controllers)
+
+// This struct provides an interface to a single mouse.
+struct Mouse
+    Pad buttons // Use MOUSE_BUTTON_LEFT, etc. 'buttons.held' matches the raw 'MOUSE_FLAGS' value.
+    S dx // Amount of horizontal movement since last poll.
+    S dy // Amount of vertical movement since last poll.
+
+vars
+    // Stores the current mouse readings.
+    Mouse[MAX_MICE] mice = Mouse[MAX_MICE]()
+
+// Reads the current mouse state, returning it as a 4-byte array.
+// NOTE: This is unsafe with the DMC glitch. Do not mix this with DPCM sounds!
+asm fn poll_mouse(U mouse_id) U[4]
+: employs
+    default
+        // Reset the strobe:
+        ldx #1
+        stx &return+0
+        stx &return+1
+        stx &return+2
+        stx &return+3
+        stx $4016
+        dex
+        stx $4016
+
+        ldy &mouse_id
+    label byte_loop
+    label bit_loop
+        lda $4016, y
+        lsr
+        rol &return, x
+        bcc bit_loop
+        pha // nops to handle the "Hyper Click"
+        pla
+        inx
+        cpx #4
+        bne byte_loop
+
+        rts
+
+// Polls all mice, storing their converted results into 'mice'.
+// If a mouse isn't connected, it instead stores and updates 'pads' and 'raw_pads'.
+// NOTE: This is unsafe with the DMC glitch. Do not mix this with DPCM sounds!
+fn poll_and_update_mice()
+    for U i = 0; i < MAX_MICE; i += 1
+        U[4] raw = poll_mouse(i)
+        mice[i] = update_mouse(mice[i], raw)
+        if mouse_connected(mice[i]) 
+            raw_pads[i] = 0
+            pads[i] = Pad()
+        else
+            // If the mouse is disconnected, update gamepad instead:
+            raw_pads[i] = raw[MOUSE_PAD]
+            pads[i] = update_pad(pads[i], raw_pads[i])
+
+// Updates a single mouse value ('mouse') with new inputs ('raw'), returning it.
+fn update_mouse(Mouse mouse, U[4] raw) Mouse
+: +inline
+    if raw_mouse_connected(raw)
+        mouse.buttons = update_pad(mouse.buttons, raw[MOUSE_FLAGS])
+        mouse.dy = raw_mouse_displacement(raw[MOUSE_V])
+        mouse.dx = raw_mouse_displacement(raw[MOUSE_H])
+    else
+        mouse.dy = 0
+        mouse.dx = 0
+        mouse.buttons = update_pad(mouse.buttons, 0)
+    return mouse
+
+// Given a single displacement value of a raw mouse reading,
+// convert it to a signed two's complement.
+fn raw_mouse_displacement(U raw) S
+: +inline
+    if raw >= $80
+        return S(raw ^ $7F) + 1
+    return S(raw)
+
+// Given a raw mouse reading, returns if it is connected.
+fn raw_mouse_connected(U[4] raw) Bool
+: +inline
+    return (raw[MOUSE_FLAGS] & %1111) == %0001
+
+// Given a raw mouse reading, returns the sensitivity.
+fn raw_mouse_sensitivity(U[4] raw) U
+: +inline
+    return (raw[MOUSE_FLAGS] >> 4) & %11
+
+// Given a 'Mouse' value, returns if it is connected.
+fn mouse_connected(Mouse mouse) Bool
+: +inline
+    return mouse.buttons.held & MOUSE_BUTTON_CONNECTED
+
+// Given a 'Mouse' value, returns its sensitivity.
+fn mouse_sensitivity(Mouse mouse) U
+: +inline
+    return (mouse.buttons.held >> 4) & %11
+
+// Sets the mouse sensitivity of 'mouse_id' to 'sensitivity', 
+// which should be in the range [0, 2].
+fn set_mouse_sensitivity(U mouse_id, U sensitivity)
+    for U attempts = 0; attempts < 3; attempts += 1
+        U[4] mouse = poll_mouse(mouse_id)
+        if !raw_mouse_connected(mouse) || raw_mouse_sensitivity(mouse) == sensitivity
+            break
+        cycle_mouse_sensitivity()
+
+// Changes the mouse's sensitivity to the next value.
+// (You probably want 'set_mouse_sensititivy' instead!)
+fn cycle_mouse_sensitivity()
+: +inline
+    {$4016}(1)
+    {$4016}()
+    {$4016}(0)
+

@@ -215,6 +215,8 @@ fn push_oam(U index, U x, U y, U p, U a) U
 // See: https://www.nesdev.org/wiki/Standard_controller
 // NOTE: In NESFab, use the --controllers option to set the desired number of controllers.
 
+// Typically, the functions you want are: 'ppu_upload_oam_poll_pads' and 'update_pads'.
+
 // Gamepad button flags:
 ct U BUTTON_A      = %10000000
 ct U BUTTON_B      = %01000000
@@ -339,12 +341,6 @@ fn poll_pad_safe(U pad_id) U
         if next == prev
             return next
         prev = next
-
-// Polls every pad, storing the result in 'raw_pads'.
-// NOTE: This version correctly handles the DMC glitch.
-fn poll_pads_safe()
-    for U i = 0; i < __controllers; i += 1
-        raw_pads[i] = poll_pad_safe(i)
 
 // Updates a single pad ('pad') with new input ('raw_held'), returning it.
 fn update_pad(Pad pad, U raw_held) Pad

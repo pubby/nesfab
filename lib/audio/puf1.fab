@@ -383,7 +383,11 @@ asm fn puf(U arg) Bool
         bcc done_dpcm
 
         inc &puf_dpcm_pattern_ptr.a
-        lax (&puf_dpcm_pattern_ptr.a), y
+        if __illegal
+            lax (&puf_dpcm_pattern_ptr.a), y
+        else
+            lda (&puf_dpcm_pattern_ptr.a), y
+            tax
         beq silence_dpcm
         lda &puf_dpcm_rate-1, x
         and #%01001111
@@ -427,7 +431,11 @@ asm fn puf(U arg) Bool
         sta puf_triangle_stack_next
         inc &puf_triangle_pattern_ptr.a
         ldy #0
-        lax (&puf_triangle_pattern_ptr.a), y
+        if __illegal
+            lax (&puf_triangle_pattern_ptr.a), y
+        else
+            lda (&puf_triangle_pattern_ptr.a), y
+            tax
         ldy puf_triangle_stack_next
         jsr write_instrument
         inc &puf_triangle_pattern_ptr.a
@@ -443,7 +451,11 @@ asm fn puf(U arg) Bool
         sta puf_noise_stack_next
         inc &puf_noise_pattern_ptr.a
         ldy #0
-        lax (&puf_noise_pattern_ptr.a), y
+        if __illegal
+            lax (&puf_noise_pattern_ptr.a), y
+        else
+            lda (&puf_noise_pattern_ptr.a), y
+            tax
         ldy puf_noise_stack_next
         jsr write_instrument
         inc &puf_noise_pattern_ptr.a
@@ -467,7 +479,11 @@ asm fn puf(U arg) Bool
         sta puf_square1_stack_next
         inc &puf_square1_pattern_ptr.a
         ldy #0
-        lax (&puf_square1_pattern_ptr.a), y
+        if __illegal
+            lax (&puf_square1_pattern_ptr.a), y
+        else
+            lda (&puf_square1_pattern_ptr.a), y
+            tax
         ldy puf_square1_stack_next
         jsr write_instrument
         inc &puf_square1_pattern_ptr.a
@@ -483,7 +499,11 @@ asm fn puf(U arg) Bool
         sta puf_square2_stack_next
         inc &puf_square2_pattern_ptr.a
         ldy #0
-        lax (&puf_square2_pattern_ptr.a), y
+        if __illegal
+            lax (&puf_square2_pattern_ptr.a), y
+        else
+            lda (&puf_square2_pattern_ptr.a), y
+            tax
         ldy puf_square2_stack_next
         jsr write_instrument
         inc &puf_square2_pattern_ptr.a
@@ -539,8 +559,14 @@ asm fn puf(U arg) Bool
         bmi update_track_ptr
         jmp reset_init
     label update_track_ptr
-        lax &puf_track_ptr.a
-        axs #-10
+        if __illegal
+            lax &puf_track_ptr.a
+            axs #-10
+        else
+            lda &puf_track_ptr.a
+            clc
+            adc #10
+            tax
         lda #0
         sta puf_finished
         tay              // Set Y = 0 for mask loads.              
@@ -931,8 +957,12 @@ asm fn puf(U arg) Bool
         lda #%11111
         sta puf_enable
 
-        // SAX = store 0
-        sax puf_pattern_left
+        if __illegal
+            // SAX = store 0
+            sax puf_pattern_left
+        else
+            lda #0
+            sta puf_pattern_left
 
         jsr update_pattern_ptrs
         jsr update_squares

@@ -24,3 +24,6 @@ set -x #echo on
 ../nesfab meta_meta_tiles/meta_meta_tiles.cfg
 ../nesfab fn_ptr/fn_ptr.cfg
 ../nesfab animation/animation.cfg
+../nesfab music/music.cfg
+../nesfab mouse/mouse.cfg
+../nesfab 4_player/4_player.cfg

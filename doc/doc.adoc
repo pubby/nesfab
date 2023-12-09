@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 1.1
+Version 1.3
 :sectnums:
 :toc2:
 :toclevels: 3
@@ -60,6 +60,16 @@ The most flagrant ones are listed below.
 - Division is unsupported at the language level.
 - Array operators (`[]` and `{}`) are split into 8-bit and 16-bit versions, with the 8-bit versions having better performance.
 - Types are not implicitly promoted. Different operators have different rules for how differing types are handled.  
+
+== Illegal Instructions [[illegal_ops]]
+
+By default, NESFab makes use of the system's https://en.wikipedia.org/wiki/Illegal_opcode[illegal opcodes], 
+which provide small performance gains when used.
+Although widely supported, some emulators and clone devices may not handle these instructions and so it can be desirable to compile without them.
+
+To compile without illegal instructions, pass `ISA=LEGAL` to `Make` when building the compiler.
+
+See the <<kw_illegal, `__illegal` keyword>> for how to programatically check if illegal opcodes are supported.
 
 == Getting Started
 
@@ -483,6 +493,31 @@ system = ntsc
 
 [NOTE]
 `detect` has a small runtime penalty.
+
+=== `controllers` (`-C`) [[opt_controllers]]
+
+Specifies the maximum number of controllers the game will use.
+This option determines the language's <<kw_controllers, `__controllers` value>>.
+It has no other purpose.
+
+Arguments from 1 to 8 are accepted.
+
+By default, the value is 2.
+
+*Command-line usage:*
+----
+nesfab --controllers 2
+----
+
+*Configuration file usage:*
+----
+controllers = 2
+----
+
+[NOTE]
+Just because the compiler accepts a `sram` value does not mean that corresponding hardware exists in the real world.
+Only the default `sram` value is asserted to be commonly available.
+
 
 === `unsafe-bank-switch` [[opt_unsafe_bank_switch]]
 
@@ -1808,6 +1843,29 @@ if expression
 The conditional expression of `if` will be converted to `Bool`.
 If this evaluates to `true`, the body of the `if` statement will be executed.
 
+==== `if` statement (byte block) [[kw_if_asm]]
+
+In byte blocks, the `if` statement enables conditional compilation of byte block data.
+
+Syntax:
+----
+if condition
+    byte block
+----
+
+- `condition` is a compile-time constant value convertable to `Bool`.
+
+Example:
+----
+lda #10
+if MY_CONSTANT == 3
+    sta &foo
+tax
+----
+
+[NOTE]
+In the current implementation, labels cannot exist inside conditional blocks.
+
 === `else`
 
 The `else` <<statement, statement>> allows for control flow to branch between two <<blocks, code blocks>>.
@@ -1836,6 +1894,10 @@ else if expression
 else
     code block
 ----
+
+==== `else` (byte block) [[kw_else_asm]]
+
+Like <<kw_if_asm>>, `else` is also usable in byte blocks.
 
 === `while` [[kw_while]]
 
@@ -4129,6 +4191,33 @@ See <<mod_stows>>.
 === `employs` [[kw_employs]]
 
 See <<mod_employs>>.
+
+=== Implementation Keywords
+
+Keywords prefixed with two underscores (`__`) provide access to specific niches of the compiler,
+and are primarily intended for use in the standard library, not by users.
+
+==== `__controllers` [[kw_controllers]]
+
+`__controllers` is a value of type `Int` which returns the value set by the <<opt_controllers, `--controllers` option>>.
+
+==== `__mapper` [[kw_mapper]]
+
+`__mapper` is a value of type `Int` which returns the INES mapper number set by the <<opt_mapper, `--mapper` option>>.
+
+==== `__illegal` [[kw_illegal]]
+
+`__illegal` is a value of type `Bool` which returns true when the compiler supports the generation of <<illegal_ops, illegal instructions>>.
+
+==== `__mapper_state` [[kw_mapper_state]]
+
+`__mapper_detail` is a value used by specific mappers (such as MMC1) to workaround interrupts that occur during bank switches. 
+It is not recommended to use this keyword.
+
+==== `__mapper_reset` [[kw_mapper_reset]]
+
+`__mapper_reset` is a function used by specific mappers (such as MMC1) to reset their state. 
+It is not recommended to use this keyword.
 
 == Modifiers [[modifiers]]
 

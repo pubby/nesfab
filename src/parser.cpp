@@ -1361,7 +1361,8 @@ var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group, bool all
 
 template<typename P>
 template<typename Children>
-bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, bool is_vars, bool is_banked, Children& children)
+bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, 
+                                   bool is_vars, bool is_banked, bool conditional, Children& children)
 {
     bool proc = false;
 
@@ -1402,6 +1403,9 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
         case TOK_label:
         case TOK_default:
             {
+                if(conditional)
+                    compiler_error("Label inside a conditional if/else block.");
+
                 proc = true;
                 unsigned const label_indent = indent;
                 bool const is_default = token.type == TOK_default;
@@ -1416,7 +1420,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 parse_line_ending();
                 children.push_back(policy().byte_block_label(name, global.handle(), group, is_vars, is_default, is_banked, nullptr));
 
-                proc |= parse_byte_block(decl, label_indent, global, group, is_vars, is_banked, children);
+                proc |= parse_byte_block(decl, label_indent, global, group, is_vars, is_banked, conditional, children);
             }
             return;
 
@@ -1462,8 +1466,9 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                     });
                 }
 
-                for(auto const& named_value : c.named_values)
-                    policy().byte_block_named_value(file_pstring, named_value.name, named_value.value);
+                if(!conditional)
+                    for(auto const& named_value : c.named_values)
+                        policy().byte_block_named_value(file_pstring, named_value.name, named_value.value);
             });
             break;
 
@@ -1536,7 +1541,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 parse_line_ending();
                 auto mods = parse_mods(if_indent);
 
-                parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, sub_children);
+                parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, true, sub_children);
 
                 if_children.push_back(
                 {
@@ -1557,7 +1562,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 
                     parse_token();
                     parse_line_ending();
-                    parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, sub_children);
+                    parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, true, sub_children);
 
                     if_children.push_back(
                     {
@@ -1696,11 +1701,12 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 }
 
 template<typename P>
-ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, bool is_vars, bool is_banked)
+ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, 
+                                         bool is_vars, bool is_banked)
 {
     bc::small_vector<ast_node_t, 32> children;
 
-    bool const proc = parse_byte_block(decl, block_indent, global, group, is_vars, is_banked, children);
+    bool const proc = parse_byte_block(decl, block_indent, global, group, is_vars, is_banked, false, children);
 
     return
     {

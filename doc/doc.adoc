@@ -1500,7 +1500,7 @@ To the compiler, the purpose of groups are:
 - In a <<mod_vars>> modifier.
 - In a <<mod_data>> modifier.
 
-*How dones one use groups?*
+*How does one use groups?*
 
 For variables, it often makes sense to have at least one `vars` group per `mode`:
 ----
@@ -1829,7 +1829,7 @@ Currently, function pointers cannot be called from `asm fn` contexts.
 
 == Keywords
 
-=== `if`
+=== `if` [[kw_if]]
 
 The `if` <<statement, statement>> allows for conditional execution of <<blocks, code blocks>>.
 It behaves like `if` in most programming languages.
@@ -1994,7 +1994,7 @@ for U i = 0; i < 10; i += 1
 
 If you want to exit out of multiple nested statements, use <<kw_goto>>.
 
-=== `continue`
+=== `continue` [[kw_continue]]
 
 `continue` is used inside <<kw_while>> or <<kw_for>> statements,
 and causes control flow to jump to the end of the loop's code block.
@@ -2322,7 +2322,7 @@ A `return` expression *does not cause functions to return*.
 Instead, it provides a handle to the current function's return value.
 Although the value itself cannot be used, the address of can be taken using <<unary_ops, unary operator>> `&`,
 
-This functionality exists because of <<`asm`, inline assembly>>.
+This functionality exists because of <<kw_asm, inline assembly>>.
 Most often, it is used to allow inline assembly functions to return values
 by storing into the address.
 
@@ -2979,7 +2979,7 @@ They can be declared at global scope, or inside functions.
 
 The `mode` keyword declares a mode function at global scope. 
 Modes are similar to <<kw_fn, regular functions>>, but they do not return.
-Instead, the only way to leave a mode function is via a `<<kw_goto_mode_statement>>.
+Instead, the only way to leave a mode function is via a <<kw_goto_mode_statement>>.
 
 Syntax:
 ----
@@ -3149,7 +3149,7 @@ irq identifier()
 - <<mod_flags, `+solo_interrupt`>>
 
 [NOTE]
-`asm` can be applied to `irq`, so long as <<mod_flags, `+solo_interrupt>> and `+static` are used.
+`asm` can be applied to `irq`, so long as <<mod_flags, `+solo_interrupt`>> and <<mod_flags, `+static`>> are used.
 
 === `asm` [[kw_asm]]
 

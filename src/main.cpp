@@ -353,8 +353,12 @@ int main(int argc, char** argv)
 
             if(vm.count("version")) 
             {
-                std::cout << "NesFab " << VERSION << " (" << GIT_COMMIT << ", " << __DATE__ << ")\n";
+                std::cout << "NesFab " << VERSION << " (" << GIT_COMMIT << ", " << __DATE__ << ")";
+#ifdef LEGAL
+                std::cout << " (ISA=legal)";
+#endif
                 std::cout << 
+                    "\n"
                     "Copyright (C) 2023, Patrick Bene\n"
                     "This is free software. "
                     "There is no warranty.\n";

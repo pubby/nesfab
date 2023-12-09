@@ -99,14 +99,22 @@ asm fn to_base_10()
         U[]($30,$31,$32,$33,$34,$38,$39,$3A,$3B,$3C)
         U[]($40,$41,$42,$43,$44,$48,$49,$4A,$4B,$4C)
     label to_65535
-        lax &base_10_input.b
+        if __illegal
+            lax &base_10_input.b
+        else
+            lda &base_10_input.b
+            tax
         lsr
         lsr            // integer divide 1024 (result 0-63)
 
         cpx #$A7       // account for overflow of multiplying 24 from 43,000 ($A7F8) onward,
         adc #0         // we can just round it to $A700, and the divide by 1024 is fine...
         tay
-        lax mult_24_table+1, y
+        if __illegal
+            lax mult_24_table+1, y
+        else
+            lda mult_24_table+1, y
+            tax
         and #$F8
         adc &base_10_input.a
         txa
@@ -132,7 +140,11 @@ asm fn to_base_10()
         // at this point we have a number 0-65 that we have to times by 24,
         // add to original sum, and Mod 1024 to get the remainder 0-999
 
-        lax mult_24_table, y 
+        if __illegal
+            lax mult_24_table, y 
+        else
+            lda mult_24_table, y 
+            tax
         and #$F8
         clc
         adc &base_10_input.a
@@ -167,7 +179,11 @@ asm fn to_base_10()
     label do_99
         lsr
         tay
-        lax shifted_bcd_table, y
+        if __illegal
+            lax shifted_bcd_table, y
+        else
+            lda shifted_bcd_table, y
+            tax
         rol
         and #$0F
         sta &base_10_result+0

@@ -32,8 +32,8 @@ asm fn decompress_string() U
     default
         tsx
         stx &stack
-        lax &decompress_string_ptr.bank
-        switch ax
+        ldx &decompress_string_ptr.bank
+        switch x
         ldy #0
     label loop
         lda (&decompress_string_ptr.a), y

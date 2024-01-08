@@ -5088,7 +5088,9 @@ namespace isel
 
         for(ssa_ht phi : d.phi_order)
         {
-            if(ssa_to_value(phi->input(input_i)) == l)
+            if(ssa_to_value(phi->input(input_i)) == l
+               && (!orig_def(phi->input(input_i)).holds_ref() 
+                   || cset_head(phi) == cset_head(phi->input(input_i).handle())))
             {
                 ret.phi = locator_t::phi(phi);
                 break;

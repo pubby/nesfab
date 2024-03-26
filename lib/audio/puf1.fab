@@ -751,7 +751,7 @@ asm fn puf(U arg) Bool
         stx puf_triangle_stack_next
         jsr write_silence
         jsr reset_triangle
-        lda #%00110000
+        lda #0
     label sta_4008
         sta $4008
 
@@ -797,6 +797,7 @@ asm fn puf(U arg) Bool
 
         ldy puf_noise_vol_duty_y
         jsr read_macro
+        sty puf_noise_vol_duty_y
         and #%1111
         ora #%00110000
         cpy #0
@@ -807,7 +808,6 @@ asm fn puf(U arg) Bool
         jsr reset_noise
         lda #%00110000
     label sta_400c
-        sty puf_noise_vol_duty_y
         sta $400C
 
         jsr skip_macro

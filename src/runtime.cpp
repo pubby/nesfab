@@ -1245,30 +1245,34 @@ span_allocator_t alloc_runtime_rom()
     alloc(RTROM_shl5_table, make_shl_table(5));
     alloc(RTROM_shl6_table, make_shl_table(6));
 
+    unsigned vector_after = 0;
+    if(mapper().type == MAPPER_189)
+        vector_after = 0xE000; // Apparently this prevents a kryziocart bug.
+
     if(global_t::has_nmi())
     {
-        alloc(RTROM_nmi, make_nmi(), ROMVF_IN_NMI);
-        alloc(RTROM_nmi_exit, make_nmi_exit(), ROMVF_IN_NMI);
+        alloc(RTROM_nmi, make_nmi(), ROMVF_IN_NMI, 1, vector_after);
+        alloc(RTROM_nmi_exit, make_nmi_exit(), ROMVF_IN_NMI, 1, vector_after);
     }
     else
     {
-        alloc(RTROM_nmi, make_short_nmi(), ROMVF_IN_NMI);
+        alloc(RTROM_nmi, make_short_nmi(), ROMVF_IN_NMI, 1, vector_after);
         _rtrom_spans[RTROM_nmi_exit][ROMV_NMI] = _rtrom_spans[RTROM_nmi][ROMV_NMI];
     }
 
     if(global_t::has_irq() && !fn_t::solo_irq())
     {
-        alloc(RTROM_irq, make_irq(), ROMVF_IN_IRQ);
-        alloc(RTROM_irq_exit, make_irq_exit(), ROMVF_IN_IRQ);
+        alloc(RTROM_irq, make_irq(), ROMVF_IN_IRQ, 1, vector_after);
+        alloc(RTROM_irq_exit, make_irq_exit(), ROMVF_IN_IRQ, 1, vector_after);
     }
     else
     {
-        alloc(RTROM_irq, make_short_irq(), ROMVF_IN_IRQ);
+        alloc(RTROM_irq, make_short_irq(), ROMVF_IN_IRQ, 1, vector_after);
         _rtrom_spans[RTROM_irq_exit][ROMV_IRQ] = _rtrom_spans[RTROM_irq][ROMV_IRQ];
     }
 
-    alloc(RTROM_wait_nmi, make_wait_nmi());
-    alloc(RTROM_reset, make_reset(), ROMVF_IN_MODE);
+    alloc(RTROM_wait_nmi, make_wait_nmi(), ROMVF_IN_MODE, 1, vector_after);
+    alloc(RTROM_reset, make_reset(), ROMVF_IN_MODE, 1, vector_after);
     alloc(RTROM_vectors, make_vectors());
     alloc(RTROM_jmp_indirect, make_jmp_indirect(), ROMVF_ALL);
 

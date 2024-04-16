@@ -13,6 +13,7 @@ MAPPER(MMC1, 1) \
 MAPPER(UNROM, 2) \
 MAPPER(CNROM, 3) \
 MAPPER(MMC3, 4) \
+MAPPER(MMC5, 5) \
 MAPPER(ANROM, 7) \
 MAPPER(BNROM, 34) \
 MAPPER(GNROM, 66) \
@@ -115,6 +116,7 @@ struct mapper_t
     static mapper_t unrom(mapper_params_t const& params);
     static mapper_t mmc3(mapper_params_t const& params);
     static mapper_t ines_30(mapper_params_t const& params);
+    static mapper_t mmc5(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return { 0x8000, 0x8000 }; }
@@ -152,13 +154,32 @@ constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
     case MAPPER_UNROM: 
     case MAPPER_30: 
         return 0xC000;
+    case MAPPER_MMC5: 
+        return 0x5117;
     default: 
         return 0x8000;
     }
 }
 
+constexpr std::uint16_t vectors_after_addr(mapper_type_t mt = mapper().type)
+{
+    // Try to keep this page-aligned, as the iota table will often get allocated here.
+    switch(mt)
+    {
+    case MAPPER_MMC3:
+    case MAPPER_MMC5:
+    case MAPPER_189:
+        return 0xE000;
+    default: 
+        return 0;
+    }
+}
+
 constexpr std::uint16_t iota_addr(mapper_type_t mt = mapper().type)
 {
+    if(std::uint16_t addr = vectors_after_addr(mt))
+        return addr;
+
     // Try to keep this page-aligned.
     return bankswitch_addr(mt);
 }
@@ -209,11 +230,13 @@ constexpr int bank_shift(mapper_type_t mt = mapper().type)
 {
     switch(mt)
     {
-    case MAPPER_GNROM:
-        return 4;
     case MAPPER_MMC1: 
     case MAPPER_MMC3: 
         return 1;
+    case MAPPER_MMC5: 
+        return 2;
+    case MAPPER_GNROM:
+        return 4;
     default: 
         return 0;
     }

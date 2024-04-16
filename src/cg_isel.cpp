@@ -3325,22 +3325,47 @@ namespace isel
 
         case SSA_mul:
         case SSA_mul8_lo:
-            p_arg<2>::set(locator_t::runtime_rom(RTROM_mul8));
-
-            commutative(h, [&]()
+            if(mapper().type == MAPPER_MMC5 && compiler_options().unsafe_bank_switch)
             {
-                chain
-                < load_AY<Opt, p_lhs, p_rhs>
-                , simple_op<Opt, read_reg_op(REGF_A | REGF_Y)>
-                , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<2>>
-                , simple_op<Opt, write_reg_op(REGF_ISEL & ~REGF_X)>
-                , store<Opt::template restrict_to<~REGF_X>, STA, p_def, p_def>
-                >(cpu, prev, cont);
-            });
+                // MMC5 can use a faster multiplier with unsafe_bank_switch:
+
+                p_arg<2>::set(locator_t::addr(0x5205));
+                p_arg<3>::set(locator_t::addr(0x5206));
+
+                commutative(h, [&]()
+                {
+                    chain
+                    < load_then_store<Opt, p_lhs, p_lhs, p_arg<2>, false>
+                    , load_then_store<Opt, p_rhs, p_rhs, p_arg<3>, false>
+                    , load_then_store<Opt, p_def, p_arg<2>, p_def>
+                    >(cpu, prev, cont);
+                });
+            }
+            else
+            {
+                p_arg<2>::set(locator_t::runtime_rom(RTROM_mul8));
+
+                commutative(h, [&]()
+                {
+                    chain
+                    < load_AY<Opt, p_lhs, p_rhs>
+                    , simple_op<Opt, read_reg_op(REGF_A | REGF_Y)>
+                    , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<2>>
+                    , simple_op<Opt, write_reg_op(REGF_ISEL & ~REGF_X)>
+                    , store<Opt::template restrict_to<~REGF_X>, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+                });
+            }
             break;
 
         case SSA_mul8_hi:
-            store<Opt, STY, p_def, p_def>(cpu, prev, cont);
+            if(mapper().type == MAPPER_MMC5 && compiler_options().unsafe_bank_switch)
+            {
+                p_arg<3>::set(locator_t::addr(0x5206));
+                load_then_store<Opt, p_def, p_arg<3>, p_def>(cpu, prev, cont);
+            }
+            else
+                store<Opt, STY, p_def, p_def>(cpu, prev, cont);
             break;
 
         case SSA_and:

@@ -742,6 +742,27 @@ static asm_proc_t make_reset()
         }
     }
 
+    if(mapper().type == MAPPER_MMC5)
+    {
+        if(mapper().sram)
+        {
+            // Enable RAM:
+            proc.push_inst(LDA, 2);
+            proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x5102));
+            proc.push_inst(LSR);
+            proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x5103));
+
+            // Reset RAM bank:
+            proc.push_inst(LSR);
+            proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x5113));
+        }
+        else
+            proc.push_inst(LDA, 0);
+
+        // Select 32K banking:
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x5100));
+    }
+
     // Jump to the init proc:
     proc.push_inst(LDY_IMMEDIATE, locator_t(LOC_RESET_PROC).with_is(IS_BANK));
     bankswitch_y(proc, 0);
@@ -1059,34 +1080,46 @@ asm_proc_t make_mul8()
 
     unsigned next_label_id = 0;
 
-    locator_t const early_return = proc.make_label(++next_label_id);
-    locator_t const prodlo = locator_t::runtime_ram(RTRAM_ptr_temp, 0);
-    locator_t const factor2 = locator_t::runtime_ram(RTRAM_ptr_temp, 1);
-
-    proc.push_inst(LSR_IMPLIED);
-    proc.push_inst(STA_ABSOLUTE, prodlo);
-    proc.push_inst(TYA_IMPLIED);
-    proc.push_inst(BEQ_RELATIVE, early_return);
-    proc.push_inst(DEY_IMPLIED);
-    proc.push_inst(STY_ZERO_PAGE, factor2);
-    proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
-
-    for(unsigned i = 0; i < 8; ++i)
+    if(mapper().type == MAPPER_MMC5 && compiler_options().unsafe_bank_switch)
     {
-        locator_t const label = proc.make_label(++next_label_id);
-        if(i != 0)
-            proc.push_inst(ROR_ZERO_PAGE, prodlo);
-        proc.push_inst(BCC_RELATIVE, label);
-        proc.push_inst(ADC_ZERO_PAGE, factor2);
-        proc.push_inst(ASM_LABEL, label);
-        proc.push_inst(ROR_IMPLIED);
+        // MMC5 can use the fast multiplier, but only when unsafe_bank_switch is set.
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x5205));
+        proc.push_inst(STY_ABSOLUTE, locator_t::addr(0x5206));
+        proc.push_inst(LDA_ABSOLUTE, locator_t::addr(0x5205));
+        proc.push_inst(LDY_ABSOLUTE, locator_t::addr(0x5206));
+        proc.push_inst(RTS_IMPLIED);
     }
+    else
+    {
+        locator_t const early_return = proc.make_label(++next_label_id);
+        locator_t const prodlo = locator_t::runtime_ram(RTRAM_ptr_temp, 0);
+        locator_t const factor2 = locator_t::runtime_ram(RTRAM_ptr_temp, 1);
 
-    proc.push_inst(TAY_IMPLIED);
-    proc.push_inst(LDA_ZERO_PAGE, prodlo);
-    proc.push_inst(ROR_IMPLIED);
-    proc.push_inst(ASM_LABEL, early_return);
-    proc.push_inst(RTS_IMPLIED);
+        proc.push_inst(LSR_IMPLIED);
+        proc.push_inst(STA_ABSOLUTE, prodlo);
+        proc.push_inst(TYA_IMPLIED);
+        proc.push_inst(BEQ_RELATIVE, early_return);
+        proc.push_inst(DEY_IMPLIED);
+        proc.push_inst(STY_ZERO_PAGE, factor2);
+        proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
+
+        for(unsigned i = 0; i < 8; ++i)
+        {
+            locator_t const label = proc.make_label(++next_label_id);
+            if(i != 0)
+                proc.push_inst(ROR_ZERO_PAGE, prodlo);
+            proc.push_inst(BCC_RELATIVE, label);
+            proc.push_inst(ADC_ZERO_PAGE, factor2);
+            proc.push_inst(ASM_LABEL, label);
+            proc.push_inst(ROR_IMPLIED);
+        }
+
+        proc.push_inst(TAY_IMPLIED);
+        proc.push_inst(LDA_ZERO_PAGE, prodlo);
+        proc.push_inst(ROR_IMPLIED);
+        proc.push_inst(ASM_LABEL, early_return);
+        proc.push_inst(RTS_IMPLIED);
+    }
 
     proc.initial_optimize();
     return proc;
@@ -1179,9 +1212,6 @@ span_allocator_t alloc_runtime_rom()
     auto const alloc = [&](runtime_rom_name_t name, auto&& data, romv_flags_t flags = ROMVF_IN_MODE, 
                            std::uint16_t alignment=1, std::uint16_t after=0)
     {
-        if(mapper().type == MAPPER_MMC3 && !after)
-            after = 0xE000;
-
         std::size_t const max_size = data.size();
 
         bitset_for_each(flags, [&](unsigned romv)
@@ -1245,9 +1275,7 @@ span_allocator_t alloc_runtime_rom()
     alloc(RTROM_shl5_table, make_shl_table(5));
     alloc(RTROM_shl6_table, make_shl_table(6));
 
-    unsigned vector_after = 0;
-    if(mapper().type == MAPPER_189)
-        vector_after = 0xE000; // Apparently this prevents a kryziocart bug.
+    unsigned const vector_after = vectors_after_addr();
 
     if(global_t::has_nmi())
     {

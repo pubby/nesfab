@@ -698,11 +698,12 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
         if(instrument.id < 0)
             continue; // Unused instrument.
 
-        if(!macros.count(std::make_pair(macro_t::volume, instrument.seq_vol))
-        || !macros.count(std::make_pair(macro_t::duty, instrument.seq_dut)))
-        {
-            throw std::runtime_error("Missing instrument macro.");
-        }
+        if(!macros.count(std::make_pair(macro_t::volume, instrument.seq_vol)))
+            throw std::runtime_error(fmt("Missing instrument macro. (instrument = %, vol = %)", 
+                                         instrument.id, instrument.seq_vol));
+        if(!macros.count(std::make_pair(macro_t::duty, instrument.seq_dut)))
+            throw std::runtime_error(fmt("Missing instrument macro. (instrument = %, duty = %)", 
+                                         instrument.id, instrument.seq_dut));
 
         macro_t vol_duty = combine_vol_duty(
             macros.at(std::make_pair(macro_t::volume, instrument.seq_vol)),

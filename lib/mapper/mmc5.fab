@@ -1,0 +1,149 @@
+/*
+ * Copyright (c) 2024, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper code for interfacing MMC5 ///////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Registers:
+ct AA MMC5_PRG_MODE           = $5100 // Don't use this!
+ct AA MMC5_CHR_MODE           = $5101
+ct AA MMC5_RAM_PROTECT_1      = $5102
+ct AA MMC5_RAM_PROTECT_2      = $5103
+ct AA MMC5_EXRAM_MODE         = $5104
+ct AA MMC5_NT_MAPPING         = $5105
+ct AA MMC5_FILL_TILE          = $5106
+ct AA MMC5_FILL_COLOR         = $5107
+ct AA MMC5_PRG_RAM_SELECT     = $5113
+ct AA MMC5_PRG_ROM_SELECT     = $5117 // Don't use this!
+ct AA MMC5_CHR_BANK_SELECT    = $5120
+ct AA MMC5_CHR_BANK_SELECT_HI = $5130
+ct AA MMC5_VSPLIT_MODE        = $5200
+ct AA MMC5_VSPLIT_SCROLL      = $5201
+ct AA MMC5_VSPLIT_BANK        = $5202
+ct AA MMC5_SCANLINE_COMPARE   = $5203
+ct AA MMC5_SCANLINE_STATUS    = $5204
+ct AA MMC5_MULTIPLY_LO        = $5205
+ct AA MMC5_MULTIPLY_HI        = $5206
+ct AA MMC5_EXRAM              = $5C00
+
+// Sound registers:
+ct AA MMC5_SQ1_VOL    = $5000
+ct AA MMC5_SQ1_LO     = $5002
+ct AA MMC5_SQ1_HI     = $5003
+ct AA MMC5_SQ2_VOL    = $5004
+ct AA MMC5_SQ2_LO     = $5006
+ct AA MMC5_SQ2_HI     = $5007
+ct AA MMC5_PCM_MODE   = $5010
+ct AA MMC5_PCM_RAW    = $5011
+ct AA MMC5_SND_CHN    = $5015
+
+///////////////////////////////////////////////////////////////////////////////
+// CHR ////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Use these when writing MMC5_CHR_MODE:
+ct U MMC5_CHR_MODE_8K = 0
+ct U MMC5_CHR_MODE_4K = 1
+ct U MMC5_CHR_MODE_2K = 2
+ct U MMC5_CHR_MODE_1K = 3
+
+// Changes the MMC5 CHR bank for 1KB mode:
+fn mmc5_select_1k(U bank_select, UU bank_data)
+: +inline
+    {MMC5_CHR_BANK_SELECT_HI}(bank_data.b)
+    {MMC5_CHR_BANK_SELECT + bank_select}(bank_data.a)
+
+// Changes the MMC5 CHR bank for 2KB mode:
+fn mmc5_select_2k(U bank_select, UU bank_data)
+: +inline
+    {MMC5_CHR_BANK_SELECT_HI}(bank_data.b)
+    {MMC5_CHR_BANK_SELECT + 1 + (bank_select << 1)}(bank_data.a)
+
+// Changes the MMC5 CHR bank for 4KB mode:
+fn mmc5_select_4k(U bank_select, U bank_data)
+: +inline
+    {MMC5_CHR_BANK_SELECT + 3 + (bank_select << 2)}(bank_data)
+
+// Changes the MMC5 CHR bank for 8KB mode:
+fn mmc5_select_8k(U bank_select, U bank_data)
+: +inline
+    {MMC5_CHR_BANK_SELECT + 7 + (bank_select << 3)}(bank_data)
+
+///////////////////////////////////////////////////////////////////////////////
+// RAM Protect ////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Use this to disable writing SRAM:
+fn mmc5_ram_protect(Bool prevent_writes)
+: +inline
+    if prevent_writes
+        {MMC5_RAM_PROTECT_1, MMC5_RAM_PROTECT_2}(0, 0)
+    else
+        {MMC5_RAM_PROTECT_1, MMC5_RAM_PROTECT_2}(2, 1)
+
+///////////////////////////////////////////////////////////////////////////////
+// ExRAM //////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Pointer to EXRAM:
+ct MM mmc5_exram = MM(MMC5_EXRAM)
+
+///////////////////////////////////////////////////////////////////////////////
+// Nametable Mapping //////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Flags for use in 'mmc5_nametable_mapping':
+ct U MMC5_NT_MAPPING_CIRAM_0 = 0
+ct U MMC5_NT_MAPPING_CIRAM_1 = 1
+ct U MMC5_NT_MAPPING_EXRAM   = 2
+ct U MMC5_NT_MAPPING_FILL    = 3
+
+// Sets the mapping for all 4 nametables:
+fn mmc5_nametable_mapping(U nt_0, U nt_1, U nt_2, U nt_3)
+: +inline
+    {MMC5_NT_MAPPING}(nt_0 | (nt_1 << 2) | (nt_2 << 4) | (nt_3 << 6))
+
+// Sets the nametable mapping to horizontal mirroring:
+fn mmc5_mirror_h()
+: +inline
+    {MMC5_NT_MAPPING}($50)
+
+// Sets the nametable mapping to vertical mirroring:
+fn mmc5_mirror_v()
+: +inline
+    {MMC5_NT_MAPPING}($44)
+
+// Sets the nametable mapping to single screen (CIRAM 0):
+fn mmc5_mirror_1()
+: +inline
+    {MMC5_NT_MAPPING}($00)
+
+///////////////////////////////////////////////////////////////////////////////
+// Vertical Split /////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+fn mmc5_vsplit(Bool right, U tile_count, U scroll, U bank)
+    {MMC5_VSPLIT_SCROLL}(scroll)
+    {MMC5_VSPLIT_BANK}(bank)
+    if right
+        tile_count |= %01000000
+    {MMC5_VSPLIT_MODE}(%10000000 | tile_count)
+
+///////////////////////////////////////////////////////////////////////////////
+// Multiplication /////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Multiplies two numbers together using the MMC5 hardware:
+// NOTE: If you compile with --unsafe-bank-switch, MMC5 multiply is used for the '*' operator!
+fn mmc5_multiply(U lhs, U rhs) UU
+: +inline
+    {MMC5_MULTIPLY_LO, MMC5_MULTIPLY_HI}(lhs, rhs)
+    UU result
+    result.a = {MMC5_MULTIPLY_LO}()
+    result.b = {MMC5_MULTIPLY_HI}()
+    return result
+

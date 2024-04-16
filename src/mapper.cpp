@@ -310,6 +310,21 @@ mapper_t mapper_t::ines_30(mapper_params_t const& params)
     };
 }
 
+mapper_t mapper_t::mmc5(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_MMC5;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_none(mt),
+        .num_banks = params.num_16k_banks(mt, 1024, 1024, 32),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 256, 256, 32),
+        .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, true),
+        .sram_persistent = params.sram_persistent(mt, false),
+    };
+}
+
 unsigned mapper_t::submapper() const
 {
     switch(type)

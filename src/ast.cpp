@@ -59,7 +59,7 @@ unsigned ast_node_t::num_children() const
             return 2;
         }
 
-        passert(!children, token_string(token.type));
+        passert(!children, token_string(token.type), token.type);
         // fall-through
         // These use other pointers in the union instead of 'children':
     case TOK_character:

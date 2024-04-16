@@ -36,9 +36,27 @@ enum channel_t
     CHAN_TRIANGLE,
     CHAN_NOISE,
     CHAN_DPCM,
-    NUM_SFX_CHAN = CHAN_DPCM,
-    NUM_CHAN,
+    CHAN_EXP1,
+    CHAN_EXP2,
+    CHAN_EXP3,
+    MAX_CHAN,
 };
+
+unsigned puf_num_chan() 
+{
+    if(!compiler_options().expansion_audio)
+        return 5;
+
+    switch(expansion_audio())
+    {
+    default:
+        return 5;
+    case EXP_AUDIO_MMC5:
+        return 7;
+    case EXP_AUDIO_VRC6:
+        return 8;
+    }
+}
 
 struct macro_t
 {
@@ -93,7 +111,7 @@ struct channel_data_t
 struct row_t
 {
     int number;
-    std::array<channel_data_t, NUM_CHAN> chan;
+    std::array<channel_data_t, MAX_CHAN> chan;
     std::uint8_t d00; // Bitset with one bit per channel.
     channel_data_t dpcm;
 };
@@ -104,9 +122,9 @@ struct track_t
     int pattern_length;
     int speed;
     int tempo;
-    std::array<int, NUM_CHAN> columns;
-    std::vector<std::array<int, NUM_CHAN>> order;
-    std::vector<std::vector<row_t>> patterns;
+    std::array<int, MAX_CHAN> columns;
+    std::vector<std::array<int, MAX_CHAN>> order;
+    std::map<int, std::vector<row_t>> patterns;
 
     int pattern_size = 0;
     unsigned num_columns = 0;
@@ -138,7 +156,7 @@ char const* parse_line(char const* const ptr, char const* const end,
         while(last < end && *last != ' ' && *last != '\n')
             ++last;
         assert(last >= first);
-        assert(last < end);
+        assert(last <= end);
         words.emplace_back(first, last);
     }
     return end;
@@ -180,7 +198,7 @@ int parse_note(std::string_view str, int scale)
     case 'G': note = 7; break;
     case 'A': note = 9; break;
     case 'B': note = 11; break;
-    default: throw std::runtime_error("bad note");
+    default: throw std::runtime_error(fmt("Bad note: %", str));
     }
 
     switch(str[1])
@@ -262,6 +280,8 @@ macro_t combine_vol_duty(macro_t volume, macro_t duty)
 void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 {
     using namespace std::literals;
+
+    unsigned const num_chan = puf_num_chan();
 
     std::map<std::pair<int, int>, macro_t> macros;
     std::map<int, instrument_t> instruments;
@@ -393,17 +413,17 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
             }
             else if(words[0] == "COLUMNS"sv)
             {
-                req_words(NUM_CHAN + 2);
+                req_words(num_chan + 2);
 
-                for(int i = 0; i < NUM_CHAN; ++i)
+                for(int i = 0; i < num_chan; ++i)
                     active_track->columns[i] = parse_int(words[i+2]);
             }
             else if(words[0] == "ORDER"sv)
             {
-                req_words(NUM_CHAN + 3);
+                req_words(num_chan + 3);
 
                 active_track->order.push_back({});
-                for(int i = 0; i < NUM_CHAN; ++i)
+                for(int i = 0; i < num_chan; ++i)
                     active_track->order.back()[i] = parse_hex_pair(words[i+3]);
             }
             else if(words[0] == "DPCMDEF"sv)
@@ -424,12 +444,15 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
             }
             else if(words[0] == "PATTERN"sv)
             {
-                active_track->patterns.push_back({});
-                active_pattern = &active_track->patterns.back();
+                req_words(2);
+
+                int const id = parse_hex_pair(words[1]);
+
+                active_pattern = &active_track->patterns[id];
             }
             else if(active_pattern && words[0] == "ROW"sv)
             {
-                req_words(27);
+                req_words(2 + 5 * num_chan);
 
                 row_t row = {};
 
@@ -438,7 +461,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                 unsigned i = 0;
                 while(i < words.size() && words[i] != ":")
                     ++i;
-                for(int j = 0; j < NUM_CHAN; ++j)
+                for(int j = 0; j < num_chan; ++j)
                 {
                     ++i;
                     if(i + 3 >= words.size())
@@ -495,16 +518,16 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
         for(std::size_t t = 0; t < tracks.size(); ++t)
         {
             track_t& track = tracks[t];
-            std::array<std::vector<int>, NUM_CHAN> penguin_channels;
+            std::array<std::vector<int>, MAX_CHAN> penguin_channels;
 
             // Determine the pattern size:
             std::uint8_t pattern_sizes = 0b11111100;
 
             for(auto const& pattern_array : track.order)
             {
-                for(std::size_t k = 0; k < NUM_CHAN; ++k)
+                for(std::size_t k = 0; k < num_chan; ++k)
                 {
-                    auto const& pv = track.patterns.at(pattern_array[k]);
+                    auto const& pv = track.patterns.at(pattern_array.at(k));
                     unsigned size = 0;
                     for(row_t const& row : pv)
                     {
@@ -530,7 +553,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
             {
                 std::size_t ps = -1;
 
-                for(std::size_t k = 0; k < NUM_CHAN; ++k)
+                for(std::size_t k = 0; k < num_chan; ++k)
                 {
                     auto const& pv = track.patterns.at(pattern_array[k]);
                     unsigned size = 0;
@@ -548,7 +571,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                         ps = size / track.pattern_size;
                 }
 
-                for(std::size_t k = 0; k < NUM_CHAN; ++k)
+                for(std::size_t k = 0; k < num_chan; ++k)
                 {
                     auto const& pv = track.patterns.at(pattern_array[k]);
                     for(std::size_t i = 0; i < ps; ++i)
@@ -612,7 +635,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                 asm_vec_t& code = bucket.code.emplace_back();
 
                 for(std::size_t i = 0; i < penguin_channels[0].size(); ++i)
-                for(std::size_t k = 0; k < NUM_CHAN; ++k)
+                for(std::size_t k = 0; k < num_chan; ++k)
                 {
                     if(penguin_channels[k].size() != penguin_channels[0].size())
                        throw std::runtime_error("Channels are not the same length.");
@@ -839,7 +862,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
         asm_proc_t proc;
         for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg
-                = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR).with_offset(tracks[i].num_columns * 2 * NUM_CHAN) });
+                = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR).with_offset(tracks[i].num_columns * 2 * num_chan) });
         define_const(at, "puf_tracks_end_lo"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
@@ -848,7 +871,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
         asm_proc_t proc;
         for(unsigned i = 0; i < tracks.size(); ++i)
             proc.code.push_back({ .op = ASM_DATA, .arg
-                = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR_HI).with_offset(tracks[i].num_columns * 2 * NUM_CHAN) });
+                = locator_t::gconst(tracks[i].gconst).with_is(IS_PTR_HI).with_offset(tracks[i].num_columns * 2 * num_chan) });
         define_const(at, "puf_tracks_end_hi"sv, std::move(proc), omni_group_pair, true, 0);
     }
 
@@ -884,9 +907,9 @@ constexpr std::array<int, 87> ntsc_notes =
 struct nsf_track_t
 {
     std::string name;
-    std::array<std::vector<int>, NUM_SFX_CHAN> notes;
-    std::array<bool, NUM_SFX_CHAN> empty;
-    std::array<const_ht, NUM_SFX_CHAN> gconsts;
+    std::array<std::vector<int>, MAX_CHAN> notes;
+    std::array<bool, MAX_CHAN> empty;
+    std::array<const_ht, MAX_CHAN> gconsts;
 };
 
 struct nsf_t
@@ -929,9 +952,9 @@ void mem_wr(unsigned address, unsigned char data);
 #include "cpu_2a03.hpp"
 
 std::array<unsigned char, 1 << 16> memory;
-std::array<int, 32> apu_registers;
+std::array<int, 32> apu_registers; // First 16 are for regular APU
 std::array<int, 32> prev_apu_registers;
-std::array<int, NUM_SFX_CHAN> volume;
+constexpr int EXP_OFFSET = 4*CHAN_EXP1;
 bool log_cpu;
 bool effect_stop;
 
@@ -950,6 +973,22 @@ bool register_allowed(unsigned address)
     case 0x400B:
     case 0x400C:
     case 0x400E:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool mmc5_register_allowed(unsigned address)
+{
+    switch(address)
+    {
+    case 0x5000:
+    case 0x5002:
+    case 0x5003:
+    case 0x5004:
+    case 0x5006:
+    case 0x5007:
         return true;
     default:
         return false;
@@ -978,29 +1017,33 @@ void mem_wr(unsigned address, unsigned char data)
     } 
 
     // APU registers:
-    if(log_cpu && address < 0x4018)
+    if(!log_cpu)
+        return;
+
+    if(address >= 0x4010 && address <= 0x4013)
+        throw std::runtime_error("DMC is not supported in sound effects.\n");
+
+    if(address >= 0x4000 && address < 0x4010)
     {
         if((address == 0x4001 || address == 0x4005) && (data & 0x80))
-            throw std::runtime_error("sweep effects are not supported.\n");
-
-        if(address >= 0x4010 && address <= 0x4013)
-            throw std::runtime_error("DMC is not supported.\n");
+            throw std::runtime_error("Sweep effects are not supported in sound effects.\n");
 
         if(register_allowed(address) && apu_registers[address-0x4000] != data)
-        {
-            switch(address)
-            {
-            case 0x4000: volume[CHAN_SQUARE1]  = data & 0x0F; break;
-            case 0x4004: volume[CHAN_SQUARE2]  = data & 0x0F; break;
-            case 0x4008: volume[CHAN_TRIANGLE] = data & 0x7F; break;
-            case 0x400C: volume[CHAN_NOISE]    = data & 0x0F; break;
-            }
-
             apu_registers[address - 0x4000] = data;
-        }
+
+    }
+
+    // Catch the C00 effect.
+    if(address == 0x4015 && data == 0)
+        effect_stop = true;
+
+    if(compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_MMC5)
+    {
+        if(mmc5_register_allowed(address) && apu_registers[address - 0x5000 + EXP_OFFSET] != data)
+            apu_registers[address - 0x5000 + EXP_OFFSET] = data;
 
         // Catch the C00 effect.
-        if(address == 0x4015 && data == 0)
+        if(address == 0x5015 && data == 0)
             effect_stop = true;
     }
 }
@@ -1011,6 +1054,8 @@ const_ht convert_effect(lpstring_t at,
                         std::deque<nsf_track_t>& nsf_tracks,
                         defined_group_data_t group_pair, bool omni)
 {
+    unsigned const num_chan = puf_num_chan();
+
     static TLS std::mutex cpu_mutex;
     std::lock_guard<std::mutex> lock(cpu_mutex);
 
@@ -1020,7 +1065,7 @@ const_ht convert_effect(lpstring_t at,
     assert(nsf.load_addr < memory.size());
 
     memory.fill(0);
-    std::memcpy(&memory[nsf.load_addr], nsf_data+128, nsf_size-128);
+    std::memcpy(&memory[nsf.load_addr], nsf_data+128, std::min<std::size_t>(nsf_size-128, sizeof(memory) - nsf.load_addr));
 
     apu_registers.fill(-1);
     apu_registers[0x00] = 0x30;
@@ -1028,7 +1073,11 @@ const_ht convert_effect(lpstring_t at,
     apu_registers[0x08] = 0x30;
     apu_registers[0x0C] = 0x30;
 
-    volume.fill(0);
+    if(compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_MMC5)
+    {
+        apu_registers[0x00 + EXP_OFFSET] = 0x30;
+        apu_registers[0x04 + EXP_OFFSET] = 0x30;
+    }
 
     // Init nsf code.
     log_cpu = false;
@@ -1043,7 +1092,6 @@ const_ht convert_effect(lpstring_t at,
     cpu_reset();
 
     std::vector<std::array<int, 32>> apu_register_log;
-    std::vector<std::array<int, 4>> volume_log;
 
     log_cpu = true;
     effect_stop = false;
@@ -1062,11 +1110,13 @@ const_ht convert_effect(lpstring_t at,
             cpu_tick();
 
         apu_register_log.push_back(apu_registers);
-        volume_log.push_back(volume);
     }
 
-    for(unsigned k = 0; k < NUM_SFX_CHAN; ++k)
+    for(unsigned k = 0; k < num_chan; ++k)
     {
+        if(k == CHAN_DPCM)
+            continue;
+
         asm_proc_t proc;
 
         if(!nsf_tracks[song].empty[k])
@@ -1079,6 +1129,7 @@ const_ht convert_effect(lpstring_t at,
                 unsigned vol_duty = apu_register_log[i][0x00+k*4] | 0b110000;
                 if(k == CHAN_TRIANGLE && (vol_duty & 0b1111))
                     vol_duty |= 0b1111;
+                std::printf("vol = %i\n", vol_duty & 0b1111);
                 push_byte(proc.code, vol_duty);
             }
 
@@ -1160,15 +1211,23 @@ const_ht convert_effect(lpstring_t at,
         asm_proc_t proc;
 
         unsigned mask = 0;
-        for(unsigned k = 0; k < 4; ++k)
+        unsigned bit = 0;
+        for(unsigned k = 0; k < num_chan; ++k)
+        {
+            if(k == CHAN_DPCM)
+                continue;
             if(!nsf_tracks[song].empty[k])
-                mask |= 1 << k;
-        assert((mask & 0b1111) == mask);
+                mask |= 1 << bit;
+            bit += 1;
+        }
 
         push_byte(proc.code, mask);
 
-        for(unsigned k = 0; k < 4; ++k)
+        for(unsigned k = 0; k < num_chan; ++k)
         {
+            if(k == CHAN_DPCM)
+                continue;
+
             if(nsf_tracks[song].empty[k])
                 continue;
 
@@ -1194,6 +1253,8 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
                      lpstring_t at)
 {
     using namespace std::literals;
+
+    unsigned const num_chan = puf_num_chan();
 
     std::deque<nsf_track_t> nsf_tracks;
     nsf_track_t* active_track = nullptr;
@@ -1228,14 +1289,17 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
                 for(std::vector<int>& n : active_track->notes)
                 {
                     it = std::find(it, words.end(), ":");
-                    ++it;
-                    n.push_back(parse_note(*it, 1));
+                    if(it != words.end())
+                    {
+                        ++it;
+                        n.push_back(parse_note(*it, 1));
+                    }
                 }
             }
         }
 
         for(nsf_track_t& t : nsf_tracks)
-            for(unsigned i = 0; i < 4; ++i)
+            for(unsigned i = 0; i < num_chan; ++i)
                 t.empty[i] = fill_blank_notes(t.notes[i]);
 
         if(nsf_size < 128)
@@ -1250,8 +1314,8 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
             if(nsf_data[i])
                 throw std::runtime_error("Bankswitching in NSF file is not supported.");
 
-        if(nsf_data[0x7B])
-            throw std::runtime_error("Expansion chips in NSF file are not supported.");
+        if(nsf_data[0x7B] && !compiler_options().expansion_audio)
+            throw std::runtime_error("Expansion chips in NSF file are not supported without --expansion-audio.");
     }
 
     group_t& group = *group_t::lookup_sourceless(at, "/puf"sv);

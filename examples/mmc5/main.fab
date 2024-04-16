@@ -4,7 +4,23 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
+// This demo showcases MMC5 extended attributes and expansion audio.
+
+audio(puf1_music, "music.txt")
+audio(puf1_sfx, "sfx.txt", "sfx.nsf")
+
+nmi main_nmi()
+    ppu_upload_oam_poll_pads(0)
+    ppu_reset_scroll(0, 0)
+    {PPUMASK}(PPUMASK_BG_ON | PPUMASK_NO_CLIP)
+    puf.process(PUF_DEFAULT)
+
 mode main()
+: nmi main_nmi
+    // Init the music:
+    puf.init(system)
+    //puf.play_track(0)
+
     // Load the palette:
     palette = example_palette
     ppu_upload_palette()
@@ -33,8 +49,11 @@ mode main()
     {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_PT_1000)
     while true
         nmi
-        ppu_reset_scroll(0, 0)
-        {PPUMASK}(PPUMASK_BG_ON | PPUMASK_NO_CLIP)
+        update_pads()
+        if pads[0].pressed & BUTTON_UP
+            puf.play_sfx(0)
+        if pads[0].pressed & BUTTON_DOWN
+            puf.play_sfx(1)
 
 chrrom
     file(fmt, "bg.png")

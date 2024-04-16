@@ -1705,7 +1705,7 @@ void eval_t::do_byte_block(ast_node_t const& ast, asm_proc_t& proc)
                 expr_value_t v = throwing_cast<D>(do_expr<INTERPRET_CE>(sub.children[0]), TYPE_BOOL, true);
                 if(v.fixed().value)
                     do_byte_block<D>(sub.children[1], proc);
-                else if(ast.num_children() >= 3)
+                else if(sub.num_children() >= 3)
                     do_byte_block<D>(sub.children[2], proc);
             }
             break;
@@ -2555,6 +2555,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result =
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::CONTROLLERS_ARG },
+                .type = TYPE_INT,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            result.assert_valid();
+            return result;
+        }
+
+    case TOK___expansion_audio:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::EXPANSION_AUDIO_ARG },
                 .type = TYPE_INT,
                 .pstring = ast.token.pstring,
                 .time = RT,
@@ -5151,6 +5166,13 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
         case lval_t::CONTROLLERS_ARG:
             v.val = rval_t{ ssa_value_t(unsigned(compiler_options().controllers), TYPE_INT) };
+            return v;
+
+        case lval_t::EXPANSION_AUDIO_ARG:
+            if(compiler_options().expansion_audio)
+                v.val = rval_t{ ssa_value_t(unsigned(expansion_audio()), TYPE_BOOL) };
+            else
+                v.val = rval_t{ ssa_value_t(unsigned(0), TYPE_INT) };
             return v;
 
         case lval_t::MAPPER_DETAIL_ARG:

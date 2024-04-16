@@ -40,6 +40,8 @@ struct options_t
     bool sram_init = false;
     bool vram_init = false;
 
+    bool expansion_audio = false;
+
 #ifndef LEGAL
     bool legal = false;
 #else

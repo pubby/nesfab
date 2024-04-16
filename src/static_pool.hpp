@@ -77,7 +77,7 @@ public:
 
         if(new_size * sizeof(T) > bytes_capacity())
         {
-            std::size_t const new_capacity = new_size * sizeof(T) * 2;
+            std::size_t const new_capacity = ((new_size * sizeof(T) * 2) + 63) & ~63;
 #if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
             std::unique_ptr<char, c_delete> new_storage(
                 (char*)std::malloc(new_capacity));

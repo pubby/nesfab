@@ -14,12 +14,12 @@ mode main()
     puf.init(system)
     {PPUCTRL}(PPUCTRL_NMI_ON)
     while true
+        nmi
         update_pads()
         if pads[0].pressed & BUTTON_UP
             puf.play_sfx(0)
         if pads[0].pressed & BUTTON_DOWN
             puf.play_sfx(1)
-        nmi
 
 nmi game_nmi()
     ppu_upload_oam_poll_pads(0)

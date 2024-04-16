@@ -541,7 +541,11 @@ public:
     [[gnu::always_inline]]
     ast_node_t byte_block_if(pstring_t pstring, ast_node_t* children, unsigned num_children, std::unique_ptr<mods_t> mods)
     {
-        convert_ast(children[0], IDEP_TYPE);
+        if(num_children > 0)
+            convert_ast(children[0], IDEP_TYPE);
+
+        for(unsigned i = 0; i < num_children; ++i)
+            children[i].num_children();
 
         return ast_node_t
         { 

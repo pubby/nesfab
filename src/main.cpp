@@ -239,6 +239,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("unsafe-bank-switch"))
         _options.unsafe_bank_switch = true;
 
+    if(vm.count("expansion-audio"))
+        _options.expansion_audio = true;
+
     if(vm.count("multicart"))
     {
         std::string str = to_lower(vm["multicart"].as<std::string>());
@@ -302,6 +305,7 @@ int main(int argc, char** argv)
                 ("chr-size,c", po::value<unsigned>(), "size of mapper CHR in KiB")
                 ("bus-conflicts", po::value<std::string>(), "enable / disable mapper bus conflicts")
                 ("sram", po::value<std::string>(), "configure 8KiB SRAM")
+                ("expansion-audio", "enable expansion audio")
                 ("multicart", po::value<std::string>(), "make ROM compatible with the specified multicart")
             ;
 

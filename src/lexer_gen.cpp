@@ -677,6 +677,7 @@ int main()
         keyword("__mapper"),
         keyword("__illegal"),
         keyword("__controllers"),
+        keyword("__expansion_audio"),
         keyword("nmi_counter"),
         keyword("read"),
         keyword("write"),

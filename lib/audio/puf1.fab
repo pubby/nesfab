@@ -64,7 +64,22 @@
 // and must be terminated using the C00 Famitracker effect.
 
 ct U PUF_LOOP = %10000000
+ct U PUF_EXPANSION = %01000000 // Counts for ALL expansion channels
 ct U PUF_DEFAULT = $FF
+
+ct Int _MMC5 = 1
+ct Int _VRC6 = 2
+
+ct fn _calc_exp_channels() Int
+    if __expansion_audio == _MMC5
+        return 2
+    else if __expansion_audio == _VRC6
+        return 3
+    return 0
+
+ct Int _exp_channels = _calc_exp_channels()
+ct Int _note_channels = 4 + _exp_channels
+ct Int _channels = 5 + _exp_channels
 
 vars
     AA puf_ptr_temp
@@ -75,62 +90,102 @@ vars
     AA puf_triangle_pattern_ptr
     AA puf_noise_pattern_ptr
     AA puf_dpcm_pattern_ptr
+    AA puf_exp1_pattern_ptr
+    AA puf_exp2_pattern_ptr
+    AA puf_exp3_pattern_ptr
     Bool puf_lock = false
 
-ct AA puf_temp                = $100
-ct AA puf_bank                = $101
-ct AA puf_pattern_left        = $102
-ct AA puf_track_step          = $103
+ct AA _stack_0 = $100
+ct AA _stack_1 = $100 + _note_channels*2
+ct AA _stack_2 = $100 + _note_channels*4
 
-ct AA puf_instrument_ptrs     = $104 // 24 bytes
+ct AA puf_stack_mem = $100
 
-ct AA puf_stack_mem = puf_instrument_ptrs + 24
+ct AA puf_temp                = puf_stack_mem + 0
+ct AA puf_bank                = puf_stack_mem + 1
+ct AA puf_pattern_left        = puf_stack_mem + 2
+ct AA puf_track_step          = puf_stack_mem + 3
 
-ct AA puf_square1_note        = puf_stack_mem +  0
-ct AA puf_square1_vol_duty_y  = puf_stack_mem +  1
-ct AA puf_square1_arpeggio_y  = puf_stack_mem +  2
-ct AA puf_square1_pitch_y     = puf_stack_mem +  3
-ct AA puf_square1_pitch_bend  = puf_stack_mem +  4 // 2 bytes
-ct AA puf_square1_pitch_hi    = puf_stack_mem +  6
-ct AA puf_square1_stack       = puf_stack_mem +  7
+ct AA puf_track_speed         = puf_stack_mem + 4 // Note: This may not equal the actual speed.
+ct AA puf_track_start         = puf_stack_mem + 5 // 2 bytes
+ct AA puf_track_end           = puf_stack_mem + 7 // 2 bytes
+ct AA puf_pattern_size        = puf_stack_mem + 9
+ct AA puf_enable              = puf_stack_mem + 10
+ct AA puf_finished            = puf_stack_mem + 11
+
+ct AA puf_inst_mem = puf_stack_mem + 12
+
+ct AA puf_square1_note        = puf_inst_mem +  0
+ct AA puf_square1_vol_duty_y  = puf_inst_mem +  1
+ct AA puf_square1_arpeggio_y  = puf_inst_mem +  2
+ct AA puf_square1_pitch_y     = puf_inst_mem +  3
+ct AA puf_square1_pitch_bend  = puf_inst_mem +  4 // 2 bytes
+ct AA puf_square1_pitch_hi    = puf_inst_mem +  6
+ct AA puf_square1_stack       = puf_inst_mem +  7
+ct AA puf_square1_stack_next  = puf_inst_mem +  8
+ct AA puf_square1_mask        = puf_inst_mem +  9
  
-ct AA puf_square2_note        = puf_stack_mem +  8
-ct AA puf_square2_vol_duty_y  = puf_stack_mem +  9
-ct AA puf_square2_arpeggio_y  = puf_stack_mem + 10
-ct AA puf_square2_pitch_y     = puf_stack_mem + 11
-ct AA puf_square2_pitch_bend  = puf_stack_mem + 12 // 2 bytes
-ct AA puf_square2_pitch_hi    = puf_stack_mem + 14
-ct AA puf_square2_stack       = puf_stack_mem + 15
+ct AA puf_square2_note        = puf_inst_mem + 10
+ct AA puf_square2_vol_duty_y  = puf_inst_mem + 11
+ct AA puf_square2_arpeggio_y  = puf_inst_mem + 12
+ct AA puf_square2_pitch_y     = puf_inst_mem + 13
+ct AA puf_square2_pitch_bend  = puf_inst_mem + 14 // 2 bytes
+ct AA puf_square2_pitch_hi    = puf_inst_mem + 16
+ct AA puf_square2_stack       = puf_inst_mem + 17
+ct AA puf_square2_stack_next  = puf_inst_mem + 18
+ct AA puf_square2_mask        = puf_inst_mem + 19
 
-ct AA puf_triangle_note       = puf_stack_mem + 16
-ct AA puf_triangle_vol_duty_y = puf_stack_mem + 17
-ct AA puf_triangle_arpeggio_y = puf_stack_mem + 18
-ct AA puf_triangle_pitch_y    = puf_stack_mem + 19
-ct AA puf_triangle_pitch_bend = puf_stack_mem + 20 // 2 bytes
-ct AA puf_triangle_stack      = puf_stack_mem + 22
+ct AA puf_triangle_note       = puf_inst_mem + 20
+ct AA puf_triangle_vol_duty_y = puf_inst_mem + 21
+ct AA puf_triangle_arpeggio_y = puf_inst_mem + 22
+ct AA puf_triangle_pitch_y    = puf_inst_mem + 23
+ct AA puf_triangle_pitch_bend = puf_inst_mem + 24 // 2 bytes
+ct AA puf_triangle_stack      = puf_inst_mem + 26
+ct AA puf_triangle_stack_next = puf_inst_mem + 27
+ct AA puf_triangle_mask       = puf_inst_mem + 28
 
-ct AA puf_noise_note          = puf_stack_mem + 23
-ct AA puf_noise_vol_duty_y    = puf_stack_mem + 24
-ct AA puf_noise_arpeggio_y    = puf_stack_mem + 25
-ct AA puf_noise_stack         = puf_stack_mem + 26
+ct AA puf_noise_note          = puf_inst_mem + 29
+ct AA puf_noise_vol_duty_y    = puf_inst_mem + 30
+ct AA puf_noise_arpeggio_y    = puf_inst_mem + 31
+ct AA puf_noise_stack         = puf_inst_mem + 32
+ct AA puf_noise_stack_next    = puf_inst_mem + 33
+ct AA puf_noise_mask          = puf_inst_mem + 34
 
-ct AA puf_dpcm_mask           = puf_stack_mem + 27
-ct AA puf_noise_mask          = puf_stack_mem + 28
-ct AA puf_triangle_mask       = puf_stack_mem + 29
-ct AA puf_square2_mask        = puf_stack_mem + 30
-ct AA puf_square1_mask        = puf_stack_mem + 31
+ct AA puf_dpcm_mask           = puf_inst_mem + 35
 
-ct AA puf_noise_stack_next    = puf_stack_mem + 32
-ct AA puf_triangle_stack_next = puf_stack_mem + 33
-ct AA puf_square1_stack_next  = puf_stack_mem + 34
-ct AA puf_square2_stack_next  = puf_stack_mem + 35
+ct AA puf_exp_mem = puf_inst_mem + 36
 
-ct AA puf_track_speed         = puf_stack_mem + 36 // Note: This may not equal the actual speed.
-ct AA puf_track_start         = puf_stack_mem + 37 // 2 bytes
-ct AA puf_track_end           = puf_stack_mem + 39 // 2 bytes
-ct AA puf_pattern_size        = puf_stack_mem + 41
-ct AA puf_enable              = puf_stack_mem + 42
-ct AA puf_finished            = puf_stack_mem + 43
+ct AA puf_exp1_note        = puf_exp_mem +  0
+ct AA puf_exp1_vol_duty_y  = puf_exp_mem +  1
+ct AA puf_exp1_arpeggio_y  = puf_exp_mem +  2
+ct AA puf_exp1_pitch_y     = puf_exp_mem +  3
+ct AA puf_exp1_pitch_bend  = puf_exp_mem +  4 // 2 bytes
+ct AA puf_exp1_pitch_hi    = puf_exp_mem +  6
+ct AA puf_exp1_stack       = puf_exp_mem +  7
+ct AA puf_exp1_stack_next  = puf_exp_mem +  8
+ct AA puf_exp1_mask        = puf_exp_mem +  9
+
+ct AA puf_exp2_note        = puf_exp_mem + 10
+ct AA puf_exp2_vol_duty_y  = puf_exp_mem + 11
+ct AA puf_exp2_arpeggio_y  = puf_exp_mem + 12
+ct AA puf_exp2_pitch_y     = puf_exp_mem + 13
+ct AA puf_exp2_pitch_bend  = puf_exp_mem + 14 // 2 bytes
+ct AA puf_exp2_pitch_hi    = puf_exp_mem + 16
+ct AA puf_exp2_stack       = puf_exp_mem + 17
+ct AA puf_exp2_stack_next  = puf_exp_mem + 18
+ct AA puf_exp2_mask        = puf_exp_mem + 19
+
+ct AA puf_exp3_note        = puf_exp_mem + 20
+ct AA puf_exp3_vol_duty_y  = puf_exp_mem + 21
+ct AA puf_exp3_arpeggio_y  = puf_exp_mem + 22
+ct AA puf_exp3_pitch_y     = puf_exp_mem + 23
+ct AA puf_exp3_pitch_bend  = puf_exp_mem + 24 // 2 bytes
+ct AA puf_exp3_pitch_hi    = puf_exp_mem + 26
+ct AA puf_exp3_stack       = puf_exp_mem + 27
+ct AA puf_exp3_stack_next  = puf_exp_mem + 28
+ct AA puf_exp3_mask        = puf_exp_mem + 29
+
+ct AA puf_instrument_ptrs   = puf_exp_mem + (10 * _exp_channels) // 24 bytes, + 4 bytes per channel
 
 ct AAA puf_silent_instrument = &puf_instrument_0
 
@@ -233,18 +288,49 @@ asm fn puf(U arg) Bool
         sta puf_noise_note
         jsr reset_noise
     label play_sfx_done_noise
+        if _exp_channels >= 1
+            lsr puf_temp
+            bcc play_sfx_done_exp1
+            ldx #0
+            stx puf_exp1_stack_next
+            ldx puf_exp1_stack
+            jsr write_sfx
+            sta puf_exp1_note
+            jsr reset_exp1
+    label play_sfx_done_exp1
+        if _exp_channels >= 2
+            lsr puf_temp
+            bcc play_sfx_done_exp2
+            ldx #0
+            stx puf_exp2_stack_next
+            ldx puf_exp2_stack
+            jsr write_sfx
+            sta puf_exp2_note
+            jsr reset_exp2
+    label play_sfx_done_exp2
+        if _exp_channels >= 3
+            lsr puf_temp
+            bcc play_sfx_done_exp3
+            ldx #0
+            stx puf_exp3_stack_next
+            ldx puf_exp3_stack
+            jsr write_sfx
+            sta puf_exp3_note
+            jsr reset_exp3
+    label play_sfx_done_exp3
+
         jmp unlock
 
 
     label write_sfx
         lda (&puf_ptr_temp.a), y
-        sta $100, x
+        sta _stack_0, x
         iny
         lda (&puf_ptr_temp.a), y
-        sta $108, x
+        sta _stack_1, x
         iny
         lda (&puf_ptr_temp.a), y
-        sta $110, x
+        sta _stack_2, x
         iny
         lda (&puf_ptr_temp.a), y
         iny
@@ -294,6 +380,44 @@ asm fn puf(U arg) Bool
         stx puf_noise_vol_duty_y
         rts
 
+    label reset_exp1
+        if _exp_channels >= 1
+            ldx #$FF
+            stx puf_exp1_pitch_hi
+            inx
+            stx puf_exp1_pitch_bend+1
+            stx puf_exp1_pitch_bend+0
+            inx
+            stx puf_exp1_pitch_y
+            stx puf_exp1_arpeggio_y
+            stx puf_exp1_vol_duty_y
+            rts
+
+    label reset_exp2
+        if _exp_channels >= 2
+            ldx #$FF
+            stx puf_exp2_pitch_hi
+            inx
+            stx puf_exp2_pitch_bend+1
+            stx puf_exp2_pitch_bend+0
+            inx
+            stx puf_exp2_pitch_y
+            stx puf_exp2_arpeggio_y
+            stx puf_exp2_vol_duty_y
+            rts
+
+    label reset_exp3
+        if _exp_channels >= 3
+            ldx #$FF
+            stx puf_exp3_pitch_hi
+            inx
+            stx puf_exp3_pitch_bend+1
+            stx puf_exp3_pitch_bend+0
+            inx
+            stx puf_exp3_pitch_y
+            stx puf_exp3_arpeggio_y
+            stx puf_exp3_vol_duty_y
+            rts
 
     label read_macro
         ldx #0
@@ -330,6 +454,42 @@ asm fn puf(U arg) Bool
         jsr update_triangle_noise
     label update_variables
         ldy #0
+
+        // Exp3
+        if _exp_channels >= 3
+            lda puf_exp3_stack_next
+            beq done_update_exp3
+            cmp puf_exp3_stack
+            beq done_update_exp3
+            sta puf_exp3_stack
+            lda (&puf_exp3_pattern_ptr.a), y
+            sta puf_exp3_note
+            jsr reset_exp3
+    label done_update_exp3
+
+        // Exp2
+        if _exp_channels >= 2
+            lda puf_exp2_stack_next
+            beq done_update_exp2
+            cmp puf_exp2_stack
+            beq done_update_exp2
+            sta puf_exp2_stack
+            lda (&puf_exp2_pattern_ptr.a), y
+            sta puf_exp2_note
+            jsr reset_exp2
+    label done_update_exp2
+
+        // Exp1
+        if _exp_channels >= 1
+            lda puf_exp1_stack_next
+            beq done_update_exp1
+            cmp puf_exp1_stack
+            beq done_update_exp1
+            sta puf_exp1_stack
+            lda (&puf_exp1_pattern_ptr.a), y
+            sta puf_exp1_note
+            jsr reset_exp1
+    label done_update_exp1
 
         // Noise
         lda puf_noise_stack_next
@@ -412,11 +572,11 @@ asm fn puf(U arg) Bool
 
     label write_instrument
         lda &puf_instrument_lo, x
-        sta $100, y
+        sta _stack_0, y
         lda &puf_instrument_hi, x
-        sta $108, y
+        sta _stack_1, y
         lda &puf_instrument_bank, x
-        sta $110, y
+        sta _stack_2, y
         rts
 
 
@@ -460,6 +620,48 @@ asm fn puf(U arg) Bool
         jsr write_instrument
         inc &puf_noise_pattern_ptr.a
     label done_noise
+
+        // Exp2
+        if _exp_channels >= 2
+            lsr puf_exp2_mask
+            bcc done_exp2
+
+            lda puf_exp2_stack_next
+            beq done_exp2
+            eor #%00000001
+            sta puf_exp2_stack_next
+            inc &puf_exp2_pattern_ptr.a
+            ldy #0
+            if __illegal
+                lax (&puf_exp2_pattern_ptr.a), y
+            else
+                lda (&puf_exp2_pattern_ptr.a), y
+                tax
+            ldy puf_exp2_stack_next
+            jsr write_instrument
+            inc &puf_exp2_pattern_ptr.a
+    label done_exp2
+
+        // Exp3
+        if _exp_channels >= 3
+            lsr puf_exp3_mask
+            bcc done_exp3
+
+            lda puf_exp3_stack_next
+            beq done_exp3
+            eor #%00000001
+            sta puf_exp3_stack_next
+            inc &puf_exp3_pattern_ptr.a
+            ldy #0
+            if __illegal
+                lax (&puf_exp3_pattern_ptr.a), y
+            else
+                lda (&puf_exp3_pattern_ptr.a), y
+                tax
+            ldy puf_exp3_stack_next
+            jsr write_instrument
+            inc &puf_exp3_pattern_ptr.a
+    label done_exp3
 
         rts
 
@@ -509,6 +711,27 @@ asm fn puf(U arg) Bool
         inc &puf_square2_pattern_ptr.a
     label done_square2
 
+        // Exp1
+        if _exp_channels >= 1
+            lsr puf_exp1_mask
+            bcc done_exp1
+
+            lda puf_exp1_stack_next
+            beq done_exp1
+            eor #%00000001
+            sta puf_exp1_stack_next
+            inc &puf_exp1_pattern_ptr.a
+            ldy #0
+            if __illegal
+                lax (&puf_exp1_pattern_ptr.a), y
+            else
+                lda (&puf_exp1_pattern_ptr.a), y
+                tax
+            ldy puf_exp1_stack_next
+            jsr write_instrument
+            inc &puf_exp1_pattern_ptr.a
+    label done_exp1
+
         rts
 
 
@@ -548,6 +771,27 @@ asm fn puf(U arg) Bool
         iny
         lda (&puf_track_ptr.a), y
         sta &puf_dpcm_pattern_ptr.b
+        if _exp_channels >= 1
+            iny
+            lda (&puf_track_ptr.a), y
+            sta &puf_exp1_pattern_ptr.a
+            iny
+            lda (&puf_track_ptr.a), y
+            sta &puf_exp1_pattern_ptr.b
+        if _exp_channels >= 2
+            iny
+            lda (&puf_track_ptr.a), y
+            sta &puf_exp2_pattern_ptr.a
+            iny
+            lda (&puf_track_ptr.a), y
+            sta &puf_exp2_pattern_ptr.b
+        if _exp_channels >= 3
+            iny
+            lda (&puf_track_ptr.a), y
+            sta &puf_exp3_pattern_ptr.a
+            iny
+            lda (&puf_track_ptr.a), y
+            sta &puf_exp3_pattern_ptr.b
 
         lda puf_pattern_size
         sta puf_pattern_left
@@ -561,11 +805,11 @@ asm fn puf(U arg) Bool
     label update_track_ptr
         if __illegal
             lax &puf_track_ptr.a
-            axs #-10
+            axs #-(_channels * 2)
         else
             lda &puf_track_ptr.a
             clc
-            adc #10
+            adc #_channels * 2
             tax
         lda #0
         sta puf_finished
@@ -597,6 +841,15 @@ asm fn puf(U arg) Bool
         sta puf_noise_mask
         lda (&puf_dpcm_pattern_ptr.a), y
         sta puf_dpcm_mask
+        if _exp_channels >= 1
+            lda (&puf_exp1_pattern_ptr.a), y
+            sta puf_exp1_mask
+        if _exp_channels >= 2
+            lda (&puf_exp2_pattern_ptr.a), y
+            sta puf_exp2_mask
+        if _exp_channels >= 3
+            lda (&puf_exp3_pattern_ptr.a), y
+            sta puf_exp3_mask
     label early_return
     label update_null
         rts
@@ -623,6 +876,11 @@ asm fn puf(U arg) Bool
         sta &puf_ptr_temp.b
         jsr do_jump
     label play_registers
+
+        lda #%00001111
+        sta $4015
+        if __expansion_audio == _MMC5
+            sta $5015
 
         // Square1
         lda puf_enable
@@ -823,24 +1081,171 @@ asm fn puf(U arg) Bool
         sta $400E
     label disable_noise
 
+        /////////////////////
+        // Expansion Audio //
+        /////////////////////
+    
+        if __expansion_audio != 0
+            bit puf_enable
+            bvs process_expansion
+            rts
+
+    label process_expansion
+
+        // Exp1
+        if _exp_channels >= 1
+            ldx puf_exp1_stack
+            jsr load_ptr_from_stack
+
+            ldy puf_exp1_vol_duty_y
+            jsr read_macro
+            sty puf_exp1_vol_duty_y
+            cpy #0
+            bne sta_exp1_vol_duty
+            ldx puf_exp1_stack
+            stx puf_exp1_stack_next
+            jsr write_silence
+            jsr reset_exp1
+            if __expansion_audio == _MMC5
+                lda #%00110000
+            if __expansion_audio == _VRC6
+                lda #0
+    label sta_exp1_vol_duty
+        if _exp_channels >= 1
+            if __expansion_audio == _MMC5
+                sta $5000
+            if __expansion_audio == _VRC6
+                sta $9000
+
+            ldy puf_exp1_pitch_y
+            jsr read_macro
+            sty puf_exp1_pitch_y
+            bpl done_exp1_pitch_y
+            dex
+    label done_exp1_pitch_y
+        if _exp_channels >= 1
+            adc puf_exp1_pitch_bend+0
+            sta puf_exp1_pitch_bend+0
+            txa
+            adc puf_exp1_pitch_bend+1
+            sta puf_exp1_pitch_bend+1
+
+            ldy puf_exp1_arpeggio_y
+            jsr read_macro
+            sty puf_exp1_arpeggio_y
+            adc puf_exp1_note
+            tay
+            clc
+            lda (&puf_note_table_ptr.a), y
+            adc puf_exp1_pitch_bend+0
+            if __expansion_audio == _MMC5
+                sta $5002
+            if __expansion_audio == _VRC6
+                sta $9001
+            iny
+            lda (&puf_note_table_ptr.a), y
+            adc puf_exp1_pitch_bend+1
+            if __expansion_audio == _VRC6
+                ora #%10000000
+                and #%10000111
+            else
+                and #%10000111
+            cmp puf_exp1_pitch_hi
+            beq done_sta_exp1_pitch
+            if __expansion_audio == _MMC5
+                sta $5003
+            if __expansion_audio == _VRC6
+                sta $9002
+    label done_sta_exp1_pitch
+        if _exp_channels >= 1
+            sta puf_exp1_pitch_hi
+
+        // Exp2
+        if _exp_channels >= 1
+            ldx puf_exp2_stack
+            jsr load_ptr_from_stack
+
+            ldy puf_exp2_vol_duty_y
+            jsr read_macro
+            sty puf_exp2_vol_duty_y
+            cpy #0
+            bne sta_exp2_vol_duty
+            ldx puf_exp2_stack
+            stx puf_exp2_stack_next
+            jsr write_silence
+            jsr reset_exp2
+            if __expansion_audio == _MMC5
+                lda #%00110000
+            if __expansion_audio == _VRC6
+                lda #0
+    label sta_exp2_vol_duty
+        if _exp_channels >= 1
+            if __expansion_audio == _MMC5
+                sta $5004
+            if __expansion_audio == _VRC6
+                sta $A000
+
+            ldy puf_exp2_pitch_y
+            jsr read_macro
+            sty puf_exp2_pitch_y
+            bpl done_exp2_pitch_y
+            dex
+    label done_exp2_pitch_y
+        if _exp_channels >= 1
+            adc puf_exp2_pitch_bend+0
+            sta puf_exp2_pitch_bend+0
+            txa
+            adc puf_exp2_pitch_bend+1
+            sta puf_exp2_pitch_bend+1
+
+            ldy puf_exp2_arpeggio_y
+            jsr read_macro
+            sty puf_exp2_arpeggio_y
+            adc puf_exp2_note
+            tay
+            clc
+            lda (&puf_note_table_ptr.a), y
+            adc puf_exp2_pitch_bend+0
+            if __expansion_audio == _MMC5
+                sta $5006
+            if __expansion_audio == _VRC6
+                sta $A001
+            iny
+            lda (&puf_note_table_ptr.a), y
+            adc puf_exp2_pitch_bend+1
+            if __expansion_audio == _VRC6
+                ora #%10000000
+                and #%10000111
+            else
+                and #%10000111
+            cmp puf_exp2_pitch_hi
+            beq done_sta_exp2_pitch
+            if __expansion_audio == _MMC5
+                sta $5007
+            if __expansion_audio == _VRC6
+                sta $A002
+    label done_sta_exp2_pitch
+        if _exp_channels >= 1
+            sta puf_exp2_pitch_hi
+
         rts
 
     label load_ptr_from_stack
-        lda $100, x
+        lda _stack_0, x
         sta &puf_ptr_temp.a
-        lda $108, x
+        lda _stack_1, x
         sta &puf_ptr_temp.b
-        ldy $110, x
+        ldy _stack_2, x
         switch y
         rts
 
     label write_silence
         lda #puf_silent_instrument.a
-        sta $100, x
+        sta _stack_0, x
         lda #puf_silent_instrument.b
-        sta $108, x
+        sta _stack_1, x
         lda #puf_silent_instrument.bank
-        sta $110, x
+        sta _stack_2, x
     label fail_lock
         rts
 
@@ -885,28 +1290,67 @@ asm fn puf(U arg) Bool
         ldx #puf_instrument_ptrs.a+7
         stx puf_square1_stack
         stx puf_square1_stack_next
+        if _exp_channels >= 1
+            ldx #puf_instrument_ptrs.a+9
+            stx puf_exp1_stack
+            stx puf_exp1_stack_next
+        if _exp_channels >= 2
+            ldx #puf_instrument_ptrs.a+11
+            stx puf_exp2_stack
+            stx puf_exp2_stack_next
+        if _exp_channels >= 3
+            ldx #puf_instrument_ptrs.a+13
+            stx puf_exp3_stack
+            stx puf_exp3_stack_next
 
         lda #puf_silent_instrument.a
         sta puf_instrument_ptrs+1
         sta puf_instrument_ptrs+3
         sta puf_instrument_ptrs+5
         sta puf_instrument_ptrs+7
+        if _exp_channels >= 1
+            sta puf_instrument_ptrs+9
+        if _exp_channels >= 2
+            sta puf_instrument_ptrs+11
+        if _exp_channels >= 3
+            sta puf_instrument_ptrs+13
+
         lda #puf_silent_instrument.b
-        sta puf_instrument_ptrs+1+8
-        sta puf_instrument_ptrs+3+8
-        sta puf_instrument_ptrs+5+8
-        sta puf_instrument_ptrs+7+8
+        sta puf_instrument_ptrs+1+_note_channels*2
+        sta puf_instrument_ptrs+3+_note_channels*2
+        sta puf_instrument_ptrs+5+_note_channels*2
+        sta puf_instrument_ptrs+7+_note_channels*2
+        if _exp_channels >= 1
+            sta puf_instrument_ptrs+9+_note_channels*2
+        if _exp_channels >= 2
+            sta puf_instrument_ptrs+11+_note_channels*2
+        if _exp_channels >= 3
+            sta puf_instrument_ptrs+13+_note_channels*2
+
         lda #puf_silent_instrument.bank
-        sta puf_instrument_ptrs+1+16
-        sta puf_instrument_ptrs+3+16
-        sta puf_instrument_ptrs+5+16
-        sta puf_instrument_ptrs+7+16
+        sta puf_instrument_ptrs+1+_note_channels*4
+        sta puf_instrument_ptrs+3+_note_channels*4
+        sta puf_instrument_ptrs+5+_note_channels*4
+        sta puf_instrument_ptrs+7+_note_channels*4
+        if _exp_channels >= 1
+            sta puf_instrument_ptrs+9+_note_channels*4
+        if _exp_channels >= 2
+            sta puf_instrument_ptrs+11+_note_channels*4
+        if _exp_channels >= 3
+            sta puf_instrument_ptrs+13+_note_channels*4
         sta puf_bank
 
         lda #0
         sta puf_track_speed
         sta puf_track_step
         sta puf_finished
+
+        if _exp_channels >= 1
+            jsr reset_exp1
+        if _exp_channels >= 2
+            jsr reset_exp2
+        if _exp_channels >= 3
+            jsr reset_exp3
 
         jsr reset_square1
         jsr reset_square2
@@ -947,9 +1391,8 @@ asm fn puf(U arg) Bool
         lda #%00001000
         sta $4001
         sta $4005
-
-        lda #%00001111
-        sta $4015
+        if __expansion_audio == _VRC6
+            sta $9003
 
         ldx #%10000000
         stx $4008

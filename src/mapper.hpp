@@ -276,4 +276,26 @@ constexpr bool mmc3_variant(mapper_type_t mt = mapper().type)
     }
 }
 
+/////////////////////
+// Expansion Audio //
+/////////////////////
+
+enum expansion_audio_t : std::uint8_t
+{
+    EXP_AUDIO_NONE,
+    EXP_AUDIO_MMC5,
+    EXP_AUDIO_VRC6,
+};
+
+constexpr expansion_audio_t expansion_audio(mapper_type_t mt = mapper().type)
+{
+    switch(mt)
+    {
+    default:
+        return EXP_AUDIO_NONE;
+    case MAPPER_MMC5: 
+        return EXP_AUDIO_MMC5;
+    }
+}
+
 #endif

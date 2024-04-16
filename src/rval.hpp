@@ -70,6 +70,7 @@ struct lval_t
     static constexpr std::int16_t ILLEGAL_ARG = RETURN_ARG - 7;
     static constexpr std::int16_t MAPPER_ARG = RETURN_ARG - 8;
     static constexpr std::int16_t CONTROLLERS_ARG = RETURN_ARG - 9;
+    static constexpr std::int16_t EXPANSION_AUDIO_ARG = RETURN_ARG - 10;
 
     enum access_class_t
     {

@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 1.3
+Version 1.4
 :sectnums:
 :toc2:
 :toclevels: 3
@@ -514,11 +514,6 @@ nesfab --controllers 2
 controllers = 2
 ----
 
-[NOTE]
-Just because the compiler accepts a `sram` value does not mean that corresponding hardware exists in the real world.
-Only the default `sram` value is asserted to be commonly available.
-
-
 === `unsafe-bank-switch` [[opt_unsafe_bank_switch]]
 
 By default, the compiler generates <<banks, bank>> switching code which is resilient to hardware interrupts.
@@ -541,6 +536,21 @@ nesfab --unsafe-bank-switch
 *Configuration file usage:*
 ----
 unsafe-bank-switch = 1
+----
+
+=== `expansion-audio` [[opt_expansion_audio]]
+
+This option determines the language's <<kw_expansion_audio, `__expansion_audio` value>>,
+which is used to enable expansion audio in music drivers.
+
+*Command-line usage:*
+----
+nesfab --expansion-audio
+----
+
+*Configuration file usage:*
+----
+expansion-audio = 1
 ----
 
 === `multicart` [[opt_multicart]]
@@ -931,11 +941,11 @@ Typically, BNROM is better for NESFab than UNROM, as it does not require the use
 
 |===
 
-=== `30` [[mapper_30]]
+=== `30` (UNROM 512) [[mapper_30]]
 
-https://www.nesdev.org/wiki/https://www.nesdev.org/wiki/UNROM_512[*NESDev Wiki Page*]
+https://www.nesdev.org/wiki/UNROM_512[*NESDev Wiki Page*]
 
-Mapper 30 is a UNROM variant with CHRRAM banking.
+Mapper 30 is an extended form of UNROM with CHRRAM banking.
 Like UNROM, mapper 30 requires manual ROM layout with the <<mod_flags, `+static` modifier>>.
 
 *Memory Sizes:*
@@ -1369,6 +1379,70 @@ See the standard library file `lib/mapper/mmc3.fab`.
 | Acceptible risk
 
 |===
+
+=== `mmc5` [[mapper_mmc5]]
+
+https://www.nesdev.org/wiki/MMC5[*NESDev Wiki Page*]
+
+MMC5 is a powerful ASIC mapper with many features.
+Notably, it extends rendering with 8x8 background attributes, per-tile banking,
+and vertical splits, extends audio with expansion channels, provides a scanline counter,
+and even has hardware to perform multiplication.
+
+[NOTE]
+See the standard library file `lib/mapper/mmc5.fab`.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 1024 KiB
+| 1024 KiB
+| 1024 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 1024 KiB
+| 1024 KiB
+| 1024 KiB
+
+| Nametable VRAM
+| 3 KiB
+| 3 KiB
+| 3 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Switchable
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<opt_sram, SRAM>>
+| By default, yes
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| Recommended
+
+|===
+
+[NOTE]
+Enabling <<opt_unsafe_bank_switch>> enables NESFab to use the MMC5 multiplication hardware for arithmetic.
+
+[NOTE]
+Enabling <<opt_expansion_audio>> enables NESFab to use the MMC5's expanded sound channels.
+
 
 == Identifiers [[identifiers]]
 
@@ -4200,6 +4274,29 @@ and are primarily intended for use in the standard library, not by users.
 ==== `__controllers` [[kw_controllers]]
 
 `__controllers` is a value of type `Int` which returns the value set by the <<opt_controllers, `--controllers` option>>.
+
+==== `__expansion_audio` [[kw_expansion_audio]]
+
+`__expansion_audio` is a value of type `Int`, determined by the <<opt_expansion_audio, `--expansion-audio` option>>
+and the <<opt_mapper, `--mapper` option>>.
+
+Its possible values are below:
+
+[cols="1,3"]
+|===
+|Value |Meaning
+
+|0
+|No expansion audio
+
+|1
+|MMC5 audio enabled
+
+|2
+|VRC6 audio enabled
+|===
+
+==== Numeric Constant Types
 
 ==== `__mapper` [[kw_mapper]]
 

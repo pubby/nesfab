@@ -42,6 +42,13 @@ enum channel_t
     MAX_CHAN,
 };
 
+enum inst_type_t
+{
+    INST_2A03,
+    INST_VRC6,
+    MAX_INST_TYPE
+};
+
 unsigned puf_num_chan() 
 {
     if(!compiler_options().expansion_audio)
@@ -52,9 +59,9 @@ unsigned puf_num_chan()
     default:
         return 5;
     case EXP_AUDIO_MMC5:
-        return 7;
-    case EXP_AUDIO_VRC6:
-        return 8;
+        return 5 + 2;
+    case EXP_AUDIO_RNBW:
+        return 5 + 3;
     }
 }
 
@@ -72,6 +79,15 @@ struct macro_t
     static constexpr int duty     = 4;
 };
 
+struct macro_key_t
+{
+    int field;
+    int index;
+    inst_type_t type;
+
+    auto operator<=>(macro_key_t const&) const = default;
+};
+
 struct dpcm_key_t
 {
     int sample;
@@ -84,6 +100,7 @@ struct dpcm_key_t
 
 struct instrument_t
 {
+    inst_type_t type;
     int seq_vol;
     int seq_arp;
     int seq_pit;
@@ -237,7 +254,7 @@ std::string convert_name(std::string const& in)
     return out;
 }
 
-macro_t combine_vol_duty(macro_t volume, macro_t duty)
+macro_t combine_vol_duty(inst_type_t type, macro_t volume, macro_t duty)
 {
     if(volume.loop < 0 || duty.loop < 0)
         throw std::runtime_error("Can't combine non-looping macros.");
@@ -258,7 +275,7 @@ macro_t combine_vol_duty(macro_t volume, macro_t duty)
 
     for(std::size_t i = 0; i < max_loop + max_loop_size; ++i)
     {
-        unsigned v = 0b00110000;
+        unsigned v = (type == INST_VRC6) ? 0 : 0b0010000;
 
         std::size_t j = i;
         while(j >= volume.sequence.size())
@@ -268,7 +285,7 @@ macro_t combine_vol_duty(macro_t volume, macro_t duty)
         std::size_t k = i;
         while(k >= duty.sequence.size())
             k -= (duty.sequence.size() - duty.loop);
-        v |= duty.sequence[k] << 6;
+        v |= duty.sequence[k] << ((type == INST_VRC6) ? 4 : 6);
 
         combined.sequence.push_back(v);
         combined.loop = max_loop;
@@ -283,7 +300,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 
     unsigned const num_chan = puf_num_chan();
 
-    std::map<std::pair<int, int>, macro_t> macros;
+    std::map<macro_key_t, macro_t> macros;
     std::map<int, instrument_t> instruments;
     std::vector<track_t> tracks;
 
@@ -336,12 +353,12 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
             if(words.empty())
                 continue;
 
-            if(words[0] == "MACRO"sv)
+            if(words[0] == "MACRO"sv || words[0] == "MACROVRC6"sv)
             {
                 req_words(8);
 
                 macro_t macro = {};
-                int const type  = parse_int(words[1]);
+                int const field  = parse_int(words[1]);
                 int const index = parse_int(words[2]);
                 macro.loop  = parse_int(words[3]);
 
@@ -355,18 +372,41 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                 // Force macro to loop.
                 if(macro.loop < 0 || std::size_t(macro.loop) >= macro.sequence.size())
                 {
-                    if(type == macro_t::pitch && macro.sequence.size() && macro.sequence.back() != 0)
+                    if(field == macro_t::pitch && macro.sequence.size() && macro.sequence.back() != 0)
                         macro.sequence.push_back(0);
                     macro.loop = macro.sequence.size() - 1;
                 }
 
-                macros[std::make_pair(type, index)] = macro;
+                inst_type_t type = INST_2A03;
+                if(words[0] == "MACROVRC6"sv)
+                {
+                    if(!compiler_options().expansion_audio || expansion_audio() != EXP_AUDIO_RNBW)
+                        throw std::runtime_error("MACROVRC6 used in incompatible mapper.");
+                    type = INST_VRC6;
+                }
+
+                macros[macro_key_t{field, index, type}] = macro;
             }
             else if(words[0] == "INST2A03"sv)
             {
                 req_words(7);
 
-                instrument_t instrument = {};
+                instrument_t instrument = { INST_2A03 };
+                instrument.seq_vol = parse_int(words[2]);
+                instrument.seq_arp = parse_int(words[3]);
+                instrument.seq_pit = parse_int(words[4]);
+                instrument.seq_hpi = parse_int(words[5]);
+                instrument.seq_dut = parse_int(words[6]);
+                instruments.emplace(parse_int(words[1]), instrument);
+            }
+            else if(words[0] == "INSTVRC6"sv)
+            {
+                if(!compiler_options().expansion_audio || expansion_audio() != EXP_AUDIO_RNBW)
+                    throw std::runtime_error("INSTVRC6 used in incompatible mapper.");
+
+                req_words(7);
+
+                instrument_t instrument = { INST_VRC6 };
                 instrument.seq_vol = parse_int(words[2]);
                 instrument.seq_arp = parse_int(words[3]);
                 instrument.seq_pit = parse_int(words[4]);
@@ -404,9 +444,9 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                     track.name += words[i];
 
                 if(track.tempo != 150)
-                    throw std::runtime_error("Track has a tempo not equal to 150.");
+                    throw std::runtime_error(fmt("Track has a tempo not equal to 150. (= %)", track.tempo));
                 if(track.speed > 30)
-                    throw std::runtime_error("Track has a speed more than 30.");
+                    throw std::runtime_error(fmt("Track has a speed more than 30. (= %", track.speed));
 
                 tracks.push_back(track);
                 active_track = &tracks.back();
@@ -486,16 +526,18 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
     }
 
     // Add blank macros.
+    for(int i = INST_2A03; i < MAX_INST_TYPE; ++i)
     {
+        inst_type_t const type = inst_type_t(i);
         macro_t macro = {};
         macro.loop = 0;
         macro.sequence.push_back(0);
-        macros[std::make_pair(macro_t::pitch, -1)]    = macro;
-        macros[std::make_pair(macro_t::arpeggio, -1)] = macro;
-        macros[std::make_pair(macro_t::duty, -1)]     = macro;
-        macros[std::make_pair(macro_t::volume, -10)]  = macro;
+        macros[macro_key_t{macro_t::pitch, -1, type}]    = macro;
+        macros[macro_key_t{macro_t::arpeggio, -1, type}] = macro;
+        macros[macro_key_t{macro_t::duty, -1, type}]     = macro;
+        macros[macro_key_t{macro_t::volume, -10, type}]  = macro;
         macro.sequence[0] = 15;
-        macros[std::make_pair(macro_t::volume, -1)] = macro;
+        macros[macro_key_t{macro_t::volume, -1, type}] = macro;
     }
 
     // Add blank instruments
@@ -601,6 +643,16 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                                 else
                                 {
                                     auto& instrument = instruments[cd.instrument];
+
+                                    if(k < CHAN_EXP1 && instrument.type != INST_2A03)
+                                        throw std::runtime_error("Non-2A03 instrument used in 2A03 channel.");
+
+                                    if(k >= CHAN_EXP1 && instrument.type != INST_VRC6
+                                       && compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW)
+                                    {
+                                        throw std::runtime_error("Non-VRC6 instrument used in VRC6 channel.");
+                                    }
+
                                     if(instrument.id < 0)
                                     {
                                         instrument.id = penguin_instrument_vector.size();
@@ -721,20 +773,20 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
         if(instrument.id < 0)
             continue; // Unused instrument.
 
-        if(!macros.count(std::make_pair(macro_t::volume, instrument.seq_vol)))
-            throw std::runtime_error(fmt("Missing instrument macro. (instrument = %, vol = %)", 
-                                         instrument.id, instrument.seq_vol));
-        if(!macros.count(std::make_pair(macro_t::duty, instrument.seq_dut)))
-            throw std::runtime_error(fmt("Missing instrument macro. (instrument = %, duty = %)", 
-                                         instrument.id, instrument.seq_dut));
+        if(!macros.count(macro_key_t{macro_t::volume, instrument.seq_vol, instrument.type }))
+            throw std::runtime_error(fmt("Missing instrument macro. (instrument = %, vol = %, type = %)", 
+                                         instrument.id, instrument.seq_vol, instrument.type));
+        if(!macros.count(macro_key_t{macro_t::duty, instrument.seq_dut, instrument.type }))
+            throw std::runtime_error(fmt("Missing instrument macro. (instrument = %, duty = %, type = %)", 
+                                         instrument.id, instrument.seq_dut, instrument.type));
 
-        macro_t vol_duty = combine_vol_duty(
-            macros.at(std::make_pair(macro_t::volume, instrument.seq_vol)),
-            macros.at(std::make_pair(macro_t::duty, instrument.seq_dut)));
+        macro_t vol_duty = combine_vol_duty(instrument.type,
+            macros.at(macro_key_t{ macro_t::volume, instrument.seq_vol, instrument.type }),
+            macros.at(macro_key_t{ macro_t::duty, instrument.seq_dut, instrument.type }));
 
-        macro_t const& pit = macros.at(std::make_pair(macro_t::pitch, instrument.seq_pit));
+        macro_t const& pit = macros.at(macro_key_t{macro_t::pitch, instrument.seq_pit, instrument.type });
 
-        macro_t const& arp = macros.at(std::make_pair(macro_t::arpeggio, instrument.seq_arp));
+        macro_t const& arp = macros.at(macro_key_t{macro_t::arpeggio, instrument.seq_arp, instrument.type });
 
         // Append the data:
 
@@ -752,7 +804,9 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
         append(pit);
         append(arp, 2);
 
-        instrument.gconst = define_const(at, fmt("puf_instrument_%", instrument.id), std::move(proc), data_group_pair, false, 0);
+        instrument.gconst = define_const(
+            at, fmt("puf_instrument_%", instrument.id), 
+            std::move(proc), data_group_pair, false, 0);
     }
 
     {
@@ -1039,12 +1093,39 @@ void mem_wr(unsigned address, unsigned char data)
 
     if(compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_MMC5)
     {
-        if(mmc5_register_allowed(address) && apu_registers[address - 0x5000 + EXP_OFFSET] != data)
-            apu_registers[address - 0x5000 + EXP_OFFSET] = data;
+        unsigned const i = address - 0x5000 + EXP_OFFSET;
+
+        if(mmc5_register_allowed(address) && apu_registers[i] != data)
+            apu_registers[i] = data;
 
         // Catch the C00 effect.
         if(address == 0x5015 && data == 0)
             effect_stop = true;
+    }
+    else if(compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW)
+    {
+        unsigned i = EXP_OFFSET;
+
+        switch(address)
+        {
+        case 0x9000: i += 0; break;
+        case 0x9001: i += 2; break;
+        case 0x9002: i += 3; break;
+
+        case 0xA000: i += 4; break;
+        case 0xA001: i += 6; break;
+        case 0xA002: i += 7; break;
+
+        case 0xB000: i += 8; data >>= 2; break;
+        case 0xB001: i += 10; break;
+        case 0xB002: i += 11; break;
+
+        default: goto done_rnbw;
+        }
+
+        if(apu_registers[i] != data)
+            apu_registers[i] = data;
+    done_rnbw:;
     }
 }
 
@@ -1055,6 +1136,7 @@ const_ht convert_effect(lpstring_t at,
                         defined_group_data_t group_pair, bool omni)
 {
     unsigned const num_chan = puf_num_chan();
+    bool const rnbw= compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW;
 
     static TLS std::mutex cpu_mutex;
     std::lock_guard<std::mutex> lock(cpu_mutex);
@@ -1077,6 +1159,12 @@ const_ht convert_effect(lpstring_t at,
     {
         apu_registers[0x00 + EXP_OFFSET] = 0x30;
         apu_registers[0x04 + EXP_OFFSET] = 0x30;
+    }
+    else if(rnbw)
+    {
+        apu_registers[0x00 + EXP_OFFSET] = 0x0;
+        apu_registers[0x04 + EXP_OFFSET] = 0x0;
+        apu_registers[0x08 + EXP_OFFSET] = 0x0;
     }
 
     // Init nsf code.
@@ -1126,10 +1214,13 @@ const_ht convert_effect(lpstring_t at,
             push_byte(proc.code, 0);
             for(unsigned i = 0; i < apu_register_log.size(); ++i)
             {
-                unsigned vol_duty = apu_register_log[i][0x00+k*4] | 0b110000;
+                unsigned vol_duty = apu_register_log[i][0x00+k*4];
+                if(!rnbw || k < CHAN_EXP1)
+                    vol_duty |= 0b110000;
+                else if(!(apu_register_log[i][0x03+k*4] & 0x80))
+                    vol_duty = 0;
                 if(k == CHAN_TRIANGLE && (vol_duty & 0b1111))
                     vol_duty |= 0b1111;
-                std::printf("vol = %i\n", vol_duty & 0b1111);
                 push_byte(proc.code, vol_duty);
             }
 
@@ -1152,7 +1243,10 @@ const_ht convert_effect(lpstring_t at,
                 for(unsigned i = 0; i < apu_register_log.size(); ++i)
                 {
                     int pitch = apu_register_log[i][0x02 + k*4];
-                    pitch |= (apu_register_log[i][0x03 + k*4] & 0b111) << 8;
+                    if(rnbw)
+                        pitch |= (apu_register_log[i][0x03 + k*4] & 0b1111) << 8;
+                    else
+                        pitch |= (apu_register_log[i][0x03 + k*4] & 0b111) << 8;
 
                     int min_n = 0;
                     for(unsigned n = 0; n < ntsc_notes.size(); ++n)

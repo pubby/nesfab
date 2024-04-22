@@ -21,6 +21,7 @@ MAPPER(COLORDREAMS, 11) \
 MAPPER(GTROM, 111) \
 MAPPER(189, 189) \
 MAPPER(30, 30) \
+MAPPER(RAINBOW, 682) \
 
 struct mapper_t;
 
@@ -117,6 +118,7 @@ struct mapper_t
     static mapper_t mmc3(mapper_params_t const& params);
     static mapper_t ines_30(mapper_params_t const& params);
     static mapper_t mmc5(mapper_params_t const& params);
+    static mapper_t rainbow(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
     span_t rom_span() const { return { 0x8000, 0x8000 }; }
@@ -156,6 +158,8 @@ constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
         return 0xC000;
     case MAPPER_MMC5: 
         return 0x5117;
+    case MAPPER_RAINBOW:
+        return 0x4118;
     default: 
         return 0x8000;
     }
@@ -177,6 +181,14 @@ constexpr std::uint16_t vectors_after_addr(mapper_type_t mt = mapper().type)
 
 constexpr std::uint16_t iota_addr(mapper_type_t mt = mapper().type)
 {
+    switch(mt)
+    {
+    default: 
+        break;
+    case MAPPER_RAINBOW:
+        return 0x8000;
+    }
+
     if(std::uint16_t addr = vectors_after_addr(mt))
         return addr;
 
@@ -284,7 +296,7 @@ enum expansion_audio_t : std::uint8_t
 {
     EXP_AUDIO_NONE,
     EXP_AUDIO_MMC5,
-    EXP_AUDIO_VRC6,
+    EXP_AUDIO_RNBW,
 };
 
 constexpr expansion_audio_t expansion_audio(mapper_type_t mt = mapper().type)
@@ -295,6 +307,8 @@ constexpr expansion_audio_t expansion_audio(mapper_type_t mt = mapper().type)
         return EXP_AUDIO_NONE;
     case MAPPER_MMC5: 
         return EXP_AUDIO_MMC5;
+    case MAPPER_RAINBOW: 
+        return EXP_AUDIO_RNBW;
     }
 }
 

@@ -459,6 +459,8 @@ int main(int argc, char** argv)
                     _options.mapper = mapper_t::ines_30(mapper_params);
                 else if(str == "mmc5"sv)
                     _options.mapper = mapper_t::mmc5(mapper_params);
+                else if(str == "rainbow"sv)
+                    _options.mapper = mapper_t::rainbow(mapper_params);
                 else
                     throw std::runtime_error(fmt("Invalid mapper: '%'", compiler_options().raw_mn));
             }

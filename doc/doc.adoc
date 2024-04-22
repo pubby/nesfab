@@ -1389,6 +1389,9 @@ Notably, it extends rendering with 8x8 background attributes, per-tile banking,
 and vertical splits, extends audio with expansion channels, provides a scanline counter,
 and even has hardware to perform multiplication.
 
+Unfortunately, MMC5 is a difficult mapper to reproduce and emulate, 
+meaning it's not usually recommended for homebrew releases.
+
 [NOTE]
 See the standard library file `lib/mapper/mmc5.fab`.
 
@@ -1408,9 +1411,9 @@ See the standard library file `lib/mapper/mmc5.fab`.
 | 1024 KiB
 
 | Nametable VRAM
+| 2 KiB
 | 3 KiB
-| 3 KiB
-| 3 KiB
+| 2 KiB
 
 |===
 
@@ -1442,6 +1445,66 @@ Enabling <<opt_unsafe_bank_switch>> enables NESFab to use the MMC5 multiplicatio
 
 [NOTE]
 Enabling <<opt_expansion_audio>> enables NESFab to use the MMC5's expanded sound channels.
+
+=== `rainbow` [[mapper_rainbow]]
+
+https://github.com/BrokeStudio/rainbow-net/blob/master/NES/mapper-doc.md[*GitHub Documentation]
+https://www.nesdev.org/wiki/NES_2.0_Mapper_682[*NESDev Wiki Page*]
+
+Rainbow is a modern ASIC mapper with many features similar to <<mapper_mmc5>>,
+designed for commercial homebrew releases.
+Because it is so recent, emulation support may be spotty.
+
+[NOTE]
+See the standard library file `lib/mapper/rainbow.fab`.
+
+*Memory Sizes:*
+
+|===
+|Name |Min |Max |Default
+
+| <<opt_prg, PRG (Code)>>
+| 32 KiB
+| 8192 KiB
+| 8192 KiB
+
+| <<opt_chr, CHR (Tilesets)>>
+| 8 KiB (RAM)
+| 8192 KiB (RAM)
+| 8192 KiB (RAM)
+
+| Nametable VRAM
+| 2 KiB
+| 10 KiB
+| 2 KiB
+
+|===
+
+*Other Details:*
+
+[cols="1,2"]
+|===
+|Name |Description
+
+| <<opt_mirroring, Mirroring>>
+| Switchable
+
+| <<opt_bus_conflicts, Bus Conflicts>>
+| Never
+
+| <<opt_sram, SRAM>>
+| By default, yes
+
+| <<kw_state, `state` Register>>
+| N/A
+
+| <<opt_unsafe_bank_switch, Unsafe Bank Switches>>
+| N/A
+
+|===
+
+[NOTE]
+Enabling <<opt_expansion_audio>> enables NESFab to use Rainbow's expanded sound channels.
 
 
 == Identifiers [[identifiers]]
@@ -3332,11 +3395,10 @@ The group will be defined as the union of these declarations.
 
 *Variable modifiers:*
 
-The following modifiers are per-variable, not per-group.
-
 - <<mod_flags, `+align`>>
 - <<mod_flags, `+zero_page`, `-zero_page`>>
 - <<mod_flags, `+sram`, `-sram`>>
+- <<mod_flags, `+unused`>>
 
 Example:
 ----
@@ -3368,11 +3430,10 @@ The group will be defined as the union of these declarations.
 
 *Constant modifiers:*
 
-The following modifiers are per-constant, not per-group.
-
 - <<mod_flags, `+align`>>
 - <<mod_flags, `+dpcm`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+unused`>>
 
 Example:
 ----
@@ -4346,11 +4407,12 @@ The following flags exist for function definitions:
 - `+static`: Allocate the function or data in every bank (or force them into the fixed bank, for mappers with one). 
              This modifier is incompatible with <<kw_asm, `asm`>> functions that return in a different bank than they started in.
              You must validate this yourself.
-- `palette_3`: Converts 4-byte palettes into 3-byte palettes.
-- `palette_25`: Converts 32-byte palettes into 25-byte palettes.
+- `+palette_3`: Converts 4-byte palettes into 3-byte palettes.
+- `+palette_25`: Converts 32-byte palettes into 25-byte palettes.
 - `+sloppy`, `-sloppy`: Enables / disables faster compilation speed, at the cost of performance.
 - `+fork_scope`: The invoked macro(s) will have access to private definitions inside the invoking file.
 - `+solo_interrupt`: Disable switchable interrupts and always use this interrupt.
+- `+unused`: Do not warn if the definition is unused.
 
 Example:
 ----

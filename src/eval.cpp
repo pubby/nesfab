@@ -5170,7 +5170,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
         case lval_t::EXPANSION_AUDIO_ARG:
             if(compiler_options().expansion_audio)
-                v.val = rval_t{ ssa_value_t(unsigned(expansion_audio()), TYPE_BOOL) };
+                v.val = rval_t{ ssa_value_t(unsigned(expansion_audio()), TYPE_INT) };
             else
                 v.val = rval_t{ ssa_value_t(unsigned(0), TYPE_INT) };
             return v;
@@ -5521,7 +5521,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
             if(precheck_tracked)
                 precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), lhs.pstring);
         }
-        else
+        else if(!lhs.is_deref() && !is_check(D))
             compiler_error(pstring, fmt("Unable to modify %", global.name));
     }
 

@@ -19,8 +19,8 @@ ct AA MMC5_FILL_TILE          = $5106
 ct AA MMC5_FILL_COLOR         = $5107
 ct AA MMC5_PRG_RAM_SELECT     = $5113
 ct AA MMC5_PRG_ROM_SELECT     = $5117 // Don't use this!
-ct AA MMC5_CHR_BANK_SELECT    = $5120
-ct AA MMC5_CHR_BANK_SELECT_HI = $5130
+ct AA MMC5_CHR_SELECT_LO      = $5120 // There are 16 of these.
+ct AA MMC5_CHR_SELECT_HI      = $5130 // There are 16 of these.
 ct AA MMC5_VSPLIT_MODE        = $5200
 ct AA MMC5_VSPLIT_SCROLL      = $5201
 ct AA MMC5_VSPLIT_BANK        = $5202
@@ -42,6 +42,13 @@ ct AA MMC5_PCM_RAW    = $5011
 ct AA MMC5_SND_CHN    = $5015
 
 ///////////////////////////////////////////////////////////////////////////////
+// ExRAM //////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Pointer to EXRAM:
+ct MM mmc5_exram = MM(MMC5_EXRAM)
+
+///////////////////////////////////////////////////////////////////////////////
 // CHR ////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -52,26 +59,40 @@ ct U MMC5_CHR_MODE_2K = 2
 ct U MMC5_CHR_MODE_1K = 3
 
 // Changes the MMC5 CHR bank for 1KB mode:
-fn mmc5_select_1k(U bank_select, UU bank_data)
+fn mmc5_chr_select_1k(U bank_select, UU bank_data)
 : +inline
-    {MMC5_CHR_BANK_SELECT_HI}(bank_data.b)
-    {MMC5_CHR_BANK_SELECT + bank_select}(bank_data.a)
+    {MMC5_CHR_SELECT_HI}(bank_data.b)
+    {MMC5_CHR_SELECT_LO + bank_select}(bank_data.a)
+fn mmc5_chr_select_1k_bg(U bank_select, UU bank_data)
+: +inline
+    {MMC5_CHR_SELECT_HI}(bank_data.b)
+    {MMC5_CHR_SELECT_LO + 8 + bank_select}(bank_data.a)
 
 // Changes the MMC5 CHR bank for 2KB mode:
-fn mmc5_select_2k(U bank_select, UU bank_data)
+fn mmc5_chr_select_2k(U bank_select, UU bank_data)
 : +inline
-    {MMC5_CHR_BANK_SELECT_HI}(bank_data.b)
-    {MMC5_CHR_BANK_SELECT + 1 + (bank_select << 1)}(bank_data.a)
+    {MMC5_CHR_SELECT_HI}(bank_data.b)
+    {MMC5_CHR_SELECT_LO + 1 + (bank_select << 1)}(bank_data.a)
+fn mmc5_chr_select_2k_bg(U bank_select, UU bank_data)
+: +inline
+    {MMC5_CHR_SELECT_HI}(bank_data.b)
+    {MMC5_CHR_SELECT_LO + 9 + (bank_select << 1)}(bank_data.a)
 
 // Changes the MMC5 CHR bank for 4KB mode:
-fn mmc5_select_4k(U bank_select, U bank_data)
+fn mmc5_chr_select_4k(U bank_select, U bank_data)
 : +inline
-    {MMC5_CHR_BANK_SELECT + 3 + (bank_select << 2)}(bank_data)
+    {MMC5_CHR_SELECT_LO + 3 + (bank_select << 2)}(bank_data)
+fn mmc5_chr_select_4k_bg(U bank_data)
+: +inline
+    {MMC5_CHR_SELECT_LO + 11}(bank_data)
 
-// Changes the MMC5 CHR bank for 8KB mode:
-fn mmc5_select_8k(U bank_select, U bank_data)
+// Changes the RNBW CHR bank for 8KB mode:
+fn mmc5_chr_select_8k(U bank_data)
 : +inline
-    {MMC5_CHR_BANK_SELECT + 7 + (bank_select << 3)}(bank_data)
+    {MMC5_CHR_SELECT_LO + 7}(bank_data)
+fn mmc5_chr_select_8k_bg(U bank_data)
+: +inline
+    {MMC5_CHR_SELECT_LO + 11}(bank_data)
 
 ///////////////////////////////////////////////////////////////////////////////
 // RAM Protect ////////////////////////////////////////////////////////////////
@@ -84,13 +105,6 @@ fn mmc5_ram_protect(Bool prevent_writes)
         {MMC5_RAM_PROTECT_1, MMC5_RAM_PROTECT_2}(0, 0)
     else
         {MMC5_RAM_PROTECT_1, MMC5_RAM_PROTECT_2}(2, 1)
-
-///////////////////////////////////////////////////////////////////////////////
-// ExRAM //////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-// Pointer to EXRAM:
-ct MM mmc5_exram = MM(MMC5_EXRAM)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Nametable Mapping //////////////////////////////////////////////////////////

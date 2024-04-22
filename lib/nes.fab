@@ -70,9 +70,7 @@ fn ppu_reset_scroll(U x, U y)
     ppu_set_scroll(x, y)
 
 // Sets X/Y scroll mid-frame.
-// NOTE: Ideally, you want the last two writes to occur consecutively during HBLANK,
-// which this function cannot guarantee.
-// Consider 'ppu_set_mid_scroll_precise' if you require such precision.
+// NOTE: Ideally, you want the last two writes to occur during HBLANK.
 fn ppu_set_mid_scroll(U x, U y, U nt)
 : +inline
     {PPUADDR}(nt << 2)
@@ -86,7 +84,6 @@ fn ppu_reset_mid_scroll(U x, U y, U nt)
     {PPUSTATUS}()
     ppu_set_mid_scroll(x, y, nt)
 
-// The same as above, but reset address latch first.
 // Polls 'PPUSTATUS' until any bit of 'flag' is set.
 asm fn ppu_await_status_set(U flag)
 : +static
@@ -143,6 +140,7 @@ vars
     // Make your modifications to it, then call 'ppu_upload_oam' during VBLANK.
     U[256] oam
     : +align
+    : -sram
 
 // Offsets into OAM, as determined by the hardware:
 ct Int OAM_Y = 0
@@ -205,7 +203,6 @@ fn push_oam(U index, U x, U y, U p, U a) U
 : +inline
     set_oam(index, x, y, p, a)
     return index + 4
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // PAD ////////////////////////////////////////////////////////////////////////

@@ -68,12 +68,12 @@ ct U PUF_EXPANSION = %01000000 // Counts for ALL expansion channels
 ct U PUF_DEFAULT = $FF
 
 ct Int _MMC5 = 1
-ct Int _VRC6 = 2
+ct Int _RNBW = 2
 
 ct fn _calc_exp_channels() Int
     if __expansion_audio == _MMC5
         return 2
-    else if __expansion_audio == _VRC6
+    else if __expansion_audio == _RNBW
         return 3
     return 0
 
@@ -91,8 +91,11 @@ vars
     AA puf_noise_pattern_ptr
     AA puf_dpcm_pattern_ptr
     AA puf_exp1_pattern_ptr
+    : +unused
     AA puf_exp2_pattern_ptr
+    : +unused
     AA puf_exp3_pattern_ptr
+    : +unused
     Bool puf_lock = false
 
 ct AA _stack_0 = $100
@@ -1108,14 +1111,14 @@ asm fn puf(U arg) Bool
             jsr reset_exp1
             if __expansion_audio == _MMC5
                 lda #%00110000
-            if __expansion_audio == _VRC6
+            if __expansion_audio == _RNBW
                 lda #0
     label sta_exp1_vol_duty
         if _exp_channels >= 1
             if __expansion_audio == _MMC5
                 sta $5000
-            if __expansion_audio == _VRC6
-                sta $9000
+            if __expansion_audio == _RNBW
+                sta $41A0
 
             ldy puf_exp1_pitch_y
             jsr read_macro
@@ -1140,28 +1143,29 @@ asm fn puf(U arg) Bool
             adc puf_exp1_pitch_bend+0
             if __expansion_audio == _MMC5
                 sta $5002
-            if __expansion_audio == _VRC6
-                sta $9001
+            if __expansion_audio == _RNBW
+                sta $41A1
             iny
             lda (&puf_note_table_ptr.a), y
             adc puf_exp1_pitch_bend+1
-            if __expansion_audio == _VRC6
+            if __expansion_audio == _RNBW
                 ora #%10000000
-                and #%10000111
+                and #%10001111
             else
                 and #%10000111
-            cmp puf_exp1_pitch_hi
-            beq done_sta_exp1_pitch
+            if __expansion_audio != _RNBW
+                cmp puf_exp1_pitch_hi
+                beq done_sta_exp1_pitch
             if __expansion_audio == _MMC5
                 sta $5003
-            if __expansion_audio == _VRC6
-                sta $9002
+            if __expansion_audio == _RNBW
+                sta $41A2
     label done_sta_exp1_pitch
-        if _exp_channels >= 1
+        if _exp_channels >= 1 && __expansion_audio != _RNBW
             sta puf_exp1_pitch_hi
 
         // Exp2
-        if _exp_channels >= 1
+        if _exp_channels >= 2
             ldx puf_exp2_stack
             jsr load_ptr_from_stack
 
@@ -1176,14 +1180,14 @@ asm fn puf(U arg) Bool
             jsr reset_exp2
             if __expansion_audio == _MMC5
                 lda #%00110000
-            if __expansion_audio == _VRC6
+            if __expansion_audio == _RNBW
                 lda #0
     label sta_exp2_vol_duty
-        if _exp_channels >= 1
+        if _exp_channels >= 2
             if __expansion_audio == _MMC5
                 sta $5004
-            if __expansion_audio == _VRC6
-                sta $A000
+            if __expansion_audio == _RNBW
+                sta $41A3
 
             ldy puf_exp2_pitch_y
             jsr read_macro
@@ -1191,7 +1195,7 @@ asm fn puf(U arg) Bool
             bpl done_exp2_pitch_y
             dex
     label done_exp2_pitch_y
-        if _exp_channels >= 1
+        if _exp_channels >= 2
             adc puf_exp2_pitch_bend+0
             sta puf_exp2_pitch_bend+0
             txa
@@ -1208,25 +1212,87 @@ asm fn puf(U arg) Bool
             adc puf_exp2_pitch_bend+0
             if __expansion_audio == _MMC5
                 sta $5006
-            if __expansion_audio == _VRC6
-                sta $A001
+            if __expansion_audio == _RNBW
+                sta $41A4
             iny
             lda (&puf_note_table_ptr.a), y
             adc puf_exp2_pitch_bend+1
-            if __expansion_audio == _VRC6
+            if __expansion_audio == _RNBW
                 ora #%10000000
-                and #%10000111
+                and #%10001111
             else
                 and #%10000111
-            cmp puf_exp2_pitch_hi
-            beq done_sta_exp2_pitch
+            if __expansion_audio != _RNBW
+                cmp puf_exp2_pitch_hi
+                beq done_sta_exp2_pitch
             if __expansion_audio == _MMC5
                 sta $5007
-            if __expansion_audio == _VRC6
-                sta $A002
+            if __expansion_audio == _RNBW
+                sta $41A5
     label done_sta_exp2_pitch
-        if _exp_channels >= 1
+        if _exp_channels >= 2 && __expansion_audio != _RNBW
             sta puf_exp2_pitch_hi
+
+        // Exp3
+        if _exp_channels >= 3
+            ldx puf_exp3_stack
+            jsr load_ptr_from_stack
+
+            ldy puf_exp3_vol_duty_y
+            jsr read_macro
+            sty puf_exp3_vol_duty_y
+            cpy #0
+            bne sta_exp3_vol_duty
+            ldx puf_exp3_stack
+            stx puf_exp3_stack_next
+            jsr write_silence
+            jsr reset_exp3
+            if __expansion_audio == _RNBW
+                lda #0
+    label sta_exp3_vol_duty
+        if _exp_channels >= 3
+            if __expansion_audio == _RNBW
+                asl
+                asl
+                and #%111111
+                sta $41A6
+            ldy puf_exp3_pitch_y
+            jsr read_macro
+            sty puf_exp3_pitch_y
+            bpl done_exp3_pitch_y
+            dex
+    label done_exp3_pitch_y
+        if _exp_channels >= 3
+            adc puf_exp3_pitch_bend+0
+            sta puf_exp3_pitch_bend+0
+            txa
+            adc puf_exp3_pitch_bend+1
+            sta puf_exp3_pitch_bend+1
+
+            ldy puf_exp3_arpeggio_y
+            jsr read_macro
+            sty puf_exp3_arpeggio_y
+            adc puf_exp3_note
+            tay
+            clc
+            lda (&puf_note_table_ptr.a), y
+            adc puf_exp3_pitch_bend+0
+            if __expansion_audio == _RNBW
+                sta $41A7
+            iny
+            lda (&puf_note_table_ptr.a), y
+            adc puf_exp3_pitch_bend+1
+            if __expansion_audio == _RNBW
+                ora #%10000000
+                and #%10001111
+            if __expansion_audio != _RNBW
+                cmp puf_exp3_pitch_hi
+                beq done_sta_exp3_pitch
+            if __expansion_audio == _RNBW
+                sta $41A8
+    label done_sta_exp3_pitch
+        if _exp_channels >= 3 && __expansion_audio != _RNBW
+            sta puf_exp3_pitch_hi
 
         rts
 
@@ -1391,8 +1457,6 @@ asm fn puf(U arg) Bool
         lda #%00001000
         sta $4001
         sta $4005
-        if __expansion_audio == _VRC6
-            sta $9003
 
         ldx #%10000000
         stx $4008

@@ -34,16 +34,12 @@ mode main()
         {PPUDATA}($FF)
 
     // Setup extended attributes:
-    {MMC5_EXRAM_MODE}(%10) // Use an EXRAM mode that allows writing.
-    MM ptr = mmc5_exram
-    do for U i = 0; i; i += 1
-        do for U j = 0; j < 4; j += 1
-            ptr[j] = rand() & %11000000
-        ptr += 4
-    
-    // Set MMC5 registers:
-    {MMC5_EXRAM_MODE}(%01) // Use extended attribute mode.
-    mmc5_mirror_1()        // Use 1-screen mirroring.
+    rnbw_exram_auto($0000, 1)
+    do for UU i = 0; i < 1024; i += 1
+        {EXDATA}(rand() & %11000000)
+
+    // Set Rainbow registers:
+    {RNBW_NT_2000_CTRL}(RNBW_NT_ATTR_EXT)
 
     // Loop forever:
     {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_PT_1000)

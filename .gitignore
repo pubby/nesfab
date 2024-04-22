@@ -2,6 +2,8 @@
 **.nes
 **.fdb
 **.html
+**.bak
+**.bmp
 !/doc/
 !/examples/
 !/lib/

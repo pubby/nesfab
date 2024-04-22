@@ -490,7 +490,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             unsigned count = 0;
             gvar.for_each_locator([&](locator_t loc) { count += gmember_count[loc]; });
 
-            if(count == 0)
+            if(count == 0 && !mod_test(gvar.mods(), MOD_unused))
                 compiler_warning(gvar.global.pstring(), "Global variable is unused.");
         }
 

@@ -655,7 +655,7 @@ public:
 
         if(mods)
         {
-            mods->validate(var_decl.name, MOD_zero_page | MOD_align | MOD_sram);
+            mods->validate(var_decl.name, MOD_zero_page | MOD_align | MOD_sram | MOD_unused);
             if(((mods->enable | mods->disable) & MOD_sram) && !mapper().sram)
                 compiler_warning(var_decl.name, "sram modifier set, but mapper does not use SRAM.");
         }
@@ -681,7 +681,7 @@ public:
         uses_type(var_decl.src_type.type);
 
         if(mods)
-            mods->validate(var_decl.name, MOD_align | MOD_dpcm | MOD_static);
+            mods->validate(var_decl.name, MOD_align | MOD_dpcm | MOD_static | MOD_unused);
 
         std::unique_ptr<paa_def_t> paa_def;
         if(is_paa(var_decl.src_type.type.name()))

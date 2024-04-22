@@ -325,6 +325,21 @@ mapper_t mapper_t::mmc5(mapper_params_t const& params)
     };
 }
 
+mapper_t mapper_t::rainbow(mapper_params_t const& params)
+{
+    constexpr mapper_type_t mt = MAPPER_RAINBOW;
+    return 
+    {
+        .type = mt,
+        .mirroring = params.mirroring_none(mt),
+        .num_banks = params.num_32k_banks(mt, 32, 8192, 256),
+        .num_8k_chr_rom = params.num_8k_chr(mt, 8, 8192, 1024),
+        .bus_conflicts = params.no_conflicts(mt),
+        .sram = params.has_sram(mt, true),
+        .sram_persistent = params.sram_persistent(mt, false),
+    };
+}
+
 unsigned mapper_t::submapper() const
 {
     switch(type)

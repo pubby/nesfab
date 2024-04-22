@@ -1,0 +1,242 @@
+/*
+ * Copyright (c) 2024, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This file depends on:
+// - 'rainbow.fab'
+
+///////////////////////////////////////////////////////////////////////////////
+// Outgoing commands to the ESP ///////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// ESP Commands
+ct U O_ESP_GET_STATUS = 0                    // Get ESP status
+ct U O_DEBUG_GET_LEVEL = 1                   // Get debug level
+ct U O_DEBUG_SET_LEVEL = 2                   // Set debug level
+ct U O_DEBUG_LOG = 3                         // Debug / Log data
+ct U O_BUFFER_CLEAR_RX_TX = 4                // Clear RX/TX buffers
+ct U O_BUFFER_DROP_FROM_ESP = 5              // Drop messages from ESP buffer (TX)
+ct U O_ESP_GET_FIRMWARE_VERSION = 6          // Get ESP/Rainbow firmware version
+ct U O_ESP_FACTORY_RESET = 7                 // Reset ESP to factory settings
+ct U O_ESP_RESTART = 8                       // Restart ESP
+
+// WIFI CMDS
+ct U O_WIFI_GET_STATUS = 9                   // Get Wi-Fi connection status
+ct U O_WIFI_GET_SSID = 10                    // Get Wi-Fi network SSID
+ct U O_WIFI_GET_IP_ADDRESS = 11              // Get Wi-Fi IP address
+ct U O_WIFI_GET_MAC_ADDRESS = 59             // Get Wi-Fi mac address
+ct U O_WIFI_GET_CONFIG = 12                  // Get Wi-Fi station / Access Point / Web Server config
+ct U O_WIFI_SET_CONFIG = 13                  // Set Wi-Fi station / Access Point / Web Server config
+
+// ACESS POINT CMDS
+ct U O_AP_GET_SSID = 14                      // Get Access Point network SSID
+ct U O_AP_GET_IP_ADDRESS = 15                // Get Access Point IP address
+
+// RND CMDS
+ct U O_RND_GET_BYTE = 16                     // Get random byte
+ct U O_RND_GET_BYTE_RANGE = 17               // Get random byte between custom min/max
+ct U O_RND_GET_WORD = 18                     // Get random word
+ct U O_RND_GET_WORD_RANGE = 19               // Get random word between custom min/max
+
+// SERVER CMDS
+ct U O_SERVER_GET_STATUS = 20                // Get server connection status
+ct U O_SERVER_PING = 21                      // Get ping between ESP and server
+ct U O_SERVER_SET_PROTOCOL = 22              // Set protocol to be used to communicate (WS/UDP/TCP)
+ct U O_SERVER_GET_SETTINGS = 23              // Get current server host name and port
+ct U O_SERVER_SET_SETTINGS = 24              // Set current server host name and port
+ct U O_SERVER_GET_SAVED_SETTINGS = 25        // Get server host name and port values saved in the Rainbow config file
+ct U O_SERVER_SET_SAVED_SETTINGS = 26        // Set server host name and port values saved in the Rainbow config file
+ct U O_SERVER_RESTORE_SETTINGS = 27          // Restore server host name and port to values defined in the Rainbow config
+ct U O_SERVER_CONNECT = 28                   // Connect to server
+ct U O_SERVER_DISCONNECT = 29                // Disconnect from server
+ct U O_SERVER_SEND_MESSAGE = 30              // Send message to server
+
+// UDP ADDRESS POOL CMDS
+ct U O_UDP_ADDR_POOL_CLEAR = 55              // Clear the UDP address pool
+ct U O_UDP_ADDR_POOL_ADD = 56                // Add an IP address to the UDP address pool
+ct U O_UDP_ADDR_POOL_REMOVE = 57             // Remove an IP address from the UDP address pool
+ct U O_UDP_ADDR_POOL_SEND_MSG = 58           // Send a message to all the addresses in the UDP address pool
+
+// NETWORK CMDS
+ct U O_NETWORK_SCAN = 31                     // Scan networks around synchronously or asynchronously
+ct U O_NETWORK_GET_SCAN_RESULT = 32          // Get result of the last scan
+ct U O_NETWORK_GET_SCANNED_DETAILS = 33      // Get scanned network details
+ct U O_NETWORK_GET_REGISTERED = 34           // Get registered networks status
+ct U O_NETWORK_GET_REGISTERED_DETAILS = 35   // Get registered network SSID
+ct U O_NETWORK_REGISTER = 36                 // Register network
+ct U O_NETWORK_UNREGISTER = 37               // Unregister network
+ct U O_NETWORK_SET_ACTIVE = 38               // Set active network
+
+// FILE COMMANDS
+ct U O_FILE_OPEN = 39                        // Open working file
+ct U O_FILE_CLOSE = 40                       // Close working file
+ct U O_FILE_STATUS = 41                      // Get working file status
+ct U O_FILE_EXISTS = 42                      // Check if file exists
+ct U O_FILE_DELETE = 43                      // Delete a file
+ct U O_FILE_SET_CUR = 44                     // Set working file cursor position a file
+ct U O_FILE_READ = 45                        // Read working file (at specific position)
+ct U O_FILE_WRITE = 46                       // Write working file (at specific position)
+ct U O_FILE_APPEND = 47                      // Append data to working file
+ct U O_FILE_COUNT = 48                       // Count files in a specific path
+ct U O_FILE_GET_LIST = 49                    // Get list of existing files in a path
+ct U O_FILE_GET_FREE_ID = 50                 // Get an unexisting file ID in a specific path
+ct U O_FILE_GET_FS_INFO = 51                 // Get file system details (ESP flash or SD card)
+ct U O_FILE_GET_INFO = 52                    // Get file info (size + crc32)
+ct U O_FILE_DOWNLOAD = 53                    // Download a file
+ct U O_FILE_FORMAT = 54                      // Format file system and save current config
+
+///////////////////////////////////////////////////////////////////////////////
+// Incoming commands from the ESP /////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// ESP CMDS
+ct U I_READY = 0                         // ESP is ready
+ct U I_DEBUG_LEVEL = 1                   // Return debug configuration
+ct U I_ESP_FIRMWARE_VERSION = 2          // Return ESP/Rainbow firmware version
+ct U I_ESP_FACTORY_RESET = 3             // See ESP_FACTORY_RESET_RES enum for details on returned value
+
+// WIFI / ACCESS POINT CMDS
+ct U I_WIFI_STATUS = 4                   // Return Wi-Fi connection status
+ct U I_SSID = 5                          // Return Wi-Fi / Access Point SSID
+ct U I_IP_ADDRESS = 6                    // Return Wi-Fi / Access Point IP address
+ct U I_MAC_ADDRESS = 28                  // Return Wi-Fi mac address
+ct U I_WIFI_CONFIG = 7                   // Return Wi-Fi station / Access Point / Web Server status
+
+// RND CMDS
+ct U I_RND_BYTE = 8                      // Return random byte value
+ct U I_RND_WORD = 9                      // Return random word value
+
+// SERVER CMDS
+ct U I_SERVER_STATUS = 10                // Return server connection status
+ct U I_SERVER_PING = 11                  // Return min, max and average round-trip time and number of lost packets
+ct U I_SERVER_SETTINGS = 12              // Return server settings (host name + port)
+ct U I_MESSAGE_FROM_SERVER = 13          // Message from server
+
+// NETWORK CMDS
+ct U I_NETWORK_SCAN_RESULT = 14          // Return result of last scan
+ct U I_NETWORK_SCANNED_DETAILS = 15      // Return details for a scanned network
+ct U I_NETWORK_REGISTERED_DETAILS = 16   // Return SSID for a registered network
+ct U I_NETWORK_REGISTERED = 17           // Return registered networks status
+
+// FILE CMDS
+ct U I_FILE_STATUS = 18                  // Return working file status
+ct U I_FILE_EXISTS = 19                  // Return if file exists or not
+ct U I_FILE_DELETE = 20                  // See FILE_DELETE_RES enum for details on returned value
+ct U I_FILE_LIST = 21                    // Return path file list
+ct U I_FILE_DATA = 22                    // Return file data
+ct U I_FILE_COUNT = 23                   // Return file count in a specific path
+ct U I_FILE_ID = 24                      // Return a free file ID
+ct U I_FILE_FS_INFO = 25                 // Return file system info
+ct U I_FILE_INFO = 26                    // Return file info (size + CRC32)
+ct U I_FILE_DOWNLOAD = 27                // See FILE_DOWNLOAD_RES enum for details on returned value
+
+///////////////////////////////////////////////////////////////////////////////
+// Other enumerations /////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// ESP factory reset result codes
+ct U ESP_RESET_SUCCESS = 0
+ct U ESP_RESET_ERROR_WHILE_SAVING_CONFIG = 1
+ct U ESP_RESET_ERROR_WHILE_DELETING_TWEB = 2
+ct U ESP_RESET_ERROR_WHILE_DELETING_WEB = 3
+
+// Wi-Fi status
+ct U WIFI_STATUS_TIMEOUT = 255
+ct U WIFI_STATUS_IDLE_STATUS = 0
+ct U WIFI_STATUS_NO_SSID_AVAIL = 1
+ct U WIFI_STATUS_SCAN_COMPLETED = 2
+ct U WIFI_STATUS_CONNECTED = 3
+ct U WIFI_STATUS_CONNECTION_FAILED = 4
+ct U WIFI_STATUS_CONNECTION_LOST = 5
+ct U WIFI_STATUS_WRONG_PASSWORD = 6
+ct U WIFI_STATUS_DISCONNECTED = 7
+
+// Wi-Fi error
+ct U WIFI_ERROR_UNKNOWN = 255
+ct U WIFI_ERROR_NO_ERROR = 0
+ct U WIFI_ERROR_NO_SSID_AVAIL = 1
+ct U WIFI_ERROR_CONNECTION_FAILED = 4
+ct U WIFI_ERROR_CONNECTION_LOST = 5
+ct U WIFI_ERROR_WRONG_PASSWORD = 6
+
+// Server protocols
+ct U SERVER_PROTOCOL_TCP = 0
+ct U SERVER_PROTOCOL_TCP_SECURED = 1
+ct U SERVER_PROTOCOL_UDP = 2
+ct U SERVER_PROTOCOL_UDP_POOL = 3
+
+// Server status
+ct U SERVER_STATUS_DISCONNECTED = 0
+ct U SERVER_STATUS_CONNECTED = 1
+
+// Wi-Fi config flags
+ct U WIFI_FLAGS_WIFI_STATION_ENABLE = %001
+ct U WIFI_FLAGS_ACCESS_POINT_ENABLE = %010
+ct U WIFI_FLAGS_WEB_SERVER_ENABLE   = %100
+
+// File paths
+ct U FILE_PATHS_SAVE = 0
+ct U FILE_PATHS_ROMS = 1
+ct U FILE_PATHS_USER = 2
+
+// File constants
+ct U NUM_PATHS = 3
+ct U NUM_FILES = 64
+
+// Network encryption types
+ct U NETWORK_ENCRYPT_WEP = 5
+ct U NETWORK_ENCRYPT_WPA_PSK = 2
+ct U NETWORK_ENCRYPT_WPA2_PSK = 4
+ct U NETWORK_ENCRYPT_OPEN_NETWORK = 7
+ct U NETWORK_ENCRYPT_WPA_WPA2_PSK = 8
+
+// File config masks/flags
+ct U FILE_FLAGS_ACCESS_MODE_MASK = %00000001
+ct U FILE_FLAGS_ACCESS_MODE_AUTO = 0
+ct U FILE_FLAGS_ACCESS_MODE_MANUAL = 1
+ct U FILE_FLAGS_DESTINATION_MASK = %00000010
+ct U FILE_FLAGS_DESTINATION_ESP = 0
+ct U FILE_FLAGS_DESTINATION_SD = 2
+
+// FILE_DELETE result codes
+ct U FILE_DELETE_SUCCESS = 0
+ct U FILE_DELETE_ERROR_WHILE_DELETING = 1
+ct U FILE_DELETE_FILE_NOT_FOUND = 2
+ct U FILE_DELETE_INVALID_PATH_OR_FILE = 3
+
+// FILE_DOWNLOAD result codes
+ct U FILE_DOWNLOAD_SUCCESS = 0
+ct U FILE_DOWNLOAD_INVALID_DESTINATION = 1
+ct U FILE_DOWNLOAD_ERROR_WHILE_DELETING_FILE = 2
+ct U FILE_DOWNLOAD_UNKNOWN_OR_UNSUPPORTED_PROTOCOL = 3
+ct U FILE_DOWNLOAD_NETWORK_ERROR = 4
+ct U FILE_DOWNLOAD_HTTP_STATUS_NOT_IN_2XX = 5
+
+// FILE_DOWNLOAD network error codes
+ct U FILE_DOWNLOAD_CONNECTION_FAILED = U(-1)
+ct U FILE_DOWNLOAD_SEND_HEADER_FAILED = U(-2)
+ct U FILE_DOWNLOAD_SEND_PAYLOAD_FAILED = U(-3)
+ct U FILE_DOWNLOAD_NOT_CONNECTED = U(-4)
+ct U FILE_DOWNLOAD_CONNECTION_LOST = U(-5)
+ct U FILE_DOWNLOAD_NO_STREAM = U(-6)
+ct U FILE_DOWNLOAD_NO_HTTP_SERVER = U(-7)
+ct U FILE_DOWNLOAD_TOO_LESS_RAM = U(-8)
+ct U FILE_DOWNLOAD_ENCODING = U(-9)
+ct U FILE_DOWNLOAD_STREAM_WRITE = U(-10)
+ct U FILE_DOWNLOAD_READ_TIMEOUT = U(-11)
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper Functions ///////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+fn esp_transmit()
+    U undefined
+    {RNBW_ESP_TX}(undefined)
+    do while {RNBW_ESP_TX}() < $80
+
+fn esp_receive()
+    U undefined
+    do while {RNBW_ESP_RX}() < $80
+    {RNBW_ESP_RX}(undefined)

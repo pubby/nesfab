@@ -834,7 +834,8 @@ namespace isel
         assert(v);
         assert(Def::value());
 
-        if(cpu.value_eq(REG_A, v))
+            cont->call(cpu, prev);
+        if(cpu.value_eq(REG_A, v) || (Load::node().holds_ref() && Load::node()->op() == SSA_uninitialized))
             cont->call(cpu, prev);
         else if(!(Opt::can_set & REGF_A))
             return;
@@ -877,7 +878,7 @@ namespace isel
     {
         locator_t const v = Load::value();
 
-        if(cpu.value_eq(REG_X, v))
+        if(cpu.value_eq(REG_X, v) || (Load::node().holds_ref() && Load::node()->op() == SSA_uninitialized))
             cont->call(cpu, prev);
         else if(!(Opt::can_set & REGF_X))
             return;
@@ -926,7 +927,7 @@ namespace isel
     {
         locator_t const v = Load::value();
 
-        if(cpu.value_eq(REG_Y, v))
+        if(cpu.value_eq(REG_Y, v) || (Load::node().holds_ref() && Load::node()->op() == SSA_uninitialized))
             cont->call(cpu, prev);
         else if(!(Opt::can_set & REGF_Y))
             return;
@@ -1304,6 +1305,12 @@ namespace isel
         }
 
         locator_t const v = Load::value();
+
+        if(Load::node().holds_ref() && Load::node()->op() == SSA_uninitialized)
+        {
+            store<Opt, STA, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
+            return;
+        }
 
         if(cpu.value_eq(REG_A, v))
             store<Opt, STA, Def, Store, Maybe, KeepValue>(cpu, prev, cont);

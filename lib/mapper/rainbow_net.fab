@@ -7,6 +7,8 @@
 // This file depends on:
 // - 'rainbow.fab'
 
+// See: https://github.com/BrokeStudio/rainbow-net/blob/master/rainbow-net.md
+
 ///////////////////////////////////////////////////////////////////////////////
 // Outgoing commands to the ESP ///////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -22,7 +24,7 @@ ct U O_ESP_GET_FIRMWARE_VERSION = 6          // Get ESP/Rainbow firmware version
 ct U O_ESP_FACTORY_RESET = 7                 // Reset ESP to factory settings
 ct U O_ESP_RESTART = 8                       // Restart ESP
 
-// WIFI CMDS
+// WIFI Commands
 ct U O_WIFI_GET_STATUS = 9                   // Get Wi-Fi connection status
 ct U O_WIFI_GET_SSID = 10                    // Get Wi-Fi network SSID
 ct U O_WIFI_GET_IP_ADDRESS = 11              // Get Wi-Fi IP address
@@ -30,17 +32,17 @@ ct U O_WIFI_GET_MAC_ADDRESS = 59             // Get Wi-Fi mac address
 ct U O_WIFI_GET_CONFIG = 12                  // Get Wi-Fi station / Access Point / Web Server config
 ct U O_WIFI_SET_CONFIG = 13                  // Set Wi-Fi station / Access Point / Web Server config
 
-// ACESS POINT CMDS
+// ACESS POINT Commands
 ct U O_AP_GET_SSID = 14                      // Get Access Point network SSID
 ct U O_AP_GET_IP_ADDRESS = 15                // Get Access Point IP address
 
-// RND CMDS
+// RND Commands
 ct U O_RND_GET_BYTE = 16                     // Get random byte
 ct U O_RND_GET_BYTE_RANGE = 17               // Get random byte between custom min/max
 ct U O_RND_GET_WORD = 18                     // Get random word
 ct U O_RND_GET_WORD_RANGE = 19               // Get random word between custom min/max
 
-// SERVER CMDS
+// SERVER Commands
 ct U O_SERVER_GET_STATUS = 20                // Get server connection status
 ct U O_SERVER_PING = 21                      // Get ping between ESP and server
 ct U O_SERVER_SET_PROTOCOL = 22              // Set protocol to be used to communicate (WS/UDP/TCP)
@@ -53,13 +55,13 @@ ct U O_SERVER_CONNECT = 28                   // Connect to server
 ct U O_SERVER_DISCONNECT = 29                // Disconnect from server
 ct U O_SERVER_SEND_MESSAGE = 30              // Send message to server
 
-// UDP ADDRESS POOL CMDS
+// UDP ADDRESS POOL Commands
 ct U O_UDP_ADDR_POOL_CLEAR = 55              // Clear the UDP address pool
 ct U O_UDP_ADDR_POOL_ADD = 56                // Add an IP address to the UDP address pool
 ct U O_UDP_ADDR_POOL_REMOVE = 57             // Remove an IP address from the UDP address pool
 ct U O_UDP_ADDR_POOL_SEND_MSG = 58           // Send a message to all the addresses in the UDP address pool
 
-// NETWORK CMDS
+// NETWORK Commands
 ct U O_NETWORK_SCAN = 31                     // Scan networks around synchronously or asynchronously
 ct U O_NETWORK_GET_SCAN_RESULT = 32          // Get result of the last scan
 ct U O_NETWORK_GET_SCANNED_DETAILS = 33      // Get scanned network details
@@ -91,36 +93,36 @@ ct U O_FILE_FORMAT = 54                      // Format file system and save curr
 // Incoming commands from the ESP /////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// ESP CMDS
+// ESP Commands
 ct U I_READY = 0                         // ESP is ready
 ct U I_DEBUG_LEVEL = 1                   // Return debug configuration
 ct U I_ESP_FIRMWARE_VERSION = 2          // Return ESP/Rainbow firmware version
 ct U I_ESP_FACTORY_RESET = 3             // See ESP_FACTORY_RESET_RES enum for details on returned value
 
-// WIFI / ACCESS POINT CMDS
+// WIFI / ACCESS POINT Commands
 ct U I_WIFI_STATUS = 4                   // Return Wi-Fi connection status
 ct U I_SSID = 5                          // Return Wi-Fi / Access Point SSID
 ct U I_IP_ADDRESS = 6                    // Return Wi-Fi / Access Point IP address
 ct U I_MAC_ADDRESS = 28                  // Return Wi-Fi mac address
 ct U I_WIFI_CONFIG = 7                   // Return Wi-Fi station / Access Point / Web Server status
 
-// RND CMDS
+// RND Commands
 ct U I_RND_BYTE = 8                      // Return random byte value
 ct U I_RND_WORD = 9                      // Return random word value
 
-// SERVER CMDS
+// SERVER Commands
 ct U I_SERVER_STATUS = 10                // Return server connection status
 ct U I_SERVER_PING = 11                  // Return min, max and average round-trip time and number of lost packets
 ct U I_SERVER_SETTINGS = 12              // Return server settings (host name + port)
 ct U I_MESSAGE_FROM_SERVER = 13          // Message from server
 
-// NETWORK CMDS
+// NETWORK Commands
 ct U I_NETWORK_SCAN_RESULT = 14          // Return result of last scan
 ct U I_NETWORK_SCANNED_DETAILS = 15      // Return details for a scanned network
 ct U I_NETWORK_REGISTERED_DETAILS = 16   // Return SSID for a registered network
 ct U I_NETWORK_REGISTERED = 17           // Return registered networks status
 
-// FILE CMDS
+// FILE Commands
 ct U I_FILE_STATUS = 18                  // Return working file status
 ct U I_FILE_EXISTS = 19                  // Return if file exists or not
 ct U I_FILE_DELETE = 20                  // See FILE_DELETE_RES enum for details on returned value
@@ -228,15 +230,134 @@ ct U FILE_DOWNLOAD_STREAM_WRITE = U(-10)
 ct U FILE_DOWNLOAD_READ_TIMEOUT = U(-11)
 
 ///////////////////////////////////////////////////////////////////////////////
+// Buffers ////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+ct AA NET_IN        = $4800
+ct AA NET_OUT       = NET_IN + 256
+
+ct MM net_in  = MM(NET_IN)
+ct MM net_out = MM(NET_OUT)
+
+///////////////////////////////////////////////////////////////////////////////
 // Helper Functions ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-fn esp_transmit()
-    U undefined
-    {RNBW_ESP_TX}(undefined)
-    do while {RNBW_ESP_TX}() < $80
+// Call to setup the ESP / WiFi stuff.
+// 'flags' is the initial RNBW_NET_CONFIG value (probably want 'RNBW_NET_CONFIG_ESP').
+fn net_init(U flags)
+   {RNBW_NET_CONFIG}(0)
+   {RNBW_RX_ADDR}(NET_IN.b)
+   {RNBW_TX_ADDR}(NET_OUT.b)
+   {RNBW_NET_CONFIG}(flags)
 
-fn esp_receive()
+// Pass 'RNBW_NET_CONFIG_' flags to this to enable them:
+fn net_config_enable(U flags)
+: +inline
+    {RNBW_NET_CONFIG}({RNBW_NET_CONFIG}() | flags)
+
+// Pass 'RNBW_NET_CONFIG_' flags to this to disable them:
+fn net_config_disable(U flags)
+: +inline
+    {RNBW_NET_CONFIG}({RNBW_NET_CONFIG}() & ~flags)
+
+// Initiates transmission and blocks until a message has been transmitted.
+fn net_transmit()
+: +inline
     U undefined
-    do while {RNBW_ESP_RX}() < $80
-    {RNBW_ESP_RX}(undefined)
+    {RNBW_TX}(undefined)
+    do while {RNBW_TX}() < $80
+
+// Blocks until a message has been received.
+fn net_receive_await()
+: +inline
+    do while {RNBW_RX}() < $80
+
+// Call after you're done with the received message.
+fn net_received()
+: +inline
+    U undefined
+    {RNBW_RX}(undefined)
+
+// Receives a single U value:
+fn net_receive_u() U
+: +inline
+    net_receive_await()
+    U result = net_in[2]
+    net_received()
+    return result
+
+// Receives a single UU value:
+fn net_receive_uu() UU
+: +inline
+    net_receive_await()
+    UU result
+    result.b = net_in[2]
+    result.a = net_in[3]
+    net_received()
+    return result
+
+// Transmits a single message:
+fn net_transmit_msg(CCC/esp msg)
+    U length = msg[0]
+    for U i = 0; i < length; i += 1
+        net_out[i] = msg[i]
+    net_transmit()
+
+// Transmit a 1-byte length message:
+fn net_transmit_u(U byte)
+: +inline
+    net_out[0] = 1
+    net_out[1] = byte
+    net_transmit()
+
+// Transmits a 1-byte command, returning the 1-byte received result:
+fn net_command_u(U command) U
+: -inline
+    net_transmit_u(command)
+    return net_receive_u()
+
+///////////////////////////////////////////////////////////////////////////////
+// RNG functinos //////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Returns a random byte:
+fn net_rand() U
+    return net_command_u(O_RND_GET_BYTE)
+
+// Returns a random value of type UU
+fn net_rand_uu() UU
+    net_transmit_u(O_RND_GET_WORD)
+    return net_receive_uu()
+
+// Returns a random byte between 'minv' and 'maxv':
+fn net_randr(U minv, U maxv) U
+    net_out[0] = 3
+    net_out[1] = O_RND_GET_BYTE_RANGE
+    net_out[2] = minv
+    net_out[3] = maxv
+    net_transmit()
+    return net_receive_u()
+    
+// Returns a random byte between 'minv' and 'maxv':
+fn net_randr_uu(UU minv, UU maxv) UU
+    net_out[0] = 5
+    net_out[1] = O_RND_GET_WORD_RANGE
+    net_out[2] = minv.b
+    net_out[3] = minv.a
+    net_out[4] = maxv.b
+    net_out[5] = maxv.a
+    net_transmit()
+    return net_receive_uu()
+
+// Returns a random byte less than 'bound':
+fn net_randb(U bound) U
+    if bound == 0
+        return 0
+    return net_randr(0, bound-1)
+
+// Returns a random UU value less than 'bound':
+fn net_randb_uu(UU bound) UU
+    if bound == 0
+        return 0
+    return net_randr_uu(0, bound-1)

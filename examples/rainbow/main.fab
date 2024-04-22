@@ -4,7 +4,7 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
-// This demo showcases MMC5 extended attributes and expansion audio.
+// This demo showcases Rainbow extended attributes and expansion audio.
 
 audio(puf1_music, "music.txt")
 audio(puf1_sfx, "sfx.txt", "sfx.nsf")

@@ -4086,7 +4086,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             expr_value_t array_index = throwing_cast<D>(do_expr<D>(ast.children[1]), is8 ? TYPE_U : TYPE_U20, true);
 
-            bool const is_ct = array_index.is_ct() && array_val.is_ct();
+            bool const is_ct = array_index.is_ct() && array_val.is_ct() && !is_ptr;
 
             if(is_vec && is_compile(D) && !is_ct)
                 array_val = throwing_cast<D>(array_val, type_t::tea(array_val.type.elem_type()), true, array_val.pstring);

@@ -751,11 +751,6 @@ It is easy to use and offers good performance, but is lacking in features and me
 | 8 KiB
 | 8 KiB
 
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
-
 |===
 
 *Other Details:*
@@ -805,11 +800,6 @@ Related mappers like AMROM can be had using configuration options.
 | 8 KiB (RAM)
 | 8 KiB (RAM)
 
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
-
 |===
 
 *Other Details:*
@@ -855,11 +845,6 @@ BNROM supports a huge amount of PRG, making it an excellent choice for large gam
 | 8 KiB (RAM)
 | 8 KiB (RAM)
 | 8 KiB (RAM)
-
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
 
 |===
 
@@ -911,11 +896,6 @@ Typically, BNROM is better for NESFab than UNROM, as it does not require the use
 | 8 KiB (RAM)
 | 8 KiB (RAM)
 
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
-
 |===
 
 *Other Details:*
@@ -963,11 +943,6 @@ Like UNROM, mapper 30 requires manual ROM layout with the <<mod_flags, `+static`
 | 32 KiB (RAM)
 | 32 KiB (RAM)
 
-| Nametable VRAM
-| 2 KiB
-| 4 KiB
-| 2 KiB
-
 |===
 
 *Other Details:*
@@ -1013,11 +988,6 @@ CNROM is similar to <<mapper_nrom, NROM>>, but has multiple CHR banks.
 | 8 KiB
 | 2048 KiB
 | 32 KiB
-
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
 
 |===
 
@@ -1068,11 +1038,6 @@ Related mappers like MHROM can be had using configuration options.
 | 128 KiB (RAM)
 | 32 KiB (RAM)
 
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
-
 |===
 
 *Other Details:*
@@ -1121,11 +1086,6 @@ PRG above 128 KiB may not be supported on physical cartridges.
 | 8 KiB (RAM)
 | 128 KiB (RAM)
 | 128 KiB (RAM)
-
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
 
 |===
 
@@ -1176,11 +1136,6 @@ See the standard library file `lib/mapper/gtrom.fab`.
 | 16 KiB (RAM)
 | 16 KiB (RAM)
 
-| Nametable VRAM
-| 16 KiB
-| 16 KiB
-| 16 KiB
-
 |===
 
 *Other Details:*
@@ -1230,11 +1185,6 @@ See the standard library file `lib/mapper/mmc1.fab`.
 | 128 KiB
 | 128 KiB
 | 128 KiB
-
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
 
 |===
 
@@ -1291,11 +1241,6 @@ See the standard library file `lib/mapper/mmc3.fab`.
 | 256 KiB
 | 256 KiB
 
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
-
 |===
 
 *Other Details:*
@@ -1349,11 +1294,6 @@ See the standard library file `lib/mapper/mmc3.fab`.
 | 256 KiB
 | 256 KiB
 | 256 KiB
-
-| Nametable VRAM
-| 2 KiB
-| 2 KiB
-| 2 KiB
 
 |===
 
@@ -1409,11 +1349,6 @@ See the standard library file `lib/mapper/mmc5.fab`.
 | 1024 KiB
 | 1024 KiB
 | 1024 KiB
-
-| Nametable VRAM
-| 2 KiB
-| 3 KiB
-| 2 KiB
 
 |===
 
@@ -1472,11 +1407,6 @@ See the standard library file `lib/mapper/rainbow.fab`.
 | 8 KiB (RAM)
 | 8192 KiB (RAM)
 | 8192 KiB (RAM)
-
-| Nametable VRAM
-| 2 KiB
-| 10 KiB
-| 2 KiB
 
 |===
 

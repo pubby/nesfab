@@ -48,7 +48,7 @@ namespace // anonymous
 
     private:
         span_allocator_t m_non_zp;
-        unsigned m_next_zp = 0;
+        unsigned m_next_zp = 1; // Reserve the first byte of ZP.
     };
 }
 

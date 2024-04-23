@@ -1,0 +1,10 @@
+/*
+ * Copyright (c) 2024, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// A charmap for hexadecimal numerals.
+// (You can also use this for base 10 or binary!)
+charmap numerals("0123456789a\/Ab\/Bc\/Cd\/De\/Ef\/Fg\/G")
+: stows /numerals

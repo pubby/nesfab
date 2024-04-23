@@ -24,6 +24,20 @@ mode main()
     // Load the palette:
     palette = example_palette
     ppu_upload_palette()
+    
+    // Setup extended attributes:
+    {MMC5_EXRAM_MODE}(%10) // Use an EXRAM mode that allows writing.
+    MM ptr = mmc5_exram
+    do for U i = 0; i; i += 1
+        do for U j = 0; j < 4; j += 1
+            ptr[j] = rand() & %11000000
+        ptr += 4
+
+    // Set MMC5 registers:
+    {MMC5_CHR_MODE}(0)     // Use chr mode 0.
+    mmc5_chr_select_8k(0)  // Select the first bank.
+    {MMC5_EXRAM_MODE}(%01) // Use extended attribute mode.
+    mmc5_mirror_1()        // Use 1-screen mirroring.
 
     // Setup the nametable:
     ppu_reset_addr($2000)
@@ -33,20 +47,8 @@ mode main()
     for U a = 0; a < 64; a += 1
         {PPUDATA}($FF)
 
-    // Setup extended attributes:
-    {MMC5_EXRAM_MODE}(%10) // Use an EXRAM mode that allows writing.
-    MM ptr = mmc5_exram
-    do for U i = 0; i; i += 1
-        do for U j = 0; j < 4; j += 1
-            ptr[j] = rand() & %11000000
-        ptr += 4
-    
-    // Set MMC5 registers:
-    {MMC5_EXRAM_MODE}(%01) // Use extended attribute mode.
-    mmc5_mirror_1()        // Use 1-screen mirroring.
-
     // Loop forever:
-    {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_PT_1000)
+    {PPUCTRL}(PPUCTRL_NMI_ON)
     while true
         nmi
         update_pads()

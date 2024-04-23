@@ -1,0 +1,153 @@
+/*
+ * Copyright (c) 2024, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This file is based on the work of Antoine Gohin (Broke Studio),
+// with original copyright to him.
+// See: https://github.com/BrokeStudio/rainbow-net/blob/master/NES/mapper-doc.md
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper code for interfacing the RAINBOW mapper /////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Basic registers:
+ct AA RNBW_PRG_MODE           = $4100 // Don't use this!
+ct AA RNBW_CHR_CTRL           = $4120
+ct AA RNBW_BG_EXT_SELECT_HI   = $4121
+ct AA RNBW_NT_2000_SELECT     = $4126
+ct AA RNBW_NT_2400_SELECT     = $4127
+ct AA RNBW_NT_2800_SELECT     = $4128
+ct AA RNBW_NT_2C00_SELECT     = $4129
+ct AA RNBW_NT_2000_CTRL       = $412A
+ct AA RNBW_NT_2400_CTRL       = $412B
+ct AA RNBW_NT_2800_CTRL       = $412C
+ct AA RNBW_NT_2C00_CTRL       = $412D
+ct AA RNBW_NT_W_SELECT        = $412E
+ct AA RNBW_NT_W_CTRL          = $412F
+ct AA RNBW_CHR_SELECT_HI      = $4130 // There are 16 of these.
+ct AA RNBW_CHR_SELECT_LO      = $4140 // There are 16 of these.
+
+// Scanline IRQ registers:
+ct AA RNBW_SCANLINE_LATCH     = $4150
+ct AA RNBW_SCANLINE_ENABLE    = $4151 // Write
+ct AA RNBW_SCANLINE_STATUS    = $4151 // Read
+ct AA RNBW_SCANLINE_DISABLE   = $4152
+ct AA RNBW_SCANLINE_OFFSET    = $4153
+ct AA RNBW_SCANLINE_M2        = $4154
+
+// CPU cycle IRQ registers:
+ct AA RNBW_CYCLE_LATCH_LO     = $4158
+ct AA RNBW_CYCLE_LATCH_HI     = $4159
+ct AA RNBW_CYCLE_CTRL         = $415A
+ct AA RNBW_CYCLE_ACK          = $415B
+
+// ExRAM auto writer:
+ct AA RNBW_EXRAM_AUTO_HI        = $415C
+ct AA RNBW_EXRAM_AUTO_LO        = $415D
+ct AA RNBW_EXRAM_AUTO_INCREMENT = $415E
+ct AA RNBW_EXRAM_AUTO_DATA      = $415F
+ct AA EXDATA = RNBW_EXRAM_AUTO_DATA // Shorter name for same register.
+
+// Mapper info registers:
+ct AA RNBW_VERSION            = $4160
+
+// Vector manipulation:
+ct AA RNBW_VECTOR_CTRL        = $416B // Don't use this!
+ct AA RNBW_NMI_HI             = $416C // Don't use this!
+ct AA RNBW_NMI_LO             = $416D // Don't use this!
+ct AA RNBW_IRQ_HI             = $416E // Don't use this!
+ct AA RNBW_IRQ_LO             = $416F // Don't use this!
+
+// Window mode registers:
+ct AA RNBW_WINDOW_X_START     = $4170
+ct AA RNBW_WINDOW_X_END       = $4171
+ct AA RNBW_WINDOW_Y_START     = $4172
+ct AA RNBW_WINDOW_Y_END       = $4173
+ct AA RNBW_WINDOW_X_SCROLL    = $4174
+ct AA RNBW_WINDOW_Y_SCROLL    = $4175
+
+// Audio registers:
+ct AA RNBW_SQ1_CTRL           = $41A0
+ct AA RNBW_SQ1_LO             = $41A1
+ct AA RNBW_SQ1_HI             = $41A2
+ct AA RNBW_SQ2_CTRL           = $41A3
+ct AA RNBW_SQ2_LO             = $41A4
+ct AA RNBW_SQ2_HI             = $41A5
+ct AA RNBW_SAW_ACC            = $41A6
+ct AA RNBW_SAW_LO             = $41A7
+ct AA RNBW_SAW_HI             = $41A8
+
+// Sprite extended mode registers:
+ct AA RNBW_SPRITE_SELECT_LO   = $4200
+ct AA RNBW_SPRITE_SELECT_HI   = $4240
+
+// RAM:
+ct AA RNBW_NETRAM             = $4800
+ct AA RNBW_EXRAM              = $5000
+
+///////////////////////////////////////////////////////////////////////////////
+// RAM ////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Pointer to NETRAM (FPGA RAM for WiFi):
+ct MM rnbw_netram = MM(RNBW_NETRAM)
+
+// Pointer to ExRAM (also called FPGA RAM):
+ct MM rnbw_exram = MM(RNBW_EXRAM)
+
+// Sets the ExRAM auto reader/writer up:
+fn rnbw_exram_auto(AA address, U increment)
+: +inline
+    {RNBW_EXRAM_AUTO_HI}(address.b)
+    {RNBW_EXRAM_AUTO_LO}(address.a)
+    {RNBW_EXRAM_AUTO_INCREMENT}(increment)
+
+///////////////////////////////////////////////////////////////////////////////
+// CHR ////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Use these when writing RNBW_CHR_CTRL:
+ct U RNBW_CHR_CTRL_8K       = 0
+ct U RNBW_CHR_CTRL_4K       = 1
+ct U RNBW_CHR_CTRL_2K       = 2
+ct U RNBW_CHR_CTRL_1K       = 3
+ct U RNBW_CHR_CTRL_512B     = 4
+ct U RNBW_CHR_CTRL_WINDOW   = %0001000
+ct U RNBW_CHR_CTRL_SPR_EXT  = %0010000
+ct U RNBW_CHR_CTRL_RAM      = %0100000
+ct U RNBW_CHR_CTRL_FPGA_RAM = %1000000
+
+// Changes the RNBW CHR bank:
+fn rnbw_chr_select(U slot, UU chr_bank)
+: +inline
+    {RNBW_CHR_SELECT_HI + slot}(chr_bank.b)
+    {RNBW_CHR_SELECT_LO + slot}(chr_bank.a)
+
+///////////////////////////////////////////////////////////////////////////////
+// Nametables /////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Use these when writing to nametable control registers (RNBW_NT_2000_CTRL...)
+ct U RNBW_NT_ATTR_EXT     = %00000001
+ct U RNBW_NT_BG_EXT       = %00000010
+ct U RNBW_NT_EXT_BANK_0   = %00000000
+ct U RNBW_NT_EXT_BANK_1   = %00000100
+ct U RNBW_NT_EXT_BANK_2   = %00001000
+ct U RNBW_NT_EXT_BANK_3   = %00001100
+ct U RNBW_NT_FILL         = %00100000
+ct U RNBW_NT_CI_RAM       = %00000000
+ct U RNBW_NT_CHR_RAM      = %01000000
+ct U RNBW_NT_FPGA_RAM     = %10000000
+ct U RNBW_NT_CHR_ROM      = %11000000
+
+///////////////////////////////////////////////////////////////////////////////
+// Sprites ////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Sets a sprite's bank in extended sprite mode.
+// NOTE: You should also set RNBW_SPRITE_SELECT_HI, which affects all sprites.
+fn rnbw_sprite_select_lo(U sprite_index, U chr_bank)
+: +inline
+    {RNBW_SPRITE_SELECT_LO + sprite_index}(chr_bank)

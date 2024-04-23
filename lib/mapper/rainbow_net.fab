@@ -4,10 +4,12 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
+// This file is based on the work of Antoine Gohin (Broke Studio),
+// with original copyright to him.
+// See: https://github.com/BrokeStudio/rainbow-net/blob/master/rainbow-net.md
+
 // This file depends on:
 // - 'rainbow.fab'
-
-// See: https://github.com/BrokeStudio/rainbow-net/blob/master/rainbow-net.md
 
 ///////////////////////////////////////////////////////////////////////////////
 // Registers //////////////////////////////////////////////////////////////////
@@ -257,11 +259,12 @@ ct U FILE_DOWNLOAD_READ_TIMEOUT = U(-11)
 // Call to setup the ESP / WiFi buffer addresses:
 fn net_init()
 : -inline
-    {NET_CONFIG}(0)
+    net_transmit_u(0) // TODO
     {NET_RX_ADDR}(NET_IN.b)
     {NET_TX_ADDR}(NET_OUT.b)
     {NET_CONFIG}(NET_CONFIG_ESP)
     net_transmit_u(O_BUFFER_CLEAR_RX_TX)
+    // TOOD: IMPLEMENT THIS PROPERLY
     do while {NET_RX}() < $80
         net_transmit_u(O_ESP_GET_STATUS)
     net_received()
@@ -340,7 +343,7 @@ fn net_receiver.ignore()
 
 // Receives a single message, using 'net_receiver_ptr' to process it:
 fn net_receive()
-: +inline
+: -inline
     net_receive_await()
     net_receiver_ptr()
     net_received()

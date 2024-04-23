@@ -9,7 +9,8 @@
 // See: https://github.com/BrokeStudio/rainbow-net/blob/master/rainbow-net.md
 
 // This file depends on:
-// - 'rainbow.fab'
+// - 'mapper/rainbow.fab'
+// - 'charmap/ascii.fab'
 
 ///////////////////////////////////////////////////////////////////////////////
 // Registers //////////////////////////////////////////////////////////////////
@@ -253,21 +254,35 @@ ct U FILE_DOWNLOAD_STREAM_WRITE = U(-10)
 ct U FILE_DOWNLOAD_READ_TIMEOUT = U(-11)
 
 ///////////////////////////////////////////////////////////////////////////////
-// Helper Functions ///////////////////////////////////////////////////////////
+// Init Functions /////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// Call to setup the ESP / WiFi buffer addresses:
-fn net_init()
+// Call to setup the ESP / WiFi buffer addresses.
+// Returns 'true' if the initialization succeeded, 'false' otherwise.
+// On failure, you might try calling 'net_init' a few more times.
+fn net_init() Bool
 : -inline
-    net_transmit_u(0) // TODO
     {NET_RX_ADDR}(NET_IN.b)
     {NET_TX_ADDR}(NET_OUT.b)
     {NET_CONFIG}(NET_CONFIG_ESP)
-    net_transmit_u(O_BUFFER_CLEAR_RX_TX)
-    // TOOD: IMPLEMENT THIS PROPERLY
-    do while {NET_RX}() < $80
-        net_transmit_u(O_ESP_GET_STATUS)
-    net_received()
+    net_transmit_void(O_BUFFER_CLEAR_RX_TX)
+
+    // Wait 3 frames for the CLEAR_RX_TX command to work:
+    {PPUSTATUS}()
+    do while {PPUSTATUS}() < $80
+    do while {PPUSTATUS}() < $80
+    do while {PPUSTATUS}() < $80
+
+    // Send a status request to make sure it's working:
+    net_transmit_void(O_ESP_GET_STATUS)
+
+    // Wait 1 frame for the ESP_GET_STATUS command to work:
+    do while {PPUSTATUS}() < $80
+
+    // Test if it worked:
+    Bool result = {NET_RX}() >= $80 && net_in[1] == I_READY
+    net_end_receive()
+    return result
 
 ///////////////////////////////////////////////////////////////////////////////
 // Rainbow Net Config /////////////////////////////////////////////////////////
@@ -298,17 +313,38 @@ fn net_transmit()
     do while {NET_TX}() < $80
 
 // Transmits a single message pointed-to by 'msg':
-fn net_transmit_msg(CCC/esp msg)
-    U length = msg[0]
+fn net_transmit_data(CCC/net dat)
+: -inline
+    U length = dat[0]
     for U i = 0; i < length; i += 1
-        net_out[i] = msg[i]
+        net_out[i] = dat[i]
     net_transmit()
 
 // Transmit a 1-byte length command message:
-fn net_transmit_u(U command)
+fn net_transmit_void(U command)
 : +inline
     net_out[0] = 1
     net_out[1] = command
+    net_transmit()
+
+// Transmit a 1-byte length command message with a 1-byte argument:
+fn net_transmit_u(U command, U value)
+: +inline
+    net_out[0] = 2
+    net_out[1] = command
+    net_out[2] = value
+    net_transmit()
+
+// Transmit a 1-byte length command message with arguments:
+fn net_transmit_uu_string(U command, UU uu, CCC/ascii string)
+    U strlen = ascii_strlen(string)
+    net_out[0] = 4 + strlen
+    net_out[1] = command
+    net_out[2] = uu.b
+    net_out[3] = uu.a
+    net_out[4] = strlen
+    for U i = 0; i < strlen; i += 1
+        net_out{5 + i} = string[i]
     net_transmit()
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -316,13 +352,19 @@ fn net_transmit_u(U command)
 ///////////////////////////////////////////////////////////////////////////////
 
 // Blocks until a message has been received:
-// (Call 'net_received' after processing the message!)
-fn net_receive_await()
+// (Call 'net_end_receive' after processing the message!)
+fn net_begin_receive()
 : +inline
     do while {NET_RX}() < $80
 
-// Call after 'net_receive_await' once you're done with the received message:
-fn net_received()
+// Returns true if a message has been received and is waiting:
+// (Call 'net_end_receive' after processing the message!)
+fn net_has_received() Bool
+: +inline
+    return {NET_RX}() >=< $80
+
+// Call once you're done with the received message:
+fn net_end_receive()
 : +inline
     U undefined
     {NET_RX}(undefined)
@@ -341,33 +383,46 @@ vars /net
 fn net_receiver.ignore()
     return
 
-// Receives a single message, using 'net_receiver_ptr' to process it:
+// Blocks until a single message is received, using 'net_receiver_ptr' to process it:
 fn net_receive()
 : -inline
-    net_receive_await()
+    net_begin_receive()
     net_receiver_ptr()
-    net_received()
+    net_end_receive()
+
+// Receives messages that are already ready, using 'net_receiver_ptr' to process it.
+// Returns the number of messages received (255 max).
+fn net_receive_non_blocking() U
+: -inline
+    U count = 0
+    while net_has_received()
+        net_receiver_ptr()
+        net_end_receive()
+        count += 1
+        if count == $FF
+            break
+    return count
 
 // Receives messages until finding one that matches 'command_id',
 // then returns without processing it.
 // Non-matching messages are processed using 'net_receiver_ptr'.
-fn net_receive_await_specific(U command_id)
+fn net_receive_specific(U command_id)
 : -inline
     while true
-        net_receive_await()
+        net_begin_receive()
         if net_in[1] == command_id
             return
         net_receiver_ptr()
-        net_received()
+        net_end_receive()
 
 // Receives messages until finding one that matches 'command_id',
 // then returns a value of type U from that message.
 // Non-matching messages are processed using 'net_receiver_ptr'.
 fn net_receive_specific_u(U command_id) U
 : +inline
-    net_receive_await_specific(command_id)
+    net_receive_specific(command_id)
     U result = net_in[2]
-    net_received()
+    net_end_receive()
     return result
 
 // Receives messages until finding one that matches 'command_id',
@@ -375,12 +430,20 @@ fn net_receive_specific_u(U command_id) U
 // Non-matching messages are processed using 'net_receiver_ptr'.
 fn net_receive_specific_uu(U command_id) UU
 : +inline
-    net_receive_await_specific(command_id)
+    net_receive_specific(command_id)
     UU result
     result.b = net_in[2]
     result.a = net_in[3]
-    net_received()
+    net_end_receive()
     return result
+
+///////////////////////////////////////////////////////////////////////////////
+// Helper functions ///////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+fn net_server_status() U
+    net_transmit_void(O_SERVER_GET_STATUS)
+    return net_receive_specific_u(I_SERVER_STATUS)
 
 ///////////////////////////////////////////////////////////////////////////////
 // RNG functions //////////////////////////////////////////////////////////////
@@ -393,12 +456,12 @@ fn net_receive_specific_uu(U command_id) UU
 
 // Returns a random byte:
 fn net_rand() U
-    net_transmit_u(O_RND_GET_BYTE)
+    net_transmit_void(O_RND_GET_BYTE)
     return net_receive_specific_u(I_RND_BYTE)
 
 // Returns a random value of type UU
 fn net_rand_uu() UU
-    net_transmit_u(O_RND_GET_WORD)
+    net_transmit_void(O_RND_GET_WORD)
     return net_receive_specific_uu(I_RND_WORD)
 
 // Returns a random byte between 'minv' and 'maxv':

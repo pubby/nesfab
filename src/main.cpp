@@ -137,6 +137,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("build-time"))
         _options.build_time = true;
 
+    if(vm.count("time-limit"))
+        _options.time_limit = vm["time-limit"].as<int>();
+
     if(vm.count("error-on-warning"))
         _options.werror = true;
 

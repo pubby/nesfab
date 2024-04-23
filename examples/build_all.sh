@@ -27,3 +27,6 @@ set -x #echo on
 ../nesfab music/music.cfg
 ../nesfab mouse/mouse.cfg
 ../nesfab 4_player/4_player.cfg
+../nesfab mmc5/mmc5.cfg
+../nesfab rainbow/rainbow.cfg
+../nesfab wifi/wifi.cfg

@@ -3882,14 +3882,14 @@ $01 $01 $01 $01 $01 $22 $33 $44 $44 $44 $44
 
 === `macro` [[kw_macro]]
 
-The `macro` keyword generates and compiles a new source file by substituting its arguments into a `.macrofab` file.
+The `macro` keyword generates and compiles a new source file by substituting its arguments into an existing `.macrofab` file.
 It is only usable at top-level scope.
 
 Syntax:
 ----
 macro("macro_name", "args"...)
 ----
-- `"macro_name"` is the string literal name of the macro file being invoked, without the `.macrofile` extension. If the string is empty, no macro is invoked.
+- `"macro_name"` is the string literal name of the macro file being invoked, without the `.macrofile` extension or path. If the string is empty, no macro is invoked.
 - `"args"` are a comma-separated list of string literals to be substituted into the `.macrofab` file.
 
 *Macro Files:*
@@ -3932,6 +3932,10 @@ Which would generate the following source file and compile it:
 vars
     U something = 100
 ----
+
+[NOTE]
+The generated file is not saved to disk. It is compiled, and then forgotten.
+
 
 *Modifiers:*
 

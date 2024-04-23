@@ -827,7 +827,7 @@ void eval_t::check_time()
             throw out_of_time_t(
                 fmt_error(this->pstring, "Ran out of time executing expression.")
                 + fmt_note("Computation is likely divergent.\n")
-                + fmt_note(fmt("Use compiler flag --timelimit 0 to ignore this error.\n", compiler_options().time_limit)));
+                + fmt_note(fmt("Use compiler flag --time-limit 0 to ignore this error. (Current value: -T %)\n", compiler_options().time_limit)));
         }
     }
 }
@@ -852,6 +852,8 @@ void eval_t::interpret_stmts()
 
     auto const do_condition = [&](bool check_value) -> bool
     { 
+        if(!stmt->expr) // Handles empty for condition
+            return is_interpret(D) ? true : check_value;
         expr_value_t v = throwing_cast<D>(do_expr<D>(*stmt->expr), TYPE_BOOL, true);
         if(!is_interpret(D))
             return check_value;
@@ -1252,7 +1254,14 @@ void eval_t::compile_block()
             cfg_ht const begin_branch = builder.cfg = insert_cfg(false);
             entry->build_set_output(0, begin_branch);
 
-            expr_value_t v = do_expr<COMPILE>(*stmt->expr);
+            expr_value_t v;
+            if(stmt->expr)
+                v = do_expr<COMPILE>(*stmt->expr);
+            else
+            {
+                v = { .type = TYPE_BOOL, .pstring = stmt->pstring };
+                v.val = rval_t{ ssa_value_t(1u, TYPE_BOOL) };
+            }
             ++stmt;
             v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
             cfg_ht const end_branch = builder.cfg;
@@ -1363,7 +1372,14 @@ void eval_t::compile_block()
 
             // Create the loop condition now.
             builder.cfg = begin_branch;
-            expr_value_t v = do_expr<COMPILE>(*stmt->expr);
+            expr_value_t v;
+            if(stmt->expr)
+                v = do_expr<COMPILE>(*stmt->expr);
+            else
+            {
+                v = { .type = TYPE_BOOL, .pstring = stmt->pstring };
+                v.val = rval_t{ ssa_value_t(1u, TYPE_BOOL) };
+            }
             ++stmt;
             v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
             cfg_ht const end_branch = builder.cfg;

@@ -120,12 +120,20 @@ fn ppu_await_status(U flag)
 // NMI ////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// Waits a specified number of NMI frames.
+// Waits a specified number of NMI frames, using the NMI handler.
 fn wait(U frames)
 : -inline
 : +static
     for U i = 0; i < frames; i += 1
         nmi
+
+// Waits a specified number of NMI frames, using PPUSTATUS polling.
+fn wait_polled(U frames)
+: -inline
+: +static
+    {PPUSTATUS}()
+    for U i = 0; i < frames; i += 1
+        while {PPUSTATUS}() < $80
 
 ///////////////////////////////////////////////////////////////////////////////
 // OAM ////////////////////////////////////////////////////////////////////////

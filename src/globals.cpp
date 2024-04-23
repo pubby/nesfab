@@ -2254,7 +2254,8 @@ charmap_t::charmap_t(global_t& global, bool is_default,
         char const* end = lit.string.data() + lit.string.size();
         while(true)
         {
-            assert(ptr);
+            if(!ptr)
+                compiler_error(lit.pstring, "Invalid character in charmap.");
 
             if(utf32 == SPECIAL_SLASH)
                 compiler_error(lit.pstring, "Invalid '\\/' operator.");

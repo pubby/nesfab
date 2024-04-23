@@ -1,0 +1,114 @@
+/*
+ * Copyright (c) 2023, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This demo showcases Rainbow WiFi.
+
+// To launch the server:
+//   cd server
+//   npm install
+//   npm start
+
+// To play:
+//   Press 'A' or 'B' to send a button press message to the server.
+//   The server will send these presses to all connected clients,
+//   and the client will display them on the screen.
+
+vars
+    // These are used for updating the nametable:
+    UU nt_addr = $2000 + 64 + 8
+    U nt_data = 0
+
+nmi main_nmi()
+    // Update the nametable:
+    ppu_reset_addr(nt_addr)
+    {PPUDATA}(nt_data)
+
+    ppu_upload_oam_poll_pads(0)
+    ppu_reset_scroll(0, 0)
+    {PPUMASK}(PPUMASK_BG_ON | PPUMASK_NO_CLIP)
+
+// This will handle incoming messages:
+fn net_receiver.handle()
+    if net_in[1] == I_MESSAGE_FROM_SERVER
+        // When we receive a message, we'll update the nametable:
+        nt_data = net_in[2]
+        nt_addr += 1
+        if nt_addr >= $2400
+            nt_addr = $2000
+
+// Sends a byte to the server:
+fn send_msg(U byte)
+    net_out[0] = 2
+    net_out[1] = O_SERVER_SEND_MESSAGE
+    net_out[2] = byte
+    net_transmit()
+
+mode main()
+: nmi main_nmi
+    // Load the palette:
+    palette = example_palette
+    ppu_upload_palette()
+
+    // Setup the nametable:
+    ppu_reset_addr($2000)
+    for UU i = 0; i < 1024; i += 1
+        {PPUDATA}(0)
+
+    // Init rainbow:
+    for U i = 0; !net_init(); i += 1
+        if i > 10 // We'll abort after a few tries.
+            goto mode error($15)
+            : preserves
+
+    // Set the server protocol and host:
+    net_transmit_u(O_SERVER_SET_PROTOCOL, SERVER_PROTOCOL_UDP)
+    net_transmit_uu_string(O_SERVER_SET_SETTINGS, 1234, @"127.0.0.1"ascii)
+    net_transmit_void(O_SERVER_CONNECT)
+
+    // Set the receiver pointer:
+    net_receiver_ptr = @(net_receiver.handle)
+
+    // Wait until we're connected:
+    do for U i = 0;; i += 1
+        if i > 10 // We'll abort after a few tries.
+            goto mode error($27)
+            : preserves
+        if net_server_status() == SERVER_STATUS_CONNECTED
+            break
+        wait_polled(60)
+
+    palette[PALETTE_UBC] = $0C
+    ppu_upload_palette()
+
+    // Loop forever:
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    while true
+        nmi
+
+        // When a button is pressed, send it to the server:
+        update_pads()
+        if pads[0].pressed & BUTTON_A
+            send_msg(1)
+        if pads[0].pressed & BUTTON_B
+            send_msg(2)
+
+        // Periodically send keep-alive messages too:
+        if nmi_counter == 0
+            send_msg(0) // Keep-alive
+
+        // Receive incoming messages when available:
+        net_receive_non_blocking()
+
+mode error(U error_code)
+    // Display a solid color if we error:
+    {PPUMASK}(0)
+    {PPUCTRL}(0)
+    palette[PALETTE_UBC] = error_code
+    ppu_upload_palette()
+    while true
+
+chrrom
+    file(fmt, "bg.png")

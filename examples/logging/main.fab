@@ -1,0 +1,37 @@
+/*
+ * Copyright (c) 2024, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This shows how to use 'lua_log.fab' to log files.
+// To test this, you'll have to import 'lua_log.lua' into FCEUX or Mesen.
+
+nmi main_nmi()
+    ppu_upload_oam_poll_pads(0)
+    {PPUMASK}(PPUMASK_BG_ON)
+
+mode main()
+: nmi main_nmi
+    palette = example_palette
+    ppu_upload_palette()
+
+    // Clear the screen
+    {PPUSTATUS}()
+    {PPUADDR}($20)
+    {PPUADDR}($00)
+    for UU i = 0; i != 1024; i += 1
+        {PPUDATA}(0)
+
+    // We'll keep track of how many times we pressed a button:
+    UU pressed = 0
+
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    while true
+        nmi
+        update_pads()
+        if pads[0].pressed
+            // Send a log message whenever a button is pressed:
+            pressed += 1
+            log_2(@"Buttons pressed: %d, Total: %d\n"ascii, UU(pads[0].pressed), pressed)
+        

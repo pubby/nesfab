@@ -30,3 +30,4 @@ set -x #echo on
 ../nesfab mmc5/mmc5.cfg
 ../nesfab rainbow/rainbow.cfg
 ../nesfab wifi/wifi.cfg
+../nesfab wifi/logging.cfg

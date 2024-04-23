@@ -4,6 +4,9 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
+// This file depends on:
+// - 'charmap/ascii.fab'
+
 // This code can be used with the 'lua_log.lua' script to write logs
 // that can be seen inside emulators.
 
@@ -20,7 +23,7 @@ fn log_arg(U i, UU arg)
     {addr+1}(arg.b)
 
 // Logs a string
-fn log(CCC/ascii str)
+fn log(PPP/ascii str)
 : -inline
     U i = 0
     while true
@@ -31,12 +34,12 @@ fn log(CCC/ascii str)
 
 // Logs an integer as a decimal
 fn log_dec(UU n)
-    log_set_arg(0, n)
+    log_arg(0, n)
     log(@"%d"ascii)
 
 // Logs an integer as hex
 fn log_hex(UU n)
-    log_set_arg(0, n)
+    log_arg(0, n)
     log(@"$%04X"ascii)
 
 //
@@ -46,25 +49,25 @@ fn log_hex(UU n)
 //
 
 // 2 arguments
-fn log_1(CCC/l str, UU a)
+fn log_1(PPP/ascii str, UU a)
   log_arg(0, a)
   log(str)
 
 // 2 arguments
-fn log_2(CCC/l str, UU a, UU b)
+fn log_2(PPP/ascii str, UU a, UU b)
   log_arg(0, a)
   log_arg(1, b)
   log(str)
 
 // 3 arguments
-fn log_3(CCC/l str, UU a, UU b, UU c)
+fn log_3(PPP/ascii str, UU a, UU b, UU c)
   log_arg(0, a)
   log_arg(1, b)
   log_arg(2, c)
   log(str)
 
 // 4 arguments
-fn log_4(CCC/l str, UU a, UU b, UU c, UU d)
+fn log_4(PPP/ascii str, UU a, UU b, UU c, UU d)
   log_arg(0, a)
   log_arg(1, b)
   log_arg(2, c)

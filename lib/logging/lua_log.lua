@@ -65,8 +65,8 @@ if(emu.frameadvance~=nil) then
 		--	return
 		--end
 		
-		if(value >= 32-31 and value < 128-31) then
-			curStr = curStr .. string.char(value+31)
+		if(value > 0 and value < 128) then
+			curStr = curStr .. string.char(value)
 		else --treat other values as '\0'
 			local args = {}
 			for i=0,3 do
@@ -121,8 +121,8 @@ else
 	end
 	
 	function writeHook(addr, value)
-		if(value >= 32-31 and value < 128-31) then
-			curStr = curStr .. string.char(value+31)
+		if(value > 1 and value < 128) then
+			curStr = curStr .. string.char(value)
 		else --treat other values as '\0'
 			local args = {}
 			for i=0,3 do

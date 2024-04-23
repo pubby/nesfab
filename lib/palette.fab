@@ -58,13 +58,14 @@ fn brighten(U color, U amount) U
         color = $30
     return color
 
+// Adds 'amount' (signed) to the brightness of 'color', adjusting the value if needed.
 fn brightness_shift(U color, S amount) U
 : +inline
     if amount < 0
         return dim(color, U(-amount))
     return brighten(color, U(amount))
 
-// Adds 'amount' to the hue of 'color', adjusting the value if needed.
+// Adds 'amount' (signed) to the hue of 'color', adjusting the value if needed.
 fn hue_shift(U color, S amount) U
 : -inline
     if amount == 0

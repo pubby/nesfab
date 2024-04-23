@@ -126,11 +126,12 @@ void append_locator_bytes(bool new_format, std::vector<locator_t>& vec, rval_t c
                         
                         if(!loc.byteified())
                         {
-                            passert(loc.atom() == 0, loc);
-
                             loc.set_byteified(true);
                             if(has_arg_member_atom(loc.lclass()))
+                            {
+                                passert(loc.atom() == 0, loc);
                                 loc.set_atom(j);
+                            }
                             loc.advance_offset(k);
                         }
 

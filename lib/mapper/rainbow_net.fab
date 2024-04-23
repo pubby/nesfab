@@ -10,6 +10,27 @@
 // See: https://github.com/BrokeStudio/rainbow-net/blob/master/rainbow-net.md
 
 ///////////////////////////////////////////////////////////////////////////////
+// Registers //////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+ct AA NET_CONFIG  = $4190
+ct AA NET_RX      = $4191
+ct AA NET_TX      = $4192
+ct AA NET_RX_ADDR = $4193
+ct AA NET_TX_ADDR = $4194
+
+///////////////////////////////////////////////////////////////////////////////
+// Buffers ////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// These two buffers handle in/out messages (RX and TX).
+ct AA NET_IN  = $4800
+ct AA NET_OUT = NET_IN + 256
+
+ct MM net_in  = MM(NET_IN)
+ct MM net_out = MM(NET_OUT)
+
+///////////////////////////////////////////////////////////////////////////////
 // Outgoing commands to the ESP ///////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -230,105 +251,152 @@ ct U FILE_DOWNLOAD_STREAM_WRITE = U(-10)
 ct U FILE_DOWNLOAD_READ_TIMEOUT = U(-11)
 
 ///////////////////////////////////////////////////////////////////////////////
-// Buffers ////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-ct AA NET_IN        = $4800
-ct AA NET_OUT       = NET_IN + 256
-
-ct MM net_in  = MM(NET_IN)
-ct MM net_out = MM(NET_OUT)
-
-///////////////////////////////////////////////////////////////////////////////
 // Helper Functions ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// Call to setup the ESP / WiFi stuff.
-// 'flags' is the initial RNBW_NET_CONFIG value (probably want 'RNBW_NET_CONFIG_ESP').
-fn net_init(U flags)
-   {RNBW_NET_CONFIG}(0)
-   {RNBW_RX_ADDR}(NET_IN.b)
-   {RNBW_TX_ADDR}(NET_OUT.b)
-   {RNBW_NET_CONFIG}(flags)
+// Call to setup the ESP / WiFi buffer addresses:
+fn net_init()
+: -inline
+    {NET_CONFIG}(0)
+    {NET_RX_ADDR}(NET_IN.b)
+    {NET_TX_ADDR}(NET_OUT.b)
+    {NET_CONFIG}(NET_CONFIG_ESP)
+    net_transmit_u(O_BUFFER_CLEAR_RX_TX)
+    do while {NET_RX}() < $80
+        net_transmit_u(O_ESP_GET_STATUS)
+    net_received()
 
-// Pass 'RNBW_NET_CONFIG_' flags to this to enable them:
+///////////////////////////////////////////////////////////////////////////////
+// Rainbow Net Config /////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+ct U NET_CONFIG_ESP = %01
+ct U NET_CONFIG_IRQ = %10
+
+// Pass 'NET_CONFIG_' flags to enable them:
 fn net_config_enable(U flags)
 : +inline
-    {RNBW_NET_CONFIG}({RNBW_NET_CONFIG}() | flags)
+    {NET_CONFIG}({NET_CONFIG}() | flags)
 
-// Pass 'RNBW_NET_CONFIG_' flags to this to disable them:
+// Pass 'NET_CONFIG_' flags to disable them:
 fn net_config_disable(U flags)
 : +inline
-    {RNBW_NET_CONFIG}({RNBW_NET_CONFIG}() & ~flags)
+    {NET_CONFIG}({NET_CONFIG}() & ~flags)
 
-// Initiates transmission and blocks until a message has been transmitted.
+///////////////////////////////////////////////////////////////////////////////
+// Transmitting ///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Initiates transmission and blocks until a message has been transmitted:
 fn net_transmit()
 : +inline
     U undefined
-    {RNBW_TX}(undefined)
-    do while {RNBW_TX}() < $80
+    {NET_TX}(undefined)
+    do while {NET_TX}() < $80
 
-// Blocks until a message has been received.
-fn net_receive_await()
-: +inline
-    do while {RNBW_RX}() < $80
-
-// Call after you're done with the received message.
-fn net_received()
-: +inline
-    U undefined
-    {RNBW_RX}(undefined)
-
-// Receives a single U value:
-fn net_receive_u() U
-: +inline
-    net_receive_await()
-    U result = net_in[2]
-    net_received()
-    return result
-
-// Receives a single UU value:
-fn net_receive_uu() UU
-: +inline
-    net_receive_await()
-    UU result
-    result.b = net_in[2]
-    result.a = net_in[3]
-    net_received()
-    return result
-
-// Transmits a single message:
+// Transmits a single message pointed-to by 'msg':
 fn net_transmit_msg(CCC/esp msg)
     U length = msg[0]
     for U i = 0; i < length; i += 1
         net_out[i] = msg[i]
     net_transmit()
 
-// Transmit a 1-byte length message:
-fn net_transmit_u(U byte)
+// Transmit a 1-byte length command message:
+fn net_transmit_u(U command)
 : +inline
     net_out[0] = 1
-    net_out[1] = byte
+    net_out[1] = command
     net_transmit()
 
-// Transmits a 1-byte command, returning the 1-byte received result:
-fn net_command_u(U command) U
+///////////////////////////////////////////////////////////////////////////////
+// Receiving //////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Blocks until a message has been received:
+// (Call 'net_received' after processing the message!)
+fn net_receive_await()
+: +inline
+    do while {NET_RX}() < $80
+
+// Call after 'net_receive_await' once you're done with the received message:
+fn net_received()
+: +inline
+    U undefined
+    {NET_RX}(undefined)
+
+//
+// The following functions use callbacks to handle their behavior.
+// Receiver callbacks must belong to the 'net_receiver' fn set.
+//
+
+// Here's where we declare the global receiver handler.
+// Simply assign this pointer to change the receiving behavior.
+vars /net
+    Fn.net_receiver net_receiver_ptr = @(net_receiver.ignore)
+
+// This receiver handler does nothing:
+fn net_receiver.ignore()
+    return
+
+// Receives a single message, using 'net_receiver_ptr' to process it:
+fn net_receive()
+: +inline
+    net_receive_await()
+    net_receiver_ptr()
+    net_received()
+
+// Receives messages until finding one that matches 'command_id',
+// then returns without processing it.
+// Non-matching messages are processed using 'net_receiver_ptr'.
+fn net_receive_await_specific(U command_id)
 : -inline
-    net_transmit_u(command)
-    return net_receive_u()
+    while true
+        net_receive_await()
+        if net_in[1] == command_id
+            return
+        net_receiver_ptr()
+        net_received()
+
+// Receives messages until finding one that matches 'command_id',
+// then returns a value of type U from that message.
+// Non-matching messages are processed using 'net_receiver_ptr'.
+fn net_receive_specific_u(U command_id) U
+: +inline
+    net_receive_await_specific(command_id)
+    U result = net_in[2]
+    net_received()
+    return result
+
+// Receives messages until finding one that matches 'command_id',
+// then returns a value of type UU from that message.
+// Non-matching messages are processed using 'net_receiver_ptr'.
+fn net_receive_specific_uu(U command_id) UU
+: +inline
+    net_receive_await_specific(command_id)
+    UU result
+    result.b = net_in[2]
+    result.a = net_in[3]
+    net_received()
+    return result
 
 ///////////////////////////////////////////////////////////////////////////////
-// RNG functinos //////////////////////////////////////////////////////////////
+// RNG functions //////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
+
+//
+// NOTE: The following functions use 'net_receiver_ptr' when handling 
+//       other messages.
+//
 
 // Returns a random byte:
 fn net_rand() U
-    return net_command_u(O_RND_GET_BYTE)
+    net_transmit_u(O_RND_GET_BYTE)
+    return net_receive_specific_u(I_RND_BYTE)
 
 // Returns a random value of type UU
 fn net_rand_uu() UU
     net_transmit_u(O_RND_GET_WORD)
-    return net_receive_uu()
+    return net_receive_specific_uu(I_RND_WORD)
 
 // Returns a random byte between 'minv' and 'maxv':
 fn net_randr(U minv, U maxv) U
@@ -337,7 +405,7 @@ fn net_randr(U minv, U maxv) U
     net_out[2] = minv
     net_out[3] = maxv
     net_transmit()
-    return net_receive_u()
+    return net_receive_specific_u(I_RND_BYTE)
     
 // Returns a random byte between 'minv' and 'maxv':
 fn net_randr_uu(UU minv, UU maxv) UU
@@ -348,15 +416,17 @@ fn net_randr_uu(UU minv, UU maxv) UU
     net_out[4] = maxv.b
     net_out[5] = maxv.a
     net_transmit()
-    return net_receive_uu()
+    return net_receive_specific_uu(I_RND_WORD)
 
 // Returns a random byte less than 'bound':
+// (Or 0 when 'bound' is 0)
 fn net_randb(U bound) U
     if bound == 0
         return 0
     return net_randr(0, bound-1)
 
 // Returns a random UU value less than 'bound':
+// (Or 0 when 'bound' is 0)
 fn net_randb_uu(UU bound) UU
     if bound == 0
         return 0

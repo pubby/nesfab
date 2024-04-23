@@ -41,10 +41,19 @@ mode main()
     // Set Rainbow registers:
     {RNBW_NT_2000_CTRL}(RNBW_NT_ATTR_EXT)
 
+    {NET_RX_ADDR}(NET_IN.b)
+    {NET_TX_ADDR}(NET_OUT.b)
+    {NET_CONFIG}(NET_CONFIG_ESP)
+
+    net_transmit_u(O_RND_GET_BYTE)
+    net_transmit_u(O_RND_GET_BYTE)
+    net_transmit_u(O_RND_GET_BYTE)
+
     // Loop forever:
     {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_PT_1000)
     while true
         nmi
+        {$444}(net_receive_specific_u(I_RND_BYTE))
         update_pads()
         if pads[0].pressed & BUTTON_UP
             puf.play_sfx(0)

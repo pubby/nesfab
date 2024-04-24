@@ -361,7 +361,7 @@ fn net_begin_receive()
 // (Call 'net_end_receive' after processing the message!)
 fn net_has_received() Bool
 : +inline
-    return {NET_RX}() >=< $80
+    return {NET_RX}() >= $80
 
 // Call once you're done with the received message:
 fn net_end_receive()

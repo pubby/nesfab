@@ -98,9 +98,9 @@ vars
     : +unused
     Bool puf_lock = false
 
-ct AA _stack_0 = $110
-ct AA _stack_1 = $110 + _note_channels*2
-ct AA _stack_2 = $110 + _note_channels*4
+ct AA _stack_0 = $100
+ct AA _stack_1 = $100 + _note_channels*2
+ct AA _stack_2 = $100 + _note_channels*4
 
 ct AA puf_stack_mem = $108
 

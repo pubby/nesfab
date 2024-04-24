@@ -14,7 +14,7 @@ using namespace macro_lex;
 static token_type_t do_lex(char const*& str)
 {
     char const* start = str;
-    token_type_t lexed = TOK_START;
+    token_type_t lexed = macro_lex::TOK_START;
     for(; lexed > TOK_LAST_STATE; ++str)
     {
         unsigned char const c = *str;
@@ -38,6 +38,7 @@ std::string invoke_macro(unsigned file_i, std::vector<std::string> const& args)
     char quote;
 
     char const* str = file.source();
+    assert(str && *str);
 
     while(*str)
     {

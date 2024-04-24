@@ -17,9 +17,6 @@ nmi main_nmi()
 
 mode main()
 : nmi main_nmi
-    // Init rainbow:
-    while !net_init()
-
     // Init the music:
     puf.init(system)
     puf.play_track(0)
@@ -39,7 +36,7 @@ mode main()
     // Setup extended attributes:
     rnbw_exram_auto($0000, 1)
     do for UU i = 0; i < 1024; i += 1
-        {EXDATA}(net_rand() & %11000000)
+        {EXDATA}(rand() & %11000000)
 
     // Set Rainbow registers:
     {RNBW_NT_2000_CTRL}(RNBW_NT_ATTR_EXT)

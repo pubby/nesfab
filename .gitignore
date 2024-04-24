@@ -8,3 +8,5 @@
 !/src/
 !/syntax_highlighting/
 !*[Dd]ocker*
+examples/tasks.json
+examples/hang_glider/tasks.json

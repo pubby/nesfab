@@ -22,7 +22,8 @@ namespace // anonymous
     public:
         runtime_ram_allocator_t()
         : m_non_zp(span_t{ 0x200, 0x600 })
-        {}
+        {
+        }
 
         span_t alloc_zp(std::uint16_t size)
         {
@@ -48,7 +49,7 @@ namespace // anonymous
 
     private:
         span_allocator_t m_non_zp;
-        unsigned m_next_zp = 1; // Reserve the first byte of ZP.
+        unsigned m_next_zp = 0;
     };
 }
 
@@ -70,6 +71,7 @@ ram_bitset_t alloc_runtime_ram()
 {
     runtime_ram_allocator_t a;
     a.allocated = stack_bitset; // Don't allocate in stack space.
+    a.alloc_zp(1); // Reserve the first byte of ZP for debugging.
 
     unsigned const temp_size = (mapper().bus_conflicts && state_size()) ? 3 : 2;
     _rtram_spans[RTRAM_ptr_temp] = {{ a.alloc_zp(temp_size), a.alloc_zp(temp_size), a.alloc_zp(temp_size) }};

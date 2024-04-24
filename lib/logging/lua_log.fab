@@ -4,9 +4,6 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
-// This file depends on:
-// - 'charmap/ascii.fab'
-
 // This code can be used with the 'lua_log.lua' script to write logs
 // that can be seen inside emulators.
 

@@ -1892,6 +1892,7 @@ void parser_t<P>::parse_charmap()
     lpstring_t charmap_name;
     bool is_default = false;
     string_literal_t characters, sentinel;
+    unsigned offset = 0;
         
     std::unique_ptr<mods_t> mods = parse_mods_after([&]
     {
@@ -1914,7 +1915,16 @@ void parser_t<P>::parse_charmap()
                 characters = parse_string_literal(true);
                 break;
             case 1:
-                sentinel = parse_char_literal(true);
+            case 2:
+                if(token.type == TOK_int)
+                {
+                    offset = token.value >> fixed_t::shift;
+                    parse_token();
+                }
+                else if(token.type == TOK_quote)
+                    sentinel = parse_char_literal(true);
+                else
+                    compiler_error("Unexpected token. Expecting integer or character literal.");
                 break;
             default:
                 compiler_error("Too many arguments to charmap.");
@@ -1926,7 +1936,7 @@ void parser_t<P>::parse_charmap()
 
     });
 
-    policy().charmap(charmap_name, is_default, characters, sentinel, std::move(mods));
+    policy().charmap(charmap_name, is_default, characters, sentinel, offset, std::move(mods));
 }
 
 template<typename P>

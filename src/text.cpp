@@ -336,8 +336,8 @@ void string_literal_manager_t::compress(charmap_t const& charmap, charmap_info_t
 
     assert(info.byte_pairs.empty());
     assert(charmap.size() <= 256);
-    unsigned const offset = charmap.size();
-    unsigned const max_byte_pairs = 256 - offset;
+    unsigned const offset = charmap.size() + charmap.offset();
+    unsigned const max_byte_pairs = 256 - charmap.size();
 
     // Counts how often each byte_pair appears:
     rh::batman_map<byte_pair_t, unsigned> pair_map;
@@ -348,10 +348,11 @@ void string_literal_manager_t::compress(charmap_t const& charmap, charmap_info_t
     
     auto const depth = [&](std::uint8_t c) -> unsigned
     {
-        if(c < offset)
+        c -= charmap.offset();
+        if(c < charmap.size())
             return 0;
-        assert((c - offset) < depths.size());
-        return depths[c - offset];
+        assert((c - charmap.size()) < depths.size());
+        return depths[c - charmap.size()];
     };
 
     auto const pair_depth = [&](byte_pair_t const& bp) -> unsigned
@@ -407,8 +408,8 @@ void string_literal_manager_t::compress(charmap_t const& charmap, charmap_info_t
             for(unsigned i = 0; i < size; ++i, ++j)
             {
                 if(i+1 < size
-                   && str[i+0] == most_common->first[0]
-                   && str[i+1] == most_common->first[1])
+                   && std::uint8_t(str[i+0]) == most_common->first[0]
+                   && std::uint8_t(str[i+1]) == most_common->first[1])
                 {
                     str[j] = replacement;
                     ++i;

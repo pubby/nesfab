@@ -156,6 +156,7 @@ public:
         lpstring_t lpstring, bool is_default, 
         string_literal_t const& characters, 
         string_literal_t const& sentinel,
+        unsigned offset,
         std::unique_ptr<mods_t> mods);
     fn_set_t& define_fn_set(lpstring_t lpstring);
 
@@ -786,12 +787,14 @@ public:
     charmap_t(global_t& global, bool is_default, 
               string_literal_t const& characters, 
               string_literal_t const& sentinel,
+              unsigned offset,
               std::unique_ptr<mods_t> mods);
 
     global_t& global;
     bool const is_default = false;
 
     unsigned size() const { return m_num_unique; }
+    unsigned offset() const { return m_offset; }
     int convert(char32_t ch) const; // Returns negative on failure.
     int sentinel() const { return m_sentinel; }
 
@@ -807,7 +810,9 @@ public:
 private:
     rh::batman_map<char32_t, unsigned> m_map;
     unsigned m_num_unique = 0;
+    std::uint8_t m_num_offset = 0;
     int m_sentinel = -1;
+    unsigned m_offset = 0;
     group_data_ht m_group_data = {};
     bool m_stows_omni = false;
     rom_array_ht m_byte_pairs = {};

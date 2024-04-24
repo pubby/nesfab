@@ -54,12 +54,17 @@ asm fn decompress_string() U
         jsr process_byte
         pla
     label process_byte
+        if charmap.offset != 0
+            sec
+            sbc #charmap.offset
         cmp #SIZE
         bcs pair
         cpy &decompress_string_skip
         iny
         bcc sub_return
         sty &decompress_string_skip
+        if charmap.offset != 0
+            adc #charmap.offset - 1
         sta &return
         ldx &stack
         txs

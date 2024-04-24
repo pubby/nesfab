@@ -164,6 +164,7 @@ charmap_ht global_t::define_charmap(
         lpstring_t lpstring, bool is_default, 
         string_literal_t const& characters, 
         string_literal_t const& sentinel,
+        unsigned offset,
         std::unique_ptr<mods_t> mods)
 {
     charmap_t* ret;
@@ -171,7 +172,7 @@ charmap_ht global_t::define_charmap(
     // Create the charmap
     charmap_ht h = { define(lpstring, GLOBAL_CHARMAP, {}, [&](global_t& g)
     { 
-        return charmap_ht::pool_emplace(ret, g, is_default, characters, sentinel, std::move(mods)).id;
+        return charmap_ht::pool_emplace(ret, g, is_default, characters, sentinel, offset, std::move(mods)).id;
     }) };
 
     return h;
@@ -2236,11 +2237,16 @@ void struct_t::gen_member_types(struct_t const& s, int tea_size)
 charmap_t::charmap_t(global_t& global, bool is_default, 
                      string_literal_t const& characters, 
                      string_literal_t const& sentinel,
+                     unsigned offset,
                      std::unique_ptr<mods_t> new_mods)
 : modded_t(std::move(new_mods))
 , global(global)
 , is_default(is_default)
+, m_offset(offset)
 {
+    if(offset >= 256)
+        compiler_error(global.pstring(), fmt("charmap offset of % is too large.", offset));
+
     auto const add_literal = [&](string_literal_t const& lit)
     {
         if(lit.string.empty())
@@ -2313,7 +2319,7 @@ charmap_t::charmap_t(global_t& global, bool is_default,
 int charmap_t::convert(char32_t ch) const
 {
     if(auto* result = m_map.lookup(ch))
-        return result->second;
+        return (result->second + offset()) & 0xFF;
     return -1;
 }
 

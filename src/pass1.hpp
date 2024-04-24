@@ -1141,6 +1141,7 @@ public:
     void charmap(lpstring_t charmap_name, bool is_default, 
                  string_literal_t const& characters, 
                  string_literal_t const& sentinel, 
+                 unsigned offset,
                  std::unique_ptr<mods_t> mods)
     {
         using namespace std::literals;
@@ -1162,7 +1163,7 @@ public:
         assert(active_global);
 
         active_global->define_charmap(
-            charmap_name, is_default, characters, sentinel, std::move(mods));
+            charmap_name, is_default, characters, sentinel, offset, std::move(mods));
         ideps.clear();
     }
 

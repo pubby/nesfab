@@ -3415,14 +3415,15 @@ or https://en.wikipedia.org/wiki/MIK_(character_set)[MIK].
 *Syntax:*
 
 ----
-charmap identifier("string", 's')
+charmap identifier("string", 's', offset)
 ----
 
 - `identifier` is the name of the charmap. This is optional. When left out, the default `charmap` is defined.
 - `"string"` is a string literal, defining the characters of the charmap. 
-  The first character in the string will map to a value of zero, 
+  The first character in the string will map to a value of `offset` (or zero if `offset` is not defined), 
   with other characters mapping to one higher than the character preceding them. 
 - `'s'` is an optional character literal, defining the sentinel. When left out, no sentinel is defined.
+- `offset` is an optional integer literal, defining the value of the first charmap element.
 
 *Modifiers:*
 
@@ -3447,14 +3448,14 @@ charmap foo(" ,.!?ABCDEFGHIJKLMNOPQRSTUVWXYZ\0", '\0')
 
 Example:
 ----
-charmap bar("abcd")
+charmap bar("abcd", 10)
 : stows /strings
 
 // Defines the default charmap mapping:
-// 'a' = 0
-// 'b' = 1
-// 'c' = 2
-// 'd' = 3
+// 'a' = 10
+// 'b' = 11
+// 'c' = 12
+// 'd' = 13
 // with no sentinel,
 // and stowing its literals in group /strings.
 ----

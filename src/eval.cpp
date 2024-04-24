@@ -2795,6 +2795,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             lhs.type = TYPE_INT;
                             lhs.val = rval_t{ ssa_value_t(charmap.size(), TYPE_INT) };
                             break;
+                        case fnv1a<std::uint64_t>::hash("offset"sv): 
+                            lhs.type = TYPE_INT;
+                            lhs.val = rval_t{ ssa_value_t(charmap.offset(), TYPE_INT) };
+                            break;
                         case fnv1a<std::uint64_t>::hash("sentinel"sv): 
                             if(charmap.sentinel() < 0)
                                 goto bad_global_accessor;

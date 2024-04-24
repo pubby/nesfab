@@ -4,129 +4,171 @@
  * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
  */
 
-// This example shows a basic platformer game.
+/* Summary
+ * A basic platformer game engine. It includes initializations, gameplay mechanics, sprite
+ * management, and level progression functions. Integrates a mapfab project/levels.
+ *
+ * Initialization and Player Definition
+ * - Player dimensions and attributes are defined (width pw, height ph).
+ * - make_player function initializes a player object with position and speed attributes.
+ *
+ * Game Variables
+ * - A player instance is created and initialized at the start of the game.
+ * - Camera position tracking is initialized.
+ *
+ * Sprite Management
+ * - Metasprite for the player character is defined.
+ * - update_sprites() function manages sprite OAM data uploads and position updates.
+ *
+ * Player Movement and Interaction
+ * - update_player() handles player movement based on input and collision detection.
+ * - Interactions with game objects (coins, exit points) and consequences (level change, item collection) are defined.
+ *
+ * Graphical and Game Mode Management
+ * - game_nmi function handles NMI operations for sprite and scroll updates.
+ * - Game modes like main and play_level define different stages or operational modes of gameplay.
+ *
+ * Key Functionalities
+ * - Player Mechanics: Handling player movements, attributes, and collisions.
+ * - Sprite and Graphics Management: Dynamic sprite updates and graphical settings adjustments.
+ * - Game Progression: Level loading and mode transitions based on player interactions and movements.
+ *
+ * Documentation by Discord user .inches
+ */
 
-// Player width and height:
-ct Int pw = 15
-ct Int ph = 15
-ct Int rw = pw - 1
-ct Int rh = ph - 1
+// Constants defining player dimensions
+ct Int pw = 15      // Player width
+ct Int ph = 15      // Player height
+ct Int rw = pw - 1  // Reduced player width by 1 for boundary calculations
+ct Int rh = ph - 1  // Reduced player height by 1 for boundary calculations
 
-// Player data:
+// Player data
 struct Player
-    SS x
-    SSF y
-    SF xspeed
-    SF yspeed
-    U attr
+    SS x       // Player x-coordinate
+    SSF y      // Player y-coordinate with a floating point
+    SF xspeed  // Player's speed along the x-axis
+    SF yspeed  // Player's speed along the y-axis
+    U attr     // Player attributes for game mechanics
 
+// Initialize a Player object //
 fn make_player(SS x, SS y) Player
     Player p = Player()
-    p.x = x
-    p.y = SSF(y)
+    p.x = x         // Set player's x-coordinate
+    p.y = SSF(y)    // Set player's y-coordinate with conversion to floating point
     return p
 
+// Game variables and initialization
 vars /game
-    Player p = make_player(64, 64)
-    SS camera_x = 0
+    Player p = make_player(64, 64)  // Initialize player at position (64, 64)
+    SS camera_x = 0  // Camera x-coordinate for scrolling mechanism
 
+// Definition and initialization of player sprites
 data /sprites
     // Here's where we define our metasprite, comprised of four 8x8 tiles:
     [] player_metasprite
         (make_metasprite(0, Ms{}(
-            Ms(-8, -8, $20, $00),
-            Ms( 0, -8, $21, $00),
-            Ms(-8,  0, $30, $00),
-            Ms( 0,  0, $31, $00))))
+            Ms(-8, -8, $20, $00),   // Top-left tile
+            Ms( 0, -8, $21, $00),   // Top-right tile
+            Ms(-8,  0, $30, $00),   // Bottom-left tile
+            Ms( 0,  0, $31, $00)))) // Bottom-right tile
 
-// Sets the OAM buffer in RAM (but doesn't upload to PPU):
+// Sets the OAM buffer in RAM to update sprites (but doesn't upload to PPU) //
 fn update_sprites()
-    // Our stack index into OAM:
-    U o = 0
+    U o = 0  // Stack index into OAM for managing sprites
 
-    // Player sprite:
+    // Update player sprite position and attributes
     o = push_oam_metasprite_a(o, SS(p.x) - camera_x + 8, SS(p.y) + 6, @player_metasprite, p.attr)
 
-    // Clear the remainder of OAM
+    // Clear the remainder of the OAM to avoid sprite duplication or overflow
     hide_oam(o)
 
+// Update player's position based on input and game mechanics //
 fn update_player()
-    // Update x-position:
+    // Horizontal movement handling
     if pads[0].held & BUTTON_LEFT
         if collision_at(UU(p.x - 2), UU(p.y)) != C_WALL && collision_at(UU(p.x - 2), UU(p.y + rh)) != C_WALL
-            p.x -= 2
-            p.attr |= ATTR_H_FLIP 
+            p.x -= 2               // Move player left
+            p.attr |= ATTR_H_FLIP  // Flip sprite horizontally
+    
     if pads[0].held & BUTTON_RIGHT
         if collision_at(UU(p.x + rw + 2), UU(p.y)) != C_WALL && collision_at(UU(p.x + rw + 2), UU(p.y + rh)) != C_WALL
-            p.x += 2
-            p.attr &= ~ATTR_H_FLIP 
+            p.x += 2                // Move player right
+            p.attr &= ~ATTR_H_FLIP  // Unflip sprite
             
-    // If on the ground:
+    // Jumping and gravity handling (if on the ground)
     if collision_at(UU(p.x + 0), UU(p.y + ph)) == C_WALL || collision_at(UU(p.x + rw), UU(p.y + ph)) == C_WALL
         if pads[0].pressed & BUTTON_A
-            p.yspeed = -5
+            p.yspeed = -5  // Apply upward force for jump
 
-    // Update y-position:
+    // Vertical movement handling based on gravity and collisions
     SSF new_y = p.y + SSF(p.yspeed)
-    p.yspeed += 0.25
+    p.yspeed += 0.25 // Apply gravity effect
+
     if p.yspeed > 0
         if collision_at(UU(p.x + 0), UU(new_y + rh)) == C_WALL || collision_at(UU(p.x + rw), UU(new_y + rh)) == C_WALL
-            p.yspeed = 0
-            p.y = ((new_y + rh) & SSF(~%1111)) - ph
+            p.yspeed = 0 // Stop vertical movement
+            p.y = ((new_y + rh) & SSF(~%1111)) - ph  // Adjust player position based on collision
         else
-            p.y = new_y
+            p.y = new_y  // Continue falling
     else
         if collision_at(UU(p.x + 0), UU(new_y)) == C_WALL || collision_at(UU(p.x + rw), UU(new_y)) == C_WALL
-            p.yspeed = 0
-            p.y = (p.y & SSF(~%1111))
+            p.yspeed = 0  // Stop upward movement
+            p.y = (p.y & SSF(~%1111)) // Adjust player position based on collision
         else
-            p.y = new_y
+            p.y = new_y  // Continue rising
 
-    // Check for coin collisions:
+    // Collision handling for coins and exits
     SS center_x = SS(p.x) + (pw >> 1)
     SS center_y = SS(p.y) + (ph >> 1)
+
     switch collision_at(UU(center_x), UU(center_y)) 
         case C_COIN
-            destroy(UU(center_x), UU(center_y))
+            destroy(UU(center_x), UU(center_y))  // Handle coin collection
             break
         case C_EXIT
-            current_level_index += 1
+            current_level_index += 1  // Move to the next level
             if current_level_index >= len(levels)
-                current_level_index = 0
-            nmi
-            goto mode play_level(current_level_index)
+                current_level_index = 0  // Reset level index if all levels are completed
+            nmi //wait until an NMI execution occurs
+            goto mode play_level(current_level_index)  // Change game mode to the next level
             : preserves /game
 
-    // Update camera:
+    // Camera update for scrolling
     ct Int window = 112
+
     if center_x - camera_x < window
-        camera_x = center_x - window
+        camera_x = center_x - window  // Adjust camera to keep player in view
     else if center_x - camera_x > 256 - window
-        camera_x = center_x - (256 - window)
-    camera_x = min(max(0, camera_x), (SS(current_level_width) << 4) - 256)
+        camera_x = center_x - (256 - window)  // Adjust camera to keep player in view
 
+    camera_x = min(max(0, camera_x), (SS(current_level_width) << 4) - 256)  // Clamp camera position within level bounds
+
+// NMI handler to manage game frame updates //
 nmi game_nmi()
-    ppu_upload_scroll()
-    ppu_reset_scroll(camera_x.a, 0)
-    {PPUCTRL}(PPUCTRL_NMI_ON | (camera_x.b & 1))
-    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
-    ppu_upload_oam_poll_pads(0)
+    ppu_upload_scroll()             // Upload scroll position to PPU
+    ppu_reset_scroll(camera_x.a, 0) // Reset scroll registers
+    {PPUCTRL}(PPUCTRL_NMI_ON | (camera_x.b & 1))  // Set PPU control register
+    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)       // Set PPU mask register
+    ppu_upload_oam_poll_pads(0)     // Update OAM and poll controller states
 
+// Game mode initialization //
 mode main()
-    goto mode play_level(current_level_index)
+    goto mode play_level(current_level_index)  // Initialize game by entering the play level mode
     : preserves
     
+// Game mode for playing a specific level //
 mode play_level(U level_index)
-: nmi game_nmi
-    {PPUCTRL}(0)
-    {PPUMASK}(0)
-    hide_oam(0)
-    load_level(levels[level_index])
-    {PPUCTRL}(PPUCTRL_NMI_ON)
+: nmi game_nmi  // Associate NMI handler with this mode
+    {PPUCTRL}(0)  // Reset PPU control register for new level
+    {PPUMASK}(0) // Reset PPU mask register for new level
+    hide_oam(0)// Clear OAM to start fresh
+    load_level(levels[level_index]) // Load level data
+    {PPUCTRL}(PPUCTRL_NMI_ON)// Re-enable NMI
+
     while true
-        nmi
-        update_pads()
-        update_player()
-        update_sprites()
-        update_scroll()
+        nmi              // Wait until the next nmi
+        update_pads()    // Update controller states
+        update_player()  // Update player mechanics
+        update_sprites() // Update sprite positions and attributes
+        update_scroll()  // Update scrolling based on player position
 

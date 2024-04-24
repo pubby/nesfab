@@ -1,0 +1,10 @@
+version: "3"
+
+services:
+  compiler:
+    image: local/nesfab:dev-intel #
+    platform: linux/amd64
+    command: ["./examples/build_all.sh"]
+    volumes: 
+      - ${PWD}/output:/app/output
+      - ${PWD}/examples:/app/examples

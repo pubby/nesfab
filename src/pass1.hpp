@@ -656,7 +656,7 @@ public:
         if(mods)
         {
             mods->validate(var_decl.name, MOD_zero_page | MOD_align | MOD_sram | MOD_unused);
-            if(((mods->enable | mods->disable) & MOD_sram) && !mapper().sram)
+            if(((mods->enable) & MOD_sram) && !mapper().sram)
                 compiler_warning(var_decl.name, "sram modifier set, but mapper does not use SRAM.");
         }
 

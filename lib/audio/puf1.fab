@@ -880,11 +880,6 @@ asm fn puf(U arg) Bool
         jsr do_jump
     label play_registers
 
-        lda #%00001111
-        sta $4015
-        if __expansion_audio == _MMC5
-            sta $5015
-
         // Square1
         lda puf_enable
         and #%0001
@@ -1463,6 +1458,10 @@ asm fn puf(U arg) Bool
 
         lda #%11111
         sta puf_enable
+        lsr // A = %1111
+        sta $4015
+        if __expansion_audio == _MMC5
+            sta $5015
 
         if __illegal
             // SAX = store 0

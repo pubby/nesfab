@@ -788,3 +788,4 @@ extern token_type_t const lexer_transition_table[12236] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 } // namespace asm_lex
+

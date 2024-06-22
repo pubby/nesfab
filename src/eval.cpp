@@ -4817,9 +4817,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             auto const reload_ptr = [&]()
             {
                 expr_value_t ptr_r = to_rval<D>(ptr);
-                bool const is_banked = is_banked_ptr(ptr.type.name());
-                ptr_v = from_variant<D>(ptr_r.rval()[0], ptr_r.type); 
-                bank_v = is_banked ? from_variant<D>(ptr_r.rval()[1], TYPE_U) : ssa_value_t();
+                if(!is_check(D))
+                {
+                    bool const is_banked = is_banked_ptr(ptr.type.name());
+                    ptr_v = from_variant<D>(ptr_r.rval()[0], ptr_r.type); 
+                    bank_v = is_banked ? from_variant<D>(ptr_r.rval()[1], TYPE_U) : ssa_value_t();
+                }
             };
 
             auto const increment = [&](std::uint16_t amount)
@@ -4851,7 +4854,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result = 
             { 
                 .type = type, 
-                .pstring = ast.token.pstring ,
+                .pstring = ast.token.pstring,
                 .time = RT
             };
 
@@ -4964,9 +4967,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             auto const reload_ptr = [&]()
             {
                 expr_value_t ptr_r = to_rval<D>(ptr);
-                bool const is_banked = is_banked_ptr(ptr.type.name());
-                ptr_v = from_variant<D>(ptr_r.rval()[0], ptr_r.type); 
-                bank_v = is_banked ? from_variant<D>(ptr_r.rval()[1], TYPE_U) : ssa_value_t();
+                if(!is_check(D))
+                {
+                    bool const is_banked = is_banked_ptr(ptr.type.name());
+                    ptr_v = from_variant<D>(ptr_r.rval()[0], ptr_r.type); 
+                    bank_v = is_banked ? from_variant<D>(ptr_r.rval()[1], TYPE_U) : ssa_value_t();
+                }
             };
 
             auto const increment = [&](std::uint16_t amount)
@@ -4998,7 +5004,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result = 
             { 
                 .type = TYPE_VOID, 
-                .pstring = ast.token.pstring ,
+                .pstring = ast.token.pstring,
                 .time = RT,
             };
 
@@ -7518,7 +7524,7 @@ ssa_value_t eval_t::from_variant(ct_variant_t const& v, type_t type)
         return h;
     }
     else
-        throw std::runtime_error("Cannot convert to ssa_value_t.");
+        throw std::runtime_error(fmt("Cannot convert to ssa_value_t. (%)", v.index()));
 
     return {};
 }

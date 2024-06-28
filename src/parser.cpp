@@ -445,22 +445,33 @@ retry:
 
     if(token.type == TOK_ml_comment_begin)
     {
-        ++line_number;
-
         while(true)
         {
-            if(*next_char == '*')
+            if(next_char[0] == '\0')
+                compiler_error("Unterminated multi-line comment.");
+            else if(next_char[0] == '*')
             {
-                ++next_char;
+                if(next_char[1] == '\0')
+                    compiler_error("Unterminated multi-line comment. (No /)");
 
-                if(*next_char == '\0')
-                    compiler_error("Unterminated multi-line comment.");
-
-                if(*next_char == '/')
+                if(next_char[1] == '/')
+                {
+                    ++next_char;
                     break;
+                }
             }
-            else if(*next_char == '\n')
+            else if(next_char[0] == '\n')
+            {
                 ++line_number;
+                if(next_char[1] == '\r')
+                    ++next_char;
+            }
+            else if(next_char[0] == '\r')
+            {
+                ++line_number;
+                if(next_char[1] == '\n')
+                    ++next_char;
+            }
 
             ++next_char;
         }

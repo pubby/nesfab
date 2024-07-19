@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 1.4
+Version 1.5
 :sectnums:
 :toc2:
 :toclevels: 3
@@ -401,6 +401,24 @@ nesfab --chr-size 32
 *Configuration file usage:*
 ----
 chr-size = 32
+----
+
+=== `sector-size` [[opt_sector_size]]
+
+Specifies the size of the PRG chip's sectors, which is useful when implementing flash memory saves.
+This option determines the language's <<kw_sector_size, `__sector_size` value>>.
+It has no other purpose.
+
+With most mappers, the default value is 4098.
+
+*Command-line usage:*
+----
+nesfab --sector-size 1024
+----
+
+*Configuration file usage:*
+----
+sector-size = 1024
 ----
 
 === `bus-conflicts` [[opt_bus_conflicts]]
@@ -3362,6 +3380,7 @@ The group will be defined as the union of these declarations.
 
 - <<mod_flags, `+align`>>
 - <<mod_flags, `+dpcm`>>
+- <<mod_flags, `+sector`>>
 - <<mod_flags, `+static`>>
 - <<mod_flags, `+unused`>>
 
@@ -4271,6 +4290,10 @@ and are primarily intended for use in the standard library, not by users.
 
 `__controllers` is a value of type `Int` which returns the value set by the <<opt_controllers, `--controllers` option>>.
 
+==== `__sector_size` [[kw_sector_size]]
+
+`__sector_size` is a value of type `Int` which returns the value set by the <<opt_sector_size, `--sector-size` option>>.
+
 ==== `__expansion_audio` [[kw_expansion_audio]]
 
 `__expansion_audio` is a value of type `Int`, determined by the <<opt_expansion_audio, `--expansion-audio` option>>
@@ -4339,6 +4362,7 @@ The following flags exist for function definitions:
 - `+graphviz`: Output the function's intermediate representation in a graphviz file.
 - `+info`: Output the function's intermediate representation in a text file.
 - `+dpcm`: Align and store the data in a ROM location suitable for DPCM.
+- `+sector`: Align and store the data in a ROM location aligned to the ROM chip's sectors (for flash saving, etc).
 - `+static`: Allocate the function or data in every bank (or force them into the fixed bank, for mappers with one). 
              This modifier is incompatible with <<kw_asm, `asm`>> functions that return in a different bank than they started in.
              You must validate this yourself.

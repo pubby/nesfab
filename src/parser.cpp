@@ -807,6 +807,7 @@ retry:
     case TOK___illegal:
     case TOK___controllers:
     case TOK___expansion_audio:
+    case TOK___sector_size:
     case TOK_nmi_counter:
         {
             ast_node_t ast = { .token = token };

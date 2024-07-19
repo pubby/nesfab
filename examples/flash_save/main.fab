@@ -1,0 +1,144 @@
+/*
+ * Copyright (c) 2024, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This file demonstrates saving to flash memory using mapper 30 paired with
+// the 'SST39SF040' flash chip.
+// Note that the sequence of writes necessary depends on the flash chip used,
+// so this may not be portable if your board does not not use 'SST39SF040'.
+
+data /save
+    // This is the chunk of ROM we'll be saving to.
+    [__sector_size] save_sector
+    : +sector // Align to the sector size (4096).
+        U[__sector_size](0)
+
+vars /save
+    AAA _save_addr
+    U _save_byte
+
+    // This flashing routine exists in RAM, which is necessary because we 
+    // can't use ROM while it is being altered.
+    [] _save_routine
+        label erase_sector
+            lda #$01
+            sta $C000
+            lda #$AA
+            sta $9555
+            ldy #$00
+            sty $C000
+            lda #$55
+            sta $AAAA
+            lda #$01
+            sta $C000
+            lda #$80
+            sta $9555
+            lda #$01
+            sta $C000
+            lda #$AA
+            sta $9555
+            lda #$00
+            sta $C000
+            lda #$55
+            sta $AAAA
+            lda &_save_addr.c
+            sta $C000
+            lda #$30
+            sta (&_save_addr.a), y
+            sta $444
+            bne verify // always jumps
+
+        label write_byte
+            lda #$01
+            sta $C000
+            lda #$AA
+            sta $9555
+            ldy #$00
+            sty $C000
+            lda #$55
+            sta $AAAA
+            lda #$01
+            sta $C000
+            lda #$A0
+            sta $9555
+            lda &_save_addr.c
+            sta $C000
+            lda &_save_byte
+            sta (&_save_addr.a), y
+            rts
+            // fall-through
+        label verify
+            lda (&_save_addr.a), y
+            cmp (&_save_addr.a), y
+            bne verify
+            rts
+
+asm fn _flash_erase_sector()
+: employs /save
+    default
+        jmp _save_routine.erase_sector
+
+asm fn _flash_write_byte()
+: employs /save
+    default
+        jmp _save_routine.write_byte
+
+// Wipes the memory of a given sector, setting all contained values to $FF.
+// NOTE: 'ptr' must be sector-aligned!
+fn flash_erase_sector(CCC/save ptr)
+    _save_addr = AAA(ptr)
+    _flash_erase_sector()
+
+// Writes a value into 'ptr', flashing the memory.
+fn flash_write_byte(CCC/save ptr, U byte)
+    _save_addr = AAA(ptr)
+    _save_byte = byte
+    _flash_write_byte()
+    
+data /pbz
+    [] font
+        file(pbz, "font.png")
+
+mode main()
+    // Load the palette:
+    palette = example_palette
+    ppu_upload_palette()
+
+    // Load the CHR:
+    ppu_reset_addr($0000)
+    ppu_upload_pbz(@font, 0)
+
+    // Clear the nametable:
+    ppu_reset_addr($2000)
+    for UU i = 0; i < 1024; i += 1
+        {PPUDATA}(0)
+        
+    // Read our stored counter value:
+    U counter = @save_sector[0]
+
+    {PPUCTRL}(PPUCTRL_NMI_ON)
+    {PPUMASK}(PPUMASK_ON | PPUMASK_NO_CLIP)
+    while true
+        nmi
+
+        // Update the counter graphic:
+        ppu_reset_addr($218E)
+        U[3] array = u_to_ddd(counter)
+        do for U i = 2; i != $FF; i -= 1
+            {PPUDATA}(array[i] + $10)
+        ppu_reset_scroll(0, 0)
+
+        poll_pads()
+        update_pads()
+
+        // Increment the counter on 'A' press:
+        if pads[0].pressed & BUTTON_A
+            counter += 1
+
+            // Everytime the counter increments, we'll flash the value to memory:
+            // NOTE: Flash memory has limited life. You shouldn't erase sectors nearly this often.
+            flash_erase_sector(@save_sector)
+            flash_write_byte(@save_sector+0, counter)
+

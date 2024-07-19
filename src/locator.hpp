@@ -94,6 +94,8 @@ enum locator_class_t : std::uint8_t
 
     LOC_ASM_GOTO_MODE,
 
+    LOC_RAM_INIT_PROC, // refers to an instruction in a ram init.
+
     NUM_LCLASS,
 };
 
@@ -420,6 +422,12 @@ public:
         return { handle() }; 
     }
 
+    gvar_ht gvar() const 
+    { 
+        assert(lclass() == LOC_RAM_INIT_PROC);
+        return { handle() }; 
+    }
+
     const_ht const_() const 
     { 
         assert(has_const(lclass()));
@@ -630,6 +638,9 @@ public:
 
     constexpr static locator_t carry_pair(carry_t first, carry_t second)
         { return locator_t(LOC_CARRY_PAIR, 0, (first << 8) | second, 0).with_is(IS_PTR); }
+
+    constexpr static locator_t ram_init_proc(gvar_ht gvar, std::uint16_t id)
+        { return locator_t(LOC_RAM_INIT_PROC, gvar.id, id, 0); }
 
     static locator_t from_ssa_value(ssa_value_t v);
     static locator_t from_ssa_value_addr(ssa_value_t v);

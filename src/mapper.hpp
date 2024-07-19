@@ -69,6 +69,7 @@ struct mapper_params_t
     unsigned chr_size; // in KiB
     mapper_bus_conflicts_t bus_conflicts;
     mapper_sram_t sram;
+    unsigned sector_size;
 
     mapper_mirroring_t mirroring_none(mapper_type_t mt) const;
     mapper_mirroring_t mirroring_HV(mapper_type_t mt) const;
@@ -85,6 +86,8 @@ struct mapper_params_t
     unsigned num_32k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
     unsigned num_16k_banks(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
     unsigned num_8k_chr(mapper_type_t mt, unsigned min, unsigned max, unsigned default_) const;
+
+    unsigned default_sector_size(unsigned default_) const;
 };
 
 struct mapper_t
@@ -99,6 +102,7 @@ struct mapper_t
     bool sram;
     bool sram_persistent;
     bool force_battery;
+    unsigned sector_size = 4096;
 
     unsigned num_16k_banks() const { return fixed_16k ? num_banks : num_banks * 2; }
     unsigned bank_size() const { return fixed_16k ? 0x4000 : 0x8000; }

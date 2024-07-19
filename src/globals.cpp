@@ -1987,7 +1987,11 @@ void global_datum_t::compile()
 group_ht gvar_t::group() const { return group_vars ? (*group_vars)->handle() : group_ht{}; }
 
 void gvar_t::paa_init(loc_vec_t&& paa) { m_init_data = std::move(paa); }
-void gvar_t::paa_init(asm_proc_t&& proc) { m_init_data = std::move(proc); }
+void gvar_t::paa_init(asm_proc_t&& proc) 
+{ 
+    proc.build_label_offsets();
+    m_init_data = std::move(proc); 
+}
 
 void gvar_t::rval_init(rval_t&& rval)
 {
@@ -2017,12 +2021,14 @@ void gvar_t::for_each_locator(std::function<void(locator_t)> const& fn) const
     }
 }
 
-void gvar_t::relocate_init_data(std::uint16_t addr)
+void gvar_t::link_init()
 {
     if(asm_proc_t* proc = std::get_if<asm_proc_t>(&m_init_data))
     {
-        proc->relocate(locator_t::addr(addr));
-        m_init_data = proc->loc_vec();
+        proc->build_label_offsets();
+        proc->link(ROMV_MODE, -1);
+        proc->relocate(locator_t::addr(begin()->span(0).addr));
+        m_linked_init = proc->loc_vec();
     }
 }
 
@@ -2041,11 +2047,6 @@ locator_t const* gmember_t::init_data(unsigned atom, loc_vec_t const& vec) const
 {
     unsigned const offset = ::member_offset(gvar.type(), member());
     return vec.data() + offset + atom;
-}
-
-locator_t const* gmember_t::init_data(unsigned atom) const
-{
-    return init_data(atom, std::get<loc_vec_t>(gvar.init_data()));
 }
 
 std::size_t gmember_t::init_size() const
@@ -2088,7 +2089,9 @@ group_ht const_t::group() const { return group_data ? (*group_data)->handle() : 
 void const_t::paa_init(loc_vec_t&& vec)
 {
     rom_rule_t rule = ROMR_NORMAL;
-    if(mod_test(mods(), MOD_dpcm))
+    if(mod_test(mods(), MOD_sector))
+        rule = ROMR_SECTOR;
+    else if(mod_test(mods(), MOD_dpcm))
         rule = ROMR_DPCM;
     else if(!group_data || mod_test(mods(), MOD_static))
         rule = ROMR_STATIC;

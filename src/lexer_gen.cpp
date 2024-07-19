@@ -678,6 +678,7 @@ int main()
         keyword("__illegal"),
         keyword("__controllers"),
         keyword("__expansion_audio"),
+        keyword("__sector_size"),
         keyword("nmi_counter"),
         keyword("read"),
         keyword("write"),

@@ -50,6 +50,10 @@ static void write_linked(
 
 std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 {
+    // Handle gvar RAM inits now:
+    for(gvar_t& gvar : gvar_ht::values())
+        gvar.link_init();
+
     for(rom_proc_t& rom_proc : rom_proc_ht::values())
     {
         rom_proc.absolute_to_zp();

@@ -39,6 +39,7 @@ enum rom_rule_t : std::uint8_t
     ROMR_NORMAL,
     ROMR_STATIC,
     ROMR_DPCM,
+    ROMR_SECTOR,
 };
 
 class rom_data_t

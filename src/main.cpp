@@ -211,8 +211,8 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
     if(vm.count("chr-size"))
         _options.raw_mc = vm["chr-size"].as<unsigned>();
 
-    if(vm.count("chr-size"))
-        _options.raw_mc = vm["chr-size"].as<unsigned>();
+    if(vm.count("sector-size"))
+        _options.raw_sector = vm["sector-size"].as<unsigned>();
 
     if(vm.count("system"))
         _options.raw_system = vm["system"].as<std::string>();
@@ -335,6 +335,7 @@ int main(int argc, char** argv)
                 ("ram-init", "initialize RAM with 0 bytes")
                 ("sram-init", "initialize SRAM with 0 bytes")
                 ("vram-init", "initialize VRAM with 0 bytes")
+                ("sector-size,c", po::value<unsigned>(), "size of mapper sectors in KiB")
             ;
 
             po::options_description cmdline_full;
@@ -424,6 +425,7 @@ int main(int argc, char** argv)
                 .chr_size = _options.raw_mc,
                 .bus_conflicts = _options.raw_bus_conflicts,
                 .sram = _options.raw_sram,
+                .sector_size = _options.raw_sector,
             };
 
             auto const to_lower = [](std::string str)

@@ -164,7 +164,7 @@ struct asm_proc_t
     void write_assembly(std::ostream& os, romv_t romv) const;
     void write_bytes(std::uint8_t* const start, romv_t romv, int bank) const;
 
-    // Replaces some locators with linked ones, then optimizes.
+    // Replaces some locators with linked ones.
     void link(romv_t romv, int bank = -1);
     void link_variables(romv_t romv = ROMV_MODE);
 

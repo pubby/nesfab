@@ -61,6 +61,7 @@ struct options_t
     std::string raw_mm;
     unsigned raw_mc = 0;
     unsigned raw_mp = 0;
+    unsigned raw_sector = 0;
     mapper_bus_conflicts_t raw_bus_conflicts = {};
     mapper_sram_t raw_sram = {};
 

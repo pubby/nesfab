@@ -94,6 +94,8 @@ std::string to_string(locator_t loc)
         str = fmt("irq_index %", loc.fn()->global.name); break;
     case LOC_CARRY_PAIR:
         str = fmt("carry_pair % %", loc.first_carry(), loc.second_carry()); break;
+    case LOC_RAM_INIT_PROC:
+        str = fmt("ram_init_proc % %", loc.handle(), loc.data()); break;
     }
 
     if(has_arg_member_atom(loc.lclass()))
@@ -326,7 +328,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
                 auto const& proc = std::get<asm_proc_t>(g.impl<gvar_t>().init_data());
 
                 if(auto const* info = proc.lookup_label(*this))
-                    return from_offset(rom_alloc(romv), info->offset);
+                    return from_span(offset_span(g.impl<gvar_t>().begin()->span(0), info->offset));
                 else
                     compiler_error(proc.fn->def().local_consts[data()].decl.name, "Unable to link. Label used without a definition.");
             }
@@ -433,6 +435,9 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
     case LOC_IRQ_INDEX:
         return locator_t::const_byte(fn()->irq_index() + 1);
 
+    case LOC_RAM_INIT_PROC:
+        return gvar()->linked_init().at(data());
+
     case LOC_LT_EXPR:
         // Check if the LT expression has been evaluated yet:
         lt_value_t& v = *lt();
@@ -458,7 +463,7 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
                 std::uint8_t hi = 0;
                 if(index+1 < v.results[romv].bytes.size() && v.results[romv].bytes[index+1])
                     hi = linked_to_rom(v.results[romv].bytes[index+1].link(romv));
-                return locator_t::addr(lo + (hi << 8) + offset());
+                return locator_t::addr(lo + (hi << 8) + offset()).with_is(is());
             }
             catch(...)
             {

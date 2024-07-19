@@ -125,6 +125,11 @@ bool mapper_params_t::sram_persistent(mapper_type_t mt, bool default_) const
     }
 }
 
+unsigned mapper_params_t::default_sector_size(unsigned default_) const
+{
+    return sector_size ? sector_size : default_;
+}
+
 mapper_t mapper_t::nrom(mapper_params_t const& params)
 {
     constexpr mapper_type_t mt = MAPPER_NROM;
@@ -137,6 +142,7 @@ mapper_t mapper_t::nrom(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -152,6 +158,7 @@ mapper_t mapper_t::anrom(mapper_params_t const& params)
         .bus_conflicts = params.conflicts(mt, false),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -167,6 +174,7 @@ mapper_t mapper_t::bnrom(mapper_params_t const& params)
         .bus_conflicts = params.conflicts(mt, true),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -182,6 +190,7 @@ mapper_t mapper_t::cnrom(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -197,6 +206,7 @@ mapper_t mapper_t::gnrom(mapper_params_t const& params)
         .bus_conflicts = params.conflicts(mt, true),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -212,6 +222,7 @@ mapper_t mapper_t::colordreams(mapper_params_t const& params)
         .bus_conflicts = params.conflicts(mt, true),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -227,6 +238,7 @@ mapper_t mapper_t::gtrom(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -242,6 +254,7 @@ mapper_t mapper_t::ines_189(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.no_sram(mt),
         .sram_persistent = false,
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -257,6 +270,7 @@ mapper_t mapper_t::mmc1(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -273,6 +287,7 @@ mapper_t mapper_t::unrom(mapper_params_t const& params)
         .bus_conflicts = params.conflicts(mt, true),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -289,6 +304,7 @@ mapper_t mapper_t::mmc3(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -307,6 +323,7 @@ mapper_t mapper_t::ines_30(mapper_params_t const& params)
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),
         .force_battery = !bus_conflicts,
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -322,6 +339,7 @@ mapper_t mapper_t::mmc5(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, true),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 
@@ -337,6 +355,7 @@ mapper_t mapper_t::rainbow(mapper_params_t const& params)
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, true),
         .sram_persistent = params.sram_persistent(mt, false),
+        .sector_size = params.default_sector_size(4096),
     };
 }
 

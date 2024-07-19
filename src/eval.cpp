@@ -2139,7 +2139,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             case GLOBAL_CONST:
                 {
                     const_t const& c = global->impl<const_t>();
-                    assert(!is_thunk(c.type().name()));
+                    //passert(!is_thunk(c.type().name()), c.type(), D, global->name);
 
                     expr_value_t result =
                     {
@@ -2586,6 +2586,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             expr_value_t result =
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::EXPANSION_AUDIO_ARG },
+                .type = TYPE_INT,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            result.assert_valid();
+            return result;
+        }
+
+    case TOK___sector_size:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::SECTOR_SIZE_ARG },
                 .type = TYPE_INT,
                 .pstring = ast.token.pstring,
                 .time = RT,
@@ -5192,6 +5207,10 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
         case lval_t::CONTROLLERS_ARG:
             v.val = rval_t{ ssa_value_t(unsigned(compiler_options().controllers), TYPE_INT) };
+            return v;
+
+        case lval_t::SECTOR_SIZE_ARG:
+            v.val = rval_t{ ssa_value_t(unsigned(mapper().sector_size), TYPE_INT) };
             return v;
 
         case lval_t::EXPANSION_AUDIO_ARG:

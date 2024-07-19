@@ -84,9 +84,7 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
         if(!v->init_expr)
             continue;
 
-        // Relocate proc inits to become loc_vecs:
         assert(v->end() - v->begin() > 0);
-        v->relocate_init_data(v->begin()->span(0).addr);
 
         for(gmember_ht m = v->begin(); m != v->end(); ++m)
         {
@@ -169,7 +167,12 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
             unsigned init_size = gmember.init_size();
             assert(init_size > 0);
             unsigned const init_span = gmember.init_span();
-            locator_t const* init_data = gmember.init_data(is->atom);
+
+            locator_t const* init_vec = nullptr;
+            unsigned init_i = 0;
+
+            if(loc_vec_t const* vec = std::get_if<loc_vec_t>(&gmember.gvar.init_data()))
+                init_vec = gmember.init_data(is->atom, *vec);
 
             passert(init_size == is->span().size, init_size, is->span().size, gvar.global.name);
             assert(vec.size() < 256);
@@ -181,8 +184,13 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
                 while(vec.size() < 256)
                 {
                     assert(init_size);
-                    vec.push_back(*init_data);
-                    init_data += init_span;
+                    if(init_vec)
+                    {
+                        vec.push_back(*init_vec);
+                        init_vec += init_span;
+                    }
+                    else
+                        vec.push_back(locator_t::ram_init_proc(gvar.handle(), init_i++));
                     init_size -= 1;
                 }
 
@@ -196,7 +204,12 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
             }
 
             for(unsigned i = 0; i < init_size; ++i)
-                vec.push_back(init_data[i * init_span]);
+            {
+                if(init_vec)
+                    vec.push_back(init_vec[i * init_span]);
+                else
+                    vec.push_back(locator_t::ram_init_proc(gvar.handle(), init_i++));
+            }
         }
 
         assert(span_left.size <= 256);

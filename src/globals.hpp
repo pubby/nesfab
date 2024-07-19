@@ -692,7 +692,8 @@ public:
     void set_gmember_range(gmember_ht begin, gmember_ht end);
 
     byte_block_data_t const& init_data() const { assert(compiler_phase() > PHASE_COMPILE); return m_init_data; }
-    void relocate_init_data(std::uint16_t addr);
+    loc_vec_t const& linked_init() const { assert(compiler_phase() >= PHASE_LINK); return m_linked_init; }
+    void link_init();
 
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
@@ -703,6 +704,7 @@ private:
     virtual void rval_init(rval_t&& rval);
 
     byte_block_data_t m_init_data = {};
+    loc_vec_t m_linked_init;
 
     gmember_ht m_begin_gmember = {};
     gmember_ht m_end_gmember = {};
@@ -727,7 +729,6 @@ public:
     unsigned member() const { return index - gvar.begin().id; }
     type_t type() const { return member_type(gvar.type(), member()); }
 
-    locator_t const* init_data(unsigned atom) const;
     std::size_t init_size() const;
     std::size_t init_span() const;
 
@@ -742,8 +743,8 @@ public:
 
     bool zero_init(unsigned atom) const;
 
-private:
     locator_t const* init_data(unsigned atom, loc_vec_t const& vec) const;
+private:
 
     bc::small_vector<span_t, 2> m_spans = {};
 };

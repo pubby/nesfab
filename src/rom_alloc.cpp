@@ -198,6 +198,8 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
             rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, spans.object, rom_array_h), rom_key_t());
             continue;
         }
+        else if(rom_array.rule() == ROMR_SECTOR)
+            alignment = mapper().sector_size;
         else if(rom_array.rule() == ROMR_STATIC)
         {
             span_allocation_t const spans = allocator.alloc(rom_array.data().size(), alignment);

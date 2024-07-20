@@ -23,26 +23,23 @@ vars /save
     // can't use ROM while it is being altered.
     [] _save_routine
         label erase_sector
-            lda #$01
-            sta $C000
+            ldx #$01
+            stx $C000 // $01
             lda #$AA
-            sta $9555
+            sta $9555 // $AA
             ldy #$00
-            sty $C000
-            lda #$55
-            sta $AAAA
-            lda #$01
-            sta $C000
+            sty $C000 // $00
+            lsr
+            sta $AAAA // $55
+            stx $C000 // $01
             lda #$80
-            sta $9555
-            lda #$01
-            sta $C000
+            sta $9555 // $80
+            stx $C000 // $01
             lda #$AA
-            sta $9555
-            lda #$00
-            sta $C000
-            lda #$55
-            sta $AAAA
+            sta $9555 // $AA
+            sty $C000 // $00
+            lsr
+            sta $AAAA // $55
             lda &_save_addr.c
             sta $C000
             lda #$30
@@ -50,18 +47,17 @@ vars /save
             bne verify // always jumps
 
         label write_byte
-            lda #$01
-            sta $C000
+            ldx #$01
+            stx $C000 // $11
             lda #$AA
-            sta $9555
+            sta $9555 // $AA
             ldy #$00
-            sty $C000
-            lda #$55
-            sta $AAAA
-            lda #$01
-            sta $C000
+            sty $C000 // $00
+            lsr
+            sta $AAAA // $55
+            stx $C000 // $01
             lda #$A0
-            sta $9555
+            sta $9555 // $A0
             lda &_save_addr.c
             sta $C000
             lda &_save_byte

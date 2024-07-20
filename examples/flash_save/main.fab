@@ -66,7 +66,6 @@ vars /save
             sta $C000
             lda &_save_byte
             sta (&_save_addr.a), y
-            rts
             // fall-through
         label verify
             lda (&_save_addr.a), y

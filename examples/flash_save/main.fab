@@ -47,7 +47,6 @@ vars /save
             sta $C000
             lda #$30
             sta (&_save_addr.a), y
-            sta $444
             bne verify // always jumps
 
         label write_byte

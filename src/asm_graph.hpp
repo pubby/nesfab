@@ -23,7 +23,7 @@ class locator_t;
 class fn_t;
 class lvars_manager_t;
 
-struct asm_node_t;
+class asm_node_t;
 struct asm_path_t;
 
 namespace bi = ::boost::intrusive;

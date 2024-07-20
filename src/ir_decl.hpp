@@ -12,11 +12,11 @@
 class ir_t;
 class cfg_node_t;
 class ssa_node_t;
-struct ssa_fwd_edge_t;
-struct ssa_bck_edge_t;
-struct cfg_fwd_edge_t;
-struct cfg_bck_edge_t;
-struct ssa_value_t;
+class ssa_fwd_edge_t;
+class ssa_bck_edge_t;
+class cfg_fwd_edge_t;
+class cfg_bck_edge_t;
+class ssa_value_t;
 
 using ssa_data_pool = static_any_pool_t<class ssa_node_t>;
 using cfg_data_pool = static_any_pool_t<class cfg_node_t>;

@@ -23,7 +23,7 @@
 #include "carry.hpp"
 
 class type_t;
-struct ssa_value_t;
+class ssa_value_t;
 
 constexpr std::uint16_t ENTRY_LABEL = std::uint16_t(~0u);
 
@@ -363,7 +363,7 @@ public:
 
     constexpr void set_member(std::uint8_t member)
     { 
-        assert(member < MAX_MEMBERS);
+        assert((int)member < (int)MAX_MEMBERS);
         assert(has_arg_member_atom(lclass()));
         impl &= 0xFFFFFFFF00FFFFFFull;
         impl |= (std::uint64_t)member << 24; 

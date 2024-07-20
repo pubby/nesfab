@@ -1567,8 +1567,6 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                     .children = eternal_new<ast_node_t>(&*sub_children.begin(), &*sub_children.end())
                 });
 
-                ast_node_t else_ast = {};
-
                 if(token.type == TOK_else)
                 {
                     sub_children.clear();

@@ -39,8 +39,11 @@ override CXXFLAGS+= \
   -Wall \
   -Wextra \
   -Wno-unused-parameter \
+  -Wno-unknown-warning-option \
   -Wno-narrowing \
   -Wno-missing-field-initializers \
+  -Wno-missing-braces \
+  -Wno-unused-command-line-argument \
   -fmax-errors=3 \
   -ftemplate-depth=100 \
   -pipe \

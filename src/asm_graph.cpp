@@ -418,7 +418,7 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
     code.reserve(estimated_size);
 
     // Ids are used to generate labels:
-    auto const get_label = [this](asm_node_t& node)
+    auto const get_label = [](asm_node_t& node)
     {
         if(node.label && node.label.lclass() != LOC_MINOR_LABEL)
             return node.label;

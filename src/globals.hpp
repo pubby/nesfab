@@ -32,7 +32,7 @@
 #include "byte_block.hpp"
 #include "ident_map.hpp"
 
-struct rom_array_t;
+class rom_array_t;
 struct precheck_tracked_t;
 
 namespace bc = boost::container;
@@ -457,6 +457,7 @@ public:
 
     fn_t(global_t& global, type_t type, fn_def_t&& fn_def, std::unique_ptr<mods_t> mods, 
          fn_class_t fclass, bool iasm, fn_set_t* fn_set);
+    virtual ~fn_t() = default;
 
     fn_ht handle() const;
 
@@ -638,6 +639,8 @@ public:
     , m_src_type(src_type)
     , m_def(std::move(paa_def))
     {}
+
+    virtual ~global_datum_t() = default;
     
     global_t& global;
     ast_node_t const* const init_expr = nullptr;
@@ -679,6 +682,8 @@ public:
     : global_datum_t(global, src_type, expr, std::move(paa_def), std::move(mods))
     , group_vars(group_vars)
     {}
+
+    virtual ~gvar_t() = default;
 
     group_vars_ht const group_vars = {};
 
@@ -764,6 +769,8 @@ public:
     , banked(banked)
     { assert(init_expr); }
 
+    virtual ~const_t() = default;
+
     group_data_ht const group_data;
     bool const banked = false;
 
@@ -832,6 +839,8 @@ public:
     fn_set_t(global_t& global)
     : global(global)
     {}
+
+    virtual ~fn_set_t() = default;
 
     void resolve();
     void precheck();

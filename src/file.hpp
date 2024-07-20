@@ -41,8 +41,8 @@ struct std::hash<macro_invocation_t>
 
 template<typename Handle>
 class ident_map_t;
-class global_ht;
-class group_ht;
+struct global_ht;
+struct group_ht;
 
 void invoke_macro(macro_invocation_t invoke);
 

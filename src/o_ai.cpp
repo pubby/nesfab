@@ -263,9 +263,6 @@ public:
 ai_t::ai_t(log_t* log, ir_t& ir_, bool byteified) 
 : ir(ir_), log(log)
 {
-    static int count = 0;
-    ++count;
-
 #ifndef NDEBUG
     for(cfg_node_t& node : ir)
         assert(node.output_size() <= cfg_ai_d::max_output_size);

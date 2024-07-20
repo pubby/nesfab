@@ -28,7 +28,7 @@ public:
 
     explicit ram_sets_t(ram_bitset_t const& ram) 
     : ram(ram)
-    , sram(std::move(sram))
+    , sram()
     {
         if(mapper().sram)
             sram.reset(new sram_bitset_t());

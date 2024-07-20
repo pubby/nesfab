@@ -192,8 +192,8 @@ public:
     ssa_ht prune(); // Returns the next handle
 
 private:
-    ssa_node_t(ssa_node_t const&) = default;
-    ssa_node_t& operator=(ssa_node_t const&) = default;
+    ssa_node_t(ssa_node_t const&) = delete;
+    ssa_node_t& operator=(ssa_node_t const&) = delete;
 
     void create(cfg_ht cfg_h, ssa_op_t op, type_t type);
     void destroy();
@@ -208,8 +208,8 @@ private:
 
 class alignas(32) cfg_node_t : public intrusive_t<cfg_ht>, public flag_owner_t
 {
-    friend struct cfg_fwd_edge_t;
-    friend struct cfg_bck_edge_t;
+    friend class cfg_fwd_edge_t;
+    friend class cfg_bck_edge_t;
     friend class ssa_node_t;
     friend class ir_t;
 
@@ -300,8 +300,8 @@ public:
     // Returns the node after 'ssa', previously.
     ssa_ht steal_ssa(ssa_ht ssa, bool steal_linked);
 private:
-    cfg_node_t(cfg_node_t const& o) = default;
-    cfg_node_t& operator=(cfg_node_t const& o) = default;
+    cfg_node_t(cfg_node_t const& o) = delete;
+    cfg_node_t& operator=(cfg_node_t const& o) = delete;
 
     void create();
     void destroy();

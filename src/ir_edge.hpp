@@ -164,7 +164,7 @@ public:
 
     type_name_t num_type_name() const { assert(is_num()); return type_name_t((value & ~const_flag) >> 56); }
 
-    struct ssa_bck_edge_t* output() const;
+    class ssa_bck_edge_t* output() const;
 
     // This version ignores edges and only checks the pointed-to value.
     bool targets_eq(ssa_fwd_edge_t o) const { return target() == o.target(); }
@@ -180,8 +180,9 @@ public:
 
 std::ostream& operator<<(std::ostream& o, ssa_fwd_edge_t s);
 
-struct ssa_bck_edge_t
+class ssa_bck_edge_t
 {
+public:
     ssa_ht handle;
     std::uint32_t index;
 
@@ -192,19 +193,21 @@ struct ssa_bck_edge_t
         { return handle == o.handle && index == o.index; }
 };
 
-struct cfg_fwd_edge_t
+class cfg_fwd_edge_t
 {
+public:
     cfg_ht handle;
     std::uint32_t index;
     
-    struct cfg_bck_edge_t& output() const;
+    class cfg_bck_edge_t& output() const;
 
     bool edges_eq(cfg_fwd_edge_t const& o) const 
         { return handle == o.handle && index == o.index; }
 };
 
-struct cfg_bck_edge_t
+class cfg_bck_edge_t
 {
+public:
     cfg_ht handle;
     std::uint32_t index;
 

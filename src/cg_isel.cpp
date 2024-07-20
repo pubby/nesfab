@@ -674,8 +674,8 @@ namespace isel
         else if(cpu.def_eq(REG_X, v))
         {
             chain
-            < simple_op<typename Opt::unrestrict<REGF_X>, INX_IMPLIED>
-            , simple_op<typename Opt::unrestrict<REGF_X>, DEX_IMPLIED, Def>
+            < simple_op<typename Opt::template unrestrict<REGF_X>, INX_IMPLIED>
+            , simple_op<typename Opt::template unrestrict<REGF_X>, DEX_IMPLIED, Def>
             >(cpu, prev, cont);
 
             simple_op<CPX_IMMEDIATE>(
@@ -1006,13 +1006,13 @@ namespace isel
         {
             chain
             < load_A<Opt, Def>
-            , simple_op<typename Opt::valid_for<REGF_C>, LSR_IMPLIED, Def>
+            , simple_op<typename Opt::template valid_for<REGF_C>, LSR_IMPLIED, Def>
             >(cpu, prev, cont);
 
 #ifndef LEGAL
             chain
             < load_A<Opt, Def>
-            , simple_op<typename Opt::valid_for<REGF_C>, ALR_IMMEDIATE, Def, const_<1>>
+            , simple_op<typename Opt::template valid_for<REGF_C>, ALR_IMMEDIATE, Def, const_<1>>
             >(cpu, prev, cont);
 #endif
         }
@@ -1028,20 +1028,20 @@ namespace isel
         {
             if(cpu.value_eq(REG_X, x))
                 cont->call(cpu, prev);
-            load_X<typename Opt::restrict_to<~REGF_A>, X>(cpu, prev, cont);
+            load_X<typename Opt::template restrict_to<~REGF_A>, X>(cpu, prev, cont);
         }
         else if(cpu.value_eq(REG_X, x))
-            load_A<typename Opt::restrict_to<~REGF_X>, A>(cpu, prev, cont);
+            load_A<typename Opt::template restrict_to<~REGF_X>, A>(cpu, prev, cont);
         else
         {
             chain
             < load_A<Opt, A>
-            , load_X<typename Opt::restrict_to<~REGF_A>, X>
+            , load_X<typename Opt::template restrict_to<~REGF_A>, X>
             >(cpu, prev, cont);
 
             chain
             < load_X<Opt, X>
-            , load_A<typename Opt::restrict_to<~REGF_X>, A>
+            , load_A<typename Opt::template restrict_to<~REGF_X>, A>
             >(cpu, prev, cont);
         }
     };
@@ -1056,20 +1056,20 @@ namespace isel
         {
             if(cpu.value_eq(REG_Y, y))
                 cont->call(cpu, prev);
-            load_Y<typename Opt::restrict_to<~REGF_A>, Y>(cpu, prev, cont);
+            load_Y<typename Opt::template restrict_to<~REGF_A>, Y>(cpu, prev, cont);
         }
         else if(cpu.value_eq(REG_Y, y))
-            load_A<typename Opt::restrict_to<~REGF_Y>, A>(cpu, prev, cont);
+            load_A<typename Opt::template restrict_to<~REGF_Y>, A>(cpu, prev, cont);
         else
         {
             chain
             < load_A<Opt, A>
-            , load_Y<typename Opt::restrict_to<~REGF_A>, Y>
+            , load_Y<typename Opt::template restrict_to<~REGF_A>, Y>
             >(cpu, prev, cont);
 
             chain
             < load_Y<Opt, Y>
-            , load_A<typename Opt::restrict_to<~REGF_Y>, A>
+            , load_A<typename Opt::template restrict_to<~REGF_Y>, A>
             >(cpu, prev, cont);
         }
     };
@@ -1084,20 +1084,20 @@ namespace isel
         {
             if(cpu.value_eq(REG_Y, y))
                 cont->call(cpu, prev);
-            load_Y<typename Opt::restrict_to<~REGF_X>, Y>(cpu, prev, cont);
+            load_Y<typename Opt::template restrict_to<~REGF_X>, Y>(cpu, prev, cont);
         }
         else if(cpu.value_eq(REG_Y, y))
-            load_X<typename Opt::restrict_to<~REGF_Y>, X>(cpu, prev, cont);
+            load_X<typename Opt::template restrict_to<~REGF_Y>, X>(cpu, prev, cont);
         else
         {
             chain
             < load_X<Opt, X>
-            , load_Y<typename Opt::restrict_to<~REGF_X>, Y>
+            , load_Y<typename Opt::template restrict_to<~REGF_X>, Y>
             >(cpu, prev, cont);
 
             chain
             < load_Y<Opt, Y>
-            , load_X<typename Opt::restrict_to<~REGF_Y>, X>
+            , load_X<typename Opt::template restrict_to<~REGF_Y>, X>
             >(cpu, prev, cont);
         }
     };
@@ -1107,7 +1107,7 @@ namespace isel
     {
         chain
         < load_C<Opt, C>
-        , load_A<typename Opt::restrict_to<~REGF_C>, A>
+        , load_A<typename Opt::template restrict_to<~REGF_C>, A>
         >(cpu, prev, cont);
     }
 
@@ -1116,7 +1116,7 @@ namespace isel
     {
         chain
         < load_A<Opt, A>
-        , load_NZ_for<typename Opt::restrict_to<~REGF_A>, A>
+        , load_NZ_for<typename Opt::template restrict_to<~REGF_A>, A>
         >(cpu, prev, cont);
     }
 
@@ -1125,7 +1125,7 @@ namespace isel
     {
         chain
         < load_X<Opt, A>
-        , load_NZ_for<typename Opt::restrict_to<~REGF_X>, A>
+        , load_NZ_for<typename Opt::template restrict_to<~REGF_X>, A>
         >(cpu, prev, cont);
     }
 
@@ -1134,7 +1134,7 @@ namespace isel
     {
         chain
         < load_Y<Opt, A>
-        , load_NZ_for<typename Opt::restrict_to<~REGF_Y>, A>
+        , load_NZ_for<typename Opt::template restrict_to<~REGF_Y>, A>
         >(cpu, prev, cont);
     }
 
@@ -1483,7 +1483,7 @@ namespace isel
                     , exact_op<Opt, LDA_ABSOLUTE, null_, mstate>
                     , exact_op<Opt, TAX_IMPLIED, null_>
 #endif
-                    , pick_op<typename Opt::restrict_to<~REGF_X>, ORA, null_, Def>
+                    , pick_op<typename Opt::template restrict_to<~REGF_X>, ORA, null_, Def>
                     , exact_op<Opt, TAY_IMPLIED>
                     , iota_op<Opt, STA_ABSOLUTE_Y, null_>
                     , exact_op<Opt, CPX_ABSOLUTE, null_, mstate>
@@ -1529,7 +1529,7 @@ namespace isel
                 , exact_op<Opt, LDA_ABSOLUTE, null_, mstate>
                 , exact_op<Opt, TAX_IMPLIED, null_>
 #endif
-                , pick_op<typename Opt::restrict_to<~REGF_X>, ORA, null_, Def>
+                , pick_op<typename Opt::template restrict_to<~REGF_X>, ORA, null_, Def>
                 , exact_op<Opt, STA_ABSOLUTE, null_, addr>
                 , exact_op<Opt, CPX_ABSOLUTE, null_, mstate>
                 , branch_op<Opt, BNE, retry_label>
@@ -1556,9 +1556,9 @@ namespace isel
         cons_t c = { nullptr, cont };
         
         if(Condition::value())
-            c.fn = Then ? Then : no_effect;
+            c.fn = (bool)Then ? Then : no_effect;
         else
-            c.fn = Else ? Else : no_effect;
+            c.fn = (bool)Else ? Else : no_effect;
 
         c.call(cpu, prev);
     }
@@ -1594,7 +1594,7 @@ namespace isel
 
         chain
         < load_A<Opt, const_<0>>
-        , load_N_for<typename Opt::restrict_to<~REGF_A>, Value>
+        , load_N_for<typename Opt::template restrict_to<~REGF_A>, Value>
         , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0xFF>>
         , label<this_label>
@@ -1604,7 +1604,7 @@ namespace isel
 
         chain
         < load_X<Opt, const_<0>>
-        , load_N_for<typename Opt::restrict_to<~REGF_X>, Value>
+        , load_N_for<typename Opt::template restrict_to<~REGF_X>, Value>
         , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEX_IMPLIED, null_, null_>
         , label<this_label>
@@ -1614,7 +1614,7 @@ namespace isel
 
         chain
         < load_Y<Opt, const_<0>>
-        , load_N_for<typename Opt::restrict_to<~REGF_Y>, Value>
+        , load_N_for<typename Opt::template restrict_to<~REGF_Y>, Value>
         , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEY_IMPLIED, null_, null_>
         , label<this_label>
@@ -1625,7 +1625,7 @@ namespace isel
         chain
         < load_A<Opt, Value>
         , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
-        , load_A<typename Opt::restrict_to<~REGF_C>, const_<0>>
+        , load_A<typename Opt::template restrict_to<~REGF_C>, const_<0>>
         , branch_op<Opt, BCC, this_label>
         , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0xFF>>
         , label<this_label>
@@ -1635,7 +1635,7 @@ namespace isel
 
         chain
         < load_X<Opt, const_<0>>
-        , load_N_for<typename Opt::restrict_to<~REGF_X>, Value>
+        , load_N_for<typename Opt::template restrict_to<~REGF_X>, Value>
         , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEX_IMPLIED, null_, null_>
         , label<this_label>
@@ -1645,7 +1645,7 @@ namespace isel
 
         chain
         < load_Y<Opt, const_<0>>
-        , load_N_for<typename Opt::restrict_to<~REGF_Y>, Value>
+        , load_N_for<typename Opt::template restrict_to<~REGF_Y>, Value>
         , branch_op<Opt, BPL, this_label>
         , simple_op<Opt, DEY_IMPLIED, null_, null_>
         , label<this_label>
@@ -1709,7 +1709,7 @@ namespace isel
                         chain
                         < load_A<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
                         , pick_op<Opt, CMP, null_, p_rhs>
                         , branch_op<Opt, InverseOp, FailLabel>
@@ -1718,7 +1718,7 @@ namespace isel
                         chain
                         < load_X<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
                         , pick_op<Opt, CPX, null_, p_rhs>
                         , branch_op<Opt, InverseOp, FailLabel>
@@ -1727,7 +1727,7 @@ namespace isel
                         chain
                         < load_Y<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
                         , pick_op<Opt, CPY, null_, p_rhs>
                         , branch_op<Opt, InverseOp, FailLabel>
@@ -1736,9 +1736,9 @@ namespace isel
                         chain
                         < load_A<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
-                        , load_X<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                        , load_X<typename Opt::template restrict_to<~REGF_A>, p_rhs>
                         , iota_op<Opt, CMP_ABSOLUTE_X, null_>
                         , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
@@ -1746,9 +1746,9 @@ namespace isel
                         chain
                         < load_A<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
-                        , load_Y<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                        , load_Y<typename Opt::template restrict_to<~REGF_A>, p_rhs>
                         , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
                         , branch_op<Opt, InverseOp, FailLabel>
                         >(cpu, prev, cont);
@@ -1989,7 +1989,7 @@ namespace isel
                     chain
                     < load_ANZ<Opt, p_lhs>
                     , branch_op<Opt, BMI, SuccessLabel>
-                    , load_X<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                    , load_X<typename Opt::template restrict_to<~REGF_A>, p_rhs>
                     , iota_op<Opt, CMP_ABSOLUTE_X, null_>
                     , simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, FailLabel>,
@@ -1999,7 +1999,7 @@ namespace isel
                     chain
                     < load_ANZ<Opt, p_lhs>
                     , branch_op<Opt, BMI, SuccessLabel>
-                    , load_Y<typename Opt::restrict_to<~REGF_A>, p_rhs>
+                    , load_Y<typename Opt::template restrict_to<~REGF_A>, p_rhs>
                     , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
                     , simple_op<Opt, BCC_RELATIVE, null_, SuccessLabel>
                     , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, FailLabel>,
@@ -2043,7 +2043,7 @@ namespace isel
                     chain
                     < load_ANZ<Opt, p_rhs>
                     , branch_op<Opt, BMI, FailLabel>
-                    , load_X<typename Opt::restrict_to<~REGF_A>, p_lhs>
+                    , load_X<typename Opt::template restrict_to<~REGF_A>, p_lhs>
                     , iota_op<Opt, CMP_ABSOLUTE_X, null_>
                     , simple_op<Opt, BCC_RELATIVE, null_, FailLabel>
                     , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, SuccessLabel>,
@@ -2053,7 +2053,7 @@ namespace isel
                     chain
                     < load_ANZ<Opt, p_rhs>
                     , branch_op<Opt, BMI, FailLabel>
-                    , load_Y<typename Opt::restrict_to<~REGF_A>, p_lhs>
+                    , load_Y<typename Opt::template restrict_to<~REGF_A>, p_lhs>
                     , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
                     , simple_op<Opt, BCC_RELATIVE, null_, FailLabel>
                     , if_<Opt, last_comp, simple_op<Opt, BCS_RELATIVE, null_, SuccessLabel>,
@@ -2115,14 +2115,14 @@ namespace isel
 
                             chain
                             < load_C<Opt, const_<1>>
-                            , load_AX<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
-                            , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_X, null_>
+                            , load_AX<typename Opt::template restrict_to<~REGF_C>, p_lhs, p_rhs>
+                            , iota_op<typename Opt::template restrict_to<~REGF_C>, SBC_ABSOLUTE_X, null_>
                             >(cpu, prev, cont);
 
                             chain
                             < load_C<Opt, const_<1>>
-                            , load_AY<typename Opt::restrict_to<~REGF_C>, p_lhs, p_rhs>
-                            , iota_op<typename Opt::restrict_to<~REGF_C>, SBC_ABSOLUTE_Y, null_>
+                            , load_AY<typename Opt::template restrict_to<~REGF_C>, p_lhs, p_rhs>
+                            , iota_op<typename Opt::template restrict_to<~REGF_C>, SBC_ABSOLUTE_Y, null_>
                             >(cpu, prev, cont);
                         });
                     }
@@ -2433,7 +2433,7 @@ namespace isel
     void write_globals(ssa_ht h)
     {
         // TODO: Create a sorted order of the globals before writing.
-        for_each_written_global(h, [h](ssa_value_t def, locator_t loc)
+        for_each_written_global(h, [](ssa_value_t def, locator_t loc)
         {
             if(def.is_handle() && cset_locator(def.handle()) == loc)
                 return;
@@ -2685,7 +2685,7 @@ namespace isel
     template<typename Opt, typename Def>
     void store_C(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
-        using OptR = typename Opt::restrict_to<~REGF_C>;
+        using OptR = typename Opt::template restrict_to<~REGF_C>;
 
         ssa_value_t const h = Def::node();
 
@@ -2706,7 +2706,7 @@ namespace isel
 
             chain
             < load_A<OptR, const_<0>>
-            , simple_op<typename Opt::valid_for<REGF_A>, ROL_IMPLIED>
+            , simple_op<typename Opt::template valid_for<REGF_A>, ROL_IMPLIED>
             , set_defs<Opt, REGF_A | REGF_N | REGF_Z, true, p_def>
             , exact_op<Opt, STA_LIKELY, null_, p_def>
             >(cpu, prev, cont);
@@ -2815,7 +2815,7 @@ namespace isel
 
                     chain
                     < load_AC<Opt, p_lhs, p_carry>
-                    , pick_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC, p_def, p_rhs>
+                    , pick_op<Opt::template valid_for<REGF_A | REGF_NZ>, ADC, p_def, p_rhs>
                     , store<Opt, STA, p_def, p_def>
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
@@ -2824,16 +2824,16 @@ namespace isel
 
                     chain
                     < load_AC<Opt, p_lhs, p_carry>
-                    , load_X<Opt::restrict_to<~REGF_AC>, p_rhs>
-                    , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_X, p_def>
+                    , load_X<Opt::template restrict_to<~REGF_AC>, p_rhs>
+                    , iota_op<Opt::template valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_X, p_def>
                     , store<Opt, STA, p_def, p_def>
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
 
                     chain
                     < load_AC<Opt, p_lhs, p_carry>
-                    , load_Y<Opt::restrict_to<~REGF_AC>, p_rhs>
-                    , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_Y, p_def>
+                    , load_Y<Opt::template restrict_to<~REGF_AC>, p_rhs>
+                    , iota_op<Opt::template valid_for<REGF_A | REGF_NZ>, ADC_ABSOLUTE_Y, p_def>
                     , store<Opt, STA, p_def, p_def>
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
@@ -2937,7 +2937,7 @@ namespace isel
 #ifndef LEGAL
                                 chain
                                 < load_AX<Opt, p_lhs, p_lhs>
-                                , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
+                                , simple_op<Opt::template valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
                                 , store<Opt, STX, p_def, p_def>
                                 , set_defs<Opt, REGF_C, true, p_carry_output>
                                 >(cpu, prev, cont);
@@ -3063,7 +3063,7 @@ namespace isel
 
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
-                , pick_op<Opt::valid_for<REGF_A | REGF_NZ>, SBC, p_def, p_rhs>
+                , pick_op<Opt::template valid_for<REGF_A | REGF_NZ>, SBC, p_def, p_rhs>
                 , store<Opt, STA, p_def, p_def>
                 , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
@@ -3071,16 +3071,16 @@ namespace isel
 #if 1
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
-                , load_X<Opt::restrict_to<~REGF_AC>, p_rhs>
-                , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, SBC_ABSOLUTE_X, p_def>
+                , load_X<Opt::template restrict_to<~REGF_AC>, p_rhs>
+                , iota_op<Opt::template valid_for<REGF_A | REGF_NZ>, SBC_ABSOLUTE_X, p_def>
                 , store<Opt, STA, p_def, p_def>
                 , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
-                , load_Y<Opt::restrict_to<~REGF_AC>, p_rhs>
-                , iota_op<Opt::valid_for<REGF_A | REGF_NZ>, SBC_ABSOLUTE_Y, p_def>
+                , load_Y<Opt::template restrict_to<~REGF_AC>, p_rhs>
+                , iota_op<Opt::template valid_for<REGF_A | REGF_NZ>, SBC_ABSOLUTE_Y, p_def>
                 , store<Opt, STA, p_def, p_def>
                 , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
@@ -3219,7 +3219,7 @@ namespace isel
 #ifndef LEGAL
                         chain
                         < load_AX<Opt, p_lhs, p_lhs>
-                        , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
+                        , simple_op<Opt::template valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
                         , store<Opt, STX, p_def, p_def>
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);
@@ -3386,7 +3386,7 @@ namespace isel
 #ifndef LEGAL
                 chain
                 < load_AX<Opt, p_lhs, p_rhs>
-                , simple_op<Opt::valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, const_<0>>
+                , simple_op<Opt::template valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, const_<0>>
                 , store<Opt, STX, p_def, p_def>
                 >(cpu, prev, cont);
 
@@ -4225,7 +4225,7 @@ namespace isel
 
                     chain
                     < load_Y<Opt, p_arg<2>>
-                    , load_AX<Opt::restrict_to<~REGF_Y>, p_ptr_lo, p_ptr_hi>
+                    , load_AX<Opt::template restrict_to<~REGF_Y>, p_ptr_lo, p_ptr_hi>
                     , simple_op<Opt, read_reg_op(REGF_A | REGF_X | REGF_Y)>
                     , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<3>>
                     , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
@@ -4921,7 +4921,7 @@ namespace isel
                     < load_AC<Opt, p_index_lo, const_<0>>
                     , pick_op<Opt, ADC, null_, p_array_lo>
                     , exact_op<Opt, STA_ABSOLUTE, null_, p_ptr_lo>
-                    , load_A<Opt::restrict_to<~REGF_C>, p_index_hi>
+                    , load_A<Opt::template restrict_to<~REGF_C>, p_index_hi>
                     , pick_op<Opt, ADC, null_, p_array_hi>
                     , exact_op<Opt, STA_ABSOLUTE, null_, p_ptr_hi>
                     >);

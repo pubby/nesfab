@@ -26,7 +26,7 @@ constexpr unsigned INLINE_SIZE_GOAL  = 32;
 constexpr unsigned INLINE_SIZE_LIMIT = 64;
 constexpr unsigned INLINE_SIZE_ONCE  = 128;
 
-struct group_t;
+class group_t;
 class global_t;
 class global_datum_t;
 class fn_t;
@@ -112,14 +112,14 @@ struct defined_group_vars_t
 {
     class group_t* group;
     class group_vars_t* vars;
-    class group_vars_ht vars_handle;
+    struct group_vars_ht vars_handle;
 };
 
 struct defined_group_data_t
 {
     class group_t* group;
     class group_data_t* data;
-    class group_data_ht data_handle;
+    struct group_data_ht data_handle;
 };
 
 ///////////

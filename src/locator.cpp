@@ -53,7 +53,7 @@ std::string to_string(locator_t loc)
     case LOC_ADDR:
         str = "addr $" + to_hex_string(loc.data() + loc.offset()); break;
     case LOC_INDEX:
-        str = "index $" + loc.data(); break;
+        str = fmt("index $%", loc.data()); break;
     case LOC_SWITCH_LO_TABLE:
         str = fmt("switch_lo_table %", loc.handle()); break;
     case LOC_SWITCH_HI_TABLE:

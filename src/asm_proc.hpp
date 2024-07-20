@@ -113,8 +113,9 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end);
 
 // A relocatable sequence of assembly instructions, 
 // used after code generation but still amenable to code optimizations.
-struct asm_proc_t
+class asm_proc_t
 {
+public:
     struct label_info_t
     {
         unsigned index; // Position in 'code'

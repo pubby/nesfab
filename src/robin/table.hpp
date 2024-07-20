@@ -315,6 +315,7 @@ public:
     // (The table isn't circular and the buffer is larger than the hash space.
     // Elements can extend far past the upper side. This function expands 
     // that space, without expanding the hash space.)
+    #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wuse-after-free"
     void realloc(hash_type new_size)
     {

@@ -506,9 +506,6 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
         std::vector<rank_t> ordered_gmembers;
         std::vector<rank_t> ordered_gmembers_aligned;
 
-        // Track which gvars are unused and use them to generate warning messages.
-        fc::vector_set<gvar_t const*> unused_gvars;
-
         for(auto const& pair : gmember_count)
         {
             // Priority 1: gvar size
@@ -525,10 +522,17 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                 // PAAs are handled separately, as they won't appear in the code.
                 non_zp_vec.push_back({ pair.first.mem_size() * size_scale, pair.first });
             }
-            else if(pair.first.mem_zp_only())
-                ordered_gmembers_zp.push_back({ pair.first.mem_size(), pair.first });
             else
-                non_zp_vec.push_back({ (pair.first.mem_size() * size_scale) + pair.second, pair.first });
+            {
+                // Don't allocate unused shit. 
+                if(pair.second == 0)
+                    continue;
+
+                if(pair.first.mem_zp_only())
+                    ordered_gmembers_zp.push_back({ pair.first.mem_size(), pair.first });
+                else
+                    non_zp_vec.push_back({ (pair.first.mem_size() * size_scale) + pair.second, pair.first });
+            }
         }
 
         std::sort(ordered_gmembers_zp.begin(), ordered_gmembers_zp.end(), 
@@ -632,6 +636,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                     inits->score = std::max(inits->score, gmember_count[loc]);
                     inits->init.push_back(loc);
                 });
+
             }
         };
 
@@ -681,6 +686,8 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             {
                 assert(!gmember.span(!loc.atom()));
                 size = 2;
+                if(loc.atom() != 0) // The first atom handles both atoms!
+                    return;
             }
 
             dprint(log, "-RAM_GMEMBER_ALLOCATION", loc, loc.mem_size(), loc.mem_zp_only());
@@ -1129,6 +1136,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
                         if(info.ptr_alt >= 0)
                         {
+                            assert(span.size == 2);
                             auto const& co_info = co->lvars().this_lvar_info(co_i);
                             co->assign_lvar_span(romv, co_i,            { .addr = span.addr,     .size = 1 }); 
                             co->assign_lvar_span(romv, co_info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 

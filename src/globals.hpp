@@ -867,7 +867,7 @@ public:
 
     virtual void for_each_fn(std::function<void(fn_ht)> const& fn) const override;
 
-    type_t type() const { assert(global.prechecked()); return m_type; }
+    type_t type() const { passert(global.resolved(), global.name); return m_type; }
 
     span_t lvar_span(romv_t romv, locator_t loc) const;
 

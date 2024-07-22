@@ -11,7 +11,7 @@
 // See: https://www.nesdev.org/wiki/User:Ns43110/donut.s
 
 /*
-  Block header:
+  Chunk header: (a chunk is the same thing as a block)
   LMlmbbBR
   |||||||+-- Rotate plane bits (135° reflection)
   ||||000--- All planes: 0x00
@@ -26,50 +26,50 @@
   ||||         0: 0x00 plane
   ||||         1: duplicated plane
   ||||       If extra header byte = 0x00, no pb8 plane is decoded.
-  ||||1x1--- Reserved for Uncompressed block bit pattern
+  ||||1x1--- Reserved for Uncompressed chunk bit pattern
   |||+------ M planes predict from 0xff
   ||+------- L planes predict from 0xff
   |+-------- M = M XOR L
   +--------- L = M XOR L
-  00101010-- Uncompressed block of 64 bytes (bit pattern is ascii '*' )
+  00101010-- Uncompressed chunk of 64 bytes (bit pattern is ascii '*' )
   Header >= 0xc0: Error, avaliable for outside processing.
   X >= 192: Also returns in Error, the buffer would of unexpectedly page warp.
 */
 
-asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
+asm fn ppu_upload_donut(CCC/donut ptr, U chunk_count)
 : employs /donut
 : +zero_page
     vars
-        U[64] block_buffer_storage
+        U[64] chunk_buffer_storage
         U[8] plane_buffer
         : +zero_page
         U pb8_ctrl
         : +zero_page
         U even_odd
         : +zero_page
-        U block_offset
+        U chunk_offset
         : +zero_page
         U plane_def
         : +zero_page
-        U block_offset_end
+        U chunk_offset_end
         : +zero_page
-        U block_header
+        U chunk_header
         : +zero_page
         U is_rotated
         : +zero_page
     ct AA temp_y = &pb8_ctrl
-    ct AA block_buffer = &block_buffer_storage - 64
+    ct AA chunk_buffer = &chunk_buffer_storage - 64
 
     default
-    label block_loop
+    label chunk_loop
         lax &ptr.bank
         switch ax
         ldx #64
-        jsr decompress_block
-        bcs end_block_upload  // bail on error.
+        jsr decompress_chunk
+        bcs end_chunk_upload  // bail on error.
         ldx #64
     label upload_loop
-        lda block_buffer, x
+        lda chunk_buffer, x
         sta PPUDATA
         inx
         bpl upload_loop
@@ -80,19 +80,19 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         bcc add_stream_ptr_no_inc_high_byte
         inc &ptr.b
     label add_stream_ptr_no_inc_high_byte
-        dec &block_count
-        bne block_loop
-    label end_block_upload
+        dec &chunk_count
+        bne chunk_loop
+    label end_chunk_upload
         rts
 
-    label do_raw_block
-    label raw_block_loop
+    label do_raw_chunk
+    label raw_chunk_loop
         lda (&ptr.a), y
         iny
-        sta block_buffer, x
+        sta chunk_buffer, x
         inx
-        cpy #65  // size of a raw block
-        bcc raw_block_loop
+        cpy #65  // size of a raw chunk
+        bcc raw_chunk_loop
         clc  // to indicate success
     label exit_error
         rts
@@ -103,14 +103,14 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         iny
         bne plane_def_ready
 
-    label decompress_block
+    label decompress_chunk
         ldy #$00
         txa
         clc
         adc #64
         bcs exit_error
         // If we don't exit here, xor_l_onto_m can underflow into the previous page.
-        sta &block_offset_end
+        sta &chunk_offset_end
 
         lda (&ptr.a), y
         cmp #$c0
@@ -119,13 +119,13 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         iny  // Y represents the number of successfully processed bytes.
 
         cmp #$2a
-        beq do_raw_block
-        // bne do_normal_block
-    label do_normal_block
-        sta &block_header
-        stx &block_offset
+        beq do_raw_chunk
+        // bne do_normal_chunk
+    label do_normal_chunk
+        sta &chunk_header
+        stx &chunk_offset
 
-        // A = block_header
+        // A = chunk_header
         and #%11011111
         // The 0 are bits selected for the even ("lower") planes
         // The 1 are bits selected for the odd planes
@@ -147,13 +147,13 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         sty temp_y
 
         clc
-        lda &block_offset
+        lda &chunk_offset
     label plane_loop
         adc #8
-        sta &block_offset
+        sta &chunk_offset
 
         lda &even_odd
-        eor &block_header
+        eor &chunk_header
         sta &even_odd
 
         and #$30
@@ -177,7 +177,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
 
         bvs do_rotated_pb8_plane
     label do_normal_pb8_plane
-        ldx &block_offset
+        ldx &chunk_offset
         // C is set from 'asl plane_def' above
         rol &pb8_ctrl
     label pb8_loop
@@ -186,7 +186,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         iny
     label pb8_use_prev
         dex
-        sta block_buffer, x
+        sta chunk_buffer, x
         asl &pb8_ctrl
         bne pb8_loop
         sty temp_y
@@ -197,9 +197,9 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         ldy #8
     label xor_m_onto_l_loop
         dex
-        lda block_buffer, x
-        eor block_buffer+8, x
-        sta block_buffer, x
+        lda chunk_buffer, x
+        eor chunk_buffer+8, x
+        sta chunk_buffer, x
         dey
         bne xor_m_onto_l_loop
     label not_xor_m_onto_l
@@ -209,27 +209,27 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         ldy #8
     label xor_l_onto_m_loop
         dex
-        lda block_buffer, x
-        eor block_buffer+8, x
-        sta block_buffer+8, x
+        lda chunk_buffer, x
+        eor chunk_buffer+8, x
+        sta chunk_buffer+8, x
         dey
         bne xor_l_onto_m_loop
     label not_xor_l_onto_m
 
-        lda &block_offset
-        cmp &block_offset_end
+        lda &chunk_offset
+        cmp &chunk_offset_end
         bcc plane_loop
         ldy temp_y
-        tax  // ldx block_offset_end
+        tax  // ldx chunk_offset_end
         clc  // to indicate success
         rts
 
     label do_zero_plane
-        ldx &block_offset
+        ldx &chunk_offset
         ldy #8
     label fill_plane_loop
         dex
-        sta block_buffer, x
+        sta chunk_buffer, x
         dey
         bne fill_plane_loop
         beq end_plane
@@ -247,7 +247,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         bne buffered_pb8_loop
         sty temp_y
         ldy #8
-        ldx &block_offset
+        ldx &chunk_offset
     label flip_bits_loop
         asl &plane_buffer+0
         ror
@@ -266,7 +266,7 @@ asm fn ppu_upload_donut(CCC/donut ptr, U block_count)
         asl &plane_buffer+7
         ror
         dex
-        sta block_buffer, x
+        sta chunk_buffer, x
         dey
         bne flip_bits_loop
         beq end_plane

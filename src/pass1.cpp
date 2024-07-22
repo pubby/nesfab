@@ -1,6 +1,7 @@
 #include "pass1.hpp"
 
 #include "alloca.hpp"
+#include <iostream>
 
 using namespace lex;
 
@@ -9,7 +10,7 @@ void pass1_t::uses_type(type_t type, idep_class_t calc)
     if(type.name() == TYPE_STRUCT_THUNK || type.name() == TYPE_STRUCT)
         ideps.emplace(const_cast<global_t*>(&type.global()), idep_pair_t{ .calc = calc, .depends_on = IDEP_TYPE });
     else if(type.name() == TYPE_FN_PTR)
-        ideps.emplace(const_cast<global_t*>(&type.fn_set().global), idep_pair_t{ .calc = IDEP_VALUE, .depends_on = IDEP_VALUE });
+        ideps.emplace(const_cast<global_t*>(&type.fn_set().global), idep_pair_t{ .calc = calc, .depends_on = IDEP_VALUE });
     else if(type.name() == TYPE_TEA_THUNK)
         uses_type(type.tea_thunk().elem_type);
     else if(has_type_tail(type.name()))
@@ -82,11 +83,6 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
     case TOK_at:
     case TOK_unary_ref:
         depends_on = BAD_IDEP;
-        goto do_children;
-
-    case TOK_len_expr:
-    case TOK_sizeof_expr:
-        depends_on = IDEP_VALUE; // Used to be IDEP_TYPE, but Vec requires VALUE.
         goto do_children;
 
     case TOK_sizeof:

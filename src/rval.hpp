@@ -204,7 +204,7 @@ struct expr_value_t
     
     value_time_t calc_time() const { return ::calc_time(type, rval()); }
 
-    void assert_valid() const { passert(!is_rval() || calc_time() <= time, (int)calc_time(), (int)time); }
+    void assert_valid() const { passert(!is_rval() || calc_time() <= time, (int)calc_time(), (int)time, type); }
 
     bool is_ct() const { assert_valid(); return time == CT; }
     bool is_lt() const { assert_valid(); return time == LT; }

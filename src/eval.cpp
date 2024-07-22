@@ -3336,6 +3336,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     eval_t sub(do_wrapper_t<INTERPRET>{}, call_pstring, *call, nullptr, rval_args.data(), rval_args.size(),
                                call->def().local_consts.data());
                     result.val = std::move(sub.final_result.value);
+                    result.time = result.calc_time();
+                    assert(result.time < RT);
                 }
                 catch(out_of_time_t& e)
                 {
@@ -4342,7 +4344,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     ssa_ht const h = compile_read_ptr(
                         loc, is_banked ? loc.with_is(IS_BANK) : ssa_value_t());
 
-                    array_val.val = rval_t { h };
+                    array_val.val = rval_t{ h };
                 }
                 else
                     array_val.val = rval_t{};

@@ -130,7 +130,6 @@ enum idep_class_t : std::int8_t
 {
     BAD_IDEP = 0,
     IDEP_TYPE,
-    IDEP_PRECHECK,
     IDEP_VALUE,
     NUM_IDEP_CLASSES
 };

@@ -133,6 +133,8 @@ mode main()
 
             // Everytime the counter increments, we'll flash the value to memory:
             // NOTE: Flash memory has limited life. You shouldn't erase sectors nearly this often.
+            {PPUCTRL}(0) // Disable NMI while writing, as interrupts cannot occur!
             flash_erase_sector(@save_sector)
             flash_write_byte(@save_sector+0, counter)
+            {PPUCTRL}(PPUCTRL_NMI_ON)
 

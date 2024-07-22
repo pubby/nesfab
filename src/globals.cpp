@@ -147,7 +147,6 @@ const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps,
 
 struct_ht global_t::define_struct(lpstring_t lpstring, ideps_map_t&& ideps,
                                   field_map_t&& fields)
-                                
 {
     struct_t* ret;
 
@@ -182,7 +181,7 @@ fn_set_t& global_t::define_fn_set(lpstring_t lpstring)
 {
     fn_set_t* ret = nullptr;
 
-    // Create the charmap
+    // Create the fn set
     fn_set_ht h = { define(lpstring, GLOBAL_FN_SET, {}, [&](global_t& g)
     { 
         return fn_set_ht::pool_emplace(ret, g).id;
@@ -556,8 +555,9 @@ global_t* global_t::detect_cycle(global_t& global, idep_class_t pass, idep_class
             continue;
 
         // If the the idep was computed in a previous pass:
-        if(pair.second.calc < pass || pair.second.depends_on < pass)
-            continue;
+        if(pair.first->gclass() != GLOBAL_FN_SET && pair.first->gclass() != GLOBAL_STRUCT)
+            if(pair.second.calc < pass || pair.second.depends_on < pass)
+                continue;
 
         if(global_t* error = detect_cycle(*pair.first, pass, pair.second.depends_on))
         {
@@ -652,8 +652,9 @@ void global_t::build_order()
                 continue;
 
             // If the the idep was computed in a previous pass:
-            if(pair.second.calc < pass || pair.second.depends_on < pass)
-                continue;
+            if(pair.first->gclass() != GLOBAL_FN_SET && pair.first->gclass() != GLOBAL_STRUCT)
+                if(pair.second.calc < pass || pair.second.depends_on < pass)
+                    continue;
 
             ++ideps_left;
             assert(pair.first != &global);
@@ -1938,7 +1939,11 @@ void global_datum_t::resolve()
     dethunkify(true);
 
     if(!init_expr)
+    {
+        if(::is_paa(m_src_type.type.name()) &&  m_src_type.type.size_of() == 0)
+            compiler_error(global.pstring(), "Invalid size of 0.");
         return;
+    }
 
     if(m_src_type.type.name() == TYPE_PAA)
     {
@@ -1966,6 +1971,8 @@ void global_datum_t::resolve()
     {
         rpair_t rpair = interpret_expr(global.pstring(), *init_expr, m_src_type.type);
         m_src_type.type = std::move(rpair.type); // Handles unsized arrays
+        if(::is_paa(m_src_type.type.name()) &&  m_src_type.type.size_of() == 0)
+            compiler_error(global.pstring(), "Invalid size of 0.");
         rval_init(std::move(rpair.value));
     }
 }
@@ -1986,7 +1993,10 @@ void global_datum_t::compile()
 
 group_ht gvar_t::group() const { return group_vars ? (*group_vars)->handle() : group_ht{}; }
 
-void gvar_t::paa_init(loc_vec_t&& paa) { m_init_data = std::move(paa); }
+void gvar_t::paa_init(loc_vec_t&& paa) 
+{ 
+    m_init_data = std::move(paa); 
+}
 void gvar_t::paa_init(asm_proc_t&& proc) 
 { 
     proc.build_label_offsets();
@@ -2107,7 +2117,6 @@ void const_t::paa_init(asm_proc_t&& proc)
     {
         proc.absolute_to_zp();
         proc.build_label_offsets();
-        //proc.write_assembly(std::cout, ROMV_MODE);
         proc.relocate(locator_t::gconst(handle()));
     }
     catch(relocate_error_t const& e)
@@ -2422,12 +2431,31 @@ void fn_set_t::resolve()
 {
     for(auto const& pair : m_fn_hashes)
         m_fns.push_back(pair.second->handle<fn_ht>());
+
+    pstring_t type_pstring = {};
+
+    for(fn_ht fn : m_fns)
+    {
+        assert(fn->global.resolved());
+
+        if(m_type.name() == TYPE_VOID)
+        {
+            m_type = fn->type();
+            type_pstring = fn->global.pstring();
+        }
+        else if(m_type != fn->type())
+        {
+            throw compiler_error_t(
+                fmt_error(fn->global.pstring(), 
+                          fmt("Type of % (%) does not match type of fn set % (%).",
+                              fn->global.name, fn->type(), global.name, m_type))
+                + fmt_note(type_pstring, "fn set had its type defined here."));
+        }
+    }
 }
 
 void fn_set_t::precheck()
 {
-    pstring_t type_pstring = {};
-
     xbitset_t<gmember_ht>  rw(0);
     xbitset_t<group_vars_ht> group_vars(0);
     xbitset_t<fn_ht> calls(0);
@@ -2443,20 +2471,6 @@ void fn_set_t::precheck()
 
         m_precheck_fences   |= fn->m_precheck_fences;
         m_precheck_wait_nmi |= fn->m_precheck_wait_nmi;
-
-        if(m_type.name() == TYPE_VOID)
-        {
-            m_type = fn->type();
-            type_pstring = fn->global.pstring();
-        }
-        else if(m_type != fn->type())
-        {
-            throw compiler_error_t(
-                fmt_error(fn->global.pstring(), 
-                          fmt("Type of % (%) does not match type of fn set % (%).",
-                              fn->global.name, fn->type(), global.name, m_type))
-                + fmt_note(type_pstring, "fn set had its type defined here."));
-        }
     }
 
     m_precheck_rw = std::move(rw);

@@ -1116,6 +1116,8 @@ void schedule_ir(ir_t& ir)
 
 void o_schedule(ir_t& ir)
 {
+    // Combines similar adds/subtracts to make them more chained.
+
     auto const valid_parent = [](ssa_ht h, unsigned input) -> ssa_ht
     {
         if(carry_used(*h))
@@ -1124,6 +1126,7 @@ void o_schedule(ir_t& ir)
         ssa_value_t const parent = h->input(input);
         if(parent.holds_ref() && parent->cfg_node() == h->cfg_node())
         {
+            // All our other inputs must be constant numbers.
             unsigned const input_size = h->input_size();
             for(unsigned i = 0; i < input_size; ++i)
                 if(i != input && !h->input(i).is_num())
@@ -1155,9 +1158,9 @@ void o_schedule(ir_t& ir)
         }
         else if(h->op() == SSA_sub)
         {
-            if(ssa_ht parent = valid_parent(h, index = 1))
+            if(ssa_ht parent = valid_parent(h, index = 0))
             {
-                v = -h->input(0).fixed().value;
+                v = -h->input(1).fixed().value;
                 if(!h->input(2).whole())
                     v -= low_bit_only(numeric_bitmask(h->type().name()));
                 return parent;
@@ -1194,10 +1197,12 @@ void o_schedule(ir_t& ir)
 
         for(unsigned i = 0; i < parent->output_size(); ++i)
         {
+            // Find outputs that are similar to child:
             ssa_ht const output = parent->output(i);
             if(output == child || output == parent || output->cfg_node() != child->cfg_node() || output->type() != child->type())
                 continue;
 
+            // Both children share the same parent input, but otherwise only input const numbers:
             if(fn(output, b_index, b_operand) != parent)
                 continue;
 

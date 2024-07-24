@@ -1556,6 +1556,19 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
     unsigned const bs_size = calc_liveness(fn, lvars.map());
     bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, bs_size);
 
+    auto const& add_fn_interference = [&](fn_ht fn)
+    {
+        // Every live lvar will interfere with this fn:
+        bitset_for_each(bs_size, live, [&](unsigned i)
+        {
+            lvars.add_fn_interference(i, fn);
+        });
+
+        // Variables that are live together interfere with each other.
+        // Update the interference graph here:
+        lvars.add_lvar_interferences(live);
+    };
+
     // Step-through the code backwards, maintaining a current liveness set
     // and using that to build an interference graph.
     for(asm_node_t& node : list)
@@ -1570,17 +1583,10 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
         for(asm_inst_t& inst : node.code | std::views::reverse)
         {
             if((op_flags(inst.op) & ASMF_CALL) && inst.arg.lclass() == LOC_FN)
-            {
-                // Every live lvar will interfere with this fn:
-                bitset_for_each(bs_size, live, [&](unsigned i)
-                {
-                    lvars.add_fn_interference(i, inst.arg.fn());
-                });
-
-                // Variables that are live together interfere with each other.
-                // Update the interference graph here:
-                lvars.add_lvar_interferences(live);
-            }
+                add_fn_interference(inst.arg.fn());
+            else if(inst.op == ASM_FN_SET_CALL)
+                for(fn_ht fn : *inst.arg.fn_set())
+                    add_fn_interference(fn);
 
             do_inst_rw(fn, lvars.map(), inst, [&](unsigned i, bool read, bool write)
             {
@@ -1600,7 +1606,6 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
                 if(!read && write)
                     bitset_clear(live, i);
             });
-
         }
     }
 

@@ -922,7 +922,8 @@ int main()
         either_case_keyword("nam"),
         either_case_keyword("png"),
         either_case_keyword("txt"),
-        either_case_keyword("pal")
+        either_case_keyword("pal"),
+        either_case_keyword("map")
         ),
         ext_nfa_nodes);
     dfa_t ext_dfa = nfa_to_dfa(ext_nfa);

@@ -29,6 +29,8 @@
 #include "asm_graph.hpp"
 #include "rom.hpp"
 
+#pragma GCC diagnostic ignored "-Waddress"
+
 namespace bc = ::boost::container;
 
 namespace isel
@@ -1548,8 +1550,6 @@ namespace isel
         cont->call(cpu, prev);
     }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Waddress"
     template<typename Opt, typename Condition, cont_t Then, cont_t Else = nullptr> [[gnu::noinline]]
     static void if_(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
@@ -1562,7 +1562,6 @@ namespace isel
 
         c.call(cpu, prev);
     }
-#pragma GCC diagnostic pop
 
     template<typename Tag>
     struct condition
@@ -4213,7 +4212,9 @@ namespace isel
                 p_ptr_lo::set(h->input(2));
                 p_ptr_hi::set(h->input(3));
 
-                fn_set_t const& fn_set = *h->input(0).locator().fn_set();
+                locator_t const fn_set_loc = h->input(0).locator();
+                fn_set_t const& fn_set = *fn_set_loc.fn_set();
+                p_arg<4>::set(fn_set_loc);
 
                 if(h->input(1))
                 {
@@ -4227,6 +4228,7 @@ namespace isel
                     < load_Y<Opt, p_arg<2>>
                     , load_AX<Opt::template restrict_to<~REGF_Y>, p_ptr_lo, p_ptr_hi>
                     , simple_op<Opt, read_reg_op(REGF_A | REGF_X | REGF_Y)>
+                    , simple_op<Opt, ASM_FN_SET_CALL, null_, p_arg<4>>
                     , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<3>>
                     , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
                     >(cpu, prev, cont);
@@ -4241,6 +4243,7 @@ namespace isel
                         chain
                         < load_AX<Opt, p_ptr_lo, p_ptr_hi>
                         , simple_op<Opt, read_reg_op(REGF_A | REGF_X)>
+                        , simple_op<Opt, ASM_FN_SET_CALL, null_, p_arg<4>>
                         , exact_op<Opt, JSR_ABSOLUTE, null_, p_arg<3>>
                         , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
                         >(cpu, prev, cont);
@@ -4248,7 +4251,8 @@ namespace isel
                     else
                     {
                         chain
-                        < exact_op<Opt, JSR_INDIRECT, null_, p_ptr>
+                        < simple_op<Opt, ASM_FN_SET_CALL, null_, p_arg<4>>
+                        , exact_op<Opt, JSR_INDIRECT, null_, p_ptr>
                         , simple_op<Opt, write_reg_op(REGF_ISEL)> // Clobbers most everything
                         >(cpu, prev, cont);
                     }

@@ -7,6 +7,7 @@
 
 #include "convert_compress.hpp"
 #include "convert_png.hpp"
+#include "convert_map.hpp"
 #include "ext_lex_tables.hpp"
 #include "mods.hpp"
 #include "globals.hpp"
@@ -128,6 +129,12 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
                 {
                 case ext_lex::TOK_png:
                     vec = png_to_chr(vec.data(), vec.size(), spr16);
+                    break;
+
+                case ext_lex::TOK_map:
+                    vec = map_to_nt(vec.data(), vec.size());
+                    if(spr16)
+                        vec = convert_spr16(vec);
                     break;
 
                 case ext_lex::TOK_txt:

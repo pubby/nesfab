@@ -19,6 +19,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 255,
         .flags = ASMF_FAKE,
     },
+    { .op = ASM_FN_SET_CALL, .flags = ASMF_FAKE },
     { 
         .op = MAYBE_STORE_C,
         .addr_mode = MODE_ABSOLUTE,

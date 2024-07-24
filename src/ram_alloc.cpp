@@ -32,7 +32,7 @@ enum sram_request_t
     SRAM_ONLY,
 };
 
-zp_request_t zp_request(bool valid, bool only)
+zp_request_t zp_request(bool valid, bool only, pstring_t at)
 {
     if(valid)
     {
@@ -41,7 +41,7 @@ zp_request_t zp_request(bool valid, bool only)
         return ZP_MAYBE;
     }
     if(only)
-        throw std::runtime_error("Unable to allocate in zero page");
+        compiler_error(at, "Unable to allocate in zero page.");
     return ZP_NEVER;
 }
 
@@ -692,7 +692,10 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
             dprint(log, "-RAM_GMEMBER_ALLOCATION", loc, loc.mem_size(), loc.mem_zp_only());
 
-            zp_request_t const zp = zp_request(loc.mem_zp_valid() && estimated_in_zp.count(loc), loc.mem_zp_only());
+            zp_request_t const zp = zp_request(loc.mem_zp_valid() && 
+                (loc.mem_zp_only() || estimated_in_zp.count(loc)), 
+                loc.mem_zp_only(),
+                gmember.gvar.global.pstring());
             sram_request_t const sram = sram_request(loc.mods());
             bool const insist_align = mod_test(gmember.gvar.mods(), MOD_align);
 
@@ -1050,7 +1053,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
         assert(lvar_i < lvar_usable_ram.size());
 
-        zp_request_t const zp = zp_request(info.zp_valid, info.zp_only);
+        zp_request_t const zp = zp_request(info.zp_valid, info.zp_only, h->global.pstring());
         sram_request_t const sram = SRAM_MAYBE;
 
         // First try to allocate in 'freebie_ram'.

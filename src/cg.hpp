@@ -80,6 +80,8 @@ struct ssa_cg_d
     ssa_value_t cset_head = {}; // Basically a union-find pointer.
     ssa_ht cset_next = {}; // A linked-list to the next node
 
+    locator_t call = {}; // Used to restrict  coalescing.
+
     // These are used to implement/coalesce indirect pointers.
     // 'ptr_pair' points to the other byte in the zero-page address of a pointer.
     // 'is_ptr_lo' determines if this is the lo or hi byte of said pointer.

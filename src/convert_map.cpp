@@ -48,8 +48,7 @@ std::vector<std::uint8_t> map_to_nt(std::uint8_t const* map, std::size_t size)
             if(ny % 2)
             {
                 attr <<= 4;
-                if(y != 7)
-                    attr |= attrs[i + width/4] >> 4;
+                attr |= attrs[i + width/4] >> 4;
             }
 
             if(y == 7)

@@ -181,6 +181,7 @@ public:
 
     // This allocates 'gmember_t's.
     static void count_members(); 
+    static void group_members();
 
     // Call after 'count_members' to build 'm_iuses' and 'm_ideps_left',
     // among other things.
@@ -551,9 +552,7 @@ private:
         precheck_calls().for_each([&](fn_ht h)
         {
             if(h->fclass == FN_FN && h->always_inline())
-            {
                 h->for_each_inlined_impl(fn, bs);
-            }
         });
     }
 
@@ -703,6 +702,7 @@ public:
     void for_each_locator(std::function<void(locator_t)> const& fn) const;
 
     static std::vector<gvar_ht> const& groupless_gvars() { assert(compiler_phase() > PHASE_PARSE); return m_groupless_gvars; }
+    static xbitset_t<gmember_ht> const& groupless_gmembers() { assert(compiler_phase() > PHASE_COUNT_MEMBERS); return m_groupless_gmembers; }
 private:
     virtual void paa_init(asm_proc_t&& proc);
     virtual void paa_init(loc_vec_t&& vec);
@@ -716,6 +716,7 @@ private:
 
     inline static std::mutex m_groupless_gvars_lock;
     inline static std::vector<gvar_ht> m_groupless_gvars;
+    inline static xbitset_t<gmember_ht> m_groupless_gmembers;
 };
 
 class gmember_t

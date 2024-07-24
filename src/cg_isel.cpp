@@ -4634,7 +4634,8 @@ namespace isel
                 assert(h->input(1).is_locator());
                 assert(h->input(1).locator().lclass() == LOC_STMT);
 
-                mods_t const* mods = state.fn->def().mods_of(h->input(1).locator().stmt());
+                fn_ht const caller = h->input(2).locator().fn();
+                mods_t const* mods = caller->def().mods_of(h->input(1).locator().stmt());
 
                 bool did_reset_nmi = false;
                 bool did_reset_irq = false;

@@ -1,6 +1,7 @@
 #include "ram_init.hpp"
 
 #include <algorithm>
+#include <iostream>
 
 #include "group.hpp"
 #include "globals.hpp"

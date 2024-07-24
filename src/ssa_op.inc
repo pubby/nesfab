@@ -136,7 +136,7 @@ SSA_DEF(fn_call, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_CLOBBERS_CARRY | SSA
 // (fn_set, bank (optional), fn_lo, fn_hi (optional), (arg, locator)...)
 SSA_DEF(fn_ptr_call, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_CLOBBERS_CARRY | SSAF_PRIO_SCHEDULE | SSAF_NULL_INPUT_VALID)
 
-// (fn, stmt, (arg, locator)...)
+// (fn, stmt, calling fn, (arg, locator)...)
 SSA_DEF(goto_mode, -1, INPUT_VALUE, SSAF_WRITE_GLOBALS | SSAF_IO_IMPURE | SSAF_NO_GVN | SSAF_NULL_INPUT_VALID)
 
 ////////////

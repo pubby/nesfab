@@ -32,6 +32,8 @@ std::string to_string(locator_t loc)
         str = fmt("fn %", loc.fn()->global.name); break;
     case LOC_FN_PTR:
         str = fmt("fn ptr %", loc.fn()->global.name); break;
+    case LOC_FN_SET:
+        str = fmt("fn set %", loc.fn_set()->global.name); break;
     case LOC_STMT:
         str = fmt("stmt %", loc.handle()); break;
     case LOC_ARG:
@@ -39,9 +41,9 @@ std::string to_string(locator_t loc)
     case LOC_RETURN:
         str = fmt("ret %", loc.fn()->global.name); break;
     case LOC_PTR_ARG:
-        str = fmt("arg %", loc.fn_set()->global.name); break;
+        str = fmt("ptr arg %", loc.fn_set()->global.name); break;
     case LOC_PTR_RETURN:
-        str = fmt("ret %", loc.fn_set()->global.name); break;
+        str = fmt("ptr ret %", loc.fn_set()->global.name); break;
     case LOC_CFG_LABEL:
         str = fmt("cfg label %", loc.cfg_node()); break;
     case LOC_MINOR_LABEL:

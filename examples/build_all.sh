@@ -31,3 +31,4 @@ set -x #echo on
 ../nesfab rainbow/rainbow.cfg
 ../nesfab wifi/wifi.cfg
 ../nesfab logging/logging.cfg
+../nesfab flash_save/flash_save.cfg

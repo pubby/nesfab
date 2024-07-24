@@ -324,6 +324,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     auto const arg_ret_interferes = [&](ssa_ht h, locator_t loc) -> bool
     {
+        return false; // TODO: remove this function?
         if(is_arg_ret(loc.lclass()))
         {
             for(auto& called_pair : global_loc_map)
@@ -332,8 +333,10 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
                 if(!called_pair.second.cset
                    || !is_arg_ret(called_loc.lclass()) 
-                   || called_loc.fn() == fn.handle() 
-                   || (called_loc.fn() == loc.fn() && loc.lclass() == called_loc.lclass()))
+                   || called_loc.maybe_fn() == fn.handle() 
+                   || (called_loc.maybe_fn() 
+                       && called_loc.maybe_fn() == loc.maybe_fn() 
+                       && loc.lclass() == called_loc.lclass()))
                 {
                     continue;
                 }
@@ -350,18 +353,20 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
     auto const cset_arg_ret_interferes = [&](ssa_ht a, ssa_ht b) -> bool
     {
+        return false; // TODO: remove this function?
         locator_t const loc_a = cset_locator(a);
         locator_t const loc_b = cset_locator(b);
 
-        if(!is_arg_ret(loc_a.lclass()) && !is_arg_ret(loc_b.lclass()))
-            return false;
+        if(is_arg_ret(loc_b.lclass()))
+            for(ssa_ht i = cset_head(a); i; i = cset_next(i))
+                if(arg_ret_interferes(i, loc_b))
+                    return true;
 
-        for(ssa_ht i = cset_head(a); i; i = cset_next(i))
-            if(arg_ret_interferes(i, loc_b))
-                return true;
-        for(ssa_ht i = cset_head(b); i; i = cset_next(i))
-            if(arg_ret_interferes(i, loc_a))
-                return true;
+        if(is_arg_ret(loc_a.lclass()))
+            for(ssa_ht i = cset_head(b); i; i = cset_next(i))
+                if(arg_ret_interferes(i, loc_a))
+                    return true;
+
         return false;
     };
 
@@ -405,6 +410,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
             // Consider 'SSA_read_global' to be a copy in its own right.
             locator_t const loc = ssa_it->input(1).locator().mem_head();
             global_loc_map[loc].copies.push_back({ ssa_it });
+
+            if(is_arg_ret(loc.lclass()) && loc.maybe_fn() != fn.handle())
+                cg_data(ssa_it).call = loc;
 
             ir.assert_valid(true);
         }
@@ -590,7 +598,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         // i.e. its live range doesn't overlap any point where the
         // locator is already live.
 
-        dprint(log, "---COALESCE_LOC", loc, node);
+        dprint(log, "---COALESCE_LOC", loc, node, cset_locator(node));
 
         if(arg_ret_interferes(node, loc))
             return false;
@@ -853,6 +861,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         if(last && !cset_arg_ret_interferes(store_cset, parent_cset))
         {
+            dprint(log, "-COALESC_EARLY_STORE", store);
             cset_append(last, parent_cset);
             store->unsafe_set_op(SSA_aliased_store);
 
@@ -1137,6 +1146,8 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
         if(cset_arg_ret_interferes(head_a, head_b))
             continue;
+
+        dprint(log, "-COALESCE_ADDITIONAL", ssa_it);
 
         // It can be coalesced; add it to the cset.
         cset_append(last, head_b);

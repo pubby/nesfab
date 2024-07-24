@@ -241,10 +241,11 @@ bool special_interferes(fn_ht fn, ir_t const& ir, ssa_ht h, locator_t loc, ssa_h
             }
         case LOC_ARG:
         case LOC_RETURN:
-        case LOC_PTR_ARG:
-        case LOC_PTR_RETURN:
             // The current RAM allocator expects this behavior:
             return loc.fn() != fn;
+        case LOC_PTR_ARG:
+        case LOC_PTR_RETURN:
+            return true;
         default: 
             return false;
         }
@@ -299,6 +300,19 @@ ssa_ht csets_dont_interfere(fn_ht fn, ir_t const& ir, ssa_ht a, ssa_ht b, cset_i
                 if(live_at_def(ai, node))
                     return {};
     }
+
+    // These checks hopefully prevent arg/rets from interfering.
+    if(is_arg_ret(b_loc.lclass()))
+        for(ssa_ht ai = a; ai; ai = cset_next(ai))
+            if(locator_t call = cg_data(ai).call)
+                if(!call.maybe_fn() || call.maybe_fn() != b_loc.maybe_fn())
+                    return {};
+
+    if(is_arg_ret(a_loc.lclass()))
+        for(ssa_ht bi = b; bi; bi = cset_next(bi))
+            if(locator_t call = cg_data(bi).call)
+                if(!call.maybe_fn() || call.maybe_fn() != a_loc.maybe_fn())
+                    return {};
 
     ssa_ht last_a = {};
     for(ssa_ht ai = a; ai; ai = cset_next(ai))

@@ -150,7 +150,7 @@ bool live_at_def(ssa_ht range, ssa_ht def)
         {
             auto const oe = range->output_edge(i);
 
-            // We only care about values
+            // We only care about values:
             if(oe.input_class() != INPUT_VALUE)
                 continue;
 

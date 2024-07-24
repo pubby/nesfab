@@ -1136,7 +1136,7 @@ const_ht convert_effect(lpstring_t at,
                         defined_group_data_t group_pair, bool omni)
 {
     unsigned const num_chan = puf_num_chan();
-    bool const rnbw= compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW;
+    bool const rnbw = compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW;
 
     static TLS std::mutex cpu_mutex;
     std::lock_guard<std::mutex> lock(cpu_mutex);

@@ -1414,6 +1414,52 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
             }
         }
     }
+    else if(inst.op == ASM_FN_SET_CALL) // Same idea as above, but for fn sets:
+    {
+        fn_set_ht const set_h = inst.arg.fn_set();
+        fn_set_t const& set = *set_h;
+
+        for(locator_t const& loc : map)
+        {
+            unsigned const i = &loc - map.begin();
+
+            if(has_fn(loc.lclass()))
+            {
+                for(fn_ht call_h : set)
+                {
+                    if(loc.fn() == call_h)
+                    {
+                        rw(i, loc.lclass() == LOC_ARG, loc.lclass() == LOC_RETURN);
+                        break;
+                    }
+                }
+            }
+
+            if(loc.lclass() == LOC_GMEMBER)
+            {
+                bool r = false;
+                bool w = false;
+                
+                for(fn_ht call_h : set)
+                {
+                    if(call_h->fclass == FN_MODE)
+                    {
+                        group_vars_ht gv = loc.gmember()->gvar.group_vars;
+                        r |= gv && call_h->mode_group_vars().test(gv.id);
+                    }
+                    else
+                    {
+                        r |= call_h->ir_reads().test(loc.gmember().id);
+                        w |= call_h->ir_writes().test(loc.gmember().id);
+                    }
+                }
+
+                rw(i, r, w);
+            }
+        }
+
+        return;
+    }
 
     if(is_return || is_fence)
     {

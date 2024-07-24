@@ -611,6 +611,14 @@ void global_t::count_members()
     }
 }
 
+void global_t::group_members()
+{
+    gvar_t::m_groupless_gmembers.alloc();
+    for(gvar_ht gvar : gvar_t::groupless_gvars())
+        for(auto m = gvar->begin(); m != gvar->end(); ++m)
+            gvar_t::m_groupless_gmembers.set(m.id);
+}
+
 // This function isn't thread-safe.
 // Call from a single thread only.
 void global_t::build_order()
@@ -927,12 +935,9 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
     bool const is_static = mod_test(mods(), MOD_static);
 
-    xbitset_t<gmember_ht> groupless(0);
-    for(gvar_ht gvar : gvar_t::groupless_gvars())
-        for(auto m = gvar->begin(); m != gvar->end(); ++m)
-            groupless.set(m.id);
-
     // Handle preserved groups
+    if(!m_precheck_tracked->goto_modes.empty())
+        reads |= gvar_t::groupless_gmembers();
     for(auto const& fn_stmt : m_precheck_tracked->goto_modes)
     {
         if(mods_t const* goto_mods = fn_stmt.second.mods)
@@ -982,8 +987,8 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
         group_vars = m_precheck_group_vars;
 
         // iasm always employs groupless vars:
-        reads  |= groupless;
-        writes |= groupless;
+        reads  |= gvar_t::groupless_gmembers();
+        writes |= gvar_t::groupless_gmembers();
 
         for(auto const& pair : precheck_tracked().calls)
         {

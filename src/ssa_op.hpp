@@ -156,7 +156,7 @@ inline unsigned write_globals_begin(ssa_op_t op)
     case SSA_fn_call: 
         return 2;
     case SSA_goto_mode: 
-        return 2;
+        return 3;
     case SSA_fn_ptr_call: 
         return 4;
     default: assert(false); return 0;

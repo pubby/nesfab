@@ -3406,7 +3406,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         // For modes, the [1] argument references the stmt,
                         // otherwise it holds the bank, if necessary.
                         if(mode_apply)
+                        {
                             fn_inputs.push_back(locator_t::stmt(stmt_handle()));
+
+                            // The [2] argument holds the calling fn:
+                            fn_inputs.push_back(locator_t::fn(fn->handle()));
+                        }
                         else
                             fn_inputs.push_back({});
                     }
@@ -3445,6 +3450,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                         bitset_uint_t* const preserved_bs = ALLOCA_T(bitset_uint_t, gmember_bs_size);
                         bitset_clear_all(gmember_bs_size, preserved_bs);
+                        bitset_or(gmember_bs_size, preserved_bs, gvar_t::groupless_gmembers().data());
+
                         mods.for_each_list_vars(MODL_PRESERVES, [&](group_vars_ht gv, pstring_t)
                         {
                             assert(gmember_bs_size == (*gv)->vars()->gmembers().size());
@@ -3465,7 +3472,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         ir->gmanager.for_each_gvar(
                         [&](gvar_ht gvar, gmanager_t::index_t index)
                         {
-                            if(!mods.in_lists(MODL_PRESERVES, gvar->group()))
+                            if(gvar->group() && !mods.in_lists(MODL_PRESERVES, gvar->group()))
                                 return;
 
                             for(gmember_ht m : gvar->handles())

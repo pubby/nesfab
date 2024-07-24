@@ -83,6 +83,9 @@ void gmanager_t::init(fn_ht fn)
             }
         }
 
+        if(!fn.precheck_tracked().goto_modes.empty())
+            bitset_or(set_size, initial_set, gvar_t::groupless_gmembers().data());
+
     });
 
     // The eq classes won't involve any global named in the fn.
@@ -171,6 +174,9 @@ void gmanager_t::init(fn_ht fn)
                 });
             }
         }
+
+        if(!fn.precheck_tracked().goto_modes.empty())
+            split(gvar_t::groupless_gmembers().data(), gvar_t::groupless_gmembers().data());
     });
 
     assert(eq_classes.size() >= 1);

@@ -572,6 +572,7 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_GROUP_MEMBERS);
         group_t::group_members();
+        global_t::group_members();
         output_time("members:  ");
 
         // Load standard data:

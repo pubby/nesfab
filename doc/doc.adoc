@@ -3675,6 +3675,9 @@ The following filenames are accepted:
 | <<file_bin, `.nam`>>
 | Raw binary data
 
+| <<file_bin, `.map`>>
+| Nametable data
+
 | <<file_txt, `.txt`>>
 | Textual data
 
@@ -3750,6 +3753,12 @@ The following newline sequences are replaced with `\n`:
 - `\n\r`
 
 Where `\r` has an ASCII value of `$0D`, and `\n` has an ASCII value of `$0A`.
+
+==== `.map` format [[file_nam]]
+
+The filetype `.map`, originating from the https://frankengraphics.itch.io/nexxt[NEXXT] tool, describes tile maps.
+When imported into NESFab, the data is interpretted as a series of nametables, one after another.
+Note that this interpretation requires that the tile map have dimensions evenly divisible by 32x30.
 
 ==== `.png` format [[file_png]]
 

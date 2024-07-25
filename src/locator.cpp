@@ -80,6 +80,8 @@ std::string to_string(locator_t loc)
         str = fmt("lt_expr % %", loc.handle(), loc.lt().safe().type); break;
     case LOC_THIS_BANK:
         str = "this bank"; break;
+    case LOC_DATA_BANK:
+        str = fmt("data bank %", loc.group()->name); break;
     case LOC_RESET_PROC:
         str = "reset proc"; break;
     case LOC_MAIN_MODE:
@@ -409,6 +411,18 @@ locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
             return locator_t::addr(addr);
         else if(bank >= 0 && bank < 256)
             return locator_t::const_byte((bank << bank_shift()) + bank_add());
+        return *this;
+
+    case LOC_DATA_BANK:
+        if(group_ht g = group())
+        {
+            if(rom_array_ht a = g->dummy())
+            {
+                int const bank = a->find_alloc(ROMV_MODE).first_bank();
+                if(bank >= 0)
+                    return locator_t::const_byte(bank);
+            }
+        }
         return *this;
 
     case LOC_RUNTIME_RAM:

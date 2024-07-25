@@ -98,7 +98,7 @@ struct pool_handle_t : public handle_t<Derived, std::uint32_t, ~0u>
 
     value_type& unsafe() const
     {
-        assert(compiler_phase() > Phase);
+        assert(compiler_phase() >= Phase);
         return unsafe_impl();
     }
 

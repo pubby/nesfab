@@ -3536,6 +3536,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                             type_t const member_type = ::member_type(param_type, j);
 
+                            passert(j < args[i].rval().size(), args[i].type);
                             ssa_value_t arg = from_variant<COMPILE>(args[i].rval()[j], member_type);
 
                             fn_inputs.push_back(arg);
@@ -7218,6 +7219,29 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
 
     if(!cast_pstring)
         cast_pstring = value.pstring;
+
+    if(can == CAST_DUMMY_BANK)
+    {
+        assert(is_banked_ptr(to_type.name()));
+
+        unsigned const size = to_type.group_tail_size();
+        for(unsigned i = 0; i < size; ++i)
+        {
+            group_ht const g = to_type.group(i);
+            if(g->data())
+            {
+                g->require_dummy();
+                value.type = to_type;
+                value.rval().push_back(locator_t::data_bank(g));
+                return true;
+            }
+        }
+
+        if(size > 0)
+            compiler_warning(cast_pstring, "The current implementation requires a data group to be declared elsewhere to perform this cast.");
+
+        return false;
+    }
 
     if(!is_check(D) && !is_link(D) && value.is_lt())
     {

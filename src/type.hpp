@@ -192,6 +192,7 @@ enum cast_result_t : char
     CAST_CONVERT_INT,
     CAST_INTIFY_PTR,
     CAST_PTRIFY_INT,
+    CAST_DUMMY_BANK,
     CAST_RESIZE_TEA,
     CAST_VECIFY_TEA,
     CAST_TEAIFY_VEC,

@@ -19,6 +19,7 @@
 #include "rom_prune.hpp"
 #include "runtime.hpp"
 #include "rom_link.hpp"
+#include "rom_dummy.hpp"
 #include "ram_init.hpp"
 #include "cg_isel.hpp"
 #include "text.hpp"
@@ -654,9 +655,14 @@ int main(int argc, char** argv)
         gen_group_var_inits();
         output_time("init vals:");
 
+        set_compiler_phase(PHASE_ROM_DUMMY);
+        gen_rom_dummies();
+        output_time("rom dummy:    ");
+
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();
         link_variables_optimize();
+        //set_compiler_phase(PHASE_ALLOC_ROM);
         alloc_rom(nullptr, rom_allocator);
         if(compiler_options().ram_info)
         {

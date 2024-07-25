@@ -178,7 +178,8 @@ define.cpp \
 o_locator.cpp \
 ctags.cpp \
 donut.cpp \
-convert_map.cpp
+convert_map.cpp \
+rom_dummy.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

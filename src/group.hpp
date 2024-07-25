@@ -12,6 +12,7 @@
 #include "pstring.hpp"
 #include "rom_decl.hpp"
 #include "ident_map.hpp"
+#include "rom_decl.hpp"
 
 class group_vars_t
 {
@@ -43,6 +44,7 @@ private:
     rom_proc_ht m_init_proc = {};
 
     xbitset_t<gmember_ht> m_gmembers;
+
 };
 
 class group_data_t
@@ -78,9 +80,12 @@ private:
 
     group_vars_ht m_vars_h = {};
     group_data_ht m_data_h = {};
-    group_data_ht m_omni_h = {};
 
     group_ht m_handle = {};
+
+    // Some data groups require a dummy allocation to ensure they exist somewhere.
+    std::atomic<bool> m_require_bank = false;
+    rom_array_ht m_dummy;
 
 public:
     pstring_t pstring() const { return m_pstring; }
@@ -117,7 +122,6 @@ public:
     static group_t* lookup_sourceless(std::string_view view)
         { assert(view.empty() || view[0] == '/'); return view.empty() ? nullptr : group_pool_map.lookup(view); }
 
-    
     template<typename Fn>
     void for_each_const(Fn const& fn) 
     {
@@ -129,6 +133,11 @@ public:
             for(const_ht c : omni()->consts())
                 fn(c);
     }
+
+    void require_dummy() { assert(compiler_phase() <= PHASE_COMPILE); m_require_bank = true; }
+    bool dummy_required() const { assert(compiler_phase() > PHASE_COMPILE); return m_require_bank; }
+    void set_dummy(rom_array_ht h) { assert(compiler_phase() == PHASE_ROM_DUMMY); m_dummy = h; }
+    rom_array_ht dummy() const { assert(compiler_phase() >= PHASE_ROM_DUMMY); return m_dummy; }
 
     group_t(pstring_t pstring, std::string_view view, unsigned handle)
     : name(view)

@@ -451,11 +451,20 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     }
 
     // Ptrs can strip their bank:
-    if(!implicit && is_banked_ptr(from.name()) && is_ptr(to.name()))
+    if(!implicit && is_banked_ptr(from.name()) && is_ptr(to.name()) && !is_banked_ptr(to.name()))
     {
         cast_result_t result = can_cast(from.with_banked(false), to, implicit);
         if(result == CAST_NOP || result == CAST_NOP_RETYPE)
             return CAST_NOP_RETYPE;
+    }
+
+    // Ptrs can add a dummy bank:
+    if(is_ptr(from.name()) && !is_banked_ptr(from.name()) 
+       && (to.name() == TYPE_BANKED_PPTR || to == from.with_banked(true)))
+    {
+        cast_result_t result = can_cast(from.with_banked(true), to, implicit);
+        if(result == CAST_NOP || result == CAST_NOP_RETYPE)
+            return CAST_DUMMY_BANK;
     }
 
     // Ints can convert to ptrs
@@ -711,7 +720,6 @@ type_t member_type(type_t const& type, unsigned member)
     else if(type.name() == TYPE_FN_PTR)
     {
         assert(member < 2);
-        fn_set_t const& fn_set = type.fn_set();
         if(member == 1)
             return TYPE_U; // The bank
         return type_t::addr(false); // The ptrs

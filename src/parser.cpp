@@ -1257,6 +1257,11 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
         {
             parse_token();
             auto groups = parse_groups();
+            // Ugly hack: we'll force PPP to create a data group,
+            // as that's used for casting.
+            if(tn == TYPE_BANKED_PPTR)
+                for(group_ht g : groups)
+                    g->define_data({}, false);
             result.type = type_t::ptr(&*groups.begin(), &*groups.end(), tn);
             break;
         }

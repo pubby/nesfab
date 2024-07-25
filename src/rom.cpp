@@ -25,7 +25,7 @@ rom_array_t::rom_array_t(loc_vec_t&& vec, romv_allocs_t const& a, rom_key_t cons
 void rom_array_t::mark_used_by(group_data_ht gd)
 {
     assert(gd);
-    assert(compiler_phase() < rom_array_ht::phase);
+    assert(compiler_phase() <= rom_array_ht::phase);
 
     std::lock_guard<std::mutex> lock(m_mutex);
     m_used_in_group_data.set(gd.id);
@@ -148,6 +148,7 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
             locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec), false, false, ROMR_NORMAL));
             loc.advance_offset(-begin);
 
+            passert(ssa_it->type().array_length() == loc.type().array_length(), ssa_it->type(), loc.type());
             ssa_it->replace_with(loc);
             ssa_it = ssa_it->prune();
             continue;

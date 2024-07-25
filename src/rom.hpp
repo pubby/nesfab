@@ -73,7 +73,7 @@ public:
     bool align() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_align; }
     bool emits() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_emits; }
     rom_rule_t rule() const { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); return m_rule; }
-    void mark_emits() { assert(compiler_phase() >= PHASE_PREPARE_ALLOC_ROM); m_emits.store(true); }
+    void mark_emits() { assert(compiler_phase() >= PHASE_ROM_DUMMY); m_emits.store(true); }
     void mark_aligned() { m_align.store(true); }
     void mark_rule(rom_rule_t rule) { m_rule.store(rule); }
     void max_rule(rom_rule_t rule) { m_rule.store(std::max(m_rule.load(), rule)); }

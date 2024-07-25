@@ -81,6 +81,7 @@ enum locator_class_t : std::uint8_t
     LAST_LOC_LT = LOC_LT_EXPR,
 
     LOC_THIS_BANK, // Resolves to the bank its in
+    LOC_DATA_BANK, // Resolves to a bank used by the specified data group
     LOC_RESET_PROC,
     LOC_MAIN_MODE,
 
@@ -491,6 +492,12 @@ public:
         return { handle() }; 
     }
 
+    group_ht group() const 
+    { 
+        assert(lclass() == LOC_DATA_BANK);
+        return { handle() }; 
+    }
+
     runtime_ram_name_t runtime_ram() const 
     { 
         assert(lclass() == LOC_RUNTIME_RAM);
@@ -624,6 +631,9 @@ public:
 
     static locator_t this_bank()
         { return locator_t(LOC_THIS_BANK).with_is(mapper().this_bank_addr() ? IS_DEREF : IS_BANK); }
+
+    constexpr static locator_t data_bank(group_ht g)
+        { return locator_t(LOC_DATA_BANK, g.id, 0, 0).with_is(IS_BANK); }
 
     constexpr static locator_t runtime_ram(runtime_ram_name_t name, std::uint16_t offset=0)
         { return locator_t(LOC_RUNTIME_RAM, 0, name, offset); }

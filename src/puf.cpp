@@ -275,7 +275,7 @@ macro_t combine_vol_duty(inst_type_t type, macro_t volume, macro_t duty)
 
     for(std::size_t i = 0; i < max_loop + max_loop_size; ++i)
     {
-        unsigned v = (type == INST_VRC6) ? 0 : 0b0010000;
+        unsigned v = (type == INST_VRC6) ? 0 : 0b00110000;
 
         std::size_t j = i;
         while(j >= volume.sequence.size())

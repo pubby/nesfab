@@ -67,6 +67,13 @@ ssa_ht cset_head(ssa_ht h)
     }
 }
 
+ssa_ht cset_last(ssa_ht h)
+{
+    assert(h);
+    for(ssa_ht prev = h; prev; prev = cset_next(h), h = prev);
+    return h;
+}
+
 locator_t cset_locator(ssa_ht const h, bool convert_ssa)
 {
     ssa_ht const head = cset_head(h);

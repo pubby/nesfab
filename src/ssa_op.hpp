@@ -172,6 +172,7 @@ inline unsigned ssa_copy_input(ssa_op_t op)
     case SSA_make_ptr_hi:
         return 1;
     case SSA_early_store:
+    case SSA_late_store:
     case SSA_aliased_store:
     case SSA_const_store:
     case SSA_phi_copy:

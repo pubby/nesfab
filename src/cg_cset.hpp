@@ -27,6 +27,7 @@ bool cset_is_last(ssa_ht h);
 ssa_ht cset_next(ssa_ht h);
 
 ssa_ht cset_head(ssa_ht h);
+ssa_ht cset_last(ssa_ht h);
 
 locator_t cset_locator(ssa_ht h, bool convert_ssa = false);
 

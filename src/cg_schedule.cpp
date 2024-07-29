@@ -51,7 +51,7 @@ private:
     std::vector<ssa_ht> toposorted;
 
     ssa_schedule_d& data(ssa_ht h) const { return cg_data(h).schedule; }
-    int& index(ssa_ht h) const { return data(h).index; }
+    int& bs_index(ssa_ht h) const { return data(h).bitset_index; }
 
     void append_schedule(ssa_ht h);
     template<bool Fast>
@@ -69,7 +69,7 @@ private:
 
     void calc_exit_distance(ssa_ht ssa, int exit_distance=0) const;
 
-    void add_array_index(ssa_value_t index)
+    void add_array_bs_index(ssa_value_t index)
     {
         if(array_indexers[0] == index)
             return;
@@ -116,7 +116,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
     for(unsigned i = 0; i < toposorted.size(); ++i)
     {
-        index(toposorted[i]) = i;
+        bs_index(toposorted[i]) = i;
         data(toposorted[i]).deps = bitset_pool.alloc(set_size);
         data(toposorted[i]).exit_distance = MAX_EXIT_DISTANCE; // Some sufficiently large number.
     }
@@ -134,7 +134,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             auto& exit_d = data(exit);
             for(ssa_ht ssa_node : toposorted)
                 if(ssa_node != exit)
-                    bitset_set(exit_d.deps, index(ssa_node));
+                    bitset_set(exit_d.deps, bs_index(ssa_node));
             calc_exit_distance(exit);
         }
     }
@@ -166,15 +166,15 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             if(input->cfg_node() != this->cfg_node)
                 continue;
 
-            assert(index(ssa_node) > index(input));
-            bitset_set(d.deps, index(input));
+            assert(bs_index(ssa_node) > bs_index(input));
+            bitset_set(d.deps, bs_index(input));
             bitset_or(set_size, d.deps, data(input).deps);
         }
 
         // Daisy inputs are deps too:
         if(ssa_ht prev = ssa_node->prev_daisy())
         {
-            bitset_set(d.deps, index(prev));
+            bitset_set(d.deps, bs_index(prev));
             bitset_or(set_size, d.deps, data(prev).deps);
         }
     }
@@ -184,7 +184,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     carry_clobberers = bitset_pool.alloc(set_size);
     for(ssa_ht ssa_node : toposorted)
         if(ssa_flags(ssa_node->op()) & SSAF_CLOBBERS_CARRY)
-            bitset_set(carry_clobberers, index(ssa_node));
+            bitset_set(carry_clobberers, bs_index(ssa_node));
 
     // Now add extra deps to aid scheduling efficiency.
     auto propagate_deps_change = [&](ssa_ht changed)
@@ -193,7 +193,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         {
             auto& d = data(ssa_node);
             assert(d.deps);
-            if(bitset_test(d.deps, index(changed)))
+            if(bitset_test(d.deps, bs_index(changed)))
                 bitset_or(set_size, d.deps, data(changed).deps);
         }
     };
@@ -210,7 +210,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                 auto& bs = read_map[loc];
                 if(!bs)
                     bs = bitset_pool.alloc(set_size);
-                bitset_set(bs, index(ssa_node));
+                bitset_set(bs, bs_index(ssa_node));
             });
         }
         else if(ssa_node->op() == SSA_read_global)
@@ -221,7 +221,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
             ssa_ht const input = ssa_node->input(0).handle();
             assert(input->cfg_node() == this->cfg_node);
-            bitset_set(bs, index(input));
+            bitset_set(bs, bs_index(input));
         }
     }
 
@@ -272,7 +272,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             continue;
 
         auto& d = data(writer);
-        unsigned const index_ = index(writer);
+        unsigned const index_ = bs_index(writer);
 
         // - identify if the writer depends on other writes
         bool updated = false;
@@ -301,7 +301,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                     return;
 
                 // Add a dep!
-                bitset_set(d.deps, index(o));
+                bitset_set(d.deps, bs_index(o));
                 bitset_or(set_size, d.deps, od.deps);
                 updated = true;
             }
@@ -345,7 +345,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             continue;
 
         auto& d = data(ssa_node);
-        unsigned const index_ = index(ssa_node);
+        unsigned const index_ = bs_index(ssa_node);
         auto& user_d = data(user);
 
         assert(d.deps);
@@ -364,7 +364,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         [&](unsigned bit)
         { 
             assert(bit < toposorted.size());
-            assert(index(toposorted[bit]) == bit);
+            assert(bs_index(toposorted[bit]) == bit);
             auto& od = data(toposorted[bit]);
             assert(od.deps);
 
@@ -398,7 +398,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
         auto& carry_d = data(carry);
         auto& d = data(ssa_node);
-        unsigned const index_ = index(ssa_node);
+        unsigned const index_ = bs_index(ssa_node);
 
         // When a node outputs a carry, 
         // make that node depend on other carry-clobering ops.
@@ -409,10 +409,10 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         for(unsigned i = 0; i < set_size; ++i)
             temp_set[i] = ~carry_d.deps[i] & carry_clobberers[i];
         bitset_clear(temp_set, index_);
-        bitset_clear(temp_set, index(carry));
+        bitset_clear(temp_set, bs_index(carry));
 
         assert(!bitset_test(temp_set, index_));
-        assert(!bitset_test(temp_set, index(carry)));
+        assert(!bitset_test(temp_set, bs_index(carry)));
 
         bool updated = false;
 
@@ -420,7 +420,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
         [&](unsigned bit)
         { 
             assert(bit < toposorted.size());
-            assert(index(toposorted[bit]) == bit);
+            assert(bs_index(toposorted[bit]) == bit);
             auto& od = data(toposorted[bit]);
             assert(od.deps);
 
@@ -472,11 +472,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                    || locator_output(daisy, loc) >= 0)
                 {
                     // Can't add a dep if a cycle would be created:
-                    if(bitset_test(data(daisy).deps, index(ssa_node)))
+                    if(bitset_test(data(daisy).deps, bs_index(ssa_node)))
                         break;
 
                     // Add a dep!
-                    bitset_set(d.deps, index(daisy));
+                    bitset_set(d.deps, bs_index(daisy));
                     bitset_or(set_size, d.deps, data(daisy).deps);
                     propagate_deps_change(ssa_node);
 
@@ -513,11 +513,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                         return;
 
                     // Can't add a dep if a cycle would be created:
-                    if(bitset_test(data(phi_output).deps, index(ssa_node)))
+                    if(bitset_test(data(phi_output).deps, bs_index(ssa_node)))
                         return;
 
                     // Add a dep!
-                    bitset_set(d.deps, index(phi_output));
+                    bitset_set(d.deps, bs_index(phi_output));
                     bitset_or(set_size, d.deps, data(phi_output).deps);
                     propagate_deps_change(ssa_node);
                 });
@@ -562,11 +562,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                 return;
 
             // Can't add a dep if a cycle would be created:
-            if(bitset_test(data(read).deps, index(ssa_node)))
+            if(bitset_test(data(read).deps, bs_index(ssa_node)))
                 return;
 
             // Add a dep!
-            bitset_set(d.deps, index(read));
+            bitset_set(d.deps, bs_index(read));
             bitset_or(set_size, d.deps, data(read).deps);
             propagate_deps_change(ssa_node);
 
@@ -583,11 +583,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
                 // Can't add a dep if a cycle would be created:
                 passert(data(output).deps, output, output->op());
-                if(bitset_test(data(output).deps, index(ssa_node)))
+                if(bitset_test(data(output).deps, bs_index(ssa_node)))
                     return;
 
                 // Add a dep!
-                bitset_set(d.deps, index(output));
+                bitset_set(d.deps, bs_index(output));
                 bitset_or(set_size, d.deps, data(output).deps);
                 propagate_deps_change(ssa_node);
 
@@ -624,12 +624,12 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                 return;
 
             // Can't add a dep if a cycle would be created:
-            if(bitset_test(d.deps, index(use)))
+            if(bitset_test(d.deps, bs_index(use)))
                 return;
 
             // Add a dep!
             auto& ud = data(use);
-            bitset_set(ud.deps, index(ssa_node));
+            bitset_set(ud.deps, bs_index(ssa_node));
             bitset_or(set_size, ud.deps, d.deps);
             propagate_deps_change(use);
         });
@@ -658,12 +658,12 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                     continue;
 
                 // Can't add a dep if a cycle would be created:
-                if(bitset_test(data(ssa_node).deps, index(output)))
+                if(bitset_test(data(ssa_node).deps, bs_index(output)))
                     continue;
 
                 // Add a dep!
                 auto& d = data(output);
-                bitset_set(d.deps, index(ssa_node));
+                bitset_set(d.deps, bs_index(ssa_node));
                 bitset_or(set_size, d.deps, data(ssa_node).deps);
                 propagate_deps_change(output);
             }
@@ -706,11 +706,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
                 auto& d = data(copy_output);
 
                 // Can't add a dep if a cycle would be created:
-                if(bitset_test(data(ptr_output).deps, index(copy_output)))
+                if(bitset_test(data(ptr_output).deps, bs_index(copy_output)))
                     continue;
 
                 // Add a dep!
-                bitset_set(d.deps, index(ptr_output));
+                bitset_set(d.deps, bs_index(ptr_output));
                 bitset_or(set_size, d.deps, data(ptr_output).deps);
                 propagate_deps_change(copy_output);
             }
@@ -747,11 +747,11 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
             auto& d = data(oe.handle);
 
             // Can't add a dep if a cycle would be created:
-            if(bitset_test(data(ssa_node).deps, index(oe.handle)))
+            if(bitset_test(data(ssa_node).deps, bs_index(oe.handle)))
                 continue;
 
             // Add a dep!
-            bitset_set(d.deps, index(ssa_node));
+            bitset_set(d.deps, bs_index(ssa_node));
             bitset_or(set_size, d.deps, data(ssa_node).deps);
             propagate_deps_change(oe.handle);
         }
@@ -768,22 +768,60 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
 void scheduler_t::append_schedule(ssa_ht h)
 {
-    bitset_set(scheduled, index(h));
-    schedule.push_back(h);
+    auto const append = [this](ssa_ht h)
+    {
+        data(h).index = schedule.size();
+        schedule.push_back(h);
+    };
 
-    // Handle array indexes
-    if(ssa_indexes8(h->op()))
-        add_array_index(h->input(ssa_index8_input(h->op())));
+    auto const op = h->op();
 
-    // Handle banks
+    // Always mark it as scheduled:
+    bitset_set(scheduled, bs_index(h));
+
+    // For nodes that write globals, we'll schedule 'late_store'
+    // nodes just before their usage.
+    if(ssa_flags(op) & SSAF_WRITE_GLOBALS)
+    {
+        bc::small_vector<ssa_ht, 16> inputs;
+
+        unsigned const input_size = h->input_size();
+        for(unsigned i = write_globals_begin(op); i < input_size; i += 2)
+        {
+            ssa_value_t input = h->input(i);
+            passert(input.holds_ref(), op, input);
+            assert(input->op() == SSA_late_store);
+            assert(input->cfg_node() == h->cfg_node());
+
+            inputs.push_back(input.handle());
+        }
+
+        // Preserve the order:
+        std::sort(inputs.begin(), inputs.end(), [&](ssa_ht a, ssa_ht b) -> bool
+        {
+            return data(a).index < data(b).index;
+        });
+
+        for(ssa_ht input : inputs)
+            append(input);
+    }
+
+    if(op != SSA_late_store) // We'll handle late stores later.
+        append(h); // Add it to the schedule.
+
+    // Handle array indexes:
+    if(ssa_indexes8(op))
+        add_array_bs_index(h->input(ssa_index8_input(h->op())));
+
+    // Handle banks:
     if(ssa_banks(h->op()))
-        if(ssa_value_t bank = h->input(ssa_bank_input(h->op())))
+        if(ssa_value_t bank = h->input(ssa_bank_input(op)))
             ptr_banker = bank;
 
     // If this is a global read, add it to our set:
-    if(h->op() == SSA_read_global)
+    if(op == SSA_read_global)
         unused_global_reads.insert(h);
-    if(is_fn_call(h->op(), true))
+    if(is_fn_call(op, true))
     {
         // When calling a function, clear our set:
         unused_global_reads.clear();
@@ -844,7 +882,7 @@ void scheduler_t::run()
             {
                 ssa_ht const h = *it;
 
-                if(bitset_test(scheduled, index(h)))
+                if(bitset_test(scheduled, bs_index(h)))
                     it = toposorted.erase(it);
                 else if(ready(~0, h, scheduled))
                 {
@@ -872,7 +910,7 @@ void scheduler_t::run()
         append_schedule(candidate);
 
         // If this node inputs or clobbers a carry, stop tracking it:
-        if(candidate == carry_input_waiting || bitset_test(carry_clobberers, index(candidate)))
+        if(candidate == carry_input_waiting || bitset_test(carry_clobberers, bs_index(candidate)))
             carry_input_waiting = {};
 
         // If this node outputs a carry, track it:
@@ -882,11 +920,11 @@ void scheduler_t::run()
 
     passert(schedule.size() == cfg_node->ssa_size(), schedule.size(), cfg_node->ssa_size());
 
-    // Finally, re-assign 'index' to hold the position in the schedule:
+    // Finally, update 'data':
 
     for(unsigned i = 0; i < schedule.size(); ++i)
     {
-        index(schedule[i]) = i;
+        assert(data(schedule[i]).index == i);
         data(schedule[i]).deps = nullptr;
     }
 }
@@ -897,7 +935,7 @@ bool scheduler_t::ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled
 
     auto& d = data(h);
 
-    if(bitset_test(scheduled, index(h))) // If already scheduled
+    if(bitset_test(scheduled, bs_index(h))) // If already scheduled
         return false;
 
     // A node is ready when all of its inputs are scheduled.
@@ -909,7 +947,7 @@ bool scheduler_t::ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled
         return true;
 
     // If a carry is live, we can't schedule any carry-clobbering ops.
-    if(carry_input_waiting && h != carry_input_waiting && bitset_test(carry_clobberers, index(h)))
+    if(carry_input_waiting && h != carry_input_waiting && bitset_test(carry_clobberers, bs_index(h)))
         return false;
 
     if(relax >= 1)
@@ -928,7 +966,7 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
     auto* new_bitset = ALLOCA_T(bitset_uint_t, set_size);
     bitset_copy(set_size, new_bitset, scheduled);
     // 'new_bitset' assumes 'h' will be scheduled:
-    bitset_set(new_bitset, index(h));
+    bitset_set(new_bitset, bs_index(h));
 
     if(ssa_flags(h->op()) & SSAF_PRIO_SCHEDULE)
         return 0;
@@ -1022,7 +1060,7 @@ ssa_ht scheduler_t::successor_search(ssa_ht last_scheduled)
         {
             // Some nodes are so trivial we might as well schedule them next:
             if((ssa_flags(succ->op()) & SSAF_CHEAP_SCHEDULE)
-               && !bitset_test(scheduled, index(succ)))
+               && !bitset_test(scheduled, bs_index(succ)))
             {
                 retry_from = last_scheduled;
                 return succ;

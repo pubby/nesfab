@@ -235,4 +235,7 @@ SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE | SSAF_CHEA
 SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_CHEAP_SCHEDULE) // TODO: is this really necessary?
 SSA_DEF(const_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE | SSAF_CHEAP_SCHEDULE)
 
+// (node, locator)
+SSA_DEF(late_store, 2, INPUT_VALUE,  SSAF_COPY)
+
 #undef SSA_DEF

@@ -235,6 +235,9 @@ public:
     template<do_t D>
     void do_expr_result(ast_node_t const&, type_t expected_result);
 
+    template<do_t D>
+    void do_fence(ssa_op_t ssa_op);
+
     template<do_t D, assign_mode_t A = ASSIGN>
     expr_value_t do_assign(expr_value_t lhs, expr_value_t rhs, token_t const& token);
 
@@ -1641,53 +1644,7 @@ void eval_t::compile_block()
         ssa_op = SSA_fence;
         // fall-through
     do_fence:
-        {
-            if(precheck_tracked)
-                precheck_tracked->fences.push_back(stmt_pstring_mods());
-            bc::small_vector<ssa_value_t, 32> inputs;
-
-            block_d& block_data = builder.cfg.data<block_d>();
-            ssa_ht const fenced = builder.cfg->emplace_ssa(ssa_op, TYPE_VOID);
-            fenced->append_daisy();
-
-            if(ssa_op == SSA_cli)
-            {
-                expr_value_t v = do_expr<COMPILE>(*stmt->expr);
-                v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
-                inputs.push_back(v.ssa());
-            }
-
-            ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
-            {
-                for(gmember_ht m : gvar->handles())
-                {
-                    inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
-                    inputs.push_back(locator_t::gmember(m, 0));
-
-                    // Create writes after reads:
-                    ssa_ht const read = builder.cfg->emplace_ssa(
-                        SSA_read_global, m->type(), fenced, locator_t::gmember(m, 0));
-                    block_data.var(to_var_i(index))[m->member()] = read;
-                }
-            });
-
-            ir->gmanager.for_each_gmember_set(base_fn->handle(),
-            [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
-            {
-                if(!bitset_all_clear(gmember_ht::bitset_size(), gmember_set))
-                {
-                    inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
-                    inputs.push_back(locator);
-
-                    // Create writes after reads:
-                    ssa_ht const read = builder.cfg->emplace_ssa(
-                        SSA_read_global, TYPE_VOID, fenced, locator);
-                    block_data.var(to_var_i(index))[0] = read;
-                }
-            });
-
-            fenced->link_append_input(&*inputs.begin(), &*inputs.end());
-        }
+        do_fence<COMPILE>(ssa_op);
         ++stmt;
         break;
 
@@ -1986,7 +1943,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         };
     };
 
-    auto const infix = [&](auto const& fn, bool flipped = false, bool lhs_lval = false) -> expr_value_t
+    auto const infix = [&](auto const& fn, bool flipped = false, bool lhs_lval = false, bool fence = false) -> expr_value_t
     {
         auto* ast_lhs = &ast.children[0];
         auto* ast_rhs = &ast.children[1];
@@ -1997,8 +1954,40 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         expr_value_t lhs = do_expr<D>(*ast_lhs);
         if(!lhs_lval)
             lhs = to_rval<D>(std::move(lhs));
-        expr_value_t rhs = to_rval<D>(do_expr<D>(*ast_rhs));
-        return (this->*fn)(std::move(lhs), std::move(rhs), ast.token);
+
+        bool insert_fences = false;
+
+        // HACK:
+        // Code gen is improved by inserting fences around array writes.
+        if(fence)
+        {
+            lval_t* const lval = lhs.is_lval();
+
+            if(lval && lval->is_global() && lval->global().gclass() == GLOBAL_VAR
+               && !lval->index())
+            {
+                gvar_ht const gvar = lval->global().handle<gvar_ht>();
+                for(gmember_ht m : gvar->handles())
+                {
+                    if(is_tea(m->type().name()))
+                    {
+                        insert_fences = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if(insert_fences)
+            this->do_fence<D>(SSA_fence);
+
+        expr_value_t rhs = this->to_rval<D>(do_expr<D>(*ast_rhs));
+        expr_value_t ret = (this->*fn)(std::move(lhs), std::move(rhs), ast.token);
+
+        if(insert_fences)
+            this->do_fence<D>(SSA_fence);
+
+        return ret;
     };
 
     // Declare cross-label vars before switch.
@@ -4474,7 +4463,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         return do_min_max<D>(ast);
 
     case TOK_assign:
-        return infix(&eval_t::do_assign<D>, false, true);
+        return infix(&eval_t::do_assign<D>, false, true, true);
 
     case TOK_logical_and:
     case TOK_logical_or:
@@ -5557,6 +5546,60 @@ void eval_t::do_swap(expr_value_t a, expr_value_t b)
     do_assign<D>(std::move(b), std::move(temp), token);
 }
 
+template<eval_t::do_t D>
+void eval_t::do_fence(ssa_op_t ssa_op)
+{
+    if(precheck_tracked)
+        precheck_tracked->fences.push_back(stmt_pstring_mods());
+
+    if(!is_compile(D))
+        return;
+
+    bc::small_vector<ssa_value_t, 32> inputs;
+
+    block_d& block_data = builder.cfg.data<block_d>();
+    ssa_ht const fenced = builder.cfg->emplace_ssa(ssa_op, TYPE_VOID);
+    fenced->append_daisy();
+
+    if(ssa_op == SSA_cli)
+    {
+        expr_value_t v = do_expr<COMPILE>(*stmt->expr);
+        v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
+        inputs.push_back(v.ssa());
+    }
+
+    ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
+    {
+        for(gmember_ht m : gvar->handles())
+        {
+            inputs.push_back(var_lookup(builder.cfg, to_var_i(index), m->member()));
+            inputs.push_back(locator_t::gmember(m, 0));
+
+            // Create writes after reads:
+            ssa_ht const read = builder.cfg->emplace_ssa(
+                SSA_read_global, m->type(), fenced, locator_t::gmember(m, 0));
+            block_data.var(to_var_i(index))[m->member()] = read;
+        }
+    });
+
+    ir->gmanager.for_each_gmember_set(base_fn->handle(),
+    [&](bitset_uint_t const* gmember_set, gmanager_t::index_t index,locator_t locator)
+    {
+        if(!bitset_all_clear(gmember_ht::bitset_size(), gmember_set))
+        {
+            inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
+            inputs.push_back(locator);
+
+            // Create writes after reads:
+            ssa_ht const read = builder.cfg->emplace_ssa(
+                SSA_read_global, TYPE_VOID, fenced, locator);
+            block_data.var(to_var_i(index))[0] = read;
+        }
+    });
+
+    fenced->link_append_input(&*inputs.begin(), &*inputs.end());
+}
+
 template<eval_t::do_t D, eval_t::assign_mode_t A>
 expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const&)
 {
@@ -5570,11 +5613,13 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
         if(global.gclass() == GLOBAL_VAR)
         {
+            gvar_ht const gvar = global.handle<gvar_ht>();
+
             if(!is_check(D))
-                lval->set_var_i(to_var_i(global.handle<gvar_ht>()));
+                lval->set_var_i(to_var_i(gvar));
 
             if(precheck_tracked)
-                precheck_tracked->gvars_used.emplace(global.handle<gvar_ht>(), lhs.pstring);
+                precheck_tracked->gvars_used.emplace(gvar, lhs.pstring);
         }
         else if(!lhs.is_deref() && !is_check(D))
             compiler_error(pstring, fmt("Unable to modify %", global.name));

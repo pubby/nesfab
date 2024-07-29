@@ -1136,6 +1136,12 @@ void ir_t::assert_valid(bool cg) const
             {
                 passert(ssa_it->output_size() <= 1, ssa_it->op(), ssa_it->output_size());
             }
+
+            // Late Store Checks
+            if(ssa_it->op() == SSA_late_store)
+            {
+                passert(ssa_it->output_size() <= 1, ssa_it->op(), ssa_it->output_size());
+            }
         }
     }
 }

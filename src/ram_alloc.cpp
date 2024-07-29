@@ -1065,7 +1065,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
         // If that fails, we're fucked.
         if(!span)
-            throw std::runtime_error("Unable to allocate local variable (out of RAM).");
+            throw std::runtime_error(fmt("Unable to allocate local variable in fn % (out of RAM).", fn.global.name));
 
         dprint(log, "--RESULT", span);
 

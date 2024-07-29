@@ -2356,7 +2356,9 @@ namespace isel
                     , label<loop_label>
                     >);
 
-                for(unsigned page = 0; page < len; page += 256)
+                unsigned const rounded_len = len & ~0xFF;
+
+                for(unsigned page = 0; page < rounded_len; page += 256)
                 {
                     p_arg<0>::set(from, page);
                     p_arg<1>::set(def,  page);
@@ -2377,44 +2379,49 @@ namespace isel
             }
 
             unsigned const start = len - (len % 256);
-            unsigned const iter = (len % 256) / half_unroll;
+            unsigned iter = (len % 256) / half_unroll;
             assert(iter <= 0x80);
 
-            p_arg<0>::set(locator_t::const_byte(iter - 1));
-            p_arg<1>::set(from, 0 * iter + start);
-            p_arg<2>::set(def,  0 * iter + start);
-            p_arg<3>::set(from, 1 * iter + start);
-            p_arg<4>::set(def,  1 * iter + start);
-            loop_label::set(state.minor_label());
-            
-            select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+            if(iter > 1)
             {
-                chain
-                < load_X<Opt, p_arg<0>>
-                , label<loop_label>
-                , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<1>>
-                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
-                , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<3>>
-                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<4>>
-                , simple_op<Opt, DEX_IMPLIED>
-                , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
-                , clear_conditional
-                , set_defs<Opt, REGF_X, true, const_<0xFF>>
-                >(cpu, prev, cont);
+                p_arg<0>::set(locator_t::const_byte(iter - 1));
+                p_arg<1>::set(from, 0 * iter + start);
+                p_arg<2>::set(def,  0 * iter + start);
+                p_arg<3>::set(from, 1 * iter + start);
+                p_arg<4>::set(def,  1 * iter + start);
+                loop_label::set(state.minor_label());
+                
+                select_step<false>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+                {
+                    chain
+                    < load_X<Opt, p_arg<0>>
+                    , label<loop_label>
+                    , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<1>>
+                    , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
+                    , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<3>>
+                    , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<4>>
+                    , simple_op<Opt, DEX_IMPLIED>
+                    , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
+                    , clear_conditional
+                    , set_defs<Opt, REGF_X, true, const_<0xFF>>
+                    >(cpu, prev, cont);
 
-                chain
-                < load_Y<Opt, p_arg<0>>
-                , label<loop_label>
-                , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<1>>
-                , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<2>>
-                , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<3>>
-                , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<4>>
-                , simple_op<Opt, DEY_IMPLIED>
-                , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
-                , clear_conditional
-                , set_defs<Opt, REGF_Y, true, const_<0xFF>>
-                >(cpu, prev, cont);
-            });
+                    chain
+                    < load_Y<Opt, p_arg<0>>
+                    , label<loop_label>
+                    , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<1>>
+                    , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<2>>
+                    , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<3>>
+                    , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<4>>
+                    , simple_op<Opt, DEY_IMPLIED>
+                    , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
+                    , clear_conditional
+                    , set_defs<Opt, REGF_Y, true, const_<0xFF>>
+                    >(cpu, prev, cont);
+                });
+            }
+            else
+                iter = 0;
 
             for(unsigned i = iter * half_unroll; i < (len % 256); ++i)
             {
@@ -2426,27 +2433,6 @@ namespace isel
 
         if(len < resize_to)
             fill_array<Opt>(def, ssa_value_t(0, TYPE_U), len, resize_to - len);
-    }
-
-    template<typename Opt>
-    void write_globals(ssa_ht h)
-    {
-        // TODO: Create a sorted order of the globals before writing.
-        for_each_written_global(h, [](ssa_value_t def, locator_t loc)
-        {
-            if(def.is_handle() && cset_locator(def.handle()) == loc)
-                return;
-
-            if(is_tea(def.type().name()))
-                copy_array<Opt>(def, loc);
-            else
-            {
-                p_def::set(def);
-                p_arg<0>::set(loc);
-
-                select_step<true>(load_then_store<Opt, p_def, p_def, p_arg<0>, false>);
-            }
-        });
     }
 
     template<typename Opt, typename Def, typename Array, typename Index>
@@ -4608,23 +4594,12 @@ namespace isel
             }
             break;
 
-        case SSA_return:
-        case SSA_fn_call:
-        case SSA_fn_ptr_call:
-        case SSA_wait_nmi:
-        case SSA_cli:
-            write_globals<Opt>(h);
-            goto simple;
-
         case SSA_fence:
-            write_globals<Opt>(h);
             select_step<true>(simple_op<Opt, ASM_FENCE>);
             break;
 
         case SSA_goto_mode:
             {
-                write_globals<Opt>(h);
-
                 assert(h->input(0).is_locator());
                 assert(h->input(0).locator().lclass() == LOC_FN);
 
@@ -4821,7 +4796,9 @@ namespace isel
             goto simple;
 
         case SSA_early_store:
-            passert(h->type() == h->input(0).type(), h->type(), h->input(0).type());
+            passert(h->type() == h->input(0).type(), h->type(), h->input(0).type(), h->op(), h->input(0));
+            // fall-through
+        case SSA_late_store:
 
             if(h->input(0).holds_ref() && cset_head(h) == cset_head(h->input(0).handle()))
                 select_step<true>(ignore_req_store<p_def>);

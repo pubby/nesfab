@@ -51,6 +51,7 @@ struct ssa_schedule_d
     ssa_ht carry_user = {};
     int exit_distance = 0;
 
+    int bitset_index = 0;
     int index = 0;
 };
 

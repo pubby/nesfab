@@ -1422,9 +1422,9 @@ See the standard library file `lib/mapper/rainbow.fab`.
 | 8192 KiB
 
 | <<opt_chr, CHR (Tilesets)>>
-| 8 KiB (RAM)
-| 8192 KiB (RAM)
-| 8192 KiB (RAM)
+| 8 KiB
+| 8192 KiB
+| 8192 KiB
 
 |===
 

@@ -562,6 +562,9 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
             track_t& track = tracks[t];
             std::array<std::vector<int>, MAX_CHAN> penguin_channels;
 
+            if(track.patterns.empty())
+                track.patterns[0] = {};
+
             // Determine the pattern size:
             std::uint8_t pattern_sizes = 0b11111100;
 
@@ -569,6 +572,9 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
             {
                 for(std::size_t k = 0; k < num_chan; ++k)
                 {
+                    assert(num_chan <= pattern_array.size());
+                    passert(track.patterns.count(pattern_array.at(k)), track.patterns.size(), pattern_array.at(k), pattern_array.size(), t);
+
                     auto const& pv = track.patterns.at(pattern_array.at(k));
                     unsigned size = 0;
                     for(row_t const& row : pv)
@@ -597,6 +603,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 
                 for(std::size_t k = 0; k < num_chan; ++k)
                 {
+                    assert(num_chan <= pattern_array.size());
                     auto const& pv = track.patterns.at(pattern_array[k]);
                     unsigned size = 0;
                     for(row_t const& row : pv)
@@ -615,6 +622,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 
                 for(std::size_t k = 0; k < num_chan; ++k)
                 {
+                    assert(num_chan <= pattern_array.size());
                     auto const& pv = track.patterns.at(pattern_array[k]);
                     for(std::size_t i = 0; i < ps; ++i)
                     {

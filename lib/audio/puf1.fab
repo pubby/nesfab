@@ -83,7 +83,7 @@ ct Int _channels = 5 + _exp_channels
 
 vars
     AA puf_ptr_temp
-    AA puf_track_ptr
+    AA puf_trackv_ptr
     AA puf_note_table_ptr
     AA puf_square1_pattern_ptr
     AA puf_square2_pattern_ptr
@@ -107,11 +107,11 @@ ct AA puf_stack_mem = $108
 ct AA puf_temp                = puf_stack_mem + 0
 ct AA puf_bank                = puf_stack_mem + 1
 ct AA puf_pattern_left        = puf_stack_mem + 2
-ct AA puf_track_step          = puf_stack_mem + 3
+ct AA puf_trackv_step          = puf_stack_mem + 3
 
-ct AA puf_track_speed         = puf_stack_mem + 4 // Note: This may not equal the actual speed.
-ct AA puf_track_start         = puf_stack_mem + 5 // 2 bytes
-ct AA puf_track_end           = puf_stack_mem + 7 // 2 bytes
+ct AA puf_trackv_speed         = puf_stack_mem + 4 // Note: This may not equal the actual speed.
+ct AA puf_trackv_start         = puf_stack_mem + 5 // 2 bytes
+ct AA puf_trackv_end           = puf_stack_mem + 7 // 2 bytes
 ct AA puf_pattern_size        = puf_stack_mem + 9
 ct AA puf_enable              = puf_stack_mem + 10
 ct AA puf_finished            = puf_stack_mem + 11
@@ -567,8 +567,8 @@ asm fn puf(U arg) Bool
         sta $4015
     label done_dpcm
 
-        lda puf_track_speed
-        sta puf_track_step
+        lda puf_trackv_speed
+        sta puf_trackv_step
 
         rts
 
@@ -745,55 +745,55 @@ asm fn puf(U arg) Bool
         rts
     label update_pattern_ptrs_dont_dec
 
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_square1_pattern_ptr.a
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_square1_pattern_ptr.b
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_square2_pattern_ptr.a
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_square2_pattern_ptr.b
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_triangle_pattern_ptr.a
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_triangle_pattern_ptr.b
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_noise_pattern_ptr.a
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_noise_pattern_ptr.b
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_dpcm_pattern_ptr.a
         iny
-        lda (&puf_track_ptr.a), y
+        lda (&puf_trackv_ptr.a), y
         sta &puf_dpcm_pattern_ptr.b
         if _exp_channels >= 1
             iny
-            lda (&puf_track_ptr.a), y
+            lda (&puf_trackv_ptr.a), y
             sta &puf_exp1_pattern_ptr.a
             iny
-            lda (&puf_track_ptr.a), y
+            lda (&puf_trackv_ptr.a), y
             sta &puf_exp1_pattern_ptr.b
         if _exp_channels >= 2
             iny
-            lda (&puf_track_ptr.a), y
+            lda (&puf_trackv_ptr.a), y
             sta &puf_exp2_pattern_ptr.a
             iny
-            lda (&puf_track_ptr.a), y
+            lda (&puf_trackv_ptr.a), y
             sta &puf_exp2_pattern_ptr.b
         if _exp_channels >= 3
             iny
-            lda (&puf_track_ptr.a), y
+            lda (&puf_trackv_ptr.a), y
             sta &puf_exp3_pattern_ptr.a
             iny
-            lda (&puf_track_ptr.a), y
+            lda (&puf_trackv_ptr.a), y
             sta &puf_exp3_pattern_ptr.b
 
         lda puf_pattern_size
@@ -807,31 +807,31 @@ asm fn puf(U arg) Bool
         jmp reset_init
     label update_track_ptr
         if __illegal
-            lax &puf_track_ptr.a
+            lax &puf_trackv_ptr.a
             axs #-(_channels * 2)
         else
-            lda &puf_track_ptr.a
+            lda &puf_trackv_ptr.a
             clc
             adc #_channels * 2
             tax
         lda #0
         sta puf_finished
         tay              // Set Y = 0 for mask loads.              
-        adc &puf_track_ptr.b
-        cmp puf_track_end+1
+        adc &puf_trackv_ptr.b
+        cmp puf_trackv_end+1
         bne store_track
-        cpx puf_track_end+0
+        cpx puf_trackv_end+0
         bne store_track
         lda #1
         sta puf_finished
         lda puf_enable
         bpl ignore_track
     label loop_track
-        ldx puf_track_start+0
-        lda puf_track_start+1
+        ldx puf_trackv_start+0
+        lda puf_trackv_start+1
     label store_track
-        stx &puf_track_ptr.a
-        sta &puf_track_ptr.b
+        stx &puf_trackv_ptr.a
+        sta &puf_trackv_ptr.b
     label ignore_track
 
         lda (&puf_square1_pattern_ptr.a), y
@@ -866,13 +866,13 @@ asm fn puf(U arg) Bool
         bne early_return
         lda &arg
         sta puf_enable
-        lda puf_track_speed
+        lda puf_trackv_speed
         beq play_registers
 
         ldy puf_bank
         switch y
-        dec puf_track_step
-        ldx puf_track_step
+        dec puf_trackv_step
+        ldx puf_trackv_step
         lda track_step_function_lo, x
         sta &puf_ptr_temp.a
         lda track_step_function_hi, x
@@ -1402,8 +1402,8 @@ asm fn puf(U arg) Bool
         sta puf_bank
 
         lda #0
-        sta puf_track_speed
-        sta puf_track_step
+        sta puf_trackv_speed
+        sta puf_trackv_step
         sta puf_finished
 
         if _exp_channels >= 1
@@ -1432,22 +1432,22 @@ asm fn puf(U arg) Bool
         lda &puf_tracks_speed, x
         sta &return
         jsr set_speed_from_a
-        sta puf_track_step // speed is in A
+        sta puf_trackv_step // speed is in A
 
         lda &puf_tracks_pattern_size, x
         sta puf_pattern_size
 
         lda &puf_tracks_begin_lo, x
-        sta &puf_track_ptr.a
-        sta puf_track_start+0
+        sta &puf_trackv_ptr.a
+        sta puf_trackv_start+0
         lda &puf_tracks_begin_hi, x
-        sta &puf_track_ptr.b
-        sta puf_track_start+1
+        sta &puf_trackv_ptr.b
+        sta puf_trackv_start+1
 
         lda &puf_tracks_end_lo, x
-        sta puf_track_end+0
+        sta puf_trackv_end+0
         lda &puf_tracks_end_hi, x
-        sta puf_track_end+1
+        sta puf_trackv_end+1
 
         lda #%00001000
         sta $4001
@@ -1491,7 +1491,7 @@ asm fn puf(U arg) Bool
     label double_speed
         adc #30-1
     label store_speed
-        sta puf_track_speed // Return with value in A
+        sta puf_trackv_speed // Return with value in A
         rts
         
 

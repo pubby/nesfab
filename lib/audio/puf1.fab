@@ -1339,10 +1339,17 @@ asm fn puf(U arg) Bool
         jmp unlock
 
     label reset_init
+        ldx #0
+        stx puf_trackv_speed
+        inx // X = 1
+        stx puf_finished
+        stx puf_trackv_step
+
         ldx #puf_instrument_ptrs.a+1
         stx puf_noise_stack
         stx puf_noise_stack_next
         ldx #puf_instrument_ptrs.a+3
+        lda puf_square1_stack_next
         stx puf_triangle_stack
         stx puf_triangle_stack_next
         ldx #puf_instrument_ptrs.a+5
@@ -1401,11 +1408,6 @@ asm fn puf(U arg) Bool
             sta puf_instrument_ptrs+13+_note_channels*4
         sta puf_bank
 
-        lda #0
-        sta puf_trackv_speed
-        sta puf_trackv_step
-        sta puf_finished
-
         if _exp_channels >= 1
             jsr reset_exp1
         if _exp_channels >= 2
@@ -1423,11 +1425,13 @@ asm fn puf(U arg) Bool
         inc &puf_lock
 
         jsr reset_init
+        dec puf_finished // puf_finished = 0
 
         ldx &arg
         ldy &puf_tracks_bank, x
         sty puf_bank
-        switch y
+        switch y // Assume this clobbers every register.
+        ldx &arg // Reload
 
         lda &puf_tracks_speed, x
         sta &return

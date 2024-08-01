@@ -3629,7 +3629,7 @@ namespace isel
                     ror_implied:
                         chain
                         < load_AC<Opt, p_lhs, p_rhs>
-                        , simple_op<Opt, ROR_IMPLIED, p_lhs>
+                        , simple_op<Opt, ROR_IMPLIED, p_def>
                         , store<Opt, STA, p_def, p_def>
                         , set_defs<Opt, REGF_C, true, p_carry_output>
                         >(cpu, prev, cont);

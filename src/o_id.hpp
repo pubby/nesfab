@@ -6,6 +6,6 @@
 class ir_t;
 
 // Applies various math identities to the code.
-bool o_identities(log_t* log, ir_t& ir);
+bool o_identities(log_t* log, ir_t& ir, bool post_byteified);
 
 #endif

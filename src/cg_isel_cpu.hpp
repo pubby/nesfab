@@ -3,6 +3,9 @@
 
 #include <array>
 #include <cstdint>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include "asm.hpp"
 #include "locator.hpp"
@@ -299,7 +302,6 @@ struct cpu_t
     bool set_output_defs_impl(options_t opt, locator_t value)
     {
         constexpr regs_t Regs = op_output_regs(Op) & REGF_ISEL;
-        //assert(!value.is_const_num());
         return set_defs<Regs>(opt, value);
     }
 

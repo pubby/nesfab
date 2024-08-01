@@ -136,7 +136,7 @@ public:
         // Now replace the old nodes with the defining one:
         for(unsigned i = 1; i < set.size(); ++i)
         {
-            dprint(log, "GVN_REPLACE", set[i], "with", set[0]);
+            dprint(log, "GVN_REPLACE", set[i], set[i]->op(), "with", set[0], set[0]->op());
             set[i]->replace_with(set[0]);
             set[i]->prune();
         }

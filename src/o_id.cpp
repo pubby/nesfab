@@ -1,6 +1,9 @@
 #include "o_id.hpp"
 
 #include <cstdint>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include <boost/container/small_vector.hpp>
 #include <boost/container/static_vector.hpp>
@@ -18,7 +21,7 @@ namespace bc = ::boost::container;
 
 // Replaces single nodes with one of their inputs.
 // (e.g. X + 0 becomes X, or Y & ~0 becomes Y)
-static bool o_simple_identity(log_t* log, ir_t& ir)
+static bool o_simple_identity(log_t* log, ir_t& ir, bool post_byteified)
 {
     dprint(log, "SIMPLE_IDENTITY");
     bool updated = false;
@@ -709,7 +712,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
         {
             fixed_t const all_set = { numeric_bitmask(ssa_it->type().name()) };
 
-            auto const add_sub_impl = [&all_set](ssa_value_t v, fixed_t carry, bool sub) -> ssa_value_t
+            auto const add_sub_impl = [&all_set, post_byteified](ssa_value_t v, fixed_t carry, bool sub) -> ssa_value_t
             {
                 if(!v.is_num())
                     return {};
@@ -990,6 +993,9 @@ static bool o_simple_identity(log_t* log, ir_t& ir)
                        && !carry_used(*input))
                     {
                         unsigned const amount = input->input(1).whole() + ssa_it->input(1).whole();
+                        if(amount >= 256)
+                            break;
+
                         if(amount > ssa_it->type().size_of_bits())
                         {
                             if(ssa_it->op() == SSA_shr && is_signed(ssa_it->type().name()))
@@ -2088,12 +2094,12 @@ void run_monoid_t::build(ssa_op_t def_op, ssa_ht h, bool negative)
 
 } // end anonymous namespace
 
-bool o_identities(log_t* log, ir_t& ir)
+bool o_identities(log_t* log, ir_t& ir, bool post_byteified)
 {
     auto const simple_repeated = [&]
     {
         bool updated = false;
-        while(o_simple_identity(log, ir))
+        while(o_simple_identity(log, ir, post_byteified))
             updated = true;
         return updated;
     };

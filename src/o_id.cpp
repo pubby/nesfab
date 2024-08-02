@@ -1219,12 +1219,25 @@ static bool o_simple_identity(log_t* log, ir_t& ir, bool post_byteified)
 
                     assert(!(add & sub));
 
+                    cfg_ht const cfg = ssa_it->cfg_node();
+                    type_t const type = ssa_it->type();
+
+                    // Only perform this optimization if it seems worth it.
+                    {
+                        unsigned mul_cost = input.type().size_of() * other.type().size_of();
+                        unsigned shift_cost = builtin::popcount(add | sub) * type.size_of();
+                        if(is_signed(type.name()))
+                            shift_cost *= 3; // Signed shifts require more work.
+
+                        mul_cost *= 6; // Arbitrary scaling, estimating asm cost.
+
+                        if(mul_cost < shift_cost)
+                            break;
+                    }
+
                     // Before generating the shifts and adds,
                     // convert the operand to the resulting type,
                     // and change the sign if necessary.
-
-                    cfg_ht const cfg = ssa_it->cfg_node();
-                    type_t const type = ssa_it->type();
 
                     ssa_ht initial = cfg->emplace_ssa(SSA_cast, type, other);
 
@@ -1276,8 +1289,17 @@ static bool o_simple_identity(log_t* log, ir_t& ir, bool post_byteified)
                             unsigned const shift_amount = prev_bit - bit;
                             passert(shift_amount, prev_bit, bit);
 
-                            ssa_ht const next_shift = 
-                                cfg->emplace_ssa(SSA_shr, type, shift, ssa_value_t(shift_amount, TYPE_U));
+                            ssa_ht next_shift = shift;
+
+                            if(is_signed(type.name()))
+                            {
+                                ssa_ht const sign = cfg->emplace_ssa(SSA_sign, TYPE_BOOL, next_shift);
+                                next_shift = cfg->emplace_ssa(SSA_add, type, next_shift, ssa_value_t(0u, type.name()), sign);
+                            }
+
+                            next_shift = 
+                                cfg->emplace_ssa(SSA_shr, type, next_shift, ssa_value_t(shift_amount, TYPE_U));
+
                             ssa_ht const next_total = 
                                 cfg->emplace_ssa(is_add ? SSA_add : SSA_sub, type, 
                                                  total, next_shift, ssa_value_t(!is_add, TYPE_BOOL));

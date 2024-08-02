@@ -948,13 +948,16 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                     if(is_array(store->type().name())
                        || loop_depth(store->cfg_node()) > loop_depth(use->cfg_node()))
                     {
-                        dprint(log, "-FAIL_COALESCE_EARLY_STORE", store, parent, store->output(0), 
+                        dprint(log, "-PRUNE_COALESCE_EARLY_STORE", store, parent, store->output(0), 
                                cset_locator(store), cset_locator(parent), (bool)last);
                         // The early store is either an array copy, or inside a loop, 
                         // meaning it will likely slow the code down.
                         // Thus, let's remove it.
                         store = prune_early_store(store);
                     }
+                    else
+                        dprint(log, "-FAIL_COALESCE_EARLY_STORE", store, parent, store->output(0), 
+                               cset_locator(store), cset_locator(parent), (bool)last);
                 }
             }
         }
@@ -1219,7 +1222,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         if(cset_arg_ret_interferes(head_a, head_b))
             continue;
 
-        dprint(log, "-COALESCE_ADDITIONAL", ssa_it);
+        dprint(log, "-COALESCE_ADDITIONAL", ssa_it, cset_locator(head_a));
 
         // It can be coalesced; add it to the cset.
         cset_append(last, head_b);

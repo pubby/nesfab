@@ -5120,6 +5120,36 @@ namespace isel
                 ret.main = LOC_NONE;
         }
 
+        // Make sure the locator can actually be used and is live:
+        // (This prevents read-after-write bugs.)
+        auto verify_loc = [&](locator_t loc) -> locator_t
+        {
+            if(loc.lclass() == LOC_SSA || loc.lclass() == LOC_PHI)
+            {
+                ssa_ht const h = loc.ssa_node();
+                if(h->cfg_node() == cfg || bitset_test(d.live.in, h.id))
+                    return loc;
+
+                // Check parent
+                ssa_value_t const o = orig_def(h);
+                if(o.holds_ref() && o.handle() != h && cset_head(h) == cset_head(o.handle()) && bitset_test(d.live.in, o.handle().id))
+                    return locator_t::ssa(o.handle());
+
+                // Check children
+                for(ssa_ht cset = cset_head(h); cset; cset = cset_next(cset))
+                    if(cset != h && orig_def(cset) == h && bitset_test(d.live.in, cset.id))
+                        return locator_t::ssa(cset);
+
+                return LOC_NONE;
+            }
+            return loc;
+        };
+        
+        if(!verify_loc(ret.main))
+            ret.main = LOC_NONE;
+
+        if(!verify_loc(ret.phi))
+            ret.phi = LOC_NONE;
 
         memoized_map.insert({ l, ret });
         return ret;

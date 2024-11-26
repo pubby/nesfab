@@ -340,6 +340,9 @@ void byteify(ir_t& ir, fn_t const& fn)
             done_make_ptr:;
             }
 
+            if(ssa_it->op() == SSA_read_array16_b || ssa_it->op() == SSA_write_array16_b)
+                continue;
+
             if(ssa_it->op() == SSA_read_array16 || ssa_it->op() == SSA_write_array16)
             {
                 // We'll convert these to the '_b' version of their ops,
@@ -348,6 +351,10 @@ void byteify(ir_t& ir, fn_t const& fn)
 
                 using namespace ssai::array;
 
+                bool const is_read = ssa_it->op() == SSA_read_array16;
+                ssa_it->unsafe_set_op(is_read ? SSA_read_array16_b : SSA_write_array16_b);
+
+                passert(ssa_it->input_size() > OFFSET, ssa_it->op(), ssa_it->input_size());
                 if(!ssa_it->input(OFFSET).eq_whole(0))
                 {
                     ssa_ht const add = cfg_node.emplace_ssa(
@@ -737,21 +744,23 @@ void byteify(ir_t& ir, fn_t const& fn)
             }
             break;
 
-        case SSA_read_array16:
-        case SSA_write_array16:
+        case SSA_read_array16_b:
+        case SSA_write_array16_b:
             {
+                // Ignore new nodes:
+                if(ssa_it->input_size() == 0)
+                    break;
+
                 using namespace ssai::array;
                 
-                bool const is_read = ssa_it->op() == SSA_read_array16;
-
                 // Offset should have been zero'd earlier:
                 assert(ssa_it->input(OFFSET).eq_whole(0));
 
                 bm_t bm = _get_bm(ssa_it->input(INDEX));
+                assert(bm[max_frac_bytes]);
+                assert(bm[max_frac_bytes+1]);
                 ssa_it->link_change_input(INDEX,    bm[max_frac_bytes]);
                 ssa_it->link_change_input(INDEX_HI, bm[max_frac_bytes+1]);
-                
-                ssa_it->unsafe_set_op(is_read ? SSA_read_array16_b : SSA_write_array16_b);
             }
             break;
 
@@ -1147,6 +1156,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             break;
 
         case SSA_read_array8:
+        case SSA_read_array16_b:
             {
                 using namespace ssai::array;
 
@@ -1159,6 +1169,8 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_ht split = d.bm[i].handle();
 
                     assert(ssa_argn(SSA_read_array8) == 3);
+                    assert(ssa_argn(SSA_read_array16_b) == 3);
+                    static_assert(OFFSET == INDEX_HI);
                     split->alloc_input(3);
                     split->build_set_input(ARRAY, array_bm[i]);
                     split->build_set_input(OFFSET, ssa_node->input(OFFSET));
@@ -1169,6 +1181,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             break;
 
         case SSA_write_array8:
+        case SSA_write_array16_b:
             {
                 using namespace ssai::array;
 
@@ -1182,7 +1195,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                     ssa_ht split = d.bm[i].handle();
 
                     passert(ssa_argn(SSA_write_array8) == 4, ssa_argn(SSA_write_array8));
+                    passert(ssa_argn(SSA_write_array16_b) == 4, ssa_argn(SSA_write_array16_b));
                     assert(assign_bm[i]);
+                    static_assert(OFFSET == INDEX_HI);
                     split->alloc_input(4);
                     split->build_set_input(ARRAY, array_bm[i]);
                     split->build_set_input(OFFSET, ssa_node->input(OFFSET));

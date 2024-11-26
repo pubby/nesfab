@@ -1331,7 +1331,7 @@ void ai_t::fold_consts()
 
             auto const fits_in_byte = [](ssa_value_t v)
             {
-                assert(same_scalar_layout(v.type().name(), TYPE_U20));
+                passert(same_scalar_layout(v.type().name(), TYPE_U20), v.type());
                 auto const c = get_constraints(v);
                 return c[0].bounds.min >= 0 && c[0].bounds.max < (256ll << fixed_t::shift);
             };
@@ -2005,8 +2005,10 @@ void ai_t::thread_jumps()
 
 #ifndef NDEBUG
     for(cfg_ht cfg_it : threaded_jumps)
+    {
         for(unsigned i = 0; i < cfg_it->output_size(); ++i)
             assert(cfg_it->input_size() > 0);
+    }
 #endif
 
     while(!cfg_worklist.empty())
@@ -2016,7 +2018,7 @@ void ai_t::thread_jumps()
         if(cfg_node->input_size() == 0)
         {
             dprint(log, "-JUMP_THREAD_PRUNE", cfg_node);
-            passert(ai_data(cfg_node).skippable, cfg_node);
+            passert(!cfg_node->test_flags(FLAG_PRUNED), cfg_node);
 
             unsigned const output_size = cfg_node->output_size();
             for(unsigned i = 0; i < output_size; ++i)

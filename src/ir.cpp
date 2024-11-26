@@ -1118,6 +1118,17 @@ void ir_t::assert_valid(bool cg) const
                 assert(ssa_it->input(OFFSET).type() == TYPE_U20);
             }
 
+            // Array offset checks.
+            if(ssa_flags(ssa_it->op()) & SSAF_ARRAY_OFFSET)
+            {
+                using namespace ssai::array;
+                passert(ssa_it->input_size() > OFFSET, ssa_it->op(), ssa_it->input_size());
+                passert(ssa_it->input_size() > INDEX, ssa_it->op(), ssa_it->input_size());
+            }
+
+            if(ssa_it->op() == SSA_read_array16 || ssa_it->op() == SSA_write_array16)
+                passert(ssa_it->input_size() > 0, ssa_it->op(), ssa_it->input_size());
+
             // Mul checks
             if(ssa_it->op() == SSA_mul8_hi)
             {

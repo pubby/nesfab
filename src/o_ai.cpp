@@ -2193,10 +2193,21 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
            && cheap_input(condition->input(0))
            && cheap_input(condition->input(1)))
         {
-            dprint(log, "---REWRITE_LOOPS_BECOME_IF", header_cfg, c);
+            // Verify that no work occurs in the header besides the condition:
+            for(ssa_ht ssa = header_cfg->ssa_begin(); ssa->op() != SSA_phi; ++ssa)
+            {
+                if(ssa_value_t(ssa) != branch_ssa && ssa_value_t(ssa) != condition)
+                {
+                    dprint(log, "---REWRITE_LOOPS_BECOME_IF_FAIL_WORK", header_cfg);
+                    return {};
+                }
+            }
 
+            // Split the edges, creating new CFG nodes.
             cfg_ht const new_header_cfg = ir.split_edge(header_cfg->output_edge(!exit_output));
             cfg_ht const new_exit_cfg   = ir.split_edge(header_cfg->output_edge(exit_output));
+
+            dprint(log, "---REWRITE_LOOPS_BECOME_IF", header_cfg, c, " --- ", new_header_cfg, new_exit_cfg);
 
             new_cfg(new_header_cfg);
             new_cfg(new_exit_cfg);
@@ -2216,6 +2227,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
                 new_ssa<true>(new_exit_phi);
             }
 
+            // Connect the back-edge inputs to the new header.
             bitset_for_each(back_edge_inputs, [&](unsigned input)
             {
                 auto ie = header_cfg->input_edge(input);
@@ -2279,61 +2291,6 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
             for(cfg_ht cfg = ir.cfg_begin(); cfg; ++cfg)
                 ai_data(cfg).rewrite_map.clear();
 
-            std::function<ssa_value_t(cfg_ht, ssa_ht, ssa_value_t, ssa_value_t)> _local_lookup 
-            = [&](cfg_ht cfg_node, ssa_ht ssa_node, ssa_value_t exit_replace_with, ssa_value_t loop_replace_with) -> ssa_value_t
-            {
-                assert(cfg_node);
-                assert(ssa_node);
-
-                if(dominates(new_exit_cfg, cfg_node))
-                    return exit_replace_with;
-                else if(dominates(new_header_cfg, cfg_node))
-                    return loop_replace_with;
-                else if(!dominates(header_cfg, cfg_node))
-                    return {};
-
-                auto& cd = ai_data(cfg_node);
-                auto lookup = cd.rewrite_map.find(ssa_node);
-
-                if(lookup != cd.rewrite_map.end())
-                {
-                    assert(lookup->second);
-                    return ssa_value_t(lookup->second);
-                }
-                else
-                {
-                    // If 'cfg_node' doesn't contain a definition for 'ssa_node',
-                    // recursively look up its definition in predecessor nodes.
-                    // If there are multiple predecessors, a phi node will be created.
-                    switch(cfg_node->input_size())
-                    {
-                    case 0:
-                        throw std::runtime_error(fmt("Local lookup failed during loop rewriting. % % %", ssa_node, cfg_node, cfg_node->input_size()));
-                    case 1:
-                        return _local_lookup(cfg_node->input(0), ssa_node, exit_replace_with, loop_replace_with);
-                    default:
-                        ssa_ht phi = cfg_node->emplace_ssa(SSA_phi, ssa_node->type());
-                        new_ssa<false>(phi);
-                        dprint(log, "-----REWRITE_LOOPS_PHI_REPLACE_PHI", phi);
-
-                        cd.rewrite_map.emplace(ssa_node, phi);
-
-                        // Fill using local lookups:
-                        unsigned const input_size = cfg_node->input_size();
-                        phi->alloc_input(input_size);
-                        for(unsigned i = 0; i < input_size; ++i)
-                        {
-                            // Keep this as two lines. Reference invalidation lurks!
-                            ssa_value_t input = _local_lookup(cfg_node->input(i), ssa_node, exit_replace_with, loop_replace_with);
-                            phi->build_set_input(i, input);
-                        }
-
-                        assert(phi);
-                        return ssa_value_t(phi);
-                    }
-                }
-            };
-
             // Rewrite phi outputs:
             for(ssa_ht phi = header_cfg->phi_begin(); phi; ++phi)
             {
@@ -2360,7 +2317,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
                     assert(new_exit_cfg->output_size() == 1);
 
-                    dprint(log, "----REWRITE_LOOPS_PHI_START_REPLACE", oe.handle, oe.index, exit_replace_with);
+                    dprint(log, "----REWRITE_LOOPS_PHI_START_REPLACE", phi, " --- ", oe.handle, oe.index, exit_replace_with);
 
                     ssa_value_t const v = local_lookup<false>(check, phi, [&](cfg_ht cfg_node, ssa_ht ssa_node) -> ssa_value_t
                     {
@@ -2375,7 +2332,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
 
                     if(v != ssa_value_t(phi))
                     {
-                        dprint(log, "-----REWRITE_LOOPS_PHI_REPLACE_SUCCESS", oe.handle, oe.index, v);
+                        dprint(log, "-----REWRITE_LOOPS_PHI_REPLACE_SUCCESS", oe.handle, oe.index, oe.handle->op(), v);
                         oe.handle->link_change_input(oe.index, v);
                     }
                     else

@@ -4686,7 +4686,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 v.time = LT;
             }
             else if(is_interpret(D) || (is_compile(D) && is_ct(v.type.name())))
+            {
+                passert(v.is_rval(), is_interpret(D));
+                passert(v.rval().size(), is_interpret(D));
                 v.ssa().set(unsigned(!v.fixed()), TYPE_BOOL);
+            }
             else if(is_compile(D))
             {
                 // Must be two lines; reference invalidation lurks.
@@ -7065,14 +7069,12 @@ expr_value_t eval_t::force_boolify(expr_value_t value, pstring_t cast_pstring)
     };
 
     if(is_interpret(D) || (is_compile(D) && value.is_ct()))
-    {
-        if(is_arithmetic(value.type.name()))
-            result.val = rval_t{ ssa_value_t(boolify(value.fixed()), TYPE_BOOL) };
-    }
+        result.val = rval_t{ ssa_value_t(boolify(value.fixed()), TYPE_BOOL) };
     else if(is_compile(D))
     {
+        rval_t const compare_with = default_init(value.type, value.pstring);
         result.val = rval_t{ builder.cfg->emplace_ssa(
-            SSA_not_eq, TYPE_BOOL, value.ssa(), ssa_value_t(0u, value.type.name())) };
+            SSA_not_eq, TYPE_BOOL, value.ssa(), std::get<ssa_value_t>(compare_with[0])) };
         result.time = RT;
     }
 
@@ -7291,6 +7293,8 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
     if(!is_check(D) && !is_link(D) && value.is_lt())
     {
         ast_node_t* children = eternal_new<ast_node_t>(2);
+
+        value = to_rval<D>(std::move(value));
 
         children[0].token = { token_t::make_ptr(TOK_cast_type, cast_pstring, type_t::new_type(to_type)) };
         children[1] = { _make_token(value) };
@@ -7672,7 +7676,7 @@ cfg_ht eval_t::compile_goto()
 
 static token_t _make_token(expr_value_t const& value)
 {
-    assert(value.is_rval());
+    passert(value.is_rval(), (bool)value.is_lval());
 
     if(value.is_ct())
     {

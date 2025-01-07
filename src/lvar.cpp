@@ -100,7 +100,9 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
         for(unsigned i = 0; i < fn->def().num_params; ++i)
         {
             var_decl_t const& decl = fn->def().local_vars[i].decl;
-            type_t const param_type = decl.src_type.type;
+            type_t param_type = decl.src_type.type;
+            if(param_type.name() == TYPE_STRUCT_THUNK)
+                param_type = dethunkify(decl.src_type, true);
             unsigned const num_members = ::num_members(param_type);
 
             for(unsigned j = 0; j < num_members; ++j)
@@ -123,8 +125,13 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     // Add 'call_lvar's
     graph.for_each_inst([&](asm_inst_t const& inst)
     {
-        if(mem_inst(inst) && is_call_lvar(fn, inst.arg))
-            m_map.insert(inst.arg.mem_head());
+        if(mem_inst(inst))
+        {
+            if(is_call_lvar(fn, inst.arg))
+                m_map.insert(inst.arg.mem_head());
+            if(inst.alt && is_call_lvar(fn, inst.alt))
+                m_map.insert(inst.alt.mem_head());
+        }
     });
 
     m_bitset_size = ::bitset_size<>(m_map.size());
@@ -165,7 +172,9 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
         for(unsigned i = 0; i < fn->def().local_vars.size(); ++i)
         {
             var_decl_t const& decl = fn->def().local_vars[i].decl;
-            type_t const param_type = decl.src_type.type;
+            type_t param_type = decl.src_type.type;
+            if(param_type.name() == TYPE_STRUCT_THUNK)
+                param_type = dethunkify(decl.src_type, true);
             unsigned const num_members = ::num_members(param_type);
 
             for(unsigned j = 0; j < num_members; ++j)

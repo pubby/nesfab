@@ -59,7 +59,7 @@ public:
     fc::vector_set<fn_ht> const& fn_interferences(unsigned i) const
     {
         assert(i < m_fn_interferences.size());
-        return m_fn_interferences[i];
+        return m_fn_interferences.at(i);
     }
 
     void add_lvar_interferences(bitset_uint_t const* bs)

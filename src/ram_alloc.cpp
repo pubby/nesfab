@@ -269,6 +269,10 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 : static_usable_ram(initial_usable_ram)
 , log(log)
 {
+    // TODO
+    //log = &stdout_log;
+    //this->log = &stdout_log;
+
     assert(compiler_phase() == PHASE_ALLOC_RAM);
 
     if(static_usable_ram.sram)

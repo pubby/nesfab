@@ -578,7 +578,7 @@ bool is_thunk(type_t type)
 
 unsigned num_members(type_t type, bool early)
 {
-    assert(type.name() != TYPE_STRUCT_THUNK);
+    passert(type.name() != TYPE_STRUCT_THUNK, type, type.global().name);
     unsigned ret = 0;
     if(type.name() == TYPE_STRUCT)
         ret = type.struct_().num_members();

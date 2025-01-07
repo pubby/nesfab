@@ -438,7 +438,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                     // as it takes analysis to determine where to insert the copy.
 
                     // However, we can insert late_stores now:
-                    late = cfg_it->emplace_ssa(SSA_late_store, ie.type(), ie);
+                    late = cfg_it->emplace_ssa(SSA_late_store, ie.type(), ie, loc);
                     ssa_it->link_change_input(i, late);
 
                     // Then track the late store for later:
@@ -484,11 +484,17 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 // Setup late's cset:
                 assert(late);
                 if(ld.cset)
+                {
                     cset_append(cset_last(ld.cset), late);
+                    passert(cset_head(late) == cset_head(ld.cset), late, ld.cset, cset_head(late), cset_head(ld.cset), cset_last(ld.cset));
+                    passert(cset_locator(ld.cset) == loc, late, loc, cset_locator(late), cset_locator(ld.cset));
+                    passert(cset_locator(late) == loc, late, loc, cset_locator(late), cset_locator(ld.cset));
+                }
                 else
                 {
                     ld.cset = late;
                     cg_data(late).cset_head = loc;
+                    passert(cset_locator(late) == loc, late, loc, cset_locator(late));
                 }
             }
 

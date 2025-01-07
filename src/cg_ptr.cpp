@@ -190,7 +190,10 @@ locator_t cg_calc_bank_switches(fn_ht fn, ir_t& ir)
                 continue;
 
             if(bank == prev_bank)
+            {
+                assert(prev_bank);
                 ssa->set_flags(FLAG_BANK_PRELOADED);
+            }
 
         have_bank:
 

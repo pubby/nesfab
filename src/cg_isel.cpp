@@ -1162,6 +1162,8 @@ namespace isel
             }
             else
             {
+                using OptNR = typename Opt::inc_no_direct::template restrict_to<std::uint8_t(~op_input_regs(Absolute))>;
+
                 if(AbsoluteX != BAD_OP && cpu.value_eq(REG_X, index))
                     exact_op<Opt, AbsoluteX, Def, array_mem<Arg>>(cpu, prev, cont);
                 else if(AbsoluteY != BAD_OP && cpu.value_eq(REG_Y, index))
@@ -1171,7 +1173,7 @@ namespace isel
                     if(AbsoluteX != BAD_OP)
                     {
                         chain
-                        < load_X<OptN, array_index<Arg>>
+                        < load_X<OptNR, array_index<Arg>>
                         , exact_op<OptN, AbsoluteX, Def, array_mem<Arg>>
                         >(cpu, prev, cont);
                     }
@@ -1179,7 +1181,7 @@ namespace isel
                     if(AbsoluteY != BAD_OP)
                     {
                         chain
-                        < load_Y<OptN, array_index<Arg>>
+                        < load_Y<OptNR, array_index<Arg>>
                         , exact_op<OptN, AbsoluteY, Def, array_mem<Arg>>
                         >(cpu, prev, cont);
                     }
@@ -1708,7 +1710,7 @@ namespace isel
                         chain
                         < load_A<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_A>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
                         , pick_op<Opt, CMP, null_, p_rhs>
                         , branch_op<Opt, InverseOp, FailLabel>
@@ -1726,7 +1728,7 @@ namespace isel
                         chain
                         < load_Y<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_Y>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
                         , pick_op<Opt, CPY, null_, p_rhs>
                         , branch_op<Opt, InverseOp, FailLabel>
@@ -1735,7 +1737,7 @@ namespace isel
                         chain
                         < load_A<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_A>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
                         , load_X<typename Opt::template restrict_to<~REGF_A>, p_rhs>
                         , iota_op<Opt, CMP_ABSOLUTE_X, null_>
@@ -1745,7 +1747,7 @@ namespace isel
                         chain
                         < load_A<Opt, p_lhs>
                         , if_<Opt, sign_check, 
-                            chain<load_N_for<typename Opt::template restrict_to<~REGF_X>, p_lhs>,
+                            chain<load_N_for<typename Opt::template restrict_to<~REGF_A>, p_lhs>,
                             branch_op<Opt, BMI, SignLabel>>>
                         , load_Y<typename Opt::template restrict_to<~REGF_A>, p_rhs>
                         , iota_op<Opt, CMP_ABSOLUTE_Y, null_>
@@ -4799,7 +4801,6 @@ namespace isel
             passert(h->type() == h->input(0).type(), h->type(), h->input(0).type(), h->op(), h->input(0));
             // fall-through
         case SSA_late_store:
-
             if(h->input(0).holds_ref() && cset_head(h) == cset_head(h->input(0).handle()))
                 select_step<true>(ignore_req_store<p_def>);
             else

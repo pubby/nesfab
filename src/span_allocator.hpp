@@ -125,10 +125,7 @@ private:
 #ifndef NDEBUG
         std::uint16_t free_count = 0;
         for(auto const& node : treap)
-        {
             free_count += node.span.size;
-            assert(node.span.size >= min_alloc_size);
-        }
 
         assert(free_count == m_bytes_free);
 #endif

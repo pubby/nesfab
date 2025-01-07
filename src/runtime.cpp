@@ -496,7 +496,7 @@ static asm_proc_t make_mmc1_mapper_reset()
     return proc;
 }
 
-static void lda_this_bank(asm_proc_t& proc)
+void lda_this_bank(asm_proc_t& proc)
 {
     if(mapper().this_bank_addr())
         proc.push_inst(LDA_ABSOLUTE, locator_t::this_bank());

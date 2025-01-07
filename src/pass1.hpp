@@ -246,10 +246,10 @@ public:
         {
         default:      return 0;
         case FN_CT:   return 0;
-        case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
-        case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
-        case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy;
-        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_solo_interrupt;
+        case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed;
+        case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed;
+        case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed;
+        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_solo_interrupt | MOD_static_fixed;
         }
     }
 
@@ -539,6 +539,34 @@ public:
     }
 
     [[gnu::always_inline]]
+    ast_node_t byte_block_push(pstring_t pstring, std::unique_ptr<mods_t> mods)
+    {
+        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_push, .pstring = pstring }};
+
+        if(mods)
+        {
+            mods->validate(pstring);
+            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+        }
+
+        return ast;
+    }
+
+    [[gnu::always_inline]]
+    ast_node_t byte_block_pop(pstring_t pstring, std::unique_ptr<mods_t> mods)
+    {
+        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_pop, .pstring = pstring }};
+
+        if(mods)
+        {
+            mods->validate(pstring);
+            ast.mods = eternal_emplace<mods_t>(std::move(*mods));
+        }
+
+        return ast;
+    }
+
+    [[gnu::always_inline]]
     ast_node_t byte_block_if(pstring_t pstring, ast_node_t* children, unsigned num_children, std::unique_ptr<mods_t> mods)
     {
         if(num_children > 0)
@@ -681,7 +709,7 @@ public:
         uses_type(var_decl.src_type.type);
 
         if(mods)
-            mods->validate(var_decl.name, MOD_align | MOD_dpcm | MOD_static | MOD_sector | MOD_unused);
+            mods->validate(var_decl.name, MOD_align | MOD_dpcm | MOD_static | MOD_sector | MOD_unused | MOD_static_fixed);
 
         std::unique_ptr<paa_def_t> paa_def;
         if(is_paa(var_decl.src_type.type.name()))

@@ -72,6 +72,7 @@ struct lval_t
     static constexpr std::int16_t CONTROLLERS_ARG = RETURN_ARG - 9;
     static constexpr std::int16_t EXPANSION_AUDIO_ARG = RETURN_ARG - 10;
     static constexpr std::int16_t SECTOR_SIZE_ARG = RETURN_ARG - 11;
+    static constexpr std::int16_t FIXED_ARG = RETURN_ARG - 12;
 
     enum access_class_t
     {

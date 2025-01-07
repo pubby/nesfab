@@ -43,6 +43,8 @@ struct flag_mods_t
         enable ^= conflicting;
         disable ^= conflicting;
     }
+
+    void mapper_transform();
 };
 
 using mod_list_t = std::uint8_t;

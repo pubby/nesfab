@@ -15,6 +15,7 @@
 
 // Copies data from 'palette_ptr' into 'palette`.
 fn load_palette(PPP/palettes palette_ptr)
+: +static_fixed
     for U i = 0; i < len(palette); i += 1
     : -unroll
         palette[i] = palette_ptr[i]

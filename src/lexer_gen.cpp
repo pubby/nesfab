@@ -679,6 +679,7 @@ int main()
         keyword("__controllers"),
         keyword("__expansion_audio"),
         keyword("__sector_size"),
+        keyword("__fixed"),
         keyword("nmi_counter"),
         keyword("read"),
         keyword("write"),
@@ -896,7 +897,9 @@ int main()
         accept("byte_block_byte_array", "byte block array", eof()),
         accept("byte_block_locator_array", "byte block locator array", eof()),
         accept("byte_block_sub_proc", "byte block sub proc", eof()),
-        accept("byte_block_if", "byte block if", eof())
+        accept("byte_block_if", "byte block if", eof()),
+        accept("byte_block_push", "byte block push", eof()),
+        accept("byte_block_pop", "byte block pop", eof())
         ),
         nfa_nodes);
     dfa_t dfa = nfa_to_dfa(nfa);

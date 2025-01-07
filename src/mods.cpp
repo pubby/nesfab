@@ -3,6 +3,18 @@
 #include "compiler_error.hpp"
 #include "group.hpp"
 
+void flag_mods_t::mapper_transform()
+{
+    if(mapper().fixed_16k)
+    {
+        if((enable & MOD_static_fixed) && !(disable & MOD_static))
+            enable |= MOD_static;
+
+        if((disable & MOD_static_fixed) && !(enable & MOD_static))
+            disable |= MOD_static;
+    }
+}
+
 mod_flags_t parse_mod_flag(std::string_view sv)
 {
     using namespace std::literals::string_view_literals;

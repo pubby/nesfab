@@ -1865,6 +1865,22 @@ void eval_t::do_byte_block(ast_node_t const& ast, asm_proc_t& proc)
                 bankswitch_a(proc, proc.next_label_id(), true);
             break;
 
+        case TOK_byte_block_push:
+            if(!is_check(D))
+            {
+                lda_this_bank(proc);
+                proc.push_inst({ .op = PHA_IMPLIED });
+            }
+            break;
+
+        case TOK_byte_block_pop:
+            if(!is_check(D))
+            {
+                proc.push_inst({ .op = PLA_IMPLIED });
+                bankswitch_a(proc, proc.next_label_id(), false);
+            }
+            break;
+
         case TOK_byte_block_byte_array:
             if(!is_check(D))
             {
@@ -2591,6 +2607,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::SECTOR_SIZE_ARG },
                 .type = TYPE_INT,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            result.assert_valid();
+            return result;
+        }
+
+    case TOK___fixed:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::FIXED_ARG },
+                .type = TYPE_BOOL,
                 .pstring = ast.token.pstring,
                 .time = RT,
             };
@@ -5221,6 +5252,10 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 v.val = rval_t{ ssa_value_t(unsigned(expansion_audio()), TYPE_INT) };
             else
                 v.val = rval_t{ ssa_value_t(unsigned(0), TYPE_INT) };
+            return v;
+
+        case lval_t::FIXED_ARG:
+            v.val = rval_t{ ssa_value_t(unsigned(!!mapper().fixed_16k), TYPE_BOOL) };
             return v;
 
         case lval_t::MAPPER_DETAIL_ARG:

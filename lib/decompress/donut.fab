@@ -39,6 +39,7 @@
 asm fn ppu_upload_donut(CCC/donut ptr, U chunk_count)
 : employs /donut
 : +zero_page
+: +static_fixed
     vars
         U[64] chunk_buffer_storage
         U[8] plane_buffer
@@ -61,6 +62,8 @@ asm fn ppu_upload_donut(CCC/donut ptr, U chunk_count)
     ct AA chunk_buffer = &chunk_buffer_storage - 64
 
     default
+        if __fixed
+            push
     label chunk_loop
         lax &ptr.bank
         switch ax
@@ -83,6 +86,8 @@ asm fn ppu_upload_donut(CCC/donut ptr, U chunk_count)
         dec &chunk_count
         bne chunk_loop
     label end_chunk_upload
+        if __fixed
+            pop
         rts
 
     label do_raw_chunk

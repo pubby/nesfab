@@ -19,7 +19,10 @@
 // Returns a pointer to one past the end of the data.
 asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
 : employs /rlz
+: +static_fixed
     default
+        if __fixed
+            push
         if __illegal
             lax &ptr.bank
         else
@@ -60,6 +63,8 @@ asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
         bpl same_run_loop
         bmi increment_ptr
     label done
+        if __fixed
+            pop
         ldy &ptr.b
         ldx &ptr.a
         inx

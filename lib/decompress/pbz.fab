@@ -29,6 +29,7 @@
 //       An 'amount' value of 0 is treated as a value of 256.
 asm fn ppu_upload_pbz(CCC/pbz ptr, U amount) CCC/pbz
 : employs /pbz
+: +static_fixed
     vars
         U run_mask
     label write_plane
@@ -55,6 +56,8 @@ asm fn ppu_upload_pbz(CCC/pbz ptr, U amount) CCC/pbz
         rts
     default
     label tiles
+        if __fixed
+            push
         if __illegal
             lax &ptr.bank
             switch ax
@@ -68,6 +71,8 @@ asm fn ppu_upload_pbz(CCC/pbz ptr, U amount) CCC/pbz
         bne tiles_loop
         beq do_return
     label chunks
+        if __fixed
+            push
         if __illegal
             lax &ptr.bank
             switch ax
@@ -85,5 +90,7 @@ asm fn ppu_upload_pbz(CCC/pbz ptr, U amount) CCC/pbz
         sta &return.b
         lda &ptr.c
         sta &return.c
+        if __fixed
+            pop
         rts
 

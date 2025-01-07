@@ -19,6 +19,7 @@ fn decompress_string_init(CCC/strings str)
 // Decompresses a single character of the string, returning it.
 asm fn decompress_string() U
 : employs /strings /decompress_string
+: +static_fixed
     vars
         U stack
 
@@ -30,6 +31,8 @@ asm fn decompress_string() U
         U[](charmap.pairs.b)
 
     default
+        if __fixed
+            push
         tsx
         stx &stack
         ldx &decompress_string_ptr.bank
@@ -68,6 +71,8 @@ asm fn decompress_string() U
         sta &return
         ldx &stack
         txs
+        if __fixed
+            pop
     label sub_return
         rts
 

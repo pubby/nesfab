@@ -243,7 +243,10 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent, bool eol)
     }
 
     if(mods)
+    {
+        mods->mapper_transform();
         mods->remove_conflicting_flags();
+    }
 
     return mods;
 }
@@ -808,6 +811,7 @@ retry:
     case TOK___controllers:
     case TOK___expansion_audio:
     case TOK___sector_size:
+    case TOK___fixed:
     case TOK_nmi_counter:
         {
             ast_node_t ast = { .token = token };
@@ -1542,6 +1546,24 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 
                 parse_token();
                 children.push_back(policy().byte_block_bank_switch(pstring, tt, parse_mods(indent)));
+                parse_line_ending();
+            }
+            break;
+
+        case TOK_push:
+            {
+                pstring_t const pstring = token.pstring;
+                parse_token();
+                children.push_back(policy().byte_block_push(pstring, parse_mods(indent)));
+                parse_line_ending();
+            }
+            break;
+
+        case TOK_pop:
+            {
+                pstring_t const pstring = token.pstring;
+                parse_token();
+                children.push_back(policy().byte_block_pop(pstring, parse_mods(indent)));
                 parse_line_ending();
             }
             break;

@@ -111,4 +111,6 @@ unsigned bankswitch_a(asm_proc_t& proc, unsigned next_label, bool x = false);
 unsigned bankswitch_x(asm_proc_t& proc, unsigned next_label);
 unsigned bankswitch_y(asm_proc_t& proc, unsigned next_label);
 
+void lda_this_bank(class asm_proc_t& proc);
+
 #endif

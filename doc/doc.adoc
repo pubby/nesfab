@@ -1858,6 +1858,8 @@ In addition, the following statements have special meaning inside of <<kw_asm, `
 - <<kw_goto_asm, `goto`>>
 - <<kw_goto_mode_asm, `goto mode`>>
 - <<kw_switch_asm, `switch`>>
+- <<kw_push_asm, `push`>>
+- <<kw_pop_asm, `pop`>>
 
 == Function Pointers and Function Sets [[fn_ptr]]
 
@@ -2456,6 +2458,25 @@ ct fn foo()
     // Now vec = U{}(10, 20)
 ----
 
+==== `push` statement (byte block) [[kw_push_asm]]
+
+In byte blocks, the `push` statement pushes the current bank onto the stack.
+
+Syntax:
+----
+push
+----
+
+Example:
+----
+push          // Save the current bank
+
+ldy &my_bank1 // Load the bank in registers Y
+switch y      // Switch to the bank in that register
+
+pop           // Restore the previous bank
+----
+
 === `pop` [[kw_pop]]
 
 The `pop` expression removes the last value from a <<type_vec, VEC value>>, returning the removed valued.
@@ -2473,6 +2494,25 @@ ct fn foo()
     U x = pop(vec)
     U y = pop(vec)
     // Now x = 20, y = 10
+----
+
+==== `pop` statement (byte block) [[kw_pop_asm]]
+
+In byte blocks, the `pop` statement pops a bank from the stack and switches to it.
+
+Syntax:
+----
+pop
+----
+
+Example:
+----
+push          // Save the current bank
+
+ldy &my_bank1 // Load the bank in registers Y
+switch y      // Switch to the bank in that register
+
+pop           // Restore the previous bank
 ----
 
 === `fence` [[kw_fence]]
@@ -2993,6 +3033,7 @@ Unlike other programming languages, functions in NESFab cannot be nested or recu
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+static_fixed`>>
 - <<mod_flags, `+sloppy`, `-sloppy`>>
 
 Example:
@@ -3094,6 +3135,7 @@ While the mode function is executing, NMIs will be handled using the supplied `n
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+static_fixed`>>
 - <<mod_flags, `+sloppy`, `-sloppy`>>
 
 Example:
@@ -3168,6 +3210,7 @@ nmi identifier()
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+static_fixed`>>
 - <<mod_flags, `+sloppy`, `-sloppy`>>
 
 *Why do NMI interrupt functions exist?*
@@ -3230,6 +3273,7 @@ irq identifier()
 - <<mod_flags, `+graphviz`>>
 - <<mod_flags, `+info`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+static_fixed`>>
 - <<mod_flags, `+sloppy`, `-sloppy`>>
 - <<mod_flags, `+solo_interrupt`>>
 
@@ -3382,6 +3426,7 @@ The group will be defined as the union of these declarations.
 - <<mod_flags, `+dpcm`>>
 - <<mod_flags, `+sector`>>
 - <<mod_flags, `+static`>>
+- <<mod_flags, `+static_fixed`>>
 - <<mod_flags, `+unused`>>
 
 Example:
@@ -4324,8 +4369,6 @@ Its possible values are below:
 |VRC6 audio enabled
 |===
 
-==== Numeric Constant Types
-
 ==== `__mapper` [[kw_mapper]]
 
 `__mapper` is a value of type `Int` which returns the INES mapper number set by the <<opt_mapper, `--mapper` option>>.
@@ -4343,6 +4386,10 @@ It is not recommended to use this keyword.
 
 `__mapper_reset` is a function used by specific mappers (such as MMC1) to reset their state. 
 It is not recommended to use this keyword.
+
+==== `__fixed` [[kw_fixed]]
+
+`__fixed` is a value of type `Bool` which returns if the mapper uses a fixed bank.
 
 == Modifiers [[modifiers]]
 
@@ -4375,6 +4422,7 @@ The following flags exist for function definitions:
 - `+static`: Allocate the function or data in every bank (or force them into the fixed bank, for mappers with one). 
              This modifier is incompatible with <<kw_asm, `asm`>> functions that return in a different bank than they started in.
              You must validate this yourself.
+- `+static_fixed`: The same as `+static`, but only applies to mappers that have a fixed bank, like UNROM.
 - `+palette_3`: Converts 4-byte palettes into 3-byte palettes.
 - `+palette_25`: Converts 32-byte palettes into 25-byte palettes.
 - `+sloppy`, `-sloppy`: Enables / disables faster compilation speed, at the cost of performance.

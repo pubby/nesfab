@@ -5,6 +5,7 @@
 #ifndef NDEBUG
 #include <iostream>
 #endif
+#include <iostream> // TODO
 
 #include "rom.hpp"
 #include "handle.hpp"
@@ -108,7 +109,8 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
                 rom_array_ht rom_array = { data.handle() };
                 rom_proc_directly_uses[proc.id].insert(rom_array);
                 rom_array_used_by[rom_array.id].insert(proc);
-                rom_array->max_rule(proc->rule());
+                if(rom_array->omni())
+                    rom_array->max_rule(proc->rule());
             }
         }
         else if(loc.lclass() == LOC_LT_EXPR)
@@ -205,7 +207,7 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
             span_allocation_t const spans = allocator.alloc(rom_array.data().size(), alignment);
             assert(spans.object.addr % alignment == 0);
             if(!spans)
-                throw std::runtime_error("Unable to allocate ROM static address (out of ROM space).");
+                throw std::runtime_error(fmt("Unable to allocate ROM static address (out of ROM space). Size = %.", rom_array.data().size()));
             rom_array.set_alloc(ROMV_MODE, rom_static_ht::pool_make(ROMV_MODE, spans.object, rom_array_h), rom_key_t());
             continue;
         }

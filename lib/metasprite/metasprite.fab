@@ -31,6 +31,7 @@
 
 // Pushes 'metasprite' into OAM, adding 'x' and 'y' to each sprite's position and cropping if needed.
 fn push_oam_metasprite(U index, SS x, SS y, PPP/sprites metasprite) U
+: +static_fixed
     U size = metasprite[0]
     do for U i = 0; i != size;
         i += 1
@@ -54,6 +55,7 @@ fn push_oam_metasprite(U index, SS x, SS y, PPP/sprites metasprite) U
 // which can be useful for changing the metasprite's color.
 // The high 2-bits of the 'attribute' value will be used to determine metasprite flipping.
 fn push_oam_metasprite_a(U index, SS x, SS y, PPP/sprites metasprite, U attribute) U
+: +static_fixed
     U size = metasprite[0]
     do for U i = 0; i != size;
         i += 1

@@ -122,18 +122,6 @@ public:
     static group_t* lookup_sourceless(std::string_view view)
         { assert(view.empty() || view[0] == '/'); return view.empty() ? nullptr : group_pool_map.lookup(view); }
 
-    template<typename Fn>
-    void for_each_const(Fn const& fn) 
-    {
-        if(data())
-            for(const_ht c : data()->consts())
-                fn(c);
-
-        if(omni())
-            for(const_ht c : omni()->consts())
-                fn(c);
-    }
-
     void require_dummy() { assert(compiler_phase() <= PHASE_COMPILE); m_require_bank = true; }
     bool dummy_required() const { assert(compiler_phase() > PHASE_COMPILE); return m_require_bank; }
     void set_dummy(rom_array_ht h) { assert(compiler_phase() == PHASE_ROM_DUMMY); m_dummy = h; }

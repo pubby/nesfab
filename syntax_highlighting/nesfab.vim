@@ -30,6 +30,7 @@ syntax region nesfabComment start=/\/\*/ end=/\*\//
 
 " String
 syn region nesfabString start="\"" skip=+\\\\\|\\"+ end="\""
+syn region nesfabStringC start="`" skip=+\\\\\|\\"+ end="`"
 
 let b:current_syntax = "nesfab"
 
@@ -39,6 +40,7 @@ hi def link nesfabNumberBin  Constant
 hi def link nesfabCommentL   Comment
 hi def link nesfabComment    Comment
 hi def link nesfabString     String
+hi def link nesfabStringC    String
 hi def link nesfabKeyword    Statement
 hi def link nesfabGroup      Identifier
 hi def link nesfabType       Type

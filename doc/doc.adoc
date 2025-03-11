@@ -5321,8 +5321,10 @@ Example:
 
 ==== Equal To `==` [[equal_to]]
 
-Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
-The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+Compares the operands, returning `true` if the left operand is equal to the right and `false` otherwise.
+When comparing values of <<type_arithmetic, arithmetic types>>, the operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+This operator works on most types, including <<type_struct, struct types>> and <<type_tea, TEAs>>.
 
 Example:
 ----
@@ -5332,8 +5334,10 @@ Example:
 
 ==== Not Equal To `!=` [[not_equal_to]]
 
-Compares the <<type_arithmetic, arithmetic type>> operands, returning `true` if the left operand is equal to the right and `false` otherwise.
-The operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+Compares the operands, returning `true` if the left operand is equal to the right and `false` otherwise.
+When comparing values of <<type_arithmetic, the operands may be of different types. No types conversions occur besides `Int` and `Real` conversions.
+
+This operator works on most types, including <<type_struct, struct types>> and <<type_tea, TEAs>>.
 
 Example:
 ----

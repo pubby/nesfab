@@ -1035,7 +1035,7 @@ void ir_t::assert_valid(bool cg) const
             {
                 if((ssa_flags(ssa_node.op()) & SSAF_NULL_INPUT_VALID) && !ssa_node.input(i))
                     continue;
-                passert(ssa_node.input(i), ssa_node.op(), ssa_it, i, ssa_node.input_size());
+                passert(ssa_node.input(i), ssa_node.op(), ssa_it, i, ssa_node.input_size(), ssa_node.input(i));
                 if(!ssa_node.input(i).holds_ref())
                     continue;
                 assert(ssa_node.input_edge(i).output()->input().handle()
@@ -1045,8 +1045,7 @@ void ir_t::assert_valid(bool cg) const
             for(unsigned i = 0; i < ssa_node.output_size(); ++i)
             {
                 assert((bool)ssa_node.output_edge(i).handle);
-                assert(ssa_node.output_edge(i).input().output()->edges_eq(
-                    ssa_node.output_edge(i)));
+                passert(ssa_node.output_edge(i).input().output()->edges_eq(ssa_node.output_edge(i)), ssa_node.handle(), i);
             }
 
             for(ssa_ht daisy = ssa_node.prev_daisy(); daisy; --daisy)

@@ -89,7 +89,7 @@ fn taxi_distance(Coord from, Coord to) U
 fn overlap_1d(U a_pos, U a_width, U b_pos, U b_width) Bool
 : +inline
     Bool c
-    c = (a_pos -= b_pos + 1)
+    c = (a_pos -= b_pos)
     c = (a_pos -= b_width - U(c))
     return a_pos += a_width + b_width - 1 + U(c)
 
@@ -129,5 +129,8 @@ fn rect_from_2_coords(Coord a, Coord b) Rect
 // Returns a point centered inside 'r'.
 fn rect_center(Rect r) Coord
     Coord end = rect_end(r)
-    return Coord((r.c.x + end.x) >> 1, (r.c.y + end.y) >> 1)
+    (r.c.x += end.x) >=> r.c.x
+    (r.c.y += end.y) >=> r.c.y
+    return r.c
+
     

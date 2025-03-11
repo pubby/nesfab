@@ -5,6 +5,8 @@
 #include <vector>
 #include <stdexcept>
 
+#include "flat/flat_set.hpp"
+
 #include "robin/map.hpp"
 #include "robin/set.hpp"
 
@@ -120,7 +122,7 @@ private:
 };
 
 // Converts SSA_make_arrays into rom_array locators.
-void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc);
+fc::vector_set<rom_array_ht> locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc);
 
 // Tracks a code segment of data that will end up in ROM.
 class rom_proc_t : public rom_data_t

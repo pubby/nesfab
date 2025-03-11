@@ -21,6 +21,7 @@ fn seed(UU value)
 // Returns a pseudo-random 8-bit value.
 asm fn rand() U
 : employs
+: +static_fixed
     default
         lda &rng_state+0
         asl

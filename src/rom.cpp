@@ -75,9 +75,11 @@ rom_array_ht rom_array_t::make(loc_vec_t&& vec, bool align, bool omni, rom_rule_
     return ret;
 }
 
-void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
+fc::vector_set<rom_array_ht> locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
 {
     assert(compiler_phase() <= PHASE_ALLOC_ROM);
+
+    fc::vector_set<rom_array_ht> ret;
 
     for(cfg_node_t const& cfg : ir)
     for(ssa_ht ssa_it = cfg.ssa_begin(); ssa_it;)
@@ -145,7 +147,10 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
                     assert(false);
             }
 
-            locator_t loc = locator_t::rom_array(rom_array_t::make(std::move(vec), false, false, ROMR_NORMAL));
+            rom_array_ht const rom_array = rom_array_t::make(std::move(vec), false, false, ROMR_NORMAL);
+            ret.insert(rom_array);
+
+            locator_t loc = locator_t::rom_array(rom_array);
             loc.advance_offset(-begin);
 
             passert(ssa_it->type().array_length() == loc.type().array_length(), ssa_it->type(), loc.type());
@@ -156,6 +161,8 @@ void locate_rom_arrays(ir_t& ir, rom_proc_ht rom_proc)
     next_iter:
         ++ssa_it;
     }
+
+    return ret;
 }
 
 ////////////////

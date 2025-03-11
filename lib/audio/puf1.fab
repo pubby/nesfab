@@ -1054,6 +1054,14 @@ asm fn puf(U arg) Bool
         ldy puf_noise_vol_duty_y
         jsr read_macro
         sty puf_noise_vol_duty_y
+        if __illegal
+            ldx #%11000000
+            sax puf_temp
+        else
+            tax
+            and #%11000000
+            sta puf_temp
+            txa
         and #%1111
         ora #%00110000
         cpy #0
@@ -1076,6 +1084,7 @@ asm fn puf(U arg) Bool
         sec
         adc puf_noise_note
         and #%1111
+        ora puf_temp
         sta $400E
     label disable_noise
 

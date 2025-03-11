@@ -93,7 +93,7 @@ fn #fn_prefix#taxi_distance(#type_prefix#Coord from, #type_prefix#Coord to) #typ
 fn #fn_prefix#overlap_1d(#type# a_pos, #type# a_width, #type# b_pos, #type# b_width) Bool
 : +inline
     Bool c
-    c = (a_pos -= b_pos + 1)
+    c = (a_pos -= b_pos)
     c = (a_pos -= b_width - #type#(c))
     return a_pos += a_width + b_width - 1 + #type#(c)
 
@@ -133,5 +133,8 @@ fn #fn_prefix#rect_from_2_coords(#type_prefix#Coord a, #type_prefix#Coord b) #ty
 // Returns a point centered inside 'r'.
 fn #fn_prefix#rect_center(#type_prefix#Rect r) #type_prefix#Coord
     #type_prefix#Coord end = #fn_prefix#rect_end(r)
-    return #type_prefix#Coord((r.c.x + end.x) >> 1, (r.c.y + end.y) >> 1)
+    (r.c.x += end.x) >=> r.c.x
+    (r.c.y += end.y) >=> r.c.y
+    return r.c
+
     

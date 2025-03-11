@@ -247,7 +247,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     // ROM ARRAYS //
     ////////////////
 
-    locate_rom_arrays(ir, fn.rom_proc());
+    fn.assign_direct_rom_arrays(locate_rom_arrays(ir, fn.rom_proc()));
     ir.assert_valid(true);
 
     ///////////////////
@@ -333,9 +333,12 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                 if(!called_pair.second.cset
                    || !is_arg_ret(called_loc.lclass()) 
                    || called_loc.maybe_fn() == fn.handle() 
+                  )
+                   /* TODO - remove probably
                    || (called_loc.maybe_fn() 
                        && called_loc.maybe_fn() == loc.maybe_fn() 
                        && loc.lclass() == called_loc.lclass()))
+                       */
                 {
                     continue;
                 }
@@ -1387,6 +1390,10 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
                 if(index.holds_ref())
                 {
+                    // Make sure the index is live.
+                    if(!live_at_def(index.handle(), output))
+                        goto next_read_array_iter;
+
                     // Can't have a different value for the index:
                     for(ssa_ht ai = cset_head(index.handle()); ai; ai = cset_next(ai))
                         if(orig_def(ai) != orig_def(index) && live_at_def(ai, output))
@@ -1451,6 +1458,19 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
         }
     }
 #endif
+
+    if(std::ostream* os = fn.info_stream())
+    {
+        *os << "\nREDONE_SCHEDULE_START " << fn.global.name << '\n';
+
+        for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+        {
+            *os << "  REDONE_SCHEDULE_CFG " << cfg_it.id << '\n';
+            auto& d = cg_data(cfg_it);
+            for(ssa_ht h : d.schedule)
+                *os << "    " << h->op() << ' ' << h.id << '\n';
+        }
+    }
 
     /////////////////////////////
     // FINAL SCHEDULE ANALYSIS //

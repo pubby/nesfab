@@ -669,6 +669,9 @@ public:
     constexpr bool eq_const(unsigned i) const { return is_const_num() && data() == i; }
     constexpr bool eq_const_byte(std::uint8_t i) const { return is_const_num() && data() == i; }
 
+    bool known_variable() const; // if the value exists in RAM
+    bool known_memory() const; // if the value exists in RAM or ROM
+
     type_t type() const;
 
     locator_t link(romv_t romv, fn_ht fn = {}, int bank = -1) const;

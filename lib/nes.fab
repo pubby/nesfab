@@ -122,6 +122,16 @@ fn ppu_upload_fill(U byte, UU count)
     for UU i = 0; i < count; i += 1
         {PPUDATA}(byte)
 
+// Returns the nametable offset at tile (x, y).
+fn nt_tile_offset(U x, U y) UU
+: +inline
+    return UU(x) + (UU(y) << 5)
+
+// Returns the nametable attribute offset at tile (x, y).
+fn nt_attr_offset(U x, U y) UU
+: +inline
+    return $3C0 + UU(x >> 2) + (UU(y & ~U(%11)) << 1)
+
 ///////////////////////////////////////////////////////////////////////////////
 // NMI ////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -166,6 +176,7 @@ ct Int OAM_X = 3
 ct U ATTR_PRIORITY = %00100000
 ct U ATTR_H_FLIP   = %01000000
 ct U ATTR_V_FLIP   = %10000000
+ct U ATTR_HV_FLIP  = %11000000
 
 // Copies 'oam' into PPU memory. Call during VBLANK only.
 fn ppu_upload_oam(U oam_offset)

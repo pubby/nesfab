@@ -284,6 +284,9 @@ public:
     template<do_t D>
     expr_value_t do_logical(ast_node_t const& ast);
 
+    template<do_t D, typename GetLHS, typename GetRHS>
+    expr_value_t do_logical_impl(bool is_or, GetLHS const& get_lhs, GetRHS const& get_rhs);
+
     template<do_t D>
     expr_value_t do_abs(ast_node_t const& ast);
 
@@ -295,6 +298,8 @@ public:
 
     void req_quantity(token_t const& token, expr_value_t const& value);
     void req_quantity(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
+    void req_arithmetic(token_t const& token, expr_value_t const& value);
+    void req_arithmetic(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
 
     template<do_t D>
     expr_value_t force_truncate(expr_value_t value, type_t to_type, pstring_t cast_pstring);
@@ -406,6 +411,13 @@ TLS eval_t::ir_builder_t eval_t::default_builder;
 
 static token_t _make_token(expr_value_t const& value);
 static rval_t _lt_rval(type_t const& type, locator_t loc);
+
+static vec_ptr_t& get_vec_ptr(pstring_t pstring, ct_variant_t& v)
+{
+    if(auto* lv = std::get_if<vec_ptr_t>(&v))
+        return *lv;
+    compiler_error(pstring, fmt("Uninitialized VEC value."));
+}
 
 rpair_t interpret_local_const(pstring_t pstring, fn_t* fn, ast_node_t const& expr,
                               type_t expected_type, local_const_t const* local_consts)
@@ -3151,7 +3163,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         if(is_vec)
                         {
                             assert(lhs.rval().size() == 1);
-                            auto& shared = std::get<vec_ptr_t>(lhs.rval()[0]);
+                            auto& shared = get_vec_ptr(ast.token.pstring, lhs.rval()[0]);
 
                             // If the vec has multiple owners, copy it, creating a new one.
                             if(shared.use_count() > 1)
@@ -3178,7 +3190,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         else if(is_vec)
                         {
                             assert(lhs.rval().size() == 1);
-                            auto& shared = std::get<vec_ptr_t>(lhs.rval()[0]);
+                            auto& shared = get_vec_ptr(ast.token.pstring, lhs.rval()[0]);
 
                             // If the vec has multiple owners, copy it, creating a new one.
                             if(shared.use_count() > 1)
@@ -4209,7 +4221,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 else if(is_vec)
                 {
                     auto result = to_rval<D>(array_val);
-                    vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+                    auto& vec = get_vec_ptr(ast.token.pstring, result.rval()[0]);
                     length = vec->data.size();
                 }
 
@@ -4280,7 +4292,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         assert(is_vec);
                         assert(rval.size() == 1);
                         // Don't combine next two lines.
-                        auto new_rval = std::get<vec_ptr_t>(rval[0])->data[index];
+                        auto new_rval = get_vec_ptr(ast.token.pstring, rval[0])->data[index];
                         rval = std::move(new_rval);
                     }
                 }
@@ -4437,7 +4449,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(!is_check(D))
             {
                 auto result = to_rval<D>(do_expr<D>(ast.children[0]));
-                vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+                auto const& vec = get_vec_ptr(ast.token.pstring, result.rval()[0]);
                 type_t elem_type = dethunkify({ ast.token.pstring, result.type }, true, this);
                 common_value.set(vec->data.size() * elem_type.size_of(), TYPE_INT);
             }
@@ -4463,7 +4475,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 auto result = to_rval<D>(do_expr<D>(ast.children[0]));
                 passert(result.rval().size() == 1, result.rval().size(), local_consts);
-                vec_ptr_t const& vec = std::get<vec_ptr_t>(result.rval().at(0));
+                auto const& vec = get_vec_ptr(ast.token.pstring, result.rval()[0]);
                 common_value.set(vec->data.size(), TYPE_INT);
             }
             goto push_int;
@@ -5394,9 +5406,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                         {
                             assert(is_vec(type.name()));
                             assert(rval.size() == 1);
-                            assert(index <  std::get<vec_ptr_t>(rval[0])->data.size());
                             // Don't combine the next two lines.
-                            auto new_rval = std::get<vec_ptr_t>(rval[0])->data.at(index);
+                            auto new_rval = get_vec_ptr(v.pstring, rval[0])->data.at(index);
                             rval = std::move(new_rval);
                         }
                     }
@@ -5458,7 +5469,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                     if(is_vec(type.name()))
                     {
                         assert(rval.size() == 1);
-                        auto& old_vec = std::get<vec_ptr_t>(rval[0]);
+                        auto& old_vec = get_vec_ptr(v.pstring, rval[0]);
                         vec_t new_vec;
                         for(auto rval : old_vec->data)
                         {
@@ -5503,7 +5514,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
                 {
                     assert(rval.size() == 1);
                     passert(std::holds_alternative<vec_ptr_t>(rval[0]), rval[0].index(), type, lval->accesses.size());
-                    auto& old_vec = std::get<vec_ptr_t>(rval[0]);
+                    auto& old_vec = get_vec_ptr(v.pstring, rval[0]);
                     vec_t new_vec;
                     for(auto rval : old_vec->data)
                         new_vec.data.push_back({ _interpret_shift_atom(std::get<ssa_value_t>(rval[0]), shift, v.pstring) });
@@ -5761,7 +5772,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                     {
                         passert(is_vec(type.name()), type);
                         assert(index <  std::get<vec_ptr_t>(*ptr)->data.size());
-                        ptr = std::get<vec_ptr_t>(*ptr)->data.at(index).data() + vec_member;
+                        ptr = get_vec_ptr(lhs.pstring, *ptr)->data.at(index).data() + vec_member;
                         vec_member = 0;
                         vec_partial = false;
                     }
@@ -5958,7 +5969,6 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         {
             for(unsigned i = 0; i < rval.size(); ++i)
             {
-                assert(var_type(lval->var_i()).name() == TYPE_TEA);
                 type_t const mt = member_type(var_type(lval->var_i()), lval->member() + i);
                 assert(mt.name() == TYPE_TEA);
 
@@ -6003,6 +6013,25 @@ void eval_t::req_quantity(token_t const& token, expr_value_t const& lhs, expr_va
     }
 }
 
+void eval_t::req_arithmetic(token_t const& token, expr_value_t const& value)
+{
+    if(!is_arithmetic(value.type.name()))
+    {
+        compiler_error(value.pstring, fmt("% expects arithmetic inputs. (Operand is %)", 
+                                          token_string(token.type), value.type));
+    }
+}
+    
+void eval_t::req_arithmetic(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs)
+{
+    if(!is_arithmetic(lhs.type.name()) || !is_arithmetic(rhs.type.name()))
+    {
+        pstring_t pstring = concat(lhs.pstring, rhs.pstring);
+        compiler_error(pstring, fmt("% expects arithmetic inputs. (Operands are % and %)", 
+                                    token_string(token.type), lhs.type, rhs.type));
+    }
+}
+
 expr_value_t eval_t::compile_binary_operator(
     expr_value_t const& lhs, expr_value_t const& rhs, 
     ssa_op_t op, type_t result_type, bool carry)
@@ -6026,7 +6055,7 @@ expr_value_t eval_t::compile_binary_operator(
 template<typename Policy>
 expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t const& token)
 {
-    req_quantity(token, lhs, rhs);
+    bool const eqn = Policy::op() == SSA_eq || Policy::op() == SSA_not_eq;
 
     expr_value_t result =
     {
@@ -6034,13 +6063,187 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
         .pstring = concat(lhs.pstring, rhs.pstring)
     };
 
-    if(!is_scalar(lhs.type.name()) || !is_scalar(rhs.type.name()))
+    if(locator_t loc = handle_lt<Policy::D>(result.type, { .type = Policy::lt(), .pstring = result.pstring }, lhs, rhs))
     {
-        compiler_error(
-            concat(lhs.pstring, rhs.pstring), 
-            fmt("% isn't defined for this type combination. (% and %)",
-                token_string(token.type), lhs.type, rhs.type));
+        result.val = _lt_rval(result.type, loc);
+        result.time = LT;
+        return result;
     }
+
+    if(eqn)
+    {
+        bool const noteq = Policy::op() == SSA_not_eq;
+
+        if(!is_arithmetic(lhs.type.name()) || !is_arithmetic(rhs.type.name()))
+        {
+            if(lhs.type == rhs.type && !is_paa(lhs.type.name()))
+            {
+                unsigned const n = ::num_members(lhs.type);
+                assert(n);
+
+                if(lhs.type.name() == TYPE_STRUCT || n > 1)
+                {
+                    // Do a member-wise comparison:
+
+                    lhs = to_rval<Policy::D>(lhs);
+                    rhs = to_rval<Policy::D>(rhs);
+
+                    assert(lhs.rval().size() == n);
+                    assert(rhs.rval().size() == n);
+
+                    for(unsigned i = 0; i < n; ++i)
+                    {
+                        auto calc_operand = [&]() {
+                            return do_compare<Policy>(
+                                expr_value_t{ 
+                                    .val = rval_t{ lhs.rval()[i] }, 
+                                    .type = ::member_type(lhs.type, i),
+                                    .pstring = lhs.pstring,
+                                    .time = lhs.time },
+                                expr_value_t{ 
+                                    .val = rval_t{ rhs.rval()[i] }, 
+                                    .type = ::member_type(rhs.type, i),
+                                    .pstring = rhs.pstring,
+                                    .time = rhs.time },
+                                token);
+                        };
+
+                        if(i != 0)
+                            result = do_logical_impl<Policy::D>(noteq, [&](){ return result; }, calc_operand);
+                        else
+                            result = calc_operand();
+                    }
+
+                    return result;
+                }
+                else if(is_vec(lhs.type.name()))
+                {
+                    if(is_interpret(Policy::D))
+                    {
+                        auto& lv = get_vec_ptr(lhs.pstring, lhs.rval()[0]);
+                        auto& rv = get_vec_ptr(rhs.pstring, rhs.rval()[0]);
+
+                        if(lv->data.size() == rv->data.size())
+                        {
+                            bool all_eq = true;
+                            for(unsigned i = 0; i < lv->data.size(); i += 1)
+                                all_eq &= lv->data[i] == rv->data[i];
+
+                            result.val = rval_t{ ssa_value_t(unsigned(all_eq ^ noteq), TYPE_BOOL) };
+                        }
+                        else
+                            result.val = rval_t{ ssa_value_t(unsigned(noteq), TYPE_BOOL) };
+
+                        result.time = CT;
+                        return result;
+                    }
+                    else if(is_compile(Policy::D))
+                    {
+                        compiler_error(
+                            concat(lhs.pstring, rhs.pstring), 
+                            fmt("Unable to compare % and % at run-time.", lhs.type, rhs.type));
+                    }
+                }
+                else if(is_tea(lhs.type.name()))
+                {
+                    unsigned const array_size = lhs.type.size();
+                    type_t const elem_type = lhs.type.elem_type();
+
+                    lhs = to_rval<Policy::D>(lhs);
+                    rhs = to_rval<Policy::D>(rhs);
+
+                    // Compare array
+                    if(is_interpret(Policy::D) || (is_compile(Policy::D) && lhs.is_ct() && rhs.is_ct()))
+                    {
+                        ct_array_t const& lhs_array = std::get<ct_array_t>(lhs.rval()[0]);
+                        ct_array_t const& rhs_array = std::get<ct_array_t>(rhs.rval()[0]);
+
+                        bool all_eq = true;
+                        for(unsigned i = 0; i < array_size; i += 1)
+                            all_eq &= lhs_array[i] == rhs_array[i];
+
+                        result.val = rval_t{ ssa_value_t(unsigned(all_eq ^ noteq), TYPE_BOOL) };
+                        result.time = CT;
+                        return result;
+                    }
+                    else if(is_compile(Policy::D))
+                    {
+                        bool const a8 = array_size <= 256;
+
+                        cfg_ht const entry = builder.cfg;
+                        cfg_exits_with_jump();
+
+                        // The loop:
+                        cfg_ht const loop_body = builder.cfg = insert_cfg(false);
+                        entry->build_set_output(0, loop_body);
+
+                        // Setup our iterand:
+                        type_name_t iter_type = a8 ? TYPE_U : TYPE_U20;
+                        ssa_ht iter_init = builder.cfg->emplace_ssa(SSA_null, iter_type, ssa_value_t(0u, iter_type));
+                        ssa_ht iter = iter_init;
+
+                        // Read the arrays:
+                        ssa_ht const lhs_read = builder.cfg->emplace_ssa(
+                            a8 ? SSA_read_array8 : SSA_read_array16, elem_type, 
+                            lhs.ssa(), ssa_value_t(0u, TYPE_U20), iter_init);
+
+                        ssa_ht const rhs_read = builder.cfg->emplace_ssa(
+                            a8 ? SSA_read_array8 : SSA_read_array16, elem_type, 
+                            rhs.ssa(), ssa_value_t(0u, TYPE_U20), iter_init);
+
+                        // Do the comparison:
+                        ssa_ht const cmp = builder.cfg->emplace_ssa(Policy::op(), TYPE_BOOL, lhs_read, rhs_read);
+                        cfg_ht const cmp_branch = builder.cfg;
+                        cfg_exits_with_branch(cmp);
+
+                        // Handle the iteration:
+                        cfg_ht const iter_body = builder.cfg = insert_cfg(true);
+                        cmp_branch->build_set_output(!noteq, iter_body);
+                        iter = builder.cfg->emplace_ssa(SSA_add, iter_type, iter, ssa_value_t(1u, iter_type), ssa_value_t(0u, TYPE_BOOL));
+
+                        // Compare the iteration and loop:
+                        unsigned stop_point = array_size;
+                        if(a8)
+                            stop_point %= 0x100;
+                        else
+                            stop_point %= 0x10000;
+                        ssa_ht cond = builder.cfg->emplace_ssa(SSA_eq, TYPE_BOOL, iter, ssa_value_t(stop_point, iter_type));
+                        cfg_exits_with_branch(cond);
+                        iter_body->build_set_output(0, loop_body);
+                        seal_block(loop_body.data<block_d>());
+
+                        // Exit the loop:
+                        cfg_ht const exit = builder.cfg = insert_cfg(true);
+                        cmp_branch->build_set_output(noteq, exit);
+                        iter_body->build_set_output(1, exit);
+                        ssa_ht sum = builder.cfg->emplace_ssa(SSA_phi, TYPE_BOOL, ssa_value_t(noteq, TYPE_BOOL), ssa_value_t(!noteq, TYPE_BOOL));
+
+                        // Fix the iter input:
+                        // (Don't combine; reference invalidation lurks!)
+                        ssa_ht const phi = loop_body->emplace_ssa(SSA_phi, iter_type, ssa_value_t(0u, iter_type), iter);
+                        iter_init->replace_with(phi);
+                        iter_init->prune();
+
+                        result.val = rval_t{ sum };
+                        result.time = RT;
+                        return result;
+                    }
+                }
+                else
+                    goto bad_types;
+            }
+            else
+            {
+            bad_types:
+                compiler_error(
+                    concat(lhs.pstring, rhs.pstring), 
+                    fmt("% isn't defined for this type combination. (% and %)",
+                        token_string(token.type), lhs.type, rhs.type));
+            }
+        }
+    }
+    else
+        req_quantity(token, lhs, rhs);
 
     if(lhs.type != rhs.type)
     {
@@ -6050,18 +6253,12 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
             rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
     }
 
-    if(locator_t loc = handle_lt<Policy::D>(result.type, { .type = Policy::lt(), .pstring = result.pstring }, lhs, rhs))
-    {
-        result.val = _lt_rval(result.type, loc);
-        result.time = LT;
-    }
-    else if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
+    if(is_interpret(Policy::D) || (Policy::D == COMPILE && lhs.is_ct() && rhs.is_ct()))
         result.val = rval_t{ ssa_value_t(Policy::interpret(lhs.s(), rhs.s(), result.pstring), TYPE_BOOL) };
     else if(is_compile(Policy::D))
     {
         // The implementation is kept simpler if both types being compared have the same size.
-        if((Policy::op() == SSA_eq || Policy::op() == SSA_not_eq) 
-           && !same_scalar_layout(lhs.type.name(), rhs.type.name()))
+        if(eqn && !same_scalar_layout(lhs.type.name(), rhs.type.name()))
         {
             unsigned const w = std::max(whole_bytes(lhs.type.name()), whole_bytes(rhs.type.name()));
             unsigned const f = std::max(frac_bytes(lhs.type.name()), frac_bytes(rhs.type.name()));
@@ -6085,6 +6282,7 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 
     ssa_op_t const op = Policy::op();
     bool const summable = op == SSA_add || op == SSA_sub;
+    bool const logic = op == SSA_or || op == SSA_and || op == SSA_xor || op == SSA_eq || op == SSA_not_eq;
 
     if(summable)
     {
@@ -6096,6 +6294,8 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
                                         token_string(token.type), lhs.type, rhs.type));
         }
     }
+    else if(logic)
+        req_arithmetic(token, lhs, rhs);
     else
         req_quantity(token, lhs, rhs);
 
@@ -6641,13 +6841,10 @@ expr_value_t eval_t::do_assign_mul(expr_value_t lhs, expr_value_t rhs, token_t c
     return do_assign<Policy::D>(std::move(lhs), throwing_cast<Policy::D>(do_mul<Policy>(to_rval<Policy::D>(lhs), rhs, token), lhs.type, false), token);
 }
 
-template<eval_t::do_t D>
-expr_value_t eval_t::do_logical(ast_node_t const& ast)
+template<eval_t::do_t D, typename GetLHS, typename GetRHS>
+expr_value_t eval_t::do_logical_impl(bool is_or, GetLHS const& get_lhs, GetRHS const& get_rhs)
 {
-    assert(ast.token.type == TOK_logical_or || ast.token.type == TOK_logical_and);
-
-    expr_value_t const lhs = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_BOOL, true);
-    bool const is_or = ast.token.type == TOK_logical_or;
+    expr_value_t const lhs = throwing_cast<D>(get_lhs(), TYPE_BOOL, true);
 
     if(is_interpret(D))
     {
@@ -6657,12 +6854,12 @@ expr_value_t eval_t::do_logical(ast_node_t const& ast)
             // This is unimplemented for now.
             // TODO: implement properly.
             throw compiler_error_t(
-                fmt_error(ast.token.pstring, "Unable to interpret at compile-time. Conditional expression depends on link-time value.")
+                fmt_error(lhs.pstring, "Unable to interpret at compile-time. Conditional expression depends on link-time value.")
                 + fmt_note("You can use a bitwise operation instead."));
         }
         if(bool(lhs.fixed()) == is_or)
             return lhs;
-        expr_value_t const rhs = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
+        expr_value_t const rhs = throwing_cast<D>(get_rhs(), TYPE_BOOL, true);
 
         if(rhs.is_lt())
             goto lt;
@@ -6677,7 +6874,7 @@ expr_value_t eval_t::do_logical(ast_node_t const& ast)
         cfg_ht const long_cut = builder.cfg = insert_cfg(true);
         branch_node->build_set_output(!is_or, long_cut);
 
-        expr_value_t const rhs = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
+        expr_value_t const rhs = throwing_cast<D>(get_rhs(), TYPE_BOOL, true);
 
         cfg_ht const merge_node = insert_cfg(true);
         cfg_exits_with_jump();
@@ -6697,8 +6894,19 @@ expr_value_t eval_t::do_logical(ast_node_t const& ast)
         return result;
     }
 
-    expr_value_t const rhs = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_BOOL, true);
+    expr_value_t const rhs = throwing_cast<D>(get_rhs(), TYPE_BOOL, true);
     return { .type = TYPE_BOOL, .pstring = concat(lhs.pstring, rhs.pstring) };
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::do_logical(ast_node_t const& ast)
+{
+    bool const is_or = ast.token.type == TOK_logical_or;
+
+    return do_logical_impl<D>(
+        is_or,
+        [&](){ return do_expr<D>(ast.children[0]); },
+        [&](){ return do_expr<D>(ast.children[1]); });
 }
 
 template<eval_t::do_t D>
@@ -7244,7 +7452,7 @@ expr_value_t eval_t::force_teaify_vec(expr_value_t value, type_t to_type, pstrin
     if(!is_check(D))
     {
         assert(rval.size() == 1);
-        auto vec = std::get<vec_ptr_t>(rval[0]);
+        auto vec = get_vec_ptr(value.pstring, rval[0]);
 
         unsigned const from_length = vec->data.size();
         if(to_type.unsized())

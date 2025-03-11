@@ -79,11 +79,10 @@ static std::vector<std::uint8_t> convert_pal25(std::vector<std::uint8_t> const& 
 
     for(unsigned i = 0; i < in.size(); ++i)
     {
-        unsigned j = i % 25;
-        if(j % 4 != 0)
+        if(i % 4 != 0)
             ret.push_back(in[i]);
-        if(j == 24)
-            ret.push_back(in[i-24]);
+        if((i % 32) == 31)
+            ret.push_back(in[i - 31]);
     }
 
     return ret;

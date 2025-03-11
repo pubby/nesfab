@@ -209,6 +209,99 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             break;
         }
 
+        // Converts store, op, store into op, store
+        // e.g.:
+        //     STX foo
+        //     STA bar
+        //     STX foo
+        // becomes:
+        //     STA bar
+        //     STX foo
+        if(c && is_simple_store(op_name(a.op)) && a == *c 
+           && (!a.arg || a.arg.known_variable()) 
+           && (!a.alt || a.alt.known_variable())
+           && op_flags(b.op) == 0
+           && (op_output_regs(b.op) & op_input_regs(a.op)) == 0
+           && (op_input_regs(b.op) & REGF_M) == 0)
+        {
+            if(!(op_output_regs(b.op) & REGF_M)
+               || (!b.arg || b.arg.known_variable())
+               || (!b.alt || b.alt.known_variable()))
+            {
+                a.op = ASM_PRUNED;
+                changed = true;
+            }
+        }
+
+        // Converts load, op, load into load, op
+        // e.g.:
+        //     LDX foo
+        //     STA bar
+        //     LDX foo
+        // becomes:
+        //     LDX foo
+        //     STA bar
+        if(c 
+           && is_simple_load(op_name(a.op)) 
+           && is_simple_load(op_name(c->op)) 
+           && a.arg == c->arg && a.alt == c->alt
+           && (!a.arg || a.arg.known_memory()) 
+           && (!a.alt || a.alt.known_memory())
+           && op_flags(b.op) == 0
+           && (op_output_regs(b.op) & (op_output_regs(a.op) | REGF_M)) == 0)
+        {
+            switch(op_name(a.op))
+            {
+            default:
+                break;
+            case LDA:
+                switch(op_name(c->op))
+                {
+                default:
+                    break;
+                case LDA:
+                    lol_prune_c:
+                    c->op = ASM_PRUNED;
+                    lol_wipe_arg_alt:
+                    c->arg = {};
+                    c->alt = {};
+                    changed = true;
+                    break;
+                case LDX:
+                    c->op = TAX_IMPLIED;
+                    goto lol_wipe_arg_alt;
+                case LDY:
+                    c->op = TAY_IMPLIED;
+                    goto lol_wipe_arg_alt;
+                }
+                break;
+            case LDX:
+                switch(op_name(c->op))
+                {
+                default:
+                    break;
+                case LDX:
+                    goto lol_prune_c;
+                case LDA:
+                    c->op = TXA_IMPLIED;
+                    goto lol_wipe_arg_alt;
+                }
+                break;
+            case LDY:
+                switch(op_name(c->op))
+                {
+                default:
+                    break;
+                case LDY:
+                    goto lol_prune_c;
+                case LDA:
+                    c->op = TYA_IMPLIED;
+                    goto lol_wipe_arg_alt;
+                }
+                break;
+            }
+        }
+
         switch(op_name(a.op))
         {
         default: break;

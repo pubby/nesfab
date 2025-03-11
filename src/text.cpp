@@ -215,6 +215,11 @@ rom_array_ht string_literal_manager_t::get_rom_array(global_t const* charmap, un
         std::string const& str = map.begin()[index].first;
         data_t& data = map.begin()[index].second;
 
+        group_data_ht const gd = charmap->impl<charmap_t>().group_data();
+
+        if(!gd)
+            compiler_error(data.pstring, fmt("Invalid use of string literal. % has no stows modifier.", charmap->name));
+
         std::lock_guard<std::mutex> lock(data.mutex);
         if(!data.rom_array)
         {
@@ -226,13 +231,10 @@ rom_array_ht string_literal_manager_t::get_rom_array(global_t const* charmap, un
 
             assert(charmap->gclass() == GLOBAL_CHARMAP);
 
-            group_data_ht const gd = charmap->impl<charmap_t>().group_data();
-
-            if(!gd)
-                compiler_error(data.pstring, fmt("Invalid use of string literal. % has no stows modifier.", charmap->name));
-
             data.rom_array = rom_array_t::make(std::move(vec), false, charmap->impl<charmap_t>().stows_omni(), ROMR_NORMAL, gd);
         }
+        else
+            data.rom_array.safe().mark_used_by(gd);
 
         assert(data.rom_array);
         return data.rom_array;

@@ -2,7 +2,7 @@
 #rm graphs/*.svg
 #rm graphs/cfg/*.svg
 
-for f in graphs/*.gv; 
+for f in graphs/*/*.gv; 
 do 
     echo $f
     dot $f -Goverlap=scale -T svg -o ${f%%.*}.svg

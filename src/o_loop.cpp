@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cmath>
 #include <vector>
+#include <iostream> // TODO
 
 #include <boost/container/small_vector.hpp>
 
@@ -90,6 +91,17 @@ struct iv_t : public iv_base_t
         if(f >= 0)
             return ssa_value_t(fixed_t{f}, operand.num_type_name());
         return {};
+    }
+
+    bool valid_shift(unsigned bits) const 
+    { 
+        if(!init.is_const())
+            return false;
+
+        fixed_sint_t f = to_signed(init.fixed().value, init.num_type_name()) * sign();
+        f >>= fixed_t::shift;
+
+        return f >= 0 && f < bits;
     }
 };
 
@@ -441,8 +453,10 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
                     if(carry_used(*oe.handle))
                         break;
 
+                    unsigned const c = oe.handle->input(1).whole();
+
                     // Don't bother converting small shifts; they are efficient enough already.
-                    if(type.size_of() == 1 && inc.is_num() && inc.whole() <= 2)
+                    if(type.size_of() == 1 && c <= 2)
                         break;
 
                     step_t step = reduce(header, oe.handle->cfg_node(), def.root(), type, SSA_shl, SSA_add);
@@ -479,6 +493,21 @@ bool try_reduce(to_calc_order_dep_vec_t& to_calc_order_dep, cfg_ht header, iv_ba
                 {
                     // Can't handle carries:
                     if(carry_used(*oe.handle))
+                        break;
+
+                    // Make sure the initial value is representable:
+                    // TODO: we could make this more accurate.
+                    if(def_ssa != root.phi)
+                        break;
+
+                    unsigned const c = oe.handle->input(0).whole();
+
+                    unsigned min_size = oe.handle->type().size_of();
+                    min_size = std::min<unsigned>(min_size, root.ssa(is_phi)->type().size_of());
+                    for(auto* child : root.children)
+                        min_size = std::min<unsigned>(min_size, child->ssa(is_phi)->type().size_of());
+
+                    if(!root.valid_shift(min_size * 8))
                         break;
 
                     step_t step = reduce(header, oe.handle->cfg_node(), def.root(), type, SSA_shl, SSA_shl);
@@ -561,6 +590,8 @@ bool reverse_loop(cfg_ht header, iv_t& root, fixed_sint_t init, fixed_sint_t inc
         return false;
     assert(end);
 
+    auto const& hd = header_data(header);
+
     if(end.is_num() && end.fixed().signed_() > increment && !(end.fixed().value & high_bit_only(numeric_bitmask(end.num_type_name()))))
     {
         end = ssa_value_t(fixed_t{end.signed_fixed() - increment}, end.num_type_name());
@@ -575,6 +606,10 @@ bool reverse_loop(cfg_ht header, iv_t& root, fixed_sint_t init, fixed_sint_t inc
     else
     {
         if(root.deps & VALUE_DEP)
+            return false;
+
+        // Avoid do-loops where the end point can be zero:
+        if(hd.simple_do && (!end.is_num() || end.fixed().value == 0))
             return false;
 
         // Rewrite array outputs:

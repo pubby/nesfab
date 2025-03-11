@@ -19,7 +19,7 @@ namespace // anonymous
 #define BUF_GAP_SIZE 512
 #define BUF_TOTAL_SIZE ((BUF_IO_SIZE+BUF_GAP_SIZE)*2)
 
-static uint8_t byte_buffer[BUF_TOTAL_SIZE];
+static TLS uint8_t byte_buffer[BUF_TOTAL_SIZE];
 
 #define OUTPUT_BEGIN (byte_buffer)
 #define INPUT_BEGIN (byte_buffer + BUF_TOTAL_SIZE - BUF_IO_SIZE)

@@ -2119,6 +2119,48 @@ static void _recursive_steal(cfg_ht from_cfg, cfg_ht to_cfg, ssa_ht h)
     }
 }
 
+// Checks to make sure our condition variable is valid for this:
+static bool _recursive_rewritable(cfg_ht header, ssa_ht h)
+{
+    bool test = for_each_output_with_links(h, [&](ssa_ht from, ssa_ht output)
+    {
+        // TODO: This might be wrong.
+        if(!loop_is_parent_of(header, output->cfg_node()))
+            return true;
+
+        if(output->cfg_node() != header)
+            return false;
+
+        if(output->op() == SSA_phi)
+            return false;
+
+        return true;
+    });
+
+    if(!test)
+        return false;
+
+    unsigned const input_size = h->input_size();
+    for(unsigned i = 0; i < input_size; ++i)
+    {
+        ssa_value_t const input = h->input(i);
+
+        if(!input.holds_ref())
+            continue;
+
+        if(input->cfg_node() != header)
+            continue;
+
+        if(input->op() == SSA_phi)
+            continue;
+
+        if(!_recursive_rewritable(header, input.handle()))
+           return false;
+    }
+
+    return true;
+}
+
 cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs, bool exit_output)
 {
     assert(back_edge_inputs); // Must have at least one back edge.
@@ -2354,9 +2396,14 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
         else
             return {};
     }
+    else
+    {
+        if(!_recursive_rewritable(header_cfg, branch_ssa))
+            return {};
+    }
 
     // OK! The branch is forced for the first iteration.
-    dprint(log, "---REWRITE_LOOPS_REWRITE", header_cfg);
+    dprint(log, "---REWRITE_LOOPS_REWRITE", header_cfg, branch_ssa);
 
     // Split the back edge:
     cfg_ht const new_branch_cfg = ir.emplace_cfg(header_cfg->prop_flags());

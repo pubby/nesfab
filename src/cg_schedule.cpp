@@ -50,8 +50,8 @@ private:
     // The SSA nodes after topological sorting:
     std::vector<ssa_ht> toposorted;
 
-    ssa_schedule_d& data(ssa_ht h) const { return cg_data(h).schedule; }
-    int& bs_index(ssa_ht h) const { return data(h).bitset_index; }
+    inline ssa_schedule_d& data(ssa_ht h) const { return cg_data(h).schedule; }
+    inline int& bs_index(ssa_ht h) const { return data(h).bitset_index; }
 
     void append_schedule(ssa_ht h);
     template<bool Fast>
@@ -972,7 +972,8 @@ int scheduler_t::path_length(unsigned relax, ssa_ht h, bitset_uint_t const* sche
         return 0;
 
     // At some point, stop counting:
-    if(depth >= 8)
+    int const STOP_POINT = 8;
+    if(depth >= STOP_POINT)
         return 0;
     
     int max_length = 0;

@@ -65,8 +65,12 @@ asm fn ppu_upload_donut(CCC/donut ptr, U chunk_count)
         if __fixed
             push
     label chunk_loop
-        lax &ptr.bank
-        switch ax
+        if __illegal
+            lax &ptr.bank
+            switch ax
+        else
+            ldx &ptr.bank
+            switch x
         ldx #64
         jsr decompress_chunk
         bcs end_chunk_upload  // bail on error.

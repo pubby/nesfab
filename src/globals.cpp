@@ -316,7 +316,7 @@ void global_t::parse_cleanup()
 }
 
 template<typename Fn>
-void global_t::do_all(Fn const& fn)
+void global_t::do_all(Fn const& fn, bool parallel)
 {
     {
         std::lock_guard lock(ready_mutex);
@@ -324,7 +324,7 @@ void global_t::do_all(Fn const& fn)
     }
 
     // Spawn threads to compile in parallel:
-    parallelize(compiler_options().num_threads,
+    parallelize(parallel ? compiler_options().num_threads : 1,
     [&fn](std::atomic<bool>& exception_thrown)
     {
         ssa_pool::init();
@@ -486,7 +486,7 @@ void global_t::precheck_all()
             {
                 assert(prev_set_pstrings[pair.first]);
                 throw compiler_error_t(
-                    fmt_error(pair.second, "Fn pointer call site can be reached from multiple threads.")
+                    fmt_error(pair.second, fmt("Fn pointer call site for Fn.% can be reached from multiple threads.", pair.first->global.name))
                     + fmt_note(prev_set_pstrings[pair.first], "Conflicting call located here."));
             }
 
@@ -1129,6 +1129,12 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     m_ir_fences = fences;
 }
 
+void fn_t::assign_direct_rom_arrays(fc::vector_set<rom_array_ht>&& set)
+{
+    assert(compiler_phase() == PHASE_COMPILE);
+    m_direct_rom_arrays = std::move(set);
+}
+
 void fn_t::assign_lvars(lvars_manager_t&& lvars)
 {
     assert(compiler_phase() == PHASE_COMPILE);
@@ -1309,12 +1315,14 @@ void fn_t::compile()
             return;
 
         std::filesystem::create_directory("graphs/");
+        std::filesystem::create_directory("graphs/cfg/");
+        std::filesystem::create_directory("graphs/ssa/");
 
-        std::ofstream ocfg(fmt("graphs/cfg__%__%.gv", global.name, suffix));
+        std::ofstream ocfg(fmt("graphs/cfg/%__%.gv", global.name, suffix));
         if(ocfg.is_open())
             graphviz_cfg(ocfg, ir);
 
-        std::ofstream ossa(fmt("graphs/ssa__%__%.gv", global.name, suffix));
+        std::ofstream ossa(fmt("graphs/ssa/%__%.gv", global.name, suffix));
         if(ossa.is_open())
             graphviz_ssa(ossa, ir);
     };
@@ -1323,7 +1331,7 @@ void fn_t::compile()
     {
 #define RUN_O(o, ...) do { if(o(__VA_ARGS__)) { \
     changed = true; \
-    /* assert((std::printf("DID_O %s %s %i\n", global.name.c_str(), #o, iter), true)); */ } \
+    /*assert((std::printf("DID_O %s %s %i\n", global.name.c_str(), #o, iter), true));*/  } \
     ir.assert_valid(); \
     } while(false)
 
@@ -1343,11 +1351,11 @@ void fn_t::compile()
 
             dprint(log, "OPTIMIZATION_PASS", post_byteified, iter);
 
-            //save_graph(ir, fmt("pre_fork_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("A_pre_fork_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_defork, log, ir);
             RUN_O(o_fork, log, ir);
-            //save_graph(ir, fmt("post_fork_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("B_post_fork_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_phis, log, ir);
 
@@ -1355,24 +1363,24 @@ void fn_t::compile()
 
             RUN_O(o_remove_unused_arguments, log, ir, *this, post_byteified);
 
-            save_graph(ir, fmt("pre_id_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("C_pre_id_%_%", post_byteified, iter).c_str());
             RUN_O(o_identities, log, ir, post_byteified);
-            save_graph(ir, fmt("post_id_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("D_post_id_%_%", post_byteified, iter).c_str());
 
             // 'o_loop' populates 'ai_prep', which feeds into 'o_abstract_interpret'.
             // Thus, they must occur sequentially.
             reset_ai_prep();
-            save_graph(ir, fmt("pre_loop_%_%", post_byteified, iter).c_str());
-            //RUN_O(o_loop, log, ir, post_byteified, sloppy());
-            save_graph(ir, fmt("pre_ai_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("E_pre_loop_%_%", post_byteified, iter).c_str());
+            RUN_O(o_loop, log, ir, post_byteified, sloppy());
+            save_graph(ir, fmt("F_pre_ai_%_%", post_byteified, iter).c_str());
             RUN_O(o_abstract_interpret, log, ir, post_byteified);
-            save_graph(ir, fmt("post_ai_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("G_post_ai_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_remove_unused_ssa, log, ir);
 
-            save_graph(ir, fmt("pre_motion_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("H_pre_motion_%_%", post_byteified, iter).c_str());
             RUN_O(o_motion, log, ir);
-            save_graph(ir, fmt("post_motion_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("I_post_motion_%_%", post_byteified, iter).c_str());
 
             if(post_byteified)
             {
@@ -1382,7 +1390,7 @@ void fn_t::compile()
             }
 
             // Enable this to debug:
-            save_graph(ir, fmt("during_o_%", iter).c_str());
+            save_graph(ir, fmt("Z_during_o_%_%", post_byteified, iter).c_str());
             ++iter;
 
             if(iter >= MAX_ITER)

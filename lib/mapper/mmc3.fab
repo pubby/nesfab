@@ -8,6 +8,13 @@
 // Helper code for interfacing MMC3 ///////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+// IMPORTANT NOTE:
+//
+// In NESFab's implementation of MMC3, 
+// the two highest bits of $8000 cannot and should not be set. 
+// When writing to $8000, leave the two highest bits zero.
+// Otherwise you will break the bankswitching behavior.
+
 // Registers:
 ct AA MMC3_BANK_SELECT = $8000
 ct AA MMC3_BANK_DATA   = $8001

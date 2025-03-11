@@ -33,16 +33,9 @@ ct F[65] half_sin_table = F[65](
 //   sin(64) = 1
 fn sin(U v) SF
 : -inline
-    U index
-    if v & 64
-        index = 64 - (v & 63)
-    else
-        index = v & 63
-
-    SF result = SF(half_sin_table[index]) << 1
+    SF result = _abs_sin(v)
     if v & 128
         result = -result
-
     return result
 
 // Cosine:
@@ -51,6 +44,23 @@ fn sin(U v) SF
 fn cos(U v) SF
 : +inline
     return sin(v + 64)
+
+fn _abs_sin(U v) SF
+: +inline
+    U index
+    if v & 64
+        index = 64 - (v & 63)
+    else
+        index = v & 63
+    return SF(half_sin_table[index]) << 1
+
+fn abs_sin(U v) SF
+: -inline
+    return _abs_sin(v)
+
+fn abs_cos(U v) SF
+: +inline
+    return abs_sin(v + 64)
 
 // Used to implement atan and atan2.
 ct U[256] atan_table = U[256](

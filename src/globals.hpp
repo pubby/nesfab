@@ -218,7 +218,7 @@ private:
 
     // Helper to implement 'compile_all', 'precheck_all', etc.
     template<typename Fn>
-    static void do_all(Fn const& fn);
+    static void do_all(Fn const& fn, bool parallel = true);
 
     global_t* resolve(log_t* log);
     global_t* precheck(log_t* log);
@@ -505,6 +505,9 @@ public:
     span_t lvar_span(romv_t romv, int lvar_i) const;
     span_t lvar_span(romv_t romv, locator_t loc) const;
 
+    void assign_direct_rom_arrays(fc::vector_set<rom_array_ht>&& set);
+    fc::vector_set<rom_array_ht> const& direct_rom_arrays() { assert(compiler_phase() > PHASE_COMPILE); return m_direct_rom_arrays; }
+
     bool referenced() const { return m_referenced.load(); }
 
     void mark_referenced_return();
@@ -610,6 +613,7 @@ private:
 
     std::unique_ptr<std::vector<asm_goto_mode_t>> m_asm_goto_modes;
 
+    fc::vector_set<rom_array_ht> m_direct_rom_arrays;
 
     // Used for debuggable output.
     std::unique_ptr<std::stringstream> m_info_stream;

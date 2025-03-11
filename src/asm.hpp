@@ -343,4 +343,31 @@ constexpr op_t fast_op(op_t op)
     }
 }
 
+constexpr bool is_simple_load(op_name_t name)
+{
+    switch(name)
+    {
+    case LDA:
+    case LDX:
+    case LDY:
+    case LAX:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool is_simple_store(op_name_t name)
+{
+    switch(name)
+    {
+    case STA:
+    case STX:
+    case STY:
+        return true;
+    default:
+        return false;
+    }
+}
+
 #endif

@@ -163,7 +163,8 @@ constexpr bool has_tail(type_name_t name)
     return (has_type_tail(name) 
             || has_group_tail(name)
             || is_thunk(name)
-            || name == TYPE_STRUCT); 
+            || name == TYPE_STRUCT
+            || name == TYPE_FN_PTR); 
 }
 
 constexpr bool is_simple(type_name_t type_name)

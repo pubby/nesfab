@@ -109,37 +109,60 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
                 rom_array_ht rom_array = { data.handle() };
                 rom_proc_directly_uses[proc.id].insert(rom_array);
                 rom_array_used_by[rom_array.id].insert(proc);
-                if(rom_array->omni())
-                    rom_array->max_rule(proc->rule());
             }
         }
         else if(loc.lclass() == LOC_LT_EXPR)
             loc.lt()->for_each_locator([&](locator_t loc) { try_insert(proc, loc); });
     };
 
+    std::size_t const gd_bs_size = group_data_ht::bitset_size();
+    bitset_uint_t* gd_bs = ALLOCA_T(bitset_uint_t, gd_bs_size);
+    bitset_uint_t* intersect_bs = ALLOCA_T(bitset_uint_t, gd_bs_size);
+
     for(rom_proc_ht proc : rom_proc_ht::handles())
     {
         if(!proc->emits())
             continue;
-
-        for(asm_inst_t const& inst : proc->asm_proc().code)
-        {
-            try_insert(proc, inst.arg);
-            try_insert(proc, inst.alt);
-        }
 
         // Assume asm functions use any rom array in their groups:
         if(fn_ht fn = proc->asm_proc().fn)
         {
             if(fn->iasm)
             {
+                bitset_clear_all(gd_bs_size, gd_bs);
                 fn->ir_deref_groups().for_each([&](group_ht group)
                 {
-                    group->for_each_const([&](const_ht c)
-                    {
-                        try_insert(proc, locator_t::gconst(c));
-                    });
+                    if(group->data_handle())
+                        bitset_set(gd_bs, group->data_handle().id);
                 });
+
+                for(rom_array_ht rom_array_h : rom_array_ht::handles())
+                {
+                    bitset_copy(gd_bs_size, intersect_bs, rom_array_h->used_in_group_data().data());
+                    bitset_and(gd_bs_size, intersect_bs, gd_bs);
+                    if(!bitset_all_clear(gd_bs_size, intersect_bs))
+                        try_insert(proc, locator_t::rom_array(rom_array_h));
+                }
+
+                goto insert_from_asm;
+            }
+            else
+            {
+                for(rom_array_ht rom_array : fn->direct_rom_arrays())
+                {
+                    rom_proc_directly_uses[proc.id].insert(rom_array);
+                    rom_array_used_by[rom_array.id].insert(proc);
+                    rom_array->max_rule(proc->rule());
+                }
+            }
+        }
+        else
+        {
+        insert_from_asm:
+            for(asm_inst_t const& inst : proc->asm_proc().code)
+            {
+                try_insert(proc, inst.arg);
+                try_insert(proc, inst.alt);
             }
         }
     }
@@ -534,8 +557,11 @@ float rom_allocator_t::bank_rank(rom_bank_t const& bank, rom_once_t const& once)
         unrelated = bitset_popcount(once_bs_size, onces);
     }
 
+    float const m = 4 * (bank.allocator.bytes_free());// - once.max_size());
     float const r = bank.allocator.initial_bytes_free() * std::sqrt((float)bank.allocator.spans_free());
-    return -unallocated_many_size + related - (unrelated * 0.125f) + (bank.allocator.bytes_free() / r);
+    // Old formula:
+    //return -(unallocated_many_size) + related - (unrelated * 0.125f) + (bank.allocator.bytes_free() / r);
+    return -(std::sqrt(unallocated_many_size) * 0.0625f) + (related) - (unrelated * 0.125f) + (m / r);
 }
 
 void rom_allocator_t::rank_banks_for(rom_once_t const& once)

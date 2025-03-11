@@ -1174,7 +1174,6 @@ void asm_graph_t::optimize_live_registers()
                     break;
                 }
 
-
                 // Convert code like:
                 //     LDA foo
                 //     TAY
@@ -1269,6 +1268,7 @@ void asm_graph_t::optimize_live_registers()
 #endif
             });
         }
+
 
         // Now attempt to optimize out redundant loads following loads.
         // e.g. in:

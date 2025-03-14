@@ -1076,7 +1076,7 @@ auto const read_array = ABSTRACT_FN
 
     result[0] = constraints_t::top();
     for(auto i = std::max<fixed_sint_t>(min_bound, 0); i < iter_to; ++i)
-        if(index(fixed_t::whole(i).value, cv[INDEX].cm))
+        if(index(fixed_t::whole(i - offset).value, cv[INDEX].cm))
             result[0] = union_(input_array[i], result[0]);
 };
 
@@ -1116,7 +1116,7 @@ auto const write_array = ABSTRACT_FN
         fixed_sint_t const iter_to = std::min<fixed_sint_t>(max_bound + 1, result.vec.size());
 
         for(auto i = std::max<fixed_sint_t>(min_bound, 0); i < iter_to; ++i)
-            if(index(fixed_t::whole(i).value, cv[INDEX].cm))
+            if(index(fixed_t::whole(i - offset).value, cv[INDEX].cm))
                 result[i] = union_(result[i], value);
     }
 };

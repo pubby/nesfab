@@ -1067,7 +1067,7 @@ auto const read_array = ABSTRACT_FN
     if(input_array.vec.empty())
         return abstract_bottom(cv, argn, result);
 
-    std::int16_t const offset = static_cast<std::int16_t>(cv[OFFSET][0].get_const());
+    std::int16_t const offset = static_cast<std::int16_t>(cv[OFFSET][0].get_const() >> fixed_t::shift);
     bounds_t const index = cv[INDEX][0].bounds;
 
     fixed_sint_t const min_bound = (index.min >> fixed_t::shift) + offset;
@@ -1095,7 +1095,7 @@ auto const write_array = ABSTRACT_FN
     if(input_array.vec.empty())
         return abstract_bottom(cv, argn, result);
 
-    std::int16_t const offset = static_cast<std::int16_t>(cv[OFFSET][0].get_const());
+    std::int16_t const offset = static_cast<std::int16_t>(cv[OFFSET][0].get_const() >> fixed_t::shift);
     bounds_t const index = cv[INDEX][0].bounds;
     constraints_t const value = cv[ASSIGNMENT][0];
 

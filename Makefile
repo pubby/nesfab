@@ -31,7 +31,7 @@ INCS:=-I$(SRCDIR)
 VERSION := "1.6"
 GIT_COMMIT := "$(shell git describe --all --abbrev=8 --dirty --always)"
 
-#override CXX:=clang++
+override CXX:=clang++
 
 override CXXFLAGS+= \
   -std=c++20 \

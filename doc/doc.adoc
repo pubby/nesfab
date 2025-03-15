@@ -1195,12 +1195,12 @@ See the standard library file `lib/mapper/mmc1.fab`.
 |Name |Min |Max |Default
 
 | <<opt_prg, PRG (Code)>>
-| 256 KiB
+| 32 KiB
 | 256 KiB
 | 256 KiB
 
 | <<opt_chr, CHR (Tilesets)>>
-| 128 KiB
+| 8 KiB
 | 128 KiB
 | 128 KiB
 
@@ -1250,12 +1250,12 @@ See the standard library file `lib/mapper/mmc3.fab`.
 |Name |Min |Max |Default
 
 | <<opt_prg, PRG (Code)>>
-| 512 KiB
+| 32 KiB
 | 2048 KiB
 | 512 KiB
 
 | <<opt_chr, CHR (Tilesets)>>
-| 256 KiB
+| 8 KiB
 | 256 KiB
 | 256 KiB
 
@@ -1359,12 +1359,12 @@ See the standard library file `lib/mapper/mmc5.fab`.
 |Name |Min |Max |Default
 
 | <<opt_prg, PRG (Code)>>
-| 1024 KiB
+| 128 KiB
 | 1024 KiB
 | 1024 KiB
 
 | <<opt_chr, CHR (Tilesets)>>
-| 1024 KiB
+| 128 KiB
 | 1024 KiB
 | 1024 KiB
 

@@ -7,7 +7,7 @@
 #include <condition_variable>
 #include <functional>
 #include <mutex>
-#include <deque>
+#include <boost/container/deque.hpp>
 #include <type_traits>
 
 #include "flat/flat_map.hpp"
@@ -57,23 +57,23 @@ enum global_class_t : std::uint8_t
 #undef X
 };
 
-struct lt_ht : pool_handle_t<lt_ht, std::deque<lt_value_t>, PHASE_COMPILE> {};
+struct lt_ht : pool_handle_t<lt_ht, boost::container::deque<lt_value_t>, PHASE_COMPILE> {};
 
-struct global_ht : pool_handle_t<global_ht, std::deque<global_t>, PHASE_PARSE> {};
-struct fn_ht : pool_handle_t<fn_ht, std::deque<fn_t>, PHASE_PARSE> {};
-struct gvar_ht : pool_handle_t<gvar_ht, std::deque<gvar_t>, PHASE_PARSE> {};
-struct const_ht : pool_handle_t<const_ht, std::deque<const_t>, PHASE_PARSE> {};
-struct struct_ht : pool_handle_t<struct_ht, std::deque<struct_t>, PHASE_PARSE> {};
+struct global_ht : pool_handle_t<global_ht, boost::container::deque<global_t>, PHASE_PARSE> {};
+struct fn_ht : pool_handle_t<fn_ht, boost::container::deque<fn_t>, PHASE_PARSE> {};
+struct gvar_ht : pool_handle_t<gvar_ht, boost::container::deque<gvar_t>, PHASE_PARSE> {};
+struct const_ht : pool_handle_t<const_ht, boost::container::deque<const_t>, PHASE_PARSE> {};
+struct struct_ht : pool_handle_t<struct_ht, boost::container::deque<struct_t>, PHASE_PARSE> {};
 struct gmember_ht : pool_handle_t<gmember_ht, std::vector<gmember_t>, PHASE_COUNT_MEMBERS> {};
-struct charmap_ht : pool_handle_t<charmap_ht, std::deque<charmap_t>, PHASE_PARSE> {};
-struct fn_set_ht : pool_handle_t<fn_set_ht, std::deque<fn_set_t>, PHASE_PARSE> {};
+struct charmap_ht : pool_handle_t<charmap_ht, boost::container::deque<charmap_t>, PHASE_PARSE> {};
+struct fn_set_ht : pool_handle_t<fn_set_ht, boost::container::deque<fn_set_t>, PHASE_PARSE> {};
 
-struct group_ht : pool_handle_t<group_ht, std::deque<group_t>, PHASE_PARSE> 
+struct group_ht : pool_handle_t<group_ht, boost::container::deque<group_t>, PHASE_PARSE> 
 {
     group_data_t* data() const; // Defined in group.cpp
 };
-struct group_vars_ht : pool_handle_t<group_vars_ht, std::deque<group_t*>, PHASE_PARSE> {};
-struct group_data_ht : pool_handle_t<group_data_ht, std::deque<group_t*>, PHASE_PARSE_CLEANUP> {};
+struct group_vars_ht : pool_handle_t<group_vars_ht, boost::container::deque<group_t*>, PHASE_PARSE> {};
+struct group_data_ht : pool_handle_t<group_data_ht, boost::container::deque<group_t*>, PHASE_PARSE_CLEANUP> {};
 
 DEF_HANDLE_HASH(fn_ht);
 DEF_HANDLE_HASH(gvar_ht);

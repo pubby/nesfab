@@ -63,8 +63,8 @@ private:
     fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
     fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
 
-    std::deque<macro_todo_t> todo_macros;
-    std::deque<mapfab_todo_t> todo_mapfabs;
+    boost::container::deque<macro_todo_t> todo_macros;
+    boost::container::deque<mapfab_todo_t> todo_mapfabs;
 
     struct switch_info_t
     {

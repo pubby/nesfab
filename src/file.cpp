@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cstdio>
 #include <stdexcept>
-#include <deque>
+#include <boost/container/deque.hpp>
 #include <mutex>
 
 #include "robin/set.hpp"
@@ -36,8 +36,8 @@ struct macro_result_t
 
 static std::mutex invoke_mutex;
 static rh::batman_set<macro_invocation_t> invoke_set;
-static std::deque<macro_result_t> macro_results;
-static std::deque<macro_result_t> new_macro_results;
+static boost::container::deque<macro_result_t> macro_results;
+static boost::container::deque<macro_result_t> new_macro_results;
 
 void invoke_macro(macro_invocation_t invoke)
 {

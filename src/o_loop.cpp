@@ -200,8 +200,8 @@ struct header_d
 };
 
 // iv = induction variable
-TLS std::deque<iv_t> ivs;
-TLS std::deque<mutual_iv_t> mutual_ivs;
+TLS boost::container::deque<iv_t> ivs;
+TLS boost::container::deque<mutual_iv_t> mutual_ivs;
 TLS std::vector<header_d> header_data_vec;
 
 template<typename Fn>

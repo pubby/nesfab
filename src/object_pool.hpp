@@ -2,7 +2,7 @@
 #define OBJECT_POOL_HPP
 
 #include <memory>
-#include <deque>
+#include <boost/container/deque.hpp>
 #include <vector>
 
 // A basic memory pool that supports alloc and free.
@@ -17,7 +17,7 @@ public:
 
     using int_type = Int;
 private:
-    std::deque<T> storage;
+    boost::container::deque<T> storage;
     std::vector<T*> free_list;
 public:
     T& alloc() 

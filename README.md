@@ -35,7 +35,7 @@ To build in release mode, run:
 By default, the compiler builds executables for the x86-64 architecture.
 To target others, specify a blank `ARCH` flag:
 
-    make ARCH=release
+    make ARCH= release
 
 By default, the NESFab compiler builds binaries that use unofficial ("illegal") instructions. 
 To force the compiler to only use official ones, compile the compiler with the following flag:

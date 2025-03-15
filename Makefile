@@ -224,7 +224,7 @@ $(SRCDIR)/macro_lex_tables.hpp \
 $(SRCDIR)/macro_lex_tables.cpp
 
 lexer_gen: $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
-	g++ -std=c++17 -O1 -o lexer_gen $<
+	$(CXX) -std=c++17 -O1 -o lexer_gen $<
 
 $(LEX_TABLES): lexer_gen $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
 	./lexer_gen 

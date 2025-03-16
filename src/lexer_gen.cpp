@@ -4,7 +4,6 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdint>
-#include <boost/container/deque.hpp>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -13,9 +12,13 @@
 #include <unordered_set>
 #include <vector>
 
+#include <boost/container/deque.hpp>
+
 #include "flat/flat_map.hpp"
 #include "flat/flat_multimap.hpp"
 #include "flat/flat_set.hpp"
+
+namespace bc = ::boost::container;
 
 constexpr unsigned ACCEPT = 256;
 constexpr unsigned EMPTY = 257;
@@ -130,7 +133,7 @@ rptr maybe(rptr r)
     { return uor(clone(r), rptr(new regex_t{ EMPTY })); }
 
 nfa_t gen_nfa(regex_t const& regex, 
-              boost::container::deque<nfa_node_t>& nodes, 
+              bc::deque<nfa_node_t>& nodes, 
               nfa_node_t* start = nullptr)
 {
     static unsigned prio = 0;
@@ -348,7 +351,7 @@ fc::vector_set<dfa_set_t> minimize_dfa(dfa_t& dfa)
     }
 }
 
-void print_nfa(nfa_t const& nfa, boost::container::deque<nfa_node_t> const& nodes)
+void print_nfa(nfa_t const& nfa, bc::deque<nfa_node_t> const& nodes)
 {
     for(nfa_node_t const& n : nodes)
     {
@@ -624,7 +627,7 @@ rptr either_case_keyword(char const* a)
 
 int main()
 {
-    boost::container::deque<nfa_node_t> nfa_nodes;
+    bc::deque<nfa_node_t> nfa_nodes;
     nfa_t nfa = gen_nfa(*uor(
         accept("eof", "file ending", eof()),
         accept("comment", "single-line comment", cat(word("//"), kleene(comchar()), uor(eof(), newline()))),
@@ -905,7 +908,7 @@ int main()
     dfa_t dfa = nfa_to_dfa(nfa);
     print_output(dfa, minimize_dfa(dfa), "lex", true);
 
-    boost::container::deque<nfa_node_t> asm_nfa_nodes;
+    bc::deque<nfa_node_t> asm_nfa_nodes;
     nfa_t asm_nfa = gen_nfa(*
         uor(
 #define OP_NAME(name) either_case_keyword(#name),
@@ -918,7 +921,7 @@ int main()
     dfa_t asm_dfa = nfa_to_dfa(asm_nfa);
     print_output(asm_dfa, minimize_dfa(asm_dfa), "asm_lex", false);
 
-    boost::container::deque<nfa_node_t> ext_nfa_nodes;
+    bc::deque<nfa_node_t> ext_nfa_nodes;
     nfa_t ext_nfa = gen_nfa(*uor(
         either_case_keyword("bin"),
         either_case_keyword("chr"),
@@ -932,7 +935,7 @@ int main()
     dfa_t ext_dfa = nfa_to_dfa(ext_nfa);
     print_output(ext_dfa, minimize_dfa(ext_dfa), "ext_lex", false);
 
-    boost::container::deque<nfa_node_t> macro_nfa_nodes;
+    bc::deque<nfa_node_t> macro_nfa_nodes;
     nfa_t macro_nfa = gen_nfa(*uor(
         accept("eof", "file ending", eof()),
         keyword("backtick", "`"),

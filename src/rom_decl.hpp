@@ -3,12 +3,15 @@
 
 #include <cassert>
 #include <cstdint>
-#include <boost/container/deque.hpp>
 #include <functional>
+
+#include <boost/container/deque.hpp>
 
 #include "handle.hpp"
 #include "phase.hpp"
 #include "bitset.hpp"
+
+namespace bc = ::boost::container;
 
 struct rom_alloc_t;
 struct rom_static_t;
@@ -23,8 +26,8 @@ struct rom_static_ht;
 struct rom_many_ht;
 struct rom_once_ht;
 
-struct rom_array_ht : public pool_handle_t<rom_array_ht, boost::container::deque<rom_array_t>, PHASE_ROM_DUMMY> {};
-struct rom_proc_ht : public pool_handle_t<rom_proc_ht, boost::container::deque<rom_proc_t>, PHASE_ROM_DUMMY> {};
+struct rom_array_ht : public pool_handle_t<rom_array_ht, bc::deque<rom_array_t>, PHASE_ROM_DUMMY> {};
+struct rom_proc_ht : public pool_handle_t<rom_proc_ht, bc::deque<rom_proc_t>, PHASE_ROM_DUMMY> {};
 
 class locator_t;
 

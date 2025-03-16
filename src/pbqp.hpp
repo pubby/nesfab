@@ -13,10 +13,13 @@
 #include <array>
 #include <algorithm>
 #include <vector>
+
 #include <boost/container/deque.hpp>
 
 #include "assert.hpp"
 #include "debug_print.hpp"
+
+namespace bc = ::boost::container;
 
 using pbqp_cost_t = std::uint64_t;
 
@@ -106,7 +109,7 @@ private:
     bool optimal_reduction(pbqp_node_t& node);
     void heuristic_reduction(pbqp_node_t& node);
 
-    boost::container::deque<pbqp_edge_t> edge_pool;
+    bc::deque<pbqp_edge_t> edge_pool;
     std::vector<pbqp_node_t*> bp_stack; // back propagation stack
     log_t* log;
 };

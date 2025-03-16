@@ -3,8 +3,9 @@
 #include <cassert>
 #include <cstdio>
 #include <stdexcept>
-#include <boost/container/deque.hpp>
 #include <mutex>
+
+#include <boost/container/deque.hpp>
 
 #include "robin/set.hpp"
 
@@ -25,6 +26,8 @@
 #include "ident_map.hpp"
 #include "decl.hpp"
 
+namespace bc = ::boost::container;
+
 struct macro_result_t
 {
     fs::path path;
@@ -36,8 +39,8 @@ struct macro_result_t
 
 static std::mutex invoke_mutex;
 static rh::batman_set<macro_invocation_t> invoke_set;
-static boost::container::deque<macro_result_t> macro_results;
-static boost::container::deque<macro_result_t> new_macro_results;
+static bc::deque<macro_result_t> macro_results;
+static bc::deque<macro_result_t> new_macro_results;
 
 void invoke_macro(macro_invocation_t invoke)
 {

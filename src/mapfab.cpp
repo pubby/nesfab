@@ -76,7 +76,7 @@ struct mapfab_t
         unsigned h;
         std::vector<std::uint8_t> tiles;
         std::vector<std::uint8_t> tiles32;
-        std::vector<boost::container::deque<std::string>> objects;
+        std::vector<bc::deque<std::string>> objects;
         std::vector<std::vector<std::int16_t>> objects_x;
         std::vector<std::vector<std::int16_t>> objects_y;
         std::vector<std::vector<std::string>> objects_name;
@@ -85,7 +85,7 @@ struct mapfab_t
     std::vector<chr_t> chrs;
     std::vector<palette_t> palettes;
     std::vector<mt_set_t> mt_sets;
-    fc::vector_map<std::string, boost::container::deque<field_t>> ocs;
+    fc::vector_map<std::string, bc::deque<field_t>> ocs;
     std::vector<level_t> levels;
 
     void load_binary(std::uint8_t const* const begin, std::size_t size, fs::path mapfab_path);
@@ -240,7 +240,7 @@ void mapfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs
         get8(); // R
         get8(); // G
         get8(); // B
-        boost::container::deque<field_t> fields;
+        bc::deque<field_t> fields;
 
         unsigned const num_fields = get8();
         for(unsigned i = 0; i < num_fields; ++i)
@@ -415,7 +415,7 @@ void mapfab_t::load_json(std::uint8_t const* const begin, std::size_t size, fs::
         for(auto const& o : array)
         {
             std::string name = o.at("name").get<std::string>();
-            boost::container::deque<field_t> fields;
+            bc::deque<field_t> fields;
 
             auto const& fs = o.at("fields").get<json::array_t>();
             for(auto const& f : fs)

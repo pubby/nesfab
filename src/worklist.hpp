@@ -7,12 +7,14 @@
 #include "ir_decl.hpp"
 #include "thread.hpp"
 
+namespace bc = ::boost::container;
+
 // Worklists used by several optimization passes.
 template<typename H>
 class worklist_t
 {
 public:
-    boost::container::deque<H> container;
+    bc::deque<H> container;
 
     void push(H h)
     {

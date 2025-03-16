@@ -193,9 +193,9 @@ rom_data_ht to_rom_data(asm_proc_t&& asm_proc, bool align, bool omni, romv_alloc
 // ROM alloc //
 ///////////////
 
-struct rom_static_ht : pool_handle_t<rom_static_ht, boost::container::deque<rom_static_t>, PHASE_PREPARE_ALLOC_ROM> {};
-struct rom_many_ht : pool_handle_t<rom_many_ht, boost::container::deque<rom_many_t>, PHASE_PREPARE_ALLOC_ROM> {};
-struct rom_once_ht : pool_handle_t<rom_once_ht, boost::container::deque<rom_once_t>, PHASE_PREPARE_ALLOC_ROM> {};
+struct rom_static_ht : pool_handle_t<rom_static_ht, bc::deque<rom_static_t>, PHASE_PREPARE_ALLOC_ROM> {};
+struct rom_many_ht : pool_handle_t<rom_many_ht, bc::deque<rom_many_t>, PHASE_PREPARE_ALLOC_ROM> {};
+struct rom_once_ht : pool_handle_t<rom_once_ht, bc::deque<rom_once_t>, PHASE_PREPARE_ALLOC_ROM> {};
 
 DEF_HANDLE_HASH(rom_static_ht);
 DEF_HANDLE_HASH(rom_many_ht);

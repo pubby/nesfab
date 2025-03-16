@@ -2,8 +2,11 @@
 #define OBJECT_POOL_HPP
 
 #include <memory>
-#include <boost/container/deque.hpp>
 #include <vector>
+
+#include <boost/container/deque.hpp>
+
+namespace bc = ::boost::container;
 
 // A basic memory pool that supports alloc and free.
 // NOTE: Objects are not destructed when 'free' is called!
@@ -17,7 +20,7 @@ public:
 
     using int_type = Int;
 private:
-    boost::container::deque<T> storage;
+    bc::deque<T> storage;
     std::vector<T*> free_list;
 public:
     T& alloc() 

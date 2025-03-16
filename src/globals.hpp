@@ -264,7 +264,7 @@ private:
 
     // Tracks chrroms: 
     inline static std::mutex chrrom_deque_mutex;
-    inline static boost::container::deque<std::pair<global_t*, ast_node_t const*>> chrrom_deque;
+    inline static bc::deque<std::pair<global_t*, ast_node_t const*>> chrrom_deque;
 
     // These represent a queue of globals ready to be compiled.
     inline static std::condition_variable ready_cv;

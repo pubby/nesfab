@@ -6,8 +6,11 @@
 #include <cassert>
 #include <memory>
 #include <vector>
-#include <boost/container/deque.hpp>
 #include <list>
+
+#include <boost/container/deque.hpp>
+
+namespace bc = ::boost::container;
 
 // A simple allocator that only supports allocation, not free.
 // Memory is still cleared on pool destruction or the calling of 'clear()'.

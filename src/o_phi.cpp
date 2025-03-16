@@ -1,7 +1,6 @@
 #include "o_phi.hpp"
 
 #include <boost/container/deque.hpp>
-
 #include <boost/container/small_vector.hpp>
 
 #include "flat/small_set.hpp"
@@ -113,7 +112,7 @@ private:
     void visit(ssa_ht phi_h);
 public:
     using scc_t = fc::small_set<ssa_ht, 2>;
-    boost::container::deque<scc_t> sccs = {};
+    bc::deque<scc_t> sccs = {};
     std::size_t max_scc_size = 0;
     tarjan_t(ir_t& ir, unsigned subgraph_i,
              ssa_ht* phis, std::size_t phis_size);

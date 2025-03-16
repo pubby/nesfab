@@ -1140,7 +1140,7 @@ void mem_wr(unsigned address, unsigned char data)
 const_ht convert_effect(lpstring_t at,
                         std::uint8_t const* const nsf_data, std::size_t nsf_size,
                         nsf_t const& nsf, unsigned song, unsigned mode,
-                        boost::container::deque<nsf_track_t>& nsf_tracks,
+                        bc::deque<nsf_track_t>& nsf_tracks,
                         defined_group_data_t group_pair, bool omni)
 {
     unsigned const num_chan = puf_num_chan();
@@ -1358,7 +1358,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
 
     unsigned const num_chan = puf_num_chan();
 
-    boost::container::deque<nsf_track_t> nsf_tracks;
+    bc::deque<nsf_track_t> nsf_tracks;
     nsf_track_t* active_track = nullptr;
 
     nsf_t nsf = {};

@@ -31,17 +31,6 @@ INCS:=-I$(SRCDIR)
 VERSION := "1.6"
 GIT_COMMIT := "$(shell git describe --all --abbrev=8 --dirty --always)"
 
-ifneq ($(OS),Windows_NT)
-	UNAME_S := $(shell uname -s)
-	ifeq ($(UNAME_S),Darwin)
-		override CLANG:=1
-	endif
-endif
-
-ifdef CLANG
-	override CXX:=clang++
-endif
-
 override CXXFLAGS+= \
   -std=c++20 \
   -pthread \

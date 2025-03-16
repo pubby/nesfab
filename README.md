@@ -42,6 +42,10 @@ To force the compiler to only use official ones, compile the compiler with the f
 
     make ISA=legal
 
+Like most makefiles, you can change the compiler using `CXX`. This is useful on MacOS:
+
+    make CXX=clang++
+
 ## Bug Reports
 
 Post bug reports on the Github issues page and

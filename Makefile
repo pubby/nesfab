@@ -1,4 +1,4 @@
-.PHONY: all debug release static profile docs tests deps cleandeps clean run
+.PHONY: all debug release static profile docs tests deps cleandeps clean run tables
 debug: nesfab
 release: nesfab
 static: nesfab
@@ -221,6 +221,9 @@ $(SRCDIR)/ext_lex_tables.cpp \
 $(SRCDIR)/macro_lex_tables.hpp \
 $(SRCDIR)/macro_lex_tables.cpp
 
+tables: $(LEX_TABLES)
+
+ifeq ($(MAKECMDGOALS), tables)
 lexer_gen: $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
 	$(CXX) -std=c++17 -O1 -o lexer_gen $<
 
@@ -240,6 +243,7 @@ $(LEX_TABLES): lexer_gen $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
 $(SRCDIR)/add_constraints_table.cpp: $(SRCDIR)/add_constraints_table_gen.cpp
 	$(CXX) -std=c++17 -O1 -o add_constraints_table_gen $<
 	./add_constraints_table_gen > $@
+endif
 
 ##########################################################################	
 
@@ -265,6 +269,8 @@ $(info $(shell mkdir -p $(OBJDIR)/catch))
 $(info $(shell mkdir -p $(OBJDIR)/lodepng))
 
 ifneq ($(MAKECMDGOALS), clean)
+ifneq ($(MAKECMDGOALS), tables)
 -include $(DEPS)
 -include $(TESTS_DEPS)
+endif
 endif

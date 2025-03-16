@@ -46,6 +46,10 @@ Like most makefiles, you can change the compiler using `CXX`. This is useful on 
 
     make CXX=clang++
 
+The build process uses generated tables. These tables are included in the repository, but you can generate them yourself with:
+
+    make tables
+
 ## Bug Reports
 
 Post bug reports on the Github issues page and

@@ -31,7 +31,16 @@ INCS:=-I$(SRCDIR)
 VERSION := "1.6"
 GIT_COMMIT := "$(shell git describe --all --abbrev=8 --dirty --always)"
 
-#override CXX:=clang++
+ifneq ($(OS),Windows_NT)
+	UNAME_S := $(shell uname -s)
+	ifeq ($(UNAME_S),Darwin)
+		override CLANG:=1
+	endif
+endif
+
+ifdef CLANG
+	override CXX:=clang++
+endif
 
 override CXXFLAGS+= \
   -std=c++20 \
@@ -224,7 +233,7 @@ $(SRCDIR)/macro_lex_tables.hpp \
 $(SRCDIR)/macro_lex_tables.cpp
 
 lexer_gen: $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
-	g++ -std=c++17 -O1 -o lexer_gen $<
+	$(CXX) -std=c++17 -O1 -o lexer_gen $<
 
 $(LEX_TABLES): lexer_gen $(SRCDIR)/lexer_gen.cpp $(SRCDIR)/lex_op_name.inc
 	./lexer_gen 

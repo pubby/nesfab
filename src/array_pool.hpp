@@ -6,7 +6,7 @@
 #include <cassert>
 #include <memory>
 #include <vector>
-#include <deque>
+#include <boost/container/deque.hpp>
 #include <list>
 
 // A simple allocator that only supports allocation, not free.

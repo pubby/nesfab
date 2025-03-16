@@ -3,7 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
-#include <deque>
+#include <boost/container/deque.hpp>
 #include <functional>
 
 #include "handle.hpp"
@@ -23,8 +23,8 @@ struct rom_static_ht;
 struct rom_many_ht;
 struct rom_once_ht;
 
-struct rom_array_ht : public pool_handle_t<rom_array_ht, std::deque<rom_array_t>, PHASE_ROM_DUMMY> {};
-struct rom_proc_ht : public pool_handle_t<rom_proc_ht, std::deque<rom_proc_t>, PHASE_ROM_DUMMY> {};
+struct rom_array_ht : public pool_handle_t<rom_array_ht, boost::container::deque<rom_array_t>, PHASE_ROM_DUMMY> {};
+struct rom_proc_ht : public pool_handle_t<rom_proc_ht, boost::container::deque<rom_proc_t>, PHASE_ROM_DUMMY> {};
 
 class locator_t;
 

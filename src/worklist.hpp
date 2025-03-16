@@ -1,7 +1,7 @@
 #ifndef WORKLIST_HPP
 #define WORKLIST_HPP
 
-#include <deque>
+#include <boost/container/deque.hpp>
 
 #include "flags.hpp"
 #include "ir_decl.hpp"
@@ -12,7 +12,7 @@ template<typename H>
 class worklist_t
 {
 public:
-    std::deque<H> container;
+    boost::container::deque<H> container;
 
     void push(H h)
     {

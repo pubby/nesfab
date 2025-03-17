@@ -93,7 +93,8 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     }
 
     // For modes, every arg is seen, as compilation may be done out of order:
-    if(fn->fclass == FN_MODE)
+    // (The same applies to fn pointers)
+    if(fn->fclass == FN_MODE || fn->fn_set())
     {
         m_seen_args = ~0ull;
 

@@ -66,7 +66,7 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
             fs::path const path = fs::path(name);
             std::string const ext = fs::path(path).extension().string();
 
-            if(ext == ".fab")
+            if(ext != ".cfg")
                 _options.source_names.push_back({ path, dir });
             else if(ext == ".macrofab")
             {
@@ -81,7 +81,7 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
                 if(!result.second)
                     throw std::runtime_error(fmt("Duplicate macro name: %", name));
             }
-            else if(ext == ".cfg")
+            else
             {
                 fs::path const full_path = dir / path;
                 std::ifstream ifs(full_path.string(), std::ios::in);

@@ -1848,6 +1848,8 @@ void parser_t<P>::parse_top_level_def()
         return parse_audio();
     case TOK_mapfab:
         return parse_mapfab();
+    case TOK___xfab:
+        return parse_xfab();
     case TOK_macro:
         return parse_macro();
     case TOK_eof:
@@ -1920,6 +1922,16 @@ void parser_t<P>::parse_mapfab()
                                std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
     {
         policy().mapfab(mapfab_pstring, script, preferred_dir, std::move(args), std::move(mods));
+    });
+}
+
+template<typename P>
+void parser_t<P>::parse_xfab()
+{
+    parse_file(TOK___xfab, [&](lpstring_t mapfab_pstring, pstring_t script, fs::path const& preferred_dir,
+                             std::unique_ptr<mods_t> mods, std::vector<convert_arg_t> args)
+    {
+        policy().xfab(mapfab_pstring, script, preferred_dir, std::move(args), std::move(mods));
     });
 }
 

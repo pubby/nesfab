@@ -16,6 +16,7 @@ const_ht define_ct(global_t& global, lpstring_t at, std::uint8_t value);
 const_ht define_ct_int(global_t& global, lpstring_t at, type_t const& type, unsigned value);
 
 const_ht define_ct(global_t& global, lpstring_t at, std::uint8_t const* data, std::size_t length);
+const_ht define_ct(global_t& global, lpstring_t at, std::uint16_t const* data, std::size_t length);
 const_ht define_ct(global_t& global, lpstring_t at, std::int16_t const* data, std::size_t length);
 
 #endif

@@ -687,6 +687,7 @@ int main()
         keyword("read"),
         keyword("write"),
         keyword("mapfab"),
+        keyword("__xfab"),
         keyword("push"),
         keyword("pop"),
 

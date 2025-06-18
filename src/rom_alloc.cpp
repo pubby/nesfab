@@ -347,14 +347,21 @@ rom_allocator_t::rom_allocator_t(log_t* log, span_allocator_t& allocator)
     unsigned const num_onces = rom_once_ht::pool().size();
     unsigned const num_manys = rom_many_ht::pool().size();
 
-    once_bs_size = bitset_size<>(num_onces);
-    many_bs_size = bitset_size<>(num_manys);
+    once_bs_size = std::max<unsigned>(1, bitset_size<>(num_onces));
+    many_bs_size = std::max<unsigned>(1, bitset_size<>(num_manys));
 
     // Alloc 'required_manys'
+    assert(once_bs_size);
+    assert(many_bs_size);
     assert(required_many_bitsets.empty());
+    passert(num_onces == rom_once_ht::handles().size(), num_onces, rom_once_ht::handles().size());
+
     required_many_bitsets.resize(num_onces * many_bs_size);
     for(rom_once_ht once : rom_once_ht::handles())
+    {
+        passert(once.id < num_onces, once.id, num_onces);
         once->required_manys = &required_many_bitsets[once.id * many_bs_size];
+    }
 
     //////////////////////////////////////////////
     // Calculate group data and 'related_onces' //

@@ -172,6 +172,7 @@ mlb.cpp \
 macro.cpp \
 o_shift.cpp \
 mapfab.cpp \
+xfab.cpp \
 define.cpp \
 o_locator.cpp \
 ctags.cpp \

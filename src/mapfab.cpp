@@ -677,7 +677,6 @@ void convert_mapfab(mapfab_convert_type_t ct, std::uint8_t const* const begin, s
             {
             default: 
                 break;
-            case MAPFAB_MMT_32:
             case MAPFAB_RLZ:
                 tiles_xy = compress_rlz(&*tiles_xy.begin(), &*tiles_xy.end(), false);
                 tiles_yx = compress_rlz(&*tiles_yx.begin(), &*tiles_yx.end(), false);

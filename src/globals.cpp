@@ -932,6 +932,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     bool tests_ready = false;
     bool io_pure = true;
     bool fences = false;
+    bool runtime = false;
 
     bool const is_static = mod_test(mods(), MOD_static);
 
@@ -983,6 +984,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
         io_pure = false;
         fences = true;
+        runtime = true;
         m_bank_switches = true;
         group_vars = m_precheck_group_vars;
 
@@ -1021,6 +1023,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
                 group_vars |= callee->ir_group_vars();
                 calls      |= callee->ir_calls();
                 fences     |= callee->ir_fences();
+                runtime    |= callee->ir_runtime();
                 io_pure    &= callee->ir_io_pure();
                 callee->for_each_fn([&](fn_ht callee_h){ calls.set(callee_h.id); });
 
@@ -1029,6 +1032,9 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
 
                 m_bank_switches |= callee->bank_switches();
             }
+
+            if(ssa_flags(ssa_it->op()) & SSAF_RUNTIME)
+                runtime = true;
 
             if(ssa_flags(ssa_it->op()) & SSAF_WRITE_GLOBALS)
             {
@@ -1127,6 +1133,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     m_ir_tests_ready = tests_ready;
     m_ir_io_pure = io_pure;
     m_ir_fences = fences;
+    m_ir_runtime = runtime;
 }
 
 void fn_t::assign_direct_rom_arrays(fc::vector_set<rom_array_ht>&& set)

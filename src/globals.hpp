@@ -353,6 +353,7 @@ public:
     bool ir_tests_ready() const { assert(m_ir_writes); return m_ir_tests_ready; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
     bool ir_fences() const { assert(m_ir_writes); return m_ir_fences; }
+    bool ir_runtime() const { assert(m_ir_writes); return m_ir_runtime; }
 
     bool returns_in_different_bank() const { assert(m_ir_writes); return m_returns_in_different_bank; }
     bool bank_switches() const { assert(m_ir_writes); return m_bank_switches; }
@@ -389,6 +390,9 @@ protected:
 
     // If the function explicitly bankswitches:
     bool m_bank_switches = false;
+
+    // If the function depends on the runtime:
+    bool m_ir_runtime = false;
 };
 
 

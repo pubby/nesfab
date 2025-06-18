@@ -832,8 +832,11 @@ static bool o_simple_identity(log_t* log, ir_t& ir, bool post_byteified)
                     {
                         replace_carry(*ssa_it, ssa_value_t(0u, TYPE_BOOL));
                         assert(!carry_output(*ssa_it));
+                        // These removals have to be done in this order:
                         ssa_it->link_remove_input(0);
-                        ssa_it->link_remove_input(0);
+                        ssa_it->link_remove_input(1);
+                        assert(ssa_it->input_size() == 1);
+                        passert(ssa_it->input(0).type() == TYPE_BOOL, ssa_it->input(0).type());
                         ssa_it->unsafe_set_op(SSA_cast);
                         updated = true;
                         goto done_add;

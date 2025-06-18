@@ -132,6 +132,23 @@ fn nt_attr_offset(U x, U y) UU
 : +inline
     return $3C0 + UU(x >> 2) + (UU(y & ~U(%11)) << 1)
 
+// Returns the correct red emphasis bit for the system.
+fn system_emphasize_r() U
+: +inline
+    ct U[4] table = U[4](PPUMASK_EMPHASIZE_R, PPUMASK_EMPHASIZE_G, PPUMASK_EMPHASIZE_G ,PPUMASK_EMPHASIZE_R)
+    return table[system]
+
+// Returns the correct green emphasis bit for the system.
+fn system_emphasize_g() U
+: +inline
+    ct U[4] table = U[4](PPUMASK_EMPHASIZE_G, PPUMASK_EMPHASIZE_R, PPUMASK_EMPHASIZE_R ,PPUMASK_EMPHASIZE_G)
+    return table[system]
+
+// Returns the correct blue emphasis bit for the system.
+fn system_emphasize_b() U
+: +inline
+    return PPUMASK_EMPHASIZE_B
+
 ///////////////////////////////////////////////////////////////////////////////
 // NMI ////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

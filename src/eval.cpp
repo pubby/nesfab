@@ -3385,7 +3385,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         goto interpret_fn;
 
                     // Interpret when possible:
-                    if(call->ct_pure())
+                    if(call->ct_pure() && !call->ir_runtime())
                     {
                         for(unsigned i = 0; i < num_args; ++i)
                             if(!args[i].is_ct())

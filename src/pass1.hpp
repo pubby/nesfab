@@ -26,6 +26,7 @@
 #include "macro.hpp"
 #include "ident_map.hpp"
 #include "mapfab.hpp"
+#include "xfab.hpp"
 
 namespace bc = boost::container;
 
@@ -43,6 +44,16 @@ struct mapfab_todo_t
     std::vector<std::uint8_t> data;
     fs::path path;
     mapfab_macros_t macros;
+    std::unique_ptr<mods_t> mods;
+};
+
+struct xfab_todo_t
+{
+    lpstring_t at;
+    xfab_convert_type_t ct;
+    std::vector<std::uint8_t> data;
+    fs::path path;
+    xfab_macros_t macros;
     std::unique_ptr<mods_t> mods;
 };
 
@@ -65,6 +76,7 @@ private:
 
     bc::deque<macro_todo_t> todo_macros;
     bc::deque<mapfab_todo_t> todo_mapfabs;
+    bc::deque<xfab_todo_t> todo_xfabs;
 
     struct switch_info_t
     {
@@ -1356,6 +1368,70 @@ public:
             compiler_error(script, e.what());
         }
     }
+    void xfab(lpstring_t decl, pstring_t script, fs::path preferred_dir, std::vector<convert_arg_t> args, std::unique_ptr<mods_t> mods)
+    {
+        using namespace std::literals;
+
+        if(mods)
+            mods->validate(decl, MOD_fork_scope);
+
+        auto const check_argn = [&](unsigned expected)
+        {
+            if(args.size() != expected)
+                compiler_error(decl, fmt("Wrong number of arguments. Expecting %.", expected + 1));
+        };
+
+        std::string_view const view = script.view(source());
+
+        auto const get_macro = [&](unsigned i) -> std::string
+        {
+            if(auto const* str = std::get_if<string_literal_t>(&args[i].value))
+                return str->string;
+            compiler_error(args[i].pstring, "Expecting macro name string literal as argument.");
+        };
+
+        check_argn(4);
+
+        xfab_macros_t mm;
+        mm.chr = get_macro(1);
+        mm.palette = get_macro(2);
+        mm.level = get_macro(3);
+
+        try
+        {
+            xfab_convert_type_t ct = XFAB_INVALID;
+
+            if(view == "raw"sv)
+                ct = XFAB_RAW;
+            else if(view == "rlz"sv)
+                ct = XFAB_RLZ;
+            else if(view == "pbz"sv)
+                ct = XFAB_PBZ;
+
+            if(ct == XFAB_INVALID)
+                compiler_error(script, fmt("Unknown XFab format: %", view));
+
+            fs::path xfab_path = get_path(preferred_dir, args[0]);
+            std::vector<std::uint8_t> data = read_binary_file(xfab_path.string(), decl);
+
+            todo_xfabs.push_back({
+                decl,
+                ct,
+                std::move(data),
+                std::move(xfab_path),
+                std::move(mm),
+                std::move(mods),
+            });
+        }
+        catch(compiler_error_t const& e)
+        {
+            throw e;
+        }
+        catch(std::exception const& e)
+        {
+            compiler_error(script, e.what());
+        }
+    }
 
     void finish_mapfabs()
     {
@@ -1379,6 +1455,32 @@ public:
             { 
                 throw compiler_error_t(
                     fmt_error(tm.at, "While parsing mapfab file...")
+                    + fmt_error(e.pstring, e.what()));
+            }
+            catch(std::exception const& e) { compiler_error(tm.at, e.what()); }
+            catch(...) { throw; }
+        }
+
+        for(xfab_todo_t& tm : todo_xfabs)
+        {
+            try 
+            { 
+                ident_map_t<global_ht>* private_globals = nullptr;
+                ident_map_t<group_ht>* private_groups = nullptr;
+
+                if(mod_test(tm.mods.get(), MOD_fork_scope))
+                {
+                    private_globals = &this->private_globals;
+                    private_groups = &this->private_groups;
+                }
+
+                convert_xfab(tm.ct, tm.data.data(), tm.data.size(), tm.at, std::move(tm.path), 
+                               std::move(tm.macros), private_globals, private_groups);
+            }
+            catch(macro_error_t const& e) 
+            { 
+                throw compiler_error_t(
+                    fmt_error(tm.at, "While parsing xfab file...")
                     + fmt_error(e.pstring, e.what()));
             }
             catch(std::exception const& e) { compiler_error(tm.at, e.what()); }

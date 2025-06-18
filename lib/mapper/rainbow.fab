@@ -114,10 +114,10 @@ ct U RNBW_CHR_CTRL_4K       = 1
 ct U RNBW_CHR_CTRL_2K       = 2
 ct U RNBW_CHR_CTRL_1K       = 3
 ct U RNBW_CHR_CTRL_512B     = 4
-ct U RNBW_CHR_CTRL_WINDOW   = %0001000
-ct U RNBW_CHR_CTRL_SPR_EXT  = %0010000
-ct U RNBW_CHR_CTRL_RAM      = %0100000
-ct U RNBW_CHR_CTRL_FPGA_RAM = %1000000
+ct U RNBW_CHR_CTRL_WINDOW   = %00010000
+ct U RNBW_CHR_CTRL_SPR_EXT  = %00100000
+ct U RNBW_CHR_CTRL_RAM      = %01000000
+ct U RNBW_CHR_CTRL_FPGA_RAM = %10000000
 
 // Changes the RNBW CHR bank:
 fn rnbw_chr_select(U slot, UU chr_bank)
@@ -132,6 +132,7 @@ fn rnbw_chr_select(U slot, UU chr_bank)
 // Use these when writing to nametable control registers (RNBW_NT_2000_CTRL...)
 ct U RNBW_NT_ATTR_EXT     = %00000001
 ct U RNBW_NT_BG_EXT       = %00000010
+ct U RNBW_NT_EXT          = %00000011
 ct U RNBW_NT_EXT_BANK_0   = %00000000
 ct U RNBW_NT_EXT_BANK_1   = %00000100
 ct U RNBW_NT_EXT_BANK_2   = %00001000
@@ -141,6 +142,38 @@ ct U RNBW_NT_CI_RAM       = %00000000
 ct U RNBW_NT_CHR_RAM      = %01000000
 ct U RNBW_NT_FPGA_RAM     = %10000000
 ct U RNBW_NT_CHR_ROM      = %11000000
+
+// Selects the control for the 4 main nametables.
+fn rnbw_nt_ctrl(U nt2000, U nt2400, U nt2800, U nt2c00)
+: +inline
+    {RNBW_NT_2000_CTRL}(nt2000)
+    {RNBW_NT_2400_CTRL}(nt2400)
+    {RNBW_NT_2800_CTRL}(nt2800)
+    {RNBW_NT_2C00_CTRL}(nt2c00)
+
+// Selects the control for the 4 main nametables.
+fn rnbw_nt_ctrl_broad(U nt)
+: +inline
+    {RNBW_NT_2000_CTRL}(nt)
+    {RNBW_NT_2400_CTRL}(nt)
+    {RNBW_NT_2800_CTRL}(nt)
+    {RNBW_NT_2C00_CTRL}(nt)
+
+// Selects the bank for 4 main nametables.
+fn rnbw_nt_select(U b2000, U b2400, U b2800, U b2c00)
+: +inline
+    {RNBW_NT_2000_SELECT}(b2000)
+    {RNBW_NT_2400_SELECT}(b2400)
+    {RNBW_NT_2800_SELECT}(b2800)
+    {RNBW_NT_2C00_SELECT}(b2c00)
+
+// Selects the bank for 4 main nametables.
+fn rnbw_nt_select_broad(U b)
+: +inline
+    {RNBW_NT_2000_SELECT}(b)
+    {RNBW_NT_2400_SELECT}(b)
+    {RNBW_NT_2800_SELECT}(b)
+    {RNBW_NT_2C00_SELECT}(b)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Sprites ////////////////////////////////////////////////////////////////////

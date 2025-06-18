@@ -1781,9 +1781,9 @@ namespace isel
         p_def::set(h);
 
         if(Eq)
-            eq_branch<O::restrict_to<~REGF_X>, fail, success>(h);
+            eq_branch<O::restrict_to<std::uint8_t(~REGF_X)>, fail, success>(h);
         else
-            eq_branch<O::restrict_to<~REGF_X>, success, fail>(h);
+            eq_branch<O::restrict_to<std::uint8_t(~REGF_X)>, success, fail>(h);
 
         select_step<true>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
         {
@@ -2238,7 +2238,7 @@ namespace isel
 
         p_def::set(h);
 
-        lt_branch<O::restrict_to<~REGF_X>, fail, success, LTE>(h);
+        lt_branch<O::restrict_to<std::uint8_t(~REGF_X)>, fail, success, LTE>(h);
 
         select_step<true>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
         {

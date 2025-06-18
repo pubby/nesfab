@@ -100,6 +100,11 @@ const_ht define_ct(global_t& global, lpstring_t at, std::uint8_t const* data, st
     return define_ct_array(global, at, data, length, TYPE_U);
 }
 
+const_ht define_ct(global_t& global, lpstring_t at, std::uint16_t const* data, std::size_t length)
+{
+    return define_ct_array(global, at, data, length, TYPE_U20);
+}
+
 const_ht define_ct(global_t& global, lpstring_t at, std::int16_t const* data, std::size_t length)
 {
     return define_ct_array(global, at, data, length, TYPE_S20);

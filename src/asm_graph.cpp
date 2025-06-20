@@ -1435,6 +1435,9 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
                 }
             }
 
+            if(has_fn_set(loc.lclass()) && loc.fn_set() == set_h)
+                rw(i, loc.lclass() == LOC_PTR_ARG, loc.lclass() == LOC_PTR_RETURN);
+
             if(loc.lclass() == LOC_GMEMBER)
             {
                 bool r = false;

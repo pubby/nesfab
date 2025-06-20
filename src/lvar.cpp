@@ -236,6 +236,10 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
 bool lvars_manager_t::is_this_lvar(fn_ht fn, locator_t arg)
 {
     auto const l = arg.lclass();
+
+    if(fn->fn_set() && (l == LOC_PTR_ARG || l == LOC_PTR_RETURN))
+        return fn->fn_set()->handle() == arg.fn_set();
+
     return ((l == LOC_ARG && fn == arg.fn()) 
             || (l == LOC_RETURN && fn == arg.fn()) 
             || l == LOC_PHI 
@@ -246,6 +250,8 @@ bool lvars_manager_t::is_this_lvar(fn_ht fn, locator_t arg)
 bool lvars_manager_t::is_call_lvar(fn_ht fn, locator_t arg)
 {
     auto const l = arg.lclass();
+    if(fn->fn_set() && (l == LOC_PTR_ARG || l == LOC_PTR_RETURN))
+        return fn->fn_set()->handle() != arg.fn_set();
     return ((l == LOC_ARG && arg.fn() != fn) 
             || (l == LOC_RETURN && arg.fn() != fn));
 }

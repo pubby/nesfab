@@ -1463,7 +1463,8 @@ void fn_t::compile()
 
                 m_lvars.for_each_lvar(true, [&](locator_t loc, unsigned)
                 {
-                    if(loc.lclass() == LOC_ARG || loc.lclass() == LOC_RETURN)
+                    if(loc.lclass() == LOC_ARG || loc.lclass() == LOC_RETURN 
+                       || loc.lclass() == LOC_PTR_ARG || loc.lclass() == LOC_PTR_RETURN)
                     {
                         assert(loc.fn() == handle());
                         ++call_cost;

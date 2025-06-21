@@ -472,6 +472,52 @@ sram = volatile
 Just because the compiler accepts a `sram` value does not mean that corresponding hardware exists in the real world.
 Only the default `sram` value is asserted to be commonly available.
 
+=== `sram-alloc` [[opt_sram_alloc]]
+
+Specifies how the compiler should utilize extra cartridge RAM.
+
+The following arguments are valid:
+
+- To disable allocation: `0`, `false,` or `off`.
+- To enable allocation only when <<mod_flags, `+sram`>> is used: `request`.
+- To enable allocation in all situations: `1`, `true`, or `on`.
+
+By default, the value is `on`.
+
+*Command-line usage:*
+----
+nesfab --sram-alloc request
+----
+
+*Configuration file usage:*
+----
+sram-alloc = request
+----
+
+[NOTE]
+This option only applies when <<opt_sram>> is enabled.
+
+=== `sram-size` [[opt_sram_alloc]]
+
+Specifies how much extra cartridge RAM the compiler should utilize.
+
+Arguments from 1 to 8192 are accepted.
+
+By default, the value is 8192.
+
+*Command-line usage:*
+----
+nesfab --sram-size 4096
+----
+
+*Configuration file usage:*
+----
+sram-size = 4096
+----
+
+[NOTE]
+This option only applies when <<opt_sram>> is enabled.
+
 === `system` (`-S`) [[opt_system]]
 
 Specifies the target NES system, which will be accessible using the <<kw_system, `system` keyword>>.

@@ -61,6 +61,10 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size,
 {
     passert(size < 0x10000, size);
 
+    // For request, you have to request it!
+    if(sram == SRAM_MAYBE && compiler_options().sram_alloc == SRAM_ALLOC_REQUEST)
+        sram = SRAM_NEVER;
+
     auto const reduce_zp = [&](ram_bitset_t& ram, bool size_check = true)
     {
         if(zp == ZP_ONLY)
@@ -101,6 +105,9 @@ static span_t alloc_ram(ram_sets_t const& usable_ram, std::size_t size,
 
     auto const try_alloc_sram = [&](sram_bitset_t const& usable_ram) -> span_t
     {
+        if(compiler_options().sram_alloc == SRAM_ALLOC_NEVER)
+            return {};
+
         // SRAM has no zp:
         if(zp == ZP_ONLY)
             return {};
@@ -276,7 +283,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
     assert(compiler_phase() == PHASE_ALLOC_RAM);
 
     if(static_usable_ram.sram)
-        static_usable_ram.sram->set_all();
+        static_usable_ram.sram->set_n(compiler_options().sram_size);
 
     // Amount of bytes free in zero page
     int const zp_free = (static_usable_ram.ram & zp_bitset).popcount();
@@ -746,7 +753,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             }
 
             if(!span)
-                throw std::runtime_error("Unable to allocate global variable (out of RAM).");
+                throw std::runtime_error(fmt("Unable to allocate global variable '%' of size % (out of RAM).", gmember.gvar.global.name, size));
 
             dprint(log, "--RESULT", span);
 
@@ -1069,7 +1076,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
         // If that fails, we're fucked.
         if(!span)
-            throw std::runtime_error(fmt("Unable to allocate local variable in fn % (out of RAM).", fn.global.name));
+            throw std::runtime_error(fmt("Unable to allocate local variable of size % in fn % (out of RAM).", info.size, fn.global.name));
 
         dprint(log, "--RESULT", span);
 

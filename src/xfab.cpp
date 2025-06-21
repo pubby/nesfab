@@ -435,8 +435,8 @@ void xfab_t::compute_mt()
         level.mt_set.resize(s*s);
 
         unsigned c = 0;
-        for(unsigned y = 0; y < level.w; y += s)
-        for(unsigned x = 0; x < level.h; x += s)
+        for(unsigned y = 0; y < level.h; y += s)
+        for(unsigned x = 0; x < level.w; x += s)
         {
             mt_t mt = {};
 

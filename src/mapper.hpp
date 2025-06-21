@@ -62,6 +62,13 @@ enum mapper_sram_t : std::uint8_t
     SRAM_ON_PERSISTENT,
 };
 
+enum mapper_sram_alloc_t : std::uint8_t
+{
+    SRAM_ALLOC_NEVER,
+    SRAM_ALLOC_REQUEST,
+    SRAM_ALLOC_ALWAYS,
+};
+
 struct mapper_params_t
 {
     mapper_mirroring_t mirroring;
@@ -69,6 +76,7 @@ struct mapper_params_t
     unsigned chr_size; // in KiB
     mapper_bus_conflicts_t bus_conflicts;
     mapper_sram_t sram;
+    mapper_sram_alloc_t sram_alloc;
     unsigned sector_size;
 
     mapper_mirroring_t mirroring_none(mapper_type_t mt) const;

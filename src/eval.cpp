@@ -7521,6 +7521,7 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
             if(g->data())
             {
                 g->require_dummy();
+                value = to_rval<D>(std::move(value));
                 value.type = to_type;
                 value.rval().push_back(locator_t::data_bank(g));
                 return true;

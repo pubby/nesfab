@@ -14,6 +14,7 @@
 #include "parser.hpp"
 #include "pass1.hpp"
 #include "thread.hpp"
+#include "ram.hpp"
 #include "ram_alloc.hpp"
 #include "rom_alloc.hpp"
 #include "rom_prune.hpp"
@@ -206,6 +207,33 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         }
     }
 
+    if(vm.count("sram-alloc"))
+    {
+        std::string str = to_lower(vm["sram-alloc"].as<std::string>());
+
+        if(str == "request")
+            _options.sram_alloc = SRAM_ALLOC_REQUEST;
+        else switch(option_bool_default(str, "default"sv))
+        {
+        default:
+            throw std::runtime_error(fmt("Unknown sram-alloc: %", str));
+        case 0:
+            _options.sram_alloc = SRAM_ALLOC_NEVER;
+            break;
+        case -1:
+        case 1:
+            _options.sram_alloc = SRAM_ALLOC_ALWAYS;
+            break;
+        }
+    }
+
+    if(vm.count("sram-size"))
+    {
+        _options.sram_size = vm["sram-size"].as<unsigned>();
+        if(_options.sram_size == 0 || _options.sram_size > sram_size)
+            throw std::runtime_error(fmt("Invalid sram-size: %", _options.sram_size));
+    }
+
     if(vm.count("prg-size"))
         _options.raw_mp = vm["prg-size"].as<unsigned>();
 
@@ -333,6 +361,8 @@ int main(int argc, char** argv)
                 ("time-limit,T", po::value<int>(), "interpreter execution time limit (in ms, 0 is off)")
                 ("build-time,B", "print compiler execution time")
                 ("fast-debug", "faster debugging")
+                ("sram-alloc", po::value<std::string>(), "enables/disables variables allocated in sram")
+                ("sram-size", po::value<unsigned>(),"size of sram in bytes")
                 ("ram-init", "initialize RAM with 0 bytes")
                 ("sram-init", "initialize SRAM with 0 bytes")
                 ("vram-init", "initialize VRAM with 0 bytes")

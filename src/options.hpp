@@ -64,6 +64,8 @@ struct options_t
     unsigned raw_sector = 0;
     mapper_bus_conflicts_t raw_bus_conflicts = {};
     mapper_sram_t raw_sram = {};
+    mapper_sram_alloc_t sram_alloc = SRAM_ALLOC_ALWAYS;
+    unsigned sram_size = 0x2000;
 
     mapper_t mapper;
     std::string output_file = "a.nes";

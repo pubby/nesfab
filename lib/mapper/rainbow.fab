@@ -54,11 +54,11 @@ ct AA EXDATA = RNBW_EXRAM_AUTO_DATA // Shorter name for same register.
 ct AA RNBW_VERSION            = $4160
 
 // Vector manipulation:
-ct AA RNBW_VECTOR_CTRL        = $416B // Don't use this!
+ct AA RNBW_VECTOR_CTRL        = $416B
 ct AA RNBW_NMI_HI             = $416C // Don't use this!
 ct AA RNBW_NMI_LO             = $416D // Don't use this!
-ct AA RNBW_IRQ_HI             = $416E // Don't use this!
-ct AA RNBW_IRQ_LO             = $416F // Don't use this!
+ct AA RNBW_IRQ_HI             = $416E
+ct AA RNBW_IRQ_LO             = $416F
 
 // Window mode registers:
 ct AA RNBW_WINDOW_X_START     = $4170
@@ -103,6 +103,10 @@ fn rnbw_exram_auto(AA address, U increment)
     {RNBW_EXRAM_AUTO_HI}(address.b)
     {RNBW_EXRAM_AUTO_LO}(address.a)
     {RNBW_EXRAM_AUTO_INCREMENT}(increment)
+
+fn rnbw_exram_upload_fill(U byte, UU count)
+    for UU i = 0; i < count; i += 1
+        {EXDATA}(byte)
 
 ///////////////////////////////////////////////////////////////////////////////
 // CHR ////////////////////////////////////////////////////////////////////////
@@ -184,3 +188,30 @@ fn rnbw_nt_select_broad(U b)
 fn rnbw_sprite_select_lo(U sprite_index, U chr_bank)
 : +inline
     {RNBW_SPRITE_SELECT_LO + sprite_index}(chr_bank)
+
+///////////////////////////////////////////////////////////////////////////////
+// Vectors ////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+ct Int RNBW_VECTOR_CTRL_ENABLE_NMI = %01
+ct Int RNBW_VECTOR_CTRL_ENABLE_IRQ = %10
+
+// It's *ONLY* possible to use Rainbow's IRQ redirect feature
+// when using 'asm fn' irqs with '+solo_interrupt' and '+static'.
+// The redirect addresses must point inside the 'asm fn' IRQ.
+// 
+// DO NOT redirect the NMI; this is not at all supported.
+
+// Sets the IRQ redirect pointer without enabling/disabling it:
+fn rnbw_set_irq(AA addr)
+: +inline
+    {RNBW_IRQ_LO, RNBW_IRQ_HI}(addr.a, addr.b)
+
+// Sets the IRQ redirect pointer and enables it:
+// Note: Disables the redirect while writing.
+fn rnbw_redirect_irq(AA addr)
+: +inline
+    {RNBW_VECTOR_CTRL}(0) // Disable
+    {RNBW_IRQ_LO}(addr.a)
+    {RNBW_IRQ_HI}(addr.b)
+    {RNBW_VECTOR_CTRL}(RNBW_VECTOR_CTRL_ENABLE_IRQ) // Re-enable

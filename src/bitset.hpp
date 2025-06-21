@@ -382,17 +382,20 @@ void bitset_mark_consecutive(std::size_t size, UInt* bitset, std::size_t consec_
 
     UInt* temp = ALLOCA_T(UInt, size);
 
-    unsigned shift_by = 1;
-    for(consec_len  -= 1; shift_by <= consec_len ; shift_by <<= 1)
+    std::size_t shift_by = 1;
+    for(; shift_by < (consec_len / 2); shift_by <<= 1)
     {
         bitset_copy(size, temp, bitset);
         bitset_rshift(size, temp, shift_by);
         bitset_and(size, bitset, temp);
     }
 
-    bitset_copy(size, temp, bitset);
-    bitset_rshift(size, temp, consec_len  - (shift_by >> 1));
-    bitset_and(size, bitset, temp);
+    if(shift_by != consec_len)
+    {
+        bitset_copy(size, temp, bitset);
+        bitset_rshift(size, temp, consec_len  - shift_by);
+        bitset_and(size, bitset, temp);
+    }
 }
 
 template<typename Derived, typename value_type = bitset_uint_t>

@@ -427,8 +427,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
         return CAST_TEAIFY_VEC;
 
     // Ptrs can convert to ints.
-    if(((!implicit && is_ptr(from.name())) || is_aptr(from.name()))
-       && is_arithmetic(to.name()) && !is_ct(to.name()))
+    if(!implicit && (is_ptr(from.name()) || is_aptr(from.name())) && is_arithmetic(to.name()))
     {
         assert(!is_ptr(to.name()));
         if(to.name() == TYPE_BOOL)
@@ -437,15 +436,15 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     }
 
     // Any ptr can convert to an aptr.
-    if(is_ptr(from.name()) && is_aptr(to.name()) 
-       && (is_banked_ptr(from.name()) || !is_banked_ptr(to.name())))
+    if(is_ptr(from.name(), true) && is_aptr(to.name()) 
+       && (is_banked_ptr_or_fn_ptr(from) || !is_banked_ptr(to.name())))
     {
         return CAST_NOP_RETYPE;
     }
 
     // Likewise, aptr can convert to any pointer.
-    if(!implicit && is_aptr(from.name()) && is_ptr(to.name()) 
-       && (is_banked_ptr(from.name()) || !is_banked_ptr(to.name())))
+    if(!implicit && is_aptr(from.name()) && is_ptr(to.name(), true) 
+       && (is_banked_ptr(from.name()) || !is_banked_ptr_or_fn_ptr(to)))
     {
         return CAST_NOP_RETYPE;
     }
@@ -574,6 +573,13 @@ bool is_thunk(type_t type)
                 return true;
         return false;
     }
+}
+
+bool is_banked_ptr_or_fn_ptr(type_t type)
+{
+    if(type.name() == TYPE_FN_PTR)
+        return type.fn_set().banked_ptrs();
+    return is_banked_ptr(type.name());
 }
 
 unsigned num_members(type_t type, bool early)

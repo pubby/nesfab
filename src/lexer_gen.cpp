@@ -683,6 +683,7 @@ int main()
         keyword("__expansion_audio"),
         keyword("__sector_size"),
         keyword("__fixed"),
+        keyword("__multiply"),
         keyword("nmi_counter"),
         keyword("read"),
         keyword("write"),

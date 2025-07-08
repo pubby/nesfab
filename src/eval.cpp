@@ -2282,6 +2282,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         const_t const& c = lval->global().impl<const_t>();
 
+                        if(c.chrrom)
+                            compiler_error(ast.token.pstring, "Cannot get pointer to chrrom memory.");
+
                         if(!c.is_paa() || !is_paa(value.type.name()))
                             goto at_error;
 
@@ -2401,6 +2404,11 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_counter, offset);
                     return make_ptr(loc, type_t::addr(false), false, nonconst_index);
                 }
+                else if(lval->arg == lval_t::MULTIPLY_ARG)
+                {
+                    locator_t const loc = locator_t::runtime_rom(RTROM_mul8, offset);
+                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                }
 
                 if(lval->is_global())
                 {
@@ -2409,6 +2417,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     case GLOBAL_CONST:
                         {
                             const_t const& c = lval->global().impl<const_t>();
+
+                            if(c.chrrom)
+                                compiler_error(ast.token.pstring, "Cannot get pointer to chrrom memory.");
 
                             if(!is_paa(c.type().name()))
                                 compiler_error(value.pstring, "Cannot get address of a constant that isn't a pointer-addressible array.");
@@ -2634,6 +2645,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::FIXED_ARG },
                 .type = TYPE_BOOL,
+                .pstring = ast.token.pstring,
+                .time = RT,
+            };
+
+            assert(result.is_lval());
+            result.assert_valid();
+            return result;
+        }
+
+    case TOK___multiply:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ /*.flags = LVALF_IS_GLOBAL,*/ .arg = lval_t::MULTIPLY_ARG },
+                .type = TYPE_VOID,
                 .pstring = ast.token.pstring,
                 .time = RT,
             };
@@ -3071,9 +3097,20 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                     assert(local_const.value.size());
 
-                    lhs.type = local_const.type();
-                    lhs.val = local_const.value;
-                    lhs.time = LT;
+                    if(lval->global().gclass() == GLOBAL_CONST && lval->global().impl<const_t>().chrrom)
+                    {
+                        // Resolve now:
+                        std::int64_t initial = lval->global().impl<const_t>().eval_chrrom_offset();
+                        lhs.val = rval_t{ ssa_value_t(initial + gd->paa_def()->offsets.at(i), TYPE_INT) };
+                        lhs.type = TYPE_INT;
+                        lhs.time = CT;
+                    }
+                    else
+                    {
+                        lhs.val = local_const.value;
+                        lhs.type = local_const.type();
+                        lhs.time = LT;
+                    }
                 }
                 else
                     compiler_error(ast.token.pstring, "Expecting lvalue.");
@@ -5272,6 +5309,7 @@ expr_value_t eval_t::to_rval(expr_value_t v)
 
         case lval_t::MAPPER_DETAIL_ARG:
         case lval_t::MAPPER_RESET_ARG:
+        case lval_t::MULTIPLY_ARG:
             compiler_error(v.pstring, "Expression cannot be evaluated.");
 
         case lval_t::RETURN_ARG:

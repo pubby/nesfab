@@ -6,15 +6,17 @@
 
 // Code for decompressing strings.
 
+struct DecompressStringState
+    CCC/strings ptr
+    U skip
+
 vars /decompress_string
-    CCC/strings decompress_string_ptr
-    U decompress_string_skip
+    DecompressStringState decompress_string_state
     
 // Prepares a string to be decompressed.
 // Call this before 'decompress_string'
 fn decompress_string_init(CCC/strings str)
-    decompress_string_ptr = str
-    decompress_string_skip = 0
+    decompress_string_state = DecompressStringState(str, 0)
 
 // Decompresses a single character of the string, returning it.
 asm fn decompress_string() U
@@ -35,18 +37,18 @@ asm fn decompress_string() U
             push
         tsx
         stx &stack
-        ldx &decompress_string_ptr.bank
+        ldx &decompress_string_state.ptr.bank
         switch x
         ldy #0
     label loop
-        lda (&decompress_string_ptr.a), y
+        lda (&decompress_string_state.ptr.a), y
         jsr process_byte
-        inc &decompress_string_ptr.a
+        inc &decompress_string_state.ptr.a
         bne done_inc
-        inc &decompress_string_ptr.b
+        inc &decompress_string_state.ptr.b
     label done_inc
         ldy #0
-        sty &decompress_string_skip
+        sty &decompress_string_state.skip
         beq loop // always jumps
 
     label pair
@@ -62,10 +64,10 @@ asm fn decompress_string() U
             sbc #charmap.offset
         cmp #SIZE
         bcs pair
-        cpy &decompress_string_skip
+        cpy &decompress_string_state.skip
         iny
         bcc sub_return
-        sty &decompress_string_skip
+        sty &decompress_string_state.skip
         if charmap.offset != 0
             adc #charmap.offset - 1
         sta &return

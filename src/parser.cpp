@@ -812,6 +812,7 @@ retry:
     case TOK___expansion_audio:
     case TOK___sector_size:
     case TOK___fixed:
+    case TOK___multiply:
     case TOK_nmi_counter:
         {
             ast_node_t ast = { .token = token };
@@ -1384,7 +1385,7 @@ var_decl_t parser_t<P>::parse_var_decl(bool block_init, group_ht group, bool all
 template<typename P>
 template<typename Children>
 bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, 
-                                   bool is_vars, bool is_banked, bool conditional, Children& children)
+                                   bool is_vars, bool is_banked, bool is_chrrom, bool conditional, Children& children)
 {
     bool proc = false;
 
@@ -1440,9 +1441,10 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                     parse_token(TOK_ident);
                 }
                 parse_line_ending();
-                children.push_back(policy().byte_block_label(name, global.handle(), group, is_vars, is_default, is_banked, nullptr));
+                children.push_back(policy().byte_block_label(name, global.handle(), group, 
+                                                             is_vars, is_default, is_banked, is_chrrom, nullptr));
 
-                proc |= parse_byte_block(decl, label_indent, global, group, is_vars, is_banked, conditional, children);
+                proc |= parse_byte_block(decl, label_indent, global, group, is_vars, is_banked, is_chrrom, conditional, children);
             }
             return;
 
@@ -1581,7 +1583,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 parse_line_ending();
                 auto mods = parse_mods(if_indent);
 
-                parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, true, sub_children);
+                parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, is_chrrom, true, sub_children);
 
                 if_children.push_back(
                 {
@@ -1600,7 +1602,7 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 
                     parse_token();
                     parse_line_ending();
-                    parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, true, sub_children);
+                    parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, is_chrrom, true, sub_children);
 
                     if_children.push_back(
                     {
@@ -1740,11 +1742,11 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 
 template<typename P>
 ast_node_t parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, 
-                                         bool is_vars, bool is_banked)
+                                         bool is_vars, bool is_banked, bool is_chrrom)
 {
     bc::small_vector<ast_node_t, 32> children;
 
-    bool const proc = parse_byte_block(decl, block_indent, global, group, is_vars, is_banked, false, children);
+    bool const proc = parse_byte_block(decl, block_indent, global, group, is_vars, is_banked, is_chrrom, false, children);
 
     return
     {
@@ -1800,7 +1802,7 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
 
         if(is_paa)
         {
-            expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, group, is_vars, is_banked);
+            expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, group, is_vars, is_banked, false);
             return expr.num_children();
         }
     }
@@ -1862,25 +1864,33 @@ void parser_t<P>::parse_top_level_def()
 template<typename P>
 void parser_t<P>::parse_chrrom()
 {
-    lpstring_t const decl = extend(token.pstring, line_number);
+    lpstring_t decl = extend(token.pstring, line_number);
     int const chrrom_indent = indent;
 
     ast_node_t expr;
     ast_node_t* expr_ptr = nullptr;
+    global_t* global = {};
 
     std::unique_ptr<mods_t> mods = parse_mods_after([&]{ 
         parse_token(TOK_chrrom); 
-        if(token.type != TOK_eol)
+
+        if(token.type == TOK_ident)
+        {
+            decl = extend(parse_ident(), line_number);
+            global = &policy().lookup_global(decl);
+        }
+
+        if(token.type == TOK_lparen)
         {
             expr = parse_expr();
             expr_ptr = &expr;
         }
     });
 
-    auto& pair = global_t::new_chrrom(decl);
-    ast_node_t ast = parse_byte_block(decl, chrrom_indent, *pair.first, {}, false, false);
+    global_t* g = global_t::new_chrrom(decl, global);
+    ast_node_t ast = parse_byte_block(decl, chrrom_indent, *g, {}, false, false, true);
 
-    policy().chrrom(pair, decl, ast, std::move(mods), expr_ptr);
+    policy().chrrom(g, decl, ast, std::move(mods), expr_ptr);
 }
 
 template<typename P>
@@ -2204,7 +2214,7 @@ void parser_t<P>::parse_fn(token_type_t prefix)
             });
         }
 
-        ast_node_t ast = parse_byte_block(fn_name, fn_indent, *global, {}, false, false);
+        ast_node_t ast = parse_byte_block(fn_name, fn_indent, *global, {}, false, false, false);
 
         policy().end_asm_fn(std::move(state), fn_name.line, fclass, fn_set_name, ast, std::move(mods));
     }

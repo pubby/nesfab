@@ -184,8 +184,8 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     case TYPE_CPTR:
     case TYPE_MPTR:
     case TYPE_PPTR:
-    case TYPE_FN_PTR:
         return 2;
+    case TYPE_FN_PTR:
     case TYPE_BANKED_APTR:
     case TYPE_BANKED_CPTR:
     case TYPE_BANKED_MPTR:

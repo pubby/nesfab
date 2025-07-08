@@ -443,7 +443,8 @@ public:
     }
 
     [[gnu::always_inline]]
-    ast_node_t byte_block_label(pstring_t label, global_ht global, group_ht group, bool is_vars, bool is_default, bool is_banked, std::unique_ptr<mods_t> mods)
+    ast_node_t byte_block_label(pstring_t label, global_ht global, group_ht group, 
+                                bool is_vars, bool is_default, bool is_banked, bool is_chrrom, std::unique_ptr<mods_t> mods)
     {
         prev_label_name = label.view(source());
 
@@ -455,6 +456,8 @@ public:
             else
                 type = type_t::ptr(group, is_banked ? TYPE_BANKED_CPTR : TYPE_CPTR);
         }
+        else if(is_chrrom)
+            type = TYPE_INT;
         else
             type = type_t::addr(is_banked);
 
@@ -729,7 +732,7 @@ public:
 
         active_global = &lookup_global(var_decl.name);
         active_global->define_const(
-            extend(var_decl.name, line), std::move(ideps), var_decl.src_type, d, omni, convert_eternal_expr(&expr, IDEP_TYPE), 
+            extend(var_decl.name, line), std::move(ideps), var_decl.src_type, d, omni, nullptr, convert_eternal_expr(&expr, IDEP_TYPE), 
             std::move(paa_def), std::move(mods));
         ideps.clear();
     }
@@ -1221,7 +1224,8 @@ public:
         return *ret;
     }
 
-    void chrrom(std::pair<global_t*, ast_node_t const*>& pair, lpstring_t decl, ast_node_t& ast, std::unique_ptr<mods_t> mods, ast_node_t* expr)
+    void chrrom(global_t* global, lpstring_t decl, ast_node_t& ast, 
+                std::unique_ptr<mods_t> mods, ast_node_t* expr)
     {
         if(mods)
             mods->validate(decl);
@@ -1229,11 +1233,10 @@ public:
         std::unique_ptr<paa_def_t> paa_def = std::make_unique<paa_def_t>(
             std::move(fn_def.local_consts), std::move(fn_def.name_hashes));
 
-        active_global = pair.first;
+        active_global = global;
         active_global->define_const(
-            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, false,
+            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, false, convert_eternal_expr(expr),
             convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
-        pair.second = convert_eternal_expr(expr);
         ideps.clear();
     }
 

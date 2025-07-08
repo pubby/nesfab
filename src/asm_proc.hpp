@@ -118,8 +118,8 @@ class asm_proc_t
 public:
     struct label_info_t
     {
-        unsigned index; // Position in 'code'
-        int offset; // Bytes from start
+        std::uint32_t index; // Position in 'code'
+        std::int64_t offset; // Bytes from start
     };
 
     asm_proc_t() = default;

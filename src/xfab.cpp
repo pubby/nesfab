@@ -62,7 +62,8 @@ struct xfab_t
         std::vector<std::vector<std::string>> objects_name;
     };
 
-    unsigned collision_scale;
+    unsigned metatile_size;
+    unsigned collision_scale() const { return std::max<unsigned>(metatile_size, 1); }
     std::vector<chr_t> chrs;
     std::vector<palette_t> palettes;
     fc::vector_map<std::string, bc::deque<field_t>> ocs;
@@ -134,7 +135,7 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
     ptr += 8;
 
     // Collision file:
-    collision_scale = get8();
+    metatile_size = get8();
     std::string collisions_path = get_str();
 
     dprint(log, "8X8FAB_COLLISIONS_PATH", collisions_path);
@@ -203,7 +204,7 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
         for(std::uint16_t& data : level.tiles)
             data = get16();
 
-        level.collisions.resize((level.w / collision_scale) * (level.h / collision_scale));
+        level.collisions.resize((level.w / collision_scale()) * (level.h / collision_scale()));
         for(std::uint8_t& data : level.collisions)
             data = get8(false);
 
@@ -423,7 +424,10 @@ void xfab_t::load_json(std::uint8_t const* const begin, std::size_t size, fs::pa
 
 void xfab_t::compute_mt()
 {
-    unsigned const s = collision_scale;
+    unsigned const s = metatile_size;
+
+    if(s == 0)
+        return;
 
     for(auto& level : levels)
     {
@@ -434,7 +438,6 @@ void xfab_t::compute_mt()
 
         level.mt_set.resize(s*s);
 
-        unsigned c = 0;
         for(unsigned y = 0; y < level.h; y += s)
         for(unsigned x = 0; x < level.w; x += s)
         {
@@ -449,9 +452,7 @@ void xfab_t::compute_mt()
                     mt.tiles.push_back(0);
             }
 
-            if(c < level.collisions.size())
-                mt.collision = level.collisions[c];
-            c += 1;
+            mt.collision = level.collisions[(x / s) + (y / s) * ((level.w + s - 1) / s)];
 
             auto result = level.mt_map.emplace(mt, level.mt_map.size());
             if(result.second)
@@ -553,34 +554,82 @@ void convert_xfab(xfab_convert_type_t ct, std::uint8_t const* const begin, std::
             private_groups = *base_private_groups;
 
         define_ct_int(private_globals.lookup(at, "_index"sv), at, TYPE_INT, i);
-        define_ct_int(private_globals.lookup(at, "_width"sv), at, TYPE_INT, level.w / xfab.collision_scale);
-        define_ct_int(private_globals.lookup(at, "_height"sv), at, TYPE_INT, level.h / xfab.collision_scale);
+        define_ct_int(private_globals.lookup(at, "_width"sv), at, TYPE_INT, level.w / xfab.collision_scale());
+        define_ct_int(private_globals.lookup(at, "_height"sv), at, TYPE_INT, level.h / xfab.collision_scale());
 
-        std::vector<std::uint8_t> tiles_xy, tiles_yx;
-
-        tiles_xy = level.mts;
-        tiles_yx = calc_yx(level.w / xfab.collision_scale, level.h / xfab.collision_scale, tiles_xy);
-
-        switch(ct)
+        if(xfab.metatile_size == 0)
         {
-        default: 
-            break;
-        case XFAB_RLZ:
-            tiles_xy = compress_rlz(&*tiles_xy.begin(), &*tiles_xy.end(), false);
-            tiles_yx = compress_rlz(&*tiles_yx.begin(), &*tiles_yx.end(), false);
-            break;
-        case XFAB_PBZ:
-            tiles_xy = compress_pbz(&*tiles_xy.begin(), &*tiles_xy.end());
-            tiles_yx = compress_pbz(&*tiles_yx.begin(), &*tiles_yx.end());
-            break;
+            std::vector<std::uint8_t> tiles_xy, tiles_yx, attrs_xy, attrs_yx, colls_xy, colls_yx;
+
+            for(std::uint16_t i : level.tiles)
+            {
+                tiles_xy.push_back(i);
+                attrs_xy.push_back(i >> 8);
+            }
+            colls_xy = level.collisions;
+
+            tiles_yx = calc_yx(level.w, level.h, tiles_xy);
+            attrs_yx = calc_yx(level.w, level.h, attrs_xy);
+            colls_yx = calc_yx(level.w, level.h, colls_xy);
+
+            switch(ct)
+            {
+            default: 
+                break;
+            case XFAB_RLZ:
+                tiles_xy = compress_rlz(&*tiles_xy.begin(), &*tiles_xy.end(), false);
+                tiles_yx = compress_rlz(&*tiles_yx.begin(), &*tiles_yx.end(), false);
+                attrs_xy = compress_rlz(&*attrs_xy.begin(), &*attrs_xy.end(), false);
+                attrs_yx = compress_rlz(&*attrs_yx.begin(), &*attrs_yx.end(), false);
+                colls_xy = compress_rlz(&*colls_xy.begin(), &*colls_xy.end(), false);
+                colls_yx = compress_rlz(&*colls_yx.begin(), &*colls_yx.end(), false);
+                break;
+            case XFAB_PBZ:
+                tiles_xy = compress_pbz(&*tiles_xy.begin(), &*tiles_xy.end());
+                tiles_yx = compress_pbz(&*tiles_yx.begin(), &*tiles_yx.end());
+                attrs_xy = compress_pbz(&*attrs_xy.begin(), &*attrs_xy.end());
+                attrs_yx = compress_pbz(&*attrs_yx.begin(), &*attrs_yx.end());
+                colls_xy = compress_pbz(&*attrs_xy.begin(), &*colls_xy.end());
+                colls_yx = compress_pbz(&*attrs_yx.begin(), &*colls_yx.end());
+                break;
+            }
+
+            define_ct(private_globals.lookup(at, "_tiles_row_major"sv), at, tiles_xy.data(), tiles_xy.size());
+            define_ct(private_globals.lookup(at, "_tiles_column_major"sv), at, tiles_yx.data(), tiles_yx.size());
+            define_ct(private_globals.lookup(at, "_attributes_row_major"sv), at, attrs_xy.data(), attrs_xy.size());
+            define_ct(private_globals.lookup(at, "_attributes_column_major"sv), at, attrs_yx.data(), attrs_yx.size());
+            define_ct(private_globals.lookup(at, "_collisions_row_major"sv), at, colls_xy.data(), colls_xy.size());
+            define_ct(private_globals.lookup(at, "_collisions_column_major"sv), at, colls_yx.data(), colls_yx.size());
+        }
+        else
+        {
+            std::vector<std::uint8_t> tiles_xy, tiles_yx;
+
+            tiles_xy = level.mts;
+            tiles_yx = calc_yx(level.w / xfab.collision_scale(), level.h / xfab.collision_scale(), tiles_xy);
+
+            switch(ct)
+            {
+            default: 
+                break;
+            case XFAB_RLZ:
+                tiles_xy = compress_rlz(&*tiles_xy.begin(), &*tiles_xy.end(), false);
+                tiles_yx = compress_rlz(&*tiles_yx.begin(), &*tiles_yx.end(), false);
+                break;
+            case XFAB_PBZ:
+                tiles_xy = compress_pbz(&*tiles_xy.begin(), &*tiles_xy.end());
+                tiles_yx = compress_pbz(&*tiles_yx.begin(), &*tiles_yx.end());
+                break;
+            }
+
+            define_ct(private_globals.lookup(at, "_row_major"sv), at, tiles_xy.data(), tiles_xy.size());
+            define_ct(private_globals.lookup(at, "_column_major"sv), at, tiles_yx.data(), tiles_yx.size());
+
+            for(unsigned i = 0; i < xfab.collision_scale()*xfab.collision_scale(); i += 1)
+                define_ct(private_globals.lookup(at, fmt("_mt_%", i)), at, level.mt_set[i].data(), level.mt_set[i].size());
+            define_ct(private_globals.lookup(at, "_mt_collisions"sv), at, level.mt_set_collisions.data(), level.mt_set_collisions.size());
         }
 
-        define_ct(private_globals.lookup(at, "_row_major"sv), at, tiles_xy.data(), tiles_xy.size());
-        define_ct(private_globals.lookup(at, "_column_major"sv), at, tiles_yx.data(), tiles_yx.size());
-
-        for(unsigned i = 0; i < xfab.collision_scale*xfab.collision_scale; i += 1)
-            define_ct(private_globals.lookup(at, fmt("_mt_%", i)), at, level.mt_set[i].data(), level.mt_set[i].size());
-        define_ct(private_globals.lookup(at, "_mt_collisions"sv), at, level.mt_set_collisions.data(), level.mt_set_collisions.size());
 
         std::string append;
         for(unsigned i = 0; i < level.objects.size(); ++i)

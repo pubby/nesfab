@@ -135,12 +135,14 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         std::vector<std::pair<chr_span_t, global_t*>> spans;
         std::uint64_t total_size = 0;
 
-        global_t::for_each_chrrom([&](global_t* g, ast_node_t const* expr)
+        global_t::for_each_chrrom([&](global_t* g)
         {
             if(g->gclass() != GLOBAL_CONST)
                 compiler_error(g->pstring(), "chrrom is not defined.");
 
             const_t const& chrrom = g->impl<const_t>();
+            ast_node_t const* expr = chrrom.chrrom;
+            assert(expr);
             rom_array_ht const rom_array = chrrom.rom_array();
             assert(rom_array);
             std::size_t const size = rom_array->data().size();
@@ -191,7 +193,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
     }
     else if(global_t::has_chrrom())
     {
-        global_t::for_each_chrrom([&](global_t* g, ast_node_t const* expr)
+        global_t::for_each_chrrom([&](global_t* g)
         {
             compiler_warning(g->pstring(), fmt("Mapper % ignores chrrom. Data will not appear in ROM.", mapper().name()));
         });

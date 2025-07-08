@@ -100,9 +100,9 @@ private:
 
     template<typename Children>
     bool parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, 
-                          bool is_vars, bool is_banked, bool conditional, Children& children);
+                          bool is_vars, bool is_banked, bool is_chrrom, bool conditional, Children& children);
     ast_node_t parse_byte_block(pstring_t decl, int block_indent, global_t& global, group_ht group, 
-                                bool is_vars, bool is_banked);
+                                bool is_vars, bool is_banked, bool is_chrrom);
 
     std::unique_ptr<mods_t> parse_mods(int base_indent, bool eol = true);
 

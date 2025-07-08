@@ -3682,9 +3682,10 @@ It specifies the data of the CHR ROM using a <<byte_blocks, byte block>> syntax.
 
 Syntax:
 ----
-chrrom offset
+chrrom name(offset)
     byte block
 ----
+- `name` is an optional name which allows the `chrrom`'s labels to be accessed in code.
 - `offset` is an optional offset which determines which address the data gets stored. If left out, `offset` is treated as 0.
 
 Example:
@@ -3695,12 +3696,33 @@ chrrom
     file(chr, "bg.png") 
 
 // Store at offset $2000:
-chrrom $2000
+chrrom ($2000)
+    file(chr, "more_sprites.png") 
+    file(chr, "more_bg.png") 
+
+// Store at offset $4000 under the name 'foo':
+chrrom foo($4000)
     file(chr, "more_sprites.png") 
     file(chr, "more_bg.png") 
 ----
 
 The compiler will issue a warning if the supplied data does not match what the mapper expects.
+
+`chrrom` blocks can have labels. If the `chrrom` is named, these labels can be accessed, returning their position in CHR memory.
+These labels have a value of type `Int`.
+
+Example:
+----
+chrrom foo
+    label spr
+        file(chr, "sprites.png") 
+    label bg
+        file(chr, "bg.png") 
+
+// Access the CHR addresses:
+ct Int bar = foo.spr
+ct Int qux = foo.bg
+----
 
 === `file` [[kw_file]]
 
@@ -4436,6 +4458,23 @@ It is not recommended to use this keyword.
 ==== `__fixed` [[kw_fixed]]
 
 `__fixed` is a value of type `Bool` which returns if the mapper uses a fixed bank.
+
+==== `__multiply` [[kw_multiply]]
+
+`__multiply` is a value of type `Void` representing NESFab's multiply subroutine.
+Referencing the value using <<unary_ops, unary operator>> `&` returns an address of type `AA`,
+pointing to the subroutine.
+
+This subroutine expects two 8-bit multiplicands in registers A and Y.
+It returns the result of the multiplication with the low byte in A and the high byte in Y.
+
+Example:
+----
+    lda #3
+    ldy #10
+    jsr &__multiply
+    // Result in A and Y
+----
 
 == Modifiers [[modifiers]]
 

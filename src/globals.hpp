@@ -147,7 +147,7 @@ public:
         std::unique_ptr<mods_t> mods);
     const_ht define_const(
         lpstring_t lpstring, ideps_map_t&& ideps, 
-        src_type_t src_type, defined_group_data_t group, bool omni,
+        src_type_t src_type, defined_group_data_t group, bool omni, ast_node_t const* chrrom,
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
     struct_ht define_struct(
@@ -206,10 +206,10 @@ public:
     static bool has_irq() { return irqs().size(); }
 
     static global_t& default_charmap(pstring_t at);
-    static std::pair<global_t*, ast_node_t const*>& new_chrrom(lpstring_t at);
+    static global_t*& new_chrrom(lpstring_t at, global_t* g = nullptr);
 
     static bool has_chrrom();
-    static void for_each_chrrom(std::function<void(global_t*, ast_node_t const*)> const& fn);
+    static void for_each_chrrom(std::function<void(global_t*)> const& fn);
 private:
 
     // Sets the variables of the global:
@@ -264,7 +264,7 @@ private:
 
     // Tracks chrroms: 
     inline static std::mutex chrrom_deque_mutex;
-    inline static bc::deque<std::pair<global_t*, ast_node_t const*>> chrrom_deque;
+    inline static bc::deque<global_t*> chrrom_deque;
 
     // These represent a queue of globals ready to be compiled.
     inline static std::condition_variable ready_cv;
@@ -771,21 +771,25 @@ public:
 
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
-    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, bool banked, ast_node_t const* expr, 
+    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, bool banked, ast_node_t const* chrrom, ast_node_t const* expr, 
             std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
     : global_datum_t(global, src_type, expr, std::move(paa_def), std::move(mods))
     , group_data(group_data)
     , banked(banked)
+    , chrrom(chrrom)
     { assert(init_expr); }
 
     virtual ~const_t() = default;
 
     group_data_ht const group_data;
     bool const banked = false;
+    ast_node_t const* const chrrom = nullptr;
 
     virtual group_ht group() const;
 
     rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
+
+    std::int64_t eval_chrrom_offset() const;
 
 private:
     virtual void paa_init(asm_proc_t&& proc);

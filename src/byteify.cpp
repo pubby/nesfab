@@ -1412,7 +1412,7 @@ bool shifts_to_rotates(ir_t& ir, bool handle_constant_shifts)
             for(unsigned i = 0; i < num_shifts; ++i)
             {
                 ssa_value_t carry = ssa_value_t(0u, TYPE_BOOL);
-                if(is_signed(type.name()))
+                if(is_signed(type.name()) && !shl)
                    carry = cfg_it->emplace_ssa(SSA_sign, TYPE_BOOL, value);
 
                 value = cfg_it->emplace_ssa(shl ? SSA_rol : SSA_ror, unsigned_type, value, carry);

@@ -126,7 +126,7 @@ gvar_ht global_t::define_var(lpstring_t lpstring, ideps_map_t&& ideps,
 }
 
 const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps, 
-                                src_type_t src_type, defined_group_data_t d, bool omni,
+                                src_type_t src_type, defined_group_data_t d, bool omni, ast_node_t const* chrrom,
                                 ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
                                 std::unique_ptr<mods_t> mods)
 {
@@ -135,7 +135,7 @@ const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps,
     // Create the const
     const_ht h = { define(lpstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
     { 
-        return const_ht::pool_emplace(ret, g, src_type, d.data_handle, !omni, expr, std::move(paa_def), std::move(mods)).id;
+        return const_ht::pool_emplace(ret, g, src_type, d.data_handle, !omni, chrrom, expr, std::move(paa_def), std::move(mods)).id;
     })};
 
     // Add it to the group
@@ -199,17 +199,20 @@ global_t& global_t::default_charmap(pstring_t at)
     return *result;
 }
 
-std::pair<global_t*, ast_node_t const*>& global_t::new_chrrom(lpstring_t at)
+global_t*& global_t::new_chrrom(lpstring_t at, global_t* g)
 {
     using namespace std::literals;
 
-    global_t* g = global_ht::with_pool([&](auto& pool)
+    if(!g) // If 'g' is nullptr, we're creating an unnamed chrrom.
     {
-        return &pool.emplace_back(at, "chrrom", pool.size());
-    });
+        g = global_ht::with_pool([&](auto& pool)
+        {
+            return &pool.emplace_back(at, "chrrom", pool.size());
+        });
+    }
 
     std::lock_guard lock(chrrom_deque_mutex);
-    return chrrom_deque.emplace_back(g, nullptr);
+    return chrrom_deque.emplace_back(g);
 }
 
 bool global_t::has_chrrom()
@@ -218,11 +221,11 @@ bool global_t::has_chrrom()
     return !chrrom_deque.empty();
 }
 
-void global_t::for_each_chrrom(std::function<void(global_t*, ast_node_t const*)> const& fn)
+void global_t::for_each_chrrom(std::function<void(global_t*)> const& fn)
 {
     std::lock_guard lock(chrrom_deque_mutex);
-    for(auto const& pair : chrrom_deque)
-        fn(pair.first, pair.second);
+    for(auto const& ptr : chrrom_deque)
+        fn(ptr);
 }
 
 void global_t::init()
@@ -1208,7 +1211,7 @@ static void _resolve_local_consts(global_ht global, std::vector<local_const_t>& 
         }
         else
         {
-            locator_t const label = locator_t::named_label(global, i);
+            locator_t label = locator_t::named_label(global, i);
 
             if(is_banked_ptr(c.type().name()))
                 c.value = { label, label.with_is(IS_BANK) };
@@ -2161,6 +2164,23 @@ void const_t::paa_init(asm_proc_t&& proc)
 void const_t::rval_init(rval_t&& rval)
 {
     m_rval = std::move(rval);
+}
+
+std::int64_t const_t::eval_chrrom_offset() const
+{
+    assert(chrrom);
+    assert(compiler_phase() >= PHASE_COMPILE);
+
+    rpair_t const result = interpret_expr(global.pstring(), *chrrom, TYPE_INT);
+    if(calc_time(result.type, result.value) >= LT)
+        compiler_error(global.pstring(), "Unable to determine chrrom offset at compile-time.");
+
+    std::int64_t offset = std::get<ssa_value_t>(result.value[0]).signed_whole();
+
+    if(offset < 0)
+        compiler_error(global.pstring(), fmt("Offset of % is not positive.", offset));
+
+    return offset;
 }
 
 //////////////

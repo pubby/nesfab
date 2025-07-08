@@ -54,7 +54,7 @@ struct paa_def_t
     std::vector<std::uint64_t> name_hashes;
 
     // Offsets of labels, pairing with 'local_consts'.
-    std::vector<std::uint16_t> offsets;
+    std::vector<std::uint32_t> offsets;
 };
 
 

@@ -16,6 +16,8 @@
 ct AA RNBW_PRG_MODE           = $4100 // Don't use this!
 ct AA RNBW_CHR_CTRL           = $4120
 ct AA RNBW_BG_EXT_SELECT_HI   = $4121
+ct AA RNBW_BG_FILL_PATTERN    = $4124
+ct AA RNBW_BG_FILL_ATTR       = $4125
 ct AA RNBW_NT_2000_SELECT     = $4126
 ct AA RNBW_NT_2400_SELECT     = $4127
 ct AA RNBW_NT_2800_SELECT     = $4128
@@ -24,8 +26,8 @@ ct AA RNBW_NT_2000_CTRL       = $412A
 ct AA RNBW_NT_2400_CTRL       = $412B
 ct AA RNBW_NT_2800_CTRL       = $412C
 ct AA RNBW_NT_2C00_CTRL       = $412D
-ct AA RNBW_NT_W_SELECT        = $412E
-ct AA RNBW_NT_W_CTRL          = $412F
+ct AA RNBW_NT_WINDOW_SELECT   = $412E
+ct AA RNBW_NT_WINDOW_CTRL     = $412F
 ct AA RNBW_CHR_SELECT_HI      = $4130 // There are 16 of these.
 ct AA RNBW_CHR_SELECT_LO      = $4140 // There are 16 of these.
 
@@ -35,11 +37,13 @@ ct AA RNBW_SCANLINE_ENABLE    = $4151 // Write
 ct AA RNBW_SCANLINE_STATUS    = $4151 // Read
 ct AA RNBW_SCANLINE_DISABLE   = $4152
 ct AA RNBW_SCANLINE_OFFSET    = $4153
-ct AA RNBW_SCANLINE_M2        = $4154
+
+// IRQ m2 jitter counter: (counts cycles after IRQ)
+ct AA RNBW_JITTER             = $4154
 
 // CPU cycle IRQ registers:
-ct AA RNBW_CYCLE_LATCH_LO     = $4158
-ct AA RNBW_CYCLE_LATCH_HI     = $4159
+ct AA RNBW_CYCLE_LATCH_HI     = $4158
+ct AA RNBW_CYCLE_LATCH_LO     = $4159
 ct AA RNBW_CYCLE_CTRL         = $415A
 ct AA RNBW_CYCLE_ACK          = $415B
 
@@ -80,8 +84,14 @@ ct AA RNBW_SAW_LO             = $41A7
 ct AA RNBW_SAW_HI             = $41A8
 
 // Sprite extended mode registers:
-ct AA RNBW_SPRITE_SELECT_LO   = $4200
-ct AA RNBW_SPRITE_SELECT_HI   = $4240
+ct AA RNBW_SPR_EXT_SELECT_LO   = $4200
+ct AA RNBW_SPR_EXT_SELECT_HI   = $4240
+
+// Slow routines:
+ct AA RNBW_ROUTINE_SLOW_OAM          = $4280
+ct AA RNBW_ROUTINE_SLOW_OAM_PAGE     = $4241
+ct AA RNBW_ROUTINE_SLOW_SPR_EXT      = $4282
+ct AA RNBW_ROUTINE_SLOW_SPR_EXT_PAGE = $4242
 
 // RAM:
 ct AA RNBW_NETRAM             = $4800
@@ -129,23 +139,36 @@ fn rnbw_chr_select(U slot, UU chr_bank)
     {RNBW_CHR_SELECT_HI + slot}(chr_bank.b)
     {RNBW_CHR_SELECT_LO + slot}(chr_bank.a)
 
+// Use these to calculate CHR regions for background extended mode:
+ct Int RNBW_BG_EXT_CHR_PAGE_SIZE = 262144
+ct fn RNBW_BG_EXT_CHR_PAGE_ADDR(U page) Int
+    return page * RNBW_BG_EXT_CHR_PAGE_SIZE
+
+// Use these to calculate CHR regions for sprite extended mode:
+ct fn RNBW_SPR_EXT_CHR_PAGE_SIZE(Bool spr_8x16)  Int
+    if spr_8x16
+        return 1048576 << 1
+    return 1048576
+ct fn RNBW_SPR_EXT_CHR_PAGE_ADDR(U page, Bool spr_8x16) Int
+    return page * RNBW_SPR_EXT_CHR_PAGE_SIZE(spr_8x16)
+
 ///////////////////////////////////////////////////////////////////////////////
 // Nametables /////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 // Use these when writing to nametable control registers (RNBW_NT_2000_CTRL...)
-ct U RNBW_NT_ATTR_EXT     = %00000001
-ct U RNBW_NT_BG_EXT       = %00000010
-ct U RNBW_NT_EXT          = %00000011
-ct U RNBW_NT_EXT_BANK_0   = %00000000
-ct U RNBW_NT_EXT_BANK_1   = %00000100
-ct U RNBW_NT_EXT_BANK_2   = %00001000
-ct U RNBW_NT_EXT_BANK_3   = %00001100
-ct U RNBW_NT_FILL         = %00100000
-ct U RNBW_NT_CI_RAM       = %00000000
-ct U RNBW_NT_CHR_RAM      = %01000000
-ct U RNBW_NT_FPGA_RAM     = %10000000
-ct U RNBW_NT_CHR_ROM      = %11000000
+ct U RNBW_NT_CTRL_ATTR_EXT     = %00000001
+ct U RNBW_NT_CTRL_BG_EXT       = %00000010
+ct U RNBW_NT_CTRL_EXT          = %00000011
+ct U RNBW_NT_CTRL_EXT_BANK_0   = %00000000
+ct U RNBW_NT_CTRL_EXT_BANK_1   = %00000100
+ct U RNBW_NT_CTRL_EXT_BANK_2   = %00001000
+ct U RNBW_NT_CTRL_EXT_BANK_3   = %00001100
+ct U RNBW_NT_CTRL_FILL         = %00100000
+ct U RNBW_NT_CTRL_CI_RAM       = %00000000
+ct U RNBW_NT_CTRL_CHR_RAM      = %01000000
+ct U RNBW_NT_CTRL_FPGA_RAM     = %10000000
+ct U RNBW_NT_CTRL_CHR_ROM      = %11000000
 
 // Selects the control for the 4 main nametables.
 fn rnbw_nt_ctrl(U nt2000, U nt2400, U nt2800, U nt2c00)
@@ -179,22 +202,68 @@ fn rnbw_nt_select_broad(U b)
     {RNBW_NT_2800_SELECT}(b)
     {RNBW_NT_2C00_SELECT}(b)
 
+fn rnbw_bg_fill(U pattern, U attr)
+: +inline
+    {RNBW_BG_FILL_PATTERN, RNBW_BG_FILL_ATTR}(pattern, attr)
+
 ///////////////////////////////////////////////////////////////////////////////
 // Sprites ////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 // Sets a sprite's bank in extended sprite mode.
-// NOTE: You should also set RNBW_SPRITE_SELECT_HI, which affects all sprites.
-fn rnbw_sprite_select_lo(U sprite_index, U chr_bank)
+// NOTE: You should also set RNBW_SPR_EXT_SELECT_HI, which affects all sprites.
+fn rnbw_spr_ext_select(U sprite_index, U chr_bank)
 : +inline
-    {RNBW_SPRITE_SELECT_LO + sprite_index}(chr_bank)
+    {RNBW_SPR_EXT_SELECT_LO + sprite_index}(chr_bank)
 
+///////////////////////////////////////////////////////////////////////////////
+// Interrupt Generators ///////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Flags for RNBW_SCANLINE_ENABLE:
+ct U RNBW_SCANLINE_ENABLE_PENDING  = %01000000
+ct U RNBW_SCANLINE_ENABLE_IN_FRAME = %01000000
+ct U RNBW_SCANLINE_ENABLE_HBLANK   = %10000000
+
+// Blocks execution until a scanline is reached.
+fn rnbw_scanline_await(U scanline)
+: +inline
+    {RNBW_SCANLINE_DISABLE}(scanline)
+    {RNBW_SCANLINE_LATCH}(scanline)
+    while {RNBW_SCANLINE_ENABLE}() & RNBW_SCANLINE_ENABLE_PENDING == 0
+
+// Blocks execution until the frame starts to render.
+fn rnbw_scanline_await_frame()
+: +inline
+    while {RNBW_SCANLINE_ENABLE}() & RNBW_SCANLINE_ENABLE_IN_FRAME == 0
+
+// Triggers an IRQ on a specified scanline.
+fn rnbw_scanline_async(U scanline)
+: +inline
+    {RNBW_SCANLINE_DISABLE}(scanline)
+    {RNBW_SCANLINE_LATCH}(scanline)
+    {RNBW_SCANLINE_ENABLE}(scanline)
+
+// Flags for RNBW_CYCLE_CTRL:
+ct U RNBW_CYCLE_CTRL_ENABLE       = %001
+ct U RNBW_CYCLE_CTRL_ENABLE_AFTER = %010
+ct U RNBW_CYCLE_CTRL_4011_ACK     = %100
+
+// Triggers an IRQ after a specified number of cycles:
+// If 'repeat' is true, acknowledging will restart the counter.
+fn rnbw_cycle_async(UU cycles, Bool repeat)
+: +inline
+    {RNBW_CYCLE_CTRL}(0)
+    {RNBW_CYCLE_LATCH_LO}(cycles.a)
+    {RNBW_CYCLE_LATCH_HI}(cycles.b)
+    {RNBW_CYCLE_CTRL}(RNBW_CYCLE_CTRL_ENABLE | (U(repeat) << 1))
+    
 ///////////////////////////////////////////////////////////////////////////////
 // Vectors ////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-ct Int RNBW_VECTOR_CTRL_ENABLE_NMI = %01
-ct Int RNBW_VECTOR_CTRL_ENABLE_IRQ = %10
+ct U RNBW_VECTOR_CTRL_ENABLE_NMI = %01
+ct U RNBW_VECTOR_CTRL_ENABLE_IRQ = %10
 
 // It's *ONLY* possible to use Rainbow's IRQ redirect feature
 // when using 'asm fn' irqs with '+solo_interrupt' and '+static'.
@@ -203,6 +272,7 @@ ct Int RNBW_VECTOR_CTRL_ENABLE_IRQ = %10
 // DO NOT redirect the NMI; this is not at all supported.
 
 // Sets the IRQ redirect pointer without enabling/disabling it:
+// NOTE: You probably want to disable IRQs before doing this!
 fn rnbw_set_irq(AA addr)
 : +inline
     {RNBW_IRQ_LO, RNBW_IRQ_HI}(addr.a, addr.b)
@@ -215,3 +285,23 @@ fn rnbw_redirect_irq(AA addr)
     {RNBW_IRQ_LO}(addr.a)
     {RNBW_IRQ_HI}(addr.b)
     {RNBW_VECTOR_CTRL}(RNBW_VECTOR_CTRL_ENABLE_IRQ) // Re-enable
+
+///////////////////////////////////////////////////////////////////////////////
+// Routines ///////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+// Runs the slow oam routine.
+// NOTE: Set RNBW_ROUTINE_SLOW_OAM_PAGE first!
+asm fn rnbw_routine_slow_oam()
+: employs
+: +static
+    default
+        jmp RNBW_ROUTINE_SLOW_OAM
+
+// Runs the slow spr ext routine.
+// NOTE: Set RNBW_ROUTINE_SLOW_SPR_EXT_PAGE first!
+asm fn rnbw_routine_slow_spr_ext()
+: employs
+: +static
+    default
+        jmp RNBW_ROUTINE_SLOW_SPR_EXT

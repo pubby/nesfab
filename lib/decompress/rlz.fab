@@ -75,6 +75,22 @@ asm fn ppu_upload_rlz(CCC/rlz ptr) CCC/rlz
         sty &return.b
         rts
 
+// Returns a RLZ sequence of 'value' repeated 'length' times.
+ct fn rlz_run(U value, Int length) U{}
+    U{} out = U{}()
+    while length >= 2
+        length -= 2
+        U run = U(min(length, $7F))
+        length -= run
+        push(out, run)
+        push(out, value)
+    if length
+        push(out, U(length + 127))
+        do while length
+            push(out, value)
+            length -= 1
+    return out
+
 // Compresses the data 'in' to RLZ format at compile-time.
 // If 'terminator' is true, a value of 0 will be appended onto the end.
 ct fn compress_rlz(U{} in, Bool terminator) U{}

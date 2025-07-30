@@ -10,12 +10,36 @@ audio(puf1_music, "music.txt")
 audio(puf1_sfx, "sfx.txt", "sfx.nsf")
 
 nmi main_nmi()
+    irq true
+    {$4011}({$4011}() + 1)
     ppu_upload_oam_poll_pads(0)
     ppu_reset_scroll(0, 0)
     {PPUMASK}(PPUMASK_BG_ON | PPUMASK_NO_CLIP)
-    puf.process(PUF_DEFAULT)
+    puf.process(PUF_DEFAULT ^ %10000)
+
+vars
+    U prev = 0
+
+asm irq _irq()
+: employs
+: +solo_interrupt
+: +static
+: +align
+    default
+        inc $4011
+        //bit $4161
+        //bmi scanline_interrupt_handler
+        rti
 
 mode main()
+    //{$415B}(0)
+    //{RNBW_AUDIO_CTRL}(RNBW_AUDIO_CTRL_IPCM)
+    //{RNBW_CYCLE_CTRL}(RNBW_CYCLE_CTRL_4011_ACK)
+    //rnbw_cycle_async(100, RNBW_CYCLE_CTRL_REPEAT | RNBW_CYCLE_CTRL_4011_ACK)
+    goto mode play()
+    : preserves
+
+mode play()
 : nmi main_nmi
     // Init the music:
     puf.init(system)
@@ -39,17 +63,29 @@ mode main()
         {EXDATA}(rand() & %11000000)
 
     // Set Rainbow registers:
-    {RNBW_NT_2000_CTRL}(RNBW_NT_ATTR_EXT)
+    {RNBW_NT_2000_CTRL}(RNBW_NT_CTRL_ATTR_EXT)
+
+    {RNBW_AUDIO_CTRL}(RNBW_AUDIO_CTRL_ALL)
+    {RNBW_AUDIO_VOLUME}($F)
+
+    UU cycles = 512
+    {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_PT_1000)
+    //nmi
+    //irq false
+    rnbw_cycle_async(cycles, RNBW_CYCLE_CTRL_REPEAT | RNBW_CYCLE_CTRL_4011_ACK)
+    irq true
 
     // Loop forever:
-    {PPUCTRL}(PPUCTRL_NMI_ON | PPUCTRL_SPR_PT_1000)
     while true
         nmi
         update_pads()
         if pads[0].pressed & BUTTON_UP
-            puf.play_sfx(0)
+            cycles += 100
+            rnbw_cycle_async(cycles, RNBW_CYCLE_CTRL_REPEAT | RNBW_CYCLE_CTRL_4011_ACK)
         if pads[0].pressed & BUTTON_DOWN
-            puf.play_sfx(1)
+            if cycles >= 100
+                cycles -= 100
+            rnbw_cycle_async(cycles, RNBW_CYCLE_CTRL_REPEAT | RNBW_CYCLE_CTRL_4011_ACK)
 
 chrrom
     file(fmt, "bg.png")

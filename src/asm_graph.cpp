@@ -209,6 +209,7 @@ void asm_graph_t::optimize(fn_t const& fn)
     do
     {
         changed = false;
+        changed |= o_dedupe();
         changed |= o_remove_stubs();
         changed |= o_remove_branches();
         changed |= o_merge();
@@ -216,6 +217,69 @@ void asm_graph_t::optimize(fn_t const& fn)
         changed |= o_peephole();
     }
     while(changed);
+}
+
+// Removes identical nodes:
+bool asm_graph_t::o_dedupe()
+{
+    struct hash_t
+    {
+        std::size_t operator()(asm_node_t* node) const
+        {
+            if(!node)
+                return 0;
+            std::size_t hash = node->code.size();
+            hash = rh::hash_combine(hash, node->outputs().size());
+            hash = rh::hash_combine(hash, node->output_inst.op);
+            hash = rh::hash_combine(hash, node->output_inst.arg.to_uint());
+            return rh::hash_finalize(hash);
+        }
+    };
+
+    struct eq_t
+    {
+        bool operator()(asm_node_t* a, asm_node_t* b) const
+        {
+            return a == b || (a && b && a->code == b->code && a->output_inst == b->output_inst && a->outputs() == b->outputs());
+        }
+    };
+
+    bool changed = false;
+    rh::robin_set<asm_node_t*, hash_t, eq_t> set;
+
+    // Insert the entry label first, to ensure it doesn't get pruned:
+    if(m_entry_label)
+    {
+        assert(label_map.count(m_entry_label));
+        set.insert(label_map[m_entry_label]);
+    }
+
+    for(auto it = list.begin(); it != list.end();)
+    {
+        auto result = set.insert(&*it);
+        if(*result.first != &*it)
+        {
+            if(it->label && label_map.count(it->label))
+            {
+                label_map[it->label] = *result.first;
+                assert(m_entry_label != it->label);
+            }
+
+            while(it->inputs().size())
+            {
+                asm_node_t* input = it->inputs()[0];
+                assert(input);
+                input->replace_output(input->find_output(&*it), *result.first);
+            }
+
+            it = prune(*it);
+            changed = true;
+        }
+        else
+            ++it;
+    }
+
+    return changed;
 }
 
 bool asm_graph_t::o_remove_stubs()
@@ -867,6 +931,31 @@ void asm_graph_t::liveness_dataflow(Fn const& fn)
         goto reenter;
 }
 
+template<typename Fn>
+void asm_graph_t::forward_dataflow(Fn const& fn)
+{
+    for(asm_node_t& node : list)
+        node.clear_flags(FLAG_IN_WORKLIST | FLAG_PROCESSED);
+
+    worklist.clear();
+    worklist.push(label_map[m_entry_label]);
+
+    while(!worklist.empty())
+    {
+        asm_node_t& node = *worklist.pop();
+
+        bool const changed = fn(node);
+
+        // Add all predecessors to worklist:
+        if(changed || !node.test_flags(FLAG_PROCESSED))
+        {
+            node.set_flags(FLAG_PROCESSED);
+            for(auto const& output : node.outputs())
+                worklist.push(output.node);
+        }
+    }
+}
+
 void asm_graph_t::optimize_live_registers()
 {
     for(asm_node_t& node : list)
@@ -1008,7 +1097,7 @@ void asm_graph_t::optimize_live_registers()
                     continue;
                 }
 
-                if(!inst.alt && is_var_like(inst.arg.lclass())) 
+                if(!inst.alt && inst.arg.known_variable())
                 {
                     switch(inst.op)
                     {
@@ -1136,7 +1225,7 @@ void asm_graph_t::optimize_live_registers()
                    && a.op < NUM_NORMAL_OPS
                    && !(REGF_M & op_output_regs(a.op))
                    && !(live_regs[ai] & op_output_regs(a.op))
-                   && (!a.arg || is_var_like(a.arg.lclass()))
+                   && (!a.arg || a.arg.known_variable())
                    && !a.alt)
                 {
                     dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
@@ -1324,7 +1413,7 @@ void asm_graph_t::optimize_live_registers()
 
                         if(op_name(b.op) == store 
                            && !(live_regs[bi] & op_output_regs(a.op))
-                           && is_var_like(b.arg.lclass()))
+                           && b.arg.known_variable())
                         {
                             for(unsigned i = prev_i; i < ai; ++i)
                             {
@@ -1483,7 +1572,7 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
     {
         auto test_loc = [&](locator_t loc)
         {
-            if(locator_t const* it = map.lookup(loc))
+            if(locator_t const* it = map.lookup(loc.mem_head()))
             {
                 unsigned const i = it - map.begin();
                 rw(i, op_input_regs(inst.op) & REGF_M, op_output_regs(inst.op) & REGF_M);
@@ -1503,7 +1592,7 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
 }
 
 // Returns bitset size
-unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> const& map)
+bitset_t asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> const& map)
 {
     bitset_pool.clear();
     auto const bs_size = bitset_size<>(map.size());
@@ -1528,13 +1617,22 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
         bitset_clear(node.vlive.out, i); 
     };
 
-    // Every arg will be "written" at root:
+    bitset_t array_set(bs_size);
+
     asm_node_t& root = *label_map[m_entry_label];
     for(locator_t const& loc : map)
     {
+        // Every arg will be "written" at root:
         if(loc.lclass() == LOC_ARG)
             bitset_set(root.vlive.in, &loc - map.begin());
+
+        // Track which locs have array types:
+        if(is_array(loc.type().name()))
+            bitset_set(array_set.data(), &loc - map.begin());
     }
+
+    auto* const arg_set = ALLOCA_T(bitset_uint_t, bs_size);
+    bitset_copy(bs_size, arg_set, root.vlive.in);
 
     for(asm_node_t& node : list)
     {
@@ -1550,9 +1648,12 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
         {
             do_inst_rw(fn, map, inst, [&](unsigned i, bool read, bool write)
             {
+                // Arrays count as both a read and a write:
+                bool const array = bitset_test(array_set.data(), i);
+
                 // Order matters here. 'do_write' comes after 'do_read'.
-                if(read)
-                    do_read(node, i); 
+                if(read || (array && write))
+                    do_read(node, i);
                 if(write)
                     do_write(node, i); 
             });
@@ -1571,8 +1672,34 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
             bitset_or(bs_size, temp_set, output.node->vlive.in);
 
         // Now use that to calculate a new live-in set:
-        bitset_and(bs_size, temp_set, node.vlive.out); // (vlive.out holds inverted KILL)
+        for(std::size_t i = 0; i < bs_size; ++i)
+            temp_set[i] &= array_set[i] | node.vlive.out[i]; // (vlive.out holds inverted KILL)
         bitset_or(bs_size, temp_set, node.vlive.in);
+
+        // If 'vlive.in' is changing:
+        bool const changing = !bitset_eq(bs_size, temp_set, node.vlive.in);
+
+        // Assign 'vlive.in':
+        if(changing)
+            bitset_copy(bs_size, node.vlive.in, temp_set);
+
+        return changing;
+    });
+
+    // Array inputs were propagated too far.
+    // Cull them to their first write:
+    forward_dataflow([&](asm_node_t& node)
+    {
+        bitset_clear_all(bs_size, temp_set);
+        // Calculate all our inputs:
+        for(auto const& input : node.inputs())
+            for(std::size_t i = 0; i < bs_size; ++i)
+                temp_set[i] |= ~input->vlive.out[i] | input->vlive.in[i];
+        bitset_negate(bs_size, temp_set);
+        for(std::size_t i = 0; i < bs_size; ++i)
+            temp_set[i] &= array_set[i] & ~arg_set[i]; // Only care about arrays that are NOT args
+        for(std::size_t i = 0; i < bs_size; ++i)
+            temp_set[i] = node.vlive.in[i] & ~temp_set[i]; // Remove these inputs
 
         // If 'vlive.in' is changing:
         bool const changing = !bitset_eq(bs_size, temp_set, node.vlive.in);
@@ -1595,14 +1722,15 @@ unsigned asm_graph_t::calc_liveness(fn_t const& fn, rh::batman_set<locator_t> co
             bitset_or(bs_size, node.vlive.out, output.node->vlive.in);
     }
 
-    return bs_size;
+    return array_set;
 }
 
 lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
 {
     lvars_manager_t lvars(fn.handle(), *this);
 
-    unsigned const bs_size = calc_liveness(fn, lvars.map());
+    bitset_t array_set = calc_liveness(fn, lvars.map());
+    unsigned const bs_size = array_set.size();
     bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, bs_size);
 
     auto const& add_fn_interference = [&](fn_ht fn)
@@ -1618,10 +1746,26 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
         lvars.add_lvar_interferences(live);
     };
 
+    // We'll keep track of the first write to arrays:
+    rh::robin_map<unsigned, unsigned> first_array_writes;
+
     // Step-through the code backwards, maintaining a current liveness set
     // and using that to build an interference graph.
     for(asm_node_t& node : list)
     {
+        // Calculate the first array write, if it exists:
+        first_array_writes.clear();
+        for(unsigned k = 0; k < node.code.size(); k += 1)
+        {
+            asm_inst_t const& inst = node.code[k];
+
+            do_inst_rw(fn, lvars.map(), inst, [&](unsigned i, bool read, bool write)
+            {
+                if(!read && write && !bitset_test(node.vlive.in, i) && bitset_test(array_set.data(), i))
+                    first_array_writes.insert({ i, k });
+            });
+        }
+
         // Since we're going backwards, reset 'live' to the node's output state.
         bitset_copy(bs_size, live, node.vlive.out);
 
@@ -1629,8 +1773,10 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
         // Update the interference graph here:
         lvars.add_lvar_interferences(live);
 
-        for(asm_inst_t& inst : node.code | std::views::reverse)
+        for(unsigned k = node.code.size() - 1; k < node.code.size(); k -= 1)
         {
+            asm_inst_t const& inst = node.code[k];
+
             if((op_flags(inst.op) & ASMF_CALL) && inst.arg.lclass() == LOC_FN)
                 add_fn_interference(inst.arg.fn());
             else if(inst.op == ASM_FN_SET_CALL)
@@ -1653,7 +1799,16 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
                 lvars.add_lvar_interferences(live);
 
                 if(!read && write)
-                    bitset_clear(live, i);
+                {
+                    // For arrays, assume they're always live, unless this is the first write:
+                    if(!bitset_test(array_set.data(), i))
+                        bitset_clear(live, i);
+                    else if(auto const* h = first_array_writes.mapped(i))
+                    {
+                        if(*h == k) // First write:
+                            bitset_clear(live, i);
+                    }
+                }
             });
         }
     }
@@ -1687,7 +1842,8 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
     });
 
     // Now do liveness:
-    unsigned const bs_size = calc_liveness(fn, map);
+    bitset_t array_set = calc_liveness(fn, map);
+    unsigned const bs_size = array_set.size();
     bitset_uint_t* const live = ALLOCA_T(bitset_uint_t, bs_size);
 
     // Step-through the code backwards, maintaining a current liveness set
@@ -1701,7 +1857,7 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
         {
             if(op_flags(inst.op) & ASMF_MAYBE_STORE)
             {
-                if(locator_t const* it = map.lookup(inst.arg))
+                if(locator_t const* it = map.lookup(inst.arg.mem_head()))
                 {
                     assert(op_output_regs(inst.op) & REGF_M);
 
@@ -1737,7 +1893,7 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
             {
                 if(read)
                     bitset_set(live, i);
-                else if(write) // Only occurs if 'read' is false.
+                else if(write && !bitset_test(array_set.data(), i)) // Only occurs if 'read' is false.
                     bitset_clear(live, i);
             });
         }

@@ -907,8 +907,17 @@ static asm_proc_t make_reset_proc()
                 proc.push_inst(JSR_ABSOLUTE, locator_t::reset_group_vars(gv));
         }
     });
-    
 
+    // Rainbow mapper uses RAM in $6000 region
+    if(mapper().type == MAPPER_RAINBOW)
+    {
+        // Select the first SRAM bank:
+        proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0x80));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x4106)); // Hi byte
+        proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
+        proc.push_inst(STA_ABSOLUTE, locator_t::addr(0x4116)); // Lo byte
+    }
+    
     if(compiler_options().nes_system == NES_SYSTEM_DETECT)
     {
         // Use the default NMI handler:

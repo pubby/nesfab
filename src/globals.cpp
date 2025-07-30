@@ -1313,6 +1313,9 @@ void fn_t::compile()
     if(iasm)
         return compile_iasm();
 
+    // If we're certain we're inline:
+    bool const known_inline = mod_test(mods(), MOD_inline, true) && !referenced();
+
     // Compile the FN.
     ssa_pool::clear();
     cfg_pool::clear();
@@ -1418,6 +1421,12 @@ void fn_t::compile()
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(&ir);
     assert(ir_reads());
+
+    if(known_inline)
+    {
+        m_always_inline = true;
+        return;
+    }
 
     // Convert shifts and switches:
     // NOTE: Do NOT use operator || here.
@@ -2169,7 +2178,6 @@ void const_t::rval_init(rval_t&& rval)
 std::int64_t const_t::eval_chrrom_offset() const
 {
     assert(chrrom);
-    assert(compiler_phase() >= PHASE_COMPILE);
 
     rpair_t const result = interpret_expr(global.pstring(), *chrrom, TYPE_INT);
     if(calc_time(result.type, result.value) >= LT)
@@ -2477,8 +2485,6 @@ void fn_set_t::resolve()
 
     for(fn_ht fn : m_fns)
     {
-        assert(fn->global.resolved());
-
         if(m_type.name() == TYPE_VOID)
         {
             m_type = fn->type();

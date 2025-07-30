@@ -1888,9 +1888,9 @@ void parser_t<P>::parse_chrrom()
     });
 
     global_t* g = global_t::new_chrrom(decl, global);
+    policy().begin_chrrom();
     ast_node_t ast = parse_byte_block(decl, chrrom_indent, *g, {}, false, false, true);
-
-    policy().chrrom(g, decl, ast, std::move(mods), expr_ptr);
+    policy().end_chrrom(g, decl, ast, std::move(mods), expr_ptr);
 }
 
 template<typename P>

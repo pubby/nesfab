@@ -1223,8 +1223,13 @@ public:
         assert(ret);
         return *ret;
     }
+    
+    void begin_chrrom()
+    {
+        symbol_table.push_scope();
+    }
 
-    void chrrom(global_t* global, lpstring_t decl, ast_node_t& ast, 
+    void end_chrrom(global_t* global, lpstring_t decl, ast_node_t& ast, 
                 std::unique_ptr<mods_t> mods, ast_node_t* expr)
     {
         if(mods)
@@ -1238,6 +1243,7 @@ public:
             decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, false, convert_eternal_expr(expr),
             convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
         ideps.clear();
+        symbol_table.pop_scope();
     }
 
     fs::path get_path(fs::path const& preferred_dir, convert_arg_t const& v) const

@@ -182,7 +182,7 @@ char const* parse_line(char const* const ptr, char const* const end,
 constexpr int convert_note(int note, int octave, int scale = 1)
 {
     note += 12 * octave;
-    return (note - 9) * scale;
+    return note * scale;
 }
 
 int parse_note(std::string_view str, int scale)
@@ -298,6 +298,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 {
     using namespace std::literals;
 
+    bool const rnbw = compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW;
     unsigned const num_chan = puf_num_chan();
 
     std::map<macro_key_t, macro_t> macros;
@@ -632,13 +633,17 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                         {
                             channel_data_t cd = pv[i*track.pattern_size+j].chan[k];
 
+                            int min_note = 9;
+                            if(rnbw && k >= CHAN_EXP1)
+                                min_note = 0;
+
                             if(cd.note == -2)
                             {
                                 if(k != CHAN_DPCM)
                                     penguin_pattern.push_back(0);
                                 penguin_pattern.push_back(0);
                             }
-                            else if(cd.instrument >= 0 && cd.note >= 0)
+                            else if(cd.instrument >= 0 && cd.note >= min_note)
                             {
                                 if(k == CHAN_DPCM)
                                 {
@@ -954,16 +959,30 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
     }
 }
 
-constexpr std::array<int, 87> ntsc_notes = 
+constexpr std::array<int, 97> ntsc_notes = 
 {
-    0x07F1,0x077F,0x0713,0x06AD,0x064D,0x05F3,0x059D,0x054C,0x0500,0x04B8,0x0474,0x0434,
-    0x03F8,0x03BF,0x0389,0x0356,0x0326,0x02F9,0x02CE,0x02A6,0x0280,0x025C,0x023A,0x021A,
-    0x01FB,0x01DF,0x01C4,0x01AB,0x0193,0x017C,0x0167,0x0152,0x013F,0x012D,0x011C,0x010C,
-    0x00FD,0x00EF,0x00E1,0x00D5,0x00C9,0x00BD,0x00B3,0x00A9,0x009F,0x0096,0x008E,0x0086,
-    0x007E,0x0077,0x0070,0x006A,0x0064,0x005E,0x0059,0x0054,0x004F,0x004B,0x0046,0x0042,
-    0x003F,0x003B,0x0038,0x0034,0x0031,0x002F,0x002C,0x0029,0x0027,0x0025,0x0023,0x0021,
-    0x001F,0x001D,0x001B,0x001A,0x0018,0x0017,0x0015,0x0014,0x0013,0x0012,0x0011,0x0010,
-    0x000F,0x000E,0x000D
+    0x0d5b,0x0c9c,0x0be6,0x0b3b,0x0a9a,0x0a01,0x0972,0x08ea,0x086a,
+    0x07f1,0x077f,0x0713,0x06ad,0x064d,0x05f3,0x059d,0x054c,0x0500,0x04b8,0x0474,0x0434,
+    0x03f8,0x03bf,0x0389,0x0356,0x0326,0x02f9,0x02ce,0x02a6,0x0280,0x025c,0x023a,0x021a,
+    0x01fb,0x01df,0x01c4,0x01ab,0x0193,0x017c,0x0167,0x0152,0x013f,0x012d,0x011c,0x010c,
+    0x00fd,0x00ef,0x00e1,0x00d5,0x00c9,0x00bd,0x00b3,0x00a9,0x009f,0x0096,0x008e,0x0086,
+    0x007e,0x0077,0x0070,0x006a,0x0064,0x005e,0x0059,0x0054,0x004f,0x004b,0x0046,0x0042,
+    0x003f,0x003b,0x0038,0x0034,0x0031,0x002f,0x002c,0x0029,0x0027,0x0025,0x0023,0x0021,
+    0x001f,0x001d,0x001b,0x001a,0x0018,0x0017,0x0015,0x0014,0x0013,0x0012,0x0011,0x0010,
+    0x000f,0x000e,0x000d,0x000c,
+};
+
+constexpr std::array<int, 97> ntsc_notes_saw = 
+{
+    0x11d0,0x10d0,0x0fde,0x0efa,0x0e23,0x0d58,0x0c98,0x0be3,0x0b38,
+    0x0a97,0x09ff,0x096f,0x08e7,0x0867,0x07ef,0x077d,0x0711,0x06ab,0x064b,0x05f1,0x059c,
+    0x054b,0x04ff,0x04b7,0x0473,0x0433,0x03f7,0x03be,0x0388,0x0355,0x0325,0x02f8,0x02cd,
+    0x02a5,0x027f,0x025b,0x0239,0x0219,0x01fb,0x01de,0x01c3,0x01aa,0x0192,0x017b,0x0166,
+    0x0152,0x013f,0x012d,0x011c,0x010c,0x00fd,0x00ef,0x00e1,0x00d5,0x00c9,0x00bd,0x00b3,
+    0x00a8,0x009f,0x0096,0x008e,0x0086,0x007e,0x0077,0x0070,0x006a,0x0064,0x005e,0x0059,
+    0x0054,0x004f,0x004a,0x0046,0x0042,0x003e,0x003b,0x0038,0x0034,0x0031,0x002f,0x002c,
+    0x0029,0x0027,0x0025,0x0023,0x0021,0x001f,0x001d,0x001b,0x001a,0x0018,0x0017,0x0015,
+    0x0014,0x0013,0x0012,0x0011,
 };
 
 struct nsf_track_t
@@ -982,14 +1001,14 @@ struct nsf_t
     unsigned play_addr;
 };
 
-bool fill_blank_notes(std::vector<int>& notes)
+bool fill_blank_notes(std::vector<int>& notes, int min_note)
 {
     if(notes.empty())
         return true;
 
     for(unsigned i = 0; i < notes.size(); ++i)
     {
-        if(notes[i] >= 0)
+        if(notes[i] >= min_note)
         {
             notes.front() = notes[i];
             goto foundNote;
@@ -1000,7 +1019,7 @@ foundNote:
     int prev = notes.front();
     for(unsigned i = 0; i < notes.size(); ++i)
     {
-        if(notes[i] < 0)
+        if(notes[i] < min_note)
             notes[i] = prev;
         else
             prev = notes[i];
@@ -1247,6 +1266,8 @@ const_ht convert_effect(lpstring_t at,
                 push_byte(proc.code, apu_register_log.size() + 2);
                 push_byte(proc.code, 0);
 
+                auto const& note_table = (rnbw && k == CHAN_EXP3) ? ntsc_notes_saw : ntsc_notes;
+
                 int pitch_bend = 0;
                 for(unsigned i = 0; i < apu_register_log.size(); ++i)
                 {
@@ -1257,9 +1278,9 @@ const_ht convert_effect(lpstring_t at,
                         pitch |= (apu_register_log[i][0x03 + k*4] & 0b111) << 8;
 
                     int min_n = 0;
-                    for(unsigned n = 0; n < ntsc_notes.size(); ++n)
+                    for(unsigned n = 0; n < note_table.size(); ++n)
                     {
-                        int const diff = std::abs(ntsc_notes[n] - pitch);
+                        int const diff = std::abs(note_table[n] - pitch);
                         if(diff <= 127)
                         {
                             min_n = n;
@@ -1269,7 +1290,7 @@ const_ht convert_effect(lpstring_t at,
 
                     notes.push_back(min_n);
 
-                    int const diff = pitch - ntsc_notes[min_n];
+                    int const diff = pitch - note_table[min_n];
                     push_byte(proc.code, diff - pitch_bend);
                     pitch_bend = diff;
                 }
@@ -1356,6 +1377,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
 {
     using namespace std::literals;
 
+    bool const rnbw = compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW;
     unsigned const num_chan = puf_num_chan();
 
     bc::deque<nsf_track_t> nsf_tracks;
@@ -1402,7 +1424,12 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
 
         for(nsf_track_t& t : nsf_tracks)
             for(unsigned i = 0; i < num_chan; ++i)
-                t.empty[i] = fill_blank_notes(t.notes[i]);
+            {
+                int min_note = 9;
+                if(rnbw && i >= CHAN_EXP1)
+                    min_note = 0;
+                t.empty[i] = fill_blank_notes(t.notes[i], min_note);
+            }
 
         if(nsf_size < 128)
             throw std::runtime_error("Invalid NSF file.");

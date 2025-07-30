@@ -104,7 +104,6 @@ void for_each_peephole(asm_inst_t* begin, asm_inst_t* end, Fn const& fn)
 
         a = b;
         b = c;
-        assert(b == next_inst(a));
     }
 }
 

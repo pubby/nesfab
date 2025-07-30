@@ -16,8 +16,10 @@ constexpr token_type_t TOK_quote_ident = 9;
 constexpr token_type_t TOK_backtick_ident = 10;
 constexpr token_type_t TOK_dash_ident = 11;
 constexpr token_type_t TOK_eq_ident = 12;
-constexpr token_type_t TOK_colon_ident = 13;
-constexpr token_type_t TOK_END = 14;
+constexpr token_type_t TOK_caret_ident = 13;
+constexpr token_type_t TOK_question_ident = 14;
+constexpr token_type_t TOK_colon_ident = 15;
+constexpr token_type_t TOK_END = 16;
 inline std::string_view token_name(token_type_t type)
 {
     using namespace std::literals;
@@ -36,6 +38,8 @@ inline std::string_view token_name(token_type_t type)
     case TOK_backtick_ident: return "backtick_ident"sv;
     case TOK_dash_ident: return "dash_ident"sv;
     case TOK_eq_ident: return "eq_ident"sv;
+    case TOK_caret_ident: return "caret_ident"sv;
+    case TOK_question_ident: return "question_ident"sv;
     case TOK_colon_ident: return "colon_ident"sv;
     }
 }
@@ -55,8 +59,10 @@ inline std::string_view token_string(token_type_t type)
     case TOK_dquote_ident: return "quoted macro identifier"sv;
     case TOK_quote_ident: return "quoted macro identifier"sv;
     case TOK_backtick_ident: return "quoted macro identifier"sv;
-    case TOK_dash_ident: return "quoted macro identifier"sv;
-    case TOK_eq_ident: return "quoted macro identifier"sv;
+    case TOK_dash_ident: return "dash macro identifier"sv;
+    case TOK_eq_ident: return "equal macro identifier"sv;
+    case TOK_caret_ident: return "caret macro identifier"sv;
+    case TOK_question_ident: return "question mark macro identifier"sv;
     case TOK_colon_ident: return "macro identifier declaration"sv;
     }
 }
@@ -65,8 +71,8 @@ inline std::string_view token_string(token_type_t type)
     case TOK_dquote:\
     case TOK_quote:\
 
-constexpr token_type_t TOK_LAST_STATE = 13;
-constexpr token_type_t TOK_START = 23;
+constexpr token_type_t TOK_LAST_STATE = 15;
+constexpr token_type_t TOK_START = 29;
 extern unsigned const lexer_ec_table[256];
-extern token_type_t const lexer_transition_table[976];
+extern token_type_t const lexer_transition_table[1314];
 } // namespace macro_lex

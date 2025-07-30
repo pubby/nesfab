@@ -72,8 +72,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(c && op_name(b.op) == second && op_name(c->op) == store 
                && op_addr_mode(a.op) == op_addr_mode(c->op)
                && a.arg == c->arg && a.alt == c->alt
-               && (!a.arg || is_var_like(a.arg.lclass()))
-               && (!a.alt || is_var_like(a.alt.lclass())))
+               && (!a.arg || a.arg.known_variable())
+               && (!a.alt || a.alt.known_variable()))
             {
                 if(op_t new_op = get_op(replace, op_addr_mode(a.op)))
                 {
@@ -99,7 +99,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && op_addr_mode(a.op) == op_addr_mode(b.op)
                && a.arg == b.arg
                && a.alt == b.alt
-               && (!a.arg || is_var_like(a.arg.lclass())))
+               && (!a.arg || a.arg.known_variable()))
             {
                 b.op = replace;
                 b.arg = b.alt = {};
@@ -142,7 +142,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
                && a.arg == b.arg
                && a.alt == b.alt
-               && (!a.arg || is_var_like(a.arg.lclass())))
+               && (!a.arg || a.arg.known_variable()))
             {
                 b.op = replace;
                 b.arg = b.alt = {};
@@ -151,23 +151,49 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             }
 
             return false;
+        };
 
-            /* TODO
-            else if(c && op_name(c->op) == second 
+        // Converts load, store, into a load
+        // e.g.:
+        //     LDA foo
+        //     STA foo
+        // becomes:
+        //     LDA foo
+        auto const peep_remove_store = [&](op_name_t second)
+        {
+            if(op_name(b.op) == second 
+               && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
+               && a.arg == b.arg
+               && a.alt == b.alt
+               && (!a.arg || a.arg.known_variable()))
+            {
+                b.op = ASM_PRUNED;
+                b.arg = b.alt = {};
+                changed = true;
+                return true;
+            }
+
+            // Also check if a single irrelevant op is in-between:
+            if(c 
+               && op_name(c->op) == second 
                && (op_addr_mode(c->op) == MODE_ZERO_PAGE || op_addr_mode(c->op) == MODE_ABSOLUTE)
                && a.arg == c->arg
                && a.alt == c->alt
-               && b.op != ASM_LABEL
-               && !(op_output_regs(b.op) & op_input_regs(replace)))
+               && (!a.arg || a.arg.known_variable())
+               && ((op_output_regs(b.op) & REGF_M) == 0 
+                   || (op_name(b.op) == op_name(c->op) 
+                       && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
+                       && (!b.arg || b.arg.known_variable())))
+               && ((op_output_regs(b.op) & op_input_regs(c->op)) == 0)
+               && op_flags(b.op) == 0)
             {
-                c->op = replace;
+                c->op = ASM_PRUNED;
                 c->arg = c->alt = {};
                 changed = true;
                 return true;
             }
 
             return false;
-            */
         };
 
     retry:
@@ -345,6 +371,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_lax(LDA)) 
                 goto retry;
+            if(peep_remove_store(STX)) 
+                goto retry;
             break;
         case LDY:
             if(peep_inxy(INY, STY, INC))
@@ -352,6 +380,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_inxy(DEY, STY, DEC))
                 goto retry;
             if(peep_transfer(LDA, TYA_IMPLIED))
+                goto retry;
+            if(peep_remove_store(STY)) 
                 goto retry;
             break;
         case LDA:
@@ -367,6 +397,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_transfer(LDY, TAY_IMPLIED))
                 goto retry;
+            if(peep_remove_store(STA)) 
+                goto retry;
             break;
         case STA:
             if(peep_transfer2(LDX, TAX_IMPLIED))
@@ -374,7 +406,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer2(LDY, TAY_IMPLIED))
                 goto retry;
         common_store:
-            if(b == a && is_var_like(a.arg.lclass()) && is_var_like(a.arg.lclass(), true))
+            if(b == a && a.arg.known_variable() && a.arg.known_variable(true))
                 goto prune_a;
             break;
         case STX:

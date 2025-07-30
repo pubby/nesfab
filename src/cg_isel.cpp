@@ -1298,7 +1298,7 @@ namespace isel
     }
 
     template<typename Opt, typename Def, typename Load, typename Store, 
-             bool Maybe = true, bool KeepValue = true> [[gnu::noinline]]
+             bool Maybe = true, bool KeepValue = true, bool CompareValue = true> [[gnu::noinline]]
     void load_then_store(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         if(Load::trans() == Store::trans())
@@ -1315,13 +1315,13 @@ namespace isel
             return;
         }
 
-        if(cpu.value_eq(REG_A, v))
+        if(CompareValue && cpu.value_eq(REG_A, v))
             store<Opt, STA, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
-        else if(cpu.value_eq(REG_X, v))
+        else if(CompareValue && cpu.value_eq(REG_X, v))
             store<Opt, STX, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
-        else if(cpu.value_eq(REG_Y, v))
+        else if(CompareValue && cpu.value_eq(REG_Y, v))
             store<Opt, STY, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
-        else
+        else if(CompareValue)
         {
             chain
             < load_A<Opt, Load, Def>
@@ -1335,6 +1335,29 @@ namespace isel
 
             chain
             < load_Y<Opt, Load, Def>
+            , store<Opt, STY, Def, Store, Maybe, KeepValue>
+            >(cpu, prev, cont);
+        }
+        else
+        {
+#ifndef LEGAL
+            chain
+            < pick_op<Opt, LAX, Def, Load>
+            , store<Opt, STA, Def, Store, Maybe, KeepValue>
+            >(cpu, prev, cont);
+#endif
+            chain
+            < pick_op<Opt, LDA, Def, Load>
+            , store<Opt, STA, Def, Store, Maybe, KeepValue>
+            >(cpu, prev, cont);
+
+            chain
+            < pick_op<Opt, LDX, Def, Load>
+            , store<Opt, STX, Def, Store, Maybe, KeepValue>
+            >(cpu, prev, cont);
+
+            chain
+            < pick_op<Opt, LDY, Def, Load>
             , store<Opt, STY, Def, Store, Maybe, KeepValue>
             >(cpu, prev, cont);
         }
@@ -3764,7 +3787,7 @@ namespace isel
                     {
                         // No LOC_PHI:
                         p_arg<0>::set(h->input(0));
-                        load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
+                        load_then_store<Opt, p_def, p_arg<0>, p_def, true, true, false>(cpu, prev, cont);
                     }
                 }
                 else
@@ -4768,7 +4791,6 @@ namespace isel
                     , exact_op<Opt, STY_ABSOLUTE, null_, p_arg<1>>
                     >(cpu, prev, cont);
                 });
-
             }
             break;
 
@@ -5095,16 +5117,10 @@ namespace isel
         memoized_input_t ret = { l };
 
         // Setup incoming phis.
-        // Search to see if we have an input to the phi.
-        // If we do, we'll change the locator to that phi and update 'next_phi'.
-        // The point of 'next_phi' is to get a better phi variety;
-        // we don't want to change all values to the same phi.
-
         for(ssa_ht phi : d.phi_order)
         {
             if(ssa_to_value(phi->input(input_i)) == l
-               && (!orig_def(phi->input(input_i)).holds_ref() 
-                   || cset_head(phi) == cset_head(phi->input(input_i).handle())))
+               && cset_head(phi) == cset_head(phi->input(input_i).handle()))
             {
                 ret.phi = locator_t::phi(phi);
                 break;
@@ -5231,6 +5247,8 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
     _data_vec.clear();
     _data_vec.resize(cfg_pool::array_size());
+
+    std::vector<asm_inst_t> code_temp;
 
     ///////////////////////////
     // GENERATE PREPREP LIST //
@@ -5497,7 +5515,6 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
             if(cost > d.min_sel_cost + bound + (cost_fn(STA_MAYBE) * out_reg_count))
                 continue;
 
-            std::vector<asm_inst_t> code_temp;
             sel_t const* first_sel = pair.second.sel;
 
             // Create the 'code_temp' vector:

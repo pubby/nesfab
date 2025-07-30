@@ -278,26 +278,16 @@ bool locator_t::known_memory() const
     }
 }
 
-bool locator_t::known_variable() const
+bool locator_t::known_variable(bool allow_none) const
 {
-    switch(lclass())
-    {
-    default:
-        return false;
-    case LOC_GMEMBER: 
-    case LOC_ARG:
-    case LOC_RETURN:
-    case LOC_ASM_LOCAL_VAR:
-    case LOC_SSA:
-    case LOC_PHI:
-    case LOC_MINOR_VAR:
-    case LOC_LVAR:
-    case LOC_RUNTIME_RAM:
+    if(is_var_like(lclass(), allow_none))
         return true;
-    case LOC_ADDR:
+    if(lclass() == LOC_ADDR)
+    {
         std::uint16_t const addr = data() + offset();
         return addr < 0x800 || (addr >= sram_addr && addr < 0x8000);
     }
+    return false;
 }
 
 locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const

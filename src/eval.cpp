@@ -3933,6 +3933,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 {
                     struct_t const& s = type.struct_();
 
+                    // nop cast:
+                    if(num_args == 1 && type == args[0].type)
+                    {
+                        args[0].pstring = concat(args[0].pstring, ast.token.pstring);
+                        return args[0];
+                    }
+
                     check_argn(s.fields().size());
 
                     type_t* const types = ALLOCA_T(type_t, s.fields().size());
@@ -3965,6 +3972,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             for(auto& v : args[i].rval())
                             {
                                 new_rval.push_back(std::move(v));
+                                args[i].assert_valid();
                                 result.time = std::max(result.time, args[i].time);
                             }
                         }
@@ -5579,6 +5587,8 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         }
 
         v.val = std::move(rval);
+        if(!is_check(D))
+            v.time = std::max(v.time, v.calc_time());
     }
     else if(deref_t const* deref = v.is_deref())
     {
@@ -5950,6 +5960,8 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 vec_t* const vec_ptr = handle_vec();
                 assert(vec_ptr);
                 vec_ptr->data.push_back(rval);
+                //lhs.time = std::max(rhs.time, calc_time(type.elem_type(), rval)); TODO: remove?
+                assert(rhs.time <= RT);
             }
             else if(A == ASSIGN_POP)
             {
@@ -7534,6 +7546,7 @@ expr_value_t eval_t::force_teaify_vec(expr_value_t value, type_t to_type, pstrin
 template<eval_t::do_t D>
 bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t cast_pstring)
 {
+    value.assert_valid();
     auto const can = can_cast(value.type, to_type, implicit);
 
     if(can == CAST_FAIL)
@@ -7596,6 +7609,7 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
 
         value.val = _lt_rval(to_type, loc);
         value.type = to_type;
+        assert(value.time != RT);
         value.time = LT;
 
         return true;
@@ -7610,12 +7624,18 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
         value.type = to_type;
         value = to_rval<D>(std::move(value));
         {
-            type_t t = to_type;
+            type_t t = to_type; // The type of the first member.
             if(is_banked_ptr(to_type.name()))
                t.set_banked(false);
-            else if(!is_check(D))
-                value.rval().resize(1);
             assert(!is_banked_ptr(t.name()));
+
+            if(!is_check(D))
+            {
+                if(!is_banked_ptr_or_fn_ptr(to_type))
+                    value.rval().resize(1);
+                else if(value.rval().size() < 2)
+                    assert(false);
+            }
 
             if(is_interpret(D) || (is_compile(D) && value.is_ct()))
                 value.rval()[0] = ssa_value_t(value.ssa(0).fixed(), t.name());
@@ -7625,6 +7645,7 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
                 value.time = RT;
             }
         }
+        value.assert_valid();
         return true;
     case CAST_PROMOTE:
         value = force_promote<D>(std::move(value), to_type, cast_pstring);

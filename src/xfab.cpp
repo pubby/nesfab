@@ -62,11 +62,17 @@ struct xfab_t
         std::vector<std::vector<std::string>> objects_name;
     };
 
+    struct object_class_t
+    {
+        std::string macro;
+        bc::deque<field_t> fields;
+    };
+
     unsigned metatile_size;
     unsigned collision_scale() const { return std::max<unsigned>(metatile_size, 1); }
     std::vector<chr_t> chrs;
     std::vector<palette_t> palettes;
-    fc::vector_map<std::string, bc::deque<field_t>> ocs;
+    fc::vector_map<std::string, object_class_t> ocs;
     std::vector<level_t> levels;
 
     void load_binary(std::uint8_t const* const begin, std::size_t size, fs::path xfab_path);
@@ -172,6 +178,7 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
     for(unsigned i = 0; i < num_oc; ++i)
     {
         std::string name = get_str();
+        std::string macro = get_str();
         get8(); // R
         get8(); // G
         get8(); // B
@@ -181,7 +188,7 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
         for(unsigned i = 0; i < num_fields; ++i)
             fields.emplace_back(get_str(), get_str());
 
-        ocs.emplace(std::move(name), std::move(fields));
+        ocs.emplace(std::move(name), object_class_t{ std::move(macro), std::move(fields) });
     }
 
     // Levels:
@@ -228,7 +235,7 @@ void xfab_t::load_binary(std::uint8_t const* const begin, std::size_t size, fs::
                 level.objects_name[it - ocs.begin()].push_back(std::move(name));
                 level.objects_x[it - ocs.begin()].push_back(x);
                 level.objects_y[it - ocs.begin()].push_back(y);
-                for(unsigned j = 0; j < it->second.size(); ++j)
+                for(unsigned j = 0; j < it->second.fields.size(); ++j)
                     level.objects[it - ocs.begin()].push_back(get_str());
             }
         }
@@ -674,9 +681,9 @@ void convert_xfab(xfab_convert_type_t ct, std::uint8_t const* const begin, std::
                 return std::to_string(level.objects_y[i][j]);
             });
 
-            for(unsigned j = 0; j < oc.second.size(); ++j)
+            for(unsigned j = 0; j < oc.second.fields.size(); ++j)
             {
-                auto const& field = oc.second[j];
+                auto const& field = oc.second.fields[j];
 
                 append += fmt("\nct %{} _%_% = %{}(", 
                     field.type, oc.first, field.name, field.type);
@@ -687,7 +694,7 @@ void convert_xfab(xfab_convert_type_t ct, std::uint8_t const* const begin, std::
                     if(!first)
                         append += ", ";
                     first = false;
-                    unsigned const q = j + k * oc.second.size();
+                    unsigned const q = j + k * oc.second.fields.size();
                     append += fmt("%(%)", field.type, level.objects[i][q]);
                 }
                 append += ")\n";
@@ -699,7 +706,11 @@ void convert_xfab(xfab_convert_type_t ct, std::uint8_t const* const begin, std::
                 auto const& name = level.objects_name[i][j];
                 if(name.empty())
                     continue;
-                define_ct_int(private_globals.lookup(at, fmt("_%_name_%", oc.first, name)), at, TYPE_INT, j);
+                std::string const& macro = oc.second.macro;
+                if(macro.empty())
+                    define_ct_int(private_globals.lookup(at, fmt("_%_name_%", oc.first, name)), at, TYPE_INT, j);
+                else
+                    append += fmt("macro(\"%\", \"%\", \"%\", \"%\", \"%\")\n:+fork_scope\n", macro, level.name, oc.first, name, j);
             }
         }
 

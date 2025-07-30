@@ -58,7 +58,7 @@ struct options
     using add_flags = options<CanSet, SetMask, Flags | NewFlags>;
 
     // Used to implement OPT_NO_DIRECT; it adds 1 to flags.
-    using inc_no_direct = options<CanSet, SetMask, Flags + 1>;
+    using inc_no_direct = options<CanSet, SetMask, (flags & ~0b11) | ((Flags + 1) & 0b11)>;
 
     template<options_flags_t NewFlags>
     using remove_flags = options<CanSet, SetMask, Flags & ~NewFlags>;

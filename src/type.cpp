@@ -427,12 +427,13 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
         return CAST_TEAIFY_VEC;
 
     // Ptrs can convert to ints.
-    if(!implicit && (is_ptr(from.name()) || is_aptr(from.name())) && is_arithmetic(to.name()))
+    if((is_ptr(from.name()) || is_aptr(from.name())) && is_arithmetic(to.name()))
     {
         assert(!is_ptr(to.name()));
         if(to.name() == TYPE_BOOL)
             return CAST_BOOLIFY;
-        return CAST_INTIFY_PTR;
+        if(!implicit)
+            return CAST_INTIFY_PTR;
     }
 
     // Any ptr can convert to an aptr.

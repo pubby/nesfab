@@ -949,8 +949,10 @@ int main()
         accept("dquote_ident", "quoted macro identifier", cat(word("#\""), ident(), word("\"#"))),
         accept("quote_ident", "quoted macro identifier", cat(word("#'"), ident(), word("'#"))),
         accept("backtick_ident", "quoted macro identifier", cat(word("#`"), ident(), word("`#"))),
-        accept("dash_ident", "quoted macro identifier", cat(word("#-"), ident(), word("-#"))),
-        accept("eq_ident", "quoted macro identifier", cat(word("#="), ident(), word("=#"))),
+        accept("dash_ident", "dash macro identifier", cat(word("#-"), ident(), word("-#"))),
+        accept("eq_ident", "equal macro identifier", cat(word("#="), ident(), word("=#"))),
+        accept("caret_ident", "caret macro identifier", cat(word("#^"), ident(), word("^#"))),
+        accept("question_ident", "question mark macro identifier", cat(word("#?"), ident(), word("?#"))),
         accept("colon_ident", "macro identifier declaration", cat(word("#:"), ident(), word(":#")))
         ),
         macro_nfa_nodes);

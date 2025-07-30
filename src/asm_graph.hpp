@@ -132,6 +132,7 @@ public:
 
     locator_t entry_label() const { return m_entry_label; }
 
+    bool o_dedupe();
     bool o_remove_stubs();
     bool o_remove_branches();
     bool o_merge();
@@ -143,10 +144,13 @@ private:
     asm_node_t& push_back(locator_t label = LOC_NONE, bool succeed = false);
     list_t::iterator prune(asm_node_t& node);
 
-    unsigned calc_liveness(fn_t const& fn, rh::batman_set<locator_t> const& map);
+    bitset_t calc_liveness(fn_t const& fn, rh::batman_set<locator_t> const& map);
 
     template<typename Fn>
     void liveness_dataflow(Fn const& fn);
+
+    template<typename Fn>
+    void forward_dataflow(Fn const& fn);
 
     array_pool_t<bitset_uint_t> bitset_pool;
     array_pool_t<asm_node_t> node_pool;

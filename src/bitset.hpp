@@ -24,6 +24,14 @@ constexpr std::size_t bitset_size(std::size_t bits_required)
 }
 
 template<typename UInt>
+void bitset_negate(std::size_t size, UInt* lhs)
+{
+    static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");
+    for(std::size_t i = 0; i < size; ++i)
+        lhs[i] = ~lhs[i];
+}
+
+template<typename UInt>
 void bitset_and(std::size_t size, UInt* lhs, UInt const* rhs)
 {
     static_assert(std::is_unsigned<UInt>::value, "Must be unsigned.");

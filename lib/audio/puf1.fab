@@ -96,6 +96,8 @@ vars
     : +unused
     AA puf_exp3_pattern_ptr
     : +unused
+    AA puf_exp_note_table_ptr
+    : +unused
     Bool puf_lock = false
 
 ct AA _stack_0 = $100
@@ -192,28 +194,50 @@ ct AA puf_instrument_ptrs   = puf_exp_mem + (10 * _exp_channels) // 24 bytes, + 
 
 ct AAA puf_silent_instrument = &puf_instrument_0
 
-data /puf
-
 omni data /puf
     [] puf_ntsc_note_table
-        UU[]($07F1,$077F,$0713,$06AD,$064D,$05F3,$059D,$054C,$0500,$04B8,$0474,$0434)
-        UU[]($03F8,$03BF,$0389,$0356,$0326,$02F9,$02CE,$02A6,$0280,$025C,$023A,$021A)
-        UU[]($01FB,$01DF,$01C4,$01AB,$0193,$017C,$0167,$0152,$013F,$012D,$011C,$010C)
-        UU[]($00FD,$00EF,$00E1,$00D5,$00C9,$00BD,$00B3,$00A9,$009F,$0096,$008E,$0086)
-        UU[]($007E,$0077,$0070,$006A,$0064,$005E,$0059,$0054,$004F,$004B,$0046,$0042)
-        UU[]($003F,$003B,$0038,$0034,$0031,$002F,$002C,$0029,$0027,$0025,$0023,$0021)
-        UU[]($001F,$001D,$001B,$001A,$0018,$0017,$0015,$0014,$0013,$0012,$0011,$0010)
-        UU[]($000F,$000E,$000D)
+        UU[]($0d5b,$0c9c,$0be6,$0b3b,$0a9a,$0a01,$0972,$08ea,$086a,$07f1,$077f,$0713)
+        UU[]($06ad,$064d,$05f3,$059d,$054c,$0500,$04b8,$0474,$0434,$03f8,$03bf,$0389)
+        UU[]($0356,$0326,$02f9,$02ce,$02a6,$0280,$025c,$023a,$021a,$01fb,$01df,$01c4)
+        UU[]($01ab,$0193,$017c,$0167,$0152,$013f,$012d,$011c,$010c,$00fd,$00ef,$00e1)
+        UU[]($00d5,$00c9,$00bd,$00b3,$00a9,$009f,$0096,$008e,$0086,$007e,$0077,$0070)
+        UU[]($006a,$0064,$005e,$0059,$0054,$004f,$004b,$0046,$0042,$003f,$003b,$0038)
+        UU[]($0034,$0031,$002f,$002c,$0029,$0027,$0025,$0023,$0021,$001f,$001d,$001b)
+        UU[]($001a,$0018,$0017,$0015,$0014,$0013,$0012,$0011,$0010,$000f,$000e,$000d)
+        UU[]($000c)
 
     [] puf_pal_note_table
-        UU[]($0760,$06F6,$0692,$0634,$05DB,$0586,$0537,$04EC,$04A5,$0462,$0423,$03E8)
-        UU[]($03B0,$037B,$0349,$0319,$02ED,$02C3,$029B,$0275,$0252,$0231,$0211,$01F3)
-        UU[]($01D7,$01BD,$01A4,$018C,$0176,$0161,$014D,$013A,$0129,$0118,$0108,$00F9)
-        UU[]($00EB,$00DE,$00D1,$00C6,$00BA,$00B0,$00A6,$009D,$0094,$008B,$0084,$007C)
-        UU[]($0075,$006E,$0068,$0062,$005D,$0057,$0052,$004E,$0049,$0045,$0041,$003E)
-        UU[]($003A,$0037,$0034,$0031,$002E,$002B,$0029,$0026,$0024,$0022,$0020,$001E)
-        UU[]($001D,$001B,$0019,$0018,$0016,$0015,$0014,$0013,$0012,$0011,$0010,$000F)
-        UU[]($000E,$000D,$000C)
+        UU[]($0c68,$0bb6,$0b0e,$0a6f,$09d9,$094b,$08c6,$0848,$07d1,$0760,$06f6,$0692)
+        UU[]($0634,$05db,$0586,$0537,$04ec,$04a5,$0462,$0423,$03e8,$03b0,$037b,$0349)
+        UU[]($0319,$02ed,$02c3,$029b,$0275,$0252,$0231,$0211,$01f3,$01d7,$01bd,$01a4)
+        UU[]($018c,$0176,$0161,$014d,$013a,$0129,$0118,$0108,$00f9,$00eb,$00de,$00d1)
+        UU[]($00c6,$00ba,$00b0,$00a6,$009d,$0094,$008b,$0084,$007c,$0075,$006e,$0068)
+        UU[]($0062,$005d,$0057,$0052,$004e,$0049,$0045,$0041,$003e,$003a,$0037,$0034)
+        UU[]($0031,$002e,$002b,$0029,$0026,$0024,$0022,$0020,$001e,$001d,$001b,$0019)
+        UU[]($0018,$0016,$0015,$0014,$0013,$0012,$0011,$0010,$000f,$000e,$000d,$000c)
+        UU[]($000b)
+
+    [] puf_ntsc_note_d12_table // For VRC6 Saw
+        UU[]($11d0,$10d0,$0fde,$0efa,$0e23,$0d58,$0c98,$0be3,$0b38,$0a97,$09ff,$096f)
+        UU[]($08e7,$0867,$07ef,$077d,$0711,$06ab,$064b,$05f1,$059c,$054b,$04ff,$04b7)
+        UU[]($0473,$0433,$03f7,$03be,$0388,$0355,$0325,$02f8,$02cd,$02a5,$027f,$025b)
+        UU[]($0239,$0219,$01fb,$01de,$01c3,$01aa,$0192,$017b,$0166,$0152,$013f,$012d)
+        UU[]($011c,$010c,$00fd,$00ef,$00e1,$00d5,$00c9,$00bd,$00b3,$00a8,$009f,$0096)
+        UU[]($008e,$0086,$007e,$0077,$0070,$006a,$0064,$005e,$0059,$0054,$004f,$004a)
+        UU[]($0046,$0042,$003e,$003b,$0038,$0034,$0031,$002f,$002c,$0029,$0027,$0025)
+        UU[]($0023,$0021,$001f,$001d,$001b,$001a,$0018,$0017,$0015,$0014,$0013,$0012)
+        UU[]($0011)
+
+    [] puf_pal_note_d12_table // For VRC6 Saw
+        UU[]($108c,$0f9e,$0ebd,$0dea,$0d22,$0c65,$0bb3,$0b0b,$0a6c,$09d6,$0949,$08c3)
+        UU[]($0845,$07ce,$075e,$06f4,$0690,$0632,$05d9,$0585,$0535,$04eb,$04a4,$0461)
+        UU[]($0422,$03e7,$03af,$037a,$0348,$0318,$02ec,$02c2,$029a,$0275,$0251,$0230)
+        UU[]($0211,$01f3,$01d7,$01bc,$01a3,$018c,$0175,$0160,$014d,$013a,$0128,$0118)
+        UU[]($0108,$00f9,$00eb,$00de,$00d1,$00c5,$00ba,$00b0,$00a6,$009c,$0094,$008b)
+        UU[]($0083,$007c,$0075,$006e,$0068,$0062,$005d,$0057,$0052,$004e,$0049,$0045)
+        UU[]($0041,$003d,$003a,$0037,$0034,$0031,$002e,$002b,$0029,$0026,$0024,$0022)
+        UU[]($0020,$001e,$001c,$001b,$0019,$0018,$0016,$0015,$0014,$0013,$0012,$0011)
+        UU[]($0010)
 
 asm fn puf(U arg) Bool
 : employs /puf
@@ -1279,12 +1303,18 @@ asm fn puf(U arg) Bool
             adc puf_exp3_note
             tay
             clc
-            lda (&puf_note_table_ptr.a), y
+            if __expansion_audio == _RNBW
+                lda (&puf_exp_note_table_ptr.a), y
+            else
+                lda (&puf_note_table_ptr.a), y
             adc puf_exp3_pitch_bend+0
             if __expansion_audio == _RNBW
                 sta $41A7
             iny
-            lda (&puf_note_table_ptr.a), y
+            if __expansion_audio == _RNBW
+                lda (&puf_exp_note_table_ptr.a), y
+            else
+                lda (&puf_note_table_ptr.a), y
             adc puf_exp3_pitch_bend+1
             if __expansion_audio == _RNBW
                 ora #%10000000
@@ -1328,16 +1358,28 @@ asm fn puf(U arg) Bool
         beq init_pal
         // fall-through
     label init_ntsc
+        inc &puf_lock
+        if __expansion_audio == _RNBW
+            ldy #(&puf_ntsc_note_d12_table).a
+            ldx #(&puf_ntsc_note_d12_table).b
+            sty &puf_exp_note_table_ptr.a
+            stx &puf_exp_note_table_ptr.b
         ldy #(&puf_ntsc_note_table).a
         ldx #(&puf_ntsc_note_table).b
+        // fall-through
     label store_init
-        inc &puf_lock
         sty &puf_note_table_ptr.a
         stx &puf_note_table_ptr.b
         jsr reset_init
         jmp unlock
 
     label init_pal
+        inc &puf_lock
+        if __expansion_audio == _RNBW
+            ldy #(&puf_pal_note_d12_table).a
+            ldx #(&puf_pal_note_d12_table).b
+            sty &puf_exp_note_table_ptr.a
+            stx &puf_exp_note_table_ptr.b
         ldy #(&puf_pal_note_table).a
         ldx #(&puf_pal_note_table).b
         jmp store_init

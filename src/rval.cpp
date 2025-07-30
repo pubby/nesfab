@@ -5,6 +5,7 @@
 #include "lt.hpp"
 #include "globals.hpp"
 #include "text.hpp"
+#include <iostream> // TODO
 
 unsigned lval_t::ulabel() const
 { 
@@ -112,8 +113,10 @@ void append_locator_bytes(bool new_format, std::vector<locator_t>& vec, rval_t c
                     return;
                 }
 
-                unsigned const member = loc.maybe_member();
-                type_t const mt = ::member_type(subtype, member);
+                //std::cout << type << " | " << subtype << " | " << loc.type() << " | " << loc << std::endl;
+                //unsigned const member = loc.maybe_member();
+                //type_t const mt = ::member_type(subtype, member);
+                type_t const mt = loc.type();
                 unsigned const num_atoms = ::num_atoms(mt, 0);
                 assert(num_atoms);
                 for(unsigned j = 0; j < num_atoms; ++j)
@@ -199,7 +202,7 @@ fixed_t fixed(rval_t const& rval, type_t type, pstring_t pstring)
         compiler_error(pstring, "Value is uninitialized.");
 
     if(!v->is_num() || !is_scalar(type.name()))
-        goto not_cne;
+        compiler_error(pstring, fmt("Expecting compile-time constant numeric expression. %", *v));
 
     assert(is_masked(v->fixed(), type.name()));
     return v->fixed();

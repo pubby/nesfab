@@ -117,6 +117,28 @@ std::string invoke_macro(unsigned file_i, std::vector<std::string> const& args)
             };
             break;
 
+        case TOK_caret_ident:
+            {
+                unsigned const i = find(std::string(begin+2, str-2));
+                if(i < args.size())
+                    for(unsigned j = 0; j < args[i].size(); ++j)
+                        ret.push_back(std::toupper(args[i][j]));
+            };
+            break;
+
+        case TOK_question_ident:
+            {
+                unsigned const i = find(std::string(begin+2, str-2));
+                if(i < args.size())
+                {
+                    if(args[i].empty())
+                        ret += "false";
+                    else
+                        ret += "true";
+                }
+            };
+            break;
+
         case TOK_dquote_ident:   quote = '"';  goto quote_replace;
         case TOK_quote_ident:    quote = '\''; goto quote_replace;
         case TOK_backtick_ident: quote = '`';  goto quote_replace;

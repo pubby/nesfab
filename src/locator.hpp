@@ -669,7 +669,7 @@ public:
     constexpr bool eq_const(unsigned i) const { return is_const_num() && data() == i; }
     constexpr bool eq_const_byte(std::uint8_t i) const { return is_const_num() && data() == i; }
 
-    bool known_variable() const; // if the value exists in RAM
+    bool known_variable(bool allow_none = false) const; // if the value exists in RAM
     bool known_memory() const; // if the value exists in RAM or ROM
 
     type_t type() const;

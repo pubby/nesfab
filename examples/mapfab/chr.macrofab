@@ -6,5 +6,5 @@
 
 ct U chr_#name#_index = _index
 
-chrrom _index * $2000
+chrrom (_index * $2000)
     file(fmt, #"path"#)

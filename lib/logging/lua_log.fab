@@ -15,7 +15,7 @@ ct AA LOG_ARG_STORAGE_ADDR = $100
 // Copies a value to arg storage, so that it's visible to the lua logger.
 fn log_arg(U i, UU arg)
 : +inline
-    UU addr = LOG_ARG_STORAGE_ADDR + UU(i << 1)
+    UU addr = UU(LOG_ARG_STORAGE_ADDR) + UU(i << 1)
     {addr}(arg.a)
     {addr+1}(arg.b)
 

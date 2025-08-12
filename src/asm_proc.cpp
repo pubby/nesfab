@@ -196,6 +196,37 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             return false;
         };
 
+        // Prune load, load
+        // e.g.:
+        //     LDA foo
+        //     LDA foo
+        // becomes:
+        //     LDA foo
+        auto const peep_remove_load = [&](op_name_t second, bool prune_second)
+        {
+            if(op_name(b.op) == second 
+               && (a.arg == b.arg || !b.arg)
+               && a.alt == b.alt
+               && (!a.arg || a.arg.known_variable())
+               && (!b.arg || b.arg.known_variable()))
+            {
+                if(prune_second)
+                {
+                    b.op = ASM_PRUNED;
+                    b.arg = b.alt = {};
+                }
+                else
+                {
+                    a.op = ASM_PRUNED;
+                    a.arg = a.alt = {};
+                }
+                changed = true;
+                return true;
+            }
+
+            return false;
+        };
+
     retry:
 
         // Prepare for ALR
@@ -328,6 +359,23 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             }
         }
 
+        // Remove pointlesss ops:
+        if((op_output_regs(a.op) & (~op_output_regs(b.op) | ~REGF_6502)) == 0
+           && (op_input_regs(a.op) & ~REGF_6502) == 0
+           && (op_input_regs(b.op) & ~REGF_6502) == 0
+           && (op_input_regs(b.op) & op_output_regs(a.op)) == 0
+           && op_flags(a.op) == 0
+           && op_flags(b.op) == 0
+           && (!a.arg || a.arg.known_variable())
+           && (!a.alt || a.alt.known_variable())
+           && (!b.arg || b.arg.known_variable())
+           && (!b.alt || b.alt.known_variable()))
+        {
+            a.op = ASM_PRUNED;
+            a.arg = a.alt = {};
+            changed = true;
+        }
+
         switch(op_name(a.op))
         {
         default: break;
@@ -364,6 +412,18 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 a.arg = {};
             }
             break;
+        case LAX:
+            if(peep_remove_load(LAX, true)) 
+                goto retry;
+            if(peep_remove_load(LDA, true)) 
+                goto retry;
+            if(peep_remove_load(LDX, true)) 
+                goto retry;
+            if(peep_remove_load(TAX, true)) 
+                goto retry;
+            if(peep_remove_load(TXA, true)) 
+                goto retry;
+            break;
         case LDX:
             if(peep_inxy(INX, STX, INC)) 
                 goto retry;
@@ -372,6 +432,10 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_lax(LDA)) 
                 goto retry;
             if(peep_remove_store(STX)) 
+                goto retry;
+            if(peep_remove_load(LDX, false)) 
+                goto retry;
+            if(peep_remove_load(TAX, false)) 
                 goto retry;
             break;
         case LDY:
@@ -382,6 +446,10 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer(LDA, TYA_IMPLIED))
                 goto retry;
             if(peep_remove_store(STY)) 
+                goto retry;
+            if(peep_remove_load(LDY, false)) 
+                goto retry;
+            if(peep_remove_load(TAY, false)) 
                 goto retry;
             break;
         case LDA:
@@ -398,6 +466,12 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer(LDY, TAY_IMPLIED))
                 goto retry;
             if(peep_remove_store(STA)) 
+                goto retry;
+            if(peep_remove_load(LDA, false)) 
+                goto retry;
+            if(peep_remove_load(TXA, false)) 
+                goto retry;
+            if(peep_remove_load(TYA, false)) 
                 goto retry;
             break;
         case STA:

@@ -45,6 +45,7 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_PAA,  // pointer-addressable array
     TYPE_VEC,  // resizable array
 
+    TYPE_FN_PTR,
     TYPE_BANKED_APTR, // 'APTR' is used to represent assembly addresses, ignoring groups.
     TYPE_FIRST_PTR = TYPE_BANKED_APTR,
     TYPE_BANKED_CPTR, // banked pointer to immutable data
@@ -56,7 +57,6 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_MPTR,
     TYPE_PPTR,
     TYPE_LAST_PTR = TYPE_PPTR,
-    TYPE_FN_PTR,
 
     // Bools are considered arithmetic.
     TYPE_BOOL,

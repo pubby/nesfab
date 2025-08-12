@@ -349,6 +349,7 @@ public:
     auto const& ir_writes() const { assert(m_ir_writes); return m_ir_writes; }
     auto const& ir_group_vars() const { assert(m_ir_group_vars); return m_ir_group_vars; }
     auto const& ir_calls() const { assert(m_ir_calls); return m_ir_calls; }
+    auto const& ir_goto_modes() const { assert(m_ir_goto_modes); return m_ir_goto_modes; }
     auto const& ir_deref_groups() const { assert(m_ir_deref_groups); return m_ir_deref_groups; }
     bool ir_tests_ready() const { assert(m_ir_writes); return m_ir_tests_ready; }
     bool ir_io_pure() const { assert(m_ir_writes); return m_ir_io_pure; }
@@ -373,6 +374,7 @@ protected:
     xbitset_t<group_vars_ht> m_ir_group_vars;
     xbitset_t<group_ht> m_ir_deref_groups;
     xbitset_t<fn_ht> m_ir_calls;
+    xbitset_t<fn_ht> m_ir_goto_modes;
 
     // If the function uses a 'SSA_ready' node:
     bool m_ir_tests_ready = false;

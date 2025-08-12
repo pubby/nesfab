@@ -965,12 +965,21 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
     for(unsigned i = fn.lvars().num_this_lvars(); i < fn.lvars().num_all_lvars(); ++i)
     {
         locator_t const loc = fn.lvars().locator(i);
+        dprint(log, "-TRACKED_OTHER", fn.global.name, loc);
         if(!has_fn(loc.lclass()))
+        {
+            dprint(log, "--NO_FN");
             continue;
+        }
         span_t const span = loc.fn()->lvar_span(romv, loc);
 
         if(!span) // It might not have been allocated yet, or it might not exist in the generated assembly.
+        {
+            dprint(log, "--NO_SPAN");
             continue;
+        }
+
+        dprint(log, "--SPAN", span);
 
         auto const update = [&](auto const& mask, auto const& get)
         {
@@ -1112,6 +1121,13 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
                         propagate_calls |= h->ir_calls();
                     }
                 }
+            });
+
+            // Propagte to all modes we might goto:
+            fn.ir_goto_modes().for_each([&](fn_ht mode)
+            {
+                propagate_calls.set(mode.id);
+                propagate_calls |= mode->ir_calls();
             });
 
             if(Step < FULL_ALLOC)

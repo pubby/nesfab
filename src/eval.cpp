@@ -3567,6 +3567,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 if(bitset_all_clear(gmember_bs_size, temp_bs))
                                     return;
                             }
+
                             fn_inputs.push_back(var_lookup(builder.cfg, to_var_i(index), 0));
                             fn_inputs.push_back(locator);
                         });
@@ -6120,11 +6121,20 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
         return result;
     }
 
+    // Handle pointer casts:
+    if(is_ptr(lhs.type.name()) && is_ptr(rhs.type.name()))
+    {
+        if(can_cast(lhs.type, rhs.type, true))
+            lhs = throwing_cast<Policy::D>(std::move(lhs), rhs.type, true);
+        else if(can_cast(rhs.type, lhs.type, true))
+            rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, true);
+    }
+
     if(eqn)
     {
         bool const noteq = Policy::op() == SSA_not_eq;
 
-        if(!is_arithmetic(lhs.type.name()) || !is_arithmetic(rhs.type.name()))
+        if(!is_scalar(lhs.type.name()) || !is_scalar(rhs.type.name()))
         {
             if(lhs.type == rhs.type && !is_paa(lhs.type.name()))
             {
@@ -7627,6 +7637,8 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
             type_t t = to_type; // The type of the first member.
             if(is_banked_ptr(to_type.name()))
                t.set_banked(false);
+            if(to_type.name() == TYPE_FN_PTR)
+                t = type_t::addr(false);
             assert(!is_banked_ptr(t.name()));
 
             if(!is_check(D))

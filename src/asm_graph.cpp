@@ -1496,10 +1496,10 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
                 if(call.fclass == FN_MODE)
                 {
                     group_vars_ht gv = loc.gmember()->gvar.group_vars;
-                    rw(i, gv && call.mode_group_vars().test(gv.id), false);
+                    rw(i, !gv || call.mode_group_vars().test(gv.id), false);
                 }
                 else
-                    rw(i, call.ir_reads().test(loc.gmember().id), call.ir_writes().test(loc.gmember().id));
+                    rw(i, call.ir_fences() || call.ir_reads().test(loc.gmember().id), call.ir_writes().test(loc.gmember().id));
             }
         }
     }

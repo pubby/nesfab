@@ -876,6 +876,8 @@ fn_ht fn_t::mode_irq() const
 { 
     assert(fclass == FN_MODE); 
     assert(compiler_phase() >= PHASE_PARSE_CLEANUP);
+    if(solo_irq())
+        return solo_irq()->handle();
     return (mods() && mods()->irq) ? mods()->irq->handle<fn_ht>() : fn_ht{};
 }
 
@@ -932,6 +934,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     xbitset_t<group_vars_ht> group_vars(0);
     xbitset_t<group_ht> deref_groups(0);
     xbitset_t<fn_ht> calls(0);
+    xbitset_t<fn_ht> goto_modes(0);
     bool tests_ready = false;
     bool io_pure = true;
     bool fences = false;
@@ -1001,7 +1004,14 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
             reads   |= callee.ir_reads();
             writes  |= callee.ir_writes();
             calls   |= callee.ir_calls();
+            goto_modes |= callee.ir_goto_modes();
             calls.set(pair.first.id);
+        }
+
+        for(auto const& pair : precheck_tracked().goto_modes)
+        {
+            fn_t const& callee = *pair.first;
+            goto_modes.set(pair.first.id);
         }
     }
     else
@@ -1019,21 +1029,30 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
             if(ssa_it->op() == SSA_ready)
                 tests_ready = true;
 
-            if(callable_t const* callee = get_callable(*ssa_it))
+            if(callable_t const* callee = get_callable(*ssa_it, true))
             {
-                reads      |= callee->ir_reads();
-                writes     |= callee->ir_writes();
-                group_vars |= callee->ir_group_vars();
-                calls      |= callee->ir_calls();
-                fences     |= callee->ir_fences();
-                runtime    |= callee->ir_runtime();
-                io_pure    &= callee->ir_io_pure();
-                callee->for_each_fn([&](fn_ht callee_h){ calls.set(callee_h.id); });
+                if(is_fn_call(ssa_it->op()))
+                {
+                    reads      |= callee->ir_reads();
+                    writes     |= callee->ir_writes();
+                    group_vars |= callee->ir_group_vars();
+                    calls      |= callee->ir_calls();
+                    goto_modes |= callee->ir_goto_modes();
+                    fences     |= callee->ir_fences();
+                    runtime    |= callee->ir_runtime();
+                    io_pure    &= callee->ir_io_pure();
+                    callee->for_each_fn([&](fn_ht callee_h){ calls.set(callee_h.id); });
 
-                if(fclass != FN_MODE && is_static && mapper().bankswitches())
-                    m_returns_in_different_bank |= callee->returns_in_different_bank();
+                    if(fclass != FN_MODE && is_static && mapper().bankswitches())
+                        m_returns_in_different_bank |= callee->returns_in_different_bank();
 
-                m_bank_switches |= callee->bank_switches();
+                    m_bank_switches |= callee->bank_switches();
+                }
+                else // goto mode
+                {
+                    assert(ssa_it->op() == SSA_goto_mode);
+                    callee->for_each_fn([&](fn_ht callee_h){ goto_modes.set(callee_h.id); });
+                }
             }
 
             if(ssa_flags(ssa_it->op()) & SSAF_RUNTIME)
@@ -1132,6 +1151,7 @@ void fn_t::calc_ir_bitsets(ir_t const* ir_ptr)
     m_ir_reads  = std::move(reads);
     m_ir_group_vars = std::move(group_vars);
     m_ir_calls = std::move(calls);
+    m_ir_goto_modes = std::move(goto_modes);
     m_ir_deref_groups = std::move(deref_groups);
     m_ir_tests_ready = tests_ready;
     m_ir_io_pure = io_pure;
@@ -2532,6 +2552,7 @@ void fn_set_t::compile()
     xbitset_t<group_vars_ht> group_vars(0);
     xbitset_t<group_ht> deref_groups(0);
     xbitset_t<fn_ht> calls(0);
+    xbitset_t<fn_ht> goto_modes(0);
 
     for(fn_ht fn : *this)
     {
@@ -2540,6 +2561,7 @@ void fn_set_t::compile()
         group_vars   |= fn->ir_group_vars();
         deref_groups |= fn->ir_deref_groups();
         calls        |= fn->ir_calls();
+        goto_modes   |= fn->ir_goto_modes();
 
         m_ir_tests_ready |= fn->ir_tests_ready();
         m_ir_tests_ready |= fn->ir_io_pure();
@@ -2552,6 +2574,7 @@ void fn_set_t::compile()
      m_ir_group_vars = std::move(group_vars);
      m_ir_deref_groups = std::move(deref_groups);
      m_ir_calls = std::move(calls);
+     m_ir_goto_modes = std::move(goto_modes);
 }
 
 void fn_set_t::for_each_fn(std::function<void(fn_ht)> const& callback) const

@@ -292,7 +292,7 @@ void byteify(ir_t& ir, fn_t const& fn)
                 // Likewise, 'get_byte' and 'replace_byte' will be removed 
                 // entirely too.
 
-                assert(ssa_it->op() != SSA_cast || is_scalar(type.name()));
+                passert(ssa_it->op() != SSA_cast || is_scalar(type.name()), ssa_it->op(), type);
                 prune_nodes.push_back(ssa_it);
                 continue;
             }

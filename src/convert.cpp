@@ -216,11 +216,6 @@ conversion_t convert_file(char const* source, pstring_t script, fs::path preferr
         else if(auto const* proc = std::get_if<asm_proc_t>(&ret.data))
             size = proc->size();
 
-        /* TODO
-        if(size > MAX_PAA_SIZE)
-            compiler_error(filename.pstring, fmt("Data is of size % is too large to handle. Maximum size: %.", size, MAX_PAA_SIZE));
-            */
-
         return ret;
     }
     catch(convert_error_t const& error)

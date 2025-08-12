@@ -2017,6 +2017,9 @@ void global_datum_t::resolve()
         if(def_length && def_length != data_size)
              compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", data_size, m_src_type.type));
 
+        if(data_size > MAX_PAA_SIZE && !is_chrrom())
+            compiler_error(global.pstring(), fmt("Data is of size % is too large to handle. Maximum size: %.", data_size, MAX_PAA_SIZE));
+
         m_src_type.type.set_array_length(data_size);
         std::visit([this](auto&& v){ paa_init(std::move(v)); }, data);
     }

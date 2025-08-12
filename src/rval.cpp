@@ -5,7 +5,6 @@
 #include "lt.hpp"
 #include "globals.hpp"
 #include "text.hpp"
-#include <iostream> // TODO
 
 unsigned lval_t::ulabel() const
 { 
@@ -113,9 +112,6 @@ void append_locator_bytes(bool new_format, std::vector<locator_t>& vec, rval_t c
                     return;
                 }
 
-                //std::cout << type << " | " << subtype << " | " << loc.type() << " | " << loc << std::endl;
-                //unsigned const member = loc.maybe_member();
-                //type_t const mt = ::member_type(subtype, member);
                 type_t const mt = loc.type();
                 unsigned const num_atoms = ::num_atoms(mt, 0);
                 assert(num_atoms);

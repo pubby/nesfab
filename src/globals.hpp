@@ -666,6 +666,7 @@ public:
     paa_def_t const* paa_def() const { return m_def.get(); }
 
     bool is_paa() const { return paa_def(); }
+    virtual bool is_chrrom() const { return false; }
 
 protected:
     virtual void paa_init(asm_proc_t&& proc) = 0;
@@ -792,6 +793,8 @@ public:
     rom_array_ht rom_array() const { assert(global.compiled()); return m_rom_array; }
 
     std::int64_t eval_chrrom_offset() const;
+
+    virtual bool is_chrrom() const override { return chrrom; }
 
 private:
     virtual void paa_init(asm_proc_t&& proc);

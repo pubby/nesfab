@@ -5785,7 +5785,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         ct_variant_t* ptr = local.data();
         bool vec_partial = false;
         unsigned vec_member = 0;
-        unsigned tea_index;
+        unsigned tea_index = 0;
         std::int64_t tea_size = -1;
 
         type_t type = var_type(lval->var_i());

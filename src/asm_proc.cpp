@@ -199,9 +199,9 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         // Prune load, load
         // e.g.:
         //     LDA foo
-        //     LDA foo
+        //     LAX foo
         // becomes:
-        //     LDA foo
+        //     LAX foo
         auto const peep_remove_load = [&](op_name_t second, bool prune_second)
         {
             if(op_name(b.op) == second 
@@ -359,6 +359,17 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             }
         }
 
+        // Removes idempotent ops:
+        if(a == b
+           && (op_flags(a.op) & (ASMF_IDEMPOTENT | ASMF_FAKE)) == ASMF_IDEMPOTENT
+           && (!a.arg || a.arg.known_variable())
+           && (!a.alt || a.alt.known_variable()))
+        {
+            a.op = ASM_PRUNED;
+            a.arg = a.alt = {};
+            changed = true;
+        }
+
         // Remove pointlesss ops:
         if((op_output_regs(a.op) & (~op_output_regs(b.op) | ~REGF_6502)) == 0
            && (op_input_regs(a.op) & ~REGF_6502) == 0
@@ -413,8 +424,6 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             }
             break;
         case LAX:
-            if(peep_remove_load(LAX, true)) 
-                goto retry;
             if(peep_remove_load(LDA, true)) 
                 goto retry;
             if(peep_remove_load(LDX, true)) 
@@ -433,8 +442,6 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_remove_store(STX)) 
                 goto retry;
-            if(peep_remove_load(LDX, false)) 
-                goto retry;
             if(peep_remove_load(TAX, false)) 
                 goto retry;
             break;
@@ -446,8 +453,6 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer(LDA, TYA_IMPLIED))
                 goto retry;
             if(peep_remove_store(STY)) 
-                goto retry;
-            if(peep_remove_load(LDY, false)) 
                 goto retry;
             if(peep_remove_load(TAY, false)) 
                 goto retry;
@@ -466,8 +471,6 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(peep_transfer(LDY, TAY_IMPLIED))
                 goto retry;
             if(peep_remove_store(STA)) 
-                goto retry;
-            if(peep_remove_load(LDA, false)) 
                 goto retry;
             if(peep_remove_load(TXA, false)) 
                 goto retry;

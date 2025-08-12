@@ -135,7 +135,7 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
                 passert(inst.arg, to_string(inst.op));
 
                 assert(!node.output_inst.op);
-                node.output_inst = inst;
+                node.output_inst.op = inst.op;
                 delay_lookup(node, inst.arg);
                 push_back();
             }
@@ -144,7 +144,7 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
                 passert(inst.arg, to_string(inst.op));
 
                 assert(!node.output_inst.op);
-                node.output_inst = inst;
+                node.output_inst.op = inst.op;
                 delay_lookup(node, inst.arg);
                 if(it+1 < end && inst.op == invert_branch((it+1)->op))
                 {
@@ -209,10 +209,10 @@ void asm_graph_t::optimize(fn_t const& fn)
     do
     {
         changed = false;
-        changed |= o_dedupe();
         changed |= o_remove_stubs();
         changed |= o_remove_branches();
         changed |= o_merge();
+        changed |= o_dedupe();
         changed |= o_returns(fn);
         changed |= o_peephole();
     }
@@ -228,8 +228,8 @@ bool asm_graph_t::o_dedupe()
         {
             if(!node)
                 return 0;
+            // NOTE: Don't hash outputs, or anything that can change while running.
             std::size_t hash = node->code.size();
-            hash = rh::hash_combine(hash, node->outputs().size());
             hash = rh::hash_combine(hash, node->output_inst.op);
             hash = rh::hash_combine(hash, node->output_inst.arg.to_uint());
             return rh::hash_finalize(hash);
@@ -259,11 +259,11 @@ bool asm_graph_t::o_dedupe()
         auto result = set.insert(&*it);
         if(*result.first != &*it)
         {
-            if(it->label && label_map.count(it->label))
-            {
-                label_map[it->label] = *result.first;
-                assert(m_entry_label != it->label);
-            }
+            label_map[it->label] = *result.first;
+            assert(m_entry_label != it->label);
+
+            while(it->outputs().size())
+                it->remove_output(0);
 
             while(it->inputs().size())
             {

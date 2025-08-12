@@ -305,6 +305,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_A,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(AND, ZERO_PAGE),
@@ -313,6 +314,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_A | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(AND, ZERO_PAGE_X),
@@ -321,6 +323,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(AND, ABSOLUTE),
@@ -329,6 +332,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(AND, ABSOLUTE_X),
@@ -337,6 +341,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(AND, ABSOLUTE_Y),
@@ -345,6 +350,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(AND, INDIRECT_X),
@@ -353,6 +359,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(AND, INDIRECT_Y),
@@ -361,6 +368,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // ASL
@@ -470,6 +478,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_V,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(BIT, ABSOLUTE),
@@ -478,6 +487,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_V,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // BMI
@@ -593,7 +603,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_C,
-        .flags = ASMF_IMPURE,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
     },
 
     // CLD
@@ -604,7 +614,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_IMPURE,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
     },
 
     // CLI
@@ -615,7 +625,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_IMPURE | ASMF_FENCE,
+        .flags = ASMF_IMPURE | ASMF_FENCE | ASMF_IDEMPOTENT,
     },
 
     // CLV
@@ -626,7 +636,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_V,
-        .flags = ASMF_IMPURE,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
     },
 
     // CMP
@@ -637,6 +647,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_A,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CMP, ZERO_PAGE),
@@ -645,6 +656,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_A | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CMP, ZERO_PAGE_X),
@@ -653,6 +665,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CMP, ABSOLUTE),
@@ -661,6 +674,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CMP, ABSOLUTE_X),
@@ -669,6 +683,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CMP, ABSOLUTE_Y),
@@ -677,6 +692,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CMP, INDIRECT_X),
@@ -685,6 +701,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CMP, INDIRECT_Y),
@@ -693,6 +710,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // CPX
@@ -703,6 +721,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_X,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CPX, ZERO_PAGE),
@@ -711,6 +730,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CPX, ABSOLUTE),
@@ -719,6 +739,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // CPY
@@ -729,6 +750,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_Y,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CPY, ZERO_PAGE),
@@ -737,6 +759,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(CPY, ABSOLUTE),
@@ -745,6 +768,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // DEC
@@ -969,6 +993,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDA, ZERO_PAGE),
@@ -977,6 +1002,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDA, ZERO_PAGE_X),
@@ -985,6 +1011,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDA, ABSOLUTE),
@@ -993,6 +1020,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDA, ABSOLUTE_X),
@@ -1001,6 +1029,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDA, ABSOLUTE_Y),
@@ -1009,6 +1038,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDA, INDIRECT_X),
@@ -1017,6 +1047,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDA, INDIRECT_Y),
@@ -1025,6 +1056,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 5,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // LDX
@@ -1035,6 +1067,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDX, ZERO_PAGE),
@@ -1043,6 +1076,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDX, ZERO_PAGE_Y),
@@ -1051,6 +1085,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDX, ABSOLUTE),
@@ -1059,6 +1094,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDX, ABSOLUTE_Y),
@@ -1067,6 +1103,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // LDY
@@ -1077,6 +1114,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_NZ | REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDY, ZERO_PAGE),
@@ -1085,6 +1123,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDY, ZERO_PAGE_X),
@@ -1093,6 +1132,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDY, ABSOLUTE),
@@ -1101,6 +1141,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LDY, ABSOLUTE_X),
@@ -1109,6 +1150,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // LSR
@@ -1171,6 +1213,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_A,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(ORA, ZERO_PAGE),
@@ -1179,6 +1222,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_A | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(ORA, ZERO_PAGE_X),
@@ -1187,6 +1231,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(ORA, ABSOLUTE),
@@ -1195,6 +1240,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(ORA, ABSOLUTE_X),
@@ -1203,6 +1249,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(ORA, ABSOLUTE_Y),
@@ -1211,6 +1258,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(ORA, INDIRECT_X),
@@ -1219,6 +1267,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(ORA, INDIRECT_Y),
@@ -1227,6 +1276,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // PHA
@@ -1449,7 +1499,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = REGF_C,
-        .flags = ASMF_IMPURE,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
     },
 
     // SED
@@ -1460,7 +1510,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_IMPURE,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
     },
 
     // SEI
@@ -1471,7 +1521,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = 0,
         .output_regs = 0,
-        .flags = ASMF_IMPURE | ASMF_FENCE,
+        .flags = ASMF_IMPURE | ASMF_FENCE | ASMF_IDEMPOTENT,
     },
 
     // STA
@@ -1482,6 +1532,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_A,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STA, ZERO_PAGE_X),
@@ -1490,6 +1541,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STA, ABSOLUTE),
@@ -1498,6 +1550,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STA, ABSOLUTE_X),
@@ -1506,6 +1559,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 5,
         .input_regs = REGF_A | REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STA, ABSOLUTE_Y),
@@ -1514,6 +1568,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 5,
         .input_regs = REGF_A | REGF_Y,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STA, INDIRECT_X),
@@ -1522,6 +1577,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STA, INDIRECT_Y),
@@ -1530,6 +1586,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_A | REGF_Y | REGF_M,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STA, MAYBE),
@@ -1537,7 +1594,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = MAYBE_CYCLES,
         .input_regs = REGF_A,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
     {
         OP(STA, LIKELY),
@@ -1545,7 +1602,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = LIKELY_CYCLES,
         .input_regs = REGF_A,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
 
     // STX
@@ -1556,6 +1613,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STX, ZERO_PAGE_Y),
@@ -1564,6 +1622,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_X | REGF_Y,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STX, ABSOLUTE),
@@ -1572,6 +1631,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STX, MAYBE),
@@ -1579,7 +1639,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = MAYBE_CYCLES,
         .input_regs = REGF_X,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
     {
         OP(STX, LIKELY),
@@ -1587,7 +1647,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = LIKELY_CYCLES,
         .input_regs = REGF_X,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
 
     // STY
@@ -1598,6 +1658,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_Y,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STY, ZERO_PAGE_X),
@@ -1606,6 +1667,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y | REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STY, ABSOLUTE),
@@ -1614,6 +1676,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(STY, MAYBE),
@@ -1621,7 +1684,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = MAYBE_CYCLES,
         .input_regs = REGF_Y,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
     {
         OP(STY, LIKELY),
@@ -1629,7 +1692,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = LIKELY_CYCLES,
         .input_regs = REGF_Y,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
 
     // TAX
@@ -1640,6 +1703,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_A,
         .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // TAY
@@ -1650,6 +1714,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_A,
         .output_regs = REGF_NZ | REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // TSX
@@ -1660,6 +1725,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // TXA
@@ -1670,6 +1736,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_X,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // TXS
@@ -1680,6 +1747,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // TYA
@@ -1690,6 +1758,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_Y,
         .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     /////////////
@@ -1706,6 +1775,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_A | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LAX, ZERO_PAGE_Y),
@@ -1714,6 +1784,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LAX, ABSOLUTE),
@@ -1722,6 +1793,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_M,
         .output_regs = REGF_NZ | REGF_A | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LAX, ABSOLUTE_Y),
@@ -1730,6 +1802,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LAX, INDIRECT_X),
@@ -1738,6 +1811,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_X | REGF_M,
         .output_regs = REGF_NZ | REGF_A | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(LAX, INDIRECT_Y),
@@ -1746,6 +1820,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 5,
         .input_regs = REGF_Y | REGF_M,
         .output_regs = REGF_NZ | REGF_A | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // AXS
@@ -1766,6 +1841,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_A,
         .output_regs = REGF_NZ | REGF_A | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
     },
 
     // ALR
@@ -1796,6 +1872,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 3,
         .input_regs = REGF_A | REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(SAX, ZERO_PAGE_Y),
@@ -1804,6 +1881,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X | REG_Y,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(SAX, ABSOLUTE),
@@ -1812,6 +1890,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 4,
         .input_regs = REGF_A | REGF_X,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(SAX, INDIRECT_X),
@@ -1820,6 +1899,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 6,
         .input_regs = REGF_A | REGF_X | REGF_M,
         .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
     },
     {
         OP(SAX, MAYBE),
@@ -1827,7 +1907,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = MAYBE_CYCLES,
         .input_regs = REGF_A | REGF_X,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
     {
         OP(SAX, LIKELY),
@@ -1835,7 +1915,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = LIKELY_CYCLES,
         .input_regs = REGF_A | REGF_X,
         .output_regs = REGF_M,
-        .flags = ASMF_FAKE | ASMF_MAYBE_STORE,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
     },
 
     // SKB

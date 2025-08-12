@@ -92,6 +92,7 @@ constexpr asm_flags_t ASMF_RETURN      = 1 << 5;
 constexpr asm_flags_t ASMF_SWITCH      = 1 << 6;
 constexpr asm_flags_t ASMF_IMPURE      = 1 << 7;
 constexpr asm_flags_t ASMF_FENCE       = 1 << 8;
+constexpr asm_flags_t ASMF_IDEMPOTENT  = 1 << 9;
 
 struct op_def_t
 {

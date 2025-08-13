@@ -534,6 +534,7 @@ namespace isel
         case MODE_LONG:
             return is_label(arg.lclass());
         case MODE_IMMEDIATE:
+        case MODE_BUGGY_IMMEDIATE:
             return arg.is_immediate();
         case MODE_ZERO_PAGE:
         case MODE_ZERO_PAGE_X:
@@ -850,6 +851,9 @@ namespace isel
 
 #ifndef LEGAL
             pick_op<Opt, LAX, Def, Load>(cpu, prev, cont);
+
+            if(Load::trans().is_immediate() && (Load::value() == locator_t::const_byte(0) || cpu.is_known(REG_A, 0xFF)))
+                exact_op<Opt, LAX_BUGGY_IMMEDIATE, Def, Load>(cpu, prev, cont);
 #endif
 
             if(v.is_const_num())
@@ -899,6 +903,9 @@ namespace isel
 
 #ifndef LEGAL
             pick_op<Opt, LAX, Def, Load>(cpu, prev, cont);
+
+            if(Load::trans().is_immediate() && (Load::value() == locator_t::const_byte(0) || cpu.is_known(REG_A, 0xFF)))
+                exact_op<Opt, LAX_BUGGY_IMMEDIATE, Def, Load>(cpu, prev, cont);
 #endif
 
             if(v.is_const_num())

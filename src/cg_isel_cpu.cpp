@@ -357,6 +357,25 @@ struct set_defs_for_impl<LDY_IMMEDIATE>
 };
 
 template<>
+struct set_defs_for_impl<LAX_BUGGY_IMMEDIATE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(LAX_BUGGY_IMMEDIATE) == (REGF_Z | REGF_N | REGF_A | REGF_X));
+
+        cpu.set_output_defs_impl<LAX_BUGGY_IMMEDIATE>(opt, def);
+
+        if(arg.is_const_num())
+        {
+            cpu.set_known(REG_A, arg.data());
+            cpu.set_known(REG_X, arg.data());
+            cpu.set_known(REG_Z, !arg.data());
+            cpu.set_known(REG_N, !!(arg.data() & 0x80));
+        }
+    }
+};
+
+template<>
 struct set_defs_for_impl<LSR_IMPLIED>
 {
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)

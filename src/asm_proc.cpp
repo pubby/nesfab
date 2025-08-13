@@ -444,6 +444,14 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_remove_load(TAX, false)) 
                 goto retry;
+            if(op_t lax = get_op(LAX, op_addr_mode(a.op)))
+            {
+                if(peep_remove_load(TXA, true)) 
+                {
+                    a.op = lax;
+                    goto retry;
+                }
+            }
             break;
         case LDY:
             if(peep_inxy(INY, STY, INC))
@@ -476,6 +484,14 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_remove_load(TYA, false)) 
                 goto retry;
+            if(op_t lax = get_op(LAX, op_addr_mode(a.op)))
+            {
+                if(peep_remove_load(TAX, true)) 
+                {
+                    a.op = lax;
+                    goto retry;
+                }
+            }
             break;
         case STA:
             if(peep_transfer2(LDX, TAX_IMPLIED))
@@ -1176,6 +1192,7 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
             break;
 
         case MODE_IMMEDIATE:
+        case MODE_BUGGY_IMMEDIATE:
         case MODE_RELATIVE:
         case MODE_ZERO_PAGE:
         case MODE_ZERO_PAGE_X:

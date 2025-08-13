@@ -1769,6 +1769,15 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
 
     // LAX
     {
+        OP(LAX, BUGGY_IMMEDIATE),
+        .op_code = 0xAB,
+        .size = 2,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = REGF_NZ | REGF_A | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
+    },
+    {
         OP(LAX, ZERO_PAGE),
         .op_code = 0xA7,
         .size = 2,

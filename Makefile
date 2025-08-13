@@ -28,7 +28,7 @@ SRCDIR:=src
 OBJDIR:=obj
 INCS:=-I$(SRCDIR)
 
-VERSION := "1.6"
+VERSION := "1.7"
 GIT_COMMIT := "$(shell git describe --all --abbrev=8 --dirty --always)"
 
 override CXXFLAGS+= \

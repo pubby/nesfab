@@ -268,6 +268,15 @@ constexpr addr_mode_t zp_equivalent(addr_mode_t mode)
     }
 }
 
+constexpr addr_mode_t buggy_equivalent(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    default: return MODE_BAD;
+    case MODE_IMMEDIATE: return MODE_BUGGY_IMMEDIATE;
+    }
+}
+
 constexpr op_t tail_call_op(op_t op)
 {
     switch(op)

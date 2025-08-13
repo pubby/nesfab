@@ -491,6 +491,8 @@ public:
         if(!op)
             op = get_op(name, zp_equivalent(mode));
         if(!op)
+            op = get_op(name, buggy_equivalent(mode));
+        if(!op)
             compiler_error(pstring, fmt("% lacks addressing mode %.", to_string(name), to_string(mode)));
 
         return ast_node_t

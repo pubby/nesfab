@@ -147,7 +147,7 @@ public:
         std::unique_ptr<mods_t> mods);
     const_ht define_const(
         lpstring_t lpstring, ideps_map_t&& ideps, 
-        src_type_t src_type, defined_group_data_t group, bool omni, ast_node_t const* chrrom,
+        src_type_t src_type, defined_group_data_t group, bool omni, bool chrrom, ast_node_t const* chrrom_offset,
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
     struct_ht define_struct(
@@ -774,19 +774,22 @@ public:
 
     inline const_ht handle() const { return global.handle<const_ht>(); }
 
-    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, bool banked, ast_node_t const* chrrom, ast_node_t const* expr, 
+    const_t(global_t& global, src_type_t src_type, group_data_ht group_data, bool banked, 
+            bool chrrom, ast_node_t const* chrrom_offset, ast_node_t const* expr, 
             std::unique_ptr<paa_def_t> paa_def, std::unique_ptr<mods_t> mods)
     : global_datum_t(global, src_type, expr, std::move(paa_def), std::move(mods))
     , group_data(group_data)
     , banked(banked)
     , chrrom(chrrom)
+    , chrrom_offset(chrrom_offset)
     { assert(init_expr); }
 
     virtual ~const_t() = default;
 
     group_data_ht const group_data;
     bool const banked = false;
-    ast_node_t const* const chrrom = nullptr;
+    bool chrrom = false;
+    ast_node_t const* const chrrom_offset = nullptr;
 
     virtual group_ht group() const;
 

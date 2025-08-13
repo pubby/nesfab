@@ -2282,7 +2282,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     {
                         const_t const& c = lval->global().impl<const_t>();
 
-                        if(c.chrrom)
+                        if(c.is_chrrom())
                             compiler_error(ast.token.pstring, "Cannot get pointer to chrrom memory.");
 
                         if(!c.is_paa() || !is_paa(value.type.name()))
@@ -2418,7 +2418,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             const_t const& c = lval->global().impl<const_t>();
 
-                            if(c.chrrom)
+                            if(c.is_chrrom())
                                 compiler_error(ast.token.pstring, "Cannot get pointer to chrrom memory.");
 
                             if(!is_paa(c.type().name()))
@@ -3097,7 +3097,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                     assert(local_const.value.size());
 
-                    if(lval->global().gclass() == GLOBAL_CONST && lval->global().impl<const_t>().chrrom)
+                    if(lval->global().gclass() == GLOBAL_CONST && lval->global().impl<const_t>().chrrom_offset)
                     {
                         // Resolve now:
                         std::int64_t initial = lval->global().impl<const_t>().eval_chrrom_offset();

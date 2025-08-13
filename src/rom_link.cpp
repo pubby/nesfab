@@ -141,7 +141,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
                 compiler_error(g->pstring(), "chrrom is not defined.");
 
             const_t const& chrrom = g->impl<const_t>();
-            ast_node_t const* expr = chrrom.chrrom;
+            ast_node_t const* expr = chrrom.chrrom_offset;
             assert(expr);
             rom_array_ht const rom_array = chrrom.rom_array();
             assert(rom_array);

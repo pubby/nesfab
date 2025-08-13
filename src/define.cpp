@@ -28,7 +28,7 @@ const_ht define_const(lpstring_t at, std::string_view name, asm_proc_t&& proc,
 
     global_t& global = global_t::lookup_sourceless(at, name);
     const_ht gconst = global.define_const(
-        at, {}, { at, type_t::paa(0, d.group ? d.group->handle() : group_ht{}) }, d, omni, nullptr,
+        at, {}, { at, type_t::paa(0, d.group ? d.group->handle() : group_ht{}) }, d, omni, false, nullptr,
         expr, std::move(paa_def), std::move(mods));
 
     assert(gconst);
@@ -55,7 +55,7 @@ const_ht define_ct_int(global_t& global, lpstring_t at, type_t const& type, unsi
     });
 
     const_ht gconst = global.define_const(
-        at, {}, { at, type }, {}, false, nullptr, expr, {}, {});
+        at, {}, { at, type }, {}, false, false, nullptr, expr, {}, {});
 
     assert(gconst);
     return gconst;
@@ -89,7 +89,7 @@ const_ht define_ct_array(global_t& global, lpstring_t at, T const* data, std::si
     expr->children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
 
     const_ht gconst = global.define_const(
-        at, {}, { at, type }, {}, false, nullptr, expr, {}, {});
+        at, {}, { at, type }, {}, false, false, nullptr, expr, {}, {});
 
     assert(gconst);
     return gconst;

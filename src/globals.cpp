@@ -126,7 +126,7 @@ gvar_ht global_t::define_var(lpstring_t lpstring, ideps_map_t&& ideps,
 }
 
 const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps, 
-                                src_type_t src_type, defined_group_data_t d, bool omni, ast_node_t const* chrrom,
+                                src_type_t src_type, defined_group_data_t d, bool omni, bool chrrom, ast_node_t const* chrrom_offset,
                                 ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
                                 std::unique_ptr<mods_t> mods)
 {
@@ -135,7 +135,7 @@ const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps,
     // Create the const
     const_ht h = { define(lpstring, GLOBAL_CONST, std::move(ideps), [&](global_t& g)
     { 
-        return const_ht::pool_emplace(ret, g, src_type, d.data_handle, !omni, chrrom, expr, std::move(paa_def), std::move(mods)).id;
+        return const_ht::pool_emplace(ret, g, src_type, d.data_handle, !omni, chrrom, chrrom_offset, expr, std::move(paa_def), std::move(mods)).id;
     })};
 
     // Add it to the group
@@ -2200,9 +2200,9 @@ void const_t::rval_init(rval_t&& rval)
 
 std::int64_t const_t::eval_chrrom_offset() const
 {
-    assert(chrrom);
+    assert(chrrom_offset);
 
-    rpair_t const result = interpret_expr(global.pstring(), *chrrom, TYPE_INT);
+    rpair_t const result = interpret_expr(global.pstring(), *chrrom_offset, TYPE_INT);
     if(calc_time(result.type, result.value) >= LT)
         compiler_error(global.pstring(), "Unable to determine chrrom offset at compile-time.");
 

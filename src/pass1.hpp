@@ -734,7 +734,7 @@ public:
 
         active_global = &lookup_global(var_decl.name);
         active_global->define_const(
-            extend(var_decl.name, line), std::move(ideps), var_decl.src_type, d, omni, nullptr, convert_eternal_expr(&expr, IDEP_TYPE), 
+            extend(var_decl.name, line), std::move(ideps), var_decl.src_type, d, omni, false, nullptr, convert_eternal_expr(&expr, IDEP_TYPE), 
             std::move(paa_def), std::move(mods));
         ideps.clear();
     }
@@ -1242,7 +1242,7 @@ public:
 
         active_global = global;
         active_global->define_const(
-            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, false, convert_eternal_expr(expr),
+            decl, std::move(ideps), { decl, type_t::paa(0, {}) }, {}, false, true, convert_eternal_expr(expr),
             convert_eternal_expr(&ast), std::move(paa_def), std::move(mods));
         ideps.clear();
         symbol_table.pop_scope();

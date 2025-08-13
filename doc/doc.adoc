@@ -497,7 +497,7 @@ sram-alloc = request
 [NOTE]
 This option only applies when <<opt_sram>> is enabled.
 
-=== `sram-size` [[opt_sram_alloc]]
+=== `sram-size` [[opt_sram_size]]
 
 Specifies how much extra cartridge RAM the compiler should utilize.
 

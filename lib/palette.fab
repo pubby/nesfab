@@ -20,6 +20,12 @@ fn load_palette(PPP/palettes palette_ptr)
     : -unroll
         palette[i] = palette_ptr[i]
 
+// Copies N bytes from 'palette_ptr' to the offset 'at'.
+fn load_palette_n(PPP/palettes palette_ptr, U at, U n)
+: +static_fixed
+    for U i = 0; i < n; i += 1
+        palette[i+at] = palette_ptr[i]
+
 ///////////////////////////////////////////////////////////////////////////////
 // COLORS /////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -90,7 +96,7 @@ fn hue_shift(U color, S amount) U
 // A period of 1 updates the palette  every frame, 
 // while a period of 3 updates it every 3 frames.
 
-fn fade_out(U period, S hue_amount, S brightness_amount)
+fn fade_out_custom(U period, S hue_amount, S brightness_amount)
 : -inline
     nmi
     U i = 0
@@ -104,7 +110,7 @@ fn fade_out(U period, S hue_amount, S brightness_amount)
             palette[j] = brightness_shift(hue_shift(palette[j], hue_amount), brightness_amount)
     nmi
 
-fn fade_in(U period, S hue_amount, S brightness_amount, PPP/palettes new_palette)
+fn fade_in_custom(U period, S hue_amount, S brightness_amount, PPP/palettes new_palette)
 : -inline
     nmi
     U i = 0
@@ -125,19 +131,19 @@ fn fade_in(U period, S hue_amount, S brightness_amount, PPP/palettes new_palette
 // Fades to black.
 fn fade_out_black(U period)
 : +inline
-    fade_out(period, 0, -1)
+    fade_out_custom(period, 0, -1)
 
 // Fades to white.
 fn fade_out_white(U period)
 : +inline
-    fade_out(period, 0, 1)
+    fade_out_custom(period, 0, 1)
 
 // Fades from black.
 fn fade_in_black(U period, PPP/palettes new_palette)
 : +inline
-    fade_in(period, 0, -1, new_palette)
+    fade_in_custom(period, 0, -1, new_palette)
 
 // Fades from white.
 fn fade_in_white(U period, PPP/palettes new_palette)
 : +inline
-    fade_in(period, 0, 1, new_palette)
+    fade_in_custom(period, 0, 1, new_palette)

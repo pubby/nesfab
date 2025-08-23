@@ -702,6 +702,34 @@ std::uint16_t parser_t<P>::parse_hw_reg()
 }
 
 template<typename P>
+int parser_t<P>::parse_anonymous_label()
+{
+    pstring_t at = token.pstring;
+    parse_token(TOK_label);
+
+    bool negative = false;
+    if(token.type == TOK_minus)
+        negative = true;
+    else if(token.type != TOK_plus)
+        compiler_error("Invalid anonymous label. Expecting '+' or '-' after 'label'.");
+    parse_token();
+
+    expect_token(TOK_int);
+
+    if(token.value == 0)
+        compiler_error(fmt("Invalid anonymous label. Expecting non-zero integer after '%'.", negative ? '-' : '+'));
+
+    int value = token.value >> fixed_t::shift;
+    if(negative)
+        value = -value;
+    else
+        value -= 1;
+    parse_token();
+
+    return value;
+}
+
+template<typename P>
 ast_node_t parser_t<P>::parse_expr_atom(int starting_indent, int open_parens)
 {
     auto const type_info_impl = [&](token_type_t expr_token, std::size_t(type_t::*fn)() const) -> ast_node_t
@@ -817,6 +845,15 @@ retry:
         {
             ast_node_t ast = { .token = token };
             parse_token();
+            return ast;
+        }
+
+    case TOK_label:
+        // Anonymous label reference:
+        {
+            ast_node_t ast = { .token = token };
+            ast.token.type = TOK_anonymous_label;
+            ast.token.value = policy().anonymous_label_expression_int(ast.token.pstring, parse_anonymous_label());
             return ast;
         }
 
@@ -1426,23 +1463,30 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
         case TOK_label:
         case TOK_default:
             {
-                if(conditional)
-                    compiler_error("Label inside a conditional if/else block.");
-
                 proc = true;
                 unsigned const label_indent = indent;
                 bool const is_default = token.type == TOK_default;
+                bool is_anonymous = false;
 
                 pstring_t name = token.pstring;
                 parse_token();
                 if(!is_default)
                 {
-                    name = token.pstring;
-                    parse_token(TOK_ident);
+                    if(token.type == TOK_ident)
+                    {
+                        name = token.pstring;
+                        parse_token(TOK_ident);
+                    }
+                    else
+                        is_anonymous = true;
                 }
+
+                if(conditional && !is_anonymous)
+                    compiler_error(name, "Label inside a conditional if/else block.");
+
                 parse_line_ending();
                 children.push_back(policy().byte_block_label(name, global.handle(), group, 
-                                                             is_vars, is_default, is_banked, is_chrrom, nullptr));
+                                                             is_vars, is_default, is_anonymous, is_banked, is_chrrom, nullptr));
 
                 proc |= parse_byte_block(decl, label_indent, global, group, is_vars, is_banked, is_chrrom, conditional, children);
             }
@@ -1583,7 +1627,9 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 parse_line_ending();
                 auto mods = parse_mods(if_indent);
 
+                policy().begin_byte_block_scope();
                 parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, is_chrrom, true, sub_children);
+                policy().end_byte_block_scope();
 
                 if_children.push_back(
                 {
@@ -1602,7 +1648,9 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
 
                     parse_token();
                     parse_line_ending();
+                    policy().begin_byte_block_scope();
                     parse_byte_block(decl, if_indent, global, group, is_vars, is_banked, is_chrrom, true, sub_children);
+                    policy().end_byte_block_scope();
 
                     if_children.push_back(
                     {
@@ -1802,7 +1850,9 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
 
         if(is_paa)
         {
+            policy().begin_byte_block_scope();
             expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, group, is_vars, is_banked, false);
+            policy().end_byte_block_scope();
             return expr.num_children();
         }
     }
@@ -2485,6 +2535,13 @@ void parser_t<P>::parse_goto()
 
         policy().goto_mode_statement(mode, ast, std::move(mods));
     }
+    else if(token.type == TOK_label)
+    {
+        pstring_t const label = token.pstring;
+        int value = parse_anonymous_label();
+        parse_line_ending();
+        policy().goto_anonymous_statement(label, value, parse_mods(goto_indent));
+    }
     else
     {
         pstring_t const label = parse_ident();
@@ -2497,10 +2554,17 @@ template<typename P>
 void parser_t<P>::parse_label()
 {
     int const label_indent = indent;
+    pstring_t label = token.pstring;
     parse_token(TOK_label);
-    pstring_t label;
-    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ label = parse_ident(); });
-    policy().begin_label(label, std::move(mods));
+    bool is_anonymous = true;
+    std::unique_ptr<mods_t> mods = parse_mods_after([&]{ 
+        if(token.type == TOK_ident)
+        {
+            label = parse_ident(); 
+            is_anonymous = false;
+        }
+    });
+    policy().begin_label(label, is_anonymous, std::move(mods));
     parse_block_statement(label_indent);
     policy().end_label();
 }

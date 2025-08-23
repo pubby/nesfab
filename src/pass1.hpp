@@ -57,6 +57,25 @@ struct xfab_todo_t
     std::unique_ptr<mods_t> mods;
 };
 
+struct label_todo_t
+{
+    pstring_t name;
+    int index; // For anonymous labels.
+};
+
+// Useful for associative containers like std::map.
+struct label_todo_less_t
+{
+    char const* source;
+
+    bool operator()(label_todo_t const& lhs, label_todo_t const& rhs) const
+    { 
+        if(lhs.index == rhs.index)
+            return lhs.name.view(source) < rhs.name.view(source); 
+        return lhs.index < rhs.index;
+    }
+};
+
 class pass1_t
 {
 private:
@@ -69,10 +88,12 @@ private:
     unsigned num_minor_labels = 0;
 
     symbol_table_t symbol_table;
+    anonymous_table_t anonymous_table;
     ident_map_t<global_ht> private_globals;
     ident_map_t<group_ht> private_groups;
-    fc::small_map<pstring_t, stmt_ht, 4, pstring_less_t> label_map;
-    fc::small_multimap<pstring_t, stmt_ht, 4, pstring_less_t> unlinked_gotos;
+    fc::small_map<label_todo_t, stmt_ht, 4, label_todo_less_t> label_map;
+    fc::small_multimap<label_todo_t, stmt_ht, 4, label_todo_less_t> unlinked_gotos;
+    unsigned next_anonymous_label = 0;
 
     bc::deque<macro_todo_t> todo_macros;
     bc::deque<mapfab_todo_t> todo_mapfabs;
@@ -93,8 +114,8 @@ private:
 public:
     explicit pass1_t(file_contents_t const& file) 
     : file(file)
-    , label_map(pstring_less_t{ file.source() })
-    , unlinked_gotos(pstring_less_t{ file.source() })
+    , label_map(label_todo_less_t{ file.source() })
+    , unlinked_gotos(label_todo_less_t{ file.source() })
     {
         if(file.private_globals())
             private_globals = *file.private_globals();
@@ -162,6 +183,7 @@ public:
         // Reset the fn_def and iasm:
         fn_def = fn_def_t();
         num_minor_labels = 0;
+        next_anonymous_label = 0;
 
         // Find the global
         if(fn_set_name)
@@ -180,7 +202,7 @@ public:
     }
 
     // implementation detail:
-    int _add_symbol(var_decl_t const& var_decl, bool local_const,
+    int _add_symbol(var_decl_t const& var_decl, bool local_const, bool anonymous,
                     std::unique_ptr<mods_t> mods = {},
                     ast_node_t* local_const_expr = nullptr)
     {
@@ -188,15 +210,23 @@ public:
 
         int const handle = local_const ? -int(fn_def.local_consts.size())-1 : int(fn_def.local_vars.size());
         assert((handle < 0) == local_const);
-        if(int const* existing = symbol_table.new_def(handle, var_decl.name.view(source())))
+        if(anonymous)
         {
-            // Already have a variable defined in this scope.
-            throw compiler_error_t(
-                fmt_error(var_decl.name, 
-                          fmt("Identifier % already in use.", 
-                              var_decl.name.view(source())), &file)
-                + fmt_note(fn_def.var_decl(*existing).name, 
-                           "Previous definition here:", &file));
+            assert(!anonymous_table.empty());
+            anonymous_table.new_def(handle);
+        }
+        else
+        {
+            if(int const* existing = symbol_table.new_def(handle, var_decl.name.view(source())))
+            {
+                // Already have a variable defined in this scope.
+                throw compiler_error_t(
+                    fmt_error(var_decl.name, 
+                              fmt("Identifier % already in use.", 
+                                  var_decl.name.view(source())), &file)
+                    + fmt_note(fn_def.var_decl(*existing).name, 
+                               "Previous definition here:", &file));
+            }
         }
 
         if(local_const)
@@ -220,7 +250,7 @@ public:
         // Add the parameters to the symbol table.
         fn_def.num_params = params_end - params_begin;
         for(unsigned i = 0; i < fn_def.num_params; ++i)
-            _add_symbol(params_begin[i], false);
+            _add_symbol(params_begin[i], false, false);
 
         // Add the parameters to 'name_hashes':
         fn_def.name_hashes.resize(fn_def.num_params);
@@ -246,8 +276,15 @@ public:
         uses_type(fn_type);
 
         // Create a scope for the fn body.
-        if(!assembly)
+        if(assembly)
+        {
+            passert(anonymous_table.empty(), anonymous_table.size());
+            anonymous_table.push_scope();
+        }
+        else
+        {
             symbol_table.push_scope();
+        }
 
         return { { pstring, fn_type }, fn_name };
     }
@@ -273,6 +310,7 @@ public:
             if(c.expr)
                 convert_ast(*const_cast<ast_node_t*>(c.expr), IDEP_TYPE);
 
+        anonymous_table.clear();
         symbol_table.pop_scope(); // fn body scope
         symbol_table.pop_scope(); // param scope
         label_map.clear();
@@ -282,7 +320,7 @@ public:
         if(!unlinked_gotos.empty())
         {
             auto it = unlinked_gotos.begin();
-            compiler_error(it->first, "Label not in scope.", &file);
+            compiler_error(it->first.name, "Label not in scope.", &file);
         }
 
         if(mods)
@@ -326,6 +364,7 @@ public:
             compiler_error(decl.name, fmt("Too many local variables. Max %.", MAX_ASM_LOCAL_VARS));
 
         symbol_table.pop_scope(); // param scope
+        anonymous_table.clear();
 
         label_map.clear();
         assert(symbol_table.empty());
@@ -365,8 +404,19 @@ public:
                 );
         }
 
-        _add_symbol(var_decl, false, std::move(mods));
+        _add_symbol(var_decl, false, false, std::move(mods));
         uses_type(var_decl.src_type.type);
+    }
+
+    void begin_byte_block_scope()
+    {
+        anonymous_table.push_scope();
+    }
+
+    void end_byte_block_scope()
+    {
+        assert(!anonymous_table.empty());
+        anonymous_table.pop_scope();
     }
 
     void byte_block_named_value(pstring_t at, char const* orig_name, ssa_value_t value)
@@ -444,7 +494,8 @@ public:
 
     [[gnu::always_inline]]
     ast_node_t byte_block_label(pstring_t label, global_ht global, group_ht group, 
-                                bool is_vars, bool is_default, bool is_banked, bool is_chrrom, std::unique_ptr<mods_t> mods)
+                                bool is_vars, bool is_default, bool is_anonymous, bool is_banked, bool is_chrrom, 
+                                std::unique_ptr<mods_t> mods)
     {
         prev_label_name = label.view(source());
 
@@ -461,7 +512,7 @@ public:
         else
             type = type_t::addr(is_banked);
 
-        int const i = -_add_symbol({{ label, type }, label }, true)-1;
+        int const i = -_add_symbol({{ label, type }, label }, true, is_anonymous, nullptr)-1;
         assert(i >= 0);
 
         if(is_default)
@@ -606,7 +657,7 @@ public:
             mods->validate(var_decl.name);
 
         // We'll save the expr, but *don't* convert it yet.
-        int i = _add_symbol(var_decl, true, std::move(mods), &ast);
+        int i = _add_symbol(var_decl, true, false, std::move(mods), &ast);
         assert(i < 0);
     }
 
@@ -749,7 +800,7 @@ public:
     void local_var(var_decl_t var_decl, ast_node_t* expr)
     {
         // Create the var.
-        unsigned const handle = _add_symbol(var_decl, false);
+        unsigned const handle = _add_symbol(var_decl, false, false);
         fn_def.push_var_init(handle, convert_eternal_expr(expr), var_decl.src_type.pstring);
         uses_type(var_decl.src_type.type);
     }
@@ -1040,7 +1091,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    void begin_label(pstring_t pstring, std::unique_ptr<mods_t> mods)
+    void begin_label(pstring_t pstring, bool is_anonymous, std::unique_ptr<mods_t> mods)
     {
         symbol_table.push_scope();
 
@@ -1052,17 +1103,23 @@ public:
             { STMT_LABEL, fn_def.push_mods(std::move(mods)), {}, pstring, { .use_count = 0 } });
 
         // Add it to the label map
-        auto pair = label_map.emplace(pstring, label);
+        int value = 0;
+        if(is_anonymous)
+        {
+            value = next_anonymous_label;
+            next_anonymous_label += 1;
+        }
+        auto pair = label_map.emplace(label_todo_t{ pstring, value }, label);
         if(!pair.second)
         {
             throw compiler_error_t(
                 fmt_error(pstring, "Label name already in use.", &file)
-                + fmt_note(pair.first->first, "Previous definition here:", &file));
+                + fmt_note(pair.first->first.name, "Previous definition here:", &file));
         }
 
         // Link up the unlinked gotos that jump to this label.
-        auto lower = unlinked_gotos.lower_bound(pstring);
-        auto upper = unlinked_gotos.upper_bound(pstring);
+        auto lower = unlinked_gotos.lower_bound(label_todo_t{ pstring, value });
+        auto upper = unlinked_gotos.upper_bound(label_todo_t{ pstring, value });
         for(auto it = lower; it < upper; ++it)
         {
             assert(fn_def[it->second].name == STMT_GOTO);
@@ -1078,19 +1135,26 @@ public:
     }
 
     [[gnu::always_inline]]
-    void goto_statement(pstring_t pstring, std::unique_ptr<mods_t> mods)
+    void goto_anonymous_statement(pstring_t pstring, int relative, std::unique_ptr<mods_t> mods)
+    {
+        int const value = relative + next_anonymous_label;
+        goto_statement(pstring, std::move(mods), value);
+    }
+
+    [[gnu::always_inline]]
+    void goto_statement(pstring_t pstring, std::unique_ptr<mods_t> mods, int value = 0)
     {
         if(mods)
             mods->validate(pstring);
         stmt_ht const goto_h = fn_def.push_stmt(
             { STMT_GOTO, fn_def.push_mods(std::move(mods)), {}, pstring });
 
-        auto it = label_map.find(pstring);
+        auto it = label_map.find({ pstring, value });
         if(it == label_map.end())
         {
             // Label wasn't defined yet.
             // We'll fill in the jump_h once it is.
-            unlinked_gotos.emplace(pstring, goto_h);
+            unlinked_gotos.emplace(label_todo_t{ pstring, value }, goto_h);
         }
         else
         {
@@ -1497,6 +1561,27 @@ public:
             catch(std::exception const& e) { compiler_error(tm.at, e.what()); }
             catch(...) { throw; }
         }
+    }
+
+    // Used to set 'token.value' for anonymous expressions:
+    std::uint64_t anonymous_label_expression_int(pstring_t at, int v)
+    {
+        if(anonymous_table.empty())
+            compiler_error(at, "Cannot use anonymous labels in this context.");
+        std::uint64_t result = std::uint64_t(anonymous_table.current_scope()) << 32;
+        v += anonymous_table.current_position();
+        result |= std::uint32_t(std::int32_t(v));
+        return result;
+    }
+
+    static unsigned anonymous_label_scope(std::uint64_t value)
+    {
+        return value >> 32;
+    }
+
+    static int anonymous_label_position(std::uint64_t value)
+    {
+        return static_cast<int>(static_cast<std::int32_t>(std::uint32_t(value)));
     }
 };
 

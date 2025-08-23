@@ -85,6 +85,8 @@ private:
     static std::uint16_t get_hw_reg(lex::token_type_t token_type);
     std::uint16_t parse_hw_reg();
 
+    int parse_anonymous_label();
+
     ast_node_t parse_expr_atom(int starting_indent, int open_parens);
     ast_node_t parse_expr(int starting_indent, int open_parens, int min_precedence = 256);
     ast_node_t parse_expr();

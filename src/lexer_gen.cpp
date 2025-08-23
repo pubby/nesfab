@@ -858,28 +858,17 @@ int main()
         accept("hw_addr", "hardware address", eof()),
         accept("read_hw", "read hardware", eof()),
         accept("write_hw", "write hardware", eof()),
-        //accept("paa_byte_array", "byte array", eof()),
-        //accept("paa_locator_array", "locator array", eof()),
-        //accept("push_paa", "push paa", eof()),
-        //accept("begin_paa", "begin paa", eof()),
-        //accept("end_paa", "end paa", eof()),
         accept("group_set", "group set", eof()),
         accept("rpair", "rpair", eof()),
         accept("ssa", "ssa", eof()),
 
-        /*
-        dummy("force_truncate"),
-        dummy("force_promote"),
-        dummy("force_intify_ptr"),
-        dummy("force_round_real"),
-        dummy("force_boolify"),
-        */
         dummy("implicit_cast"),
         dummy("shift_atom"),
         dummy("replace_atom"),
         dummy("write_state"),
         dummy("byte_vec"),
         dummy("locator_vec"),
+        dummy("anonymous_label"),
 
         // string/char literals:
         accept("character", "character literal", eof()),

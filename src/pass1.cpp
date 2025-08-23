@@ -72,6 +72,15 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         }
         break;
 
+    case TOK_anonymous_label:
+        {
+            auto const scope = anonymous_label_scope(ast.token.value);
+            auto const position = anonymous_label_position(ast.token.value);
+            ast.token.value = anonymous_table.get_absolute(ast.token.pstring, scope, position);
+            ast.token.type = TOK_ident;
+        }
+        break;
+
     case TOK_type_ident:
         {
             global_t& g = lookup_global(ast.token.pstring);

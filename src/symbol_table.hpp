@@ -11,6 +11,8 @@
 
 namespace bc = boost::container;
 
+struct pstring_t;
+
 // Implements local-variable symbol tables as an association list.
 class symbol_table_t
 {
@@ -56,6 +58,50 @@ private:
     static constexpr std::size_t table_size = 1024; // Must be power of 2.
     static constexpr hash_type table_mask = table_size - 1;
     std::array<unsigned char, table_size> hash_counts = {};
+};
+
+// Used for anonymous labels.
+class anonymous_table_t
+{
+public:
+    int new_def(int v) 
+    { 
+        auto& defs = scopes[scope].defs;
+        defs.push_back(v); 
+        return defs.size(); 
+    }
+
+    // Returns the value in 'scope' at position 'index':
+    int get_absolute(pstring_t at, unsigned scope, int index) const;
+
+    void push_scope() 
+    { 
+        scopes.push_back({ .parent = scope, .position = scopes.empty() ? 0 : current_position() });
+        scope = scopes.size() - 1;
+    }
+
+    void pop_scope()
+    {
+        scope = scopes[scope].parent;
+    }
+
+    int current_scope() const { return scope; }
+    int current_position() const { return scopes[scope].defs.size(); }
+
+    void clear() { scopes.clear(); scope = 0; }
+    bool empty() const { return scopes.empty(); }
+    std::size_t size() const { return scopes.size(); }
+
+private:
+    struct scope_t
+    {
+        unsigned parent;
+        int position; 
+        std::vector<int> defs;
+    };
+
+    unsigned scope = 0;
+    std::vector<scope_t> scopes;
 };
 
 #endif

@@ -1,6 +1,6 @@
 = NESFab
 Copyright (c) 2023, Pubby
-Version 1.7
+Version 1.8
 :sectnums:
 :toc2:
 :toclevels: 3
@@ -1997,7 +1997,8 @@ tax
 ----
 
 [NOTE]
-In the current implementation, labels cannot exist inside conditional blocks.
+In the current implementation, named labels cannot exist inside conditional blocks.
+Anonymous labels can, with caveats.
 
 === `else`
 
@@ -2281,6 +2282,32 @@ fn example()
         goto loop
 ----
 
+`goto` can also jump to anonymous labels.
+
+Syntax:
+----
+goto label+number
+goto label-number
+----
+
+`number` refers relatively to an anonymous label. Positive refers to labels occuring later in the code, while negative labels occur prior.
+
+Example:
+
+----
+fn example()
+    U i
+    label
+    i = 5
+    label
+    i += 1
+    if i < 10
+        goto label-1 // Jump backwards to the previous label
+    goto label-2 // Jump backwards two labels
+----
+
+Note that named labels do not affect the anonymous label numbering scheme.
+
 ==== `goto mode` statement [[kw_goto_mode_statement]]
 
 The `goto mode` statement causes control flow to jump to a <<kw_mode, `mode`>>, 
@@ -2390,8 +2417,10 @@ label identifier
     code_block
 ----
 
-- `identifier` is the unique name of the label.
+- `identifier` is an optional unique name of the label.
 - `code_block` is an optional indented code block.
+
+Labels without identifires are called anonymous labels and can be referenced using a special <<kw_goto>> syntax.
 
 The `code_block` of `label` exists only to provide a scope.
 There is no other difference between the syntax above, and this:
@@ -2412,8 +2441,10 @@ label identifier
     byte_block
 ----
 
-- `identifier` is the unique name of the label.
+- `identifier` is an optional unique name for the label.
 - `byte_block` is an optional indented byte block to be inserted into the containing byte block.
+
+Labels without identifires are called anonymous labels and can be referenced using the <<kw_label_expr>> syntax.
 
 The `byte_block` of `label` exists only to provide a scope.
 There is no other difference between the syntax above, and this:
@@ -2429,6 +2460,20 @@ data /some_group
     [] some_data
         label foo
             jmp foo
+----
+
+In the current byte block implementation, when an anonymous label is placed inside an <<kw_if_asm>> block, it is scoped to that `if` block.
+See the example code below for insight.
+
+----
+data /some_group
+    [] some_data
+        jmp label+ // Ignores the label inside the 'if' block:
+        if true
+            jmp label+ // Jumps to the next label inside the 'if' block.
+            label
+            jmp label+ // Jumps to the next label outside the 'if' block.
+        label
 ----
 
 === `return` [[kw_return]]
@@ -2448,6 +2493,30 @@ Syntax for functions lacking a return value:
 ----
 return
 ----
+
+==== `label` expression (byte block) [[kw_label_expr]]
+
+In byte block contexts, `label` can be used as an expression.
+
+Syntax:
+----
+label+number
+label-number
+----
+
+`number` refers relatively to an anonymous label. Positive refers to labels occuring later in the code, while negative labels occur prior.
+
+Example:
+
+----
+asm fn example()
+: employs
+    default
+        label
+        jmp label-1 // Jump to the previous anonymous label.
+----
+
+Note that named labels do not affect the anonymous label numbering scheme.
 
 ==== `return` expression [[kw_return_expression]]
 

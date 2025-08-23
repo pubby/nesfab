@@ -59,3 +59,32 @@ void symbol_table_t::clear()
     scope_stack.clear();
     hash_counts = {};
 }
+
+int anonymous_table_t::get_absolute(pstring_t at, unsigned scope, int index) const
+{
+    unsigned s = scope;
+    std::printf("%i %i\n", s, index);
+
+    while(index < 0)
+    {
+        if(s == 0)
+            compiler_error(at, "Anonymous label does not exist.");
+
+        index += scopes[s].position;
+        s = scopes[s].parent;
+    }
+
+    while(index >= scopes[s].defs.size())
+    {
+        if(s == 0)
+            compiler_error(at, "Anonymous label does not exist.");
+
+        index -= scopes[s].defs.size();
+        index += scopes[s].position;
+        s = scopes[s].parent;
+    }
+
+    assert(index >= 0);
+    std::printf("new: %i %i\n", s, index);
+    return scopes[s].defs[index];
+}

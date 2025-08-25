@@ -1833,7 +1833,7 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
         parse_token();
         expr = parse_expr();
 
-        if(block_init)
+        if(block_init || mods)
             parse_line_ending();
 
         if(mods)
@@ -1855,6 +1855,11 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
             policy().end_byte_block_scope();
             return expr.num_children();
         }
+    }
+    else if(mods)
+    {
+        mill_eol();
+        *mods = parse_mods(var_indent);
     }
 
     return false;
@@ -2068,14 +2073,13 @@ void parser_t<P>::parse_struct()
     { 
         var_decl_t var_decl;
         ast_node_t expr;
-        if(parse_var_init(var_decl, expr, nullptr, {}, {}, false, false)) // TODO: Allow default values in structs.
+        std::unique_ptr<mods_t> mods;
+        if(parse_var_init(var_decl, expr, &mods, {}, {}, false, false)) // TODO: Allow default values in structs.
             compiler_error(var_decl.name, "Variables in struct block cannot have an initial value.");
-        else
-            policy().struct_field(struct_, var_decl, nullptr);
-        parse_line_ending();
+        policy().struct_field(struct_, var_decl, nullptr, std::move(mods));
     });
 
-    policy().end_struct(struct_);
+    policy().end_struct(struct_, std::move(mods));
 }
 
 template<typename P>

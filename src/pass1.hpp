@@ -675,20 +675,36 @@ public:
         return struct_name;
     }
 
-    void end_struct(lpstring_t struct_name)
+    void end_struct(lpstring_t struct_name, std::unique_ptr<mods_t> mods)
     {
+        if(mods)
+        {
+            mods->validate(
+                struct_name, 
+                0 // flags
+                );
+        }
+
         active_global->define_struct(
-            struct_name, std::move(ideps), std::move(field_map));
+            struct_name, std::move(ideps), std::move(field_map), std::move(mods));
         ideps.clear();
     }
 
-    void struct_field(pstring_t struct_name, var_decl_t const& var_decl, ast_node_t* expr)
+    void struct_field(pstring_t struct_name, var_decl_t const& var_decl, ast_node_t* expr, std::unique_ptr<mods_t> mods)
     {
         assert(symbol_table.empty());
 
+        if(mods)
+        {
+            mods->validate(
+                struct_name, 
+                MOD_inherit // flags
+                );
+        }
+
         auto const hash = fnv1a<std::uint64_t>::hash(var_decl.name.view(file.source()));
 
-        auto result = field_map.insert({ hash, field_t{ .decl = var_decl }});
+        auto result = field_map.insert({ hash, field_t(var_decl, std::move(mods))});
 
         if(!result.second)
         {

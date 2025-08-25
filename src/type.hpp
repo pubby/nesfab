@@ -197,6 +197,7 @@ enum cast_result_t : char
     CAST_RESIZE_TEA,
     CAST_VECIFY_TEA,
     CAST_TEAIFY_VEC,
+    CAST_TO_INHERITED,
 };
 
 bool can_size_unsized_array(type_t const& sized, type_t const& unsized);

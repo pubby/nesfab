@@ -40,8 +40,15 @@ namespace bc = boost::container;
 std::string to_string(global_class_t gclass);
 
 // A data member of a record.
-struct field_t
+struct field_t : modded_t
 {
+    field_t() = delete;
+
+    field_t(var_decl_t decl, std::unique_ptr<mods_t> mods)
+    : modded_t(std::move(mods))
+    , decl(std::move(decl))
+    {}
+
     var_decl_t decl;
 
     type_t& type() { return decl.src_type.type; }
@@ -151,7 +158,7 @@ public:
         ast_node_t const* expr, std::unique_ptr<paa_def_t> paa_def,
         std::unique_ptr<mods_t> mods);
     struct_ht define_struct(
-        lpstring_t lpstring, ideps_map_t&& ideps, field_map_t&& map);
+        lpstring_t lpstring, ideps_map_t&& ideps, field_map_t&& map, std::unique_ptr<mods_t> mods);
     charmap_ht define_charmap(
         lpstring_t lpstring, bool is_default, 
         string_literal_t const& characters, 
@@ -273,14 +280,15 @@ private:
     inline static unsigned globals_left;
 };
 
-class struct_t
+class struct_t : modded_t
 {
 public:
     static constexpr global_class_t global_class = GLOBAL_STRUCT;
     using handle_t = struct_ht;
 
-    struct_t(global_t& global, field_map_t&& fields)
-    : global(global)
+    struct_t(global_t& global, field_map_t&& fields, std::unique_ptr<mods_t> mods)
+    : modded_t(std::move(mods))
+    , global(global)
     , m_fields(std::move(fields))
     {}
 
@@ -288,6 +296,7 @@ public:
 
     field_map_t const& fields() const { return m_fields; }
     field_t const& field(unsigned field_i) const { return m_fields.begin()[field_i].second; }
+    std::uint64_t field_hash(unsigned field_i) const { return m_fields.begin()[field_i].first; }
 
     unsigned num_members() const { assert(m_num_members != UNCOUNTED); return m_num_members; }
 
@@ -315,8 +324,14 @@ public:
     }
 
     bool has_tea_member() const { assert(m_num_members != UNCOUNTED); return m_has_tea_member; }
+    bool inherits() const { assert(m_num_members != UNCOUNTED); return m_inherits; }
 
     unsigned count_members(); 
+
+
+    // Returns the field accesses required in reverse order:
+    bc::small_vector<unsigned, 1> inherit_cast(type_t to) const;
+    bc::small_vector<unsigned, 1> inherit_lookup(pstring_t at, std::uint64_t hash) const;
 
     void resolve();
     void precheck();
@@ -333,6 +348,7 @@ private:
     std::vector<type_t> m_member_types;
     std::vector<std::uint16_t> m_member_offsets;
     bool m_has_tea_member = false;
+    bool m_inherits = false;
 };
 
 // Holds state common to both fn_t and fn_set_t.

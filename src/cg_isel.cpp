@@ -531,7 +531,7 @@ namespace isel
         case MODE_IMPLIED: 
             return !arg;
         case MODE_RELATIVE:
-        case MODE_LONG:
+        case MODE_MAYBE_RELATIVE:
             return is_label(arg.lclass());
         case MODE_IMMEDIATE:
         case MODE_BUGGY_IMMEDIATE:
@@ -672,7 +672,9 @@ namespace isel
 
             simple_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
 
+#ifdef ISA_65C02
             simple_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+#endif
         }
         else if(cpu.def_eq(REG_X, v))
         {
@@ -687,6 +689,10 @@ namespace isel
                 cpu, prev, cont);
 
             simple_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+
+#ifdef ISA_SNES
+            simple_op<TXY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+#endif
         }
         else if(cpu.def_eq(REG_Y, v))
         {
@@ -701,6 +707,10 @@ namespace isel
                 cpu, prev, cont);
 
             simple_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+
+#ifdef ISA_SNES
+            simple_op<TYX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+#endif
         }
         else
         {
@@ -893,10 +903,14 @@ namespace isel
         {
             if(cpu.value_eq(REG_Y, v))
             {
+#ifdef ISA_SNES
+                simple_op<TYX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+#else
                 chain
                 < simple_op<Opt, TYA_IMPLIED>
                 , simple_op<Opt, TAX_IMPLIED, Def>
                 >(cpu, prev, cont);
+#endif
             }
 
             pick_op<Opt, LDX, Def, Load>(cpu, prev, cont);
@@ -945,10 +959,14 @@ namespace isel
         {
             if(cpu.value_eq(REG_X, v))
             {
+#ifdef ISA_SNES
+                simple_op<TXY_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+#else
                 chain
                 < simple_op<Opt, TXA_IMPLIED>
                 , simple_op<Opt, TAY_IMPLIED, Def>
                 >(cpu, prev, cont);
+#endif
             }
 
             pick_op<Opt, LDY, Def, Load>(cpu, prev, cont);
@@ -1169,7 +1187,7 @@ namespace isel
             }
             else
             {
-                using OptNR = typename Opt::inc_no_direct::template restrict_to<std::uint8_t(~op_input_regs(Absolute))>;
+                using OptNR = typename Opt::inc_no_direct::template restrict_to<regs_t(~op_input_regs(Absolute))>;
 
                 if(AbsoluteX != BAD_OP && cpu.value_eq(REG_X, index))
                     exact_op<Opt, AbsoluteX, Def, array_mem<Arg>>(cpu, prev, cont);
@@ -1330,6 +1348,13 @@ namespace isel
             store<Opt, STY, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
         else if(CompareValue)
         {
+#ifdef ISA_65C02
+            if(Load::value().eq_const_byte(0))
+            {
+                store<Opt, STZ, Def, Store, Maybe, KeepValue>(cpu, prev, cont);
+            }
+#endif
+
             chain
             < load_A<Opt, Load, Def>
             , store<Opt, STA, Def, Store, Maybe, KeepValue>
@@ -1811,9 +1836,9 @@ namespace isel
         p_def::set(h);
 
         if(Eq)
-            eq_branch<O::restrict_to<std::uint8_t(~REGF_X)>, fail, success>(h);
+            eq_branch<O::restrict_to<regs_t(~REGF_X)>, fail, success>(h);
         else
-            eq_branch<O::restrict_to<std::uint8_t(~REGF_X)>, success, fail>(h);
+            eq_branch<O::restrict_to<regs_t(~REGF_X)>, success, fail>(h);
 
         select_step<true>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
         {
@@ -2268,7 +2293,7 @@ namespace isel
 
         p_def::set(h);
 
-        lt_branch<O::restrict_to<std::uint8_t(~REGF_X)>, fail, success, LTE>(h);
+        lt_branch<O::restrict_to<regs_t(~REGF_X)>, fail, success, LTE>(h);
 
         select_step<true>([&](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
         {
@@ -2837,8 +2862,6 @@ namespace isel
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
 
-#if 1
-
                     chain
                     < load_AC<Opt, p_lhs, p_carry>
                     , load_X<Opt::template restrict_to<~REGF_AC>, p_rhs>
@@ -2864,6 +2887,19 @@ namespace isel
                             if(cpu.def_eq(REG_C, p_carry::value()) || cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()))
                             {
                                 in_IZ::set(cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()));
+#ifndef LEGAL
+                                if(cpu.def_eq(REG_A, p_lhs::value()))
+                                {
+                                    chain
+                                    < if_<Opt, in_IZ, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                                                      simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
+                                    , simple_op<Opt, INC_IMPLIED>
+                                    , if_<Opt, in_IZ, chain<label<p_label<0>>, clear_conditional>,
+                                                      maybe_carry_label_clear_conditional<Opt, p_label<0>, false>>
+                                    , store<Opt, STA, p_def, p_def>
+                                    >(cpu, prev, cont);
+                                }
+#endif
 
                                 if(cpu.def_eq(REG_X, p_lhs::value()))
                                 {
@@ -2907,6 +2943,20 @@ namespace isel
                             in_IZ::set(cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()));
 
                             p_label<0>::set(state.minor_label());
+
+#ifdef ISA_65C02
+                            if(cpu.def_eq(REG_A, p_lhs::value()))
+                            {
+                                chain
+                                < if_<Opt, in_IZ, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                                                  simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
+                                , simple_op<Opt, DEC_IMPLIED>
+                                , if_<Opt, in_IZ, chain<label<p_label<0>>, clear_conditional>,
+                                                  maybe_carry_label_clear_conditional<Opt, p_label<0>, true>>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+                            }
+#endif
 
                             if(cpu.def_eq(REG_X, p_lhs::value()))
                             {
@@ -2965,6 +3015,15 @@ namespace isel
 
                             if(sum == 1)
                             {
+#ifdef ISA_65C02
+                                chain
+                                < load_A<Opt, p_lhs>
+                                , simple_op<Opt, INC_IMPLIED, p_def>
+                                , store<Opt, STA, p_def, p_def>
+                                , if_<Opt, carry_Z, set_defs<Opt, cpu_t::REGF_INVERTED_Z, true, p_carry_output>>
+                                >(cpu, prev, cont);
+#endif
+
                                 chain
                                 < load_X<Opt, p_lhs>
                                 , simple_op<Opt, INX_IMPLIED, p_def>
@@ -2991,6 +3050,15 @@ namespace isel
                             {
                                 if(sum == 2)
                                 {
+#ifdef ISA_65C02
+                                    chain
+                                    < load_A<Opt, p_lhs>
+                                    , simple_op<Opt, INC_IMPLIED, p_def>
+                                    , simple_op<Opt, INC_IMPLIED, p_def>
+                                    , store<Opt, STA, p_def, p_def>
+                                    >(cpu, prev, cont);
+#endif
+
                                     chain
                                     < load_X<Opt, p_lhs>
                                     , simple_op<Opt, INX_IMPLIED, p_def>
@@ -3015,6 +3083,14 @@ namespace isel
                                 }
                                 else if(sum == 0xFF)
                                 {
+#ifdef ISA_65C02
+                                    chain
+                                    < load_A<Opt, p_lhs>
+                                    , simple_op<Opt, DEC_IMPLIED, p_def>
+                                    , store<Opt, STA, p_def, p_def>
+#endif
+                                    >(cpu, prev, cont);
+
                                     chain
                                     < load_X<Opt, p_lhs>
                                     , simple_op<Opt, DEX_IMPLIED, p_def>
@@ -3032,6 +3108,15 @@ namespace isel
                                 }
                                 else if(sum == 0xFE)
                                 {
+#ifdef ISA_65C02
+                                    chain
+                                    < load_A<Opt, p_lhs>
+                                    , simple_op<Opt, DEC_IMPLIED, p_def>
+                                    , simple_op<Opt, DEC_IMPLIED, p_def>
+                                    , store<Opt, STA, p_def, p_def>
+                                    >(cpu, prev, cont);
+#endif
+
                                     chain
                                     < load_X<Opt, p_lhs>
                                     , simple_op<Opt, DEX_IMPLIED, p_def>
@@ -3057,7 +3142,6 @@ namespace isel
                             }
                         }
                     }
-#endif
                 });
             }
             break;
@@ -3085,7 +3169,6 @@ namespace isel
                 , set_defs<Opt, REGF_C, true, p_carry_output>
                 >(cpu, prev, cont);
 
-#if 1
                 chain
                 < load_AC<Opt, p_lhs, p_carry>
                 , load_X<Opt::template restrict_to<~REGF_AC>, p_rhs>
@@ -3114,10 +3197,18 @@ namespace isel
 
                     if(!carry_output && p_carry::node().eq_whole(1))
                     {
+#ifdef ISA_65C02
                         chain
-                        < load_AC<Opt, p_rhs, const_<0>>
+                        < load_A<Opt, p_rhs>
                         , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
-                        , exact_op<Opt, ADC_IMMEDIATE, null_, const_<1>>
+                        , exact_op<Opt, INC_IMPLIED, null_>
+                        , store<Opt, STA, p_def, p_def>
+                        >(cpu, prev, cont);
+#else
+                        chain
+                        < load_AC<Opt, p_rhs, const_<1>>
+                        , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0xFF>>
+                        , exact_op<Opt, ADC_IMMEDIATE, null_, const_<0>>
                         , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
 
@@ -3136,6 +3227,7 @@ namespace isel
                         , exact_op<Opt, INY_IMPLIED, null_>
                         , store<Opt, STY, p_def, p_def>
                         >(cpu, prev, cont);
+#endif
                     }
                 }
 
@@ -3148,6 +3240,19 @@ namespace isel
                         if(cpu.def_eq(REG_C, p_carry::value()) || cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()))
                         {
                             in_IZ::set(cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()));
+#ifdef ISA_65C02
+                            if(cpu.def_eq(REG_A, p_lhs::value()))
+                            {
+                                chain
+                                < if_<Opt, in_IZ, simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>,
+                                                  simple_op<Opt, BCS_RELATIVE, null_, p_label<0>>>
+                                , simple_op<Opt, DEC_IMPLIED>
+                                , if_<Opt, in_IZ, chain<label<p_label<0>>, clear_conditional>,
+                                                  maybe_carry_label_clear_conditional<Opt, p_label<0>, true>>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+                            }
+#endif
 
                             if(cpu.def_eq(REG_X, p_lhs::value()))
                             {
@@ -3191,6 +3296,20 @@ namespace isel
                         in_IZ::set(cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()));
 
                         p_label<0>::set(state.minor_label());
+
+#ifdef ISA_65C02
+                        if(cpu.def_eq(REG_A, p_lhs::value()))
+                        {
+                            chain
+                            < if_<Opt, in_IZ, simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>,
+                                              simple_op<Opt, BCC_RELATIVE, null_, p_label<0>>>
+                            , simple_op<Opt, INC_IMPLIED>
+                            , if_<Opt, in_IZ, chain<label<p_label<0>>, clear_conditional>,
+                                              maybe_carry_label_clear_conditional<Opt, p_label<0>, false>>
+                            , store<Opt, STA, p_def, p_def>
+                            >(cpu, prev, cont);
+                        }
+#endif
 
                         if(cpu.def_eq(REG_X, p_lhs::value()))
                         {
@@ -3246,6 +3365,15 @@ namespace isel
 
                         if(sum == 0xFF)
                         {
+#ifdef ISA_65C02
+                            chain
+                            < load_A<Opt, p_lhs>
+                            , simple_op<Opt, INC_IMPLIED, p_def>
+                            , store<Opt, STA, p_def, p_def>
+                            , if_<Opt, carry_Z, set_defs<Opt, cpu_t::REGF_INVERTED_Z, true, p_carry_output>>
+                            >(cpu, prev, cont);
+#endif
+
                             chain
                             < load_X<Opt, p_lhs>
                             , simple_op<Opt, INX_IMPLIED, p_def>
@@ -3272,6 +3400,13 @@ namespace isel
                         {
                             if(sum == 1 && !carry_output)
                             {
+#ifdef ISA_65C02
+                                chain
+                                < load_A<Opt, p_lhs>
+                                , simple_op<Opt, DEC_IMPLIED, p_def>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+#endif
                                 chain
                                 < load_X<Opt, p_lhs>
                                 , simple_op<Opt, DEX_IMPLIED, p_def>
@@ -3293,6 +3428,15 @@ namespace isel
                             }
                             else if(sum == 2)
                             {
+#ifdef ISA_65C02
+                                chain
+                                < load_A<Opt, p_lhs>
+                                , simple_op<Opt, DEC_IMPLIED, p_def>
+                                , simple_op<Opt, DEC_IMPLIED, p_def>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+#endif
+
                                 chain
                                 < load_X<Opt, p_lhs>
                                 , simple_op<Opt, DEX_IMPLIED, p_def>
@@ -3317,6 +3461,15 @@ namespace isel
                             }
                             else if(sum == 0xFE)
                             {
+#ifdef ISA_65C02
+                                chain
+                                < load_A<Opt, p_lhs>
+                                , simple_op<Opt, INC_IMPLIED, p_def>
+                                , simple_op<Opt, INC_IMPLIED, p_def>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+#endif
+
                                 chain
                                 < load_X<Opt, p_lhs>
                                 , simple_op<Opt, INX_IMPLIED, p_def>
@@ -3342,7 +3495,6 @@ namespace isel
                         }
                     }
                 }
-#endif
             }
             break;
 
@@ -3902,11 +4054,19 @@ namespace isel
                 {
                     if(h->input(INDEX).eq_whole(0))
                     {
+#ifdef ISA_65C02
+                        chain
+                        < load_X<Opt, const_<0>>
+                        , exact_op<Opt, LDA_INDIRECT_0, p_def, p_ptr>
+                        , store<Opt, STA, p_def, p_def>
+                        >(cpu, prev, cont);
+#else
                         chain
                         < load_X<Opt, const_<0>>
                         , exact_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
                         , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
+#endif
                     }
 
                     chain
@@ -3951,10 +4111,17 @@ namespace isel
                 {
                     if(h->input(INDEX).eq_whole(0))
                     {
+#ifdef ISA_65C02
+                        chain
+                        < load_AX<Opt, p_assignment, const_<0>>
+                        , exact_op<Opt, STA_INDIRECT_0, null_, p_ptr>
+                        >(cpu, prev, cont);
+#else
                         chain
                         < load_AX<Opt, p_assignment, const_<0>>
                         , exact_op<Opt, STA_INDIRECT_X, null_, p_ptr>
                         >(cpu, prev, cont);
+#endif
                     }
 
                     chain
@@ -4942,6 +5109,12 @@ namespace isel
                 {
                     select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                     {
+#ifdef ISA_65C02
+                        chain
+                        < exact_op<Opt, LDA_INDIRECT_0, p_def, p_ptr>
+                        , store<Opt, STA, p_def, p_def>
+                        >(cpu, prev, cont);
+#else
                         chain
                         < load_Y<Opt, const_<0>>
                         , exact_op<Opt, LDA_INDIRECT_Y, p_def, p_ptr>
@@ -4953,6 +5126,7 @@ namespace isel
                         , exact_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
                         , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
+#endif
                     });
                 }
                 else
@@ -4963,6 +5137,12 @@ namespace isel
 
                     select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                     {
+#ifdef ISA_65C02
+                        chain
+                        < load_A<Opt, p_assignment>
+                        , exact_op<Opt, STA_INDIRECT_0, null_, p_ptr>
+                        >(cpu, prev, cont);
+#else
                         chain
                         < load_AY<Opt, p_assignment, const_<0>>
                         , exact_op<Opt, STA_INDIRECT_Y, null_, p_ptr>
@@ -4972,6 +5152,7 @@ namespace isel
                         < load_AX<Opt, p_assignment, const_<0>>
                         , exact_op<Opt, STA_INDIRECT_X, null_, p_ptr>
                         >(cpu, prev, cont);
+#endif
                     });
                 }
             }

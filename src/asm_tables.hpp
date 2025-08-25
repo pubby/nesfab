@@ -424,7 +424,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH
     },
     {
-        OP(BCC, LONG),
+        OP(BCC, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = REGF_C,
@@ -443,7 +443,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH
     },
     {
-        OP(BCS, LONG),
+        OP(BCS, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = REGF_C,
@@ -462,7 +462,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH
     },
     {
-        OP(BEQ, LONG),
+        OP(BEQ, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = REGF_Z,
@@ -476,7 +476,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 36,
         .size = 2,
         .cycles = 3,
-        .input_regs = REGF_M,
+        .input_regs = REGF_M | REGF_A,
         .output_regs = REGF_NZ | REGF_V,
         .flags = ASMF_IDEMPOTENT,
     },
@@ -485,7 +485,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .op_code = 44,
         .size = 3,
         .cycles = 4,
-        .input_regs = REGF_M,
+        .input_regs = REGF_M | REGF_A,
         .output_regs = REGF_NZ | REGF_V,
         .flags = ASMF_IDEMPOTENT,
     },
@@ -501,7 +501,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH,
     },
     {
-        OP(BMI, LONG),
+        OP(BMI, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = REGF_N,
@@ -520,7 +520,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH,
     },
     {
-        OP(BNE, LONG),
+        OP(BNE, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = REGF_Z,
@@ -539,7 +539,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH,
     },
     {
-        OP(BPL, LONG),
+        OP(BPL, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = REGF_N,
@@ -568,7 +568,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH,
     },
     {
-        OP(BVC, LONG),
+        OP(BVC, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = 0,
@@ -587,7 +587,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_BRANCH,
     },
     {
-        OP(BVS, LONG),
+        OP(BVS, MAYBE_RELATIVE),
         .size = 5,
         .cycles = 5,
         .input_regs = REGF_V,
@@ -2325,6 +2325,310 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 8,
         .input_regs = REGF_M | REGF_A | REGF_Y,
         .output_regs = REGF_M | REGF_NZ | REGF_A | REGF_C,
+    },
+#endif
+
+#ifdef ISA_65C02
+    {
+        OP(ADC, INDIRECT_0),
+        .op_code = 0x72,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_V,
+    },
+
+    {
+        OP(SBC, INDIRECT_0),
+        .op_code = 0xF2,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_A | REGF_C | REGF_V,
+    },
+
+    {
+        OP(CMP, INDIRECT_0),
+        .op_code = 0xD2,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_C | REGF_M,
+        .output_regs = REGF_NZ | REGF_C,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    {
+        OP(AND, INDIRECT_0),
+        .op_code = 0x32,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    {
+        OP(EOR, INDIRECT_0),
+        .op_code = 0x52,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_NZ | REGF_A,
+    },
+
+    {
+        OP(ORA, INDIRECT_0),
+        .op_code = 0x12,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    {
+        OP(LDA, INDIRECT_0),
+        .op_code = 0xB2,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_M,
+        .output_regs = REGF_NZ | REGF_A,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    {
+        OP(STA, INDIRECT_0),
+        .op_code = 0x92,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // JMP
+    {
+        OP(JMP, INDIRECT_X),
+        .op_code = 0x7C,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M | REGF_X,
+        .output_regs = 0,
+        .flags = ASMF_JUMP,
+    },
+
+    // BIT
+    {
+        OP(BIT, IMMEDIATE),
+        .op_code = 0x89,
+        .size = 2,
+        .cycles = 2,
+        .input_regs = REGF_A,
+        .output_regs = REGF_Z,
+        .flags = ASMF_IDEMPOTENT,
+    },
+    {
+        OP(BIT, ZERO_PAGE_X),
+        .op_code = 0x34,
+        .size = 2,
+        .cycles = 4,
+        .input_regs = REGF_M | REGF_X | REGF_A,
+        .output_regs = REGF_NZ | REGF_V,
+        .flags = ASMF_IDEMPOTENT,
+    },
+    {
+        OP(BIT, ABSOLUTE_X),
+        .op_code = 0x3C,
+        .size = 3,
+        .cycles = 4,
+        .input_regs = REGF_M | REGF_X | REGF_A,
+        .output_regs = REGF_NZ | REGF_V,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // BRA
+    {
+        OP(BRA, RELATIVE),
+        .op_code = 0x80,
+        .size = 2,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_JUMP,
+    },
+
+    // INC
+    {
+        OP(INC, IMPLIED),
+        .op_code = 0x1A,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
+    },
+
+    // DEC
+    {
+        OP(DEC, IMPLIED),
+        .op_code = 0x3A,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_A,
+        .output_regs = REGF_NZ | REGF_A,
+    },
+
+    // PHX
+    {
+        OP(PHX, IMPLIED),
+        .op_code = 0xDA,
+        .size = 1,
+        .cycles = 3,
+        .input_regs = REGF_X,
+        .output_regs = REGF_M,
+    },
+
+    // PHY
+    {
+        OP(PHY, IMPLIED),
+        .op_code = 0x5A,
+        .size = 1,
+        .cycles = 3,
+        .input_regs = REGF_Y,
+        .output_regs = REGF_M,
+    },
+
+    // PLX
+    {
+        OP(PLX, IMPLIED),
+        .op_code = 0xFA,
+        .size = 1,
+        .cycles = 4,
+        .input_regs = REGF_M,
+        .output_regs = REGF_NZ | REGF_X,
+    },
+
+    // PLY
+    {
+        OP(PLY, IMPLIED),
+        .op_code = 0x7A,
+        .size = 1,
+        .cycles = 4,
+        .input_regs = REGF_M,
+        .output_regs = REGF_NZ | REGF_Y,
+    },
+
+    // TRB
+    {
+        OP(TRB, ZERO_PAGE),
+        .op_code = 0x14,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_Z | REGF_M,
+    },
+    {
+        OP(TRB, ABSOLUTE),
+        .op_code = 0x1C,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_Z | REGF_M,
+    },
+
+    // TSB
+    {
+        OP(TSB, ZERO_PAGE),
+        .op_code = 0x04,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_Z | REGF_M,
+    },
+    {
+        OP(TSB, ABSOLUTE),
+        .op_code = 0x0C,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_A | REGF_M,
+        .output_regs = REGF_Z | REGF_M,
+    },
+
+    // STZ
+    {
+        OP(STZ, ZERO_PAGE),
+        .op_code = 0x64,
+        .size = 2,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
+    },
+    {
+        OP(STZ, ZERO_PAGE_X),
+        .op_code = 0x74,
+        .size = 2,
+        .cycles = 4,
+        .input_regs = REGF_X,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
+    },
+    {
+        OP(STZ, ABSOLUTE),
+        .op_code = 0x9C,
+        .size = 3,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
+    },
+    {
+        OP(STZ, ABSOLUTE_X),
+        .op_code = 0x9E,
+        .size = 3,
+        .cycles = 5,
+        .input_regs = REGF_X,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT,
+    },
+    {
+        OP(STZ, MAYBE),
+        .size = MAYBE_SIZE,
+        .cycles = MAYBE_CYCLES,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
+    },
+    {
+        OP(STZ, LIKELY),
+        .size = LIKELY_SIZE,
+        .cycles = LIKELY_CYCLES,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_FAKE | ASMF_MAYBE_STORE | ASMF_IDEMPOTENT,
+    },
+#endif
+
+#ifdef ISA_SNES
+    // TXY
+    {
+        OP(TXY, IMPLIED),
+        .op_code = 0x9B,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_X,
+        .output_regs = REGF_NZ | REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // TYX
+    {
+        OP(TYX, IMPLIED),
+        .op_code = 0xBB,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_Y,
+        .output_regs = REGF_NZ | REGF_X,
+        .flags = ASMF_IDEMPOTENT,
     },
 
 #endif

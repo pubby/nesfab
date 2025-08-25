@@ -1162,6 +1162,14 @@ void asm_graph_t::optimize_live_registers()
                             x_set = a_set;
                             continue;
                         }
+#ifdef ISA_SNES
+                        else if(y_set.count(inst.arg))
+                        {
+                            replace(inst, TYX_IMPLIED);
+                            x_set = y_set;
+                            continue;
+                        }
+#endif
                         break;
 
                     case LDY_ZERO_PAGE:
@@ -1177,6 +1185,14 @@ void asm_graph_t::optimize_live_registers()
                             y_set = a_set;
                             continue;
                         }
+#ifdef ISA_SNES
+                        else if(x_set.count(inst.arg))
+                        {
+                            replace(inst, TXY_IMPLIED);
+                            y_set = x_set;
+                            continue;
+                        }
+#endif
                         break;
 
                     default:

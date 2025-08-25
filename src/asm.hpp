@@ -9,6 +9,16 @@
 #include <string>
 #include <ostream>
 
+#ifdef ISA_SNES
+#  define ISA_65C02
+#  define LEGAL
+#endif
+
+#ifdef ISA_PCE
+#  define ISA_65C02
+#  define LEGAL
+#endif
+
 using regs_t = std::uint8_t;
 constexpr regs_t REG_A   = 0;
 constexpr regs_t REG_X   = 1;
@@ -219,6 +229,9 @@ constexpr bool indirect_addr_mode(addr_mode_t mode)
     case MODE_INDIRECT:
     case MODE_INDIRECT_X:
     case MODE_INDIRECT_Y:
+#ifdef ISA_65C02
+    case MODE_INDIRECT_0:
+#endif
         return true;
     default: 
         return false;
@@ -332,9 +345,9 @@ constexpr bool is_relative_branch(op_t op)
     return is_branch(op) && op_addr_mode(op) == MODE_RELATIVE;
 }
 
-constexpr bool is_long_branch(op_t op)
+constexpr bool is_maybe_relative_branch(op_t op)
 {
-    return is_branch(op) && op_addr_mode(op) == MODE_LONG;
+    return is_branch(op) && op_addr_mode(op) == MODE_MAYBE_RELATIVE;
 }
 
 constexpr op_t fast_op(op_t op)
@@ -374,6 +387,7 @@ constexpr bool is_simple_store(op_name_t name)
     case STA:
     case STX:
     case STY:
+    case STZ:
         return true;
     default:
         return false;

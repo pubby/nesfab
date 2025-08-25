@@ -78,6 +78,14 @@ ifeq ($(ISA),LEGAL)
 override CXXFLAGS+= -DLEGAL
 endif
 
+ifeq ($(ISA),PCE)
+override CXXFLAGS+= -DISA_PCE
+endif
+
+ifeq ($(ISA),SNES)
+override CXXFLAGS+= -DISA_SNES
+endif
+
 debug: CXXFLAGS += -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG -Wno-unused-variable
 static: CXXFLAGS += -static -O3 -DNDEBUG

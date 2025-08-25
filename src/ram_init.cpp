@@ -263,7 +263,7 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
                 {
                     prev_range = v.span.size;
                     proc.push_inst(CPX, prev_range);
-                    proc.push_inst(BCS_LONG, loop_end);
+                    proc.push_inst(BCS_MAYBE_RELATIVE, loop_end);
                 }
 
                 indexed(v);
@@ -275,7 +275,7 @@ bool gen_group_var_inits(std::vector<gvar_ht> const& gvars, asm_proc_t& proc)
                 x_is_zero = true;
             else
                 proc.push_inst(CPX, loop_range);
-            proc.push_inst(BNE_LONG, loop_start);
+            proc.push_inst(BNE_MAYBE_RELATIVE, loop_start);
         }
         else if(zero)
             proc.push_inst(LDA, 0);

@@ -71,6 +71,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         {
             if(c && op_name(b.op) == second && op_name(c->op) == store 
                && op_addr_mode(a.op) == op_addr_mode(c->op)
+               && op_addr_mode(b.op) == MODE_IMPLIED
                && a.arg == c->arg && a.alt == c->alt
                && (!a.arg || a.arg.known_variable())
                && (!a.alt || a.alt.known_variable()))
@@ -342,6 +343,11 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 case LDA:
                     c->op = TXA_IMPLIED;
                     goto lol_wipe_arg_alt;
+#ifdef ISA_SNES
+                case LDY:
+                    c->op = TXY_IMPLIED;
+                    goto lol_wipe_arg_alt;
+#endif
                 }
                 break;
             case LDY:
@@ -354,6 +360,11 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 case LDA:
                     c->op = TYA_IMPLIED;
                     goto lol_wipe_arg_alt;
+#ifdef ISA_SNES
+                case LDX:
+                    c->op = TYX_IMPLIED;
+                    goto lol_wipe_arg_alt;
+#endif
                 }
                 break;
             }
@@ -438,12 +449,20 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_inxy(DEX, STX, DEC)) 
                 goto retry;
+            if(peep_transfer(LDA, TXA_IMPLIED))
+                goto retry;
             if(peep_lax(LDA)) 
                 goto retry;
             if(peep_remove_store(STX)) 
                 goto retry;
             if(peep_remove_load(TAX, false)) 
                 goto retry;
+#ifdef ISA_SNES
+            if(peep_transfer(LDY, TXY_IMPLIED))
+                goto retry;
+            if(peep_remove_load(TYX, false)) 
+                goto retry;
+#endif
             if(op_t lax = get_op(LAX, op_addr_mode(a.op)))
             {
                 if(peep_remove_load(TXA, true)) 
@@ -464,6 +483,12 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_remove_load(TAY, false)) 
                 goto retry;
+#ifdef ISA_SNES
+            if(peep_transfer(LDY, TYX_IMPLIED))
+                goto retry;
+            if(peep_remove_load(TXY, false)) 
+                goto retry;
+#endif
             break;
         case LDA:
             if(peep_inxy(ASL, STA, ASL))
@@ -492,6 +517,12 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                     goto retry;
                 }
             }
+#ifdef ISA_65C02
+            if(peep_inxy(INC, STA, INC)) 
+                goto retry;
+            if(peep_inxy(DEC, STA, INC)) 
+                goto retry;
+#endif
             break;
         case STA:
             if(peep_transfer2(LDX, TAX_IMPLIED))
@@ -505,10 +536,18 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         case STX:
             if(peep_transfer2(LDA, TXA_IMPLIED))
                 goto retry;
+#ifdef ISA_SNES
+            if(peep_transfer2(LDY, TXY_IMPLIED))
+                goto retry;
+#endif
             goto common_store;
         case STY:
             if(peep_transfer2(LDA, TYA_IMPLIED))
                 goto retry;
+#ifdef ISA_SNES
+            if(peep_transfer2(LDX, TYX_IMPLIED))
+                goto retry;
+#endif
             goto common_store;
 #ifndef LEGAL
         case SAX:
@@ -764,11 +803,11 @@ void asm_proc_t::convert_long_branch_ops()
                 // Change to long pseudo instruction when out of range
                 if(dist > 127 || dist < -128)
                 {
-                    inst.op = get_op(op_name(inst.op), MODE_LONG);
+                    inst.op = get_op(op_name(inst.op), MODE_MAYBE_RELATIVE);
                     progress = true;
                 }
             }
-            else if(is_long_branch(inst.op))
+            else if(is_maybe_relative_branch(inst.op))
             {
                 op_t const new_op = get_op(op_name(inst.op), MODE_RELATIVE);
                 int const size_diff = int(op_size(inst.op)) - int(op_size(new_op));
@@ -1203,7 +1242,7 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
             fn(inst.arg);
             break;
 
-        case MODE_LONG:
+        case MODE_MAYBE_RELATIVE:
             {
                 locator_t const inverted_op = locator_t::const_byte(
                     op_code(get_op(invert_branch(op_name(inst.op)), MODE_RELATIVE)));

@@ -302,6 +302,7 @@ struct set_defs_for_impl<INY_IMPLIED>
     }
 };
 
+
 template<>
 struct set_defs_for_impl<LDA_IMMEDIATE>
 {
@@ -882,6 +883,146 @@ struct set_defs_for_impl<BCC_RELATIVE>
         assert(cpu.known_array_valid());
     }
 };
+
+#ifdef ISA_65C02
+template<>
+struct set_defs_for_impl<INC_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(INC_IMPLIED) == (REGF_N | REGF_Z | REGF_A));
+
+        if(cpu.are_known(REGF_A))
+        {
+            std::uint8_t const result = cpu.known[REG_A] + 1;
+
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+            cpu.set_known(REG_A, result);
+            cpu.set_known(REG_Z, !result);
+            cpu.set_known(REG_N, !!(result & 0x80));
+        }
+        else
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+    }
+};
+
+template<>
+struct set_defs_for_impl<DEC_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(DEC_IMPLIED) == (REGF_N | REGF_Z | REGF_A));
+
+        if(cpu.are_known(REGF_A))
+        {
+            std::uint8_t const result = cpu.known[REG_A] - 1;
+
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+            cpu.set_known(REG_A, result);
+            cpu.set_known(REG_Z, !result);
+            cpu.set_known(REG_N, !!(result & 0x80));
+        }
+        else
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+    }
+};
+
+template<>
+struct set_defs_for_impl<BIT_IMMEDIATE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BIT_IMMEDIATE) == (REGF_Z));
+
+        if(arg.is_const_num())
+        {
+            if(cpu.are_known(REGF_A))
+            {
+                std::uint8_t const result = cpu.known[REG_A] & arg.data();
+
+                cpu.set_output_defs_impl<BIT_IMMEDIATE>(opt, def);
+                cpu.set_known(REG_Z, !result);
+            }
+            else
+            {
+                cpu.set_output_defs_impl<BIT_IMMEDIATE>(opt, def);
+
+                if(arg.data() == 0)
+                    cpu.set_known(REG_Z, 1);
+            }
+        }
+        else
+            cpu.set_output_defs_impl<BIT_IMMEDIATE>(opt, def);
+    }
+};
+#endif
+
+#ifdef ISA_SNES
+template<>
+struct set_defs_for_impl<TXY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(TXY_IMPLIED) == (REGF_Y | REGF_Z | REGF_N));
+
+        cpu_t const old = cpu;
+
+        if(!def || def.is_const_num())
+            def = cpu.defs[REG_X];
+
+        cpu.set_output_defs_impl<TXY_IMPLIED>(opt, def);
+        assert(!cpu.is_known(REG_Y) && !cpu.is_known(REG_Z) && !cpu.is_known(REG_N));
+
+        if(old.are_known(REGF_X))
+        {
+            cpu.set_known(REG_Y, old.known[REG_X]);
+            cpu.set_known(REG_Z, !old.known[REG_X]);
+            cpu.set_known(REG_N, !!(old.known[REG_X] & 0x80));
+        }
+        else
+        {
+            if(old.are_known(REGF_Z))
+                cpu.set_known(REG_Z, old.known[REG_Z]);
+
+            if(old.are_known(REGF_N))
+                cpu.set_known(REG_N, old.known[REG_N]);
+        }
+    }
+};
+
+template<>
+struct set_defs_for_impl<TYX_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(TYX_IMPLIED) == (REGF_X | REGF_Z | REGF_N));
+
+        cpu_t const old = cpu;
+
+        if(!def || def.is_const_num())
+            def = cpu.defs[REG_Y];
+
+        cpu.set_output_defs_impl<TYX_IMPLIED>(opt, def);
+        assert(!cpu.is_known(REG_X) && !cpu.is_known(REG_Z) && !cpu.is_known(REG_N));
+
+        if(old.are_known(REGF_Y))
+        {
+            cpu.set_known(REG_X, old.known[REG_Y]);
+            cpu.set_known(REG_Z, !old.known[REG_Y]);
+            cpu.set_known(REG_N, !!(old.known[REG_Y] & 0x80));
+        }
+        else
+        {
+            if(old.are_known(REGF_Z))
+                cpu.set_known(REG_Z, old.known[REG_Z]);
+
+            if(old.are_known(REGF_N))
+                cpu.set_known(REG_N, old.known[REG_N]);
+        }
+    }
+};
+#endif
+
 
 template<op_t Op> [[gnu::noinline]]
 std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)

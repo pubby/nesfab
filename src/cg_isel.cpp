@@ -852,9 +852,36 @@ namespace isel
         else if(!(Opt::can_set & REGF_A))
             return;
         else if(cpu.value_eq(REG_X, v))
+        {
             simple_op<TXA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+
+#ifdef ISA_PCE
+            chain
+            < simple_op<Opt, SAX_IMPLIED>
+            , set_defs<Opt, REGF_A, true, Def> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+#endif
+        }
         else if(cpu.value_eq(REG_Y, v))
+        {
             simple_op<TYA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+
+#ifdef ISA_PCE
+            chain
+            < simple_op<Opt, SAY_IMPLIED>
+            , set_defs<Opt, REGF_A, true, Def> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+#endif
+        }
+#ifdef ISA_SNES
+        else if(cpu.value_eq(REG_A_HI, v))
+        {
+            chain
+            < simple_op<Opt, XBA_IMPLIED>
+            , set_defs<Opt, REGF_NZ | REGF_A, true, Def> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+        }
+#endif
         else
         {
             pick_op<Opt, LDA, Def, Load>(cpu, prev, cont);
@@ -867,7 +894,13 @@ namespace isel
 #endif
 
             if(v.is_const_num())
+            {
+#ifdef ISA_PCE
+                if(v.eq_const(0))
+                    simple_op<CLA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+#endif
                 load_A_impl(Opt::template valid_for<REGF_A | REGF_NZ>::to_struct, v, cpu, prev, cont);
+            }
         }
     }
 
@@ -898,13 +931,27 @@ namespace isel
         else if(!(Opt::can_set & REGF_X))
             return;
         else if(cpu.value_eq(REG_A, v))
+        {
             simple_op<TAX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+
+#ifdef ISA_PCE
+            chain
+            < simple_op<Opt, SAX_IMPLIED>
+            , set_defs<Opt, REGF_X, true, Def> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+#endif
+        }
         else
         {
             if(cpu.value_eq(REG_Y, v))
             {
 #ifdef ISA_SNES
                 simple_op<TYX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+#elifdef ISA_PCE
+                chain
+                < simple_op<Opt, SXY_IMPLIED>
+                , set_defs<Opt, REGF_X, true, Def> // Have to set registers after a switch op.
+                >(cpu, prev, cont);
 #else
                 chain
                 < simple_op<Opt, TYA_IMPLIED>
@@ -923,7 +970,13 @@ namespace isel
 #endif
 
             if(v.is_const_num())
+            {
+#ifdef ISA_PCE
+                if(v.eq_const(0))
+                    simple_op<CLX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+#endif
                 load_X_impl(Opt::template valid_for<REGF_X | REGF_NZ>::to_struct, v, cpu, prev, cont);
+            }
         }
     }
 
@@ -954,13 +1007,27 @@ namespace isel
         else if(!(Opt::can_set & REGF_Y))
             return;
         else if(cpu.value_eq(REG_A, v))
+        {
             simple_op<TAY_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+
+#ifdef ISA_PCE
+            chain
+            < simple_op<Opt, SAY_IMPLIED>
+            , set_defs<Opt, REGF_Y, true, Def> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+#endif
+        }
         else
         {
             if(cpu.value_eq(REG_X, v))
             {
 #ifdef ISA_SNES
                 simple_op<TXY_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+#elifdef ISA_PCE
+                chain
+                < simple_op<Opt, SXY_IMPLIED>
+                , set_defs<Opt, REGF_Y, true, Def> // Have to set registers after a switch op.
+                >(cpu, prev, cont);
 #else
                 chain
                 < simple_op<Opt, TXA_IMPLIED>
@@ -972,7 +1039,13 @@ namespace isel
             pick_op<Opt, LDY, Def, Load>(cpu, prev, cont);
 
             if(v.is_const_num())
+            {
+#ifdef ISA_PCE
+                if(v.eq_const(0))
+                    simple_op<CLY_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
+#endif
                 load_Y_impl(Opt::template valid_for<REGF_Y | REGF_NZ>::to_struct, v, cpu, prev, cont);
+            }
         }
     }
 
@@ -2887,7 +2960,7 @@ namespace isel
                             if(cpu.def_eq(REG_C, p_carry::value()) || cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()))
                             {
                                 in_IZ::set(cpu.def_eq<cpu_t::REGF_INVERTED_Z>(REG_Z, p_carry::value()));
-#ifndef LEGAL
+#ifdef ISA_65C02
                                 if(cpu.def_eq(REG_A, p_lhs::value()))
                                 {
                                     chain
@@ -3088,8 +3161,8 @@ namespace isel
                                     < load_A<Opt, p_lhs>
                                     , simple_op<Opt, DEC_IMPLIED, p_def>
                                     , store<Opt, STA, p_def, p_def>
-#endif
                                     >(cpu, prev, cont);
+#endif
 
                                     chain
                                     < load_X<Opt, p_lhs>

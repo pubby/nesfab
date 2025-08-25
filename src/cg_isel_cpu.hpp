@@ -11,6 +11,7 @@
 #include "locator.hpp"
 #include "ir.hpp"
 #include "carry.hpp"
+#include "sizeof_bits.hpp"
 
 namespace isel
 {
@@ -78,12 +79,12 @@ struct cpu_t
 
     // The highest bit of 'known_mask' is repurposed.
     // It tracks if the 'Z' register holds the opposite value it says.
-    static constexpr regs_t REG_INVERTED_Z = 7;
+    static constexpr regs_t REG_INVERTED_Z = sizeof_bits<regs_t> - 1;
     static constexpr regs_t REGF_INVERTED_Z = 1 << REG_INVERTED_Z;
 
     // The second bit of 'known_mask' is repurposed.
     // It tracks if the 'N' register holds a boolean value.
-    static constexpr regs_t REG_BOOL_IN_N = 6;
+    static constexpr regs_t REG_BOOL_IN_N = sizeof_bits<regs_t> - 2;
     static constexpr regs_t REGF_BOOL_IN_N = 1 << REG_BOOL_IN_N;
 
     static_assert((REGF_ISEL & REGF_INVERTED_Z) == 0);
@@ -96,7 +97,7 @@ struct cpu_t
 
     // The highest bit of 'conditional_regs' is repurposed,
     // and tracks if conditional execution is happening.
-    static constexpr regs_t CONDITIONAL_EXEC = 1 << 7;
+    static constexpr regs_t CONDITIONAL_EXEC = 1 << (sizeof_bits<regs_t> - 1);
     static_assert((REGF_ISEL & CONDITIONAL_EXEC) == 0);
 
     // This bitset keeps track of which variables must be stored.
@@ -139,6 +140,33 @@ struct cpu_t
             h = rh::hash_combine(h, known[i]);
         h = rh::hash_combine(h, known_mask);
         return h;
+    }
+
+    template<reg_t lhs, reg_t rhs>
+    bool swap_regs(options_t opt)
+    {
+        if(((1 << lhs) & (opt.can_set & REGF_ISEL)) != Regs)
+            return false;
+
+        if(((1 << rhs) & (opt.can_set & REGF_ISEL)) != Regs)
+            return false;
+
+        assert(lhs < defs.size()  && rhs < defs.size());
+        assert(lhs < known.size() && rhs < known.size());
+
+        std::swap(defs[lhs], defs[rhs]);
+        std::swap(known[lhs], known[rhs]);
+
+        bool const know_lhs = known_mask & (1 << lhs);
+        bool const know_rhs = known_mask & (1 << rhs);
+        known_mask &= ~((1 << lhs) | (1 << rhs));
+        known_mask |= regs_t(know_lhs) << rhs;
+        known_mask |= regs_t(know_rhs) << lhs;
+
+        conditional_regs |= (1 << lhs);
+        conditional_regs |= (1 << rhs);
+
+        return true;
     }
     
     // If we know the value of a register:

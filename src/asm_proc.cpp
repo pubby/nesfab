@@ -1023,6 +1023,24 @@ void asm_proc_t::write_assembly(std::ostream& os, romv_t romv) const
     }
 }
 
+static std::pair<locator_t, locator_t> immediate_16_locs(asm_inst_t const& inst)
+{
+    locator_t lo = inst.arg;
+    locator_t hi = inst.alt;
+
+    if(!hi)
+    {
+        if(is_const(lo.lclass()))
+            hi = locator_t::const_byte(lo.data() >> 8);
+        else if(lo.is() == IS_PTR)
+            hi = lo.with_is(IS_PTR_HI);
+        else
+            hi = locator_t::const_byte(0);
+    }
+
+    return std::make_pair(lo, hi);
+}
+
 static std::pair<locator_t, locator_t> absolute_locs(asm_inst_t const& inst)
 {
     locator_t lo = inst.arg;
@@ -1238,6 +1256,9 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
         case MODE_ZERO_PAGE_Y:
         case MODE_INDIRECT_X:
         case MODE_INDIRECT_Y:
+#ifdef ISA_65C02
+        case MODE_INDIRECT_0:
+#endif
             fn(op);
             fn(inst.arg);
             break;
@@ -1251,6 +1272,17 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
                 fn(locator_t::const_byte(op_code(JMP_ABSOLUTE)));
             }
             goto absolute_addr;
+
+        case MODE_RELATIVE_16:
+        case MODE_IMMEDIATE_16:
+            {
+                auto locs = immediate_16_locs(inst);
+                passert(locs.first && locs.second, inst);
+                fn(op);
+                fn(locs.first);
+                fn(locs.second);
+            }
+            break;
 
         case MODE_ABSOLUTE:
         case MODE_ABSOLUTE_X:
@@ -1267,7 +1299,7 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
             break;
 
         default:
-            throw std::runtime_error("Invalid addressing mode.");
+            throw std::runtime_error(fmt("Invalid addressing mode: %", to_string(inst.op)));
         }
     });
 }

@@ -955,9 +955,11 @@ struct set_defs_for_impl<BIT_IMMEDIATE>
             cpu.set_output_defs_impl<BIT_IMMEDIATE>(opt, def);
     }
 };
+
 #endif
 
 #ifdef ISA_SNES
+
 template<>
 struct set_defs_for_impl<TXY_IMPLIED>
 {
@@ -1021,6 +1023,183 @@ struct set_defs_for_impl<TYX_IMPLIED>
         }
     }
 };
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<XBA_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(XBA_IMPLIED) == (REGF_A | REGF_A_HI | REGF_NZ));
+
+        swap_regs<REG_A, REG_A_HI>(opt);
+        set_defs<REG_N | REG_Z>(opt, locator_t());
+
+        if(cpu.are_known(REGF_A))
+        {
+            cpu.set_known(REG_Z, !old.known[REG_A]);
+            cpu.set_known(REG_N, !!(old.known[REG_A] & 0x80));
+        }
+    }
+};
+
+template<>
+struct set_defs_for_impl<REP_IMMEDIATE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        if(arg.is_const_num())
+        {
+            if(arg.data() & PFLAG_C)
+            {
+                cpu.set_defs<REGF_C>(opt, def);
+                cpu.set_known(REG_C, 0u);
+            }
+
+            if(arg.data() & PFLAG_Z)
+            {
+                cpu.set_defs<REGF_Z>(opt, def);
+                cpu.set_known(REG_Z, 0u);
+            }
+
+            if(arg.data() & PFLAG_V)
+            {
+                cpu.set_defs<REGF_V>(opt, def);
+                cpu.set_known(REG_V, 0u);
+            }
+
+            if(arg.data() & PFLAG_M)
+            {
+                cpu.set_defs<REGF_M16>(opt, def);
+                cpu.set_known(REG_M16, 0u);
+            }
+
+            if(arg.data() & PFLAG_BX)
+            {
+                cpu.set_defs<REGF_X16>(opt, def);
+                cpu.set_known(REG_X16, 0u);
+            }
+        }
+        else
+            cpu.set_output_defs_impl<REP_IMMEDIATE>(opt, def);
+    }
+};
+
+template<>
+struct set_defs_for_impl<SEP_IMMEDIATE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        if(arg.is_const_num())
+        {
+            if(arg.data() & PFLAG_C)
+            {
+                cpu.set_defs<REGF_C>(opt, def);
+                cpu.set_known(REG_C, 1u);
+            }
+
+            if(arg.data() & PFLAG_Z)
+            {
+                cpu.set_defs<REGF_Z>(opt, def);
+                cpu.set_known(REG_Z, 1u);
+            }
+
+            if(arg.data() & PFLAG_V)
+            {
+                cpu.set_defs<REGF_V>(opt, def);
+                cpu.set_known(REG_V, 1u);
+            }
+
+            if(arg.data() & PFLAG_M)
+            {
+                cpu.set_defs<REGF_M16>(opt, def);
+                cpu.set_known(REG_M16, 1u);
+            }
+
+            if(arg.data() & PFLAG_BX)
+            {
+                cpu.set_defs<REGF_X16>(opt, def);
+                cpu.set_known(REG_X16, 1u);
+            }
+        }
+        else
+            cpu.set_output_defs_impl<SEP_IMMEDIATE>(opt, def);
+    }
+};
+
+#endif
+
+#ifdef ISA_PCE
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<SAX_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(SAX_IMPLIED) == (REGF_A | REGF_X));
+        swap_regs<REG_A, REG_X>(opt);
+    }
+};
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<SAY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(SAY_IMPLIED) == (REGF_A | REGF_Y));
+        swap_regs<REG_A, REG_Y>(opt);
+    }
+};
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<SXY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(SXY_IMPLIED) == (REGF_X | REGF_Y));
+        swap_regs<REG_X, REG_Y>(opt);
+    }
+};
+
+template<>
+struct set_defs_for_impl<CLA_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(CLA_IMMEDIATE) == (REGF_A));
+
+        cpu.set_output_defs_impl<CLA_IMPLIED>(opt, def);
+        cpu.set_known(REG_A, 0);
+    }
+};
+
+template<>
+struct set_defs_for_impl<CLX_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(CLX_IMMEDIATE) == (REGF_X));
+
+        cpu.set_output_defs_impl<CLX_IMPLIED>(opt, def);
+        cpu.set_known(REG_X, 0);
+    }
+};
+
+template<>
+struct set_defs_for_impl<CLY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(CLY_IMMEDIATE) == (REGF_Y));
+
+        cpu.set_output_defs_impl<CLY_IMPLIED>(opt, def);
+        cpu.set_known(REG_Y, 0);
+    }
+};
+
 #endif
 
 
@@ -1041,7 +1220,7 @@ std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, l
 }
 
 // Explicit instantiations
-#define OP(name) template bool cpu_t::set_defs_for<name>(options_t, locator_t, locator_t);
+#define OP(name, flags) template bool cpu_t::set_defs_for<name>(options_t, locator_t, locator_t);
 #include "op.inc"
 #undef OP
 

@@ -555,6 +555,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 7,
         .input_regs = 0,
         .output_regs = 0,
+        .flags = ASMF_IMPURE | ASMF_FENCE,
     },
 
     // BVC
@@ -1747,7 +1748,7 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .cycles = 2,
         .input_regs = REGF_X,
         .output_regs = REGF_M,
-        .flags = ASMF_IDEMPOTENT,
+        .flags = ASMF_IDEMPOTENT | ASMF_IMPURE,
     },
 
     // TYA
@@ -2629,6 +2630,353 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .input_regs = REGF_Y,
         .output_regs = REGF_NZ | REGF_X,
         .flags = ASMF_IDEMPOTENT,
+    },
+
+    // XCE
+    {
+        OP(XCE, IMPLIED),
+        .op_code = 0xFB,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_C,
+        .output_regs = REGF_C | REGF_M16 | REGF_X16 | REGF_X_HI | REGF_Y_HI,
+        .flags = ASMF_IMPURE,
+    },
+
+    // XBA
+    {
+        OP(XBA, IMPLIED),
+        .op_code = 0xEB,
+        .size = 1,
+        .cycles = 3,
+        .input_regs = REGF_A | REGF_A_HI,
+        .output_regs = REGF_NZ | REGF_A | REGF_A_HI,
+    },
+
+    // COP
+    {
+        OP(COP, IMMEDIATE),
+        .op_code = 0x02,
+        .size = 2,
+        .cycles = 8,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_IMPURE | ASMF_FENCE,
+    },
+
+    // WDM
+    {
+        OP(WDM, IMMEDIATE),
+        .op_code = 0x42,
+        .size = 2,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_JUMP,
+    },
+
+    // STP
+    {
+        OP(STP, IMPLIED),
+        .op_code = 0xDB,
+        .size = 2,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_FENCE,
+    },
+
+    // WAI
+    {
+        OP(WAI, IMPLIED),
+        .op_code = 0xCB,
+        .size = 2,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_FENCE,
+    },
+
+    // REP
+    {
+        OP(REP, IMMEDIATE),
+        .op_code = 0xC2,
+        .size = 2,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = REGF_C | REGF_Z | REGF_N | REGF_V | REGF_M16 | REGF_X16,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // SEP
+    {
+        OP(SEP, IMMEDIATE),
+        .op_code = 0xE2,
+        .size = 2,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = REGF_C | REGF_Z | REGF_N | REGF_V | REGF_M16 | REGF_X16,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // PHB
+    {
+        OP(PHB, IMPLIED),
+        .op_code = 0x8B,
+        .size = 1,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE,
+    },
+
+    // PHD
+    {
+        OP(PHD, IMPLIED),
+        .op_code = 0x0B,
+        .size = 1,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE,
+    },
+
+    // PHK
+    {
+        OP(PHK, IMPLIED),
+        .op_code = 0x4B,
+        .size = 1,
+        .cycles = 3,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE,
+    },
+
+    // PLB
+    {
+        OP(PLB, IMPLIED),
+        .op_code = 0xAB,
+        .size = 1,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = REGF_M | REGF_N | REGF_Z,
+        .flags = ASMF_IMPURE,
+    },
+
+    // PLD
+    {
+        OP(PLD, IMPLIED),
+        .op_code = 0x2B,
+        .size = 1,
+        .cycles = 5,
+        .input_regs = 0,
+        .output_regs = REGF_M | REGF_N | REGF_Z,
+        .flags = ASMF_IMPURE,
+    },
+
+    // BRL
+    {
+        OP(BRL, RELATIVE_16),
+        .op_code = 0x82,
+        .size = 3,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_JUMP,
+    },
+
+    // PEA
+    {
+        OP(PEA, IMMEDIATE_16),
+        .op_code = 0xF4,
+        .size = 3,
+        .cycles = 5,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+    },
+
+    // PEI
+    {
+        OP(PEA, ZERO_PAGE),
+        .op_code = 0xD4,
+        .size = 2,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+    },
+
+    // PER
+    {
+        OP(PER, IMMEDIATE_16),
+        .op_code = 0xD2,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+    },
+
+    // TCD
+    {
+        OP(TCD, IMPLIED),
+        .op_code = 0x5B,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_A | REGF_A_HI,
+        .output_regs = REGF_M | REGF_N | REGF_Z,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // TCS
+    {
+        OP(TCS, IMPLIED),
+        .op_code = 0x1B,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_A | REGF_A_HI,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // TDC
+    {
+        OP(TDC, IMPLIED),
+        .op_code = 0x7B,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_M,
+        .output_regs = REGF_A | REGF_A_HI | REGF_N | REGF_Z,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // TSC
+    {
+        OP(TDC, IMPLIED),
+        .op_code = 0x3B,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = REGF_M,
+        .output_regs = REGF_A | REGF_A_HI | REGF_N | REGF_Z,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // JMP
+    {
+        OP(JMP, LONG),
+        .op_code = 0x5C,
+        .size = 4,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_JUMP,
+    },
+    {
+        OP(JMP, INDIRECT_LONG),
+        .op_code = 0xDC,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_JUMP,
+    },
+
+#endif
+
+#ifdef ISA_PCE
+
+    // CSH
+    {
+        OP(CSH, IMPLIED),
+        .op_code = 0xD4,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // CSL
+    {
+        OP(CSL, IMPLIED),
+        .op_code = 0x54,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // CLA
+    {
+        OP(CLA, IMPLIED),
+        .op_code = 0x62,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = REGF_A,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // CLX
+    {
+        OP(CLX, IMPLIED),
+        .op_code = 0x82,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = REGF_X,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // CLY
+    {
+        OP(CLY, IMPLIED),
+        .op_code = 0xC2,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = REGF_Y,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // SAX
+    {
+        OP(SAX, IMPLIED),
+        .op_code = 0x22,
+        .size = 1,
+        .cycles = 3,
+        .input_regs  = REGF_A | REGF_X,
+        .output_regs = REGF_A | REGF_X,
+    },
+
+    // SAY
+    {
+        OP(SAY, IMPLIED),
+        .op_code = 0x42,
+        .size = 1,
+        .cycles = 3,
+        .input_regs  = REGF_A | REGF_Y,
+        .output_regs = REGF_A | REGF_Y,
+    },
+
+    // SXY
+    {
+        OP(SXY, IMPLIED),
+        .op_code = 0x02,
+        .size = 1,
+        .cycles = 3,
+        .input_regs  = REGF_X | REGF_Y,
+        .output_regs = REGF_X | REGF_Y,
+    },
+
+    // JSR
+    {
+        OP(JSR, RELATIVE),
+        .op_code = 0x44,
+        .size = 2,
+        .cycles = 8,
+        .input_regs = 0,
+        .output_regs = 0,
+        .flags = ASMF_CALL | ASMF_BRANCH,
     },
 
 #endif

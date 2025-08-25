@@ -19,6 +19,69 @@
 #  define LEGAL
 #endif
 
+// ISA flags:
+constexpr unsigned ISAF_6502         = (1 << 0);
+constexpr unsigned ISAF_6502_ILLEGAL = (1 << 1) | ISAF_6502;
+constexpr unsigned ISAF_65C02        = (1 << 2) | ISAF_6502;
+constexpr unsigned ISAF_SNES         = (1 << 3) | ISAF_65C02;
+constexpr unsigned ISAF_PCE          = (1 << 4) | ISAF_65C02;
+
+constexpr unsigned isa_flags() 
+{
+#ifndef LEGAL
+    return ISAF_6502_ILLEGAL;
+#endif
+
+#ifdef ISA_SNES
+    return ISAF_SNES;
+#endif
+
+#ifdef ISA_PCE
+    return ISAF_PCE;
+#endif
+
+    return ISAF_6502;
+}
+
+// Processor flags:
+constexpr std::uint8_t PFLAG_C  = 1 << 0;
+constexpr std::uint8_t PFLAG_Z  = 1 << 1;
+constexpr std::uint8_t PFLAG_I  = 1 << 2;
+constexpr std::uint8_t PFLAG_D  = 1 << 3;
+constexpr std::uint8_t PFLAG_BX = 1 << 4;
+constexpr std::uint8_t PFLAG_M  = 1 << 5;
+constexpr std::uint8_t PFLAG_V  = 1 << 6;
+constexpr std::uint8_t PFLAG_N  = 1 << 7;
+
+#ifdef ISA_SNES
+using regs_t = std::uint16_t;
+constexpr regs_t REG_A    = 0;
+constexpr regs_t REG_A_HI = 1;
+constexpr regs_t REG_X    = 2;
+constexpr regs_t REG_X_HI = 3;
+constexpr regs_t REG_Y    = 4;
+constexpr regs_t REG_Y_HI = 5;
+constexpr regs_t REG_C    = 6;
+constexpr regs_t REG_M16  = 7; // 16-bit flag
+constexpr regs_t REG_X16  = 8; // 16-bit flag
+constexpr regs_t REG_B    = 9; // Data bank
+constexpr unsigned NUM_CROSS_REGS = 10; // Registers that propagate across CFG nodes
+constexpr regs_t REG_Z    = 10;
+constexpr regs_t REG_N    = 11;
+constexpr unsigned NUM_KNOWN_REGS = 12; // Registers that isel::cpu_t tracks constants of
+constexpr unsigned NUM_ISEL_REGS  = 12; // Registers that isel::cpu_tracks locators of
+constexpr regs_t REG_V    = 12;
+constexpr unsigned NUM_6502_REGS = 13;
+constexpr regs_t REG_M    = 13; // RAM
+constexpr unsigned NUM_REGS = 13;
+
+constexpr regs_t REGF_A_HI = 1 << REG_A_HI;
+constexpr regs_t REGF_X_HI = 1 << REG_X_HI;
+constexpr regs_t REGF_Y_HI = 1 << REG_Y_HI;
+constexpr regs_t REGF_M16  = 1 << REG_M16;
+constexpr regs_t REGF_X16  = 1 << REG_X16;
+constexpr regs_t REGF_B    = 1 << REG_B;
+#else
 using regs_t = std::uint8_t;
 constexpr regs_t REG_A   = 0;
 constexpr regs_t REG_X   = 1;
@@ -33,6 +96,7 @@ constexpr regs_t REG_V   = 6;
 constexpr unsigned NUM_6502_REGS = 7;
 constexpr regs_t REG_M   = 7; // RAM
 constexpr unsigned NUM_REGS = 8;
+#endif
 
 // Works like a bitset.
 constexpr regs_t REGF_A = 1 << REG_A;
@@ -72,7 +136,7 @@ enum op_name_t : std::uint8_t
 
 enum op_t : std::uint16_t
 {
-#define OP(name) name,
+#define OP(name, flags) name,
 #include "op.inc"
 #undef OP
     NUM_NORMAL_OPS,
@@ -119,6 +183,17 @@ struct op_def_t
 
 #include "asm_tables.hpp"
 
+constexpr unsigned op_isa_flags(op_t op)
+{
+    switch(op)
+    {
+#define OP(name, flags) case name: return (flags);
+#include "op.inc"
+#undef OP
+    default: return 0;
+    }
+}
+
 constexpr bool op_normal(op_t op)
     { return op < NUM_NORMAL_OPS; }
 
@@ -137,8 +212,8 @@ constexpr unsigned op_cycles(op_t op)
 constexpr unsigned op_size(op_t op)
     { return op < NUM_NORMAL_OPS ? op_defs_table[op].size : 0; }
 
-constexpr bool op_illegal(op_t op) 
-    { return op_name(op) >= LAX; }
+constexpr bool op_illegal(op_t op)
+    { return op_normal(op) && (op_isa_flags(op) & isa_flags()) == 0; }
 
 constexpr regs_t op_input_regs(op_t op)
 { 

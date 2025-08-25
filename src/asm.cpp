@@ -36,7 +36,7 @@ std::string to_string(op_t op)
     using namespace std::string_literals;
     switch(op)
     {
-#define OP(name) case name: \
+#define OP(name, flags) case name: \
         return BOOST_PP_CAT(BOOST_PP_STRINGIZE(name),s);
 #include "op.inc"
 #undef OP

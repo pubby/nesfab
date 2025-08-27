@@ -142,13 +142,13 @@ struct cpu_t
         return h;
     }
 
-    template<reg_t lhs, reg_t rhs>
+    template<regs_t lhs, regs_t rhs>
     bool swap_regs(options_t opt)
     {
-        if(((1 << lhs) & (opt.can_set & REGF_ISEL)) != Regs)
+        if(((1 << lhs) & (opt.can_set & REGF_ISEL)) != (1 << lhs))
             return false;
 
-        if(((1 << rhs) & (opt.can_set & REGF_ISEL)) != Regs)
+        if(((1 << rhs) & (opt.can_set & REGF_ISEL)) != (1 << rhs))
             return false;
 
         assert(lhs < defs.size()  && rhs < defs.size());

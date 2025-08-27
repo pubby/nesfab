@@ -2968,15 +2968,466 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .output_regs = REGF_X | REGF_Y,
     },
 
-    // JSR
+    // BSR
     {
-        OP(JSR, RELATIVE),
+        OP(BSR, RELATIVE),
         .op_code = 0x44,
         .size = 2,
         .cycles = 8,
         .input_regs = 0,
         .output_regs = 0,
         .flags = ASMF_CALL | ASMF_BRANCH,
+    },
+
+    // SET
+    {
+        OP(SET, IMPLIED),
+        .op_code = 0xF4,
+        .size = 1,
+        .cycles = 2,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // ST0
+    {
+        OP(ST0, IMMEDIATE),
+        .op_code = 0x03,
+        .size = 2,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // ST1
+    {
+        OP(ST1, IMMEDIATE),
+        .op_code = 0x13,
+        .size = 2,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // ST2
+    {
+        OP(ST2, IMMEDIATE),
+        .op_code = 0x23,
+        .size = 2,
+        .cycles = 4,
+        .input_regs = 0,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // TAM
+    {
+        OP(TAM, IMMEDIATE),
+        .op_code = 0x53,
+        .size = 2,
+        .cycles = 5,
+        .input_regs = REGF_A,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE | ASMF_IDEMPOTENT,
+    },
+
+    // TMA
+    {
+        OP(TMA, IMMEDIATE),
+        .op_code = 0x43,
+        .size = 2,
+        .cycles = 4,
+        .input_regs = REGF_M,
+        .output_regs = REGF_A,
+        .flags = ASMF_IDEMPOTENT,
+    },
+
+    // TST
+    {
+        OP(TST, IMMEDIATE_ZERO_PAGE),
+        .op_code = 0x83,
+        .size = 3,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_V,
+    },
+    {
+        OP(TST, IMMEDIATE_ZERO_PAGE_X),
+        .op_code = 0xA3,
+        .size = 3,
+        .cycles = 7,
+        .input_regs = REGF_M | REGF_X,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_V,
+    },
+    {
+        OP(TST, IMMEDIATE_ABSOLUTE),
+        .op_code = 0x93,
+        .size = 4,
+        .cycles = 8,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_V,
+    },
+    {
+        OP(TST, IMMEDIATE_ABSOLUTE_X),
+        .op_code = 0xB3,
+        .size = 4,
+        .cycles = 8,
+        .input_regs = REGF_M | REGF_X,
+        .output_regs = REGF_M | REGF_A | REGF_N | REGF_Z | REGF_V,
+    },
+
+    // BBR
+    {
+        OP(BBR0, ZERO_PAGE_RELATIVE),
+        .op_code = 0x8F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBR1, ZERO_PAGE_RELATIVE),
+        .op_code = 0x9F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBR2, ZERO_PAGE_RELATIVE),
+        .op_code = 0xAF,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBR3, ZERO_PAGE_RELATIVE),
+        .op_code = 0xBF,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBR4, ZERO_PAGE_RELATIVE),
+        .op_code = 0xCF,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBR5, ZERO_PAGE_RELATIVE),
+        .op_code = 0xDF,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBR6, ZERO_PAGE_RELATIVE),
+        .op_code = 0xEF,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBR7, ZERO_PAGE_RELATIVE),
+        .op_code = 0xFF,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+
+    // BBS
+    {
+        OP(BBS0, ZERO_PAGE_RELATIVE),
+        .op_code = 0x0F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBS1, ZERO_PAGE_RELATIVE),
+        .op_code = 0x1F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBS2, ZERO_PAGE_RELATIVE),
+        .op_code = 0x2F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBS3, ZERO_PAGE_RELATIVE),
+        .op_code = 0x3F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBS4, ZERO_PAGE_RELATIVE),
+        .op_code = 0x4F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBS5, ZERO_PAGE_RELATIVE),
+        .op_code = 0x5F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBS6, ZERO_PAGE_RELATIVE),
+        .op_code = 0x6F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+    {
+        OP(BBS7, ZERO_PAGE_RELATIVE),
+        .op_code = 0x7F,
+        .size = 3,
+        .cycles = 6,
+        .input_regs = REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_BRANCH
+    },
+
+    // RMB
+    {
+        OP(RMB0, ZERO_PAGE),
+        .op_code = 0x07,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(RMB1, ZERO_PAGE),
+        .op_code = 0x17,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(RMB2, ZERO_PAGE),
+        .op_code = 0x27,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(RMB3, ZERO_PAGE),
+        .op_code = 0x37,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(RMB4, ZERO_PAGE),
+        .op_code = 0x47,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(RMB5, ZERO_PAGE),
+        .op_code = 0x57,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(RMB6, ZERO_PAGE),
+        .op_code = 0x67,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(RMB7, ZERO_PAGE),
+        .op_code = 0x77,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+
+    // SMB
+    {
+        OP(SMB0, ZERO_PAGE),
+        .op_code = 0x87,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(SMB1, ZERO_PAGE),
+        .op_code = 0x97,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(SMB2, ZERO_PAGE),
+        .op_code = 0xA7,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(SMB3, ZERO_PAGE),
+        .op_code = 0xB7,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(SMB4, ZERO_PAGE),
+        .op_code = 0xC7,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(SMB5, ZERO_PAGE),
+        .op_code = 0xD7,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(SMB6, ZERO_PAGE),
+        .op_code = 0xE7,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+    {
+        OP(SMB7, ZERO_PAGE),
+        .op_code = 0xF7,
+        .size = 2,
+        .cycles = 7,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IDEMPOTENT
+    },
+
+    // TAI
+    {
+        OP(TAI, BLOCK_MOVE),
+        .op_code = 0xF3,
+        .size = 7,
+        .cycles = 17,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE
+    },
+
+    // TIA
+    {
+        OP(TIA, BLOCK_MOVE),
+        .op_code = 0xE3,
+        .size = 7,
+        .cycles = 17,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE
+    },
+
+    // TDD
+    {
+        OP(TDD, BLOCK_MOVE),
+        .op_code = 0xC3,
+        .size = 7,
+        .cycles = 17,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE
+    },
+
+    // TIN
+    {
+        OP(TIN, BLOCK_MOVE),
+        .op_code = 0xD3,
+        .size = 7,
+        .cycles = 17,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE
+    },
+
+    // TII
+    {
+        OP(TII, BLOCK_MOVE),
+        .op_code = 0x73,
+        .size = 7,
+        .cycles = 17,
+        .input_regs = REGF_M,
+        .output_regs = REGF_M,
+        .flags = ASMF_IMPURE
     },
 
 #endif

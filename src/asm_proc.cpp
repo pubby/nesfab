@@ -1273,6 +1273,7 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
             }
             goto absolute_addr;
 
+#ifdef ISA_SNES
         case MODE_RELATIVE_16:
         case MODE_IMMEDIATE_16:
             {
@@ -1283,6 +1284,7 @@ void asm_proc_t::for_each_locator(Fn const& fn) const
                 fn(locs.second);
             }
             break;
+#endif
 
         case MODE_ABSOLUTE:
         case MODE_ABSOLUTE_X:

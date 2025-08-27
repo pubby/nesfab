@@ -287,6 +287,22 @@ constexpr op_name_t invert_branch(op_name_t name)
     case BCS: return BCC;
     case BVC: return BVS;
     case BVS: return BVC;
+    case BBR0: return BBS0;
+    case BBR1: return BBS1;
+    case BBR2: return BBS2;
+    case BBR3: return BBS3;
+    case BBR4: return BBS4;
+    case BBR5: return BBS5;
+    case BBR6: return BBS6;
+    case BBR7: return BBS7;
+    case BBS0: return BBR0;
+    case BBS1: return BBR1;
+    case BBS2: return BBR2;
+    case BBS3: return BBR3;
+    case BBS4: return BBR4;
+    case BBS5: return BBR5;
+    case BBS6: return BBR6;
+    case BBS7: return BBR7;
     default: return BAD_OP_NAME;
     }
 }
@@ -307,6 +323,12 @@ constexpr bool indirect_addr_mode(addr_mode_t mode)
 #ifdef ISA_65C02
     case MODE_INDIRECT_0:
 #endif
+#ifdef ISA_SNES
+    case MODE_INDIRECT_0_LONG:
+    case MODE_INDIRECT_LONG:
+    case MODE_INDIRECT_Y_LONG:
+    case MODE_INDIRECT_STACK_S:
+#endif
         return true;
     default: 
         return false;
@@ -323,6 +345,14 @@ constexpr bool xy_addr_mode(addr_mode_t mode)
     case MODE_ABSOLUTE_Y:
     case MODE_INDIRECT_X:
     case MODE_INDIRECT_Y:
+#ifdef ISA_SNES
+    case MODE_LONG_X:
+    case MODE_INDIRECT_Y_LONG:
+#endif
+#ifdef ISA_PCE
+    case MODE_IMMEDIATE_ZERO_PAGE_X:
+    case MODE_IMMEDIATE_ABSOLUTE_X:
+#endif
         return true;
     default: 
         return false;
@@ -339,6 +369,10 @@ constexpr bool zp_addr_mode(addr_mode_t mode, bool indirect = false)
         return true;
     case MODE_INDIRECT_X:
     case MODE_INDIRECT_Y:
+#ifdef ISA_PCE
+    case MODE_IMMEDIATE_ZERO_PAGE_X:
+    case MODE_ZERO_PAGE_RELATIVE:
+#endif
         return indirect;
     default: 
         return false;
@@ -353,6 +387,14 @@ constexpr addr_mode_t zp_equivalent(addr_mode_t mode)
     case MODE_ABSOLUTE: return MODE_ZERO_PAGE;
     case MODE_ABSOLUTE_X: return MODE_ZERO_PAGE_X;
     case MODE_ABSOLUTE_Y: return MODE_ZERO_PAGE_Y;
+#ifdef ISA_SNES
+    case MODE_LONG: return MODE_ZERO_PAGE;
+    case MODE_LONG_X: return MODE_ZERO_PAGE_X;
+#endif
+#ifdef ISA_PCE
+    case MODE_IMMEDIATE_ABSOLUTE: return MODE_IMMEDIATE_ZERO_PAGE;
+    case MODE_IMMEDIATE_ABSOLUTE_X: return MODE_IMMEDIATE_ZERO_PAGE_X;
+#endif
     }
 }
 

@@ -1032,8 +1032,8 @@ struct set_defs_for_impl<XBA_IMPLIED>
     {
         static_assert(op_output_regs(XBA_IMPLIED) == (REGF_A | REGF_A_HI | REGF_NZ));
 
-        swap_regs<REG_A, REG_A_HI>(opt);
-        set_defs<REG_N | REG_Z>(opt, locator_t());
+        cpu.swap_regs<REG_A, REG_A_HI>(opt);
+        cpu.set_defs<REG_N | REG_Z>(opt, locator_t());
 
         if(cpu.are_known(REGF_A))
         {
@@ -1138,7 +1138,7 @@ struct set_defs_for_impl<SAX_IMPLIED>
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
         static_assert(op_output_regs(SAX_IMPLIED) == (REGF_A | REGF_X));
-        swap_regs<REG_A, REG_X>(opt);
+        cpu.swap_regs<REG_A, REG_X>(opt);
     }
 };
 
@@ -1149,7 +1149,7 @@ struct set_defs_for_impl<SAY_IMPLIED>
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
         static_assert(op_output_regs(SAY_IMPLIED) == (REGF_A | REGF_Y));
-        swap_regs<REG_A, REG_Y>(opt);
+        cpu.swap_regs<REG_A, REG_Y>(opt);
     }
 };
 
@@ -1160,7 +1160,7 @@ struct set_defs_for_impl<SXY_IMPLIED>
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
         static_assert(op_output_regs(SXY_IMPLIED) == (REGF_X | REGF_Y));
-        swap_regs<REG_X, REG_Y>(opt);
+        cpu.swap_regs<REG_X, REG_Y>(opt);
     }
 };
 
@@ -1169,7 +1169,7 @@ struct set_defs_for_impl<CLA_IMPLIED>
 {
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
-        static_assert(op_output_regs(CLA_IMMEDIATE) == (REGF_A));
+        static_assert(op_output_regs(CLA_IMPLIED) == (REGF_A));
 
         cpu.set_output_defs_impl<CLA_IMPLIED>(opt, def);
         cpu.set_known(REG_A, 0);
@@ -1181,7 +1181,7 @@ struct set_defs_for_impl<CLX_IMPLIED>
 {
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
-        static_assert(op_output_regs(CLX_IMMEDIATE) == (REGF_X));
+        static_assert(op_output_regs(CLX_IMPLIED) == (REGF_X));
 
         cpu.set_output_defs_impl<CLX_IMPLIED>(opt, def);
         cpu.set_known(REG_X, 0);
@@ -1193,7 +1193,7 @@ struct set_defs_for_impl<CLY_IMPLIED>
 {
     static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
     {
-        static_assert(op_output_regs(CLY_IMMEDIATE) == (REGF_Y));
+        static_assert(op_output_regs(CLY_IMPLIED) == (REGF_Y));
 
         cpu.set_output_defs_impl<CLY_IMPLIED>(opt, def);
         cpu.set_known(REG_Y, 0);

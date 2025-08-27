@@ -142,7 +142,6 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 
             const_t const& chrrom = g->impl<const_t>();
             ast_node_t const* expr = chrrom.chrrom_offset;
-            assert(expr);
             rom_array_ht const rom_array = chrrom.rom_array();
             assert(rom_array);
             std::size_t const size = rom_array->data().size();

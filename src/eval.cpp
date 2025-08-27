@@ -6195,20 +6195,20 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
                     lhs = to_rval<Policy::D>(lhs);
                     rhs = to_rval<Policy::D>(rhs);
 
-                    passert(lhs.rval().size() == n, lhs.rval().size(), n, lhs.type);
-                    passert(rhs.rval().size() == n, rhs.rval().size(), n, rhs.type);
+                    passert(is_check(Policy::D) || lhs.rval().size() == n, lhs.rval().size(), n, lhs.type, Policy::D);
+                    passert(is_check(Policy::D) || rhs.rval().size() == n, rhs.rval().size(), n, rhs.type, Policy::D);
 
                     for(unsigned i = 0; i < n; ++i)
                     {
                         auto calc_operand = [&]() {
                             return do_compare<Policy>(
                                 expr_value_t{ 
-                                    .val = rval_t{ lhs.rval()[i] }, 
+                                    .val = is_check(Policy::D) ? rval_t{} : rval_t{ lhs.rval()[i] }, 
                                     .type = ::member_type(lhs.type, i),
                                     .pstring = lhs.pstring,
                                     .time = lhs.time },
                                 expr_value_t{ 
-                                    .val = rval_t{ rhs.rval()[i] }, 
+                                    .val = is_check(Policy::D) ? rval_t{} : rval_t{ rhs.rval()[i] }, 
                                     .type = ::member_type(rhs.type, i),
                                     .pstring = rhs.pstring,
                                     .time = rhs.time },
@@ -7623,7 +7623,7 @@ expr_value_t eval_t::force_to_inherited(expr_value_t value, type_t to_type, pstr
             // Shrink the rval to only contain the specified field.
             unsigned const size = num_members(field_type);
 
-            assert(rval.size() == num_members(value.type));
+            passert(rval.size() == num_members(value.type), rval.size(), num_members(value.type));
             assert(size + member_i <= rval.size());
 
             if(member_i != 0)

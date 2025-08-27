@@ -2554,15 +2554,19 @@ fn foo()
 
 === `push` [[kw_push]]
 
-The `push` expression appends a value onto a <<type_vec, VEC value>>.
+The `push` expression inserts values onto a <<type_vec, VEC value>>.
 The expression returns a copy of its second argument.
 
 Syntax:
 ----
-push(vec, elem)
+push(vec, elem, index)
 ----
 - `vec` is an lvalue expression with a <<type_vec, VEC type>>.
-- `elem` is an expression value to be pushed onto `vec`.
+- `elem` is a value to be inserted into `vec`.
+- `index` is an optional value of type `Int`.
+
+When `index` is not included, `elem` is appended onto the end of `vec`.
+Otherwise, `elem` is inserted before the value at `index`.
 
 Example:
 ----
@@ -2570,7 +2574,8 @@ ct fn foo()
     U{} vec = U{}()
     push(vec, 10)
     push(vec, 20)
-    // Now vec = U{}(10, 20)
+    push(vec, 30, 0)
+    // Now vec = U{}(30, 10, 20)
 ----
 
 ==== `push` statement (byte block) [[kw_push_asm]]
@@ -2594,21 +2599,26 @@ pop           // Restore the previous bank
 
 === `pop` [[kw_pop]]
 
-The `pop` expression removes the last value from a <<type_vec, VEC value>>, returning the removed valued.
+The `pop` expression removes a value from a <<type_vec, VEC value>>, returning the removed valued.
 
 Syntax:
 ----
-pop(vec)
+pop(vec, index)
 ----
 - `vec` is an lvalue expression with a <<type_vec, VEC type>>.
+- `index` is an optional value of type `Int`.
+
+When `index` is not included, `elem` is removed from the end of `vec`.
+Otherwise, `elem` is removed at position `index`.
 
 Example:
 ----
 ct fn foo()
-    U{} vec = U{}(10, 20)
-    U x = pop(vec)
+    U{} vec = U{}(30, 10, 20)
+    U x = pop(vec, 0)
     U y = pop(vec)
-    // Now x = 20, y = 10
+    U z = pop(vec)
+    // Now x = 30, y = 20, z = 10
 ----
 
 ==== `pop` statement (byte block) [[kw_pop_asm]]

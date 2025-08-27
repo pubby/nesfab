@@ -82,6 +82,7 @@ private:
     fn_t* base_fn; // Used for inlining.
     stmt_t const* stmt = nullptr;
     ir_t* ir = nullptr;
+    std::vector<expr_value_t> extra; // Extra data that can be passed around.
     bc::small_vector<rval_t, 8> interpret_locals;
     bc::small_vector<type_t, 8> var_types;
 
@@ -4462,10 +4463,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         }
 
     case TOK_push:
+        if(ast.num_children() == 3)
+            extra = { do_expr<D>(ast.children[2]) };
         return infix(&eval_t::do_assign<D, ASSIGN_PUSH>, false, true);
 
     case TOK_pop:
         {
+            if(ast.num_children() == 2)
+                extra = { do_expr<D>(ast.children[1]) };
             expr_value_t lhs = do_expr<D>(ast.children[0]);
             expr_value_t rhs = { .val = rval_t(), .type = TYPE_VOID };
             return do_assign<D, ASSIGN_POP>(std::move(lhs), std::move(rhs), ast.token);
@@ -5976,7 +5981,16 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 assert(is_vec(type.name()));
                 vec_t* const vec_ptr = handle_vec();
                 assert(vec_ptr);
-                vec_ptr->data.push_back(rval);
+                if(extra.size())
+                {
+                    std::int64_t const at = throwing_cast<D>(extra[0], TYPE_INT, false).swhole();
+                    if(at < 0 || at > vec_ptr->data.size())
+                        compiler_error(pstring, fmt("Position % is out of bounds. Size is %.", at, vec_ptr->data.size()));
+                    vec_ptr->data.insert(vec_ptr->data.begin() + at, rval);
+                    extra.clear(); // We're done with 'extra'.
+                }
+                else
+                    vec_ptr->data.push_back(rval);
                 //lhs.time = std::max(rhs.time, calc_time(type.elem_type(), rval)); TODO: remove?
                 assert(rhs.time <= RT);
             }
@@ -5987,8 +6001,24 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 assert(vec_ptr);
                 if(vec_ptr->data.empty())
                     compiler_error(pstring, "Unable to pop. Size is 0.");
-                auto result = vec_ptr->data.back();
-                vec_ptr->data.pop_back();
+
+                rval_t result;
+
+                if(extra.size())
+                {
+                    std::int64_t const at = throwing_cast<D>(extra[0], TYPE_INT, false).swhole();
+                    if(at < 0 || at >= vec_ptr->data.size())
+                        compiler_error(pstring, fmt("Position % is out of bounds. Size is %.", at, vec_ptr->data.size()));
+                    result = vec_ptr->data[at];
+                    vec_ptr->data.erase(vec_ptr->data.begin() + at);
+                    extra.clear(); // We're done with 'extra'.
+
+                }
+                else
+                {
+                    vec_ptr->data.pop_back();
+                    result = vec_ptr->data.back();
+                }
 
                 return expr_value_t
                 {
@@ -6058,6 +6088,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
     }
 
+    rhs.pstring = concat(lhs.pstring, rhs.pstring);
     return rhs;
 }
 
@@ -6164,8 +6195,8 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
                     lhs = to_rval<Policy::D>(lhs);
                     rhs = to_rval<Policy::D>(rhs);
 
-                    assert(lhs.rval().size() == n);
-                    assert(rhs.rval().size() == n);
+                    passert(lhs.rval().size() == n, lhs.rval().size(), n, lhs.type);
+                    passert(rhs.rval().size() == n, rhs.rval().size(), n, rhs.type);
 
                     for(unsigned i = 0; i < n; ++i)
                     {

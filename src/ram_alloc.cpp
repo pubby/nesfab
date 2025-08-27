@@ -505,7 +505,7 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
 
         struct rank_t
         {
-            unsigned score;
+            std::uint64_t score;
             locator_t loc;
         };
 
@@ -524,10 +524,15 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
             bool const insist_align = mod_test(gmember.gvar.mods(), MOD_align);
             auto& non_zp_vec = insist_align ? ordered_gmembers_aligned : ordered_gmembers;
 
+            // Prioritize variables that require specific allocation locations:
+            std::uint64_t bonus = 0;
+            if(mod_test_either(gmember.gvar.mods(), MOD_sram))
+                bonus = std::uint64_t(1) << 63;
+
             if(is_paa(gmember.type().name()))
             {
                 // PAAs are handled separately, as they won't appear in the code.
-                non_zp_vec.push_back({ pair.first.mem_size() * size_scale, pair.first });
+                non_zp_vec.push_back({ pair.first.mem_size() * size_scale + bonus, pair.first });
             }
             else
             {
@@ -536,9 +541,9 @@ ram_allocator_t::ram_allocator_t(log_t* log, ram_bitset_t const& initial_usable_
                     continue;
 
                 if(pair.first.mem_zp_only())
-                    ordered_gmembers_zp.push_back({ pair.first.mem_size(), pair.first });
+                    ordered_gmembers_zp.push_back({ pair.first.mem_size() + bonus, pair.first });
                 else
-                    non_zp_vec.push_back({ (pair.first.mem_size() * size_scale) + pair.second, pair.first });
+                    non_zp_vec.push_back({ (pair.first.mem_size() * size_scale) + pair.second + bonus, pair.first });
             }
         }
 

@@ -982,17 +982,29 @@ retry:
     case TOK_push:
     case TOK_pop:
         {
+            unsigned min_argn = 1;
+            unsigned max_argn = 2;
+            if(token.type == TOK_push)
+            {
+                min_argn = 2;
+                max_argn = 3;
+            }
+
             ast_node_t ast = { .token = token };
             parse_token();
 
             bc::small_vector<ast_node_t, 2> children;
             unsigned const argn = parse_args(TOK_lparen, TOK_rparen,
                 [&](unsigned){ children.push_back(parse_expr(indent, open_parens+1)); });
-            if(argn != ast.num_children())
-                compiler_error(ast.token.pstring, fmt("Wrong number of arguments to %. Expecting %.", 
-                                                      token_string(ast.token.type), ast.num_children()));
+
+            if(argn < min_argn || argn > max_argn)
+            {
+                compiler_error(ast.token.pstring, fmt("Wrong number of arguments to %. Expecting % to %.", 
+                                                      token_string(ast.token.type), min_argn, max_argn));
+            }
             ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
-            ast.token.pstring = fast_concat(ast.token.pstring, token.pstring);
+            ast.token.pstring = concat(ast.token.pstring, token.pstring);
+            ast.token.value = argn;
 
             return ast;
         }

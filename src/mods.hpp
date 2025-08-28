@@ -114,6 +114,7 @@ std::string_view to_string(mod_flags_t flag);
 
 // Used to test if a mod flag is enabled / disabled:
 bool mod_test(flag_mods_t const* mods, mod_flags_t flags, bool enabled = true);
+bool mod_test_either(flag_mods_t const* mods, mod_flags_t flags);
 
 // (Base class to be inherited.)
 class modded_t

@@ -63,7 +63,6 @@ void symbol_table_t::clear()
 int anonymous_table_t::get_absolute(pstring_t at, unsigned scope, int index) const
 {
     unsigned s = scope;
-    std::printf("%i %i\n", s, index);
 
     while(index < 0)
     {
@@ -85,6 +84,5 @@ int anonymous_table_t::get_absolute(pstring_t at, unsigned scope, int index) con
     }
 
     assert(index >= 0);
-    std::printf("new: %i %i\n", s, index);
     return scopes[s].defs[index];
 }

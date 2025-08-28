@@ -82,6 +82,7 @@ private:
     fn_t* base_fn; // Used for inlining.
     stmt_t const* stmt = nullptr;
     ir_t* ir = nullptr;
+    std::vector<expr_value_t> extra; // Extra data that can be passed around.
     bc::small_vector<rval_t, 8> interpret_locals;
     bc::small_vector<type_t, 8> var_types;
 
@@ -321,6 +322,8 @@ public:
     expr_value_t force_vecify_tea(expr_value_t value, type_t to_type, pstring_t cast_pstring);
     template<do_t D>
     expr_value_t force_teaify_vec(expr_value_t value, type_t to_type, pstring_t cast_pstring);
+    template<do_t D>
+    expr_value_t force_to_inherited(expr_value_t value, type_t to_type, pstring_t cast_pstring);
 
     template<do_t D>
     bool cast(expr_value_t& v, type_t to_type, bool implicit, pstring_t pstring = {});
@@ -2980,43 +2983,57 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(elem_type.name() == TYPE_STRUCT)
             {
                 struct_t const& s = elem_type.struct_();
+                bc::small_vector<unsigned, 1> accesses;
                 auto const ptr = s.fields().lookup(hash);
 
-                if(!ptr)
-                    goto bad_accessor;
-
-                unsigned const field_i = ptr - s.fields().begin();
-                unsigned const member_i = member_index(lhs.type, field_i);
-
-                if(lhs.is_lval())
-                    lhs.lval().add_field(field_i, member_i);
-                else if(lhs.is_rval())
+                if(!s.inherits() && ptr)
+                    accesses.push_back(ptr - s.fields().begin());
+                else
                 {
-                    if(!is_check(D))
-                    {
-                        rval_t& rval = lhs.rval();
-
-                        // Shrink the rval to only contain the specified field.
-                        unsigned const size = num_members(ptr->second.type());
-
-                        assert(rval.size() == num_members(lhs.type));
-                        assert(size + member_i <= rval.size());
-
-                        if(member_i != 0)
-                            for(unsigned i = 0; i < size; ++i)
-                                rval[i] = std::move(rval[i + member_i]);
-                        rval.resize(size);
-                    }
+                    accesses = s.inherit_lookup(ast.token.pstring, hash);
+                    if(accesses.empty())
+                        goto bad_accessor;
                 }
-                else
-                    goto bad_accessor;
 
-                if(is_tea)
-                    lhs.type = type_t::tea(ptr->second.type(), tea_length);
-                else if(is_vec)
-                    lhs.type = type_t::vec(ptr->second.type());
-                else
-                    lhs.type = ptr->second.type();
+                while(accesses.size())
+                {
+                    unsigned const field_i = accesses.back();
+                    unsigned const member_i = member_index(elem_type, field_i);
+                    type_t const field_type = elem_type.struct_().field(field_i).decl.src_type.type;
+
+                    if(lhs.is_lval())
+                        lhs.lval().add_field(field_i, member_i);
+                    else if(lhs.is_rval())
+                    {
+                        if(!is_check(D))
+                        {
+                            rval_t& rval = lhs.rval();
+
+                            // Shrink the rval to only contain the specified field.
+                            unsigned const size = num_members(field_type);
+
+                            assert(rval.size() == num_members(lhs.type));
+                            assert(size + member_i <= rval.size());
+
+                            if(member_i != 0)
+                                for(unsigned i = 0; i < size; ++i)
+                                    rval[i] = std::move(rval[i + member_i]);
+                            rval.resize(size);
+                        }
+                    }
+                    else
+                        goto bad_accessor;
+
+                    if(is_tea)
+                        lhs.type = type_t::tea(field_type, tea_length);
+                    else if(is_vec)
+                        lhs.type = type_t::vec(field_type);
+                    else
+                        lhs.type = field_type;
+
+                    elem_type = field_type;
+                    accesses.pop_back();
+                }
             }
             else if(lhs.type.name() == TYPE_FN)
             {
@@ -4446,10 +4463,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         }
 
     case TOK_push:
+        if(ast.num_children() == 3)
+            extra = { do_expr<D>(ast.children[2]) };
         return infix(&eval_t::do_assign<D, ASSIGN_PUSH>, false, true);
 
     case TOK_pop:
         {
+            if(ast.num_children() == 2)
+                extra = { do_expr<D>(ast.children[1]) };
             expr_value_t lhs = do_expr<D>(ast.children[0]);
             expr_value_t rhs = { .val = rval_t(), .type = TYPE_VOID };
             return do_assign<D, ASSIGN_POP>(std::move(lhs), std::move(rhs), ast.token);
@@ -5960,7 +5981,16 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 assert(is_vec(type.name()));
                 vec_t* const vec_ptr = handle_vec();
                 assert(vec_ptr);
-                vec_ptr->data.push_back(rval);
+                if(extra.size())
+                {
+                    std::int64_t const at = throwing_cast<D>(extra[0], TYPE_INT, false).swhole();
+                    if(at < 0 || at > vec_ptr->data.size())
+                        compiler_error(pstring, fmt("Position % is out of bounds. Size is %.", at, vec_ptr->data.size()));
+                    vec_ptr->data.insert(vec_ptr->data.begin() + at, rval);
+                    extra.clear(); // We're done with 'extra'.
+                }
+                else
+                    vec_ptr->data.push_back(rval);
                 //lhs.time = std::max(rhs.time, calc_time(type.elem_type(), rval)); TODO: remove?
                 assert(rhs.time <= RT);
             }
@@ -5971,8 +6001,24 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 assert(vec_ptr);
                 if(vec_ptr->data.empty())
                     compiler_error(pstring, "Unable to pop. Size is 0.");
-                auto result = vec_ptr->data.back();
-                vec_ptr->data.pop_back();
+
+                rval_t result;
+
+                if(extra.size())
+                {
+                    std::int64_t const at = throwing_cast<D>(extra[0], TYPE_INT, false).swhole();
+                    if(at < 0 || at >= vec_ptr->data.size())
+                        compiler_error(pstring, fmt("Position % is out of bounds. Size is %.", at, vec_ptr->data.size()));
+                    result = vec_ptr->data[at];
+                    vec_ptr->data.erase(vec_ptr->data.begin() + at);
+                    extra.clear(); // We're done with 'extra'.
+
+                }
+                else
+                {
+                    vec_ptr->data.pop_back();
+                    result = vec_ptr->data.back();
+                }
 
                 return expr_value_t
                 {
@@ -6042,6 +6088,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
         }
     }
 
+    rhs.pstring = concat(lhs.pstring, rhs.pstring);
     return rhs;
 }
 
@@ -6148,20 +6195,20 @@ expr_value_t eval_t::do_compare(expr_value_t lhs, expr_value_t rhs, token_t cons
                     lhs = to_rval<Policy::D>(lhs);
                     rhs = to_rval<Policy::D>(rhs);
 
-                    assert(lhs.rval().size() == n);
-                    assert(rhs.rval().size() == n);
+                    passert(is_check(Policy::D) || lhs.rval().size() == n, lhs.rval().size(), n, lhs.type, Policy::D);
+                    passert(is_check(Policy::D) || rhs.rval().size() == n, rhs.rval().size(), n, rhs.type, Policy::D);
 
                     for(unsigned i = 0; i < n; ++i)
                     {
                         auto calc_operand = [&]() {
                             return do_compare<Policy>(
                                 expr_value_t{ 
-                                    .val = rval_t{ lhs.rval()[i] }, 
+                                    .val = is_check(Policy::D) ? rval_t{} : rval_t{ lhs.rval()[i] }, 
                                     .type = ::member_type(lhs.type, i),
                                     .pstring = lhs.pstring,
                                     .time = lhs.time },
                                 expr_value_t{ 
-                                    .val = rval_t{ rhs.rval()[i] }, 
+                                    .val = is_check(Policy::D) ? rval_t{} : rval_t{ rhs.rval()[i] }, 
                                     .type = ::member_type(rhs.type, i),
                                     .pstring = rhs.pstring,
                                     .time = rhs.time },
@@ -7554,6 +7601,53 @@ expr_value_t eval_t::force_teaify_vec(expr_value_t value, type_t to_type, pstrin
 }
 
 template<eval_t::do_t D>
+expr_value_t eval_t::force_to_inherited(expr_value_t value, type_t to_type, pstring_t cast_pstring)
+{
+    assert(value.type.name() == TYPE_STRUCT);
+    assert(to_type.name() == TYPE_STRUCT);
+
+    value = to_rval<D>(std::move(value));
+    rval_t& rval = value.rval();
+
+    if(!is_check(D))
+    {
+        bc::small_vector<unsigned, 1> accesses = value.type.struct_().inherit_cast(to_type);
+        assert(accesses.size());
+
+        while(accesses.size())
+        {
+            unsigned const field_i = accesses.back();
+            unsigned const member_i = member_index(value.type, field_i);
+            type_t const field_type = value.type.struct_().field(field_i).decl.src_type.type;
+
+            // Shrink the rval to only contain the specified field.
+            unsigned const size = num_members(field_type);
+
+            passert(rval.size() == num_members(value.type), rval.size(), num_members(value.type));
+            assert(size + member_i <= rval.size());
+
+            if(member_i != 0)
+                for(unsigned i = 0; i < size; ++i)
+                    rval[i] = std::move(rval[i + member_i]);
+            rval.resize(size);
+
+            value.type = field_type;
+            accesses.pop_back();
+        }
+
+        passert(value.type == to_type, value.type, to_type);
+    }
+
+    return expr_value_t
+    {
+        .val = std::move(rval),
+        .type = to_type, 
+        .pstring = cast_pstring ? concat(value.pstring, cast_pstring) : value.pstring,
+        .time = value.time,
+    };
+}
+
+template<eval_t::do_t D>
 bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t cast_pstring)
 {
     value.assert_valid();
@@ -7688,6 +7782,9 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
         return true;
     case CAST_TEAIFY_VEC:
         value = force_teaify_vec<D>(std::move(value), to_type, cast_pstring);
+        return true;
+    case CAST_TO_INHERITED:
+        value = force_to_inherited<D>(std::move(value), to_type, cast_pstring);
         return true;
     }
 }

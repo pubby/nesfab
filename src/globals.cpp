@@ -146,14 +146,14 @@ const_ht global_t::define_const(lpstring_t lpstring, ideps_map_t&& ideps,
 }
 
 struct_ht global_t::define_struct(lpstring_t lpstring, ideps_map_t&& ideps,
-                                  field_map_t&& fields)
+                                  field_map_t&& fields, std::unique_ptr<mods_t> mods)
 {
     struct_t* ret;
 
     // Create the struct
     struct_ht h = { define(lpstring, GLOBAL_STRUCT, std::move(ideps), [&](global_t& g)
     { 
-        return struct_ht::pool_emplace(ret, g, std::move(fields)).id;
+        return struct_ht::pool_emplace(ret, g, std::move(fields), std::move(mods)).id;
     }) };
     
     return h;
@@ -2229,6 +2229,9 @@ unsigned struct_t::count_members()
 
     for(unsigned i = 0; i < fields().size(); ++i)
     {
+        if(mod_test(field(i).mods(), MOD_inherit))
+            m_inherits = true;
+
         type_t type = const_cast<type_t&>(field(i).type()) = dethunkify(field(i).decl.src_type, false);
 
         if(is_tea(type.name()))
@@ -2251,6 +2254,10 @@ unsigned struct_t::count_members()
         {
             passert(is_vec(type.name()) || !is_aggregate(type.name()), type);
             count += ::num_members(type);
+
+            // Also verify 'inherit' here:
+            if(mod_test(field(i).mods(), MOD_inherit))
+                compiler_error(field(i).decl.src_type.pstring, "+inherit applied to a non-struct type.");
         }
     }
 
@@ -2270,6 +2277,94 @@ void struct_t::resolve()
 
 void struct_t::precheck() { assert(compiler_phase() == PHASE_PRECHECK); }
 void struct_t::compile() { assert(compiler_phase() == PHASE_COMPILE); }
+
+bc::small_vector<unsigned, 1> struct_t::inherit_cast(type_t to) const
+{
+    if(to.name() != TYPE_STRUCT)
+        return {};
+
+    bc::small_vector<unsigned, 1> v;
+
+    for(unsigned i = 0; i < fields().size(); ++i)
+    {
+        if(!mod_test(field(i).mods(), MOD_inherit))
+            continue;
+
+        type_t field_type = field(i).type();
+
+        if(field_type == to)
+        {
+            if(v.size()) // If we already found.
+            {
+            error:
+                throw compiler_error_t(
+                    fmt_error(global.pstring(), 
+                              fmt("Ambiguous cast from % to % due to inheritance.\n", global.name, to.struct_().global.name))
+                    + fmt_note(field(i).decl.src_type.pstring, "Conflicting field."));
+            }
+
+            v.push_back(i);
+        }
+        else if(field_type.name() == TYPE_STRUCT) 
+        {
+            bc::small_vector<unsigned, 1> iv = field_type.struct_().inherit_cast(to);
+
+            if(iv.size())
+            {
+                if(v.size()) // If we already found.
+                    goto error;
+
+                v = std::move(iv);
+                v.push_back(i);
+            }
+        }
+    }
+
+    return v;
+}
+
+bc::small_vector<unsigned, 1> struct_t::inherit_lookup(pstring_t at, std::uint64_t hash) const
+{
+    bc::small_vector<unsigned, 1> v;
+
+    for(unsigned i = 0; i < fields().size(); ++i)
+    {
+        if(field_hash(i) == hash)
+        {
+            if(v.size()) // If we already found.
+            {
+            error:
+                throw compiler_error_t(
+                    fmt_error(at, fmt("Ambiguous member lookup in % due to inheritance.\n", global.name))
+                    + fmt_note(global.pstring(), "Struct declared here."));
+            }
+
+            v.push_back(i);
+            continue;
+        }
+
+        if(!mod_test(field(i).mods(), MOD_inherit))
+            continue;
+
+        type_t field_type = field(i).type();
+
+        if(field_type.name() == TYPE_STRUCT) 
+        {
+            bc::small_vector<unsigned, 1> iv = field_type.struct_().inherit_lookup(at, hash);
+
+            if(iv.size())
+            {
+                if(v.size()) // If we already found.
+                    goto error;
+
+                v = std::move(iv);
+                v.push_back(i);
+            }
+        }
+    }
+
+    return v;
+}
 
 // Builds 'm_member_types' and dethunkifies the struct.
 void struct_t::gen_member_types(struct_t const& s, int tea_size)

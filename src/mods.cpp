@@ -203,3 +203,9 @@ bool mod_test(flag_mods_t const* mods, mod_flags_t flags, bool enabled)
         return flags & mods->disable;
 }
 
+bool mod_test_either(flag_mods_t const* mods, mod_flags_t flags) 
+{ 
+    if(!mods)
+        return false;
+    return flags & (mods->enable | mods->disable);
+}

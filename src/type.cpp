@@ -525,11 +525,16 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
             return implicit ? CAST_FAIL : CAST_TRUNCATE;
     }
 
+    // TEAs can be resized.
     if(!implicit && is_tea(from.name()) && is_tea(to.name()))
     {
         if(from.elem_type() == to.elem_type())
             return CAST_RESIZE_TEA;
     }
+
+    // Structs can cast to their inherited members.
+    if(from.name() == TYPE_STRUCT && from.struct_().inherit_cast(to).size())
+        return CAST_TO_INHERITED;
 
     return CAST_FAIL;
 }

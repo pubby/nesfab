@@ -1037,8 +1037,8 @@ struct set_defs_for_impl<XBA_IMPLIED>
 
         if(cpu.are_known(REGF_A))
         {
-            cpu.set_known(REG_Z, !old.known[REG_A]);
-            cpu.set_known(REG_N, !!(old.known[REG_A] & 0x80));
+            cpu.set_known(REG_Z, !cpu.known[REG_A]);
+            cpu.set_known(REG_N, !!(cpu.known[REG_A] & 0x80));
         }
     }
 };

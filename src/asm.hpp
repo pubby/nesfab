@@ -327,7 +327,7 @@ constexpr bool indirect_addr_mode(addr_mode_t mode)
     case MODE_INDIRECT_0_LONG:
     case MODE_INDIRECT_LONG:
     case MODE_INDIRECT_Y_LONG:
-    case MODE_INDIRECT_STACK_S:
+    case MODE_INDIRECT_STACK_S_Y:
 #endif
         return true;
     default: 

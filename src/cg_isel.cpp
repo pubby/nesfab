@@ -947,7 +947,7 @@ namespace isel
             {
 #ifdef ISA_SNES
                 simple_op<TYX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
-#elifdef ISA_PCE
+#elif defined ISA_PCE
                 chain
                 < simple_op<Opt, SXY_IMPLIED>
                 , set_defs<Opt, REGF_X, true, Def> // Have to set registers after a switch op.
@@ -1023,7 +1023,7 @@ namespace isel
             {
 #ifdef ISA_SNES
                 simple_op<TXY_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
-#elifdef ISA_PCE
+#elif defined ISA_PCE
                 chain
                 < simple_op<Opt, SXY_IMPLIED>
                 , set_defs<Opt, REGF_Y, true, Def> // Have to set registers after a switch op.

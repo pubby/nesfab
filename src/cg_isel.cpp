@@ -532,9 +532,15 @@ namespace isel
             return !arg;
         case MODE_RELATIVE:
         case MODE_MAYBE_RELATIVE:
+#ifdef ISA_SNES
+        case MODE_RELATIVE_16:
+#endif
             return is_label(arg.lclass());
         case MODE_IMMEDIATE:
         case MODE_BUGGY_IMMEDIATE:
+#ifdef ISA_SNES
+        case MODE_IMMEDIATE_16:
+#endif
             return arg.is_immediate();
         case MODE_ZERO_PAGE:
         case MODE_ZERO_PAGE_X:
@@ -547,6 +553,19 @@ namespace isel
         case MODE_INDIRECT_Y:
         case MODE_MAYBE:
         case MODE_LIKELY:
+#ifdef ISA_65C02
+        case MODE_INDIRECT_0:
+        case MODE_ABSOLUTE_INDIRECT_X:
+#endif
+#ifdef ISA_SNES
+        case MODE_INDIRECT_0_LONG:
+        case MODE_LONG:
+        case MODE_LONG_X:
+        case MODE_INDIRECT_LONG:
+        case MODE_INDIRECT_Y_LONG:
+        case MODE_STACK_S:
+        case MODE_INDIRECT_STACK_S_Y:
+#endif
             return bool(arg);
         default:
             return true;
@@ -572,9 +591,7 @@ namespace isel
         {
             unsigned penalty = 0;
             if((op_input_regs(Op) & REGF_M)
-               && (mode == MODE_ZERO_PAGE 
-                   || mode == MODE_ABSOLUTE 
-                   || indirect_addr_mode(mode)))
+               && (direct_addr_mode(mode) || indirect_addr_mode(mode)))
             {
                 penalty = handle_req_store_penalty<Op>(cpu_copy, ssa_def, ssa_arg);
             }
@@ -596,7 +613,7 @@ namespace isel
     {
 #ifndef NDEBUG
         constexpr auto mode = op_addr_mode(Op);
-        assert(Op >= NUM_NORMAL_OPS || mode == MODE_IMPLIED || mode == MODE_RELATIVE || mode == MODE_IMMEDIATE || mode == MODE_BAD);
+        assert(Op >= NUM_NORMAL_OPS || simple_addr_mode(mode));
         passert(valid_arg<Op>(arg), arg, Op);
 #endif
         cpu_t cpu_copy = cpu;
@@ -617,29 +634,61 @@ namespace isel
         {
         case BEQ:
         case BNE:
-            if(cpu.def_eq(REG_Z, locator_t::const_byte(Op == BEQ)))
+            if(cpu.is_known(REG_Z))
+            {
+                if(!!cpu.known[REG_Z] == (Op == BEQ))
+                    goto jmp;
                 cont->call(cpu, prev);
-            else if(cpu.def_eq(REG_Z, locator_t::const_byte(Op != BEQ)))
-                goto jmp;
+                return;
+            }
             goto regular;
 
         case BCS:
         case BCC:
-            if(cpu.def_eq(REG_C, locator_t::const_byte(Op == BCS)))
+            if(cpu.is_known(REG_C))
+            {
+                if(!!cpu.known[REG_C] == (Op == BCS))
+                    goto jmp;
                 cont->call(cpu, prev);
-            else if(cpu.def_eq(REG_Z, locator_t::const_byte(Op != BCS)))
-                goto jmp;
+                return;
+            }
             goto regular;
 
         case BMI:
         case BPL:
-            if(cpu.def_eq(REG_N, locator_t::const_byte(Op == BMI)))
+            if(cpu.is_known(REG_N))
+            {
+                if(!!cpu.known[REG_N] == (Op == BMI))
+                    goto jmp;
                 cont->call(cpu, prev);
-            else if(cpu.def_eq(REG_Z, locator_t::const_byte(Op != BMI)))
-                goto jmp;
+                return;
+            }
             goto regular;
 
         default:
+#ifdef ISA_PCE
+            if(is_bbr(Op))
+            {
+                if(cpu.is_known(REG_A))
+                {
+                    if((cpu.known[REG_A] & bbr_mask(Op)) == 0)
+                        goto jmp;
+                    cont->call(cpu, prev);
+                    return;
+                }
+            }
+            else if(is_bbs(Op))
+            {
+                if(cpu.is_known(REG_A))
+                {
+                    if((cpu.known[REG_A] & bbs_mask(Op)) != 0)
+                        goto jmp;
+                    cont->call(cpu, prev);
+                    return;
+                }
+            }
+#endif
+            // fall-thru
         regular:
             simple_op<Opt, get_op(Op, MODE_RELATIVE), null_, Arg>(cpu, prev, cont);
             break;
@@ -672,9 +721,7 @@ namespace isel
 
             simple_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
 
-#ifdef ISA_65C02
             simple_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
-#endif
         }
         else if(cpu.def_eq(REG_X, v))
         {
@@ -838,6 +885,22 @@ namespace isel
             cont->call(cpu_copy, alloc_sel<ROR_IMPLIED>(cpu, prev));
             return;
         }
+
+#ifdef ISA_65C02
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<INC_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
+        {
+            cont->call(cpu_copy, alloc_sel<INC_IMPLIED>(cpu, prev));
+            return;
+        }
+
+        cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<DEC_IMPLIED>(opt, {}, {}) && cpu_copy.is_known(REG_A, byte))
+        {
+            cont->call(cpu_copy, alloc_sel<DEC_IMPLIED>(cpu, prev));
+            return;
+        }
+#endif
     }
 
     template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
@@ -1124,6 +1187,18 @@ namespace isel
         locator_t const a = A::value();
         locator_t const x = X::value();
 
+#ifdef ISA_PCE
+        if(cpu.value_eq(REG_A, x) && cpu.value_eq(REG_X, a))
+        {
+            chain
+            < simple_op<Opt, SAX_IMPLIED>
+            , set_defs<Opt, REGF_A, true, A> // Have to set registers after a switch op.
+            , set_defs<Opt, REGF_X, true, X> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+            return;
+        }
+#endif
+
         if(cpu.value_eq(REG_A, a))
         {
             if(cpu.value_eq(REG_X, x))
@@ -1152,6 +1227,18 @@ namespace isel
         locator_t const a = A::value();
         locator_t const y = Y::value();
 
+#ifdef ISA_PCE
+        if(cpu.value_eq(REG_A, y) && cpu.value_eq(REG_X, a))
+        {
+            chain
+            < simple_op<Opt, SAY_IMPLIED>
+            , set_defs<Opt, REGF_A, true, A> // Have to set registers after a switch op.
+            , set_defs<Opt, REGF_Y, true, Y> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+            return;
+        }
+#endif
+
         if(cpu.value_eq(REG_A, a))
         {
             if(cpu.value_eq(REG_Y, y))
@@ -1179,6 +1266,18 @@ namespace isel
     {
         locator_t const x = X::value();
         locator_t const y = Y::value();
+
+#ifdef ISA_PCE
+        if(cpu.value_eq(REG_X, y) && cpu.value_eq(REG_X, y))
+        {
+            chain
+            < simple_op<Opt, SXY_IMPLIED>
+            , set_defs<Opt, REGF_X, true, X> // Have to set registers after a switch op.
+            , set_defs<Opt, REGF_Y, true, Y> // Have to set registers after a switch op.
+            >(cpu, prev, cont);
+            return;
+        }
+#endif
 
         if(cpu.value_eq(REG_X, x))
         {

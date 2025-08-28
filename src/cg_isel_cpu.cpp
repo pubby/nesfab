@@ -500,11 +500,12 @@ struct set_defs_for_impl<ROR_IMPLIED>
                 cpu.set_known(REG_C, c);
             }
         }
-        else if(cpu.are_known(REGF_C) && cpu.known[REG_C])
+        else if(cpu.is_known(REG_C))
         {
             cpu.set_output_defs_impl<ROR_IMPLIED>(opt, def);
-            cpu.set_known(REG_Z, 0);
-            cpu.set_known(REG_N, 1);
+            if(cpu.known[REG_C])
+                cpu.set_known(REG_Z, 0);
+            cpu.set_known(REG_N, cpu.known[REG_C]);
         }
         else
             cpu.set_output_defs_impl<ROR_IMPLIED>(opt, def);
@@ -554,14 +555,6 @@ struct set_defs_for_impl<TAX_IMPLIED>
             cpu.set_known(REG_Z, !old.known[REG_A]);
             cpu.set_known(REG_N, !!(old.known[REG_A] & 0x80));
         }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
-        }
     }
 };
 
@@ -585,14 +578,6 @@ struct set_defs_for_impl<TAY_IMPLIED>
             cpu.set_known(REG_Y, old.known[REG_A]);
             cpu.set_known(REG_Z, !old.known[REG_A]);
             cpu.set_known(REG_N, !!(old.known[REG_A] & 0x80));
-        }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
         }
     }
 };
@@ -618,14 +603,6 @@ struct set_defs_for_impl<TXA_IMPLIED>
             cpu.set_known(REG_Z, !old.known[REG_X]);
             cpu.set_known(REG_N, !!(old.known[REG_X] & 0x80));
         }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
-        }
     }
 };
 
@@ -649,14 +626,6 @@ struct set_defs_for_impl<TYA_IMPLIED>
             cpu.set_known(REG_A, old.known[REG_Y]);
             cpu.set_known(REG_Z, !old.known[REG_Y]);
             cpu.set_known(REG_N, !!(old.known[REG_Y] & 0x80));
-        }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
         }
     }
 };
@@ -800,11 +769,12 @@ struct set_defs_for_impl<ARR_IMMEDIATE>
                 cpu.set_known(REG_C, c);
             }
         }
-        else if(cpu.are_known(REGF_C) && cpu.known[REG_C])
+        else if(cpu.is_known(REG_C))
         {
             cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
-            cpu.set_known(REG_Z, 0);
-            cpu.set_known(REG_N, 1);
+            if(cpu.known[REG_C])
+                cpu.set_known(REG_Z, 0);
+            cpu.set_known(REG_N, cpu.known[REG_C]);
         }
         else
             cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
@@ -981,14 +951,6 @@ struct set_defs_for_impl<TXY_IMPLIED>
             cpu.set_known(REG_Z, !old.known[REG_X]);
             cpu.set_known(REG_N, !!(old.known[REG_X] & 0x80));
         }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
-        }
     }
 };
 
@@ -1012,14 +974,6 @@ struct set_defs_for_impl<TYX_IMPLIED>
             cpu.set_known(REG_X, old.known[REG_Y]);
             cpu.set_known(REG_Z, !old.known[REG_Y]);
             cpu.set_known(REG_N, !!(old.known[REG_Y] & 0x80));
-        }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
         }
     }
 };

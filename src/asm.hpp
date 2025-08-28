@@ -313,6 +313,21 @@ constexpr op_t invert_branch(op_t op)
 
 }
 
+constexpr bool direct_addr_mode(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    case MODE_ZERO_PAGE:
+    case MODE_ABSOLUTE:
+#ifdef ISA_SNES
+    case MODE_LONG:
+#endif
+        return true;
+    default: 
+        return false;
+    }
+}
+
 constexpr bool indirect_addr_mode(addr_mode_t mode)
 {
     switch(mode)
@@ -379,6 +394,29 @@ constexpr bool zp_addr_mode(addr_mode_t mode, bool indirect = false)
     }
 }
 
+// References 'simple_op' in cg_isel.cpp:
+constexpr bool simple_addr_mode(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    case MODE_IMPLIED:
+    case MODE_RELATIVE:
+    case MODE_IMMEDIATE:
+    case MODE_BAD:
+#ifdef ISA_SNES
+    case MODE_IMMEDIATE_16:
+    case MODE_RELATIVE_16:
+    case MODE_IMMEDIATE_IMMEDIATE:
+#endif
+#ifdef ISA_PCE
+    case MODE_BLOCK_MOVE:
+#endif
+        return true;
+    default:
+        return false;
+    }
+}
+
 constexpr addr_mode_t zp_equivalent(addr_mode_t mode)
 {
     switch(mode)
@@ -397,6 +435,15 @@ constexpr addr_mode_t zp_equivalent(addr_mode_t mode)
 #endif
     }
 }
+
+constexpr bool is_bbr(op_name_t op) { return op >= BBR0 && op <= BBR7; }
+constexpr bool is_bbs(op_name_t op) { return op >= BBS0 && op <= BBS7; }
+
+constexpr unsigned bbr_bit(op_name_t op) { assert(is_bbr(op)); return op - BBR0; }
+constexpr unsigned bbs_bit(op_name_t op) { assert(is_bbs(op)); return op - BBS0; }
+
+constexpr std::uint8_t bbr_mask(op_name_t op) { return 1 << bbr_bit(op); }
+constexpr std::uint8_t bbs_mask(op_name_t op) { return 1 << bbs_bit(op); }
 
 constexpr addr_mode_t buggy_equivalent(addr_mode_t mode)
 {

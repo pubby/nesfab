@@ -16,9 +16,14 @@ static pstring_t _find_global(ast_node_t const& ast, global_t const* global)
 pstring_t fn_def_t::find_global(global_t const* global) const
 {
     for(stmt_t const& stmt : stmts)
+    {
         if(has_expression(stmt.name))
+        {
+            passert(stmt.expr, to_string(stmt.name));
             if(pstring_t pstring = _find_global(*stmt.expr, global))
                 return pstring;
+        }
+    }
     return {};
 }
 

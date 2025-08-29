@@ -41,7 +41,7 @@ struct stmt_mods_ht : handle_t<stmt_mods_ht, std::uint16_t, ~0> {};
     X(STMT_IRQ,        true)\
     X(STMT_FENCE,      0)\
     X(STMT_SWITCH,     true)\
-    X(STMT_END_SWITCH, true)\
+    X(STMT_END_SWITCH, 0)\
     X(STMT_CASE,       true)\
     X(STMT_DEFAULT,    0)\
     X(STMT_SWAP_FIRST, true)\

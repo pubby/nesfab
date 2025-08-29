@@ -75,7 +75,7 @@ char32_t utf8_to_utf32(pstring_t pstring, char const*& str)
     SIMPLE('0', '\0') \
     SIMPLE('/', SPECIAL_SLASH)
 
-char32_t escaped_utf8_to_utf32(char const*& str)
+char32_t escaped_utf8_to_utf32(char const*& str, char const** error)
 {
     char32_t const first = utf8_to_utf32(str);
     if(first != '\\')
@@ -102,24 +102,55 @@ char32_t escaped_utf8_to_utf32(char const*& str)
             std::uint32_t wide_ch;
             auto result = std::from_chars(str, str+xsize, wide_ch, 16);
             if(result.ptr != str+xsize || result.ec != std::errc())
-                break;
+                goto fail;
             str = result.ptr;
-            return wide_ch;
+            return static_cast<char32_t>(wide_ch);
         }
         break;
+    case '(':
+        {
+            std::size_t size = 0;
+            while(true)
+            {
+                if(str[size] == '\0')
+                {
+                    if(error)
+                        *error = "Hash sequence was not terminated.";
+                    goto fail;
+                }
+                if(str[size] == ')')
+                    break;
+                if((std::uint8_t(str[size]) & 0x80) || str[size] == '\\' || (!std::isalnum(str[size]) && !std::ispunct(str[size])))
+                {
+                    if(error)
+                        *error = "Only alphanumeric characters and punctuation are allowed inside of a hash sequence.";
+                    goto fail;
+                }
+                size += 1;
+            }
+
+            fnv1a<std::uint32_t> hash;
+            std::uint32_t result = fnv1a<std::uint32_t>::hash(str, size);
+            result |= 1 << 31;
+
+            str += size + 1;
+            return static_cast<char32_t>(result);
+        }
     default:
         break;
     }
 
+fail:
     str = nullptr;
     return 0;
 }
 
 char32_t escaped_utf8_to_utf32(pstring_t pstring, char const*& str)
 {
-    char32_t const result = escaped_utf8_to_utf32(str);
+    char const* error = nullptr;
+    char32_t const result = escaped_utf8_to_utf32(str, &error);
     if(!str)
-        compiler_error(pstring, "Invalid character sequence.");
+        compiler_error(pstring, fmt("Invalid character sequence. %", error ? error : ""));
     return result;
 }
 

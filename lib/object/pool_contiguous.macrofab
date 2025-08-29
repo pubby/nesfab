@@ -11,7 +11,7 @@
 
 // Macro parameters:
 #:type:#        // The type of each object (probably a struct type).
-#:max_objects:# // The maximum number of objects that can exist at once
+#:max_objects:# // The maximum number of objects that can exist at once (but not more than 254)
 #:name:#        // The name of the objects (e.g. "enemies")
 #:group:#       // The optional vars group to insert variables in.
 
@@ -58,5 +58,5 @@ fn #name#_new(#type# value) U
 // Returns true if the object at position 'index' is allocated:
 fn #name#_exists(U index) Bool
 : +inline
-    return index < #name#_max
+    return index < #name#_num
 

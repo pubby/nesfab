@@ -1736,7 +1736,7 @@ void fn_t::calc_precheck_bitsets()
                                std::string const& missing)
         {
             std::string const msg = fmt(
-                "% (vars %) requires groups that are excluded from % (vars %).",
+                "Use of % (vars %) requires groups that are excluded from % (vars %).",
                 idep.name, dep_group_string, global.name, 
                 group_vars_to_string(mod_group_vars));
 
@@ -2437,10 +2437,11 @@ charmap_t::charmap_t(global_t& global, bool is_default,
         assert(ptr != char_begin);
 
         char const* end = lit.string.data() + lit.string.size();
+        char const* error = nullptr;
         while(true)
         {
             if(!ptr)
-                compiler_error(lit.pstring, "Invalid character in charmap.");
+                compiler_error(lit.pstring, fmt("Invalid character in charmap. %", error ? error : ""));
 
             if(utf32 == SPECIAL_SLASH)
                 compiler_error(lit.pstring, "Invalid '\\/' operator.");
@@ -2457,14 +2458,14 @@ charmap_t::charmap_t(global_t& global, bool is_default,
             }
 
             char_begin = ptr;
-            utf32 = escaped_utf8_to_utf32(ptr);
+            utf32 = escaped_utf8_to_utf32(ptr, &error);
 
             if(utf32 == SPECIAL_SLASH)
             {
                 char_begin = ptr;
-                utf32 = escaped_utf8_to_utf32(ptr);
+                utf32 = escaped_utf8_to_utf32(ptr, &error);
                 if(!ptr)
-                    compiler_error(lit.pstring, "Invalid '\\/' operator.");
+                    compiler_error(lit.pstring, fmt("Invalid '\\/' operator. %", error ? error : ""));
             }
             else
                 ++m_num_unique;

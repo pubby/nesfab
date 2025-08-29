@@ -630,6 +630,7 @@ ast_node_t parser_t<P>::parse_string_or_char_expr(bool open_parens)
         // Parse the character:
         char const* begin = literal.string.data();
         char const* ptr = begin;
+
         char32_t const utf32 = escaped_utf8_to_utf32(ptr);
         if(!ptr)
             compiler_error(literal.pstring, "Invalid character literal.");

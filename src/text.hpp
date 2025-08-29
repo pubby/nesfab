@@ -25,7 +25,7 @@ constexpr char32_t SPECIAL_SLASH = char32_t(~0u);
 char32_t utf8_to_utf32(char const*& str);
 char32_t utf8_to_utf32(pstring_t pstring, char const*& str);
 
-char32_t escaped_utf8_to_utf32(char const*& str);
+char32_t escaped_utf8_to_utf32(char const*& str, char const** error = nullptr);
 char32_t escaped_utf8_to_utf32(pstring_t pstring, char const*& str);
 
 std::string escape(std::string const& str);

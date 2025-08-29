@@ -536,7 +536,8 @@ int main(int argc, char** argv)
             {
                 auto now = std::chrono::system_clock::now();
                 unsigned long long const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - time).count();
-                std::printf("time %s %8lli ms\n", desc, ms);
+                if(ms)
+                    std::printf("time %s %8lli ms\n", desc, ms);
                 time = std::chrono::system_clock::now();
             }
         };
@@ -687,7 +688,7 @@ int main(int argc, char** argv)
 
         set_compiler_phase(PHASE_ROM_DUMMY);
         gen_rom_dummies();
-        output_time("rom dummy:    ");
+        output_time("rom dummy:");
 
         set_compiler_phase(PHASE_PREPARE_ALLOC_ROM);
         prune_rom_data();

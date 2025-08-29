@@ -1965,6 +1965,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             rval[0] = h;
         }
 
+        if(is_compile(D) && loc.with_is(IS_PTR).type().with_banked(false) != type.with_banked(false))
+        {
+            ssa_ht const cast = builder.cfg->emplace_ssa(SSA_cast, type.with_banked(false), std::get<ssa_value_t>(rval[0]));
+            rval[0] = cast;
+        }
+
         return
         {
             .val = std::move(rval),
@@ -4136,7 +4142,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             type_t const mt = member_type(type, i);
                             assert(mt.name() == TYPE_TEA);
 
-                            ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, type);
+                            ssa_ht h = builder.cfg->emplace_ssa(SSA_init_array, mt);
                             h->alloc_input(num_args);
                             for(unsigned j = 0; j < num_args; ++j)
                                 h->build_set_input(j, std::get<ssa_value_t>(args[j].rval()[i]));
@@ -4440,12 +4446,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     rom_array_ht const rom_array = sl_manager.get_rom_array(&strval->charmap->global, strval->index, strval->compressed);
                     assert(rom_array);
                     assert(strval->charmap->group_data());
-                    bool const is_banked = !strval->charmap->stows_omni();
+                    group_data_ht const group = strval->charmap->group_data();
+                    bool const banked = !strval->charmap->stows_omni();
 
-                    locator_t const loc = locator_t::rom_array(rom_array);
+                    auto ptr = make_ptr(locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), type_ptr(false, banked)), banked);
 
                     ssa_ht const h = compile_read_ptr(
-                        loc, is_banked ? loc.with_is(IS_BANK) : ssa_value_t());
+                        ptr.ssa(), banked ? ptr.ssa(1) : ssa_value_t());
 
                     array_val.val = rval_t{ h };
                 }

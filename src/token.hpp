@@ -18,10 +18,7 @@ struct token_t
 
     lex::token_type_t type = {};
     pstring_t pstring = {};
-    union
-    {
-        int_type value = {};
-    };
+    int_type value = {};
 
     std::int64_t signed_() const { return static_cast<std::int64_t>(value); }
 

@@ -269,6 +269,15 @@ constexpr op_t get_op(op_name_t name, addr_mode_t mode)
     return op_name_mode_table[name][mode]; 
 }
 
+constexpr op_t maybe_long_op(op_name_t name)
+{
+#ifdef ISA_SNES
+    return
+#else
+    return get_op(name, MODE_ABSOLUTE)
+#endif
+}
+
 inline addr_mode_table_t const& get_addr_modes(op_name_t name)
     { assert(name < op_name_mode_table.size()); return op_name_mode_table[name]; }
 
@@ -417,23 +426,52 @@ constexpr bool simple_addr_mode(addr_mode_t mode)
     }
 }
 
-constexpr addr_mode_t zp_equivalent(addr_mode_t mode)
+constexpr addr_mode_t to_mode_zp(addr_mode_t mode)
 {
     switch(mode)
     {
     default: return MODE_BAD;
-    case MODE_ABSOLUTE: return MODE_ZERO_PAGE;
+    case MODE_ZERO_PAGE:
+    case MODE_ZERO_PAGE_X:
+    case MODE_ZERO_PAGE_Y:
+         return mode;
+    case MODE_ABSOLUTE:   return MODE_ZERO_PAGE;
     case MODE_ABSOLUTE_X: return MODE_ZERO_PAGE_X;
     case MODE_ABSOLUTE_Y: return MODE_ZERO_PAGE_Y;
 #ifdef ISA_SNES
-    case MODE_LONG: return MODE_ZERO_PAGE;
+    case MODE_LONG:   return MODE_ZERO_PAGE;
     case MODE_LONG_X: return MODE_ZERO_PAGE_X;
 #endif
 #ifdef ISA_PCE
-    case MODE_IMMEDIATE_ABSOLUTE: return MODE_IMMEDIATE_ZERO_PAGE;
+    case MODE_IMMEDIATE_ZERO_PAGE:
+    case MODE_IMMEDIATE_ZERO_PAGE_X:
+        return mode;
+    case MODE_IMMEDIATE_ABSOLUTE:   return MODE_IMMEDIATE_ZERO_PAGE;
     case MODE_IMMEDIATE_ABSOLUTE_X: return MODE_IMMEDIATE_ZERO_PAGE_X;
 #endif
     }
+}
+
+constexpr addr_mode_t to_mode_long(addr_mode_t mode, bool indirect = false)
+{
+    switch(mode)
+    {
+#ifdef ISA_SNES
+    case MODE_LONG:
+    case MODE_LONG_X:
+        return mode;
+    case MODE_INDIRECT_LONG:
+    case MODE_INDIRECT_0_LONG:
+    case MODE_INDIRECT_Y_LONG:
+        return indirect;
+    case MODE_ABSOLUTE:   return MODE_LONG;
+    case MODE_ABSOLUTE_X: return MODE_LONG_X;
+    case MODE_INDIRECT:   if(indirect) return MODE_INDIRECT_LONG;
+    case MODE_INDIRECT_0: if(indirect) return MODE_INDIRECT_0_LONG;
+    case MODE_INDIRECT_Y: if(indirect) return MODE_INDIRECT_Y_LONG;
+#endif
+    }
+    return MODE_BAD;
 }
 
 constexpr bool is_bbr(op_name_t op) { return op >= BBR0 && op <= BBR7; }

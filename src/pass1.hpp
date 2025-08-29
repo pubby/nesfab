@@ -540,7 +540,7 @@ public:
     {
         op_t op = get_op(name, mode);
         if(!op)
-            op = get_op(name, zp_equivalent(mode));
+            op = get_op(name, to_mode_zp(mode));
         if(!op)
             op = get_op(name, buggy_equivalent(mode));
         if(!op)
@@ -767,7 +767,7 @@ public:
 
         if(mods)
         {
-            mods->validate(var_decl.name, MOD_zero_page | MOD_align | MOD_sram | MOD_unused);
+            mods->validate(var_decl.name, MOD_zero_page | MOD_align | MOD_sram | MOD_unused | MOD_high_ram);
             if(((mods->enable) & MOD_sram) && !mapper().sram)
                 compiler_warning(var_decl.name, "sram modifier set, but mapper does not use SRAM.");
         }

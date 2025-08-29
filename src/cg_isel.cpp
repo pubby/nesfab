@@ -606,6 +606,23 @@ namespace isel
         exact_op<Op>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
     }
 
+    template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
+    void maybe_long_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+    {
+        static_assert(!indirect_addr_mode(op_addr_mode(op))); // Indirect isn't a good idea.
+#ifdef ISA_SNES
+        // Have to use long addresses most of the time:
+        if(Arg::trans().long_address())
+        {
+            constexpr op_t long_ = get_op(op_name(op), to_mode_long(op_addr_mode(op)));
+            if(long_)
+                exact_op<long_>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
+            return;
+        }
+#endif
+        exact_op<Op>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
+    }
+
     // Like exact_op, but with a simplified set of parameters.
     // Only supports a few addressing modes.
     template<op_t Op>
@@ -627,7 +644,28 @@ namespace isel
         simple_op<Op>(Opt::to_struct, Def::value(), Arg::trans(), cpu, prev, cont);
     }
 
-    template<typename Opt, op_name_t Op, typename Arg> [[gnu::noinline]]
+    // Like exact_op, but with a simplified set of parameters.
+    // Only supports a few addressing modes.
+    template<op_t Op>
+    void simple_op_2_arg(options_t opt, locator_t def, locator_t arg, locator_t alt, cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+    {
+#ifndef NDEBUG
+        constexpr auto mode = op_addr_mode(Op);
+        assert(Op >= NUM_NORMAL_OPS || simple_addr_mode(mode));
+        passert(valid_arg<Op>(arg), arg, Op);
+#endif
+        cpu_t cpu_copy = cpu;
+        if(cpu_copy.set_defs_for<Op>(opt, def, arg))
+            cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, arg, alt, 0));
+    }
+
+    template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_, typename Alt = null_> [[gnu::noinline]]
+    void simple_op_2_arg(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+    {
+        simple_op_2_arg<Op>(Opt::to_struct, Def::value(), Arg::trans(), Alt::trans(), cpu, prev, cont);
+    }
+
+    template<typename Opt, op_name_t Op, typename Arg, typename Arg2 = null_> [[gnu::noinline]]
     void branch_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         switch(Op)
@@ -687,6 +725,8 @@ namespace isel
                     return;
                 }
             }
+            simple_op_2_arg<Opt, get_op(Op, MODE_RELATIVE), null_, Arg, Arg2>(cpu, prev, cont);
+            break;
 #endif
             // fall-thru
         regular:
@@ -1337,6 +1377,24 @@ namespace isel
         >(cpu, prev, cont);
     }
 
+#ifdef ISA_SNES
+    // Gets the long version of the address, if required by 'loc':
+    // (Returns BAD_OP sometimes!)
+    [[gnu::always_inline]]
+    op_t maybe_long(op_t op, locator_t loc)
+    {
+        return loc.long_address() ? to_mode_long(op) : op;
+    }
+
+    // Converts to long for SNES
+    constexpr op_t snes_long(op_t op) { return to_mode_long(op); }
+#else
+    [[gnu::always_inline]]
+    op_t maybe_long(op_t op, locator_t loc) { return op; }
+
+    constexpr op_t snes_long(op_t op) { return op; }
+#endif
+
     template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY, op_t Absolute
             , bool Enable = (AbsoluteX || AbsoluteY) && (Opt::flags & OPT_NO_DIRECT) < OPT_NO_DIRECT>
     struct pick_op_xy
@@ -1394,7 +1452,6 @@ namespace isel
         static void call(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont) {}
     };
 
-
     // pick_op impl
     template<typename Opt, op_name_t OpName, typename Def, typename Arg> [[gnu::noinline]]
     void pick_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
@@ -1405,6 +1462,10 @@ namespace isel
         constexpr op_t absolute   = get_op(OpName, MODE_ABSOLUTE);
         constexpr op_t absolute_X = get_op(OpName, MODE_ABSOLUTE_X);
         constexpr op_t absolute_Y = get_op(OpName, MODE_ABSOLUTE_Y);
+#ifdef ISA_SNES
+        constexpr op_t long_      = get_op(OpName, MODE_LONG);
+        constexpr op_t long_X     = get_op(OpName, MODE_LONG_X);
+#endif
 
         if(implied != BAD_OP && !Arg::trans())
             simple_op<implied>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
@@ -1418,6 +1479,18 @@ namespace isel
         else 
         {
             bool const read_direct = Arg::node().holds_ref() && Arg::node()->op() == SSA_cg_read_array8_direct;
+
+#ifdef ISA_SNES
+            // Have to use long addresses most of the time:
+            if(Arg::trans().long_address())
+            {
+                if(long_X != BAD_OP && read_direct)
+                    pick_op_xy<Opt, Def, Arg, absolute_X, BAD_OP, absolute>::call(cpu, prev, cont);
+                else if(long_ != BAD_OP && !read_direct)
+                    exact_op<long_>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
+                return;
+            }
+#endif
             if((absolute_X != BAD_OP || absolute_Y != BAD_OP) && read_direct)
                 pick_op_xy<Opt, Def, Arg, absolute_X, absolute_Y, absolute>::call(cpu, prev, cont);
             else if(absolute != BAD_OP && !read_direct)
@@ -1490,6 +1563,14 @@ namespace isel
                     cpu_copy.req_store |= d.isel.store_mask;
             }
 
+#ifdef ISA_SNES
+            // Have to use long addresses most of the time:
+            if(Param::trans().long_address())
+            {
+                cont->call(cpu_copy, alloc_sel<get_op(StoreOp, MODE_LONG)>(cpu_copy, prev, Param::trans()));
+                return;
+            }
+#endif
             cont->call(cpu_copy, alloc_sel<get_op(StoreOp, MODE_ABSOLUTE)>(cpu_copy, prev, Param::trans()));
         }
     }
@@ -1570,6 +1651,9 @@ namespace isel
     template<typename Opt, typename Def> [[gnu::noinline]]
     void load_B(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
+#ifdef ISA_SNES
+        assert(false); // Don't use this for SNES.
+#endif
         std::uint16_t const bs_addr = bankswitch_addr();
 
         using mstate = param<struct load_B_state_tag>;
@@ -1824,7 +1908,11 @@ namespace isel
         < load_A<Opt, const_<0>>
         , load_N_for<typename Opt::template restrict_to<~REGF_A>, Value>
         , branch_op<Opt, BPL, this_label>
+#ifdef ISA_65C02
+        , simple_op<Opt, DEC_IMPLIED, null_, null_>
+#else
         , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0xFF>>
+#endif
         , label<this_label>
         , clear_conditional
         , store<Opt, STA, Def, Def>
@@ -1855,7 +1943,11 @@ namespace isel
         , simple_op<Opt, CMP_IMMEDIATE, null_, const_<0x80>>
         , load_A<typename Opt::template restrict_to<~REGF_C>, const_<0>>
         , branch_op<Opt, BCC, this_label>
+#ifdef ISA_65C02
+        , simple_op<Opt, DEC_IMPLIED, null_, null_>
+#else
         , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0xFF>>
+#endif
         , label<this_label>
         , clear_conditional
         , store<Opt, STA, Def, Def>
@@ -2427,7 +2519,7 @@ namespace isel
                 select_step<false>(
                     chain
                     < simple_op<Opt, BVC_RELATIVE, null_, p_overflow_label>
-                    , exact_op<Opt, EOR_ABSOLUTE, null_, const_<0x80>>
+                    , exact_op<Opt, EOR_IMPLIED, null_, const_<0x80>>
                     , label<p_overflow_label>
                     , clear_conditional
                     , simple_op<Opt, BMI_RELATIVE, null_, SuccessLabel>
@@ -2504,7 +2596,7 @@ namespace isel
             for(unsigned page = 0; page < len; page += 256)
             {
                 p_arg<1>::set(def,  start + page);
-                select_step<false>(exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>) ;
+                select_step<false>(maybe_long_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>) ;
             }
 
             select_step<false>(
@@ -2529,8 +2621,8 @@ namespace isel
                 chain
                 < load_AX<Opt, p_arg<0>, p_arg<1>>
                 , label<loop_label>
-                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
-                , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<3>>
+                , maybe_long_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
+                , maybe_long_op<Opt, STA_ABSOLUTE_X, null_, p_arg<3>>
                 , simple_op<Opt, DEX_IMPLIED>
                 , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                 , clear_conditional
@@ -2544,7 +2636,7 @@ namespace isel
             select_step<false>(
                 chain
                 < load_A<Opt, p_arg<0>>
-                , exact_op<Opt, STA_ABSOLUTE, null_, p_arg<1>>
+                , maybe_long_op<Opt, STA_ABSOLUTE, null_, p_arg<1>>
                 >);
         }
     }
@@ -2593,8 +2685,8 @@ namespace isel
                     p_arg<1>::set(def,  page);
                     select_step<false>(
                         chain
-                        < exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<0>>
-                        , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>
+                        < maybe_long_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<0>>
+                        , maybe_long_op<Opt, STA_ABSOLUTE_X, null_, p_arg<1>>
                         >);
                 }
 
@@ -2625,10 +2717,10 @@ namespace isel
                     chain
                     < load_X<Opt, p_arg<0>>
                     , label<loop_label>
-                    , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<1>>
-                    , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
-                    , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<3>>
-                    , exact_op<Opt, STA_ABSOLUTE_X, null_, p_arg<4>>
+                    , maybe_long_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<1>>
+                    , maybe_long_op<Opt, STA_ABSOLUTE_X, null_, p_arg<2>>
+                    , maybe_long_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<3>>
+                    , maybe_long_op<Opt, STA_ABSOLUTE_X, null_, p_arg<4>>
                     , simple_op<Opt, DEX_IMPLIED>
                     , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                     , clear_conditional
@@ -2638,10 +2730,10 @@ namespace isel
                     chain
                     < load_Y<Opt, p_arg<0>>
                     , label<loop_label>
-                    , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<1>>
-                    , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<2>>
-                    , exact_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<3>>
-                    , exact_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<4>>
+                    , maybe_long_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<1>>
+                    , maybe_long_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<2>>
+                    , maybe_long_op<Opt, LDA_ABSOLUTE_Y, null_, p_arg<3>>
+                    , maybe_long_op<Opt, STA_ABSOLUTE_Y, null_, p_arg<4>>
                     , simple_op<Opt, DEY_IMPLIED>
                     , simple_op<Opt, BPL_RELATIVE, null_, loop_label>
                     , clear_conditional
@@ -2679,24 +2771,24 @@ namespace isel
             temp::set(mem);
 
             chain
-            < exact_op<Opt, LDA_ABSOLUTE, Def, temp>
+            < maybe_long_op<Opt, LDA_ABSOLUTE, Def, temp>
             , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
 
 #ifndef LEGAL
             chain
-            < exact_op<Opt, LAX_ABSOLUTE, Def, temp>
+            < maybe_long_op<Opt, LAX_ABSOLUTE, Def, temp>
             , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
 #endif
 
             chain
-            < exact_op<Opt, LDX_ABSOLUTE, Def, temp>
+            < maybe_long_op<Opt, LDX_ABSOLUTE, Def, temp>
             , store<Opt, STX, Def, Def>
             >(cpu, prev, cont);
 
             chain
-            < exact_op<Opt, LDY_ABSOLUTE, Def, temp>
+            < maybe_long_op<Opt, LDY_ABSOLUTE, Def, temp>
             , store<Opt, STY, Def, Def>
             >(cpu, prev, cont);
         }
@@ -2704,25 +2796,25 @@ namespace isel
         {
             chain
             < load_X<Opt, Index>
-            , exact_op<Opt, LDA_ABSOLUTE_X, Def, Array>
+            , maybe_long_op<Opt, LDA_ABSOLUTE_X, Def, Array>
             , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
 
             chain
             < load_X<Opt, Index>
-            , exact_op<Opt, LDY_ABSOLUTE_X, Def, Array>
+            , maybe_long_op<Opt, LDY_ABSOLUTE_X, Def, Array>
             , store<Opt, STY, Def, Def>
             >(cpu, prev, cont);
 
             chain
             < load_Y<Opt, Index>
-            , exact_op<Opt, LDA_ABSOLUTE_Y, Def, Array>
+            , maybe_long_op<Opt, LDA_ABSOLUTE_Y, Def, Array>
             , store<Opt, STA, Def, Def>
             >(cpu, prev, cont);
 
             chain
             < load_Y<Opt, Index>
-            , exact_op<Opt, LDX_ABSOLUTE_Y, Def, Array>
+            , maybe_long_op<Opt, LDX_ABSOLUTE_Y, Def, Array>
             , store<Opt, STX, Def, Def>
             >(cpu, prev, cont);
 
@@ -2756,12 +2848,12 @@ namespace isel
         {
             chain
             < load_AX<Opt, Assignment, Index>
-            , exact_op<Opt, STA_ABSOLUTE_X, null_, Array>
+            , maybe_long_op<Opt, STA_ABSOLUTE_X, null_, Array>
             >(cpu, prev, cont);
 
             chain
             < load_AY<Opt, Assignment, Index>
-            , exact_op<Opt, STA_ABSOLUTE_Y, null_, Array>
+            , maybe_long_op<Opt, STA_ABSOLUTE_Y, null_, Array>
             >(cpu, prev, cont);
         }
     }
@@ -2778,6 +2870,42 @@ namespace isel
             p_label<0>::set(state.minor_label());
             p_label<1>::set(state.minor_label());
 
+#ifdef ISA_PCE
+            // PCE can use CLA / CLX / CLY
+
+            chain
+            < simple_op<Opt, CLA_IMPLIED>
+            , simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, INC_IMPLIED>
+            , label<p_label<0>>
+            , clear_conditional
+            , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_A | REGF_Z, true, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < simple_op<Opt, CLX_IMPLIED>
+            , simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, INX_IMPLIED>
+            , label<p_label<0>>
+            , clear_conditional
+            , exact_op<Opt, STX_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_X | REGF_Z, true, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < simple_op<Opt, CLY_IMPLIED>
+            , simple_op<Opt, BNE_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, INY_IMPLIED>
+            , label<p_label<0>>
+            , clear_conditional
+            , exact_op<Opt, STY_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_Y | REGF_Z, true, p_def>
+            >(cpu, prev, cont);
+
+            return;
+#endif
+
             chain
             < simple_op<Opt, PHP_IMPLIED>
             , simple_op<Opt, PLA_IMPLIED>
@@ -2787,9 +2915,24 @@ namespace isel
             , simple_op<Opt, AND_IMMEDIATE, null_, const_<0b10>>
             , simple_op<Opt, LSR_IMPLIED, null_>
 #endif
-            , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
+            , maybe_long_op<Opt, STA_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_A | Z, true, p_def>
             >(cpu, prev, cont);
+
+#ifdef ISA_SNES
+            // SNES has shitty long addressing modes, so give it another:
+            chain
+            < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0>>
+            , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
+            , label<p_label<0>>
+            , simple_op<Opt, LDA_IMMEDIATE, null_, const_<1>>
+            , label<p_label<1>>
+            , clear_conditional
+            , maybe_long_op<Opt, STA_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_A | Z, true, p_def>
+            >(cpu, prev, cont);
+#endif
 
             chain
             < simple_op<Opt, BEQ_RELATIVE, null_, p_label<0>>
@@ -2799,7 +2942,7 @@ namespace isel
             , simple_op<Opt, LDX_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
             , clear_conditional
-            , exact_op<Opt, STX_ABSOLUTE, null_, p_def>
+            , maybe_long_op<Opt, STX_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_X | Z, true, p_def>
             >(cpu, prev, cont);
 
@@ -2811,7 +2954,7 @@ namespace isel
             , simple_op<Opt, LDY_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
             , clear_conditional
-            , exact_op<Opt, STY_ABSOLUTE, null_, p_def>
+            , maybe_long_op<Opt, STY_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_Y | Z, true, p_def>
             >(cpu, prev, cont);
         }
@@ -2842,6 +2985,42 @@ namespace isel
             p_label<0>::set(state.minor_label());
             p_label<1>::set(state.minor_label());
 
+#ifdef ISA_PCE
+            // PCE can use CLA / CLX / CLY
+
+            chain
+            < simple_op<Opt, CLA_IMPLIED>
+            , simple_op<Opt, BPL_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, INC_IMPLIED>
+            , label<p_label<0>>
+            , clear_conditional
+            , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_A | REGF_N, true, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < simple_op<Opt, CLX_IMPLIED>
+            , simple_op<Opt, BPL_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, INX_IMPLIED>
+            , label<p_label<0>>
+            , clear_conditional
+            , exact_op<Opt, STX_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_X | REGF_N, true, p_def>
+            >(cpu, prev, cont);
+
+            chain
+            < simple_op<Opt, CLY_IMPLIED>
+            , simple_op<Opt, BPL_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, INY_IMPLIED>
+            , label<p_label<0>>
+            , clear_conditional
+            , exact_op<Opt, STY_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_Y | REGF_N, true, p_def>
+            >(cpu, prev, cont);
+
+            return;
+#endif
+
             chain
             < simple_op<Opt, PHP_IMPLIED>
             , simple_op<Opt, PLA_IMPLIED>
@@ -2852,9 +3031,25 @@ namespace isel
             , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0x00>>
 #endif
             , simple_op<Opt, ROL_IMPLIED>
-            , exact_op<Opt, STA_ABSOLUTE, null_, p_def>
+            , maybe_long_op<Opt, STA_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_A | REGF_N, true, p_def>
             >(cpu, prev, cont);
+
+#ifdef ISA_SNES
+            // SNES has shitty long addressing modes, so give it another:
+            chain
+            < simple_op<Opt, BMI_RELATIVE, null_, p_label<0>>
+            , simple_op<Opt, LDA_IMMEDIATE, null_, const_<0>>
+            , exact_op<Opt, JMP_ABSOLUTE, null_, p_label<1>>
+            , label<p_label<0>>
+            , simple_op<Opt, LDA_IMMEDIATE, null_, const_<1>>
+            , label<p_label<1>>
+            , clear_conditional
+            , maybe_long_op<Opt, STA_ABSOLUTE, null_, p_def>
+            , set_defs<Opt, REGF_A | REGF_N, true, p_def>
+            >(cpu, prev, cont);
+#endif
+
 
             chain
             < simple_op<Opt, BMI_RELATIVE, null_, p_label<0>>
@@ -2864,7 +3059,7 @@ namespace isel
             , simple_op<Opt, LDX_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
             , clear_conditional
-            , exact_op<Opt, STX_ABSOLUTE, null_, p_def>
+            , maybe_long_op<Opt, STX_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_X | REGF_N, true, p_def>
             >(cpu, prev, cont);
 
@@ -2876,7 +3071,7 @@ namespace isel
             , simple_op<Opt, LDY_IMMEDIATE, null_, const_<1>>
             , label<p_label<1>>
             , clear_conditional
-            , exact_op<Opt, STY_ABSOLUTE, null_, p_def>
+            , maybe_long_op<Opt, STY_ABSOLUTE, null_, p_def>
             , set_defs<Opt, REGF_Y | REGF_N, true, p_def>
             >(cpu, prev, cont);
         }
@@ -2922,7 +3117,7 @@ namespace isel
             < load_A<OptR, const_<0>>
             , simple_op<typename Opt::template valid_for<REGF_A>, ROL_IMPLIED>
             , set_defs<Opt, REGF_A | REGF_N | REGF_Z, true, p_def>
-            , exact_op<Opt, STA_LIKELY, null_, p_def>
+            , maybe_long_op<Opt, STA_LIKELY, null_, p_def>
             >(cpu, prev, cont);
 
             chain
@@ -2931,7 +3126,7 @@ namespace isel
             , simple_op<OptR, INX_IMPLIED>
             , maybe_carry_label_clear_conditional<OptR, p_label<0>, false>
             , set_defs<Opt, REGF_X | REGF_N | REGF_Z, true, p_def>
-            , exact_op<Opt, STX_LIKELY, null_, p_def>
+            , maybe_long_op<Opt, STX_LIKELY, null_, p_def>
             >(cpu, prev, cont);
 
             chain
@@ -2940,7 +3135,7 @@ namespace isel
             , exact_op<OptR, INY_IMPLIED>
             , maybe_carry_label_clear_conditional<OptR, p_label<0>, false>
             , set_defs<Opt, REGF_Y | REGF_N | REGF_Z, true, p_def>
-            , exact_op<Opt, STY_LIKELY, null_, p_def>
+            , maybe_long_op<Opt, STY_LIKELY, null_, p_def>
             >(cpu, prev, cont);
         }
         else
@@ -4203,6 +4398,8 @@ namespace isel
                         {
 #ifndef LEGAL
                             exact_op<Opt, IGN_ABSOLUTE, null_, p_arg<0>>(cpu, prev, cont);
+#elif defined ISA_SNES
+                            maybe_long_op<Opt, LDA_ABSOLUTE, null_, p_arg<0>>(cpu, prev, cont);
 #else
                             exact_op<Opt, BIT_ABSOLUTE, null_, p_arg<0>>(cpu, prev, cont);
 #endif
@@ -4214,7 +4411,7 @@ namespace isel
 #ifndef LEGAL
                             , exact_op<Opt, IGN_ABSOLUTE_X, null_, p_arg<0>>
 #else
-                            , exact_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<0>>
+                            , maybe_long_op<Opt, LDA_ABSOLUTE_X, null_, p_arg<0>>
 #endif
                             >(cpu, prev, cont);
                         }
@@ -4226,16 +4423,17 @@ namespace isel
                 {
                     if(h->input(INDEX).eq_whole(0))
                     {
+                        // TODO: implement SNES indirect
 #ifdef ISA_65C02
                         chain
                         < load_X<Opt, const_<0>>
-                        , exact_op<Opt, LDA_INDIRECT_0, p_def, p_ptr>
+                        , maybe_long_op<Opt, LDA_INDIRECT_0, p_def, p_ptr>
                         , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
 #else
                         chain
                         < load_X<Opt, const_<0>>
-                        , exact_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
+                        , maybe_long_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
                         , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
 #endif
@@ -4281,6 +4479,7 @@ namespace isel
                 }
                 else
                 {
+                    // TODO: implement SNES indirect
                     if(h->input(INDEX).eq_whole(0))
                     {
 #ifdef ISA_65C02
@@ -4319,6 +4518,11 @@ namespace isel
                     < exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr0>
                     , exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr1>
                     >(cpu, prev, cont);
+#elif defined ISA_SNES
+                    chain
+                    < maybe_long_op<Opt, LDA_ABSOLUTE, null_, p_ptr0>
+                    , maybe_long_op<Opt, LDA_ABSOLUTE, null_, p_ptr1>
+                    >(cpu, prev, cont);
 #else
                     chain
                     < exact_op<Opt, BIT_ABSOLUTE, null_, p_ptr0>
@@ -4331,6 +4535,11 @@ namespace isel
 #ifndef LEGAL
                     chain
                     < exact_op<Opt, IGN_ABSOLUTE, null_, p_ptr0>
+                    , load_then_store<Opt, p_def, p_ptr1, p_def, false>
+                    >(cpu, prev, cont);
+#elif defined ISA_SNES
+                    chain
+                    < maybe_long_op<Opt, LDA_ABSOLUTE, null_, p_ptr0>
                     , load_then_store<Opt, p_def, p_ptr1, p_def, false>
                     >(cpu, prev, cont);
 #else
@@ -4364,6 +4573,28 @@ namespace isel
                 , store<Opt, STX, null_, p_ptr1, false>
                 >(cpu, prev, cont);
 
+#ifdef ISA_SNES
+                if(p_ptr1::trans().long_addr() && !p_ptr1::trans().long_addr())
+                {
+                    chain
+                    < load_AX<Opt, p_ass1, p_ass0>
+                    , store<Opt, STX, null_, p_ptr0, false>
+                    , store<Opt, STA, null_, p_ptr1, false>
+                    >(cpu, prev, cont);
+                }
+
+                if(p_ptr0::trans().long_addr() && p_ptr1::trans().long_addr())
+                {
+                    chain
+                    < load_A<Opt, p_ass0>
+                    , store<Opt, STA, null_, p_ptr0, false>
+                    < load_A<Opt, p_ass1>
+                    , store<Opt, STA, null_, p_ptr1, false>
+                    >(cpu, prev, cont);
+                }
+#endif
+
+                // These weren't ideal:
                 /*
                 chain
                 < load_AX<Opt, p_ass1, p_ass0>
@@ -4404,6 +4635,7 @@ namespace isel
             load_then_store<Opt, p_def, p_arg<0>, p_def>(cpu, prev, cont);
             break;
 
+#ifdef ISA_NES
         case SSA_read_mapper_state:
             p_arg<0>::set(locator_t::runtime_ram(RTRAM_mapper_state));
 
@@ -4430,7 +4662,9 @@ namespace isel
 
             >(cpu, prev, cont);
             break;
+#endif
 
+#ifdef ISA_NES
         case SSA_write_mapper_state:
             p_arg<0>::set(locator_t::runtime_ram(RTRAM_mapper_state));
             p_arg<1>::set(h->input(0));
@@ -4558,8 +4792,10 @@ namespace isel
             }
 
             break;
+#endif
 
         case SSA_fn_ptr_call:
+            //TODO: SNES
             {
                 using p_ptr_lo = p_arg<0>;
                 using p_ptr_hi = p_arg<1>;
@@ -4618,6 +4854,7 @@ namespace isel
             break;
 
         case SSA_fn_call:
+            //TODO: SNES
             {
                 assert(h->input(0).is_locator());
                 p_arg<0>::set(h->input(0));
@@ -4673,6 +4910,7 @@ namespace isel
             break;
 
         case SSA_return:
+            //TODO: SNES
             switch(state.fn->fclass)
             {
             case FN_MODE:
@@ -4929,6 +5167,7 @@ namespace isel
                 bool const sign = h->op() == SSA_branch_sign;
                 p_label<0>::set(locator_t::cfg_label(cfg_node->output(!sign)));
                 p_label<1>::set(locator_t::cfg_label(cfg_node->output(sign)));
+                
                 select_step<true>([](cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
                 {
                     chain
@@ -5150,6 +5389,7 @@ namespace isel
         case SSA_write_ptr_hw:
         case SSA_bank_switch:
             {
+#ifndef ISA_SNES // SNES doesn't bankswitch.
                 unsigned const i = ssa_bank_input(h->op());
                 // Handle bankswitching here, then call to 'isel_node_simple'
                 if(h->input(i) && mapper().bankswitches() && !h->test_flags(FLAG_BANK_PRELOADED))
@@ -5157,6 +5397,7 @@ namespace isel
                     p_arg<0>::set(h->input(i));
                     select_step<false>(load_B<Opt, p_arg<0>>);
                 }
+#endif
             }
             goto simple;
 

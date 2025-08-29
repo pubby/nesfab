@@ -664,6 +664,8 @@ public:
 
     explicit operator bool() const { return impl; }
 
+    constexpr bool long_address() const;
+
     constexpr bool is_const_num() const { return lclass() == LOC_CONST_BYTE; }
     constexpr bool is_immediate() const { return lclass() == LOC_LT_EXPR || is() != IS_DEREF; }
     constexpr bool eq_const(unsigned i) const { return is_const_num() && data() == i; }

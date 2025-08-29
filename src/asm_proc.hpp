@@ -15,6 +15,10 @@
 #include "ssa_op.hpp"
 #include "span.hpp"
 
+#ifdef ISA_SNES
+#define OP_BANK
+#endif
+
 // A single assembly instruction.
 struct asm_inst_t
 {
@@ -34,16 +38,46 @@ struct asm_inst_t
     int cost; // another debugging tool. TODO: remove this
 #endif
 
-    bool operator==(asm_inst_t const& o) const
-        { return op == o.op && arg == o.arg && alt == o.alt; }
-    bool operator!=(asm_inst_t const& o) const
-        { return !operator==(o); }
+#ifdef OP_BANK
+    // 'bank' functions like 'alt':
+    locator_t bank;
 
-    void prune()
+    bool loc_eq(asm_inst_t const& o) const
+        { return arg == o.arg && alt == o.alt && bank == o.bank; }
+    bool var_only() const
+    { 
+        return (arg.known_variable(true)
+             && alt.known_variable(true)
+             && bank.known_variable(true)); 
+    }
+    void prune(op_t replace = ASM_PRUNED)
+    {
+        op = ASM_PRUNED;
+        arg = alt = bank = {};
+    }
+    bool no_alt() const { return !alt && !bank; }
+    void clear_alt() { alt = bank = {}; }
+#else
+    bool loc_eq(asm_inst_t const& o) const
+        { return arg == o.arg && alt == o.alt; }
+    bool var_only() const
+    { 
+        return (arg.known_variable(true)
+             && alt.known_variable(true));
+    }
+    void prune(op_t replace = ASM_PRUNED)
     {
         op = ASM_PRUNED;
         arg = alt = {};
     }
+    bool no_alt() const { return !alt; }
+    void clear_alt() { alt = bank = {}; }
+#endif
+    void clear_arg() { arg = {}; clear_alt(); }
+
+    bool operator==(asm_inst_t const& o) const { return op == o.op && loc_eq(o); }
+    bool operator!=(asm_inst_t const& o) const { return !operator==(o); }
+
 };
 
 inline void push_byte(std::vector<asm_inst_t>& vec, std::uint8_t data)

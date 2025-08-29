@@ -204,6 +204,10 @@ void rom_proc_t::for_each_locator(std::function<void(locator_t)> const& fn) cons
             fn(inst.arg);
         if(inst.alt)
             fn(inst.alt);
+#ifdef OP_BANK
+        if(inst.bank)
+            fn(inst.bank);
+#endif
     }
 }
 

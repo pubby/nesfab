@@ -290,6 +290,17 @@ bool locator_t::known_variable(bool allow_none) const
     return false;
 }
 
+constexpr bool long_address() const
+{
+    if(is_var_like(lclass()))
+    {
+        if(lclass() == LOC_GMEMBER)
+            return mod_test(gmember()->gvar.mods(), MOD_high_ram);
+        return false;
+    }
+    return true;
+}
+
 locator_t locator_t::link(romv_t romv, fn_ht fn_h, int bank) const
 {
     assert(compiler_phase() >= PHASE_LINK

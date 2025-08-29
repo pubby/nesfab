@@ -514,6 +514,9 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
         // Shift the offset so that out table doesn't have to start with [0]:
         node->output_inst.arg.advance_offset(-min);
         node->output_inst.alt.advance_offset(-min);
+#ifdef OP_BANK
+        node->output_inst.bank.advance_offset(-min);
+#endif
 
         table.resize(size, locator_t::const_byte(0));
 
@@ -1078,8 +1081,7 @@ void asm_graph_t::optimize_live_registers()
             {
                 assert(op);
                 dprint(log, "REGLIVE_PRUNE_1", inst);
-                inst.op = op;
-                inst.arg = inst.alt = {};
+                inst.prune(op);
             };
 
             std::size_t const code_size = node.code.size();
@@ -1097,7 +1099,7 @@ void asm_graph_t::optimize_live_registers()
                     continue;
                 }
 
-                if(!inst.alt && inst.arg.known_variable())
+                if(inst.no_alt() && inst.arg.known_variable())
                 {
                     switch(inst.op)
                     {
@@ -1223,6 +1225,15 @@ void asm_graph_t::optimize_live_registers()
                         x_set.erase(inst.alt);
                         y_set.erase(inst.alt);
                     }
+
+#ifdef OP_BANK
+                    if(inst.bank)
+                    {
+                        a_set.erase(inst.bank);
+                        x_set.erase(inst.bank);
+                        y_set.erase(inst.bank);
+                    }
+#endif
                 }
             }
         }
@@ -1241,8 +1252,8 @@ void asm_graph_t::optimize_live_registers()
                    && a.op < NUM_NORMAL_OPS
                    && !(REGF_M & op_output_regs(a.op))
                    && !(live_regs[ai] & op_output_regs(a.op))
-                   && (!a.arg || a.arg.known_variable())
-                   && !a.alt)
+                   && a.var_only()
+                   && a.no_alt())
                 {
                     dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
                     a.prune();
@@ -1256,7 +1267,7 @@ void asm_graph_t::optimize_live_registers()
                 case CMP_IMMEDIATE:
                 case CPX_IMMEDIATE:
                 case CPY_IMMEDIATE:
-                    if(!b.alt && b.arg == locator_t::const_byte(0)
+                    if(b.no_alt() && b.arg == locator_t::const_byte(0)
                        && op_normal(a.op) && !(op_flags(a.op) & ASMF_FAKE)
                        && (op_output_regs(a.op) & (op_input_regs(b.op) | REGF_NZ)) == (op_input_regs(b.op) | REGF_NZ)
                        && !(live_regs[bi] & (op_output_regs(b.op) & ~(REGF_NZ))))
@@ -1361,8 +1372,8 @@ void asm_graph_t::optimize_live_registers()
                 //    ARR #$FF
                 if(c && a.op == CMP_IMMEDIATE 
                    && b.op == ROR_IMPLIED
-                   && !a.alt  && a.arg  == locator_t::const_byte(0x80)
-                   && !c->alt && c->arg == locator_t::const_byte(0x80)
+                   && a.no_alt()  && a.arg  == locator_t::const_byte(0x80)
+                   && c->no_alt() && c->arg == locator_t::const_byte(0x80)
                    && !(live_regs[ai] & REGF_V))
                 {
                     b = a;
@@ -1410,7 +1421,7 @@ void asm_graph_t::optimize_live_registers()
                     return;
                 }
 
-                if(a.alt || b.alt)
+                if(!a.no_alt() || !b.no_alt())
                     return;
 
                 if(op_name_t store = store_name(a.op))
@@ -1434,7 +1445,11 @@ void asm_graph_t::optimize_live_registers()
                             for(unsigned i = prev_i; i < ai; ++i)
                             {
                                 auto const& inst = node.code[i];
-                                if(inst.arg == b.arg || inst.alt == b.arg
+                                if(inst.arg     == b.arg 
+                                   || inst.alt  == b.arg
+#ifdef OP_BANK
+                                   || inst.bank == b.arg
+#endif
                                    || !simple_addr_mode(op_addr_mode(inst.op)))
                                 {
                                     goto fail;
@@ -1588,6 +1603,9 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
     {
         auto test_loc = [&](locator_t loc)
         {
+            if(!loc)
+                return;
+
             if(locator_t const* it = map.lookup(loc.mem_head()))
             {
                 unsigned const i = it - map.begin();
@@ -1603,7 +1621,11 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
             assert(inst.arg);
             assert(inst.alt && inst.alt != inst.arg);
             test_loc(inst.alt);
+#ifdef OP_BANK
+            test_loc(inst.bank);
+#endif
         }
+
     }
 }
 
@@ -1855,6 +1877,10 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
             map.insert(inst.arg.mem_head());
         if(inst.alt)
             map.insert(inst.alt.mem_head());
+#ifdef OP_BANK
+        if(inst.bank)
+            map.insert(inst.bank.mem_head());
+#endif
     });
 
     // Now do liveness:
@@ -1897,8 +1923,7 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
                     else
                     {
                         dprint(log, "ASM_GRAPH_PRUNE", inst.arg);
-                        inst.op = ASM_PRUNED;
-                        inst.arg = inst.alt = {};
+                        inst.prune();
                     }
                 }
                 else 

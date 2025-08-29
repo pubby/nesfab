@@ -15,6 +15,8 @@
 class asm_graph_t;
 struct asm_inst_t;
 
+// TODO: SNES
+
 // Tracks all vars used in assembly code, assigning them an index.
 class lvars_manager_t
 {

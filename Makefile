@@ -76,14 +76,12 @@ endif
 
 ifeq ($(ISA),LEGAL)
 override CXXFLAGS+= -DLEGAL
-endif
-
-ifeq ($(ISA),PCE)
+else ifeq ($(ISA),PCE)
 override CXXFLAGS+= -DISA_PCE
-endif
-
-ifeq ($(ISA),SNES)
+else ifeq ($(ISA),SNES)
 override CXXFLAGS+= -DISA_SNES
+else
+override CXXFLAGS+= -DISA_NES
 endif
 
 debug: CXXFLAGS += -O0 -g

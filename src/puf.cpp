@@ -1162,6 +1162,9 @@ const_ht convert_effect(lpstring_t at,
                         bc::deque<nsf_track_t>& nsf_tracks,
                         defined_group_data_t group_pair, bool omni)
 {
+    if(song >= nsf_tracks.size())
+        throw std::runtime_error(fmt("SFX % is not found in the NSF track. '.nsf' and '.txt' may be out of sync.", song));
+
     unsigned const num_chan = puf_num_chan();
     bool const rnbw = compiler_options().expansion_audio && expansion_audio() == EXP_AUDIO_RNBW;
 

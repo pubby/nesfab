@@ -2879,17 +2879,6 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .flags = ASMF_JUMP,
     },
 
-    // JSL
-    {
-        OP(JSL, LONG),
-        .op_code = 0x22,
-        .size = 4,
-        .cycles = 8,
-        .input_regs = 0,
-        .output_regs = 0,
-        .flags = ASMF_CALL,
-    },
-
     // JSR
     {
         OP(JSR, ABSOLUTE_INDIRECT_X),
@@ -2897,6 +2886,17 @@ constexpr op_def_t op_defs_table[NUM_NORMAL_OPS] =
         .size = 3,
         .cycles = 8,
         .input_regs = REGF_X | REGF_M,
+        .output_regs = 0,
+        .flags = ASMF_CALL,
+    },
+
+    // JSL
+    {
+        OP(JSL, LONG),
+        .op_code = 0x22,
+        .size = 4,
+        .cycles = 8,
+        .input_regs = 0,
         .output_regs = 0,
         .flags = ASMF_CALL,
     },

@@ -171,7 +171,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && op_name(c->op) == second 
                && (op_addr_mode(c->op) == MODE_ZERO_PAGE || op_addr_mode(c->op) == MODE_ABSOLUTE)
                && a.loc_eq(*c)
-               && a.var_only(b)
+               && a.var_only()
                && ((op_output_regs(b.op) & REGF_M) == 0 
                    || (op_name(b.op) == op_name(c->op) 
                        && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
@@ -198,7 +198,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(op_name(b.op) == second 
                && (a.loc_eq(b) || !b.arg)
                && a.var_only()
-               && b.var_only()
+               && b.var_only())
             {
                 if(prune_second)
                     b.prune();
@@ -884,7 +884,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
                 if(next->arg == code[i].arg)
                 {
                     // Prune both
-                    code[i].op.prune();
+                    code[i].prune();
                     next->prune();
                 }
                 else

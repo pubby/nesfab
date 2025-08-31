@@ -1,5 +1,9 @@
 #include "lvar.hpp"
 
+#ifndef NDEBUG
+#include <iostream>
+#endif
+
 #include "asm.hpp"
 #include "ir.hpp"
 #include "cg.hpp"
@@ -22,8 +26,10 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
             m_this_lvar_info.push_back({ 
                 .size = loc.mem_size(), 
                 .zp_only = loc.mem_zp_only(), 
-                .zp_valid = loc.mem_zp_valid() 
+                .zp_valid = loc.mem_zp_valid(),
             });
+
+            assert(!m_this_lvar_info.back().is_multi_byte());
 
             if(loc.lclass() == LOC_ARG)
             {
@@ -37,25 +43,26 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
         return result.first - m_map.begin(); // Return an index
     };
 
-    auto const mark_ptr = [this](unsigned index, int ptr_alt, bool ptr_hi)
+    auto const mark_ptr = [this](unsigned multi_byte_allocation, unsigned size)
     {
-        if(m_this_lvar_info[index].ptr_hi)
-            assert(ptr_hi);
+        int const* indices = &m_multi_byte_storage.at(multi_byte_allocation);
 
-        if(m_this_lvar_info[index].ptr_alt >= 0)
-            assert(m_this_lvar_info[index].ptr_alt == ptr_alt);
+        for(unsigned i = 0; i < size; i += 1)
+        {
+            if(indices[i] < 0)
+                continue;
 
-        passert(m_this_lvar_info[index].size <= 2, 
-                locator(index), '\n',
-                locator(index).type(), '\n',
-                locator(index).mem_size(),
-                m_this_lvar_info[index].size);
+            auto& info = m_this_lvar_info.at(indices[i]);
 
-        m_this_lvar_info[index].size = 2;
-        m_this_lvar_info[index].zp_only = true;
-        m_this_lvar_info[index].zp_valid = true;
-        m_this_lvar_info[index].ptr_hi = ptr_hi;
-        m_this_lvar_info[index].ptr_alt = ptr_alt;
+            //passert(info.is_multi_byte() == false, i, m_map.begin()[i]); 
+            //passert(info.size < 2, info.size, i, m_map.begin()[i]);
+
+            info.size = size;
+            info.zp_only = true;
+            info.zp_valid = true;
+            info.multi_byte_allocation = multi_byte_allocation;
+            info.multi_byte_position = i;
+        }
     };
 
     // Add 'this_lvar's
@@ -67,14 +74,66 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
 
         if(inst.alt && is_this_lvar(fn, inst.alt))
         {
-            int const ptr_hi_index = insert_this_lvar(inst.alt);
-            assert(arg_index != ptr_hi_index);
+            unsigned const multi_byte_allocation = m_multi_byte_storage.size();
+            m_multi_byte_storage.push_back(arg_index); // byte 0
 
-            mark_ptr(ptr_hi_index, arg_index, true);
+            int const alt_index = insert_this_lvar(inst.alt);
+            m_multi_byte_storage.push_back(alt_index); // byte 1
 
-            if(arg_index >= 0)
-                mark_ptr(arg_index, ptr_hi_index, false);
+            assert(alt_index != arg_index);
+
+            unsigned const size = m_multi_byte_storage.size() - multi_byte_allocation;
+            mark_ptr(multi_byte_allocation, size);
         }
+
+#if 0
+#ifdef NDEBUG
+        // When not debugging, return if we've already setup multi byte:
+        if(arg_index < 0 || m_this_lvar_info[arg_index].is_multi_byte())
+            return;
+#endif
+
+        if(inst.alt && is_this_lvar(fn, inst.alt))
+        {
+            assert(arg_index >= 0);
+
+            // Build the storage, putting all indexes into it:
+            unsigned const multi_byte_allocation = m_multi_byte_storage.size();
+            m_multi_byte_storage.push_back(arg_index); // byte 0
+
+            m_multi_byte_storage.push_back(insert_this_lvar(inst.alt)); // byte 1
+
+#ifdef OP_BANK
+            if(inst.bank && is_this_lvar(fn, inst.bank))
+                m_multi_byte_storage.push_back(insert_this_lvar(inst.bank)); // byte 2
+#endif
+
+            unsigned const size = m_multi_byte_storage.size() - multi_byte_allocation;
+            passert(size >= 2, size);
+
+#ifndef NDEBUG
+            // When debugging, verify: the two allocations match:
+            if(m_this_lvar_info[arg_index].is_multi_byte())
+            {
+                passert(m_this_lvar_info[arg_index].size == size, m_this_lvar_info[arg_index].size, size);
+                for(unsigned i = 0; i < size; i += 1)
+                    assert(multi_bytes(m_this_lvar_info[arg_index])[i] == m_multi_byte_storage[multi_byte_allocation + i]);
+
+                // We don't have to allocate it if they do:
+                m_multi_byte_storage.resize(multi_byte_allocation);
+                return;
+            }
+#endif
+
+            mark_ptr(multi_byte_allocation, size);
+            assert(m_this_lvar_info[arg_index].is_multi_byte());
+        }
+#ifdef OP_BANK
+        else
+            assert(!inst.bank);
+#endif
+#endif
+            
     });
 
     // Returns:
@@ -128,10 +187,11 @@ lvars_manager_t::lvars_manager_t(fn_ht fn, asm_graph_t const& graph)
     {
         if(mem_inst(inst))
         {
-            if(is_call_lvar(fn, inst.arg))
-                m_map.insert(inst.arg.mem_head());
-            if(inst.alt && is_call_lvar(fn, inst.alt))
-                m_map.insert(inst.alt.mem_head());
+            inst.for_each([&](locator_t loc)
+            {
+                if(is_call_lvar(fn, loc)) 
+                    m_map.insert(loc.mem_head()); 
+            });
         }
     });
 
@@ -160,8 +220,10 @@ lvars_manager_t::lvars_manager_t(fn_t const& fn)
             m_this_lvar_info.push_back({ 
                 .size = loc.mem_size(), 
                 .zp_only = loc.mem_zp_only(), 
-                .zp_valid = loc.mem_zp_valid() 
+                .zp_valid = loc.mem_zp_valid(),
             });
+
+            assert(!m_this_lvar_info.back().is_multi_byte());
         }
 
         return result.first - m_map.begin(); // Return an index

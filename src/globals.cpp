@@ -1207,7 +1207,7 @@ span_t fn_t::lvar_span(romv_t romv, int lvar_i) const
         return loc.fn()->lvar_span(romv, index);
     }
 
-    throw std::runtime_error("Unknown lvar span");
+    throw std::runtime_error(fmt("Unknown lvar span. romv = %, lvar_i = %, loc = %", romv, lvar_i, loc));
 }
 
 span_t fn_t::lvar_span(romv_t romv, locator_t loc) const

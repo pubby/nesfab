@@ -290,7 +290,7 @@ bool locator_t::known_variable(bool allow_none) const
     return false;
 }
 
-constexpr bool long_address() const
+bool locator_t::long_address() const
 {
     if(is_var_like(lclass()))
     {

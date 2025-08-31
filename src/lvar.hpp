@@ -1,7 +1,10 @@
 #ifndef LVAR_HPP
 #define LVAR_HPP
 
+#include <memory>
 #include <vector>
+
+#include <boost/container/deque.hpp>
 
 #include "robin/set.hpp"
 #include "flat/flat_set.hpp"
@@ -11,6 +14,8 @@
 #include "ir_decl.hpp"
 #include "locator.hpp"
 #include "span.hpp"
+
+namespace bc = ::boost::container;
 
 class asm_graph_t;
 struct asm_inst_t;
@@ -110,19 +115,35 @@ public:
         }
     }
 
+    enum position_t
+    {
+        ARG,
+        PTR_HI,
+        PTR_BANK,
+    };
+
     struct loc_info_t
     {
         std::uint16_t size;
         bool zp_only;
         bool zp_valid;
-        bool ptr_hi;
-        int ptr_alt = -1;
+        int multi_byte_allocation = -1;
+        unsigned multi_byte_position = 0; // Only used when 'multi_byte' is allocated.
+
+        bool is_multi_byte() const { return multi_byte_allocation >= 0; }
     };
 
     loc_info_t const& this_lvar_info(unsigned index) const 
     { 
         assert(index < m_this_lvar_info.size());
         return m_this_lvar_info[index]; 
+    }
+
+    int const* multi_bytes(loc_info_t const& info) const
+    {
+        if(!info.is_multi_byte())
+            return nullptr;
+        return &m_multi_byte_storage[info.multi_byte_allocation];
     }
 
 private:
@@ -146,8 +167,12 @@ private:
     // must persist after the 'ir_t' destructs.
     std::vector<loc_info_t> m_this_lvar_info;
 
+    // Stores indexes into 'm_this_lvar_info', used for multi-byte allocations.
+    std::vector<int> m_multi_byte_storage;
+
     std::vector<bitset_uint_t> m_lvar_interferences;
     std::vector<fc::vector_set<fn_ht>> m_fn_interferences;
+
 
     unsigned m_num_this_lvars = 0;
     unsigned m_bitset_size = 0;

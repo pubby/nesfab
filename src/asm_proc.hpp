@@ -50,11 +50,6 @@ struct asm_inst_t
              && alt.known_variable(true)
              && bank.known_variable(true)); 
     }
-    void prune(op_t replace = ASM_PRUNED)
-    {
-        op = ASM_PRUNED;
-        arg = alt = bank = {};
-    }
     bool no_alt() const { return !alt && !bank; }
     void clear_alt() { alt = bank = {}; }
 #else
@@ -65,15 +60,32 @@ struct asm_inst_t
         return (arg.known_variable(true)
              && alt.known_variable(true));
     }
-    void prune(op_t replace = ASM_PRUNED)
-    {
-        op = ASM_PRUNED;
-        arg = alt = {};
-    }
     bool no_alt() const { return !alt; }
-    void clear_alt() { alt = bank = {}; }
+    void clear_alt() { alt = {}; }
 #endif
     void clear_arg() { arg = {}; clear_alt(); }
+
+    void prune(op_t replace = ASM_PRUNED)
+    {
+        op = replace;
+        arg = alt = {};
+#ifdef OP_BANK
+        bank = {};
+#endif
+    }
+
+    template<typename Fn>
+    void for_each(Fn fn) const
+    {
+        if(arg)
+            fn(arg);
+        if(alt)
+            fn(alt);
+#ifdef OP_BANK
+        if(bank)
+            fn(bank);
+#endif
+    }
 
     bool operator==(asm_inst_t const& o) const { return op == o.op && loc_eq(o); }
     bool operator!=(asm_inst_t const& o) const { return !operator==(o); }

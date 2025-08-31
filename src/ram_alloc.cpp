@@ -1035,7 +1035,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
             continue;
         }
 
-        if(info.ptr_hi) // We'll allocate lo only, then assign to hi.
+        if(info.is_multi_byte() && info.multi_byte_position != 0) // We'll allocate [0] only, then assign the rest.
         {
             dprint(log, "-SKIP LVAR 2", fn.global.name, i);
             continue;
@@ -1068,7 +1068,7 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
         unsigned const lvar_i = rank.lvar_i;
         auto const& info = fn.lvars().this_lvar_info(lvar_i);
         locator_t const loc = fn.lvars().locator(lvar_i);
-        assert(!info.ptr_hi);
+        assert(info.multi_byte_position == 0);
 
         dprint(log, "-RAM_ALLOC_LOCALS", loc, info.size);
 
@@ -1092,13 +1092,16 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
 
         // Record the allocation.
 
-        if(info.ptr_alt >= 0)
+        if(info.is_multi_byte())
         {
-            assert(span.size == 2);
-            assert(static_cast<int>(lvar_i) != info.ptr_alt);
+            assert(info.multi_byte_position == 0);
+            assert(span.size >= 2);
+            assert(span.size == info.size);
             dprint(log, "---PTR_ALT");
-            fn.assign_lvar_span(romv, lvar_i,       { .addr = span.addr,     .size = 1 }); 
-            fn.assign_lvar_span(romv, info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 
+            int const* indices = fn.lvars().multi_bytes(info);
+            assert(indices[0] == lvar_i);
+            for(unsigned i = 0; i < info.size; i += 1)
+                fn.assign_lvar_span(romv, indices[i], { .addr = span.addr + i, .size = 1 }); 
         }
         else
             fn.assign_lvar_span(romv, lvar_i, span); 
@@ -1165,12 +1168,15 @@ void ram_allocator_t::alloc_locals(romv_t const romv, fn_ht h)
                         if(co_i < 0)
                             continue;
 
-                        if(info.ptr_alt >= 0)
+                        if(info.is_multi_byte())
                         {
-                            assert(span.size == 2);
+                            assert(span.size >= 2);
                             auto const& co_info = co->lvars().this_lvar_info(co_i);
-                            co->assign_lvar_span(romv, co_i,            { .addr = span.addr,     .size = 1 }); 
-                            co->assign_lvar_span(romv, co_info.ptr_alt, { .addr = span.addr + 1, .size = 1 }); 
+                            int const* indices = co->lvars().multi_bytes(co_info);
+                            assert(indices[0] == co_i);
+                            assert(co_info.size == span.size);
+                            for(unsigned i = 0; i < co_info.size; i += 1)
+                                co->assign_lvar_span(romv, indices[i], { .addr = span.addr + i, .size = 1 }); 
                         }
                         else
                             co->assign_lvar_span(romv, co_i, span); 

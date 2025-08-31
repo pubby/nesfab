@@ -73,7 +73,7 @@ constexpr unsigned NUM_ISEL_REGS  = 12; // Registers that isel::cpu_tracks locat
 constexpr regs_t REG_V    = 12;
 constexpr unsigned NUM_6502_REGS = 13;
 constexpr regs_t REG_M    = 13; // RAM
-constexpr unsigned NUM_REGS = 13;
+constexpr unsigned NUM_REGS = 14;
 
 constexpr regs_t REGF_A_HI = 1 << REG_A_HI;
 constexpr regs_t REGF_X_HI = 1 << REG_X_HI;
@@ -213,7 +213,7 @@ constexpr unsigned op_size(op_t op)
     { return op < NUM_NORMAL_OPS ? op_defs_table[op].size : 0; }
 
 constexpr bool op_illegal(op_t op)
-    { return op_normal(op) && (op_isa_flags(op) & isa_flags()) == 0; }
+    { return op_normal(op) && (op_isa_flags(op) & ISAF_6502_ILLEGAL); }
 
 constexpr regs_t op_input_regs(op_t op)
 { 
@@ -267,15 +267,6 @@ constexpr op_t get_op(op_name_t name, addr_mode_t mode)
     assert(name < op_name_mode_table.size()); 
     assert(mode < op_name_mode_table[name].size()); 
     return op_name_mode_table[name][mode]; 
-}
-
-constexpr op_t maybe_long_op(op_name_t name)
-{
-#ifdef ISA_SNES
-    return
-#else
-    return get_op(name, MODE_ABSOLUTE)
-#endif
 }
 
 inline addr_mode_table_t const& get_addr_modes(op_name_t name)
@@ -426,7 +417,7 @@ constexpr bool simple_addr_mode(addr_mode_t mode)
     }
 }
 
-constexpr addr_mode_t to_mode_zp(addr_mode_t mode)
+constexpr addr_mode_t to_mode_zp(addr_mode_t mode, bool indirect = false)
 {
     switch(mode)
     {
@@ -456,6 +447,7 @@ constexpr addr_mode_t to_mode_long(addr_mode_t mode, bool indirect = false)
 {
     switch(mode)
     {
+    default: break;
 #ifdef ISA_SNES
     case MODE_LONG:
     case MODE_LONG_X:
@@ -463,7 +455,7 @@ constexpr addr_mode_t to_mode_long(addr_mode_t mode, bool indirect = false)
     case MODE_INDIRECT_LONG:
     case MODE_INDIRECT_0_LONG:
     case MODE_INDIRECT_Y_LONG:
-        return indirect;
+        if(indirect) return mode;
     case MODE_ABSOLUTE:   return MODE_LONG;
     case MODE_ABSOLUTE_X: return MODE_LONG_X;
     case MODE_INDIRECT:   if(indirect) return MODE_INDIRECT_LONG;

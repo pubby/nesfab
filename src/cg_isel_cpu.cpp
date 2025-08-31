@@ -502,10 +502,12 @@ struct set_defs_for_impl<ROR_IMPLIED>
         }
         else if(cpu.is_known(REG_C))
         {
+            bool c = cpu.known[REG_C] & 1;
+
             cpu.set_output_defs_impl<ROR_IMPLIED>(opt, def);
-            if(cpu.known[REG_C])
+            if(c)
                 cpu.set_known(REG_Z, 0);
-            cpu.set_known(REG_N, cpu.known[REG_C]);
+            cpu.set_known(REG_N, c);
         }
         else
             cpu.set_output_defs_impl<ROR_IMPLIED>(opt, def);
@@ -771,10 +773,12 @@ struct set_defs_for_impl<ARR_IMMEDIATE>
         }
         else if(cpu.is_known(REG_C))
         {
+            bool c = cpu.known[REG_C] & 1;
+
             cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
-            if(cpu.known[REG_C])
+            if(c)
                 cpu.set_known(REG_Z, 0);
-            cpu.set_known(REG_N, cpu.known[REG_C]);
+            cpu.set_known(REG_N, c);
         }
         else
             cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
@@ -1155,7 +1159,6 @@ struct set_defs_for_impl<CLY_IMPLIED>
 };
 
 #endif
-
 
 template<op_t Op> [[gnu::noinline]]
 std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)

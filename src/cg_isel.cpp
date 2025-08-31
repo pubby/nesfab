@@ -609,12 +609,12 @@ namespace isel
     template<typename Opt, op_t Op, typename Def = null_, typename Arg = null_> [[gnu::noinline]]
     void maybe_long_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
-        static_assert(!indirect_addr_mode(op_addr_mode(op))); // Indirect isn't a good idea.
+        static_assert(!indirect_addr_mode(op_addr_mode(Op))); // Indirect isn't a good idea.
 #ifdef ISA_SNES
         // Have to use long addresses most of the time:
         if(Arg::trans().long_address())
         {
-            constexpr op_t long_ = get_op(op_name(op), to_mode_long(op_addr_mode(op)));
+            constexpr op_t long_ = get_op(op_name(Op), to_mode_long(op_addr_mode(Op)));
             if(long_)
                 exact_op<long_>(cpu, prev, cont, Opt::to_struct, Def::value(), Arg::trans(), Arg::trans_hi(), Def::node(), Arg::node());
             return;
@@ -630,7 +630,7 @@ namespace isel
     {
 #ifndef NDEBUG
         constexpr auto mode = op_addr_mode(Op);
-        assert(Op >= NUM_NORMAL_OPS || simple_addr_mode(mode));
+        passert(Op >= NUM_NORMAL_OPS || simple_addr_mode(mode), to_string(Op), to_string(mode));
         passert(valid_arg<Op>(arg), arg, Op);
 #endif
         cpu_t cpu_copy = cpu;
@@ -1376,24 +1376,6 @@ namespace isel
         , load_NZ_for<typename Opt::template restrict_to<~REGF_Y>, A>
         >(cpu, prev, cont);
     }
-
-#ifdef ISA_SNES
-    // Gets the long version of the address, if required by 'loc':
-    // (Returns BAD_OP sometimes!)
-    [[gnu::always_inline]]
-    op_t maybe_long(op_t op, locator_t loc)
-    {
-        return loc.long_address() ? to_mode_long(op) : op;
-    }
-
-    // Converts to long for SNES
-    constexpr op_t snes_long(op_t op) { return to_mode_long(op); }
-#else
-    [[gnu::always_inline]]
-    op_t maybe_long(op_t op, locator_t loc) { return op; }
-
-    constexpr op_t snes_long(op_t op) { return op; }
-#endif
 
     template<typename Opt, typename Def, typename Arg, op_t AbsoluteX, op_t AbsoluteY, op_t Absolute
             , bool Enable = (AbsoluteX || AbsoluteY) && (Opt::flags & OPT_NO_DIRECT) < OPT_NO_DIRECT>
@@ -2519,7 +2501,7 @@ namespace isel
                 select_step<false>(
                     chain
                     < simple_op<Opt, BVC_RELATIVE, null_, p_overflow_label>
-                    , exact_op<Opt, EOR_IMPLIED, null_, const_<0x80>>
+                    , exact_op<Opt, EOR_IMMEDIATE, null_, const_<0x80>>
                     , label<p_overflow_label>
                     , clear_conditional
                     , simple_op<Opt, BMI_RELATIVE, null_, SuccessLabel>
@@ -4427,13 +4409,13 @@ namespace isel
 #ifdef ISA_65C02
                         chain
                         < load_X<Opt, const_<0>>
-                        , maybe_long_op<Opt, LDA_INDIRECT_0, p_def, p_ptr>
+                        , exact_op<Opt, LDA_INDIRECT_0, p_def, p_ptr>
                         , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
 #else
                         chain
                         < load_X<Opt, const_<0>>
-                        , maybe_long_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
+                        , exact_op<Opt, LDA_INDIRECT_X, p_def, p_ptr>
                         , store<Opt, STA, p_def, p_def>
                         >(cpu, prev, cont);
 #endif
@@ -4574,7 +4556,7 @@ namespace isel
                 >(cpu, prev, cont);
 
 #ifdef ISA_SNES
-                if(p_ptr1::trans().long_addr() && !p_ptr1::trans().long_addr())
+                if(p_ptr1::trans().long_address() && !p_ptr1::trans().long_address())
                 {
                     chain
                     < load_AX<Opt, p_ass1, p_ass0>
@@ -4583,12 +4565,12 @@ namespace isel
                     >(cpu, prev, cont);
                 }
 
-                if(p_ptr0::trans().long_addr() && p_ptr1::trans().long_addr())
+                if(p_ptr0::trans().long_address() && p_ptr1::trans().long_address())
                 {
                     chain
                     < load_A<Opt, p_ass0>
                     , store<Opt, STA, null_, p_ptr0, false>
-                    < load_A<Opt, p_ass1>
+                    , load_A<Opt, p_ass1>
                     , store<Opt, STA, null_, p_ptr1, false>
                     >(cpu, prev, cont);
                 }

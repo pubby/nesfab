@@ -1,5 +1,6 @@
-.PHONY: all debug release static profile docs tests deps cleandeps clean run tables
+.PHONY: all debug debugstatic release static profile docs tests deps cleandeps clean run tables
 debug: nesfab
+debugstatic: nesfab
 release: nesfab
 static: nesfab
 profile: nesfab
@@ -71,7 +72,8 @@ ifeq ($(ARCH),MINGW_CROSS)
 override CXX:=x86_64-w64-mingw32-g++
 override CXXFLAGS+= \
   -mpopcnt \
-  -msse4
+  -msse4 \
+  -Wa,-mbig-obj
 endif
 
 ifeq ($(ISA),LEGAL)
@@ -79,6 +81,7 @@ override CXXFLAGS+= -DLEGAL
 endif
 
 debug: CXXFLAGS += -O0 -g
+debugstatic: CXXFLAGS += -static -O0 -g
 release: CXXFLAGS += -O3 -DNDEBUG -Wno-unused-variable
 static: CXXFLAGS += -static -O3 -DNDEBUG
 profile: CXXFLAGS += -O3 -DNDEBUG -g

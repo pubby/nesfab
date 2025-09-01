@@ -1865,7 +1865,7 @@ bool parser_t<P>::parse_var_init(var_decl_t& var_decl, ast_node_t& expr, std::un
         {
             policy().begin_byte_block_scope();
             expr = parse_byte_block(var_decl.name, var_indent, **block_init_global, group, is_vars, is_banked, false);
-            policy().end_byte_block_scope();
+            policy().end_byte_block_scope(true);
             return expr.num_children();
         }
     }

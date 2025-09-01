@@ -413,10 +413,12 @@ public:
         anonymous_table.push_scope();
     }
 
-    void end_byte_block_scope()
+    void end_byte_block_scope(bool clear = false)
     {
         assert(!anonymous_table.empty());
         anonymous_table.pop_scope();
+        if(clear)
+            anonymous_table.clear();
     }
 
     void byte_block_named_value(pstring_t at, char const* orig_name, ssa_value_t value)

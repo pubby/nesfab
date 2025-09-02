@@ -176,9 +176,9 @@ SSA_DEF(init_array, -1, INPUT_VALUE, 0)
 //////////////
 
 // (hi, lo) - combines two bytes into a pointer
-SSA_DEF(make_ptr_lo, 2, INPUT_NONE, SSAF_COPY | SSAF_CHEAP_SCHEDULE)
+SSA_DEF(make_ptr_lo, 2, INPUT_NONE, SSAF_COPY | SSAF_CHEAP_SCHEDULE | SSAF_NO_GVN)
 // (lo, hi) - combines two bytes into a pointer
-SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY | SSAF_CHEAP_SCHEDULE)
+SSA_DEF(make_ptr_hi, 2, INPUT_NONE, SSAF_COPY | SSAF_CHEAP_SCHEDULE | SSAF_NO_GVN)
 
 // (ptr, ptr_hi, bank, index)
 SSA_DEF(read_ptr,    4, INPUT_VALUE, SSAF_INDEXES_PTR | SSAF_NULL_INPUT_VALID | SSAF_BANK_INPUT)
@@ -226,16 +226,16 @@ SSA_DEF(read_global, 2, INPUT_LINK, 0)
 
 // Used to implement out-of-SSA for phi node inputs.
 // (node)
-SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY | SSAF_CHEAP_SCHEDULE)
+SSA_DEF(phi_copy,      1, INPUT_VALUE, SSAF_COPY | SSAF_CHEAP_SCHEDULE | SSAF_NO_GVN)
 
 // Stores into a locator at some point earlier in the program than needed.
 // Used in out-of-SSA as an optimization.
 // (node)
-SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE | SSAF_CHEAP_SCHEDULE)
-SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_CHEAP_SCHEDULE) // TODO: is this really necessary?
-SSA_DEF(const_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE | SSAF_CHEAP_SCHEDULE)
+SSA_DEF(early_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE | SSAF_CHEAP_SCHEDULE | SSAF_NO_GVN)
+SSA_DEF(aliased_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_CHEAP_SCHEDULE | SSAF_NO_GVN) // TODO: is this really necessary?
+SSA_DEF(const_store, 1, INPUT_VALUE,  SSAF_COPY | SSAF_PRIO_SCHEDULE | SSAF_CHEAP_SCHEDULE | SSAF_NO_GVN)
 
 // (node, locator)
-SSA_DEF(late_store, 2, INPUT_VALUE,  SSAF_COPY)
+SSA_DEF(late_store, 2, INPUT_VALUE,  SSAF_COPY | SSAF_NO_GVN)
 
 #undef SSA_DEF

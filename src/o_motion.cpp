@@ -63,14 +63,8 @@ public:
         // Assign unique GVNs to ops not valid for GVN:
         for(cfg_node_t const& cfg_node : ir)
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
-        {
-            if(ssa_it->in_daisy() 
-               || (ssa_flags(ssa_it->op()) & (SSAF_NO_GVN | SSAF_WRITE_ARRAY | SSAF_IO_IMPURE)) 
-               || !pure(*ssa_it))
-            {
+            if(valid_for_gvn(ssa_it))
                 data(ssa_it).gvn = m_next_gvn++;
-            }
-        }
 
         // Build GVNs for the rest of the IR:
         for(cfg_node_t const& cfg_node : ir)
@@ -84,6 +78,16 @@ public:
         // Now merge GVN sets:
         for(auto const& pair : m_gvn_sets)
             merge_gvn_set(pair.second);
+    }
+
+    static bool valid_for_gvn(ssa_ht ssa_it)
+    {
+        if(ssa_input0_class(ssa_it->op()) == INPUT_LINK)
+            return valid_for_gvn(ssa_it->input(0).handle());
+
+        return (ssa_it->in_daisy() 
+                || (ssa_flags(ssa_it->op()) & (SSAF_NO_GVN | SSAF_WRITE_ARRAY | SSAF_IO_IMPURE)) 
+                || !pure(*ssa_it));
     }
 
     gvn_t to_gvn(ssa_value_t v)

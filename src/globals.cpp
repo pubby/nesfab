@@ -1477,7 +1477,7 @@ void fn_t::compile()
         }
         else if(mod_test(mods(), MOD_inline, true))
             m_always_inline = true;
-        else if(sloppy() && precheck_called() == 1)
+        else if(!sloppy() && precheck_called() == 1)
         {
             if(proc_size < INLINE_SIZE_ONCE)
                 m_always_inline = true;

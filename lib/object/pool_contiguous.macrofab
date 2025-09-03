@@ -60,3 +60,23 @@ fn #name#_exists(U index) Bool
 : +inline
     return index < #name#_max
 
+// Returns the index of the first object equal to 'value':
+fn #name#_find(#type# value) U
+    for U i = 0; i < #name#_num; i += 1
+        if #name#[i] == value
+            return i
+    return BAD_OBJECT
+
+// Replaces all objects equeal to 'from' with 'to':
+fn #name#_replace_matching(#type# from, #type# to)
+    for U i = 0; i < #name#_num; i += 1
+        if #name#[i] == from
+            #name#[i] = to
+
+// Removes all objects equal to 'value':
+fn #name#_delete_matching(#type# value)
+    for U i = 0; i < #name#_num;
+        if #name#[i] == value
+            #name#_delete(i)
+        else
+            i += 1

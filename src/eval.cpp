@@ -3346,6 +3346,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 if(call->fclass == FN_NMI)
                     compiler_error(call_pstring, "Cannot call nmi function.");
+                else if(call->fclass == FN_IRQ)
+                    compiler_error(call_pstring, "Cannot call irq function.");
 
                 if(call->fclass == FN_MODE)
                 {

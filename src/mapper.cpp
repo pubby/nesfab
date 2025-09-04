@@ -6,6 +6,7 @@
 
 #include "builtin.hpp"
 #include "format.hpp"
+#include "options.hpp"
 
 mapper_mirroring_t mapper_params_t::mirroring_none(mapper_type_t mt) const
 {
@@ -446,7 +447,16 @@ void write_ines_header(std::uint8_t* at, mapper_t const& mapper)
     at[11] = chr_shift & 0b1111;
 
     // 12
-    at[12] = 0;
+    std::uint8_t flags12 = 0;
+    switch(_options.nes_system)
+    {
+    default: break;
+    case NES_SYSTEM_NTSC: flags12 = 0; break;
+    case NES_SYSTEM_PAL: flags12 = 1; break;
+    case NES_SYSTEM_DENDY: flags12 = 3; break;
+    case NES_SYSTEM_DETECT: flags12 = 2; break;
+    }
+    at[12] = flags12;
 
     // 13
     at[13] = 0;

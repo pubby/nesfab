@@ -37,7 +37,10 @@ SSA_DEF(carry, 1, INPUT_LINK, SSAF_TRACE_INPUTS)
 SSA_DEF(trace, -1, INPUT_VALUE, 0)
 
 // (value)
-SSA_DEF(cast,   1, INPUT_VALUE, SSAF_FREE)
+SSA_DEF(cast,     1, INPUT_VALUE, SSAF_FREE)
+
+// (value) - Tags a value with some additional type information
+SSA_DEF(type_tag, 1, INPUT_VALUE,  SSAF_FREE)
 
 // (value) - 'SSA_cast' can't convert to bool, but this NOP can. Just make sure values are in range [0, 1].
 SSA_DEF(as_bool,1, INPUT_VALUE, SSAF_FREE)

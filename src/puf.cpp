@@ -148,16 +148,26 @@ struct track_t
     const_ht gconst = {};
 };
 
-int parse_hex_pair(std::string_view str)
+int parse_hex_string(std::string_view str)
 {
     if(str.size() < 2)
         throw std::runtime_error(fmt("Invalid hex pair. (%)", str));
 
-    int d1 = char_to_int(str[0]);
-    int d2 = char_to_int(str[1]);
-    if(d1 < 0 || d2 < 0)
-        return -1;
-    return (d1 * 16) | d2;
+    int sum = 0;
+    for(unsigned i = 0; i < str.size(); i += 1)
+    {
+        int d = char_to_int(str[i]);
+        if(d < 0)
+        {
+            if(i == 0)
+                return -1;
+            else
+                break;
+        }
+        sum *= 16;
+        sum += d;
+    }
+    return sum;
 }
 
 char const* parse_line(char const* const ptr, char const* const end, 
@@ -465,7 +475,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 
                 active_track->order.push_back({});
                 for(int i = 0; i < num_chan; ++i)
-                    active_track->order.back()[i] = parse_hex_pair(words[i+3]);
+                    active_track->order.back()[i] = parse_hex_string(words[i+3]);
             }
             else if(words[0] == "DPCMDEF"sv)
             {
@@ -481,13 +491,13 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                 req_words(3);
 
                 for(unsigned i = 2; i < words.size(); ++i)
-                    active_dpcm->push_back(parse_hex_pair(words[i]));
+                    active_dpcm->push_back(parse_hex_string(words[i]));
             }
             else if(words[0] == "PATTERN"sv)
             {
                 req_words(2);
 
-                int const id = parse_hex_pair(words[1]);
+                int const id = parse_hex_string(words[1]);
 
                 active_pattern = &active_track->patterns[id];
             }
@@ -497,7 +507,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
 
                 row_t row = {};
 
-                row.number = parse_hex_pair(words[1]);
+                row.number = parse_hex_string(words[1]);
 
                 unsigned i = 0;
                 while(i < words.size() && words[i] != ":")
@@ -508,7 +518,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                     if(i + 3 >= words.size())
                         throw std::runtime_error("Unknown ROW format.");
                     row.chan[j].note = parse_note(words[i+0], 2);
-                    row.chan[j].instrument = parse_hex_pair(words[i+1]);
+                    row.chan[j].instrument = parse_hex_string(words[i+1]);
                     i += 3;
                     while(i < words.size() && words[i] != ":")
                     {
@@ -634,7 +644,7 @@ void convert_puf_music(char const* const begin, std::size_t size, lpstring_t at)
                             channel_data_t cd = pv[i*track.pattern_size+j].chan[k];
 
                             int min_note = 9;
-                            if(rnbw && k >= CHAN_EXP1)
+                            if(k == CHAN_NOISE || (rnbw && k >= CHAN_EXP1))
                                 min_note = 0;
 
                             if(cd.note == -2)
@@ -1429,7 +1439,7 @@ void convert_puf_sfx(char const* const txt_data, std::size_t txt_size,
             for(unsigned i = 0; i < num_chan; ++i)
             {
                 int min_note = 9;
-                if(rnbw && i >= CHAN_EXP1)
+                if(i == CHAN_NOISE || (rnbw && i >= CHAN_EXP1))
                     min_note = 0;
                 t.empty[i] = fill_blank_notes(t.notes[i], min_note);
             }

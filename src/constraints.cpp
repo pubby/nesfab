@@ -488,6 +488,14 @@ ABSTRACT(SSA_cast) = ABSTRACT_FN
     }
 };
 
+ABSTRACT(SSA_type_tag) = ABSTRACT_FN
+{
+    assert(argn == 1);
+    assert(result.vec.size() <= 2);
+    assert(cv[0].vec.size() >= 1);
+    result[0] = cv[0][0];
+};
+
 ABSTRACT(SSA_as_bool) = ABSTRACT_FN
 {
     assert(argn == 1);

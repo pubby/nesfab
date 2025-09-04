@@ -2084,6 +2084,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             };
         }
 
+    case TOK_local_ident:
     case TOK_ident:
         if(ast.token.signed_() < 0) // If we have a local const
         {
@@ -4258,20 +4259,23 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 };
             }
 
-            auto const compile_read_ptr = [&](ssa_value_t ptr, ssa_value_t bank)
+            auto const compile_read_ptr = [&](type_t ptr_type, ssa_value_t ptr, ssa_value_t bank)
             {
+                ssa_ht tag = builder.cfg->emplace_ssa(SSA_type_tag, ptr_type.with_banked(false), ptr);
+
                 if(is8)
                 {
+
                     return builder.cfg->emplace_ssa(
                         SSA_read_ptr, TYPE_U, 
-                        ptr, ssa_value_t(), bank,
+                        tag, ssa_value_t(), bank,
                         std::get<ssa_value_t>(array_index.rval()[0]));
                 }
                 else
                 {
                     ssa_ht h = builder.cfg->emplace_ssa(
                         SSA_add, ptr.type(), 
-                        ptr,
+                        tag,
                         std::get<ssa_value_t>(array_index.rval()[0]),
                         ssa_value_t(0u, TYPE_BOOL));
 
@@ -4400,6 +4404,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         else
                         {
                             ssa_ht const h = compile_read_ptr(
+                                array_val.type,
                                 from_variant<D>(rval[0], array_val.type),
                                 is_banked ? from_variant<D>(rval[1], TYPE_U) : ssa_value_t());
 
@@ -4451,10 +4456,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     group_data_ht const group = strval->charmap->group_data();
                     bool const banked = !strval->charmap->stows_omni();
 
+                    type_t const type = type_t::ptr((*group)->handle(), type_ptr(false, banked));
                     auto ptr = make_ptr(locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), type_ptr(false, banked)), banked);
 
-                    ssa_ht const h = compile_read_ptr(
-                        ptr.ssa(), banked ? ptr.ssa(1) : ssa_value_t());
+                    ssa_ht const h = compile_read_ptr(type, ptr.ssa(), banked ? ptr.ssa(1) : ssa_value_t());
 
                     array_val.val = rval_t{ h };
                 }
@@ -5012,9 +5017,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     unsigned const num_atoms = ::num_atoms(t, 0);
                     for(unsigned a = 0; a < num_atoms; ++a)
                     {
+                        ssa_ht const tag = builder.cfg->emplace_ssa(
+                            SSA_type_tag, ptr.type.with_banked(false), ptr_v);
+
                         ssa_ht const read = builder.cfg->emplace_ssa(
                             SSA_read_ptr, TYPE_U, 
-                            ptr_v, ssa_value_t(), bank_v, 
+                            tag, ssa_value_t(), bank_v, 
                             ssa_value_t(index, TYPE_U));
                         if(ptr_to_vars(ptr.type))
                             read->append_daisy();
@@ -5169,9 +5177,12 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                 SSA_get_byte, TYPE_U, value, ssa_value_t(a, TYPE_U));
                         }
 
+                        ssa_ht const tag = builder.cfg->emplace_ssa(
+                            SSA_type_tag, ptr.type.with_banked(false), ptr_v);
+
                         ssa_ht const write = builder.cfg->emplace_ssa(
                             SSA_write_ptr, TYPE_VOID, 
-                            ptr_v, ssa_value_t(), bank_v, 
+                            tag, ssa_value_t(), bank_v, 
                             ssa_value_t(index, TYPE_U), byte);
                         write->append_daisy();
 
@@ -5626,8 +5637,11 @@ expr_value_t eval_t::to_rval(expr_value_t v)
         if(!is_compile(D))
             compiler_error(v.pstring, "Can only dereference at compile-time.");
 
+        ssa_ht const tag = builder.cfg->emplace_ssa(
+            SSA_type_tag, deref->ptr.type().with_banked(false), deref->ptr);
+
         ssa_ht const read = builder.cfg->emplace_ssa(
-            SSA_read_ptr, TYPE_U, deref->ptr, ssa_value_t(), deref->bank, deref->index);
+            SSA_read_ptr, TYPE_U, tag, ssa_value_t(), deref->bank, deref->index);
 
         if(ptr_to_vars(deref->ptr.type()))
             read->append_daisy();
@@ -5790,9 +5804,12 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
 
         rhs = throwing_cast<D>(std::move(rhs), TYPE_U, true);
 
+        ssa_ht const tag = builder.cfg->emplace_ssa(
+            SSA_type_tag, deref->ptr.type().with_banked(false), deref->ptr);
+
         ssa_ht const write = builder.cfg->emplace_ssa(
             SSA_write_ptr, TYPE_VOID,
-            deref->ptr, ssa_value_t(), deref->bank, deref->index,
+            tag, ssa_value_t(), deref->bank, deref->index,
             std::get<ssa_value_t>(rhs.rval()[0]));
         write->append_daisy();
 

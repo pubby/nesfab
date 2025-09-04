@@ -135,6 +135,7 @@ public:
     void uses_charmap(global_t const* charmap, idep_class_t calc = IDEP_TYPE);
     ast_node_t* eternal_expr(ast_node_t const* expr);
     ast_node_t* convert_eternal_expr(ast_node_t const* expr, idep_class_t calc = IDEP_VALUE);
+    void convert_ast_local(ast_node_t& ast);
     void convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on = IDEP_VALUE);
     global_t& lookup_global(pstring_t pstring);
     group_t* lookup_group(pstring_t pstring);
@@ -658,7 +659,8 @@ public:
         if(mods)
             mods->validate(var_decl.name);
 
-        // We'll save the expr, but *don't* convert it yet.
+        convert_ast_local(ast);
+
         int i = _add_symbol(var_decl, true, false, std::move(mods), &ast);
         assert(i < 0);
     }

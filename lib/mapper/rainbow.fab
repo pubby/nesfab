@@ -160,7 +160,7 @@ ct fn RNBW_BG_EXT_CHR_PAGE_ADDR(U page) Int
     return page * RNBW_BG_EXT_CHR_PAGE_SIZE
 
 // Use these to calculate CHR regions for sprite extended mode:
-ct fn RNBW_SPR_EXT_CHR_PAGE_SIZE(Bool spr_8x16)  Int
+ct fn RNBW_SPR_EXT_CHR_PAGE_SIZE(Bool spr_8x16) Int
     if spr_8x16
         return 1048576 << 1
     return 1048576

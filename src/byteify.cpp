@@ -260,6 +260,7 @@ static void _split_vanishing(ssa_ht ssa_node)
 void byteify(ir_t& ir, fn_t const& fn)
 {
     // First prepare the IR with some transformations:
+    remove_type_tags(ir);
     insert_signed_mul_subtractions(ir);
     shifts_to_rotates(ir, false);
     // OK! IR prepared.
@@ -1250,6 +1251,15 @@ void byteify(ir_t& ir, fn_t const& fn)
             h->replace_with(h.data<ssa_byteify_d>().bm[max_frac_bytes]);
         h->prune();
     }
+}
+
+// Removes type tags:
+void remove_type_tags(ir_t& ir)
+{
+    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
+    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+        if(ssa_it->op() == SSA_type_tag)
+            ssa_it->unsafe_set_op(SSA_cast);
 }
 
 // Converts signed multiplies to unsigned,

@@ -46,6 +46,27 @@ ast_node_t* pass1_t::convert_eternal_expr(ast_node_t const* expr, idep_class_t c
     return nullptr;
 }
 
+// Only resolves symbol table lookups:
+void pass1_t::convert_ast_local(ast_node_t& ast)
+{
+    switch(ast.token.type)
+    {
+    case TOK_weak_ident:
+    case TOK_ident:
+        if(int const* handle = symbol_table.find(ast.token.pstring.view(source())))
+        {
+            ast.token.value = std::int64_t(*handle);
+            ast.token.type = TOK_local_ident;
+            assert(ast.token.signed_() == *handle);
+        }
+        break;
+    default:
+        unsigned const n = ast.num_children();
+        for(unsigned i = 0; i < n; ++i)
+            convert_ast_local(ast.children[i]);
+    }
+}
+
 void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depends_on)
 {
     switch(ast.token.type)
@@ -59,7 +80,7 @@ void pass1_t::convert_ast(ast_node_t& ast, idep_class_t calc, idep_class_t depen
         if(int const* handle = symbol_table.find(ast.token.pstring.view(source())))
         {
             ast.token.value = std::int64_t(*handle);
-            ast.token.type = TOK_ident;
+            ast.token.type = TOK_local_ident;
             assert(ast.token.signed_() == *handle);
         }
         else

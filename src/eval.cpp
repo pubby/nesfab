@@ -362,7 +362,14 @@ public:
         assert(index.id < num_global_vars());
         return { index.id }; 
     }
-    var_ht to_var_i(gvar_ht gvar) const { assert(ir); return to_var_i(ir->gmanager.var_i(gvar)); }
+    var_ht to_var_i(gvar_ht gvar) const 
+    { 
+        assert(ir); 
+        gmanager_t::index_t index = ir->gmanager.var_i(gvar); 
+        passert(index, index, gvar->global.name); 
+        passert(index.id < num_global_vars(), gvar->global.name);
+        return to_var_i(index); 
+    }
     var_ht to_var_i(gmember_ht gmember) const { assert(ir); return to_var_i(ir->gmanager.var_i(gmember)); }
 
     unsigned to_local_i(var_ht var_i) const { assert(var_i.id >= num_global_vars()); return var_i.id - num_global_vars(); }
@@ -5695,6 +5702,18 @@ void eval_t::do_fence(ssa_op_t ssa_op)
     if(precheck_tracked)
         precheck_tracked->fences.push_back(stmt_pstring_mods());
 
+
+    expr_value_t fence_arg;
+
+    if(ssa_op == SSA_cli) // Currently, cli is the only fence with an arg:
+    {
+        assert(stmt->expr);
+        // NOTE: Evaluate this before the 'is_compile' return,
+        //       otherwise it will mess up precheck.
+        fence_arg = do_expr<COMPILE>(*stmt->expr);
+        fence_arg = throwing_cast<COMPILE>(std::move(fence_arg), TYPE_BOOL, true);
+    }
+
     if(!is_compile(D))
         return;
 
@@ -5705,11 +5724,7 @@ void eval_t::do_fence(ssa_op_t ssa_op)
     fenced->append_daisy();
 
     if(ssa_op == SSA_cli)
-    {
-        expr_value_t v = do_expr<COMPILE>(*stmt->expr);
-        v = throwing_cast<COMPILE>(std::move(v), TYPE_BOOL, true);
-        inputs.push_back(v.ssa());
-    }
+        inputs.push_back(fence_arg.ssa());
 
     ir->gmanager.for_each_gvar([&](gvar_ht gvar, gmanager_t::index_t index)
     {

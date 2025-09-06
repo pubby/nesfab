@@ -444,6 +444,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_remove_load(TAX, false)) 
                 goto retry;
+#ifndef LEGAL
             if(op_t lax = get_op(LAX, op_addr_mode(a.op)))
             {
                 if(peep_remove_load(TXA, true)) 
@@ -452,6 +453,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                     goto retry;
                 }
             }
+#endif
             break;
         case LDY:
             if(peep_inxy(INY, STY, INC))
@@ -484,6 +486,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             if(peep_remove_load(TYA, false)) 
                 goto retry;
+#ifndef LEGAL
             if(op_t lax = get_op(LAX, op_addr_mode(a.op)))
             {
                 if(peep_remove_load(TAX, true)) 
@@ -492,6 +495,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                     goto retry;
                 }
             }
+#endif
             break;
         case STA:
             if(peep_transfer2(LDX, TAX_IMPLIED))

@@ -1794,6 +1794,11 @@ lvars_manager_t asm_graph_t::build_lvars(fn_t const& fn)
                 if(read)
                     bitset_set(live, i);
 
+#if 0
+                // Debug check to force everything live:
+                bitset_set_n(bs_size, live, lvars.num_all_lvars());
+#endif
+
                 // Variables that are live together interfere with each other.
                 // Update the interference graph here:
                 lvars.add_lvar_interferences(live);

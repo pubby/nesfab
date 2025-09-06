@@ -2946,12 +2946,12 @@ namespace isel
 
                         if(p_carry::value().is_const_num())
                         {
+#ifndef LEGAL
                             std::uint8_t const byte = 0x100 - p_rhs::value().data() - !!p_carry::value().data();
                             p_arg<2>::set(ssa_value_t(byte, TYPE_U));
 
-                            if(byte != 0 || !carry_output)
+                            if((byte != 0 || !carry_output)
                             {
-#ifndef LEGAL
                                 chain
                                 < load_AX<Opt, p_lhs, p_lhs>
                                 , simple_op<Opt::template valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>
@@ -3231,9 +3231,9 @@ namespace isel
 
                     if(p_carry::value().is_const_num())
                     {
+#ifndef LEGAL
                         p_arg<2>::set(ssa_value_t((p_rhs::value().data() - (1 - !!p_carry::value().data())) & 0xFF, TYPE_U));
 
-#ifndef LEGAL
                         chain
                         < load_AX<Opt, p_lhs, p_lhs>
                         , simple_op<Opt::template valid_for<REGF_X | REGF_NZ>, AXS_IMMEDIATE, p_def, p_arg<2>>

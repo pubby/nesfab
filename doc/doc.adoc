@@ -3771,18 +3771,18 @@ Example:
 ----
 // Store at offset $0000:
 chrrom
-    file(chr, "sprites.png") 
-    file(chr, "bg.png") 
+    file(fmt, "sprites.png") 
+    file(fmt, "bg.png") 
 
 // Store at offset $2000:
 chrrom ($2000)
-    file(chr, "more_sprites.png") 
-    file(chr, "more_bg.png") 
+    file(fmt, "more_sprites.png") 
+    file(fmt, "more_bg.png") 
 
 // Store at offset $4000 under the name 'foo':
 chrrom foo($4000)
-    file(chr, "more_sprites.png") 
-    file(chr, "more_bg.png") 
+    file(fmt, "more_sprites.png") 
+    file(fmt, "more_bg.png") 
 ----
 
 The compiler will issue a warning if the supplied data does not match what the mapper expects.
@@ -3794,9 +3794,9 @@ Example:
 ----
 chrrom foo
     label spr
-        file(chr, "sprites.png") 
+        file(fmt, "sprites.png") 
     label bg
-        file(chr, "bg.png") 
+        file(fmt, "bg.png") 
 
 // Access the CHR addresses:
 ct Int bar = foo.spr
@@ -3830,7 +3830,7 @@ To use modifiers with them, write the modifiers on the same line.
 
 Example:
 ----
-ct U{} my_data = file(chr, "sprites.png") : +spr_8x16
+ct U{} my_data = file(fmt, "sprites.png") : +spr_8x16
 ----
 
 ==== `file` statement (byte block)
@@ -3841,10 +3841,10 @@ Unlike `file` expressions, these statements can can introduce <<accessory, acces
 Example:
 ----
 chrrom
-    file(chr, "sprites.png") 
+    file(fmt, "sprites.png") 
     : +spr_8x16
 
-    file(chr, "bg.png") 
+    file(fmt, "bg.png") 
 ----
 
 ==== Conversions

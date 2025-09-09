@@ -1425,8 +1425,6 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
     live_regs.clear();
     live_regs.resize(size, 0);
 
-    regs_t live = live_out;
-
     for(int i = int(size) - 1; i >= 0; --i)
     {
         asm_inst_t const& inst = code[i];
@@ -1481,7 +1479,6 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
         {
             asm_inst_t& inst = code[i];
 
-            assert(inst.op != ASM_LABEL);
             if((op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE))
                || inst.op == ASM_LABEL
                || inst.has_alt()
@@ -1617,7 +1614,6 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
         {
             asm_inst_t& inst = code[i];
 
-            assert(inst.op != ASM_LABEL);
             if((op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE))
                || inst.op == ASM_LABEL
                || inst.has_alt()
@@ -1871,7 +1867,6 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
             unsigned const ai = &a - code;
             unsigned const bi = &b - code;
 
-            assert(a.op != ASM_LABEL);
             if((op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE)))
             {
                 map.clear();

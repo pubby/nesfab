@@ -6,6 +6,7 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <bit>
 #ifndef NDEBUG
 #include <iostream>
 #endif
@@ -504,14 +505,14 @@ namespace isel
         }
 
         cpu_t cpu_copy = cpu;
-        for(regs_t r = 0; r < NUM_ISEL_REGS; ++r)
-        {
+        for(regs_t r = 0; r < cpu_copy.defs.size(); ++r)
             if(cpu_copy.conditional_regs & (1 << r))
-            {
                 cpu_copy.defs[r] = {};
+
+        for(regs_t r = 0; r < cpu_copy.known.size(); ++r)
+            if(cpu_copy.conditional_regs & (1 << r))
                 cpu_copy.known[r] = 0;
-            }
-        }
+
         cpu_copy.known_mask &= ~cpu_copy.conditional_regs;
         cpu_copy.conditional_regs = 0;
         assert(cpu_copy.known_array_valid());
@@ -658,21 +659,21 @@ namespace isel
             cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota), {}, /*-cost_fn(STA_MAYBE) / 2*/ 0));
     };
 
-    template<typename Opt, typename Def>
+    template<typename Opt, typename Load, typename Def> [[gnu::noinline]]
     void load_NZ_for_impl(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
-        locator_t const v = Def::value();
+        locator_t const v = Load::value();
 
         if(cpu.def_eq(REG_A, v))
         {
             simple_op<EOR_IMMEDIATE>(
                 Opt::template unrestrict<REGF_A>::to_struct, 
-                v, locator_t::const_byte(0),
+                Def::value(), locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            simple_op<TAX_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            simple_op<TAX_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
 
-            simple_op<TAY_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            simple_op<TAY_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
         }
         else if(cpu.def_eq(REG_X, v))
         {
@@ -683,10 +684,10 @@ namespace isel
 
             simple_op<CPX_IMMEDIATE>(
                 Opt::template valid_for<REGF_NZ>::to_struct, 
-                v, locator_t::const_byte(0),
+                Def::value(), locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            simple_op<TXA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            simple_op<TXA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
         }
         else if(cpu.def_eq(REG_Y, v))
         {
@@ -697,26 +698,26 @@ namespace isel
 
             simple_op<CPY_IMMEDIATE>(
                 Opt::template valid_for<REGF_NZ>::to_struct, 
-                v, locator_t::const_byte(0),
+                Def::value(), locator_t::const_byte(0),
                 cpu, prev, cont);
 
-            simple_op<TYA_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
+            simple_op<TYA_IMPLIED>(Opt::to_struct, Def::value(), {}, cpu, prev, cont);
         }
         else
         {
-            pick_op<Opt, LDA, Def, Def>(cpu, prev, cont);
+            pick_op<Opt, LDA, Def, Load>(cpu, prev, cont);
 
-            pick_op<Opt, LDX, Def, Def>(cpu, prev, cont);
+            pick_op<Opt, LDX, Def, Load>(cpu, prev, cont);
 
-            pick_op<Opt, LDY, Def, Def>(cpu, prev, cont);
+            pick_op<Opt, LDY, Def, Load>(cpu, prev, cont);
 
 #ifndef LEGAL
-            pick_op<Opt, LAX, Def, Def>(cpu, prev, cont);
+            pick_op<Opt, LAX, Def, Load>(cpu, prev, cont);
 #endif
         }
     }
 
-    template<typename Opt, typename Def> [[gnu::noinline]]
+    template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
     void load_NZ_for(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
@@ -727,10 +728,10 @@ namespace isel
         else if((Opt::can_set & REGF_NZ) != REGF_NZ)
             return;
         else
-            return load_NZ_for_impl<Opt, Def>(cpu, prev, cont);
+            return load_NZ_for_impl<Opt, Load, Def>(cpu, prev, cont);
     }
 
-    template<typename Opt, typename Def> [[gnu::noinline]]
+    template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
     void load_Z_for(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
@@ -740,10 +741,10 @@ namespace isel
         else if(!(Opt::can_set & REGF_Z))
             return;
         else
-            return load_NZ_for_impl<Opt, Def>(cpu, prev, cont);
+            return load_NZ_for_impl<Opt, Load, Def>(cpu, prev, cont);
     }
 
-    template<typename Opt, typename Def> [[gnu::noinline]]
+    template<typename Opt, typename Load, typename Def = Load> [[gnu::noinline]]
     void load_N_for(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         locator_t const v = Def::value();
@@ -759,7 +760,7 @@ namespace isel
             , set_defs<Opt, REGF_N, true, Def>
             >(cpu, prev, cont);
 
-            return load_NZ_for_impl<Opt, Def>(cpu, prev, cont);
+            return load_NZ_for_impl<Opt, Load, Def>(cpu, prev, cont);
         }
     }
     
@@ -974,6 +975,8 @@ namespace isel
             else
                 simple_op<CLC_IMPLIED>(Opt::to_struct, v, {}, cpu, prev, cont);
         }
+        else if(cpu.def_eq(REG_A, Def::value()))
+            goto do_a;
         else if(cpu.def_eq(REG_Z, Def::value()))
         {
             using load_C_label = param<struct load_C_label_tag>;
@@ -1013,6 +1016,7 @@ namespace isel
         }
         else
         {
+        do_a:
             chain
             < load_A<Opt, Def>
             , simple_op<typename Opt::template valid_for<REGF_C>, LSR_IMPLIED, Def>
@@ -1266,7 +1270,7 @@ namespace isel
 
         cpu_t cpu_copy = cpu;
         constexpr auto input_regs = op_input_regs(get_op(StoreOp, MODE_ABSOLUTE)) & REGF_ISEL;
-        if(builtin::popcount(unsigned(input_regs)) == 1) // Don't modify cpu for SAX, etc.
+        if(std::popcount(unsigned(input_regs)) == 1) // Don't modify cpu for SAX, etc.
         {
             if(!cpu_copy.set_defs<input_regs>(Opt::to_struct, Def::value(), KeepValue))
                 return;
@@ -2723,8 +2727,8 @@ namespace isel
 
             chain
             < load_A<OptR, const_<0>>
-            , simple_op<typename Opt::template valid_for<REGF_A>, ROL_IMPLIED>
-            , set_defs<Opt, REGF_A | REGF_N | REGF_Z, true, p_def>
+            , simple_op<Opt, ROL_IMPLIED>
+            , set_defs<Opt, REGF_A | REGF_NZ, true, p_def>
             , exact_op<Opt, STA_LIKELY, null_, p_def>
             >(cpu, prev, cont);
 
@@ -2733,7 +2737,7 @@ namespace isel
             , simple_op<OptR, BCC_RELATIVE, null_, p_label<0>>
             , simple_op<OptR, INX_IMPLIED>
             , maybe_carry_label_clear_conditional<OptR, p_label<0>, false>
-            , set_defs<Opt, REGF_X | REGF_N | REGF_Z, true, p_def>
+            , set_defs<Opt, REGF_X, true, p_def> // NOTE: Don't set N/Z
             , exact_op<Opt, STX_LIKELY, null_, p_def>
             >(cpu, prev, cont);
 
@@ -2742,7 +2746,7 @@ namespace isel
             , exact_op<OptR, BCC_RELATIVE, null_, p_label<0>>
             , exact_op<OptR, INY_IMPLIED>
             , maybe_carry_label_clear_conditional<OptR, p_label<0>, false>
-            , set_defs<Opt, REGF_Y | REGF_N | REGF_Z, true, p_def>
+            , set_defs<Opt, REGF_Y, true, p_def> // NOTE: Don't set N/Z
             , exact_op<Opt, STY_LIKELY, null_, p_def>
             >(cpu, prev, cont);
         }
@@ -2950,7 +2954,7 @@ namespace isel
                             std::uint8_t const byte = 0x100 - p_rhs::value().data() - !!p_carry::value().data();
                             p_arg<2>::set(ssa_value_t(byte, TYPE_U));
 
-                            if((byte != 0 || !carry_output)
+                            if(byte != 0 || !carry_output)
                             {
                                 chain
                                 < load_AX<Opt, p_lhs, p_lhs>
@@ -2958,8 +2962,8 @@ namespace isel
                                 , store<Opt, STX, p_def, p_def>
                                 , set_defs<Opt, REGF_C, true, p_carry_output>
                                 >(cpu, prev, cont);
-#endif
                             }
+#endif
 
                             std::uint8_t const sum = p_rhs::value().data() + !!p_carry::value().data();
 
@@ -2993,14 +2997,14 @@ namespace isel
                                 {
                                     chain
                                     < load_X<Opt, p_lhs>
-                                    , simple_op<Opt, INX_IMPLIED, p_def>
+                                    , simple_op<Opt, INX_IMPLIED>
                                     , simple_op<Opt, INX_IMPLIED, p_def>
                                     , store<Opt, STX, p_def, p_def>
                                     >(cpu, prev, cont);
 
                                     chain
                                     < load_Y<Opt, p_lhs>
-                                    , simple_op<Opt, INY_IMPLIED, p_def>
+                                    , simple_op<Opt, INY_IMPLIED>
                                     , simple_op<Opt, INY_IMPLIED, p_def>
                                     , store<Opt, STY, p_def, p_def>
                                     >(cpu, prev, cont);
@@ -3034,14 +3038,14 @@ namespace isel
                                 {
                                     chain
                                     < load_X<Opt, p_lhs>
-                                    , simple_op<Opt, DEX_IMPLIED, p_def>
+                                    , simple_op<Opt, DEX_IMPLIED>
                                     , simple_op<Opt, DEX_IMPLIED, p_def>
                                     , store<Opt, STX, p_def, p_def>
                                     >(cpu, prev, cont);
 
                                     chain
                                     < load_Y<Opt, p_lhs>
-                                    , simple_op<Opt, DEY_IMPLIED, p_def>
+                                    , simple_op<Opt, DEY_IMPLIED>
                                     , simple_op<Opt, DEY_IMPLIED, p_def>
                                     , store<Opt, STY, p_def, p_def>
                                     >(cpu, prev, cont);
@@ -3319,14 +3323,14 @@ namespace isel
                             {
                                 chain
                                 < load_X<Opt, p_lhs>
-                                , simple_op<Opt, INX_IMPLIED, p_def>
+                                , simple_op<Opt, INX_IMPLIED>
                                 , simple_op<Opt, INX_IMPLIED, p_def>
                                 , store<Opt, STX, p_def, p_def>
                                 >(cpu, prev, cont);
 
                                 chain
                                 < load_Y<Opt, p_lhs>
-                                , simple_op<Opt, INY_IMPLIED, p_def>
+                                , simple_op<Opt, INY_IMPLIED>
                                 , simple_op<Opt, INY_IMPLIED, p_def>
                                 , store<Opt, STY, p_def, p_def>
                                 >(cpu, prev, cont);
@@ -5100,7 +5104,8 @@ namespace isel
             {
                 switch(carry)
                 {
-                default:          return {};
+                default:
+                    return {};
                 case CARRY_CLEAR: 
                     return locator_t::const_byte(0);
                 case CARRY_SET:
@@ -5197,7 +5202,7 @@ namespace isel
                     cpu.defs[reg] = m.main;
             }
 
-            if(m.phi && reg != REG_C)
+            if(m.phi && reg != REG_C) // TODO: verify this is correct for C
             {
                 unsigned const size = vec.size();
                 for(unsigned i = 0; i < size; ++i)

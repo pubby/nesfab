@@ -21,7 +21,7 @@ struct set_defs_for_impl<ADC_IMMEDIATE>
 
         if(arg.is_const_num() && cpu.are_known(REGF_A | REGF_C))
         {
-            unsigned const result = cpu.known[REG_A] + cpu.known[REG_C] + arg.data();
+            unsigned const result = cpu.known[REG_A] + !!cpu.known[REG_C] + arg.data();
 
             cpu.set_output_defs_impl<ADC_IMMEDIATE>(opt, def);
             cpu.set_known(REG_A, result);
@@ -123,8 +123,8 @@ struct set_defs_for_impl<CMP_IMMEDIATE>
         if(arg.is_const_num() && cpu.are_known(REGF_A))
         {
             bool const z = arg.data() == cpu.known[REG_A];
-            bool const n = (arg.data() - cpu.known[REG_A]) & 0x80;
-            bool const c = arg.data() <= cpu.known[REG_A];
+            bool const n = (cpu.known[REG_A] - arg.data()) & 0x80;
+            bool const c = cpu.known[REG_A] >= arg.data();
 
             cpu.set_output_defs_impl<CMP_IMMEDIATE>(opt, def);
             cpu.set_known(REG_Z, z);
@@ -151,8 +151,8 @@ struct set_defs_for_impl<CPX_IMMEDIATE>
         if(arg.is_const_num() && cpu.are_known(REGF_X))
         {
             bool const z = arg.data() == cpu.known[REG_X];
-            bool const n = (arg.data() - cpu.known[REG_X]) & 0x80;
-            bool const c = arg.data() <= cpu.known[REG_X];
+            bool const n = (cpu.known[REG_X] - arg.data()) & 0x80;
+            bool const c = cpu.known[REG_X] >= arg.data();
 
             cpu.set_output_defs_impl<CPX_IMMEDIATE>(opt, def);
             cpu.set_known(REG_Z, z);
@@ -179,8 +179,8 @@ struct set_defs_for_impl<CPY_IMMEDIATE>
         if(arg.is_const_num() && cpu.are_known(REGF_Y))
         {
             bool const z = arg.data() == cpu.known[REG_Y];
-            bool const n = (arg.data() - cpu.known[REG_Y]) & 0x80;
-            bool const c = arg.data() <= cpu.known[REG_Y];
+            bool const n = (cpu.known[REG_Y] - arg.data()) & 0x80;
+            bool const c = cpu.known[REG_Y] >= arg.data();
 
             cpu.set_output_defs_impl<CPY_IMMEDIATE>(opt, def);
             cpu.set_known(REG_Z, z);
@@ -301,6 +301,7 @@ struct set_defs_for_impl<INY_IMPLIED>
             cpu.set_output_defs_impl<INY_IMPLIED>(opt, def);
     }
 };
+
 
 template<>
 struct set_defs_for_impl<LDA_IMMEDIATE>
@@ -444,11 +445,11 @@ struct set_defs_for_impl<ROL_IMPLIED>
 
         if(cpu.are_known(REGF_A))
         {
-            bool const c = cpu.known[REG_A] & 128;
+            bool const c = cpu.known[REG_A] & 0x80;
 
             if(cpu.are_known(REGF_C))
             {
-                std::uint8_t const a = (cpu.known[REG_A] << 1) | cpu.known[REG_C];
+                std::uint8_t const a = (cpu.known[REG_A] << 1) | !!cpu.known[REG_C];
 
                 cpu.set_output_defs_impl<ROL_IMPLIED>(opt, def);
                 cpu.set_known(REG_A, a);
@@ -499,11 +500,14 @@ struct set_defs_for_impl<ROR_IMPLIED>
                 cpu.set_known(REG_C, c);
             }
         }
-        else if(cpu.are_known(REGF_C) && cpu.known[REG_C])
+        else if(cpu.is_known(REG_C))
         {
+            bool c = cpu.known[REG_C] & 1;
+
             cpu.set_output_defs_impl<ROR_IMPLIED>(opt, def);
-            cpu.set_known(REG_Z, 0);
-            cpu.set_known(REG_N, 1);
+            if(c)
+                cpu.set_known(REG_Z, 0);
+            cpu.set_known(REG_N, c);
         }
         else
             cpu.set_output_defs_impl<ROR_IMPLIED>(opt, def);
@@ -519,7 +523,7 @@ struct set_defs_for_impl<SBC_IMMEDIATE>
 
         if(arg.is_const_num() && cpu.are_known(REGF_A | REGF_C))
         {
-            unsigned const result = cpu.known[REG_A] + cpu.known[REG_C] + ~arg.data();
+            unsigned const result = cpu.known[REG_A] + !!cpu.known[REG_C] + ~arg.data();
 
             cpu.set_output_defs_impl<SBC_IMMEDIATE>(opt, def);
             cpu.set_known(REG_A, result);
@@ -553,14 +557,6 @@ struct set_defs_for_impl<TAX_IMPLIED>
             cpu.set_known(REG_Z, !old.known[REG_A]);
             cpu.set_known(REG_N, !!(old.known[REG_A] & 0x80));
         }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
-        }
     }
 };
 
@@ -584,14 +580,6 @@ struct set_defs_for_impl<TAY_IMPLIED>
             cpu.set_known(REG_Y, old.known[REG_A]);
             cpu.set_known(REG_Z, !old.known[REG_A]);
             cpu.set_known(REG_N, !!(old.known[REG_A] & 0x80));
-        }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
         }
     }
 };
@@ -617,14 +605,6 @@ struct set_defs_for_impl<TXA_IMPLIED>
             cpu.set_known(REG_Z, !old.known[REG_X]);
             cpu.set_known(REG_N, !!(old.known[REG_X] & 0x80));
         }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
-        }
     }
 };
 
@@ -648,14 +628,6 @@ struct set_defs_for_impl<TYA_IMPLIED>
             cpu.set_known(REG_A, old.known[REG_Y]);
             cpu.set_known(REG_Z, !old.known[REG_Y]);
             cpu.set_known(REG_N, !!(old.known[REG_Y] & 0x80));
-        }
-        else
-        {
-            if(old.are_known(REGF_Z))
-                cpu.set_known(REG_Z, old.known[REG_Z]);
-
-            if(old.are_known(REGF_N))
-                cpu.set_known(REG_N, old.known[REG_N]);
         }
     }
 };
@@ -785,7 +757,7 @@ struct set_defs_for_impl<ARR_IMMEDIATE>
 
             if(cpu.are_known(REGF_C))
             {
-                std::uint8_t const a = (and_ >> 1) | (cpu.known[REG_C] << 7);
+                std::uint8_t const a = (and_ >> 1) | (!!cpu.known[REG_C] << 7);
 
                 cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
                 cpu.set_known(REG_A, a);
@@ -799,11 +771,14 @@ struct set_defs_for_impl<ARR_IMMEDIATE>
                 cpu.set_known(REG_C, c);
             }
         }
-        else if(cpu.are_known(REGF_C) && cpu.known[REG_C])
+        else if(cpu.is_known(REG_C))
         {
+            bool c = !!cpu.known[REG_C];
+
             cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
-            cpu.set_known(REG_Z, 0);
-            cpu.set_known(REG_N, 1);
+            if(c)
+                cpu.set_known(REG_Z, 0);
+            cpu.set_known(REG_N, c);
         }
         else
             cpu.set_output_defs_impl<ARR_IMMEDIATE>(opt, def);
@@ -882,6 +857,308 @@ struct set_defs_for_impl<BCC_RELATIVE>
         assert(cpu.known_array_valid());
     }
 };
+
+#ifdef ISA_65C02
+template<>
+struct set_defs_for_impl<INC_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(INC_IMPLIED) == (REGF_N | REGF_Z | REGF_A));
+
+        if(cpu.are_known(REGF_A))
+        {
+            std::uint8_t const result = cpu.known[REG_A] + 1;
+
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+            cpu.set_known(REG_A, result);
+            cpu.set_known(REG_Z, !result);
+            cpu.set_known(REG_N, !!(result & 0x80));
+        }
+        else
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+    }
+};
+
+template<>
+struct set_defs_for_impl<DEC_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(DEC_IMPLIED) == (REGF_N | REGF_Z | REGF_A));
+
+        if(cpu.are_known(REGF_A))
+        {
+            std::uint8_t const result = cpu.known[REG_A] - 1;
+
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+            cpu.set_known(REG_A, result);
+            cpu.set_known(REG_Z, !result);
+            cpu.set_known(REG_N, !!(result & 0x80));
+        }
+        else
+            cpu.set_output_defs_impl<INC_IMPLIED>(opt, def);
+    }
+};
+
+template<>
+struct set_defs_for_impl<BIT_IMMEDIATE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(BIT_IMMEDIATE) == (REGF_Z));
+
+        if(arg.is_const_num())
+        {
+            if(cpu.are_known(REGF_A))
+            {
+                std::uint8_t const result = cpu.known[REG_A] & arg.data();
+
+                cpu.set_output_defs_impl<BIT_IMMEDIATE>(opt, def);
+                cpu.set_known(REG_Z, !result);
+            }
+            else
+            {
+                cpu.set_output_defs_impl<BIT_IMMEDIATE>(opt, def);
+
+                if(arg.data() == 0)
+                    cpu.set_known(REG_Z, 1);
+            }
+        }
+        else
+            cpu.set_output_defs_impl<BIT_IMMEDIATE>(opt, def);
+    }
+};
+
+#endif
+
+#ifdef ISA_SNES
+
+template<>
+struct set_defs_for_impl<TXY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(TXY_IMPLIED) == (REGF_Y | REGF_Z | REGF_N));
+
+        cpu_t const old = cpu;
+
+        if(!def || def.is_const_num())
+            def = cpu.defs[REG_X];
+
+        cpu.set_output_defs_impl<TXY_IMPLIED>(opt, def);
+        assert(!cpu.is_known(REG_Y) && !cpu.is_known(REG_Z) && !cpu.is_known(REG_N));
+
+        if(old.are_known(REGF_X))
+        {
+            cpu.set_known(REG_Y, old.known[REG_X]);
+            cpu.set_known(REG_Z, !old.known[REG_X]);
+            cpu.set_known(REG_N, !!(old.known[REG_X] & 0x80));
+        }
+    }
+};
+
+template<>
+struct set_defs_for_impl<TYX_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(TYX_IMPLIED) == (REGF_X | REGF_Z | REGF_N));
+
+        cpu_t const old = cpu;
+
+        if(!def || def.is_const_num())
+            def = cpu.defs[REG_Y];
+
+        cpu.set_output_defs_impl<TYX_IMPLIED>(opt, def);
+        assert(!cpu.is_known(REG_X) && !cpu.is_known(REG_Z) && !cpu.is_known(REG_N));
+
+        if(old.are_known(REGF_Y))
+        {
+            cpu.set_known(REG_X, old.known[REG_Y]);
+            cpu.set_known(REG_Z, !old.known[REG_Y]);
+            cpu.set_known(REG_N, !!(old.known[REG_Y] & 0x80));
+        }
+    }
+};
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<XBA_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(XBA_IMPLIED) == (REGF_A | REGF_A_HI | REGF_NZ));
+
+        cpu.swap_regs<REG_A, REG_A_HI>(opt);
+        cpu.set_defs<REG_N | REG_Z>(opt, locator_t());
+
+        if(cpu.are_known(REGF_A))
+        {
+            cpu.set_known(REG_Z, !cpu.known[REG_A]);
+            cpu.set_known(REG_N, !!(cpu.known[REG_A] & 0x80));
+        }
+    }
+};
+
+template<>
+struct set_defs_for_impl<REP_IMMEDIATE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        if(arg.is_const_num())
+        {
+            if(arg.data() & PFLAG_C)
+            {
+                cpu.set_defs<REGF_C>(opt, def);
+                cpu.set_known(REG_C, 0u);
+            }
+
+            if(arg.data() & PFLAG_Z)
+            {
+                cpu.set_defs<REGF_Z>(opt, def);
+                cpu.set_known(REG_Z, 0u);
+            }
+
+            if(arg.data() & PFLAG_V)
+            {
+                cpu.set_defs<REGF_V>(opt, def);
+                cpu.set_known(REG_V, 0u);
+            }
+
+            if(arg.data() & PFLAG_M)
+            {
+                cpu.set_defs<REGF_M16>(opt, def);
+                cpu.set_known(REG_M16, 0u);
+            }
+
+            if(arg.data() & PFLAG_X)
+            {
+                cpu.set_defs<REGF_X16>(opt, def);
+                cpu.set_known(REG_X16, 0u);
+            }
+        }
+        else
+            cpu.set_output_defs_impl<REP_IMMEDIATE>(opt, def);
+    }
+};
+
+template<>
+struct set_defs_for_impl<SEP_IMMEDIATE>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        if(arg.is_const_num())
+        {
+            if(arg.data() & PFLAG_C)
+            {
+                cpu.set_defs<REGF_C>(opt, def);
+                cpu.set_known(REG_C, 1u);
+            }
+
+            if(arg.data() & PFLAG_Z)
+            {
+                cpu.set_defs<REGF_Z>(opt, def);
+                cpu.set_known(REG_Z, 1u);
+            }
+
+            if(arg.data() & PFLAG_V)
+            {
+                cpu.set_defs<REGF_V>(opt, def);
+                cpu.set_known(REG_V, 1u);
+            }
+
+            if(arg.data() & PFLAG_M)
+            {
+                cpu.set_defs<REGF_M16>(opt, def);
+                cpu.set_known(REG_M16, 1u);
+            }
+
+            if(arg.data() & PFLAG_X)
+            {
+                cpu.set_defs<REGF_X16>(opt, def);
+                cpu.set_known(REG_X16, 1u);
+            }
+        }
+        else
+            cpu.set_output_defs_impl<SEP_IMMEDIATE>(opt, def);
+    }
+};
+
+#endif
+
+#ifdef ISA_PCE
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<SAX_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(SAX_IMPLIED) == (REGF_A | REGF_X));
+        cpu.swap_regs<REG_A, REG_X>(opt);
+    }
+};
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<SAY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(SAY_IMPLIED) == (REGF_A | REGF_Y));
+        cpu.swap_regs<REG_A, REG_Y>(opt);
+    }
+};
+
+// NOTE: For switches, 'def' is ignored. Set it at the call site.
+template<>
+struct set_defs_for_impl<SXY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(SXY_IMPLIED) == (REGF_X | REGF_Y));
+        cpu.swap_regs<REG_X, REG_Y>(opt);
+    }
+};
+
+template<>
+struct set_defs_for_impl<CLA_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(CLA_IMPLIED) == (REGF_A));
+
+        cpu.set_output_defs_impl<CLA_IMPLIED>(opt, def);
+        cpu.set_known(REG_A, 0);
+    }
+};
+
+template<>
+struct set_defs_for_impl<CLX_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(CLX_IMPLIED) == (REGF_X));
+
+        cpu.set_output_defs_impl<CLX_IMPLIED>(opt, def);
+        cpu.set_known(REG_X, 0);
+    }
+};
+
+template<>
+struct set_defs_for_impl<CLY_IMPLIED>
+{
+    static void call(options_t opt, cpu_t& cpu, locator_t def, locator_t arg)
+    {
+        static_assert(op_output_regs(CLY_IMPLIED) == (REGF_Y));
+
+        cpu.set_output_defs_impl<CLY_IMPLIED>(opt, def);
+        cpu.set_known(REG_Y, 0);
+    }
+};
+
+#endif
 
 template<op_t Op> [[gnu::noinline]]
 std::enable_if_t<Op < NUM_NORMAL_OPS, bool> cpu_t::set_defs_for(options_t opt, locator_t def, locator_t arg)

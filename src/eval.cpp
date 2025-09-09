@@ -4005,8 +4005,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             for(auto& v : args[i].rval())
                             {
-                                new_rval.push_back(std::move(v));
-                                args[i].assert_valid();
+                                new_rval.push_back(v);
                                 result.time = std::max(result.time, args[i].time);
                             }
                         }
@@ -4240,7 +4239,21 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     precheck_tracked->deref_groups.emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
             }
 
-            expr_value_t array_index = throwing_cast<D>(do_expr<D>(ast.children[1]), is8 ? TYPE_U : TYPE_U20, true);
+            expr_value_t array_index = to_rval<D>(do_expr<D>(ast.children[1]));
+
+            if(is_ct(array_index.type.name()))
+                array_index = throwing_cast<D>(std::move(array_index), is8 ? TYPE_U : TYPE_U20, true);
+
+            if(is8)
+            {
+                if(array_index.type != TYPE_U)
+                    compiler_error(array_index.pstring, fmt("[] expects an index of type U. Got %.", array_index.type));
+            }
+            else
+            {
+                if(array_index.type != TYPE_U20)
+                    compiler_error(array_index.pstring, fmt("{} expects an index of type UU. Got %.", array_index.type));
+            }
 
             bool const is_ct = array_index.is_ct() && array_val.is_ct() && !is_ptr;
 

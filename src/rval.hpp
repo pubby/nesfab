@@ -36,7 +36,7 @@ struct rpair_t { rval_t value; type_t type; };
 inline ct_array_t make_ct_array(unsigned size)
 {
     // TODO: Change this to 'make_shared' when std library updates to c++20.
-    return ct_array_t(new ssa_value_t[size]());
+    return std::make_shared<ssa_value_t[]>(size);
 }
 
 inline ssa_value_t const* ct_array(ct_variant_t const& variant)

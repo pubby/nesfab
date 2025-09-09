@@ -550,6 +550,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 
 std::ostream& operator<<(std::ostream& o, asm_inst_t const& inst)
 {
+    if(inst.op != ASM_LABEL)
+        o << "  " ;
     o << "{ " << to_string(inst.op) << ", " << inst.arg;
     o << " hi: " << inst.alt;
     o << "   (" << inst.ssa_op << ") }";
@@ -900,6 +902,7 @@ void asm_proc_t::optimize(bool initial)
 {
     // Order matters here.
     o_peephole(&*code.begin(), &*code.end());
+    live_peephole(REGF_6502, code.data(), code.size());
     absolute_to_zp();
     optimize_short_jumps(!initial);
     convert_long_branch_ops();
@@ -1410,4 +1413,543 @@ void asm_proc_t::verify_legal()
         if(op_illegal(inst.op))
             compiler_warning(get_pstring(inst), fmt("Illegal opcode % used.", inst.op));
 #endif
+}
+
+bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* log)
+{
+    log = &stdout_log;
+    bool changed = false;
+
+    static TLS std::vector<regs_t> live_regs;
+
+    live_regs.clear();
+    live_regs.resize(size, 0);
+
+    regs_t live = live_out;
+
+    for(int i = int(size) - 1; i >= 0; --i)
+    {
+        asm_inst_t const& inst = code[i];
+
+        live_regs[i] = live_out;
+
+        if(inst.op == ASM_LABEL || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE)))
+            live_out = REGF_6502;
+        else
+        {
+            live_out &= ~op_output_regs(inst.op);
+            live_out |= op_input_regs(inst.op);
+        }
+    }
+
+    // TODO: put in asm.hpp
+    auto const simple_addr_mode = [](addr_mode_t addr_mode)
+    {
+        switch(addr_mode)
+        {
+        case MODE_IMPLIED:
+        case MODE_IMMEDIATE:
+        case MODE_ZERO_PAGE:
+        case MODE_ABSOLUTE:
+            return true;
+        default:
+            return false;
+        }
+    };
+
+
+    // Now attempt to optimize out redundant loads following stores.
+    // e.g. in:
+    //     STX foo
+    //     . . .
+    //     LDX foo
+    // The LDX can be removed in some circumstances.
+    //
+    // Also replace redundant loads following loads.
+    // e.g. in:
+    //     LDX foo
+    //     . . .
+    //     LDX foo
+    // The LDX can be removed in some circumstances.
+
+    {
+        locator_t last_a = locator_t();
+        locator_t last_x = locator_t();
+        locator_t last_y = locator_t();
+
+        for(unsigned i = 0; i < size; ++i)
+        {
+            asm_inst_t& inst = code[i];
+
+            assert(inst.op != ASM_LABEL);
+            if((op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE))
+               || inst.op == ASM_LABEL
+               || inst.has_alt()
+               || !simple_addr_mode(op_addr_mode(inst.op)))
+            {
+                last_a = locator_t();
+                last_x = locator_t();
+                last_y = locator_t();
+                continue;
+            }
+
+            if(!inst.has_alt() && inst.arg.known_variable())
+            {
+                switch(op_name(inst.op))
+                {
+                case LDA:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && last_a == inst.arg)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_LDA", __LINE__);
+                        inst.prune();
+                        changed = true;
+                        continue;
+                    }
+                    else if(last_x == inst.arg)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_LDA", __LINE__);
+                        inst.prune(TXA_IMPLIED);
+                        changed = true;
+                case TXA:
+                        last_a = last_x;
+                        continue;
+                    }
+                    else if(last_y == inst.arg)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_LDA", __LINE__);
+                        inst.prune(TYA_IMPLIED);
+                        changed = true;
+                case TYA:
+                        last_a = last_y;
+                        continue;
+                    }
+                    // fall-thru
+                case STA:
+                    last_a = inst.arg;
+                    continue;
+
+                case LDX:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && last_x == inst.arg)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_LDX", __LINE__);
+                        inst.prune();
+                        changed = true;
+                        continue;
+                    }
+                    else if(last_a == inst.arg)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_LDX", __LINE__);
+                        inst.prune(TAX_IMPLIED);
+                        changed = true;
+                case TAX:
+                        last_x = last_a;
+                        continue;
+                    }
+                    // fall-thru
+                case STX:
+                    last_x = inst.arg;
+                    continue;
+
+                case LDY:
+                    if(!(live_regs[i] & (REGF_N | REGF_Z)) && last_y == inst.arg)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_LDY", __LINE__);
+                        inst.prune();
+                        changed = true;
+                        continue;
+                    }
+                    else if(last_a == inst.arg)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_LDY", __LINE__);
+                        inst.prune(TAY_IMPLIED);
+                        changed = true;
+                case TAY:
+                        last_y = last_a;
+                        continue;
+                    }
+                    // fall-thru
+                case STY:
+                    last_y = inst.arg;
+                    continue;
+
+                default:
+                    break;
+                }
+            }
+
+            regs_t const outputs = op_output_regs(inst.op);
+
+            if(outputs & REGF_A)
+                last_a = locator_t();
+            if(outputs & REGF_X)
+                last_x = locator_t();
+            if(outputs & REGF_Y)
+                last_y = locator_t();
+            if(outputs & REGF_M)
+            {
+                if(inst.arg == last_a)
+                    last_a = locator_t();
+
+                if(inst.arg == last_x)
+                    last_x = locator_t();
+
+                if(inst.arg == last_y)
+                    last_y = locator_t();
+            }
+        }
+    }
+
+    // Now attempt to optimize out redundant stores following stores.
+    // e.g. in:
+    //     STX foo
+    //     . . .
+    //     STX foo
+    // The STX can be removed in some circumstances.
+
+    {
+        constexpr unsigned MAX_SET_SIZE = 8;
+        using set_t = fc::small_set<locator_t, MAX_SET_SIZE>;
+        set_t a_set;
+        set_t x_set;
+        set_t y_set;
+
+        for(unsigned i = 0; i < size; ++i)
+        {
+            asm_inst_t& inst = code[i];
+
+            assert(inst.op != ASM_LABEL);
+            if((op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE))
+               || inst.op == ASM_LABEL
+               || inst.has_alt()
+               || !simple_addr_mode(op_addr_mode(inst.op)))
+            {
+                a_set.clear();
+                x_set.clear();
+                y_set.clear();
+                continue;
+            }
+
+            if(!inst.has_alt() && inst.arg.known_variable())
+            {
+                switch(op_name(inst.op))
+                {
+                case STA:
+                    if(!a_set.insert(inst.arg).second)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_STA", inst.arg, __LINE__);
+                        inst.prune();
+                        changed = true;
+                    }
+                    continue;
+
+                case STX:
+                    if(!x_set.insert(inst.arg).second)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_STX", inst.arg, __LINE__);
+                        inst.prune();
+                        changed = true;
+                    }
+                    continue;
+
+                case STY:
+                    if(!y_set.insert(inst.arg).second)
+                    {
+                        dprint(log, "REGLIVE_PRUNE_STY", inst.arg, __LINE__);
+                        inst.prune();
+                        changed = true;
+                    }
+                    continue;
+                default:
+                    break;
+                }
+            }
+
+            regs_t const outputs = op_output_regs(inst.op);
+
+            if(outputs & REGF_A)
+                a_set.clear();
+            if(outputs & REGF_X)
+                x_set.clear();
+            if(outputs & REGF_Y)
+                y_set.clear();
+            if((outputs & REGF_M) && inst.arg)
+            {
+                a_set.erase(inst.arg);
+                x_set.erase(inst.arg);
+                y_set.erase(inst.arg);
+            }
+        }
+    }
+
+    // Perform some peep-hole optimization using the liveness analysis:
+
+    {
+        for_each_peephole(code, code + size, [&](asm_inst_t& a, asm_inst_t& b, asm_inst_t* c)
+        {
+            unsigned const ai = &a - code;
+            unsigned const bi = &b - code;
+
+            // Prune ops that have no effect:
+            if(!(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FAKE | ASMF_IMPURE))
+               && a.op < NUM_NORMAL_OPS
+               && !(REGF_M & op_output_regs(a.op))
+               && !(live_regs[ai] & op_output_regs(a.op))
+               && (!a.arg || a.arg.known_variable())
+               && !a.has_alt())
+            {
+                dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                a.prune();
+                changed = true;
+                return;
+            }
+
+            // Remove unnecessary transfers:
+            switch(b.op)
+            {
+            default: break;
+            case CMP_IMMEDIATE:
+            case CPX_IMMEDIATE:
+            case CPY_IMMEDIATE:
+                if(!b.has_alt() && b.arg == locator_t::const_byte(0)
+                   && op_normal(a.op) && !(op_flags(a.op) & ASMF_FAKE)
+                   && (op_output_regs(a.op) & (op_input_regs(b.op) | REGF_NZ)) == (op_input_regs(b.op) | REGF_NZ)
+                   && !(live_regs[bi] & (op_output_regs(b.op) & ~(REGF_NZ))))
+                {
+                    goto prune_b;
+                }
+                break;
+            case TAY_IMPLIED:
+            case TAX_IMPLIED:
+            case TYA_IMPLIED:
+            case TXA_IMPLIED:
+                if(op_normal(a.op) && !(op_flags(a.op) & ASMF_FAKE)
+                   && (op_output_regs(a.op) & (op_input_regs(b.op) | REGF_NZ)) == (op_input_regs(b.op) | REGF_NZ)
+                   && !(live_regs[bi] & (op_output_regs(b.op) & ~(REGF_NZ))))
+                {
+                prune_b:
+                    dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                    b.prune();
+                    changed = true;
+                }
+                break;
+            }
+
+            // Convert code like:
+            //     LDA foo
+            //     TAY
+            // To:
+            //     LDY foo
+            switch(op_name(a.op))
+            {
+            case LDA:
+                if(b.op == TAX_IMPLIED && !(live_regs[bi] & REGF_A))
+                {
+                    if(op_t op = get_op(LDX, op_addr_mode(a.op)))
+                    {
+                        a.op = op;
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
+                        changed = true;
+                    }
+                }
+                else if(b.op == TAY_IMPLIED && !(live_regs[bi] & REGF_A))
+                {
+                    if(op_t op = get_op(LDY, op_addr_mode(a.op)))
+                    {
+                        a.op = op;
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
+                        changed = true;
+                    }
+                }
+                break;
+
+            case LDX:
+                if(b.op == TXA_IMPLIED && !(live_regs[bi] & REGF_X))
+                {
+                    if(op_t op = get_op(LDA, op_addr_mode(a.op)))
+                    {
+                        a.op = op;
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
+                        changed = true;
+                    }
+                }
+                break;
+
+            case LDY:
+                if(b.op == TYA_IMPLIED && !(live_regs[bi] & REGF_Y))
+                {
+                    if(op_t op = get_op(LDA, op_addr_mode(a.op)))
+                    {
+                        a.op = op;
+                        dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
+                        b.prune();
+                        changed = true;
+                    }
+                }
+                break;
+
+#ifndef LEGAL
+            case LAX:
+                // Convert LAX to either LDA or LDX:
+                if(!(live_regs[ai] & REGF_A))
+                {
+                    if(op_t op = get_op(LDX, op_addr_mode(a.op)))
+                    {
+                        dprint(log, "REGLIVE_LAX", __LINE__);
+                        a.op = op;
+                        changed = true;
+                    }
+                }
+                else if(!(live_regs[ai] & REGF_X))
+                {
+                    if(op_t op = get_op(LDA, op_addr_mode(a.op)))
+                    {
+                        dprint(log, "REGLIVE_LAX", __LINE__);
+                        a.op = op;
+                        changed = true;
+                    }
+                }
+                break;
+#endif
+
+            default:
+                break;
+            }
+
+#ifndef LEGAL
+            // Convert code like:
+            //    CMP #$80
+            //    ROR
+            //    CMP #$80
+            // To:
+            //    CMP #$80
+            //    ARR #$FF
+            if(c && a.op == CMP_IMMEDIATE 
+               && b.op == ROR_IMPLIED
+               && !a.has_alt()  && a.arg  == locator_t::const_byte(0x80)
+               && !c->has_alt() && c->arg == locator_t::const_byte(0x80)
+               && !(live_regs[ai] & REGF_V))
+            {
+                dprint(log, "REGLIVE_ARR",  __LINE__);
+                b = a;
+                c->op = ARR_IMMEDIATE;
+                c->arg = locator_t::const_byte(0xFF);
+                a.prune();
+                changed = true;
+            }
+#endif
+        });
+    }
+
+
+    // Now attempt to optimize out redundant loads following loads.
+    // e.g. in:
+    //     LDX #0
+    //     . . .
+    //     LDA #0
+    // The LDA can be removed in some circumstances.
+
+    {
+        using map_t = fc::small_map<locator_t, unsigned, 16>;
+        map_t map;
+
+        auto const store_name = [](op_t op) -> op_name_t
+        {
+            switch(op)
+            {
+            case LDA_IMMEDIATE: return STA;
+            case LDX_IMMEDIATE: return STX;
+            case LDY_IMMEDIATE: return STY;
+            default: return {};
+            }
+        };
+
+        for_each_peephole(code, code + size, [&](asm_inst_t& a, asm_inst_t& b, asm_inst_t* c)
+        {
+            unsigned const ai = &a - code;
+            unsigned const bi = &b - code;
+
+            assert(a.op != ASM_LABEL);
+            if((op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE)))
+            {
+                map.clear();
+                return;
+            }
+
+            if(a.has_alt() || b.has_alt())
+                return;
+
+            if(op_name_t store = store_name(a.op))
+            {
+                auto result = map.emplace(a.arg, ai);
+
+                if(!result.second)
+                {
+                    // See if we can map.
+
+                    // - next ops must be STA
+                    // - no mention of the store in-between
+
+                    unsigned const prev_i = result.first->second;
+                    assert(prev_i < ai);
+
+                    if(op_name(b.op) == store 
+                       && !(live_regs[bi] & op_output_regs(a.op))
+                       && b.arg.known_variable())
+                    {
+                        for(unsigned i = prev_i; i < ai; ++i)
+                        {
+                            auto const& inst = code[i];
+                            if(inst.arg == b.arg || inst.alt == b.arg
+                               || !simple_addr_mode(op_addr_mode(inst.op)))
+                            {
+                                goto fail;
+                            }
+                        }
+
+                        // OK! We can relocate.
+
+                        // Prune 'a':
+                        a.prune();
+
+                        // Shift every op forwards one:
+                        std::move(code + prev_i + 1, code + ai, 
+                                  code + prev_i + 2);
+
+                        // Move 'b' into the new hole:
+                        dprint(log, "REGLIVE_PRUNE_3", b);
+                        auto& b_dest = code[prev_i + 1];
+                        b.op = get_op(store_name(code[prev_i].op), op_addr_mode(b.op));
+                        assert(b.op);
+                        b_dest = b;
+                        b.prune();
+                        changed = true;
+                        return;
+                    }
+
+                fail:
+                    result.first.underlying->second = ai;
+                }
+            }
+
+        });
+    }
+
+    // Convert MAYBE stores to FAST versions.
+    for(unsigned i = 0; i < size; ++i)
+    {
+        asm_inst_t& inst = code[i];
+        if(op_t fast = fast_op(inst.op))
+        {
+            if((live_regs[i] & op_output_regs(fast) & REGF_6502) == 0)
+            {
+                inst.op = fast;
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
 }

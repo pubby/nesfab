@@ -34,6 +34,7 @@ value_time_t calc_time(type_t const& type, rval_t const& rval)
         {
             type_t const mt = ::member_type(type, i);
             unsigned const length = mt.array_length();
+            passert(*array, length);
             for(unsigned j = 0; j < length; ++j)
                 check_ssa((*array)[j]);
         }

@@ -5726,7 +5726,7 @@ Example:
 ct Int expr_len = len(U[10](3))
 ----
 
-==== `abs`(expression) [[abs_expr]]
+=== `abs`(expression) [[abs_expr]]
 
 `abs` first converts the argument to a signed representation, 
 then it returns the absolute value of it.
@@ -5744,7 +5744,7 @@ Example:
 UU positive = abs(SS(-10))
 ----
 
-==== `min`(expression) [[min_expr]]
+=== `min`(expression) [[min_expr]]
 
 Returns the minimum value of multiple <<type_quantity, quantity types>>.
 The return type is equivalent to the argument types, which must be the the same,
@@ -5761,7 +5761,7 @@ Example:
 SS smallest = min(10, 20, 30)
 ----
 
-==== `max`(expression) [[max_expr]]
+=== `max`(expression) [[max_expr]]
 
 Returns the maximum value of multiple <<type_quantity, quantity types>>.
 The return type is equivalent to the argument types, which must be the the same,

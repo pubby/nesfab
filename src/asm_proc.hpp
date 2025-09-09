@@ -39,11 +39,13 @@ struct asm_inst_t
     bool operator!=(asm_inst_t const& o) const
         { return !operator==(o); }
 
-    void prune()
+    void prune(op_t replacement = ASM_PRUNED)
     {
-        op = ASM_PRUNED;
+        op = replacement;
         arg = alt = {};
     }
+
+    bool has_alt() const { return !!alt; }
 };
 
 inline void push_byte(std::vector<asm_inst_t>& vec, std::uint8_t data)
@@ -221,5 +223,7 @@ struct relocate_error_t : public std::exception
     virtual const char* what() const noexcept { return msg.c_str(); }
     std::string msg;
 };
+
+bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* log = nullptr);
 
 #endif

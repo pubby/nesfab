@@ -123,9 +123,9 @@ struct cpu_t
     { 
         assert(known_array_valid() && o.known_array_valid());
         return (req_store == o.req_store 
-                && defs == o.defs 
                 && known_mask == o.known_mask
-                && known == o.known);
+                && known == o.known
+                && defs == o.defs);
     }
 
     // Keep in sync with 'operator=='.
@@ -210,14 +210,20 @@ struct cpu_t
     template<regs_t R> [[gnu::always_inline]]
     void set_def_impl(options_t opt, locator_t value, bool keep_value = false)
     {
-        constexpr regs_t Reg = (R == REG_BOOL_IN_N) ? REG_N : ((R == REG_INVERTED_Z) ? REG_Z : R);
+        // NOTE: HWReg and R can have different values!!
+        constexpr regs_t HWReg = (R == REG_BOOL_IN_N) ? REG_N : ((R == REG_INVERTED_Z) ? REG_Z : R);
 
         assert(value.lclass() != 0xFF);
 
-        if(!(opt.set_mask & (1 << Reg)))
+        if(R == REG_Z)
+            known_mask &= ~REGF_INVERTED_Z;
+        else if(R == REG_N)
+            known_mask &= ~REGF_BOOL_IN_N;
+
+        if(!(opt.set_mask & (1 << HWReg)))
         {
-            defs[Reg] = locator_t{};
-            clear_known(Reg);
+            defs[HWReg] = locator_t{};
+            clear_known(HWReg);
             assert(known_array_valid());
             return;
         }
@@ -226,34 +232,30 @@ struct cpu_t
         {
             assert(R != REG_BOOL_IN_N);
             assert(R != REG_INVERTED_Z);
-            assert(R == Reg);
+            assert(R == HWReg);
 
-            defs[Reg] = locator_t{};
+            defs[HWReg] = locator_t{};
 
-            if(Reg == REG_Z)
-                set_known(Reg, !value.data());
-            else if(Reg == REG_C)
-                set_known(Reg, !!value.data());
-            else if(Reg == REG_N)
-                set_known(Reg, !!(value.data() & 0x80));
-            else if(Reg < known.size())
-                set_known(Reg, value.data());
+            if(HWReg == REG_Z)
+                set_known(HWReg, !value.data());
+            else if(HWReg == REG_C)
+                set_known(HWReg, !!value.data());
+            else if(HWReg == REG_N)
+                set_known(HWReg, !!(value.data() & 0x80));
+            else if(HWReg < known.size())
+                set_known(HWReg, value.data());
         }
         else
         {
-            defs[Reg] = value;
+            defs[HWReg] = value;
 
             if(R == REG_BOOL_IN_N)
                 known_mask |= REGF_BOOL_IN_N;
             else if(R == REG_INVERTED_Z)
                 known_mask |= REGF_INVERTED_Z;
-            else if(R == REG_Z)
-                known_mask &= ~REGF_INVERTED_Z;
-            else if(R == REG_N)
-                known_mask &= ~REGF_BOOL_IN_N;
 
             if(!keep_value)
-                clear_known(Reg);
+                clear_known(HWReg);
         }
 
         assert(known_array_valid());

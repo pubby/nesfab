@@ -2373,11 +2373,12 @@ void struct_t::gen_member_types(struct_t const& s, int tea_size)
     
     for(unsigned i = 0; i < s.fields().size(); ++i)
     {
+        int next_tea_size = tea_size;
         type_t type = s.field(i).type();
 
         if(type.name() == TYPE_TEA)
         {
-            tea_size = type.size();
+            next_tea_size = type.size();
             type = type.elem_type();
         }
 
@@ -2386,15 +2387,15 @@ void struct_t::gen_member_types(struct_t const& s, int tea_size)
         if(type.name() == TYPE_STRUCT)
         {
             assert(&type.struct_() != &s);
-            gen_member_types(type.struct_(), tea_size);
+            gen_member_types(type.struct_(), next_tea_size);
         }
         else
         {
             assert(is_vec(type.name()) || !is_aggregate(type.name()));
-            assert(tea_size <= 256);
+            assert(next_tea_size <= 256);
 
-            if(tea_size >= 0)
-                type = type_t::tea(type, tea_size, global.pstring());
+            if(next_tea_size >= 0)
+                type = type_t::tea(type, next_tea_size, global.pstring());
 
             unsigned const num = ::num_members(type);
             passert(num > 0, type, s.field(i).type(), global.name, i , fields().size());

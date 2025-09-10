@@ -1417,7 +1417,6 @@ void asm_proc_t::verify_legal()
 
 bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* log)
 {
-    log = &stdout_log;
     bool changed = false;
 
     static TLS std::vector<regs_t> live_regs;

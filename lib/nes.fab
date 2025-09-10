@@ -243,8 +243,7 @@ fn set_oam(U index, U x, U y, U p, U a)
     oam{OAM_X + UU(index)} = x
     
 fn push_oam(U index, U x, U y, U p, U a) U
-: -inline
-: +graphviz
+: +inline
     set_oam(index, x, y, p, a)
     return index + 4
 

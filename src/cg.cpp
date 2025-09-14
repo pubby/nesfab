@@ -934,9 +934,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
                 passert(cset_locator(store_cset), store_cset);
 
-                ssa_ht last;
-
-                last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, cache);
+                ssa_ht last = csets_appendable(fn.handle(), ir, store_cset, parent_cset, cache);
 
                 if(last && !cset_arg_ret_interferes(store_cset, parent_cset))
                 {
@@ -948,6 +946,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                     assert(cset_locator(store_cset));
                     assert(cset_locator(store_cset) == cset_locator(parent_cset));
                     assert(cset_head(store) == cset_head(parent));
+                    assert(cset_head(store) == cset_head(store->input(0).handle()));
                 }
                 else
                 {

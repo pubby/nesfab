@@ -78,6 +78,16 @@ public:
         // Now merge GVN sets:
         for(auto const& pair : m_gvn_sets)
             merge_gvn_set(pair.second);
+
+        // HACK:
+        // Ensure all linked nodes are in their parent's CFG node.
+        /*
+        for(cfg_node_t& cfg_node : ir)
+        for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+            if(ssa_input0_class(ssa_it->op()) == INPUT_LINK && ssa_it->input(0)->cfg_node() != cfg_node.handle())
+                ssa_it->input(0)->cfg_node()->steal_ssa(ssa_it, true);
+                */
+
     }
 
     static bool valid_for_gvn(ssa_ht ssa_it)
@@ -130,10 +140,20 @@ public:
         if(set.size() < 2)
             return;
 
+        assert(set[0]->op() != SSA_null);
+        assert(!set[0]->test_flags(FLAG_PRUNED));
+
+        auto owning_cfg = [&](ssa_ht h)
+        {
+            if(ssa_input0_class(h->op()) == INPUT_LINK)
+                return h->input(0)->cfg_node();
+            return h->cfg_node();
+        };
+
         // Find a CFG node that dominates all
-        cfg_ht dom = set[0]->cfg_node();
+        cfg_ht dom = owning_cfg(set[0]);
         for(unsigned i = 1; i < set.size(); ++i)
-            dom = dom_intersect(dom, set[i]->cfg_node());
+            dom = dom_intersect(dom, owning_cfg(set[i]));
 
         dom->steal_ssa(set[0], true);
 
@@ -208,6 +228,8 @@ static bool o_hoist(log_t* log, ir_t& ir)
         ssa_ht const ssa = ssa_worklist.pop();
         assert(!ssa->test_flags(FLAG_PROCESSED));
 
+        assert(ssa_input0_class(ssa->op()) != INPUT_LINK);
+
         while(true)
         {
             cfg_ht const cfg = ssa->cfg_node();
@@ -272,6 +294,8 @@ bool o_motion(log_t* log, ir_t& ir)
         run_gvn_t runner(log, ir);
         updated |= runner.updated;
     }
+
+    ir.assert_valid();
 
     updated |= o_hoist(log, ir);
 

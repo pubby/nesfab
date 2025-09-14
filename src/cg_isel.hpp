@@ -25,6 +25,17 @@ struct isel_no_progress_error_t : public std::exception
     }
 };
 
+struct isel_no_progress_error_pretty_t : public std::exception
+{
+    isel_no_progress_error_pretty_t(fn_ht fn, ssa_ht node);
+
+    fn_ht fn;
+    ssa_ht node;
+    std::string message;
+
+    virtual char const* what() const noexcept { return message.c_str(); }
+};
+
 using isel_cost_t = pbqp_cost_t;
 
 namespace isel

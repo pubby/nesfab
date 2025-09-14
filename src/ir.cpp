@@ -751,6 +751,13 @@ ssa_ht cfg_node_t::steal_ssa(ssa_ht ssa, bool steal_linked)
 
             steal_ssa(linked, true);
         });
+
+#ifndef NDEBUG
+        for_each_output_matching(ssa, INPUT_LINK, [&](ssa_ht linked)
+        {
+            assert(linked->cfg_node() == this->handle());
+        });
+#endif
     }
 
     assert(!ret || ret->cfg_node() == old_cfg.handle());
@@ -1152,6 +1159,13 @@ void ir_t::assert_valid(bool cg) const
             {
                 passert(ssa_it->output_size() <= 1, ssa_it->op(), ssa_it->output_size());
             }
+
+            // Link checks:
+            for_each_output_matching(ssa_it, INPUT_LINK,
+            [&](ssa_ht link)
+            {
+                passert(link->cfg_node() == cfg_it, ssa_it->op(), link->op());
+            });
         }
     }
 }

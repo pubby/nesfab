@@ -1883,13 +1883,14 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
                 {
                     // See if we can map.
 
-                    // - next ops must be STA
+                    // - next ops must be the store
                     // - no mention of the store in-between
 
                     unsigned const prev_i = result.first->second;
                     assert(prev_i < ai);
 
                     if(op_name(b.op) == store 
+                       && simple_addr_mode(op_addr_mode(b.op))
                        && !(live_regs[bi] & op_output_regs(a.op))
                        && b.arg.known_variable())
                     {
@@ -1903,20 +1904,23 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
                             }
                         }
 
+                        op_t const new_op = get_op(store_name(code[prev_i].op), op_addr_mode(b.op));
+                        if(!new_op)
+                            goto fail;
+
                         // OK! We can relocate.
 
                         // Prune 'a':
                         a.prune();
+                        passert(b.op, to_string(b.op));
 
                         // Shift every op forwards one:
-                        std::move(code + prev_i + 1, code + ai, 
-                                  code + prev_i + 2);
+                        std::copy_backward(code + prev_i + 1, code + ai, code + ai + 1);
 
                         // Move 'b' into the new hole:
                         dprint(log, "REGLIVE_PRUNE_3", b);
                         auto& b_dest = code[prev_i + 1];
-                        b.op = get_op(store_name(code[prev_i].op), op_addr_mode(b.op));
-                        assert(b.op);
+                        b.op = new_op;
                         b_dest = b;
                         b.prune();
                         changed = true;

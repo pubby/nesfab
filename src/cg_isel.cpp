@@ -7,9 +7,7 @@
 #include <algorithm>
 #include <numeric>
 #include <bit>
-#ifndef NDEBUG
 #include <iostream>
-#endif
 
 #include <boost/container/small_vector.hpp>
 
@@ -33,6 +31,16 @@
 #pragma GCC diagnostic ignored "-Waddress"
 
 namespace bc = ::boost::container;
+
+isel_no_progress_error_pretty_t::isel_no_progress_error_pretty_t(fn_ht fn, ssa_ht node)
+: std::exception()
+, fn(fn)
+, node(node)
+{
+    message = fmt("Instruction selector unable to make progress. " 
+                  "File a bug report with reproducible code! "
+                  "(fn = %, op = %, node = %, %)", fn->global.name, node->op(), node, node->input(0)->op());
+}
 
 namespace isel
 {
@@ -460,6 +468,15 @@ namespace isel
     }
 
 ///////////////////////////////////////////////////////////////////////////////
+
+    static void _debug_print(cpu_t const& cpu, sel_pair_t sp, cons_t const* cont)
+    {
+        std::cout << "A = " << cpu.defs[REG_A] << std::endl;
+        std::cout << "X = " << cpu.defs[REG_X] << std::endl;
+        std::cout << "Y = " << cpu.defs[REG_Y] << std::endl;
+        std::cout << "C = " << cpu.defs[REG_C] << std::endl;
+        cont->call(cpu, sp);
+    };
 
     template<typename Label, bool Start = false> [[gnu::noinline]]
     void label(cpu_t const& cpu, sel_pair_t sp, cons_t const* cont)
@@ -2841,7 +2858,7 @@ namespace isel
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
 
-#if 1
+#if 0
 
                     chain
                     < load_AC<Opt, p_lhs, p_carry>
@@ -3813,18 +3830,6 @@ namespace isel
                         ignore_req_store<p_def>(cpu, prev, cont);
                 }
             }
-            break;
-
-        case SSA_aliased_store:
-            // Aliased stores normally produce no code, however, 
-            // we must implement an input 'cg_read_array_direct' as a store:
-            if(h->output_size() > 0 && h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array8_direct)
-            {
-                h = h->input(0).handle();
-                goto do_read_array_direct;
-            }
-            else
-                ignore_req_store<p_def>(cpu, prev, cont);
             break;
 
         case SSA_write_array8:
@@ -4859,6 +4864,27 @@ namespace isel
             }
             goto simple;
 
+        case SSA_aliased_store:
+            // Aliased stores normally produce no code, however, 
+            // we must implement an input 'cg_read_array_direct' as a store:
+            if(h->output_size() > 0 && h->input(0).holds_ref() && h->input(0)->op() == SSA_cg_read_array8_direct)
+            {
+                ssa_ht const a = h->input(0).handle();
+
+                using namespace ssai::array;
+                using p_array = p_arg<0>;
+                using p_index = p_arg<1>;
+
+                unsigned const offset = a->input(OFFSET).whole();
+
+                p_array::set(a->input(ARRAY), offset);
+                p_index::set(a->input(INDEX));
+
+                select_step<true>(read_array<Opt, p_def, p_array, p_index>);
+                break;
+            }
+
+            // Fall-through
         case SSA_phi_copy:
             if(!orig_def(h->input(0)).holds_ref() || cset_head(h) != cset_head(h->input(0).handle()))
             {
@@ -4869,6 +4895,7 @@ namespace isel
                     p_arg<0>::set(h->input(0));
 
                     locator_t const loc = cset_locator(h);
+
                     if(loc.lclass() == LOC_SSA || loc.lclass() == LOC_PHI)
                         select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, true>);
                     else
@@ -5503,7 +5530,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
                 if(repaired)
                     goto do_selections;
-                throw;
+                throw isel_no_progress_error_pretty_t(state.fn, state.ssa_node);
             }
             catch(...) { throw; }
         }

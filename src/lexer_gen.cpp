@@ -832,6 +832,8 @@ int main()
         accept("SFFF", "SFFF type", word("SFFF")),
         accept("SSFFF", "SSFFF type", word("SSFFF")),
         accept("SSSFFF", "SSSFFF type", word("SSSFFF")),
+        accept("II", "II type", word("II")),
+        accept("I", "I type", word("I")),
         accept("AA", "AA type", word("AA")),
         accept("AAA", "AAA type", word("AAA")),
         accept("PP", "PP type", word("PP")),

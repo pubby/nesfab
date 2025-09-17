@@ -62,6 +62,12 @@ enum type_name_t : std::uint8_t // Keep unsigned.
     TYPE_BOOL,
     TYPE_FIRST_ARITH = TYPE_BOOL,
 
+    // Index types:
+    TYPE_I,
+    TYPE_FIRST_INDEX = TYPE_I,
+    TYPE_II,
+    TYPE_LAST_INDEX = TYPE_II,
+
     // Numerical literals readily convert to other numeric types,
     // assuming they fit in said representation.
 #define FIXED(whole, frac) TYPE_F##frac,
@@ -107,6 +113,8 @@ constexpr bool is_arithmetic(type_name_t type_name)
     { return type_name >= TYPE_FIRST_ARITH && type_name <= TYPE_LAST_ARITH; }
 constexpr bool is_quantity(type_name_t type_name)
     { return is_arithmetic(type_name) && type_name != TYPE_BOOL; }
+constexpr bool is_index(type_name_t type_name)
+    { return type_name >= TYPE_FIRST_INDEX && type_name <= TYPE_LAST_INDEX; }
 constexpr bool is_scalar(type_name_t type_name)
     { return type_name >= TYPE_FIRST_SCALAR && type_name <= TYPE_LAST_SCALAR; }
 constexpr bool is_frac(type_name_t type_name)
@@ -179,7 +187,9 @@ constexpr unsigned whole_bytes(type_name_t type_name)
     default: 
         return 0;
     case TYPE_BOOL: 
+    case TYPE_I:
         return 1;
+    case TYPE_II:
     case TYPE_APTR:
     case TYPE_CPTR:
     case TYPE_MPTR:

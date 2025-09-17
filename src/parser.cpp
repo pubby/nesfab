@@ -1130,7 +1130,11 @@ ast_node_t parser_t<P>::parse_expr(int starting_indent, int open_parens, int min
         char const* begin = token_source;
         int const bracket_indent = indent;
         parse_token();
-        children[1] = parse_expr(bracket_indent, open_parens+1);
+
+        if(token.type == end_token) // Treat empty brackets as [0]:
+            children[1] = { .token = { TOK_int, token.pstring, 0 }};
+        else
+            children[1] = parse_expr(bracket_indent, open_parens+1);
 
         parse_token(end_token);
         char const* end = token_source;
@@ -1361,6 +1365,17 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
             result.type = type_t::fn_ptr(fn_set);
             break;
         }
+
+    case TOK_I:
+    case TOK_II:
+        {
+            bool const i16 = token.type == TOK_II;
+            parse_token();
+            parse_token(TOK_period);
+            global_t const& global = policy().lookup_global(parse_ident_l());
+            result.type = type_t::index(global, i16);
+        }
+        break;
 
     case TOK_type_ident:
         {

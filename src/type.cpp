@@ -215,6 +215,11 @@ type_t type_t::fn_ptr(fn_set_t const& fn_set)
     return type_t(TYPE_FN_PTR, 0, &fn_set);
 }
 
+type_t type_t::index(global_t const& global, bool i16)
+{
+    return type_t(i16 ? TYPE_II : TYPE_I, 0, &global);
+}
+
 void type_t::set_banked(bool banked)
 {
     assert(is_ptr(name()));
@@ -365,6 +370,14 @@ std::string to_string(type_t type)
         str = "Fn."sv;
         str += type.fn_set().global.name;
         break;
+    case TYPE_I:
+        str = "I."sv;
+        str += type.global().name;
+        break;
+    case TYPE_II:
+        str = "I."sv;
+        str += type.global().name;
+        break;
     }
 
     return str;
@@ -415,6 +428,10 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
     // Same types; no cast needed!
     if(from == to)
         return CAST_NOP;
+
+    // Can't implicitly cast away indexes.
+    if(is_index(from.name()) && !is_index(to.name()) && implicit)
+        return CAST_FAIL;
 
     // PAAs should be converted to ptrs, prior.
     if(from.name() == TYPE_PAA || to.name() == TYPE_PAA)

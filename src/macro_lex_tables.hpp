@@ -72,7 +72,7 @@ inline std::string_view token_string(token_type_t type)
     case TOK_quote:\
 
 constexpr token_type_t TOK_LAST_STATE = 15;
-constexpr token_type_t TOK_START = 28;
+constexpr token_type_t TOK_START = 32;
 extern unsigned const lexer_ec_table[256];
 extern token_type_t const lexer_transition_table[1314];
 } // namespace macro_lex

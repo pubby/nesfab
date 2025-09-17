@@ -297,6 +297,9 @@ public:
     template<do_t D>
     void do_swap(expr_value_t a, expr_value_t b);
 
+    template<do_t D>
+    expr_value_t do_at(expr_value_t value, pstring_t pstring);
+
     void req_quantity(token_t const& token, expr_value_t const& value);
     void req_quantity(token_t const& token, expr_value_t const& lhs, expr_value_t const& rhs);
     void req_arithmetic(token_t const& token, expr_value_t const& value);
@@ -376,6 +379,12 @@ public:
     bool is_param(var_ht var_i) const { return var_i >= to_var_i(0) && var_i < to_var_i(fn->def().num_params); }
     bool is_local(var_ht var_i) const { return var_i >= to_var_i(0); }
     bool is_global(var_ht var_i) const { return var_i < to_var_i(0); }
+
+    template<do_t D>
+    expr_value_t global_ident(global_t const& global, pstring_t pstring);
+
+    template<do_t D>
+    expr_value_t make_ptr(pstring_t pstring, locator_t loc, type_t type, bool banked, ssa_value_t offset = {});
 
     // Block and local variable functions
     void seal_block(block_d& block_data);
@@ -1946,45 +1955,16 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
     using U = fixed_uint_t;
     using S = fixed_sint_t;
 
-    auto const make_ptr = [&](locator_t loc, type_t type, bool banked, ssa_value_t offset = {}) -> expr_value_t
+    struct plus_p : do_wrapper_t<D>
     {
-        rval_t rval = { loc.with_is(IS_PTR) };
-        if(banked)
-            rval.push_back(loc.with_is(IS_BANK));
-
-        if(offset) 
+        static auto lt() { return TOK_plus; }
+        static auto lt_assign() { return TOK_plus_assign; }
+        static S interpret(S lhs, S rhs, pstring_t) { return lhs + rhs; }
+        static bool interpret_carry(U lhs, U rhs, U mask, pstring_t) 
         {
-            if(!is_compile(D))
-                compiler_error(ast.token.pstring, "Unable to make pointer.");
-
-            ssa_ht const cast1 = builder.cfg->emplace_ssa(
-                SSA_cast, TYPE_APTR, loc.with_is(IS_PTR));
-
-            ssa_ht const cast2 = builder.cfg->emplace_ssa(
-                SSA_cast, TYPE_APTR, offset);
-
-            ssa_ht const h = builder.cfg->emplace_ssa(
-                SSA_add, type, 
-                cast1,
-                cast2,
-                ssa_value_t(0u, TYPE_BOOL));
-
-            rval[0] = h;
+            return (lhs + rhs) & (high_bit_only(mask) << 1);
         }
-
-        if(is_compile(D) && loc.with_is(IS_PTR).type().with_banked(false) != type.with_banked(false))
-        {
-            ssa_ht const cast = builder.cfg->emplace_ssa(SSA_cast, type.with_banked(false), std::get<ssa_value_t>(rval[0]));
-            rval[0] = cast;
-        }
-
-        return
-        {
-            .val = std::move(rval),
-            .type = type,
-            .pstring = ast.token.pstring,
-            .time = is_compile(D) ? RT : LT,
-        };
+        static ssa_op_t op() { return SSA_add; }
     };
 
     auto const infix = [&](auto const& fn, bool flipped = false, bool lhs_lval = false, bool fence = false) -> expr_value_t
@@ -2143,77 +2123,9 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
     case TOK_global_ident:
         {
-            if(is_link(D))
-                compiler_error(ast.token.pstring, "Expression cannot be evaluated at link-time.");
-
             global_t const* global = ast.token.ptr<global_t>();
             assert(global);
-
-            switch(global->gclass())
-            {
-            default: 
-                throw std::runtime_error(fmt("Unimplemented global in expression. (%)", global));
-
-            case GLOBAL_VAR:
-                {
-                    expr_value_t result =
-                    {
-                        .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
-                        .type = global->impl<gvar_t>().type(),
-                        .pstring = ast.token.pstring,
-                    };
-
-                    if(is_compile(D))
-                        result.time = RT;
-
-                    result.assert_valid();
-                    return result;
-                }
-
-            case GLOBAL_CONST:
-                {
-                    const_t const& c = global->impl<const_t>();
-                    //passert(!is_thunk(c.type().name()), c.type(), D, global->name);
-
-                    expr_value_t result =
-                    {
-                        .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
-                        .type = c.type(),
-                        .pstring = ast.token.pstring,
-                    };
-
-                    if(!is_paa(result.type.name()))
-                        result.time = to_rval<D>(result).calc_time();
-
-                    return result;
-                }
-
-            case GLOBAL_FN:
-                return 
-                {
-                    .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
-                    .type = global->impl<fn_t>().type(), 
-                    .pstring = ast.token.pstring,
-                    .time = LT,
-                };
-
-            case GLOBAL_CHARMAP:
-                return
-                {
-                    .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
-                    .type = TYPE_CHARMAP, 
-                    .pstring = ast.token.pstring 
-                };
-
-            case GLOBAL_FN_SET:
-                return
-                {
-                    .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = global },
-                    .type = TYPE_FN_SET, 
-                    .pstring = ast.token.pstring 
-                };
-                
-            }
+            return global_ident<D>(*global, ast.token.pstring);
         }
         break;
 
@@ -2239,111 +2151,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         break;
 
     case TOK_at:
-        {
-            expr_value_t value = do_expr<D>(ast.children[0]);
-
-            strval_t const* strval;
-
-            if(value.type.name() == TYPE_FN_SET)
-            {
-                throw compiler_error_t(
-                    fmt_error(value.pstring, "Cannot get address of fn set.")
-                    + fmt_note("\"@\" binds tighter than \".\"")
-                    + fmt_note("Consider wrapping the fn expression in parenthesis."));
-            }
-
-            if(lval_t const* lval = value.is_lval())
-            {
-                if(!(lval->flags & LVALF_IS_GLOBAL))
-                    goto at_error;
-
-                switch(lval->global().gclass())
-                {
-                case GLOBAL_FN:
-                    {
-                        if(value.type.name() != TYPE_FN)
-                            goto at_error;
-
-                        fn_t const& fn = lval->global().impl<fn_t>();
-                        if(fn_set_t const* fn_set = fn.fn_set())
-                        {
-                            rval_t rval;
-
-                            if(!is_check(D))
-                            {
-                                locator_t const loc = locator_t::fn_ptr(fn.handle(), lval->ulabel());
-                                rval.push_back(loc.with_is(IS_PTR));
-                                if(fn_set->banked_ptrs())
-                                    rval.push_back(loc.with_is(IS_BANK));
-                                passert(rval.size() == fn_set->num_members(), rval.size(), fn_set->num_members());
-                                assert(!rval.empty());
-                            }
-
-                            return
-                            {
-                                .val = std::move(rval),
-                                .type = type_t::fn_ptr(*fn_set),
-                                .pstring = ast.token.pstring,
-                                .time = is_compile(D) ? RT : LT,
-                            };
-                        }
-                        else
-                        {
-                            compiler_error(ast.token.pstring, 
-                                fmt("Cannot get pointer from a fn that does not belong to a fn set."));
-                        }
-                    }
-                    goto at_error;
-
-                case GLOBAL_CONST:
-                    {
-                        const_t const& c = lval->global().impl<const_t>();
-
-                        if(c.is_chrrom())
-                            compiler_error(ast.token.pstring, "Cannot get pointer to chrrom memory.");
-
-                        if(!c.is_paa() || !is_paa(value.type.name()))
-                            goto at_error;
-
-                        return make_ptr(locator_t::gconst(c.handle()), type_t::ptr(c.group(), type_ptr(false, c.banked)), c.banked);
-                    }
-
-                case GLOBAL_VAR:
-                    {
-                        gvar_t const& v = lval->global().impl<gvar_t>();
-
-                        if(!v.is_paa() || !is_paa(value.type.name()))
-                            goto at_error;
-
-                        return make_ptr(locator_t::gmember(v.begin()), type_t::ptr(v.group(), type_ptr(true, false)), false);
-                    }
-
-                default: 
-                    goto at_error;
-                }
-            }
-            else if((strval = value.is_strval()))
-            {
-                rom_array_ht const rom_array = sl_manager.get_rom_array(&strval->charmap->global, strval->index, strval->compressed);
-                assert(rom_array);
-                assert(strval->charmap->group_data());
-
-                group_data_ht const group = strval->charmap->group_data();
-                bool const banked = !strval->charmap->stows_omni();
-
-                return make_ptr(locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), type_ptr(false, banked)), banked);
-            }
-            else
-            {
-            at_error:
-                compiler_error(ast.token.pstring, 
-                    fmt("Cannot get pointer from type %. String literal or pointer-addressable array lvalue required as unary '@' operand.",
-                        value.type));
-            }
-
-        }
-        break;
-
+        return do_at<D>(do_expr<D>(ast.children[0]), ast.token.pstring);
 
     case TOK_unary_ref:
         {
@@ -2392,39 +2200,39 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 if(lval->arg == lval_t::READY_ARG)
                 {
                     locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_ready, offset);
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
                 else if(lval->arg == lval_t::SYSTEM_ARG)
                 {
                     if(compiler_options().nes_system != NES_SYSTEM_DETECT)
                         compiler_error(value.pstring, "System is known at compile-time; it has no address.");
                     locator_t const loc = locator_t::runtime_ram(RTRAM_system, offset);
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
                 else if(lval->arg == lval_t::STATE_ARG)
                 {
                     locator_t const loc = locator_t::runtime_ram(RTRAM_mapper_state, offset);
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
                 else if(lval->arg == lval_t::MAPPER_DETAIL_ARG)
                 {
                     locator_t const loc = locator_t::runtime_ram(RTRAM_mapper_detail, offset);
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
                 else if(lval->arg == lval_t::MAPPER_RESET_ARG)
                 {
                     locator_t const loc = locator_t::runtime_rom(RTROM_mapper_reset, offset);
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
                 else if(lval->arg == lval_t::NMI_COUNTER_ARG)
                 {
                     locator_t const loc = locator_t::runtime_ram(RTRAM_nmi_counter, offset);
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
                 else if(lval->arg == lval_t::MULTIPLY_ARG)
                 {
                     locator_t const loc = locator_t::runtime_rom(RTROM_mul8, offset);
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
 
                 if(lval->is_global())
@@ -2441,14 +2249,14 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                             if(!is_paa(c.type().name()))
                                 compiler_error(value.pstring, "Cannot get address of a constant that isn't a pointer-addressible array.");
 
-                            return make_ptr(locator_t::gconst(c.handle(), lval->member(), lval->uatom(), offset), 
+                            return make_ptr<D>(ast.token.pstring, locator_t::gconst(c.handle(), lval->member(), lval->uatom(), offset), 
                                             type_t::addr(c.banked), c.banked, nonconst_index);
                         }
 
                     case GLOBAL_VAR:
                         {
                             gvar_t const& gvar = lval->global().impl<gvar_t>();
-                            return make_ptr(locator_t::gmember(gvar.begin() + lval->member(), lval->uatom(), offset), 
+                            return make_ptr<D>(ast.token.pstring, locator_t::gmember(gvar.begin() + lval->member(), lval->uatom(), offset), 
                                             type_t::addr(false), false, nonconst_index);
                         }
 
@@ -2456,7 +2264,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                         {
                             fn_ht const fn = lval->global().handle<fn_ht>();
                             if(lval->arg < 0)
-                                return make_ptr(locator_t::fn(fn, lval->ulabel(), offset), type_t::addr(true), true, nonconst_index);
+                                return make_ptr<D>(ast.token.pstring, locator_t::fn(fn, lval->ulabel(), offset), type_t::addr(true), true, nonconst_index);
                             else
                             {
                                 locator_t loc;
@@ -2478,7 +2286,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                                     loc = locator_t::arg(fn, lval->arg, lval->member(), lval->uatom(), offset); 
                                 }
 
-                                return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                                return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                             }
                         }
 
@@ -2512,7 +2320,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     else
                         goto cannot_get_address;
 
-                    return make_ptr(loc, type_t::addr(false), false, nonconst_index);
+                    return make_ptr<D>(ast.token.pstring, loc, type_t::addr(false), false, nonconst_index);
                 }
             }
             else if(strval_t const* strval = value.is_strval())
@@ -2523,7 +2331,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
                 bool const banked = !strval->charmap->stows_omni();
 
-                return make_ptr(locator_t::rom_array(rom_array), type_t::addr(banked), banked);
+                return make_ptr<D>(ast.token.pstring, locator_t::rom_array(rom_array), type_t::addr(banked), banked);
             }
             else
                 compiler_error(ast.token.pstring, "lvalue or string literal required as unary '&' operand.");
@@ -4203,6 +4011,33 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             bool const is8 = ast.token.type == TOK_index8;
 
             expr_value_t array_val = do_expr<D>(ast.children[0]);
+            expr_value_t array_index = to_rval<D>(do_expr<D>(ast.children[1]));
+
+            if(is_ct(array_index.type.name()))
+                array_index = throwing_cast<D>(std::move(array_index), is8 ? TYPE_U : TYPE_U20, true);
+
+            if(is8)
+            {
+                if(array_index.type != TYPE_U)
+                    compiler_error(array_index.pstring, fmt("[] expects an index of type U. Got %.", array_index.type));
+            }
+            else
+            {
+                if(array_index.type != TYPE_U20)
+                    compiler_error(array_index.pstring, fmt("{} expects an index of type UU. Got %.", array_index.type));
+            }
+
+            if(::is_index(array_val.type.name()))
+            {
+                array_index = do_add<plus_p>(array_index, throwing_cast<D>(std::move(array_val), array_index.type, false), ast.token);
+                if(array_val.type.global().gclass() == GLOBAL_VAR || array_val.type.global().gclass() == GLOBAL_CONST)
+                    array_val = global_ident<D>(array_val.type.global(), ast.token.pstring);
+                else
+                    compiler_error(ast.token.pstring, fmt("% is not indexable.", array_val.type.global().name));
+
+                if(is_paa(array_val.type.name()))
+                    array_val = do_at<D>(std::move(array_val), ast.token.pstring);
+            }
 
             bool const is_tea = ::is_tea(array_val.type.name());
             bool const is_ptr = ::is_ptr(array_val.type.name());
@@ -4237,22 +4072,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 precheck_tracked->deref_types.insert(array_val.type);
                 for(unsigned i = 0; i < size; ++i)
                     precheck_tracked->deref_groups.emplace(array_val.type.group(i), src_type_t{ array_val.pstring, array_val.type });
-            }
-
-            expr_value_t array_index = to_rval<D>(do_expr<D>(ast.children[1]));
-
-            if(is_ct(array_index.type.name()))
-                array_index = throwing_cast<D>(std::move(array_index), is8 ? TYPE_U : TYPE_U20, true);
-
-            if(is8)
-            {
-                if(array_index.type != TYPE_U)
-                    compiler_error(array_index.pstring, fmt("[] expects an index of type U. Got %.", array_index.type));
-            }
-            else
-            {
-                if(array_index.type != TYPE_U20)
-                    compiler_error(array_index.pstring, fmt("{} expects an index of type UU. Got %.", array_index.type));
             }
 
             bool const is_ct = array_index.is_ct() && array_val.is_ct() && !is_ptr;
@@ -4477,7 +4296,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                     bool const banked = !strval->charmap->stows_omni();
 
                     type_t const type = type_t::ptr((*group)->handle(), type_ptr(false, banked));
-                    auto ptr = make_ptr(locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), type_ptr(false, banked)), banked);
+                    auto ptr = make_ptr<D>(ast.token.pstring, locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), type_ptr(false, banked)), banked);
 
                     ssa_ht const h = compile_read_ptr(type, ptr.ssa(), banked ? ptr.ssa(1) : ssa_value_t());
 
@@ -4678,17 +4497,6 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         return infix(&eval_t::do_assign_arith<div_p>, false, true);
 
     case TOK_plus:
-        struct plus_p : do_wrapper_t<D>
-        {
-            static auto lt() { return TOK_plus; }
-            static auto lt_assign() { return TOK_plus_assign; }
-            static S interpret(S lhs, S rhs, pstring_t) { return lhs + rhs; }
-            static bool interpret_carry(U lhs, U rhs, U mask, pstring_t) 
-            {
-                return (lhs + rhs) & (high_bit_only(mask) << 1);
-            }
-            static ssa_op_t op() { return SSA_add; }
-        };
         return infix(&eval_t::do_add<plus_p>);
 
     case TOK_plus_assign:
@@ -5710,6 +5518,108 @@ void eval_t::do_swap(expr_value_t a, expr_value_t b)
 }
 
 template<eval_t::do_t D>
+expr_value_t eval_t::do_at(expr_value_t value, pstring_t pstring)
+{
+    strval_t const* strval;
+
+    if(value.type.name() == TYPE_FN_SET)
+    {
+        throw compiler_error_t(
+            fmt_error(value.pstring, "Cannot get address of fn set.")
+            + fmt_note("\"@\" binds tighter than \".\"")
+            + fmt_note("Consider wrapping the fn expression in parenthesis."));
+    }
+
+    if(lval_t const* lval = value.is_lval())
+    {
+        if(!(lval->flags & LVALF_IS_GLOBAL))
+            goto at_error;
+
+        switch(lval->global().gclass())
+        {
+        case GLOBAL_FN:
+            {
+                if(value.type.name() != TYPE_FN)
+                    goto at_error;
+
+                fn_t const& fn = lval->global().impl<fn_t>();
+                if(fn_set_t const* fn_set = fn.fn_set())
+                {
+                    rval_t rval;
+
+                    if(!is_check(D))
+                    {
+                        locator_t const loc = locator_t::fn_ptr(fn.handle(), lval->ulabel());
+                        rval.push_back(loc.with_is(IS_PTR));
+                        if(fn_set->banked_ptrs())
+                            rval.push_back(loc.with_is(IS_BANK));
+                        passert(rval.size() == fn_set->num_members(), rval.size(), fn_set->num_members());
+                        assert(!rval.empty());
+                    }
+
+                    return
+                    {
+                        .val = std::move(rval),
+                        .type = type_t::fn_ptr(*fn_set),
+                        .pstring = pstring,
+                        .time = is_compile(D) ? RT : LT,
+                    };
+                }
+                else
+                {
+                    compiler_error(pstring, 
+                        fmt("Cannot get pointer from a fn that does not belong to a fn set."));
+                }
+            }
+            goto at_error;
+
+        case GLOBAL_CONST:
+            {
+                const_t const& c = lval->global().impl<const_t>();
+
+                if(c.is_chrrom())
+                    compiler_error(pstring, "Cannot get pointer to chrrom memory.");
+
+                if(!c.is_paa() || !is_paa(value.type.name()))
+                    goto at_error;
+
+                return make_ptr<D>(pstring, locator_t::gconst(c.handle()), type_t::ptr(c.group(), type_ptr(false, c.banked)), c.banked);
+            }
+
+        case GLOBAL_VAR:
+            {
+                gvar_t const& v = lval->global().impl<gvar_t>();
+
+                if(!v.is_paa() || !is_paa(value.type.name()))
+                    goto at_error;
+
+                return make_ptr<D>(pstring, locator_t::gmember(v.begin()), type_t::ptr(v.group(), type_ptr(true, false)), false);
+            }
+
+        default: 
+            goto at_error;
+        }
+    }
+    else if((strval = value.is_strval()))
+    {
+        rom_array_ht const rom_array = sl_manager.get_rom_array(&strval->charmap->global, strval->index, strval->compressed);
+        assert(rom_array);
+        assert(strval->charmap->group_data());
+
+        group_data_ht const group = strval->charmap->group_data();
+        bool const banked = !strval->charmap->stows_omni();
+
+        return make_ptr<D>(pstring, locator_t::rom_array(rom_array), type_t::ptr((*group)->handle(), type_ptr(false, banked)), banked);
+    }
+
+at_error:
+    compiler_error(pstring, 
+        fmt("Cannot get pointer from type %. String literal or pointer-addressable array lvalue required as unary '@' operand.",
+            value.type));
+}
+
+
+template<eval_t::do_t D>
 void eval_t::do_fence(ssa_op_t ssa_op)
 {
     if(precheck_tracked)
@@ -6038,7 +5948,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 if(extra.size())
                 {
                     std::int64_t const at = throwing_cast<D>(extra[0], TYPE_INT, false).swhole();
-                    if(at < 0 || at > vec_ptr->data.size())
+                    if(at < 0 || at > std::int64_t(vec_ptr->data.size()))
                         compiler_error(pstring, fmt("Position % is out of bounds. Size is %.", at, vec_ptr->data.size()));
                     vec_ptr->data.insert(vec_ptr->data.begin() + at, rval);
                     extra.clear(); // We're done with 'extra'.
@@ -6061,7 +5971,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 if(extra.size())
                 {
                     std::int64_t const at = throwing_cast<D>(extra[0], TYPE_INT, false).swhole();
-                    if(at < 0 || at >= vec_ptr->data.size())
+                    if(at < 0 || at >= std::int64_t(vec_ptr->data.size()))
                         compiler_error(pstring, fmt("Position % is out of bounds. Size is %.", at, vec_ptr->data.size()));
                     result = vec_ptr->data[at];
                     vec_ptr->data.erase(vec_ptr->data.begin() + at);
@@ -8052,6 +7962,121 @@ void eval_t::fill_phi_args(ssa_ht phi, var_ht var_i, unsigned member)
         phi->build_set_input(i, v);
     }
 }
+
+template<eval_t::do_t D>
+expr_value_t eval_t::global_ident(global_t const& global, pstring_t pstring)
+{
+    if(is_link(D))
+        compiler_error(pstring, "Expression cannot be evaluated at link-time.");
+
+    switch(global.gclass())
+    {
+    default: 
+        throw std::runtime_error(fmt("Unimplemented global in expression. (%)", global.name));
+
+    case GLOBAL_VAR:
+        {
+            expr_value_t result =
+            {
+                .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = &global },
+                .type = global.impl<gvar_t>().type(),
+                .pstring = pstring,
+            };
+
+            if(is_compile(D))
+                result.time = RT;
+
+            result.assert_valid();
+            return result;
+        }
+
+    case GLOBAL_CONST:
+        {
+            const_t const& c = global.impl<const_t>();
+            //passert(!is_thunk(c.type().name()), c.type(), D, global->name);
+
+            expr_value_t result =
+            {
+                .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = &global },
+                .type = c.type(),
+                .pstring = pstring
+            };
+
+            if(!is_paa(result.type.name()))
+                result.time = to_rval<D>(result).calc_time();
+
+            return result;
+        }
+
+    case GLOBAL_FN:
+        return 
+        {
+            .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = &global },
+            .type = global.impl<fn_t>().type(), 
+            .pstring = pstring,
+            .time = LT,
+        };
+
+    case GLOBAL_CHARMAP:
+        return
+        {
+            .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = &global },
+            .type = TYPE_CHARMAP, 
+            .pstring = pstring
+        };
+
+    case GLOBAL_FN_SET:
+        return
+        {
+            .val = lval_t{ .flags = LVALF_IS_GLOBAL, .vglobal = &global },
+            .type = TYPE_FN_SET, 
+            .pstring = pstring
+        };
+        
+    }
+}
+
+template<eval_t::do_t D>
+expr_value_t eval_t::make_ptr(pstring_t pstring, locator_t loc, type_t type, bool banked, ssa_value_t offset)
+{
+    rval_t rval = { loc.with_is(IS_PTR) };
+    if(banked)
+        rval.push_back(loc.with_is(IS_BANK));
+
+    if(offset) 
+    {
+        if(!is_compile(D))
+            compiler_error(pstring, "Unable to make pointer.");
+
+        ssa_ht const cast1 = builder.cfg->emplace_ssa(
+            SSA_cast, TYPE_APTR, loc.with_is(IS_PTR));
+
+        ssa_ht const cast2 = builder.cfg->emplace_ssa(
+            SSA_cast, TYPE_APTR, offset);
+
+        ssa_ht const h = builder.cfg->emplace_ssa(
+            SSA_add, type, 
+            cast1,
+            cast2,
+            ssa_value_t(0u, TYPE_BOOL));
+
+        rval[0] = h;
+    }
+
+    if(is_compile(D) && loc.with_is(IS_PTR).type().with_banked(false) != type.with_banked(false))
+    {
+        ssa_ht const cast = builder.cfg->emplace_ssa(SSA_cast, type.with_banked(false), std::get<ssa_value_t>(rval[0]));
+        rval[0] = cast;
+    }
+
+    return
+    {
+        .val = std::move(rval),
+        .type = type,
+        .pstring = pstring,
+        .time = is_compile(D) ? RT : LT,
+    };
+};
 
 
 template<eval_t::do_t D>

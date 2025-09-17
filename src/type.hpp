@@ -57,13 +57,16 @@ public:
     type_t elem_type() const;
     group_ht group(unsigned i = 0) const;
 
-    global_t const& global() const { assert(name() == TYPE_STRUCT_THUNK); return *static_cast<global_t const*>(m_tail); }
-    struct_t const& struct_() const { assert(name() == TYPE_STRUCT); return *static_cast<struct_t const*>(m_tail); }
+    global_t const& global() const 
+        { assert(name() == TYPE_STRUCT_THUNK || is_index(name())); return *static_cast<global_t const*>(m_tail); }
+    struct_t const& struct_() const 
+        { assert(name() == TYPE_STRUCT); return *static_cast<struct_t const*>(m_tail); }
     tea_thunk_t const& tea_thunk() const
         { assert(name() == TYPE_TEA_THUNK || name() == TYPE_PAA_THUNK); return *static_cast<tea_thunk_t const*>(m_tail); }
     paa_thunk_t const& paa_thunk() const
         { assert(name() == TYPE_PAA_THUNK || name() == TYPE_PAA_THUNK); return *static_cast<paa_thunk_t const*>(m_tail); }
-    fn_set_t const& fn_set() const { assert(name() == TYPE_FN_PTR); return *static_cast<fn_set_t const*>(m_tail); }
+    fn_set_t const& fn_set() const 
+        { assert(name() == TYPE_FN_PTR); return *static_cast<fn_set_t const*>(m_tail); }
 
     std::size_t num_params() const { assert(name() == TYPE_FN); return size() - 1; }
     type_t return_type() const { assert(name() == TYPE_FN); return types()[size() - 1]; }
@@ -99,6 +102,7 @@ public:
     static type_t addr(bool banked);
     static type_t vec(type_t elem_type);
     static type_t fn_ptr(fn_set_t const& fn_set);
+    static type_t index(global_t const& global, bool i16);
 
     void set_banked(bool banked);
     type_t with_banked(bool banked) const;

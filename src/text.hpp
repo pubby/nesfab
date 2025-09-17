@@ -63,6 +63,7 @@ private:
         auto const& map(bool is_compressed) const { return is_compressed ? compressed : uncompressed; }
         auto& map(bool is_compressed) { return is_compressed ? compressed : uncompressed; }
 
+        pstring_t pstring; // A pstring to any data contained.
         rh::joker_map<std::string, data_t> compressed;
         rh::joker_map<std::string, data_t> uncompressed;
         std::vector<byte_pair_t> byte_pairs;

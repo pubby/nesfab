@@ -215,7 +215,9 @@ unsigned string_literal_manager_t::add_string(global_t const* charmap, pstring_t
 
     std::lock_guard<std::mutex> lock(mutex);
 
-    auto& map = m_map[charmap].map(compressed);
+    auto& info = m_map[charmap];
+    info.pstring = at;
+    auto& map = info.map(compressed);
     auto result = map.emplace(std::move(string));
     result.first->second.pstring = at;
     return result.first - map.begin();
@@ -311,7 +313,7 @@ void string_literal_manager_t::convert_all()
     for(auto& i : m_map)
     {
         if(i.first->gclass() != GLOBAL_CHARMAP)
-            compiler_error(i.first->pstring(), fmt("% is not a charmap.", i.first->name));
+            compiler_error(i.second.pstring, fmt("% is not a charmap.", i.first->name));
         convert(i.first->impl<charmap_t>(), i.second);
     }
 }

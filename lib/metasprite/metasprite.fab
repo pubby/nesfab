@@ -30,7 +30,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // Pushes 'metasprite' into OAM, adding 'x' and 'y' to each sprite's position and cropping if needed.
-fn push_oam_metasprite(U o, SS x, SS y, PPP/sprites metasprite) U
+fn push_oam_metasprite(I.oam o, SS x, SS y, PPP/sprites metasprite) U
 : +static_fixed
     U size = metasprite[0]
     do for U i = 0; i != size;
@@ -49,12 +49,12 @@ fn push_oam_metasprite(U o, SS x, SS y, PPP/sprites metasprite) U
                 set_oam_y(o, sprite_y.a)
                 set_oam_x(o, sprite_x.a)
                 o += 4
-    return o
+    return U(o)
 
 // This is the single-screen version of 'push_oam_metasprite'.
 // It is faster because it uses U position coordinates instead of SS.
 // However, it doesn't handle metasprites on the edge of the screen.
-fn push_oam_metasprite_u(U o, U x, U y, PPP/sprites metasprite) U
+fn push_oam_metasprite_u(I.oam o, U x, U y, PPP/sprites metasprite) U
 : +static_fixed
     return _push_oam_metasprite_u(o, x, y, metasprite, 0)
 
@@ -62,7 +62,7 @@ fn push_oam_metasprite_u(U o, U x, U y, PPP/sprites metasprite) U
 // The 'attribute' value will be XOR'd onto each sprite's OAM attribute,
 // which can be useful for changing the metasprite's color.
 // The high 2-bits of the 'attribute' value will be used to determine metasprite flipping.
-fn push_oam_metasprite_a(U o, SS x, SS y, PPP/sprites metasprite, U attribute) U
+fn push_oam_metasprite_a(I.oam o, SS x, SS y, PPP/sprites metasprite, U attribute) U
 : +static_fixed
     if attribute & ATTR_H_FLIP
         x -= 8
@@ -94,12 +94,12 @@ fn push_oam_metasprite_a(U o, SS x, SS y, PPP/sprites metasprite, U attribute) U
                 set_oam_y(o, sprite_y.a)
                 set_oam_x(o, sprite_x.a)
                 o += 4
-    return o
+    return U(o)
 
 // This is the single-screen version of 'push_oam_metasprite'.
 // It is faster because it uses U position coordinates instead of SS.
 // However, it doesn't handle metasprites on the edge of the screen.
-fn push_oam_metasprite_a_u(U o, U x, U y, PPP/sprites metasprite, U attribute) U
+fn push_oam_metasprite_a_u(I.oam o, U x, U y, PPP/sprites metasprite, U attribute) U
 : +static_fixed
     if attribute & ATTR_H_FLIP
         x -= 8
@@ -116,7 +116,7 @@ fn push_oam_metasprite_a_u(U o, U x, U y, PPP/sprites metasprite, U attribute) U
             return _push_oam_metasprite_u(o, x, y, metasprite, 0)
 
 // Implementation detail:
-fn _push_oam_metasprite_u(U o, U x, U y, PPP/sprites metasprite, U attribute) U
+fn _push_oam_metasprite_u(I.oam o, U x, U y, PPP/sprites metasprite, U attribute) U
 : +inline
     U size = metasprite[0]
     do for U i = 0; i != size;
@@ -135,7 +135,7 @@ fn _push_oam_metasprite_u(U o, U x, U y, PPP/sprites metasprite, U attribute) U
         else
             set_oam_x(o, x + metasprite[i])
         o += 4
-    return o
+    return U(o)
 
 ///////////////////////////////////////////////////////////////////////////////
 // HELPERS ////////////////////////////////////////////////////////////////////

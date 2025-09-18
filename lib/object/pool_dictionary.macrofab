@@ -14,48 +14,37 @@
 #:value_type:#  // The value type of each object (probably a struct type).
 #:max_objects:# // The maximum number of objects that can exist at once (but not more than 254)
 #:name:#        // The name of the objects (e.g. "enemies")
-#:struct_name:# // The name of the KeyValuePair (e.g. "EnemiesKeyValuePair")
 #:group:#       // The optional vars group to insert variables in.
 
 ct U #name#_max = #max_objects#
 
-struct #struct_name#
+struct #=name=#KV
     #key_type# key
     #value_type# value
 
 vars #group#
     U #name#_num = 0
-    #struct_name#[#max_objects#] #name#
+    #=name=#KV[#max_objects#] #name#
 
 // Removes all objects:
 fn #name#_clear()
 : +inline
     #name#_num = 0
 
-// Removes all objects with the given key.
-// Invalidates the last object's index (if deleted).
-fn #name#_delete(#key_type# key)
-: -inline
-    for U i = 0; i < #name#_num; i+=1
-        if #name#[i].key == key
-            i-=1
-            #name#_num -= 1
-            #name#[i] = #name#[#name#_num]
-
 // Removes the key-value-pair at position 'index'.
 // Invalidates the last key-value-pair's index.
 // When calling this while iterating, 'index' should not be incremented.
-fn #name#_delete_index(U index)
-: -inline
+fn #name#_delete(I.#name# index)
+: +inline
     #name#_num -= 1
-    #name#[index] = #name#[#name#_num]
+    index[] = #name#[#name#_num]
 
 // Creates a key-value-pair, returning its index but not assigning to it.
 // If no more key-value-pairs can be created, returns BAD_OBJECT.
-fn #name#_alloc() U
+fn #name#_alloc() I.#name#
 : -inline
     if #name#_num == #name#_max
-        return $FF
+        return BAD_OBJECT
     U index = #name#_num
     #name#_num += 1
     return index
@@ -63,30 +52,48 @@ fn #name#_alloc() U
 // Creates and assigns a key-value-pair, returning its index.
 // If no more key-value-pairs can be created, returns BAD_OBJECT.
 fn #name#_new(#key_type# key, #value_type# value) U
-: -inline
+: +inline
     if #name#_num == #name#_max
-        return $FF
-    
+        return BAD_OBJECT
     U index = #name#_num
     #name#[index].key = key
     #name#[index].value = value
     #name#_num += 1
     return index
 
-// Returns true if a pair with given key is allocated:
-fn #name#_exists(#key_type# key) Bool
-: -inline
-    for U i = 0; i < #name#_num; i+=1
-        if #name#[i].key == key
-            return true
+// Returns true if the object at position 'index' is allocated:
+fn #name#_exists(I.#name# index) Bool
+: +inline
+    return index < #name#_num
 
-    return false
+// Returns the number of objects whose key matches 'key':
+fn #name#_count(#key_type# key) U
+: +inline
+    U count = 0
+    for I.#name# i = 0; i < #name#_num; i += 1
+        if i[].key == key
+            count += 1
+    return count
 
-// Returns the array index of a given key or BAD_OBJECT if not found:
-fn #name#_get_index(#key_type# key) U
-: -inline
-    for U i = 0; i < #name#_num; i+=1
-        if #name#[i].key == key
+// Returns the index of the first object whose key matches 'key',
+// or BAD_OBJECT if one doesn't exist:
+fn #name#_find(#key_type# key) I.#name#
+    for I.#name# i = 0; i < #name#_num; i += 1
+        if i[].key == key
             return i
+    return BAD_OBJECT
 
-    return $FF
+// Removes all objects whose key matches 'key'.
+// Invalidates object indexes (when deleting).
+fn #name#_cull(#key_type# key)
+    for I.#name# i = 0; i < #name#_num;
+        if i[].key == key
+            #name#_delete(i)
+        else
+            i += 1
+
+// Replaces all objects whose keys equal 'key' with 'new_value':
+fn #name#_replace(#key_type# key, #value_type# new_value)
+    for I.#name# i = 0; i < #name#_num; i += 1
+        if i[].key == key
+            i[].value = new_value

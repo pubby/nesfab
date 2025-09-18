@@ -36,7 +36,7 @@ fn #name#_delete(I.#name# index)
 
 // Creates an object, returning its index but not assigning to it.
 // If no more objects can be created, returns BAD_OBJECT.
-fn #name#_alloc() U
+fn #name#_alloc() I.#name#
 : -inline
     if #name#_num == #name#_max
         return BAD_OBJECT
@@ -60,23 +60,33 @@ fn #name#_exists(I.#name# index) Bool
 : +inline
     return index < #name#_num
 
-// Returns the index of the first object equal to 'value':
-fn #name#_find(#type# value) U
-    for U i = 0; i < #name#_num; i += 1
-        if #name#[i] == value
+// Returns the number of objects matching 'value':
+fn #name#_count(#type# value) U
+    U count = 0
+    for I.#name# i = 0; i < #name#_num; i += 1
+        if i[] == value
+            count += 1
+    return count
+
+// Returns the index of the first object equal to 'value',
+// or BAD_OBJECT if one doesn't exist:
+fn #name#_find(#type# value) I.#name#
+    for I.#name# i = 0; i < #name#_num; i += 1
+        if i[] == value
             return i
     return BAD_OBJECT
 
-// Replaces all objects equal to 'from' with 'to':
-fn #name#_replace_matching(#type# from, #type# to)
-    for U i = 0; i < #name#_num; i += 1
-        if #name#[i] == from
-            #name#[i] = to
-
 // Removes all objects equal to 'value':
-fn #name#_delete_matching(#type# value)
+// Invalidates object indexes (when deleting).
+fn #name#_cull(#type# value)
     for U i = 0; i < #name#_num;
         if #name#[i] == value
             #name#_delete(i)
         else
             i += 1
+
+// Replaces all objects equal to 'from' with 'to':
+fn #name#_replace(#type# from, #type# to)
+    for U i = 0; i < #name#_num; i += 1
+        if #name#[i] == from
+            #name#[i] = to

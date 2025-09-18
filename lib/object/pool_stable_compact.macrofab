@@ -35,7 +35,7 @@ fn #name#_delete(I.#name# index)
 
 // Creates an object, returning its index but not assigning to it.
 // If no more objects can be created, returns BAD_OBJECT.
-fn #name#_alloc() U
+fn #name#_alloc() I.#name#
 : -inline
     for U i = 0; i < #name#_max; i += 1
         if !#name#_exists(i)
@@ -47,14 +47,43 @@ fn #name#_alloc() U
 // If no more objects can be created, returns BAD_OBJECT.
 fn #name#_new(#type# value) U
 : +inline
-    for U i = 0; i < #name#_max; i += 1
-        if !#name#_exists(i)
-            #name#_allocated[i >> 3] |= OBJECT_POOL_MASKS[i & %111]
-            #name#[i >> 3] = value
-            return i
-    return BAD_OBJECT
+    I.#name# i = #name#_alloc()
+    if i != BAD_OBJECT
+        i[] = value
+    return U(i)
 
 // Returns true if the object at position 'index' is allocated:
 fn #name#_exists(I.#name# index) Bool
 : +inline
     return #name#_allocated[U(index) >> 3] & OBJECT_POOL_MASKS[U(index) & %111]
+
+// Returns the number of objects matching 'value':
+fn #name#_count(#type# value) U
+    U count = 0
+    for U i = 0; i < #name#_max; i += 1
+        if #name#_exists(i) && #name#[i] == value
+            count += 1
+    return count
+
+// Returns the index of the first object equal to 'value',
+// or BAD_OBJECT if one doesn't exist:
+fn #name#_find(#type# value) I.#name#
+    for U i = 0; i < #name#_max; i += 1
+        if #name#_exists(i) && #name#[i] == value
+            return i
+    return BAD_OBJECT
+
+// Removes all objects equal to 'value':
+// Invalidates object indexes (when deleting).
+fn #name#_cull(#type# value)
+    for U i = 0; i < #name#_max;
+        if #name#_exists(i) && #name#[i] == value
+            #name#_delete(i)
+        else
+            i += 1
+
+// Replaces all objects equal to 'from' with 'to':
+fn #name#_replace(#type# from, #type# to)
+    for U i = 0; i < #name#_max; i += 1
+        if #name#_exists(i) && #name#[i] == from
+            #name#[i] = to

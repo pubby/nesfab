@@ -217,6 +217,8 @@ public:
 
     static bool has_chrrom();
     static void for_each_chrrom(std::function<void(global_t*)> const& fn);
+
+    static void track_index_type(global_t const& global, pstring_t at);
 private:
 
     // Sets the variables of the global:
@@ -272,6 +274,10 @@ private:
     // Tracks chrroms: 
     inline static std::mutex chrrom_deque_mutex;
     inline static bc::deque<global_t*> chrrom_deque;
+
+    // Tracks index types:
+    inline static std::mutex index_type_map_mutex;
+    inline static rh::batman_map<global_t const*, pstring_t> index_type_map;
 
     // These represent a queue of globals ready to be compiled.
     inline static std::condition_variable ready_cv;

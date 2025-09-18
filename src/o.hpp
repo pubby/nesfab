@@ -13,5 +13,6 @@
 #include "o_defork.hpp"
 #include "o_shift.hpp"
 #include "o_locator.hpp"
+#include "o_type.hpp"
 
 #endif

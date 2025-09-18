@@ -578,8 +578,8 @@ ABSTRACT(SSA_phi) = ABSTRACT_FN
         for(unsigned j = 0; j < argn; ++j)
         {
             passert(cv[j].vec.size(), result.vec.size());
-            assert(cv[j].vec.size() >= result.vec.size());
-            result[i] = union_(result[i], cv[j][i]);
+            if(i < cv[j].vec.size())
+                result[i] = union_(result[i], cv[j][i]);
         }
     }
 };

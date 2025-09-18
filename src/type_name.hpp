@@ -171,6 +171,7 @@ constexpr bool has_tail(type_name_t name)
     return (has_type_tail(name) 
             || has_group_tail(name)
             || is_thunk(name)
+            || is_index(name)
             || name == TYPE_STRUCT
             || name == TYPE_FN_PTR); 
 }

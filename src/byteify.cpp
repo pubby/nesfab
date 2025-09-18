@@ -1256,10 +1256,23 @@ void byteify(ir_t& ir, fn_t const& fn)
 // Removes type tags:
 void remove_type_tags(ir_t& ir)
 {
-    for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
-    for(ssa_ht ssa_it = cfg_it->ssa_begin(); ssa_it; ++ssa_it)
+    for(cfg_node_t const& cfg_node : ir)
+    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it;)
+    {
         if(ssa_it->op() == SSA_type_tag)
-            ssa_it->unsafe_set_op(SSA_cast);
+        {
+            ssa_it->replace_with(ssa_it->input(0));
+            ssa_it = ssa_it->prune();
+        }
+        else
+            ++ssa_it;
+    }
+
+#ifndef NDEBUG
+    for(cfg_node_t const& cfg_node : ir)
+    for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
+        assert(ssa_it->op() != SSA_type_tag);
+#endif
 }
 
 // Converts signed multiplies to unsigned,

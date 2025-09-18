@@ -18,6 +18,8 @@ std::string to_string(type_name_t type_name)
     case TYPE_VOID:  return "Void"s;  
     case TYPE_CHARMAP:  return "charmap"s;  
     case TYPE_BOOL:  return "Bool"s;  
+    case TYPE_I: return "I"s;
+    case TYPE_II: return "II"s;
     case TYPE_INT:   return "Int"s;  
     case TYPE_REAL:  return "Real"s;  
     case TYPE_F1:    return "F"s;  

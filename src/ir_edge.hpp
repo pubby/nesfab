@@ -134,6 +134,13 @@ public:
         value |= (uint_t)index << 32ull;
     }
 
+    constexpr void set_num_type_name(type_name_t type_name) 
+    { 
+        value &= (0xFFull << 56) & ~const_flag;
+        value |= type_name;
+        assert(num_type_name() == type_name);
+    }
+
     void set_handle(ssa_ht ht) 
     { 
         assert(is_handle());

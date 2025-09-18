@@ -210,7 +210,7 @@ fn ppu_upload_oam(U oam_offset)
 // 'index' must be a multiple of 4, otherwise the behavior is undefined.
 
 // Hides every sprite, starting from 'index':
-fn hide_oam(U index)
+fn hide_oam(I.oam index)
 : +inline
     do for ; index; index += 4
     : -unroll
@@ -219,30 +219,30 @@ fn hide_oam(U index)
 // The 'set_oam' functions use the '{}' operator for array indexing 
 // instead of '[]', as it's more efficient in this case.
 
-fn set_oam_x(U index, U x)
+fn set_oam_x(I.oam index, U x)
 : +inline
     oam{OAM_X + UU(index)} = x
 
-fn set_oam_y(U index, U y)
+fn set_oam_y(I.oam index, U y)
 : +inline
     oam{OAM_Y + UU(index)} = y
 
-fn set_oam_p(U index, U p)
+fn set_oam_p(I.oam index, U p)
 : +inline
     oam{OAM_P + UU(index)} = p
 
-fn set_oam_a(U index, U a)
+fn set_oam_a(I.oam index, U a)
 : +inline
     oam{OAM_A + UU(index)} = a
 
-fn set_oam(U index, U x, U y, U p, U a)
+fn set_oam(I.oam index, U x, U y, U p, U a)
 : +inline
     oam{OAM_Y + UU(index)} = y
     oam{OAM_P + UU(index)} = p
     oam{OAM_A + UU(index)} = a
     oam{OAM_X + UU(index)} = x
     
-fn push_oam(U index, U x, U y, U p, U a) U
+fn push_oam(I.oam index, U x, U y, U p, U a) U
 : +inline
     set_oam(index, x, y, p, a)
     return index + 4

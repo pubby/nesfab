@@ -91,36 +91,13 @@ struct ssa_ai_d
     // If any of the value's inputs were modified by the jump threading pass.
     bool touched = false;
 
-    constraints_def_t& constraints() { return constraints_array[executable_index]; } 
+    constraints_def_t& constraints() { assert(executable_index < NUM_EXECUTABLE_INDEXES); return constraints_array[executable_index]; } 
 };
 
 cfg_ai_d& ai_data(cfg_ht h) { return h.data<cfg_ai_d>(); }
 ssa_ai_d& ai_data(ssa_ht h) { return h.data<ssa_ai_d>(); }
 
 static void init_constraint(ssa_ht ssa);
-
-void new_cfg(cfg_ht cfg)
-{
-    cfg_data_pool::resize<cfg_ai_d>(cfg_pool::array_size());
-    ai_data(cfg) = {};
-}
-
-template<bool InitConstraint>
-void new_ssa(ssa_ht ssa)
-{
-    ssa_data_pool::resize<ssa_ai_d>(ssa_pool::array_size());
-    resize_ai_prep();
-    ai_data(ssa) = {};
-    ai_prep(ssa) = {};
-    if(InitConstraint)
-        init_constraint(ssa);
-}
-
-
-} // End anonymous namespace
-
-namespace // Anonymous namespace
-{
 
 std::size_t constraints_size(ssa_node_t const& node)
 {
@@ -157,6 +134,23 @@ std::size_t constraints_size(ssa_node_t const& node)
     default:
         return type_size(node.type().name());
     }
+}
+
+void new_cfg(cfg_ht cfg)
+{
+    cfg_data_pool::resize<cfg_ai_d>(cfg_pool::array_size());
+    ai_data(cfg) = {};
+}
+
+template<bool InitConstraint>
+void new_ssa(ssa_ht ssa)
+{
+    ssa_data_pool::resize<ssa_ai_d>(ssa_pool::array_size());
+    resize_ai_prep();
+    ai_data(ssa) = {};
+    ai_prep(ssa) = {};
+    if(InitConstraint)
+        init_constraint(ssa);
 }
 
 bool has_constraints(ssa_ht node)
@@ -752,6 +746,7 @@ void ai_t::compute_trace_constraints(executable_index_t exec_i, ssa_ht trace)
 
     // Our results will be stored here.
     constraints_vec_t narrowed = get_constraints(trace->input(0)).vec;
+    passert(narrowed.size() == constraints_size(*trace), narrowed.size(), constraints_size(*trace), trace->input(0)->op());
 
     for(unsigned i = 1; i < input_size; i += 2)
     {
@@ -883,6 +878,10 @@ void ai_t::compute_constraints(executable_index_t exec_i, ssa_ht ssa_node)
             if(c.vec.size())
                 dprint(log, "--I", c.vec[0]);
 #endif
+        if(ssa_node->op() != SSA_trace)
+            for(auto& constraints : ai_data(ssa_node).constraints_array)
+                passert(constraints.vec.size() == constraints_size(*ssa_node), constraints.vec.size(), constraints_size(*ssa_node), ssa_node);
+        assert(d.constraints().vec.size() == constraints_size(*ssa_node));
         abstract_fn(ssa_node->op())(c.data(), input_size, d.constraints());
     }
 }
@@ -956,6 +955,9 @@ void ai_t::visit(ssa_ht ssa_node)
     old_constraints = d.constraints();
     assert(all_normalized(old_constraints));
 
+    passert(old_constraints.vec.size() == d.constraints().vec.size(), 
+            ssa_node->op(), old_constraints.vec.size(), d.constraints().vec.size());
+
     if(d.visited_count >= WIDEN_OP)
     {
         dprint(log, "--WIDEN", ssa_node);
@@ -967,7 +969,8 @@ void ai_t::visit(ssa_ht ssa_node)
     {
         compute_constraints(EXEC_PROPAGATE, ssa_node);
 
-        passert(old_constraints.vec.size() == d.constraints().vec.size(), ssa_node->op());
+        passert(old_constraints.vec.size() == d.constraints().vec.size(), 
+                ssa_node->op(), old_constraints.vec.size(), d.constraints().vec.size(), constraints_size(*ssa_node));
 
         if(d.visited_count > WIDEN_OP_BOUNDS)
             for(constraints_t& c : d.constraints().vec)
@@ -2248,11 +2251,10 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
             // Split the edges, creating new CFG nodes.
             cfg_ht const new_header_cfg = ir.split_edge(header_cfg->output_edge(!exit_output));
             cfg_ht const new_exit_cfg   = ir.split_edge(header_cfg->output_edge(exit_output));
-
-            dprint(log, "---REWRITE_LOOPS_BECOME_IF", header_cfg, c, " --- ", new_header_cfg, new_exit_cfg);
-
             new_cfg(new_header_cfg);
             new_cfg(new_exit_cfg);
+
+            dprint(log, "---REWRITE_LOOPS_BECOME_IF", header_cfg, c, " --- ", new_header_cfg, new_exit_cfg);
 
             fc::small_map<ssa_ht, ssa_ht, 16> header_to_new_header;
             fc::small_map<ssa_ht, ssa_ht, 16> header_to_new_exit;
@@ -2261,12 +2263,12 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
             {
                 ssa_ht const new_header_phi = new_header_cfg->emplace_ssa(SSA_phi, phi->type(), phi);
                 ssa_ht const new_exit_phi = new_exit_cfg->emplace_ssa(SSA_phi, phi->type(), phi);
+                new_ssa<true>(new_header_phi);
+                new_ssa<true>(new_exit_phi);
                 header_to_new_header.emplace(phi, new_header_phi);
                 header_to_new_exit.emplace(phi, new_exit_phi);
                 new_exit_to_new_header.emplace(new_exit_phi, new_header_phi);
 
-                new_ssa<true>(new_header_phi);
-                new_ssa<true>(new_exit_phi);
             }
 
             // Connect the back-edge inputs to the new header.
@@ -2293,6 +2295,7 @@ cfg_ht ai_t::try_rewrite_loop(cfg_ht header_cfg, std::uint64_t back_edge_inputs,
                 new_condition->build_set_input(i, condition->input(i));
 
             ssa_ht const new_branch = new_header_cfg->emplace_ssa(SSA_if, TYPE_VOID, new_condition);
+            new_ssa<true>(new_branch);
             new_branch->append_daisy();
 
             // Make 'new_header_cfg' a branch:

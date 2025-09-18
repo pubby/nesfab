@@ -228,6 +228,12 @@ void global_t::for_each_chrrom(std::function<void(global_t*)> const& fn)
         fn(ptr);
 }
 
+void global_t::track_index_type(global_t const& global, pstring_t at)
+{
+    std::lock_guard lock(index_type_map_mutex);
+    index_type_map.insert({ &global, at });
+}
+
 void global_t::init()
 {
     assert(compiler_phase() == PHASE_INIT);
@@ -267,6 +273,29 @@ void global_t::parse_cleanup()
             else
                 throw compiler_error_t(fmt("Name not in scope: %", global.name));
         }
+    }
+
+    // Verify index types are only to arrays:
+    for(auto const& pair : index_type_map)
+    {
+        assert(pair.first);
+        if(pair.first->gclass() == GLOBAL_VAR)
+        {
+            if(!is_array(pair.first->impl<gvar_t>().type().name()))
+                goto error;
+        }
+        else if(pair.first->gclass() == GLOBAL_CONST)
+        {
+            if(!is_array(pair.first->impl<const_t>().type().name()))
+            {
+            error:
+                throw compiler_error_t(
+                    fmt_error(pair.second, fmt("Invalid index type. % is not an array.", pair.first->name))
+                    + fmt_note(pair.first->pstring(), "Declared here."));
+            }
+        }
+        else
+            compiler_error(pair.second, fmt("Invalid index type. % is not a variable or constant.", pair.first->name));
     }
 
     // Handle charmaps
@@ -1435,8 +1464,11 @@ void fn_t::compile()
     save_graph(ir, "1_initial");
     ir.assert_valid();
 
+    o_remove_index_types(log, ir);
+    save_graph(ir, "2_types");
+
     optimize_suite(false);
-    save_graph(ir, "2_o1");
+    save_graph(ir, "3_o1");
 
     // Set the global's 'read' and 'write' bitsets:
     calc_ir_bitsets(&ir);
@@ -1452,18 +1484,18 @@ void fn_t::compile()
     // NOTE: Do NOT use operator || here.
     if(o_shl_tables(log, ir) | switch_partial_to_full(ir))
         optimize_suite(false);
-    save_graph(ir, "3_transform");
+    save_graph(ir, "4_transform");
 
     byteify(ir, *this);
     o_optimize_locators(log, ir);
-    save_graph(ir, "4_byteify");
+    save_graph(ir, "5_byteify");
     ir.assert_valid();
 
     optimize_suite(true);
-    save_graph(ir, "5_o2");
+    save_graph(ir, "6_o2");
 
     std::size_t const proc_size = code_gen(log, ir, *this);
-    save_graph(ir, "6_cg");
+    save_graph(ir, "7_cg");
 
     // Calculate inline-ability
     assert(m_always_inline == false);

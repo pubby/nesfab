@@ -285,7 +285,8 @@ bool locator_t::known_variable(bool allow_none) const
     if(lclass() == LOC_ADDR)
     {
         std::uint16_t const addr = data() + offset();
-        return addr < 0x800 || (addr >= sram_addr && addr < 0x8000);
+        // NOTE: treat addr 0 as non-variable.
+        return (addr < 0x800 || (addr >= sram_addr && addr < 0x8000)) && addr;
     }
     return false;
 }

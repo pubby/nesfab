@@ -16,6 +16,9 @@ syn keyword nesfabKeyword if else for while do break continue return fn
 
 syntax match nesfabId "_\{0,1}\l\k*"
 syntax match nesfabType "_\{0,1}\u\k*"
+syntax match nesfabTypeFn "Fn\._\{0,1}\l\k*"
+syntax match nesfabTypeI   "I\._\{0,1}\l\k*"
+syntax match nesfabTypeII "II\._\{0,1}\l\k*"
 
 syntax match nesfabGroup "/\k\+"
 
@@ -44,3 +47,6 @@ hi def link nesfabStringC    String
 hi def link nesfabKeyword    Statement
 hi def link nesfabGroup      Identifier
 hi def link nesfabType       Type
+hi def link nesfabTypeFn     Type
+hi def link nesfabTypeI      Type
+hi def link nesfabTypeII     Type

@@ -1370,9 +1370,12 @@ src_type_t parser_t<P>::parse_type(bool allow_void, bool allow_blank_size, group
     case TOK_II:
         {
             bool const i16 = token.type == TOK_II;
+            pstring_t at = token.pstring;
             parse_token();
             parse_token(TOK_period);
+            at = fast_concat(at, token.pstring);
             global_t const& global = policy().lookup_global(parse_ident_l());
+            global_t::track_index_type(global, at);
             result.type = type_t::index(global, i16);
         }
         break;

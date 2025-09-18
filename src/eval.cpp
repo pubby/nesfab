@@ -4010,6 +4010,7 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             bool const is8 = ast.token.type == TOK_index8;
 
+            type_t indexer_type = TYPE_VOID;
             expr_value_t array_val = do_expr<D>(ast.children[0]);
             expr_value_t array_index = to_rval<D>(do_expr<D>(ast.children[1]));
 
@@ -4029,6 +4030,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             if(::is_index(array_val.type.name()))
             {
+                indexer_type = array_val.type;
+
                 array_index = do_add<plus_p>(array_index, throwing_cast<D>(std::move(array_val), array_index.type, false), ast.token);
                 if(array_val.type.global().gclass() == GLOBAL_VAR || array_val.type.global().gclass() == GLOBAL_CONST)
                     array_val = global_ident<D>(array_val.type.global(), ast.token.pstring);
@@ -4057,8 +4060,10 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             if(!is_tea && !is_vec && !is_ptr)
             {
                 std::string note;
+                if(indexer_type != TYPE_VOID)
+                    note += fmt_note(fmt("Indexed using %.", to_string(indexer_type)));
                 if(is_paa(array_val.type.name()))
-                    note = fmt_note("Did you forget to use operator '@'?");
+                    note += fmt_note("Did you forget to use operator '@'?");
                 throw compiler_error_t(
                     fmt_error(array_val.pstring, fmt(
                         "Expecting array or pointer type to '%'. Got %.", 
@@ -6372,14 +6377,20 @@ expr_value_t eval_t::do_arith(expr_value_t lhs, expr_value_t rhs, token_t const&
 
     expr_value_t result = { .pstring = concat(lhs.pstring, rhs.pstring) };
 
+    bool const lindex = is_index(lhs.type.name());
+    bool const rindex = is_index(rhs.type.name());
+
+    if(lindex && rindex)
+        goto invalid_input;
+
     if(lhs.type != rhs.type)
     {
-        if(is_ct(lhs.type) && can_cast(lhs.type, rhs.type, true))
+        if((is_ct(lhs.type) || rindex) && can_cast(lhs.type, rhs.type, true))
         {
             result.type = rhs.type;
             lhs = throwing_cast<Policy::D>(std::move(lhs), result.type, true);
         }
-        else if(is_ct(rhs.type) && can_cast(rhs.type, lhs.type, true))
+        else if((is_ct(rhs.type) || lindex) && can_cast(rhs.type, lhs.type, true))
         {
             result.type = lhs.type;
             rhs = throwing_cast<Policy::D>(std::move(rhs), result.type, true);
@@ -6454,66 +6465,105 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
 
     expr_value_t result = { .pstring = concat(lhs.pstring, rhs.pstring) };
 
+    bool const lindex = is_index(lhs.type.name());
+    bool const rindex = is_index(rhs.type.name());
+
+    if(lindex)
+    {
+        if(rindex)
+        {
+            if(op != SSA_sub || lhs.type != rhs.type)
+                goto invalid_input;
+
+            result.type = to_u(lhs.type.name());
+
+        index_arith:
+            return do_arith<Policy>(
+                throwing_cast<Policy::D>(std::move(lhs), result.type, false),
+                throwing_cast<Policy::D>(std::move(rhs), result.type, false),
+                token);
+        }
+        else
+        {
+            result.type = to_u(lhs.type.name());
+
+            if(result.type != rhs.type)
+                goto invalid_input;
+
+            goto index_arith;
+        }
+    }
+    else if(rindex)
+    {
+        if(op != SSA_add)
+            goto invalid_input;
+
+        result.type = to_u(rhs.type.name());
+
+        if(result.type != lhs.type)
+            goto invalid_input;
+
+        goto index_arith;
+    }
+    
     bool const lptr = is_ptr(lhs.type.name());
     bool const rptr = is_ptr(rhs.type.name());
-    
+
     if(lptr)
     {
         if(rptr)
         {
-            if(op == SSA_sub)
+            if(op != SSA_sub)
+                goto invalid_input;
+
+            result.type = TYPE_U20;
+
+            if(!is_check(Policy::D))
             {
-                result.type = TYPE_U20;
-
-                if(!is_check(Policy::D))
+                if(lhs.is_ct() && rhs.is_ct())
                 {
-                    if(lhs.is_ct() && rhs.is_ct())
-                    {
-                    interpret:
-                        auto const l = lhs.ssa(0).signed_fixed();
-                        auto const r = rhs.ssa(0).signed_fixed();
+                interpret:
+                    auto const l = lhs.ssa(0).signed_fixed();
+                    auto const r = rhs.ssa(0).signed_fixed();
 
-                        fixed_t f = { Policy::interpret(l, r, result.pstring) };
-                        f.value &= numeric_bitmask(TYPE_U20);
-                        result.val = rval_t{ ssa_value_t(f, result.type.name()) };
+                    fixed_t f = { Policy::interpret(l, r, result.pstring) };
+                    f.value &= numeric_bitmask(TYPE_U20);
+                    result.val = rval_t{ ssa_value_t(f, result.type.name()) };
+                }
+                else if(is_link(Policy::D))
+                    compiler_error(result.pstring, "Unable to link.");
+                else
+                {
+                    // If both are locators with the same handle,
+                    // we can calculate this at CT
+                    locator_t const l = _loc_ptr(lhs.rval());
+                    locator_t const r = _loc_ptr(rhs.rval());
+
+                    if(l && r && l.with_offset(0) == r.with_offset(0))
+                    {
+                        std::uint16_t const diff = l.offset() - r.offset();
+                        result.val = rval_t{ ssa_value_t(diff, TYPE_U20) };
                     }
-                    else if(is_link(Policy::D))
-                        compiler_error(result.pstring, "Unable to link.");
                     else
                     {
-                        // If both are locators with the same handle,
-                        // we can calculate this at CT
-                        locator_t const l = _loc_ptr(lhs.rval());
-                        locator_t const r = _loc_ptr(rhs.rval());
-
-                        if(l && r && l.with_offset(0) == r.with_offset(0))
+                        if(is_interpret(Policy::D) || (is_compile(Policy::D) && !lhs.is_rt() && !rhs.is_rt()))
                         {
-                            std::uint16_t const diff = l.offset() - r.offset();
-                            result.val = rval_t{ ssa_value_t(diff, TYPE_U20) };
+                            // Create a link-time expression.
+                            locator_t const lt = eval_t::make_lt(
+                                TYPE_U20, token_t{ .type = Policy::lt(), .pstring = result.pstring }, lhs, rhs);
+                            result.val = _lt_rval(TYPE_U20, lt);
+                            result.time = LT;
                         }
-                        else
+                        else if(is_compile(Policy::D))
                         {
-                            if(is_interpret(Policy::D) || (is_compile(Policy::D) && !lhs.is_rt() && !rhs.is_rt()))
-                            {
-                                // Create a link-time expression.
-                                locator_t const lt = eval_t::make_lt(
-                                    TYPE_U20, token_t{ .type = Policy::lt(), .pstring = result.pstring }, lhs, rhs);
-                                result.val = _lt_rval(TYPE_U20, lt);
-                                result.time = LT;
-                            }
-                            else if(is_compile(Policy::D))
-                            {
-                                return compile_binary_operator(
-                                    throwing_cast<Policy::D>(std::move(lhs), result.type, false),
-                                    throwing_cast<Policy::D>(std::move(rhs), result.type, false),
-                                    Policy::op(), result.type, ssa_argn(Policy::op()) > 2);
-                            }
+                            return compile_binary_operator(
+                                throwing_cast<Policy::D>(std::move(lhs), result.type, false),
+                                throwing_cast<Policy::D>(std::move(rhs), result.type, false),
+                                Policy::op(), result.type, ssa_argn(Policy::op()) > 2);
                         }
                     }
                 }
             }
-            else
-                goto invalid_input;
         }
         else
         {
@@ -6615,6 +6665,8 @@ expr_value_t eval_t::do_assign_add(expr_value_t lhs, expr_value_t rhs, token_t c
 
     if(is_ptr(lhs.type.name()))
         rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
+    else if(is_index(lhs.type.name()) && is_scalar(rhs.type.name()))
+        rhs = throwing_cast<Policy::D>(std::move(rhs), to_u(rhs.type.name()), false);
     else
         rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, false);
     

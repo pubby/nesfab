@@ -375,7 +375,7 @@ std::string to_string(type_t type)
         str += type.global().name;
         break;
     case TYPE_II:
-        str = "I."sv;
+        str = "II."sv;
         str += type.global().name;
         break;
     }
@@ -430,7 +430,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
         return CAST_NOP;
 
     // Can't implicitly cast away indexes.
-    if(is_index(from.name()) && !is_index(to.name()) && implicit)
+    if(implicit && is_index(from.name()) && (!is_index(to.name()) || &from.global() != &to.global()))
         return CAST_FAIL;
 
     // PAAs should be converted to ptrs, prior.

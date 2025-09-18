@@ -1,0 +1,92 @@
+/*
+ * Copyright (c) 2025, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This macro implements a key-value pool represented as an array with no gaps 
+// between live objects. Because objects are moved around to fill gaps, 
+// numeric indexes to objects in this pool are not stable and will get invalidated
+// when deleting other objects. Key based indexes are fine.
+
+// Macro parameters:
+#:key_type:#    // The key type of each object (probably some kind of number).
+#:value_type:#  // The value type of each object (probably a struct type).
+#:max_objects:# // The maximum number of objects that can exist at once (but not more than 254)
+#:name:#        // The name of the objects (e.g. "enemies")
+#:struct_name:# // The name of the KeyValuePair (e.g. "EnemiesKeyValuePair")
+#:group:#       // The optional vars group to insert variables in.
+
+ct U #name#_max = #max_objects#
+
+struct #struct_name#
+    #key_type# key
+    #value_type# value
+
+vars #group#
+    U #name#_num = 0
+    #struct_name#[#max_objects#] #name#
+
+// Removes all objects:
+fn #name#_clear()
+: +inline
+    #name#_num = 0
+
+// Removes all objects with the given key.
+// Invalidates the last object's index (if deleted).
+fn #name#_delete(#key_type# key)
+: -inline
+    for U i = 0; i < #name#_num; i+=1
+        if #name#[i].key == key
+            i-=1
+            #name#_num -= 1
+            #name#[i] = #name#[#name#_num]
+
+// Removes the key-value-pair at position 'index'.
+// Invalidates the last key-value-pair's index.
+// When calling this while iterating, 'index' should not be incremented.
+fn #name#_delete_index(U index)
+: -inline
+    #name#_num -= 1
+    #name#[index] = #name#[#name#_num]
+
+// Creates a key-value-pair, returning its index but not assigning to it.
+// If no more key-value-pairs can be created, returns BAD_OBJECT.
+fn #name#_alloc() U
+: -inline
+    if #name#_num == #name#_max
+        return $FF
+    U index = #name#_num
+    #name#_num += 1
+    return index
+
+// Creates and assigns a key-value-pair, returning its index.
+// If no more key-value-pairs can be created, returns BAD_OBJECT.
+fn #name#_new(#key_type# key, #value_type# value) U
+: -inline
+    if #name#_num == #name#_max
+        return $FF
+    
+    U index = #name#_num
+    #name#[index].key = key
+    #name#[index].value = value
+    #name#_num += 1
+    return index
+
+// Returns true if a pair with given key is allocated:
+fn #name#_exists(#key_type# key) Bool
+: -inline
+    for U i = 0; i < #name#_num; i+=1
+        if #name#[i].key == key
+            return true
+
+    return false
+
+// Returns the array index of a given key or BAD_OBJECT if not found:
+fn #name#_get_index(#key_type# key) U
+: -inline
+    for U i = 0; i < #name#_num; i+=1
+        if #name#[i].key == key
+            return i
+
+    return $FF

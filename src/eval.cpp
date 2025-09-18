@@ -3609,10 +3609,23 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             ssa_ht h;
 
+            auto const cast = [&](expr_value_t value)
+            {
+                if((!is_scalar(value.type.name()) 
+                    || whole_bytes(value.type.name()) != 1 
+                    || frac_bytes(value.type.name()) != 0)
+                   && !can_cast(value.type, TYPE_U, true))
+                {
+                    compiler_error(ast.token.pstring, fmt("Unable to write values of type %.", value.type));
+                }
+
+                return throwing_cast<D>(value, TYPE_U, false);
+            };
+
             if(ast.num_children() == 2)
             {
                 expr_value_t addr = throwing_cast<D>(do_expr<D>(ast.children[0]), TYPE_APTR, true);
-                expr_value_t arg  = throwing_cast<D>(do_expr<D>(ast.children[1]), TYPE_U, true);
+                expr_value_t arg  = cast(do_expr<D>(ast.children[1]));
 
                 assert(addr.is_rval());
                 assert(arg.is_rval());
@@ -3630,8 +3643,8 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 expr_value_t addr0 = throwing_cast<INTERPRET_CE>(do_expr<INTERPRET_CE>(ast.children[0]), TYPE_APTR, true);
                 expr_value_t addr1 = throwing_cast<INTERPRET_CE>(do_expr<INTERPRET_CE>(ast.children[1]), TYPE_APTR, true);
 
-                expr_value_t arg0 = throwing_cast<D>(do_expr<D>(ast.children[2]), TYPE_U, true);
-                expr_value_t arg1 = throwing_cast<D>(do_expr<D>(ast.children[3]), TYPE_U, true);
+                expr_value_t arg0 = cast(do_expr<D>(ast.children[2]));
+                expr_value_t arg1 = cast(do_expr<D>(ast.children[3]));
 
                 assert(addr0.is_rval());
                 assert(arg0.is_rval());
@@ -6465,45 +6478,49 @@ expr_value_t eval_t::do_add(expr_value_t lhs, expr_value_t rhs, token_t const& t
 
     expr_value_t result = { .pstring = concat(lhs.pstring, rhs.pstring) };
 
-    bool const lindex = is_index(lhs.type.name());
-    bool const rindex = is_index(rhs.type.name());
 
-    if(lindex)
+    if(!is_ct(lhs.type.name()) && !is_ct(rhs.type.name()))
     {
-        if(rindex)
+        bool const lindex = is_index(lhs.type.name());
+        bool const rindex = is_index(rhs.type.name());
+
+        if(lindex)
         {
-            if(op != SSA_sub || lhs.type != rhs.type)
+            if(rindex)
+            {
+                if(op != SSA_sub || lhs.type != rhs.type)
+                    goto invalid_input;
+
+                result.type = to_u(lhs.type.name());
+
+            index_arith:
+                return do_arith<Policy>(
+                    throwing_cast<Policy::D>(std::move(lhs), result.type, false),
+                    throwing_cast<Policy::D>(std::move(rhs), result.type, false),
+                    token);
+            }
+            else
+            {
+                result.type = to_u(lhs.type.name());
+
+                if(result.type != rhs.type)
+                    goto invalid_input;
+
+                goto index_arith;
+            }
+        }
+        else if(rindex)
+        {
+            if(op != SSA_add)
                 goto invalid_input;
 
-            result.type = to_u(lhs.type.name());
+            result.type = to_u(rhs.type.name());
 
-        index_arith:
-            return do_arith<Policy>(
-                throwing_cast<Policy::D>(std::move(lhs), result.type, false),
-                throwing_cast<Policy::D>(std::move(rhs), result.type, false),
-                token);
-        }
-        else
-        {
-            result.type = to_u(lhs.type.name());
-
-            if(result.type != rhs.type)
+            if(result.type != lhs.type)
                 goto invalid_input;
 
             goto index_arith;
         }
-    }
-    else if(rindex)
-    {
-        if(op != SSA_add)
-            goto invalid_input;
-
-        result.type = to_u(rhs.type.name());
-
-        if(result.type != lhs.type)
-            goto invalid_input;
-
-        goto index_arith;
     }
     
     bool const lptr = is_ptr(lhs.type.name());
@@ -6666,7 +6683,7 @@ expr_value_t eval_t::do_assign_add(expr_value_t lhs, expr_value_t rhs, token_t c
     if(is_ptr(lhs.type.name()))
         rhs = throwing_cast<Policy::D>(std::move(rhs), TYPE_U20, false);
     else if(is_index(lhs.type.name()) && is_scalar(rhs.type.name()))
-        rhs = throwing_cast<Policy::D>(std::move(rhs), to_u(rhs.type.name()), false);
+        rhs = throwing_cast<Policy::D>(std::move(rhs), to_u(lhs.type.name()), false);
     else
         rhs = throwing_cast<Policy::D>(std::move(rhs), lhs.type, false);
     

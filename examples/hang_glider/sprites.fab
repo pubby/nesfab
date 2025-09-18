@@ -7,21 +7,21 @@
 fn prepare_sprites()
     ct U[9] plane_patterns = U[]($40, $44, $48, $4C, $1C, $7C, $78, $74, $70)
 
-    oam = U[256]($FF)
-
     U i = 0
     do for U x = 0; x != 4; x += 1
         do for U y = 0; y != 3; y += 1
-            oam{OAM_X + i} = px.a - 16 + (x << 3)
-            oam{OAM_Y + i} = PLAYER_Y - 23 + (y << 3)
-            oam{OAM_P + i} = plane_patterns[pdir] + x + (y << 4)
-            oam{OAM_A + i} = 0
-            i += 4
+            i = push_oam(i, 
+                         px.a - 16 + (x << 3), 
+                         PLAYER_Y - 23 + (y << 3), 
+                         plane_patterns[pdir] + x + (y << 4),
+                         0)
 
     do for U j = 0; j != len(score); j += 1
-        U o = i + (j << 2)
-        oam{OAM_X + o} = 152 - (j << 3)
-        oam{OAM_Y + o} = 16
-        oam{OAM_P + o} = score[j] | $10
-        oam{OAM_A + o} = 1
+        i = push_oam(i, 
+                     152 - (j << 3),
+                     16,
+                     score[j] | $10,
+                     1)
+
+    hide_oam(i)
 

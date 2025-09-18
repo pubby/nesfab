@@ -6,7 +6,7 @@
 
 // This example plays a song, using the left and right buttons to change its speed.
 
-audio(puf1_music, "test.txt")
+audio(puf1_music, "danger_streets.txt")
 audio(puf1_sfx)
 
 nmi main_nmi()

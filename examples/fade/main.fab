@@ -41,9 +41,9 @@ mode main()
         wait(delay)
         fade_in_white(period, @my_palette)
         wait(delay)
-        fade_out(period, -1, 0)
+        fade_out_custom(period, -1, 0)
         wait(delay)
-        fade_in(period, -1, 0, @my_palette)
+        fade_in_custom(period, -1, 0, @my_palette)
 
 chrrom
     file(fmt, "bg.png")

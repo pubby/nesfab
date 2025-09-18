@@ -430,7 +430,7 @@ cast_result_t can_cast(type_t const& from, type_t const& to, bool implicit)
         return CAST_NOP;
 
     // Can't implicitly cast away indexes.
-    if(implicit && is_index(from.name()) && (!is_index(to.name()) || &from.global() != &to.global()))
+    if(implicit && is_index(from.name()) && (!is_index(to.name()) || &from.global() != &to.global()) && to != TYPE_BOOL)
         return CAST_FAIL;
 
     // PAAs should be converted to ptrs, prior.

@@ -19,7 +19,7 @@ macro("pool_contiguous", "Enemy", "16", "enemies", "/game")
 // Used in level.macrofab to format the enemies:
 ct fn enemies_vec(Int{} x, Int{} y) Enemy{}
     Enemy{} out = Enemy{}()
-    for U i = 0; i < len(x); i += 1
+    for Int i = 0; i < len(x); i += 1
         push(out, Enemy(U(x{i}), U(y{i})))
     return out
 

@@ -9,16 +9,11 @@
 data /sprites
     // Here's where we define our metasprite, comprised of four 8x8 tiles:
     [] my_metasprite
-        (make_ms(0, Ms{}(
+        (make_metasprite(0, Ms{}(
             Ms(-8, -8, $00, $00),
             Ms( 0, -8, $01, $00),
             Ms(-8,  0, $02, $00),
-            Ms( 0,  0, $03, $00),
-            Ms(-8, -8, $00, $00),
-            Ms( 0, -8, $01, $00),
-            Ms(-8,  0, $02, $00),
-            Ms( 0,  0, $03, $00),
-            )))
+            Ms( 0,  0, $03, $00))))
 
 vars
     // Player variables:
@@ -46,13 +41,7 @@ mode main()
         nmi
         update_pads()
         move_player()
-        fence
-        {0}(0)
-        fence
         update_sprites()
-        fence
-        {0}(0)
-        fence
 
 fn move_player()
     ct Int SPEED = 2
@@ -75,10 +64,10 @@ fn update_sprites()
     // Our stack index into OAM:
     U o = 0
 
-    o = push_oam_metasprite_u(o, px.a, py.a, @my_metasprite)
+    o = push_oam_metasprite_a(o, px, py, @my_metasprite, pflip)
 
     // Clear the remainder of OAM
-    //hide_oam(o)
+    hide_oam(o)
 
 chrrom
     file(fmt, "sprite.png")

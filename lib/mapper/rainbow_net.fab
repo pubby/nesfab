@@ -344,7 +344,7 @@ fn net_transmit_uu_string(U command, UU uu, CCC/ascii string)
     net_out[3] = uu.a
     net_out[4] = strlen
     for U i = 0; i < strlen; i += 1
-        net_out{5 + i} = string[i]
+        net_out[5 + i] = string[i]
     net_transmit()
 
 ///////////////////////////////////////////////////////////////////////////////

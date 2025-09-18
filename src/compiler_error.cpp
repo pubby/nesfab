@@ -58,7 +58,7 @@ namespace
     {
         auto const is_nl = [](char c) { return c == '\n' || c == '\r' || c == '\0'; };
 
-        while(pstring.offset && is_nl(src[pstring.offset]))
+        while(pstring.offset && is_nl(src[pstring.offset]) || src[pstring.offset] == ' ')
             --pstring.offset;
 
         for(std::size_t i = pstring.offset + pstring.size;; ++i)

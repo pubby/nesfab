@@ -29,9 +29,9 @@ fn #name#_clear()
     #name#_allocated = U[#name#_bitset_size](0)
 
 // Removes the object at position 'index'.
-fn #name#_delete(U index)
+fn #name#_delete(I.#name# index)
 : +inline
-    #name#_allocated[index >> 3] &= INVERSE_OBJECT_POOL_MASKS[index & %111]
+    #name#_allocated[U(index) >> 3] &= INVERSE_OBJECT_POOL_MASKS[U(index) & %111]
 
 // Creates an object, returning its index but not assigning to it.
 // If no more objects can be created, returns BAD_OBJECT.
@@ -55,6 +55,6 @@ fn #name#_new(#type# value) U
     return BAD_OBJECT
 
 // Returns true if the object at position 'index' is allocated:
-fn #name#_exists(U index) Bool
+fn #name#_exists(I.#name# index) Bool
 : +inline
-    return #name#_allocated[index >> 3] & OBJECT_POOL_MASKS[index & %111]
+    return #name#_allocated[U(index) >> 3] & OBJECT_POOL_MASKS[U(index) & %111]

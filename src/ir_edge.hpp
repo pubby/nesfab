@@ -136,8 +136,9 @@ public:
 
     constexpr void set_num_type_name(type_name_t type_name) 
     { 
-        value &= (0xFFull << 56) & ~const_flag;
-        value |= type_name;
+        value &= ~(0xFFull << 56);
+        value |= (std::uint64_t(type_name) << 56) | const_flag;
+        assert(is_num());
         assert(num_type_name() == type_name);
     }
 

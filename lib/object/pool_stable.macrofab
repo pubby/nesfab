@@ -28,9 +28,9 @@ fn #name#_clear()
     #name#_allocated = Bool[#max_objects#](false)
 
 // Removes the object at position 'index'.
-fn #name#_delete(U index)
+fn #name#_delete(I.#name# index)
 : +inline
-    #name#_allocated[index] = false
+    #name#_allocated[U(index)] = false
 
 // Creates an object, returning its index but not assigning to it.
 // If no more objects can be created, returns BAD_OBJECT.
@@ -54,9 +54,7 @@ fn #name#_new(#type# value) U
     return BAD_OBJECT
 
 // Returns true if the object at position 'index' is allocated:
-fn #name#_exists(U index) Bool
+fn #name#_exists(I.#name# index) Bool
 : +inline
-    return #name#_allocated[index]
-
-
+    return #name#_allocated[U(index)]
 

@@ -153,7 +153,7 @@ struct Ms
 // The 'attribute' value will be XOR'd onto each sprite's OAM attribute,
 // which can be useful for changing the metasprite's color.
 // The high 2-bits of the 'attribute' value will be used to determine metasprite flipping.
-ct fn make_ms(U attribute, Ms{} sprites) U{}
+ct fn make_metasprite(U attribute, Ms{} sprites) U{}
     U{} out = U{}(len(sprites) * 4)
     for Int i = 0; i < len(sprites); i += 1
         S x = S(sprites[i].x)

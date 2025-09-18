@@ -1079,7 +1079,7 @@ retry:
                     compiler_error(pstring, fmt("Expecting % argument% to match the number of addresses.", addrs, addrs > 1 ? "s" : ""));
             }
 
-            ast.token.pstring = fast_concat(pstring, token.pstring);
+            ast.token.pstring = fast_concat(pstring, children.back().token.pstring);
             ast.token.value = children.size();
             ast.children = eternal_new<ast_node_t>(&*children.begin(), &*children.end());
 

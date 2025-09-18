@@ -29,10 +29,10 @@ fn #name#_clear()
 // Removes the object at position 'index'.
 // Invalidates the last object's index.
 // When calling this while iterating, 'index' should not be incremented.
-fn #name#_delete(U index)
+fn #name#_delete(I.#name# index)
 : +inline
     #name#_num -= 1
-    #name#[index] = #name#[#name#_num]
+    index[] = #name#[#name#_num]
 
 // Creates an object, returning its index but not assigning to it.
 // If no more objects can be created, returns BAD_OBJECT.
@@ -56,7 +56,7 @@ fn #name#_new(#type# value) U
     return index
 
 // Returns true if the object at position 'index' is allocated:
-fn #name#_exists(U index) Bool
+fn #name#_exists(I.#name# index) Bool
 : +inline
     return index < #name#_num
 
@@ -67,7 +67,7 @@ fn #name#_find(#type# value) U
             return i
     return BAD_OBJECT
 
-// Replaces all objects equeal to 'from' with 'to':
+// Replaces all objects equal to 'from' with 'to':
 fn #name#_replace_matching(#type# from, #type# to)
     for U i = 0; i < #name#_num; i += 1
         if #name#[i] == from

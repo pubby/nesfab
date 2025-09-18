@@ -13,7 +13,7 @@ Version 1.8
 == About this Document
 
 This documentation is for http://pubby.games/nesfab.html[NESFab].
-It is currently a work in progress, so comments and contributions are welcome.
+It is a work in progress, so comments and contributions are welcome.
 
 - Question can be asked on the https://discord.gg/RUrYmC5ZeE[Discord] or via https://pubby.games/email.png[email].
 - Changes can be submitted it via the https://github.com/pubby/nesfab[Github].
@@ -5532,7 +5532,7 @@ value[offset]
 ----
 
 - `value` is an expression with a <<type_tea, TEA type>>, <<type_vec, VEC type>>, or a pointer to a <<type_paa, PAA type>>.
-- `offset` is an expression of type `U`, used as the offset.
+- `offset` is an optional expression of type `U`, used as the offset. If absent, `0` is used.
 
 Example:
 ----
@@ -5540,17 +5540,20 @@ array[20] = 10    // Set a TEA element
 x = @paa[10]      // Read a PAA element
 ----
 
+[NOTE]
+For <<type_index, index types>>, `value` is added to `offset` to index into the type's array.
+
 ==== `{}` UU-indexed access [[array_access_uu]]
 
 Accesses the element value at an offset of type UU, with 0-based indexing.
 
 Syntax:
 ----
-value[offset]
+value{offset}
 ----
 
 - `value` is an expression with a <<type_tea, TEA type>>, <<type_vec, VEC type>>, or a pointer to a <<type_paa, PAA type>>.
-- `offset` is an expression of type `UU`, used as the offset.
+- `offset` is an expression of type `UU`, used as the offset. If absent, `0` is used.
 
 Example:
 ----
@@ -5560,6 +5563,9 @@ x = @paa{1000}      // Read a PAA element
 
 [NOTE] 
 `{}` often has significantly worse performance than `[]`.
+
+[NOTE]
+For <<type_index, index types>>, `value` is added to `offset` to index into the type's array.
 
 === Hardware operators
 
@@ -6168,15 +6174,60 @@ as leaving the return type off of a function implies `Void`.
 | N/A
 |===
 
+==== Index Types [[type_index]]
+
+Index types are a special variant of unsigned integers. 
+Their values represent indexes into a single global array.
+
+Syntax:
+----
+I.array
+II.array
+----
+- `array` is the name of the global array.
+
+Index types behave similarly to pointers, but their values are indexes, not addresses.
+Like pointers, the <<array_access_u, `[]` operator>> can be used to access the pointed-to value.
+
+Example:
+----
+I.foo my_index = 10 // Create an index into array foo at position 10.
+my_index[0] = 20    // Sets my_index[10+0] to 20.
+my_index += 1       // Increment the index to position 11.
+my_index[0] = 30    // Sets my_index[11+0] to 30.
+my_index[2] = 40    // Sets my_index[11+2] to 40.
+----
+
+Index types are not required to access arrays; `U` and `UU` can be used instead.
+However, index types offer a few advantages:
+
+1. They reduce typing. Instead of typing `foo[x]`, you can type `x[]`.
+2. They better decribe the purpose of variables.
+3. They provide better type safety.
+
+The 2 index types are listed below.
+
+[cols="1,1,1"]
+|===
+|Type |Size (bytes) |Value range
+
+|`I.array`
+|1
+|[0, 255]
+
+|`II.array`
+|2
+|[0, 65535]
+|===
+
 === Arithmetic Types [[type_arithmetic]]
 
-Arithmetic types are defined as all <<type_integer, integer types>>, <<type_fixed, fixed-point types>>, and <<type_bool, `Bool`>>.
+Arithmetic types are defined as all <<type_integer, integer types>>, <<type_fixed, fixed-point types>>, <<type_index, index types>> and <<type_bool, `Bool`>>.
 
 === Quantity Types [[type_quantity]]
 
 Quantity types are types which can represent quantities.
-They are defined as all <<type_integer, integer types>>, <<type_fixed, fixed-point types>>.
-
+They are defined as all <<type_integer, integer types>> and <<type_fixed, fixed-point types>>.
 
 ==== Pointer Types [[type_ptr]]
 

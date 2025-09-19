@@ -798,7 +798,7 @@ NROM is the simplest mapper.
 It is easy to use and offers good performance, but is lacking in features and memory size.
 
 [NOTE]
-16 KiB and 8 KiB variants of NROM are not currently supported.
+8 KiB variants of NROM are not currently supported.
 
 *Memory Sizes:*
 
@@ -806,7 +806,7 @@ It is easy to use and offers good performance, but is lacking in features and me
 |Name |Min |Max |Default
 
 | <<opt_prg, PRG (Code)>>
-| 32 KiB
+| 16 KiB
 | 32 KiB
 | 32 KiB
 

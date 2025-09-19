@@ -3489,6 +3489,10 @@ so long as multi-dimensional arrays are not created.
 
 Like all values in `NESFab`, `struct` types are passed by value.
 
+*Field Modifiers:*
+
+- <<mod_flags_fields, `+inherit`>>
+
 === `vars` [[kw_vars]]
 
 The `vars` keyword declares a block of global variables, and potentially their <<groups, group>>.
@@ -4567,12 +4571,12 @@ fn foo(U x) U
     return x + x
 ----
 
-=== Function Modifier Flags [[mod_flags]]
+=== Modifier Flags [[mod_flags]]
 
 Modifier flags are specified prefixed with a `-` or `pass:c[+]` character.
 `-` is used to disable the modifier, while `pass:c[+]` is used to enable it.
 
-The following flags exist for function definitions:
+The following flags exist for definitions:
 
 - `+inline`, `-inline`: Force / prevent the function from being inlined.
 - `+align`: Aligns the data to fit inside a 256-byte page (or to 256 bytes otherwise).
@@ -4602,6 +4606,15 @@ fn foo(U x) U
 : +graphviz
     return x + x
 ----
+
+=== Field Modifier Flags [[mod_flags_fields]]
+
+Modifier flags are specified prefixed with a `-` or `pass:c[+]` character.
+`-` is used to disable the modifier, while `pass:c[+]` is used to enable it.
+
+The following flags exist for struct fields:
+
+- `+inherit`: The struct will implicitly cast to the field's type. The field of the field can be accessed directly.
 
 === Loop Modifier Flags [[mod_flags_loop]]
 

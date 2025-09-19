@@ -212,7 +212,7 @@ fn ppu_upload_oam(U oam_offset)
 // Hides every sprite, starting from 'index':
 fn hide_oam(I.oam index)
 : +inline
-    do for ; index; index += 4
+    do for ; index != 0; index += 4
     : -unroll
         set_oam_y(index, $FF)
 

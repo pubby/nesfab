@@ -4045,6 +4045,13 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
             {
                 indexer_type = array_val.type;
 
+                if(is8 && indexer_type.name() == TYPE_II)
+                {
+                    throw compiler_error_t(
+                        fmt_error(array_val.pstring, fmt("[] cannot be used on type %.", indexer_type))
+                        + fmt_note("Use {} instead."));
+                }
+
                 array_index = do_add<plus_p>(array_index, throwing_cast<D>(std::move(array_val), array_index.type, false), ast.token);
                 if(array_val.type.global().gclass() == GLOBAL_VAR || array_val.type.global().gclass() == GLOBAL_CONST)
                     array_val = global_ident<D>(array_val.type.global(), ast.token.pstring);
@@ -5721,7 +5728,7 @@ expr_value_t eval_t::do_assign(expr_value_t lhs, expr_value_t rhs, token_t const
                 precheck_tracked->gvars_used.emplace(gvar, lhs.pstring);
         }
         else if(!lhs.is_deref() && !is_check(D))
-            compiler_error(pstring, fmt("Unable to modify %", global.name));
+            compiler_error(pstring, fmt("Unable to modify %.", global.name));
     }
 
     type_t rhs_type = lhs.type;

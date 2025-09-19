@@ -1,0 +1,18 @@
+/*
+ * Copyright (c) 2025, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Implements a simple counter that gets incremented when waiting for 'nmi'.
+// This can be used to count the iterations of your game loop.
+// Unlike 'nmi_counter', it does not get incremented on lag frames.
+
+vars
+    U step_counter = 0
+
+fn nmi_step()
+: -inline
+    fence
+    step_counter += 1
+    nmi

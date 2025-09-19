@@ -1,0 +1,29 @@
+/*
+ * Copyright (c) 2025, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// This file contains functions for manipulating values of type U{}.
+
+// Inserts the size of 'vec' at the beginning of 'vec',
+// represented as a value of type U.
+ct fn uvec_prefix_size(U{} vec) U{}
+    push(vec, len(vec), 0)
+    return vec
+
+// Inserts the size of 'vec' at the beginning of 'vec',
+// represented as a value of type UU.
+ct fn uvec_prefix_size_uu(U{} vec) U{}
+    UU size = UU(len(vec))
+    push(vec, size.a, 0)
+    push(vec, size.b, 1)
+    return vec
+
+// Reverses the contents of 'vec':
+ct fn uvec_reverse(U{} vec)
+    U{} reversed
+    for Int i = 0; i < len(vec); i += 1
+        push(reversed, pop(vec))
+    return reversed
+

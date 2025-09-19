@@ -106,14 +106,15 @@ struct mapper_t
     std::uint16_t num_8k_chr_rom;
     std::uint16_t num_8k_chr_ram;
     bool fixed_16k;
+    bool forced_16k;
     bool bus_conflicts;
     bool sram;
     bool sram_persistent;
     bool force_battery;
     unsigned sector_size = 4096;
 
-    unsigned num_16k_banks() const { return fixed_16k ? num_banks : num_banks * 2; }
-    unsigned bank_size() const { return fixed_16k ? 0x4000 : 0x8000; }
+    unsigned num_16k_banks() const { return fixed_16k || forced_16k ? num_banks : num_banks * 2; }
+    unsigned bank_size() const { return fixed_16k || forced_16k ? 0x4000 : 0x8000; }
     unsigned prg_size() const { return bank_size() * num_banks; }
     unsigned num_switched_prg_banks() const { return fixed_16k ? num_banks - 1 : num_banks; }
 
@@ -133,9 +134,9 @@ struct mapper_t
     static mapper_t rainbow(mapper_params_t const& params);
 
     std::string_view name() const { return mapper_name(type); }
-    span_t rom_span() const { return { 0x8000, 0x8000 }; }
-    span_t fixed_rom_span() const { return fixed_16k ? span_t{ 0xC000, 0x4000 } : span_t{ 0x8000, 0x8000 }; }
-    span_t switched_rom_span() const { return fixed_16k ? span_t{ 0x8000, 0x4000 } : span_t{ 0x8000, 0x8000 }; }
+    span_t rom_span() const { return forced_16k ? span_t{ 0xC000, 0x4000 } : span_t{ 0x8000, 0x8000 }; }
+    span_t fixed_rom_span() const { return fixed_16k ? span_t{ 0xC000, 0x4000 } : rom_span(); }
+    span_t switched_rom_span() const { return fixed_16k ? span_t{ 0x8000, 0x4000 } : rom_span(); }
     std::uint16_t this_bank_addr() const { return fixed_16k ? 0xBFFF : 0; }
     span_t bank_span(unsigned bank) const 
     { 
@@ -173,7 +174,7 @@ constexpr std::uint16_t bankswitch_addr(mapper_type_t mt = mapper().type)
     case MAPPER_RAINBOW:
         return 0x4118;
     default: 
-        return 0x8000;
+        return mapper().rom_span().addr;
     }
 }
 

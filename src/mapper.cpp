@@ -134,12 +134,14 @@ unsigned mapper_params_t::default_sector_size(unsigned default_) const
 mapper_t mapper_t::nrom(mapper_params_t const& params)
 {
     constexpr mapper_type_t mt = MAPPER_NROM;
+    unsigned const b16 = params.num_16k_banks(mt, 16, 32, 2);
     return 
     {
         .type = mt,
         .mirroring = params.mirroring_HV(mt),
-        .num_banks = params.num_32k_banks(mt, 32, 32, 1),
+        .num_banks = 1,
         .num_8k_chr_rom = params.num_8k_chr(mt, 8, 8, 1),
+        .forced_16k = b16 == 1,
         .bus_conflicts = params.no_conflicts(mt),
         .sram = params.has_sram(mt, false),
         .sram_persistent = params.sram_persistent(mt, false),

@@ -635,29 +635,39 @@ namespace isel
         {
         case BEQ:
         case BNE:
-            if(cpu.def_eq(REG_Z, locator_t::const_byte(Op == BEQ)))
+            if(cpu.is_known(REG_Z))
+            {
+                if(!!cpu.known[REG_Z] == (Op == BEQ))
+                    goto jmp;
                 cont->call(cpu, prev);
-            else if(cpu.def_eq(REG_Z, locator_t::const_byte(Op != BEQ)))
-                goto jmp;
+                return;
+            }
             goto regular;
 
         case BCS:
         case BCC:
-            if(cpu.def_eq(REG_C, locator_t::const_byte(Op == BCS)))
+            if(cpu.is_known(REG_C))
+            {
+                if(!!cpu.known[REG_C] == (Op == BCS))
+                    goto jmp;
                 cont->call(cpu, prev);
-            else if(cpu.def_eq(REG_Z, locator_t::const_byte(Op != BCS)))
-                goto jmp;
+                return;
+            }
             goto regular;
 
         case BMI:
         case BPL:
-            if(cpu.def_eq(REG_N, locator_t::const_byte(Op == BMI)))
+            if(cpu.is_known(REG_N))
+            {
+                if(!!cpu.known[REG_N] == (Op == BMI))
+                    goto jmp;
                 cont->call(cpu, prev);
-            else if(cpu.def_eq(REG_Z, locator_t::const_byte(Op != BMI)))
-                goto jmp;
+                return;
+            }
             goto regular;
 
         default:
+            // fall-thru
         regular:
             simple_op<Opt, get_op(Op, MODE_RELATIVE), null_, Arg>(cpu, prev, cont);
             break;

@@ -2531,6 +2531,12 @@ void ai_t::rewrite_loops()
 
         passert(algo(cfg_it).is_loop_header, cfg_it);
 
+        if(algo(cfg_it).is_irreducible)
+        {
+            dprint(log, "--REWRITE_LOOPS_HEADER_IRREDUCIBLE", cfg_it);
+            continue;
+        }
+
         unsigned const output_size = cfg_it->output_size();
         if(output_size < 2)
         {

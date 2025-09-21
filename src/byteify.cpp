@@ -1240,7 +1240,7 @@ void byteify(ir_t& ir, fn_t const& fn)
 
         default:
             // Shouldn't ever happen if this was coded correctly...
-            throw std::runtime_error(fmt("Unhandled op in byteify: %", ssa_node->op()));
+            throw std::runtime_error(fmt("Unhandled op in byteify: % of type %", ssa_node->op(), ssa_node->type()));
         }
     }
 

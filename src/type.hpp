@@ -107,6 +107,8 @@ public:
     void set_banked(bool banked);
     type_t with_banked(bool banked) const;
 
+    type_t without_index_type() const;
+
     // Allocates 'type' in storage, until program termination.
     static type_t const* new_type(type_t const& type);
 

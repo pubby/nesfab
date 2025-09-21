@@ -317,6 +317,17 @@ std::size_t type_t::hash() const
     return hash;
 }
 
+type_t type_t::without_index_type() const
+{
+    if(is_index(name()))
+        return to_u(name());
+
+    if(is_tea(name()))
+        return tea(elem_type().without_index_type(), array_length());
+
+    return *this;
+}
+
 std::string to_string(type_t type) 
 { 
     std::string str;

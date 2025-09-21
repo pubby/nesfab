@@ -12,10 +12,11 @@ bool o_remove_index_types(log_t* log, ir_t& ir)
     for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
     {
         ssa_node_t& ssa_node = *ssa_it;
+        type_t new_type = ssa_node.type().without_index_type();
 
-        if(is_index(ssa_node.type().name()))
+        if(new_type != ssa_node.type())
         {
-            ssa_it->set_type(to_u(ssa_node.type().name()));
+            ssa_it->set_type(new_type);
             updated = true;
         }
     }

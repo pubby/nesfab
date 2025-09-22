@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2025, Patrick Bene
+ * This file is distributed under the Boost Software License, Version 1.0.
+ * See LICENSE_1_0.txt or https://www.boost.org/LICENSE_1_0.txt 
+ */
+
+// Copies 'oam' into PPU memory. Call during VBLANK only.
+// NOTE: This version doesn't use OAMDMA and thus is much slower.
+//       However, unlike 'ppu_upload_oam', it is interruptable.
+// NOTE: You should probably set 'OAMADDR' to 0 after calling this, unless 'oam_addr' is 0.
+fn ppu_upload_oam_slow(U oam_addr)
+: +static
+    {OAMADDR}(oam_addr)
+    do for U i = 0; i; i += 1
+    : +unloop
+        {OAMDATA}(oam[i])
+
+// Similar to above, but a partial update.
+// NOTE: You should probably set 'OAMADDR' to 0 after calling this, unless 'oam_addr' is 0.
+fn ppu_partial_oam_slow(U oam_addr, U starting_index, U amount)
+: +inline
+    {OAMADDR}(oam_addr)
+    do for U i = 0; i < amount; i += 1
+    : +unloop
+    : +unroll
+        {OAMDATA}(oam[i + starting_index])

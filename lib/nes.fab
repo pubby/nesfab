@@ -197,12 +197,12 @@ ct U ATTR_V_FLIP   = %10000000
 ct U ATTR_HV_FLIP  = %11000000
 
 // Copies 'oam' into PPU memory. Call during VBLANK only.
-fn ppu_upload_oam(U oam_offset)
+// NOTE: You should probably set 'OAMADDR' to 0 after calling this, unless 'oam_addr' is 0.
+fn ppu_upload_oam(U oam_addr)
 : employs
 : +inline
-: +static
     fence
-    {OAMADDR}(oam_offset)
+    {OAMADDR}(oam_addr)
     {OAMDMA}((&oam).b)
     fence
 

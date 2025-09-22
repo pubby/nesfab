@@ -712,6 +712,8 @@ static asm_proc_t make_wait_nmi()
     proc.push_inst(STA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_ready));
     proc.push_inst(LDA_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
     locator_t const label = proc.push_label(0);
+    if(compiler_options().ipcm_cycles)
+        proc.push_inst(INC_ABSOLUTE, locator_t::addr(0x4015));
     proc.push_inst(CMP_ABSOLUTE, locator_t::runtime_ram(RTRAM_nmi_counter));
     proc.push_inst(BEQ_RELATIVE, label);
     proc.push_inst(LDA_IMMEDIATE, locator_t::const_byte(0));
@@ -1106,6 +1108,8 @@ asm_proc_t make_mul8()
         locator_t const prodlo = locator_t::runtime_ram(RTRAM_ptr_temp, 0);
         locator_t const factor2 = locator_t::runtime_ram(RTRAM_ptr_temp, 1);
 
+        if(compiler_options().ipcm_cycles)
+            proc.push_inst(INC_ABSOLUTE, locator_t::addr(0x4015));
         proc.push_inst(LSR_IMPLIED);
         proc.push_inst(STA_ABSOLUTE, prodlo);
         proc.push_inst(TYA_IMPLIED);
@@ -1117,6 +1121,8 @@ asm_proc_t make_mul8()
         for(unsigned i = 0; i < 8; ++i)
         {
             locator_t const label = proc.make_label(++next_label_id);
+            if(compiler_options().ipcm_cycles)
+                proc.push_inst(INC_ABSOLUTE, locator_t::addr(0x4015));
             if(i != 0)
                 proc.push_inst(ROR_ZERO_PAGE, prodlo);
             proc.push_inst(BCC_RELATIVE, label);

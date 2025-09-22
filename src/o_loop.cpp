@@ -725,7 +725,6 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations, bool sloppy)
         return 0;
     cfg_ht const body = hd.simple_unroll_body;
 
-
     unsigned unroll_amount = iterations;
 
     if(!header->test_flags(FLAG_UNLOOP))
@@ -1332,7 +1331,9 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
                     goto fail;
                 fixed_sint_t compare_with_value = compare_with.signed_fixed();
 
-                fixed_sint_t const span = compare_with_value - init;
+                fixed_sint_t span = compare_with_value - init;
+                if(span == 0 && d.simple_do && d.simple_condition->op() == SSA_not_eq)
+                    span = 1ull << (fixed_t::shift + 8*whole_bytes(root->operand.num_type_name()));
 
                 if(d.simple_condition->op() == SSA_not_eq && span < 0 && increment >= 0)
                     increment = sign_extend(increment, numeric_bitmask(root->operand.num_type_name()));

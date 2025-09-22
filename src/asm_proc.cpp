@@ -1415,14 +1415,9 @@ void asm_proc_t::verify_legal()
 #endif
 }
 
-bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* log)
+std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t* code, std::size_t size)
 {
-    bool changed = false;
-
-    static TLS std::vector<regs_t> live_regs;
-
-    live_regs.clear();
-    live_regs.resize(size, 0);
+    std::vector<regs_t> live_regs(size, 0);
 
     for(int i = int(size) - 1; i >= 0; --i)
     {
@@ -1438,6 +1433,15 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
             live_out |= op_input_regs(inst.op);
         }
     }
+
+    return live_regs;
+}
+
+bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* log)
+{
+    bool changed = false;
+
+    std::vector<regs_t> live_regs = live_regs_vec(live_out, code, size);
 
     // TODO: put in asm.hpp
     auto const simple_addr_mode = [](addr_mode_t addr_mode)

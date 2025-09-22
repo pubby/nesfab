@@ -547,6 +547,9 @@ public:
     void for_each_referenced_locator(std::function<void(locator_t)> const& fn) const;
     void for_each_referenced_param_locator(std::function<void(locator_t)> const& fn) const;
 
+    int periodic_cycles() const { assert(global.compiled()); return m_periodic_cycles; }
+    void assign_periodic_cycles(int i) { assert(this); assert(m_periodic_cycles.load() == 0); m_periodic_cycles.store(i); }
+
     // Iterates this function, and every inline function it calls, once each.
     template<typename Fn>
     void for_each_inlined(Fn const& fn) const
@@ -654,6 +657,8 @@ private:
     std::atomic<std::uint64_t> m_referenced = 0;
 
     std::atomic<unsigned> m_precheck_called = 0; // Counts how many times this has been called.
+
+    std::atomic<int> m_periodic_cycles = 0; // Used when periodic code is enabled (IPCM, etc)
 
     inline static std::mutex m_solo_irq_mutex;
     inline static fn_t* m_solo_irq = nullptr;

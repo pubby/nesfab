@@ -224,6 +224,7 @@ struct relocate_error_t : public std::exception
     std::string msg;
 };
 
+std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t* code, std::size_t size);
 bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* log = nullptr);
 
 #endif

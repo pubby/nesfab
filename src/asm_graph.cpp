@@ -1,6 +1,9 @@
 #include "asm_graph.hpp"
 
 #include <random>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include <boost/container/static_vector.hpp>
 
@@ -956,7 +959,7 @@ void asm_graph_t::forward_dataflow(Fn const& fn)
     }
 }
 
-void asm_graph_t::optimize_live_registers()
+void asm_graph_t::calc_live_registers()
 {
     for(asm_node_t& node : list)
     {
@@ -1020,30 +1023,15 @@ void asm_graph_t::optimize_live_registers()
         for(auto const& output : node.outputs())
             node.vregs.out |= output.node->vregs.in;
     }
+}
 
-    // OK! Register liveness has been calculated per-node.
-
-    auto const simple_addr_mode = [](addr_mode_t addr_mode)
-    {
-        switch(addr_mode)
-        {
-        case MODE_IMPLIED:
-        case MODE_IMMEDIATE:
-        case MODE_ZERO_PAGE:
-        case MODE_ABSOLUTE:
-            return true;
-        default:
-            return false;
-        }
-    };
+void asm_graph_t::optimize_live_registers()
+{
+    calc_live_registers();
 
     // Calculate per-op liveness next:
-    static TLS std::vector<regs_t> live_regs;
     for(asm_node_t& node : list)
     {
-        live_regs.clear();
-        live_regs.resize(node.code.size(), 0);
-
         regs_t live = node.vregs.out;
 
         live &= ~op_output_regs(node.output_inst.op);
@@ -1494,3 +1482,202 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
     }
 }
 
+int asm_graph_t::insert_periodic(unsigned period)
+{
+    constexpr op_t op = INC_ABSOLUTE;
+    constexpr regs_t clobbers = op_output_regs(op) & REGF_6502;
+    assert((clobbers & REGF_M) == 0);
+
+    // Build the liveness:
+    calc_live_registers();
+
+    worklist.clear();
+
+    // Start with nodes that have no inputs (root nodes):
+    for(asm_node_t& node : list)
+    {
+        node.clear_flags(FLAG_IN_WORKLIST | FLAG_PROCESSED);
+        node.cycles = 0;
+
+        if(node.inputs().empty())
+            worklist.push(&node);
+    }
+
+    int return_cycles = 0;
+
+    // Process nodes, inserting instructions periodically:
+    while(!worklist.empty())
+    {
+    reenter:
+        asm_node_t& node = *worklist.pop();
+
+        if(node.test_flags(FLAG_PROCESSED))
+            continue;
+
+        // Use inputs to determine cycles...
+        bool inserted_any = false;
+        bool potential_loop = false;
+        int cycles = 0;
+        for(asm_node_t* input : node.inputs())
+        {
+            cycles = std::max<int>(cycles, input->cycles);
+            potential_loop |= !input->test_flags(FLAG_PROCESSED);
+        }
+
+        if(potential_loop || node.inputs().empty())
+            cycles = std::max<int>(cycles, period);
+
+        regs_t live = node.vregs.out;
+        live &= ~op_output_regs(node.output_inst.op);
+        live |= op_input_regs(node.output_inst.op);
+
+        std::vector<regs_t> live_regs = live_regs_vec(live, node.code.data(), node.code.size());
+        assert(live_regs.size() == node.code.size());
+
+        std::vector<asm_inst_t> new_code;
+
+        auto const insert = [&](regs_t live, bool delay_php = false)
+        {
+            if((live & clobbers) == 0)
+            {
+                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+                cycles += op_cycles(op);
+            }
+            else if(delay_php && cycles < int(period) + 8) // Arbritary constant.
+                return;
+            else
+            {
+                new_code.push_back(asm_inst_t{ .op = PHP_IMPLIED });
+                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+                new_code.push_back(asm_inst_t{ .op = PLP_IMPLIED });
+                cycles -= period;
+                cycles += op_cycles(op) + op_cycles(PHP_IMPLIED) + op_cycles(PLP_IMPLIED);
+            }
+
+            cycles -= period;
+            inserted_any = true;
+        };
+
+        if(cycles >= int(period))
+            insert(node.vregs.in, true);
+        else if(node.code.size()
+           && (potential_loop || cycles + int(op_cycles(node.code[0].op)) >= int(period))
+           && ((node.vregs.in & clobbers) == 0)
+           && ((live_regs[0] & clobbers) != 0))
+        {
+            // Sometimes we can insert an instruction early:
+            new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+            cycles -= period;
+            cycles += op_cycles(op);
+            inserted_any = true;
+        }
+
+        unsigned i = 0;
+        for(i = 0; i < node.code.size(); ++i)
+        {
+            if(op_flags(node.code[i].op) & (ASMF_JUMP | ASMF_RETURN))
+                break;
+
+            new_code.push_back(node.code[i]);
+            if(op_flags(node.code[i].op) & ASMF_CALL)
+            {
+                locator_t const arg = node.code[i].arg;
+                if(arg.lclass() == LOC_FN)
+                {
+                    fn_ht const fn = arg.fn();
+                    cycles += fn->periodic_cycles();
+                    cycles += op_cycles(RTS_IMPLIED) * 4; // Arbritary amount.
+                    cycles = std::min<int>(cycles, period);
+                }
+                else
+                    cycles = period;
+            }
+            else
+                cycles += op_cycles(node.code[i].op);
+
+            if(cycles >= int(period))
+            {
+                insert(live_regs[i], true);
+                continue;
+            }
+
+            op_t next_op = BAD_OP;
+            regs_t next_regs = 0;
+
+            for(unsigned j = i+1; j < node.code.size() && (next_op == BAD_OP || next_op == ASM_PRUNED); j += 1)
+            {
+                next_op = node.code[j].op;
+                next_regs = live_regs[j];
+            }
+
+            if(next_op == BAD_OP || next_op == ASM_PRUNED)
+            {
+                next_op = node.output_inst.op;
+                next_regs = node.vregs.out;
+            }
+
+            if(next_op
+               && (cycles + int(op_cycles(next_op)) >= int(period)
+                   || (potential_loop && !inserted_any)
+                   || (node.outputs().size() == 0 && !inserted_any))
+               && ((live_regs[i+0] & clobbers) == 0)
+               && ((next_regs & clobbers) != 0))
+            {
+                // Sometimes we can insert an instruction early:
+                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+                cycles += op_cycles(op);
+                inserted_any = true;
+            }
+        }
+
+        if((potential_loop && !inserted_any)
+           || (node.outputs().size() == 0 && !inserted_any)) // Arbitrary constant.
+        {
+            cycles = 0;
+            if(node.code.size())
+                insert(node.code.empty() ? node.vregs.out : live_regs[node.code.size() - 1], false);
+        }
+
+        for(; i < node.code.size(); ++i)
+        {
+            new_code.push_back(node.code[i]);
+            cycles += op_cycles(node.code[i].op);
+        }
+
+        assert(new_code.size() >= node.code.size());
+        node.code = std::move(new_code);
+
+        // Set here, or else it will fuck shit up:
+        node.cycles = cycles;
+        node.set_flags(FLAG_PROCESSED);
+
+        if(node.outputs().empty())
+            return_cycles = std::max<int>(return_cycles, cycles);
+
+        // Add all successors with processed inputs to worklist:
+        for(auto const& edge : node.outputs())
+        {
+            auto* output = edge.node;
+            if(output->test_flags(FLAG_PROCESSED))
+                goto skip;
+            for(asm_node_t* input : output->inputs())
+                if(!input->test_flags(FLAG_PROCESSED))
+                   goto skip;
+            worklist.push(output);
+        skip:;
+        }
+    }
+
+    // Some nodes (loops, etc) might not be reachable travelling
+    // backwards from the exit. Handle those now:
+    for(asm_node_t& node : list)
+    {
+        if(!node.test_flags(FLAG_PROCESSED))
+        {
+            worklist.push(&node);
+            goto reenter;
+        }
+    }
+
+    return return_cycles;
+}

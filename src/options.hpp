@@ -72,6 +72,8 @@ struct options_t
 
     int controllers = 2; 
 
+    unsigned ipcm_cycles = 0;
+
     unsigned num_fab = 0;
     std::vector<source_t> source_names;
     rh::batman_map<std::string, source_t> macro_names;

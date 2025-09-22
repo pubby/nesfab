@@ -99,6 +99,7 @@ public:
 
     cfg_ht cfg = {};
     unsigned original_order = 0;
+    int cycles = 0;
 private:
 
     bc::small_vector<asm_node_t*, 2> m_inputs;
@@ -138,6 +139,8 @@ public:
     bool o_merge();
     bool o_returns(fn_t const& fn);
     bool o_peephole();
+
+    int insert_periodic(unsigned period);
 private:
     using list_t = bi::list<asm_node_t>;
 
@@ -151,6 +154,8 @@ private:
 
     template<typename Fn>
     void forward_dataflow(Fn const& fn);
+
+    void calc_live_registers();
 
     array_pool_t<bitset_uint_t> bitset_pool;
     array_pool_t<asm_node_t> node_pool;

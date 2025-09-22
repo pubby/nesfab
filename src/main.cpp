@@ -292,6 +292,14 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
 
     if(vm.count("vram-init"))
         _options.vram_init = true;
+
+    if(vm.count("ipcm"))
+    {
+        _options.ipcm_cycles = vm["ipcm"].as<unsigned>();
+        constexpr unsigned min_ipcm = 16; // Mostly arbitrary
+        if(_options.ipcm_cycles < min_ipcm)
+            throw std::runtime_error(fmt("Invalid IPCM period: %. Must be % or higher.", _options.ipcm_cycles, min_ipcm));
+    }
 }
 
 int main(int argc, char** argv)
@@ -353,6 +361,7 @@ int main(int argc, char** argv)
             po::options_description basic_hidden("Hidden options");
             basic_hidden.add_options()
                 ("input,i", po::value<std::vector<std::string>>()->multitoken(), "input file")
+                ("ipcm", po::value<unsigned>(), "ipcm period (in cycles)")
                 ("graphviz,g", "output graphviz files")
                 ("info", "output every info")
                 ("ir-info", "output intermediate info")

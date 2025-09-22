@@ -2868,7 +2868,7 @@ namespace isel
                     , set_defs<Opt, REGF_C, true, p_carry_output>
                     >(cpu, prev, cont);
 
-#if 0
+#if 1
 
                     chain
                     < load_AC<Opt, p_lhs, p_carry>
@@ -6154,6 +6154,11 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     graph.optimize_live_registers();
     graph.remove_maybes(fn);
     graph.optimize_live_registers();
+    if(unsigned period = compiler_options().ipcm_cycles)
+    {
+        int const cycles = graph.insert_periodic(period);
+        fn.assign_periodic_cycles(cycles);
+    }
 
     lvars_manager_t lvars = graph.build_lvars(fn);
 

@@ -72,7 +72,8 @@ struct options_t
 
     int controllers = 2; 
 
-    unsigned ipcm_cycles = 0;
+    bool ipcm = false;
+    unsigned ipcm_period = 50;
 
     unsigned num_fab = 0;
     std::vector<source_t> source_names;

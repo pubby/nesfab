@@ -85,7 +85,7 @@ asm_graph_t::asm_graph_t(log_t* log, locator_t entry_label)
 }
 
 void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end, 
-                              rh::batman_map<cfg_ht, switch_table_t> const& switch_tables)
+                              rh::batman_map<cfg_ht, switch_table_t> const* switch_tables, bool dumb)
 {
     auto const delay_lookup = [&](asm_node_t& node, locator_t label, int case_value = -1)
     {
@@ -101,7 +101,8 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
         if(inst.op == ASM_LABEL)
         {
             assert(!node.output_inst.op);
-            node.output_inst = { .op = JMP_ABSOLUTE };
+            if(!dumb)
+                node.output_inst = { .op = JMP_ABSOLUTE };
             asm_node_t& node = push_back(inst.arg, true);
 
             if(inst.arg.lclass() == LOC_CFG_LABEL)
@@ -116,12 +117,14 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
             }
             else if(op_flags(inst.op) & ASMF_SWITCH)
             {
+                assert(switch_tables);
+                assert(!dumb);
                 passert(node.cfg, to_string(inst.op));
 
                 cfg_ht const cfg = inst.arg.cfg_node();
 
-                switch_table_t const* switch_table = switch_tables.mapped(cfg);
-                passert(switch_table, cfg, switch_tables.size());
+                switch_table_t const* switch_table = switch_tables->mapped(cfg);
+                passert(switch_table, cfg, switch_tables->size());
 
                 ssa_ht const branch = cfg->last_daisy();
                 assert(branch && branch->op() == SSA_switch_full);
@@ -138,7 +141,10 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
                 passert(inst.arg, to_string(inst.op));
 
                 assert(!node.output_inst.op);
-                node.output_inst.op = inst.op;
+                if(dumb)
+                    node.output_inst = inst;
+                else
+                    node.output_inst.op = inst.op;
                 delay_lookup(node, inst.arg);
                 push_back();
             }
@@ -147,9 +153,12 @@ void asm_graph_t::append_code(asm_inst_t const* begin, asm_inst_t const* end,
                 passert(inst.arg, to_string(inst.op));
 
                 assert(!node.output_inst.op);
-                node.output_inst.op = inst.op;
+                if(dumb)
+                    node.output_inst = inst;
+                else
+                    node.output_inst.op = inst.op;
                 delay_lookup(node, inst.arg);
-                if(it+1 < end && inst.op == invert_branch((it+1)->op))
+                if(!dumb && it+1 < end && inst.op == invert_branch((it+1)->op))
                 {
                     delay_lookup(node, (it+1)->arg);
                     it += 1;
@@ -466,7 +475,7 @@ bool asm_graph_t::o_peephole()
     return changed;
 }
 
-std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
+std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order, bool dumb)
 {
     std::vector<asm_inst_t> code;
     std::vector<asm_inst_t> table_code;
@@ -485,9 +494,9 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
     code.reserve(estimated_size);
 
     // Ids are used to generate labels:
-    auto const get_label = [](asm_node_t& node)
+    auto const get_label = [dumb](asm_node_t& node)
     {
-        if(node.label && node.label.lclass() != LOC_MINOR_LABEL)
+        if(node.label && (dumb || node.label.lclass() != LOC_MINOR_LABEL))
             return node.label;
         return locator_t::minor_label(node.vid);
     };
@@ -544,7 +553,9 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
         asm_node_t* prev = i ? order[i-1] : nullptr;
         asm_node_t* next = i+1 < order.size() ? order[i+1] : nullptr;
 
-        goto insert_label;
+        if(dumb)
+            goto insert_label;
+
         if(node.inputs().size() > 1 
            || (node.inputs().size() == 1 && prev != node.inputs()[0])
            || node.label == m_entry_label)
@@ -560,28 +571,33 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order)
 
         if(node.output_inst.op)
         {
-            if(node.output_inst.op == JMP_ABSOLUTE)
-                assert(node.outputs().size() == 1);
-
-            if(node.is_switch() || node.outputs().empty())
+            if(dumb)
                 code.push_back(node.output_inst);
             else
             {
-                passert(node.outputs().size() <= 2, node.outputs().size());
+                if(node.output_inst.op == JMP_ABSOLUTE)
+                    assert(node.outputs().size() == 1);
 
-                for(unsigned j = 0; j < node.outputs().size(); ++j)
+                if(node.is_switch() || node.outputs().empty())
+                    code.push_back(node.output_inst);
+                else
                 {
-                    if(node.outputs()[j].node == next)
-                        continue;
-                    op_t op = node.output_inst.op;
-                    if(j > 0 && is_branch(op))
-                        op = invert_branch(op);
-                    code.push_back({ .op = op, .arg = get_label(*node.outputs()[j].node) });
+                    passert(node.outputs().size() <= 2, node.outputs().size());
+
+                    for(unsigned j = 0; j < node.outputs().size(); ++j)
+                    {
+                        if(node.outputs()[j].node == next)
+                            continue;
+                        op_t op = node.output_inst.op;
+                        if(j > 0 && is_branch(op))
+                            op = invert_branch(op);
+                        code.push_back({ .op = op, .arg = get_label(*node.outputs()[j].node) });
+                    }
                 }
             }
         }
         else
-            assert(node.outputs().empty());
+            assert(dumb || node.outputs().empty());
     }
 
     // Append switch:
@@ -892,6 +908,14 @@ std::vector<asm_node_t*> asm_graph_t::order()
     return result;
 }
 
+std::vector<asm_node_t*> asm_graph_t::dumb_order()
+{
+    std::vector<asm_node_t*> order;
+    for(asm_node_t& node : list)
+        order.push_back(&node);
+    return order;
+}
+
 //////////////
 // LIVENESS //
 //////////////
@@ -987,11 +1011,18 @@ void asm_graph_t::calc_live_registers()
 
     liveness_dataflow([&](asm_node_t& node)
     {
+        assert(&node);
+
         // Calculate the real live-out set, storing it in 'temp_set'.
         // The live-out set is the union of the successor's live-in sets.
         regs_t temp = 0;
         for(auto const& output : node.outputs())
-            temp |= output.node->vregs.in;
+        {
+            if(output.node)
+                temp |= output.node->vregs.in;
+            else // This only happens for asm fns.
+                temp |= REGF_6502;
+        }
 
         // Now use that to calculate a new live-in set:
         temp &= node.vregs.out; // vregs.out holds inverted KILL
@@ -1021,7 +1052,12 @@ void asm_graph_t::calc_live_registers()
 
         node.vregs.out = 0;
         for(auto const& output : node.outputs())
-            node.vregs.out |= output.node->vregs.in;
+        {
+            if(output.node)
+                node.vregs.out |= output.node->vregs.in;
+            else // This only happens for asm fns.
+                node.vregs.out |= REGF_6502;
+        }
     }
 }
 
@@ -1482,7 +1518,7 @@ void asm_graph_t::remove_maybes(fn_t const& fn)
     }
 }
 
-int asm_graph_t::insert_periodic(unsigned period)
+int asm_graph_t::insert_periodic(unsigned period, bool dumb)
 {
     constexpr op_t op = INC_ABSOLUTE;
     constexpr regs_t clobbers = op_output_regs(op) & REGF_6502;
@@ -1530,6 +1566,7 @@ int asm_graph_t::insert_periodic(unsigned period)
         regs_t live = node.vregs.out;
         live &= ~op_output_regs(node.output_inst.op);
         live |= op_input_regs(node.output_inst.op);
+        live = REGF_6502;
 
         std::vector<regs_t> live_regs = live_regs_vec(live, node.code.data(), node.code.size());
         assert(live_regs.size() == node.code.size());
@@ -1540,15 +1577,15 @@ int asm_graph_t::insert_periodic(unsigned period)
         {
             if((live & clobbers) == 0)
             {
-                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4011) });
                 cycles += op_cycles(op);
             }
-            else if(delay_php && cycles < int(period) + 8) // Arbritary constant.
+            else if(dumb || (delay_php && cycles < int(period) + 8)) // Arbritary constant.
                 return;
             else
             {
                 new_code.push_back(asm_inst_t{ .op = PHP_IMPLIED });
-                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4011) });
                 new_code.push_back(asm_inst_t{ .op = PLP_IMPLIED });
                 cycles -= period;
                 cycles += op_cycles(op) + op_cycles(PHP_IMPLIED) + op_cycles(PLP_IMPLIED);
@@ -1566,11 +1603,18 @@ int asm_graph_t::insert_periodic(unsigned period)
            && ((live_regs[0] & clobbers) != 0))
         {
             // Sometimes we can insert an instruction early:
-            new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+            new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4011) });
             cycles -= period;
             cycles += op_cycles(op);
             inserted_any = true;
         }
+
+        if(node.code.empty() && !node.output_inst.op)
+            goto abort;
+
+        for(auto const& inst : node.code)
+            if(inst.op == ASM_DATA)
+                goto abort;
 
         unsigned i = 0;
         for(i = 0; i < node.code.size(); ++i)
@@ -1582,7 +1626,7 @@ int asm_graph_t::insert_periodic(unsigned period)
             if(op_flags(node.code[i].op) & ASMF_CALL)
             {
                 locator_t const arg = node.code[i].arg;
-                if(arg.lclass() == LOC_FN)
+                if(!dumb && arg.lclass() == LOC_FN)
                 {
                     fn_ht const fn = arg.fn();
                     cycles += fn->periodic_cycles();
@@ -1624,7 +1668,7 @@ int asm_graph_t::insert_periodic(unsigned period)
                && ((next_regs & clobbers) != 0))
             {
                 // Sometimes we can insert an instruction early:
-                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4015) });
+                new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4011) });
                 cycles += op_cycles(op);
                 inserted_any = true;
             }
@@ -1647,6 +1691,8 @@ int asm_graph_t::insert_periodic(unsigned period)
         assert(new_code.size() >= node.code.size());
         node.code = std::move(new_code);
 
+    abort:
+
         // Set here, or else it will fuck shit up:
         node.cycles = cycles;
         node.set_flags(FLAG_PROCESSED);
@@ -1658,7 +1704,7 @@ int asm_graph_t::insert_periodic(unsigned period)
         for(auto const& edge : node.outputs())
         {
             auto* output = edge.node;
-            if(output->test_flags(FLAG_PROCESSED))
+            if(!output || output->test_flags(FLAG_PROCESSED))
                 goto skip;
             for(asm_node_t* input : output->inputs())
                 if(!input->test_flags(FLAG_PROCESSED))
@@ -1680,4 +1726,57 @@ int asm_graph_t::insert_periodic(unsigned period)
     }
 
     return return_cycles;
+}
+
+std::vector<asm_inst_t> insert_ipcm(asm_inst_t const* code, std::size_t size, unsigned period)
+{
+    constexpr op_t op = INC_ABSOLUTE;
+    constexpr regs_t clobbers = op_output_regs(op) & REGF_6502;
+    assert((clobbers & REGF_M) == 0);
+
+    std::vector<regs_t> live_regs = live_regs_vec(REGF_6502, code, size);
+
+    int cycles = period;
+    std::vector<asm_inst_t> new_code;
+
+    unsigned i = 0;
+    for(i = 0; i < size; ++i)
+    {
+        new_code.push_back(code[i]);
+        cycles += op_cycles(code[i].op);
+
+        if(op_flags(code[i].op) & (ASMF_JUMP | ASMF_RETURN))
+        {
+            cycles = period;
+            continue;
+        }
+
+        if(code[i].op == ASM_DATA)
+            continue;
+
+        if(op_flags(code[i].op) & ASMF_CALL)
+            cycles = period;
+
+        if(i+1 < size && code[i+1].op == ASM_DATA)
+            continue;
+
+        if(cycles >= int(period) && (live_regs[i] & clobbers) == 0)
+        {
+            new_code.push_back(asm_inst_t{ .op = op, .arg = locator_t::addr(0x4011) });
+            cycles -= period;
+            cycles += op_cycles(op);
+        }
+    }
+
+    return new_code;
+}
+
+asm_proc_t asm_proc_ipcm(asm_proc_t proc, log_t* log)
+{
+    if(compiler_options().ipcm)
+    {
+        proc.code = insert_ipcm(proc.code.data(), proc.code.size(), compiler_options().ipcm_period);
+        proc.rebuild_label_map();
+    }
+    return proc;
 }

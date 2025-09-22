@@ -751,7 +751,32 @@ nesfab --sloppy
 sloppy = 1
 ----
 
-=== `--*ram-init`
+=== `ipcm`, `ipcm-period`
+
+These options insert `inc $4011` writes into the program.
+Such writes are used by certain mappers, such as <<mapper_rainbow>>, to implement expansion sound on the DMC channel.
+
+- `--ipcm` enables IPCM write insertion.
+- `--ipcm-period` determines the approximate number of cycles between each write.
+
+By default, the value of `ipcm-period` is 50.
+
+*Command-line usage:*
+----
+nesfab --ipcm
+nesfab --ipcm-period 50
+----
+
+*Configuration file usage:*
+----
+ipcm = 1
+ipcm-period = 50
+----
+
+[NOTE]
+The writes are added liberally, without perfect accuracy. Large periods have especially poor accuracy.
+
+=== `*ram-init`
 
 `--ram-init`, `--sram-init`, and `--vram-init` cause their respective memory regions to be initialized to zero on reset.
 This initialization happens by writing a `0` byte to each address, ignoring any banking behavior the mapper may have.

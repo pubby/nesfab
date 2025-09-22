@@ -183,6 +183,7 @@ constexpr std::uint16_t vectors_after_addr(mapper_type_t mt = mapper().type)
     // Try to keep this page-aligned, as the iota table will often get allocated here.
     switch(mt)
     {
+    case MAPPER_MMC1:
     case MAPPER_MMC3:
     case MAPPER_MMC5:
     case MAPPER_189:

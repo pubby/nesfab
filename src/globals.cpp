@@ -7,6 +7,7 @@
 #endif
 
 #include "alloca.hpp"
+#include "asm_graph.hpp"
 #include "bitset.hpp"
 #include "compiler_error.hpp"
 #include "fnv1a.hpp"
@@ -1343,6 +1344,9 @@ void fn_t::compile_iasm()
 
     asm_proc_t proc = std::get<asm_proc_t>(interpret_byte_block(def().stmts[0].pstring, def().stmts[0].expr[0], 
                                                                 this, def().local_consts.data()));
+    if((compiler_options().ipcm && !mod_test(mods(), MOD_ipcm, false)) || mod_test(mods(), MOD_ipcm))
+        proc = asm_proc_ipcm(std::move(proc));
+
     proc.fn = handle();
 
     assign_lvars(lvars_manager_t(*this));

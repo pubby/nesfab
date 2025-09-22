@@ -1415,7 +1415,7 @@ void asm_proc_t::verify_legal()
 #endif
 }
 
-std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t* code, std::size_t size)
+std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t const* code, std::size_t size)
 {
     std::vector<regs_t> live_regs(size, 0);
 

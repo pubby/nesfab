@@ -296,10 +296,14 @@ public:
         {
         default:      return 0;
         case FN_CT:   return 0;
-        case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed;
-        case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed;
-        case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed;
-        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz | MOD_static | MOD_info | MOD_sloppy | MOD_solo_interrupt | MOD_static_fixed;
+        case FN_FN:   return MOD_zero_page | MOD_align | MOD_inline | MOD_graphviz 
+                      | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed | MOD_ipcm;
+        case FN_MODE: return MOD_zero_page | MOD_align | MOD_graphviz 
+                      | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed | MOD_ipcm;
+        case FN_NMI:  return MOD_zero_page | MOD_align | MOD_graphviz 
+                      | MOD_static | MOD_info | MOD_sloppy | MOD_static_fixed | MOD_ipcm;
+        case FN_IRQ:  return MOD_zero_page | MOD_align | MOD_graphviz 
+                      | MOD_static | MOD_info | MOD_sloppy | MOD_solo_interrupt | MOD_static_fixed | MOD_ipcm;
         }
     }
 

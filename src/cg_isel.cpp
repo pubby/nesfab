@@ -6146,7 +6146,7 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     for(cfg_ht cfg : postorder | std::views::reverse)
     {
         auto& d = data(cfg);
-        graph.append_code(&*d.final_code().begin(), &*d.final_code().end(), switch_tables);
+        graph.append_code(&*d.final_code().begin(), &*d.final_code().end(), &switch_tables);
     }
 
     graph.finish_appending();
@@ -6154,9 +6154,9 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
     graph.optimize_live_registers();
     graph.remove_maybes(fn);
     graph.optimize_live_registers();
-    if(unsigned period = compiler_options().ipcm_cycles)
+    if((compiler_options().ipcm && !mod_test(fn.mods(), MOD_ipcm, false)) || mod_test(fn.mods(), MOD_ipcm))
     {
-        int const cycles = graph.insert_periodic(period);
+        int const cycles = graph.insert_periodic(compiler_options().ipcm_period, false);
         fn.assign_periodic_cycles(cycles);
     }
 

@@ -111,11 +111,12 @@ class asm_graph_t
 public:
     asm_graph_t(log_t* log, locator_t entry_label);
     void append_code(asm_inst_t const* begin, asm_inst_t const* end, 
-                     rh::batman_map<cfg_ht, switch_table_t> const& switch_tables);
+                     rh::batman_map<cfg_ht, switch_table_t> const* switch_tables, bool dumb = false);
     void finish_appending();
 
     std::vector<asm_node_t*> order();
-    std::vector<asm_inst_t> to_linear(std::vector<asm_node_t*> order);
+    std::vector<asm_node_t*> dumb_order();
+    std::vector<asm_inst_t> to_linear(std::vector<asm_node_t*> order, bool dumb = false);
     void liveness(fn_t const& fn, lvars_manager_t& lvars);
     void optimize(fn_t const& fn);
 
@@ -140,7 +141,7 @@ public:
     bool o_returns(fn_t const& fn);
     bool o_peephole();
 
-    int insert_periodic(unsigned period);
+    int insert_periodic(unsigned period, bool dumb);
 private:
     using list_t = bi::list<asm_node_t>;
 
@@ -177,5 +178,8 @@ private:
 
     log_t* log;
 };
+
+std::vector<asm_inst_t> insert_ipcm(asm_inst_t const* code, std::size_t size, unsigned period);
+asm_proc_t asm_proc_ipcm(asm_proc_t proc, log_t* log = nullptr);
 
 #endif

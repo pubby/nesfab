@@ -229,6 +229,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 
     retry:
 
+#ifndef LEGAL
         // Prepare for ALR
         if(a.op == LDA_IMMEDIATE && op_name(b.op) == AND && !a.alt && !b.alt)
         {
@@ -239,6 +240,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             b.op = AND_IMMEDIATE;
             b.arg = imm;
         }
+#endif
 
         switch(b.op)
         {
@@ -1425,7 +1427,7 @@ std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t const* code, std::
 
         live_regs[i] = live_out;
 
-        if(inst.op == ASM_LABEL || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE)))
+        if(inst.op == ASM_LABEL || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE | ASMF_BRANCH)))
             live_out = REGF_6502;
         else
         {

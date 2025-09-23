@@ -4032,12 +4032,16 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
 
             if(is8)
             {
-                if(array_index.type != TYPE_U)
+                if(array_index.type.name() == TYPE_I)
+                    array_index = throwing_cast<D>(std::move(array_index), TYPE_U, false);
+                else if(array_index.type != TYPE_U)
                     compiler_error(array_index.pstring, fmt("[] expects an index of type U. Got %.", array_index.type));
             }
             else
             {
-                if(array_index.type != TYPE_U20)
+                if(array_index.type.name() == TYPE_II)
+                    array_index = throwing_cast<D>(std::move(array_index), TYPE_U20, false);
+                else if(array_index.type != TYPE_U20)
                     compiler_error(array_index.pstring, fmt("{} expects an index of type UU. Got %.", array_index.type));
             }
 

@@ -208,6 +208,8 @@ struct constraints_t
     static constexpr constraints_t any_bool()
         { return { bounds_t::any_bool(), known_bits_t::any_bool() }; }
 
+    void assign(constraints_t const& o) { bounds = o.bounds; bits = o.bits; }
+
     static constraints_t carry(carry_t cr)
     {
         switch(cr)
@@ -274,23 +276,22 @@ struct constraints_t
     bool for_each(constraints_mask_t cm, Fn const& fn) const;
 };
 
-using constraints_vec_t = bc::small_vector<constraints_t, 2>;
-
-struct constraints_def_t
+struct masked_constraints_t : constraints_t
 {
+    masked_constraints_t& operator=(constraints_t const& c) = delete;
+
     constraints_mask_t cm;
-    constraints_vec_t vec;
 
-    constraints_t const& operator[](unsigned i) const { assert(i < vec.size()); return vec[i]; }
-    constraints_t& operator[](unsigned i) { assert(i < vec.size()); return vec[i]; }
-
-    bool is_top(unsigned i = 0) const { assert(i < vec.size()); return vec[i].is_top(cm); }
+    bool is_top() const { return constraints_t::is_top(cm); }
+    bool is_normalized() const { return constraints_t::is_normalized(cm); }
 };
+
+using constraints_def_t = bc::small_vector<masked_constraints_t, 2>;
 
 bool any_top(constraints_def_t const& def);
 bool all_normalized(constraints_def_t const& def);
-bool all_subset(constraints_vec_t const& a, constraints_vec_t const& b, constraints_mask_t cm);
-bool bit_eq(constraints_vec_t const& a, constraints_vec_t const& b);
+bool all_subset(constraints_def_t const& a, constraints_def_t const& b, constraints_mask_t cm);
+bool bit_eq(constraints_def_t const& a, constraints_def_t const& b);
 
 using abstract_fn_t = std::type_identity_t<
     void(constraints_def_t const*, unsigned, constraints_def_t&)>;

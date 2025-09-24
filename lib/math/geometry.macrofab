@@ -22,8 +22,8 @@ struct #type_prefix#Dimen
 
  // A #type_prefix#Rect (or "#type_prefix#Rectangle") represents a rectangular region at some position.
 struct #type_prefix#Rect
-    #type_prefix#Coord c // Position of the upper-left corner.
-    #type_prefix#Dimen d
+    #type_prefix#Coord c : +inherit // Position of the upper-left corner.
+    #type_prefix#Dimen d : +inherit
 
 // Shortcut for constructing Rects.
 fn #fn_prefix#make_rect(#type# x, #type# y, #type# w, #type# h) #type_prefix#Rect

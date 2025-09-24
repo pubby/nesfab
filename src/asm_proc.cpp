@@ -1253,7 +1253,7 @@ loc_vec_t asm_proc_t::loc_vec() const
 static std::uint8_t get_byte(locator_t loc)
 {
     assert(is_const(loc.lclass()));
-    assert(loc.offset() == 0);
+    passert(loc.offset() == 0, loc);
 
     if(loc.is() == IS_PTR_HI)
         return loc.data() >> 8;

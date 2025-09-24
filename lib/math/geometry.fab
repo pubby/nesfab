@@ -18,8 +18,8 @@ struct Dimen
 
  // A Rect (or "Rectangle") represents a rectangular region at some position.
 struct Rect
-    Coord c // Position of the upper-left corner.
-    Dimen d
+    Coord c : +inherit // Position of the upper-left corner.
+    Dimen d : +inherit
 
 // Shortcut for constructing Rects.
 fn make_rect(U x, U y, U w, U h) Rect

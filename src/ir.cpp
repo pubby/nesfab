@@ -1028,6 +1028,10 @@ void ir_t::assert_valid(bool cg) const
                 cfg_node.output_edge(i))));
         }
 
+        ssa_ht ssa_branch = cfg_it->last_daisy();
+        if(ssa_branch && ssa_branch->op() == SSA_if)
+            passert(cfg_it->output_size() == 2, cfg_it, cfg_it->output_size());
+
         for(ssa_ht ssa_it = cfg_node.ssa_begin(); ssa_it; ++ssa_it)
         {
             ssa_node_t& ssa_node = *ssa_it;

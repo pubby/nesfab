@@ -1,6 +1,9 @@
 #include "byteify.hpp"
 
 #include <array>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include <boost/container/small_vector.hpp>
 
@@ -27,6 +30,13 @@ namespace // anonymous
     {
         bm_t bm = {};
     };
+}
+
+static unsigned _byte_i(type_t t)
+{
+    if(is_frac(t.name()) || (is_array(t.name()) && is_frac(t.elem_type().name())))
+        return max_frac_bytes - 1;
+    return max_frac_bytes;
 }
 
 static bool is_signed2(type_t t)
@@ -800,8 +810,9 @@ void byteify(ir_t& ir, fn_t const& fn)
                     {
                         bm_t const bm = _get_bm(input);
                         //passert(bm[max_frac_bytes], ssa_it, input, ssa_it->op(), input.type());
-                        if(bm[max_frac_bytes])
-                            ssa_it->link_change_input(i, bm[max_frac_bytes]);
+                        unsigned const bi = _byte_i(input->type());
+                        if(bm[bi])
+                            ssa_it->link_change_input(i, bm[bi]);
                     }
                 }
             }

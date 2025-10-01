@@ -395,7 +395,6 @@ fn update_pad(Pad pad, U raw_held) Pad
 // Ideally, you would call this at the start of your game logic
 // (which may occur less than once per frame).
 fn update_pads()
-: +graphviz
     for U i = 0; i < __controllers; i += 1
         pads[i] = update_pad(pads[i], raw_pads[i])
 

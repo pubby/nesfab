@@ -2,10 +2,17 @@
 #define O_IDENTITY_HPP
 
 #include "debug_print.hpp"
+#include "ir_decl.hpp"
 
 class ir_t;
 
+// If the node is an increment or decrement.
+bool is_inc_dec(ssa_ht h);
+
 // Applies various math identities to the code.
 bool o_identities(log_t* log, ir_t& ir, bool post_byteified);
+
+// Converts additions / subtractions into increments.
+bool o_increment(log_t* log, ir_t& ir);
 
 #endif

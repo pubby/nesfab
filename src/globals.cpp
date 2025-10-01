@@ -2198,6 +2198,27 @@ void const_t::paa_init(loc_vec_t&& vec)
     else if(!group_data || mod_test(mods(), MOD_static))
         rule = ROMR_STATIC;
 
+    if(chrrom && mod_test(mods(), MOD_spr_8x16))
+    {
+        std::int64_t const offset = eval_chrrom_offset();
+
+        if((offset % 8192) != 0)
+            compiler_error(global.pstring(), "chrrom offset should be a multiple of 8192 when using +spr_8x16.");
+
+        vec.resize(8192 * ((vec.size() + 8191) / 8192), locator_t::const_byte(0));
+        loc_vec_t new_vec(vec.size());
+
+        for(unsigned i = 0; i < vec.size(); i += 8192)
+        for(unsigned j = 0; j < 4096; j += 32)
+        for(unsigned k = 0; k < 32; k += 1)
+        {
+            new_vec[i+j+k+0]    = vec[i+(j*2)+k+0];
+            new_vec[i+j+k+4096] = vec[i+(j*2)+k+32];
+        }
+        
+        std::swap(vec, new_vec);
+    }
+
     m_rom_array = rom_array_t::make(std::move(vec), mod_test(mods(), MOD_align), !banked, rule, group_data);
 
     assert(m_rom_array);
@@ -2236,7 +2257,8 @@ void const_t::rval_init(rval_t&& rval)
 
 std::int64_t const_t::eval_chrrom_offset() const
 {
-    assert(chrrom_offset);
+    if(!chrrom_offset)
+        return 0;
 
     rpair_t const result = interpret_expr(global.pstring(), *chrrom_offset, TYPE_INT);
     if(calc_time(result.type, result.value) >= LT)

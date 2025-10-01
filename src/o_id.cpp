@@ -19,6 +19,47 @@
 
 namespace bc = ::boost::container;
 
+bool is_inc_dec(ssa_ht h)
+{
+    type_name_t const tn = h->type().name();
+
+    if(h->op() == SSA_add)
+    {
+        if(!h->input(2).is_num())
+            return false;
+
+        for(unsigned i = 0; i < 2; ++i)
+        {
+            if(!h->input(i).is_num())
+                continue;
+
+            fixed_sint_t f = h->input(i).signed_fixed();
+            if(h->input(2).whole())
+                f += type_unit(tn);
+            f &= numeric_bitmask(tn);
+
+            return f == type_unit(tn) || f == numeric_bitmask(tn);
+        }
+    }
+    else if(h->op() == SSA_sub)
+    {
+        if(!h->input(2).is_num())
+            return false;
+
+        if(!h->input(1).is_num())
+            return false;
+
+        fixed_sint_t f = h->input(1).signed_fixed();
+        if(!h->input(2).whole())
+            f -= type_unit(tn);
+        f &= numeric_bitmask(tn);
+
+        return f == type_unit(tn) || f == numeric_bitmask(tn);
+    }
+
+    return false;
+}
+
 // Replaces single nodes with one of their inputs.
 // (e.g. X + 0 becomes X, or Y & ~0 becomes Y)
 static bool o_simple_identity(log_t* log, ir_t& ir, bool post_byteified)
@@ -811,7 +852,7 @@ static bool o_simple_identity(log_t* log, ir_t& ir, bool post_byteified)
                                             updated = true;
                                             goto done_add;
                                         }
-                                        else if(input->input(2).eq_whole(0) && input->input(j).eq_low_bit())
+                                        else if(input->input(2).eq_whole(0) && input->input(j).eq_low_bit() && !is_inc_dec(ssa_it))
                                         {
                                             ssa_it->link_change_input(i, input->input(!j));
                                             ssa_it->link_change_input(2, ssa_value_t(1u, TYPE_BOOL));
@@ -2146,4 +2187,3 @@ bool o_identities(log_t* log, ir_t& ir, bool post_byteified)
 
     return updated;
 }
-

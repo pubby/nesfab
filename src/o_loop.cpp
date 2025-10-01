@@ -1402,6 +1402,19 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
             {
                 ssa_ht const phi = root->ssa(true);
 
+                if(d.loop_exits != 1)
+                {
+                    // If our phi is used elsewhere, make sure there is only
+                    // one loop exit.
+                    unsigned const output_size = phi->output_size();
+                    for(unsigned i = 0; i < output_size; ++i)
+                    {
+                        cfg_ht const output = phi->output(i)->cfg_node();
+                        if(!loop_is_parent_of(header, output))
+                            goto done_constraints;
+                    }
+                }
+
                 assert(iterations > 0);
                 fixed_sint_t last = init + increment * iterations;
 
@@ -1429,6 +1442,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
                 auto& prep = ai_prep(phi);
                 prep.constraints.reset(new constraints_t(std::move(c)));
             }
+        done_constraints:
 
             continue;
         }

@@ -1323,7 +1323,7 @@ public:
                 std::unique_ptr<mods_t> mods, ast_node_t* expr)
     {
         if(mods)
-            mods->validate(decl);
+            mods->validate(decl, MOD_spr_8x16);
 
         std::unique_ptr<paa_def_t> paa_def = std::make_unique<paa_def_t>(
             std::move(fn_def.local_consts), std::move(fn_def.name_hashes));

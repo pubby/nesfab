@@ -1967,51 +1967,66 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
         static ssa_op_t op() { return SSA_add; }
     };
 
-    auto const infix = [&](auto const& fn, bool flipped = false, bool lhs_lval = false, bool fence = false) -> expr_value_t
+    auto const infix = [&](auto const& fn, bool flipped = false, bool lval = false, bool fence = false) -> expr_value_t
     {
         auto* ast_lhs = &ast.children[0];
         auto* ast_rhs = &ast.children[1];
 
         if(flipped)
-            std::swap(ast_lhs, ast_rhs);
-
-        expr_value_t lhs = do_expr<D>(*ast_lhs);
-        if(!lhs_lval)
-            lhs = to_rval<D>(std::move(lhs));
-
-        bool insert_fences = false;
-
-        // HACK:
-        // Code gen is improved by inserting fences around array writes.
-        if(fence)
         {
-            lval_t* const lval = lhs.is_lval();
+            assert(!fence);
 
-            if(lval && lval->is_global() && lval->global().gclass() == GLOBAL_VAR
-               && !lval->index())
+            expr_value_t lhs = this->to_rval<D>(do_expr<D>(*ast_lhs));
+            expr_value_t rhs = do_expr<D>(*ast_rhs);
+            if(!lval)
+                rhs = to_rval<D>(std::move(rhs));
+
+            expr_value_t ret = (this->*fn)(std::move(rhs), std::move(lhs), ast.token);
+
+            return ret;
+        }
+        else
+        {
+            expr_value_t lhs = do_expr<D>(*ast_lhs);
+            if(!lval)
+                lhs = to_rval<D>(std::move(lhs));
+
+            bool insert_fences = false;
+
+            // HACK:
+            // Code gen is improved by inserting fences around array writes.
+            if(fence)
             {
-                gvar_ht const gvar = lval->global().handle<gvar_ht>();
-                for(gmember_ht m : gvar->handles())
+                lval_t* const lval = lhs.is_lval();
+
+                if(lval && lval->is_global() && lval->global().gclass() == GLOBAL_VAR
+                   && !lval->index())
                 {
-                    if(is_tea(m->type().name()))
+                    gvar_ht const gvar = lval->global().handle<gvar_ht>();
+                    for(gmember_ht m : gvar->handles())
                     {
-                        insert_fences = true;
-                        break;
+                        if(is_tea(m->type().name()))
+                        {
+                            insert_fences = true;
+                            break;
+                        }
                     }
                 }
             }
+            if(!lval)
+                lhs = to_rval<D>(std::move(lhs));
+
+            if(insert_fences)
+                this->do_fence<D>(SSA_fence);
+
+            expr_value_t rhs = this->to_rval<D>(do_expr<D>(*ast_rhs));
+            expr_value_t ret = (this->*fn)(std::move(lhs), std::move(rhs), ast.token);
+
+            if(insert_fences)
+                this->do_fence<D>(SSA_fence);
+
+            return ret;
         }
-
-        if(insert_fences)
-            this->do_fence<D>(SSA_fence);
-
-        expr_value_t rhs = this->to_rval<D>(do_expr<D>(*ast_rhs));
-        expr_value_t ret = (this->*fn)(std::move(lhs), std::move(rhs), ast.token);
-
-        if(insert_fences)
-            this->do_fence<D>(SSA_fence);
-
-        return ret;
     };
 
     // Declare cross-label vars before switch.
@@ -7717,7 +7732,7 @@ bool eval_t::cast(expr_value_t& value, type_t to_type, bool implicit, pstring_t 
         for(unsigned i = 0; i < size; ++i)
         {
             group_ht const g = to_type.group(i);
-            if(g->data())
+            if(g->any_data())
             {
                 g->require_dummy();
                 value = to_rval<D>(std::move(value));

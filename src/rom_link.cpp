@@ -141,23 +141,10 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
                 compiler_error(g->pstring(), "chrrom is not defined.");
 
             const_t const& chrrom = g->impl<const_t>();
-            ast_node_t const* expr = chrrom.chrrom_offset;
+            std::int64_t const offset = chrrom.eval_chrrom_offset();
             rom_array_ht const rom_array = chrrom.rom_array();
             assert(rom_array);
             std::size_t const size = rom_array->data().size();
-
-            std::int64_t offset = 0;
-            if(expr)
-            {
-                rpair_t const result = interpret_expr(g->pstring(), *expr, TYPE_INT);
-                if(calc_time(result.type, result.value) >= LT)
-                    compiler_error(g->pstring(), "Unable to determine chrrom offset at compile-time.");
-
-                offset = std::get<ssa_value_t>(result.value[0]).signed_whole();
-
-                if(offset < 0)
-                    compiler_error(g->pstring(), fmt("Offset of % is not positive.", offset));
-            }
 
             chr_span_t const new_span = { offset, size };
 

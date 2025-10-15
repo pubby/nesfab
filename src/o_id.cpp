@@ -173,6 +173,65 @@ static bool o_simple_identity(log_t* log, ir_t& ir, bool post_byteified)
 
         switch(ssa_it->op())
         {
+        case SSA_fn_ptr_call:
+            {
+                if(!ssa_it->input(2).is_locator() || ssa_it->input(3))
+                    break;
+
+                locator_t fn = ssa_it->input(2).locator();
+                if(fn.lclass() != LOC_FN_PTR)
+                    break;
+                fn.set_lclass(LOC_FN);
+
+                ssa_value_t bank = ssa_it->input(1);
+                if(bank.is_locator())
+                {
+                    locator_t loc_bank = bank.locator();
+                    if(loc_bank.lclass() != LOC_FN_PTR || loc_bank.fn() != fn.fn() || loc_bank.is() != IS_BANK)
+                        break;
+                    bank = fn.with_is(IS_BANK);
+                }
+                else if(bank)
+                    break;
+
+                std::vector<ssa_value_t> inputs;
+                inputs.push_back(fn);
+                inputs.push_back(bank);
+                for(unsigned i = write_globals_begin(SSA_fn_ptr_call); i < ssa_it->input_size(); i += 1)
+                {
+                    ssa_value_t input = ssa_it->input(i);
+                    if(i % 2 == 1 && input.locator().lclass() == LOC_PTR_ARG)
+                    {
+                        locator_t loc = input.locator();
+                        loc.set_handle(fn.handle());
+                        loc.set_lclass(LOC_ARG);
+                        input = loc;
+                    }
+                    inputs.push_back(input);
+                }
+                assert(write_globals_begin(SSA_fn_call) == 2);
+
+                ssa_it->link_clear_inputs();
+                ssa_it->link_append_input(&*inputs.begin(), &*inputs.end());
+                ssa_it->unsafe_set_op(SSA_fn_call);
+
+                for_each_output_matching(ssa_it, INPUT_LINK, [&](ssa_ht output)
+                {
+                    if(output->op() != SSA_read_global)
+                        return;
+
+                    if(output->input(1).locator().lclass() == LOC_PTR_RETURN)
+                    {
+                        locator_t loc = output->input(1).locator();
+                        loc.set_handle(fn.handle());
+                        loc.set_lclass(LOC_RETURN);
+                        output->link_change_input(1, loc);
+                    }
+                });
+
+                updated = true;
+            }
+            break;
         case SSA_if:
             {
                 if(ssa_it->input(0).holds_ref() && ssa_it->input(0)->op() == SSA_xor)

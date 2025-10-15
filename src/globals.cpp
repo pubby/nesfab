@@ -1374,7 +1374,7 @@ void fn_t::compile()
         return compile_iasm();
 
     // If we're certain we're inline:
-    bool const known_inline = mod_test(mods(), MOD_inline, true) && !referenced();
+    bool const known_inline = mod_test(mods(), MOD_inline, true) && !referenced() && !fn_set();
 
     // Compile the FN.
     ssa_pool::clear();
@@ -1512,11 +1512,11 @@ void fn_t::compile()
     assert(m_always_inline == false);
     if(fclass == FN_FN && !mod_test(mods(), MOD_inline, false))
     {
-        if(referenced())
+        if(referenced() || fn_set())
         {
             m_always_inline = false;
             if(mod_test(mods(), MOD_inline, true))
-                compiler_warning(global.pstring(), fmt("Unable to inline % as its being addressed.", global.name));
+                compiler_warning(global.pstring(), fmt("Unable to inline % since it's being addressed.", global.name));
         }
         else if(mod_test(mods(), MOD_inline, true))
             m_always_inline = true;

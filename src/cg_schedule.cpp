@@ -22,7 +22,7 @@ class scheduler_t
 public:
     std::vector<ssa_ht> schedule;
 
-    scheduler_t(ir_t& ir, cfg_ht cfg_node);
+    scheduler_t(ir_t& ir, cfg_ht cfg_node, bool sloppy);
 private:
 
     static inline TLS array_pool_t<bitset_uint_t> bitset_pool;
@@ -30,6 +30,8 @@ private:
     ir_t& ir;
     cfg_ht const cfg_node;
     unsigned set_size = 0;
+    unsigned cache_guid = 0; // Increments as the algorithm runs. Used for caching / memoizatin.
+    bool sloppy = false;
 
     ssa_ht carry_input_waiting;
     fc::small_set<ssa_ht, 16> unused_global_reads;
@@ -99,9 +101,10 @@ void scheduler_t::calc_exit_distance(ssa_ht ssa, int exit_distance) const
         for_each_node_input(ssa, [&](ssa_ht input){ calc_exit_distance(input, exit_distance); });
 }
 
-scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
+scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_, bool sloppy)
 : ir(ir)
 , cfg_node(cfg_node_)
+, sloppy(sloppy)
 {
     bitset_pool.clear();
     set_size = bitset_size<>(cfg_node->ssa_size());
@@ -260,7 +263,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     }
 
     // Reads should be used before they're rewritten
-    for(ssa_ht ssa_node : toposorted)
+    if(!sloppy) for(ssa_ht ssa_node : toposorted)
     {
         if(ssa_node->op() != SSA_read_global)
             continue;
@@ -440,7 +443,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
     // If a node's result will be stored in a locator eventually,
     // it should come after previous writes/reads to that locator.
-    for(ssa_ht ssa_node : toposorted)
+    if(!sloppy) for(ssa_ht ssa_node : toposorted)
     {
         auto& d = data(ssa_node);
 
@@ -533,7 +536,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     // ARRAYS:
     // - Schedule write_arrays after all read_arrays from previous write_arrays
 
-    for(ssa_ht ssa_node : toposorted)
+    if(!sloppy) for(ssa_ht ssa_node : toposorted)
     {
         using namespace ssai::array;
 
@@ -597,7 +600,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
 
     // ARRAYS:
     // - Schedule read_arrays before any other use
-    for(ssa_ht ssa_node : toposorted)
+    if(!sloppy) for(ssa_ht ssa_node : toposorted)
     {
         using namespace ssai::array;
 
@@ -758,7 +761,7 @@ scheduler_t::scheduler_t(ir_t& ir, cfg_ht cfg_node_)
     }
 
     // OK! Everything was initialized. Now to run the greedy algorithm.
-    constexpr std::size_t SSA_SIZE_THRESHOLD = 10000;
+    std::size_t const SSA_SIZE_THRESHOLD = sloppy ? 500 : 10000;
     if(cfg_node->ssa_size() >= SSA_SIZE_THRESHOLD)
         run<true>();
     else
@@ -939,9 +942,14 @@ bool scheduler_t::ready(unsigned relax, ssa_ht h, bitset_uint_t const* scheduled
         return false;
 
     // A node is ready when all of its inputs are scheduled.
-    for(unsigned i = 0; i < set_size; ++i)
-        if(d.deps[i] & ~scheduled[i])
-            return false;
+    if(!d.inputs_ready)
+    {
+        for(unsigned i = 0; i < set_size; ++i)
+            if(d.deps[i] & ~scheduled[i])
+                return false;
+        if(scheduled == this->scheduled)
+            d.inputs_ready = true;
+    }
 
     if(relax >= 2)
         return true;
@@ -1142,12 +1150,12 @@ ssa_ht scheduler_t::full_search(unsigned relax)
 
 } // end anon namespace
 
-void schedule_ir(ir_t& ir)
+void schedule_ir(ir_t& ir, bool sloppy)
 {
     cg_data_resize();
     for(cfg_ht h = ir.cfg_begin(); h; ++h)
     {
-        scheduler_t s(ir, h);
+        scheduler_t s(ir, h, sloppy);
         cg_data(h).schedule = std::move(s.schedule);
         assert(cg_data(h).schedule.size() == h->ssa_size());
     }

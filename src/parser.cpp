@@ -167,6 +167,32 @@ std::unique_ptr<mods_t> parser_t<P>::parse_mods(int base_indent, bool eol)
                 }
                 break;
 
+            case TOK_subalign:
+                {
+                    parse_token();
+
+                    if(mods->subalign)
+                        compiler_error("Multiple subalign modifiers.");
+
+                    ast_node_t expr = parse_expr();
+                    mods->subalign = policy().convert_eternal_expr(&expr, IDEP_TYPE);
+                    parse_token();
+                }
+                break;
+
+            case TOK_subsegment:
+                {
+                    parse_token();
+
+                    if(mods->subsegment)
+                        compiler_error("Multiple subsegment modifiers.");
+
+                    ast_node_t expr = parse_expr();
+                    mods->subsegment = policy().convert_eternal_expr(&expr, IDEP_TYPE);
+                    parse_token();
+                }
+                break;
+
             case TOK_omni:
                 compiler_error("Unknown modifier. Did you mean 'data'?");
                 break;
@@ -1498,28 +1524,30 @@ bool parser_t<P>::parse_byte_block(pstring_t decl, int block_indent, global_t& g
                 unsigned const label_indent = indent;
                 bool const is_default = token.type == TOK_default;
                 bool is_anonymous = false;
-
                 pstring_t name = token.pstring;
-                parse_token();
-                if(!is_default)
-                {
-                    if(token.type == TOK_ident)
+
+                std::unique_ptr<mods_t> mods = parse_mods_after([&]{ 
+                    parse_token();
+                    if(!is_default)
                     {
-                        name = token.pstring;
-                        parse_token(TOK_ident);
+                        if(token.type == TOK_ident)
+                        {
+                            name = token.pstring;
+                            parse_token(TOK_ident);
+                        }
+                        else
+                            is_anonymous = true;
                     }
-                    else
-                        is_anonymous = true;
-                }
+                });
 
                 if(conditional && !is_anonymous)
                     compiler_error(name, "Label inside a conditional if/else block.");
 
-                parse_line_ending();
                 children.push_back(policy().byte_block_label(name, global.handle(), group, 
-                                                             is_vars, is_default, is_anonymous, is_banked, is_chrrom, nullptr));
+                                                             is_vars, is_default, is_anonymous, is_banked, is_chrrom, std::move(mods)));
 
                 proc |= parse_byte_block(decl, label_indent, global, group, is_vars, is_banked, is_chrrom, conditional, children);
+                children.push_back(policy().end_byte_block_label(name));
             }
             return;
 

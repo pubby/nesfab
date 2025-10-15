@@ -5,6 +5,7 @@
 #include <string_view>
 #include <vector>
 #include <functional>
+#include <limits>
 
 #include "flat/flat_map.hpp"
 
@@ -81,6 +82,9 @@ struct mods_t : public flag_mods_t
     global_t const* nmi = nullptr;
     global_t const* irq = nullptr;
 
+    ast_node_t const* subalign = nullptr;
+    ast_node_t const* subsegment = nullptr;
+
     mods_t() = default;
 
     explicit mods_t(mod_flags_t enable, mod_flags_t disable = 0) 
@@ -104,7 +108,8 @@ struct mods_t : public flag_mods_t
         pstring_t at,
         mod_flags_t accepts_flags = 0, 
         mod_list_t accepts_lists = 0,
-        bool accepts_nmi_irq = false) const;
+        bool accepts_nmi_irq = false,
+        bool accepts_subalign_subsegment = false) const;
 };
 
 void inherit(std::unique_ptr<mods_t>& mods, std::unique_ptr<mods_t> const& from);

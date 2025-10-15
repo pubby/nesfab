@@ -312,6 +312,7 @@ void byteify(ir_t& ir, fn_t const& fn)
             {
                 unsigned const PTR = ssa_ptr_input(ssa_it->op());
                 unsigned const PTR_HI = ssa_ptr_hi_input(ssa_it->op());
+                ssa_value_t input;
 
                 // fn_ptr_call only sometimes uses a make_ptr pointer.
                 if(ssa_it->op() == SSA_fn_ptr_call)
@@ -326,8 +327,12 @@ void byteify(ir_t& ir, fn_t const& fn)
                     goto make_ptr;
                 }
 
+                input = ssa_it->input(PTR);
+                while(input.holds_ref() && input->op() == SSA_cast)
+                    input = input->input(0);
+
                 // Pointer accesses may create 'SSA_make_ptr' nodes.
-                if(ssa_it->input(PTR).holds_ref())
+                if(input.holds_ref())
                 {
                 make_ptr:
                     assert(!ssa_it->input(PTR_HI).holds_ref());
@@ -343,10 +348,10 @@ void byteify(ir_t& ir, fn_t const& fn)
                     // We created nodes, so we have to resize:
                     ssa_data_pool::resize<ssa_byteify_d>(ssa_pool::array_size());
                 }
-                else if(ssa_it->input(PTR).is_num())
+                else if(input.is_num())
                 {
                     assert(is_ptr(ssa_it->input(PTR).type().name()));
-                    ssa_it->link_change_input(PTR, locator_t::addr(ssa_it->input(PTR).whole()));
+                    ssa_it->link_change_input(PTR, locator_t::addr(input.whole()));
                 }
             done_make_ptr:;
             }

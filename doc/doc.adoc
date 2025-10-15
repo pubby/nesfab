@@ -751,6 +751,20 @@ nesfab --sloppy
 sloppy = 1
 ----
 
+=== `print-size`
+
+This option prints an estimate of ROM usage after compiling. 
+
+*Command-line usage:*
+----
+nesfab --print-size
+----
+
+*Configuration file usage:*
+----
+sloppy = 1
+----
+
 === `ipcm`, `ipcm-period`
 
 These options insert `inc $4011` writes into the program.
@@ -2471,8 +2485,8 @@ label identifier
 
 Labels without identifires are called anonymous labels and can be referenced using the <<kw_label_expr>> syntax.
 
-The `byte_block` of `label` exists only to provide a scope.
-There is no other difference between the syntax above, and this:
+The `byte_block` of `label` primarly exists to provide a scope.
+Without modifiers, there is no difference between the syntax above, and this:
 
 ----
 label identifier
@@ -2500,6 +2514,10 @@ data /some_group
             jmp label+ // Jumps to the next label outside the 'if' block.
         label
 ----
+
+*Modifiers:*
+
+- <<mod_subalign_subsegment>>.
 
 === `return` [[kw_return]]
 
@@ -4511,6 +4529,10 @@ See <<mod_stows>>.
 
 See <<mod_employs>>.
 
+=== `subalign`, `subsegment` [[kw_subalign_subsegment]]
+
+See <<mod_subalign_subsegment>>.
+
 === Implementation Keywords
 
 Keywords prefixed with two underscores (`__`) provide access to specific niches of the compiler,
@@ -4798,6 +4820,37 @@ Syntax:
 - `/group_names` is an optional list of `data` groups.
 
 The function will be checked by the compiler to ensure it only uses variables from the listed groups.
+
+=== `subalign`, `subsegment` [[mod_subalign_subsegment]]
+
+The `subalign` and `subsegment` <<modifiers, modifiers>> modifiers force <<kw_label_asm, byte block labels>> to an alignment relative to their scope.
+
+- `subalign` forces the label to be aligned.
+- `subsegment` forces the data scoped inside the label to not cross any alingment boundaries.
+
+Syntax:
+----
+: subalign value
+: subsegment value
+----
+
+- `value` is an expression of type Int.
+
+Example:
+----
+data /foo
+    [] my_data
+        U(10)
+        label a
+        : align 8
+            U(20)
+----
+
+In the example above, 7 padding bytes would be inserted after `U(10)` to align `label a`.
+
+[NOTE]
+These modifiers do not affect the alignment of the containing allocation. 
+Use <<mod_flags, `+align`>> for that.
 
 == Operators
 

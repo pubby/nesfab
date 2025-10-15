@@ -1172,7 +1172,7 @@ void do_inst_rw(fn_t const& fn, rh::batman_set<locator_t> const& map, asm_inst_t
             unsigned const i = &loc - map.begin();
 
             // Every return will be "read" by the rts:
-            if(loc.lclass() == LOC_RETURN)
+            if(loc.lclass() == LOC_RETURN && loc.fn() == fn.handle())
                 rw(i, true, false);
 
             // Some gmembers will be written:

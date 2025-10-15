@@ -21,9 +21,15 @@ ct fn uvec_prefix_size_uu(U{} vec) U{}
     return vec
 
 // Reverses the contents of 'vec':
-ct fn uvec_reverse(U{} vec)
+ct fn uvec_reverse(U{} vec) U{}
     U{} reversed
     for Int i = 0; i < len(vec); i += 1
         push(reversed, pop(vec))
     return reversed
+
+// Appends 'b' onto 'a', returning it.
+ct fn uvec_concat(U{} a, U{} b) U{}
+    for Int i = 0; i < len(b); i += 1
+        push(a, b{i})
+    return a
 

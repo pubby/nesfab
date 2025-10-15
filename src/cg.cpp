@@ -594,7 +594,7 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
     }
     
     ir.assert_valid(true);
-    schedule_ir(ir);
+    schedule_ir(ir, compiler_options().sloppy || mod_test(fn.mods(), MOD_sloppy));
     o_schedule(ir);
 
     for(cfg_ht cfg_it = ir.cfg_begin(); cfg_it; ++cfg_it)
@@ -964,8 +964,10 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
                         store = prune_early_store(store);
                     }
                     else
+                    {
                         dprint(log, "-FAIL_COALESCE_EARLY_STORE", store, parent, store->output(0), 
                                cset_locator(store), cset_locator(parent), (bool)last);
+                    }
                 }
             }
         }

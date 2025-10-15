@@ -353,6 +353,20 @@ constexpr op_t fast_op(op_t op)
     }
 }
 
+constexpr bool is_direct(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    case MODE_IMPLIED:
+    case MODE_IMMEDIATE:
+    case MODE_ABSOLUTE:
+    case MODE_ZERO_PAGE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 constexpr bool is_simple_load(op_name_t name)
 {
     switch(name)

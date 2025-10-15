@@ -28,6 +28,13 @@
 #include "text.hpp"
 #include "switch.hpp"
 
+unsigned max_paa_size()
+{
+    if(mapper().bank_size() > 16384)
+        return std::max<unsigned>(16384, (mapper().bank_size() * 3) / 4);
+    return 16384;
+}
+
 //////////////
 // global_t //
 //////////////
@@ -2053,8 +2060,8 @@ void global_datum_t::resolve()
         if(def_length && def_length != data_size)
              compiler_error(m_src_type.pstring, fmt("Length of data (%) does not match its type %.", data_size, m_src_type.type));
 
-        if(data_size > MAX_PAA_SIZE && !is_chrrom())
-            compiler_error(global.pstring(), fmt("Data is of size % is too large to handle. Maximum size: %.", data_size, MAX_PAA_SIZE));
+        if(data_size > max_paa_size() && !is_chrrom())
+            compiler_error(global.pstring(), fmt("Data is of size % is too large to handle. Maximum size: %.", data_size, max_paa_size()));
 
         m_src_type.type.set_array_length(data_size);
         std::visit([this](auto&& v){ paa_init(std::move(v)); }, data);

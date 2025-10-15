@@ -39,6 +39,14 @@ asm fn rand() U
         rts
 
 // Returns a pseudo-random 16-bit value.
+fn rand_uf() UF
+: +inline
+    UF result
+    result.a = rand()
+    result.z = rand()
+    return result
+
+// Returns a pseudo-random 16-bit value.
 fn rand_uu() UU
 : +inline
     UU result
@@ -72,3 +80,25 @@ fn randb(U bound) U
         result = rand() & mask
 
     return result
+
+// Returns a random value less than 'bound', or 0 if 'bound' is 0.
+fn randb_uu(UU bound) UU
+    if bound == 0
+        return 0
+
+    ct UU[16] table = UU[16](1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535)
+
+    U i = $FF
+    do for UU v = bound - 1; v; v >>= 1
+        i += 1
+    UU mask = table[i]
+
+    UU result
+    do while result >= bound
+        result = rand_uu() & mask
+
+    return result
+
+// Returns a random value less than 'bound', or 0 if 'bound' is 0.
+fn randb_uf(UF bound) UF
+    return UF(UUF(randb_uu(UU(UUF(bound) << 8))) >> 8)

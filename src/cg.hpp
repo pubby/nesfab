@@ -29,7 +29,6 @@ struct cfg_liveness_d
 
 struct cfg_order_d
 {
-    std::vector<unsigned> pheramones;
     std::uint16_t bytes = 0;
     std::uint16_t offset = 0;
 };
@@ -53,6 +52,8 @@ struct ssa_schedule_d
 
     int bitset_index = 0;
     int index = 0;
+
+    bool inputs_ready = false; // memoized value
 };
 
 struct ssa_isel_d

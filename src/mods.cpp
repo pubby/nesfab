@@ -143,7 +143,8 @@ void mods_t::validate(
     pstring_t pstring,
     mod_flags_t accepts_flags, 
     mod_list_t accepts_lists,
-    bool accepts_nmi_irq) const
+    bool accepts_nmi_irq,
+    bool accepts_subalign_subsegment) const
 {
     if(~accepts_lists & explicit_lists)
     {
@@ -164,6 +165,12 @@ void mods_t::validate(
 
     if(!accepts_nmi_irq && irq)
         compiler_error(pstring, "Unexpected irq modifier.");
+
+    if(!accepts_subalign_subsegment && subalign)
+        compiler_error(pstring, "Unexpected subalign modifier.");
+
+    if(!accepts_subalign_subsegment && subsegment)
+        compiler_error(pstring, "Unexpected subsegment modifier.");
 
     mod_flags_t const bad_enable = enable & ~accepts_flags;
     mod_flags_t const bad_disable = disable & ~accepts_flags;

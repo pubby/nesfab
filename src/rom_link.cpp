@@ -48,7 +48,7 @@ static void write_linked(
         *at++ = linked_to_rom(vec[i].link(romv, {}, bank), true, true);
 }
 
-std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
+ines_file_t write_rom(std::uint8_t default_fill)
 {
     // Handle gvar RAM inits now:
     for(gvar_t& gvar : gvar_ht::values())
@@ -60,23 +60,25 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         rom_proc.remove_banked_jsr();
     }
 
-    std::size_t const header_size = mapper().ines_header_size();
-    std::size_t const prg_rom_size = mapper().prg_size();
-    std::size_t const chr_rom_size = mapper().num_8k_chr_rom * 0x2000;
-    std::size_t const total_size = header_size + chr_rom_size + prg_rom_size;
+    ines_file_t f = {};
 
-    std::size_t const header_start = 0;
-    std::size_t const prg_rom_start = header_start + header_size;
-    std::size_t const chr_rom_start = prg_rom_start + prg_rom_size;
+    f.header_size = mapper().ines_header_size();
+    f.prg_rom_size = mapper().prg_size();
+    f.chr_rom_size = mapper().num_8k_chr_rom * 0x2000;
+    std::size_t const total_size = f.header_size + f.chr_rom_size + f.prg_rom_size;
 
-    std::vector<std::uint8_t> rom(total_size, default_fill);
+    f.header_start = 0;
+    f.prg_rom_start = f.header_start + f.header_size;
+    f.chr_rom_start = f.prg_rom_start + f.prg_rom_size;
 
-    write_ines_header(rom.data() + header_start, mapper());
+    f.rom.resize(total_size, default_fill);
+
+    write_ines_header(f.rom.data() + f.header_start, mapper());
 
     auto const file_addr = [&](span_t span, unsigned bank) -> std::uint8_t*
     {
         passert(bank < mapper().num_banks, bank);
-        return rom.data() + prg_rom_start + bank * mapper().bank_size() + span.addr - mapper().bank_span(bank).addr;
+        return f.rom.data() + f.prg_rom_start + bank * mapper().bank_size() + span.addr - mapper().bank_span(bank).addr;
     };
 
     auto const write = [&](auto const& alloc, bool stat = false)
@@ -128,7 +130,7 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             *file_addr({ addr, 1 }, bank) = (bank << bank_shift()) + bank_add();
     }
 
-    if(chr_rom_size)
+    if(f.chr_rom_size)
     {
         using chr_span_t = generic_span_t<std::uint32_t>;
 
@@ -148,11 +150,11 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
 
             chr_span_t const new_span = { offset, size };
 
-            if(new_span.end() > chr_rom_size)
+            if(new_span.end() > f.chr_rom_size)
             {
                 compiler_error(g->pstring(),
                     fmt("chrrom of size % at offset % exceeds the mapper's expected size of % by % bytes.", 
-                        new_span.size, new_span.addr, chr_rom_size, new_span.end() - chr_rom_size));
+                        new_span.size, new_span.addr, f.chr_rom_size, new_span.end() - f.chr_rom_size));
             }
 
             for(auto const& pair : spans)
@@ -169,13 +171,13 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
             spans.emplace_back(new_span, g);
             total_size += size;
 
-            write_linked(rom_array->data(), ROMV_MODE, 0, rom.data() + chr_rom_start + offset);
+            write_linked(rom_array->data(), ROMV_MODE, 0, f.rom.data() + f.chr_rom_start + offset);
         });
 
         if(total_size == 0)
             compiler_warning(fmt("Mapper % requires chrrom, but none was defined.", mapper().name()));
-        else if(total_size < chr_rom_size)
-            compiler_warning(fmt("chrrom of size % is smaller the mapper's expected size of %.", total_size, chr_rom_size));
+        else if(total_size < f.chr_rom_size)
+            compiler_warning(fmt("chrrom of size % is smaller the mapper's expected size of %.", total_size, f.chr_rom_size));
     }
     else if(global_t::has_chrrom())
     {
@@ -185,5 +187,33 @@ std::vector<std::uint8_t> write_rom(std::uint8_t default_fill)
         });
     }
 
-    return rom;
+    return f;
+}
+
+double estimate_rom_usage(std::uint8_t const* data, std::size_t size, std::size_t min_span)
+{
+    if(size == 0)
+        return 0.0;
+
+    std::size_t zeroes = 0;
+    std::size_t span = 0;
+
+    auto const finish_span = [&]()
+    {
+        if(span >= min_span)
+            zeroes += span;
+        span = 0;
+    };
+
+    for(std::size_t i = 0; i < size; i += 1)
+    {
+        if(data[i])
+            finish_span();
+        else
+            span += 1;
+    }
+
+    finish_span();
+
+    return double(size - zeroes) / double(size);
 }

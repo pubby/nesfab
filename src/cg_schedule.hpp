@@ -3,7 +3,7 @@
 
 #include "ir_decl.hpp"
 
-void schedule_ir(ir_t& ir);
+void schedule_ir(ir_t& ir, bool sloppy);
 
 // Optimize the IR after scheduling:
 void o_schedule(ir_t& ir);

@@ -69,6 +69,7 @@ unsigned ast_node_t::num_children() const
     case TOK_state:
     case TOK_byte_vec:
     case TOK_locator_vec:
+    case TOK_byte_block_label:
         return 0;
     }
 }

@@ -58,6 +58,7 @@ RT(jmp_trampoline) \
 RT(jsr_trampoline) \
 RT(jmp_indirect) \
 RT(iota) \
+RT(negate_table) \
 RT(mul8) \
 RT(mapper_reset) \
 RT(shl4_table) \

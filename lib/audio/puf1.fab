@@ -25,12 +25,12 @@
 // puf.play_sfx(U sfx_id)
 // - Assigns the specified sound effect to be played.
 
-// puf.process(U enable) Bool
+// puf.process(U enable) U
 // - Call this once per frame to play the audio, ideally at the end of your NMI function.
 // - 'enable' is a bitmask of which channels to play, along with a few other options:
 // --- If enable has 'PUF_LOOP' set, the song will loop after completion.
 // --- If you want the typical behavior, pass 'PUF_DEFAULT' as the 'enable' parameter.
-// - Returns 'true' when the song ends and 'false' otherwise.
+// - Returns '1' when the song ends and '0' otherwise.
 
 // puf.set_speed(U speed)
 // - Sets the song's current speed to the desired value.

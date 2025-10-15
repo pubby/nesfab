@@ -691,6 +691,8 @@ int main()
         keyword("__xfab"),
         keyword("push"),
         keyword("pop"),
+        keyword("subalign"),
+        keyword("subsegment"),
 
         keyword("true"),
         keyword("false"),
@@ -883,6 +885,7 @@ int main()
         accept("byte_block_data", "byte block", eof()),
         accept("byte_block_asm_op", "assembly instruction", eof()),
         accept("byte_block_label", "assembly label", eof()),
+        accept("byte_block_label_end", "assembly label end", eof()),
         accept("byte_block_call", "assembly fn call", eof()),
         accept("byte_block_goto", "assembly goto", eof()),
         accept("byte_block_goto_mode", "assembly goto mode", eof()),

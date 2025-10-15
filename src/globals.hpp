@@ -937,4 +937,6 @@ fn_t const& get_main_mode();
 
 charmap_t const& get_charmap(pstring_t from, global_t const& global);
 
+unsigned max_paa_size();
+
 #endif

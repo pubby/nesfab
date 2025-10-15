@@ -42,6 +42,8 @@ struct options_t
 
     bool expansion_audio = false;
 
+    bool print_size = false;
+
 #ifndef LEGAL
     bool legal = false;
 #else

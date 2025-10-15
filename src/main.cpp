@@ -303,6 +303,9 @@ void handle_options(fs::path dir, po::options_description const& cfg_desc, po::v
         if(_options.ipcm_period < min_ipcm)
             throw std::runtime_error(fmt("Invalid IPCM period: %. Must be % or higher.", _options.ipcm_period, min_ipcm));
     }
+
+    if(vm.count("print-size"))
+        _options.print_size = true;
 }
 
 int main(int argc, char** argv)
@@ -380,6 +383,7 @@ int main(int argc, char** argv)
                 ("sram-init", "initialize SRAM with 0 bytes")
                 ("vram-init", "initialize VRAM with 0 bytes")
                 ("sector-size,c", po::value<unsigned>(), "size of mapper sectors in KiB")
+                ("print-size", "display ROM size")
             ;
 
             po::options_description cmdline_full;
@@ -719,17 +723,24 @@ int main(int argc, char** argv)
         output_time("alloc rom:");
 
         set_compiler_phase(PHASE_LINK);
-        auto rom = write_rom();
+        auto ines = write_rom();
         FILE* of = std::fopen(compiler_options().output_file.c_str(), "wb");
         if(!of)
             throw std::runtime_error(fmt("Unable to open file %", compiler_options().output_file));
-        if(!std::fwrite(rom.data(), rom.size(), 1, of))
+        if(!std::fwrite(ines.rom.data(), ines.rom.size(), 1, of))
         {
             std::fclose(of);
             throw std::runtime_error(fmt("Unable to write to file %", compiler_options().output_file));
         }
         std::fclose(of);
         output_time("link:     ");
+
+        if(compiler_options().print_size)
+        {
+            std::printf("ROM usage:    %3i%%\n", (int)std::round(100.0 * estimate_rom_usage(ines.rom.data() + ines.prg_rom_start, ines.prg_rom_size)));
+            if(ines.chr_rom_size)
+                std::printf("CHRROM usage: %3i%%\n", (int)std::round(100.0 * estimate_rom_usage(ines.rom.data() + ines.chr_rom_start, ines.chr_rom_size)));
+        }
 
         if(mlb_out)
             print_mlb(mlb_out);

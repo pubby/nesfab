@@ -39,6 +39,17 @@ class eval_t;
 
 using ssa_value_array_t = bc::small_vector<ssa_value_t, 1>;
 
+namespace
+{
+    struct sub_t
+    {
+        unsigned index;  // Index into proc.code
+        unsigned offset; // Offset in bytes
+        unsigned segment;   // Size in bytes
+        pstring_t pstring;
+    };
+} // end anonymous namespace
+
 // Data associated with each block node, to be used when making IRs.
 struct block_d
 {
@@ -85,6 +96,7 @@ private:
     std::vector<expr_value_t> extra; // Extra data that can be passed around.
     bc::small_vector<rval_t, 8> interpret_locals;
     bc::small_vector<type_t, 8> var_types;
+    bc::small_vector<sub_t, 4> label_sub_stack; // Used for subalign, etc.
 
     using clock = sc::steady_clock;
     sc::time_point<clock> start_time;
@@ -1693,6 +1705,33 @@ void eval_t::compile_block()
     assert(false);
 }
 
+static void _finish_segment(asm_proc_t& proc, sub_t const& parent_sub)
+{
+    if(!parent_sub.segment)
+        return;
+
+    unsigned const vec_end = proc.code.size();
+    assert(parent_sub.index < proc.code.size());
+    unsigned bytes = proc.bytes_between(parent_sub.index, proc.code.size());
+
+    if(bytes > parent_sub.segment)
+    {
+        compiler_error(parent_sub.pstring, fmt("Segment of size % does not fit into subsegment of %.", 
+                                            bytes, parent_sub.segment));
+    }
+
+    if((parent_sub.offset % parent_sub.segment) + bytes > parent_sub.segment)
+    {
+        unsigned const pad = parent_sub.segment - (parent_sub.offset % parent_sub.segment);
+
+        for(unsigned i = 0; i < pad; i += 1)
+            proc.push_inst(asm_inst_t{});
+    
+        std::move_backward(proc.code.begin() + parent_sub.index, proc.code.begin() + vec_end, proc.code.end());
+        std::fill_n(proc.code.begin() + parent_sub.index, pad, asm_inst_t{ .op = ASM_DATA, .arg = locator_t::const_byte(0) });
+    }
+}
+
 template<eval_t::do_t D>
 void eval_t::do_byte_block(ast_node_t const& ast, asm_proc_t& proc)
 {
@@ -1759,8 +1798,59 @@ void eval_t::do_byte_block(ast_node_t const& ast, asm_proc_t& proc)
                 global_ht const global = { sub.token.value >> 32 };
                 unsigned const index = sub.token.value & 0xFFFFFFFF;
 
+                mods_t const* const mods = ast.children[i].mods;
+
+                sub_t const& parent_sub = label_sub_stack.back();
+
+                unsigned subsegment = 0;
+
+                if(mods && mods->subsegment)
+                {
+                    rpair_t const result = interpret_expr(ast.children[i].token.pstring, *mods->subsegment, TYPE_INT, this, nullptr);
+                    if(calc_time(result.type, result.value) >= LT)
+                        compiler_error(ast.children[i].token.pstring, "Unable to determine subsegment at compile-time.");
+                    subsegment = std::get<ssa_value_t>(result.value[0]).whole();
+
+                }
+
+                if(mods && mods->subalign)
+                {
+                    rpair_t const result = interpret_expr(ast.children[i].token.pstring, *mods->subalign, TYPE_INT, this, nullptr);
+                    if(calc_time(result.type, result.value) >= LT)
+                        compiler_error(ast.children[i].token.pstring, "Unable to determine subalign at compile-time.");
+                    unsigned const subalign = std::get<ssa_value_t>(result.value[0]).whole();
+
+                    if(subsegment && subalign % subsegment != 0)
+                        compiler_error(pstring, "subalign must be a multiple of subsegment.");
+
+                    unsigned bytes = proc.bytes_between(parent_sub.index, proc.code.size());
+                    while(bytes % subalign)
+                    {
+                        proc.push_inst({ .op = ASM_DATA, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::const_byte(0) });
+                        bytes += 1;
+                    }
+                }
+
+                assert(label_sub_stack.size());
+
+                label_sub_stack.push_back({
+                    .index = proc.code.size(),
+                    .offset = proc.bytes_between(parent_sub.index, proc.code.size()),
+                    .segment = subsegment,
+                    .pstring = ast.children[i].token.pstring,
+                });
+
                 assert(global);
                 proc.push_inst({ .op = ASM_LABEL, .iasm_child = proc.add_pstring(pstring), .arg = locator_t::named_label(global, index) });
+            }
+            break;
+
+        case TOK_byte_block_label_end:
+            if(!is_check(D))
+            {
+                assert(label_sub_stack.size());
+                _finish_segment(proc, label_sub_stack.back());
+                label_sub_stack.pop_back();
             }
             break;
 
@@ -3751,7 +3841,17 @@ expr_value_t eval_t::do_expr(ast_node_t const& ast)
                 }
             }
 
+            label_sub_stack.clear();
+            if(!is_check(D))
+                label_sub_stack.push_back({});
+
             do_byte_block<D>(ast, proc);
+
+            if(!is_check(D))
+            {
+                passert(label_sub_stack.size() == 1, label_sub_stack.size());
+                _finish_segment(proc, label_sub_stack[0]);
+            }
 
             if(!is_check(D))
                 byte_block_data = std::move(proc);

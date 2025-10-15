@@ -686,6 +686,17 @@ namespace isel
             cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota), {}, /*-cost_fn(STA_MAYBE) / 2*/ 0));
     };
 
+    // Generates an op using the 1,0 table.
+    template<typename Opt, op_t Op, typename Def = null_> [[gnu::noinline]]
+    void negate_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
+    {
+        static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
+        cpu_t cpu_copy = cpu;
+        if(cpu_copy.set_output_defs<Op>(Opt::to_struct, Def::value()))
+            cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_negate_table), {}, /*-cost_fn(STA_MAYBE) / 2*/ 0));
+    };
+
+
     template<typename Opt, typename Load, typename Def> [[gnu::noinline]]
     void load_NZ_for_impl(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
@@ -3491,17 +3502,54 @@ namespace isel
                 , store<Opt, STA, p_def, p_def>
                 >(cpu, prev, cont);
 
-                chain
-                < load_AX<Opt, p_lhs, p_rhs>
-                , iota_op<Opt, EOR_ABSOLUTE_X, p_def>
-                , store<Opt, STA, p_def, p_def>
-                >(cpu, prev, cont);
+                if(h->type() == TYPE_BOOL && p_rhs::value().eq_const_byte(1))
+                {
+                    chain
+                    < load_X<Opt, p_lhs>
+                    , negate_op<Opt, LDA_ABSOLUTE_X, p_def>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
 
-                chain
-                < load_AY<Opt, p_lhs, p_rhs>
-                , iota_op<Opt, EOR_ABSOLUTE_Y, p_def>
-                , store<Opt, STA, p_def, p_def>
-                >(cpu, prev, cont);
+                    chain
+                    < load_X<Opt, p_lhs>
+                    , negate_op<Opt, LDY_ABSOLUTE_X, p_def>
+                    , store<Opt, STY, p_def, p_def>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_Y<Opt, p_lhs>
+                    , negate_op<Opt, LDA_ABSOLUTE_Y, p_def>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_Y<Opt, p_lhs>
+                    , negate_op<Opt, LDX_ABSOLUTE_Y, p_def>
+                    , store<Opt, STX, p_def, p_def>
+                    >(cpu, prev, cont);
+
+#ifndef LEGAL
+                    chain
+                    < load_Y<Opt, p_lhs>
+                    , negate_op<Opt, LAX_ABSOLUTE_Y, p_def>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+#endif
+                }
+                else
+                {
+                    chain
+                    < load_AX<Opt, p_lhs, p_rhs>
+                    , iota_op<Opt, EOR_ABSOLUTE_X, p_def>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+
+                    chain
+                    < load_AY<Opt, p_lhs, p_rhs>
+                    , iota_op<Opt, EOR_ABSOLUTE_Y, p_def>
+                    , store<Opt, STA, p_def, p_def>
+                    >(cpu, prev, cont);
+                }
             });
             break;
 
@@ -5623,10 +5671,15 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
             regs_t gen = 0;
             regs_t kill = 0;
+            bool branched = false;
             for(asm_inst_t& inst : code_temp)
             {
                 gen |= op_input_regs(inst.op) & ~kill;
-                kill |= op_output_regs(inst.op);
+                if(!branched)
+                    kill |= op_output_regs(inst.op);
+
+                if(op_flags(inst.op) & ASMF_BRANCH)
+                    branched = true; // 'kill' becomes unreliable after a branch.
 
                 if(op_flags(inst.op) & ASMF_MAYBE_STORE)
                 {

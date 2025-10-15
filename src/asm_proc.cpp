@@ -139,7 +139,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         auto const peep_transfer2 = [&](op_name_t second, op_t replace)
         {
             if(op_name(b.op) == second 
-               && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
+               && is_direct(op_addr_mode(a.op))
+               && is_direct(op_addr_mode(b.op))
                && a.arg == b.arg
                && a.alt == b.alt
                && (!a.arg || a.arg.known_variable()))
@@ -303,6 +304,8 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         if(c 
            && is_simple_load(op_name(a.op)) 
            && is_simple_load(op_name(c->op)) 
+           && is_direct(op_addr_mode(a.op))
+           && is_direct(op_addr_mode(c->op))
            && a.arg == c->arg && a.alt == c->alt
            && (!a.arg || a.arg.known_memory()) 
            && (!a.alt || a.alt.known_memory())

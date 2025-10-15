@@ -530,7 +530,7 @@ public:
         }
 
         if(mods)
-            mods->validate(label);
+            mods->validate(label, 0, 0, false, true);
 
         assert(active_global);
         std::uint64_t const value = i | (std::uint64_t(global.id) << 32);
@@ -539,6 +539,13 @@ public:
         if(mods)
             ast.mods = eternal_emplace<mods_t>(std::move(*mods));
 
+        return ast;
+    }
+
+    [[gnu::always_inline]]
+    ast_node_t end_byte_block_label(pstring_t label)
+    {
+        ast_node_t ast = { .token = { .type = lex::TOK_byte_block_label_end, .pstring = label }};
         return ast;
     }
 

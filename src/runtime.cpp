@@ -1150,6 +1150,15 @@ static loc_vec_t make_iota()
     return ret;
 }
 
+static loc_vec_t make_negate_table()
+{
+    loc_vec_t ret;
+    ret.reserve(2);
+    ret.push_back(locator_t::const_byte(1));
+    ret.push_back(locator_t::const_byte(0));
+    return ret;
+}
+
 static loc_vec_t make_shl_table(unsigned amount)
 {
     assert(amount < 8);
@@ -1287,6 +1296,7 @@ span_allocator_t alloc_runtime_rom()
 
     // These have to be defined in a toposorted order.
     alloc(RTROM_iota, make_iota());
+    alloc(RTROM_negate_table, make_negate_table());
     alloc(RTROM_shl4_table, make_shl_table(4));
     alloc(RTROM_shl5_table, make_shl_table(5));
     alloc(RTROM_shl6_table, make_shl_table(6));

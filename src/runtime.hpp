@@ -68,6 +68,8 @@ RT(shl6_table)
 constexpr int MIN_SHL_TABLE = 4;
 constexpr int MAX_SHL_TABLE = 6;
 
+constexpr int IOTA_TABLE_SIZE = 256 + 16;
+
 enum runtime_rom_name_t : std::uint16_t
 {
 #define RT(name) RTROM_##name,

@@ -33,6 +33,7 @@ constexpr unsigned SSAF_FREE           = 1 << 22;
 constexpr unsigned SSAF_EXPENSIVE      = 1 << 23;
 constexpr unsigned SSAF_TABLE8         = 1 << 24; // Uses a table
 constexpr unsigned SSAF_RUNTIME        = 1 << 25;
+constexpr unsigned SSAF_BRANCH_CONDITION = 1 << 26; // Converts to a branch instruction
 
 // Parameter indexes for SSA ops
 namespace ssai

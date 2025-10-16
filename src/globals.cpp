@@ -1440,20 +1440,25 @@ void fn_t::compile()
             RUN_O(o_identities, log, ir, post_byteified);
             save_graph(ir, fmt("D_post_id_%_%", post_byteified, iter).c_str());
 
+            RUN_O(o_bool_tables, log, ir);
+            if(post_byteified)
+                RUN_O(o_switch_tables, log, ir);
+            save_graph(ir, fmt("E_post_tables_%_%", post_byteified, iter).c_str());
+
             // 'o_loop' populates 'ai_prep', which feeds into 'o_abstract_interpret'.
             // Thus, they must occur sequentially.
             reset_ai_prep();
-            save_graph(ir, fmt("E_pre_loop_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("F_pre_loop_%_%", post_byteified, iter).c_str());
             RUN_O(o_loop, log, ir, post_byteified, sloppy());
-            save_graph(ir, fmt("F_pre_ai_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("G_pre_ai_%_%", post_byteified, iter).c_str());
             RUN_O(o_abstract_interpret, log, ir, post_byteified);
-            save_graph(ir, fmt("G_post_ai_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("H_post_ai_%_%", post_byteified, iter).c_str());
 
             RUN_O(o_remove_unused_ssa, log, ir);
 
-            save_graph(ir, fmt("H_pre_motion_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("I_pre_motion_%_%", post_byteified, iter).c_str());
             RUN_O(o_motion, log, ir);
-            save_graph(ir, fmt("I_post_motion_%_%", post_byteified, iter).c_str());
+            save_graph(ir, fmt("J_post_motion_%_%", post_byteified, iter).c_str());
 
             if(post_byteified)
             {
@@ -1492,9 +1497,14 @@ void fn_t::compile()
     }
 
     // Convert shifts and switches:
-    // NOTE: Do NOT use operator || here.
-    if(o_shl_tables(log, ir) | switch_partial_to_full(ir))
-        optimize_suite(false);
+    {
+        bool modified = false;
+        modified |= o_shl_tables(log, ir);
+        modified |= switch_partial_to_full(ir);
+        modified |= o_switch_tables(log, ir);
+        if(modified)
+            optimize_suite(false);
+    }
     save_graph(ir, "4_transform");
 
     byteify(ir, *this);

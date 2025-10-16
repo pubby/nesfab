@@ -1144,9 +1144,9 @@ asm_proc_t make_mul8()
 static loc_vec_t make_iota()
 {
     loc_vec_t ret;
-    ret.reserve(256);
-    for(unsigned i = 0; i < 256; ++i)
-        ret.push_back(locator_t::const_byte(i));
+    ret.reserve(IOTA_TABLE_SIZE);
+    for(unsigned i = 0; i < IOTA_TABLE_SIZE; ++i)
+        ret.push_back(locator_t::const_byte(i & 0xFF));
     return ret;
 }
 
@@ -1266,9 +1266,9 @@ span_allocator_t alloc_runtime_rom()
     auto& iota = _rtrom_spans[RTROM_iota][0];
     iota = {};
     if(mapper().bus_conflicts)
-        iota = a.alloc_at({ iota_addr(), 256 }).object;
+        iota = a.alloc_at({ iota_addr(), IOTA_TABLE_SIZE }).object;
     if(!iota)
-        iota = a.alloc(256, 256).object;
+        iota = a.alloc(IOTA_TABLE_SIZE, 256).object;
     _rtrom_spans[RTROM_vectors][0] = a.alloc_at({ 0xFFFA, 6 }).object;
     assert(_rtrom_spans[RTROM_vectors][0]);
 

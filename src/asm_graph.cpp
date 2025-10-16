@@ -523,7 +523,7 @@ std::vector<asm_inst_t> asm_graph_t::to_linear(std::vector<asm_node_t*> order, b
         int const size = max - min + 1;
         assert(size <= 256);
 
-        // Shift the offset so that out table doesn't have to start with [0]:
+        // Shift the offset so that our table doesn't have to start with [0]:
         node->output_inst.arg.advance_offset(-min);
         node->output_inst.alt.advance_offset(-min);
 

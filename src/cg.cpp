@@ -987,6 +987,9 @@ std::size_t code_gen(log_t* log, ir_t& ir, fn_t& fn)
 
             ssa_ht const parent = h->input(0).handle();
 
+            if(parent->type().array_length() != h->type().array_length())
+                continue; // TODO: handle this?
+
             ssa_ht const this_cset = cset_head(h);
             ssa_ht const parent_cset = cset_head(parent);
 

@@ -182,7 +182,8 @@ ctags.cpp \
 donut.cpp \
 convert_map.cpp \
 rom_dummy.cpp \
-o_type.cpp
+o_type.cpp \
+o_table.cpp
 
 OBJS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.o))
 DEPS := $(foreach o,$(SRCS),$(OBJDIR)/$(o:.cpp=.d))

@@ -14,5 +14,6 @@
 #include "o_shift.hpp"
 #include "o_locator.hpp"
 #include "o_type.hpp"
+#include "o_table.hpp"
 
 #endif

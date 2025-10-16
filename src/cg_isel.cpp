@@ -677,13 +677,23 @@ namespace isel
     }
 
     // Generates an op using the 0..255 table.
-    template<typename Opt, op_t Op, typename Def = null_> [[gnu::noinline]]
+    template<typename Opt, op_t Op, typename Def = null_, typename Offset = const_<0>> [[gnu::noinline]]
     void iota_op(cpu_t const& cpu, sel_pair_t prev, cons_t const* cont)
     {
         static_assert(op_addr_mode(Op) == MODE_ABSOLUTE_X || op_addr_mode(Op) == MODE_ABSOLUTE_Y);
         cpu_t cpu_copy = cpu;
         if(cpu_copy.set_output_defs<Op>(Opt::to_struct, Def::value()))
-            cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, locator_t::runtime_rom(RTROM_iota), {}, /*-cost_fn(STA_MAYBE) / 2*/ 0));
+        {
+            locator_t loc = locator_t::runtime_rom(RTROM_iota);
+            assert(Offset::value().is_const_num());
+            unsigned offset = Offset::value().data();
+            if(offset)
+            {
+                passert(offset <= IOTA_TABLE_SIZE - 256, offset);
+                loc.set_offset(offset);
+            }
+            cont->call(cpu_copy, alloc_sel<Op>(cpu, prev, loc, {}, offset ? 3 : 0));
+        }
     };
 
     // Generates an op using the 1,0 table.
@@ -3055,6 +3065,24 @@ namespace isel
                                         >(cpu, prev, cont);
                                     }
                                 }
+                                else if(sum == 3)
+                                {
+                                    chain
+                                    < load_X<Opt, p_lhs>
+                                    , simple_op<Opt, INX_IMPLIED>
+                                    , simple_op<Opt, INX_IMPLIED>
+                                    , simple_op<Opt, INX_IMPLIED, p_def>
+                                    , store<Opt, STX, p_def, p_def>
+                                    >(cpu, prev, cont);
+
+                                    chain
+                                    < load_Y<Opt, p_lhs>
+                                    , simple_op<Opt, INY_IMPLIED>
+                                    , simple_op<Opt, INY_IMPLIED>
+                                    , simple_op<Opt, INY_IMPLIED, p_def>
+                                    , store<Opt, STY, p_def, p_def>
+                                    >(cpu, prev, cont);
+                                }
                                 else if(sum == 0xFF)
                                 {
                                     chain
@@ -3095,6 +3123,60 @@ namespace isel
                                         , pick_op<Opt, DEC, p_def, p_lhs>
                                         >(cpu, prev, cont);
                                     }
+                                }
+                                else if(sum == 0xFD)
+                                {
+                                    chain
+                                    < load_X<Opt, p_lhs>
+                                    , simple_op<Opt, DEX_IMPLIED>
+                                    , simple_op<Opt, DEX_IMPLIED>
+                                    , simple_op<Opt, DEX_IMPLIED, p_def>
+                                    , store<Opt, STX, p_def, p_def>
+                                    >(cpu, prev, cont);
+
+                                    chain
+                                    < load_Y<Opt, p_lhs>
+                                    , simple_op<Opt, DEY_IMPLIED>
+                                    , simple_op<Opt, DEY_IMPLIED>
+                                    , simple_op<Opt, DEY_IMPLIED, p_def>
+                                    , store<Opt, STY, p_def, p_def>
+                                    >(cpu, prev, cont);
+                                }
+                                else if(sum <= IOTA_TABLE_SIZE - 256)
+                                {
+                                    p_arg<2>::set(locator_t::const_byte(sum));
+
+                                    chain
+                                    < load_X<Opt, p_lhs>
+                                    , iota_op<Opt, LDA_ABSOLUTE_X, p_def, p_arg<2>>
+                                    , store<Opt, STA, p_def, p_def>
+                                    >(cpu, prev, cont);
+
+                                    chain
+                                    < load_X<Opt, p_lhs>
+                                    , iota_op<Opt, LDY_ABSOLUTE_X, p_def, p_arg<2>>
+                                    , store<Opt, STY, p_def, p_def>
+                                    >(cpu, prev, cont);
+
+                                    chain
+                                    < load_Y<Opt, p_lhs>
+                                    , iota_op<Opt, LDA_ABSOLUTE_Y, p_def, p_arg<2>>
+                                    , store<Opt, STA, p_def, p_def>
+                                    >(cpu, prev, cont);
+
+                                    chain
+                                    < load_Y<Opt, p_lhs>
+                                    , iota_op<Opt, LDX_ABSOLUTE_Y, p_def, p_arg<2>>
+                                    , store<Opt, STX, p_def, p_def>
+                                    >(cpu, prev, cont);
+
+#ifndef LEGAL
+                                    chain
+                                    < load_Y<Opt, p_lhs>
+                                    , iota_op<Opt, LAX_ABSOLUTE_Y, p_def, p_arg<2>>
+                                    , store<Opt, STA, p_def, p_def>
+                                    >(cpu, prev, cont);
+#endif
                                 }
                             }
                         }
@@ -3357,6 +3439,24 @@ namespace isel
                                     >(cpu, prev, cont);
                                 }
                             }
+                            else if(sum == 3)
+                            {
+                                chain
+                                < load_X<Opt, p_lhs>
+                                , simple_op<Opt, DEX_IMPLIED, p_def>
+                                , simple_op<Opt, DEX_IMPLIED, p_def>
+                                , simple_op<Opt, DEX_IMPLIED, p_def>
+                                , store<Opt, STX, p_def, p_def>
+                                >(cpu, prev, cont);
+
+                                chain
+                                < load_Y<Opt, p_lhs>
+                                , simple_op<Opt, DEY_IMPLIED, p_def>
+                                , simple_op<Opt, DEY_IMPLIED, p_def>
+                                , simple_op<Opt, DEY_IMPLIED, p_def>
+                                , store<Opt, STY, p_def, p_def>
+                                >(cpu, prev, cont);
+                            }
                             else if(sum == 0xFE)
                             {
                                 chain
@@ -3381,6 +3481,70 @@ namespace isel
                                     >(cpu, prev, cont);
                                 }
                             }
+                            else if(sum == 0xFD)
+                            {
+                                chain
+                                < load_X<Opt, p_lhs>
+                                , simple_op<Opt, INX_IMPLIED>
+                                , simple_op<Opt, INX_IMPLIED>
+                                , simple_op<Opt, INX_IMPLIED, p_def>
+                                , store<Opt, STX, p_def, p_def>
+                                >(cpu, prev, cont);
+
+                                chain
+                                < load_Y<Opt, p_lhs>
+                                , simple_op<Opt, INY_IMPLIED>
+                                , simple_op<Opt, INY_IMPLIED>
+                                , simple_op<Opt, INY_IMPLIED, p_def>
+                                , store<Opt, STY, p_def, p_def>
+                                >(cpu, prev, cont);
+
+                                if(p_def::trans() == p_lhs::trans())
+                                {
+                                    chain
+                                    < pick_op<Opt, INC, p_def, p_lhs>
+                                    , pick_op<Opt, INC, p_def, p_lhs>
+                                    >(cpu, prev, cont);
+                                }
+                            }
+                            /*
+                            else if(256 - sum >= IOTA_TABLE_SIZE - 256)
+                            {
+                                p_arg<2>::set(locator_t::const_byte(256 - sum));
+
+                                chain
+                                < load_X<Opt, p_lhs>
+                                , iota_op<Opt, LDA_ABSOLUTE_X, p_def, p_arg<2>>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+
+                                chain
+                                < load_X<Opt, p_lhs>
+                                , iota_op<Opt, LDY_ABSOLUTE_X, p_def, p_arg<2>>
+                                , store<Opt, STY, p_def, p_def>
+                                >(cpu, prev, cont);
+
+                                chain
+                                < load_Y<Opt, p_lhs>
+                                , iota_op<Opt, LDA_ABSOLUTE_Y, p_def, p_arg<2>>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+
+                                chain
+                                < load_Y<Opt, p_lhs>
+                                , iota_op<Opt, LDX_ABSOLUTE_Y, p_def, p_arg<2>>
+                                , store<Opt, STX, p_def, p_def>
+                                >(cpu, prev, cont);
+
+#ifndef LEGAL
+                                chain
+                                < load_Y<Opt, p_lhs>
+                                , iota_op<Opt, LAX_ABSOLUTE_Y, p_def, p_arg<2>>
+                                , store<Opt, STA, p_def, p_def>
+                                >(cpu, prev, cont);
+#endif
+                            }
+                            */
                         }
                     }
                 }
@@ -4908,7 +5072,10 @@ namespace isel
                 else
                 {
                     p_arg<0>::set(h->input(0));
-                    select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
+                    if(lvars_manager_t::is_this_lvar(state.fn, p_def::trans()))
+                        select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, true>);
+                    else
+                        select_step<true>(load_then_store<Opt, p_def, p_arg<0>, p_def, false>);
                 }
             }
             break;
@@ -4980,6 +5147,12 @@ namespace isel
             break;
 
         case SSA_resize_array:
+            if(h->input(0).holds_ref() && cset_head(h) == cset_head(h->input(0).handle()) 
+               && h->type().array_length() <= h->input(0)->type().array_length())
+            {
+                select_step<true>(ignore_req_store<p_def>);
+            }
+            else
             {
                 assert(is_tea(h->type().name()));
                 assert(is_tea(h->input(0).type().name()));

@@ -15,5 +15,6 @@
 #include "o_locator.hpp"
 #include "o_type.hpp"
 #include "o_table.hpp"
+#include "o_chain.hpp"
 
 #endif

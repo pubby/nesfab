@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "robin/set.hpp"
 #include "flat/small_set.hpp"
 
 #include "bitset.hpp"
@@ -53,6 +54,10 @@ bool loop_is_parent_of(cfg_ht loop_header, cfg_ht node);
 // If 'h' is a loop header, returns itself.
 // Otherwise, returns its immediate loop header.
 cfg_ht this_loop_header(cfg_ht h);
+
+// Find the nodes that can be unrolled.
+// Returns false if unrolling will fail.
+bool loop_unroll_body(cfg_ht header, cfg_ht branch, rh::batman_set<cfg_ht>& set);
 
 // Returns how many loops a node is in.
 unsigned loop_depth(cfg_ht cfg);

@@ -99,10 +99,9 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && op_addr_mode(a.op) == op_addr_mode(b.op)
                && a.arg == b.arg
                && a.alt == b.alt
-               && (!a.arg || a.arg.known_variable()))
+               && (!a.arg || memless_mode(op_addr_mode(a.op)) || a.arg.known_variable()))
             {
-                b.op = replace;
-                b.arg = b.alt = {};
+                b.prune(replace);
                 changed = true;
                 return true;
             }
@@ -145,8 +144,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && a.alt == b.alt
                && (!a.arg || a.arg.known_variable()))
             {
-                b.op = replace;
-                b.arg = b.alt = {};
+                b.prune(replace);
                 changed = true;
                 return true;
             }
@@ -168,8 +166,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && a.alt == b.alt
                && (!a.arg || a.arg.known_variable()))
             {
-                b.op = ASM_PRUNED;
-                b.arg = b.alt = {};
+                b.prune();
                 changed = true;
                 return true;
             }
@@ -186,10 +183,9 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                        && (op_addr_mode(b.op) == MODE_ZERO_PAGE || op_addr_mode(b.op) == MODE_ABSOLUTE)
                        && (!b.arg || b.arg.known_variable())))
                && ((op_output_regs(b.op) & op_input_regs(c->op)) == 0)
-               && op_flags(b.op) == 0)
+               && !(op_flags(b.op) & ASMF_NO_TOUCHY))
             {
-                c->op = ASM_PRUNED;
-                c->arg = c->alt = {};
+                c->prune();
                 changed = true;
                 return true;
             }
@@ -208,19 +204,32 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
             if(op_name(b.op) == second 
                && (a.arg == b.arg || !b.arg)
                && a.alt == b.alt
-               && (!a.arg || a.arg.known_variable())
-               && (!b.arg || b.arg.known_variable()))
+               && (!a.arg || memless_mode(op_addr_mode(a.op)) || a.arg.known_variable())
+               && (!b.arg || memless_mode(op_addr_mode(b.op)) || b.arg.known_variable()))
             {
                 if(prune_second)
-                {
-                    b.op = ASM_PRUNED;
-                    b.arg = b.alt = {};
-                }
+                    b.prune();
                 else
-                {
-                    a.op = ASM_PRUNED;
-                    a.arg = a.alt = {};
-                }
+                    a.prune();
+                changed = true;
+                return true;
+            }
+
+            return false;
+        };
+
+        // Converts immediate load, op, into immediate load
+        // e.g.:
+        //     ldx #10
+        //     inx
+        // becomes:
+        //     ldx #11
+        auto const peep_immediate_op = [&](op_t second, auto const& fn)
+        {
+            if(b.op == second && op_addr_mode(a.op) == MODE_IMMEDIATE)
+            {
+                a.arg = locator_t::const_byte(fn(a.arg.data()));
+                b.prune();
                 changed = true;
                 return true;
             }
@@ -280,7 +289,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         if(c && is_simple_store(op_name(a.op)) && a == *c 
            && (!a.arg || a.arg.known_variable()) 
            && (!a.alt || a.alt.known_variable())
-           && op_flags(b.op) == 0
+           && !(op_flags(b.op) & ASMF_NO_TOUCHY)
            && (op_output_regs(b.op) & op_input_regs(a.op)) == 0
            && (op_input_regs(b.op) & REGF_M) == 0)
         {
@@ -309,7 +318,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
            && a.arg == c->arg && a.alt == c->alt
            && (!a.arg || a.arg.known_memory()) 
            && (!a.alt || a.alt.known_memory())
-           && op_flags(b.op) == 0
+           && !(op_flags(b.op) & ASMF_NO_TOUCHY)
            && (op_output_regs(b.op) & (op_output_regs(a.op) | REGF_M)) == 0)
         {
             switch(op_name(a.op))
@@ -367,11 +376,10 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
         // Removes idempotent ops:
         if(a == b
            && (op_flags(a.op) & (ASMF_IDEMPOTENT | ASMF_FAKE)) == ASMF_IDEMPOTENT
-           && (!a.arg || a.arg.known_variable())
-           && (!a.alt || a.alt.known_variable()))
+           && (!a.arg || memless_mode(op_addr_mode(a.op)) || a.arg.known_variable())
+           && (!a.alt || memless_mode(op_addr_mode(a.op)) || a.alt.known_variable()))
         {
-            a.op = ASM_PRUNED;
-            a.arg = a.alt = {};
+            a.prune();
             changed = true;
         }
 
@@ -380,15 +388,14 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
            && (op_input_regs(a.op) & ~REGF_6502) == 0
            && (op_input_regs(b.op) & ~REGF_6502) == 0
            && (op_input_regs(b.op) & op_output_regs(a.op)) == 0
-           && op_flags(a.op) == 0
-           && op_flags(b.op) == 0
-           && (!a.arg || a.arg.known_variable())
-           && (!a.alt || a.alt.known_variable())
-           && (!b.arg || b.arg.known_variable())
-           && (!b.alt || b.alt.known_variable()))
+           && !(op_flags(a.op) & ASMF_NO_TOUCHY)
+           && !(op_flags(b.op) & ASMF_NO_TOUCHY)
+           && (!a.arg || memless_mode(op_addr_mode(a.op)) || a.arg.known_variable())
+           && (!a.alt || memless_mode(op_addr_mode(a.op)) || a.alt.known_variable())
+           && (!b.arg || memless_mode(op_addr_mode(b.op)) || b.arg.known_variable())
+           && (!b.alt || memless_mode(op_addr_mode(b.op)) || b.alt.known_variable()))
         {
-            a.op = ASM_PRUNED;
-            a.arg = a.alt = {};
+            a.prune();
             changed = true;
         }
 
@@ -424,8 +431,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                && a.arg == b.arg && !a.alt && !b.alt)
             {
             prune_a:
-                a.op = ASM_PRUNED;
-                a.arg = {};
+                a.prune();
             }
             break;
         case LAX:
@@ -439,6 +445,10 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
                 goto retry;
             break;
         case LDX:
+            if(peep_immediate_op(INX_IMPLIED, [&](std::uint8_t v) -> std::uint8_t{ return v + 1; }))
+                goto retry;
+            if(peep_immediate_op(DEX_IMPLIED, [&](std::uint8_t v) -> std::uint8_t{ return v - 1; }))
+                goto retry;
             if(peep_inxy(INX, STX, INC)) 
                 goto retry;
             if(peep_inxy(DEX, STX, DEC)) 
@@ -461,6 +471,10 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 #endif
             break;
         case LDY:
+            if(peep_immediate_op(INY_IMPLIED, [&](std::uint8_t v) -> std::uint8_t{ return v + 1; }))
+                goto retry;
+            if(peep_immediate_op(DEY_IMPLIED, [&](std::uint8_t v) -> std::uint8_t{ return v - 1; }))
+                goto retry;
             if(peep_inxy(INY, STY, INC))
                 goto retry;
             if(peep_inxy(DEY, STY, DEC))
@@ -541,8 +555,7 @@ bool o_peephole(asm_inst_t* begin, asm_inst_t* end)
 
             if(c && c->op == a.op && b.op == ASM_LABEL && a.arg == c->arg && a.alt == c->alt)
             {
-                a.op = ASM_PRUNED;
-                a.arg = c->alt = {};
+                a.prune();
                 changed = true;
             }
             break;
@@ -736,8 +749,7 @@ bool asm_proc_t::remove_banked_jsr(romv_t romv, int bank)
                    && !op_normal(write.op)
                    && (op_output_regs(write.op) & op_output_regs(load_bank.op)) == op_output_regs(load_bank.op))
                 {
-                    load_bank.op = ASM_PRUNED;
-                    load_bank.arg = load_bank.alt = {};
+                    load_bank.prune();
                 }
             }
         }
@@ -845,8 +857,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
             if(dist == 0)
             {
                 // Prune unnecessary jumps
-                inst.op = ASM_PRUNED;
-                inst.arg = {};
+                inst.prune();
             }
 #ifndef LEGAL
             else if(use_nops && dist == 1)
@@ -873,10 +884,7 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
             int const dist = bytes_between(next - code.data(), label_i);
 
             if(dist == 0)
-            {
-                inst.op = ASM_PRUNED;
-                inst.arg = {};
-            }
+                inst.prune();
             else if(dist == 2 && next->op == invert_branch(inst.op))
             {
                 // Handles code like:
@@ -888,15 +896,14 @@ void asm_proc_t::optimize_short_jumps(bool use_nops)
                 if(next->arg == code[i].arg)
                 {
                     // Prune both
-                    code[i].op = next->op = ASM_PRUNED;
-                    code[i].arg = next->arg = {};
+                    code[i].prune();
+                    next->prune();
                 }
                 else
                 {
                     // Prune the useless branch op
                     code[i] = *next;
-                    next->op = ASM_PRUNED;
-                    next->arg = {};
+                    next->prune();
                 }
             }
         }
@@ -907,7 +914,7 @@ void asm_proc_t::optimize(bool initial)
 {
     // Order matters here.
     o_peephole(&*code.begin(), &*code.end());
-    live_peephole(REGF_6502, code.data(), code.size());
+    live_peephole(REGF_6502, code.data(), code.size(), !fn || fn->iasm);
     absolute_to_zp();
     optimize_short_jumps(!initial);
     convert_long_branch_ops();
@@ -1420,7 +1427,7 @@ void asm_proc_t::verify_legal()
 #endif
 }
 
-std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t const* code, std::size_t size)
+std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t const* code, std::size_t size, bool live_returns)
 {
     std::vector<regs_t> live_regs(size, 0);
 
@@ -1430,7 +1437,9 @@ std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t const* code, std::
 
         live_regs[i] = live_out;
 
-        if(inst.op == ASM_LABEL || (op_flags(inst.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FENCE | ASMF_BRANCH)))
+        if(inst.op == ASM_LABEL || (op_flags(inst.op) & (ASMF_JUMP | ASMF_CALL | ASMF_SWITCH |  ASMF_BRANCH)))
+            live_out = REGF_6502;
+        else if(live_returns && (op_flags(inst.op) & ASMF_RETURN))
             live_out = REGF_6502;
         else
         {
@@ -1442,11 +1451,11 @@ std::vector<regs_t> live_regs_vec(regs_t live_out, asm_inst_t const* code, std::
     return live_regs;
 }
 
-bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* log)
+bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, bool live_returns, log_t* log)
 {
     bool changed = false;
 
-    std::vector<regs_t> live_regs = live_regs_vec(live_out, code, size);
+    std::vector<regs_t> live_regs = live_regs_vec(live_out, code, size, live_returns);
 
     // TODO: put in asm.hpp
     auto const simple_addr_mode = [](addr_mode_t addr_mode)
@@ -1462,6 +1471,24 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
             return false;
         }
     };
+
+    // Remove pointless ops:
+    for(unsigned i = 0; i < size; ++i)
+    {
+        asm_inst_t& inst = code[i];
+
+        // Remove pointlesss ops:
+        if((op_output_regs(inst.op) & live_regs[i]) == 0
+           && (op_output_regs(inst.op) & ~REGF_6502) == 0
+           && op_normal(inst.op)
+           && !(op_flags(inst.op) & ASMF_NO_TOUCHY)
+           && (!inst.arg || memless_mode(op_addr_mode(inst.op)) || inst.arg.known_variable())
+           && (!inst.alt || memless_mode(op_addr_mode(inst.op)) || inst.alt.known_variable()))
+        {
+            inst.prune();
+            changed = true;
+        }
+    }
 
 
     // Now attempt to optimize out redundant loads following stores.
@@ -1498,7 +1525,7 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
                 continue;
             }
 
-            if(!inst.has_alt() && inst.arg.known_variable())
+            if(!inst.has_alt() && (op_addr_mode(inst.op) == MODE_IMMEDIATE || inst.arg.known_variable()))
             {
                 switch(op_name(inst.op))
                 {
@@ -1692,20 +1719,6 @@ bool live_peephole(regs_t live_out, asm_inst_t* code, std::size_t size, log_t* l
         {
             unsigned const ai = &a - code;
             unsigned const bi = &b - code;
-
-            // Prune ops that have no effect:
-            if(!(op_flags(a.op) & (ASMF_JUMP | ASMF_RETURN | ASMF_CALL | ASMF_SWITCH | ASMF_FAKE | ASMF_IMPURE))
-               && a.op < NUM_NORMAL_OPS
-               && !(REGF_M & op_output_regs(a.op))
-               && !(live_regs[ai] & op_output_regs(a.op))
-               && (!a.arg || a.arg.known_variable())
-               && !a.has_alt())
-            {
-                dprint(log, "REGLIVE_PRUNE_2", b, __LINE__);
-                a.prune();
-                changed = true;
-                return;
-            }
 
             // Remove unnecessary transfers:
             switch(b.op)

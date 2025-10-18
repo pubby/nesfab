@@ -364,10 +364,10 @@ inline int heuristic_penalty(locator_t const* defs)
         {
             switch(i)
             {
-            case REG_A: count += 2; break;
-            case REG_X: count += 1; break;
-            case REG_Y: count += 1; break;
-            default: break;
+            case REG_A: count -= 1; break;
+            case REG_X: count -= 2; break;
+            case REG_Y: count -= 2; break;
+            default: count -= 3; break;
             }
             continue;
         }
@@ -376,7 +376,7 @@ inline int heuristic_penalty(locator_t const* defs)
         {
             if(j != i && defs[i] == defs[j])
             {
-                count += 3;
+                count -= 3;
                 break;
             }
         }

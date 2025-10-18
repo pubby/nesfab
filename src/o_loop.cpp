@@ -3,11 +3,14 @@
 #include <cstdint>
 #include <cmath>
 #include <vector>
-#include <iostream> // TODO
+#ifndef NDEBUG
+#include <iostream>
+#endif
 
 #include <boost/container/small_vector.hpp>
 
 #include "robin/map.hpp"
+#include "robin/set.hpp"
 #include "robin/hash.hpp"
 
 #include "ir.hpp"
@@ -197,6 +200,7 @@ struct header_d
 
     // For unrolling:
     cfg_ht simple_unroll_body = {};
+    rh::batman_set<cfg_ht> complex_unroll_body = {};
 };
 
 // iv = induction variable
@@ -220,7 +224,13 @@ struct ssa_loop_d
     bc::small_vector<iv_base_t*, 1> ivs;
 };
 
+struct cfg_loop_d
+{
+    unsigned unroll_i = 0;
+};
+
 ssa_loop_d& data(ssa_ht ssa) { return ssa.data<ssa_loop_d>(); }
+cfg_loop_d& data(cfg_ht cfg) { return cfg.data<cfg_loop_d>(); }
 header_d& header_data(cfg_ht cfg) 
 { 
     assert(algo(cfg).is_loop_header);
@@ -233,6 +243,12 @@ void new_ssa(ssa_ht ssa)
     resize_ai_prep();
     data(ssa) = {};
     ai_prep(ssa) = {};
+}
+
+void new_cfg(cfg_ht cfg)
+{
+    cfg_data_pool::resize<cfg_loop_d>(cfg_pool::array_size());
+    data(cfg) = {};
 }
 
 // Includes nested loops - this isn't always what you want.
@@ -711,19 +727,19 @@ bool rewrite_loop(bool is_do, bool is_byteified, iv_t& root,
 }
 
 // Returns times unrolled, or 0 if nothing happened.
-fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations, bool sloppy)
+fixed_sint_t simple_unroll_loop(cfg_ht header, fixed_sint_t iterations, bool sloppy)
 {
-    if(header->test_flags(FLAG_NO_UNROLL))
-        return 0;
-
-    if(sloppy && !header->test_flags(FLAG_UNROLL))
-        return 0;
-
     auto const& hd = header_data(header);
 
     if(!hd.simple_unroll_body)
         return 0;
     cfg_ht const body = hd.simple_unroll_body;
+
+    if(header->test_flags(FLAG_NO_UNROLL))
+        return 0;
+
+    if(sloppy && !header->test_flags(FLAG_UNROLL))
+        return 0;
 
     unsigned unroll_amount = iterations;
 
@@ -888,6 +904,278 @@ fixed_sint_t unroll_loop(cfg_ht header, fixed_sint_t iterations, bool sloppy)
     return unroll_amount;
 }
 
+// Returns times unrolled, or 0 if nothing happened.
+fixed_sint_t complex_unroll_loop(ir_t& ir, cfg_ht header, fixed_sint_t iterations, bool sloppy)
+{
+    auto const& hd = header_data(header);
+
+    if(hd.complex_unroll_body.empty())
+        return 0;
+    auto body = hd.complex_unroll_body; // TODO: remove copy
+    assert(*body.begin() == header);
+
+    if(header->test_flags(FLAG_NO_UNROLL))
+        return 0;
+
+    if(sloppy && !header->test_flags(FLAG_UNROLL))
+        return 0;
+
+    unsigned unroll_amount = iterations;
+
+    if(!header->test_flags(FLAG_UNLOOP))
+    {
+        // Estimate the cost of each loop iteration.
+        constexpr unsigned MAX_COST = 80;
+        unsigned cost_per_iter = 0;
+
+        auto const calc_cost_per_iter = [&](cfg_ht cfg)
+        {
+            for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
+            {
+                if(ssa != hd.simple_condition && ssa != hd.simple_branch)
+                {
+                    cost_per_iter += estimate_cost(*ssa);
+                    if(cost_per_iter > MAX_COST / 2)
+                        return false;
+                }
+            }
+            return true;
+        };
+
+        for(cfg_ht h : body)
+            if(!calc_cost_per_iter(h))
+                return 0;
+
+        if(cost_per_iter == 0)
+            return 0;
+
+        unroll_amount = estimate_unroll_divisor(iterations, MAX_COST / cost_per_iter);
+    }
+    passert(iterations % unroll_amount == 0, iterations, unroll_amount);
+
+    if(unroll_amount <= 1)
+        return 0;
+
+    if(unroll_amount * 2 >= iterations)
+        unroll_amount = iterations;
+
+    auto const in_unroll = [&](cfg_ht cfg) -> bool { return body.count(cfg); };
+
+    // We'll use these vectors to track SSA nodes while we're unrolling.
+
+    std::vector<ssa_ht> orig_map;
+    std::vector<ssa_value_t> map, next_map;
+
+    std::vector<cfg_ht> cfg_map, next_cfg_map;
+
+    for(cfg_ht cfg : body)
+    {
+        data(cfg).unroll_i = cfg_map.size();
+        cfg_map.push_back(cfg);
+
+        for(ssa_ht ssa = cfg->ssa_begin(); ssa; ++ssa)
+        {
+            if(hd.simple_do || ssa != hd.simple_branch)
+            {
+                data(ssa).unroll_i = map.size();
+                orig_map.push_back(ssa);
+                map.push_back(ssa);
+            }
+        }
+    };
+
+    next_map.resize(map.size());
+    next_cfg_map.resize(cfg_map.size());
+
+    rh::batman_set<ssa_ht> to_prune;
+
+    for(unsigned u = 1; u < unroll_amount; ++u)
+    {
+        assert(map.size() == orig_map.size());
+        assert(map.size() == next_map.size());
+        assert(cfg_map.size() == next_cfg_map.size());
+
+        // Clone the CFG nodes but don't connect them.
+        for(unsigned i = 0; i < cfg_map.size(); i += 1)
+        {
+            cfg_ht cfg = cfg_map[i];
+            passert(cfg, u, i);
+            cfg_ht next_cfg = ir.emplace_cfg(cfg->prop_flags());
+            new_cfg(next_cfg);
+            data(next_cfg).unroll_i = i;
+            body.insert(next_cfg);
+            next_cfg_map[i] = next_cfg;
+        }
+
+        for(unsigned i = 0; i < map.size(); ++i)
+        {
+            if(orig_map[i]->op() == SSA_phi && orig_map[i]->cfg_node() == header)
+            {
+                ssa_value_t const input = orig_map[i]->input(hd.simple_reentry_i);
+
+                if(input.holds_ref() && in_unroll(input->cfg_node()))
+                    next_map[i] = map[data(input.handle()).unroll_i];
+                else
+                    next_map[i] = input;
+            }
+            else
+            {
+                // Create new nodes, but don't fill their inputs yet.
+                ssa_ht const orig = orig_map[i];
+                cfg_ht const cfg = next_cfg_map[data(orig->cfg_node()).unroll_i];
+                assert(orig);
+                assert(cfg);
+                ssa_ht const next = cfg->emplace_ssa(orig->op(), orig->type());
+                new_ssa(next);
+                data(next).unroll_i = i;
+
+                if(orig->in_daisy())
+                    next->append_daisy();
+
+                next_map[i] = next;
+            }
+        }
+
+        // Finish new nodes:
+        for(unsigned i = 0; i < map.size(); ++i)
+        {
+            // Handle PHIs later:
+            if(orig_map[i]->op() == SSA_phi)
+                continue;
+
+            ssa_ht const orig = orig_map[i];
+            ssa_ht const next = next_map[i].handle();
+
+            unsigned const input_size = orig->input_size();
+            for(unsigned i = 0; i < input_size; ++i)
+            {
+                ssa_value_t input = orig->input(i);
+
+                if(input.holds_ref() && in_unroll(input->cfg_node()))
+                    input = next_map[data(input.handle()).unroll_i];
+
+                next->link_append_input(input);
+            }
+        }
+
+        // Connect the CFG nodes:
+        for(unsigned c = 0; c < cfg_map.size(); ++c)
+        {
+            cfg_ht const prev = cfg_map[c];
+            cfg_ht const next = next_cfg_map[c];
+
+            assert(prev);
+            assert(next);
+
+            for(unsigned i = 0; i < prev->output_size();)
+            {
+                auto const& oe = prev->output_edge(i);
+                cfg_ht const prev_output = oe.handle;
+
+                if(!in_unroll(prev_output))
+                {
+                    // Exit.
+
+                    if(hd.simple_do)
+                    {
+                        next->link_append_output(prev_output, [&](ssa_ht phi) -> ssa_value_t
+                        {
+                            ssa_value_t const v = phi->input(oe.index);
+                            if(v.holds_ref() && in_unroll(v->cfg_node()))
+                                return next_map[data(v.handle()).unroll_i];
+                            else
+                                return v;
+                        });
+
+                        // Remove the old output:
+                        prev->link_remove_output(i);
+
+                        // And branch:
+                        passert(prev->last_daisy(), prev->output_size(), u);
+                        assert(prev->last_daisy()->op() == SSA_if);
+                        to_prune.insert(prev->last_daisy());
+                        continue;
+                    }
+                }
+                else if(prev_output == header)
+                {
+                    // Re-entry.
+
+                    // Connect to new node to the old re-entry spot:
+                    next->link_append_output(header, [&](ssa_ht phi) -> ssa_value_t
+                    {
+                        ssa_value_t const v = phi->input(oe.index);
+                        if(v.holds_ref() && in_unroll(v->cfg_node()))
+                            return next_map[data(v.handle()).unroll_i];
+                        else
+                            return v;
+                    });
+
+                    // Connect the old re-entry to the new header:
+                    prev->link_change_output(i, next_cfg_map[data(header).unroll_i], [&](ssa_ht phi) -> ssa_value_t
+                    {
+                        assert(false);
+                        return {};
+                    });
+
+                    if(hd.simple_do)
+                    {
+                        // Remove the old branch for DO:
+                        assert(prev->last_daisy());
+                        assert(prev->last_daisy()->op() == SSA_if);
+                        to_prune.insert(prev->last_daisy());
+                    }
+                    else
+                        assert(!prev->last_daisy() || prev->last_daisy()->op() != SSA_if);
+                }
+                else
+                {
+                    // Internal connection.
+                    cfg_ht const next_output = next_cfg_map[data(prev_output).unroll_i];
+
+                    next->link_append_output(next_output, [&](ssa_ht next_phi) -> ssa_value_t
+                    {
+                        passert(map[data(next_phi).unroll_i].holds_ref(), next_phi, data(next_phi).unroll_i, map[data(next_phi).unroll_i]);
+                        ssa_ht const prev_phi = map[data(next_phi).unroll_i].handle();
+                        ssa_value_t const v = prev_phi->input(prev->output_edge(i).index);
+                        if(v.holds_ref() && in_unroll(v->cfg_node()))
+                            return next_map[data(v.handle()).unroll_i];
+                        else
+                            return v;
+                    });
+                }
+
+                i += 1;
+            }
+        }
+        
+        std::swap(map, next_map);
+        std::swap(cfg_map, next_cfg_map);
+    }
+
+    for(ssa_ht h : to_prune)
+        h->prune();
+
+    if(hd.simple_do)
+    {
+        // Fix up uses outside the loop:
+        for(unsigned i = 0; i < orig_map.size(); ++i)
+        {
+            ssa_ht const orig = orig_map[i];
+            for(unsigned j = 0; j < orig->output_size();)
+            {
+                auto const oe = orig->output_edge(j);
+                if(in_unroll(oe.handle->cfg_node()))
+                    ++j;
+                else
+                    oe.handle->link_change_input(oe.index, map[i]);
+            }
+        }
+    }
+
+    return unroll_amount;
+}
+
 bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool sloppy)
 {
     bool updated = false;
@@ -951,7 +1239,8 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
 
             if(header->output_size() == 2 && reentry->output_size() == 1)
                 branch_cfg = header; // simple 'while' loop
-            else if((reentry == header || header->output_size() == 1) && reentry->output_size() == 2)
+            //else if((reentry == header || header->output_size() == 1) && reentry->output_size() == 2)
+            else if(reentry->output_size() == 2)
             {
                 branch_cfg = reentry; // simple 'do' loop
                 is_do = true;
@@ -968,6 +1257,7 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
                 if(branch && branch->op() == SSA_if && header == this_loop_header(branch->cfg_node()))
                 {
                     ssa_value_t const condition = branch->input(0);
+
                     if(condition.holds_ref() 
                        && condition->output_size() == 1 
                        && header == this_loop_header(condition->cfg_node()))
@@ -1026,6 +1316,13 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
                                 {
                                     hd.simple_unroll_body = reentry;
                                 }
+                            }
+
+                            if(!hd.simple_unroll_body)
+                            {
+                                rh::batman_set<cfg_ht> set;
+                                if(::loop_unroll_body(header, branch_cfg, set))
+                                    hd.complex_unroll_body = std::move(set);
                             }
 
                             assert(!hd.simple_unroll_body || this_loop_header(hd.simple_unroll_body) == header);
@@ -1390,9 +1687,16 @@ bool initial_loop_processing(log_t* log, ir_t& ir, bool is_byteified, bool slopp
                 }
             }
 
-            if(fixed_sint_t unroll_amount = unroll_loop(header, iterations, sloppy))
+            if(fixed_sint_t unroll_amount = simple_unroll_loop(header, iterations, sloppy))
             {
-                dprint(log, "UNROLLED", unroll_amount);
+                dprint(log, "UNROLLED SIMPLE", unroll_amount);
+                iterations /= unroll_amount;
+                increment *= unroll_amount;
+                updated = this_iter_updated = true;
+            }
+            else if(fixed_sint_t unroll_amount = complex_unroll_loop(ir, header, iterations, sloppy))
+            {
+                dprint(log, "UNROLLED COMPLEX", unroll_amount);
                 iterations /= unroll_amount;
                 increment *= unroll_amount;
                 updated = this_iter_updated = true;
@@ -1476,6 +1780,7 @@ bool o_loop(log_t* log, ir_t& ir, bool is_byteified, bool sloppy)
 
     bool updated = false;
 
+    cfg_data_pool::scope_guard_t<cfg_loop_d> cfg_sg(cfg_pool::array_size());
     ssa_data_pool::scope_guard_t<ssa_loop_d> ssa_sg(ssa_pool::array_size());
 
     updated |= initial_loop_processing(log, ir, is_byteified, sloppy);

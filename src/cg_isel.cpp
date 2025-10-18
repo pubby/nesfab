@@ -5881,7 +5881,6 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                 if(loc.lclass() == LOC_SSA)
                     assert(loc.ssa_node()->cfg_node() != cfg);
 #endif
-
             for(unsigned i = 0; i < NUM_CROSS_REGS; ++i)
                 if(~gen & kill & (1 << i)) 
                     transition.in_state.defs[i] = LOC_NONE;
@@ -5937,7 +5936,6 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
                         .code = code_ptr
                     }
                 };
-
                 if(d.min_sel_cost > new_sel.second.cost)
                     d.min_sel_cost = new_sel.second.cost;
 
@@ -6377,9 +6375,8 @@ std::size_t select_instructions(log_t* log, fn_t& fn, ir_t& ir)
 
     graph.finish_appending();
     graph.optimize(fn);
-    graph.optimize_live_registers();
     graph.remove_maybes(fn);
-    graph.optimize_live_registers();
+    graph.optimize(fn);
     if((compiler_options().ipcm && !mod_test(fn.mods(), MOD_ipcm, false)) || mod_test(fn.mods(), MOD_ipcm))
     {
         int const cycles = graph.insert_periodic(compiler_options().ipcm_period, false);

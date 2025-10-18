@@ -94,6 +94,9 @@ constexpr asm_flags_t ASMF_IMPURE      = 1 << 7;
 constexpr asm_flags_t ASMF_FENCE       = 1 << 8;
 constexpr asm_flags_t ASMF_IDEMPOTENT  = 1 << 9;
 
+// Flags that imply serious shit:
+constexpr asm_flags_t ASMF_NO_TOUCHY  = ASMF_FAKE | ASMF_BRANCH | ASMF_JUMP | ASMF_CALL | ASMF_RETURN | ASMF_SWITCH | ASMF_IMPURE | ASMF_FENCE;
+
 struct op_def_t
 {
     op_t op;
@@ -274,6 +277,20 @@ constexpr addr_mode_t buggy_equivalent(addr_mode_t mode)
     {
     default: return MODE_BAD;
     case MODE_IMMEDIATE: return MODE_BUGGY_IMMEDIATE;
+    }
+}
+
+constexpr bool memless_mode(addr_mode_t mode)
+{
+    switch(mode)
+    {
+    case MODE_IMPLIED:
+    case MODE_IMMEDIATE:
+    case MODE_BUGGY_IMMEDIATE:
+    case MODE_RELATIVE:
+        return true;
+    default: 
+        return false;
     }
 }
 

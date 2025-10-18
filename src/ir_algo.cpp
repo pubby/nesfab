@@ -219,6 +219,32 @@ cfg_ht this_loop_header(cfg_ht h)
     return d.iloop_header;
 }
 
+static bool loop_unroll_body(cfg_ht header, cfg_ht branch, rh::batman_set<cfg_ht>& set, cfg_ht h)
+{
+    if(!set.insert(h).second)
+        return true;
+
+    for(unsigned i = 0; i < h->output_size(); i += 1)
+    {
+        cfg_ht const output = h->output(i);
+        if(this_loop_header(output) != header)
+        {
+            if(h == branch && !loop_is_parent_of(header, output))
+                continue;
+            return false;
+        }
+        if(!loop_unroll_body(header, branch, set, output))
+            return false;
+    }
+
+    return true;
+}
+
+bool loop_unroll_body(cfg_ht header, cfg_ht branch, rh::batman_set<cfg_ht>& set)
+{
+    return loop_unroll_body(header, branch, set, header);
+}
+
 unsigned loop_depth(cfg_ht cfg)
 {
     unsigned depth = 0;

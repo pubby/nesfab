@@ -227,6 +227,7 @@ void asm_graph_t::optimize(fn_t const& fn)
         changed |= o_dedupe();
         changed |= o_returns(fn);
         changed |= o_peephole();
+        changed |= o_live();
     }
     while(changed);
 }
@@ -300,8 +301,13 @@ bool asm_graph_t::o_remove_stubs()
 
     for(auto it = list.begin(); it != list.end();)
     {
-        if(!it->code.empty() || it->label == m_entry_label)
+        if(it->label == m_entry_label)
             goto next_iter;
+
+        // Require the code be empty:
+        for(auto const& inst : it->code)
+            if(inst.op != ASM_PRUNED)
+                goto next_iter;
 
         if(it->inputs().size() == 0)
             goto prune;
@@ -1061,8 +1067,10 @@ void asm_graph_t::calc_live_registers()
     }
 }
 
-void asm_graph_t::optimize_live_registers()
+bool asm_graph_t::o_live()
 {
+    bool modified = false;
+
     calc_live_registers();
 
     // Calculate per-op liveness next:
@@ -1073,8 +1081,10 @@ void asm_graph_t::optimize_live_registers()
         live &= ~op_output_regs(node.output_inst.op);
         live |= op_input_regs(node.output_inst.op);
 
-        live_peephole(live, node.code.data(), node.code.size(), log);
+        modified |= live_peephole(live, node.code.data(), node.code.size(), false, log);
     }
+
+    return modified;
 }
 
 
@@ -1568,7 +1578,7 @@ int asm_graph_t::insert_periodic(unsigned period, bool dumb)
         live |= op_input_regs(node.output_inst.op);
         live = REGF_6502;
 
-        std::vector<regs_t> live_regs = live_regs_vec(live, node.code.data(), node.code.size());
+        std::vector<regs_t> live_regs = live_regs_vec(live, node.code.data(), node.code.size(), false);
         assert(live_regs.size() == node.code.size());
 
         std::vector<asm_inst_t> new_code;
@@ -1734,7 +1744,7 @@ std::vector<asm_inst_t> insert_ipcm(asm_inst_t const* code, std::size_t size, un
     constexpr regs_t clobbers = op_output_regs(op) & REGF_6502;
     assert((clobbers & REGF_M) == 0);
 
-    std::vector<regs_t> live_regs = live_regs_vec(REGF_6502, code, size);
+    std::vector<regs_t> live_regs = live_regs_vec(REGF_6502, code, size, true);
 
     int cycles = period;
     std::vector<asm_inst_t> new_code;

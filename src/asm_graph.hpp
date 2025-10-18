@@ -121,7 +121,6 @@ public:
     void optimize(fn_t const& fn);
 
     void remove_maybes(fn_t const& fn);
-    void optimize_live_registers();
     lvars_manager_t build_lvars(fn_t const& fn);
 
     template<typename Fn>
@@ -140,6 +139,7 @@ public:
     bool o_merge();
     bool o_returns(fn_t const& fn);
     bool o_peephole();
+    bool o_live();
 
     int insert_periodic(unsigned period, bool dumb);
 private:
